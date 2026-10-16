@@ -50,6 +50,13 @@ export type ReglaVision = {
      * Si `desde` es mayor que `hasta` cruza la medianoche (22:00 → 06:00).
      */
     horario?: { desde: string; hasta: string } | null;
+    /**
+     * La misma vigilancia en varias cámaras (16/10, Nico: «quiero vigilar todos los contenedores,
+     * la regla me permite una sola cámara»). Cada cámara sigue siendo su propia regla —con su
+     * dibujo, porque una zona sobre el cuadro de una cámara no significa nada en otra— y el grupo
+     * las junta para crearlas, editarlas, prenderlas y borrarlas de una vez. El worker no lo mira.
+     */
+    grupo?: { id: string; nombre: string } | null;
 };
 
 /** Qué es cada tipo, qué analítica del laboratorio lo prende y qué geometría pide. */
@@ -161,6 +168,8 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
             avisar: typeof r.avisar === "boolean" ? r.avisar : t.avisarDefecto,
         };
         if (!regla.clases.length) { errores.push(`${nombre}: elegí al menos una clase`); continue; }
+        const gid = String(r?.grupo?.id || "").replace(/[^a-z0-9-]/gi, "").slice(0, 40);
+        if (gid) regla.grupo = { id: gid, nombre: String(r.grupo.nombre || "").trim().slice(0, 80) || nombre };
         if (t.geometria === "linea") {
             const a = punto(r?.linea?.a), b = punto(r?.linea?.b);
             if (!a || !b || Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.03) { errores.push(`${nombre}: la línea necesita dos puntos separados`); continue; }

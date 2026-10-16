@@ -1463,3 +1463,57 @@ model LecturaCamara {
   @@index([deviceId, ts])
   @@index([ts])
 }
+
+/// Una corrección a mano de la presencia de una matrícula (Monitor LPR › Presencia): «salió» o
+/// «está adentro». Vale si es más nueva que la última lectura de esa chapa; la próxima lectura
+/// la reemplaza sola. Existe porque en un barrio abierto la salida no siempre se lee.
+model MarcaPresencia {
+  id     String   @id @default(cuid())
+  /// Normalizada (sin espacios ni guiones, en mayúsculas).
+  plate  String
+  /// AFUERA | ADENTRO
+  estado String
+  por    String?
+  ts     DateTime @default(now())
+
+  @@index([plate, ts])
+  @@index([ts])
+}
+
+/// Gestión de alarmas: la gestión de una alarma — la nota del operador, quién y cuándo — y la
+/// atención de las que no tienen dónde guardarla (las lecturas de lista negra y en búsqueda).
+/// `clave` es «d:<detectionId>», «a:<avisoId>» o «l:<accessEventId>».
+model AlarmaAtendida {
+  id        String   @id @default(cuid())
+  clave     String   @unique
+  /// real | falsa | null (sólo «atendida»)
+  resultado String?
+  nota      String?
+  por       String?
+  ts        DateTime @default(now())
+  /// Una nota sola no da la alarma por atendida.
+  atendida  Boolean  @default(true)
+  /// Quién la está atendiendo AHORA (la tomó y no la pasó), y desde cuándo.
+  operador      String?
+  operadorDesde DateTime?
+
+  @@index([ts])
+}
+
+/// La bitácora de la gestión de una alarma (16/10, Nico: «cuando un usuario toma una alerta debe
+/// quedar registrado qué usuario la está operando, y un historial claro de este manejo»). Una fila
+/// por cosa que hizo alguien: la tomó, la pasó, la confirmó real, la marcó falsa, la desactivó, una
+/// nota. `clave` es la de la alarma («d:<detección>», «a:<aviso>», «l:<lectura>»).
+model AlarmaGestion {
+  id       String   @id @default(cuid())
+  clave    String
+  deviceId String?
+  /// TOMO | PASO | CONFIRMO_REAL | MARCO_FALSA | MARCO_REAL | DESACTIVO | ERA_FALSA | ATENDIO | NOTA
+  accion   String
+  por      String?
+  detalle  String?
+  ts       DateTime @default(now())
+
+  @@index([clave, ts])
+  @@index([ts])
+}

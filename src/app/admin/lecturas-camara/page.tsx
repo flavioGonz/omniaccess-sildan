@@ -8,7 +8,7 @@ import { Pista } from "@/components/ui/pista";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { getImagePath } from "@/lib/image-path";
 import { hace } from "@/lib/fechas";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { CajonComparacion, type PasoComparado } from "@/components/lpr/CajonComparacion";
 
 /**
  * Lecturas de cámara: el registro de lecturas de cada cámara LPR al lado de lo que recibió
@@ -20,9 +20,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
  * sólo aparece mirando el registro de la propia cámara. Datos de /api/lpr/lecturas-camara.
  */
 /** Un paso por la cámara: las capturas seguidas del mismo vehículo, con lo que leyó cada vez. */
-type Paso = { plate: string | null; variantes: { plate: string; veces: number }[]; capturas: number; sinLeer: number; pais: string | null; sentido: string | null };
-type Evento = { id: string; ts: string; plate: string | null; decision: string; sentido: string; foto: string | null; vision: { plate: string | null; estado: string; confianza: number | null } | null };
-type Fila = { id: string; ts: string; hasta: string; deviceId: string; camara: string; cam: Paso | null; eventos: Evento[]; estado: "coincide" | "variante" | "distinta" | "perdida" | "solo" };
+type Fila = PasoComparado & { deviceId: string };
 type Datos = {
     h: number; filas: Fila[];
     camaras: { id: string; nombre: string; total: number; desde: string | null; hasta: string | null; copia: { ultimo: string | null; error: string | null } | null }[];
@@ -48,13 +46,17 @@ function Chapa({ p, apagada }: { p: string | null | undefined; apagada?: boolean
     return <span className={cn("inline-flex items-center h-7 px-2 rounded-md border-2 text-[13.5px] font-bold tracking-[0.1em] tabular-nums", apagada ? "border-border text-muted-foreground" : "border-foreground/70 bg-background")}>{p}</span>;
 }
 
-function Numero({ n, rotulo, sub, tono, activo, onClick }: { n: number | string; rotulo: string; sub?: string; tono?: string; activo?: boolean; onClick?: () => void }) {
+/**
+ * Un número de la tira (16/10, Nico: «los datos de arriba deben ser chicos, sin bordes, en la misma
+ * fila de los filtros de la tabla»). Antes eran seis tarjetas de 24 px; ahora cifra y rótulo en
+ * una línea, y siguen filtrando al tocarlos.
+ */
+function Cifra({ n, rotulo, tono, activo, onClick, ayuda }: { n: number | string; rotulo: string; tono?: string; activo?: boolean; onClick?: () => void; ayuda?: string }) {
     return (
-        <button type="button" onClick={onClick} disabled={!onClick}
-            className={cn("rounded-[10px] border bg-card px-3.5 py-3 text-left transition-colors", activo ? "border-[var(--accion)]" : "border-border", onClick && "hover:bg-accent")}>
-            <div className={cn("text-[24px] font-bold tabular-nums leading-none tracking-[-0.02em]", tono)}>{n}</div>
-            <div className="text-[12px] font-semibold mt-1.5">{rotulo}</div>
-            {sub && <div className="text-[11px] text-muted-foreground leading-snug mt-0.5">{sub}</div>}
+        <button type="button" onClick={onClick} disabled={!onClick} title={ayuda} aria-pressed={activo}
+            className={cn("relative h-[34px] px-2 inline-flex items-baseline gap-1 rounded-md whitespace-nowrap transition-colors", onClick && "hover:bg-accent", activo && "bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]")}>
+            <b className={cn("text-[14px] tabular-nums leading-[34px]", tono)}>{n}</b>
+            <span className={cn("text-[11.5px]", activo ? "text-foreground font-semibold" : "text-muted-foreground")}>{rotulo}</span>
         </button>
     );
 }
@@ -65,7 +67,9 @@ export default function LecturasCamara() {
     const [h, setH] = useState("6");
     const [camara, setCamara] = useState("");
     const [filtro, setFiltro] = useState<"" | Fila["estado"]>("");
-    const [foto, setFoto] = useState<string | null>(null);
+    const [abierto, setAbierto] = useState<Fila | null>(null);
+    /** Buscar en vivo por chapa (16/10): lo que leyó la cámara, sus variantes, lo que llegó y lo que releyó OmniVision. */
+    const [busqueda, setBusqueda] = useState("");
 
     const traer = useCallback(() => {
         const q = new URLSearchParams({ h, ...(camara ? { camara } : {}) });
@@ -77,7 +81,11 @@ export default function LecturasCamara() {
     useEffect(() => { traer(); const iv = setInterval(traer, REFRESCO_MS); return () => clearInterval(iv); }, [traer]);
 
     // «Llegaron bien» junta las que coinciden y las que llegaron con otra lectura de la misma cámara.
-    const filas = useMemo(() => (d?.filas || []).filter((f) => !filtro || f.estado === filtro || (filtro === "coincide" && f.estado === "variante")), [d, filtro]);
+    const q = busqueda.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const filas = useMemo(() => (d?.filas || [])
+        .filter((f) => !filtro || f.estado === filtro || (filtro === "coincide" && f.estado === "variante"))
+        .filter((f) => !q || [f.cam?.plate, ...(f.cam?.variantes || []).map((v) => v.plate), ...f.eventos.flatMap((e) => [e.plate, e.vision?.plate]), f.camara]
+            .some((x) => (x || "").toUpperCase().replace(/[^A-Z0-9]/g, "").includes(q))), [d, filtro, q]);
     const r = d?.resumen;
     const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)} %` : "—");
     const sinDatos = d && !d.camaras.length;
@@ -115,7 +123,7 @@ export default function LecturasCamara() {
                             <Chapa p={e.plate} />
                             <span className={cn("text-[11px] font-semibold", e.decision === "DENY" ? "tono-mal" : "tono-bien")}>{e.decision === "DENY" ? "denegado" : "permitido"}</span>
                             {f.cam && <span className="text-[11px] text-muted-foreground tabular-nums">{((new Date(e.ts).getTime() - new Date(f.ts).getTime()) / 1000).toLocaleString("es-UY", { maximumFractionDigits: 1, signDisplay: "always" })} s</span>}
-                            {e.foto && <button type="button" onClick={() => setFoto(getImagePath(e.foto))} className="grid h-7 w-7 place-items-center rounded-md border border-border hover:bg-accent" aria-label="Ver la foto"><Camera size={13} /></button>}
+                            {e.foto && <Camera size={13} className="text-muted-foreground" aria-label="Con foto" />}
                         </span>
                     ))}
                 </span>
@@ -144,37 +152,45 @@ export default function LecturasCamara() {
                 </div>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-                <Filtros solido grupos={[{ clave: "h", titulo: "Rango", valor: h, alElegir: setH, opciones: RANGOS.map((x) => ({ valor: x.v, rotulo: x.r })) }]} />
-                <label className={cn("relative inline-flex items-center h-[34px] rounded-lg pl-2.5 pr-2 gap-1.5 text-[12px] font-semibold cursor-pointer", camara ? "bg-[var(--accion)] text-white" : "bg-muted/60 text-foreground")}>
-                    <Video size={14} strokeWidth={2.2} />
-                    <select value={camara} onChange={(e) => setCamara(e.target.value)} aria-label="Cámara"
-                        className="appearance-none bg-transparent outline-none pr-4 cursor-pointer max-w-[220px] truncate [&>option]:text-foreground [&>option]:bg-background">
-                        <option value="">Todas las cámaras</option>
-                        {(d?.camaras || []).map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.copia?.error ? " · sin copiar" : ""}</option>)}
-                    </select>
-                    <span className="pointer-events-none absolute right-2 text-[9px] opacity-70">▼</span>
-                </label>
-                {d?.camaras.filter((c) => c.copia?.error).map((c) => (
-                    <span key={c.id} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full chip-aviso text-[11.5px] font-semibold"><TriangleAlert size={12} /> {c.nombre}: {c.copia!.error}</span>
-                ))}
-            </div>
-
-            {r && (
-                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
-                    <Numero n={r.pasos} rotulo="Vehículos que leyó" sub={`${r.capturas} capturas · ${r.sinLeerCamara} sin chapa`} activo={!filtro} onClick={() => setFiltro("")} />
-                    <Numero n={r.coincide + r.variante} rotulo="Llegaron bien" sub={`${pct(r.coincide + r.variante, r.pasos)}${r.variante ? ` · ${r.variante} con otra lectura` : ""}`} tono="tono-bien" activo={filtro === "coincide"} onClick={() => setFiltro(filtro === "coincide" ? "" : "coincide")} />
-                    <Numero n={r.distinta} rotulo="Con otra chapa" sub={pct(r.distinta, r.pasos)} tono={r.distinta ? "tono-aviso" : undefined} activo={filtro === "distinta"} onClick={() => setFiltro(filtro === "distinta" ? "" : "distinta")} />
-                    <Numero n={r.perdida} rotulo="No le llegaron" sub={`${pct(r.perdida, r.pasos)} de los vehículos`} tono={r.perdida ? "tono-mal" : undefined} activo={filtro === "perdida"} onClick={() => setFiltro(filtro === "perdida" ? "" : "perdida")} />
-                    <Numero n={r.solo} rotulo="Sólo en OmniAccess" sub="la cámara no lo registra" activo={filtro === "solo"} onClick={() => setFiltro(filtro === "solo" ? "" : "solo")} />
-                    <Numero n={r.desfasajeMs != null ? `${(r.desfasajeMs / 1000).toLocaleString("es-UY", { maximumFractionDigits: 1, signDisplay: "always" })} s` : "—"} rotulo="Demora típica" sub="evento − primera captura (mediana)" />
+            {d?.camaras.some((c) => c.copia?.error) && (
+                <div className="flex items-center gap-2 flex-wrap">
+                    {d.camaras.filter((c) => c.copia?.error).map((c) => (
+                        <span key={c.id} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full chip-aviso text-[11.5px] font-semibold"><TriangleAlert size={12} /> {c.nombre}: {c.copia!.error}</span>
+                    ))}
                 </div>
             )}
 
             <Tabla filas={filas} clave={(f) => f.id} columnas={columnas} cargando={!d && !error} error={!d ? error : null} alReintentar={traer} filasFantasma={8}
+                alClickFila={(f) => setAbierto(f)} filaActiva={(f) => f.id === abierto?.id}
+                barra={
+                    /* Buscador, rango, cámara y los números en un renglón (16/10). Tocar una fila abre la comparación. */
+                    <Filtros solido busqueda={busqueda} alBuscar={setBusqueda} placeholder="Buscar una chapa"
+                        grupos={[{ clave: "h", titulo: "Rango", valor: h, alElegir: setH, opciones: RANGOS.map((x) => ({ valor: x.v, rotulo: x.r })) }]}
+                        acciones={r ? (
+                            <div className="flex items-center flex-wrap">
+                                <Cifra n={r.pasos} rotulo="leídos" activo={!filtro} onClick={() => setFiltro("")} ayuda={`Vehículos que leyó la cámara: ${r.capturas} capturas, ${r.sinLeerCamara} sin chapa`} />
+                                <Cifra n={pct(r.coincide + r.variante, r.pasos)} rotulo="llegaron bien" tono="tono-bien" activo={filtro === "coincide"} onClick={() => setFiltro(filtro === "coincide" ? "" : "coincide")} ayuda={`${r.coincide + r.variante} vehículos${r.variante ? `, ${r.variante} con otra lectura de la cámara` : ""}`} />
+                                <Cifra n={r.distinta} rotulo="otra chapa" tono={r.distinta ? "tono-aviso" : undefined} activo={filtro === "distinta"} onClick={() => setFiltro(filtro === "distinta" ? "" : "distinta")} ayuda="Llegó un evento con una chapa que la cámara no leyó" />
+                                <Cifra n={r.perdida} rotulo="no llegaron" tono={r.perdida ? "tono-mal" : undefined} activo={filtro === "perdida"} onClick={() => setFiltro(filtro === "perdida" ? "" : "perdida")} ayuda={`${pct(r.perdida, r.pasos)} de los vehículos: la cámara los leyó y a OmniAccess no le llegó nada`} />
+                                <Cifra n={r.solo} rotulo="sólo OmniAccess" activo={filtro === "solo"} onClick={() => setFiltro(filtro === "solo" ? "" : "solo")} ayuda="OmniAccess tiene el evento y la cámara no lo registra" />
+                                <Cifra n={r.desfasajeMs != null ? `${(r.desfasajeMs / 1000).toLocaleString("es-UY", { maximumFractionDigits: 1, signDisplay: "always" })} s` : "—"} rotulo="demora" ayuda="Evento − primera captura de la cámara (mediana)" />
+                            </div>
+                        ) : undefined}>
+                        <label className={cn("relative inline-flex items-center h-[34px] rounded-lg pl-2.5 pr-2 gap-1.5 text-[12px] font-semibold cursor-pointer", camara ? "bg-[var(--accion)] text-white" : "bg-muted/60 text-foreground")}>
+                            <Video size={14} strokeWidth={2.2} />
+                            <select value={camara} onChange={(e) => setCamara(e.target.value)} aria-label="Cámara"
+                                className="appearance-none bg-transparent outline-none pr-4 cursor-pointer max-w-[200px] truncate [&>option]:text-foreground [&>option]:bg-background">
+                                <option value="">Todas las cámaras</option>
+                                {(d?.camaras || []).map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.copia?.error ? " · sin copiar" : ""}</option>)}
+                            </select>
+                            <span className="pointer-events-none absolute right-2 text-[9px] opacity-70">▼</span>
+                        </label>
+                    </Filtros>
+                }
                 vacio={sinDatos
                     ? { icono: FileSearch, titulo: "Todavía no hay registro copiado", ayuda: "El proceso camara-log copia el registro de cada cámara LPR cada 10 s. Si recién se instaló, en un minuto aparecen las primeras." }
-                    : { icono: FileSearch, titulo: "Nada en este rango", ayuda: "Probá con un rango más largo o con otra cámara." }}
+                    : q ? { icono: FileSearch, titulo: `Ninguna lectura con «${busqueda.trim()}»`, ayuda: "Busca en lo que leyó la cámara, lo que llegó y lo que releyó OmniVision, dentro del rango elegido." }
+                        : { icono: FileSearch, titulo: "Nada en este rango", ayuda: "Probá con un rango más largo o con otra cámara." }}
                 nombreArchivo={`lecturas-camara-${h}h`} />
             {d && d.camaras.length > 0 && (
                 <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
@@ -182,14 +198,7 @@ export default function LecturasCamara() {
                 </p>
             )}
 
-            <Dialog open={!!foto} onOpenChange={(o) => { if (!o) setFoto(null); }}>
-                <DialogContent className="sm:max-w-5xl p-0 gap-0 overflow-hidden bg-black">
-                    <DialogTitle className="sr-only">Foto del evento</DialogTitle>
-                    <DialogDescription className="sr-only">La captura que recibió OmniAccess</DialogDescription>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {foto && <img src={foto} alt="Foto del evento" className="w-full max-h-[80vh] object-contain" />}
-                </DialogContent>
-            </Dialog>
+            <CajonComparacion paso={abierto} alCerrar={() => setAbierto(null)} />
         </div>
     );
 }

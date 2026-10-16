@@ -5,6 +5,14 @@ import { leerAjuste } from "@/lib/ajustes-db";
 import { leerInterruptores, VISION_URL } from "@/lib/vision";
 import { camarasVision, CANAL_NVR, TOPE_POR_SEG_DEFECTO } from "@/lib/vision-camaras";
 import { CLAVE_REGLAS, TIPOS_REGLA, validarReglas, type ReglaVision } from "@/lib/vision-reglas";
+import { probarCamara, TEXTO_PRUEBA, type ResultadoPrueba } from "@/lib/probar-camara";
+
+/**
+ * El diagnóstico de las cámaras que no entregan cuadro, guardado un rato: cada prueba con una
+ * clave mala es otro login fallido, y no se quiere sumar intentos a una cámara que ya los cuenta.
+ */
+const DIAGNOSTICO_MS = 10 * 60_000;
+const diagnosticos = new Map<string, { r: ResultadoPrueba; t: number }>();
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +45,7 @@ export async function GET() {
     const semana = new Date(Date.now() - FUNCION_DIAS * 86_400_000);
     const [enVision, equipos, inter, crudoReglas, estadoCrudo, topeCrudo, nombresCrudo, zonas, pistasHoy, eventosHoy, leen, detectan, salud] = await Promise.all([
         camarasVision(),
-        prisma.device.findMany({ where: { deviceType: { not: "NVR" as any } }, select: { id: true, name: true, deviceType: true, location: true }, orderBy: { name: "asc" } }),
+        prisma.device.findMany({ where: { deviceType: { not: "NVR" as any } }, select: { id: true, name: true, deviceType: true, location: true, ip: true, username: true, password: true }, orderBy: { name: "asc" } }),
         leerInterruptores(),
         leerAjuste(CLAVE_REGLAS),
         leerAjuste("VISION_REGISTRO_ESTADO"),
@@ -108,7 +116,14 @@ export async function GET() {
         };
     };
     const ids = [...enVision.ids];
-    const camaras = ids.map((id) => fila(id, true));
+    const camaras = ids.map((id) => ({ ...fila(id, true), diagnostico: null as null | { codigo: ResultadoPrueba; texto: string } }));
+    // Por qué no llega el video, preguntado a la cámara (con su clave) y guardado un rato.
+    await Promise.all(camaras.filter((c) => c.error && c.origen === "equipo").map(async (c) => {
+        const eq = porEquipo.get(c.id); if (!eq) return;
+        let d = diagnosticos.get(c.id);
+        if (!d || Date.now() - d.t > DIAGNOSTICO_MS) { d = { r: await probarCamara(eq), t: Date.now() }; diagnosticos.set(c.id, d); }
+        c.diagnostico = { codigo: d.r, texto: TEXTO_PRUEBA[d.r] };
+    }));
     // Con una regla prendida y fuera de OmniVision: la regla no corre.
     const fuera = [...new Set(reglas.filter(prendida).map((r) => r.deviceId))].filter((id) => !enVision.ids.has(id)).map((id) => fila(id, false));
 

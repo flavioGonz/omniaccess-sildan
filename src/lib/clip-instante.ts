@@ -114,7 +114,7 @@ export function segmentosAnillo(dir: string): { fp: string; fin: number }[] {
 }
 
 /** De dónde puede salir video de esta cámara. */
-export async function fuenteDeVideo(deviceId: string): Promise<FuenteVideo> {
+export async function fuenteDeVideo(deviceId: string, canal?: { nvrId?: string | null; ch?: number | null }): Promise<FuenteVideo> {
     const dev = await prisma.device.findUnique({ where: { id: deviceId }, select: { ip: true, name: true } }).catch(() => null);
     if (!dev) return { tipo: null, motivo: "la cámara no existe" };
     if (dev.ip) {
@@ -128,6 +128,12 @@ export async function fuenteDeVideo(deviceId: string): Promise<FuenteVideo> {
     }
     const dir = path.join(DIR_ANILLO, deviceId);
     if (segmentosAnillo(dir).length) return { tipo: "anillo", dir };
+    // Quien pide ya sabe el grabador y el canal (la ficha de una detección los trae de la cámara):
+    // sirve cuando el equipo no tiene IP propia en el mapa de canales.
+    if (canal?.nvrId && canal.ch && canal.ch > 0) {
+        const conn = await resolveNvrById(canal.nvrId);
+        if (conn) return { tipo: "nvr", conn, ch: canal.ch, nvrId: canal.nvrId };
+    }
     return { tipo: null, motivo: "la cámara no está en ningún grabador y no tiene grabación local" };
 }
 
@@ -178,9 +184,9 @@ export function purgarClips(ahora = Date.now()): number {
  * Produce el clip. Espera, con tope, a que exista el tramo posterior; nunca entrega un clip
  * más corto como si fuera completo: si el corte falla o sale vacío, no hay clip y se dice por qué.
  */
-export async function clipDeInstante(p: { deviceId: string; instante: number; antes?: number; despues?: number; para: Para; matricula?: string | null }): Promise<ResultadoClip> {
+export async function clipDeInstante(p: { deviceId: string; instante: number; antes?: number; despues?: number; para: Para; matricula?: string | null; nvrId?: string | null; ch?: number | null }): Promise<ResultadoClip> {
     const ventana = await ventanaEfectiva(p.para, { antes: p.antes, despues: p.despues });
-    const fuente = await fuenteDeVideo(p.deviceId);
+    const fuente = await fuenteDeVideo(p.deviceId, { nvrId: p.nvrId, ch: p.ch });
     if (!fuente.tipo) return { ok: false, motivo: fuente.motivo, ventana, fuente: null };
 
     const inicioMs = p.instante - ventana.antes * 1000;

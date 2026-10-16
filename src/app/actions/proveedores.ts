@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { EQUIPO_PUBLICO } from "@/lib/equipo-publico";
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/app/actions/auth";
 import { credencialesVisibles } from "@/lib/credenciales-visibles";
@@ -45,7 +46,7 @@ export async function buscarProveedores(q: string, excluirId?: string) {
 export async function getFichaUsuario(id: string) {
     const u = await prisma.user.findUnique({
         where: { id },
-        include: { unit: true, credentials: true, accessGroups: { include: { devices: true } }, vehicles: true, parkingSlot: true, empleador: { select: { id: true, name: true, empresa: true } } },
+        include: { unit: true, credentials: true, accessGroups: { include: { devices: { select: EQUIPO_PUBLICO } } }, vehicles: true, parkingSlot: true, empleador: { select: { id: true, name: true, empresa: true } } },
     });
     if (!u) return null;
     return { ...u, credentials: credencialesVisibles(u.credentials, u, await quienSoy()) };

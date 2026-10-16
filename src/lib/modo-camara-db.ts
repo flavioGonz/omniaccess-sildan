@@ -67,7 +67,9 @@ export async function aplicarModoCamara(id: string, pedido: PedidoModo): Promise
         const modo = pedido.intrusion;
         if (!esModoIntrusion(modo)) return { ok: false, error: `Modo de intrusión desconocido: ${modo}`, pendientes };
         if (tipo !== "CAMERA") return { ok: false, error: "Sólo una cámara de intrusión tiene ese modo.", pendientes };
-        await prisma.device.update({ where: { id }, data: { intrusionModo: modo } });
+        // Una que era LPR y pasa a intrusión deja de ser lectora: sin esto quedaba con trackAcceso
+        // o lprVerifica prendidos y el seguimiento o la relectura la seguían tomando como LPR.
+        await prisma.device.update({ where: { id }, data: { intrusionModo: modo, trackAcceso: false, lprVerifica: false, lprAbre: false } });
         if (modo === "omnivision" || modo === "video") {
             // Sin el análisis prendido OmniVision no la mira: ni reglas propias ni registro para la búsqueda.
             const { ponerVision } = await import("@/lib/vision-camaras");

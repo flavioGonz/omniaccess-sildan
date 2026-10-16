@@ -14,6 +14,8 @@ export const dynamic = "force-dynamic";
 const EVENTOS_MAX = 60;
 /** Ventana de la lista de eventos. */
 const EVENTOS_DIAS = 7;
+/** Cuántos días de objetos vistos se miran para proponer cámaras en el asistente. */
+const VISTOS_DIAS = 7;
 
 function leerReglas(v: string | null | undefined): ReglaVision[] {
     try { return validarReglas(JSON.parse(v || "[]")).reglas; } catch { return []; }
@@ -27,14 +29,21 @@ export async function GET() {
     const auth = await verifyApiAuth();
     if (!auth.authenticated) return unauthorizedResponse();
     if (auth.pantalla) return forbiddenResponse("No es una vista de pantalla.");
-    const [crudo, equipos, inter, estadoCrudo, enVision, nombresCrudo] = await Promise.all([
+    const [crudo, equipos, inter, estadoCrudo, enVision, nombresCrudo, vistosCrudo] = await Promise.all([
         leerAjuste(CLAVE_REGLAS),
         prisma.device.findMany({ where: { deviceType: { not: "NVR" as any } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
         leerInterruptores(),
         leerAjuste("VISION_REGISTRO_ESTADO"),
         camarasVision(),
         leerAjuste("VISION_CAMARAS_NOMBRES"),
+        /*
+         * Qué vio cada cámara en la última semana, por clase (16/10: «una regla por cada canal que
+         * tenga un contenedor»). El asistente lo usa para proponer las cámaras donde aparece lo que
+         * se quiere vigilar, en vez de hacer adivinar cuáles de 30 miran un contenedor.
+         */
+        prisma.objetoVisto.groupBy({ by: ["deviceId", "clase"], where: { primeraVez: { gte: new Date(Date.now() - VISTOS_DIAS * 86_400_000) }, deviceId: { not: null } }, _count: { _all: true } }).catch(() => []),
     ]);
+    const vistos = (vistosCrudo as any[]).map((v) => ({ deviceId: v.deviceId as string, clase: v.clase as string, n: v._count._all as number }));
     /*
      * Las cámaras para elegir: las de OmniVision primero (equipos Y canales de NVR), después el
      * resto. Antes se listaban sólo los equipos: un canal de NVR agregado a OmniVision desde la
@@ -78,7 +87,7 @@ export async function GET() {
     try { const e = JSON.parse(estadoCrudo?.value || "null"); estado = e ? { t: e.t, reglas: e.reglas, camaras: e.camaras } : null; } catch { }
     const nombreRegla = new Map(reglas.map((r) => [r.id, r.nombre]));
     return NextResponse.json({
-        reglas, camaras, analiticas, rotulado: inter.analiticas["rotulados"] !== false, estado, resumen,
+        reglas, camaras, vistos, vistosDias: VISTOS_DIAS, analiticas, rotulado: inter.analiticas["rotulados"] !== false, estado, resumen,
         eventos: eventos.map((e) => ({ ...e, ts: e.ts.toISOString(), regla: nombreRegla.get(e.reglaId) || "Regla borrada", foto: e.foto ? `/api/vision/imagen/${e.foto}` : null, fotoAntes: e.fotoAntes ? `/api/vision/imagen/${e.fotoAntes}` : null })),
     }, { headers: { "Cache-Control": "no-store" } });
 }

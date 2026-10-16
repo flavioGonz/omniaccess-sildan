@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     LogIn, LogOut, ShieldCheck, ShieldX, ShieldAlert, Search, Repeat, Camera, Clock, Users, X, Radio,
     PanelRightOpen, Home, Car, Ticket, History, Maximize2, ChevronRight, Loader2, CircleDashed, AlertTriangle, Timer, Activity,
-    ScanEye,
+    ScanEye, ArrowDown, ArrowUp, SlidersHorizontal,
 } from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
@@ -14,7 +14,7 @@ import { sonar } from "@/lib/sonido-monitor";
 import { getImagePath } from "@/lib/image-path";
 import { metodoDeLectura } from "@/lib/lectura-metodo";
 import { watchCatMeta } from "@/lib/watch-categories";
-import { presentarLectura, rotulosContadores, ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
+import { presentarLectura, ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
 import { describirRutina, duracion, NOMBRE_CLASE, type Rutina, type Clase } from "@/lib/visitas/calculos";
 import { cn } from "@/lib/utils";
 import { chapaDe, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
@@ -46,7 +46,8 @@ import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
  *  · La ficha (cajón desde la derecha) contesta lo que se pregunta de un auto: de quién es, de
  *    qué lote, si es invitado y a dónde va, si está vigilado, cuándo entró y qué hizo hoy. Se
  *    cierra sola a los FICHA_SE_CIERRA_MS sin tocar.
- *  · Los contadores filtran la tira (tocar "Denegados hoy" deja sólo las denegadas).
+ *  · Los cuatro números de quién está adentro abren su lista en un cajón: hora de ingreso,
+ *    permanencia y la captura; tocar la captura la pone de protagonista.
  *  · Todo lo tocable mide 48 px o más y responde al dedo (se hunde un poco); nada depende
  *    del hover. Las transiciones son cortas (≤ 300 ms): informan, no adornan.
  *
@@ -83,6 +84,8 @@ type Datos = {
     contadores: { entradas: number; salidas: number; denegados: number; noRegistrados?: number; adentro: number; actualizado: string; dia: string };
     enBarrio?: { visitas: VisitaEnBarrio[]; noRegistradas: NoRegistrada[] };
     atencion: Atencion[]; ahora: string;
+    /** Quién está adentro, en cuatro números (lib/presencia). */
+    presencia?: { residentes: number; visitasProveedores: number; desconocidos: number; atipicos: number } | null;
     /** Matrícula → logo de su empresa (ver lib/empresas-servidor). */
     logos?: Record<string, Logo>;
     /** Los interruptores de las pestañas de Usuarios: color propio y sonido al pasar, por clase. */
@@ -221,19 +224,21 @@ const faltan = (ts: string) => {
     const h = Math.floor(m / 60); return h < 48 ? `en ${h} h${m % 60 ? ` ${m % 60} min` : ""}` : `en ${Math.floor(h / 24)} d`;
 };
 
-function Contador({ rotulo, valor, Icono, tono, activo, alTocar }: { rotulo: string; valor: number; Icono: any; tono?: "bien" | "mal" | "info"; activo?: boolean; alTocar?: () => void }) {
-    return (
-        <button type="button" onClick={alTocar} disabled={!alTocar} aria-pressed={activo}
-            className={cn("flex items-center gap-3 lg:gap-4 rounded-2xl bg-card border px-4 lg:px-5 py-3 lg:py-4 text-left min-h-[72px]", tocable,
-                activo ? "border-[var(--accion-en-oscuro)] ring-2 ring-[var(--accion-en-oscuro)]/40" : "border-border", !alTocar && "active:scale-100")}>
-            <span className={cn("grid h-11 w-11 lg:h-12 lg:w-12 place-items-center rounded-full shrink-0", tono === "bien" ? "pleno-bien" : tono === "mal" ? "pleno-mal" : tono === "info" ? "pleno-info" : "bg-muted text-muted-foreground")}><Icono size={22} /></span>
+function Contador({ rotulo, valor, Icono, tono, activo, alTocar, href }: { rotulo: string; valor: number | null; Icono: any; tono?: "bien" | "mal" | "info" | "aviso"; activo?: boolean; alTocar?: () => void; href?: string }) {
+    const clase = cn("flex items-center gap-3 lg:gap-4 rounded-2xl bg-card border px-4 lg:px-5 py-3 lg:py-4 text-left min-h-[72px]", tocable,
+        activo ? "border-[var(--accion-en-oscuro)] ring-2 ring-[var(--accion-en-oscuro)]/40" : "border-border", !alTocar && !href && "active:scale-100");
+    const cuerpo = (
+        <>
+            <span className={cn("grid h-11 w-11 lg:h-12 lg:w-12 place-items-center rounded-full shrink-0", tono === "bien" ? "pleno-bien" : tono === "mal" ? "pleno-mal" : tono === "info" ? "pleno-info" : tono === "aviso" ? "pleno-aviso" : "bg-muted text-muted-foreground")}><Icono size={22} /></span>
             <div className="min-w-0">
-                <div className="text-[32px] lg:text-[40px] font-bold leading-none tabular-nums">{valor}</div>
+                <div className="text-[32px] lg:text-[40px] font-bold leading-none tabular-nums">{valor ?? "—"}</div>
                 {/* Sin recortar: "Denegado…" con 1668 al lado no dice qué cuenta. Baja a dos renglones si hace falta. */}
                 <div className="text-[13px] lg:text-[14px] text-muted-foreground mt-1 leading-tight">{rotulo}</div>
             </div>
-        </button>
+        </>
     );
+    if (href) return <a href={href} className={clase}>{cuerpo}</a>;
+    return <button type="button" onClick={alTocar} disabled={!alTocar} aria-pressed={activo} className={clase}>{cuerpo}</button>;
 }
 
 export function VistaLpr() {
@@ -246,6 +251,7 @@ export function VistaLpr() {
     const [fijada, setFijada] = useState<Lectura | null>(null);
     const [filtro, setFiltro] = useState<Filtro>("todas");
     const [fichaId, setFichaId] = useState<string | null>(null);
+    const [cajon, setCajon] = useState<ClaveLista | null>(null);
     const [ampliada, setAmpliada] = useState<string | null>(null);
     useEffect(() => { if (!datos) return; setUltima((u) => (u && datos.ultima && u.ts > datos.ultima.ts ? u : datos.ultima)); setTira((t) => { const base = datos.tira; const ids = new Set(base.map((x) => x.id)); return [...t.filter((x) => !ids.has(x.id) && (!datos.ultima || x.id !== datos.ultima.id) && (!base[0] || x.ts > base[0].ts)), ...base].slice(0, ULTIMAS_EN_TIRA); }); }, [datos]);
 
@@ -287,7 +293,6 @@ export function VistaLpr() {
     const volverAlVivo = useCallback(() => setFijada(null), []);
     const vueltaFijada = usarInactividad(!!fijada && !fichaId, VOLVER_AL_VIVO_MS, volverAlVivo);
 
-    const c = datos?.contadores;
     const protagonista = fijada || ultima;
     const tinte = tinteDe(protagonista, !!(protagonista?.plate && datos?.logos?.[protagonista.plate]));
     // Toda la pantalla, encabezado incluido, toma el color de quien pasó.
@@ -295,9 +300,7 @@ export function VistaLpr() {
     useEffect(() => () => setFondo(null), [setFondo]);
     const nuevaMientrasFijada = fijada && ultima && ultima.id !== fijada.id && ultima.ts > fijada.ts ? ultima : null;
     const visibles = useMemo(() => tira.filter((l) => pasaFiltro(l, filtro, modo)), [tira, filtro, modo]);
-    const rotulos = rotulosContadores(modo);
     const FILTROS = filtrosDe(modo);
-    const alternarFiltro = (f: Filtro) => setFiltro((x) => (x === f ? "todas" : f));
 
     return (
         <div className="absolute inset-0 flex flex-col lg:grid lg:grid-cols-[1fr_380px] gap-3 lg:gap-4 p-3 lg:p-4">
@@ -401,18 +404,18 @@ export function VistaLpr() {
                 </div>
             </div>
 
-            {/* Contadores (filtran la tira) y fila de atención (abre la ficha). */}
+            {/* Quién está adentro, en cuatro números (16/10, Nico): reemplazan a entradas, salidas y
+                denegados del día, al «adentro ahora» y al bloque «En el barrio ahora». Tocar uno abre
+                su lista en un cajón acá mismo —la pared no se va al panel—; la fila de atención ocupa
+                el resto hasta abajo. */}
             <aside className="shrink-0 lg:shrink flex flex-col gap-3 min-h-0">
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-3">
-                    <Contador rotulo={rotulos.adentro} valor={c?.adentro ?? 0} Icono={Users} tono="info" />
-                    <Contador rotulo={rotulos.entradas} valor={c?.entradas ?? 0} Icono={LogIn} tono="bien" activo={filtro === "entradas"} alTocar={() => alternarFiltro("entradas")} />
-                    <Contador rotulo={rotulos.salidas} valor={c?.salidas ?? 0} Icono={LogOut} activo={filtro === "salidas"} alTocar={() => alternarFiltro("salidas")} />
-                    <Contador rotulo={rotulos.rechazos} valor={(modo === "ABIERTO" ? c?.noRegistrados : c?.denegados) ?? 0} Icono={modo === "ABIERTO" ? CircleDashed : ShieldX} tono={modo === "ABIERTO" ? undefined : "mal"} activo={filtro === "denegadas"} alTocar={() => alternarFiltro("denegadas")} />
+                    {LISTAS_PRESENCIA.map((x) => (
+                        <Contador key={x.clave} rotulo={x.rotulo} valor={datos?.presencia?.[x.resumen] ?? null} Icono={x.Icono}
+                            tono={x.clave === "atipicos" ? (datos?.presencia?.atipicos ? "aviso" : undefined) : x.tono} activo={cajon === x.clave} alTocar={() => setCajon(x.clave)} />
+                    ))}
                 </div>
-                <div className="text-[12px] text-muted-foreground px-1 inline-flex items-center gap-1.5"><Clock size={12} /> contadores del día del barrio · actualizados {c ? hace(c.actualizado) : "—"}</div>
-                {/* En el barrio ahora: visitas con su cuenta atrás y, en abierto, las no registradas (estimado). */}
-                <EnElBarrio datos={datos?.enBarrio} modo={modo} alAbrir={(id) => id && setFichaId(id)} />
-                <div className="flex-1 min-h-[120px] max-h-[26vh] lg:max-h-none rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
+                <div className="flex-1 min-h-[160px] rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
                     <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><ShieldAlert size={14} /> Atención · últimas 24 h</div>
                     {datos && datos.atencion.length === 0 && <div className="text-[18px] text-muted-foreground">Sin novedades</div>}
                     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-2 [scrollbar-width:thin]">
@@ -436,6 +439,8 @@ export function VistaLpr() {
                 </div>
             </aside>
 
+            <CajonPresencia lista={cajon} alCerrar={() => setCajon(null)} alCambiar={setCajon} alAbrirFicha={(id) => setFichaId(id)}
+                alFijar={(l) => { setFijada(ultima && l.id === ultima.id ? null : l); setCajon(null); }} />
             <FichaLectura id={fichaId} modo={modo} alCerrar={() => setFichaId(null)} alVerOtra={setFichaId} alAmpliar={setAmpliada}
                 alFijar={(l) => { setFijada(ultima && l.id === ultima.id ? null : l); setFichaId(null); }} />
 
@@ -545,6 +550,258 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
             </div>
         </>
     );
+}
+
+type ClaveLista = "residentes" | "visitas" | "desconocidos" | "atipicos";
+type FilaPresencia = {
+    clave: string; plate: string | null; titulo: string; sub: string | null; clase: string | null;
+    entrada: string; vistoUltimo: string | null; camara: string | null; foto: string | null; accessEventId: string | null;
+    estimado: boolean; atipico: { clave: string; nombre: string }[]; entradas24h: number | null;
+};
+type ListasPresencia = { modo: Modo; ventanas: { residentesDias: number; visitasHoras: number } } & Record<ClaveLista, FilaPresencia[]>;
+const LISTAS_PRESENCIA: { clave: ClaveLista; rotulo: string; resumen: keyof NonNullable<Datos["presencia"]>; Icono: any; tono?: "bien" | "info"; explica: (l: ListasPresencia) => string }[] = [
+    { clave: "residentes", rotulo: "Residentes dentro", resumen: "residentes", Icono: Home, tono: "bien", explica: (l) => `Con un auto adentro (se lo busca ${l.ventanas.residentesDias} días para atrás) o que entraron a pie.` },
+    { clave: "visitas", rotulo: "Visitas y proveedores dentro", resumen: "visitasProveedores", Icono: Ticket, tono: "info", explica: () => "Visitas, invitados, proveedores y personal, con su auto o registrados a pie." },
+    { clave: "desconocidos", rotulo: "Desconocidos dentro", resumen: "desconocidos", Icono: CircleDashed, explica: (l) => `Sin registro y cuya última lectura fue una entrada. A las ${l.ventanas.visitasHoras} h sin verse se dan por idos.` },
+    { clave: "atipicos", rotulo: "Atípicos dentro", resumen: "atipicos", Icono: AlertTriangle, explica: () => "Lista negra o en búsqueda, merodeo, primera vez visto, o cuatro entradas o más en 24 h." },
+];
+type Orden = "permanencia" | "recientes" | "matricula" | "frecuencia";
+/**
+ * Cómo se ordena la lista (16/10, Nico: «un orden por tiempo de permanencia, y otros criterios»).
+ * Cada orden tiene su sentido natural —lo que más interesa arriba—; tocarlo otra vez lo invierte.
+ */
+const ORDENES: { v: Orden; rotulo: string; natural: "desc" | "asc" }[] = [
+    { v: "permanencia", rotulo: "Permanencia", natural: "desc" },
+    { v: "recientes", rotulo: "Ingreso", natural: "desc" },
+    { v: "frecuencia", rotulo: "Entradas 24 h", natural: "desc" },
+    { v: "matricula", rotulo: "Matrícula", natural: "asc" },
+];
+/** Los cortes de «lleva más de», en horas. */
+const LLEVA_MAS_DE_H = [1, 4, 12];
+/** Sin tocar nada este tiempo, el cajón de una lista se cierra (como la ficha). */
+const CAJON_SE_CIERRA_MS = 90_000;
+const TONO_ATIPICO: Record<string, string> = { lista_negra: "pleno-mal", en_busqueda: "pleno-mal", merodeo: "pleno-aviso", alta_frecuencia: "pleno-aviso", primera_vez: "pleno-info" };
+const CLASE_PRESENCIA: Record<string, string> = { residente: "pleno-bien", visita: "bg-violet-500/90 text-white", invitado: "bg-violet-500/90 text-white", proveedor: "pleno-aviso", personal: "pleno-info", lista_blanca: "pleno-bien" };
+const NOMBRE_CLASE_PRESENCIA: Record<string, string> = { residente: "Residente", visita: "Visita", invitado: "Invitado", proveedor: "Proveedor", personal: "Personal", lista_blanca: "Lista blanca", no_registrado: "No registrado" };
+
+/**
+ * Una de las cuatro listas de quién está adentro, en un cajón de la propia pared (16/10, Nico: «no
+ * me gusta que salga del Control LPR y lleve al admin, debe resolver con drawers dentro»).
+ *
+ * Cada fila: la captura chica, la matrícula, quién es, a qué hora entró y cuánto lleva adentro
+ * (corre). Tocar la captura la pone de protagonista en la pantalla; tocar el resto abre la ficha
+ * de esa lectura, con su perfil (cuánto se queda normalmente, su rutina). Sólo mirar: corregir
+ * quién está adentro se hace desde Gestión de alarmas, con usuario.
+ */
+function CajonPresencia({ lista, alCerrar, alCambiar, alAbrirFicha, alFijar }: { lista: ClaveLista | null; alCerrar: () => void; alCambiar: (c: ClaveLista) => void; alAbrirFicha: (accessEventId: string) => void; alFijar: (l: Lectura) => void }) {
+    const [datos, setDatos] = useState<ListasPresencia | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [trayendo, setTrayendo] = useState<string | null>(null);
+    const vuelta = usarInactividad(!!lista, CAJON_SE_CIERRA_MS, alCerrar);
+    const cargar = useCallback(async () => {
+        setError(null);
+        try {
+            const r = await fetch("/api/monitor/lpr/presencia", { cache: "no-store" });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j.error || `El servidor respondió ${r.status}`);
+            setDatos(j);
+        } catch (e: any) { setError(e?.message || "sin respuesta"); }
+    }, []);
+    // Abierto, se refresca solo: la lista cambia con cada auto que pasa.
+    useEffect(() => { if (!lista) return; cargar(); const iv = setInterval(cargar, 20_000); return () => clearInterval(iv); }, [lista, cargar]);
+    /** La captura a la pantalla: se trae la lectura completa (con su análisis y su clase) y se fija. */
+    const aPantalla = async (f: FilaPresencia) => {
+        if (!f.accessEventId) return;
+        setTrayendo(f.clave);
+        try {
+            const r = await fetch(`/api/monitor/lpr/lectura/${encodeURIComponent(f.accessEventId)}`, { cache: "no-store" });
+            const j = await r.json().catch(() => null);
+            if (r.ok && j?.lectura) alFijar(j.lectura);
+        } finally { setTrayendo(null); }
+    };
+    const def = LISTAS_PRESENCIA.find((x) => x.clave === lista);
+    const todas = lista && datos ? datos[lista] : [];
+    const ahora = Date.now();
+
+    // Orden y filtros. El orden se conserva al pasar de una lista a otra; los filtros propios de
+    // cada lista (clase, motivo) no, porque en la otra no significan nada.
+    const [orden, setOrden] = useState<Orden>("permanencia");
+    const [sentido, setSentido] = useState<"desc" | "asc">("desc");
+    const [masDeH, setMasDeH] = useState(0);
+    const [confirmacion, setConfirmacion] = useState<"todos" | "confirmados" | "sin">("todos");
+    const [etiqueta, setEtiqueta] = useState<string | null>(null);
+    const [buscar, setBuscar] = useState("");
+    const [verFiltros, setVerFiltros] = useState(false);
+    useEffect(() => { setEtiqueta(null); }, [lista]);
+    const elegirOrden = (o: Orden) => {
+        if (o === orden) setSentido((x) => (x === "desc" ? "asc" : "desc"));
+        else { setOrden(o); setSentido(ORDENES.find((x) => x.v === o)!.natural); }
+    };
+    /** Lo que se puede elegir como etiqueta en esta lista: el motivo en atípicos, la clase en visitas. */
+    const etiquetas = useMemo(() => {
+        const m = new Map<string, { rotulo: string; n: number }>();
+        for (const f of todas) {
+            const claves = lista === "atipicos" ? f.atipico.map((x) => [x.clave, x.nombre] as const) : lista === "visitas" && f.clase ? [[f.clase, NOMBRE_CLASE_PRESENCIA[f.clase] || f.clase] as const] : [];
+            for (const [k, r] of claves) { const x = m.get(k); if (x) x.n++; else m.set(k, { rotulo: r, n: 1 }); }
+        }
+        return [...m.entries()].map(([k, v]) => ({ k, ...v })).sort((a, b) => b.n - a.n);
+    }, [todas, lista]);
+    const filas = useMemo(() => {
+        const t = buscar.trim().toUpperCase().replace(/[^A-Z0-9 ]/g, "");
+        const lleva = (f: FilaPresencia) => ahora - new Date(f.entrada).getTime();
+        const x = todas
+            .filter((f) => !masDeH || lleva(f) >= masDeH * 3_600_000)
+            .filter((f) => confirmacion === "todos" || (confirmacion === "sin" ? f.estimado : !f.estimado))
+            .filter((f) => !etiqueta || (lista === "atipicos" ? f.atipico.some((a) => a.clave === etiqueta) : f.clase === etiqueta))
+            .filter((f) => !t || `${f.plate || ""} ${f.titulo} ${f.sub || ""}`.toUpperCase().replace(/[^A-Z0-9 ]/g, "").includes(t));
+        const valor = (f: FilaPresencia): number | string => orden === "permanencia" ? lleva(f) : orden === "recientes" ? new Date(f.entrada).getTime() : orden === "frecuencia" ? f.entradas24h ?? -1 : f.plate || f.titulo;
+        const signo = sentido === "desc" ? -1 : 1;
+        return [...x].sort((a, b) => { const va = valor(a), vb = valor(b); return (va < vb ? -1 : va > vb ? 1 : 0) * signo; });
+    }, [todas, orden, sentido, masDeH, confirmacion, etiqueta, buscar, lista]); // eslint-disable-line react-hooks/exhaustive-deps
+    const hayFiltro = masDeH > 0 || confirmacion !== "todos" || !!etiqueta || !!buscar.trim();
+    const limpiar = () => { setMasDeH(0); setConfirmacion("todos"); setEtiqueta(null); setBuscar(""); };
+    const pill = (activa: boolean) => cn("h-10 px-3.5 rounded-full border text-[13.5px] font-semibold whitespace-nowrap inline-flex items-center gap-1.5", tocable,
+        activa ? "bg-foreground text-background border-transparent" : "bg-card text-muted-foreground border-border");
+
+    return (
+        <AnimatePresence>
+            {lista && def && (
+                <>
+                    <motion.button key="fondo-presencia" type="button" aria-label="Cerrar la lista" onClick={alCerrar}
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={SUAVE}
+                        className="fixed inset-0 z-40 bg-black/55" />
+                    <motion.aside key="cajon-presencia" role="dialog" aria-label={def.rotulo}
+                        initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={RESORTE}
+                        className="fixed inset-y-0 right-0 z-50 w-[min(620px,100vw)] bg-background border-l border-border flex flex-col">
+                        <div className="shrink-0 flex items-center gap-3 px-5 pt-4 pb-3 border-b border-border">
+                            <span className={cn("grid h-12 w-12 place-items-center rounded-full shrink-0", def.clave === "atipicos" ? "pleno-aviso" : def.tono === "bien" ? "pleno-bien" : def.tono === "info" ? "pleno-info" : "bg-muted text-muted-foreground")}><def.Icono size={22} /></span>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[22px] font-bold leading-tight">{def.rotulo} <span className="tabular-nums text-muted-foreground font-semibold">{datos ? (hayFiltro ? `${filas.length} de ${todas.length}` : todas.length) : ""}</span></div>
+                                <div className="text-[13px] text-muted-foreground leading-snug">{datos ? def.explica(datos) : "Cargando…"}</div>
+                            </div>
+                            <button type="button" onClick={alCerrar} aria-label="Cerrar" className={cn("grid h-14 w-14 place-items-center rounded-2xl bg-muted text-foreground shrink-0", tocable)}><X size={26} /></button>
+                        </div>
+                        {/* Las otras tres listas, para pasar de una a otra sin cerrar. */}
+                        <div className="shrink-0 flex gap-2 px-5 py-3 border-b border-border overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            {LISTAS_PRESENCIA.map((x) => {
+                                const activa = x.clave === lista, n = datos ? datos[x.clave].length : null;
+                                return (
+                                    <button key={x.clave} type="button" onClick={() => !activa && alCambiar(x.clave)} aria-pressed={activa}
+                                        className={cn("h-11 px-4 rounded-full border text-[14px] font-semibold whitespace-nowrap inline-flex items-center gap-2", tocable,
+                                            activa ? "bg-foreground text-background border-transparent" : "bg-card text-muted-foreground border-border")}>
+                                        <x.Icono size={15} /> {x.rotulo.replace(" dentro", "")}{n != null && <span className="tabular-nums opacity-70">{n}</span>}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        {/* Ordenar: tocar el mismo otra vez invierte el sentido. Y el botón de filtros. */}
+                        <div className="shrink-0 flex items-center gap-2 px-5 pt-3 pb-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            <span className="text-[12px] font-bold uppercase tracking-[0.12em] text-muted-foreground shrink-0">Ordenar</span>
+                            {ORDENES.map((o) => {
+                                const activa = orden === o.v;
+                                return (
+                                    <button key={o.v} type="button" onClick={() => elegirOrden(o.v)} aria-pressed={activa} className={pill(activa)}>
+                                        {o.rotulo}{activa && (sentido === "desc" ? <ArrowDown size={14} /> : <ArrowUp size={14} />)}
+                                    </button>
+                                );
+                            })}
+                            <button type="button" onClick={() => setVerFiltros((v) => !v)} aria-pressed={verFiltros || hayFiltro}
+                                className={cn(pill(verFiltros), "ml-auto", hayFiltro && !verFiltros && "border-[var(--accion-en-oscuro)] text-foreground")}>
+                                <SlidersHorizontal size={14} /> Filtros{hayFiltro ? " ·" : ""}
+                            </button>
+                        </div>
+                        <AnimatePresence initial={false}>
+                            {verFiltros && (
+                                <motion.div key="filtros" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={SUAVE} className="shrink-0 overflow-hidden">
+                                    <div className="px-5 pb-3 flex flex-col gap-2.5">
+                                        <div className="relative">
+                                            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                                            <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Matrícula, nombre o lote" inputMode="search"
+                                                className="w-full h-11 pl-10 pr-10 rounded-xl bg-card border border-border text-[15px] focus:outline-none focus:ring-2 focus:ring-[var(--accion-en-oscuro)]/50" />
+                                            {buscar && <button type="button" onClick={() => setBuscar("")} aria-label="Borrar" className="absolute right-2 top-1/2 -translate-y-1/2 grid h-8 w-8 place-items-center rounded-full text-muted-foreground"><X size={16} /></button>}
+                                        </div>
+                                        <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                            <span className="text-[12px] text-muted-foreground shrink-0 w-[76px]">Lleva más de</span>
+                                            {[0, ...LLEVA_MAS_DE_H].map((h) => <button key={h} type="button" onClick={() => setMasDeH(h)} aria-pressed={masDeH === h} className={pill(masDeH === h)}>{h ? `${h} h` : "Cualquiera"}</button>)}
+                                        </div>
+                                        <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                            <span className="text-[12px] text-muted-foreground shrink-0 w-[76px]">Confirmación</span>
+                                            {([["todos", "Todos"], ["confirmados", "Confirmados"], ["sin", "Sin confirmar"]] as const).map(([v, r]) => (
+                                                <button key={v} type="button" onClick={() => setConfirmacion(v)} aria-pressed={confirmacion === v} className={pill(confirmacion === v)}>{r}</button>
+                                            ))}
+                                        </div>
+                                        {etiquetas.length > 1 && (
+                                            <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                                <span className="text-[12px] text-muted-foreground shrink-0 w-[76px]">{lista === "atipicos" ? "Motivo" : "Tipo"}</span>
+                                                <button type="button" onClick={() => setEtiqueta(null)} aria-pressed={!etiqueta} className={pill(!etiqueta)}>Todos</button>
+                                                {etiquetas.map((e) => <button key={e.k} type="button" onClick={() => setEtiqueta(e.k)} aria-pressed={etiqueta === e.k} className={pill(etiqueta === e.k)}>{e.rotulo}<span className="tabular-nums opacity-70">{e.n}</span></button>)}
+                                            </div>
+                                        )}
+                                        {hayFiltro && <button type="button" onClick={limpiar} className={cn("self-start h-10 px-3.5 rounded-full text-[13.5px] font-semibold text-[var(--accion-en-oscuro)] inline-flex items-center gap-1.5", tocable)}><X size={14} /> Quitar filtros</button>}
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                        <CuentaAtras ms={CAJON_SE_CIERRA_MS} vuelta={vuelta} className="rounded-none bg-transparent [&>span]:bg-[var(--accion-en-oscuro)]/60" />
+
+                        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 flex flex-col gap-2.5">
+                            {error && !datos ? (
+                                <div className="p-4 space-y-4">
+                                    <p className="text-[17px]">No se pudo leer la lista: {error}</p>
+                                    <button type="button" onClick={cargar} className={cn("h-12 px-6 rounded-xl bg-[var(--accion)] text-white font-bold", tocable)}>Reintentar</button>
+                                </div>
+                            ) : !datos ? (
+                                <div className="p-10 grid place-items-center text-muted-foreground"><Loader2 size={28} className="animate-spin" /></div>
+                            ) : filas.length === 0 ? (
+                                <div className="p-10 text-center text-[18px] text-muted-foreground">
+                                    {todas.length && hayFiltro ? <>Nadie con estos filtros<button type="button" onClick={limpiar} className={cn("block mx-auto mt-4 h-12 px-6 rounded-xl bg-muted text-foreground font-semibold text-[15px]", tocable)}>Quitar filtros</button></> : "Nadie en esta lista ahora"}
+                                </div>
+                            ) : filas.map((f) => {
+                                const foto = getImagePath(f.foto);
+                                const min = (ahora - new Date(f.entrada).getTime()) / 60000;
+                                return (
+                                    <div key={f.clave} className="flex items-stretch gap-3 rounded-2xl bg-card border border-border p-2.5">
+                                        {/* La captura chica: tocarla la pone en pantalla. */}
+                                        <button type="button" disabled={!f.accessEventId || !foto} onClick={() => aPantalla(f)} aria-label="Ver en pantalla"
+                                            className={cn("relative w-[132px] shrink-0 aspect-video rounded-xl overflow-hidden bg-neutral-900", f.accessEventId && foto && tocable)}>
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            {foto ? <img src={conAncho(foto, 320) || foto} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />
+                                                : <span className="absolute inset-0 grid place-items-center text-white/25">{f.plate ? <Car size={22} /> : <Users size={22} />}</span>}
+                                            {foto && <span className="absolute bottom-1.5 right-1.5 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white">{trayendo === f.clave ? <Loader2 size={13} className="animate-spin" /> : <Maximize2 size={13} />}</span>}
+                                        </button>
+                                        {/* El resto de la fila: la ficha de esa lectura (perfil, rutina, qué hizo hoy). */}
+                                        <button type="button" disabled={!f.accessEventId} onClick={() => f.accessEventId && alAbrirFicha(f.accessEventId)}
+                                            className={cn("min-w-0 flex-1 flex items-center gap-3 text-left", f.accessEventId && tocable)}>
+                                            <span className="min-w-0 flex-1">
+                                                <span className="flex items-center gap-2 flex-wrap">
+                                                    {f.plate && <span className="text-[20px] font-bold tabular-nums tracking-[0.1em] leading-none">{f.plate}</span>}
+                                                    {f.clase && f.clase !== "no_registrado" && <span className={cn("px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider", CLASE_PRESENCIA[f.clase] || "bg-muted text-muted-foreground")}>{NOMBRE_CLASE_PRESENCIA[f.clase] || f.clase}</span>}
+                                                    {f.atipico.map((x) => <span key={x.clave} className={cn("px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider", TONO_ATIPICO[x.clave] || "bg-muted")}>{x.nombre}</span>)}
+                                                </span>
+                                                <span className="block text-[14px] font-semibold truncate mt-1">{f.titulo}{f.sub ? <span className="font-normal text-muted-foreground"> · {f.sub}</span> : null}</span>
+                                                <span className="block text-[12.5px] text-muted-foreground tabular-nums truncate">
+                                                    Ingresó {horaCorta(f.entrada)}{new Date(f.entrada).toDateString() !== new Date().toDateString() ? ` del ${new Date(f.entrada).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" })}` : ""}
+                                                    {f.entradas24h != null && f.entradas24h > 1 ? ` · ${f.entradas24h} entradas en 24 h` : ""}
+                                                    {f.camara ? ` · ${f.camara}` : ""}
+                                                </span>
+                                            </span>
+                                            {/* Permanencia: corre con el reloj de la vista. */}
+                                            <span className="text-right shrink-0 leading-none">
+                                                <span className={cn("block text-[22px] font-bold tabular-nums", f.estimado && "text-muted-foreground")}>{f.estimado ? "~" : ""}{duracion(min)}</span>
+                                                <span className="block text-[10px] uppercase tracking-wider mt-1 text-muted-foreground">{f.estimado ? "sin confirmar" : "adentro"}</span>
+                                            </span>
+                                            {f.accessEventId && <ChevronRight size={18} className="text-muted-foreground/60 shrink-0" />}
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </motion.aside>
+                </>
+            )}
+        </AnimatePresence>
+    );
+
 }
 
 /**
@@ -705,61 +962,6 @@ function FichaLectura({ id, modo, alCerrar, alVerOtra, alAmpliar, alFijar }: { i
                 </>
             )}
         </AnimatePresence>
-    );
-}
-
-/** Fracción final del tiempo en la que la cuenta atrás pasa a ámbar (spec "Visitas en el barrio a la vista"). */
-const FRACCION_AVISO = 0.2;
-const mmss = (ms: number) => { const s = Math.floor(Math.abs(ms) / 1000); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60; return `${ms < 0 ? "-" : ""}${h ? `${h}:` : ""}${String(m).padStart(h ? 2 : 1, "0")}:${String(ss).padStart(2, "0")}`; };
-
-/**
- * "En el barrio ahora". Las visitas registradas, con su cuenta atrás (corre en el navegador
- * contra `vence`; el reloj de la vista refresca cada segundo), ordenadas por lo que vence
- * antes. En abierto, además, las matrículas no registradas que entraron hoy y no se vieron
- * salir, con el tiempo que llevan marcado como ESTIMADO: el 55 % de las entradas no se ve
- * salir, así que ese número no es un cronómetro, es una cota.
- */
-function EnElBarrio({ datos, modo, alAbrir }: { datos: Datos["enBarrio"]; modo: Modo; alAbrir: (accessEventId: string | null) => void }) {
-    const visitas = datos?.visitas || [];
-    const noReg = modo === "ABIERTO" ? datos?.noRegistradas || [] : [];
-    const ahora = Date.now();
-    return (
-        <div className="flex-1 min-h-[120px] max-h-[26vh] lg:max-h-none rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
-            <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><Timer size={14} /> En el barrio ahora · {visitas.length}{noReg.length ? ` + ${noReg.length} sin registrar` : ""}</div>
-            {!visitas.length && !noReg.length && <div className="text-[18px] text-muted-foreground">Nadie registrado</div>}
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-2 [scrollbar-width:thin]">
-                {visitas.map((v) => {
-                    const resta = +new Date(v.vence) - ahora, total = Math.max(1, +new Date(v.vence) - +new Date(v.desde));
-                    // Pase libre: no hay cuenta atrás; se muestra cuánto lleva adentro.
-                    const libre = esPaseLibre(v.tipoVisita);
-                    const estado = libre ? "ok" : resta < 0 ? "excedida" : resta < total * FRACCION_AVISO ? "cerca" : "ok";
-                    return (
-                        <button key={v.id} type="button" disabled={!v.accessEventId} onClick={() => alAbrir(v.accessEventId)}
-                            className={cn("flex items-center gap-3 rounded-xl border px-3 py-2.5 min-h-[60px] text-left", v.accessEventId && tocable,
-                                estado === "excedida" ? "border-[var(--mal)] bg-[var(--mal-suave)]" : estado === "cerca" ? "border-[var(--aviso)] bg-muted/40" : "border-border bg-muted/40")}>
-                            <span className="min-w-0 flex-1">
-                                <span className="flex items-center gap-2"><span className="font-bold text-[15px]">{v.tipoNombre}</span>{v.plate && <span className="text-[15px] font-bold tabular-nums tracking-[0.1em]">{v.plate}</span>}</span>
-                                <span className="block text-[13px] text-muted-foreground truncate">{v.lote ? `→ ${v.lote}` : "sin lote"}{v.empresa ? ` · ${v.empresa}` : v.nombre ? ` · ${v.nombre}` : ""}{v.origen === "INVITACION" ? " · por invitación" : ""}</span>
-                            </span>
-                            <span className={cn("text-right tabular-nums font-bold leading-none shrink-0", estado === "excedida" ? "text-[var(--mal-texto)]" : estado === "cerca" ? "text-[var(--aviso-texto)]" : "")}>
-                                <span className="block text-[22px]">{libre ? duracion((ahora - +new Date(v.desde)) / 60000) : mmss(resta)}</span>
-                                <span className="block text-[10px] uppercase tracking-wider mt-0.5 opacity-70">{libre ? "adentro" : estado === "excedida" ? "excedida" : "restan"}</span>
-                            </span>
-                        </button>
-                    );
-                })}
-                {noReg.map((n) => (
-                    <button key={n.plate} type="button" onClick={() => alAbrir(n.accessEventId)} className={cn("flex items-center gap-3 rounded-xl border border-dashed border-border px-3 py-2 min-h-[52px] text-left", tocable)}>
-                        <CircleDashed size={18} className="text-muted-foreground shrink-0" />
-                        <span className="min-w-0 flex-1">
-                            <span className="text-[15px] font-bold tabular-nums tracking-[0.1em]">{n.plate}</span>
-                            <span className="block text-[12px] text-muted-foreground truncate">no registrada{n.camara ? ` · ${n.camara}` : ""}</span>
-                        </span>
-                        <span className="text-[14px] tabular-nums text-muted-foreground shrink-0">~{duracion((ahora - +new Date(n.desde)) / 60000)} <span className="text-[11px]">(estimado)</span></span>
-                    </button>
-                ))}
-            </div>
-        </div>
     );
 }
 

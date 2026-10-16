@@ -6,6 +6,7 @@ import { Device, DeviceBrand, DeviceDirection, DeviceType, AuthType } from "@pri
 import { revalidatePath } from "next/cache";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
 import { uploadToS3 } from "@/lib/s3";
+import { sinClaves } from "@/lib/equipo-publico";
 
 async function saveFile(file: any, folder: string): Promise<string | null> {
     if (!file || typeof file === 'string' || !file.size) return null;
@@ -188,7 +189,7 @@ export async function updateDevice(id: string, formData: FormData) {
      * ofrece; esto es para que tampoco se pueda por error o a mano.
      */
     const CAMARAS = ["LPR_CAMERA", "LPR_INTERIOR", "CAMERA"];
-    const antes = await prisma.device.findUnique({ where: { id }, select: { deviceType: true } });
+    const antes = await prisma.device.findUnique({ where: { id }, select: { deviceType: true, username: true, password: true } });
     if (antes && deviceType && antes.deviceType !== deviceType && !(CAMARAS.includes(String(antes.deviceType)) && CAMARAS.includes(String(deviceType)))) {
         throw new Error(`No se puede cambiar un ${antes.deviceType} por un ${deviceType}: sólo se cambia entre tipos de cámara.`);
     }
@@ -205,8 +206,10 @@ export async function updateDevice(id: string, formData: FormData) {
             deviceType,
             direction,
             location,
-            username,
-            password,
+            // Vacío = no se tocó: el formulario recibe la clave aparte (getCredencialesDispositivo)
+            // y, si no llegó, guardar no tiene que borrarla.
+            ...(username ? { username } : {}),
+            ...(password ? { password } : {}),
             authType,
             mac,
             port: portNum,
@@ -221,7 +224,7 @@ export async function updateDevice(id: string, formData: FormData) {
     try {
         const { syncLprStream } = await import("@/lib/go2rtc-sync");
         // Las camaras interiores se registran por su rtspUrl, asi que hay que pasarla.
-        await syncLprStream({ id, ip, username, password, brand, deviceType, ...camposSeguimiento(formData) } as any);
+        await syncLprStream({ id, ip, username: username || antes?.username, password: password || antes?.password, brand, deviceType, ...camposSeguimiento(formData) } as any);
     } catch (err) {
         console.error("go2rtc sync failed on update:", err);
     }
@@ -235,12 +238,27 @@ export async function deleteDevice(id: string) {
 }
 
 export async function getDevices() {
-    return await prisma.device.findMany({
+    const equipos = await prisma.device.findMany({
         orderBy: { createdAt: 'desc' },
         // Los grupos vienen con el equipo porque son la respuesta a "quien puede pasar por
         // aca", que es media pantalla de /admin/devices y no se podia contestar sin esto.
         include: { accessGroups: { select: { id: true, name: true } } },
     });
+    // Sin usuario, clave ni RTSP: esta lista la piden el monitor LPR, Usuarios, Vehículos y la
+    // pantalla del mapa (/api/monitor/mapa, con enlace de pantalla). Ver lib/equipo-publico.
+    return equipos.map(sinClaves);
+}
+
+/**
+ * Las credenciales de UN equipo, para editarlo. Sólo con el permiso Dispositivos: es la única
+ * pantalla que las muestra, y antes viajaban en getDevices a todas las que listan equipos.
+ */
+export async function getCredencialesDispositivo(id: string): Promise<{ username: string | null; password: string | null; rtspUrl: string | null } | null> {
+    const { getSession } = await import("@/app/actions/auth");
+    const { permisosDeSesion } = await import("@/lib/permisos");
+    const s: any = await getSession().catch(() => null);
+    if (!s || !permisosDeSesion(s).includes("dispositivos")) return null;
+    return prisma.device.findUnique({ where: { id }, select: { username: true, password: true, rtspUrl: true } });
 }
 
 export async function getDevicesCount() {
@@ -1039,4 +1057,40 @@ export async function getCameraUserCounts(): Promise<Record<string, number | nul
         }
     }));
     return out;
+}
+
+/**
+ * Qué sabe hacer una cámara (lib/capacidades-camara): ANPR, cruce de línea, zona, y qué tipo y
+ * modo le conviene. Con `deviceId` usa las credenciales guardadas (la ficha); sin él, las del
+ * formulario (el alta, antes de guardar). Sólo pregunta: no cambia nada en la cámara.
+ */
+export async function detectarCapacidades(input: { deviceId?: string; ip?: string; username?: string; password?: string; authType?: string; brand?: string; deviceModel?: string }) {
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession())) return { ok: false as const, error: "Hace falta una sesión del panel." };
+    const { capacidadesCamara } = await import("@/lib/capacidades-camara");
+    let e: { ip: string; username?: string | null; password?: string | null; authType?: string | null; brand?: string | null; deviceModel?: string | null };
+    if (input.deviceId) {
+        const d = await prisma.device.findUnique({ where: { id: input.deviceId }, select: { ip: true, username: true, password: true, authType: true, brand: true, deviceModel: true, deviceType: true } });
+        if (!d || String(d.deviceType) === "NVR") return { ok: false as const, error: "No es una cámara" };
+        e = { ...d, brand: String(d.brand), authType: d.authType ? String(d.authType) : null };
+    } else {
+        const ip = (input.ip || "").trim();
+        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return { ok: false as const, error: "IP inválida" };
+        e = { ip, username: input.username, password: input.password, authType: input.authType, brand: input.brand, deviceModel: input.deviceModel };
+    }
+    return { ok: true as const, capacidades: await capacidadesCamara(e) };
+}
+
+/**
+ * Las capacidades de los canales de un NVR que todavía no se dio de alta (el alta de NVR lee sus
+ * canales con las credenciales del formulario): se prueban con esas mismas, que son con las que
+ * se van a crear las cámaras.
+ */
+export async function detectarCapacidadesCanales(input: { canales: { ip: string; model?: string | null; brand?: string | null }[]; username?: string; password?: string; authType?: string }) {
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession())) return {};
+    const { capacidadesDeVarias } = await import("@/lib/capacidades-camara");
+    const lista = (input.canales || []).filter((c) => c?.ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(c.ip)).slice(0, 128);
+    const m = await capacidadesDeVarias(lista.map((c) => ({ ip: c.ip, username: input.username, password: input.password, authType: input.authType, brand: c.brand || "HIKVISION", deviceModel: c.model })));
+    return Object.fromEntries(m);
 }

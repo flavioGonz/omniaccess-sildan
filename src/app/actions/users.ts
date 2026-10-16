@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { EQUIPO_PUBLICO } from "@/lib/equipo-publico";
 import { heredarListaNegraSiCorresponde } from "@/app/actions/watchlist";
 import { revalidatePath } from "next/cache";
 import { UserRole, type VehicleType } from "@prisma/client";
@@ -90,7 +91,7 @@ export async function getUsers(options?: { take?: number, skip?: number }) {
             credentials: true,
             accessGroups: {
                 include: {
-                    devices: true
+                    devices: { select: EQUIPO_PUBLICO }
                 }
             },
             vehicles: true,
@@ -403,8 +404,8 @@ export async function deleteUser(id: string) {
 export async function getQuickCreateData() {
     const [units, groups, devices, parkingSlots] = await Promise.all([
         prisma.unit.findMany({ orderBy: { name: 'asc' } }),
-        prisma.accessGroup.findMany({ include: { devices: true }, orderBy: { name: 'asc' } }),
-        prisma.device.findMany({ orderBy: { name: 'asc' } }),
+        prisma.accessGroup.findMany({ include: { devices: { select: EQUIPO_PUBLICO } }, orderBy: { name: 'asc' } }),
+        prisma.device.findMany({ select: EQUIPO_PUBLICO, orderBy: { name: 'asc' } }),
         prisma.parkingSlot.findMany({ include: { user: true }, orderBy: { label: 'asc' } })
     ]);
     return { units, groups, devices, parkingSlots };
@@ -778,7 +779,7 @@ export async function getBlacklist() {
             accessEvents: {
                 take: 10,
                 orderBy: { timestamp: 'desc' },
-                include: { device: true }
+                include: { device: { select: EQUIPO_PUBLICO } }
             }
         },
         orderBy: { updatedAt: 'desc' }
@@ -794,7 +795,7 @@ export async function getWhitelist() {
             accessEvents: {
                 take: 5,
                 orderBy: { timestamp: 'desc' },
-                include: { device: true }
+                include: { device: { select: EQUIPO_PUBLICO } }
             }
         },
         orderBy: { updatedAt: 'desc' }

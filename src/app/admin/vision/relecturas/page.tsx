@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ScanLine, Activity, Camera, CheckCircle2, UserCheck, Sparkles, Ban, UserPlus, ArrowUpRight, ShieldAlert } from "lucide-react";
+import { ScanLine, Activity, Camera, CheckCircle2, UserCheck, Sparkles, Ban, UserPlus, ArrowUpRight, ShieldAlert, ScanEye, Info } from "lucide-react";
 import { getImagePath } from "@/lib/image-path";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { useSiluetas } from "@/lib/use-siluetas";
@@ -33,62 +33,86 @@ type Fila = {
     otraCamara: { camara: string | null; ts: string } | null; guardia: string | null;
     /** Lo que OmniVision vio en la foto del evento (siluetas) y quién es la chapa sugerida. */
     analisis: Analisis | null; persona: Persona | null; vigilancia: Vigilancia | null;
+    /** Doble verificación: la cámara SÍ leyó y OmniVision volvió a leer para comparar. */
+    doble: boolean;
+    /** Lo que leyó la cámara (null = no leyó), su recorte de chapa, y el veredicto si es doble. */
+    camaraLeyo: string | null; fotoChapaCamara: string | null; comparacion: "coincide" | "casi" | "difiere" | "sin" | null;
 };
-/** Cada cuántas tarjetas va una grande en el mosaico (como el historial y Buscar). */
-const RITMO_BENTO = 9;
 const esNegra = (v: Vigilancia | null) => v?.categoria === "BLACKLISTED" || v?.categoria === "SEARCH";
+const VEREDICTO: Record<string, { r: string; tono: "bien" | "aviso" | "mal" | "quieto" }> = {
+    coincide: { r: "coinciden", tono: "bien" }, casi: { r: "difieren en un carácter", tono: "aviso" }, difiere: { r: "otra chapa", tono: "mal" }, sin: { r: "OmniVision no pudo releer", tono: "quieto" },
+};
+const PLENO: Record<string, string> = { bien: "pleno-bien", aviso: "pleno-aviso", mal: "pleno-mal" };
+
+/** Un rótulo sobre la foto: quién leyó (la cámara u OmniVision). */
+function Quien({ icono: Ic, texto }: { icono: typeof Camera; texto: string }) {
+    return <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 h-5 px-1.5 rounded-[5px] bg-black/65 text-white text-[10px] font-semibold"><Ic size={11} /> {texto}</span>;
+}
 
 /**
- * Una relectura en el mosaico (15/10, «lo mismo que Buscar»): la foto del evento a sangre con lo
- * que vio OmniVision encima, la chapa sugerida grande, y el recorte de la chapa en una esquina:
- * es lo que el guardia mira para confirmar. Antes era el recorte de la chapa en una tarjeta 2:1 y
- * cuatro líneas de texto: no se veía el auto.
+ * Una relectura, comparada (16/10, Nico: «la grilla debe ser comparativa, dos cuadros, uno con lo
+ * que leyó la cámara y otro lo que leyó OmniVision»). Antes era una foto con la sugerida encima:
+ * no se veía qué había leído la cámara, y en la doble verificación eso es la mitad de la pregunta.
+ *
+ *  · Izquierda, la cámara: la foto del evento y lo que leyó (o «no leyó»), con su recorte.
+ *  · Derecha, OmniVision: el vehículo que recortó, la chapa que leyó, su recorte y la confianza.
+ *  · Abajo, el veredicto: coinciden / difieren (doble) o acertada / dudosa (NO_LEIDA), y quién lo
+ *    confirmó (otra lectora, el guardia).
  */
-function TarjetaRelectura({ f, grande, siluetas, alAbrir }: { f: Fila; grande: boolean; siluetas: boolean; alAbrir: () => void }) {
+function TarjetaRelectura({ f, siluetas, alAbrir }: { f: Fila; siluetas: boolean; alAbrir: () => void }) {
     const [cargada, setCargada] = useState(false);
     const e = ESTADOS[f.estado] || ESTADOS.ERROR;
+    const v = f.comparacion ? VEREDICTO[f.comparacion] : null;
     const url = getImagePath(f.foto);
+    const chapaCam = getImagePath(f.fotoChapaCamara);
     const negra = esNegra(f.vigilancia);
+    const tono = v ? v.tono : e.tono;
     return (
-        <button type="button" onClick={alAbrir} title={`${f.plate || "Sin sugerencia"} · ${f.camara || ""}`}
-            className={cn("group relative overflow-hidden rounded-[8px] bg-black text-left outline-none hover:ring-2 hover:ring-[var(--accion)] focus-visible:ring-2 focus-visible:ring-[var(--accion)] [content-visibility:auto]",
-                grande && "col-span-2 row-span-2", negra && "ring-2 ring-[var(--mal)]")}>
-            <span className="absolute inset-0 transition-transform duration-300 group-hover:scale-[1.03]">
-                {!cargada && <span className="absolute inset-0 animate-pulse bg-white/5" />}
-                {url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={`${url}${url.includes("?") ? "&" : "?"}w=${grande ? 520 : 260}`} alt="" loading="lazy" decoding="async" onLoad={() => setCargada(true)} onError={() => setCargada(true)}
-                        className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-300", cargada ? "opacity-100" : "opacity-0")} />
-                ) : f.recorte ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={`${f.recorte}?w=320`} alt="" loading="lazy" onLoad={() => setCargada(true)} className="absolute inset-0 w-full h-full object-cover" />
-                ) : <Camera size={18} className="absolute inset-0 m-auto text-white/30" />}
-                {siluetas && cargada && url && f.analisis && <CapaAnalisis analisis={f.analisis} ajuste="cover" etiquetas={false} />}
-            </span>
-            <span className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/20" />
-            <span className="absolute top-1.5 left-1.5 right-1.5 flex items-start justify-between gap-1">
-                <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]",
-                    e.tono === "bien" ? "pleno-bien" : e.tono === "aviso" ? "pleno-aviso" : e.tono === "mal" ? "pleno-mal" : "bg-black/55 text-white")}>{e.r}</span>
-                <span className="flex items-center gap-1">
-                    {negra && <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] pleno-mal"><Ban size={10} />{grande ? f.vigilancia!.etiqueta : ""}</span>}
-                    {f.confianza != null && <span className="px-1.5 py-0.5 rounded-md bg-black/55 text-white text-[10px] font-bold tabular-nums">{Math.round(f.confianza * 100)} %</span>}
-                </span>
-            </span>
-            <span className="absolute bottom-1.5 left-2 right-2 flex items-end gap-2 min-w-0">
-                <span className="min-w-0 flex-1">
-                    <span className={cn("block font-bold tracking-wider text-white truncate tabular-nums", grande ? "text-[20px]" : "text-[13.5px]")}>{f.plate ? `¿${f.plate}?` : "—"}</span>
-                    <span className={cn("block text-white/75 truncate tabular-nums", grande ? "text-[11.5px]" : "text-[10px]")}>{hora(f.ts)} · {dia(f.ts)}{grande ? ` · ${f.camara || "—"}` : ""}</span>
-                    {f.persona && <span className={cn("block truncate text-white/90", grande ? "text-[11.5px]" : "text-[10px]")}>{f.persona.nombre}{grande ? ` · ${rolEtiqueta(f.persona.rol)}` : ""}</span>}
-                    <span className="flex items-center gap-1.5 mt-0.5">
-                        {f.otraCamara && <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-[color-mix(in_oklab,var(--bien)_55%,white)]" title={`La leyó ${f.otraCamara.camara} a las ${hora(f.otraCamara.ts)}`}><CheckCircle2 size={11} />{grande ? `${f.otraCamara.camara} ${hora(f.otraCamara.ts)}` : ""}</span>}
-                        {f.guardia && <span className={cn("inline-flex items-center gap-0.5 text-[10px] font-semibold", f.guardia === f.plate ? "text-[color-mix(in_oklab,var(--bien)_55%,white)]" : "text-[color-mix(in_oklab,var(--aviso)_55%,white)]")} title={`El guardia cargó ${f.guardia}`}><UserCheck size={11} />{grande ? f.guardia : ""}</span>}
+        <button type="button" onClick={alAbrir} title={`${f.camara || ""} · ${hora(f.ts)}`}
+            className={cn("group text-left rounded-[10px] border border-border bg-card overflow-hidden outline-none hover:border-[var(--accion)] focus-visible:ring-2 focus-visible:ring-[var(--accion)] [content-visibility:auto] transition-colors",
+                negra && "ring-2 ring-[var(--mal)]")}>
+            <span className="grid grid-cols-2 gap-px bg-border">
+                {/* La cámara */}
+                <span className="relative block aspect-[4/3] bg-black overflow-hidden">
+                    {!cargada && url && <span className="absolute inset-0 animate-pulse bg-white/5" />}
+                    {url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={`${url}${url.includes("?") ? "&" : "?"}w=320`} alt="" loading="lazy" decoding="async" onLoad={() => setCargada(true)} onError={() => setCargada(true)}
+                            className={cn("absolute inset-0 w-full h-full object-cover transition-opacity", cargada ? "opacity-100" : "opacity-0")} />
+                    ) : <Camera size={18} className="absolute inset-0 m-auto text-white/30" />}
+                    {siluetas && cargada && url && f.analisis && <CapaAnalisis analisis={f.analisis} ajuste="cover" etiquetas={false} />}
+                    <Quien icono={Camera} texto="Cámara" />
+                    <span className="absolute inset-x-0 bottom-0 px-2 pb-1.5 pt-6 bg-gradient-to-t from-black/90 to-transparent flex items-end gap-1.5">
+                        {f.camaraLeyo
+                            ? <span className="min-w-0 flex-1 text-[15px] font-bold tracking-wider text-white tabular-nums truncate">{f.camaraLeyo}</span>
+                            : <span className="min-w-0 flex-1 text-[12px] font-semibold text-white/60 italic">No leyó</span>}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {chapaCam && f.camaraLeyo && <img src={`${chapaCam}${chapaCam.includes("?") ? "&" : "?"}w=160`} alt="" loading="lazy" className="h-6 max-w-[64px] rounded-[3px] ring-1 ring-white/70 bg-black object-contain shrink-0" />}
                     </span>
                 </span>
-                {/* El recorte de la chapa: lo que el guardia mira para confirmar. */}
-                {f.chapa && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={`${f.chapa}?w=160`} alt={f.plate || "Chapa"} loading="lazy" className={cn("shrink-0 rounded-[4px] ring-1 ring-white/70 bg-black object-contain", grande ? "h-10 max-w-[120px]" : "h-6 max-w-[64px]")} />
-                )}
+                {/* OmniVision */}
+                <span className="relative block aspect-[4/3] bg-black overflow-hidden">
+                    {f.recorte ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={`${f.recorte}?w=320`} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+                    ) : <span className="absolute inset-0 grid place-items-center text-[11px] text-white/40">{f.estado === "SIN_VEHICULO" ? "No encontró vehículo" : f.estado === "SIN_FOTO" ? "Sin foto" : "—"}</span>}
+                    <Quien icono={ScanEye} texto="OmniVision" />
+                    {f.confianza != null && <span className="absolute right-1.5 top-1.5 h-5 px-1.5 rounded-[5px] bg-black/65 text-white text-[10px] font-bold tabular-nums inline-flex items-center">{Math.round(f.confianza * 100)} %</span>}
+                    <span className="absolute inset-x-0 bottom-0 px-2 pb-1.5 pt-6 bg-gradient-to-t from-black/90 to-transparent flex items-end gap-1.5">
+                        {f.plate
+                            ? <span className="min-w-0 flex-1 text-[15px] font-bold tracking-wider text-white tabular-nums truncate">{f.doble ? f.plate : `¿${f.plate}?`}</span>
+                            : <span className="min-w-0 flex-1 text-[12px] font-semibold text-white/60 italic">{f.estado === "SIN_CHAPA" ? "Sin chapa legible" : "No leyó"}</span>}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {f.chapa && <img src={`${f.chapa}?w=160`} alt="" loading="lazy" className="h-6 max-w-[64px] rounded-[3px] ring-1 ring-white/70 bg-black object-contain shrink-0" />}
+                    </span>
+                </span>
+            </span>
+            <span className="flex items-center gap-1.5 px-2.5 h-8 text-[11px] min-w-0">
+                <span className={cn("shrink-0 inline-flex items-center h-5 px-1.5 rounded-[5px] font-semibold", PLENO[tono] || "chip-quieto")}>{v ? v.r : e.r}</span>
+                {negra && <span className="shrink-0 inline-flex items-center gap-0.5 h-5 px-1.5 rounded-[5px] font-semibold pleno-mal"><Ban size={10} /> {f.vigilancia!.etiqueta}</span>}
+                {f.otraCamara && <span className="shrink-0 inline-flex items-center gap-0.5 tono-bien font-semibold" title={`La leyó ${f.otraCamara.camara} a las ${hora(f.otraCamara.ts)}`}><CheckCircle2 size={11} /> otra lectora</span>}
+                {f.guardia && <span className={cn("shrink-0 inline-flex items-center gap-0.5 font-semibold", f.guardia === f.plate ? "tono-bien" : "tono-aviso")} title={`El guardia cargó ${f.guardia}`}><UserCheck size={11} /> {f.guardia}</span>}
+                <span className="ml-auto min-w-0 truncate text-muted-foreground tabular-nums">{f.camara || "—"} · {hora(f.ts)}</span>
             </span>
         </button>
     );
@@ -104,30 +128,31 @@ type Respuesta = {
 };
 
 /**
- * El umbral de «acertada»: se elige mirando, para cada valor, cuántas relecturas pasarían y qué
- * parte de ésas confirmó otra lectora o el guardia. Subirlo deja menos acertadas pero más
- * seguras; la decisión es de quien mira estos números, no un valor escrito en el código.
+ * El umbral de «acertada», en una fila (16/10, Nico: «Acertada desde y los otros bloques ocupan
+ * mucho espacio»). Antes eran seis tarjetas grandes; ahora seis píldoras, y lo que pasaría con
+ * cada valor —cuántas acertadas y qué parte confirmó otra lectora o el guardia— va en la pista.
+ * La decisión sigue siendo de quien mira esos números, no un valor escrito en el código.
  */
 function Umbral({ datos, alCambiar }: { datos: Respuesta; alCambiar: (u: number) => void }) {
     return (
-        <section className="rounded-[10px] border border-border bg-card px-4 py-3">
-            <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-[13px] font-bold">Acertada desde</h2>
-                <span className="text-[12px] text-muted-foreground">Con menos confianza la sugerencia sale como «dudosa». Cambiarlo reclasifica también lo ya releído.</span>
-            </div>
-            <div className="mt-2.5 grid grid-cols-3 sm:grid-cols-6 gap-2">
+        <span className="inline-flex items-center gap-1.5">
+            <Pista titulo="Acertada desde" texto="Con menos confianza la sugerencia sale como «dudosa». Cambiarlo reclasifica también lo ya releído. Pasá el mouse por cada valor para ver qué pasaría.">
+                <span className="text-[12px] font-semibold text-muted-foreground cursor-help">Acertada desde</span>
+            </Pista>
+            <span className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5">
                 {datos.porUmbral.map((o) => {
                     const sel = Math.abs(o.umbral - datos.umbral) < 0.001;
                     return (
-                        <button key={o.umbral} type="button" onClick={() => !sel && alCambiar(o.umbral)} aria-pressed={sel}
-                            className={cn("rounded-[10px] border px-3 py-2 text-left transition-colors", sel ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]" : "border-border hover:bg-accent")}>
-                            <div className="text-[16px] font-bold tabular-nums">{Math.round(o.umbral * 100)} %</div>
-                            <div className="text-[11px] text-muted-foreground tabular-nums leading-snug">{o.acertadas} acertadas · {o.acertadas ? Math.round((o.confirmadas / o.acertadas) * 100) : 0} % confirmadas</div>
-                        </button>
+                        <Pista key={o.umbral} titulo={`Desde ${Math.round(o.umbral * 100)} %`} texto={`${o.acertadas} acertadas · ${o.acertadas ? Math.round((o.confirmadas / o.acertadas) * 100) : 0} % confirmadas por otra lectora o el guardia.`}>
+                            <button type="button" onClick={() => !sel && alCambiar(o.umbral)} aria-pressed={sel}
+                                className={cn("h-[30px] px-2.5 rounded-md text-[12px] font-semibold tabular-nums", sel ? "bg-[var(--accion)] text-white" : "text-muted-foreground hover:text-foreground")}>
+                                {Math.round(o.umbral * 100)}
+                            </button>
+                        </Pista>
                     );
                 })}
-            </div>
-        </section>
+            </span>
+        </span>
     );
 }
 
@@ -137,26 +162,42 @@ const ESTADOS: Record<string, { r: string; tono: "bien" | "aviso" | "quieto" | "
     LEIDA: { r: "acertada", tono: "bien" }, DUDOSA: { r: "dudosa", tono: "aviso" }, SIN_CHAPA: { r: "sin chapa", tono: "quieto" },
     SIN_VEHICULO: { r: "sin vehículo", tono: "quieto" }, SIN_FOTO: { r: "sin foto", tono: "quieto" }, ERROR: { r: "error", tono: "mal" },
 };
-const FILTROS = [{ v: "", r: "Todas" }, { v: "sugerida", r: "Con sugerencia" }, { v: "coincide", r: "Coinciden" }, { v: "sin", r: "Sin sugerencia" }];
+/** De dónde viene: la cámara no leyó (relectura) o sí leyó y se verificó (doble). */
+const ORIGENES = [{ v: "", r: "Todas" }, { v: "nl", r: "Cámara no leyó" }, { v: "doble", r: "Doble verificación" }];
+const RESULTADOS = [{ v: "", r: "Todas" }, { v: "sugerida", r: "OmniVision leyó" }, { v: "coincide", r: "Coinciden" }, { v: "difiere", r: "Difieren" }, { v: "sin", r: "Sin lectura" }];
 const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)} %` : "—");
 const hora = (iso: string) => new Date(iso).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Montevideo" });
 const dia = (iso: string) => new Date(iso).toLocaleDateString("es-UY", { day: "numeric", month: "short", timeZone: "America/Montevideo" });
 
-function Numero({ n, rotulo, sub, tono }: { n: number | string; rotulo: string; sub?: string; tono?: "bien" | "aviso" }) {
+/** Un número de la tira de arriba: la cifra y su rótulo en una línea, la explicación en la pista. */
+function Cifra({ n, rotulo, pista, tono }: { n: number | string; rotulo: string; pista: string; tono?: "bien" | "aviso" }) {
     return (
-        <div className="rounded-[10px] border border-border bg-card px-3.5 py-3">
-            <div className={cn("text-[22px] font-bold tabular-nums leading-none", tono === "bien" && "tono-bien", tono === "aviso" && "tono-aviso")}>{n}</div>
-            <div className="text-[12px] font-semibold mt-1.5">{rotulo}</div>
-            {sub && <div className="text-[11px] text-muted-foreground leading-snug mt-0.5">{sub}</div>}
-        </div>
+        <Pista titulo={rotulo} texto={pista} ancho={300}>
+            <span className="inline-flex items-baseline gap-1.5 px-3 py-2 cursor-help whitespace-nowrap">
+                <b className={cn("text-[16px] tabular-nums leading-none", tono === "bien" && "tono-bien", tono === "aviso" && "tono-aviso")}>{n}</b>
+                <span className="text-[11.5px] text-muted-foreground">{rotulo}</span>
+            </span>
+        </Pista>
     );
+}
+
+/** ¿La fila pasa los filtros? «Coinciden» y «Difieren» se leen distinto según de dónde viene. */
+function pasa(f: Fila, origen: string, resultado: string): boolean {
+    if (origen === "nl" && f.doble) return false;
+    if (origen === "doble" && !f.doble) return false;
+    if (resultado === "sugerida") return !!f.plate;
+    if (resultado === "sin") return !f.plate;
+    if (resultado === "coincide") return f.doble ? f.comparacion === "coincide" : !!f.otraCamara || (!!f.guardia && f.guardia === f.plate);
+    if (resultado === "difiere") return f.doble ? f.comparacion === "casi" || f.comparacion === "difiere" : !!f.guardia && !!f.plate && f.guardia !== f.plate;
+    return true;
 }
 
 export default function RelecturasVision() {
     const [datos, setDatos] = useState<Respuesta | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [h, setH] = useState("24");
-    const [filtro, setFiltro] = useState("");
+    const [origen, setOrigen] = useState("");
+    const [resultado, setResultado] = useState("");
     const [abierta, setAbierta] = useState<Fila | null>(null);
     const [siluetas, setSiluetas] = useSiluetas();
 
@@ -176,60 +217,54 @@ export default function RelecturasVision() {
 
     const c = datos.conteo;
     const sugeridas = c.leidas + c.dudosas;
-    const filas = datos.filas.filter((f) => !filtro || (filtro === "sugerida" ? !!f.plate : filtro === "coincide" ? !!f.otraCamara : !f.plate));
+    const filas = datos.filas.filter((f) => pasa(f, origen, resultado));
+    const cambiarUmbral = async (u: number) => {
+        const r = await fetch("/api/vision/relecturas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ umbral: u }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { toast.error({ title: "No se guardó", description: j?.error || `El servidor respondió ${r.status}` }); return; }
+        toast.success({ title: `Acertada desde ${Math.round(u * 100)} %`, description: "Se aplica también a lo ya releído." });
+        await cargar();
+    };
 
     return (
-        <div className="p-6 lg:p-8 space-y-6 max-w-[1500px] mx-auto">
-            <div className="rounded-[10px] border border-border bg-card px-4 py-3 flex items-center gap-3 flex-wrap">
-                <span className="grid h-10 w-10 place-items-center rounded-full bg-muted shrink-0"><ScanLine size={20} /></span>
-                <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <h1 className="text-[17px] font-bold leading-tight">Relecturas de NO_LEIDA</h1>
-                        {datos.activa ? <Chip tono="bien" icono={Activity}>Prendida</Chip> : <Chip tono="quieto">Apagada en Analíticas</Chip>}
-                        {datos.estado?.ultimoError && <Chip tono="aviso">Último error: {datos.estado.ultimoError}</Chip>}
-                    </div>
-                    <p className="text-[12px] text-muted-foreground leading-snug mt-0.5">
-                        Cuando la lectora de un acceso no lee la chapa, se recorta el vehículo de la foto y se vuelve a leer. El monitor LPR la muestra como sugerencia («¿ABC1234?») y el guardia la confirma con «Cargar matrícula». No cambia el evento ni la barrera por sí sola.
-                    </p>
-                </div>
+        <div className="p-6 lg:p-8 space-y-4 max-w-[1500px] mx-auto">
+            {/* Título en un renglón: la explicación larga pasó a la pista del ícono. */}
+            <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-muted shrink-0"><ScanLine size={16} /></span>
+                <h1 className="text-[17px] font-bold leading-tight">Relecturas</h1>
+                <Pista titulo="Qué es esto" ancho={340} texto="Lo que leyó la cámara al lado de lo que leyó OmniVision. Cuando la lectora no lee la chapa (NO_LEIDA), OmniVision recorta el vehículo de la foto y la vuelve a leer: el monitor LPR la muestra como sugerencia («¿ABC1234?») y el guardia la confirma. En las cámaras con doble verificación relee también lo que la cámara sí leyó, para comparar. No cambia el evento ni la barrera por sí sola.">
+                    <Info size={15} className="text-muted-foreground cursor-help" />
+                </Pista>
+                {datos.activa ? <Chip tono="bien" icono={Activity}>Prendida</Chip> : <Chip tono="quieto">Apagada en Analíticas</Chip>}
+                {datos.estado?.ultimoError && <Chip tono="aviso">Último error: {datos.estado.ultimoError}</Chip>}
             </div>
 
-            <Umbral datos={datos} alCambiar={async (u) => {
-                const r = await fetch("/api/vision/relecturas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ umbral: u }) });
-                const j = await r.json().catch(() => ({}));
-                if (!r.ok) { toast.error({ title: "No se guardó", description: j?.error || `El servidor respondió ${r.status}` }); return; }
-                toast.success({ title: `Acertada desde ${Math.round(u * 100)} %`, description: "Se aplica también a lo ya releído." });
-                await cargar();
-            }} />
-
-            <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
-                <Numero n={datos.noLeidas} rotulo="NO_LEIDA de las lectoras" sub={`en ${RANGOS.find((r) => r.v === h)?.r}`} />
-                <Numero n={c.releidas} rotulo="Releídas" sub={c.sinFoto || c.errores ? `${c.sinFoto} sin foto · ${c.errores} con error` : "todas con foto"} />
-                <Numero n={sugeridas} rotulo="Con chapa sugerida" sub={`${pct(sugeridas, c.releidas)} · ${c.leidas} acertadas, ${c.dudosas} dudosas`} tono="bien" />
-                <Pista titulo="Coinciden con una lectura" texto={`La chapa sugerida la leyó también una lectora (la misma u otra) en ±${datos.otraLecturaH} h: el auto que la Salida no leyó casi siempre lo leyó la Entrada al llegar. Es la confirmación que no depende de nadie. Puede contar de más si la relectura leyó el auto de atrás y ese también pasó.`}>
-                    <div><Numero n={c.confirmadasOtraCamara} rotulo="Coinciden con una lectura" sub={`${pct(c.confirmadasOtraCamara, sugeridas)} de las sugeridas`} tono="bien" /></div>
-                </Pista>
-                <Numero n={c.guardiaIgual + c.guardiaDistinta} rotulo="El guardia cargó la chapa" sub={`${c.guardiaIgual} igual a la sugerida · ${c.guardiaDistinta} distinta`} />
-                <Numero n={c.sinChapa + c.sinVehiculo} rotulo="Sin sugerencia" sub={`${c.sinChapa} sin chapa legible · ${c.sinVehiculo} sin vehículo`} />
+            {/* Los números, en una tira (16/10: «ocupan mucho espacio»). Antes, diez tarjetas en dos filas. */}
+            <section className="rounded-[10px] border border-border bg-card flex flex-wrap items-center divide-x divide-border">
+                <span className="px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Cámara no leyó</span>
+                <Cifra n={datos.noLeidas} rotulo="NO_LEIDA" pista={`Lecturas de las cámaras sin chapa en ${RANGOS.find((r) => r.v === h)?.r}.`} />
+                <Cifra n={c.releidas} rotulo="releídas" pista={c.sinFoto || c.errores ? `${c.sinFoto} sin foto · ${c.errores} con error.` : "Todas con foto."} />
+                <Cifra n={sugeridas} rotulo={`leyó OmniVision · ${pct(sugeridas, c.releidas)}`} tono="bien" pista={`${c.leidas} acertadas y ${c.dudosas} dudosas. ${c.sinChapa} sin chapa legible y ${c.sinVehiculo} sin vehículo.`} />
+                <Cifra n={c.confirmadasOtraCamara} rotulo={`confirmadas · ${pct(c.confirmadasOtraCamara, sugeridas)}`} tono="bien" pista={`La chapa que leyó OmniVision la leyó también una lectora en ±${datos.otraLecturaH} h: el auto que la Salida no leyó casi siempre lo leyó la Entrada al llegar. Es la confirmación que no depende de nadie. Puede contar de más si la relectura leyó el auto de atrás y ese también pasó.`} />
+                <Cifra n={c.guardiaIgual + c.guardiaDistinta} rotulo="cargó el guardia" pista={`${c.guardiaIgual} igual a la de OmniVision · ${c.guardiaDistinta} distinta.`} />
+                {!!datos.doble?.total && (<>
+                    <span className="px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Doble verificación</span>
+                    <Cifra n={datos.doble.total} rotulo="verificadas" pista="Lecturas de la cámara que OmniVision releyó para comparar." />
+                    <Cifra n={datos.doble.coincide} rotulo={`coinciden · ${pct(datos.doble.coincide, datos.doble.total)}`} tono="bien" pista="La cámara y OmniVision leyeron la misma chapa." />
+                    <Cifra n={datos.doble.casi + datos.doble.difiere} rotulo="difieren" tono="aviso" pista={`${datos.doble.casi} por un carácter · ${datos.doble.difiere} otra chapa. ${datos.doble.sin} sin poder releer (vale la de la cámara).`} />
+                </>)}
             </section>
-
-            {!!datos.doble?.total && (
-                <section className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <Numero n={datos.doble.total} rotulo="Doble verificación" sub="lecturas de la cámara que OmniVision releyó" />
-                    <Numero n={datos.doble.coincide} rotulo="Coinciden" sub={pct(datos.doble.coincide, datos.doble.total)} tono="bien" />
-                    <Numero n={datos.doble.casi + datos.doble.difiere} rotulo="Difieren" sub={`${datos.doble.casi} por un carácter · ${datos.doble.difiere} otra chapa`} tono="aviso" />
-                    <Numero n={datos.doble.sin} rotulo="Sin poder releer" sub="vale la lectura de la cámara" />
-                </section>
-            )}
 
             <div className="flex items-center gap-2 flex-wrap">
                 <Filtros solido grupos={[
                     { clave: "h", titulo: "Rango", valor: h, alElegir: setH, opciones: RANGOS.map((x) => ({ valor: x.v, rotulo: x.r })) },
-                    { clave: "f", titulo: "Cuáles", valor: filtro, alElegir: setFiltro, opciones: FILTROS.map((x) => ({ valor: x.v, rotulo: x.r })) },
+                    { clave: "o", titulo: "De dónde", valor: origen, alElegir: setOrigen, opciones: ORIGENES.map((x) => ({ valor: x.v, rotulo: x.r })), oculto: !datos.doble?.total },
+                    { clave: "r", titulo: "Resultado", valor: resultado, alElegir: setResultado, opciones: RESULTADOS.map((x) => ({ valor: x.v, rotulo: x.r })) },
                 ]} />
+                <Umbral datos={datos} alCambiar={cambiarUmbral} />
                 <Pista titulo="Siluetas de OmniVision" texto="Dibuja sobre cada foto lo que vio OmniVision. Es la misma opción que en el historial, Buscar y el visor.">
                     <button type="button" onClick={() => setSiluetas(!siluetas)} aria-pressed={siluetas} aria-label="Siluetas de OmniVision"
-                        className={cn("h-[34px] px-2.5 rounded-lg border inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors",
+                        className={cn("ml-auto h-[34px] px-2.5 rounded-lg border inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors",
                             siluetas ? "accion border-transparent" : "border-border text-muted-foreground hover:text-foreground hover:bg-accent")}>
                         <Sparkles size={14} /> Siluetas
                     </button>
@@ -239,14 +274,11 @@ export default function RelecturasVision() {
             {error && <div className="rounded-[10px] border border-[color-mix(in_oklab,var(--mal)_40%,transparent)] bg-[var(--mal-suave)] px-4 py-2.5 text-[12.5px] text-[var(--mal-texto)]">No se pudo actualizar: {error}. Se muestra lo último que llegó.</div>}
             {filas.length === 0 ? (
                 <div className="rounded-[10px] border border-border bg-card p-10 text-center text-[13px] text-muted-foreground">
-                    {c.releidas === 0 ? (datos.activa ? "Todavía no hay relecturas en este rango. La primera vez se pone al día con las NO_LEIDA del último día, de a una." : "La relectura está apagada (OmniVision › Analíticas).") : "Nada con este filtro."}
+                    {datos.filas.length === 0 ? (datos.activa ? "Todavía no hay relecturas en este rango. La primera vez se pone al día con las NO_LEIDA del último día, de a una." : "La relectura está apagada (OmniVision › Analíticas).") : "Nada con este filtro."}
                 </div>
             ) : (
-                <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(160px,1fr))] auto-rows-[104px] [grid-auto-flow:dense]">
-                    {filas.map((f, i) => (
-                        <TarjetaRelectura key={f.id} f={f} siluetas={siluetas} alAbrir={() => setAbierta(f)}
-                            grande={i < 2 || esNegra(f.vigilancia) || (f.estado === "LEIDA" && !!f.otraCamara && i % RITMO_BENTO === 0) || i % (RITMO_BENTO * 2) === 0} />
-                    ))}
+                <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(300px,1fr))]">
+                    {filas.map((f) => <TarjetaRelectura key={f.id} f={f} siluetas={siluetas} alAbrir={() => setAbierta(f)} />)}
                 </div>
             )}
 
@@ -268,7 +300,18 @@ export default function RelecturasVision() {
                             </div>
                             <div className="p-4 space-y-3 text-[12.5px]">
                                 <div>
-                                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Sugerida</div>
+                                    <div className="grid grid-cols-2 gap-2 mb-2">
+                                        <div className="rounded-md bg-muted/50 px-2.5 py-1.5">
+                                            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-1"><Camera size={11} /> Cámara</div>
+                                            <div className={cn("text-[15px] font-bold tabular-nums tracking-[0.08em]", !abierta.camaraLeyo && "text-muted-foreground italic font-semibold tracking-normal text-[13px]")}>{abierta.camaraLeyo || "No leyó"}</div>
+                                        </div>
+                                        <div className="rounded-md bg-muted/50 px-2.5 py-1.5">
+                                            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-1"><ScanEye size={11} /> OmniVision</div>
+                                            <div className={cn("text-[15px] font-bold tabular-nums tracking-[0.08em]", !abierta.plate && "text-muted-foreground italic font-semibold tracking-normal text-[13px]")}>{abierta.plate || "No leyó"}</div>
+                                        </div>
+                                    </div>
+                                    {abierta.comparacion && <div className="mb-1.5"><span className={cn("inline-flex items-center h-6 px-2 rounded-full text-[11.5px] font-semibold", PLENO[VEREDICTO[abierta.comparacion].tono] || "chip-quieto")}>{VEREDICTO[abierta.comparacion].r}</span></div>}
+                                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{abierta.doble ? "Releída" : "Sugerida"}</div>
                                     <div className="text-[22px] font-bold tabular-nums tracking-[0.12em]">{abierta.plate || "—"}</div>
                                     <div className="text-muted-foreground">{abierta.confianza != null ? `${Math.round(abierta.confianza * 100)} % · ` : ""}{(ESTADOS[abierta.estado] || ESTADOS.ERROR).r}{abierta.acuerdo === true ? " · los dos lectores coinciden" : abierta.acuerdo === false ? " · los dos lectores no coinciden" : ""}</div>
                                 </div>

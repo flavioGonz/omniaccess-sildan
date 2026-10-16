@@ -19,8 +19,10 @@ import type { Punto, Sentido } from "@/lib/vision-reglas";
  * Se mira el PIE de cada objeto: la línea y la zona se dibujan en el piso, no a la altura de
  * la cabeza.
  */
-export function EditorGeometria({ deviceId, modo, linea, zona, permitido, alCambiarLinea, alCambiarZona }: {
+export function EditorGeometria({ deviceId, modo, linea, zona, permitido, alCambiarLinea, alCambiarZona, aSangre }: {
     deviceId: string;
+    /** A todo el ancho y sin marco, pegado arriba de un cajón (Reglas, 16/10): la cámara es lo primero que se ve. */
+    aSangre?: boolean;
     modo: "linea" | "zona";
     linea: { a: Punto; b: Punto } | null;
     zona: Punto[];
@@ -80,8 +82,8 @@ export function EditorGeometria({ deviceId, modo, linea, zona, permitido, alCamb
     };
 
     return (
-        <div className="space-y-2">
-            <div className="relative rounded-[10px] overflow-hidden bg-black select-none">
+        <div className={aSangre ? "" : "space-y-2"}>
+            <div className={cn("relative overflow-hidden bg-black select-none", !aSangre && "rounded-[10px]")}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={`/api/vision/cuadro?camara=${encodeURIComponent(deviceId)}&v=${vuelta}`} alt="Cuadro de la cámara" draggable={false}
                     onLoad={() => { setCargando(false); setError(false); }} onError={() => { setCargando(false); setError(true); }}
@@ -119,7 +121,7 @@ export function EditorGeometria({ deviceId, modo, linea, zona, permitido, alCamb
                         style={{ left: `${lados![k][0] * 100}%`, top: `${lados![k][1] * 100}%` }}>{k}</span>
                 ))}
             </div>
-            <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+            <div className={cn("flex items-center gap-2 text-[11.5px] text-muted-foreground", aSangre && "px-6 py-2 bg-muted/40")}>
                 <span className="flex-1">
                     {modo === "linea"
                         ? (primero ? "Tocá el otro extremo." : linea ? "Arrastrá los extremos para ajustar. Tocá en otro lado para dibujarla de nuevo." : "Tocá los dos extremos de la línea, sobre el piso.")

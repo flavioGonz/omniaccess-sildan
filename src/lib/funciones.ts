@@ -17,7 +17,7 @@ import type { ModuleId } from "@/lib/module-definitions";
  * haya una segunda función no haya que inventar un segundo mecanismo.
  */
 
-export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION";
+export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS";
 
 export interface Funcion {
     id: FuncionId;
@@ -60,6 +60,14 @@ export const FUNCIONES: Funcion[] = [
         que: "Mide el ESTACIONAMIENTO mirando el lugar y no la chapa: sobre la franja dibujada compara cada lugar contra su aspecto vacío, y así sabe si el auto sigue ahí aunque no se lo vuelva a leer.",
         siSeApaga: "Las cámaras con franja vuelven al criterio por matrícula: la permanencia se calcula releyendo la chapa, que es lo que hacen las cámaras sin franja. Se dejan de abrir y cerrar ocupaciones por lugar, y el plano deja de decir qué lugar ocupa cada vehículo.",
         porDefecto: true,
+    },
+    {
+        id: "LPR_MARCAS",
+        modulo: "MODULE_LPR",
+        nombre: "Marca del vehículo según la cámara",
+        que: "Muestra la marca (logo y nombre) que reconoce la cámara en cada lectura: en el monitor LPR, en la ficha del evento y en el visor. La marca del padrón se muestra siempre.",
+        siSeApaga: "Se dejan de mostrar las marcas que adivina la cámara, que fallan seguido y pueden confundir una búsqueda. Se siguen guardando con la lectura: prenderla otra vez las muestra también en lo ya leído.",
+        porDefecto: false,
     },
 ];
 

@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /**
- * POST /api/clip/instante { deviceId, instante, antes?, despues?, para?, matricula? }
+ * POST /api/clip/instante { deviceId, instante, antes?, despues?, para?, matricula?, nvrId?, ch? }
  *
  * Lo llama el worker de despachos (proceso aparte, sin sesión) para la alerta con video, con
  * el mismo `x-tracking-token` que /api/notifications/event. También lo acepta una sesión con
@@ -36,7 +36,9 @@ export async function POST(req: NextRequest) {
     const instante = typeof b?.instante === "number" ? b.instante : Date.parse(String(b?.instante || ""));
     if (!deviceId || !Number.isFinite(instante)) return NextResponse.json({ ok: false, motivo: "Falta la cámara o el instante" }, { status: 400 });
     const para: Para = b?.para === "envio" ? "envio" : "alerta";
-    const r = await clipDeInstante({ deviceId, instante, antes: b?.antes, despues: b?.despues, para, matricula: b?.matricula || null });
+    const nvrId = typeof b?.nvrId === "string" && b.nvrId.length <= 64 ? b.nvrId : null;
+    const ch = Number.isInteger(b?.ch) && b.ch > 0 && b.ch < 1000 ? b.ch : null;
+    const r = await clipDeInstante({ deviceId, instante, antes: b?.antes, despues: b?.despues, para, matricula: b?.matricula || null, nvrId, ch });
     // Sin clip no es un error del pedido: es un resultado con su motivo (la alerta va con foto).
     if (!r.ok) return NextResponse.json(r);
     const { archivo: _archivo, ...publico } = r;

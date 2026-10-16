@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import io from "socket.io-client";
-import { ShieldAlert, Check, X, Volume2, VolumeX, Radar, Clock, MonitorPlay, Loader2 } from "lucide-react";
+import { ShieldAlert, Check, X, Volume2, VolumeX, Radar, Clock, MonitorPlay, Loader2, Eye, Hand, ArrowRightLeft, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getActiveAlarms, ackAlarms, setAttending, getIntrusionCameras, reclasificarComoFalsa, type ActiveAlarm } from "@/app/actions/detections";
+import { getActiveAlarms, ackAlarms, setAttending, getIntrusionCameras, reclasificarComoFalsa, getIntrusionesConfirmadas, getOperadores, tomarGestion, pasarGestion, getAnalyticsGeometryBatch, type ActiveAlarm, type OperadorVista, type IntrusionCam } from "@/app/actions/detections";
+import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
+import type { Geom } from "@/components/intrusion/comun";
 import { getImagePath } from "@/lib/image-path";
 
 /**
@@ -29,6 +31,8 @@ const TIPOS: Record<string, string> = { LINECROSS: "Cruce de línea", INTRUSION:
 const CLASES: Record<string, string> = { human: "persona", vehicle: "vehículo" };
 /** Cada cuánto suena mientras la alerta siga sin aceptar. */
 const INTERVALO_SONIDO_MS = 6000;
+/** Con la intrusión ya confirmada como real, el pitido se espacia: se sabe, pero no se olvida. */
+const INTERVALO_SONIDO_REAL_MS = 15000;
 /** Cada cuánto se reconfirma contra la base, por si se aceptó desde otra pantalla. */
 const INTERVALO_RELECTURA_MS = 30000;
 /** En la pared se relee más seguido: es la única forma en que se entera de que la resolvieron. */
@@ -42,6 +46,8 @@ const INTERVALO_RELECTURA_PARED_MS = 10000;
  */
 const VIDEO_ANTES_SEG = 3;
 const VIDEO_DUR_SEG = 14;
+
+const hace = (ts: string) => { const s = Math.max(0, Math.round((Date.now() - new Date(ts).getTime()) / 1000)); return s < 60 ? `hace ${s} s` : s < 3600 ? `hace ${Math.round(s / 60)} min` : `hace ${Math.round(s / 3600)} h`; };
 
 type Alarma = ActiveAlarm & { deviceName?: string | null; label?: string | null; snapshotPath?: string | null };
 
@@ -118,7 +124,19 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
     const enVistaIntrusion = soloLectura && !!pathname?.startsWith("/monitor/intrusion");
 
     /** Pared: las confirmadas sin resolver también se imponen (en el panel ya las muestra el monitor). */
-    const [confirmadas, setConfirmadas] = useState<{ deviceId: string; deviceName: string; id: string | null; type: string; ts: string | null; snapshotPath: string | null }[]>([]);
+    const [confirmadas, setConfirmadas] = useState<{ deviceId: string; deviceName: string; id: string | null; type: string; label?: string | null; ts: string | null; snapshotPath: string | null; clave?: string }[]>([]);
+    /*
+     * Quién opera cada alarma (16/10, Nico: «al tomar una alerta debe quedar registrado qué usuario
+     * la está operando; un botón para pasarla, para que otro compañero la tome»). Una pendiente que
+     * ya tomó otro deja de imponerse en esta pantalla (la está atendiendo alguien): queda en la barra
+     * con su nombre. La que yo pasé, tampoco: la pasé para que la tome otro.
+     */
+    const [ops, setOps] = useState<Record<string, OperadorVista>>({});
+    const [pasadas, setPasadas] = useState<Set<string>>(() => new Set());
+    const [camsInfo, setCamsInfo] = useState<Record<string, IntrusionCam>>({});
+    /** «Ver evento»: la ficha de intrusión, abierta ahí mismo sobre la alerta. */
+    const [ficha, setFicha] = useState<null | { det: any; confirmada: boolean }>(null);
+    const [geomFicha, setGeomFicha] = useState<Geom | undefined>(undefined);
 
     const releer = useCallback(() => {
         const juntar = (rows: ActiveAlarm[]) => setAlarmas((prev) => {
@@ -136,10 +154,14 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
             return;
         }
         getActiveAlarms().then(juntar).catch(() => { });
+        // Las confirmadas como reales y sin resolver: la barra roja de todo el panel.
+        getIntrusionesConfirmadas().then((c) => setConfirmadas(c)).catch(() => { });
     }, [soloLectura]);
 
+    const releerRef = useRef(releer);
+    releerRef.current = releer;
     useEffect(() => {
-        if (!soloLectura) getIntrusionCameras().then((cams) => setNombres(Object.fromEntries(cams.map((c: any) => [c.id, c.name])))).catch(() => { });
+        if (!soloLectura) getIntrusionCameras().then((cams) => { setNombres(Object.fromEntries(cams.map((c: any) => [c.id, c.name]))); setCamsInfo(Object.fromEntries(cams.map((c) => [c.id, c]))); }).catch(() => { });
         releer();
         const iv = setInterval(releer, soloLectura ? INTERVALO_RELECTURA_PARED_MS : INTERVALO_RELECTURA_MS);
         return () => clearInterval(iv);
@@ -154,9 +176,21 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
                 setAlarmas((prev) => prev.some((a) => a.id === d.id) ? prev : [{ id: d.id, deviceId: d.deviceId, type: d.type, ts: d.timestamp || new Date().toISOString(), deviceName: d.deviceName, label: d.label }, ...prev]);
             });
             s.on("detection_snapshot", (d: any) => { if (d?.id && d.snapshotPath) setSnapshots((p) => ({ ...p, [d.id]: d.snapshotPath })); });
+            // Alguien confirmó o desactivó una intrusión real en otra pantalla.
+            s.on("intrusion_atencion", () => releerRef.current());
+            // Alguien tomó o pasó una alarma: se relee quién opera cada una.
+            s.on("alarma_gestion", () => setPulsoOps((n) => n + 1));
         } catch { /* sin socket: queda la relectura periódica */ }
         return () => { try { s && s.disconnect(); } catch { } };
     }, []);
+
+    const [pulsoOps, setPulsoOps] = useState(0);
+    const clavesVivas = useMemo(() => [...new Set([...alarmas.map((a) => `d:${a.id}`), ...confirmadas.map((c) => c.clave || "").filter(Boolean)])].sort().join(","), [alarmas, confirmadas]);
+    useEffect(() => {
+        if (soloLectura || !clavesVivas) { setOps({}); return; }
+        getOperadores(clavesVivas.split(",")).then(setOps).catch(() => { });
+    }, [clavesVivas, pulsoOps, soloLectura]);
+    useEffect(() => { setGeomFicha(undefined); const id = ficha?.det?.deviceId; if (id) getAnalyticsGeometryBatch([id]).then((g) => setGeomFicha((g as any)?.[id])).catch(() => { }); }, [ficha?.det?.deviceId]);
 
     const claveConfirmada = (c: { deviceId: string; id: string | null }) => `c:${c.deviceId}:${c.id || ""}`;
     const confirmadasVisibles = useMemo(() => (enVistaIntrusion ? [] : confirmadas.filter((c) => !ocultas.has(claveConfirmada(c)))), [confirmadas, ocultas, enVistaIntrusion]);
@@ -166,7 +200,12 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
         for (const a of alarmas) if (!ocultas.has(a.id)) m.set(a.deviceId, [...(m.get(a.deviceId) || []), a]);
         return [...m.entries()].map(([deviceId, lista]) => ({ deviceId, lista: lista.sort((x, y) => y.ts.localeCompare(x.ts)) })).sort((x, y) => y.lista[0].ts.localeCompare(x.lista[0].ts));
     }, [alarmas, ocultas]);
-    const visible = soloLectura ? (porCamara.length > 0 || confirmadasVisibles.length > 0) : (porCamara.length > 0 && !enMonitor);
+    /** De una cámara con detecciones pendientes, la clave de la más nueva: la que se toma y se pasa. */
+    const claveDe = (c: { lista: Alarma[] }) => `d:${c.lista[0].id}`;
+    const ajena = (clave: string) => { const o = ops[clave]; return (!!o?.operador && !o.soyYo) || pasadas.has(clave); };
+    const pendientesAjenas = soloLectura ? [] : porCamara.filter((c) => ajena(claveDe(c)));
+    const porCamaraMias = soloLectura ? porCamara : porCamara.filter((c) => !ajena(claveDe(c)));
+    const visible = !ficha && (soloLectura ? (porCamara.length > 0 || confirmadasVisibles.length > 0) : (porCamaraMias.length > 0 && !enMonitor));
     /** Pared con la ventana cerrada a mano y la alarma todavía vigente: la píldora para volver a verla. */
     const quedanOcultas = soloLectura && !visible && !enVistaIntrusion && (alarmas.length > 0 || confirmadas.length > 0);
     const cerrar = () => setOcultas((o) => new Set([...o, ...alarmas.map((a) => a.id), ...confirmadas.map(claveConfirmada)]));
@@ -188,7 +227,7 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
             await ackAlarms(deviceId, kind);
             if (kind === "real") await setAttending(deviceId, true).catch(() => null);
             setAlarmas((prev) => prev.filter((a) => a.deviceId !== deviceId));
-        } finally { setResolviendo(null); if (soloLectura) releer(); }
+        } finally { setResolviendo(null); releer(); }
     };
     /** Cerrar una confirmada desde la pared: resuelta la deja como real; falsa corrige el registro. */
     const cerrarConfirmada = async (deviceId: string, como: "resuelta" | "falsa") => {
@@ -200,6 +239,114 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
         } finally { setResolviendo(null); releer(); }
     };
 
+    /*
+     * La intrusión REAL en curso (16/10, Nico: «debe ser un evento llamativo, que debe ser
+     * desactivado; es un evento grave»). Hasta acá, al decir «Intrusión real: la atiendo» la
+     * ventana se cerraba y lo único que quedaba era el borde del canal en el monitor de intrusión:
+     * en cualquier otra pantalla la intrusión en curso desaparecía. Ahora queda una barra roja
+     * que late arriba de todo, en todas las pantallas del panel, con los bordes respirando y un
+     * pitido cada tanto, hasta que alguien la DESACTIVA (resuelta) o la corrige (era falsa).
+     * Desactivar pide confirmar: es una decisión, no un clic al pasar.
+     */
+    const barraVisible = !soloLectura && (confirmadas.length > 0 || pendientesAjenas.length > 0) && !visible && !ficha;
+
+    /** «Ver evento»: si nadie la tiene, la tomo; y se abre la ficha de intrusión ahí mismo. */
+    const verEvento = (d: { id: string | null; deviceId: string; deviceName?: string | null; type: string; label?: string | null; ts: string | null; snapshotPath?: string | null }, confirmada: boolean, clave: string) => {
+        if (!ops[clave]?.operador) void tomarGestion(clave, d.deviceId).then(() => setPulsoOps((n) => n + 1));
+        setPasadas((p) => { const n = new Set(p); n.delete(clave); return n; });
+        setFicha({ confirmada, det: {
+            id: d.id || `live-${d.deviceId}`, deviceId: d.deviceId, deviceName: d.deviceName || nombres[d.deviceId] || null, type: d.type, eventType: null,
+            snapshotPath: (d.id && snapshots[d.id]) || d.snapshotPath || null, timestamp: d.ts || new Date().toISOString(), label: d.label || null,
+            acknowledged: confirmada, ackKind: confirmada ? "real" : null,
+        } });
+    };
+    const tomar = async (clave: string, deviceId: string) => { setPasadas((p) => { const n = new Set(p); n.delete(clave); return n; }); await tomarGestion(clave, deviceId).catch(() => null); setPulsoOps((n) => n + 1); };
+    const pasar = async (clave: string, deviceId: string) => { setPasadas((p) => new Set(p).add(clave)); await pasarGestion(clave, null, deviceId).catch(() => null); setPulsoOps((n) => n + 1); };
+    /** El renglón de quién la opera, y el botón que corresponde (tomar o pasar). */
+    const quienOpera = (clave: string) => { const o = ops[clave]; return o?.soyYo ? "La atendés vos" : o?.operador ? `La atiende ${o.operador}` : pasadas.has(clave) ? "La pasaste: esperando que la tome otro" : "Nadie la tomó"; };
+    const botonOperar = (clave: string, deviceId: string) => ops[clave]?.soyYo
+        ? <button onClick={() => pasar(clave, deviceId)} title="Pasarla: queda libre para que la tome otro compañero" className="h-9 px-3 rounded-[9px] bg-white/15 hover:bg-white/25 text-[12.5px] font-bold shrink-0 inline-flex items-center gap-1.5"><ArrowRightLeft size={14} /> Pasar</button>
+        : <button onClick={() => tomar(clave, deviceId)} title={ops[clave]?.operador ? `Tomarla: la tiene ${ops[clave].operador}` : "Tomarla: queda a tu nombre"} className="h-9 px-3 rounded-[9px] bg-white/15 hover:bg-white/25 text-[12.5px] font-bold shrink-0 inline-flex items-center gap-1.5"><Hand size={14} /> Tomar</button>;
+    useEffect(() => {
+        if (!barraVisible || silencio) return;
+        pitido(false);
+        const iv = setInterval(() => pitido(false), INTERVALO_SONIDO_REAL_MS);
+        return () => clearInterval(iv);
+    }, [barraVisible, silencio]);
+    const [aConfirmar, setAConfirmar] = useState<string | null>(null);
+    useEffect(() => { if (!aConfirmar) return; const t = setTimeout(() => setAConfirmar(null), 5000); return () => clearTimeout(t); }, [aConfirmar]);
+    const cambiarSilencio = () => { const v = !silencio; setSilencio(v); try { localStorage.setItem("oa.intrusion.silencio", v ? "1" : "0"); } catch { } };
+
+    const barra = barraVisible ? (
+        <>
+            <div aria-hidden className="fixed inset-0 z-[2370] pointer-events-none respirar-intrusion-suave" />
+            <div role="alert" aria-live="assertive" className="fixed top-3 left-1/2 -translate-x-1/2 z-[2380] w-[min(980px,calc(100vw-24px))] flex flex-col gap-1.5">
+                {confirmadas.slice(0, 3).map((c, i) => {
+                    const fotoC = getImagePath(c.snapshotPath) || `/api/snapshot/${c.deviceId}?t=${Math.floor(Date.now() / 60000)}`;
+                    const conf = aConfirmar === c.deviceId;
+                    return (
+                        <div key={c.deviceId} className={cn("barra-intrusion-real flex items-center gap-3 rounded-[14px] bg-[var(--mal)] text-white pl-1.5 pr-2 py-1.5 shadow-2xl", i > 0 && "opacity-95")}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={fotoC} alt="" className="w-[88px] aspect-video rounded-[9px] object-cover bg-black shrink-0" />
+                            <span className="grid h-9 w-9 place-items-center rounded-full bg-white/15 shrink-0 respirar-icono"><ShieldAlert size={19} /></span>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/80">Intrusión real en curso</div>
+                                <div className="text-[15px] font-extrabold leading-tight truncate">
+                                    {c.deviceName}<span className="font-semibold text-white/85"> · {TIPOS[c.type] || TIPOS.OTHER}{c.label && CLASES[c.label] ? ` · ${CLASES[c.label]}` : ""}{c.ts ? ` · ${hace(c.ts)}` : ""}</span>
+                                </div>
+                                {c.clave && <div className="text-[11px] font-semibold text-white/85 inline-flex items-center gap-1 truncate max-w-full"><UserRound size={11} /> {quienOpera(c.clave)}</div>}
+                            </div>
+                            {i === 0 && (
+                                <button onClick={cambiarSilencio} title={silencio ? "Activar el sonido" : "Silenciar (la alarma sigue)"} aria-label={silencio ? "Activar el sonido" : "Silenciar"}
+                                    className="h-9 w-9 grid place-items-center rounded-full bg-white/15 hover:bg-white/25 shrink-0">{silencio ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>
+                            )}
+                            <button onClick={() => verEvento(c, true, c.clave || `c:${c.deviceId}`)} title="Ver el evento: la ficha de intrusión, acá mismo"
+                                className="h-9 px-3 rounded-[9px] bg-white/15 hover:bg-white/25 text-[12.5px] font-bold shrink-0 inline-flex items-center gap-1.5"><Eye size={14} /> Ver evento</button>
+                            {c.clave && botonOperar(c.clave, c.deviceId)}
+                            <button onClick={() => cerrarConfirmada(c.deviceId, "falsa")} disabled={!!resolviendo} title="No era real: se corrige en el historial"
+                                className="h-9 px-3 rounded-[9px] bg-white/15 hover:bg-white/25 text-[12.5px] font-bold shrink-0 disabled:opacity-50">Era falsa</button>
+                            <button onClick={() => (conf ? (setAConfirmar(null), cerrarConfirmada(c.deviceId, "resuelta")) : setAConfirmar(c.deviceId))} disabled={!!resolviendo}
+                                className={cn("h-9 px-3.5 rounded-[9px] text-[12.5px] font-extrabold shrink-0 inline-flex items-center gap-1.5 disabled:opacity-50 transition-colors", conf ? "bg-black text-white ring-2 ring-white" : "bg-white text-[var(--mal)] hover:bg-white/90")}>
+                                {resolviendo === c.deviceId ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} {conf ? "¿Resuelta? Desactivar" : "Desactivar"}
+                            </button>
+                        </div>
+                    );
+                })}
+                {confirmadas.length > 3 && <span className="self-center px-3 h-7 inline-flex items-center rounded-full bg-[var(--mal)] text-white text-[12px] font-bold">y {confirmadas.length - 3} cámaras más con intrusión real</span>}
+                {/* Detecciones sin confirmar que ya tomó otro compañero (o que pasé): no se imponen, quedan acá. */}
+                {pendientesAjenas.slice(0, 3).map((c) => {
+                    const a = c.lista[0], clave = claveDe(c);
+                    const fotoA = getImagePath(snapshots[a.id] || a.snapshotPath) || `/api/snapshot/${c.deviceId}?t=${Math.floor(Date.now() / 60000)}`;
+                    return (
+                        <div key={`p-${c.deviceId}`} className="flex items-center gap-3 rounded-[14px] bg-[color-mix(in_oklab,var(--mal)_82%,black)] text-white pl-1.5 pr-2 py-1.5 shadow-2xl">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={fotoA} alt="" className="w-[88px] aspect-video rounded-[9px] object-cover bg-black shrink-0" />
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/75">Intrusión detectada · sin confirmar</div>
+                                <div className="text-[14px] font-extrabold leading-tight truncate">{a.deviceName || nombres[c.deviceId] || "Cámara"}<span className="font-semibold text-white/80"> · {TIPOS[a.type] || TIPOS.OTHER} · {hace(a.ts)}</span></div>
+                                <div className="text-[11px] font-semibold text-white/85 inline-flex items-center gap-1"><UserRound size={11} /> {quienOpera(clave)}</div>
+                            </div>
+                            <button onClick={() => verEvento({ ...a, ts: a.ts }, false, clave)} className="h-9 px-3 rounded-[9px] bg-white/15 hover:bg-white/25 text-[12.5px] font-bold shrink-0 inline-flex items-center gap-1.5"><Eye size={14} /> Ver evento</button>
+                            {botonOperar(clave, c.deviceId)}
+                        </div>
+                    );
+                })}
+            </div>
+            <style jsx global>{`
+                @keyframes respirar-intrusion-suave {
+                    0%, 100% { box-shadow: inset 0 0 0 0 rgba(239, 68, 68, 0); }
+                    50% { box-shadow: inset 0 0 0 4px rgba(239, 68, 68, 0.85), inset 0 0 90px 20px rgba(239, 68, 68, 0.25); }
+                }
+                .respirar-intrusion-suave { animation: respirar-intrusion-suave 2.2s ease-in-out infinite; }
+                @keyframes barra-intrusion-real { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.0), 0 18px 40px rgba(0,0,0,.35); } 50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.35), 0 18px 40px rgba(0,0,0,.35); } }
+                .barra-intrusion-real { animation: barra-intrusion-real 1.6s ease-in-out infinite; }
+                @keyframes respirar-icono { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.08); opacity: 0.85; } }
+                .respirar-icono { animation: respirar-icono 2.2s ease-in-out infinite; }
+                @media (prefers-reduced-motion: reduce) { .respirar-intrusion-suave, .barra-intrusion-real, .respirar-icono { animation: none; } }
+            `}</style>
+        </>
+    ) : null;
+
     if (quedanOcultas) {
         const total = new Set([...alarmas.map((a) => a.deviceId), ...confirmadas.map((c) => c.deviceId)]).size;
         return (
@@ -209,14 +356,18 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
             </button>
         );
     }
-    if (!visible) return null;
+    const fichaEl = ficha ? (
+        <FichaDeteccion det={ficha.det} cam={camsInfo[ficha.det.deviceId]} geom={geomFicha} zCapa={2450} onClose={() => setFicha(null)}
+            hasAlarm={!ficha.confirmada} onResolveAlarm={(id, k) => { setFicha(null); void resolver(id, k); }}
+            enAtencion={ficha.confirmada} onCerrarAtencion={(id, como) => { setFicha(null); void cerrarConfirmada(id, como); }} />
+    ) : null;
+    if (!visible) return <>{barra}{fichaEl}</>;
     // En la pared, sin pendientes, se muestra la confirmada más reciente.
-    const confirmada = porCamara.length === 0 ? confirmadasVisibles[0] : null;
-    const actual = porCamara[0] || { deviceId: confirmada!.deviceId, lista: [{ id: confirmada!.id || confirmada!.deviceId, deviceId: confirmada!.deviceId, type: confirmada!.type, ts: confirmada!.ts || new Date().toISOString(), deviceName: confirmada!.deviceName, snapshotPath: confirmada!.snapshotPath } as Alarma] };
+    const confirmada = porCamaraMias.length === 0 ? confirmadasVisibles[0] : null;
+    const actual = porCamaraMias[0] || { deviceId: confirmada!.deviceId, lista: [{ id: confirmada!.id || confirmada!.deviceId, deviceId: confirmada!.deviceId, type: confirmada!.type, ts: confirmada!.ts || new Date().toISOString(), deviceName: confirmada!.deviceName, snapshotPath: confirmada!.snapshotPath } as Alarma] };
     const primera = actual.lista[0];
     const nombre = primera.deviceName || nombres[actual.deviceId] || "Cámara";
     const foto = getImagePath(snapshots[primera.id] || primera.snapshotPath) || `/api/snapshot/${actual.deviceId}?t=${Math.floor(Date.now() / 15000)}`;
-    const hace = (ts: string) => { const s = Math.max(0, Math.round((Date.now() - new Date(ts).getTime()) / 1000)); return s < 60 ? `hace ${s} s` : s < 3600 ? `hace ${Math.round(s / 60)} min` : `hace ${Math.round(s / 3600)} h`; };
 
     return (
         <>
@@ -236,6 +387,7 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
                                 <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-red-200">{confirmada ? "Intrusión confirmada · sin resolver" : soloLectura ? "Intrusión detectada · esperando confirmación en el panel" : "Intrusión · requiere confirmación"}</div>
                                 <div className="text-xl font-extrabold text-white leading-tight truncate">{TIPOS[primera.type] || TIPOS.OTHER}{primera.label && CLASES[primera.label] ? ` · ${CLASES[primera.label]}` : ""}</div>
                                 <div className="text-[13px] text-white/80 truncate">{nombre} · {hace(primera.ts)}{actual.lista.length > 1 ? ` · ${actual.lista.length} detecciones en esta cámara` : ""}</div>
+                                {!soloLectura && <div className="text-[12px] font-semibold text-white/85 inline-flex items-center gap-1"><UserRound size={12} /> {quienOpera(`d:${primera.id}`)}</div>}
                             </div>
                             <div className="ml-auto flex items-center gap-2 shrink-0">
                                 <button onClick={() => { const v = !silencio; setSilencio(v); try { localStorage.setItem("oa.intrusion.silencio", v ? "1" : "0"); } catch { } }} title={silencio ? "Activar sonido" : "Silenciar (la alerta sigue)"} aria-label={silencio ? "Activar sonido" : "Silenciar"} className={cn("grid place-items-center rounded-full bg-black/40 hover:bg-black/70 text-white/80 active:scale-95 transition-transform", soloLectura ? "h-12 w-12" : "h-9 w-9")}>{silencio ? <VolumeX size={soloLectura ? 22 : 16} /> : <Volume2 size={soloLectura ? 22 : 16} />}</button>
@@ -266,7 +418,9 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
                             {(!soloLectura || (decide && !confirmada)) && (
                                 <div className="flex flex-wrap items-center gap-2 shrink-0">
                                     {/* Era una frase subrayada y la guardia no la veía como algo que se toca (15/10): ahora es un botón más. */}
-                                    {!soloLectura && <button onClick={() => router.push("/admin/monitor-intrusion")} title="Vivo, grabación completa y las otras cámaras" className="inline-flex items-center gap-1.5 px-4 h-11 rounded-[10px] bg-white/10 hover:bg-white/20 text-white text-[13px] font-bold ring-1 ring-white/15"><MonitorPlay size={15} /> Ver en el monitor</button>}
+                                    {/* «Ver evento» (16/10): la ficha de intrusión acá mismo, y la tomo si nadie la tenía. Era «Ver en el monitor», que sacaba de la pantalla. */}
+                                    {!soloLectura && <button onClick={() => verEvento({ ...primera, ts: primera.ts }, false, `d:${primera.id}`)} title="La ficha de la detección: captura, grabación y lo que vio OmniVision" className="inline-flex items-center gap-1.5 px-4 h-11 rounded-[10px] bg-white/10 hover:bg-white/20 text-white text-[13px] font-bold ring-1 ring-white/15"><Eye size={15} /> Ver evento</button>}
+                                    {!soloLectura && ops[`d:${primera.id}`]?.soyYo && <button onClick={() => pasar(`d:${primera.id}`, actual.deviceId)} title="Pasarla: queda libre para que la tome otro compañero" className="inline-flex items-center gap-1.5 px-4 h-11 rounded-[10px] bg-white/10 hover:bg-white/20 text-white text-[13px] font-bold ring-1 ring-white/15"><ArrowRightLeft size={15} /> Pasar</button>}
                                     <button onClick={() => resolver(actual.deviceId, "false")} disabled={!!resolviendo} className="inline-flex items-center gap-1.5 px-5 h-11 rounded-[10px] bg-white/10 hover:bg-white/20 text-amber-200 text-[13px] font-extrabold ring-1 ring-white/15 disabled:opacity-50">{resolviendo === actual.deviceId ? <Loader2 size={15} className="animate-spin" /> : <X size={15} />} Falsa alarma</button>
                                     <button onClick={() => resolver(actual.deviceId, "real")} disabled={!!resolviendo} className="inline-flex items-center gap-2 px-6 h-11 rounded-[10px] bg-[var(--mal)] hover:opacity-90 text-white text-[14px] font-extrabold disabled:opacity-50"><Check size={17} /> Intrusión real: la atiendo</button>
                                 </div>

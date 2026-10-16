@@ -2164,3 +2164,9 @@ video::-webkit-media-controls { display: none !important; }
   60%      { box-shadow: 0 0 0 12px color-mix(in oklab, var(--mal) 0%, transparent); }
 }
 .mi-requerida { animation: miRequerida 1.5s ease-out infinite; }
+
+/* Aparecer: el contenido nuevo de una pestaña entra con un fundido y un desliz de 6 px.
+   Leve a propósito: se nota que cambió, no se mira la animación. */
+@keyframes oa-aparecer { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.oa-aparecer { animation: oa-aparecer 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) { .oa-aparecer { animation: none; } }

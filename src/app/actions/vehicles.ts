@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { EQUIPO_PUBLICO } from "@/lib/equipo-publico";
 import { Prisma, Vehicle } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 
@@ -176,7 +177,7 @@ export async function getVehicleHistory(plate: string) {
                 ]
             },
             include: {
-                device: true,
+                device: { select: EQUIPO_PUBLICO },
                 user: true
             },
             orderBy: {

@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
     const umbral = leerUmbral(umbralCrudo?.value);
     const eventos = filas.length ? await prisma.accessEvent.findMany({
         where: { id: { in: filas.map((f) => f.accessEventId) } },
-        select: { id: true, timestamp: true, plateDetected: true, decision: true, direction: true, snapshotPath: true, device: { select: { name: true } } },
+        select: { id: true, timestamp: true, plateDetected: true, decision: true, direction: true, snapshotPath: true, imagePath: true, device: { select: { name: true } } },
     }) : [];
     const evento = new Map(eventos.map((e) => [e.id, e]));
     const enRangoTodas = filas.filter((f) => { const e = evento.get(f.accessEventId); return !!e && e.timestamp >= desde; });
@@ -62,14 +62,16 @@ export async function GET(req: NextRequest) {
     const esDoble = (f: { candidatos: any }) => !!(f.candidatos && (f.candidatos as any).doble);
     const enRango = enRangoTodas.filter((f) => !esDoble(f));
     const doble = { total: 0, coincide: 0, casi: 0, difiere: 0, sin: 0 };
+    /** El veredicto de cada doble verificación: la chapa de la cámara contra la de OmniVision. */
+    const comparacion = new Map<string, "coincide" | "casi" | "difiere" | "sin">();
     for (const f of enRangoTodas) {
         if (!esDoble(f)) continue;
         const c = compararLectura(evento.get(f.accessEventId)?.plateDetected, { plate: f.plate, estado: estadoConUmbral(f.estado, f.confianza, umbral), confianza: f.confianza });
-        doble.total++; if (c) doble[c.estado]++;
+        doble.total++; if (c) { doble[c.estado]++; comparacion.set(f.id, c.estado); }
     }
 
     // ¿La vio otra cámara? Una consulta para todas las chapas sugeridas.
-    const sugeridas = [...new Set(enRango.map((f) => f.plate).filter(Boolean))] as string[];
+    const sugeridas = [...new Set(enRangoTodas.map((f) => f.plate).filter(Boolean))] as string[];
     const lecturas = sugeridas.length ? await prisma.accessEvent.findMany({
         where: { plateDetected: { in: sugeridas }, timestamp: { gte: new Date(desde.getTime() - OTRA_LECTURA_H * 3600_000) } },
         select: { id: true, plateDetected: true, timestamp: true, device: { select: { name: true } } },
@@ -81,22 +83,34 @@ export async function GET(req: NextRequest) {
     // Para elegir el umbral con datos: con cada valor, cuántas serían acertadas y cuántas de ésas
     // confirmó otra cámara o el guardia (lo único que dice si una relectura estaba bien).
     const porUmbral = OPCIONES_UMBRAL.map((u) => ({ umbral: u, acertadas: 0, confirmadas: 0 }));
-    const lista = enRango.map((f) => {
+    /*
+     * La grilla es comparativa (16/10, Nico: «dos cuadros, uno con lo que leyó la cámara y otro lo
+     * que leyó OmniVision»): cada fila lleva lo que leyó la cámara (`camaraLeyo`, null si no leyó)
+     * y su recorte de chapa si lo mandó. Por eso entran también las de doble verificación, que son
+     * justamente las que la cámara SÍ leyó; los números de arriba las siguen contando aparte.
+     */
+    const lista = enRangoTodas.map((f) => {
         const e = evento.get(f.accessEventId);
+        const esD = esDoble(f);
         const estadoF = estadoConUmbral(f.estado, f.confianza, umbral);
-        if (estadoF === "LEIDA") conteo.leidas++; else if (estadoF === "DUDOSA") conteo.dudosas++;
-        else if (estadoF === "SIN_CHAPA") conteo.sinChapa++; else if (estadoF === "SIN_VEHICULO") conteo.sinVehiculo++;
-        else if (estadoF === "SIN_FOTO") conteo.sinFoto++; else conteo.errores++;
         const t = e?.timestamp.getTime() ?? f.createdAt.getTime();
         const otra = f.plate ? (porChapa.get(f.plate) || []).find((l) => l.id !== f.accessEventId && Math.abs(l.timestamp.getTime() - t) <= OTRA_LECTURA_H * 3600_000) : undefined;
-        if (otra) conteo.confirmadasOtraCamara++;
-        // Lo que hizo el guardia: el evento ya no es NO_LEIDA si cargó la matrícula a mano.
         const actual = e?.plateDetected || null;
-        const corregido = actual && !NO_LEIDAS.includes(actual) ? actual : null;
-        if (corregido && f.plate) { if (corregido === f.plate) conteo.guardiaIgual++; else conteo.guardiaDistinta++; }
-        if (f.plate && f.confianza != null) for (const o of porUmbral) if (f.confianza >= o.umbral) { o.acertadas++; if (otra || (corregido && corregido === f.plate)) o.confirmadas++; }
+        // Lo que hizo el guardia: el evento ya no es NO_LEIDA si cargó la matrícula a mano. En la
+        // doble verificación la chapa del evento es la de la cámara, no una corrección.
+        const corregido = !esD && actual && !NO_LEIDAS.includes(actual) ? actual : null;
+        if (!esD) {
+            if (estadoF === "LEIDA") conteo.leidas++; else if (estadoF === "DUDOSA") conteo.dudosas++;
+            else if (estadoF === "SIN_CHAPA") conteo.sinChapa++; else if (estadoF === "SIN_VEHICULO") conteo.sinVehiculo++;
+            else if (estadoF === "SIN_FOTO") conteo.sinFoto++; else conteo.errores++;
+            if (otra) conteo.confirmadasOtraCamara++;
+            if (corregido && f.plate) { if (corregido === f.plate) conteo.guardiaIgual++; else conteo.guardiaDistinta++; }
+            if (f.plate && f.confianza != null) for (const o of porUmbral) if (f.confianza >= o.umbral) { o.acertadas++; if (otra || (corregido && corregido === f.plate)) o.confirmadas++; }
+        }
         const c: any = f.candidatos || {};
         return {
+            doble: esD, camaraLeyo: esD && actual && !NO_LEIDAS.includes(actual) ? actual : null,
+            fotoChapaCamara: e?.imagePath || null, comparacion: comparacion.get(f.id) || null,
             id: f.id, eventoId: f.accessEventId, ts: (e?.timestamp || f.createdAt).toISOString(),
             camara: e?.device?.name || null, sentido: e?.direction || null, decision: e?.decision || null,
             foto: e?.snapshotPath || null,

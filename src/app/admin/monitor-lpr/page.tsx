@@ -22,6 +22,8 @@ import { getAnalyticsGeometryBatch, type DetItem } from "@/app/actions/detection
 import {
     Car,
     CheckCircle2,
+    Ban,
+    Siren,
     XCircle,
     Clock,
     TrendingUp,
@@ -60,7 +62,7 @@ import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getCarLogo } from "@/lib/car-logos";
-import { marcaDeEvento, AVISO_MARCA_CAMARA } from "@/lib/marca-vehiculo";
+import { marcaDeEvento, AVISO_MARCA_CAMARA, useMarcasCamara, datoDeCamara } from "@/lib/marca-vehiculo";
 import { MarcaFormatoChapa } from "@/components/ui/MarcaFormatoChapa";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
 import { rotuloLectura } from "@/lib/lectura-metodo";
@@ -79,6 +81,7 @@ import { watchCatMeta } from "@/lib/watch-categories";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
 import { RegistrarMatricula } from "@/components/registro/RegistrarMatricula";
+import { Filtros } from "@/components/ui/filtros";
 import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 
 /** Matrícula → logo de su empresa (ver logosPorMatricula). */
@@ -286,7 +289,7 @@ function PlateCommandBar() {
     }, []);
     const go = (path: string) => { setOpen(false); router.push(path); };
     return (
-        <div ref={boxRef} className="relative flex-1 max-w-md mx-4 hidden md:block">
+        <div ref={boxRef} className="relative flex-1 min-w-[180px] max-w-md hidden md:block">
             <div className="relative">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input value={q}
@@ -343,7 +346,8 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
     const anomalous = !plate || ["NO_LEIDA", "unknown", "S/P"].includes(plate || "");
     const relHero = useRelectura(ev);
     const chHero = chapaDe(plate, relHero);
-    const marca = (String(ev.details || "").match(/Marca:\s*([^,]+)/)?.[1] || "").trim();
+    // Padrón primero; la de la cámara sólo con LPR_MARCAS prendida (lib/marca-vehiculo).
+    const marca = marcaDeEvento(ev, (String(ev.details || "").match(/Marca:\s*([^,]+)/)?.[1] || "").trim())?.marca || "";
     const crop = getImagePath((String(ev.details || "").match(/PlateCrop:\s*([^,]+)/)?.[1] || "").trim()) || "";
     const sentido = ev.direction;
     const watch = (ev as any).watch || (watchMap && ev.plateDetected ? watchMap[String(ev.plateDetected).toUpperCase()] : null);
@@ -470,6 +474,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     const router = useRouter();
     const meta = parseMeta(event.details);
     // Padrón primero; la de la cámara, atenuada (lib/marca-vehiculo).
+    useMarcasCamara();
     const marcaEv = marcaDeEvento(event, meta.Marca);
     const logoUrl = getCarLogo(marcaEv?.marca);
     const fullImageUrl = getImagePath(event.snapshotPath || event.imagePath) || "";
@@ -525,7 +530,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                         {watch?.motivo && <p className={cn("text-[11px] font-semibold mt-1 truncate", watchMeta?.text)} title={watch.motivo}>{watch.motivo}</p>}
                         {isAnomalous && relCard?.plate && <div className="mt-1"><SugerenciaRelectura r={relCard} soloContexto /></div>}
                         <div className="flex items-center gap-2 mt-1">
-                            {meta.Marca && <span className="text-[10px] text-muted-foreground font-semibold">{meta.Marca}{(meta.Modelo || meta.Tipo) ? ` · ${meta.Modelo || meta.Tipo}` : ""}</span>}
+                            {(marcaEv || meta.Tipo) && <span className="text-[10px] text-muted-foreground font-semibold">{[marcaEv?.marca, marcaEv ? (datoDeCamara(meta.Modelo) || meta.Tipo) : meta.Tipo].filter(Boolean).join(" · ")}</span>}
                             {event.user?.name && (<span className="text-[10px] text-blue-400 truncate">{event.user.name}</span>)}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
@@ -825,8 +830,6 @@ export default function MonitorLPR() {
     const [filterVehType, setFilterVehType] = useState<string>("ALL");
     const [stats, setStats] = useState({ total: 0, grants: 0, denies: 0 });
     const [aforo, setAforo] = useState({ entradas: 0, salidas: 0, inside: 0 });
-    // "Adentro" = autos en casa = plazas ocupadas / total (getPresenceSummary)
-    const [presence, setPresence] = useState({ adentro: 0, total: 0 });
     const [lastCapByDev, setLastCapByDev] = useState<Record<string, any>>({});
     const [isConnected, setIsConnected] = useState(false);
     const [devices, setDevices] = useState<Device[]>([]);
@@ -878,7 +881,6 @@ export default function MonitorLPR() {
             const todayStats = await getEventsCountToday("PLATE");
             setStats(todayStats);
             getLprCounters().then(setAforo).catch(() => {});
-            getPresenceSummary().then((p) => setPresence({ adentro: p.adentro, total: p.total })).catch(() => {});
         } catch (error) {
             console.error("Error loading LPR data:", error);
         }
@@ -906,6 +908,16 @@ export default function MonitorLPR() {
     const [soundOn, setSoundOn] = useState(true);
     const soundOnRef = useRef(true);
     useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
+    // Las ventanitas de intrusión (16/10): se prenden y se apagan como las de anomalías; se
+    // recuerda en este navegador. Apagarlas no apaga la alarma global: sólo las de esta pantalla.
+    const [intrPopups, setIntrPopups] = useState(true);
+    const intrPopupsRef = useRef(true);
+    useEffect(() => { try { const v = localStorage.getItem("oa.lpr.intrusionPopups"); if (v != null) { setIntrPopups(v === "1"); intrPopupsRef.current = v === "1"; } } catch { } }, []);
+    const cambiarIntrPopups = (v: boolean) => {
+        setIntrPopups(v); intrPopupsRef.current = v;
+        try { localStorage.setItem("oa.lpr.intrusionPopups", v ? "1" : "0"); } catch { }
+        if (!v) setCriticals((prev) => prev.filter((x) => x.kind !== "intrusion"));
+    };
     const audioCtxRef = useRef<any>(null);
     const lastAlertRef = useRef<Record<string, number>>({});
     // Los interruptores de cada pestaña de Usuarios («Cómo se comporta»): color propio y sonido
@@ -1050,6 +1062,7 @@ export default function MonitorLPR() {
         const NOMBRE_DETECCION: Record<string, string> = { LINECROSS: "Cruce de línea", INTRUSION: "Intrusión en zona", REGION_ENTER: "Entró a la zona", REGION_EXIT: "Salió de la zona" };
         newSocket.on("general_detection", (a: any) => {
             if (!a?.id || a.type === "MOTION") return;
+            if (!intrPopupsRef.current) return;
             setCriticals((prev) => prev.some((x) => x.id === a.id) ? prev : [{ id: a.id, kind: "intrusion", timestamp: a.timestamp || new Date().toISOString(), deviceId: a.deviceId || null, type: a.type, label: a.label || null, deviceName: a.deviceName, details: NOMBRE_DETECCION[a.type] || "Detección", snapshotPath: a.snapshotPath || null }, ...prev].slice(0, 24));
             if (soundOnRef.current) beep(true);
         });
@@ -1187,105 +1200,91 @@ export default function MonitorLPR() {
         <RelecturasCtx.Provider value={relecturas}>
         <TooltipProvider>
             <div className="h-full flex flex-col bg-background text-foreground">
-                {/* Header */}
-                <div className="px-6 py-4 border-b border-border flex items-center justify-between shrink-0">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-blue-500/10">
-                            <Car size={22} className="text-blue-400" />
-                        </div>
+                {/* Cabecera en dos renglones (16/10, Nico: «mejorá los filtros de arriba, no se
+                    entiende»). Arriba: qué pantalla es, el buscador de matrícula y las acciones.
+                    Abajo: los filtros de la lista de lecturas, con los conteos de hoy adentro de cada
+                    opción en vez de un bloque de números sueltos (✓ / ✗) que no decía qué filtraba.
+                    Quién está adentro se mira en Gestión de alarmas y en la pared (Control LPR). */}
+                {/* Cabecera en UN renglón (16/10, Nico: «los controles de arriba están en varias filas;
+                    el buscador y los filtros tienen que caber en la misma»): qué pantalla es, el
+                    buscador, los filtros de la lista —permitidas y denegadas con su ícono y su
+                    número— y las acciones. Lo que se prende y se apaga (anomalías, intrusiones,
+                    sonido) es sólo ícono; Detecciones y Lista negra conservan el rótulo. */}
+                <div className="px-6 py-3 border-b border-border shrink-0 flex items-center gap-3">
+                    <div className="flex items-center gap-3 shrink-0">
+                        <span className="grid place-items-center w-10 h-10 rounded-[10px] bg-muted/60 text-[var(--accion)]">
+                            <Car size={20} />
+                        </span>
                         <div>
-                            <h1 className="text-lg font-bold">Monitor LPR</h1>
-                            <p className="text-xs text-muted-foreground">Reconocimiento de matrículas en tiempo real</p>
+                            <h1 className="text-lg font-bold tracking-tight whitespace-nowrap">Monitor LPR</h1>
+                            <p className="text-xs text-muted-foreground hidden 2xl:block">Reconocimiento de matrículas en tiempo real</p>
                         </div>
                     </div>
 
                     <PlateCommandBar />
 
-                    <div className="flex items-center gap-2.5">
-                        {/* Métricas unificadas en un solo bloque */}
-                        <div className="flex items-center h-9 rounded-lg bg-card border border-border divide-x divide-border overflow-hidden">
-                            <span className="flex items-center gap-1.5 px-3 h-full" title="Autos en casa (plazas ocupadas / total)">
-                                <Home size={13} className="text-blue-400" />
-                                <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">En casa</span>
-                                <span className="font-bold text-blue-400 text-sm tabular-nums">{presence.adentro}<span className="text-muted-foreground font-normal text-[11px]">/{presence.total}</span></span>
-                            </span>
-                            <span className="flex items-center gap-1.5 px-3 h-full" title="Lecturas de hoy">
-                                <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">Hoy</span>
-                                <span className="font-bold text-foreground text-sm tabular-nums">{stats.total}</span>
-                            </span>
-                            <span className="flex items-center gap-1.5 px-3 h-full" title="Permitidos hoy">
-                                <CheckCircle2 size={13} className="text-emerald-400" />
-                                <span className="font-bold text-emerald-400 text-sm tabular-nums">{stats.grants}</span>
-                            </span>
-                            <span className="flex items-center gap-1.5 px-3 h-full" title="Denegados hoy">
-                                <XCircle size={13} className="text-red-400" />
-                                <span className="font-bold text-red-400 text-sm tabular-nums">{stats.denies}</span>
-                            </span>
-                        </div>
-
-                        {/* Filtro de decisión (segmentado) */}
-                        <div className="flex items-center h-9 bg-card border border-border rounded-lg p-0.5">
-                            {(["ALL", "GRANT", "DENY"] as const).map(f => (
-                                <button key={f} onClick={() => setActiveFilter(f)}
-                                    className={cn("px-2.5 h-full text-[11px] font-semibold rounded-md transition-all",
-                                        activeFilter === f ? "bg-blue-500 text-white shadow" : "text-muted-foreground hover:text-foreground")}>
-                                    {f === "ALL" ? "Todos" : f === "GRANT" ? "Permitidos" : "Denegados"}
-                                </button>
-                            ))}
-                        </div>
-
-                        {/* Filtros color / tipo */}
-                        {(vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
-                            <div className="flex items-center gap-1.5">
-                                {vehFacets.colors.length > 0 && (
-                                    <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)}
-                                        className="h-9 rounded-lg bg-card border border-border px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500">
-                                        <option value="ALL">Color</option>
-                                        {vehFacets.colors.map((c) => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                )}
-                                {vehFacets.types.length > 0 && (
-                                    <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)}
-                                        className="h-9 rounded-lg bg-card border border-border px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500">
-                                        <option value="ALL">Tipo</option>
-                                        {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
-                                    </select>
-                                )}
-                                {(filterColor !== "ALL" || filterVehType !== "ALL") && (
-                                    <button onClick={() => { setFilterColor("ALL"); setFilterVehType("ALL"); }}
-                                        className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent border border-border" title="Limpiar filtros">
-                                        <X size={14} />
-                                    </button>
-                                )}
-                            </div>
+                    <Filtros className="flex-nowrap shrink-0"
+                        grupos={[{
+                            clave: "resultado", titulo: "Lecturas de hoy, por resultado",
+                            valor: activeFilter, alElegir: (v) => setActiveFilter(v as any),
+                            opciones: [
+                                { valor: "ALL", rotulo: "Hoy", cuenta: stats.total },
+                                { valor: "GRANT", rotulo: "", titulo: "Permitidas", icono: CheckCircle2, cuenta: stats.grants, tono: "bien" },
+                                { valor: "DENY", rotulo: "", titulo: "Denegadas", icono: Ban, cuenta: stats.denies, tono: "mal" },
+                            ],
+                        }]}>
+                        {vehFacets.colors.length > 0 && (
+                            <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)} title="Color del vehículo"
+                                className={cn("h-[34px] rounded-lg bg-muted/60 border-0 px-3 text-[12px] font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--accion)]/40", filterColor === "ALL" ? "text-muted-foreground" : "text-foreground")}>
+                                <option value="ALL">Color</option>
+                                {vehFacets.colors.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </select>
                         )}
+                        {vehFacets.types.length > 0 && (
+                            <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)} title="Tipo de vehículo"
+                                className={cn("h-[34px] rounded-lg bg-muted/60 border-0 px-3 text-[12px] font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--accion)]/40", filterVehType === "ALL" ? "text-muted-foreground" : "text-foreground")}>
+                                <option value="ALL">Tipo</option>
+                                {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        )}
+                        {(activeFilter !== "ALL" || filterColor !== "ALL" || filterVehType !== "ALL") && (
+                            <button type="button" onClick={() => { setActiveFilter("ALL"); setFilterColor("ALL"); setFilterVehType("ALL"); }}
+                                className="h-[34px] w-[34px] rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-accent" title="Quitar los filtros" aria-label="Quitar los filtros">
+                                <X size={14} />
+                            </button>
+                        )}
+                    </Filtros>
 
-                        {/* Cluster de acciones (íconos) */}
-                        <div className="flex items-center h-9 bg-card border border-border rounded-lg divide-x divide-border overflow-hidden">
+                    <div className="flex items-center gap-2.5 shrink-0">
+                        {/* Las acciones: un solo grupo, un solo alto, la misma superficie que los filtros. */}
+                        <div className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5 gap-0.5">
                             {/* Las detecciones de las cámaras (cruces, zonas) vivían en la columna del centro; ahora en un cajón. */}
-                            <button onClick={() => setVerDetecciones(true)} title="Detecciones de las cámaras (cruces de línea, zonas)" className="relative h-full px-2.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                                <Radar size={16} />
+                            <button onClick={() => setVerDetecciones(true)} title="Detecciones de las cámaras (cruces de línea, zonas)" className="relative h-[30px] px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:bg-background transition-colors">
+                                <Radar size={15} /><span className="hidden 2xl:inline">Detecciones</span>
                                 {/* Cámaras que esperan una decisión (sin confirmar o confirmadas sin resolver). */}
-                                {(alarmas.porCamara.size + alarmas.atencion.size) > 0 && <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] px-1 rounded-full pleno-mal text-[8px] font-bold flex items-center justify-center">{new Set([...alarmas.porCamara.keys(), ...alarmas.atencion]).size}</span>}
+                                {(alarmas.porCamara.size + alarmas.atencion.size) > 0 && <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full pleno-mal text-[9px] font-bold flex items-center justify-center">{new Set([...alarmas.porCamara.keys(), ...alarmas.atencion]).size}</span>}
                             </button>
                             {/* Con el rótulo a la vista: sólo el escudo no se reconocía como la lista negra (San Nicolás, 15/10). */}
-                            <button onClick={() => setShowWatch(true)} title="Lista negra" className="relative h-full px-2.5 inline-flex items-center gap-1.5 text-muted-foreground hover:text-red-400 hover:bg-accent transition-colors">
-                                <ShieldAlert size={16} /><span className="hidden xl:inline text-[12px] font-semibold">Lista negra</span>
-                                {Object.keys(watchMap).length > 0 && <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">{Object.keys(watchMap).length}</span>}
+                            <button onClick={() => setShowWatch(true)} title="Lista negra" className="relative h-[30px] px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:bg-background transition-colors">
+                                <ShieldAlert size={15} /><span className="hidden 2xl:inline">Lista negra</span>
+                                {Object.keys(watchMap).length > 0 && <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full pleno-mal text-[9px] font-bold flex items-center justify-center tabular-nums">{Object.keys(watchMap).length}</span>}
                             </button>
-                            <button onClick={() => setPinEnabled(v => !v)} title={pinEnabled ? "Popup automático de anomalías: ACTIVADO" : "Popup automático de anomalías: desactivado"}
-                                className={cn("h-full px-2.5 transition-colors flex items-center gap-1.5", pinEnabled ? "bg-yellow-500/15 text-yellow-400" : "text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                            <button onClick={() => setPinEnabled(v => !v)} title={pinEnabled ? "Ventanitas de lecturas anómalas: prendidas" : "Ventanitas de lecturas anómalas: apagadas"} aria-pressed={pinEnabled}
+                                aria-label="Ventanitas de anomalías"
+                                className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", pinEnabled ? "bg-background tono-aviso" : "text-muted-foreground hover:text-foreground hover:bg-background")}>
                                 <AlertTriangle size={15} />
-                                <span className={cn("relative inline-flex h-4 w-7 items-center rounded-full transition-colors", pinEnabled ? "bg-yellow-500" : "bg-muted-foreground/30")}>
-                                    <span className={cn("inline-block h-3 w-3 transform rounded-full bg-white transition-transform", pinEnabled ? "translate-x-3.5" : "translate-x-0.5")} />
-                                </span>
                             </button>
-                            <button onClick={() => setSoundOn(s => !s)} title={soundOn ? "Silenciar alertas" : "Activar sonido"}
-                                className={cn("h-full px-2.5 transition-colors", soundOn ? "text-muted-foreground hover:text-foreground hover:bg-accent" : "bg-red-500/10 text-red-400")}>
-                                {soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                            {/* Las ventanitas de intrusión (cruces, zonas) a la derecha: se pueden apagar como las de anomalías. */}
+                            <button onClick={() => cambiarIntrPopups(!intrPopups)} title={intrPopups ? "Ventanitas de intrusión: prendidas" : "Ventanitas de intrusión: apagadas"} aria-pressed={intrPopups} aria-label="Ventanitas de intrusión"
+                                className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", intrPopups ? "bg-background tono-mal" : "text-muted-foreground hover:text-foreground hover:bg-background")}>
+                                <Siren size={15} />
                             </button>
-                            <button onClick={loadInitialData} title="Refrescar" className="h-full px-2.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                                <RefreshCw size={16} />
+                            <button onClick={() => setSoundOn(s => !s)} title={soundOn ? "Silenciar alertas" : "Activar sonido"} aria-pressed={!soundOn}
+                                className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", soundOn ? "text-muted-foreground hover:text-foreground hover:bg-background" : "bg-background tono-mal")}>
+                                {soundOn ? <Volume2 size={15} /> : <VolumeX size={15} />}
+                            </button>
+                            <button onClick={loadInitialData} title="Volver a pedir" className="h-[30px] w-[30px] rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors">
+                                <RefreshCw size={15} />
                             </button>
                         </div>
 

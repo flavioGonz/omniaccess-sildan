@@ -12,6 +12,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
     LayoutDashboard,
     Radar,
+    Siren,
     Users,
     Car,
     Settings,
@@ -53,6 +54,7 @@ import { hasAcuSeekNvr } from "@/app/actions/acuseek";
 import { logout } from "@/app/actions/auth";
 import AforoAlertOverlay from "@/components/AforoAlertOverlay";
 import AlertaIntrusionGlobal from "@/components/intrusion/AlertaIntrusionGlobal";
+import { CargarMarcasCamara } from "@/components/CargarMarcasCamara";
 import { VivoProvider } from "@/components/vivo/PanelVivo";
 
 interface SidebarItemProps {
@@ -63,7 +65,7 @@ interface SidebarItemProps {
     collapsed: boolean;
 }
 
-function SidebarItem({ icon, label, href, active, collapsed }: SidebarItemProps) {
+function SidebarItem({ icon, label, href, active, collapsed, insignia }: SidebarItemProps & { insignia?: number }) {
     return (
         <Link
             href={href}
@@ -79,6 +81,10 @@ function SidebarItem({ icon, label, href, active, collapsed }: SidebarItemProps)
             {!collapsed && (
                 <span className="whitespace-nowrap transition-opacity duration-300">{label}</span>
             )}
+            {/* Una cuenta que importa (lista negra): a la derecha, en rojo; plegado, un punto sobre el ícono. */}
+            {!!insignia && (collapsed
+                ? <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-[var(--mal)]" />
+                : <span className="ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full pleno-mal text-[10px] font-bold tabular-nums grid place-items-center">{insignia > 99 ? "99+" : insignia}</span>)}
             {collapsed && (
                 <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-popover border border-border text-popover-foreground text-[10px] uppercase font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 whitespace-nowrap">
                     {label}
@@ -89,6 +95,7 @@ function SidebarItem({ icon, label, href, active, collapsed }: SidebarItemProps)
 }
 
 import { getSetting } from "@/app/actions/settings";
+import { contarListaNegra } from "@/app/actions/watchlist";
 
 export default function AdminLayout({
     children,
@@ -121,6 +128,15 @@ export default function AdminLayout({
      */
     const [modulosListos, setModulosListos] = useState(false);
 
+    // La insignia de Lista negra: se relee al cambiar de pantalla (marcar o sacar una matrícula
+    // pasa en Usuarios, y al volver al menú ya se ve) y cada minuto.
+    const [enListaNegraN, setEnListaNegraN] = useState(0);
+    useEffect(() => {
+        const leer = () => contarListaNegra().then(setEnListaNegraN).catch(() => { });
+        leer();
+        const iv = setInterval(leer, 60_000);
+        return () => clearInterval(iv);
+    }, [pathname]);
     useEffect(() => {
         getEnabledModules().then(setModules).catch(() => { }).finally(() => setModulosListos(true));
         hasAcuSeekNvr().then(setAcuseekOk).catch(() => {});
@@ -196,6 +212,9 @@ export default function AdminLayout({
                     ) : (
                         ve("monitor") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-lpr" active={pathname === "/admin/monitor-lpr"} collapsed={collapsed} />)
                     )}
+                    {!modules.MODULE_QUEUE && (
+                        ve("monitor") && (<SidebarItem icon={<Siren size={18} />} label="Gestión de alarmas" href="/admin/alarmas" active={pathname === "/admin/alarmas"} collapsed={collapsed} />)
+                    )}
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
                         ve("intrusion") && (<SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />)
                     )}
@@ -219,7 +238,7 @@ export default function AdminLayout({
                             {ve("usuarios") && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users" && !enListaNegra} collapsed={collapsed} />)}
                             {/* Entrada propia (San Nicolás, 15/10): desde que la «Lista de vigilancia» pasó a ser una pestaña
                                 de Usuarios, la guardia no la encontraba. Es lo que más se busca con apuro. */}
-                            {ve("usuarios") && (<SidebarItem icon={<Ban size={18} />} label="Lista negra" href="/admin/users?tab=listanegra" active={enListaNegra} collapsed={collapsed} />)}
+                            {ve("usuarios") && (<SidebarItem icon={<Ban size={18} />} label="Lista negra" href="/admin/users?tab=listanegra" active={enListaNegra} collapsed={collapsed} insignia={enListaNegraN} />)}
                             {ve("unidades") && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
                             {/* Una sola entrada para toda la flota.
                                 Antes había tres —una por módulo—, y cada una llevaba su propio
@@ -361,6 +380,7 @@ export default function AdminLayout({
             {modulosListos && modules.MODULE_QUEUE && <AforoAlertOverlay />}
             {/* Intrusión confirmada por una cámara: respira en rojo en TODA la aplicación hasta que alguien decida real / falsa. */}
             <AlertaIntrusionGlobal />
+            <CargarMarcasCamara />
             <LiveEdgeKeeper />
 
             <style jsx global>{`

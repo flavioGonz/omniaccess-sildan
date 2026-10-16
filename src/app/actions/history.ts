@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { sinClaves } from "@/lib/equipo-publico";
 import { estaEnListaNegra, detalleListaNegra } from "@/lib/lista-negra";
 import { relecturasDe, esNoLeida, type RelecturaEvento } from "@/lib/relectura";
 
@@ -171,7 +172,7 @@ export async function getAccessEvents(options?: {
         // La vigilancia viaja con el evento también cuando se recarga desde la base: antes
         // sólo venía por el socket, y al recargar el monitor una lectura en lista negra
         // perdía el rojo y la pila crítica.
-        const conVigilancia = await adjuntarRelectura(await adjuntarVigilancia(events));
+        const conVigilancia = await adjuntarRelectura(await adjuntarVigilancia(events.map(sinCredenciales)));
 
         if (options?.omitEnrichment) {
             return { events: conVigilancia, total };
@@ -392,9 +393,22 @@ async function enrichEventsWithDuration(events: any[]) {
 }
 
 
+/**
+ * El equipo de un evento, sin su usuario ni su clave. `include: { device: true }` traía la fila
+ * entera del equipo —usuario y clave de la cámara incluidos— y una acción del servidor devuelve
+ * todo lo que retorna al navegador: el monitor LPR recibía las claves de las cámaras con cada
+ * página de lecturas (visto el 16/10 al revisar Gestión de alarmas).
+ */
+function sinCredenciales<T extends { device?: any }>(e: T): T {
+    if (!e?.device) return e;
+    return { ...e, device: sinClaves(e.device) };
+}
+
 export async function getAccessEvent(id: string) {
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession().catch(() => null))) return null;
     try {
-        return await prisma.accessEvent.findUnique({
+        const e = await prisma.accessEvent.findUnique({
             where: { id },
             include: {
                 user: {
@@ -403,6 +417,7 @@ export async function getAccessEvent(id: string) {
                 device: true
             }
         });
+        return e ? sinCredenciales(e) : null;
     } catch (error) {
         console.error("Error in getAccessEvent:", error);
         return null;

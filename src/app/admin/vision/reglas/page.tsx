@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Type, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
-    PersonStanding, Car, Truck, Bus, Motorbike, Bike, Dog, Backpack, ShoppingBag, Luggage, Armchair, Sofa, Sprout, Boxes, Gauge,
-    TriangleAlert, ScanEye, type LucideIcon,
+    Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
+    PersonStanding, Car, Bike, Dog, Backpack, Boxes, Gauge,
+    TriangleAlert, ScanEye, ChevronDown, Check, Layers, Maximize2, Copy, PanelRight, X, type LucideIcon,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,10 +19,12 @@ import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { EditorGeometria } from "@/components/vision/EditorGeometria";
 import {
-    TIPOS_REGLA, CLASES_REGLA, CLASES_OBJETO, CON_HORARIO, NOMBRE_CLASE_REGLA, TIPOS_EVENTO, duracionCorta,
+    TIPOS_REGLA, CLASES_OBJETO, CON_HORARIO, TIPOS_EVENTO, duracionCorta,
     type ReglaVision, type TipoRegla, type Punto,
 } from "@/lib/vision-reglas";
-import { listaPropias, nombrePropio, useNombresPropios } from "@/lib/nombres-propios";
+import { listaPropias, useNombresPropios } from "@/lib/nombres-propios";
+import { ElegirClases, nombreClase } from "@/components/vision/ElegirClases";
+import { CLASES as CLASES_CATALOGO, CLASE_POR_NOMBRE } from "@/lib/vision-catalogo";
 
 /**
  * Reglas de visión: conteo por línea, sentido contrario, tiempo de permanencia y aglomeración.
@@ -42,7 +45,24 @@ type Respuesta = {
     analiticas: Record<TipoRegla, boolean>; rotulado: boolean;
     estado: null | { t: string; reglas: null | { cruces: number; sentido: number; permanencia: number; aglomeracion: number; avisos: number; errores: number; ultimoError: string | null } };
     resumen: Record<string, Resumen>; eventos: Evento[];
+    /** Objetos vistos por cámara y clase en los últimos `vistosDias`: para proponer cámaras. */
+    vistos?: { deviceId: string; clase: string; n: number }[]; vistosDias?: number;
 };
+/**
+ * Lo que se está editando: una regla sola o un grupo (la misma vigilancia en varias cámaras).
+ * `originales` son las reglas guardadas que se reemplazan al guardar (ninguna si es nueva);
+ * `foco`, la cámara que se muestra primero.
+ */
+type Edicion = { base: ReglaVision; deviceIds: string[]; originales: ReglaVision[]; nueva: boolean; foco?: string };
+type Geo = { linea: { a: Punto; b: Punto } | null; zona: Punto[] };
+/** «Todo el cuadro» como zona: un margen mínimo para que el polígono se vea y se pueda tomar del borde. */
+const TODO_EL_CUADRO: Punto[] = [[0.005, 0.005], [0.995, 0.005], [0.995, 0.995], [0.005, 0.995]];
+/** Cuántos vistos por cámara de las clases elegidas, para el asistente y el selector de cámaras. */
+function vistosPorCamara(vistos: Respuesta["vistos"], clases: string[]): Map<string, number> {
+    const m = new Map<string, number>();
+    for (const v of vistos || []) if (clases.includes(v.clase)) m.set(v.deviceId, (m.get(v.deviceId) || 0) + v.n);
+    return m;
+}
 
 const ICONO: Record<TipoRegla, LucideIcon> = { conteo: Spline, sentido: ArrowLeftRight, permanencia: Timer, aglomeracion: Users, cruce: Fence, intrusion: ShieldAlert, merodeo: Footprints, retirado: PackageMinus };
 /** Lo que se cuenta hoy en la tarjeta de cada tipo que no es conteo. */
@@ -59,17 +79,10 @@ const EJEMPLO_AVISO: Record<TipoRegla, (n: string) => string> = {
     cruce: (n) => `«Persona cruzó ${n}»`, intrusion: (n) => `«Persona en ${n}»`,
     merodeo: (n) => `«Persona dando vueltas hace 2 min en ${n}»`, retirado: (n) => `«Se llevaron una bicicleta de ${n}»`,
 };
-/**
- * El ícono de cada clase en «Qué cuenta»: se reconoce la clase antes de leerla. Las del detector
- * propio (entrenadas en Objetos nuevos) llevan el de cajas, con su marca.
- */
-const ICONO_CLASE: Record<string, LucideIcon> = {
-    person: PersonStanding, car: Car, truck: Truck, bus: Bus, motorcycle: Motorbike, bicycle: Bike, dog: Dog,
-    backpack: Backpack, handbag: ShoppingBag, suitcase: Luggage, chair: Armchair, bench: Sofa, "potted plant": Sprout,
-};
 /** El horario que se propone al armar de noche: lo más común en un barrio. */
 const HORARIO_NOCHE = { desde: "22:00", hasta: "06:00" };
 const REFRESCO_MS = 15_000;
+const CLAVE_PANEL = "reglas-vision:panel-eventos";
 const hora = (iso: string) => new Date(iso).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Montevideo" });
 const dia = (iso: string) => new Date(iso).toLocaleDateString("es-UY", { day: "numeric", month: "short", timeZone: "America/Montevideo" });
 const nuevaId = () => Math.random().toString(36).slice(2, 12);
@@ -88,12 +101,14 @@ export default function ReglasVision() {
     useNombresPropios();  // para ofrecer y nombrar las clases del detector propio
     const [datos, setDatos] = useState<Respuesta | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [editando, setEditando] = useState<ReglaVision | null>(null);
-    const [esNueva, setEsNueva] = useState(false);
+    const [editando, setEditando] = useState<Edicion | null>(null);
     const [guardando, setGuardando] = useState(false);
     const [ampliado, setAmpliado] = useState<Evento | null>(null);
     const [eligiendo, setEligiendo] = useState(false);
-    const [filtroEvento, setFiltroEvento] = useState<string | null>(null);
+    // El panel de eventos: abierto por defecto, y se recuerda en este navegador.
+    const [panel, setPanel] = useState(true);
+    useEffect(() => { try { const v = localStorage.getItem(CLAVE_PANEL); if (v != null) setPanel(v === "1"); } catch { } }, []);
+    const cambiarPanel = (v: boolean) => { setPanel(v); try { localStorage.setItem(CLAVE_PANEL, v ? "1" : "0"); } catch { } };
 
     const cargar = useCallback(async () => {
         try {
@@ -114,13 +129,28 @@ export default function ReglasVision() {
         const sp = new URLSearchParams(window.location.search);
         // «Editar la regla» desde Accesos llega con ?editar=<id>.
         const aEditar = sp.get("editar") && datos.reglas.find((x) => x.id === sp.get("editar"));
-        if (aEditar) { window.history.replaceState(null, "", window.location.pathname); setEsNueva(false); setEditando(aEditar); return; }
+        if (aEditar) { window.history.replaceState(null, "", window.location.pathname); abrir(aEditar); return; }
         const tipo = sp.get("nueva") as TipoRegla | null;
         if (!tipo || !(tipo in TIPOS_REGLA)) return;
         window.history.replaceState(null, "", window.location.pathname);
-        setEsNueva(true);
-        setEditando(reglaNueva(tipo, datos.camaras[0]?.id || ""));
+        const cam = datos.camaras[0]?.id || "";
+        setEditando({ base: reglaNueva(tipo, cam), deviceIds: cam ? [cam] : [], originales: [], nueva: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [datos]);
+
+    /** Abrir una regla guardada: si es de un grupo, se abre el grupo entero parado en su cámara. */
+    const abrir = (r: ReglaVision) => {
+        const hermanas = r.grupo ? (datos?.reglas || []).filter((x) => x.grupo?.id === r.grupo!.id) : [r];
+        setEditando({ base: r, deviceIds: hermanas.map((x) => x.deviceId), originales: hermanas, nueva: false, foco: r.deviceId });
+    };
+    /** Reemplaza `fuera` por `nuevas` en la lista, en el lugar de la primera (el orden de las tarjetas no salta). */
+    const reemplazar = (lista: ReglaVision[], fuera: Set<string>, nuevas: ReglaVision[]) => {
+        const i = lista.findIndex((x) => fuera.has(x.id));
+        const resto = lista.filter((x) => !fuera.has(x.id));
+        if (i < 0) return [...resto, ...nuevas];
+        const antes = lista.slice(0, i).filter((x) => !fuera.has(x.id)).length;
+        return [...resto.slice(0, antes), ...nuevas, ...resto.slice(antes)];
+    };
 
     /** Guarda la lista entera con un cambio. Devuelve si salió. */
     const guardarLista = async (reglas: ReglaVision[], texto: string) => {
@@ -154,14 +184,14 @@ export default function ReglasVision() {
     const est = datos.estado;
     const sinSenal = !est || Date.now() - new Date(est.t).getTime() > 60_000;
 
-    const activas = datos.reglas.filter((r) => r.activa && datos.analiticas[r.tipo]).length;
-    const camarasConReglas = [...new Set(datos.reglas.map((r) => r.deviceId))];
-    const avisos7 = datos.eventos.filter((e) => e.avisoId).length;
-    const tiposEnEventos = [...new Set(datos.eventos.map((e) => e.tipo))];
-    const eventosVisibles = filtroEvento ? datos.eventos.filter((e) => e.tipo === filtroEvento) : datos.eventos;
-    const crear = (tipo: TipoRegla) => { setEligiendo(false); setEsNueva(true); setEditando(reglaNueva(tipo, datos.camaras[0]?.id || "")); };
+    // Los grupos van primero, cada uno en su sección; el resto de las reglas, por cámara como antes.
+    const grupos = [...new Map(datos.reglas.filter((r) => r.grupo).map((r) => [r.grupo!.id, r.grupo!])).values()];
+    const camarasSueltas = [...new Set(datos.reglas.filter((r) => !r.grupo).map((r) => r.deviceId))];
 
     return (
+        // Con el panel de eventos abierto, la página le deja su lugar a la derecha: queda acoplado,
+        // no tapa las reglas (16/10, Nico: «Eventos debe ser un slide acoplable a la derecha»).
+        <div className={cn("transition-[padding] duration-300", panel && "lg:pr-[380px]")}>
         <div className="p-6 lg:p-8 space-y-5 max-w-[1500px] mx-auto">
             {/* ── Encabezado ── */}
             <div className="flex items-start gap-3 flex-wrap">
@@ -175,54 +205,60 @@ export default function ReglasVision() {
                         Una línea o una zona sobre el cuadro de una cámara, y qué hacer cuando algo la cruza o se queda. Se mira cada ~2 s y se sigue a cada objeto por su pie, donde toca el piso.
                     </p>
                 </div>
-                <Button onClick={() => setEligiendo((v) => !v)} aria-expanded={eligiendo}><Plus size={14} /> Nueva regla</Button>
+                {datos.reglas.length > 0 && (
+                    <Button variant="outline" onClick={() => cambiarPanel(!panel)} aria-pressed={panel}>
+                        <PanelRight size={14} /> Eventos <span className="tabular-nums text-muted-foreground">{datos.eventos.length}</span>
+                    </Button>
+                )}
+                <Button onClick={() => setEligiendo(true)}><Plus size={14} /> Nueva regla</Button>
             </div>
 
-            {/* ── Elegir qué vigilar: los tipos, con lo que hace cada uno ── */}
-            {(eligiendo || datos.reglas.length === 0) && (
-                <section className="rounded-[10px] border border-border bg-card p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                        <h2 className="text-[13px] font-bold">{datos.reglas.length === 0 ? "Elegí qué querés vigilar" : "¿Qué tipo de regla?"}</h2>
-                        <span className="text-[12px] text-muted-foreground">Después se elige la cámara y se dibuja la línea o la zona.</span>
-                        {eligiendo && datos.reglas.length > 0 && <button type="button" onClick={() => setEligiendo(false)} className="ml-auto text-[12px] text-muted-foreground hover:text-foreground">Cerrar</button>}
+            {/* Sin reglas: lo que se puede vigilar y un botón. El asistente (cajón) pregunta el resto. */}
+            {datos.reglas.length === 0 && (
+                <section className="rounded-[10px] border border-dashed border-border p-6 flex flex-col items-center text-center gap-3">
+                    <div className="flex items-center gap-2 text-muted-foreground">{(Object.keys(TIPOS_REGLA) as TipoRegla[]).slice(0, 6).map((t) => { const Ic = ICONO[t]; return <Ic key={t} size={18} />; })}</div>
+                    <div>
+                        <div className="text-[14px] font-bold">Todavía no hay reglas</div>
+                        <p className="text-[12.5px] text-muted-foreground max-w-lg">Una persona en el jardín de noche, un auto en contramano, alguien dando vueltas, un contenedor que se mueve: elegí qué y qué pasa, y la regla sale sola.</p>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
-                        {(Object.keys(TIPOS_REGLA) as TipoRegla[]).map((t) => {
-                            const Ic = ICONO[t];
-                            const apagada = !datos.analiticas[t];
-                            return (
-                                <button key={t} type="button" onClick={() => crear(t)}
-                                    className="group text-left rounded-[10px] border border-border p-3 hover:border-[var(--accion)] hover:bg-accent/30 transition-colors flex gap-3">
-                                    <Esquema tipo={t} />
-                                    <span className="min-w-0">
-                                        <span className="flex items-center gap-1.5 text-[13px] font-semibold"><Ic size={14} className="text-muted-foreground group-hover:text-[var(--accion)]" /> {TIPOS_REGLA[t].nombre}</span>
-                                        <span className="block text-[11.5px] text-muted-foreground leading-snug mt-0.5 line-clamp-3">{TIPOS_REGLA[t].queHace}</span>
-                                        {apagada && <span className="block text-[11px] tono-aviso mt-1">Apagada en Analíticas: se puede dibujar, pero no corre.</span>}
-                                    </span>
-                                </button>
-                            );
-                        })}
-                    </div>
+                    <Button onClick={() => setEligiendo(true)}><Plus size={14} /> Crear la primera regla</Button>
                 </section>
             )}
 
-            {/* ── Los números ── */}
-            {datos.reglas.length > 0 && (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                    <Numero rotulo="Reglas corriendo" valor={<>{activas}<span className="text-muted-foreground font-semibold">/{datos.reglas.length}</span></>} pista="Prendidas y con su analítica encendida en Analíticas." />
-                    <Numero rotulo="Cámaras con reglas" valor={camarasConReglas.length} pista="Cada cámara con al menos una regla se mira cada ~2 s." />
-                    <Numero rotulo="Eventos · 7 días" valor={datos.eventos.length} pista="Sentido contrario, permanencias, aglomeraciones, cruces, intrusiones, merodeos y retirados. Los cruces del conteo no se listan: se suman en cada regla." />
-                    <Numero rotulo="Avisos a la guardia · 7 días" valor={avisos7} pista="Los eventos de reglas que avisan llegan a la consola, Control LPR y Visitas." />
-                </div>
-            )}
-            <p className="text-[12px] text-muted-foreground flex items-center gap-1.5">
-                <Type size={13} /> <b className="text-foreground font-semibold">Empresa por rotulado</b> no lleva regla: {datos.rotulado ? "está prendida y lee" : "está apagada en Analíticas; prendida, lee"} el texto de cada vehículo y lo cruza con el catálogo de empresas (se ve en Detecciones).
-                {(Object.keys(TIPOS_REGLA) as TipoRegla[]).some((t) => !datos.analiticas[t]) && <span className="ml-1">Apagadas en Analíticas: {(Object.keys(TIPOS_REGLA) as TipoRegla[]).filter((t) => !datos.analiticas[t]).map((t) => TIPOS_REGLA[t].nombre).join(", ")}.</span>}
-            </p>
+            {/* ── Los grupos: la misma vigilancia en varias cámaras ── */}
+            {grupos.map((g) => {
+                const deGrupo = datos.reglas.filter((r) => r.grupo?.id === g.id);
+                const prendidas = deGrupo.filter((r) => r.activa).length;
+                const afuera = deGrupo.filter((r) => nombreCamara.has(r.deviceId) && !analizaCamara.get(r.deviceId)).length;
+                const Ic = ICONO[deGrupo[0].tipo];
+                return (
+                    <section key={g.id} className="space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <Layers size={14} className="text-muted-foreground" />
+                            <h2 className="text-[13px] font-bold">{g.nombre}</h2>
+                            <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground"><Ic size={12} /> {TIPOS_REGLA[deGrupo[0].tipo].nombre} · <span className="tabular-nums">{deGrupo.length} cámaras</span></span>
+                            {afuera > 0 && <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full chip-aviso text-[11.5px] font-semibold"><TriangleAlert size={12} /> {afuera} fuera de OmniVision: ahí no corre</span>}
+                            <span className="ml-auto flex items-center gap-2">
+                                <Pista titulo={prendidas === deGrupo.length ? "Prendidas todas" : prendidas ? `${prendidas} de ${deGrupo.length} prendidas` : "Apagadas todas"} texto="Prende o apaga la regla en todas las cámaras del grupo. Cada una se puede apagar sola desde su tarjeta.">
+                                    <span><Switch checked={prendidas === deGrupo.length} onCheckedChange={(v) => guardarLista(datos.reglas.map((x) => (x.grupo?.id === g.id ? { ...x, activa: v } : x)), v ? `${g.nombre}: prendida en ${deGrupo.length} cámaras` : `${g.nombre}: apagada en ${deGrupo.length} cámaras`)} aria-label="Prender o apagar el grupo" /></span>
+                                </Pista>
+                                <Button variant="outline" size="sm" onClick={() => abrir(deGrupo[0])}>Editar el grupo</Button>
+                            </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
+                            {deGrupo.map((r) => (
+                                <TarjetaRegla key={r.id} r={r} enGrupo camara={nombreCamara.get(r.deviceId) || "Cámara borrada"} s={datos.resumen[r.id]} apagadaLab={!datos.analiticas[r.tipo]}
+                                    alAbrir={() => abrir(r)}
+                                    alActivar={(v) => guardarLista(datos.reglas.map((x) => (x.id === r.id ? { ...x, activa: v } : x)), v ? "Regla prendida" : "Regla apagada")} />
+                            ))}
+                        </div>
+                    </section>
+                );
+            })}
 
-            {/* ── Las reglas, por cámara, sobre su cuadro ── */}
-            {camarasConReglas.map((cam) => {
-                const deCam = datos.reglas.filter((r) => r.deviceId === cam);
+            {/* ── Las reglas sueltas, por cámara, sobre su cuadro ── */}
+            {camarasSueltas.map((cam) => {
+                const deCam = datos.reglas.filter((r) => r.deviceId === cam && !r.grupo);
                 return (
                     <section key={cam} className="space-y-2">
                         <div className="flex items-center gap-2">
@@ -238,10 +274,10 @@ export default function ReglasVision() {
                                 </button>
                             </>)}
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
                             {deCam.map((r) => (
                                 <TarjetaRegla key={r.id} r={r} camara={nombreCamara.get(r.deviceId) || "Cámara borrada"} s={datos.resumen[r.id]} apagadaLab={!datos.analiticas[r.tipo]}
-                                    alAbrir={() => { setEsNueva(false); setEditando(r); }}
+                                    alAbrir={() => abrir(r)}
                                     alActivar={(v) => guardarLista(datos.reglas.map((x) => (x.id === r.id ? { ...x, activa: v } : x)), v ? "Regla prendida" : "Regla apagada")} />
                             ))}
                         </div>
@@ -249,59 +285,20 @@ export default function ReglasVision() {
                 );
             })}
 
-            {/* ── Lo que pasó ── */}
-            {datos.reglas.length > 0 && (
-            <section className="space-y-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-[13px] font-bold">Eventos · últimos 7 días</h2>
-                    {tiposEnEventos.length > 1 && (
-                        <span className="flex items-center gap-1 flex-wrap">
-                            <button type="button" onClick={() => setFiltroEvento(null)} aria-pressed={!filtroEvento}
-                                className={cn("h-7 px-2.5 rounded-full border text-[11.5px] font-semibold", !filtroEvento ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:text-foreground")}>Todos</button>
-                            {tiposEnEventos.map((t) => (
-                                <button key={t} type="button" onClick={() => setFiltroEvento(t)} aria-pressed={filtroEvento === t}
-                                    className={cn("h-7 px-2.5 rounded-full border text-[11.5px] font-semibold", filtroEvento === t ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:text-foreground")}>
-                                    {(TIPOS_EVENTO[t] || { nombre: t }).nombre} <span className="tabular-nums opacity-70">{datos.eventos.filter((e) => e.tipo === t).length}</span>
-                                </button>
-                            ))}
-                        </span>
-                    )}
-                    <span className="ml-auto text-[11.5px] text-muted-foreground">Los cruces del conteo se suman en cada regla.</span>
-                </div>
-                {eventosVisibles.length === 0 ? (
-                    <div className="rounded-[10px] border border-dashed border-border p-8 text-center text-[13px] text-muted-foreground">Sin eventos todavía. Cuando una regla vea algo, queda acá con su foto.</div>
-                ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
-                        {eventosVisibles.map((e) => {
-                            const t = TIPOS_EVENTO[e.tipo] || { nombre: e.tipo, tono: "quieto" as const };
-                            return (
-                                <button key={e.id} type="button" onClick={() => setAmpliado(e)} className="text-left rounded-[10px] border border-border bg-card overflow-hidden hover:border-[var(--accion)] transition-colors">
-                                    <div className="relative aspect-video bg-black">
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        {e.foto ? <img src={`${e.foto}?w=320`} alt="" loading="lazy" className="w-full h-full object-cover" /> : <Camera size={18} className="absolute inset-0 m-auto text-white/30" />}
-                                        {e.caja && <span className="absolute border-2 border-[var(--accion-en-oscuro)] rounded-sm" style={{ left: `${e.caja[0] * 100}%`, top: `${e.caja[1] * 100}%`, width: `${(e.caja[2] - e.caja[0]) * 100}%`, height: `${(e.caja[3] - e.caja[1]) * 100}%` }} />}
-                                        <span className="absolute left-1.5 top-1.5"><Chip tono={t.tono}>{t.nombre}</Chip></span>
-                                        {e.avisoId && <span className="absolute right-1.5 top-1.5 w-6 h-6 grid place-items-center rounded-full bg-black/60 text-white" title="Avisó a la guardia"><BellRing size={12} /></span>}
-                                    </div>
-                                    <div className="px-2.5 py-2">
-                                        <div className="text-[12px] font-semibold truncate">{e.regla}</div>
-                                        <div className="text-[11px] text-muted-foreground truncate tabular-nums">
-                                            {e.tipo === "PERMANENCIA" ? `${NOMBRE_CLASE_REGLA[e.clase || ""] || e.clase} · ${duracionCorta(e.valor)}` : e.tipo === "AGLOMERACION" ? `${e.valor} personas` : NOMBRE_CLASE_REGLA[e.clase || ""] || e.clase} · {dia(e.ts)} {hora(e.ts)}
-                                        </div>
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
-                )}
-            </section>
-            )}
-
+            <AsistenteRegla abierto={eligiendo} camaras={datos.camaras} analiticas={datos.analiticas} vistos={datos.vistos} vistosDias={datos.vistosDias || 7} alCerrar={() => setEligiendo(false)}
+                alListo={(r, ids) => { setEligiendo(false); setEditando({ base: r, deviceIds: ids, originales: [], nueva: true }); }} />
             {editando && (
-                <CajonRegla regla={editando} nueva={esNueva} camaras={datos.camaras} guardando={guardando}
+                <CajonRegla key={`${editando.base.id}-${editando.originales.length}`} edicion={editando} camaras={datos.camaras} vistos={datos.vistos} guardando={guardando}
                     alCerrar={() => setEditando(null)}
-                    alGuardar={async (r) => { if (await guardarLista(esNueva ? [...datos.reglas, r] : datos.reglas.map((x) => (x.id === r.id ? r : x)), esNueva ? "Regla creada" : "Regla guardada")) setEditando(null); }}
-                    alBorrar={async () => { if (await guardarLista(datos.reglas.filter((x) => x.id !== editando.id), "Regla borrada")) setEditando(null); }} />
+                    alGuardar={async (nuevas) => {
+                        const n = nuevas.length;
+                        const texto = editando.nueva ? (n > 1 ? `Regla creada en ${n} cámaras` : "Regla creada") : n > 1 ? `Guardada en ${n} cámaras` : "Regla guardada";
+                        if (await guardarLista(reemplazar(datos.reglas, new Set(editando.originales.map((x) => x.id)), nuevas), texto)) setEditando(null);
+                    }}
+                    alBorrar={async () => {
+                        const fuera = new Set(editando.originales.map((x) => x.id));
+                        if (await guardarLista(datos.reglas.filter((x) => !fuera.has(x.id)), fuera.size > 1 ? `Borrada en ${fuera.size} cámaras` : "Regla borrada")) setEditando(null);
+                    }} />
             )}
 
             <Dialog open={!!ampliado} onOpenChange={(o) => { if (!o) setAmpliado(null); }}>
@@ -337,6 +334,77 @@ export default function ReglasVision() {
                 </DialogContent>
             </Dialog>
         </div>
+            <PanelEventos abierto={panel} eventos={datos.eventos} alCerrar={() => cambiarPanel(false)} alAbrir={setAmpliado} />
+        </div>
+    );
+}
+
+/**
+ * Lo que pasó, en un panel acoplado a la derecha (16/10, Nico). Antes era una grilla de fotos al
+ * pie de la página: con varias reglas quedaba debajo de todo, y para ver si una regla disparó
+ * había que bajar hasta el final y volver. Acoplado, se ve al lado de las reglas que lo
+ * producen y se pliega cuando no hace falta. Se recuerda abierto o cerrado en este navegador.
+ */
+function PanelEventos({ abierto, eventos, alCerrar, alAbrir }: { abierto: boolean; eventos: Evento[]; alCerrar: () => void; alAbrir: (e: Evento) => void }) {
+    const [tipo, setTipo] = useState<string | null>(null);
+    const tipos = [...new Set(eventos.map((e) => e.tipo))];
+    const visibles = tipo ? eventos.filter((e) => e.tipo === tipo) : eventos;
+    return (
+        <aside aria-hidden={!abierto}
+            className={cn("fixed right-0 top-0 z-30 h-dvh w-full sm:w-[380px] bg-card border-l border-border flex flex-col transition-transform duration-300",
+                abierto ? "translate-x-0" : "translate-x-full pointer-events-none", "max-lg:shadow-2xl")}>
+            <div className="flex items-center gap-2 px-4 h-14 border-b border-border shrink-0">
+                <div className="min-w-0 flex-1">
+                    <div className="text-[13.5px] font-bold leading-tight">Eventos</div>
+                    <div className="text-[11px] text-muted-foreground">Últimos 7 días · {eventos.length}</div>
+                </div>
+                <button type="button" onClick={alCerrar} aria-label="Cerrar el panel" className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><X size={16} /></button>
+            </div>
+            {tipos.length > 1 && (
+                <div className="flex items-center gap-4 px-4 border-b border-border overflow-x-auto shrink-0 text-[12px]">
+                    {[null, ...tipos].map((t) => {
+                        const on = tipo === t;
+                        const n = t ? eventos.filter((e) => e.tipo === t).length : eventos.length;
+                        return (
+                            <button key={t || "todos"} type="button" onClick={() => setTipo(t)} aria-pressed={on}
+                                className={cn("relative h-10 whitespace-nowrap font-semibold transition-colors", on ? "text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                                {t ? (TIPOS_EVENTO[t] || { nombre: t }).nombre : "Todos"} <span className="tabular-nums opacity-60">{n}</span>
+                                {on && <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-[var(--accion)]" />}
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
+                {visibles.length === 0 ? (
+                    <div className="h-full grid place-items-center px-6 text-center text-[12.5px] text-muted-foreground">Sin eventos todavía. Cuando una regla vea algo, queda acá con su foto.</div>
+                ) : visibles.map((e) => {
+                    const t = TIPOS_EVENTO[e.tipo] || { nombre: e.tipo, tono: "quieto" as const };
+                    return (
+                        <button key={e.id} type="button" onClick={() => alAbrir(e)} className="w-full flex items-center gap-3 rounded-[8px] p-1.5 text-left hover:bg-accent transition-colors">
+                            <span className="relative block w-[112px] aspect-video shrink-0 rounded-[6px] overflow-hidden bg-black">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                {e.foto ? <img src={`${e.foto}?w=320`} alt="" loading="lazy" className="w-full h-full object-cover" /> : <Camera size={16} className="absolute inset-0 m-auto text-white/30" />}
+                                {e.caja && <span className="absolute border-[1.5px] border-[var(--accion-en-oscuro)] rounded-[2px]" style={{ left: `${e.caja[0] * 100}%`, top: `${e.caja[1] * 100}%`, width: `${(e.caja[2] - e.caja[0]) * 100}%`, height: `${(e.caja[3] - e.caja[1]) * 100}%` }} />}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-1.5">
+                                    <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", t.tono === "mal" ? "bg-[var(--mal)]" : t.tono === "aviso" ? "bg-[var(--aviso)]" : t.tono === "info" ? "bg-[var(--info)]" : "bg-muted-foreground/50")} />
+                                    <span className="text-[11.5px] font-semibold">{t.nombre}</span>
+                                    {e.avisoId && <BellRing size={11} className="text-muted-foreground" aria-label="Avisó a la guardia" />}
+                                    <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">{hora(e.ts)}</span>
+                                </span>
+                                <span className="block text-[12px] truncate mt-0.5">{e.regla}</span>
+                                <span className="block text-[11px] text-muted-foreground truncate tabular-nums">
+                                    {e.tipo === "PERMANENCIA" ? `${nombreClase(e.clase || "")} · ${duracionCorta(e.valor)}` : e.tipo === "AGLOMERACION" ? `${e.valor} personas` : e.clase ? nombreClase(e.clase) : ""} · {dia(e.ts)}
+                                </span>
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+            <div className="px-4 py-2 border-t border-border text-[11px] text-muted-foreground shrink-0">Los cruces del conteo no se listan: se suman en cada regla.</div>
+        </aside>
     );
 }
 
@@ -347,76 +415,60 @@ function fotoCamara(id: string, w: number) {
     return m ? `/api/monitor/camaras/foto?nvr=${encodeURIComponent(m[1])}&ch=${m[2]}&w=${w}` : `/api/snapshot/${id}?w=${w}`;
 }
 
-function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar }: { r: ReglaVision; camara: string; s?: Resumen; apagadaLab: boolean; alAbrir: () => void; alActivar: (v: boolean) => void }) {
+/**
+ * Una regla, en un bloque chico (16/10, Nico: «cada regla su bloque más chico»): el cuadro con lo
+ * dibujado —se reconoce sin leer—, el nombre, el número de hoy y el interruptor. Lo demás está en
+ * el cajón.
+ */
+function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar, enGrupo }: { r: ReglaVision; camara: string; s?: Resumen; apagadaLab: boolean; alAbrir: () => void; alActivar: (v: boolean) => void; enGrupo?: boolean }) {
     const Ic = ICONO[r.tipo];
     const max = Math.max(1, ...(s?.porHora || [0]));
     return (
         <div className={cn("rounded-[10px] border border-border bg-card overflow-hidden flex flex-col", (!r.activa || apagadaLab) && "opacity-60")}>
-            {/* El cuadro de la cámara con lo dibujado encima: se reconoce la regla sin leerla. */}
-            <button type="button" onClick={alAbrir} className="relative aspect-[16/7] bg-black overflow-hidden" aria-label={`Editar ${r.nombre}`}>
+            <button type="button" onClick={alAbrir} className="relative aspect-video bg-black overflow-hidden" aria-label={`Editar ${r.nombre}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={fotoCamara(r.deviceId, 480)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" />
+                <img src={fotoCamara(r.deviceId, 320)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" />
                 <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="absolute inset-0 w-full h-full">
                     {r.zona && r.zona.length >= 3 && <polygon points={r.zona.map(([x, y]) => `${x},${y}`).join(" ")} fill="var(--accion-en-oscuro)" fillOpacity={0.22} stroke="var(--accion-en-oscuro)" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
                     {r.linea && <line x1={r.linea.a[0]} y1={r.linea.a[1]} x2={r.linea.b[0]} y2={r.linea.b[1]} stroke="var(--accion-en-oscuro)" strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinecap="round" />}
                 </svg>
-                {r.linea && <>
-                    <span className="absolute -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-black/70 text-white text-[10px] font-bold grid place-items-center" style={{ left: `${r.linea.a[0] * 100}%`, top: `${r.linea.a[1] * 100}%` }}>A</span>
-                    <span className="absolute -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-black/70 text-white text-[10px] font-bold grid place-items-center" style={{ left: `${r.linea.b[0] * 100}%`, top: `${r.linea.b[1] * 100}%` }}>B</span>
-                </>}
-                {!r.linea && !(r.zona && r.zona.length >= 3) && <span className="absolute left-2 bottom-2 px-2 py-0.5 rounded-[5px] bg-black/65 text-white text-[11px]">Todo el cuadro</span>}
+                <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 h-6 px-2 rounded-full bg-black/65 text-white text-[10.5px] font-semibold"><Ic size={11} /> {TIPOS_REGLA[r.tipo].nombre}</span>
+                {!r.linea && !(r.zona && r.zona.length >= 3) && <span className="absolute left-1.5 bottom-1.5 px-1.5 py-0.5 rounded-[5px] bg-black/65 text-white text-[10px]">Todo el cuadro</span>}
             </button>
-            <div className="p-3.5 flex flex-col gap-2.5">
-            <div className="flex items-start gap-2.5">
-                <span className="grid h-9 w-9 place-items-center rounded-full bg-muted shrink-0"><Ic size={16} /></span>
-                <button type="button" onClick={alAbrir} className="min-w-0 flex-1 text-left">
-                    <div className="text-[13.5px] font-semibold truncate">{r.nombre}</div>
-                    <div className="text-[11.5px] text-muted-foreground truncate">{TIPOS_REGLA[r.tipo].nombre} · {camara}</div>
-                </button>
-                <Pista titulo={r.activa ? "Prendida" : "Apagada"} texto={apagadaLab ? "Su analítica está apagada en Analíticas: aunque la regla esté prendida, no corre." : "Apagada no se aplica, pero se guarda lo dibujado."}>
-                    <span><Switch checked={r.activa} onCheckedChange={alActivar} aria-label="Prender o apagar la regla" /></span>
-                </Pista>
-            </div>
-            {r.tipo === "conteo" ? (
-                <div className="space-y-2">
-                    <div className="flex items-baseline gap-4">
-                        <div><div className="text-[22px] font-bold tabular-nums leading-none">{s?.ab ?? 0}</div><div className="text-[11px] text-muted-foreground mt-1">de A a B hoy</div></div>
-                        <div><div className="text-[22px] font-bold tabular-nums leading-none">{s?.ba ?? 0}</div><div className="text-[11px] text-muted-foreground mt-1">de B a A hoy</div></div>
-                    </div>
-                    {/* Por hora de hoy: barras finas, sin ejes; el número exacto al pasar el mouse. */}
-                    <div className="flex items-end gap-[2px] h-8" aria-label="Cruces por hora de hoy">
-                        {(s?.porHora || Array(24).fill(0)).map((n, h) => (
-                            <span key={h} title={`${String(h).padStart(2, "0")} h: ${n} cruces`} className="flex-1 rounded-t-[2px] bg-[var(--accion)]" style={{ height: `${Math.max(n ? 8 : 2, (n / max) * 100)}%`, opacity: n ? 0.85 : 0.18 }} />
-                        ))}
-                    </div>
-                    {s && Object.keys(s.porClase).length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
-                            {Object.entries(s.porClase).map(([c, v]) => <span key={c} className="tabular-nums">{NOMBRE_CLASE_REGLA[c] || c}: {v.ab} / {v.ba}</span>)}
-                        </div>
-                    )}
+            <div className="p-2.5 flex flex-col gap-1.5">
+                <div className="flex items-start gap-2">
+                    <button type="button" onClick={alAbrir} className="min-w-0 flex-1 text-left">
+                        {/* En un grupo el nombre ya está en el título de la sección: la tarjeta es la cámara. */}
+                        <div className="text-[12.5px] font-semibold truncate leading-tight">{enGrupo ? camara : r.nombre}</div>
+                        <div className="text-[11px] text-muted-foreground truncate">{enGrupo ? TIPOS_REGLA[r.tipo].nombre : camara}</div>
+                    </button>
+                    <Pista titulo={r.activa ? "Prendida" : "Apagada"} texto={apagadaLab ? "Su analítica está apagada en Analíticas: aunque la regla esté prendida, no corre." : "Apagada no se aplica, pero se guarda lo dibujado."}>
+                        <span><Switch checked={r.activa} onCheckedChange={alActivar} aria-label="Prender o apagar la regla" /></span>
+                    </Pista>
                 </div>
-            ) : (
-                <div className="flex items-baseline gap-4">
-                    <div><div className="text-[22px] font-bold tabular-nums leading-none">{s?.hoy ?? 0}</div><div className="text-[11px] text-muted-foreground mt-1">{CUENTA_HOY[r.tipo]}</div></div>
-                    {CON_HORARIO.includes(r.tipo) && <div className="text-[11.5px] text-muted-foreground inline-flex items-center gap-1"><Clock size={11} /> {r.horario ? `armada ${r.horario.desde} a ${r.horario.hasta}` : "armada siempre"}{r.tipo === "cruce" && r.sentidos && r.sentidos !== "ambos" ? ` · sólo ${r.sentidos === "ab" ? "de A a B" : "de B a A"}` : ""}</div>}
-                    {s?.max != null && (r.tipo === "permanencia" || r.tipo === "aglomeracion") && <div><div className="text-[22px] font-bold tabular-nums leading-none">{r.tipo === "permanencia" ? duracionCorta(s.max) : s.max}</div><div className="text-[11px] text-muted-foreground mt-1">{r.tipo === "permanencia" ? "la más larga" : "el máximo de personas"}</div></div>}
+                {r.tipo === "conteo" ? (
+                    <div className="flex items-end gap-3">
+                        <span className="tabular-nums leading-none"><b className="text-[17px]">{s?.ab ?? 0}</b><span className="text-[10.5px] text-muted-foreground"> A→B</span></span>
+                        <span className="tabular-nums leading-none"><b className="text-[17px]">{s?.ba ?? 0}</b><span className="text-[10.5px] text-muted-foreground"> B→A</span></span>
+                        <span className="flex-1 flex items-end gap-px h-5" aria-label="Cruces por hora de hoy">
+                            {(s?.porHora || Array(24).fill(0)).map((n, h) => (
+                                <span key={h} title={`${String(h).padStart(2, "0")} h: ${n} cruces`} className="flex-1 rounded-t-[1px] bg-[var(--accion)]" style={{ height: `${Math.max(n ? 10 : 4, (n / max) * 100)}%`, opacity: n ? 0.85 : 0.18 }} />
+                            ))}
+                        </span>
+                    </div>
+                ) : (
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                        <b className="text-[17px] tabular-nums leading-none">{s?.hoy ?? 0}</b>
+                        <span className="text-[10.5px] text-muted-foreground">{CUENTA_HOY[r.tipo]}</span>
+                        {s?.max != null && (r.tipo === "permanencia" || r.tipo === "aglomeracion") && <span className="text-[10.5px] text-muted-foreground">· máx. {r.tipo === "permanencia" ? duracionCorta(s.max) : s.max}</span>}
+                    </div>
+                )}
+                <div className="flex items-center gap-1.5 text-[10.5px] text-muted-foreground min-w-0">
+                    {r.avisar ? <BellRing size={11} className="shrink-0" /> : <BellOff size={11} className="shrink-0" />}
+                    {CON_HORARIO.includes(r.tipo) && <span className="shrink-0 inline-flex items-center gap-0.5"><Clock size={10} /> {r.horario ? `${r.horario.desde}–${r.horario.hasta}` : "siempre"}</span>}
+                    <span className="truncate">· {r.clases.map(nombreClase).join(", ")}</span>
                 </div>
-            )}
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                {r.avisar ? <span className="inline-flex items-center gap-1"><BellRing size={11} /> avisa a la guardia</span> : <span className="inline-flex items-center gap-1"><BellOff size={11} /> sólo registra</span>}
-                <span className="truncate">· {r.clases.map((c) => NOMBRE_CLASE_REGLA[c] || nombrePropio(c) || c).join(", ")}</span>
             </div>
-            </div>
-        </div>
-    );
-}
-
-/** Un número del resumen, con su explicación al pasar el mouse. */
-function Numero({ rotulo, valor, pista }: { rotulo: string; valor: React.ReactNode; pista: string }) {
-    return (
-        <div className="rounded-[10px] border border-border bg-card px-3.5 py-3">
-            <Pista titulo={rotulo} texto={pista} ancho={280}><span className="text-[11.5px] text-muted-foreground cursor-help">{rotulo}</span></Pista>
-            <div className="text-[22px] font-bold tabular-nums leading-tight tracking-[-0.02em] mt-0.5">{valor}</div>
         </div>
     );
 }
@@ -446,191 +498,675 @@ function Esquema({ tipo }: { tipo: TipoRegla }) {
     );
 }
 
-function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alBorrar }: {
-    regla: ReglaVision; nueva: boolean; camaras: { id: string; name: string; analiza: boolean }[]; guardando: boolean;
-    alCerrar: () => void; alGuardar: (r: ReglaVision) => void; alBorrar: () => void;
+/**
+ * Configuraciones de uso común, listas para usar (16/10, Nico: «precargar algunas config de
+ * analíticas estándar con información clara de qué hace, ejemplos simples activables»). Elegir
+ * una pone el tipo, lo que cuenta, los tiempos, el horario y el aviso; la cámara y lo dibujado se
+ * conservan si el tipo nuevo usa la misma forma (línea o zona).
+ */
+type Plantilla = { id: string; nombre: string; tipo: TipoRegla; que: string; ejemplo: string; aplicar: Partial<ReglaVision> };
+const PLANTILLAS: Plantilla[] = [
+    { id: "intrusion-noche", nombre: "Intrusión de noche", tipo: "intrusion", que: "Avisa si una persona entra a la zona entre las 22 y las 6 y se queda 2 s.", ejemplo: "El fondo de un lote, el jardín de la garita.", aplicar: { clases: ["person"], segundos: 2, horario: HORARIO_NOCHE, avisar: true } },
+    { id: "cerco", nombre: "Cruce del cerco", tipo: "cruce", que: "Avisa cuando una persona cruza la línea del perímetro, en cualquier sentido, de noche.", ejemplo: "La línea sobre el alambrado de una perimetral.", aplicar: { clases: ["person"], sentidos: "ambos", horario: HORARIO_NOCHE, avisar: true } },
+    { id: "merodeo", nombre: "Alguien dando vueltas", tipo: "merodeo", que: "Avisa si una persona anda caminando por la zona más de 90 s.", ejemplo: "Alguien que recorre la vereda mirando las casas.", aplicar: { clases: ["person"], segundos: 90, avisar: true } },
+    { id: "contramano", nombre: "Auto en contramano", tipo: "sentido", que: "Avisa cuando un vehículo cruza la línea en el sentido prohibido.", ejemplo: "La salida de la garita usada como entrada.", aplicar: { clases: ["car", "truck", "bus", "motorcycle"], permitido: "ab", avisar: true } },
+    { id: "detenido", nombre: "Vehículo detenido mucho rato", tipo: "permanencia", que: "Avisa si un auto o una camioneta se queda más de 15 min en la zona.", ejemplo: "Un auto parado frente a la garita o en la banquina.", aplicar: { clases: ["car", "truck"], segundos: 900, avisar: true } },
+    { id: "aforo", nombre: "Contar los que pasan", tipo: "conteo", que: "Cuenta los vehículos que cruzan la línea, por sentido, clase y hora. No avisa.", ejemplo: "Cuántos autos entran por la calle principal cada hora.", aplicar: { clases: ["car", "truck", "bus", "motorcycle"], avisar: false } },
+    { id: "grupo", nombre: "Grupo de personas", tipo: "aglomeracion", que: "Avisa si hay 6 personas o más juntas durante 1 min.", ejemplo: "Una reunión en la plaza o frente a la garita de noche.", aplicar: { clases: ["person"], maximo: 6, segundos: 60, avisar: true } },
+    { id: "bicicletero", nombre: "Se llevan algo", tipo: "retirado", que: "Aprende lo que está quieto en la zona y avisa si desaparece más de 20 s.", ejemplo: "Una bici en el bicicletero, una moto estacionada.", aplicar: { clases: ["bicycle", "motorcycle"], segundos: 20, avisar: true } },
+];
+
+/** Qué forma se dibuja en cada tipo, en pocas palabras (para el desplegable). */
+const FORMA: Record<TipoRegla, string> = {
+    conteo: "Con una línea", sentido: "Con una línea", cruce: "Con una línea · avisa", permanencia: "Con una zona",
+    aglomeracion: "Con una zona o todo el cuadro", intrusion: "Con una zona · avisa", merodeo: "Zona o todo el cuadro · avisa", retirado: "Con una zona · avisa",
+};
+
+/**
+ * Un desplegable con cara (16/10, Nico: «usar más dropdowns estilizados»): la opción elegida se ve
+ * con su ícono o su foto y una línea que dice qué es; la lista, igual. Reemplaza a las grillas de
+ * tarjetas que ocupaban medio cajón.
+ */
+type OpcionDesp = { valor: string; titulo: string; detalle?: string; extra?: string; icono?: React.ReactNode; aviso?: string };
+function Desplegable({ valor, opciones, alElegir, vacio, ancho = 420 }: { valor: string | null; opciones: OpcionDesp[]; alElegir: (v: string) => void; vacio: string; ancho?: number }) {
+    const [abierto, setAbierto] = useState(false);
+    const sel = opciones.find((o) => o.valor === valor) || null;
+    return (
+        <Popover open={abierto} onOpenChange={setAbierto}>
+            <PopoverTrigger asChild>
+                <button type="button" className="w-full min-h-11 rounded-[8px] border border-border bg-background px-2.5 py-1.5 flex items-center gap-2.5 text-left hover:bg-accent/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]/40">
+                    {sel?.icono && <span className="shrink-0">{sel.icono}</span>}
+                    <span className="min-w-0 flex-1">
+                        <span className={cn("block text-[13px] font-semibold truncate", !sel && "text-muted-foreground font-normal")}>{sel ? sel.titulo : vacio}</span>
+                        {sel?.detalle && <span className="block text-[11px] text-muted-foreground truncate">{sel.aviso || sel.detalle}</span>}
+                    </span>
+                    <ChevronDown size={15} className={cn("shrink-0 text-muted-foreground transition-transform", abierto && "rotate-180")} />
+                </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="p-1 max-h-[min(420px,60vh)] overflow-y-auto" style={{ width: ancho }}>
+                {opciones.map((o) => (
+                    <button key={o.valor} type="button" onClick={() => { alElegir(o.valor); setAbierto(false); }}
+                        className={cn("w-full flex items-start gap-2.5 rounded-[6px] px-2 py-2 text-left hover:bg-accent", o.valor === valor && "bg-accent/60")}>
+                        {o.icono && <span className="shrink-0 mt-0.5">{o.icono}</span>}
+                        <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5 text-[13px] font-semibold">{o.titulo}{o.valor === valor && <Check size={13} className="text-[var(--accion)]" />}</span>
+                            {o.detalle && <span className="block text-[11.5px] text-muted-foreground leading-snug">{o.detalle}</span>}
+                            {o.extra && <span className="block text-[11px] text-muted-foreground/80 leading-snug mt-0.5 italic">{o.extra}</span>}
+                            {o.aviso && <span className="block text-[11px] tono-aviso mt-0.5">{o.aviso}</span>}
+                        </span>
+                    </button>
+                ))}
+            </PopoverContent>
+        </Popover>
+    );
+}
+
+/** Un número con su unidad, en una línea: los parámetros de la regla sin un bloque por campo. */
+function CampoNumero({ rotulo, valor, alCambiar, min, max, unidad, ayuda }: { rotulo: string; valor: number; alCambiar: (n: number) => void; min: number; max: number; unidad: string; ayuda?: string }) {
+    return (
+        <label className="flex items-center gap-2 text-[12.5px]" title={ayuda}>
+            <span className="text-muted-foreground">{rotulo}</span>
+            <span className="inline-flex items-center h-9 rounded-[8px] border border-border bg-background pr-2.5 focus-within:ring-2 focus-within:ring-[var(--accion)]/40">
+                <input type="number" min={min} max={max} value={valor} onChange={(e) => alCambiar(Number(e.target.value))}
+                    className="w-16 h-full bg-transparent px-2.5 text-[13px] font-semibold tabular-nums outline-none" />
+                <span className="text-[12px] text-muted-foreground">{unidad}</span>
+            </span>
+        </label>
+    );
+}
+
+function Segmentos<T extends string>({ valor, opciones, alElegir }: { valor: T; opciones: [T, string][]; alElegir: (v: T) => void }) {
+    return (
+        <div className="flex items-center h-9 rounded-lg bg-muted/60 p-0.5 w-fit">
+            {opciones.map(([v, rot]) => (
+                <button key={v} type="button" onClick={() => alElegir(v)}
+                    className={cn("h-8 px-3 rounded-md text-[12.5px] font-semibold whitespace-nowrap", valor === v ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>{rot}</button>
+            ))}
+        </div>
+    );
+}
+
+/**
+ * Elegir una o varias cámaras (16/10, Nico: «la regla me permite una sola cámara a la vez, y quiero
+ * vigilar todos los contenedores»). Las que vieron lo que cuenta la regla en la última semana van
+ * primero, con cuántas veces: es la pista de dónde está lo que se quiere vigilar.
+ */
+function ElegirCamaras({ elegidas, camaras, vistos, alAlternar }: { elegidas: string[]; camaras: { id: string; name: string; analiza: boolean }[]; vistos: Map<string, number>; alAlternar: (id: string) => void }) {
+    const [abierto, setAbierto] = useState(false);
+    const [buscar, setBuscar] = useState("");
+    const q = buscar.trim().toLowerCase();
+    const lista = camaras.filter((c) => !q || c.name.toLowerCase().includes(q))
+        .sort((a, b) => (vistos.get(b.id) || 0) - (vistos.get(a.id) || 0) || Number(b.analiza) - Number(a.analiza) || a.name.localeCompare(b.name));
+    const sel = camaras.filter((c) => elegidas.includes(c.id));
+    return (
+        <Popover open={abierto} onOpenChange={setAbierto}>
+            <PopoverTrigger asChild>
+                <button type="button" className="w-full min-h-11 rounded-[8px] border border-border bg-background px-2.5 py-1.5 flex items-center gap-2.5 text-left hover:bg-accent/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]/40">
+                    <span className="flex -space-x-3 shrink-0">
+                        {sel.slice(0, 3).map((c) => (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img key={c.id} src={fotoCamara(c.id, 160)} alt="" loading="lazy" className="w-14 h-8 rounded-[4px] object-cover bg-black ring-2 ring-background" />
+                        ))}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                        <span className={cn("block text-[13px] font-semibold truncate", !sel.length && "text-muted-foreground font-normal")}>{sel.length === 0 ? "Elegí la cámara" : sel.length === 1 ? sel[0].name : `${sel.length} cámaras`}</span>
+                        {sel.length > 0 && <span className="block text-[11px] text-muted-foreground truncate">{sel.length === 1 ? (sel[0].analiza ? "OmniVision la mira" : "Fuera de OmniVision: la regla se guarda pero no corre") : sel.map((c) => c.name).join(", ")}</span>}
+                    </span>
+                    <ChevronDown size={15} className={cn("shrink-0 text-muted-foreground transition-transform", abierto && "rotate-180")} />
+                </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="p-1 w-[400px]">
+                <div className="p-1"><Input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar cámara" className="h-9" /></div>
+                <div className="max-h-[min(380px,55vh)] overflow-y-auto">
+                    {lista.map((c) => {
+                        const on = elegidas.includes(c.id);
+                        const n = vistos.get(c.id) || 0;
+                        return (
+                            <button key={c.id} type="button" onClick={() => alAlternar(c.id)} aria-pressed={on} disabled={on && elegidas.length === 1}
+                                title={on && elegidas.length === 1 ? "Tiene que quedar al menos una cámara" : undefined}
+                                className={cn("w-full flex items-center gap-2.5 rounded-[6px] px-2 py-1.5 text-left hover:bg-accent", on && "bg-accent/60")}>
+                                <span className={cn("grid h-4 w-4 place-items-center rounded-[4px] border shrink-0", on ? "bg-[var(--accion)] border-[var(--accion)] text-white" : "border-border")}>{on && <Check size={11} />}</span>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={fotoCamara(c.id, 160)} alt="" loading="lazy" className="w-14 h-8 rounded-[4px] object-cover bg-black shrink-0" />
+                                <span className="min-w-0 flex-1">
+                                    <span className="block text-[12.5px] font-semibold truncate">{c.name}</span>
+                                    <span className={cn("block text-[11px] truncate", c.analiza ? "text-muted-foreground" : "tono-aviso")}>{c.analiza ? "OmniVision la mira" : "Fuera de OmniVision: no correría"}</span>
+                                </span>
+                                {n > 0 && <span className="shrink-0 text-[11px] font-semibold tabular-nums chip-info px-1.5 h-5 inline-flex items-center rounded-full" title="Veces que OmniVision vio lo que cuenta esta regla en la última semana">{n} vistos</span>}
+                            </button>
+                        );
+                    })}
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
+}
+
+/**
+ * Quién hace qué (16/10, Nico: «debe quedar claro qué cosas procesa la cámara y qué cosas
+ * OmniVision»). Todas las reglas de esta pantalla las corre OmniVision sobre el video, en el
+ * servidor; la cámara sólo lo manda. Las analíticas que trae la cámara (su cruce de línea, su
+ * intrusión, su ANPR) son otra cosa: se configuran en el equipo y llegan por Dispositivos al
+ * Monitor de intrusión. Sin esto, «Cruza una línea» se confundía con el cruce de línea de la
+ * Hikvision.
+ */
+function QuienLoHace({ compacto }: { compacto?: boolean }) {
+    if (compacto) return (
+        <p className="flex items-start gap-1.5 text-[11.5px] text-muted-foreground leading-snug">
+            <ScanEye size={13} className="shrink-0 mt-px text-[var(--accion)]" />
+            <span><b className="text-foreground font-semibold">La procesa OmniVision</b> en el servidor, sobre el video. La cámara sólo manda la imagen: no hay que configurar nada en el equipo, y anda en cualquier marca.</span>
+        </p>
+    );
+    return (
+        <div className="grid grid-cols-1 sm:grid-cols-2 rounded-[10px] border border-border divide-y sm:divide-y-0 sm:divide-x divide-border">
+            <div className="flex items-start gap-2.5 px-3 py-2.5">
+                <span className="grid h-8 w-8 place-items-center rounded-[8px] bg-[color-mix(in_oklab,var(--accion)_12%,transparent)] text-[var(--accion)] shrink-0"><ScanEye size={16} /></span>
+                <span className="min-w-0">
+                    <span className="block text-[12.5px] font-semibold">OmniVision — estas reglas</span>
+                    <span className="block text-[11px] text-muted-foreground leading-snug">Reconoce qué es (personas, vehículos, lo entrenado acá), lo sigue y aplica la regla. Corre en el servidor, en cualquier cámara.</span>
+                </span>
+            </div>
+            <div className="flex items-start gap-2.5 px-3 py-2.5">
+                <span className="grid h-8 w-8 place-items-center rounded-[8px] bg-muted text-muted-foreground shrink-0"><Camera size={16} /></span>
+                <span className="min-w-0">
+                    <span className="block text-[12.5px] font-semibold">La cámara — sólo el video</span>
+                    <span className="block text-[11px] text-muted-foreground leading-snug">Sus analíticas propias (cruce de línea, intrusión, ANPR) no se arman acá: se configuran en el equipo y llegan por Dispositivos al Monitor de intrusión.</span>
+                </span>
+            </div>
+        </div>
+    );
+}
+
+/**
+ * El cajón de una regla (16/10, Nico: «con menos scroll, dropdowns estilizados, plantillas con
+ * ejemplos; la cámara arriba, sin marcos, acoplada; nombre y cámara los primeros campos»).
+ *
+ * Arriba, a todo el ancho, el cuadro de la cámara donde se dibuja: es lo que se está configurando.
+ * Debajo: cámara y nombre; la analítica y la plantilla en dos desplegables; qué cuenta como
+ * píldoras; y los tiempos, el horario y el aviso en renglones cortos. Antes eran ocho tarjetas de
+ * tipo, una grilla de tarjetas por clase y una sección por parámetro: tres pantallas de scroll.
+ */
+function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, alBorrar }: {
+    edicion: Edicion; camaras: { id: string; name: string; analiza: boolean }[]; vistos?: Respuesta["vistos"]; guardando: boolean;
+    alCerrar: () => void; alGuardar: (reglas: ReglaVision[]) => void; alBorrar: () => void;
 }) {
-    const [r, setR] = useState<ReglaVision>(regla);
+    const nueva = edicion.nueva;
+    // En un grupo, el nombre que se edita es el del grupo; cada regla sale «<grupo> · <cámara>».
+    const [r, setR] = useState<ReglaVision>(() => ({ ...edicion.base, nombre: edicion.base.grupo?.nombre ?? edicion.base.nombre }));
+    const [ids, setIds] = useState<string[]>(edicion.deviceIds);
+    const [geo, setGeo] = useState<Record<string, Geo>>(() => Object.fromEntries(edicion.deviceIds.map((id) => {
+        const o = edicion.originales.find((x) => x.deviceId === id) || (id === edicion.base.deviceId ? edicion.base : null);
+        return [id, { linea: o?.linea || null, zona: o?.zona || [] }];
+    })));
+    const [actual, setActual] = useState<string>(edicion.foco || edicion.deviceIds[0] || "");
+    const [plantilla, setPlantilla] = useState<string | null>(null);
     const t = TIPOS_REGLA[r.tipo];
     const cambiar = (x: Partial<ReglaVision>) => setR((v) => ({ ...v, ...x }));
-    const cambiarTipo = (tipo: TipoRegla) => {
-        const base = { ...r, ...reglaNueva(tipo, r.deviceId), id: r.id, nombre: r.nombre };
-        // La geometría se conserva si el tipo nuevo usa la misma.
-        if (TIPOS_REGLA[tipo].geometria === t.geometria) { base.linea = r.linea; base.zona = r.zona; }
+    const varias = ids.length > 1;
+    const nombreDe = (id: string) => camaras.find((c) => c.id === id)?.name || "Cámara borrada";
+    const nombreAuto = (n: string) => (varias ? n : `${n} · ${ids[0] ? nombreDe(ids[0]) : ""}`);
+    /** El nombre se propone solo mientras no se escribió uno a mano. */
+    const esNombreAuto = !r.nombre.trim() || r.nombre === nombreAuto(t.nombre) || PLANTILLAS.some((p) => r.nombre === nombreAuto(p.nombre));
+    const sinDibujo = (): Record<string, Geo> => Object.fromEntries(ids.map((id) => [id, { linea: null, zona: [] }]));
+    const conTipo = (tipo: TipoRegla, extra: Partial<ReglaVision> = {}, nombre?: string) => {
+        const base = { ...r, ...reglaNueva(tipo, r.deviceId), id: r.id, nombre: r.nombre, activa: r.activa, grupo: r.grupo, ...extra };
+        // Lo dibujado se conserva si el tipo nuevo usa la misma forma.
+        if (TIPOS_REGLA[tipo].geometria !== t.geometria) setGeo(sinDibujo());
+        if (esNombreAuto) base.nombre = nombre ? nombreAuto(nombre) : "";
         setR(base);
     };
-    const geometriaLista = t.geometria === "linea" ? !!r.linea : r.tipo === "aglomeracion" || r.tipo === "merodeo" || (r.zona?.length || 0) >= 3;
-    const listo = !!r.deviceId && geometriaLista && r.clases.length > 0;
-    const final = (): ReglaVision => ({ ...r, nombre: r.nombre.trim() || `${t.nombre} · ${camaras.find((c) => c.id === r.deviceId)?.name || ""}`, zona: (r.zona?.length || 0) >= 3 ? r.zona : null });
+    const usarPlantilla = (id: string) => { const p = PLANTILLAS.find((x) => x.id === id); if (!p) return; setPlantilla(id); conTipo(p.tipo, p.aplicar, p.nombre); };
+    const dibujoListo = (g?: Geo) => (t.geometria === "linea" ? !!g?.linea : r.tipo === "aglomeracion" || r.tipo === "merodeo" || (g?.zona?.length || 0) >= 3);
+    const faltan = ids.filter((id) => !dibujoListo(geo[id]));
+    const listo = ids.length > 0 && !faltan.length && r.clases.length > 0;
+    const g = geo[actual] || { linea: null, zona: [] };
+    const ponerGeo = (id: string, x: Partial<Geo>) => setGeo((v) => ({ ...v, [id]: { ...(v[id] || { linea: null, zona: [] }), ...x } }));
+    /** Sumar o sacar una cámara. Al pasar de una a varias, el nombre deja de llevar la cámara. */
+    const alternarCamara = (id: string) => {
+        if (ids.includes(id)) {
+            if (ids.length === 1) return;
+            const n = ids.filter((x) => x !== id);
+            setIds(n); if (actual === id) setActual(n[0]);
+            return;
+        }
+        if (ids.length === 1) { const suf = ` · ${nombreDe(ids[0])}`; if (r.nombre.endsWith(suf)) cambiar({ nombre: r.nombre.slice(0, -suf.length) }); }
+        if (!ids.length && esNombreAuto) cambiar({ nombre: "" });
+        setIds([...ids, id]);
+        if (!geo[id]) ponerGeo(id, { linea: null, zona: [] });
+        setActual(id);
+    };
+    /** Copiar el dibujo de la cámara a la vista a las que todavía no tienen. Sirve con cámaras gemelas. */
+    const copiarALasQueFaltan = () => setGeo((v) => { const o = { ...v }; for (const id of faltan) o[id] = { linea: g.linea, zona: [...g.zona] }; return o; });
+    const final = (): ReglaVision[] => {
+        const base = r.nombre.trim() || nombreAuto(t.nombre);
+        const grupoId = varias ? edicion.base.grupo?.id || nuevaId() : null;
+        return ids.map((id, k) => {
+            const o = edicion.originales.find((x) => x.deviceId === id);
+            // Cada cámara conserva el id de su regla, así sus números de hoy y sus eventos siguen con ella.
+            const rid = o?.id || (ids.length === 1 && edicion.originales.length === 1 ? edicion.originales[0].id : k === 0 && !edicion.originales.length ? r.id : nuevaId());
+            const d = geo[id] || { linea: null, zona: [] };
+            return {
+                ...r, id: rid, deviceId: id, nombre: varias ? `${base} · ${nombreDe(id)}` : base,
+                activa: o ? o.activa : r.activa,
+                linea: t.geometria === "linea" ? d.linea : null, zona: t.geometria === "zona" && d.zona.length >= 3 ? d.zona : null,
+                grupo: grupoId ? { id: grupoId, nombre: base } : null,
+            };
+        });
+    };
+    const falta = !ids.length ? "Elegí la cámara." : faltan.length ? (varias ? `Falta dibujar en ${faltan.length === 1 ? nombreDe(faltan[0]) : `${faltan.length} cámaras`}.` : t.geometria === "linea" ? "Dibujá la línea sobre el cuadro." : "Dibujá la zona sobre el cuadro (al menos 3 puntos).") : !r.clases.length ? "Prendé al menos una clase en «Qué cuenta»." : null;
+    const zonaObligatoria = t.geometria === "zona" && r.tipo !== "aglomeracion" && r.tipo !== "merodeo";
+    const nOriginales = edicion.originales.length;
 
     return (
         <Cajon open onOpenChange={(o) => { if (!o) alCerrar(); }}>
-            <CajonContenido ancho="medio" titulo={nueva ? "Nueva regla" : r.nombre || t.nombre} descripcion={t.queHace}
-                pie={
-                    <>
-                        {!nueva && <Button variant="outline" className="mr-auto tono-mal" onClick={alBorrar} disabled={guardando}><Trash2 size={15} /> Borrar</Button>}
-                        <Button variant="ghost" onClick={alCerrar}>Cancelar</Button>
-                        <Button onClick={() => alGuardar(final())} disabled={!listo || guardando}>{guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {nueva ? "Crear regla" : "Guardar"}</Button>
-                    </>
-                }>
-                <CajonSeccion titulo="Qué mira">
-                    <div className="grid grid-cols-2 gap-2">
-                        {(Object.keys(TIPOS_REGLA) as TipoRegla[]).map((k) => {
-                            const Ic = ICONO[k]; const sel = r.tipo === k;
-                            return (
-                                <button key={k} type="button" onClick={() => cambiarTipo(k)} aria-pressed={sel}
-                                    className={cn("rounded-[10px] border p-3 text-left transition-colors", sel ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]" : "border-border hover:bg-accent")}>
-                                    <span className="flex items-center gap-1.5 text-[13px] font-bold"><Ic size={14} /> {TIPOS_REGLA[k].nombre}</span>
-                                    <span className="block text-[11.5px] text-muted-foreground mt-0.5 leading-snug">{TIPOS_REGLA[k].geometria === "linea" ? (k === "cruce" ? "Con una línea · avisa" : "Con una línea") : k === "aglomeracion" ? "Con una zona (o todo el cuadro)" : k === "merodeo" ? "Zona o cuadro · avisa" : k === "intrusion" || k === "retirado" ? "Con una zona · avisa" : "Con una zona"}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <CajonCampo etiqueta="Cámara">
-                            <Select value={r.deviceId} onValueChange={(v) => cambiar({ deviceId: v, linea: null, zona: [] })}>
-                                <SelectTrigger><SelectValue placeholder="Elegí la cámara" /></SelectTrigger>
-                                <SelectContent>{camaras.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}{c.analiza ? "" : " · fuera de OmniVision"}</SelectItem>)}</SelectContent>
-                            </Select>
-                        </CajonCampo>
-                        <CajonCampo etiqueta="Nombre" ayuda={r.tipo === "conteo" ? EJEMPLO_AVISO.conteo(r.nombre || "…") : `Así sale en el aviso: ${EJEMPLO_AVISO[r.tipo](r.nombre || "…")}.`}>
-                            <Input value={r.nombre} onChange={(e) => cambiar({ nombre: e.target.value })} placeholder={`${t.nombre} · ${camaras.find((c) => c.id === r.deviceId)?.name || ""}`} />
-                        </CajonCampo>
-                    </div>
-                </CajonSeccion>
-
-                <CajonSeccion titulo="Qué cuenta" icono={Boxes}
-                    ayuda={r.clases.length ? `${r.clases.length} ${r.clases.length === 1 ? "clase prendida" : "clases prendidas"}: sólo eso dispara la regla.` : "Prendé al menos una: sin clases la regla no mira nada."}>
-                    {/* Una tarjeta con su interruptor por clase. Antes eran píldoras sin ícono, abajo
-                        del dibujo: lo que la regla cuenta se elegía al final y se leía mal. Las
-                        clases del detector propio se ofrecen en todas: un contenedor puede faltar
-                        (retirado), quedarse en una zona o cruzar una línea. */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {[...(r.tipo === "retirado" ? [...CLASES_REGLA.filter((c) => c.clase !== "person" && c.clase !== "dog"), ...CLASES_OBJETO] : CLASES_REGLA), ...listaPropias()].map((c) => {
-                            const on = r.clases.includes(c.clase);
-                            const propia = !ICONO_CLASE[c.clase];
-                            const Ic = ICONO_CLASE[c.clase] || Boxes;
-                            const alternar = () => cambiar({ clases: on ? r.clases.filter((x) => x !== c.clase) : [...r.clases, c.clase] });
-                            return (
-                                <div key={c.clase} role="button" tabIndex={0} onClick={alternar} onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); alternar(); } }}
-                                    className={cn("flex items-center gap-2.5 rounded-[10px] border px-2.5 py-2 cursor-pointer select-none transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion-foco,var(--accion))]",
-                                        on ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_7%,transparent)]" : "border-border hover:bg-accent/50")}>
-                                    <span className={cn("grid h-9 w-9 place-items-center rounded-[9px] shrink-0 transition-colors", on ? "bg-[var(--accion)] text-[var(--accion-sobre,#fff)]" : "bg-muted text-muted-foreground")}>
-                                        <Ic size={18} strokeWidth={2} />
-                                    </span>
-                                    <span className="min-w-0 flex-1">
-                                        <span className={cn("block text-[12.5px] font-semibold truncate", !on && "text-muted-foreground")}>{c.nombre}</span>
-                                        <span className="block text-[10.5px] text-muted-foreground">{propia ? "Entrenado acá · " : ""}{on ? "La cuenta" : "No la mira"}</span>
-                                    </span>
-                                    {/* El interruptor sólo muestra: el clic lo maneja la tarjeta entera. */}
-                                    <span onClick={(e) => e.stopPropagation()}><Switch checked={on} onCheckedChange={alternar} aria-label={`${on ? "Dejar de contar" : "Contar"} ${c.nombre}`} /></span>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </CajonSeccion>
-
-
-                <CajonSeccion titulo={t.geometria === "linea" ? "La línea" : "La zona"}
-                    ayuda={t.geometria === "linea" ? "Dibujala sobre el piso, de lado a lado de por donde se pasa." : r.tipo === "aglomeracion" || r.tipo === "merodeo" ? "Opcional: sin zona se mira todo el cuadro." : r.tipo === "retirado" ? "Donde están las cosas a cuidar (el bicicletero, la entrada de una casa). Lo quieto adentro se aprende solo en un minuto." : "Sobre el piso: se mide dónde está el pie de cada objeto."}>
-                    {r.deviceId ? (
-                        <EditorGeometria deviceId={r.deviceId} modo={t.geometria} linea={r.linea || null} zona={r.zona || []}
+            <CajonContenido ancho="medio" titulo={nueva ? (varias ? `Nueva regla en ${ids.length} cámaras` : "Nueva regla") : (r.nombre || t.nombre)} descripcion={t.queHace}
+                encabezado={actual ? (
+                    <div>
+                        <EditorGeometria key={actual} aSangre deviceId={actual} modo={t.geometria} linea={g.linea} zona={g.zona}
                             permitido={r.tipo === "sentido" ? r.permitido : undefined}
-                            alCambiarLinea={(l) => cambiar({ linea: l })} alCambiarZona={(z: Punto[]) => cambiar({ zona: z })} />
-                    ) : <p className="text-[12px] text-muted-foreground">Elegí la cámara primero.</p>}
-                    {r.tipo === "sentido" && (
-                        <CajonCampo etiqueta="Sentido permitido" ayuda="La flecha verde: por ahí se pasa. Avisa cuando algo cruza como la roja.">
-                            <div className="flex items-center h-9 rounded-lg bg-muted/60 p-0.5 w-fit">
-                                {(["ab", "ba"] as const).map((v) => (
-                                    <button key={v} type="button" onClick={() => cambiar({ permitido: v })}
-                                        className={cn("h-8 px-3 rounded-md text-[12.5px] font-semibold", r.permitido === v ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                        {v === "ab" ? "De A a B" : "De B a A"}
-                                    </button>
-                                ))}
-                            </div>
-                        </CajonCampo>
-                    )}
-                    {r.tipo === "cruce" && (
-                        <CajonCampo etiqueta="Avisa cuando cruza" ayuda="A y B son los dos lados de la línea, rotulados sobre el cuadro.">
-                            <div className="flex items-center h-9 rounded-lg bg-muted/60 p-0.5 w-fit">
-                                {(["ambos", "ab", "ba"] as const).map((v) => (
-                                    <button key={v} type="button" onClick={() => cambiar({ sentidos: v })}
-                                        className={cn("h-8 px-3 rounded-md text-[12.5px] font-semibold", (r.sentidos || "ambos") === v ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                        {v === "ambos" ? "En los dos sentidos" : v === "ab" ? "De A a B" : "De B a A"}
-                                    </button>
-                                ))}
-                            </div>
-                        </CajonCampo>
-                    )}
-                </CajonSeccion>
-
-                {(r.tipo === "merodeo" || r.tipo === "retirado" || r.tipo === "intrusion" || r.tipo === "permanencia" || r.tipo === "aglomeracion") && (
-                    <CajonSeccion titulo="Cuándo dispara" icono={Gauge}>
-                    {(r.tipo === "merodeo" || r.tipo === "retirado") && (
-                        <CajonCampo etiqueta={r.tipo === "merodeo" ? "Avisar después de (segundos)" : "Avisar si falta más de (segundos)"}
-                            ayuda={r.tipo === "merodeo" ? "En la zona y caminando: alguien parado esperando no es merodeo. Desde 20 s." : "Sin verse ni estar tapado por una persona. Desde 5 s."}>
-                            <Input type="number" min={r.tipo === "merodeo" ? 20 : 5} max={r.tipo === "merodeo" ? 3600 : 600} value={r.segundos ?? (r.tipo === "merodeo" ? 90 : 20)} onChange={(e) => cambiar({ segundos: Number(e.target.value) })} className="w-32" />
-                        </CajonCampo>
-                    )}
-                    {r.tipo === "intrusion" && (
-                        <CajonCampo etiqueta="Avisar después de (segundos)" ayuda="Adentro de la zona, seguidos. 2 s alcanza para que una sombra o un paso por el borde no avise; 0 avisa en el primer cuadro.">
-                            <Input type="number" min={0} max={120} value={r.segundos ?? 2} onChange={(e) => cambiar({ segundos: Number(e.target.value) })} className="w-32" />
-                        </CajonCampo>
-                    )}
-                    {(r.tipo === "permanencia" || r.tipo === "aglomeracion") && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {r.tipo === "aglomeracion" && (
-                                <CajonCampo etiqueta="Desde cuántas personas" ayuda="A la vez, dentro de la zona.">
-                                    <Input type="number" min={2} max={200} value={r.maximo ?? 5} onChange={(e) => cambiar({ maximo: Number(e.target.value) })} />
-                                </CajonCampo>
-                            )}
-                            <CajonCampo etiqueta={r.tipo === "permanencia" ? "Avisar después de (minutos)" : "Durante cuánto (segundos)"}
-                                ayuda={r.tipo === "permanencia" ? "Desde que el pie entra en la zona." : "Una reunión de paso no avisa; una que se queda, sí."}>
-                                <Input type="number" min={r.tipo === "permanencia" ? 1 : 5}
-                                    value={r.tipo === "permanencia" ? Math.round((r.segundos ?? 300) / 60) : r.segundos ?? 30}
-                                    onChange={(e) => cambiar({ segundos: r.tipo === "permanencia" ? Number(e.target.value) * 60 : Number(e.target.value) })} />
-                            </CajonCampo>
-                        </div>
-                    )}
-                    </CajonSeccion>
-                )}
-
-                {CON_HORARIO.includes(r.tipo) && (
-                    <CajonSeccion titulo="Cuándo está armada" icono={Clock}
-                        ayuda="Fuera de horario no registra ni avisa: el jardinero que cruza a las 10 no es una intrusión; el que cruza a las 3, sí. Hora del barrio.">
-                        <div className="flex items-center h-9 rounded-lg bg-muted/60 p-0.5 w-fit">
-                            {([["siempre", "Siempre"], ["horario", "En un horario"]] as const).map(([v, rot]) => (
-                                <button key={v} type="button" onClick={() => cambiar({ horario: v === "siempre" ? null : r.horario || HORARIO_NOCHE })}
-                                    className={cn("h-8 px-3 rounded-md text-[12.5px] font-semibold", (r.horario ? "horario" : "siempre") === v ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                    {rot}
-                                </button>
-                            ))}
-                        </div>
-                        {r.horario && (
-                            <div className="flex items-end gap-3">
-                                <CajonCampo etiqueta="Desde"><Input type="time" value={r.horario.desde} onChange={(e) => cambiar({ horario: { ...r.horario!, desde: e.target.value } })} className="w-32 tabular-nums" /></CajonCampo>
-                                <CajonCampo etiqueta="Hasta"><Input type="time" value={r.horario.hasta} onChange={(e) => cambiar({ horario: { ...r.horario!, hasta: e.target.value } })} className="w-32 tabular-nums" /></CajonCampo>
-                                {r.horario.desde > r.horario.hasta && <span className="text-[11.5px] text-muted-foreground pb-2.5">cruza la medianoche</span>}
+                            alCambiarLinea={(l) => ponerGeo(actual, { linea: l })} alCambiarZona={(z: Punto[]) => ponerGeo(actual, { zona: z })} />
+                        {/* Varias cámaras: una tira para pasar de una a otra, con lo que falta dibujar a la vista. */}
+                        {(varias || zonaObligatoria) && (
+                            <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
+                                {varias && (
+                                    <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto">
+                                        {ids.map((id) => {
+                                            const ok = dibujoListo(geo[id]);
+                                            return (
+                                                <button key={id} type="button" onClick={() => setActual(id)} title={`${nombreDe(id)} · ${ok ? "dibujada" : "falta dibujar"}`}
+                                                    className={cn("relative shrink-0 rounded-[6px] overflow-hidden border-2 transition-colors", id === actual ? "border-[var(--accion)]" : "border-transparent hover:border-border")}>
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img src={fotoCamara(id, 160)} alt="" loading="lazy" className="block w-[72px] h-[40px] object-cover bg-black" />
+                                                    <span className={cn("absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full text-white", ok ? "bg-[var(--bien)]" : "bg-black/60")}>{ok ? <Check size={10} /> : <span className="h-1.5 w-1.5 rounded-full bg-white/80" />}</span>
+                                                    <span className="absolute inset-x-0 bottom-0 px-1 bg-black/65 text-white text-[9.5px] truncate">{nombreDe(id)}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                                <span className={cn("flex items-center gap-1.5 shrink-0", !varias && "ml-auto")}>
+                                    {zonaObligatoria && (
+                                        <Pista titulo="Todo el cuadro" texto="Usa el cuadro entero como zona en esta cámara. Para un objeto que se vigila (un contenedor, una moto) conviene la zona justa alrededor: lo que se mueve fuera no cuenta.">
+                                            <button type="button" onClick={() => ponerGeo(actual, { zona: TODO_EL_CUADRO })} className="h-8 px-2.5 rounded-md border border-border text-[12px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent"><Maximize2 size={13} /> Todo el cuadro</button>
+                                        </Pista>
+                                    )}
+                                    {varias && dibujoListo(g) && faltan.length > 0 && (
+                                        <Pista titulo="Copiar el dibujo" texto={`Pone este mismo dibujo en las ${faltan.length} cámaras que no tienen. Sirve si miran parecido; después se ajusta cada una.`}>
+                                            <button type="button" onClick={copiarALasQueFaltan} className="h-8 px-2.5 rounded-md border border-border text-[12px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent"><Copy size={13} /> A las {faltan.length} que faltan</button>
+                                        </Pista>
+                                    )}
+                                </span>
                             </div>
                         )}
-                    </CajonSeccion>
-                )}
+                    </div>
+                ) : <div className="aspect-video bg-muted/40 grid place-items-center text-[12.5px] text-muted-foreground">Elegí la cámara para ver su cuadro y dibujar.</div>}
+                pie={
+                    <>
+                        {!nueva && <Button variant="outline" className="mr-auto tono-mal" onClick={alBorrar} disabled={guardando}><Trash2 size={15} /> {nOriginales > 1 ? `Borrar en las ${nOriginales}` : "Borrar"}</Button>}
+                        {falta && <span className="mr-auto text-[12px] text-muted-foreground">{falta}</span>}
+                        <Button variant="ghost" onClick={alCerrar}>Cancelar</Button>
+                        <Button onClick={() => alGuardar(final())} disabled={!listo || guardando}>{guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {nueva ? (varias ? `Crear en ${ids.length} cámaras` : "Crear regla") : "Guardar"}</Button>
+                    </>
+                }>
+                <div className="px-6 py-5 space-y-5">
+                    {/* Cámaras y nombre: lo primero. */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <CajonCampo etiqueta={varias ? `Cámaras · ${ids.length}` : "Cámara"} ayuda={varias ? "La misma regla en cada una, con su propio dibujo. Se prenden, editan y borran juntas." : "Sumá más para vigilar lo mismo en varias cámaras."}>
+                            <ElegirCamaras elegidas={ids} camaras={camaras} vistos={vistosPorCamara(vistos, r.clases)} alAlternar={alternarCamara} />
+                        </CajonCampo>
+                        <CajonCampo etiqueta={varias ? "Nombre del grupo" : "Nombre"} ayuda={varias ? `Cada cámara sale «${r.nombre.trim() || nombreAuto(t.nombre)} · ${nombreDe(ids[0])}».` : r.tipo === "conteo" ? EJEMPLO_AVISO.conteo(r.nombre || "…") : `Así sale en el aviso: ${EJEMPLO_AVISO[r.tipo](r.nombre || "…")}.`}>
+                            <Input value={r.nombre} onChange={(e) => cambiar({ nombre: e.target.value })} placeholder={nombreAuto(t.nombre)} className="h-11" />
+                        </CajonCampo>
+                    </div>
+                    <QuienLoHace compacto />
 
-                <CajonSeccion titulo="Qué hace">
-                    <label className="flex items-center justify-between gap-3 rounded-[10px] border border-border px-3 py-2.5 cursor-pointer">
-                        <span>
-                            <span className="flex items-center gap-1.5 text-[12.5px] font-semibold"><BellRing size={13} /> Avisar a la guardia</span>
-                            <span className="block text-[11.5px] text-muted-foreground leading-snug">Crea un aviso con la foto: aparece en la consola del guardia, en Control LPR y en Visitas. Apagado, sólo queda registrado acá.</span>
-                        </span>
-                        <Switch checked={r.avisar} onCheckedChange={(v) => cambiar({ avisar: v })} />
-                    </label>
-                    {r.tipo === "conteo" && <p className="text-[11.5px] text-muted-foreground">El conteo no avisa: suma los cruces por sentido, clase y hora. Se guardan 90 días.</p>}
-                    {r.tipo === "cruce" && <p className="text-[11.5px] text-muted-foreground">Cada cruce queda registrado con su foto. El aviso se espacia 30 s por regla: cinco que saltan juntos son un aviso, no cinco.</p>}
-                    {r.tipo === "intrusion" && <p className="text-[11.5px] text-muted-foreground">Una vez por objeto mientras siga adentro, con su foto. El aviso se espacia 1 min por regla.</p>}
-                    {r.tipo === "merodeo" && <p className="text-[11.5px] text-muted-foreground">Una vez por persona, con su foto. El seguimiento no sabe que es la misma si sale del cuadro y vuelve. El aviso se espacia 2 min por regla.</p>}
-                    {r.tipo === "retirado" && <p className="text-[11.5px] text-muted-foreground">Con la foto de antes (la última donde estaba) y la de después. Después de reiniciar el proceso, lo aprende de nuevo en un minuto.</p>}
-                    <p className="text-[11.5px] text-muted-foreground">Límite: cada cámara se mira cada ~2 s. Personas y autos a paso de barrio se siguen bien; un auto rápido puede perder su número entre dos cuadros y no contarse.</p>
-                </CajonSeccion>
+                    {/* Qué analítica, y una plantilla para no empezar de cero. */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <CajonCampo etiqueta="Analítica">
+                            <Desplegable valor={r.tipo} vacio="Elegí la analítica" ancho={440}
+                                alElegir={(v) => { setPlantilla(null); conTipo(v as TipoRegla); }}
+                                opciones={(Object.keys(TIPOS_REGLA) as TipoRegla[]).map((k) => {
+                                    const Ic = ICONO[k];
+                                    return { valor: k, titulo: TIPOS_REGLA[k].nombre, detalle: FORMA[k], extra: TIPOS_REGLA[k].queHace,
+                                        icono: <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-muted"><Ic size={15} /></span> };
+                                })} />
+                        </CajonCampo>
+                        <CajonCampo etiqueta="Plantilla" ayuda="Una configuración de uso común: pone las clases, los tiempos, el horario y el aviso. Después se ajusta lo que haga falta.">
+                            <Desplegable valor={plantilla} vacio="Empezar desde una plantilla" ancho={440} alElegir={usarPlantilla}
+                                opciones={PLANTILLAS.map((p) => {
+                                    const Ic = ICONO[p.tipo];
+                                    return { valor: p.id, titulo: p.nombre, detalle: p.que, extra: `Ej.: ${p.ejemplo}`,
+                                        icono: <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-[color-mix(in_oklab,var(--accion)_12%,transparent)] text-[var(--accion)]"><Ic size={15} /></span> };
+                                })} />
+                        </CajonCampo>
+                    </div>
+
+                    {/* Lo que cuenta: todo el catálogo de OmniVision en un campo, no siete píldoras. */}
+                    <CajonCampo etiqueta="Qué cuenta" ayuda={r.tipo === "retirado" ? "Lo que se aprende quieto en la zona y avisa si falta. Personas y animales no: se mueven solos." : "Sólo lo elegido dispara la regla. Lo entrenado acá va primero."}>
+                        <ElegirClases valor={r.clases} alCambiar={(clases) => cambiar({ clases })} propias={listaPropias()} excluir={r.tipo === "retirado" ? ["persona", "animal"] : []} />
+                    </CajonCampo>
+
+                    {/* Cuándo dispara: los parámetros del tipo, en un renglón. */}
+                    {r.tipo !== "conteo" && (
+                        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+                            {r.tipo === "sentido" && <label className="flex items-center gap-2 text-[12.5px]"><span className="text-muted-foreground">Se pasa</span><Segmentos valor={r.permitido || "ab"} opciones={[["ab", "De A a B"], ["ba", "De B a A"]]} alElegir={(v) => cambiar({ permitido: v })} /></label>}
+                            {r.tipo === "cruce" && <label className="flex items-center gap-2 text-[12.5px]"><span className="text-muted-foreground">Avisa al cruzar</span><Segmentos valor={r.sentidos || "ambos"} opciones={[["ambos", "Los dos sentidos"], ["ab", "A→B"], ["ba", "B→A"]]} alElegir={(v) => cambiar({ sentidos: v })} /></label>}
+                            {r.tipo === "intrusion" && <CampoNumero rotulo="Avisa a los" valor={r.segundos ?? 2} min={0} max={120} unidad="s adentro" alCambiar={(n) => cambiar({ segundos: n })} ayuda="Seguidos adentro de la zona. 2 s alcanza para que una sombra o un paso por el borde no avise." />}
+                            {r.tipo === "merodeo" && <CampoNumero rotulo="Avisa a los" valor={r.segundos ?? 90} min={20} max={3600} unidad="s dando vueltas" alCambiar={(n) => cambiar({ segundos: n })} ayuda="En la zona y caminando: alguien parado esperando no es merodeo." />}
+                            {r.tipo === "retirado" && <CampoNumero rotulo="Avisa si falta" valor={r.segundos ?? 20} min={5} max={600} unidad="s" alCambiar={(n) => cambiar({ segundos: n })} ayuda="Sin verse ni estar tapado por una persona." />}
+                            {r.tipo === "permanencia" && <CampoNumero rotulo="Avisa a los" valor={Math.round((r.segundos ?? 300) / 60)} min={1} max={1440} unidad="min en la zona" alCambiar={(n) => cambiar({ segundos: n * 60 })} />}
+                            {r.tipo === "aglomeracion" && <>
+                                <CampoNumero rotulo="Desde" valor={r.maximo ?? 5} min={2} max={200} unidad="personas" alCambiar={(n) => cambiar({ maximo: n })} />
+                                <CampoNumero rotulo="durante" valor={r.segundos ?? 30} min={5} max={3600} unidad="s" alCambiar={(n) => cambiar({ segundos: n })} />
+                            </>}
+                        </div>
+                    )}
+
+                    {/* Horario y aviso, en dos renglones cortos. */}
+                    <div className="rounded-[10px] border border-border divide-y divide-border">
+                        {CON_HORARIO.includes(r.tipo) && (
+                            <div className="flex flex-wrap items-center gap-3 px-3 py-2.5" title="Fuera de horario no registra ni avisa: el jardinero que cruza a las 10 no es una intrusión; el que cruza a las 3, sí.">
+                                <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold min-w-[110px]"><Clock size={13} /> Armada</span>
+                                <Segmentos valor={r.horario ? "horario" : "siempre"} opciones={[["siempre", "Siempre"], ["horario", "En un horario"]]} alElegir={(v) => cambiar({ horario: v === "siempre" ? null : r.horario || HORARIO_NOCHE })} />
+                                {r.horario && (
+                                    <span className="inline-flex items-center gap-2 text-[12.5px]">
+                                        <Input type="time" value={r.horario.desde} onChange={(e) => cambiar({ horario: { ...r.horario!, desde: e.target.value } })} className="w-28 h-9 tabular-nums" />
+                                        a
+                                        <Input type="time" value={r.horario.hasta} onChange={(e) => cambiar({ horario: { ...r.horario!, hasta: e.target.value } })} className="w-28 h-9 tabular-nums" />
+                                        {r.horario.desde > r.horario.hasta && <span className="text-[11px] text-muted-foreground">cruza la medianoche</span>}
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                        <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer">
+                            <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold min-w-[110px]"><BellRing size={13} /> Avisar</span>
+                            <span className="flex-1 text-[11.5px] text-muted-foreground leading-snug">
+                                {r.tipo === "conteo" ? "El conteo no avisa: suma los cruces por sentido, clase y hora (90 días)." : r.avisar ? "Aviso con foto a la consola del guardia, Control LPR y Gestión de alarmas." : "Sólo queda registrado acá, con su foto."}
+                            </span>
+                            {r.tipo !== "conteo" && <Switch checked={r.avisar} onCheckedChange={(v) => cambiar({ avisar: v })} />}
+                        </label>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Cada cámara se mira cada ~2 s: personas y autos a paso de barrio se siguen bien; un auto rápido puede perderse entre dos cuadros.</p>
+                </div>
+            </CajonContenido>
+        </Cajon>
+    );
+}
+
+/* ───────────────────────── Asistente para crear una regla ─────────────────────────
+ * 16/10, Nico: «cuando creamos una regla debería ser un drawer, con las distintas reglas posibles
+ * pero más inteligente, preguntando incluso clases de COCO, objetos, entrenamiento propio…; súper
+ * intuitivo». Antes «Nueva regla» desplegaba ocho tarjetas de tipo en la página: había que saber de
+ * antemano que «una persona en el jardín de noche» es una «Intrusión en zona propia».
+ *
+ * Ahora se contesta en el idioma del barrio: QUÉ (personas, vehículos, objetos, lo entrenado acá) y
+ * QUÉ PASA (entra a una zona, cruza una línea, se queda, da vueltas…). El tipo de regla sale solo,
+ * y lo que no tiene sentido para lo elegido se apaga con el porqué (no hay merodeo de un
+ * contenedor). Después la cámara, y se abre el editor con todo cargado para dibujar. */
+
+type Sujeto = { id: string; nombre: string; detalle: string; clases: string[]; icono: LucideIcon; propio?: boolean };
+type Situacion = {
+    id: string; tipo: TipoRegla; nombre: string; detalle: string; icono: LucideIcon; /** Para qué sujetos tiene sentido; vacío = todos. */ solo?: string[]; nunca?: string[];
+    /** Cuando la cámara tiene una analítica parecida: en qué se diferencia de la de OmniVision. */
+    enCamara?: string;
+};
+
+const SUJETOS_BASE: Sujeto[] = [
+    { id: "personas", nombre: "Personas", detalle: "Gente caminando", clases: ["person"], icono: PersonStanding },
+    { id: "vehiculos", nombre: "Vehículos", detalle: "Autos, camionetas, ómnibus, motos", clases: ["car", "truck", "bus", "motorcycle"], icono: Car },
+    { id: "bicis", nombre: "Bicicletas", detalle: "Bicis, en movimiento o estacionadas", clases: ["bicycle"], icono: Bike },
+    { id: "perros", nombre: "Perros", detalle: "Animales sueltos", clases: ["dog"], icono: Dog },
+    { id: "objetos", nombre: "Objetos", detalle: "Mochilas, bolsos, valijas, sillas, bancos, macetas", clases: CLASES_OBJETO.map((c) => c.clase), icono: Backpack },
+];
+
+const SITUACIONES: Situacion[] = [
+    { id: "entra", tipo: "intrusion", nombre: "Entra a una zona", detalle: "Alguien o algo entra donde no debe y se queda unos segundos.", icono: ShieldAlert, enCamara: "No es la intrusión de la cámara: ésta sabe qué entró y anda en cualquier marca." },
+    { id: "cruza", tipo: "cruce", nombre: "Cruza una línea", detalle: "Pasa por encima de una línea: un cerco, un portón, un límite.", icono: Fence, enCamara: "No es el cruce de línea de la cámara: éste sabe qué cruzó y no se configura en el equipo." },
+    { id: "contramano", tipo: "sentido", nombre: "Va en contramano", detalle: "Cruza la línea en el sentido que no corresponde.", icono: ArrowLeftRight, nunca: ["objetos"] },
+    { id: "queda", tipo: "permanencia", nombre: "Se queda mucho tiempo", detalle: "Sigue en la zona más de los minutos que digas.", icono: Timer },
+    { id: "vueltas", tipo: "merodeo", nombre: "Da vueltas (merodeo)", detalle: "Una persona camina por la zona un buen rato, sin quedarse quieta.", icono: Footprints, solo: ["personas"] },
+    { id: "juntan", tipo: "aglomeracion", nombre: "Se juntan varios", detalle: "Más personas juntas de las que digas, durante un rato.", icono: Users, solo: ["personas"] },
+    { id: "desaparece", tipo: "retirado", nombre: "Desaparece (se lo llevan)", detalle: "Algo que estaba quieto en la zona ya no está.", icono: PackageMinus, nunca: ["personas", "perros"] },
+    { id: "contar", tipo: "conteo", nombre: "Contar los que pasan", detalle: "Suma por sentido, clase y hora. No avisa.", icono: Spline },
+];
+
+/** Por qué una situación no se puede con lo elegido; null si se puede. */
+function porQueNo(s: Situacion, sujetos: string[]): string | null {
+    if (!sujetos.length) return null;
+    if (s.solo && sujetos.some((x) => !s.solo!.includes(x))) return `Sólo con ${s.solo.map((x) => SUJETOS_BASE.find((b) => b.id === x)?.nombre.toLowerCase()).join(", ")}`;
+    if (s.nunca && sujetos.some((x) => s.nunca!.includes(x))) return `No con ${s.nunca.filter((x) => sujetos.includes(x)).map((x) => SUJETOS_BASE.find((b) => b.id === x)?.nombre.toLowerCase()).join(", ")}`;
+    return null;
+}
+
+function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCerrar, alListo }: {
+    abierto: boolean; camaras: { id: string; name: string; analiza: boolean }[]; analiticas: Record<TipoRegla, boolean>;
+    vistos?: Respuesta["vistos"]; vistosDias: number;
+    alCerrar: () => void; alListo: (r: ReglaVision, deviceIds: string[]) => void;
+}) {
+    const [paso, setPaso] = useState<1 | 2>(1);
+    const [sujetos, setSujetos] = useState<string[]>([]);
+    const [situacion, setSituacion] = useState<string | null>(null);
+    const [noche, setNoche] = useState(false);
+    const [elegidas, setElegidas] = useState<string[]>([]);
+    const [buscar, setBuscar] = useState("");
+    /** Lo que no está en las tarjetas: cualquiera de las 80 clases que reconoce OmniVision. */
+    const [extras, setExtras] = useState<string[]>([]);
+    useEffect(() => { if (abierto) { setPaso(1); setSujetos([]); setSituacion(null); setNoche(false); setElegidas([]); setBuscar(""); setExtras([]); } }, [abierto]);
+
+    // Lo entrenado acá (detector propio): cada clase es un «qué» más, con su nombre.
+    const propias = listaPropias();
+    const sujetosPropios: Sujeto[] = propias.map((p) => ({ id: p.clase, nombre: p.nombre, detalle: "Entrenado acá", clases: [p.clase], icono: Boxes, propio: true }));
+    const sujetosTodos: Sujeto[] = [...SUJETOS_BASE, ...sujetosPropios];
+    const sit = SITUACIONES.find((s) => s.id === situacion) || null;
+    // Para la compatibilidad, lo entrenado cuenta como «objetos».
+    const grupoDeExtra = (c: string) => { const g = CLASE_POR_NOMBRE[c]?.grupo; return g === "persona" ? "personas" : g === "vehiculo" ? "vehiculos" : g === "animal" ? "perros" : "objetos"; };
+    const grupos = [...sujetos.map((x) => (sujetosTodos.find((s) => s.id === x)?.propio ? "objetos" : x)), ...extras.map(grupoDeExtra)];
+    const alternar = (id: string) => setSujetos((xs) => {
+        const n = xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id];
+        const g = n.map((x) => (sujetosTodos.find((s) => s.id === x)?.propio ? "objetos" : x));
+        if (sit && porQueNo(sit, [...g, ...extras.map(grupoDeExtra)])) setSituacion(null);
+        return n;
+    });
+    const cambiarExtras = (v: string[]) => {
+        setExtras(v);
+        if (sit && porQueNo(sit, [...sujetos.map((x) => (sujetosTodos.find((s) => s.id === x)?.propio ? "objetos" : x)), ...v.map(grupoDeExtra)])) setSituacion(null);
+    };
+    const usarAtajo = (p: Plantilla) => {
+        const ids = SUJETOS_BASE.filter((b) => b.clases.some((c) => p.aplicar.clases?.includes(c))).map((b) => b.id);
+        setSujetos(ids); setExtras([]); setSituacion(SITUACIONES.find((s) => s.tipo === p.tipo)?.id || null); setNoche(!!p.aplicar.horario);
+    };
+    const clases = [...new Set([...sujetos.flatMap((x) => sujetosTodos.find((s) => s.id === x)?.clases || []), ...extras])];
+    const conHorario = !!sit && CON_HORARIO.includes(sit.tipo);
+    const listoPaso1 = !!sit && clases.length > 0;
+    const nombresSujetos = [...sujetos.map((x) => sujetosTodos.find((s) => s.id === x)?.nombre), ...extras.map(nombreClase)].filter(Boolean).join(", ");
+    const resumen = sit ? `${sit.nombre}${clases.length ? ` · ${nombresSujetos}` : ""}${conHorario && noche ? " · de 22 a 6" : ""}` : null;
+
+    // Dónde se vio lo elegido: las cámaras que tienen lo que se quiere vigilar.
+    const vistas = useMemo(() => vistosPorCamara(vistos, clases), [vistos, clases.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+    const conVistos = camaras.filter((c) => (vistas.get(c.id) || 0) > 0);
+    const alternarCam = (id: string) => setElegidas((xs) => (xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id]));
+
+    const crear = (ids: string[] = elegidas) => {
+        if (!sit || !ids.length) return;
+        const base = reglaNueva(sit.tipo, ids[0]);
+        const propiosElegidos = sujetosPropios.filter((p) => sujetos.includes(p.id)).map((p) => p.nombre);
+        // Una cámara: «Tipo · Cámara», como siempre. Varias: el grupo se llama por lo que vigila
+        // («Objeto retirado · Contenedor») y cada regla le suma su cámara.
+        const nombre = ids.length > 1 ? [TIPOS_REGLA[sit.tipo].nombre, ...propiosElegidos].join(" · ") : `${TIPOS_REGLA[sit.tipo].nombre} · ${camaras.find((c) => c.id === ids[0])?.name || ""}`;
+        alListo({ ...base, clases, nombre, ...(conHorario ? { horario: noche ? HORARIO_NOCHE : null } : {}) }, ids);
+    };
+    const q = buscar.trim().toLowerCase();
+    const camarasVistas = camaras.filter((c) => !q || c.name.toLowerCase().includes(q))
+        .sort((a, b) => (vistas.get(b.id) || 0) - (vistas.get(a.id) || 0) || Number(b.analiza) - Number(a.analiza));
+    const enVision = camaras.filter((c) => c.analiza);
+
+    // Una función y no un componente: definido adentro, React lo desmontaría en cada render.
+    const tarjetaSujeto = (s: Sujeto) => {
+        const on = sujetos.includes(s.id);
+        return (
+            <button key={s.id} type="button" aria-pressed={on} onClick={() => alternar(s.id)}
+                className={cn("flex items-center gap-2.5 rounded-[10px] border px-2.5 py-2 text-left transition-colors",
+                    on ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent/50")}>
+                <span className={cn("grid h-9 w-9 place-items-center rounded-[9px] shrink-0", on ? "bg-[var(--accion)] text-white" : "bg-muted text-muted-foreground")}><s.icono size={17} /></span>
+                <span className="min-w-0">
+                    <span className="block text-[12.5px] font-semibold truncate" title={s.nombre}>{s.nombre}</span>
+                    <span className="block text-[10.5px] text-muted-foreground truncate">{s.detalle}</span>
+                </span>
+            </button>
+        );
+    };
+
+    return (
+        <Cajon open={abierto} onOpenChange={(o) => { if (!o) alCerrar(); }}>
+            <CajonContenido ancho="medio" titulo={paso === 1 ? "¿Qué querés vigilar?" : "¿En qué cámaras?"}
+                descripcion={paso === 1 ? "Elegí qué mirar y qué tiene que pasar: la regla sale sola. Después, las cámaras y el dibujo." : resumen || ""}
+                encabezado={
+                    <div className="flex items-center gap-2 px-6 py-2.5 text-[12px]">
+                        {[1, 2, 3].map((n) => (
+                            <span key={n} className={cn("inline-flex items-center gap-1.5", n === paso ? "text-foreground font-semibold" : "text-muted-foreground")}>
+                                <span className={cn("grid h-5 w-5 place-items-center rounded-full text-[11px] font-bold", n < paso ? "bg-[var(--accion)] text-white" : n === paso ? "bg-foreground text-background" : "bg-muted text-muted-foreground")}>{n < paso ? <Check size={11} /> : n}</span>
+                                {n === 1 ? "Qué y cuándo" : n === 2 ? "Cámaras" : "Dibujo"}
+                                {n < 3 && <span className="w-6 h-px bg-border mx-1" />}
+                            </span>
+                        ))}
+                    </div>
+                }
+                pie={
+                    <>
+                        {paso === 2 && <Button variant="ghost" className="mr-auto" onClick={() => setPaso(1)}>Atrás</Button>}
+                        {paso === 1 && <span className="mr-auto text-[12px] text-muted-foreground truncate">{resumen ? <>Vas a crear: <b className="text-foreground">{resumen}</b></> : "Elegí qué y qué pasa."}</span>}
+                        <Button variant="ghost" onClick={alCerrar}>Cancelar</Button>
+                        {paso === 1 ? <Button onClick={() => setPaso(2)} disabled={!listoPaso1}>Siguiente</Button>
+                            : <Button onClick={() => crear()} disabled={!elegidas.length}><Spline size={15} /> {elegidas.length > 1 ? `Dibujar en ${elegidas.length} cámaras` : "Dibujar la regla"}</Button>}
+                    </>
+                }>
+                {paso === 1 ? (
+                    <div className="px-6 py-5 space-y-6">
+                        <QuienLoHace />
+
+                        {/* Atajos: los casos de siempre, de un toque. */}
+                        <div>
+                            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Atajos</div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {PLANTILLAS.map((p) => {
+                                    const Ic = ICONO[p.tipo];
+                                    return (
+                                        <Pista key={p.id} titulo={p.nombre} texto={`${p.que} Ej.: ${p.ejemplo}`} ancho={280}>
+                                            <button type="button" onClick={() => usarAtajo(p)}
+                                                className="h-8 pl-2 pr-3 rounded-full border border-border text-[12px] font-semibold inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:border-[var(--accion)] transition-colors">
+                                                <Ic size={13} /> {p.nombre}
+                                            </button>
+                                        </Pista>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* 1. Qué: lo que OmniVision reconoce de fábrica, y lo que se le enseñó acá. */}
+                        <div className="space-y-3">
+                            <div className="flex items-baseline gap-2">
+                                <span className="text-[13px] font-bold">Qué</span>
+                                <span className="text-[11.5px] text-muted-foreground">uno o varios · lo reconoce OmniVision, no la cámara</span>
+                            </div>
+                            <div>
+                                <div className="text-[11px] text-muted-foreground mb-1.5">Lo que OmniVision reconoce de fábrica</div>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{SUJETOS_BASE.map(tarjetaSujeto)}</div>
+                            </div>
+                            <div>
+                                <div className="text-[11px] text-muted-foreground mb-1.5">Lo que se le enseñó acá (Entrenar)</div>
+                                {sujetosPropios.length
+                                    ? <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{sujetosPropios.map(tarjetaSujeto)}</div>
+                                    : <p className="text-[11px] text-muted-foreground">Lo que entrenes en OmniVision › Entrenar (un contenedor, un cono) aparece acá como un «qué» más.</p>}
+                            </div>
+                            <div>
+                                <div className="text-[11px] text-muted-foreground mb-1.5">Otra cosa de las {CLASES_CATALOGO.length} que reconoce</div>
+                                <ElegirClases valor={extras} alCambiar={cambiarExtras} propias={[]} vacio="Un gato, una valija, una pelota, un banco…" />
+                            </div>
+                        </div>
+
+                        {/* 2. Qué pasa */}
+                        <div>
+                            <div className="flex items-baseline gap-2 mb-2">
+                                <span className="text-[13px] font-bold">Qué pasa</span>
+                                <span className="text-[11.5px] text-muted-foreground">lo que dispara la regla</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {SITUACIONES.map((s) => {
+                                    const no = porQueNo(s, grupos);
+                                    const on = situacion === s.id;
+                                    const apagada = !analiticas[s.tipo];
+                                    return (
+                                        <button key={s.id} type="button" disabled={!!no} aria-pressed={on} onClick={() => setSituacion(s.id)}
+                                            className={cn("flex items-start gap-2.5 rounded-[10px] border px-3 py-2.5 text-left transition-colors",
+                                                on ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent/50",
+                                                no && "opacity-45 cursor-not-allowed hover:bg-transparent")}>
+                                            <s.icono size={16} className={cn("mt-0.5 shrink-0", on ? "text-[var(--accion)]" : "text-muted-foreground")} />
+                                            <span className="min-w-0">
+                                                <span className="block text-[12.5px] font-semibold">{s.nombre}</span>
+                                                <span className="block text-[11px] text-muted-foreground leading-snug">{no || s.detalle}</span>
+                                                {!no && s.enCamara && <span className="block text-[10.5px] text-muted-foreground/80 mt-0.5 italic">{s.enCamara}</span>}
+                                                {!no && apagada && <span className="block text-[10.5px] tono-aviso mt-0.5">Apagada en Analíticas: se crea, pero no corre hasta prenderla.</span>}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* 3. Cuándo */}
+                        {conHorario && (
+                            <label className="flex items-center gap-3 rounded-[10px] border border-border px-3 py-2.5 cursor-pointer">
+                                <Clock size={15} className="text-muted-foreground" />
+                                <span className="flex-1">
+                                    <span className="block text-[12.5px] font-semibold">Sólo de noche</span>
+                                    <span className="block text-[11px] text-muted-foreground">De 22 a 6. El jardinero que cruza a las 10 no es una intrusión; el que cruza a las 3, sí.</span>
+                                </span>
+                                <Switch checked={noche} onCheckedChange={setNoche} />
+                            </label>
+                        )}
+                    </div>
+                ) : (
+                    <div className="px-6 py-5 space-y-3">
+                        <p className="text-[12px] text-muted-foreground leading-snug">Una o varias: en cada una la regla corre por su cuenta, con su propio dibujo, y quedan juntas como un grupo para prenderlas, editarlas o borrarlas de una vez.</p>
+                        {/* Atajos de selección: dónde se vio lo elegido, todas, ninguna. */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            {conVistos.length > 0 && (
+                                <Pista titulo={`Donde se vio ${nombresSujetos.toLowerCase()}`} texto={`Las cámaras donde OmniVision vio ${nombresSujetos.toLowerCase()} en los últimos ${vistosDias} días. Es la forma rápida de elegir «todas las que tienen un contenedor».`} ancho={300}>
+                                    <button type="button" onClick={() => setElegidas(conVistos.map((c) => c.id))}
+                                        className="h-8 pl-2 pr-3 rounded-full border border-[var(--accion)] text-[var(--accion)] text-[12px] font-semibold inline-flex items-center gap-1.5 hover:bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]">
+                                        <ScanEye size={13} /> Donde se vio · {conVistos.length}
+                                    </button>
+                                </Pista>
+                            )}
+                            <button type="button" onClick={() => setElegidas(enVision.map((c) => c.id))} className="h-8 px-3 rounded-full border border-border text-[12px] font-semibold text-muted-foreground hover:text-foreground">Todas las de OmniVision · {enVision.length}</button>
+                            {elegidas.length > 0 && <button type="button" onClick={() => setElegidas([])} className="h-8 px-3 rounded-full text-[12px] font-semibold text-muted-foreground hover:text-foreground">Ninguna</button>}
+                            <span className="ml-auto text-[12px] tabular-nums text-muted-foreground">{elegidas.length ? `${elegidas.length} elegida${elegidas.length === 1 ? "" : "s"}` : ""}</span>
+                        </div>
+                        {clases.length > 0 && !conVistos.length && <p className="text-[11px] text-muted-foreground">OmniVision no vio {nombresSujetos.toLowerCase()} en ninguna cámara en los últimos {vistosDias} días: elegilas a mano.</p>}
+                        <Input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar cámara" className="h-10" />
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {camarasVistas.map((c) => {
+                                const on = elegidas.includes(c.id);
+                                const n = vistas.get(c.id) || 0;
+                                return (
+                                    <button key={c.id} type="button" onClick={() => alternarCam(c.id)} onDoubleClick={() => crear([c.id])} aria-pressed={on}
+                                        className={cn("rounded-[10px] overflow-hidden border text-left transition-colors", on ? "border-[var(--accion)] ring-2 ring-[var(--accion)]/30" : "border-border hover:border-foreground/30")}>
+                                        <span className="relative block aspect-video bg-black">
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img src={fotoCamara(c.id, 320)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+                                            <span className={cn("absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full border-2", on ? "bg-[var(--accion)] border-[var(--accion)] text-white" : "border-white/80 bg-black/30")}>{on && <Check size={13} />}</span>
+                                            {n > 0 && <span className="absolute left-1.5 bottom-1.5 inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-black/70 text-white text-[10.5px] font-semibold tabular-nums" title={`OmniVision vio ${nombresSujetos.toLowerCase()} ${n} veces en ${vistosDias} días`}><ScanEye size={10} /> {n}</span>}
+                                        </span>
+                                        <span className="block px-2 py-1.5">
+                                            <span className="block text-[12px] font-semibold truncate">{c.name}</span>
+                                            <span className={cn("block text-[10.5px] truncate", c.analiza ? "text-muted-foreground" : "tono-aviso")}>{c.analiza ? "OmniVision la mira" : "Fuera de OmniVision: no correría"}</span>
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
             </CajonContenido>
         </Cajon>
     );

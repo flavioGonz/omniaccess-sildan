@@ -1,12 +1,13 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { EQUIPO_PUBLICO } from "@/lib/equipo-publico";
 import { revalidatePath } from "next/cache";
 
 export async function getFloorPlans() {
     return await prisma.floorPlan.findMany({
         orderBy: { order: 'asc' },
-        include: { devices: true }
+        include: { devices: { select: EQUIPO_PUBLICO } }
     });
 }
 

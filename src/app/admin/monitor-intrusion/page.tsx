@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
-import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, reclasificarComoFalsa, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
+import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, reclasificarComoFalsa, marcarDeteccion, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
 import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Eye, ScanEye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
@@ -21,6 +21,10 @@ import { FichaDeteccion as DetailDialog } from "@/components/intrusion/FichaDete
 import { HorarioArmadoDialog, ResumenArmado, type HorariosCamara } from "@/components/intrusion/HorarioArmado";
 import { conAncho } from "@/lib/ancho-foto";
 import { FILTROS_VISION, VEREDICTOS, pasaVision, type FiltroVision, type Veredicto } from "@/lib/vision-capa";
+import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
+import { Filtros } from "@/components/ui/filtros";
+import { Seek } from "@/components/ui/search";
+import { Button } from "@/components/ui/button";
 
 type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[] };
 type AlarmChip = { id: string; type: string; label: string; ts: string };
@@ -753,6 +757,52 @@ function MovablePip({ children, defaultW = 208, ring = "ring-white/15" }: { chil
     );
 }
 
+/**
+ * La detección elegida en la tabla, arriba de la columna: la foto a todo el ancho y sin marco
+ * (16/10, Nico: «debe mostrar arriba de esa columna, sin marcos, el evento seleccionado»), qué fue,
+ * dónde y cuándo, lo que dijo OmniVision, y las tres cosas que se hacen con ella.
+ */
+function SeleccionDeteccion({ d, cam, alFicha, alVivo, alGrabacion, alCerrar }: {
+    d: DetItem | null; cam?: IntrusionCam;
+    alFicha: (d: DetItem) => void; alVivo: (c: IntrusionCam) => void; alGrabacion: (c: IntrusionCam, d: DetItem) => void; alCerrar: () => void;
+}) {
+    const [ok, setOk] = useState(true);
+    useEffect(() => { setOk(true); }, [d?.id]);
+    if (!d) return null;
+    const m = META[d.type] || META.OTHER;
+    const src = d.snapshotPath ? conAncho(d.snapshotPath, 880) : d.deviceId ? `/api/snapshot/${d.deviceId}?w=880&t=${d.id}` : null;
+    const t = new Date(d.timestamp);
+    return (
+        <div className="shrink-0 border-b border-border">
+            <div className="relative aspect-video bg-black">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {src && ok ? <img key={src} src={src} alt="" className="absolute inset-0 w-full h-full object-cover" onError={() => setOk(false)} />
+                    : <div className="absolute inset-0 grid place-items-center text-white/25 text-[12px] gap-1"><ImageOff size={20} /> Sin captura</div>}
+                <button type="button" onClick={alCerrar} aria-label="Cerrar" data-tooltip-id="mi-tip" data-tooltip-content="Quitar la selección"
+                    className="absolute top-2 right-2 w-7 h-7 grid place-items-center rounded-full bg-black/55 text-white/85 hover:bg-black/75 hover:text-white"><X size={14} /></button>
+            </div>
+            <div className="px-4 pt-3 pb-3.5 flex flex-col gap-2.5">
+                <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                        <div className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", d.type === "MOTION" ? "tono-info" : d.type === "LINECROSS" || d.type === "INTRUSION" ? "tono-mal" : "tono-aviso")}><m.Icon size={13} /> {m.label}</div>
+                        <div className="text-[15px] font-bold tracking-tight truncate">{d.deviceName || "Cámara"}</div>
+                        <div className="text-[12px] text-muted-foreground tabular-nums">
+                            {t.toLocaleDateString("es-UY", { weekday: "short", day: "2-digit", month: "2-digit" })} · {t.toLocaleTimeString("es-UY", { hour12: false })} · {ago(d.timestamp)}
+                            {cam?.nvrName ? ` · ${cam.nvrName}` : ""}
+                        </div>
+                    </div>
+                    {d.veredicto && <MarcaVeredicto v={d.veredicto} grande className="mt-0.5 shrink-0" />}
+                </div>
+                <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={() => alFicha(d)}><FileText size={14} /> Ficha</Button>
+                    {cam && <Button size="sm" variant="outline" onClick={() => alGrabacion(cam, d)}><Film size={14} /> Grabación</Button>}
+                    {cam && <Button size="sm" variant="outline" onClick={() => alVivo(cam)}><Video size={14} /> En vivo</Button>}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function MonitorIntrusion() {
     const [cams, setCams] = useState<IntrusionCam[]>([]);
     const [loading, setLoading] = useState(true);
@@ -848,6 +898,8 @@ export default function MonitorIntrusion() {
                 }
             });
             s.on("detection_snapshot", (d: any) => { setDets((prev) => prev.map((x) => x.id === d.id ? { ...x, snapshotPath: d.snapshotPath } : x)); });
+            // La barra de intrusión real (AlertaIntrusionGlobal) puede desactivarla desde cualquier pantalla.
+            s.on("intrusion_atencion", () => { getAttendingIds().then((ids) => setAttendingIds(new Set(ids || []))).catch(() => { }); });
             // omni-vision terminó de mirar la captura (unos segundos después): se trae el veredicto.
             s.on("detection_verified", (x: any) => {
                 if (!x?.id) return;
@@ -923,10 +975,41 @@ export default function MonitorIntrusion() {
     }, [cams, analyticsIds, lastByDev, q, alarms]);
 
     const [vision, setVision] = useState<FiltroVision>("todas");
-    const shownDets = (filter === "MOTION" ? dets.filter((d) => d.type === "MOTION") : filter === "ANALYTIC" ? dets.filter((d) => d.type !== "MOTION") : dets).filter((d) => pasaVision(d.veredicto, vision));
-    const [visN, setVisN] = useState(30); // render progresivo (rendimiento con muchas detecciones)
-    useEffect(() => { setVisN(30); }, [filter, vision]);
-    const onDetsScroll = (e: React.UIEvent<HTMLDivElement>) => { const el = e.currentTarget; if (el.scrollTop + el.clientHeight >= el.scrollHeight - 240) setVisN((n) => (n < shownDets.length ? n + 30 : n)); };
+    const [busDets, setBusDets] = useState("");
+    const [sel, setSel] = useState<DetItem | null>(null);
+    const filasDets = useMemo(() => {
+        const t = busDets.trim().toLowerCase();
+        return (filter === "MOTION" ? dets.filter((d) => d.type === "MOTION") : filter === "ANALYTIC" ? dets.filter((d) => d.type !== "MOTION") : dets)
+            .filter((d) => pasaVision(d.veredicto, vision))
+            .filter((d) => !t || `${d.deviceName || ""} ${(d.deviceId && camById[d.deviceId]?.nvrName) || ""} ${(META[d.type] || META.OTHER).label}`.toLowerCase().includes(t));
+    }, [dets, filter, vision, busDets, camById]);
+    // Lo histórico: la columna arranca con las 60 últimas y trae de a 60 más al llegar al final.
+    const [hayMasDets, setHayMasDets] = useState(true);
+    const [cargandoMasDets, setCargandoMasDets] = useState(false);
+    useEffect(() => { setHayMasDets(true); }, [filter]);
+    const traerMasDets = useCallback(() => {
+        if (cargandoMasDets) return;
+        setCargandoMasDets(true);
+        const ultima = dets[dets.length - 1];
+        getDetectionHistory({ pageSize: 60, type: filter === "MOTION" ? "MOTION" : filter === "ANALYTIC" ? "ANALYTIC" : "ALL", to: ultima ? new Date(new Date(ultima.timestamp).getTime() - 1).toISOString() : undefined, conVeredicto: true })
+            .then((r) => {
+                const nuevas = r.items.map((x) => ({ ...x, veredicto: x.veredicto ?? undefined })) as unknown as DetItem[];
+                setDets((prev) => { const ya = new Set(prev.map((x) => x.id)); return [...prev, ...nuevas.filter((x) => !ya.has(x.id))]; });
+                if (r.items.length < 60) setHayMasDets(false);
+            })
+            .catch(() => setHayMasDets(false))
+            .finally(() => setCargandoMasDets(false));
+    }, [dets, filter, cargandoMasDets]);
+    const columnasDets = useMemo<ColumnaTabla<DetItem>[]>(() => [
+        { clave: "tipo", titulo: "Tipo", ancho: 128, valor: (d) => (META[d.type] || META.OTHER).label,
+            celda: (d) => { const m = META[d.type] || META.OTHER; return <span className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", d.type === "MOTION" ? "tono-info" : d.type === "LINECROSS" || d.type === "INTRUSION" ? "tono-mal" : "tono-aviso")}><m.Icon size={13} /> {m.label}</span>; } },
+        { clave: "camara", titulo: "Cámara", valor: (d) => d.deviceName || "Cámara",
+            celda: (d) => <div className="min-w-0"><div className="text-[12px] font-semibold truncate">{d.deviceName || "Cámara"}</div>{d.deviceId && camById[d.deviceId]?.nvrName && <div className="text-[10.5px] text-muted-foreground truncate">{camById[d.deviceId]!.nvrName}</div>}</div> },
+        { clave: "hora", titulo: "Hora", ancho: 84, alinear: "der", valor: (d) => d.timestamp,
+            celda: (d) => { const t = new Date(d.timestamp); const hoy = t.toDateString() === new Date().toDateString(); return <div className="text-right tabular-nums leading-tight"><div className="text-[12px] font-semibold">{t.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</div><div className="text-[10.5px] text-muted-foreground">{hoy ? ago(d.timestamp) : t.toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" })}</div></div>; } },
+        { clave: "vision", titulo: <ScanEye size={13} />, tituloAyuda: "OmniVision", ancho: 40, alinear: "centro", valor: (d) => (d.veredicto ? VEREDICTOS[d.veredicto].rotulo : ""),
+            celda: (d) => (d.veredicto ? <MarcaVeredicto v={d.veredicto} /> : <span className="text-muted-foreground/40">·</span>) },
+    ], [camById]);
     // fila superior fija: los canales que suben al tope (actividad reciente) siempre visibles
     const topRow = shown.slice(0, 3);
     const restRow = shown.slice(3);
@@ -950,27 +1033,28 @@ export default function MonitorIntrusion() {
                         <p className="text-xs text-muted-foreground truncate">Cruce de línea, intrusión, zonas y movimiento · {cams.length} canales</p>
                     </div>
                 </div>
+                {/* La barra de la pared: buscar canal, y las tres puertas (historial, evidencia, horario).
+                    Antes cada control tenía su forma y su alto (24, 30, 32 px), «En vivo» era un texto
+                    verde suelto y el filtro de tipo vivía acá aunque sólo filtraba la columna de la
+                    derecha. Ahora: piezas compartidas, un alto, y el filtro de tipo junto a lo que filtra. */}
                 <div className="flex items-center gap-2 shrink-0">
-                    <div className="relative hidden md:block">
-                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar canal…" className="h-8 w-40 pl-8 pr-2 rounded-lg bg-card border border-border text-xs focus:outline-none focus:ring-1 focus:ring-red-500/40" />
-                    </div>
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-400"><Circle size={8} className="fill-emerald-500 text-emerald-500 animate-pulse" /> En vivo</span>
-                    <button onClick={() => setShowHistory(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><History size={13} /> Historial</button>
-                    <button onClick={() => setShowEvidence(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><Camera size={13} /> Evidencia</button>
-                    <button onClick={() => setHorarioDev({ cam: null, todas: true })} data-tooltip-id="mi-tip" data-tooltip-content={horarioGeneral ? `Criterio general: ${horarioGeneral.texto}` : "Un mismo horario de armado para todas las cámaras (opcional)"} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><Clock size={13} /> Horario general{horarioGeneral ? <span className="text-foreground/80 font-semibold">· {horarioGeneral.texto}</span> : null}</button>
-                    <div className="inline-flex rounded-xl border border-border p-0.5 bg-card">
-                        {(["ANALYTIC", "MOTION", "ALL"] as const).map((f) => (
-                            <button key={f} onClick={() => setFilter(f)} className={cn("px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-colors", filter === f ? "bg-red-500/20 text-red-300" : "text-muted-foreground hover:text-foreground")}>
-                                {f === "ANALYTIC" ? "Intrusión" : f === "MOTION" ? "Movimiento" : "Todo"}
-                            </button>
-                        ))}
+                    <div className="hidden md:block"><Seek value={q} onChange={setQ} placeholder="Buscar canal" startOpen width={220} alto={34} /></div>
+                    <span className="inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg bg-muted/60 text-[12px] font-semibold tono-bien" data-tooltip-id="mi-tip" data-tooltip-content="Las detecciones llegan en tiempo real">
+                        <Circle size={7} className="fill-current animate-pulse" /> En vivo
+                    </span>
+                    <div className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5">
+                        <button type="button" onClick={() => setShowHistory(true)} className="h-[30px] px-3 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:bg-background transition-colors"><History size={14} /> Historial</button>
+                        <button type="button" onClick={() => setShowEvidence(true)} className="h-[30px] px-3 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:bg-background transition-colors"><Camera size={14} /> Evidencia</button>
+                        <button type="button" onClick={() => setHorarioDev({ cam: null, todas: true })} data-tooltip-id="mi-tip" data-tooltip-content={horarioGeneral ? `Criterio general: ${horarioGeneral.texto}` : "Un mismo horario de armado para todas las cámaras (opcional)"}
+                            className="h-[30px] px-3 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:bg-background transition-colors max-w-[260px]">
+                            <Clock size={14} className="shrink-0" /> <span className="truncate">Horario{horarioGeneral ? ` · ${horarioGeneral.texto}` : " general"}</span>
+                        </button>
                     </div>
                 </div>
             </div>
 
             {/* Body */}
-            <div className="flex-1 grid grid-cols-[1fr_380px] divide-x divide-border overflow-hidden">
+            <div className="flex-1 grid grid-cols-[1fr_440px] divide-x divide-border overflow-hidden">
                 {/* Wall */}
                 <div className="overflow-y-auto custom-scrollbar p-5">
 
@@ -1007,69 +1091,43 @@ export default function MonitorIntrusion() {
                     )}
                 </div>
 
-                {/* Sidebar detecciones */}
-                <div className="flex flex-col overflow-hidden bg-card/30">
-                    <div className="shrink-0 px-4 py-3.5 border-b border-border flex items-center gap-2">
-                        <span className="grid h-7 w-7 place-items-center rounded-lg bg-red-500/15"><Activity size={14} className="text-red-500" /></span>
-                        <span className="text-xs font-bold uppercase tracking-wider">Detecciones</span>
-                        <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/15 text-red-300 border border-red-500/30 tabular-nums">{shownDets.length}</span>
-                    </div>
-                    {/* omni-vision: el mismo filtro que la pared y el cajón del monitor LPR (lib/vision-capa), sobre las 60 últimas. */}
-                    <div className="shrink-0 px-3 py-2 border-b border-border flex items-center gap-1 flex-wrap">
-                        <ScanEye size={12} className="text-muted-foreground mr-0.5" />
-                        {FILTROS_VISION.map((f) => (
-                            <button key={f.v} onClick={() => setVision(f.v)} aria-pressed={vision === f.v} data-tooltip-id="mi-tip" data-tooltip-content={f.pista}
-                                className={cn("h-6 px-2 rounded-full border text-[10.5px] font-semibold transition-colors", vision === f.v ? "border-[var(--accion)] tono-accion bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]" : "border-border text-muted-foreground hover:bg-accent")}>
-                                {f.rotulo}
-                            </button>
-                        ))}
-                    </div>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-2.5" onScroll={onDetsScroll}>
-                        {shownDets.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-40 text-muted-foreground gap-2">
-                                <ShieldAlert size={22} className="opacity-30" /><span className="text-[12px]">{vision === "todas" ? "Sin detecciones recientes" : "Ninguna de las últimas con este filtro"}</span>
+                {/* Columna de detecciones (16/10, Nico): una tabla con scroll en vez de la grilla de
+                    miniaturas — ocho fotos de cerco iguales no se distinguen, y para buscar en lo
+                    histórico hace falta leer cámara y hora de un vistazo. La que se elige va arriba,
+                    grande y sin marco, con sus acciones. */}
+                <div className="flex flex-col overflow-hidden min-h-0">
+                    <SeleccionDeteccion d={sel} cam={sel?.deviceId ? camById[sel.deviceId] : undefined}
+                        alFicha={(d) => setDetail(d)}
+                        alVivo={(c) => openLive(c)}
+                        alGrabacion={(c, d) => { setPlayMs(new Date(d.timestamp).getTime()); setLiveTab("rec"); setPrevCam(null); setLiveDev(c); }}
+                        alCerrar={() => setSel(null)} />
+                    <Tabla<DetItem>
+                        className="flex-1 min-h-0 rounded-none border-0"
+                        alto="100%"
+                        controles={false}
+                        seleccionCeldas={false}
+                        filas={filasDets}
+                        clave={(d) => d.id}
+                        columnas={columnasDets}
+                        alClickFila={(d) => setSel((x) => (x?.id === d.id ? null : d))}
+                        filaActiva={(d) => d.id === sel?.id}
+                        filaDestacada={(d) => Date.now() - new Date(d.timestamp).getTime() < 20_000}
+                        vacio={{ icono: ShieldAlert, titulo: busDets || vision !== "todas" ? "Ninguna detección con este filtro" : "Sin detecciones recientes", ayuda: busDets ? "La búsqueda mira cámara, NVR y tipo." : undefined }}
+                        masFilas={{ hay: hayMasDets, cargando: cargandoMasDets, traer: traerMasDets, modo: "scroll" }}
+                        pie={<span className="tabular-nums">{filasDets.length} de {dets.length} cargadas</span>}
+                        barra={
+                            <div className="flex flex-col gap-2">
+                                <Filtros busqueda={busDets} alBuscar={setBusDets} placeholder="Cámara, NVR o tipo" />
+                                <Filtros grupos={[
+                                    { clave: "tipo", titulo: "Qué clase de detección", valor: filter, alElegir: (v) => setFilter(v as any), opciones: [
+                                        { valor: "ANALYTIC", rotulo: "Intrusión", icono: ShieldAlert }, { valor: "MOTION", rotulo: "Movimiento", icono: Activity }, { valor: "ALL", rotulo: "Todo" }] },
+                                ]} />
+                                <Filtros grupos={[
+                                    { clave: "vision", titulo: "Lo que concluyó OmniVision al mirar la captura", valor: vision, alElegir: (v) => setVision(v as FiltroVision),
+                                        opciones: FILTROS_VISION.map((f) => ({ valor: f.v, rotulo: f.rotulo, icono: f.v === "todas" ? ScanEye : undefined })) },
+                                ]} />
                             </div>
-                        ) : (
-                            <>
-                                <div className="grid grid-cols-2 xl:grid-cols-3 gap-2">
-                                    {shownDets.slice(0, visN).map((d) => {
-                                        const m = META[d.type] || META.OTHER;
-                                        const when = new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-                                        return (
-                                            <button key={d.id} onClick={() => setDetail(d)}
-                                                data-tooltip-id="mi-tip" data-tooltip-content={`${m.label} · ${d.deviceName || "Cámara"} · ${when}`}
-                                                className="group/dt relative aspect-video rounded-xl overflow-hidden bg-black ring-1 ring-white/10 hover:ring-2 hover:ring-red-400/60 hover:z-10 hover:scale-[1.03] transition-all duration-150 text-left shadow-sm">
-                                                <DetThumb d={d} fill />
-                                                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/20 pointer-events-none" />
-                                                <span className={cn("absolute top-1 left-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[8px] font-extrabold uppercase tracking-wide backdrop-blur-sm", m.cls)}>
-                                                    <m.Icon size={8} /> {m.label}
-                                                </span>
-                                                {d.veredicto && <MarcaVeredicto v={d.veredicto} className="absolute top-1 right-1" />}
-                                                {/* pie permanente */}
-                                                <div className="absolute bottom-1 inset-x-1.5 pointer-events-none group-hover/dt:opacity-0 transition-opacity">
-                                                    <div className="text-[9.5px] font-bold text-white leading-tight truncate drop-shadow">{d.deviceName || "Cámara"}</div>
-                                                    <div className="text-[8px] font-semibold text-white/60 tabular-nums">{ago(d.timestamp)}</div>
-                                                </div>
-                                                {/* overlay al pasar el mouse: datos del evento */}
-                                                <div className="absolute inset-0 opacity-0 group-hover/dt:opacity-100 transition-opacity bg-black/72 backdrop-blur-[2px] p-2 flex flex-col justify-end gap-0.5 pointer-events-none">
-                                                    <div className="inline-flex items-center gap-1 text-[9px] font-extrabold uppercase tracking-wide text-red-300"><m.Icon size={9} /> {m.label}</div>
-                                                    <div className="text-[11px] font-bold text-white leading-tight truncate">{d.deviceName || "Cámara"}</div>
-                                                    <div className="text-[9px] font-semibold text-white/80 tabular-nums leading-tight">{when}</div>
-                                                    <div className="text-[8.5px] text-white/55 tabular-nums">hace {ago(d.timestamp)}</div>
-                                                    {d.veredicto && <div className="text-[8.5px] font-bold text-white/85 inline-flex items-center gap-1"><ScanEye size={9} /> {VEREDICTOS[d.veredicto].rotulo}</div>}
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                {visN < shownDets.length && (
-                                    <div className="flex items-center justify-center gap-2 py-3 text-[11px] text-white/45">
-                                        <Loader2 size={13} className="animate-spin" /> Cargando más… ({visN}/{shownDets.length})
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
+                        } />
                 </div>
             </div>
 
@@ -1083,7 +1141,10 @@ export default function MonitorIntrusion() {
             {alarmDev && <AlarmDialog cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />}
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
                 hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); const nx = Object.keys(alarms).find((d) => d !== id && alarms[d]?.length); if (nx && camById[nx]) openAlarmFicha(camById[nx]); else setDetail(null); }}
-                enAtencion={!!(detail?.deviceId && attendingIds.has(detail.deviceId))} onCerrarAtencion={(id, como) => { cerrarAtencion(id, como); setDetail(null); }} />}
+                enAtencion={!!(detail?.deviceId && attendingIds.has(detail.deviceId))} onCerrarAtencion={(id, como) => { cerrarAtencion(id, como); setDetail(null); }}
+                // Corregir ESTA detección (real o falsa) cuando la cámara no tiene una alarma abierta. Sin
+                // esto la ficha abierta desde la tabla no mostraba ningún botón de decisión (16/10, Nico).
+                onMarcar={async (id, k) => { const r = await marcarDeteccion(id, k); if (r.ok) setDets((p) => p.map((d) => (d.id === id ? { ...d, acknowledged: true, ackKind: k } : d))); return r; }} />}
             {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onOpen={(d) => setDetail(d)} />}
             {showEvidence && <EvidenceGallery cams={cams} onClose={() => setShowEvidence(false)} onOpen={(d) => setDetail(d)} onPlay={(d) => { const c = d.deviceId ? camById[d.deviceId] : null; if (c) { setPlayMs(Math.floor(new Date(d.timestamp).getTime())); setLiveTab("rec"); setLiveDev(c); } }} />}
             {liveDev && <LiveModal key={`${liveDev.id}:${playMs ?? "l"}`} cam={liveDev} cams={cams} camStatus={trackStatus} initialTab={liveTab} initialRecMs={playMs ?? undefined} fromCam={prevCam} geom={geom[liveDev.id]} onClose={() => { setLiveDev(null); setPrevCam(null); setPlayMs(null); }} onOpenEvent={(d) => setDetail(d)} onSwitchCam={(c) => { setLiveTab("live"); setPrevCam(liveDev); setPlayMs(null); setLiveDev(c); }} onDismissFrom={() => setPrevCam(null)} />}
