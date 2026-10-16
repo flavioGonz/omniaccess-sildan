@@ -25,8 +25,23 @@ const RANGOS_H = new Set([1, 6, 24, 72, 168]);
 /** Hasta cuánta diferencia de reloj se acepta entre la captura de la cámara y el evento recibido. */
 const VENTANA_MS = 10_000;
 const FILAS_MAX = 3000;
-/** Dos capturas de la misma cámara a menos de esto son el mismo vehículo pasando. */
+/** Dos capturas de la misma cámara a menos de esto son el mismo vehículo pasando (si la chapa se parece). */
 const PASO_GAP_MS = 4000;
+/** Con la misma chapa (o parecida) se acepta un hueco más largo: el auto frena frente a la cámara. */
+const PASO_MISMA_MS = 15_000;
+/** Dos lecturas son «del mismo auto» si una contiene a la otra o difieren en hasta dos caracteres (AI4301 / MAI4301 / THI4301). */
+function parecidas(a: string, b: string) {
+    if (a === b || a.includes(b) || b.includes(a)) return true;
+    const m = a.length, n = b.length;
+    if (Math.abs(m - n) > 2) return false;
+    let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+        const cur = [i];
+        for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        prev = cur;
+    }
+    return prev[n] <= 2;
+}
 const NO_LEIDAS = new Set(["NO_LEIDA", "UNKNOWN", "S/P", ""]);
 const chapa = (p: string | null | undefined) => { const n = normalizarMatricula(p || ""); return n && !NO_LEIDAS.has(n) ? n : null; };
 
@@ -82,8 +97,12 @@ export async function GET(req: NextRequest) {
     const pasos: Paso[] = [];
     const ultimoPaso = new Map<string, Paso>();
     for (const l of deCamara) {
-        const t = l.ts.getTime(), u = ultimoPaso.get(l.deviceId);
-        if (u && t - u.hasta <= PASO_GAP_MS) { u.capturas.push(l); u.hasta = t; continue; }
+        const t = l.ts.getTime(), u = ultimoPaso.get(l.deviceId), cp = chapa(l.plate);
+        // Sigue el mismo paso si es seguido Y parece la misma chapa (o la cámara no leyó): dos
+        // autos pegados (SC68818 4 s después de MAI4301) son dos pasos, y el mismo auto que
+        // vuelve a leerse a los 5-12 s (MAI4301 a las :39 y a las :49) sigue siendo uno.
+        const parecida = !cp || !u || u.capturas.every((c) => !chapa(c.plate)) || u.capturas.some((c) => { const k = chapa(c.plate); return !!k && parecidas(k, cp); });
+        if (u && parecida && t - u.hasta <= (cp ? PASO_MISMA_MS : PASO_GAP_MS)) { u.capturas.push(l); u.hasta = t; continue; }
         const p: Paso = { deviceId: l.deviceId, capturas: [l], desde: t, hasta: t, eventos: [] };
         pasos.push(p); ultimoPaso.set(l.deviceId, p);
     }
