@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Type, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
     PersonStanding, Car, Truck, Bus, Motorbike, Bike, Dog, Backpack, ShoppingBag, Luggage, Armchair, Sofa, Sprout, Boxes, Gauge,
-    TriangleAlert, ScanEye, type LucideIcon,
+    TriangleAlert, ScanEye, ChevronDown, Check, type LucideIcon,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -238,7 +239,7 @@ export default function ReglasVision() {
                                 </button>
                             </>)}
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
                             {deCam.map((r) => (
                                 <TarjetaRegla key={r.id} r={r} camara={nombreCamara.get(r.deviceId) || "Cámara borrada"} s={datos.resumen[r.id]} apagadaLab={!datos.analiticas[r.tipo]}
                                     alAbrir={() => { setEsNueva(false); setEditando(r); }}
@@ -347,65 +348,58 @@ function fotoCamara(id: string, w: number) {
     return m ? `/api/monitor/camaras/foto?nvr=${encodeURIComponent(m[1])}&ch=${m[2]}&w=${w}` : `/api/snapshot/${id}?w=${w}`;
 }
 
+/**
+ * Una regla, en un bloque chico (16/10, Nico: «cada regla su bloque más chico»): el cuadro con lo
+ * dibujado —se reconoce sin leer—, el nombre, el número de hoy y el interruptor. Lo demás está en
+ * el cajón.
+ */
 function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar }: { r: ReglaVision; camara: string; s?: Resumen; apagadaLab: boolean; alAbrir: () => void; alActivar: (v: boolean) => void }) {
     const Ic = ICONO[r.tipo];
     const max = Math.max(1, ...(s?.porHora || [0]));
     return (
         <div className={cn("rounded-[10px] border border-border bg-card overflow-hidden flex flex-col", (!r.activa || apagadaLab) && "opacity-60")}>
-            {/* El cuadro de la cámara con lo dibujado encima: se reconoce la regla sin leerla. */}
-            <button type="button" onClick={alAbrir} className="relative aspect-[16/7] bg-black overflow-hidden" aria-label={`Editar ${r.nombre}`}>
+            <button type="button" onClick={alAbrir} className="relative aspect-video bg-black overflow-hidden" aria-label={`Editar ${r.nombre}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={fotoCamara(r.deviceId, 480)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" />
+                <img src={fotoCamara(r.deviceId, 320)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" />
                 <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="absolute inset-0 w-full h-full">
                     {r.zona && r.zona.length >= 3 && <polygon points={r.zona.map(([x, y]) => `${x},${y}`).join(" ")} fill="var(--accion-en-oscuro)" fillOpacity={0.22} stroke="var(--accion-en-oscuro)" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
                     {r.linea && <line x1={r.linea.a[0]} y1={r.linea.a[1]} x2={r.linea.b[0]} y2={r.linea.b[1]} stroke="var(--accion-en-oscuro)" strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinecap="round" />}
                 </svg>
-                {r.linea && <>
-                    <span className="absolute -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-black/70 text-white text-[10px] font-bold grid place-items-center" style={{ left: `${r.linea.a[0] * 100}%`, top: `${r.linea.a[1] * 100}%` }}>A</span>
-                    <span className="absolute -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-black/70 text-white text-[10px] font-bold grid place-items-center" style={{ left: `${r.linea.b[0] * 100}%`, top: `${r.linea.b[1] * 100}%` }}>B</span>
-                </>}
-                {!r.linea && !(r.zona && r.zona.length >= 3) && <span className="absolute left-2 bottom-2 px-2 py-0.5 rounded-[5px] bg-black/65 text-white text-[11px]">Todo el cuadro</span>}
+                <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 h-6 px-2 rounded-full bg-black/65 text-white text-[10.5px] font-semibold"><Ic size={11} /> {TIPOS_REGLA[r.tipo].nombre}</span>
+                {!r.linea && !(r.zona && r.zona.length >= 3) && <span className="absolute left-1.5 bottom-1.5 px-1.5 py-0.5 rounded-[5px] bg-black/65 text-white text-[10px]">Todo el cuadro</span>}
             </button>
-            <div className="p-3.5 flex flex-col gap-2.5">
-            <div className="flex items-start gap-2.5">
-                <span className="grid h-9 w-9 place-items-center rounded-full bg-muted shrink-0"><Ic size={16} /></span>
-                <button type="button" onClick={alAbrir} className="min-w-0 flex-1 text-left">
-                    <div className="text-[13.5px] font-semibold truncate">{r.nombre}</div>
-                    <div className="text-[11.5px] text-muted-foreground truncate">{TIPOS_REGLA[r.tipo].nombre} · {camara}</div>
-                </button>
-                <Pista titulo={r.activa ? "Prendida" : "Apagada"} texto={apagadaLab ? "Su analítica está apagada en Analíticas: aunque la regla esté prendida, no corre." : "Apagada no se aplica, pero se guarda lo dibujado."}>
-                    <span><Switch checked={r.activa} onCheckedChange={alActivar} aria-label="Prender o apagar la regla" /></span>
-                </Pista>
-            </div>
-            {r.tipo === "conteo" ? (
-                <div className="space-y-2">
-                    <div className="flex items-baseline gap-4">
-                        <div><div className="text-[22px] font-bold tabular-nums leading-none">{s?.ab ?? 0}</div><div className="text-[11px] text-muted-foreground mt-1">de A a B hoy</div></div>
-                        <div><div className="text-[22px] font-bold tabular-nums leading-none">{s?.ba ?? 0}</div><div className="text-[11px] text-muted-foreground mt-1">de B a A hoy</div></div>
-                    </div>
-                    {/* Por hora de hoy: barras finas, sin ejes; el número exacto al pasar el mouse. */}
-                    <div className="flex items-end gap-[2px] h-8" aria-label="Cruces por hora de hoy">
-                        {(s?.porHora || Array(24).fill(0)).map((n, h) => (
-                            <span key={h} title={`${String(h).padStart(2, "0")} h: ${n} cruces`} className="flex-1 rounded-t-[2px] bg-[var(--accion)]" style={{ height: `${Math.max(n ? 8 : 2, (n / max) * 100)}%`, opacity: n ? 0.85 : 0.18 }} />
-                        ))}
-                    </div>
-                    {s && Object.keys(s.porClase).length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
-                            {Object.entries(s.porClase).map(([c, v]) => <span key={c} className="tabular-nums">{NOMBRE_CLASE_REGLA[c] || c}: {v.ab} / {v.ba}</span>)}
-                        </div>
-                    )}
+            <div className="p-2.5 flex flex-col gap-1.5">
+                <div className="flex items-start gap-2">
+                    <button type="button" onClick={alAbrir} className="min-w-0 flex-1 text-left">
+                        <div className="text-[12.5px] font-semibold truncate leading-tight">{r.nombre}</div>
+                        <div className="text-[11px] text-muted-foreground truncate">{camara}</div>
+                    </button>
+                    <Pista titulo={r.activa ? "Prendida" : "Apagada"} texto={apagadaLab ? "Su analítica está apagada en Analíticas: aunque la regla esté prendida, no corre." : "Apagada no se aplica, pero se guarda lo dibujado."}>
+                        <span><Switch checked={r.activa} onCheckedChange={alActivar} aria-label="Prender o apagar la regla" /></span>
+                    </Pista>
                 </div>
-            ) : (
-                <div className="flex items-baseline gap-4">
-                    <div><div className="text-[22px] font-bold tabular-nums leading-none">{s?.hoy ?? 0}</div><div className="text-[11px] text-muted-foreground mt-1">{CUENTA_HOY[r.tipo]}</div></div>
-                    {CON_HORARIO.includes(r.tipo) && <div className="text-[11.5px] text-muted-foreground inline-flex items-center gap-1"><Clock size={11} /> {r.horario ? `armada ${r.horario.desde} a ${r.horario.hasta}` : "armada siempre"}{r.tipo === "cruce" && r.sentidos && r.sentidos !== "ambos" ? ` · sólo ${r.sentidos === "ab" ? "de A a B" : "de B a A"}` : ""}</div>}
-                    {s?.max != null && (r.tipo === "permanencia" || r.tipo === "aglomeracion") && <div><div className="text-[22px] font-bold tabular-nums leading-none">{r.tipo === "permanencia" ? duracionCorta(s.max) : s.max}</div><div className="text-[11px] text-muted-foreground mt-1">{r.tipo === "permanencia" ? "la más larga" : "el máximo de personas"}</div></div>}
+                {r.tipo === "conteo" ? (
+                    <div className="flex items-end gap-3">
+                        <span className="tabular-nums leading-none"><b className="text-[17px]">{s?.ab ?? 0}</b><span className="text-[10.5px] text-muted-foreground"> A→B</span></span>
+                        <span className="tabular-nums leading-none"><b className="text-[17px]">{s?.ba ?? 0}</b><span className="text-[10.5px] text-muted-foreground"> B→A</span></span>
+                        <span className="flex-1 flex items-end gap-px h-5" aria-label="Cruces por hora de hoy">
+                            {(s?.porHora || Array(24).fill(0)).map((n, h) => (
+                                <span key={h} title={`${String(h).padStart(2, "0")} h: ${n} cruces`} className="flex-1 rounded-t-[1px] bg-[var(--accion)]" style={{ height: `${Math.max(n ? 10 : 4, (n / max) * 100)}%`, opacity: n ? 0.85 : 0.18 }} />
+                            ))}
+                        </span>
+                    </div>
+                ) : (
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                        <b className="text-[17px] tabular-nums leading-none">{s?.hoy ?? 0}</b>
+                        <span className="text-[10.5px] text-muted-foreground">{CUENTA_HOY[r.tipo]}</span>
+                        {s?.max != null && (r.tipo === "permanencia" || r.tipo === "aglomeracion") && <span className="text-[10.5px] text-muted-foreground">· máx. {r.tipo === "permanencia" ? duracionCorta(s.max) : s.max}</span>}
+                    </div>
+                )}
+                <div className="flex items-center gap-1.5 text-[10.5px] text-muted-foreground min-w-0">
+                    {r.avisar ? <BellRing size={11} className="shrink-0" /> : <BellOff size={11} className="shrink-0" />}
+                    {CON_HORARIO.includes(r.tipo) && <span className="shrink-0 inline-flex items-center gap-0.5"><Clock size={10} /> {r.horario ? `${r.horario.desde}–${r.horario.hasta}` : "siempre"}</span>}
+                    <span className="truncate">· {r.clases.map((c) => NOMBRE_CLASE_REGLA[c] || nombrePropio(c) || c).join(", ")}</span>
                 </div>
-            )}
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                {r.avisar ? <span className="inline-flex items-center gap-1"><BellRing size={11} /> avisa a la guardia</span> : <span className="inline-flex items-center gap-1"><BellOff size={11} /> sólo registra</span>}
-                <span className="truncate">· {r.clases.map((c) => NOMBRE_CLASE_REGLA[c] || nombrePropio(c) || c).join(", ")}</span>
-            </div>
             </div>
         </div>
     );
@@ -446,191 +440,248 @@ function Esquema({ tipo }: { tipo: TipoRegla }) {
     );
 }
 
+/**
+ * Configuraciones de uso común, listas para usar (16/10, Nico: «precargar algunas config de
+ * analíticas estándar con información clara de qué hace, ejemplos simples activables»). Elegir
+ * una pone el tipo, lo que cuenta, los tiempos, el horario y el aviso; la cámara y lo dibujado se
+ * conservan si el tipo nuevo usa la misma forma (línea o zona).
+ */
+type Plantilla = { id: string; nombre: string; tipo: TipoRegla; que: string; ejemplo: string; aplicar: Partial<ReglaVision> };
+const PLANTILLAS: Plantilla[] = [
+    { id: "intrusion-noche", nombre: "Intrusión de noche", tipo: "intrusion", que: "Avisa si una persona entra a la zona entre las 22 y las 6 y se queda 2 s.", ejemplo: "El fondo de un lote, el jardín de la garita.", aplicar: { clases: ["person"], segundos: 2, horario: HORARIO_NOCHE, avisar: true } },
+    { id: "cerco", nombre: "Cruce del cerco", tipo: "cruce", que: "Avisa cuando una persona cruza la línea del perímetro, en cualquier sentido, de noche.", ejemplo: "La línea sobre el alambrado de una perimetral.", aplicar: { clases: ["person"], sentidos: "ambos", horario: HORARIO_NOCHE, avisar: true } },
+    { id: "merodeo", nombre: "Alguien dando vueltas", tipo: "merodeo", que: "Avisa si una persona anda caminando por la zona más de 90 s.", ejemplo: "Alguien que recorre la vereda mirando las casas.", aplicar: { clases: ["person"], segundos: 90, avisar: true } },
+    { id: "contramano", nombre: "Auto en contramano", tipo: "sentido", que: "Avisa cuando un vehículo cruza la línea en el sentido prohibido.", ejemplo: "La salida de la garita usada como entrada.", aplicar: { clases: ["car", "truck", "bus", "motorcycle"], permitido: "ab", avisar: true } },
+    { id: "detenido", nombre: "Vehículo detenido mucho rato", tipo: "permanencia", que: "Avisa si un auto o una camioneta se queda más de 15 min en la zona.", ejemplo: "Un auto parado frente a la garita o en la banquina.", aplicar: { clases: ["car", "truck"], segundos: 900, avisar: true } },
+    { id: "aforo", nombre: "Contar los que pasan", tipo: "conteo", que: "Cuenta los vehículos que cruzan la línea, por sentido, clase y hora. No avisa.", ejemplo: "Cuántos autos entran por la calle principal cada hora.", aplicar: { clases: ["car", "truck", "bus", "motorcycle"], avisar: false } },
+    { id: "grupo", nombre: "Grupo de personas", tipo: "aglomeracion", que: "Avisa si hay 6 personas o más juntas durante 1 min.", ejemplo: "Una reunión en la plaza o frente a la garita de noche.", aplicar: { clases: ["person"], maximo: 6, segundos: 60, avisar: true } },
+    { id: "bicicletero", nombre: "Se llevan algo", tipo: "retirado", que: "Aprende lo que está quieto en la zona y avisa si desaparece más de 20 s.", ejemplo: "Una bici en el bicicletero, una moto estacionada.", aplicar: { clases: ["bicycle", "motorcycle"], segundos: 20, avisar: true } },
+];
+
+/** Qué forma se dibuja en cada tipo, en pocas palabras (para el desplegable). */
+const FORMA: Record<TipoRegla, string> = {
+    conteo: "Con una línea", sentido: "Con una línea", cruce: "Con una línea · avisa", permanencia: "Con una zona",
+    aglomeracion: "Con una zona o todo el cuadro", intrusion: "Con una zona · avisa", merodeo: "Zona o todo el cuadro · avisa", retirado: "Con una zona · avisa",
+};
+
+/**
+ * Un desplegable con cara (16/10, Nico: «usar más dropdowns estilizados»): la opción elegida se ve
+ * con su ícono o su foto y una línea que dice qué es; la lista, igual. Reemplaza a las grillas de
+ * tarjetas que ocupaban medio cajón.
+ */
+type OpcionDesp = { valor: string; titulo: string; detalle?: string; extra?: string; icono?: React.ReactNode; aviso?: string };
+function Desplegable({ valor, opciones, alElegir, vacio, ancho = 420 }: { valor: string | null; opciones: OpcionDesp[]; alElegir: (v: string) => void; vacio: string; ancho?: number }) {
+    const [abierto, setAbierto] = useState(false);
+    const sel = opciones.find((o) => o.valor === valor) || null;
+    return (
+        <Popover open={abierto} onOpenChange={setAbierto}>
+            <PopoverTrigger asChild>
+                <button type="button" className="w-full min-h-11 rounded-[8px] border border-border bg-background px-2.5 py-1.5 flex items-center gap-2.5 text-left hover:bg-accent/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]/40">
+                    {sel?.icono && <span className="shrink-0">{sel.icono}</span>}
+                    <span className="min-w-0 flex-1">
+                        <span className={cn("block text-[13px] font-semibold truncate", !sel && "text-muted-foreground font-normal")}>{sel ? sel.titulo : vacio}</span>
+                        {sel?.detalle && <span className="block text-[11px] text-muted-foreground truncate">{sel.aviso || sel.detalle}</span>}
+                    </span>
+                    <ChevronDown size={15} className={cn("shrink-0 text-muted-foreground transition-transform", abierto && "rotate-180")} />
+                </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="p-1 max-h-[min(420px,60vh)] overflow-y-auto" style={{ width: ancho }}>
+                {opciones.map((o) => (
+                    <button key={o.valor} type="button" onClick={() => { alElegir(o.valor); setAbierto(false); }}
+                        className={cn("w-full flex items-start gap-2.5 rounded-[6px] px-2 py-2 text-left hover:bg-accent", o.valor === valor && "bg-accent/60")}>
+                        {o.icono && <span className="shrink-0 mt-0.5">{o.icono}</span>}
+                        <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5 text-[13px] font-semibold">{o.titulo}{o.valor === valor && <Check size={13} className="text-[var(--accion)]" />}</span>
+                            {o.detalle && <span className="block text-[11.5px] text-muted-foreground leading-snug">{o.detalle}</span>}
+                            {o.extra && <span className="block text-[11px] text-muted-foreground/80 leading-snug mt-0.5 italic">{o.extra}</span>}
+                            {o.aviso && <span className="block text-[11px] tono-aviso mt-0.5">{o.aviso}</span>}
+                        </span>
+                    </button>
+                ))}
+            </PopoverContent>
+        </Popover>
+    );
+}
+
+/** Un número con su unidad, en una línea: los parámetros de la regla sin un bloque por campo. */
+function CampoNumero({ rotulo, valor, alCambiar, min, max, unidad, ayuda }: { rotulo: string; valor: number; alCambiar: (n: number) => void; min: number; max: number; unidad: string; ayuda?: string }) {
+    return (
+        <label className="flex items-center gap-2 text-[12.5px]" title={ayuda}>
+            <span className="text-muted-foreground">{rotulo}</span>
+            <span className="inline-flex items-center h-9 rounded-[8px] border border-border bg-background pr-2.5 focus-within:ring-2 focus-within:ring-[var(--accion)]/40">
+                <input type="number" min={min} max={max} value={valor} onChange={(e) => alCambiar(Number(e.target.value))}
+                    className="w-16 h-full bg-transparent px-2.5 text-[13px] font-semibold tabular-nums outline-none" />
+                <span className="text-[12px] text-muted-foreground">{unidad}</span>
+            </span>
+        </label>
+    );
+}
+
+function Segmentos<T extends string>({ valor, opciones, alElegir }: { valor: T; opciones: [T, string][]; alElegir: (v: T) => void }) {
+    return (
+        <div className="flex items-center h-9 rounded-lg bg-muted/60 p-0.5 w-fit">
+            {opciones.map(([v, rot]) => (
+                <button key={v} type="button" onClick={() => alElegir(v)}
+                    className={cn("h-8 px-3 rounded-md text-[12.5px] font-semibold whitespace-nowrap", valor === v ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>{rot}</button>
+            ))}
+        </div>
+    );
+}
+
+/**
+ * El cajón de una regla (16/10, Nico: «con menos scroll, dropdowns estilizados, plantillas con
+ * ejemplos; la cámara arriba, sin marcos, acoplada; nombre y cámara los primeros campos»).
+ *
+ * Arriba, a todo el ancho, el cuadro de la cámara donde se dibuja: es lo que se está configurando.
+ * Debajo: cámara y nombre; la analítica y la plantilla en dos desplegables; qué cuenta como
+ * píldoras; y los tiempos, el horario y el aviso en renglones cortos. Antes eran ocho tarjetas de
+ * tipo, una grilla de tarjetas por clase y una sección por parámetro: tres pantallas de scroll.
+ */
 function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alBorrar }: {
     regla: ReglaVision; nueva: boolean; camaras: { id: string; name: string; analiza: boolean }[]; guardando: boolean;
     alCerrar: () => void; alGuardar: (r: ReglaVision) => void; alBorrar: () => void;
 }) {
     const [r, setR] = useState<ReglaVision>(regla);
+    const [plantilla, setPlantilla] = useState<string | null>(null);
     const t = TIPOS_REGLA[r.tipo];
     const cambiar = (x: Partial<ReglaVision>) => setR((v) => ({ ...v, ...x }));
-    const cambiarTipo = (tipo: TipoRegla) => {
-        const base = { ...r, ...reglaNueva(tipo, r.deviceId), id: r.id, nombre: r.nombre };
-        // La geometría se conserva si el tipo nuevo usa la misma.
+    const nombreCam = camaras.find((c) => c.id === r.deviceId)?.name || "";
+    const nombreAuto = (n: string) => `${n} · ${nombreCam}`;
+    /** El nombre se propone solo mientras no se escribió uno a mano. */
+    const esNombreAuto = !r.nombre.trim() || r.nombre === nombreAuto(t.nombre) || PLANTILLAS.some((p) => r.nombre === nombreAuto(p.nombre));
+    const conTipo = (tipo: TipoRegla, extra: Partial<ReglaVision> = {}, nombre?: string) => {
+        const base = { ...r, ...reglaNueva(tipo, r.deviceId), id: r.id, nombre: r.nombre, activa: r.activa, ...extra };
+        // Lo dibujado se conserva si el tipo nuevo usa la misma forma.
         if (TIPOS_REGLA[tipo].geometria === t.geometria) { base.linea = r.linea; base.zona = r.zona; }
+        if (esNombreAuto) base.nombre = nombre ? nombreAuto(nombre) : "";
         setR(base);
     };
+    const usarPlantilla = (id: string) => { const p = PLANTILLAS.find((x) => x.id === id); if (!p) return; setPlantilla(id); conTipo(p.tipo, p.aplicar, p.nombre); };
     const geometriaLista = t.geometria === "linea" ? !!r.linea : r.tipo === "aglomeracion" || r.tipo === "merodeo" || (r.zona?.length || 0) >= 3;
     const listo = !!r.deviceId && geometriaLista && r.clases.length > 0;
-    const final = (): ReglaVision => ({ ...r, nombre: r.nombre.trim() || `${t.nombre} · ${camaras.find((c) => c.id === r.deviceId)?.name || ""}`, zona: (r.zona?.length || 0) >= 3 ? r.zona : null });
+    const final = (): ReglaVision => ({ ...r, nombre: r.nombre.trim() || nombreAuto(t.nombre), zona: (r.zona?.length || 0) >= 3 ? r.zona : null });
+    const clases = [...(r.tipo === "retirado" ? [...CLASES_REGLA.filter((c) => c.clase !== "person" && c.clase !== "dog"), ...CLASES_OBJETO] : CLASES_REGLA), ...listaPropias()];
+    const falta = !r.deviceId ? "Elegí la cámara." : !geometriaLista ? (t.geometria === "linea" ? "Dibujá la línea sobre el cuadro." : "Dibujá la zona sobre el cuadro (al menos 3 puntos).") : !r.clases.length ? "Prendé al menos una clase en «Qué cuenta»." : null;
 
     return (
         <Cajon open onOpenChange={(o) => { if (!o) alCerrar(); }}>
             <CajonContenido ancho="medio" titulo={nueva ? "Nueva regla" : r.nombre || t.nombre} descripcion={t.queHace}
+                encabezado={r.deviceId ? (
+                    <EditorGeometria aSangre deviceId={r.deviceId} modo={t.geometria} linea={r.linea || null} zona={r.zona || []}
+                        permitido={r.tipo === "sentido" ? r.permitido : undefined}
+                        alCambiarLinea={(l) => cambiar({ linea: l })} alCambiarZona={(z: Punto[]) => cambiar({ zona: z })} />
+                ) : <div className="aspect-video bg-muted/40 grid place-items-center text-[12.5px] text-muted-foreground">Elegí la cámara para ver su cuadro y dibujar.</div>}
                 pie={
                     <>
                         {!nueva && <Button variant="outline" className="mr-auto tono-mal" onClick={alBorrar} disabled={guardando}><Trash2 size={15} /> Borrar</Button>}
+                        {falta && <span className="mr-auto text-[12px] text-muted-foreground">{falta}</span>}
                         <Button variant="ghost" onClick={alCerrar}>Cancelar</Button>
                         <Button onClick={() => alGuardar(final())} disabled={!listo || guardando}>{guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {nueva ? "Crear regla" : "Guardar"}</Button>
                     </>
                 }>
-                <CajonSeccion titulo="Qué mira">
-                    <div className="grid grid-cols-2 gap-2">
-                        {(Object.keys(TIPOS_REGLA) as TipoRegla[]).map((k) => {
-                            const Ic = ICONO[k]; const sel = r.tipo === k;
-                            return (
-                                <button key={k} type="button" onClick={() => cambiarTipo(k)} aria-pressed={sel}
-                                    className={cn("rounded-[10px] border p-3 text-left transition-colors", sel ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]" : "border-border hover:bg-accent")}>
-                                    <span className="flex items-center gap-1.5 text-[13px] font-bold"><Ic size={14} /> {TIPOS_REGLA[k].nombre}</span>
-                                    <span className="block text-[11.5px] text-muted-foreground mt-0.5 leading-snug">{TIPOS_REGLA[k].geometria === "linea" ? (k === "cruce" ? "Con una línea · avisa" : "Con una línea") : k === "aglomeracion" ? "Con una zona (o todo el cuadro)" : k === "merodeo" ? "Zona o cuadro · avisa" : k === "intrusion" || k === "retirado" ? "Con una zona · avisa" : "Con una zona"}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
+                <div className="px-6 py-5 space-y-5">
+                    {/* Cámara y nombre: lo primero. */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <CajonCampo etiqueta="Cámara">
-                            <Select value={r.deviceId} onValueChange={(v) => cambiar({ deviceId: v, linea: null, zona: [] })}>
-                                <SelectTrigger><SelectValue placeholder="Elegí la cámara" /></SelectTrigger>
-                                <SelectContent>{camaras.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}{c.analiza ? "" : " · fuera de OmniVision"}</SelectItem>)}</SelectContent>
-                            </Select>
+                            <Desplegable valor={r.deviceId || null} vacio="Elegí la cámara" ancho={380}
+                                alElegir={(v) => { const n = camaras.find((c) => c.id === v)?.name || ""; setR((x) => ({ ...x, deviceId: v, linea: null, zona: [], nombre: esNombreAuto && x.nombre ? x.nombre.replace(/ · [^·]*$/, ` · ${n}`) : x.nombre })); }}
+                                opciones={camaras.map((c) => ({
+                                    valor: c.id, titulo: c.name,
+                                    detalle: c.analiza ? "OmniVision la mira" : "Fuera de OmniVision: la regla se guarda pero no corre",
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    icono: <img src={fotoCamara(c.id, 160)} alt="" loading="lazy" className="w-14 h-8 rounded-[4px] object-cover bg-black" />,
+                                }))} />
                         </CajonCampo>
                         <CajonCampo etiqueta="Nombre" ayuda={r.tipo === "conteo" ? EJEMPLO_AVISO.conteo(r.nombre || "…") : `Así sale en el aviso: ${EJEMPLO_AVISO[r.tipo](r.nombre || "…")}.`}>
-                            <Input value={r.nombre} onChange={(e) => cambiar({ nombre: e.target.value })} placeholder={`${t.nombre} · ${camaras.find((c) => c.id === r.deviceId)?.name || ""}`} />
+                            <Input value={r.nombre} onChange={(e) => cambiar({ nombre: e.target.value })} placeholder={nombreAuto(t.nombre)} className="h-11" />
                         </CajonCampo>
                     </div>
-                </CajonSeccion>
 
-                <CajonSeccion titulo="Qué cuenta" icono={Boxes}
-                    ayuda={r.clases.length ? `${r.clases.length} ${r.clases.length === 1 ? "clase prendida" : "clases prendidas"}: sólo eso dispara la regla.` : "Prendé al menos una: sin clases la regla no mira nada."}>
-                    {/* Una tarjeta con su interruptor por clase. Antes eran píldoras sin ícono, abajo
-                        del dibujo: lo que la regla cuenta se elegía al final y se leía mal. Las
-                        clases del detector propio se ofrecen en todas: un contenedor puede faltar
-                        (retirado), quedarse en una zona o cruzar una línea. */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {[...(r.tipo === "retirado" ? [...CLASES_REGLA.filter((c) => c.clase !== "person" && c.clase !== "dog"), ...CLASES_OBJETO] : CLASES_REGLA), ...listaPropias()].map((c) => {
-                            const on = r.clases.includes(c.clase);
-                            const propia = !ICONO_CLASE[c.clase];
-                            const Ic = ICONO_CLASE[c.clase] || Boxes;
-                            const alternar = () => cambiar({ clases: on ? r.clases.filter((x) => x !== c.clase) : [...r.clases, c.clase] });
-                            return (
-                                <div key={c.clase} role="button" tabIndex={0} onClick={alternar} onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); alternar(); } }}
-                                    className={cn("flex items-center gap-2.5 rounded-[10px] border px-2.5 py-2 cursor-pointer select-none transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion-foco,var(--accion))]",
-                                        on ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_7%,transparent)]" : "border-border hover:bg-accent/50")}>
-                                    <span className={cn("grid h-9 w-9 place-items-center rounded-[9px] shrink-0 transition-colors", on ? "bg-[var(--accion)] text-[var(--accion-sobre,#fff)]" : "bg-muted text-muted-foreground")}>
-                                        <Ic size={18} strokeWidth={2} />
-                                    </span>
-                                    <span className="min-w-0 flex-1">
-                                        <span className={cn("block text-[12.5px] font-semibold truncate", !on && "text-muted-foreground")}>{c.nombre}</span>
-                                        <span className="block text-[10.5px] text-muted-foreground">{propia ? "Entrenado acá · " : ""}{on ? "La cuenta" : "No la mira"}</span>
-                                    </span>
-                                    {/* El interruptor sólo muestra: el clic lo maneja la tarjeta entera. */}
-                                    <span onClick={(e) => e.stopPropagation()}><Switch checked={on} onCheckedChange={alternar} aria-label={`${on ? "Dejar de contar" : "Contar"} ${c.nombre}`} /></span>
-                                </div>
-                            );
-                        })}
+                    {/* Qué analítica, y una plantilla para no empezar de cero. */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <CajonCampo etiqueta="Analítica">
+                            <Desplegable valor={r.tipo} vacio="Elegí la analítica" ancho={440}
+                                alElegir={(v) => { setPlantilla(null); conTipo(v as TipoRegla); }}
+                                opciones={(Object.keys(TIPOS_REGLA) as TipoRegla[]).map((k) => {
+                                    const Ic = ICONO[k];
+                                    return { valor: k, titulo: TIPOS_REGLA[k].nombre, detalle: FORMA[k], extra: TIPOS_REGLA[k].queHace,
+                                        icono: <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-muted"><Ic size={15} /></span> };
+                                })} />
+                        </CajonCampo>
+                        <CajonCampo etiqueta="Plantilla" ayuda="Una configuración de uso común: pone las clases, los tiempos, el horario y el aviso. Después se ajusta lo que haga falta.">
+                            <Desplegable valor={plantilla} vacio="Empezar desde una plantilla" ancho={440} alElegir={usarPlantilla}
+                                opciones={PLANTILLAS.map((p) => {
+                                    const Ic = ICONO[p.tipo];
+                                    return { valor: p.id, titulo: p.nombre, detalle: p.que, extra: `Ej.: ${p.ejemplo}`,
+                                        icono: <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-[color-mix(in_oklab,var(--accion)_12%,transparent)] text-[var(--accion)]"><Ic size={15} /></span> };
+                                })} />
+                        </CajonCampo>
                     </div>
-                </CajonSeccion>
 
-
-                <CajonSeccion titulo={t.geometria === "linea" ? "La línea" : "La zona"}
-                    ayuda={t.geometria === "linea" ? "Dibujala sobre el piso, de lado a lado de por donde se pasa." : r.tipo === "aglomeracion" || r.tipo === "merodeo" ? "Opcional: sin zona se mira todo el cuadro." : r.tipo === "retirado" ? "Donde están las cosas a cuidar (el bicicletero, la entrada de una casa). Lo quieto adentro se aprende solo en un minuto." : "Sobre el piso: se mide dónde está el pie de cada objeto."}>
-                    {r.deviceId ? (
-                        <EditorGeometria deviceId={r.deviceId} modo={t.geometria} linea={r.linea || null} zona={r.zona || []}
-                            permitido={r.tipo === "sentido" ? r.permitido : undefined}
-                            alCambiarLinea={(l) => cambiar({ linea: l })} alCambiarZona={(z: Punto[]) => cambiar({ zona: z })} />
-                    ) : <p className="text-[12px] text-muted-foreground">Elegí la cámara primero.</p>}
-                    {r.tipo === "sentido" && (
-                        <CajonCampo etiqueta="Sentido permitido" ayuda="La flecha verde: por ahí se pasa. Avisa cuando algo cruza como la roja.">
-                            <div className="flex items-center h-9 rounded-lg bg-muted/60 p-0.5 w-fit">
-                                {(["ab", "ba"] as const).map((v) => (
-                                    <button key={v} type="button" onClick={() => cambiar({ permitido: v })}
-                                        className={cn("h-8 px-3 rounded-md text-[12.5px] font-semibold", r.permitido === v ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                        {v === "ab" ? "De A a B" : "De B a A"}
+                    {/* Lo que cuenta: píldoras que se prenden y se apagan. */}
+                    <div>
+                        <div className="flex items-baseline gap-2 mb-2">
+                            <span className="text-[12px] font-semibold">Qué cuenta</span>
+                            <span className="text-[11.5px] text-muted-foreground">{r.clases.length ? `${r.clases.length} prendida${r.clases.length === 1 ? "" : "s"}: sólo eso dispara la regla` : "prendé al menos una"}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                            {clases.map((c) => {
+                                const on = r.clases.includes(c.clase);
+                                const Ic = ICONO_CLASE[c.clase] || Boxes;
+                                return (
+                                    <button key={c.clase} type="button" aria-pressed={on} title={ICONO_CLASE[c.clase] ? undefined : "Entrenado acá (detector propio)"}
+                                        onClick={() => cambiar({ clases: on ? r.clases.filter((x) => x !== c.clase) : [...r.clases, c.clase] })}
+                                        className={cn("h-8 pl-2 pr-3 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors",
+                                            on ? "bg-[var(--accion)] border-[var(--accion)] text-white" : "border-border text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                                        <Ic size={14} /> {c.nombre}
                                     </button>
-                                ))}
-                            </div>
-                        </CajonCampo>
-                    )}
-                    {r.tipo === "cruce" && (
-                        <CajonCampo etiqueta="Avisa cuando cruza" ayuda="A y B son los dos lados de la línea, rotulados sobre el cuadro.">
-                            <div className="flex items-center h-9 rounded-lg bg-muted/60 p-0.5 w-fit">
-                                {(["ambos", "ab", "ba"] as const).map((v) => (
-                                    <button key={v} type="button" onClick={() => cambiar({ sentidos: v })}
-                                        className={cn("h-8 px-3 rounded-md text-[12.5px] font-semibold", (r.sentidos || "ambos") === v ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                        {v === "ambos" ? "En los dos sentidos" : v === "ab" ? "De A a B" : "De B a A"}
-                                    </button>
-                                ))}
-                            </div>
-                        </CajonCampo>
-                    )}
-                </CajonSeccion>
+                                );
+                            })}
+                        </div>
+                    </div>
 
-                {(r.tipo === "merodeo" || r.tipo === "retirado" || r.tipo === "intrusion" || r.tipo === "permanencia" || r.tipo === "aglomeracion") && (
-                    <CajonSeccion titulo="Cuándo dispara" icono={Gauge}>
-                    {(r.tipo === "merodeo" || r.tipo === "retirado") && (
-                        <CajonCampo etiqueta={r.tipo === "merodeo" ? "Avisar después de (segundos)" : "Avisar si falta más de (segundos)"}
-                            ayuda={r.tipo === "merodeo" ? "En la zona y caminando: alguien parado esperando no es merodeo. Desde 20 s." : "Sin verse ni estar tapado por una persona. Desde 5 s."}>
-                            <Input type="number" min={r.tipo === "merodeo" ? 20 : 5} max={r.tipo === "merodeo" ? 3600 : 600} value={r.segundos ?? (r.tipo === "merodeo" ? 90 : 20)} onChange={(e) => cambiar({ segundos: Number(e.target.value) })} className="w-32" />
-                        </CajonCampo>
-                    )}
-                    {r.tipo === "intrusion" && (
-                        <CajonCampo etiqueta="Avisar después de (segundos)" ayuda="Adentro de la zona, seguidos. 2 s alcanza para que una sombra o un paso por el borde no avise; 0 avisa en el primer cuadro.">
-                            <Input type="number" min={0} max={120} value={r.segundos ?? 2} onChange={(e) => cambiar({ segundos: Number(e.target.value) })} className="w-32" />
-                        </CajonCampo>
-                    )}
-                    {(r.tipo === "permanencia" || r.tipo === "aglomeracion") && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {r.tipo === "aglomeracion" && (
-                                <CajonCampo etiqueta="Desde cuántas personas" ayuda="A la vez, dentro de la zona.">
-                                    <Input type="number" min={2} max={200} value={r.maximo ?? 5} onChange={(e) => cambiar({ maximo: Number(e.target.value) })} />
-                                </CajonCampo>
-                            )}
-                            <CajonCampo etiqueta={r.tipo === "permanencia" ? "Avisar después de (minutos)" : "Durante cuánto (segundos)"}
-                                ayuda={r.tipo === "permanencia" ? "Desde que el pie entra en la zona." : "Una reunión de paso no avisa; una que se queda, sí."}>
-                                <Input type="number" min={r.tipo === "permanencia" ? 1 : 5}
-                                    value={r.tipo === "permanencia" ? Math.round((r.segundos ?? 300) / 60) : r.segundos ?? 30}
-                                    onChange={(e) => cambiar({ segundos: r.tipo === "permanencia" ? Number(e.target.value) * 60 : Number(e.target.value) })} />
-                            </CajonCampo>
+                    {/* Cuándo dispara: los parámetros del tipo, en un renglón. */}
+                    {r.tipo !== "conteo" && (
+                        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+                            {r.tipo === "sentido" && <label className="flex items-center gap-2 text-[12.5px]"><span className="text-muted-foreground">Se pasa</span><Segmentos valor={r.permitido || "ab"} opciones={[["ab", "De A a B"], ["ba", "De B a A"]]} alElegir={(v) => cambiar({ permitido: v })} /></label>}
+                            {r.tipo === "cruce" && <label className="flex items-center gap-2 text-[12.5px]"><span className="text-muted-foreground">Avisa al cruzar</span><Segmentos valor={r.sentidos || "ambos"} opciones={[["ambos", "Los dos sentidos"], ["ab", "A→B"], ["ba", "B→A"]]} alElegir={(v) => cambiar({ sentidos: v })} /></label>}
+                            {r.tipo === "intrusion" && <CampoNumero rotulo="Avisa a los" valor={r.segundos ?? 2} min={0} max={120} unidad="s adentro" alCambiar={(n) => cambiar({ segundos: n })} ayuda="Seguidos adentro de la zona. 2 s alcanza para que una sombra o un paso por el borde no avise." />}
+                            {r.tipo === "merodeo" && <CampoNumero rotulo="Avisa a los" valor={r.segundos ?? 90} min={20} max={3600} unidad="s dando vueltas" alCambiar={(n) => cambiar({ segundos: n })} ayuda="En la zona y caminando: alguien parado esperando no es merodeo." />}
+                            {r.tipo === "retirado" && <CampoNumero rotulo="Avisa si falta" valor={r.segundos ?? 20} min={5} max={600} unidad="s" alCambiar={(n) => cambiar({ segundos: n })} ayuda="Sin verse ni estar tapado por una persona." />}
+                            {r.tipo === "permanencia" && <CampoNumero rotulo="Avisa a los" valor={Math.round((r.segundos ?? 300) / 60)} min={1} max={1440} unidad="min en la zona" alCambiar={(n) => cambiar({ segundos: n * 60 })} />}
+                            {r.tipo === "aglomeracion" && <>
+                                <CampoNumero rotulo="Desde" valor={r.maximo ?? 5} min={2} max={200} unidad="personas" alCambiar={(n) => cambiar({ maximo: n })} />
+                                <CampoNumero rotulo="durante" valor={r.segundos ?? 30} min={5} max={3600} unidad="s" alCambiar={(n) => cambiar({ segundos: n })} />
+                            </>}
                         </div>
                     )}
-                    </CajonSeccion>
-                )}
 
-                {CON_HORARIO.includes(r.tipo) && (
-                    <CajonSeccion titulo="Cuándo está armada" icono={Clock}
-                        ayuda="Fuera de horario no registra ni avisa: el jardinero que cruza a las 10 no es una intrusión; el que cruza a las 3, sí. Hora del barrio.">
-                        <div className="flex items-center h-9 rounded-lg bg-muted/60 p-0.5 w-fit">
-                            {([["siempre", "Siempre"], ["horario", "En un horario"]] as const).map(([v, rot]) => (
-                                <button key={v} type="button" onClick={() => cambiar({ horario: v === "siempre" ? null : r.horario || HORARIO_NOCHE })}
-                                    className={cn("h-8 px-3 rounded-md text-[12.5px] font-semibold", (r.horario ? "horario" : "siempre") === v ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                    {rot}
-                                </button>
-                            ))}
-                        </div>
-                        {r.horario && (
-                            <div className="flex items-end gap-3">
-                                <CajonCampo etiqueta="Desde"><Input type="time" value={r.horario.desde} onChange={(e) => cambiar({ horario: { ...r.horario!, desde: e.target.value } })} className="w-32 tabular-nums" /></CajonCampo>
-                                <CajonCampo etiqueta="Hasta"><Input type="time" value={r.horario.hasta} onChange={(e) => cambiar({ horario: { ...r.horario!, hasta: e.target.value } })} className="w-32 tabular-nums" /></CajonCampo>
-                                {r.horario.desde > r.horario.hasta && <span className="text-[11.5px] text-muted-foreground pb-2.5">cruza la medianoche</span>}
+                    {/* Horario y aviso, en dos renglones cortos. */}
+                    <div className="rounded-[10px] border border-border divide-y divide-border">
+                        {CON_HORARIO.includes(r.tipo) && (
+                            <div className="flex flex-wrap items-center gap-3 px-3 py-2.5" title="Fuera de horario no registra ni avisa: el jardinero que cruza a las 10 no es una intrusión; el que cruza a las 3, sí.">
+                                <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold min-w-[110px]"><Clock size={13} /> Armada</span>
+                                <Segmentos valor={r.horario ? "horario" : "siempre"} opciones={[["siempre", "Siempre"], ["horario", "En un horario"]]} alElegir={(v) => cambiar({ horario: v === "siempre" ? null : r.horario || HORARIO_NOCHE })} />
+                                {r.horario && (
+                                    <span className="inline-flex items-center gap-2 text-[12.5px]">
+                                        <Input type="time" value={r.horario.desde} onChange={(e) => cambiar({ horario: { ...r.horario!, desde: e.target.value } })} className="w-28 h-9 tabular-nums" />
+                                        a
+                                        <Input type="time" value={r.horario.hasta} onChange={(e) => cambiar({ horario: { ...r.horario!, hasta: e.target.value } })} className="w-28 h-9 tabular-nums" />
+                                        {r.horario.desde > r.horario.hasta && <span className="text-[11px] text-muted-foreground">cruza la medianoche</span>}
+                                    </span>
+                                )}
                             </div>
                         )}
-                    </CajonSeccion>
-                )}
-
-                <CajonSeccion titulo="Qué hace">
-                    <label className="flex items-center justify-between gap-3 rounded-[10px] border border-border px-3 py-2.5 cursor-pointer">
-                        <span>
-                            <span className="flex items-center gap-1.5 text-[12.5px] font-semibold"><BellRing size={13} /> Avisar a la guardia</span>
-                            <span className="block text-[11.5px] text-muted-foreground leading-snug">Crea un aviso con la foto: aparece en la consola del guardia, en Control LPR y en Visitas. Apagado, sólo queda registrado acá.</span>
-                        </span>
-                        <Switch checked={r.avisar} onCheckedChange={(v) => cambiar({ avisar: v })} />
-                    </label>
-                    {r.tipo === "conteo" && <p className="text-[11.5px] text-muted-foreground">El conteo no avisa: suma los cruces por sentido, clase y hora. Se guardan 90 días.</p>}
-                    {r.tipo === "cruce" && <p className="text-[11.5px] text-muted-foreground">Cada cruce queda registrado con su foto. El aviso se espacia 30 s por regla: cinco que saltan juntos son un aviso, no cinco.</p>}
-                    {r.tipo === "intrusion" && <p className="text-[11.5px] text-muted-foreground">Una vez por objeto mientras siga adentro, con su foto. El aviso se espacia 1 min por regla.</p>}
-                    {r.tipo === "merodeo" && <p className="text-[11.5px] text-muted-foreground">Una vez por persona, con su foto. El seguimiento no sabe que es la misma si sale del cuadro y vuelve. El aviso se espacia 2 min por regla.</p>}
-                    {r.tipo === "retirado" && <p className="text-[11.5px] text-muted-foreground">Con la foto de antes (la última donde estaba) y la de después. Después de reiniciar el proceso, lo aprende de nuevo en un minuto.</p>}
-                    <p className="text-[11.5px] text-muted-foreground">Límite: cada cámara se mira cada ~2 s. Personas y autos a paso de barrio se siguen bien; un auto rápido puede perder su número entre dos cuadros y no contarse.</p>
-                </CajonSeccion>
+                        <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer">
+                            <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold min-w-[110px]"><BellRing size={13} /> Avisar</span>
+                            <span className="flex-1 text-[11.5px] text-muted-foreground leading-snug">
+                                {r.tipo === "conteo" ? "El conteo no avisa: suma los cruces por sentido, clase y hora (90 días)." : r.avisar ? "Aviso con foto a la consola del guardia, Control LPR y Gestión de alarmas." : "Sólo queda registrado acá, con su foto."}
+                            </span>
+                            {r.tipo !== "conteo" && <Switch checked={r.avisar} onCheckedChange={(v) => cambiar({ avisar: v })} />}
+                        </label>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Cada cámara se mira cada ~2 s: personas y autos a paso de barrio se siguen bien; un auto rápido puede perderse entre dos cuadros.</p>
+                </div>
             </CajonContenido>
         </Cajon>
     );
