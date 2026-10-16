@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     Check, ChevronLeft, ChevronRight, Clock, Cctv, Eye, EyeOff, ImageOff, Loader2, PlayCircle, Radar,
-    ScanEye, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen,
+    ScanEye, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen, Repeat,
 } from "lucide-react";
 import { useAnalisisDeteccion } from "@/components/intrusion/AnalisisDeteccion";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
@@ -46,6 +46,24 @@ const AR_VENTANA = 16 / 9;
 const VERIFICANDO_MS = 90_000;
 const TONO_VEREDICTO: Record<string, string> = { mal: "var(--mal)", aviso: "var(--aviso)", quieto: "var(--muted-foreground)", bien: "var(--bien)" };
 const TEXTO_VEREDICTO: Record<string, string> = { mal: "visor-mal", aviso: "visor-aviso", quieto: "text-white/75", bien: "visor-bien" };
+
+/*
+ * El clip en loop (16/10, Nico: «si está activado, a los segundos que llega la foto, debe cargar
+ * rápidamente el evento unos pocos segundos antes, en loop; si lo presionamos el video se retira y
+ * sólo se muestra la foto»). La foto dice QUÉ había; los segundos de antes dicen CÓMO llegó, que es
+ * lo que separa a alguien que salta el cerco de un vecino que pasa caminando.
+ *
+ * Sale de /api/clip/instante (el mismo corte de la alerta con video: del grabador, 480p, sin
+ * audio). Se pide recién después de CLIP_ESPERA_MS en el mismo evento, así pasar eventos con las
+ * flechas no le pide un corte al grabador por cada uno; y lo hecho se recuerda mientras la página
+ * está abierta (el servidor guarda el archivo 10 min).
+ */
+const CLIP_ANTES_S = 4;
+const CLIP_DESPUES_S = 1;
+const CLIP_ESPERA_MS = 1200;
+const CLAVE_CLIP = "ficha-deteccion:clip";
+const clipsHechos = new Map<string, string>();
+type EstadoClip = { estado: "nada" | "cargando" | "listo" | "sin"; url?: string; motivo?: string };
 
 export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion, onMarcar }: {
     det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void;
@@ -120,6 +138,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
             else if (e.key === "Escape") { e.preventDefault(); if (verNota) setVerNota(false); else if (limpio) setLimpio(false); else if (enPropio) setFoto("captura"); else onClose(); }
             else if (e.key === "h" || e.key === "H") setLimpio((v) => !v);
             else if ((e.key === "o" || e.key === "O") && capa) setVerSiluetas(!verSiluetas);
+            else if ((e.key === "c" || e.key === "C") && real) cambiarClip(!clipOn);
             else if (alarmaPendiente) {
                 const k = e.key.toLowerCase();
                 if (k === "a" || e.key === "Enter") { e.preventDefault(); onResolveAlarm!(cur.deviceId, "real"); }
@@ -147,6 +166,34 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
             {nota.guardada ? "Ver nota" : "Nota"}{nota.guardada && !verNota && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accion-en-oscuro)]" />}
         </BotonDecision>
     ) : null;
+    const [clipOn, setClipOn] = useState(true);
+    useEffect(() => { try { const v = localStorage.getItem(CLAVE_CLIP); if (v != null) setClipOn(v === "1"); } catch { } }, []);
+    const cambiarClip = (v: boolean) => { setClipOn(v); try { localStorage.setItem(CLAVE_CLIP, v ? "1" : "0"); } catch { } };
+    const [clip, setClip] = useState<EstadoClip>({ estado: "nada" });
+    const [clipVisible, setClipVisible] = useState(false);
+    useEffect(() => {
+        setClip({ estado: "nada" }); setClipVisible(false);
+        if (!clipOn || !real || !cur.deviceId) return;
+        const hecho = clipsHechos.get(cur.id);
+        if (hecho) { setClip({ estado: "listo", url: hecho }); return; }
+        let vigente = true;
+        const t = setTimeout(async () => {
+            setClip({ estado: "cargando" });
+            try {
+                const r = await fetch("/api/clip/instante", {
+                    method: "POST", headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ deviceId: cur.deviceId, instante: new Date(cur.timestamp).getTime(), antes: CLIP_ANTES_S, despues: CLIP_DESPUES_S, para: "alerta", nvrId: cam?.nvrId ?? null, ch: cur.ch ?? cam?.ch ?? null }),
+                });
+                const j = await r.json().catch(() => ({}));
+                if (j?.ok && j.url) clipsHechos.set(cur.id, j.url);
+                if (vigente) setClip(j?.ok && j.url ? { estado: "listo", url: j.url } : { estado: "sin", motivo: j?.motivo || `el servidor respondió ${r.status}` });
+            } catch { if (vigente) setClip({ estado: "sin", motivo: "no se pudo pedir" }); }
+        }, CLIP_ESPERA_MS);
+        return () => { vigente = false; clearTimeout(t); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cur.id, clipOn, real]);
+    const enVideo = clipOn && clip.estado === "listo" && clipVisible && !enPropio;
+
     const marcar = async (k: "real" | "false") => {
         const r = await onMarcar!(cur.id, k);
         if (!r || r.ok) setCur((c: any) => ({ ...c, acknowledged: true, ackKind: k }));
@@ -186,8 +233,14 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                 onLoad={(e) => { const i = e.currentTarget; if (i.naturalWidth) setProporcion(i.naturalWidth / i.naturalHeight); }}
                                 className="block w-full h-full object-cover select-none" />
                         ) : <div className="absolute inset-0 grid place-items-center text-white/30"><ImageOff size={32} /></div>}
+                        {/* El clip en loop, sobre la foto: entra cuando ya corre, así no hay un cuadro negro. */}
+                        {clipOn && clip.estado === "listo" && clip.url && !enPropio && (
+                            <video key={clip.url} src={clip.url} autoPlay muted loop playsInline onPlaying={() => setClipVisible(true)} onError={() => setClipVisible(false)}
+                                className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-500", clipVisible ? "opacity-100" : "opacity-0")} />
+                        )}
                         {!limpio && <GeomOverlay geom={geom} alert={alarmaPendiente || atencionAbierta} />}
-                        {!limpio && verSiluetas && capa && <CapaAnalisis analisis={capa} geom={g} className="z-[6]" />}
+                        {/* Las siluetas son de la foto: sobre el video no coinciden. */}
+                        {!limpio && verSiluetas && capa && !enVideo && <CapaAnalisis analisis={capa} geom={g} className="z-[6]" />}
                     </div>
                 </div>
                 {(alarmaPendiente || atencionAbierta) && !limpio && <div className="absolute inset-0 pointer-events-none intr-conf-borde z-[7]" />}
@@ -210,17 +263,27 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                 <span className="text-white/30">·</span><span>{horaSeg(momento)}</span>
                             </p>
                         </div>
-                        {capa && (
-                            <button type="button" onClick={() => setVerSiluetas(!verSiluetas)} aria-pressed={verSiluetas}
-                                title={verSiluetas ? "Ocultar las siluetas de OmniVision  ( O )" : "Mostrar lo que detectó OmniVision  ( O )"}
-                                className={cn("shrink-0 h-8 px-3 rounded-full border flex items-center gap-1.5 text-[11.5px] font-semibold transition-colors",
-                                    verSiluetas ? "bg-[var(--accion)] border-transparent text-white" : "bg-black/45 backdrop-blur-xl border-white/15 text-white/80 hover:text-white")}>
-                                <Sparkles size={12} /> OmniVision · {capa.objetos.length}
-                                <span className={cn("ml-0.5 w-6 h-3.5 rounded-full relative", verSiluetas ? "bg-white/35" : "bg-white/15")}>
-                                    <span className={cn("absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-all", verSiluetas ? "left-3" : "left-0.5")} />
-                                </span>
-                            </button>
-                        )}
+                        {/* Acciones sobre la imagen, sólo íconos (16/10): lo que se ve encima y el clip en loop. */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            {capa && (
+                                <BotonArriba activo={verSiluetas && !enVideo} onClick={() => setVerSiluetas(!verSiluetas)}
+                                    title={verSiluetas ? `Ocultar lo que detectó OmniVision (${capa.objetos.length})  ( O )` : `Mostrar lo que detectó OmniVision (${capa.objetos.length})  ( O )`}>
+                                    <Sparkles size={15} />
+                                    {capa.objetos.length > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-white text-black text-[9.5px] font-bold tabular-nums grid place-items-center">{capa.objetos.length}</span>}
+                                </BotonArriba>
+                            )}
+                            {real && cur.deviceId && (
+                                <BotonArriba activo={clipOn} onClick={() => cambiarClip(!clipOn)}
+                                    title={!clipOn ? `Ver en loop los ${CLIP_ANTES_S} s antes de la foto  ( C )`
+                                        : clip.estado === "sin" ? `Sin clip: ${clip.motivo}. Tocá para ver sólo la foto  ( C )`
+                                            : clip.estado === "cargando" ? "Trayendo el clip del grabador…  ( C )" : `Clip en loop: ${CLIP_ANTES_S} s antes de la foto. Tocá para ver sólo la foto  ( C )`}>
+                                    {clipOn && clip.estado === "cargando" ? <Loader2 size={15} className="animate-spin" /> : <Repeat size={15} />}
+                                    {clipOn && clip.estado === "sin" && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--aviso)] ring-2 ring-black/60" />}
+                                </BotonArriba>
+                            )}
+                            {enVideo && <span className="text-[11px] font-semibold text-white/70 visor-sombra-texto tabular-nums">En loop · {CLIP_ANTES_S} s antes</span>}
+                            {clipOn && clip.estado === "sin" && <span className="text-[11px] text-white/50 visor-sombra-texto max-w-[220px] truncate" title={clip.motivo}>Sin clip: {clip.motivo}</span>}
+                        </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                         {idx >= 0 && sibs.length > 1 && <span className="text-[11.5px] font-semibold text-white/60 tabular-nums visor-sombra-texto">{idx + 1} / {sibs.length}</span>}
@@ -333,9 +396,13 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     </div>
                 </div>
 
-                {/* ── ABAJO · la decisión ── */}
+                {/* ── ABAJO · la decisión, a la derecha (16/10, Nico); los atajos, a la izquierda ── */}
                 <div className={cn("absolute bottom-0 inset-x-0 z-30 px-5 md:px-8 pb-5 pt-3 flex items-end justify-between gap-4 transition-opacity", limpio && "opacity-0 pointer-events-none")}>
-                    <div className="flex flex-col gap-1.5">
+                    <span className="text-[11px] text-white/45 tabular-nums visor-sombra-texto">
+                        ← → eventos · H imagen limpia{real ? " · C clip" : ""} · Esc {enPropio ? "volver a la captura" : "cerrar"}
+                        <span className="block text-[10px] text-white/30 select-all">{cur.id}</span>
+                    </span>
+                    <div className="flex flex-col items-end gap-1.5 text-right">
                         {alarmaPendiente ? (
                             <div className="flex items-center gap-2">
                                 <BotonDecision onClick={conNota(() => onResolveAlarm!(cur.deviceId, "false"))} icono={X} tecla="F">Falsa alarma</BotonDecision>
@@ -349,7 +416,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                     <BotonDecision onClick={conNota(() => onCerrarAtencion!(cur.deviceId, "resuelta"))} icono={Check} tecla="A" grave>Aceptar · resuelta</BotonDecision>
                                     {botonNota}
                                 </div>
-                                <p className="text-[11px] text-white/55 visor-sombra-texto max-w-md">Fue confirmada como real. Si con la foto delante ves que no lo era, marcala como falsa: queda corregido en el historial.</p>
+                                <p className="text-[11px] text-white/55 visor-sombra-texto max-w-md text-right">Fue confirmada como real. Si con la foto delante ves que no lo era, marcala como falsa: queda corregido en el historial.</p>
                             </>
                         ) : corregible ? (
                             <>
@@ -362,15 +429,11 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                             </>
                         ) : botonNota ? <div className="flex items-center gap-2">{botonNota}</div> : <span />}
                     </div>
-                    <span className="text-[11px] text-white/45 tabular-nums visor-sombra-texto text-right">
-                        ← → eventos · H imagen limpia · Esc {enPropio ? "volver a la captura" : "cerrar"}
-                        <span className="block text-[10px] text-white/30 select-all">{cur.id}</span>
-                    </span>
                 </div>
 
-                {/* La nota de gestión, a pedido: flota abajo al centro, sobre la foto y no sobre la columna. */}
+                {/* La nota de gestión, a pedido: flota sobre sus botones, abajo a la derecha, no sobre la columna. */}
                 {verNota && real && (
-                    <div className={cn("absolute bottom-[76px] left-1/2 -translate-x-1/2 z-40 w-[min(460px,62vw)] visor-panel rounded-[14px] p-3 shadow-[0_18px_40px_rgba(0,0,0,0.55)]", limpio && "hidden")}
+                    <div className={cn("absolute bottom-[84px] right-5 md:right-8 z-40 w-[min(460px,62vw)] visor-panel rounded-[14px] p-3 shadow-[0_18px_40px_rgba(0,0,0,0.55)]", limpio && "hidden")}
                         onClick={(e) => e.stopPropagation()}>
                         <button type="button" onClick={() => setVerNota(false)} aria-label="Cerrar la nota" title="Cerrar"
                             className="absolute top-2 right-2 w-7 h-7 grid place-items-center rounded-full text-white/60 hover:text-white hover:bg-white/15"><X size={14} /></button>
@@ -409,6 +472,17 @@ function BotonDecision({ children, onClick, icono: Ico, tecla, grave, activo }: 
                 grave ? "pleno-mal hover:brightness-110" : activo ? "bg-white text-black border border-white" : "bg-white/10 hover:bg-white/20 text-white border border-white/15")}>
             <Ico size={16} /> {children}
             {tecla && <kbd className="ml-0.5 px-1.5 rounded bg-black/25 text-[10px] font-semibold">{tecla}</kbd>}
+        </button>
+    );
+}
+
+/** Un botón de ícono arriba, sobre la foto. Prendido = azul: es una elección que se mantiene. */
+function BotonArriba({ children, onClick, title, activo }: { children: React.ReactNode; onClick: () => void; title: string; activo?: boolean }) {
+    return (
+        <button type="button" onClick={onClick} title={title} aria-label={title} aria-pressed={activo}
+            className={cn("relative w-9 h-9 rounded-full flex items-center justify-center transition-colors",
+                activo ? "bg-[var(--accion)] text-white" : "visor-vidrio text-white/80 hover:text-white")}>
+            {children}
         </button>
     );
 }
