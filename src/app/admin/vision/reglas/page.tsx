@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Type, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
-    PersonStanding, Car, Truck, Bus, Motorbike, Bike, Dog, Backpack, ShoppingBag, Luggage, Armchair, Sofa, Sprout, Boxes, Gauge,
-    TriangleAlert, ScanEye, ChevronDown, Check, Layers, Maximize2, Copy, type LucideIcon,
+    Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
+    PersonStanding, Car, Bike, Dog, Backpack, Boxes, Gauge,
+    TriangleAlert, ScanEye, ChevronDown, Check, Layers, Maximize2, Copy, PanelRight, X, type LucideIcon,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { sileo as toast } from "sileo";
@@ -19,10 +19,12 @@ import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { EditorGeometria } from "@/components/vision/EditorGeometria";
 import {
-    TIPOS_REGLA, CLASES_REGLA, CLASES_OBJETO, CON_HORARIO, NOMBRE_CLASE_REGLA, TIPOS_EVENTO, duracionCorta,
+    TIPOS_REGLA, CLASES_OBJETO, CON_HORARIO, TIPOS_EVENTO, duracionCorta,
     type ReglaVision, type TipoRegla, type Punto,
 } from "@/lib/vision-reglas";
-import { listaPropias, nombrePropio, useNombresPropios } from "@/lib/nombres-propios";
+import { listaPropias, useNombresPropios } from "@/lib/nombres-propios";
+import { ElegirClases, nombreClase } from "@/components/vision/ElegirClases";
+import { CLASES as CLASES_CATALOGO, CLASE_POR_NOMBRE } from "@/lib/vision-catalogo";
 
 /**
  * Reglas de visión: conteo por línea, sentido contrario, tiempo de permanencia y aglomeración.
@@ -77,17 +79,10 @@ const EJEMPLO_AVISO: Record<TipoRegla, (n: string) => string> = {
     cruce: (n) => `«Persona cruzó ${n}»`, intrusion: (n) => `«Persona en ${n}»`,
     merodeo: (n) => `«Persona dando vueltas hace 2 min en ${n}»`, retirado: (n) => `«Se llevaron una bicicleta de ${n}»`,
 };
-/**
- * El ícono de cada clase en «Qué cuenta»: se reconoce la clase antes de leerla. Las del detector
- * propio (entrenadas en Objetos nuevos) llevan el de cajas, con su marca.
- */
-const ICONO_CLASE: Record<string, LucideIcon> = {
-    person: PersonStanding, car: Car, truck: Truck, bus: Bus, motorcycle: Motorbike, bicycle: Bike, dog: Dog,
-    backpack: Backpack, handbag: ShoppingBag, suitcase: Luggage, chair: Armchair, bench: Sofa, "potted plant": Sprout,
-};
 /** El horario que se propone al armar de noche: lo más común en un barrio. */
 const HORARIO_NOCHE = { desde: "22:00", hasta: "06:00" };
 const REFRESCO_MS = 15_000;
+const CLAVE_PANEL = "reglas-vision:panel-eventos";
 const hora = (iso: string) => new Date(iso).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Montevideo" });
 const dia = (iso: string) => new Date(iso).toLocaleDateString("es-UY", { day: "numeric", month: "short", timeZone: "America/Montevideo" });
 const nuevaId = () => Math.random().toString(36).slice(2, 12);
@@ -110,7 +105,10 @@ export default function ReglasVision() {
     const [guardando, setGuardando] = useState(false);
     const [ampliado, setAmpliado] = useState<Evento | null>(null);
     const [eligiendo, setEligiendo] = useState(false);
-    const [filtroEvento, setFiltroEvento] = useState<string | null>(null);
+    // El panel de eventos: abierto por defecto, y se recuerda en este navegador.
+    const [panel, setPanel] = useState(true);
+    useEffect(() => { try { const v = localStorage.getItem(CLAVE_PANEL); if (v != null) setPanel(v === "1"); } catch { } }, []);
+    const cambiarPanel = (v: boolean) => { setPanel(v); try { localStorage.setItem(CLAVE_PANEL, v ? "1" : "0"); } catch { } };
 
     const cargar = useCallback(async () => {
         try {
@@ -186,16 +184,14 @@ export default function ReglasVision() {
     const est = datos.estado;
     const sinSenal = !est || Date.now() - new Date(est.t).getTime() > 60_000;
 
-    const activas = datos.reglas.filter((r) => r.activa && datos.analiticas[r.tipo]).length;
-    const camarasConReglas = [...new Set(datos.reglas.map((r) => r.deviceId))];
     // Los grupos van primero, cada uno en su sección; el resto de las reglas, por cámara como antes.
     const grupos = [...new Map(datos.reglas.filter((r) => r.grupo).map((r) => [r.grupo!.id, r.grupo!])).values()];
     const camarasSueltas = [...new Set(datos.reglas.filter((r) => !r.grupo).map((r) => r.deviceId))];
-    const avisos7 = datos.eventos.filter((e) => e.avisoId).length;
-    const tiposEnEventos = [...new Set(datos.eventos.map((e) => e.tipo))];
-    const eventosVisibles = filtroEvento ? datos.eventos.filter((e) => e.tipo === filtroEvento) : datos.eventos;
 
     return (
+        // Con el panel de eventos abierto, la página le deja su lugar a la derecha: queda acoplado,
+        // no tapa las reglas (16/10, Nico: «Eventos debe ser un slide acoplable a la derecha»).
+        <div className={cn("transition-[padding] duration-300", panel && "lg:pr-[380px]")}>
         <div className="p-6 lg:p-8 space-y-5 max-w-[1500px] mx-auto">
             {/* ── Encabezado ── */}
             <div className="flex items-start gap-3 flex-wrap">
@@ -209,6 +205,11 @@ export default function ReglasVision() {
                         Una línea o una zona sobre el cuadro de una cámara, y qué hacer cuando algo la cruza o se queda. Se mira cada ~2 s y se sigue a cada objeto por su pie, donde toca el piso.
                     </p>
                 </div>
+                {datos.reglas.length > 0 && (
+                    <Button variant="outline" onClick={() => cambiarPanel(!panel)} aria-pressed={panel}>
+                        <PanelRight size={14} /> Eventos <span className="tabular-nums text-muted-foreground">{datos.eventos.length}</span>
+                    </Button>
+                )}
                 <Button onClick={() => setEligiendo(true)}><Plus size={14} /> Nueva regla</Button>
             </div>
 
@@ -223,20 +224,6 @@ export default function ReglasVision() {
                     <Button onClick={() => setEligiendo(true)}><Plus size={14} /> Crear la primera regla</Button>
                 </section>
             )}
-
-            {/* ── Los números ── */}
-            {datos.reglas.length > 0 && (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                    <Numero rotulo="Reglas corriendo" valor={<>{activas}<span className="text-muted-foreground font-semibold">/{datos.reglas.length}</span></>} pista="Prendidas y con su analítica encendida en Analíticas." />
-                    <Numero rotulo="Cámaras con reglas" valor={camarasConReglas.length} pista="Cada cámara con al menos una regla se mira cada ~2 s." />
-                    <Numero rotulo="Eventos · 7 días" valor={datos.eventos.length} pista="Sentido contrario, permanencias, aglomeraciones, cruces, intrusiones, merodeos y retirados. Los cruces del conteo no se listan: se suman en cada regla." />
-                    <Numero rotulo="Avisos a la guardia · 7 días" valor={avisos7} pista="Los eventos de reglas que avisan llegan a la consola, Control LPR y Visitas." />
-                </div>
-            )}
-            <p className="text-[12px] text-muted-foreground flex items-center gap-1.5">
-                <Type size={13} /> <b className="text-foreground font-semibold">Empresa por rotulado</b> no lleva regla: {datos.rotulado ? "está prendida y lee" : "está apagada en Analíticas; prendida, lee"} el texto de cada vehículo y lo cruza con el catálogo de empresas (se ve en Detecciones).
-                {(Object.keys(TIPOS_REGLA) as TipoRegla[]).some((t) => !datos.analiticas[t]) && <span className="ml-1">Apagadas en Analíticas: {(Object.keys(TIPOS_REGLA) as TipoRegla[]).filter((t) => !datos.analiticas[t]).map((t) => TIPOS_REGLA[t].nombre).join(", ")}.</span>}
-            </p>
 
             {/* ── Los grupos: la misma vigilancia en varias cámaras ── */}
             {grupos.map((g) => {
@@ -298,54 +285,6 @@ export default function ReglasVision() {
                 );
             })}
 
-            {/* ── Lo que pasó ── */}
-            {datos.reglas.length > 0 && (
-            <section className="space-y-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-[13px] font-bold">Eventos · últimos 7 días</h2>
-                    {tiposEnEventos.length > 1 && (
-                        <span className="flex items-center gap-1 flex-wrap">
-                            <button type="button" onClick={() => setFiltroEvento(null)} aria-pressed={!filtroEvento}
-                                className={cn("h-7 px-2.5 rounded-full border text-[11.5px] font-semibold", !filtroEvento ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:text-foreground")}>Todos</button>
-                            {tiposEnEventos.map((t) => (
-                                <button key={t} type="button" onClick={() => setFiltroEvento(t)} aria-pressed={filtroEvento === t}
-                                    className={cn("h-7 px-2.5 rounded-full border text-[11.5px] font-semibold", filtroEvento === t ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:text-foreground")}>
-                                    {(TIPOS_EVENTO[t] || { nombre: t }).nombre} <span className="tabular-nums opacity-70">{datos.eventos.filter((e) => e.tipo === t).length}</span>
-                                </button>
-                            ))}
-                        </span>
-                    )}
-                    <span className="ml-auto text-[11.5px] text-muted-foreground">Los cruces del conteo se suman en cada regla.</span>
-                </div>
-                {eventosVisibles.length === 0 ? (
-                    <div className="rounded-[10px] border border-dashed border-border p-8 text-center text-[13px] text-muted-foreground">Sin eventos todavía. Cuando una regla vea algo, queda acá con su foto.</div>
-                ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
-                        {eventosVisibles.map((e) => {
-                            const t = TIPOS_EVENTO[e.tipo] || { nombre: e.tipo, tono: "quieto" as const };
-                            return (
-                                <button key={e.id} type="button" onClick={() => setAmpliado(e)} className="text-left rounded-[10px] border border-border bg-card overflow-hidden hover:border-[var(--accion)] transition-colors">
-                                    <div className="relative aspect-video bg-black">
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        {e.foto ? <img src={`${e.foto}?w=320`} alt="" loading="lazy" className="w-full h-full object-cover" /> : <Camera size={18} className="absolute inset-0 m-auto text-white/30" />}
-                                        {e.caja && <span className="absolute border-2 border-[var(--accion-en-oscuro)] rounded-sm" style={{ left: `${e.caja[0] * 100}%`, top: `${e.caja[1] * 100}%`, width: `${(e.caja[2] - e.caja[0]) * 100}%`, height: `${(e.caja[3] - e.caja[1]) * 100}%` }} />}
-                                        <span className="absolute left-1.5 top-1.5"><Chip tono={t.tono}>{t.nombre}</Chip></span>
-                                        {e.avisoId && <span className="absolute right-1.5 top-1.5 w-6 h-6 grid place-items-center rounded-full bg-black/60 text-white" title="Avisó a la guardia"><BellRing size={12} /></span>}
-                                    </div>
-                                    <div className="px-2.5 py-2">
-                                        <div className="text-[12px] font-semibold truncate">{e.regla}</div>
-                                        <div className="text-[11px] text-muted-foreground truncate tabular-nums">
-                                            {e.tipo === "PERMANENCIA" ? `${NOMBRE_CLASE_REGLA[e.clase || ""] || e.clase} · ${duracionCorta(e.valor)}` : e.tipo === "AGLOMERACION" ? `${e.valor} personas` : NOMBRE_CLASE_REGLA[e.clase || ""] || e.clase} · {dia(e.ts)} {hora(e.ts)}
-                                        </div>
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
-                )}
-            </section>
-            )}
-
             <AsistenteRegla abierto={eligiendo} camaras={datos.camaras} analiticas={datos.analiticas} vistos={datos.vistos} vistosDias={datos.vistosDias || 7} alCerrar={() => setEligiendo(false)}
                 alListo={(r, ids) => { setEligiendo(false); setEditando({ base: r, deviceIds: ids, originales: [], nueva: true }); }} />
             {editando && (
@@ -395,6 +334,77 @@ export default function ReglasVision() {
                 </DialogContent>
             </Dialog>
         </div>
+            <PanelEventos abierto={panel} eventos={datos.eventos} alCerrar={() => cambiarPanel(false)} alAbrir={setAmpliado} />
+        </div>
+    );
+}
+
+/**
+ * Lo que pasó, en un panel acoplado a la derecha (16/10, Nico). Antes era una grilla de fotos al
+ * pie de la página: con varias reglas quedaba debajo de todo, y para ver si una regla disparó
+ * había que bajar hasta el final y volver. Acoplado, se ve al lado de las reglas que lo
+ * producen y se pliega cuando no hace falta. Se recuerda abierto o cerrado en este navegador.
+ */
+function PanelEventos({ abierto, eventos, alCerrar, alAbrir }: { abierto: boolean; eventos: Evento[]; alCerrar: () => void; alAbrir: (e: Evento) => void }) {
+    const [tipo, setTipo] = useState<string | null>(null);
+    const tipos = [...new Set(eventos.map((e) => e.tipo))];
+    const visibles = tipo ? eventos.filter((e) => e.tipo === tipo) : eventos;
+    return (
+        <aside aria-hidden={!abierto}
+            className={cn("fixed right-0 top-0 z-30 h-dvh w-full sm:w-[380px] bg-card border-l border-border flex flex-col transition-transform duration-300",
+                abierto ? "translate-x-0" : "translate-x-full pointer-events-none", "max-lg:shadow-2xl")}>
+            <div className="flex items-center gap-2 px-4 h-14 border-b border-border shrink-0">
+                <div className="min-w-0 flex-1">
+                    <div className="text-[13.5px] font-bold leading-tight">Eventos</div>
+                    <div className="text-[11px] text-muted-foreground">Últimos 7 días · {eventos.length}</div>
+                </div>
+                <button type="button" onClick={alCerrar} aria-label="Cerrar el panel" className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><X size={16} /></button>
+            </div>
+            {tipos.length > 1 && (
+                <div className="flex items-center gap-4 px-4 border-b border-border overflow-x-auto shrink-0 text-[12px]">
+                    {[null, ...tipos].map((t) => {
+                        const on = tipo === t;
+                        const n = t ? eventos.filter((e) => e.tipo === t).length : eventos.length;
+                        return (
+                            <button key={t || "todos"} type="button" onClick={() => setTipo(t)} aria-pressed={on}
+                                className={cn("relative h-10 whitespace-nowrap font-semibold transition-colors", on ? "text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                                {t ? (TIPOS_EVENTO[t] || { nombre: t }).nombre : "Todos"} <span className="tabular-nums opacity-60">{n}</span>
+                                {on && <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-[var(--accion)]" />}
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
+                {visibles.length === 0 ? (
+                    <div className="h-full grid place-items-center px-6 text-center text-[12.5px] text-muted-foreground">Sin eventos todavía. Cuando una regla vea algo, queda acá con su foto.</div>
+                ) : visibles.map((e) => {
+                    const t = TIPOS_EVENTO[e.tipo] || { nombre: e.tipo, tono: "quieto" as const };
+                    return (
+                        <button key={e.id} type="button" onClick={() => alAbrir(e)} className="w-full flex items-center gap-3 rounded-[8px] p-1.5 text-left hover:bg-accent transition-colors">
+                            <span className="relative block w-[112px] aspect-video shrink-0 rounded-[6px] overflow-hidden bg-black">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                {e.foto ? <img src={`${e.foto}?w=320`} alt="" loading="lazy" className="w-full h-full object-cover" /> : <Camera size={16} className="absolute inset-0 m-auto text-white/30" />}
+                                {e.caja && <span className="absolute border-[1.5px] border-[var(--accion-en-oscuro)] rounded-[2px]" style={{ left: `${e.caja[0] * 100}%`, top: `${e.caja[1] * 100}%`, width: `${(e.caja[2] - e.caja[0]) * 100}%`, height: `${(e.caja[3] - e.caja[1]) * 100}%` }} />}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-1.5">
+                                    <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", t.tono === "mal" ? "bg-[var(--mal)]" : t.tono === "aviso" ? "bg-[var(--aviso)]" : t.tono === "info" ? "bg-[var(--info)]" : "bg-muted-foreground/50")} />
+                                    <span className="text-[11.5px] font-semibold">{t.nombre}</span>
+                                    {e.avisoId && <BellRing size={11} className="text-muted-foreground" aria-label="Avisó a la guardia" />}
+                                    <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">{hora(e.ts)}</span>
+                                </span>
+                                <span className="block text-[12px] truncate mt-0.5">{e.regla}</span>
+                                <span className="block text-[11px] text-muted-foreground truncate tabular-nums">
+                                    {e.tipo === "PERMANENCIA" ? `${nombreClase(e.clase || "")} · ${duracionCorta(e.valor)}` : e.tipo === "AGLOMERACION" ? `${e.valor} personas` : e.clase ? nombreClase(e.clase) : ""} · {dia(e.ts)}
+                                </span>
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+            <div className="px-4 py-2 border-t border-border text-[11px] text-muted-foreground shrink-0">Los cruces del conteo no se listan: se suman en cada regla.</div>
+        </aside>
     );
 }
 
@@ -456,19 +466,9 @@ function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar, enGrupo }:
                 <div className="flex items-center gap-1.5 text-[10.5px] text-muted-foreground min-w-0">
                     {r.avisar ? <BellRing size={11} className="shrink-0" /> : <BellOff size={11} className="shrink-0" />}
                     {CON_HORARIO.includes(r.tipo) && <span className="shrink-0 inline-flex items-center gap-0.5"><Clock size={10} /> {r.horario ? `${r.horario.desde}–${r.horario.hasta}` : "siempre"}</span>}
-                    <span className="truncate">· {r.clases.map((c) => NOMBRE_CLASE_REGLA[c] || nombrePropio(c) || c).join(", ")}</span>
+                    <span className="truncate">· {r.clases.map(nombreClase).join(", ")}</span>
                 </div>
             </div>
-        </div>
-    );
-}
-
-/** Un número del resumen, con su explicación al pasar el mouse. */
-function Numero({ rotulo, valor, pista }: { rotulo: string; valor: React.ReactNode; pista: string }) {
-    return (
-        <div className="rounded-[10px] border border-border bg-card px-3.5 py-3">
-            <Pista titulo={rotulo} texto={pista} ancho={280}><span className="text-[11.5px] text-muted-foreground cursor-help">{rotulo}</span></Pista>
-            <div className="text-[22px] font-bold tabular-nums leading-tight tracking-[-0.02em] mt-0.5">{valor}</div>
         </div>
     );
 }
@@ -753,7 +753,6 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
             };
         });
     };
-    const clases = [...(r.tipo === "retirado" ? [...CLASES_REGLA.filter((c) => c.clase !== "person" && c.clase !== "dog"), ...CLASES_OBJETO] : CLASES_REGLA), ...listaPropias()];
     const falta = !ids.length ? "Elegí la cámara." : faltan.length ? (varias ? `Falta dibujar en ${faltan.length === 1 ? nombreDe(faltan[0]) : `${faltan.length} cámaras`}.` : t.geometria === "linea" ? "Dibujá la línea sobre el cuadro." : "Dibujá la zona sobre el cuadro (al menos 3 puntos).") : !r.clases.length ? "Prendé al menos una clase en «Qué cuenta»." : null;
     const zonaObligatoria = t.geometria === "zona" && r.tipo !== "aglomeracion" && r.tipo !== "merodeo";
     const nOriginales = edicion.originales.length;
@@ -842,27 +841,10 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                         </CajonCampo>
                     </div>
 
-                    {/* Lo que cuenta: píldoras que se prenden y se apagan. */}
-                    <div>
-                        <div className="flex items-baseline gap-2 mb-2">
-                            <span className="text-[12px] font-semibold">Qué cuenta</span>
-                            <span className="text-[11.5px] text-muted-foreground">{r.clases.length ? `${r.clases.length} prendida${r.clases.length === 1 ? "" : "s"}: sólo eso dispara la regla` : "prendé al menos una"}</span>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                            {clases.map((c) => {
-                                const on = r.clases.includes(c.clase);
-                                const Ic = ICONO_CLASE[c.clase] || Boxes;
-                                return (
-                                    <button key={c.clase} type="button" aria-pressed={on} title={ICONO_CLASE[c.clase] ? undefined : "Entrenado acá (detector propio)"}
-                                        onClick={() => cambiar({ clases: on ? r.clases.filter((x) => x !== c.clase) : [...r.clases, c.clase] })}
-                                        className={cn("h-8 pl-2 pr-3 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors",
-                                            on ? "bg-[var(--accion)] border-[var(--accion)] text-white" : "border-border text-muted-foreground hover:text-foreground hover:bg-accent")}>
-                                        <Ic size={14} /> {c.nombre}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
+                    {/* Lo que cuenta: todo el catálogo de OmniVision en un campo, no siete píldoras. */}
+                    <CajonCampo etiqueta="Qué cuenta" ayuda={r.tipo === "retirado" ? "Lo que se aprende quieto en la zona y avisa si falta. Personas y animales no: se mueven solos." : "Sólo lo elegido dispara la regla. Lo entrenado acá va primero."}>
+                        <ElegirClases valor={r.clases} alCambiar={(clases) => cambiar({ clases })} propias={listaPropias()} excluir={r.tipo === "retirado" ? ["persona", "animal"] : []} />
+                    </CajonCampo>
 
                     {/* Cuándo dispara: los parámetros del tipo, en un renglón. */}
                     {r.tipo !== "conteo" && (
@@ -967,7 +949,9 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
     const [noche, setNoche] = useState(false);
     const [elegidas, setElegidas] = useState<string[]>([]);
     const [buscar, setBuscar] = useState("");
-    useEffect(() => { if (abierto) { setPaso(1); setSujetos([]); setSituacion(null); setNoche(false); setElegidas([]); setBuscar(""); } }, [abierto]);
+    /** Lo que no está en las tarjetas: cualquiera de las 80 clases que reconoce OmniVision. */
+    const [extras, setExtras] = useState<string[]>([]);
+    useEffect(() => { if (abierto) { setPaso(1); setSujetos([]); setSituacion(null); setNoche(false); setElegidas([]); setBuscar(""); setExtras([]); } }, [abierto]);
 
     // Lo entrenado acá (detector propio): cada clase es un «qué» más, con su nombre.
     const propias = listaPropias();
@@ -975,21 +959,26 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
     const sujetosTodos: Sujeto[] = [...SUJETOS_BASE, ...sujetosPropios];
     const sit = SITUACIONES.find((s) => s.id === situacion) || null;
     // Para la compatibilidad, lo entrenado cuenta como «objetos».
-    const grupos = sujetos.map((x) => (sujetosTodos.find((s) => s.id === x)?.propio ? "objetos" : x));
+    const grupoDeExtra = (c: string) => { const g = CLASE_POR_NOMBRE[c]?.grupo; return g === "persona" ? "personas" : g === "vehiculo" ? "vehiculos" : g === "animal" ? "perros" : "objetos"; };
+    const grupos = [...sujetos.map((x) => (sujetosTodos.find((s) => s.id === x)?.propio ? "objetos" : x)), ...extras.map(grupoDeExtra)];
     const alternar = (id: string) => setSujetos((xs) => {
         const n = xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id];
         const g = n.map((x) => (sujetosTodos.find((s) => s.id === x)?.propio ? "objetos" : x));
-        if (sit && porQueNo(sit, g)) setSituacion(null);
+        if (sit && porQueNo(sit, [...g, ...extras.map(grupoDeExtra)])) setSituacion(null);
         return n;
     });
+    const cambiarExtras = (v: string[]) => {
+        setExtras(v);
+        if (sit && porQueNo(sit, [...sujetos.map((x) => (sujetosTodos.find((s) => s.id === x)?.propio ? "objetos" : x)), ...v.map(grupoDeExtra)])) setSituacion(null);
+    };
     const usarAtajo = (p: Plantilla) => {
         const ids = SUJETOS_BASE.filter((b) => b.clases.some((c) => p.aplicar.clases?.includes(c))).map((b) => b.id);
-        setSujetos(ids); setSituacion(SITUACIONES.find((s) => s.tipo === p.tipo)?.id || null); setNoche(!!p.aplicar.horario);
+        setSujetos(ids); setExtras([]); setSituacion(SITUACIONES.find((s) => s.tipo === p.tipo)?.id || null); setNoche(!!p.aplicar.horario);
     };
-    const clases = [...new Set(sujetos.flatMap((x) => sujetosTodos.find((s) => s.id === x)?.clases || []))];
+    const clases = [...new Set([...sujetos.flatMap((x) => sujetosTodos.find((s) => s.id === x)?.clases || []), ...extras])];
     const conHorario = !!sit && CON_HORARIO.includes(sit.tipo);
     const listoPaso1 = !!sit && clases.length > 0;
-    const nombresSujetos = sujetos.map((x) => sujetosTodos.find((s) => s.id === x)?.nombre).filter(Boolean).join(", ");
+    const nombresSujetos = [...sujetos.map((x) => sujetosTodos.find((s) => s.id === x)?.nombre), ...extras.map(nombreClase)].filter(Boolean).join(", ");
     const resumen = sit ? `${sit.nombre}${clases.length ? ` · ${nombresSujetos}` : ""}${conHorario && noche ? " · de 22 a 6" : ""}` : null;
 
     // Dónde se vio lo elegido: las cámaras que tienen lo que se quiere vigilar.
@@ -1088,6 +1077,10 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
                                 {sujetosPropios.length
                                     ? <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{sujetosPropios.map(tarjetaSujeto)}</div>
                                     : <p className="text-[11px] text-muted-foreground">Lo que entrenes en OmniVision › Entrenar (un contenedor, un cono) aparece acá como un «qué» más.</p>}
+                            </div>
+                            <div>
+                                <div className="text-[11px] text-muted-foreground mb-1.5">Otra cosa de las {CLASES_CATALOGO.length} que reconoce</div>
+                                <ElegirClases valor={extras} alCambiar={cambiarExtras} propias={[]} vacio="Un gato, una valija, una pelota, un banco…" />
                             </div>
                         </div>
 
