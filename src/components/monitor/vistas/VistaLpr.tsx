@@ -46,7 +46,8 @@ import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
  *  · La ficha (cajón desde la derecha) contesta lo que se pregunta de un auto: de quién es, de
  *    qué lote, si es invitado y a dónde va, si está vigilado, cuándo entró y qué hizo hoy. Se
  *    cierra sola a los FICHA_SE_CIERRA_MS sin tocar.
- *  · Los cuatro números de quién está adentro abren Gestión de alarmas en esa lista.
+ *  · Los cuatro números de quién está adentro abren su lista en un cajón: hora de ingreso,
+ *    permanencia y la captura; tocar la captura la pone de protagonista.
  *  · Todo lo tocable mide 48 px o más y responde al dedo (se hunde un poco); nada depende
  *    del hover. Las transiciones son cortas (≤ 300 ms): informan, no adornan.
  *
@@ -250,6 +251,7 @@ export function VistaLpr() {
     const [fijada, setFijada] = useState<Lectura | null>(null);
     const [filtro, setFiltro] = useState<Filtro>("todas");
     const [fichaId, setFichaId] = useState<string | null>(null);
+    const [cajon, setCajon] = useState<ClaveLista | null>(null);
     const [ampliada, setAmpliada] = useState<string | null>(null);
     useEffect(() => { if (!datos) return; setUltima((u) => (u && datos.ultima && u.ts > datos.ultima.ts ? u : datos.ultima)); setTira((t) => { const base = datos.tira; const ids = new Set(base.map((x) => x.id)); return [...t.filter((x) => !ids.has(x.id) && (!datos.ultima || x.id !== datos.ultima.id) && (!base[0] || x.ts > base[0].ts)), ...base].slice(0, ULTIMAS_EN_TIRA); }); }, [datos]);
 
@@ -404,13 +406,14 @@ export function VistaLpr() {
 
             {/* Quién está adentro, en cuatro números (16/10, Nico): reemplazan a entradas, salidas y
                 denegados del día, al «adentro ahora» y al bloque «En el barrio ahora». Tocar uno abre
-                Gestión de alarmas en esa lista; la fila de atención ocupa el resto hasta abajo. */}
+                su lista en un cajón acá mismo —la pared no se va al panel—; la fila de atención ocupa
+                el resto hasta abajo. */}
             <aside className="shrink-0 lg:shrink flex flex-col gap-3 min-h-0">
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-3">
-                    <Contador rotulo="Residentes dentro" valor={datos?.presencia?.residentes ?? null} Icono={Home} tono="bien" href="/admin/alarmas?ver=residentes" />
-                    <Contador rotulo="Visitas y proveedores dentro" valor={datos?.presencia?.visitasProveedores ?? null} Icono={Ticket} tono="info" href="/admin/alarmas?ver=visitas" />
-                    <Contador rotulo="Desconocidos dentro" valor={datos?.presencia?.desconocidos ?? null} Icono={CircleDashed} href="/admin/alarmas?ver=desconocidos" />
-                    <Contador rotulo="Atípicos dentro" valor={datos?.presencia?.atipicos ?? null} Icono={AlertTriangle} tono={datos?.presencia?.atipicos ? "aviso" : undefined} href="/admin/alarmas?ver=atipicos" />
+                    {LISTAS_PRESENCIA.map((x) => (
+                        <Contador key={x.clave} rotulo={x.rotulo} valor={datos?.presencia?.[x.resumen] ?? null} Icono={x.Icono}
+                            tono={x.clave === "atipicos" ? (datos?.presencia?.atipicos ? "aviso" : undefined) : x.tono} activo={cajon === x.clave} alTocar={() => setCajon(x.clave)} />
+                    ))}
                 </div>
                 <div className="flex-1 min-h-[160px] rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
                     <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><ShieldAlert size={14} /> Atención · últimas 24 h</div>
@@ -436,6 +439,8 @@ export function VistaLpr() {
                 </div>
             </aside>
 
+            <CajonPresencia lista={cajon} alCerrar={() => setCajon(null)} alCambiar={setCajon} alAbrirFicha={(id) => setFichaId(id)}
+                alFijar={(l) => { setFijada(ultima && l.id === ultima.id ? null : l); setCajon(null); }} />
             <FichaLectura id={fichaId} modo={modo} alCerrar={() => setFichaId(null)} alVerOtra={setFichaId} alAmpliar={setAmpliada}
                 alFijar={(l) => { setFijada(ultima && l.id === ultima.id ? null : l); setFichaId(null); }} />
 
@@ -545,6 +550,155 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
             </div>
         </>
     );
+}
+
+type ClaveLista = "residentes" | "visitas" | "desconocidos" | "atipicos";
+type FilaPresencia = {
+    clave: string; plate: string | null; titulo: string; sub: string | null; clase: string | null;
+    entrada: string; vistoUltimo: string | null; camara: string | null; foto: string | null; accessEventId: string | null;
+    estimado: boolean; atipico: { clave: string; nombre: string }[]; entradas24h: number | null;
+};
+type ListasPresencia = { modo: Modo; ventanas: { residentesDias: number; visitasHoras: number } } & Record<ClaveLista, FilaPresencia[]>;
+const LISTAS_PRESENCIA: { clave: ClaveLista; rotulo: string; resumen: keyof NonNullable<Datos["presencia"]>; Icono: any; tono?: "bien" | "info"; explica: (l: ListasPresencia) => string }[] = [
+    { clave: "residentes", rotulo: "Residentes dentro", resumen: "residentes", Icono: Home, tono: "bien", explica: (l) => `Con un auto adentro (se lo busca ${l.ventanas.residentesDias} días para atrás) o que entraron a pie.` },
+    { clave: "visitas", rotulo: "Visitas y proveedores dentro", resumen: "visitasProveedores", Icono: Ticket, tono: "info", explica: () => "Visitas, invitados, proveedores y personal, con su auto o registrados a pie." },
+    { clave: "desconocidos", rotulo: "Desconocidos dentro", resumen: "desconocidos", Icono: CircleDashed, explica: (l) => `Sin registro y cuya última lectura fue una entrada. A las ${l.ventanas.visitasHoras} h sin verse se dan por idos.` },
+    { clave: "atipicos", rotulo: "Atípicos dentro", resumen: "atipicos", Icono: AlertTriangle, explica: () => "Lista negra o en búsqueda, merodeo, primera vez visto, o cuatro entradas o más en 24 h." },
+];
+/** Sin tocar nada este tiempo, el cajón de una lista se cierra (como la ficha). */
+const CAJON_SE_CIERRA_MS = 90_000;
+const TONO_ATIPICO: Record<string, string> = { lista_negra: "pleno-mal", en_busqueda: "pleno-mal", merodeo: "pleno-aviso", alta_frecuencia: "pleno-aviso", primera_vez: "pleno-info" };
+const CLASE_PRESENCIA: Record<string, string> = { residente: "pleno-bien", visita: "bg-violet-500/90 text-white", invitado: "bg-violet-500/90 text-white", proveedor: "pleno-aviso", personal: "pleno-info", lista_blanca: "pleno-bien" };
+const NOMBRE_CLASE_PRESENCIA: Record<string, string> = { residente: "Residente", visita: "Visita", invitado: "Invitado", proveedor: "Proveedor", personal: "Personal", lista_blanca: "Lista blanca", no_registrado: "No registrado" };
+
+/**
+ * Una de las cuatro listas de quién está adentro, en un cajón de la propia pared (16/10, Nico: «no
+ * me gusta que salga del Control LPR y lleve al admin, debe resolver con drawers dentro»).
+ *
+ * Cada fila: la captura chica, la matrícula, quién es, a qué hora entró y cuánto lleva adentro
+ * (corre). Tocar la captura la pone de protagonista en la pantalla; tocar el resto abre la ficha
+ * de esa lectura, con su perfil (cuánto se queda normalmente, su rutina). Sólo mirar: corregir
+ * quién está adentro se hace desde Gestión de alarmas, con usuario.
+ */
+function CajonPresencia({ lista, alCerrar, alCambiar, alAbrirFicha, alFijar }: { lista: ClaveLista | null; alCerrar: () => void; alCambiar: (c: ClaveLista) => void; alAbrirFicha: (accessEventId: string) => void; alFijar: (l: Lectura) => void }) {
+    const [datos, setDatos] = useState<ListasPresencia | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [trayendo, setTrayendo] = useState<string | null>(null);
+    const vuelta = usarInactividad(!!lista, CAJON_SE_CIERRA_MS, alCerrar);
+    const cargar = useCallback(async () => {
+        setError(null);
+        try {
+            const r = await fetch("/api/monitor/lpr/presencia", { cache: "no-store" });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j.error || `El servidor respondió ${r.status}`);
+            setDatos(j);
+        } catch (e: any) { setError(e?.message || "sin respuesta"); }
+    }, []);
+    // Abierto, se refresca solo: la lista cambia con cada auto que pasa.
+    useEffect(() => { if (!lista) return; cargar(); const iv = setInterval(cargar, 20_000); return () => clearInterval(iv); }, [lista, cargar]);
+    /** La captura a la pantalla: se trae la lectura completa (con su análisis y su clase) y se fija. */
+    const aPantalla = async (f: FilaPresencia) => {
+        if (!f.accessEventId) return;
+        setTrayendo(f.clave);
+        try {
+            const r = await fetch(`/api/monitor/lpr/lectura/${encodeURIComponent(f.accessEventId)}`, { cache: "no-store" });
+            const j = await r.json().catch(() => null);
+            if (r.ok && j?.lectura) alFijar(j.lectura);
+        } finally { setTrayendo(null); }
+    };
+    const def = LISTAS_PRESENCIA.find((x) => x.clave === lista);
+    const filas = lista && datos ? datos[lista] : [];
+    const ahora = Date.now();
+
+    return (
+        <AnimatePresence>
+            {lista && def && (
+                <>
+                    <motion.button key="fondo-presencia" type="button" aria-label="Cerrar la lista" onClick={alCerrar}
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={SUAVE}
+                        className="fixed inset-0 z-40 bg-black/55" />
+                    <motion.aside key="cajon-presencia" role="dialog" aria-label={def.rotulo}
+                        initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={RESORTE}
+                        className="fixed inset-y-0 right-0 z-50 w-[min(620px,100vw)] bg-background border-l border-border flex flex-col">
+                        <div className="shrink-0 flex items-center gap-3 px-5 pt-4 pb-3 border-b border-border">
+                            <span className={cn("grid h-12 w-12 place-items-center rounded-full shrink-0", def.clave === "atipicos" ? "pleno-aviso" : def.tono === "bien" ? "pleno-bien" : def.tono === "info" ? "pleno-info" : "bg-muted text-muted-foreground")}><def.Icono size={22} /></span>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[22px] font-bold leading-tight">{def.rotulo} <span className="tabular-nums text-muted-foreground font-semibold">{datos ? filas.length : ""}</span></div>
+                                <div className="text-[13px] text-muted-foreground leading-snug">{datos ? def.explica(datos) : "Cargando…"}</div>
+                            </div>
+                            <button type="button" onClick={alCerrar} aria-label="Cerrar" className={cn("grid h-14 w-14 place-items-center rounded-2xl bg-muted text-foreground shrink-0", tocable)}><X size={26} /></button>
+                        </div>
+                        {/* Las otras tres listas, para pasar de una a otra sin cerrar. */}
+                        <div className="shrink-0 flex gap-2 px-5 py-3 border-b border-border overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            {LISTAS_PRESENCIA.map((x) => {
+                                const activa = x.clave === lista, n = datos ? datos[x.clave].length : null;
+                                return (
+                                    <button key={x.clave} type="button" onClick={() => !activa && alCambiar(x.clave)} aria-pressed={activa}
+                                        className={cn("h-11 px-4 rounded-full border text-[14px] font-semibold whitespace-nowrap inline-flex items-center gap-2", tocable,
+                                            activa ? "bg-foreground text-background border-transparent" : "bg-card text-muted-foreground border-border")}>
+                                        <x.Icono size={15} /> {x.rotulo.replace(" dentro", "")}{n != null && <span className="tabular-nums opacity-70">{n}</span>}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <CuentaAtras ms={CAJON_SE_CIERRA_MS} vuelta={vuelta} className="rounded-none bg-transparent [&>span]:bg-[var(--accion-en-oscuro)]/60" />
+
+                        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 flex flex-col gap-2.5">
+                            {error && !datos ? (
+                                <div className="p-4 space-y-4">
+                                    <p className="text-[17px]">No se pudo leer la lista: {error}</p>
+                                    <button type="button" onClick={cargar} className={cn("h-12 px-6 rounded-xl bg-[var(--accion)] text-white font-bold", tocable)}>Reintentar</button>
+                                </div>
+                            ) : !datos ? (
+                                <div className="p-10 grid place-items-center text-muted-foreground"><Loader2 size={28} className="animate-spin" /></div>
+                            ) : filas.length === 0 ? (
+                                <div className="p-10 text-center text-[18px] text-muted-foreground">Nadie en esta lista ahora</div>
+                            ) : filas.map((f) => {
+                                const foto = getImagePath(f.foto);
+                                const min = (ahora - new Date(f.entrada).getTime()) / 60000;
+                                return (
+                                    <div key={f.clave} className="flex items-stretch gap-3 rounded-2xl bg-card border border-border p-2.5">
+                                        {/* La captura chica: tocarla la pone en pantalla. */}
+                                        <button type="button" disabled={!f.accessEventId || !foto} onClick={() => aPantalla(f)} aria-label="Ver en pantalla"
+                                            className={cn("relative w-[132px] shrink-0 aspect-video rounded-xl overflow-hidden bg-neutral-900", f.accessEventId && foto && tocable)}>
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            {foto ? <img src={conAncho(foto, 320) || foto} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />
+                                                : <span className="absolute inset-0 grid place-items-center text-white/25">{f.plate ? <Car size={22} /> : <Users size={22} />}</span>}
+                                            {foto && <span className="absolute bottom-1.5 right-1.5 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white">{trayendo === f.clave ? <Loader2 size={13} className="animate-spin" /> : <Maximize2 size={13} />}</span>}
+                                        </button>
+                                        {/* El resto de la fila: la ficha de esa lectura (perfil, rutina, qué hizo hoy). */}
+                                        <button type="button" disabled={!f.accessEventId} onClick={() => f.accessEventId && alAbrirFicha(f.accessEventId)}
+                                            className={cn("min-w-0 flex-1 flex items-center gap-3 text-left", f.accessEventId && tocable)}>
+                                            <span className="min-w-0 flex-1">
+                                                <span className="flex items-center gap-2 flex-wrap">
+                                                    {f.plate && <span className="text-[20px] font-bold tabular-nums tracking-[0.1em] leading-none">{f.plate}</span>}
+                                                    {f.clase && f.clase !== "no_registrado" && <span className={cn("px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider", CLASE_PRESENCIA[f.clase] || "bg-muted text-muted-foreground")}>{NOMBRE_CLASE_PRESENCIA[f.clase] || f.clase}</span>}
+                                                    {f.atipico.map((x) => <span key={x.clave} className={cn("px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider", TONO_ATIPICO[x.clave] || "bg-muted")}>{x.nombre}</span>)}
+                                                </span>
+                                                <span className="block text-[14px] font-semibold truncate mt-1">{f.titulo}{f.sub ? <span className="font-normal text-muted-foreground"> · {f.sub}</span> : null}</span>
+                                                <span className="block text-[12.5px] text-muted-foreground tabular-nums truncate">
+                                                    Ingresó {horaCorta(f.entrada)}{new Date(f.entrada).toDateString() !== new Date().toDateString() ? ` del ${new Date(f.entrada).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" })}` : ""}
+                                                    {f.entradas24h != null && f.entradas24h > 1 ? ` · ${f.entradas24h} entradas en 24 h` : ""}
+                                                    {f.camara ? ` · ${f.camara}` : ""}
+                                                </span>
+                                            </span>
+                                            {/* Permanencia: corre con el reloj de la vista. */}
+                                            <span className="text-right shrink-0 leading-none">
+                                                <span className={cn("block text-[22px] font-bold tabular-nums", f.estimado && "text-muted-foreground")}>{f.estimado ? "~" : ""}{duracion(min)}</span>
+                                                <span className="block text-[10px] uppercase tracking-wider mt-1 text-muted-foreground">{f.estimado ? "sin confirmar" : "adentro"}</span>
+                                            </span>
+                                            {f.accessEventId && <ChevronRight size={18} className="text-muted-foreground/60 shrink-0" />}
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </motion.aside>
+                </>
+            )}
+        </AnimatePresence>
+    );
+
 }
 
 /**
