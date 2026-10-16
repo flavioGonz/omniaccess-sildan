@@ -39,6 +39,14 @@ export type FilaVigilancia = {
     fotoUrl: string | null;
 };
 
+/**
+ * Cuántas matrículas están hoy en la lista negra o en búsqueda (activas): la insignia de «Lista
+ * negra» en el menú (16/10, Nico). Las de lista blanca no cuentan: no son una alerta.
+ */
+export async function contarListaNegra(): Promise<number> {
+    try { return await prisma.plateWatch.count({ where: { active: true, category: { in: ["BLACKLISTED", "SEARCH"] } } }); } catch { return 0; }
+}
+
 /** Toda la lista (activas e inactivas), con la persona vinculada, para la pestaña de Usuarios. */
 export async function getWatchlist(): Promise<FilaVigilancia[]> {
     const rows = await prisma.plateWatch.findMany({ orderBy: [{ active: "desc" }, { updatedAt: "desc" }] });

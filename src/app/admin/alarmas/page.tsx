@@ -4,8 +4,10 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
     Siren, Home, Ticket, CircleDashed, AlertTriangle, RefreshCw, Radar, ShieldAlert, ScanEye, Repeat, Car, Check, X, LogOut, Undo2,
-    Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText,
+    Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers,
 } from "lucide-react";
+import { Pestanias, type Pestania } from "@/components/ui/pestanias";
+import { ElegirDispositivo, type Equipo } from "@/components/alarmas/ElegirDispositivo";
 import { cn } from "@/lib/utils";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Filtros } from "@/components/ui/filtros";
@@ -38,8 +40,15 @@ import type { Presencia, AutoAdentro, ResidenteAdentro, VisitaAdentro, ClasePres
  * El cálculo vive en el servidor (lib/alarmas.ts y lib/presencia.ts), con el porqué de cada criterio.
  */
 
-type Ver = "alarmas" | "atipicos" | "residentes" | "visitas" | "desconocidos";
-const VER: Ver[] = ["alarmas", "atipicos", "residentes", "visitas", "desconocidos"];
+type Ver = "todo" | "alarmas" | "atipicos" | "residentes" | "visitas" | "desconocidos";
+const VER: Ver[] = ["todo", "alarmas", "atipicos", "residentes", "visitas", "desconocidos"];
+/**
+ * Una fila de «Todo» (16/10, Nico: «falta uno que sea todos, y que sea por defecto»): las
+ * alarmas y los autos que están adentro sin ser del barrio (visitas, proveedores, desconocidos,
+ * atípicos), en una sola lista por hora. Los residentes no: que un residente esté en su casa no
+ * es algo que gestionar.
+ */
+type FilaTodo = { id: string; ts: string; alarma?: Alarma; auto?: AutoAdentro };
 type Datos = { horas: number; alarmas: Alarma[]; errorAlarmas: string | null; presencia: Presencia | null; ahora: string };
 
 /** Cada cuánto se vuelve a pedir, además de con cada evento del socket. */
@@ -63,7 +72,7 @@ function GestionAlarmas() {
     const router = useRouter();
     const sp = useSearchParams();
     const pedido = sp.get("ver") as Ver | null;
-    const [ver, setVerEstado] = useState<Ver>(pedido && VER.includes(pedido) ? pedido : "alarmas");
+    const [ver, setVerEstado] = useState<Ver>(pedido && VER.includes(pedido) ? pedido : "todo");
     useEffect(() => { if (pedido && VER.includes(pedido)) setVerEstado(pedido); }, [pedido]);
     const setVer = (v: Ver) => { setVerEstado(v); setSel(null); router.replace(`/admin/alarmas?ver=${v}`, { scroll: false }); };
 
@@ -119,12 +128,13 @@ function GestionAlarmas() {
     const pendientes = alarmas.filter((a) => a.estado === "pendiente");
 
     // ── Qué se mira ──
-    const vistas: { valor: Ver; rotulo: string; cuenta?: number; tono?: "mal" | "aviso" }[] = [
-        { valor: "alarmas", rotulo: "Alarmas", cuenta: datos ? pendientes.length : undefined, tono: pendientes.length ? "mal" : undefined },
-        { valor: "atipicos", rotulo: "Atípicos dentro", cuenta: p?.resumen.atipicos },
-        { valor: "residentes", rotulo: "Residentes dentro", cuenta: p?.resumen.residentes },
-        { valor: "visitas", rotulo: "Visitas y proveedores dentro", cuenta: p?.resumen.visitasProveedores },
-        { valor: "desconocidos", rotulo: "Desconocidos dentro", cuenta: p?.resumen.desconocidos },
+    const vistas: Pestania<Ver>[] = [
+        { valor: "todo", rotulo: "Todo", icono: Layers, ayuda: "Las alarmas y los autos que están adentro sin ser del barrio, por hora" },
+        { valor: "alarmas", rotulo: "Alarmas", icono: Siren, cuenta: datos ? pendientes.length : undefined, tono: "mal", ayuda: "Alarmas sin atender" },
+        { valor: "atipicos", rotulo: "Atípicos dentro", icono: AlertTriangle, cuenta: p?.resumen.atipicos, tono: "aviso" },
+        { valor: "residentes", rotulo: "Residentes dentro", icono: Home, cuenta: p?.resumen.residentes },
+        { valor: "visitas", rotulo: "Visitas y proveedores", icono: Ticket, cuenta: p?.resumen.visitasProveedores },
+        { valor: "desconocidos", rotulo: "Desconocidos dentro", icono: CircleDashed, cuenta: p?.resumen.desconocidos },
     ];
 
     // ── Filtros de la tabla ──
@@ -133,17 +143,22 @@ function GestionAlarmas() {
     const [origenes, setOrigenes] = useState<FuenteAlarma[]>([]);
     const alternarOrigen = (f: FuenteAlarma) => setOrigenes((xs) => (xs.includes(f) ? xs.filter((x) => x !== f) : [...xs, f]));
     const [estado, setEstado] = useState<"pendiente" | "atendida" | "todas">("pendiente");
+    /** Un equipo puntual (16/10): de qué cámara, lectora o NVR. Null = todos. */
+    const [equipo, setEquipo] = useState<Equipo | null>(null);
+    const deEquipo = (deviceId: string | null | undefined, camara: string | null | undefined, e: Equipo | null = equipo) => !e || deviceId === e.id || (!!camara && camara === e.name);
     const [subVisitas, setSubVisitas] = useState<"vehiculos" | "registradas">("vehiculos");
     useEffect(() => { setBusqueda(""); }, [ver]);
     const t = busqueda.trim().toUpperCase().replace(/[^A-Z0-9Ñ ]/g, "");
     const pasa = (...campos: (string | null | undefined)[]) => !t || campos.some((c) => (c || "").toUpperCase().replace(/[^A-Z0-9Ñ ]/g, "").includes(t));
 
     const filasAlarmas = useMemo(() => alarmas
+        .filter((a) => deEquipo(a.deviceId, a.camara))
         .filter((a) => !origenes.length || origenes.includes(a.fuente))
         .filter((a) => estado === "todas" || a.estado === estado)
-        .filter((a) => pasa(a.titulo, a.plate, a.camara, a.detalle)), [alarmas, origenes, estado, t]); // eslint-disable-line react-hooks/exhaustive-deps
-    const cuentaFuente = (f: FuenteAlarma) => alarmas.filter((a) => a.fuente === f && (estado === "todas" || a.estado === estado)).length;
-    const cuentaEstado = (e: "pendiente" | "atendida") => alarmas.filter((a) => a.estado === e && (!origenes.length || origenes.includes(a.fuente))).length;
+        .filter((a) => pasa(a.titulo, a.plate, a.camara, a.detalle)), [alarmas, origenes, estado, t, equipo]); // eslint-disable-line react-hooks/exhaustive-deps
+    const cuentaFuente = (f: FuenteAlarma) => alarmas.filter((a) => a.fuente === f && (estado === "todas" || a.estado === estado) && deEquipo(a.deviceId, a.camara)).length;
+    const cuentaEstado = (e: "pendiente" | "atendida") => alarmas.filter((a) => a.estado === e && (!origenes.length || origenes.includes(a.fuente)) && deEquipo(a.deviceId, a.camara)).length;
+    const cuentaEquipo = useCallback((e: Equipo) => alarmas.filter((a) => (estado === "todas" || a.estado === estado) && deEquipo(a.deviceId, a.camara, e)).length, [alarmas, estado]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const autosDe = (v: Ver): AutoAdentro[] => !p ? [] : v === "atipicos" ? p.atipicos : v === "desconocidos" ? p.autosVisitas.filter((a) => a.clase === "no_registrado") : v === "visitas" ? p.autosVisitas.filter((a) => a.clase !== "no_registrado") : [];
     // Las listas de quién está adentro arrancan por la permanencia más larga (16/10, Nico: «arriba
@@ -152,6 +167,20 @@ function GestionAlarmas() {
     const filasAutos = useMemo(() => porPermanencia(autosDe(ver).filter((a) => pasa(a.plate, a.persona, a.unidad, NOMBRE_CLASE[a.clase], ...a.atipico.map((x) => NOMBRE_ATIPICO[x])))), [p, ver, t]); // eslint-disable-line react-hooks/exhaustive-deps
     const filasResidentes = useMemo(() => porPermanencia((p?.residentes || []).filter((r) => pasa(r.nombre, r.unidad, ...r.autos))), [p, t]); // eslint-disable-line react-hooks/exhaustive-deps
     const filasVisitas = useMemo(() => porPermanencia((p?.visitas || []).filter((v) => pasa(v.plate, v.nombre, v.empresa, v.lote, v.tipoNombre))), [p, t]); // eslint-disable-line react-hooks/exhaustive-deps
+    const filasTodo = useMemo<FilaTodo[]>(() => {
+        const out: FilaTodo[] = filasAlarmas.map((a) => ({ id: a.id, ts: a.ts, alarma: a }));
+        // Los autos adentro no son alarmas atendibles: entran sólo mirando lo pendiente o todo, y sin acotar por origen.
+        if (p && estado !== "atendida" && !origenes.length) {
+            const vistos = new Set<string>();
+            for (const a of [...p.atipicos, ...p.autosVisitas]) {
+                if (vistos.has(a.plate)) continue;
+                vistos.add(a.plate);
+                if (!deEquipo(null, a.camara) || !pasa(a.plate, a.persona, a.unidad, NOMBRE_CLASE[a.clase], ...a.atipico.map((x) => NOMBRE_ATIPICO[x]))) continue;
+                out.push({ id: `p:${a.plate}`, ts: a.entrada, auto: a });
+            }
+        }
+        return out.sort((x, y) => (x.ts < y.ts ? 1 : x.ts > y.ts ? -1 : 0));
+    }, [filasAlarmas, p, estado, origenes, t, equipo]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── Columnas ──
     const colsAlarmas = useMemo<ColumnaTabla<Alarma>[]>(() => [
@@ -170,6 +199,32 @@ function GestionAlarmas() {
             ? <Estado tono="mal">Pendiente</Estado>
             : <Estado tono={a.resultado === "falsa" ? "quieto" : a.resultado === "real" ? "aviso" : "bien"}>{a.resultado === "falsa" ? "Falsa" : a.resultado === "real" ? "Real" : "Atendida"}</Estado> },
     ], []);
+
+    const colsTodo = useMemo<ColumnaTabla<FilaTodo>[]>(() => [
+        { clave: "foto", titulo: "", ancho: 92, auxiliar: true, celda: (f) => <Miniatura src={fotoChica(f.alarma ? f.alarma.foto : f.auto!.foto, 320)} alt="" ancho={80} alto={48} /> },
+        { clave: "que", titulo: "Qué", valor: (f) => f.alarma ? f.alarma.titulo : NOMBRE_CLASE[f.auto!.clase], celda: (f) => {
+            if (f.alarma) { const a = f.alarma; const I = ICONO_FUENTE[a.fuente]; return (
+                <div className="flex items-center gap-2.5 min-w-0"><I size={15} className={cn("shrink-0", tonoTexto(a.tono))} />
+                    <div className="min-w-0 leading-tight"><div className="text-[13px] font-semibold truncate">{a.titulo}</div><div className="text-[11px] text-muted-foreground">{NOMBRE_FUENTE[a.fuente]}</div></div></div>); }
+            const a = f.auto!; const at = a.atipico[0];
+            return (
+                <div className="flex items-center gap-2.5 min-w-0">{at ? <AlertTriangle size={15} className={cn("shrink-0", tonoTexto(TONO_ATIPICO[at]))} /> : <Car size={15} className="shrink-0 text-muted-foreground" />}
+                    <div className="min-w-0 leading-tight"><div className="text-[13px] font-semibold truncate">{at ? a.atipico.map((x) => NOMBRE_ATIPICO[x]).join(" · ") : `${NOMBRE_CLASE[a.clase]} adentro`}</div><div className="text-[11px] text-muted-foreground">Presencia</div></div></div>);
+        } },
+        { clave: "donde", titulo: "Matrícula · cámara", ancho: 190, valor: (f) => [f.alarma?.plate || f.auto?.plate, f.alarma?.camara || f.auto?.camara].filter(Boolean).join(" · "), celda: (f) => {
+            const plate = f.alarma ? f.alarma.plate : f.auto!.plate, cam = f.alarma ? f.alarma.camara : f.auto!.camara;
+            return <div className="min-w-0 flex flex-col items-start gap-0.5">{plate && <Matricula p={plate} />}<span className="text-[11.5px] text-muted-foreground truncate max-w-full">{cam || (plate ? "" : "—")}</span></div>;
+        } },
+        { clave: "detalle", titulo: "Detalle", valor: (f) => f.alarma ? f.alarma.detalle || "" : [f.auto!.persona, f.auto!.unidad].filter(Boolean).join(" · "), celda: (f) => (
+            <span className="text-[12px] text-muted-foreground line-clamp-2">{f.alarma ? f.alarma.detalle || "—" : [f.auto!.persona, f.auto!.unidad].filter(Boolean).join(" · ") || NOMBRE_CLASE[f.auto!.clase]}</span>) },
+        { clave: "hora", titulo: "Hora", ancho: 92, ordenable: true, valor: (f) => f.ts, celda: (f) => <Momento t={f.ts} /> },
+        { clave: "estado", titulo: "Estado", ancho: 116, valor: (f) => f.alarma ? f.alarma.estado : "Adentro", celda: (f) => {
+            if (!f.alarma) return <Cronometro desde={f.auto!.entrada} tamano="chico" />;
+            const a = f.alarma;
+            return a.estado === "pendiente" ? <Estado tono="mal">Pendiente</Estado>
+                : <Estado tono={a.resultado === "falsa" ? "quieto" : a.resultado === "real" ? "aviso" : "bien"}>{a.resultado === "falsa" ? "Falsa" : a.resultado === "real" ? "Real" : "Atendida"}</Estado>;
+        } },
+    ], []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const colIngreso = <T extends { entrada: string }>(): ColumnaTabla<T>[] => [
         { clave: "entrada", titulo: "Ingreso", ancho: 92, ordenable: true, valor: (x) => x.entrada, celda: (x) => <Momento t={x.entrada} /> },
@@ -212,52 +267,11 @@ function GestionAlarmas() {
     ], [ocupado, cerrarVisita]);
 
     // ── Lo seleccionado ──
-    const alarmaSel = ver === "alarmas" ? alarmas.find((a) => a.id === sel) || null : null;
-    const autoSel = ver !== "alarmas" && ver !== "residentes" ? (p ? [...p.autosResidentes, ...p.autosVisitas].find((a) => a.plate === sel) || null : null) : null;
+    const alarmaSel = ver === "alarmas" || ver === "todo" ? alarmas.find((a) => a.id === sel) || null : null;
+    const plateSel = sel?.startsWith("p:") ? sel.slice(2) : sel;
+    const autoSel = ver !== "alarmas" && ver !== "residentes" && !alarmaSel ? (p ? [...p.autosResidentes, ...p.autosVisitas, ...p.atipicos].find((a) => a.plate === plateSel) || null : null) : null;
 
-    const comun = { alto: "100%", className: "flex-1 min-h-0", seleccionCeldas: false, cargando: cargando && !datos, error: !datos ? error : null, alReintentar: traer };
-    const vacio = (titulo: string) => ({ titulo: t ? "Nada con esa búsqueda" : titulo, ayuda: t ? undefined : "Se actualiza sola con cada lectura y cada aviso." });
-
-    return (
-        <div className="h-full flex flex-col">
-            {/* Cabecera */}
-            <div className="shrink-0 px-6 pt-4 pb-3 border-b border-border flex flex-col gap-3">
-                <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <span className="grid place-items-center w-10 h-10 rounded-[10px] bg-muted/60 text-[var(--accion)] shrink-0"><Siren size={20} /></span>
-                        <div className="min-w-0">
-                            <h1 className="text-lg font-bold tracking-tight">Gestión de alarmas</h1>
-                            <p className="text-xs text-muted-foreground truncate">Intrusión, LPR, patrones y OmniVision en un solo lugar, y quién está adentro del barrio</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                        <span className={cn("inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg bg-muted/60 text-[12px] font-semibold", conectado ? "tono-bien" : "text-muted-foreground")} title={conectado ? "Las alarmas llegan en tiempo real" : "Sin tiempo real: se actualiza cada 20 s"}>
-                            <Circle size={7} className={cn("fill-current", conectado && "animate-pulse")} /> {conectado ? "En vivo" : "Cada 20 s"}
-                        </span>
-                        <button type="button" onClick={traer} title="Volver a pedir" className="w-[34px] h-[34px] rounded-lg grid place-items-center bg-muted/60 text-muted-foreground hover:text-foreground"><RefreshCw size={15} className={cn(cargando && "animate-spin")} /></button>
-                    </div>
-                </div>
-                <Filtros grupos={[{ clave: "ver", titulo: "Qué se mira", valor: ver, alElegir: (v) => setVer(v as Ver),
-                    opciones: vistas.map((x) => ({ valor: x.valor, rotulo: x.rotulo, cuenta: x.cuenta, tono: x.tono })) }]} />
-            </div>
-
-            {/* Cuerpo: la tabla de lo elegido y lo seleccionado a la derecha. */}
-            <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[1fr_400px] xl:divide-x divide-border">
-                <div className="min-h-0 flex flex-col gap-3 p-4">
-                    {(hecho || fallo) && (
-                        <div className={cn("shrink-0 flex items-center gap-2 h-9 px-3 rounded-md text-[12.5px]", fallo ? "chip-mal" : "bg-muted/60")}>
-                            <span className="flex-1 truncate">{fallo || hecho?.texto}</span>
-                            {!fallo && hecho?.deshacer && <button type="button" onClick={hecho.deshacer} className="inline-flex items-center gap-1 font-semibold text-[var(--accion)]"><Undo2 size={13} /> Deshacer</button>}
-                            <button type="button" onClick={() => { setHecho(null); setFallo(null); }} aria-label="Cerrar" className="text-muted-foreground hover:text-foreground"><X size={14} /></button>
-                        </div>
-                    )}
-                    {ver === "alarmas" ? (
-                        <Tabla<Alarma> {...comun} id="alarmas" filas={filasAlarmas} clave={(a) => a.id} columnas={colsAlarmas}
-                            alClickFila={(a) => setSel((x) => (x === a.id ? null : a.id))} filaActiva={(a) => a.id === sel}
-                            filaDestacada={(a) => a.estado === "pendiente" && Date.now() - new Date(a.ts).getTime() < 60_000}
-                            vacio={vacio(estado === "pendiente" ? "No hay alarmas sin atender" : "Sin alarmas en este rango")}
-                            pie={<span className="tabular-nums">{filasAlarmas.length} de {alarmas.length} en las últimas {horas} h{datos?.errorAlarmas ? ` · ${datos.errorAlarmas}` : ""}</span>}
-                            barra={
+    const barraAlarmas = (
                                 /* Los filtros de la tabla, en el orden en que se piensa (16/10, Nico: «dos "Todas"
                                    confunden»): primero qué estado (la pregunta de siempre: ¿qué falta atender?),
                                    después de dónde viene —chips que se prenden y se apagan; ninguno prendido es
@@ -289,9 +303,61 @@ function GestionAlarmas() {
                                         {origenes.length > 0
                                             ? <button type="button" onClick={() => setOrigenes([])} className="h-[30px] px-2.5 rounded-full text-[12px] font-semibold inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"><X size={13} /> Todos los orígenes</button>
                                             : <span className="text-[11.5px] text-muted-foreground ml-1">todos · tocá uno para acotar</span>}
+                                        <span className="w-px h-5 bg-border mx-1.5" />
+                                        <ElegirDispositivo valor={equipo} alElegir={setEquipo} cuenta={cuentaEquipo} />
                                     </div>
                                 </div>
-                            } />
+    );
+    const comun = { alto: "100%", className: "flex-1 min-h-0", seleccionCeldas: false, cargando: cargando && !datos, error: !datos ? error : null, alReintentar: traer };
+    const vacio = (titulo: string) => ({ titulo: t ? "Nada con esa búsqueda" : titulo, ayuda: t ? undefined : "Se actualiza sola con cada lectura y cada aviso." });
+
+    return (
+        <div className="h-full flex flex-col">
+            {/* Cabecera */}
+            <div className="shrink-0 px-6 pt-4 pb-3 border-b border-border flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <span className="grid place-items-center w-10 h-10 rounded-[10px] bg-muted/60 text-[var(--accion)] shrink-0"><Siren size={20} /></span>
+                        <div className="min-w-0">
+                            <h1 className="text-lg font-bold tracking-tight">Gestión de alarmas</h1>
+                            <p className="text-xs text-muted-foreground truncate">Intrusión, LPR, patrones y OmniVision en un solo lugar, y quién está adentro del barrio</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <span className={cn("inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg bg-muted/60 text-[12px] font-semibold", conectado ? "tono-bien" : "text-muted-foreground")} title={conectado ? "Las alarmas llegan en tiempo real" : "Sin tiempo real: se actualiza cada 20 s"}>
+                            <Circle size={7} className={cn("fill-current", conectado && "animate-pulse")} /> {conectado ? "En vivo" : "Cada 20 s"}
+                        </span>
+                        <button type="button" onClick={traer} title="Volver a pedir" className="w-[34px] h-[34px] rounded-lg grid place-items-center bg-muted/60 text-muted-foreground hover:text-foreground"><RefreshCw size={15} className={cn(cargando && "animate-spin")} /></button>
+                    </div>
+                </div>
+                <Pestanias valor={ver} opciones={vistas} alElegir={setVer} />
+            </div>
+
+            {/* Cuerpo: la tabla de lo elegido y lo seleccionado a la derecha. */}
+            <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[1fr_400px] xl:divide-x divide-border">
+                <div className="min-h-0 flex flex-col gap-3 p-4">
+                    {(hecho || fallo) && (
+                        <div className={cn("shrink-0 flex items-center gap-2 h-9 px-3 rounded-md text-[12.5px]", fallo ? "chip-mal" : "bg-muted/60")}>
+                            <span className="flex-1 truncate">{fallo || hecho?.texto}</span>
+                            {!fallo && hecho?.deshacer && <button type="button" onClick={hecho.deshacer} className="inline-flex items-center gap-1 font-semibold text-[var(--accion)]"><Undo2 size={13} /> Deshacer</button>}
+                            <button type="button" onClick={() => { setHecho(null); setFallo(null); }} aria-label="Cerrar" className="text-muted-foreground hover:text-foreground"><X size={14} /></button>
+                        </div>
+                    )}
+                    <div key={ver} className="oa-aparecer flex-1 min-h-0 flex flex-col">
+                    {ver === "todo" ? (
+                        <Tabla<FilaTodo> {...comun} id="alarmas-todo" filas={filasTodo} clave={(f) => f.id} columnas={colsTodo}
+                            alClickFila={(f) => setSel((x) => (x === f.id ? null : f.id))} filaActiva={(f) => f.id === sel}
+                            filaDestacada={(f) => !!f.alarma && f.alarma.estado === "pendiente" && Date.now() - new Date(f.ts).getTime() < 60_000}
+                            vacio={vacio("Nada que gestionar")}
+                            pie={<span className="tabular-nums">{filasTodo.filter((f) => f.alarma).length} alarmas y {filasTodo.filter((f) => f.auto).length} autos adentro sin ser del barrio · últimas {horas} h</span>}
+                            barra={barraAlarmas} />
+                    ) : ver === "alarmas" ? (
+                        <Tabla<Alarma> {...comun} id="alarmas" filas={filasAlarmas} clave={(a) => a.id} columnas={colsAlarmas}
+                            alClickFila={(a) => setSel((x) => (x === a.id ? null : a.id))} filaActiva={(a) => a.id === sel}
+                            filaDestacada={(a) => a.estado === "pendiente" && Date.now() - new Date(a.ts).getTime() < 60_000}
+                            vacio={vacio(estado === "pendiente" ? "No hay alarmas sin atender" : "Sin alarmas en este rango")}
+                            pie={<span className="tabular-nums">{filasAlarmas.length} de {alarmas.length} en las últimas {horas} h{datos?.errorAlarmas ? ` · ${datos.errorAlarmas}` : ""}</span>}
+                            barra={barraAlarmas} />
                     ) : ver === "residentes" ? (
                         <Tabla<ResidenteAdentro> {...comun} id="alarmas-residentes" filas={filasResidentes} clave={(r) => r.userId} columnas={colsResidentes}
                             vacio={vacio("No hay residentes adentro")}
@@ -312,6 +378,7 @@ function GestionAlarmas() {
                                 grupos={ver === "visitas" ? [{ clave: "sub", titulo: "Qué lista", valor: subVisitas, alElegir: (v) => setSubVisitas(v as any), opciones: [
                                     { valor: "vehiculos", rotulo: "Vehículos", cuenta: autosDe("visitas").length }, { valor: "registradas", rotulo: "Visitas registradas", cuenta: p?.visitas.length ?? 0 }] }] : undefined} />} />
                     )}
+                    </div>
                 </div>
 
                 {/* Lo seleccionado: la foto a todo el ancho y sin marco, qué es, y qué se hace con eso. */}
@@ -323,7 +390,7 @@ function GestionAlarmas() {
                                 <div className="max-w-[260px] text-muted-foreground">
                                     <Siren size={26} className="mx-auto mb-3 opacity-40" />
                                     <div className="text-[13px] font-semibold text-foreground">Elegí una fila</div>
-                                    <div className="text-[12.5px] mt-1">{ver === "alarmas" ? "Se ve la captura y se marca como real, falsa o atendida." : ver === "residentes" ? "Los residentes no tienen acciones: se corrigen desde sus autos." : "Se ve la última captura y, si se fue sin que se leyera, se marca «salió»."}</div>
+                                    <div className="text-[12.5px] mt-1">{ver === "alarmas" || ver === "todo" ? "Se ve la captura y se marca como real, falsa o atendida." : ver === "residentes" ? "Los residentes no tienen acciones: se corrigen desde sus autos." : "Se ve la última captura y, si se fue sin que se leyera, se marca «salió»."}</div>
                                 </div>
                             </div>
                         )}

@@ -84,8 +84,13 @@ export function Filtros({ busqueda, alBuscar, placeholder, grupos, acciones, chi
     return (
         <div className={cn("flex items-center flex-wrap gap-2 min-h-[34px]", className)}>
             {alBuscar && (
-                <Seek value={busqueda || ""} onChange={alBuscar}
-                    placeholder={placeholder || "Buscar"} startOpen width={280} alto={34} />
+                /* Con su filo prendido (16/10, Nico: «el buscador no tiene borde y se funde con el
+                   fondo»): sobre la barra de una tabla, mismo fondo que la página, el campo no se
+                   distinguía. `data-stroke` es el interruptor del propio Seek (globals.css). */
+                <span data-stroke="on" className="contents">
+                    <Seek value={busqueda || ""} onChange={alBuscar}
+                        placeholder={placeholder || "Buscar"} startOpen width={280} alto={34} />
+                </span>
             )}
 
             {(grupos || []).filter((g) => !g.oculto).map((g) => {

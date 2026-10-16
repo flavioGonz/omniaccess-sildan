@@ -75,14 +75,28 @@ export async function GET(req: NextRequest) {
         prisma.lecturaCamara.findMany({ where: { deviceId: { in: elegidas }, ts: { gte: desde } }, orderBy: { ts: "asc" }, take: FILAS_MAX }),
         prisma.accessEvent.findMany({
             where: { deviceId: { in: elegidas }, timestamp: { gte: new Date(desde.getTime() - VENTANA_MS) } },
-            select: { id: true, timestamp: true, deviceId: true, plateDetected: true, decision: true, direction: true, snapshotPath: true, imagePath: true },
+            select: { id: true, timestamp: true, deviceId: true, plateDetected: true, decision: true, direction: true, snapshotPath: true, imagePath: true, details: true },
             orderBy: { timestamp: "asc" }, take: FILAS_MAX * 2,
         }),
     ]);
     const relecturas = eventos.length ? await prisma.relectura.findMany({
-        where: { accessEventId: { in: eventos.map((e) => e.id) } }, select: { accessEventId: true, plate: true, estado: true, confianza: true },
+        where: { accessEventId: { in: eventos.map((e) => e.id) } }, select: { accessEventId: true, plate: true, estado: true, confianza: true, recorte: true, recorteChapa: true, candidatos: true },
     }) : [];
     const releida = new Map(relecturas.map((r) => [r.accessEventId, r]));
+    /*
+     * Lo que necesita la comparación (16/10, Nico: «un drawer que haga la comparativa, con zoom en
+     * la matrícula»): además de la chapa, el recorte de la chapa que mandó la cámara (PlateCrop en
+     * los detalles, o la imagen de la matrícula) y los recortes de OmniVision (vehículo y chapa).
+     */
+    const recorteCamara = (e: { details: string | null; imagePath: string | null; snapshotPath: string | null }) => {
+        const pc = (String(e.details || "").match(/PlateCrop:\s*([^,]+)/)?.[1] || "").trim();
+        return pc || (e.imagePath && e.imagePath !== e.snapshotPath ? e.imagePath : null);
+    };
+    const vistaDe = (r: (typeof relecturas)[number] | undefined) => r ? {
+        plate: r.plate, estado: r.estado, confianza: r.confianza,
+        recorte: r.recorte ? `/api/vision/imagen/${r.recorte}` : null, chapa: r.recorteChapa ? `/api/vision/imagen/${r.recorteChapa}` : null,
+        otras: Array.isArray((r.candidatos as any)?.otras) ? (r.candidatos as any).otras.slice(0, 4) : [],
+    } : null;
     const cubreDesde = new Map(conRegistro.map((c) => [c.deviceId, c._min.ts?.getTime() ?? Infinity]));
 
     /*
@@ -132,7 +146,7 @@ export async function GET(req: NextRequest) {
         const evs = p.eventos.map((e) => {
             const r = releida.get(e.id);
             return { id: e.id, ts: e.timestamp.toISOString(), plate: e.plateDetected, decision: String(e.decision), sentido: String(e.direction), foto: e.snapshotPath || e.imagePath || null,
-                vision: r ? { plate: r.plate, estado: r.estado, confianza: r.confianza } : null };
+                chapaCamara: recorteCamara(e), vision: vistaDe(r) };
         });
         const chapasEv = evs.map((e) => chapa(e.plate));
         const estadoP = !evs.length ? "perdida"
@@ -152,7 +166,7 @@ export async function GET(req: NextRequest) {
         filas.push({
             id: `e-${e.id}`, ts: e.timestamp.toISOString(), hasta: e.timestamp.toISOString(), deviceId: e.deviceId, camara: nombres.get(e.deviceId || "") || "",
             cam: null,
-            eventos: [{ id: e.id, ts: e.timestamp.toISOString(), plate: e.plateDetected, decision: String(e.decision), sentido: String(e.direction), foto: e.snapshotPath || e.imagePath || null, vision: r ? { plate: r.plate, estado: r.estado, confianza: r.confianza } : null }],
+            eventos: [{ id: e.id, ts: e.timestamp.toISOString(), plate: e.plateDetected, decision: String(e.decision), sentido: String(e.direction), foto: e.snapshotPath || e.imagePath || null, chapaCamara: recorteCamara(e), vision: vistaDe(r) }],
             estado: "solo",
         });
     }
