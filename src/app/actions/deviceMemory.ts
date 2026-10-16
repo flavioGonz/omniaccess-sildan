@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { EQUIPO_PUBLICO } from "@/lib/equipo-publico";
 import { listaParaMatricula } from "@/lib/lista-negra";
 import { AkuvoxDriver } from "@/lib/drivers/AkuvoxDriver";
 
@@ -436,7 +437,7 @@ export async function getSyncedEvents(take: number = 50) {
                     unit: { select: { name: true } }
                 }
             },
-            device: true
+            device: { select: EQUIPO_PUBLICO }
         }
     });
 }
@@ -453,7 +454,7 @@ export async function getDeviceAccessEvents(deviceId: string, take: number = 100
                     unit: { select: { name: true } }
                 }
             },
-            device: true
+            device: { select: EQUIPO_PUBLICO }
         }
     });
 }

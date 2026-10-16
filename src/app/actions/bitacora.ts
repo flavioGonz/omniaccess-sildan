@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { EQUIPO_PUBLICO } from "@/lib/equipo-publico";
 import { avisarPorSocket } from "@/lib/avisar";
 import { uploadToS3 } from "@/lib/s3";
 import { revalidatePath } from "next/cache";
@@ -76,7 +77,7 @@ export async function getBitacoraEntries() {
             accessEvent: {
                 include: {
                     user: true,
-                    device: true
+                    device: { select: EQUIPO_PUBLICO }
                 }
             }
         },
@@ -103,7 +104,7 @@ export async function getBitacoraPage(page: number = 0, pageSize: number = 20, q
             accessEvent: {
                 include: {
                     user: true,
-                    device: true
+                    device: { select: EQUIPO_PUBLICO }
                 }
             }
         },
@@ -174,7 +175,7 @@ export async function getBitacoraForReport(from: Date, to: Date, query: string =
             accessEvent: {
                 include: {
                     user: true,
-                    device: true
+                    device: { select: EQUIPO_PUBLICO }
                 }
             }
         }

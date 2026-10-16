@@ -12,7 +12,7 @@ import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarraDePasos, PasoAnimado } from "@/components/devices/Pasos";
-import { createDevice, updateDevice, probeDeviceInfo, getDevices, detectarCapacidades, detectarCapacidadesCanales } from "@/app/actions/devices";
+import { createDevice, updateDevice, probeDeviceInfo, getDevices, detectarCapacidades, detectarCapacidadesCanales, getCredencialesDispositivo } from "@/app/actions/devices";
 import { ChipsCapacidades } from "@/components/devices/Capacidades";
 import type { Capacidades } from "@/lib/capacidades-camara";
 import { consecuencias as consecuenciasTipo } from "@/lib/rol-camara";
@@ -284,6 +284,9 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         setSinGrabar(false); setActual(null); setRetencion(null); setCanales(null); setErrorCanales(""); setEleccion({});
         setTareas([]); setCorriendo(false); setTerminado(false); setCreadoId(null); setCargarMatriculas(true); setGuardando(false); setOpcionAlta(null);
         setCaps(null); setCapsCanal({});
+        // Las credenciales ya no vienen en la lista de equipos (lib/equipo-publico): se piden acá,
+        // con el permiso Dispositivos. Si no llegan, guardar no borra la clave (updateDevice).
+        if (device?.id) getCredencialesDispositivo(device.id).then((c) => { if (c) setF((p) => ({ ...p, username: c.username || p.username, password: c.password || "" })); }).catch(() => { });
         // En la ficha de una cámara se le pregunta qué sabe hacer apenas se abre (sólo lectura).
         if (device?.id && device.deviceType !== "NVR") {
             setLeyendoCaps(true);

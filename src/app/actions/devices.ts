@@ -6,6 +6,7 @@ import { Device, DeviceBrand, DeviceDirection, DeviceType, AuthType } from "@pri
 import { revalidatePath } from "next/cache";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
 import { uploadToS3 } from "@/lib/s3";
+import { sinClaves } from "@/lib/equipo-publico";
 
 async function saveFile(file: any, folder: string): Promise<string | null> {
     if (!file || typeof file === 'string' || !file.size) return null;
@@ -188,7 +189,7 @@ export async function updateDevice(id: string, formData: FormData) {
      * ofrece; esto es para que tampoco se pueda por error o a mano.
      */
     const CAMARAS = ["LPR_CAMERA", "LPR_INTERIOR", "CAMERA"];
-    const antes = await prisma.device.findUnique({ where: { id }, select: { deviceType: true } });
+    const antes = await prisma.device.findUnique({ where: { id }, select: { deviceType: true, username: true, password: true } });
     if (antes && deviceType && antes.deviceType !== deviceType && !(CAMARAS.includes(String(antes.deviceType)) && CAMARAS.includes(String(deviceType)))) {
         throw new Error(`No se puede cambiar un ${antes.deviceType} por un ${deviceType}: sólo se cambia entre tipos de cámara.`);
     }
@@ -205,8 +206,10 @@ export async function updateDevice(id: string, formData: FormData) {
             deviceType,
             direction,
             location,
-            username,
-            password,
+            // Vacío = no se tocó: el formulario recibe la clave aparte (getCredencialesDispositivo)
+            // y, si no llegó, guardar no tiene que borrarla.
+            ...(username ? { username } : {}),
+            ...(password ? { password } : {}),
             authType,
             mac,
             port: portNum,
@@ -221,7 +224,7 @@ export async function updateDevice(id: string, formData: FormData) {
     try {
         const { syncLprStream } = await import("@/lib/go2rtc-sync");
         // Las camaras interiores se registran por su rtspUrl, asi que hay que pasarla.
-        await syncLprStream({ id, ip, username, password, brand, deviceType, ...camposSeguimiento(formData) } as any);
+        await syncLprStream({ id, ip, username: username || antes?.username, password: password || antes?.password, brand, deviceType, ...camposSeguimiento(formData) } as any);
     } catch (err) {
         console.error("go2rtc sync failed on update:", err);
     }
@@ -235,12 +238,27 @@ export async function deleteDevice(id: string) {
 }
 
 export async function getDevices() {
-    return await prisma.device.findMany({
+    const equipos = await prisma.device.findMany({
         orderBy: { createdAt: 'desc' },
         // Los grupos vienen con el equipo porque son la respuesta a "quien puede pasar por
         // aca", que es media pantalla de /admin/devices y no se podia contestar sin esto.
         include: { accessGroups: { select: { id: true, name: true } } },
     });
+    // Sin usuario, clave ni RTSP: esta lista la piden el monitor LPR, Usuarios, Vehículos y la
+    // pantalla del mapa (/api/monitor/mapa, con enlace de pantalla). Ver lib/equipo-publico.
+    return equipos.map(sinClaves);
+}
+
+/**
+ * Las credenciales de UN equipo, para editarlo. Sólo con el permiso Dispositivos: es la única
+ * pantalla que las muestra, y antes viajaban en getDevices a todas las que listan equipos.
+ */
+export async function getCredencialesDispositivo(id: string): Promise<{ username: string | null; password: string | null; rtspUrl: string | null } | null> {
+    const { getSession } = await import("@/app/actions/auth");
+    const { permisosDeSesion } = await import("@/lib/permisos");
+    const s: any = await getSession().catch(() => null);
+    if (!s || !permisosDeSesion(s).includes("dispositivos")) return null;
+    return prisma.device.findUnique({ where: { id }, select: { username: true, password: true, rtspUrl: true } });
 }
 
 export async function getDevicesCount() {

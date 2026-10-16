@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { sinClaves } from "@/lib/equipo-publico";
 import { estaEnListaNegra, detalleListaNegra } from "@/lib/lista-negra";
 import { relecturasDe, esNoLeida, type RelecturaEvento } from "@/lib/relectura";
 
@@ -400,8 +401,7 @@ async function enrichEventsWithDuration(events: any[]) {
  */
 function sinCredenciales<T extends { device?: any }>(e: T): T {
     if (!e?.device) return e;
-    const { password: _p, username: _u, ...device } = e.device;
-    return { ...e, device };
+    return { ...e, device: sinClaves(e.device) };
 }
 
 export async function getAccessEvent(id: string) {

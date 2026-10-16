@@ -45,7 +45,7 @@ import {
 import Image from "next/image";
 import { BookOpen, ChevronDown, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { createDevice, updateDevice, probeDeviceInfo, getDevices } from "@/app/actions/devices";
+import { createDevice, updateDevice, probeDeviceInfo, getDevices, getCredencialesDispositivo } from "@/app/actions/devices";
 import { getNvrChannels, getNvrChannelMapFull, saveNvrChannelMapForNvr } from "@/app/actions/nvr";
 import { DRIVER_MODELS, type DeviceBrand as DriverDeviceBrand } from "@/lib/driver-models";
 import {
@@ -357,6 +357,12 @@ export function DeviceFormDialog({ device, groups, onSuccess, children, abierto,
 
     // Abierto desde afuera: formulario limpio con el tipo pedido.
     useEffect(() => { if (abierto) { resetForm(); setStep(1); } }, [abierto]);   // eslint-disable-line react-hooks/exhaustive-deps
+    // Las credenciales no vienen con el equipo (lib/equipo-publico): se piden al abrir la edición.
+    useEffect(() => {
+        const id = (device as any)?.id;
+        if (!open || !id) return;
+        getCredencialesDispositivo(id).then((c) => { if (c) setFormData((p: any) => ({ ...p, username: c.username || p.username, password: c.password || "" })); }).catch(() => { });
+    }, [open, (device as any)?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <Dialog open={open} onOpenChange={(val) => {

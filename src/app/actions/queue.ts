@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { EQUIPO_PUBLICO } from "@/lib/equipo-publico";
 
 // --- Get Queue Events (history) ---
 export async function getQueueEvents(options?: {
@@ -30,7 +31,7 @@ export async function getQueueEvents(options?: {
             take: options?.take ?? 50,
             skip: options?.skip ?? 0,
             orderBy: { timestamp: "desc" },
-            include: { device: true },
+            include: { device: { select: EQUIPO_PUBLICO } },
         }),
         prisma.queueEvent.count({ where }),
     ]);
