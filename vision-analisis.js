@@ -82,7 +82,20 @@ function aInt8(v) {
     return { vector: Buffer.from(q.buffer), escala: max / 127 };
 }
 
-function iniciar({ prisma, log, vision, estado, bajar, subir }) {
+/**
+ * Las cámaras que OmniVision puede tocar (VISION_CAMARAS, el botón de la pared de cámaras): se
+ * arma el filtro de Prisma. Un canal de NVR sin equipo (`nvrch-<nvr>-<ch>`) no tiene detecciones
+ * propias: server.js las deja sobre el NVR con la etiqueta «canal N sin mapear».
+ */
+const CANAL_NVR = /^nvrch-([\w-]+)-(\d{1,4})$/;
+function filtroCamaras(p) {
+    if (!p || p.todas) return null;
+    const equipos = p.ids.filter((id) => !CANAL_NVR.test(id));
+    const canales = p.ids.map((id) => CANAL_NVR.exec(id)).filter(Boolean).map((m) => ({ deviceId: m[1], label: `canal ${m[2]} sin mapear` }));
+    return { OR: [{ deviceId: { in: equipos } }, ...canales] };
+}
+
+function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () => null }) {
     const contadores = { verificadas: 0, lecturas: 0, huellas: 0, sinFoto: 0, errores: 0, ultimoError: null, msUltima: null };
     /** Recortes que no se pudieron bajar (la retención los borró): no se reintentan en esta vuelta del proceso. */
     const sinRecorte = new Set();
@@ -132,10 +145,14 @@ function iniciar({ prisma, log, vision, estado, bajar, subir }) {
 
     async function unaIntrusion() {
         const fuera = await camarasSinVerificar();
+        const deOmni = filtroCamaras(permitidas());
         const d = await prisma.detection.findFirst({
             where: {
                 verifAt: null, type: { in: TIPOS_INTRUSION }, timestamp: { gte: new Date(Date.now() - VENTANA_INTRUSION_MS) },
-                ...(fuera.length ? { OR: [{ deviceId: null }, { deviceId: { notIn: fuera } }] } : {}),
+                AND: [
+                    ...(fuera.length ? [{ OR: [{ deviceId: null }, { deviceId: { notIn: fuera } }] }] : []),
+                    ...(deOmni ? [deOmni] : []),
+                ],
             },
             orderBy: { timestamp: "desc" }, select: { id: true, deviceId: true, snapshotPath: true, timestamp: true },
         });
@@ -177,6 +194,7 @@ function iniciar({ prisma, log, vision, estado, bajar, subir }) {
             FROM "AccessEvent" e LEFT JOIN "AnalisisFoto" a ON a."accessEventId" = e.id
             WHERE a.id IS NULL AND e."accessType" = 'PLATE' AND e."snapshotPath" IS NOT NULL
               AND e.timestamp > ${sinZona(Date.now() - VENTANA_LPR_MS)}::timestamp
+              AND (${!!(permitidas() || { todas: true }).todas}::boolean OR e."deviceId" = ANY(${(permitidas() || { ids: [] }).ids || []}::text[]))
             ORDER BY e.timestamp DESC LIMIT 1`;
         const ev = filas[0];
         if (!ev) return false;

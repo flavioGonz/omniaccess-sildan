@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
+import { CANAL_NVR } from "@/lib/vision-camaras";
+import { registrarCanalNvr } from "@/lib/go2rtc-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +21,11 @@ export async function GET(req: NextRequest) {
     if (!auth.authenticated) return unauthorizedResponse();
     if (auth.pantalla) return forbiddenResponse("No es una vista de pantalla.");
     const id = req.nextUrl.searchParams.get("camara") || "";
-    const dev = await prisma.device.findUnique({ where: { id }, select: { id: true } });
-    if (!dev) return NextResponse.json({ error: "No existe esa cámara" }, { status: 404 });
-    for (const src of [`lpr_${dev.id}`, `lpr_${dev.id}_hd`]) {
+    // Un canal de NVR en OmniVision (nvrch-<nvr>-<ch>): su stream se registra si falta, como lo hace el worker.
+    const canal = CANAL_NVR.exec(id);
+    if (canal) { if (!(await registrarCanalNvr(canal[1], Number(canal[2])))) return NextResponse.json({ error: "No existe ese NVR" }, { status: 404 }); }
+    else if (!(await prisma.device.findUnique({ where: { id }, select: { id: true } }))) return NextResponse.json({ error: "No existe esa cámara" }, { status: 404 });
+    for (const src of [`lpr_${id}`, `lpr_${id}_hd`]) {
         try {
             const r = await fetch(`${GO2RTC}/api/frame.jpeg?src=${encodeURIComponent(src)}`, { cache: "no-store", signal: AbortSignal.timeout(TIEMPO_CUADRO_MS) });
             if (!r.ok) continue;

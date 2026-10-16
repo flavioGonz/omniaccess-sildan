@@ -9,6 +9,7 @@ import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Switch } from "@/components/ui/switch";
 import { Filtros } from "@/components/ui/filtros";
 import { FichaAnalitica, Ic, TONO_ANALITICA } from "@/components/vision/analiticas";
+import { MotorCamaras } from "@/components/vision/MotorCamaras";
 import { cn } from "@/lib/utils";
 import { ANALITICAS, type Analitica } from "@/lib/vision-catalogo";
 import { TIPOS_REGLA, type TipoRegla, type ReglaVision } from "@/lib/vision-reglas";
@@ -180,6 +181,10 @@ export default function AnaliticasVision() {
                 </div>
             </div>
 
+            {/* Primero, qué cámaras procesa el motor y cómo (pedido de Nico, 15/10). */}
+            <MotorCamaras />
+
+            <h2 className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground pt-2">Analíticas</h2>
             <div className="flex gap-2 flex-wrap">
                 {cifra(todas.length, "corren hoy")}
                 {cifra(prendidas, "prendidas", "tono-accion")}

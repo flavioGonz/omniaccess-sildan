@@ -15,6 +15,8 @@ export type Canal = {
     clave: string; nombre: string; nvrId: string | null; nvr: string | null; ch: number | null; online: boolean | null;
     stream: string; equipoId: string | null; alerta: Alerta | null;
     funcion: "intrusion" | "lpr" | null; geom: { line: Punto[]; field: Punto[] } | null; ultima: Alerta | null; lecturas: Lectura[];
+    /** Si OmniVision la analiza (todo: registro, reglas, verificación, lecturas) y lo que cuesta, medido. */
+    vision?: { analiza: boolean; porSeg: number | null };
 };
 export type Modo = "directo" | "convertido" | "foto";
 
@@ -54,6 +56,12 @@ export const vivoDe = (stream: string, convertido: boolean, hls = false) => hls
     : `/go2rtc/api/stream.mp4?src=${encodeURIComponent(stream)}${convertido ? "&video=h264" : ""}`;
 export const ubicacion = (c: Canal) => [c.nvr, c.ch != null ? `CH ${c.ch}` : null].filter(Boolean).join(" · ") || "Cámara";
 export const grupoDe = (c: Canal) => c.nvr || "Cámaras sueltas";
+/**
+ * El id de la cámara para todo lo que se guarda por cámara (seguimiento visual, OmniVision): el
+ * del equipo, o `nvrch-<nvr>-<ch>` para un canal de NVR que no es equipo — el mismo nombre que su
+ * stream en go2rtc.
+ */
+export const idCanal = (c: Pick<Canal, "equipoId" | "nvrId" | "ch">) => c.equipoId || `nvrch-${c.nvrId}-${c.ch}`;
 
 /** Un <video> de go2rtc que avisa si arrancó o no, y suelta la conexión al desmontarse. */
 export function Vivo({ src, alResultado, className, alMedir }: { src: string; alResultado?: (ok: boolean) => void; className?: string;

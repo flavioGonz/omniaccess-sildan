@@ -22,7 +22,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ devi
     const { deviceId } = await params;
     const b = await req.json().catch(() => null);
     if (typeof b?.analiza !== "boolean") return NextResponse.json({ error: "Falta «analiza»." }, { status: 400 });
-    const r = await ponerVision(deviceId, b.analiza);
-    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
-    return NextResponse.json({ ok: true, analiza: b.analiza });
+    // `nombre`: para un canal de NVR sin equipo, cómo se llama (lo muestra el registro de visión).
+    const r = await ponerVision(deviceId, b.analiza, typeof b.nombre === "string" ? b.nombre : null);
+    // 409: el cupo de OmniVision no da (ver lib/vision-camaras); 400: pedido inválido.
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: /límite/.test(r.error || "") ? 409 : 400 });
+    return NextResponse.json({ ok: true, analiza: b.analiza, id: r.id });
 }

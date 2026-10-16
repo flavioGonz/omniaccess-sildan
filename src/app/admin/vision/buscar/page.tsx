@@ -1,14 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Backpack, Bike, Camera, Car, Clock, Dog, HardHat, Layers, Loader2, PawPrint, ScanSearch, Search, Truck, User, Video, X, Boxes } from "lucide-react";
+import { Backpack, Bike, Camera, Car, Clock, Dog, HardHat, Layers, Loader2, PawPrint, ScanSearch, Search, Sparkles, Truck, User, Video, X, Boxes } from "lucide-react";
+import { useSiluetas } from "@/lib/use-siluetas";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Pista } from "@/components/ui/pista";
 import { ErrorEstado } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
-import { TarjetaObjeto, FichaObjeto, img, nombreClase, fecha, hora, type FilaObjeto } from "@/components/vision/ObjetoRegistro";
+import { FichaObjeto, img, nombreClase, fecha, hora, type FilaObjeto } from "@/components/vision/ObjetoRegistro";
+import { CajonSeccion } from "@/components/ui/cajon";
+import { MosaicoBuscar, HistorialDePista, PasosDeChapa, type ResultadoBusqueda } from "@/components/vision/buscar/MosaicoBuscar";
+import { useRegistrarDesdeCaptura } from "@/components/vision/buscar/RegistrarDesdeCaptura";
+import type { PasoChapa } from "@/lib/vision-historial";
 import { FotoParaBuscar, type FotoElegida } from "@/components/vision/FotoParaBuscar";
 import { useNombresPropios } from "@/lib/nombres-propios";
 
@@ -24,8 +29,9 @@ import { useNombresPropios } from "@/lib/nombres-propios";
  * números chicos en texto↔imagen (un buen acierto anda en 0,10-0,20 de coseno): un porcentaje
  * absoluto parecería «12 % de seguridad» y se leería como un fallo.
  */
-type Resultado = FilaObjeto & { coseno: number; prob: number | null };
-type Respuesta = { resultados: Resultado[]; comparados: number; sinHuella: number; h: number; ms: number; modo: "texto" | "parecido" | "foto" };
+type Resultado = ResultadoBusqueda;
+/** modo «chapa»: lo escrito era una matrícula; `pasos` es su historial de accesos (ver la ruta). */
+type Respuesta = { resultados: Resultado[]; comparados: number; sinHuella: number; h: number; ms: number; modo: "texto" | "parecido" | "foto" | "chapa"; pasos: PasoChapa[] | null };
 
 const RANGOS = [{ v: "24", r: "24 h" }, { v: "168", r: "7 días" }, { v: "720", r: "30 días" }];
 const GRUPOS = [{ v: "", r: "Todo", i: Layers }, { v: "persona", r: "Personas", i: User }, { v: "vehiculo", r: "Vehículos", i: Car }, { v: "animal", r: "Animales", i: PawPrint }, { v: "objeto", r: "Bultos", i: Backpack }, { v: "propio", r: "Propios", i: Boxes }];
@@ -66,6 +72,9 @@ export default function BuscarVision() {
     const [error, setError] = useState<string | null>(null);
     const [buscando, setBuscando] = useState(false);
     const [abierta, setAbierta] = useState<Resultado | null>(null);
+    const [siluetas, setSiluetas] = useSiluetas();
+    // Registrar la matrícula o marcar en lista negra desde la captura (compartido con Detecciones y Relecturas).
+    const { abrirRegistro, marcarNegra, cajones } = useRegistrarDesdeCaptura(() => setPedido((p) => (p ? { ...p } : p)));
 
     // ?q=… viene del historial («Ver todo en Buscar»): se busca al entrar, con la misma frase.
     useEffect(() => {
@@ -96,26 +105,13 @@ export default function BuscarVision() {
     const buscar = (q: string) => { const t = q.trim(); if (t) { setTexto(t); setArchivo(null); setPedido({ q: t }); } };
     const tomarFoto = (f: File | null | undefined) => { if (f && f.type.startsWith("image/")) { setArchivo(f); setDatos(null); } };
     const sacarFoto = () => { setArchivo(null); setPedido(texto.trim() ? { q: texto.trim() } : null); };
-    const max = datos?.resultados[0]?.coseno || 1;
-    const min = datos?.resultados[datos.resultados.length - 1]?.coseno ?? 0;
     const conCorte = datos?.modo === "texto";
     const modoFoto = datos?.modo === "foto";
     const parecen = !datos ? [] : conCorte ? datos.resultados.filter((r) => (r.prob ?? 0) >= PROB_PARECE) : datos.resultados;
     const resto = !datos || !conCorte ? [] : datos.resultados.filter((r) => (r.prob ?? 0) < PROB_PARECE);
+    const modoChapa = datos?.modo === "chapa";
     const grilla = (rs: Resultado[], lejos = false) => (
-        <div className={cn("grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3", (buscando || lejos) && "opacity-60")}>
-            {rs.map((r) => {
-                const rel = max > min ? (r.coseno - min) / (max - min) : 1;
-                return (
-                    <TarjetaObjeto key={r.id} f={r} alAbrir={() => setAbierta(r)} pie={
-                        <div className="flex items-center gap-1.5" title={`coseno ${r.coseno}${r.prob != null ? ` · probabilidad ${r.prob}` : ""}`}>
-                            <span className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden"><span className={cn("block h-full", lejos ? "bg-muted-foreground/40" : "bg-[var(--accion)]")} style={{ width: `${Math.max(6, rel * 100)}%` }} /></span>
-                            <span className="text-[10.5px] text-muted-foreground tabular-nums">{fecha(r.primeraVez)}</span>
-                        </div>
-                    } />
-                );
-            })}
-        </div>
+        <MosaicoBuscar resultados={rs} alAbrir={setAbierta} relativa={!modoChapa} lejos={lejos} atenuado={buscando} />
     );
 
     return (
@@ -142,7 +138,7 @@ export default function BuscarVision() {
                 <Search size={17} className="text-muted-foreground shrink-0" />
                 <input value={texto} onChange={(e) => setTexto(e.target.value)} autoFocus
                     onPaste={(e) => { const f = [...e.clipboardData.files].find((x) => x.type.startsWith("image/")); if (f) { e.preventDefault(); tomarFoto(f); } }}
-                    placeholder={arrastrando ? "Soltá la foto para buscar con ella" : "Ej. camioneta blanca con escalera"}
+                    placeholder={arrastrando ? "Soltá la foto para buscar con ella" : "Ej. camioneta blanca con escalera, moto de delivery, o una matrícula"}
                     className="flex-1 min-w-0 h-full bg-transparent text-[14px] outline-none placeholder:text-muted-foreground" />
                 {texto && <button type="button" onClick={() => setTexto("")} aria-label="Borrar" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground"><X size={15} /></button>}
                 <span className="w-px h-6 bg-border" />
@@ -183,6 +179,13 @@ export default function BuscarVision() {
                     </select>
                     <span className="pointer-events-none absolute right-2 text-[9px] opacity-70">▼</span>
                 </label>
+                <Pista titulo="Siluetas de OmniVision" texto="Dibuja sobre cada resultado la silueta del objeto. Se calcula al mirarlo (la primera vez tarda un instante). Es la misma opción que en el historial y el visor.">
+                    <button type="button" onClick={() => setSiluetas(!siluetas)} aria-pressed={siluetas} aria-label="Siluetas de OmniVision"
+                        className={cn("h-[34px] px-2.5 rounded-lg border inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors",
+                            siluetas ? "accion border-transparent" : "border-border text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                        <Sparkles size={14} /> Siluetas
+                    </button>
+                </Pista>
             </div>
 
             {error ? <ErrorEstado mensaje={error} alReintentar={() => setPedido((p) => (p ? { ...p } : p))} />
@@ -203,11 +206,12 @@ export default function BuscarVision() {
                     <div className="py-16 grid place-items-center text-muted-foreground"><Loader2 className="animate-spin" /></div>
                 ) : datos && (
                     <>
+                        {modoChapa && datos.pasos && <PasosDeChapa pasos={datos.pasos} alRegistrar={abrirRegistro} />}
                         <p className="text-[12px] text-muted-foreground tabular-nums">
-                            {conCorte ? (parecen.length ? `${parecen.length} posibles` : "Nada se parece claramente") : datos.resultados.length ? `Los ${datos.resultados.length} más parecidos${modoFoto && pedido?.foto ? ` a ${pedido.foto.etiqueta.toLowerCase()} de la foto` : ""}` : "Nada"} entre {datos.comparados.toLocaleString("es-UY")} pistas de {RANGOS.find((r) => r.v === String(datos.h))?.r} · {datos.ms} ms
-                            {datos.sinHuella > 0 && ` · ${datos.sinHuella.toLocaleString("es-UY")} todavía sin procesar (se van sumando solas)`}
+                            {modoChapa ? (datos.pasos?.length ? `${datos.resultados.length} ${datos.resultados.length === 1 ? "pista" : "pistas"} de OmniVision de ese vehículo en sus pasos · ${datos.ms} ms` : `Ninguna lectora leyó «${pedido.q}» en ${RANGOS.find((r) => r.v === String(datos.h))?.r}`) : <>{conCorte ? (parecen.length ? `${parecen.length} posibles` : "Nada se parece claramente") : datos.resultados.length ? `Los ${datos.resultados.length} más parecidos${modoFoto && pedido?.foto ? ` a ${pedido.foto.etiqueta.toLowerCase()} de la foto` : ""}` : "Nada"} entre {datos.comparados.toLocaleString("es-UY")} pistas de {RANGOS.find((r) => r.v === String(datos.h))?.r} · {datos.ms} ms
+                            {datos.sinHuella > 0 && ` · ${datos.sinHuella.toLocaleString("es-UY")} todavía sin procesar (se van sumando solas)`}</>}
                         </p>
-                        {datos.resultados.length === 0 ? (
+                        {datos.resultados.length === 0 ? (modoChapa ? null :
                             <div className="rounded-[10px] border border-border bg-card p-10 text-center text-[13px] text-muted-foreground">No hay pistas con huella en este rango y con estos filtros.</div>
                         ) : (
                             <>
@@ -230,10 +234,15 @@ export default function BuscarVision() {
             <Cajon open={!!abierta} onOpenChange={(o) => { if (!o) setAbierta(null); }}>
                 {abierta && (
                     <CajonContenido ancho="intermedio" titulo={`${nombreClase(abierta.clase)} · ${abierta.camara}`} descripcion={`${fecha(abierta.primeraVez)} ${hora(abierta.primeraVez)}`}>
+                        <CajonSeccion titulo="En el historial" compacta ayuda="Lo que el sistema sabe de este momento: la chapa que leyó la lectora de esta cámara mientras el vehículo estaba a la vista, de quién es, si está vigilada, y las alertas de la cámara.">
+                            <HistorialDePista r={abierta} alRegistrar={(p) => { setAbierta(null); abrirRegistro(p); }} alListaNegra={() => { void marcarNegra(abierta); setAbierta(null); }} />
+                        </CajonSeccion>
                         <FichaObjeto f={abierta} alParecidos={() => { setPedido({ parecido: abierta }); setAbierta(null); }} />
                     </CajonContenido>
                 )}
             </Cajon>
+
+            {cajones}
         </div>
     );
 }

@@ -1,15 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye, Joystick } from "lucide-react";
+import { JoystickPtz } from "./Joystick";
 import { metaDe } from "@/components/intrusion/comun";
 import { horaCorta, hace } from "@/lib/monitor/cliente";
 import { Grabacion } from "./Grabacion";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { SUAVE } from "@/components/monitor/tactil";
-import { Vivo, Foto, Geometria, fotoDe, vivoDe, ubicacion, FOTO_MS, useSiluetasEnVivo, type Canal, type Alerta, type Lectura } from "./piezas";
+import { PasoVisionCanal, type PasoVision } from "./PasoVision";
+import { TipVisor, tip } from "./TipVisor";
+import { Vivo, Foto, Geometria, fotoDe, vivoDe, ubicacion, idCanal, FOTO_MS, useSiluetasEnVivo, type Canal, type Alerta, type Lectura } from "./piezas";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
+import { SeguimientoVisual } from "./Seguimiento";
+import type { TrackLink } from "@/app/actions/detections";
 import { geomDeIntrusion } from "@/lib/vision-capa";
 import { cn } from "@/lib/utils";
 
@@ -37,8 +42,8 @@ const GRABACION_ANTES_ALERTA_MS = 5_000;
 
 function Icono({ children, onClick, titulo, activo, href }: { children: React.ReactNode; onClick?: () => void; titulo: string; activo?: boolean; href?: string }) {
     const cls = cn("w-11 h-11 rounded-full grid place-items-center transition-colors", activo ? "bg-white text-black" : "text-white/85 hover:text-white hover:bg-white/15");
-    if (href) return <a href={href} target="_blank" rel="noreferrer" title={titulo} aria-label={titulo} className={cls}>{children}</a>;
-    return <button type="button" onClick={onClick} title={titulo} aria-label={titulo} aria-pressed={activo} className={cls}>{children}</button>;
+    if (href) return <a href={href} target="_blank" rel="noreferrer" {...tip(titulo)} className={cls}>{children}</a>;
+    return <button type="button" onClick={onClick} {...tip(titulo)} aria-pressed={activo} className={cls}>{children}</button>;
 }
 
 function ChapaChica({ l }: { l: Lectura }) {
@@ -53,8 +58,19 @@ function ChapaChica({ l }: { l: Lectura }) {
     );
 }
 
-export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null }: {
+export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision, pasoVision = null, alCerrarPaso, alGuardarSeguimiento }: {
     c: Canal | null; h265: boolean; hls?: boolean; alerta: Alerta | null; lecturas: Lectura[];
+    /** Todas las cámaras de la pared y los enlaces del seguimiento visual (por idCanal). */
+    canales?: Canal[]; seguimiento?: Record<string, TrackLink[]>; puedeEditar?: boolean;
+    /** Se guardaron enlaces desde la ficha: la pared los muestra sin esperar la próxima recarga. */
+    alGuardarSeguimiento?: (idCanal: string, links: TrackLink[]) => void;
+    alertaDe?: (c: Canal) => Alerta | null;
+    /** Pasar a la cámara vecina por un enlace del seguimiento; `origen` es de dónde se vino. */
+    alSeguir?: (destino: Canal) => void; origen?: Canal | null; alVolverOrigen?: () => void; alSoltarOrigen?: () => void;
+    /** Mandar esta cámara a OmniVision o retirarla (sólo con permiso de Ajustes). */
+    alVision?: () => void;
+    /** Entrando o saliendo de OmniVision: se cuenta sobre el cuadro (ver PasoVision). */
+    pasoVision?: PasoVision | null; alCerrarPaso?: () => void;
     /** Abrir directo en la grabación, desde este instante (el control de la baldosa). null = en vivo. */
     grabacionInicial?: number | null;
     alCerrar: () => void;
@@ -79,6 +95,29 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
      * Los dos ven lo mismo; cambia cómo está estirado.
      */
     const [tamVideo, setTamVideo] = useState<{ w: number; h: number } | null>(null);
+    // Dónde cae el cuadro del video en la pantalla («contain»): ahí se ubican los enlaces.
+    const [pantallaTam, setPantallaTam] = useState(() => (typeof window === "undefined" ? { w: 1920, h: 1080 } : { w: window.innerWidth, h: window.innerHeight }));
+    useEffect(() => { const r = () => setPantallaTam({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener("resize", r); return () => window.removeEventListener("resize", r); }, []);
+    const cuadro = useMemo(() => {
+        if (!tamVideo) return null;
+        const k = Math.min(pantallaTam.w / tamVideo.w, pantallaTam.h / tamVideo.h);
+        const width = tamVideo.w * k, height = tamVideo.h * k;
+        return { left: (pantallaTam.w - width) / 2, top: (pantallaTam.h - height) / 2, width, height };
+    }, [tamVideo, pantallaTam]);
+    const [editandoSeguimiento, setEditandoSeguimiento] = useState(false);
+    useEffect(() => { setEditandoSeguimiento(false); }, [c?.clave]);
+    // PTZ: se le pregunta al equipo si la cámara se mueve (el servidor lo recuerda media hora); el
+    // ícono del joystick aparece sólo si es así.
+    const [ptz, setPtz] = useState(false);
+    const [verPtz, setVerPtz] = useState(false);
+    const idPtz = c ? idCanal(c) : null;
+    useEffect(() => {
+        setPtz(false); setVerPtz(false);
+        if (!idPtz || pantalla) return;
+        let vivo = true;
+        fetch(`/api/devices/ptz?deviceId=${encodeURIComponent(idPtz)}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (vivo) setPtz(!!j?.ptz); }).catch(() => { });
+        return () => { vivo = false; };
+    }, [idPtz, pantalla]);
     const [visibles, setVisibles] = useState(true);
     const [lleno, setLleno] = useState(false);
     const entreYo = useRef(false);
@@ -157,10 +196,12 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                         <CapaAnalisis analisis={tamVideo ? { ...sil.analisis, ancho: tamVideo.w, alto: tamVideo.h } : sil.analisis} geom={verGeom ? geomDeIntrusion(c.geom) : null} ajuste="contain" className="pointer-events-none" />
                     )}
 
+                    {grabacion == null && <PasoVisionCanal paso={pasoVision} nombre={c.nombre} foto={foto} grande alCerrar={alCerrarPaso} capa="z-0" />}
+
                     {/* Arriba a la izquierda: qué se mira. Texto sobre la imagen, sin caja. */}
                     <div className={cn("absolute top-0 inset-x-0 p-3 sm:p-5 md:px-7 flex flex-col sm:flex-row items-start justify-between gap-3 sm:gap-4 bg-gradient-to-b from-black/70 to-transparent transition-opacity duration-300", !visibles && "opacity-0 pointer-events-none")}>
                         <div className="min-w-0 visor-sombra-texto">
-                            <h1 className="text-[18px] sm:text-[24px] font-bold tracking-[-0.015em] text-white leading-tight truncate max-w-[50vw]">{c.nombre}</h1>
+                            <h1 className="text-[18px] sm:text-[24px] font-bold tracking-[-0.015em] text-white leading-tight truncate max-w-[80vw] lg:max-w-[calc(50vw-330px)]">{c.nombre}</h1>
                             <p className="flex items-center gap-2 mt-1 text-[14px] text-white/75 tabular-nums">
                                 {grabacion != null ? <History size={14} className="text-[var(--accion-en-oscuro)] shrink-0" /> : <Radio size={14} className="text-[var(--mal)] animate-pulse shrink-0" />}
                                 <span className="font-semibold text-white/90">{ubicacion(c)}</span>
@@ -179,8 +220,16 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                 <span className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] font-semibold visor-panel text-white/85"><ult.Icon size={14} /> Última: {ult.label} · {hace(c.ultima.ts)}</span>
                             )}
                         </div>
-                        {/* Arriba a la derecha: las acciones, en íconos, en una sola cápsula. */}
-                        <div className="flex items-center gap-2 shrink-0">
+                    </div>
+
+                    {/*
+                     * Las acciones, en íconos, arriba al centro (16/10, Nico). Arriba a la derecha
+                     * competían con la hora que sobreimprime la cámara; abajo chocaban con la regla de
+                     * la grabación y las últimas lecturas. En pantallas angostas van debajo del nombre.
+                     */}
+                    <div className={cn("absolute inset-x-0 z-10 flex justify-center px-3 pointer-events-none transition-opacity duration-300 top-[84px] sm:top-[92px] lg:top-5",
+                        !visibles && "opacity-0 [&_*]:pointer-events-none")}>
+                        <div className="flex items-center gap-2 max-w-full overflow-x-auto pointer-events-auto">
                             {alMover && (
                                 <span className="visor-panel rounded-full p-1 flex items-center gap-0.5">
                                     <Icono onClick={() => alMover(-1)} titulo="Canal anterior  ( ← )"><ChevronLeft size={20} /></Icono>
@@ -199,6 +248,17 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                         <Sparkles size={18} />
                                     </Icono>
                                 )}
+                                {alVision && (
+                                    <Icono onClick={alVision} activo={!!c.vision?.analiza}
+                                        titulo={c.vision?.analiza ? `OmniVision analiza esta cámara${c.vision.porSeg != null ? ` (${c.vision.porSeg.toLocaleString("es-UY", { maximumFractionDigits: 2 })} análisis/s)` : ""} · tocar para retirarla` : "Analizar con OmniVision: siluetas, búsqueda, reglas y verificación"}><ScanEye size={18} /></Icono>
+                                )}
+                                {grabacion == null && puedeEditar && (
+                                    <Icono onClick={() => setEditandoSeguimiento((x) => !x)} activo={editandoSeguimiento}
+                                        titulo={editandoSeguimiento ? "Terminar de editar el seguimiento visual" : "Editar el seguimiento visual (a qué cámaras se pasa desde esta)"}><Crosshair size={18} /></Icono>
+                                )}
+                                {ptz && grabacion == null && c.online !== false && (
+                                    <Icono onClick={() => setVerPtz((x) => !x)} activo={verPtz} titulo={verPtz ? "Ocultar el joystick" : "Mover la cámara (PTZ)"}><Joystick size={18} /></Icono>
+                                )}
                                 {c.geom && <Icono onClick={() => setVerGeom((x) => !x)} activo={verGeom} titulo={verGeom ? "Ocultar la línea y la zona" : "Mostrar la línea y la zona de la cámara"}><Spline size={18} /></Icono>}
                                 {c.nvrId && c.ch != null && (
                                     <Icono onClick={() => setGrabacionDesde((g) => (g != null ? null : alerta ? +new Date(alerta.ts) - GRABACION_ANTES_ALERTA_MS : Date.now() - GRABACION_ANTES_MS))}
@@ -213,22 +273,41 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                         </div>
                     </div>
 
-                    {/* La grabación, a mano: el mismo interruptor que el ícono de arriba, donde el pulgar llega. */}
-                    {grabacion == null && c.nvrId && c.ch != null && (
-                        <button type="button" onClick={() => setGrabacionDesde(alerta ? +new Date(alerta.ts) - GRABACION_ANTES_ALERTA_MS : Date.now() - GRABACION_ANTES_MS)}
-                            className={cn("absolute right-4 sm:right-7 bottom-5 z-10 h-11 px-4 rounded-full visor-panel text-white text-[14px] font-semibold inline-flex items-center gap-2 transition-opacity duration-300", !visibles && "opacity-0 pointer-events-none")}>
-                            <History size={16} /> {alerta ? "Ver la detección grabada" : "Grabación"}
-                        </button>
+                    {/* Seguimiento visual: los enlaces a las cámaras vecinas, sobre el vivo. */}
+                    {grabacion == null && c.online !== false && (
+                        <SeguimientoVisual key={c.clave} c={c} canales={canales} links={seguimiento[idCanal(c)] || []} editando={editandoSeguimiento}
+                            cuadro={cuadro} h265={h265} hls={hls} alertaDe={alertaDe || (() => null)} alSeguir={(d) => alSeguir?.(d)}
+                            alGuardado={(n) => alGuardarSeguimiento?.(idCanal(c), n)} />
                     )}
+                    {/* La cámara de la que se vino por el seguimiento: chica, abajo a la izquierda, para volver. */}
+                    {origen && grabacion == null && (
+                        <div className={cn("absolute left-4 bottom-24 w-[240px] aspect-video rounded-[10px] overflow-hidden ring-1 ring-white/25 bg-black transition-opacity", !visibles && "opacity-60")}>
+                            <Vivo src={vivoDe(origen.stream, !h265, hls)} className="absolute inset-0 w-full h-full object-cover" />
+                            <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white"><Crosshair size={11} /> Origen · {origen.nombre}</span>
+                            <button type="button" onClick={alVolverOrigen} className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-[var(--accion)] text-white text-[12px] font-semibold"><ChevronLeft size={13} /> Volver</button>
+                            <button type="button" onClick={alSoltarOrigen} aria-label="Cerrar el origen" className="absolute top-1.5 right-1.5 w-7 h-7 grid place-items-center rounded-full bg-black/60 text-white/85"><X size={14} /></button>
+                        </div>
+                    )}
+
+
+                    {/* El joystick PTZ: abajo a la derecha, donde llega la mano. */}
+                    <AnimatePresence>
+                        {verPtz && ptz && grabacion == null && idPtz && (
+                            <div key="ptz" className="absolute right-4 sm:right-7 bottom-5 sm:bottom-7 z-10">
+                                <JoystickPtz deviceId={idPtz} alCerrar={() => setVerPtz(false)} />
+                            </div>
+                        )}
+                    </AnimatePresence>
 
                     {/* Abajo: las últimas chapas, si la cámara lee. */}
                     {lecturas.length > 0 && grabacion == null && (
-                        <div className={cn("absolute bottom-0 inset-x-0 p-5 md:px-7 pr-[220px] flex items-center gap-2 flex-wrap bg-gradient-to-t from-black/70 to-transparent transition-opacity duration-300", !visibles && "opacity-0")}>
+                        <div className={cn("absolute bottom-0 inset-x-0 p-5 md:px-7 flex items-center gap-2 flex-wrap bg-gradient-to-t from-black/70 to-transparent transition-opacity duration-300", !visibles && "opacity-0")}>
                             <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-white/60 mr-1">Últimas lecturas</span>
                             {lecturas.slice(0, 6).map((l) => <ChapaChica key={l.id} l={l} />)}
                         </div>
                     )}
 
+                    <TipVisor />
                 </motion.div>
             )}
         </AnimatePresence>

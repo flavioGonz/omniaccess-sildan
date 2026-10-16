@@ -11,6 +11,9 @@ import { getAnalyticsGeometryBatch } from "@/app/actions/detections";
 import { puedeDisenarVistas } from "@/app/actions/monitores";
 import { AJUSTE_VISTAS_CAMARAS, leerVistas } from "@/lib/monitor/disposiciones";
 import { verificacionesDe } from "@/lib/verificacion";
+import { camarasVision, cargaVision } from "@/lib/vision-camaras";
+import { getSession } from "@/app/actions/auth";
+import { permisosDeSesion } from "@/lib/permisos";
 
 /**
  * GET /api/monitor/camaras → los canales que dibuja la pared de video (vista Cámaras).
@@ -97,6 +100,8 @@ export type CanalPared = {
     /** La última detección de las últimas 24 h, aunque ya no esté en alerta. */
     ultima: { id: string; tipo: string; ts: string; foto?: string | null } | null;
     lecturas: { id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean }[];
+    /** Si OmniVision analiza esta cámara (VISION_CAMARAS) y cuántos análisis por segundo le cuesta, medido. */
+    vision?: { analiza: boolean; porSeg: number | null };
 };
 
 export async function GET() {
@@ -104,7 +109,7 @@ export async function GET() {
     if (p.error) return p.error;
 
     const desdeActividad = new Date(Date.now() - ACTIVIDAD_MS);
-    const [nvrs, equipos, streams, recientes, conDetecciones, conLecturas, filaVistas, puedeEditar] = await Promise.all([
+    const [nvrs, equipos, streams, recientes, conDetecciones, conLecturas, filasAjustes, puedeEditar] = await Promise.all([
         prisma.device.findMany({ where: { deviceType: "NVR" as any }, select: { id: true, name: true, ip: true, username: true, password: true, authType: true }, orderBy: { name: "asc" } }),
         prisma.device.findMany({ where: { deviceType: { not: "NVR" as any } }, select: { id: true, name: true, ip: true, deviceType: true }, orderBy: { name: "asc" } }),
         streamsEnGo2rtc(),
@@ -114,7 +119,7 @@ export async function GET() {
         }).catch(() => []),
         prisma.detection.groupBy({ by: ["deviceId"], where: { timestamp: { gte: desdeActividad }, type: { not: "MOTION" } } }).catch(() => []),
         prisma.accessEvent.groupBy({ by: ["deviceId"], where: { timestamp: { gte: desdeActividad } } }).catch(() => []),
-        prisma.setting.findUnique({ where: { key: AJUSTE_VISTAS_CAMARAS } }).catch(() => null),
+        prisma.setting.findMany({ where: { key: { in: [AJUSTE_VISTAS_CAMARAS, "VISUAL_TRACK_LINKS"] } } }).catch(() => []),
         p.auth.pantalla ? Promise.resolve(false) : puedeDisenarVistas(),
     ]);
 
@@ -199,10 +204,21 @@ export async function GET() {
         }
     }
 
+    // OmniVision: qué cámaras analiza y cuánto cuesta cada una (lo mide vision-worker).
+    const [enVision, carga, sesion] = await Promise.all([camarasVision().catch(() => ({ todas: false, ids: new Set<string>() })), cargaVision(), p.auth.pantalla ? null : getSession().catch(() => null)]);
+    for (const c of canales) {
+        const id = c.equipoId || `nvrch-${c.nvrId}-${c.ch}`;
+        c.vision = { analiza: enVision.ids.has(id), porSeg: carga.porCamara[id] ?? null };
+    }
+
     return NextResponse.json({
         canales,
+        vision: { ...carga, cuantas: enVision.ids.size, puedeCambiar: !!sesion && permisosDeSesion(sesion as any).includes("ajustes") },
         errores,
-        vistas: leerVistas(filaVistas?.value),
+        vistas: leerVistas(filasAjustes.find((f) => f.key === AJUSTE_VISTAS_CAMARAS)?.value),
+        // Seguimiento visual (el mismo Setting que la ficha de intrusión): por cámara, a qué vecinas
+        // se pasa y por qué punto. Se manda entero: son pocas cámaras y pocos enlaces.
+        seguimiento: (() => { try { return JSON.parse(filasAjustes.find((f) => f.key === "VISUAL_TRACK_LINKS")?.value || "{}"); } catch { return {}; } })(),
         puedeEditar,
         go2rtc: !!streams,
         ventanaAlertaMs: VENTANA_ALERTA_MS,

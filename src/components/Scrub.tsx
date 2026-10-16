@@ -45,10 +45,24 @@ function label(m: number, h24: boolean) {
  */
 export type MarcaScrub = { id: string; m: number; Icon: React.ComponentType<{ size?: number; className?: string }>; titulo: string; tono?: string };
 
-/** Cuántos minutos cubre un ícono de marca a 2 px/min: dos eventos más cerca que esto se juntan en una sola marca con contador. */
-const MINUTOS_POR_MARCA = 9;
+/** Cuántos px ocupa un ícono de marca: dos eventos más cerca que esto se juntan en una sola marca con contador (9 min a 2 px/min). */
+const PX_POR_MARCA = 18;
 
-export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca, difuminado = 22, tramos }: {
+/**
+ * Añadido de OmniAccess: una franja de color sobre la regla (un tramo con detección). `a` y `b`
+ * en minutos como `tramos`; `tono` es el de las marcas (aviso, info, lectura…).
+ */
+export type BandaScrub = { a: number; b: number; tono: string; titulo?: string };
+
+/**
+ * Añadido de OmniAccess (15/10, «controlarla desde cualquier parte con el drag and drop»): el
+ * mismo arrastre de la regla, manejado desde otro elemento (el cuadro entero de la grabación).
+ * Mismo sentido, misma escala y misma inercia: la regla se mueve bajo el dedo aunque el dedo
+ * esté sobre el video.
+ */
+export type ScrubMando = { empezar: (clientX: number) => void; mover: (clientX: number) => void; soltar: () => void; /** Fue un toque, no un arrastre: se suelta sin asentar ni avisar. */ cancelar: () => void };
+
+export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca, difuminado = 22, tramos, sinEnvolver = false, rangoTramos, bandas, pxPorMinuto = PX, mando, alArrastrar }: {
     step?: string; momentum?: number; format?: string; corner?: number; start?: number; width?: number;
     /**
      * Qué porcentaje de cada borde de la regla se esfuma. 22 es el del vivo, donde la regla es
@@ -67,7 +81,29 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
      * siempre.
      */
     tramos?: [number, number][];
+    /**
+     * Añadido de OmniAccess (15/10): `onChange` recibe los minutos SIN envolver, relativos a la
+     * medianoche del día de `value`. Pasar las 00:00 hacia atrás da negativos (el día anterior) y
+     * pasar las 24:00, más de 1440 (el siguiente). Envueltos, volver de 00:05 a 23:55 caía en las
+     * 23:55 del MISMO día: casi un día entero hacia adelante.
+     */
+    sinEnvolver?: boolean;
+    /**
+     * Añadido de OmniAccess (15/10): dentro de qué minutos se SABE si hay grabación (el día
+     * consultado, hasta ahora). Ahí, lo que no es tramo se pinta en rojo: «sin grabación». Fuera
+     * (el futuro, otro día) no se pinta nada: no saber no es lo mismo que no haber.
+     */
+    rangoTramos?: [number, number];
+    /** Añadido de OmniAccess: los tramos con detección, cada uno en su color, sobre la franja. */
+    bandas?: BandaScrub[];
+    /** Añadido de OmniAccess: la escala (px por minuto). La grabación pide más: se busca al segundo. */
+    pxPorMinuto?: number;
+    mando?: React.MutableRefObject<ScrubMando | null>;
+    /** Añadido de OmniAccess: mientras se arrastra, dónde está la regla (sin envolver si `sinEnvolver`); null al soltar. */
+    alArrastrar?: (minutos: number | null) => void;
 } = {}) {
+    const PX = pxPorMinuto;
+    const MINUTOS_POR_MARCA = PX_POR_MARCA / PX;
     const HALF = (width - 36) / 2;
     const still = stillness();
     const [pos, setPos] = useState(start);
@@ -79,18 +115,25 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
     const lastStep = useRef(Math.floor(start / (Number(step) || 15)));
     const dragging = useRef(false);
     const onChangeRef = useRef(onChange); onChangeRef.current = onChange;
+    const envolverRef = useRef((m: number) => (sinEnvolver ? m : wrap(m))); envolverRef.current = (m: number) => (sinEnvolver ? m : wrap(m));
     const onMarcaRef = useRef(onMarca); onMarcaRef.current = onMarca;
+    const alArrastrarRef = useRef(alArrastrar); alArrastrarRef.current = alArrastrar;
+    const pxRef = useRef(PX); pxRef.current = PX;
 
     // seguir el reloj externo cuando NO se está arrastrando ni asentándose tras un arrastre.
     // El umbral es chico a propósito: `value` llega con decimales mientras el video avanza
     // (un segundo son 0,017 min) y con 0,5 la regla quedaba quieta medio minuto y saltaba.
     useEffect(() => {
         if (value == null || dragging.current || raf.current) return;
-        if (Math.abs(wrap(p.current.x) - wrap(value)) < 0.01) return;
+        // Sin envolver, `value` dice también el día: comparar envuelto dejaba la regla en −5 (el día
+        // anterior) con los tramos del día nuevo dibujados un día corridos.
+        if ((sinEnvolver ? Math.abs(p.current.x - value) : Math.abs(wrap(p.current.x) - wrap(value))) < 0.01) return;
         p.current.x = value; p.current.to = value; p.current.v = 0; setPos(value);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value]);
 
+    // Con pasos de menos de un minuto (la grabación, añadido de OmniAccess) no se redondea al minuto.
+    const redondear = (x: number) => (knobs.current.step >= 1 ? Math.round(x) : Math.round(x / knobs.current.step) * knobs.current.step);
     const hear = (x: number) => { const s = knobs.current.step; const k = Math.floor(x / s); if (k === lastStep.current) return; lastStep.current = k; };
     const set = (x: number) => { p.current.x = x; hear(x); setPos(x); };
 
@@ -102,33 +145,33 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
             const c = p.current;
             c.v += ((c.to - c.x) * 0.022 - c.v * 0.26) * dt;
             const x = c.x + c.v * dt;
-            if (Math.abs(c.to - x) < 0.01 && Math.abs(c.v) < 0.01) { c.v = 0; set(c.to); raf.current = 0; onChangeRef.current?.(wrap(Math.round(c.to))); return; }
+            if (Math.abs(c.to - x) < 0.01 && Math.abs(c.v) < 0.01) { c.v = 0; set(c.to); raf.current = 0; onChangeRef.current?.(envolverRef.current(redondear(c.to))); return; }
             set(x); raf.current = requestAnimationFrame(tick);
         };
         raf.current = requestAnimationFrame(tick);
     };
     useEffect(() => () => { cancelAnimationFrame(raf.current); raf.current = 0; }, []);
 
-    const goTo = (to: number, v = p.current.v) => { p.current.to = to; p.current.v = v; if (still) { p.current.v = 0; set(to); onChangeRef.current?.(wrap(Math.round(to))); return; } run(); };
+    const goTo = (to: number, v = p.current.v) => { p.current.to = to; p.current.v = v; if (still) { p.current.v = 0; set(to); onChangeRef.current?.(envolverRef.current(redondear(to))); return; } run(); };
 
     const drag = useRef<null | { x: number; t: number; v: number; k: number }>(null);
-    const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
-        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { }
+    // El arrastre, separado del evento: lo usan la regla y, con `mando`, cualquier otro elemento.
+    const empezar = (clientX: number, k = 1) => {
         cancelAnimationFrame(raf.current); raf.current = 0; dragging.current = true;
-        const k = e.currentTarget.getBoundingClientRect().width / e.currentTarget.offsetWidth || 1;
-        drag.current = { x: e.clientX, t: performance.now(), v: 0, k }; p.current.v = 0;
+        drag.current = { x: clientX, t: performance.now(), v: 0, k }; p.current.v = 0;
     };
-    const onMove = (e: React.PointerEvent) => {
+    const mover = (clientX: number) => {
         const g = drag.current; if (!g) return;
         const now = performance.now();
-        const dm = -(e.clientX - g.x) / g.k / PX;
+        const dm = -(clientX - g.x) / g.k / pxRef.current;
         const dt = Math.max(1, now - g.t) / 16.67;
-        g.v = g.v * 0.5 + (dm / dt) * 0.5; g.x = e.clientX; g.t = now;
+        g.v = g.v * 0.5 + (dm / dt) * 0.5; g.x = clientX; g.t = now;
         set(p.current.x + dm);
+        alArrastrarRef.current?.(envolverRef.current(p.current.x));
     };
-    const onUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const soltar = () => {
         const g = drag.current; drag.current = null; dragging.current = false;
-        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { }
+        alArrastrarRef.current?.(null);
         if (!g) return;
         const v = performance.now() - g.t > 80 ? 0 : clamp(g.v, -14, 14);
         const s = knobs.current.step;
@@ -136,13 +179,24 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
         const land = Math.round((p.current.x + v * carry) / s) * s;
         goTo(land, v * 0.6);
     };
+    const cancelar = () => { drag.current = null; dragging.current = false; alArrastrarRef.current?.(null); };
+    if (mando) mando.current = { empezar: (x) => empezar(x), mover, soltar, cancelar };
+    const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { }
+        empezar(e.clientX, e.currentTarget.getBoundingClientRect().width / e.currentTarget.offsetWidth || 1);
+    };
+    const onMove = (e: React.PointerEvent) => mover(e.clientX);
+    const onUp = (e: React.PointerEvent<HTMLDivElement>) => {
+        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { }
+        soltar();
+    };
 
     useEffect(() => {
         const el = ruler.current; if (!el) return; let idle = 0;
         const wheel = (e: WheelEvent) => {
             if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
             e.preventDefault(); cancelAnimationFrame(raf.current); raf.current = 0;
-            set(p.current.x + e.deltaX / PX);
+            set(p.current.x + e.deltaX / pxRef.current);
             clearTimeout(idle);
             idle = window.setTimeout(() => { const s = knobs.current.step; goTo(Math.round(p.current.x / s) * s, 0); }, 120);
         };
@@ -186,7 +240,7 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
     };
 
     return (
-        <div className="tms" style={{ "--tms-r": `${Math.max(0, corner)}px`, "--tms-fade": `${clamp(difuminado, 0, 45)}%`, width } as React.CSSProperties}>
+        <div className="tms" data-tramos={tramos ? "" : undefined} style={{ "--tms-r": `${Math.max(0, corner)}px`, "--tms-fade": `${clamp(difuminado, 0, 45)}%`, width } as React.CSSProperties}>
             <div className="tms-read" aria-live="polite" aria-label={`${time} ${mer}`}>
                 <span className="tms-time">
                     {time.split("").map((c, i) => c === ":" ? <span key={`c${i}`} className="tms-colon">:</span> : <Digit key={time.length - i} d={c} />)}
@@ -202,12 +256,22 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                     cortadas por la mitad. La ventana sube lo que cuelgan. */}
                 <div className="tms-ventana">
                 <div className="tms-track">
+                    {/* La franja, de abajo hacia arriba: rojo donde se sabe que NO hay grabación, verde
+                        corrido donde hay, y encima cada tramo con detección en su color. Plana, sin
+                        bordes redondeados: los cortes se leen como cortes y no como píldoras sueltas. */}
+                    {tramos && rangoTramos && (() => {
+                        const x1 = Math.max(-HALF - 40, (rangoTramos[0] - pos) * PX), x2 = Math.min(HALF + 40, (rangoTramos[1] - pos) * PX);
+                        return x2 > x1 ? <span className="tms-tramo" data-tono="sin" style={{ transform: `translateX(${x1.toFixed(2)}px)`, width: x2 - x1 }} /> : null;
+                    })()}
                     {tramos?.map(([a, b], i) => {
-                        // Los tramos son del día que se mira; `pos` puede haber dado la vuelta (no se envuelve).
-                        const base = pos - wrap(pos);
-                        const x1 = (a + base - pos) * PX, x2 = (b + base - pos) * PX;
+                        const x1 = Math.max(-HALF - 40, (a - pos) * PX), x2 = Math.min(HALF + 40, (b - pos) * PX);
+                        if (x2 <= x1) return null;
+                        return <span key={`t${i}`} className="tms-tramo" style={{ transform: `translateX(${x1.toFixed(2)}px)`, width: Math.max(1, x2 - x1) }} />;
+                    })}
+                    {bandas?.map((k, i) => {
+                        const x1 = Math.max(-HALF - 40, (k.a - pos) * PX), x2 = Math.min(HALF + 40, (k.b - pos) * PX);
                         if (x2 < -HALF - 40 || x1 > HALF + 40) return null;
-                        return <span key={`t${i}`} className="tms-tramo" style={{ transform: `translateX(${x1.toFixed(2)}px)`, width: Math.max(2, x2 - x1) }} />;
+                        return <span key={`b${i}`} className="tms-tramo" data-tono={k.tono} style={{ transform: `translateX(${x1.toFixed(2)}px)`, width: Math.max(3, x2 - x1) }} />;
                     })}
                     {ticks.map((t) => (
                         <span key={t.m} className="tms-tick" data-kind={t.kind}
@@ -273,8 +337,27 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                 .tms-marca[data-tono="mal"]   { background: #dc2626; box-shadow: 0 0 10px rgba(239,68,68,0.75); }
                 .tms-marca[data-tono="aviso"] { background: #d97706; box-shadow: 0 0 10px rgba(245,158,11,0.7); }
                 .tms-marca[data-tono="bien"]  { background: #059669; box-shadow: 0 0 10px rgba(16,185,129,0.7); }
-                .tms-tramo { position: absolute; left: 0; top: 0; height: 4px; border-radius: 2px; background: color-mix(in oklab, var(--bien) 80%, transparent); }
+                /* Con franja de grabación (añadido de OmniAccess), las marcas se apoyan SOBRE la franja
+                   verde: el centro del ícono cae en la línea, como en la línea de tiempo de un NVR. */
+                /* Con franja (añadido de OmniAccess), las marcas van ARRIBA de la franja, con un palito
+                   que baja hasta ella (16/10, Nico: «los íconos están muy encima de la línea; deben
+                   estar más arriba para ver la línea y sus colores»). La regla baja para dejarles
+                   lugar debajo de la hora grande. */
+                .tms[data-tramos] .tms-ruler { margin-top: 34px; }
+                /* La ventana (que lleva el esfumado y recorta lo que sale de su caja) sube con ellas. */
+                .tms[data-tramos] .tms-ventana { top: -36px; }
+                .tms[data-tramos] .tms-track { top: 36px; }
+                .tms[data-tramos] .tms-marcas { top: 6px; }
+                .tms[data-tramos] .tms-marca::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1.5px; height: 8px; margin-left: -0.75px; background: rgba(255,255,255,0.6); }
+                .tms[data-tramos] .tms-tramo { height: 6px; top: 0; }
+                .tms-tramo { position: absolute; left: 0; top: 0; height: 4px; background: var(--bien); }
+                .tms-tramo[data-tono="sin"]     { background: color-mix(in oklab, var(--mal) 85%, transparent); }
+                .tms-tramo[data-tono="aviso"]   { background: var(--aviso); }
+                .tms-tramo[data-tono="info"]    { background: var(--accion-en-oscuro, #38bdf8); }
+                .tms-tramo[data-tono="lectura"] { background: #fff; }
+                .tms-tramo[data-tono="propio"]  { background: #c084fc; }
                 .tms-marca[data-tono="info"]  { background: #0284c7; box-shadow: 0 0 10px rgba(56,189,248,0.7); }
+                .tms-marca[data-tono="propio"] { background: #9333ea; box-shadow: 0 0 10px rgba(192,132,252,0.7); }
                 /* Contexto: otros eventos de la misma cámara. Grises y sin brillo, para no competir con el evento. */
                 .tms-marca[data-tono="quieto"] { background: #3f3f46; border-color: rgba(255,255,255,0.55); box-shadow: none; }
                 .tms-marca:hover { transform: translateX(var(--tx, 0px)) translateX(-50%) scale(1.18); box-shadow: 0 0 16px rgba(255,255,255,0.55); }

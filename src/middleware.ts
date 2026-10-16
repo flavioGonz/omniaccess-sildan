@@ -28,6 +28,13 @@ const GO2RTC_ID_HLS = /^[A-Za-z0-9]{1,40}$/
  */
 const GO2RTC_NOMBRE_STREAM = /^[A-Za-z0-9_-]{1,120}$/
 
+/**
+ * Lo único que una pantalla puede pedir con POST: rutas que no guardan ni cambian nada y usan
+ * POST porque mandan una imagen. Hoy, las siluetas de la grabación: la pantalla le pasa al
+ * servidor el cuadro que está mostrando y recibe lo que vio OmniVision (15/10, pared de cámaras).
+ */
+const PANTALLA_POST_DE_LECTURA = ['/api/monitor/camaras/siluetas']
+
 const secretKey = process.env.JWT_SECRET
 const key = secretKey ? new TextEncoder().encode(secretKey) : null
 
@@ -182,7 +189,7 @@ export async function middleware(request: NextRequest) {
                     // Un enlace de pantalla sólo LEE. Las server actions viajan como POST a la
                     // propia página: sin esta línea, quien tuviera el token podría invocar
                     // cualquier acción del servidor desde /monitor/<vista>.
-                    if (request.method !== 'GET' && request.method !== 'HEAD') {
+                    if (request.method !== 'GET' && request.method !== 'HEAD' && !(request.method === 'POST' && PANTALLA_POST_DE_LECTURA.includes(pathname))) {
                         return NextResponse.json({ error: 'Un enlace de pantalla sólo puede leer' }, { status: 403 })
                     }
                     if (esApiMonitor) {

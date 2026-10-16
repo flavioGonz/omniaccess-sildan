@@ -320,6 +320,11 @@ export async function getVisualTrackLinks(camId: string): Promise<TrackLink[]> {
     } catch { return []; }
 }
 export async function setVisualTrackLinks(camId: string, links: TrackLink[]): Promise<{ ok: boolean }> {
+    // Una acción del servidor se puede llamar desde afuera de la pantalla: sin sesión no se escribe
+    // (antes no se miraba, y cualquiera con el id de la acción podía reescribir los enlaces).
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession().catch(() => null))) return { ok: false };
+    if (typeof camId !== "string" || !/^[\w-]{1,100}$/.test(camId)) return { ok: false };
     try {
         const r = await prisma.setting.findUnique({ where: { key: "VISUAL_TRACK_LINKS" } });
         let all: Record<string, TrackLink[]>; try { all = JSON.parse(r?.value || "{}"); } catch { all = {}; }

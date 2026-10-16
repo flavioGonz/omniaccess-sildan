@@ -5,6 +5,7 @@ import { VISION_URL, empresasEnTextos } from "@/lib/vision";
 import { leerCatalogo } from "@/lib/empresas-servidor";
 import { normalizarNombre } from "@/lib/empresas";
 import { Prisma } from "@prisma/client";
+import { historialDePistas, pareceChapa, pasosDeChapa, pistasDePasos, type PasoChapa } from "@/lib/vision-historial";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +77,16 @@ export async function GET(req: NextRequest) {
     if (!q && !parecido) return NextResponse.json({ error: "Escribí qué buscar" }, { status: 400 });
     const t0 = Date.now();
 
+    // Una matrícula no se busca por cómo se ve («SBX1234» no describe nada para SigLIP): se busca
+    // en el historial de accesos, y de cada paso se traen las pistas de OmniVision del vehículo.
+    const chapa = !parecido && q ? pareceChapa(q) : null;
+    if (chapa) {
+        const r = rango(sp);
+        const pasos = await pasosDeChapa(chapa, new Date(Date.now() - r.h * 3600_000));
+        const pistas = await pistasDePasos(pasos);
+        return responder(pistas.map((f) => ({ f, coseno: 1, prob: null })), { comparados: pasos.length, sinHuella: 0, h: r.h, t0, modo: "chapa", pasos });
+    }
+
     let consulta: Float32Array, escala: number | null = null, sesgo: number | null = null;
     try {
         if (parecido) {
@@ -144,21 +155,34 @@ async function comparar(consulta: Float32Array, escala: number | null, sesgo: nu
 
     const filas = puntos.length ? await prisma.objetoVisto.findMany({ where: { id: { in: puntos.map((p) => p.id) } } }) : [];
     const porId = new Map(filas.map((f) => [f.id, f]));
-    const catalogo = filas.some((f) => Array.isArray(f.textos) && (f.textos as any[]).length) ? await leerCatalogo().catch(() => []) : [];
-    const resultados = puntos.map((p) => {
+    const lista = puntos.map((p) => {
         const f = porId.get(p.id);
-        if (!f) return null;
-        const textos = Array.isArray(f.textos) ? (f.textos as any[]).map((t) => ({ ...t, sobreimpreso: false })) : null;
-        const marcados = textos?.length ? empresasEnTextos(textos, catalogo as any, normalizarNombre) : null;
         // La probabilidad de SigLIP (sigmoide de escala·coseno + sesgo) sólo tiene sentido texto↔imagen.
         const prob = escala != null && sesgo != null ? 1 / (1 + Math.exp(-(escala * p.coseno + sesgo))) : null;
+        return f ? { f, coseno: p.coseno, prob } : null;
+    }).filter((x): x is NonNullable<typeof x> => !!x);
+    return responder(lista, { comparados: huellas.length, sinHuella: sinHuella[0]?.n ?? 0, h, t0, modo });
+}
+
+/** Arma la respuesta: el rotulado con su empresa y lo que el historial sabe de cada pista. */
+async function responder(lista: { f: any; coseno: number; prob: number | null }[],
+    m: { comparados: number; sinHuella: number; h: number; t0: number; modo: "texto" | "parecido" | "foto" | "chapa"; pasos?: PasoChapa[] }) {
+    const filas = lista.map((x) => x.f);
+    const [catalogo, historial] = await Promise.all([
+        filas.some((f) => Array.isArray(f.textos) && (f.textos as any[]).length) ? leerCatalogo().catch(() => []) : Promise.resolve([]),
+        historialDePistas(filas).catch(() => new Map()),
+    ]);
+    const resultados = lista.map(({ f, coseno, prob }) => {
+        const textos = Array.isArray(f.textos) ? (f.textos as any[]).map((t) => ({ ...t, sobreimpreso: false })) : null;
+        const marcados = textos?.length ? empresasEnTextos(textos, catalogo as any, normalizarNombre) : null;
         return {
             ...f, textos: marcados && marcados.length ? marcados : null, empresa: (marcados?.find((t: any) => t.empresa) as any)?.empresa || null,
-            coseno: Math.round(p.coseno * 1000) / 1000, prob: prob != null ? Math.round(prob * 1000) / 1000 : null,
+            coseno: Math.round(coseno * 1000) / 1000, prob: prob != null ? Math.round(prob * 1000) / 1000 : null,
+            historial: historial.get(f.id) || null,
         };
-    }).filter(Boolean);
+    });
     return NextResponse.json({
-        resultados, comparados: huellas.length, sinHuella: sinHuella[0]?.n ?? 0, h, ms: Date.now() - t0,
-        modo,
+        resultados, comparados: m.comparados, sinHuella: m.sinHuella, h: m.h, ms: Date.now() - m.t0, modo: m.modo, pasos: m.pasos || null,
     }, { headers: { "Cache-Control": "no-store" } });
 }
+

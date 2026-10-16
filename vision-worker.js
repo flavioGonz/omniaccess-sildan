@@ -51,6 +51,8 @@ const INTERVALO_MS = Number(process.env.VISION_REGISTRO_INTERVALO_MS || 2000);
 const CAMBIO_MIN = Number(process.env.VISION_REGISTRO_CAMBIO_MIN || 3.5);
 /** Aunque no cambie nada, cada tanto se analiza igual: un objeto quieto también existe. */
 const ANALIZAR_IGUAL_MS = 60_000;
+/** Cuántos cuadros se piden a go2rtc a la vez en la ronda (ver el bucle principal). */
+const CUADROS_EN_PARALELO = Math.max(1, Number(process.env.VISION_CUADROS_PARALELO || 4));
 /** Confianza mínima para registrar. Un poco más alta que la del laboratorio: esto queda guardado. */
 const UMBRAL = Number(process.env.VISION_REGISTRO_UMBRAL || 0.45);
 /** Una pista que no se ve durante esto se da por terminada. */
@@ -96,6 +98,75 @@ const CONF_TEXTO = 0.7;
  */
 const RAPIDO_FPS = Number(process.env.VISION_REGLAS_FPS || 4);
 const RTSP_GO2RTC = (process.env.GO2RTC_RTSP || "rtsp://127.0.0.1:8554").replace(/\/$/, "");
+
+// ─────────────────────────── cupo y medición (15/10) ───────────────────────────
+//
+// Pedido de Nico: un botón en cada canal de la pared para mandarlo a OmniVision o retirarlo,
+// con un límite controlado desde el servidor para no saturar el equipo. Dos piezas acá:
+//
+//  · El medidor: cuántos análisis por segundo hace cada cámara de verdad (ventana de
+//    MEDICION_MS), y el total. Es lo que mira la pantalla para dejar o no agregar una cámara
+//    (lib/vision-camaras) — por carga medida, no por cantidad: una cámara de un pasillo quieto
+//    casi no cuenta (la compuerta de cambio la saltea), una de la entrada sí.
+//  · El tope: una cubeta de VISION_TOPE_POR_SEG análisis por segundo para el registro y el
+//    carril rápido. Si se pasa, la ronda espera: nunca le pide a omni-vision (que comparte la
+//    GPU con el lector de chapas) más que eso, aunque alguien agregue cámaras de más. Las
+//    verificaciones de intrusión y las lecturas no esperan acá: son de a una y por evento.
+const MEDICION_MS = 5 * 60_000;
+const TOPE_POR_SEG_DEFECTO = 12;
+const marcas = new Map();   // deviceId → [ms de cada análisis en la ventana]
+function marcarAnalisis(deviceId) {
+    const ahora = Date.now();
+    const v = marcas.get(deviceId) || [];
+    v.push(ahora);
+    while (v.length && ahora - v[0] > MEDICION_MS) v.shift();
+    marcas.set(deviceId, v);
+}
+const arranque = Date.now();
+function porSegundo(deviceId) {
+    const v = marcas.get(deviceId) || [];
+    const ahora = Date.now();
+    const ventana = Math.min(MEDICION_MS, Math.max(10_000, ahora - arranque));
+    return v.filter((t) => ahora - t <= ventana).length / (ventana / 1000);
+}
+let cubeta = { fichas: TOPE_POR_SEG_DEFECTO, t: Date.now() };
+async function tomarFicha() {
+    for (;;) {
+        const tope = ajustes.topePorSeg || TOPE_POR_SEG_DEFECTO;
+        const ahora = Date.now();
+        cubeta = { fichas: Math.min(tope, cubeta.fichas + ((ahora - cubeta.t) / 1000) * tope), t: ahora };
+        if (cubeta.fichas >= 1) { cubeta.fichas -= 1; return; }
+        contadores.esperasCupo = (contadores.esperasCupo || 0) + 1;
+        await dormir(Math.ceil(((1 - cubeta.fichas) / tope) * 1000));
+    }
+}
+
+/**
+ * Canales de NVR que no son equipo (`nvrch-<nvr>-<ch>`, el nombre de su stream en go2rtc).
+ * Su stream vive en la memoria de go2rtc y se pierde si reinicia: se registra acá si falta,
+ * con la misma receta que lib/go2rtc-sync (subflujo y principal, y una conversión de reserva).
+ */
+const CANAL_NVR = /^nvrch-([\w-]+)-(\d{1,4})$/;
+async function asegurarCanales(ids) {
+    const canales = ids.map((id) => [id, CANAL_NVR.exec(id)]).filter(([, m]) => m);
+    if (!canales.length) return;
+    let hay = new Set();
+    try { const r = await fetch(`${GO2RTC}/api/streams`, { signal: AbortSignal.timeout(4000) }); hay = new Set(Object.keys(await r.json())); } catch { return; }
+    const enc = encodeURIComponent;
+    for (const [id, m] of canales) {
+        if (hay.has(`lpr_${id}`) && hay.has(`lpr_${id}_hd`)) continue;
+        const nvr = await prisma.device.findUnique({ where: { id: m[1] }, select: { ip: true, username: true, password: true, port: true, brand: true } }).catch(() => null);
+        if (!nvr?.ip) continue;
+        const cred = nvr.password ? `${enc(nvr.username || "admin")}:${enc(nvr.password)}@` : `${enc(nvr.username || "admin")}@`;
+        const puerto = nvr.port ? String(nvr.port) : "554";
+        const dahua = String(nvr.brand || "").toUpperCase() === "DAHUA";
+        for (const hd of [false, true]) {
+            const nombre = `lpr_${id}${hd ? "_hd" : ""}`;
+            const rtsp = dahua ? `rtsp://${cred}${nvr.ip}:${puerto}/cam/realmonitor?channel=${m[2]}&subtype=${hd ? 0 : 1}` : `rtsp://${cred}${nvr.ip}:${puerto}/Streaming/Channels/${m[2]}${hd ? "01" : "02"}`;
+            await fetch(`${GO2RTC}/api/streams?name=${enc(nombre)}&src=${enc(rtsp)}&src=${enc(`ffmpeg:${nombre}#video=h264`)}`, { method: "PUT", signal: AbortSignal.timeout(5000) }).catch(() => null);
+        }
+    }
+}
 /** Atributos (SigLIP) sólo cada tantos cuadros en el carril rápido: son para la foto del registro, no para las reglas. */
 const RAPIDO_ATRIBUTOS_CADA = 4;
 /**
@@ -140,14 +211,20 @@ async function mandarTareas(apagadas) {
 }
 
 async function leerAjustes() {
-    const [a, c, cams, ret, reglas, tareas] = await Promise.all([
+    const [a, c, cams, ret, reglas, tareas, tope, nombres] = await Promise.all([
         ajuste("VISION_ANALITICAS"), ajuste("VISION_CLASES"), ajuste("VISION_CAMARAS"), ajuste("VISION_RETENCION_DIAS"), ajuste("VISION_REGLAS"), ajuste("VISION_TAREAS"),
+        ajuste("VISION_TOPE_POR_SEG"), ajuste("VISION_CAMARAS_NOMBRES"),
     ]);
     const apagadas = new Set((json(tareas, {}).apagadas || []).map(String));
     await mandarTareas(apagadas);
     const analiticas = json(a, {});
     const elegidas = json(cams, []);
-    const dispositivos = await prisma.device.findMany({ where: { deviceType: { not: "NVR" } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+    const equiposDb = await prisma.device.findMany({ where: { deviceType: { not: "NVR" } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+    // Los canales de NVR elegidos se suman como «dispositivos» con su nombre guardado por la pantalla.
+    const nombresCanal = json(nombres, {});
+    const canalesNvr = (Array.isArray(elegidasCrudas(cams)) ? elegidasCrudas(cams) : []).filter((id) => CANAL_NVR.test(id)).map((id) => ({ id, name: nombresCanal[id] || id }));
+    const dispositivos = [...equiposDb, ...canalesNvr];
+    await asegurarCanales(canalesNvr.map((x) => x.id)).catch(() => null);
     ajustes = {
         activo: analiticas.registro !== false,
         apagadas,
@@ -173,6 +250,11 @@ async function leerAjustes() {
         clases: json(c, {}),
         camaras: Array.isArray(elegidas) && elegidas.length ? dispositivos.filter((d) => elegidas.includes(d.id)) : dispositivos,
         retencionDias: Math.max(1, Number(ret) || RETENCION_DIAS_DEFECTO),
+        topePorSeg: Math.max(1, Number(tope) || TOPE_POR_SEG_DEFECTO),
+        // «Todo de esa cámara» (15/10): la lista de VISION_CAMARAS decide también reglas, carril
+        // rápido, verificación de intrusión, lecturas, relectura y zonas. Vacía = todos los equipos.
+        todas: !(Array.isArray(elegidas) && elegidas.length),
+        permitidas: new Set(Array.isArray(elegidas) && elegidas.length ? elegidas.map(String) : equiposDb.map((d) => d.id)),
         leidos: Date.now(),
     };
     reglero?.cargar(json(reglas, []), analiticas);
@@ -244,6 +326,8 @@ async function recortar(jpeg, cajaNorm, ancho, alto) {
 }
 
 async function detectar(jpeg, deviceId, op = {}) {
+    await tomarFicha();
+    marcarAnalisis(deviceId);
     const q = new URLSearchParams({ umbral: String(UMBRAL), atributos: op.atributos === false || ajustes.apagadas.has("atributos") ? "0" : "1", sesion: `registro-${deviceId}`, fps: String(op.fps || 1000 / INTERVALO_MS) });
     const r = await fetch(`${VISION}/detectar?${q}`, {
         method: "POST", body: jpeg, headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(20000),
@@ -358,10 +442,10 @@ const ultimoAnalisis = {};
 let ultimoErrorLog = 0;
 
 /** `registra`: si esta cámara es del registro de detecciones (además puede estar por una regla). */
-async function mirar(cam, registra = true) {
+async function mirar(cam, registra = true, pedido = null) {
     const est = (porCamara[cam.id] ||= { nombre: cam.name, analizados: 0, saltados: 0, errores: 0, objetos: 0, ultimo: null, ms: null, error: null });
     est.nombre = cam.name;
-    const jpeg = await cuadro(cam.id);
+    const jpeg = await (pedido || cuadro(cam.id));
     if (!jpeg) { est.errores++; est.error = "go2rtc no entregó cuadro"; return; }
     await analizarCuadro(cam, jpeg, registra);
 }
@@ -374,6 +458,8 @@ async function analizarCuadro(cam, jpeg, registra, rapido = null) {
     const est = (porCamara[cam.id] ||= { nombre: cam.name, analizados: 0, saltados: 0, errores: 0, objetos: 0, ultimo: null, ms: null, error: null });
     est.nombre = cam.name;
     est.rapido = !!rapido;
+    // Para la tabla de Analíticas: si sus objetos van al registro, o la mira sólo por una regla.
+    est.registra = !!registra;
     const h = await huella(jpeg);
     const dif = diferencia(h, huellas[cam.id]);
     // En la ronda, contra el cuadro anterior; en el carril rápido, contra el último analizado.
@@ -430,11 +516,24 @@ function resumenDifs(v) {
     return { mediana: o[Math.floor(o.length / 2)], max: o[o.length - 1], n: o.length };
 }
 
+let eventosPrevio = null, cargaEventos = 0, ultimoCicloMs = null;
+/** La lista cruda de VISION_CAMARAS (ids), tal como está guardada. */
+function elegidasCrudas(valor) { try { const v = JSON.parse(valor || "[]"); return Array.isArray(v) ? v.map(String) : []; } catch { return []; } }
 async function escribirEstado() {
-    const camaras = Object.fromEntries(Object.entries(porCamara).map(([k, v]) => [k, { ...v, difs: undefined, cambio: resumenDifs(v.difs) }]));
+    const camaras = Object.fromEntries(Object.entries(porCamara).map(([k, v]) => [k, { ...v, difs: undefined, cambio: resumenDifs(v.difs), porSeg: Math.round(porSegundo(k) * 1000) / 1000 }]));
+    // Lo que se hace por evento (verificaciones, lecturas, huellas, relecturas, zonas), medido por
+    // diferencia de contadores entre una escritura y la siguiente.
+    const porEvento = (analista ? (analista.contadores.verificadas || 0) + (analista.contadores.lecturas || 0) + (analista.contadores.huellas || 0) : 0)
+        + (relector ? relector.contadores.hechas || 0 : 0) + (zonero ? zonero.contadores.muestras || 0 : 0);
+    const ahoraMs = Date.now();
+    if (eventosPrevio) cargaEventos = Math.max(0, (porEvento - eventosPrevio.n) / Math.max(1, (ahoraMs - eventosPrevio.t) / 1000));
+    eventosPrevio = { n: porEvento, t: ahoraMs };
+    const registroPorSeg = [...marcas.keys()].reduce((s, k) => s + porSegundo(k), 0);
     const valor = JSON.stringify({
         t: new Date().toISOString(), activo: ajustes.activo, tareasApagadas: [...ajustes.apagadas], mira: ajustes.mira, intervaloMs: INTERVALO_MS, umbral: UMBRAL, cambioMin: CAMBIO_MIN,
+        cicloMs: ultimoCicloMs, rapidoFps: RAPIDO_FPS, analizarIgualMs: ANALIZAR_IGUAL_MS,
         camaras, contadores, pistasAbiertas: abiertas.size, retencionDias: ajustes.retencionDias,
+        carga: { registro: Math.round(registroPorSeg * 100) / 100, eventos: Math.round(cargaEventos * 100) / 100, total: Math.round((registroPorSeg + cargaEventos) * 100) / 100, tope: ajustes.topePorSeg || TOPE_POR_SEG_DEFECTO, ventanaMs: MEDICION_MS },
         relectura: relector ? { activa: ajustes.relectura, ...relector.contadores } : null,
         analisis: analista ? { verificar: ajustes.verificar, lpr: ajustes.analizarLpr, ...analista.contadores } : null,
         reglas: reglero ? reglero.contadores : null, zonas: zonero ? zonero.contadores : null, rotulado: ajustes.rotulado,
@@ -555,7 +654,7 @@ async function bucleRapido(st) {
 
 /** Prende el carril rápido de las cámaras con reglas de línea y lo apaga en las que ya no tienen. */
 function sincronizarRapidas(registro) {
-    const quiero = ajustes.mira ? reglero.camarasRapidas() : new Set();
+    const quiero = ajustes.mira ? new Set([...reglero.camarasRapidas()].filter((id) => ajustes.permitidas?.has(id))) : new Set();
     for (const [id, st] of rapidas) {
         if (quiero.has(id)) { st.registra = registro.has(id); continue; }
         st.retirada = true; try { st.ffmpeg?.kill("SIGKILL"); } catch { }
@@ -577,32 +676,47 @@ async function principal() {
     log(`arranca · ${VISION} · cada ${INTERVALO_MS} ms · umbral ${UMBRAL} · cambio ${CAMBIO_MIN}`);
     reglero = reglasVision.iniciar({ prisma, subir, log });
     await leerAjustes().catch((e) => log("ajustes:", e.message));
-    relector = relecturas.iniciar({ prisma, subir, ajuste, log, vision: VISION, activa: () => ajustes.relectura });
+    const permitidas = () => ({ todas: ajustes.todas !== false, ids: [...(ajustes.permitidas || [])] });
+    relector = relecturas.iniciar({ prisma, subir, ajuste, log, vision: VISION, activa: () => ajustes.relectura, permitidas });
     analista = analisisFotos.iniciar({
         prisma, log, vision: VISION,
         estado: () => ({
             detectar: !ajustes.apagadas.has("detectar"), segmentar: !ajustes.apagadas.has("segmentar"),
             verificar: ajustes.verificar, lpr: ajustes.analizarLpr, atributos: ajustes.atributosLpr, huellas: ajustes.huellas,
         }),
+        permitidas,
         bajar, subir,
     });
-    zonero = zonasEntrenables.iniciar({ prisma, log, vision: VISION, subir, borrar, activa: () => ajustes.zonas, segmentar: () => !ajustes.apagadas.has("segmentar") });
+    zonero = zonasEntrenables.iniciar({ prisma, log, vision: VISION, subir, borrar, activa: () => ajustes.zonas, segmentar: () => !ajustes.apagadas.has("segmentar"), permitidas });
     let ultEstado = 0, ultLimpieza = 0, hayTrabajo = false;
     while (corriendo) {
         const t0 = Date.now();
         try {
             if (Date.now() - ajustes.leidos > AJUSTES_MS) await leerAjustes();
             // Las cámaras del registro (si está prendido) más las que tienen una regla prendida.
-            const porReglas = ajustes.mira ? reglero.camaras() : new Set();
+            const porReglas = ajustes.mira ? new Set([...reglero.camaras()].filter((id) => ajustes.permitidas.has(id))) : new Set();
             const registro = new Set(ajustes.activo && ajustes.mira ? ajustes.camaras.map((c) => c.id) : []);
             sincronizarRapidas(registro);
             // Las del carril rápido no van en la ronda: las analiza su propio bucle.
             const lista = ajustes.dispositivos.filter((d) => (registro.has(d.id) || porReglas.has(d.id)) && !rapidas.has(d.id));
             hayTrabajo = lista.length > 0 || rapidas.size > 0;
             if (hayTrabajo) {
+                /*
+                 * Los cuadros se piden de a CUADROS_EN_PARALELO por delante de la que se analiza. Un
+                 * cuadro de go2rtc (frame.jpeg) arranca un ffmpeg y decodifica H.265: ~1 s por cámara,
+                 * mientras omni-vision contesta en ~40 ms. Pedidos de a uno, con 14 cámaras la vuelta
+                 * duraba 13,9 s (medido el 15/10 en San Nicolás, con la GPU al 20 % del tope): cada
+                 * cámara se miraba una vez cada 14 s. El análisis sigue siendo de a uno.
+                 */
+                const pedidos = new Map();
+                let sig = 0;
+                const pedirMas = () => { while (pedidos.size < CUADROS_EN_PARALELO && sig < lista.length) { const c = lista[sig++]; pedidos.set(c.id, cuadro(c.id)); } };
                 for (const cam of lista) {
                     if (!corriendo) break;
-                    try { await mirar(cam, registro.has(cam.id)); }
+                    pedirMas();
+                    const pedido = pedidos.get(cam.id) || null;
+                    pedidos.delete(cam.id);
+                    try { await mirar(cam, registro.has(cam.id), pedido); }
                     catch (e) {
                         contadores.errores++;
                         (porCamara[cam.id] ||= {}).error = e.message;
@@ -610,6 +724,8 @@ async function principal() {
                     }
                 }
             }
+            // Cuánto tardó la vuelta entera: cada cámara de la ronda se mira, como mucho, una vez por vuelta.
+            if (lista.length) ultimoCicloMs = Date.now() - t0;
             // Con el registro apagado, las pistas abiertas por el carril rápido también se cierran.
             await cerrarVencidas(!ajustes.activo || !ajustes.mira);
             contadores.ciclos++;

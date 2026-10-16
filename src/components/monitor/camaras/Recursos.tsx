@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Cpu, MemoryStick, Gauge, Video } from "lucide-react";
+import { Cpu, MemoryStick, Gauge, Video, ScanEye } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,6 +22,7 @@ type Medida = {
     gpu: { uso: number | null; mem: number | null; memTotal: number | null; temp: number | null; w: number | null } | null;
     gpuFalla: "sin-placa" | "sin-driver" | null;
     video: { activos: number; convertidos: number; directos: number; espectadores: number } | null;
+    vision?: { total: number; tope: number; medido: boolean } | null;
 };
 
 /** Cada cuánto se pregunta. La ruta guarda la medida 2,5 s: más seguido no trae nada nuevo. */
@@ -91,6 +92,10 @@ export function Recursos({ h265, directosOk, directosMal, envolver }: { h265: bo
                         className={cn("h-10 px-3 rounded-[10px] inline-flex items-center gap-1.5 text-[12px] font-semibold", m.gpuFalla === "sin-driver" ? "chip-mal border" : "bg-muted/60 text-muted-foreground")}>
                         <Gauge size={15} /> {m.gpuFalla === "sin-driver" ? "GPU sin driver" : "Sin GPU"}
                     </span>
+                )}
+                {m.vision?.medido && (
+                    <Medidor Icono={ScanEye} rotulo="Omni" pct={Math.round((m.vision.total / m.vision.tope) * 100)} valor={`${m.vision.total.toLocaleString("es-UY", { maximumFractionDigits: 1 })}/${m.vision.tope}`}
+                        titulo={`OmniVision hace ${m.vision.total.toLocaleString("es-UY", { maximumFractionDigits: 2 })} análisis por segundo de un tope de ${m.vision.tope}. Al llegar al tope no deja agregar cámaras, y la ronda espera en vez de saturar la GPU.`} />
                 )}
                 {v && (
                     <div title={`go2rtc está sirviendo ${v.activos} vivos a ${v.espectadores} navegadores: ${v.directos} directos (sólo reempaqueta, casi no cuesta) y ${v.convertidos} convertidos a H.264 (cada uno usa CPU).`}

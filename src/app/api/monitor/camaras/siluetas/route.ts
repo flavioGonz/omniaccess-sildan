@@ -29,7 +29,13 @@ const GO2RTC_RTSP = process.env.GO2RTC_RTSP || "rtsp://127.0.0.1:8554";
 const CUADROS_POR_SEG = 3;
 const SESIONES_MAX = 2;
 const SESION_MAX_MS = 10 * 60_000;
-const GRUPOS = "persona,vehiculo,animal";
+/**
+ * «propio»: lo que encuentra el detector entrenado en OmniVision › Entrenar › Objetos nuevos
+ * (basurero, cono…), cuando hay uno activo. Antes se pedían sólo los tres grupos de fábrica y lo
+ * entrenado quedaba afuera aunque omni-vision lo estuviera viendo (15/10, Nico: «¿no debería
+ * detectar también mis entrenamientos?»). Sale como caja (el detector propio no segmenta).
+ */
+const GRUPOS = "persona,vehiculo,animal,propio";
 /** Puntos por silueta que viajan al navegador: más no se distingue a este tamaño. */
 const PUNTOS_SILUETA_MAX = 60;
 const NOMBRE_STREAM = /^(lpr|face)_[\w-]{1,100}$/;
@@ -124,4 +130,51 @@ export async function GET(req: NextRequest) {
     });
 
     return new Response(body, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store", "X-Accel-Buffering": "no", Connection: "keep-alive" } });
+}
+
+/**
+ * POST /api/monitor/camaras/siluetas (cuerpo image/jpeg) → lo que OmniVision ve en ESE cuadro.
+ *
+ * Para la grabación (pedido 15/10: «en playback, ¿no podemos tener detecciones sin perder
+ * rendimiento?»). El navegador ya está decodificando la grabación para mostrarla: saca el cuadro
+ * que tiene en pantalla, lo achica a 640 px y lo manda. El servidor no decodifica nada (otra
+ * sesión de playback contra el NVR y un H.265 de 1080p por CPU serían lo caro); sólo pone los
+ * ~40 ms de la GPU. Y como es el cuadro exacto que se ve, las siluetas caen justo, también en
+ * pausa, que es cuando más se mira.
+ *
+ * Tope global de POST_POR_SEG cuadros por segundo entre todas las pantallas: pasado eso,
+ * 429 y la pantalla espera. Cuerpo de a lo sumo POST_MAX_BYTES (un 640 px en JPEG pesa ~60 KB).
+ */
+const POST_POR_SEG = 6;
+const POST_MAX_BYTES = 400 * 1024;
+let cubeta = { fichas: POST_POR_SEG, t: Date.now() };
+
+export async function POST(req: NextRequest) {
+    const p = await autorizarMonitor("/api/monitor/camaras/siluetas");
+    if (p.error) return p.error;
+    const ahora = Date.now();
+    cubeta = { fichas: Math.min(POST_POR_SEG, cubeta.fichas + ((ahora - cubeta.t) / 1000) * POST_POR_SEG), t: ahora };
+    if (cubeta.fichas < 1) return NextResponse.json({ error: "Demasiados cuadros a la vez" }, { status: 429, headers: { "Retry-After": "1" } });
+    cubeta.fichas -= 1;
+    if (!(req.headers.get("content-type") || "").startsWith("image/jpeg")) return NextResponse.json({ error: "Mandá un JPEG" }, { status: 415 });
+    const jpeg = Buffer.from(await req.arrayBuffer());
+    if (!jpeg.length || jpeg.length > POST_MAX_BYTES) return NextResponse.json({ error: "Cuadro vacío o demasiado grande" }, { status: 413 });
+    try {
+        const r = await fetch(`${VISION}/detectar?tarea=segmentar&grupos=${GRUPOS}`, { method: "POST", body: new Uint8Array(jpeg), headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(5000) });
+        const j: any = await r.json().catch(() => ({}));
+        if (!r.ok) return NextResponse.json({ error: j.error || `omni-vision respondió ${r.status}` }, { status: 502 });
+        return NextResponse.json({
+            ms: Date.now() - ahora,
+            analisis: {
+                ancho: j.ancho, alto: j.alto, tarea: "segmentar",
+                objetos: (j.objetos || []).map((o: any) => ({
+                    clase: o.clase, nombre: o.nombre, grupo: o.grupo, confianza: Math.round(o.confianza * 1000) / 1000,
+                    caja: (o.caja_norm || []).map(r4),
+                    ...(Array.isArray(o.silueta) ? { silueta: o.silueta.map((q: number[][]) => aligerar(q).map(([x, y]) => [r4(x), r4(y)])) } : {}),
+                })),
+            },
+        }, { headers: { "Cache-Control": "no-store" } });
+    } catch (e: any) {
+        return NextResponse.json({ error: e?.message || "omni-vision no contestó" }, { status: 502 });
+    }
 }

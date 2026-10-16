@@ -63,7 +63,7 @@ function emitir(evento, datos) {
     } catch { }
 }
 
-function iniciar({ prisma, log, vision, subir, borrar, activa, segmentar }) {
+function iniciar({ prisma, log, vision, subir, borrar, activa, segmentar, permitidas = () => null }) {
     const contadores = { muestras: 0, avisos: 0, errores: 0, ultimoError: null };
     /** Vectores de las frases por zona: `${zonaId}` → { clave, pos, neg, escala }. Las frases cambian poco. */
     const frases = new Map();
@@ -188,7 +188,9 @@ function iniciar({ prisma, log, vision, subir, borrar, activa, segmentar }) {
         while (corriendo) {
             try {
                 if (activa()) {
-                    const zonas = await prisma.zonaEntrenable.findMany({ where: { activa: true } });
+                    // Sólo las de cámaras que OmniVision puede tocar (VISION_CAMARAS, el botón de la pared).
+                    const p = permitidas();
+                    const zonas = (await prisma.zonaEntrenable.findMany({ where: { activa: true } })).filter((z) => !p || p.todas || p.ids.includes(z.deviceId));
                     const ahora = Date.now();
                     for (const z of zonas) {
                         const ultima = z.estado?.al ? Date.parse(z.estado.al) : 0;

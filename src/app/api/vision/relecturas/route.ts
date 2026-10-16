@@ -6,6 +6,7 @@ import { CLAVE_UMBRAL_RELECTURA, OPCIONES_UMBRAL, UMBRAL_RELECTURA, estadoConUmb
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
 import { leerAjuste, guardarAjuste } from "@/lib/ajustes-db";
+import { queSeSabeDeChapas } from "@/lib/vision-historial";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +112,22 @@ export async function GET(req: NextRequest) {
     let estado: any = null, activa = true;
     try { estado = JSON.parse(estadoCrudo?.value || "null")?.relectura ?? null; } catch { }
     try { activa = (JSON.parse(analiticasCrudo?.value || "{}") || {}).relectura !== false; } catch { }
-    return NextResponse.json({ h, noLeidas, conteo, doble, activa, estado, umbral, porUmbral, otraLecturaH: OTRA_LECTURA_H, filas: lista.slice(0, LISTA_MAX) });
+    /*
+     * Para la tarjeta del mosaico (15/10, «lo mismo que Buscar para Relecturas»): lo que OmniVision
+     * vio en la foto del evento (las siluetas, como en el historial) y quién es la chapa sugerida
+     * (padrón, vigilancia), para registrarla ahí mismo.
+     */
+    const visibles = lista.slice(0, LISTA_MAX);
+    const [analisis, sabido] = await Promise.all([
+        visibles.length ? prisma.analisisFoto.findMany({ where: { accessEventId: { in: visibles.map((f) => f.eventoId) }, estado: "OK" }, select: { accessEventId: true, analisis: true } }).catch(() => []) : Promise.resolve([]),
+        queSeSabeDeChapas(visibles.map((f) => f.plate || "").filter(Boolean)).catch(() => new Map()),
+    ]);
+    const analisisDe = new Map(analisis.map((a) => [a.accessEventId, a.analisis]));
+    const filasFinal = visibles.map((f) => {
+        const q = f.plate ? sabido.get(f.plate) : null;
+        return { ...f, analisis: analisisDe.get(f.eventoId) || null, persona: q?.persona || null, vigilancia: q?.vigilancia || null };
+    });
+    return NextResponse.json({ h, noLeidas, conteo, doble, activa, estado, umbral, porUmbral, otraLecturaH: OTRA_LECTURA_H, filas: filasFinal });
 }
 
 /** POST /api/vision/relecturas { umbral } — desde qué confianza una relectura es acertada. Pide Ajustes. */
