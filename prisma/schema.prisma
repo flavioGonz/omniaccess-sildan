@@ -1441,7 +1441,7 @@ model EntrenamientoDetector {
 }
 
 /// Lo que leyó una cámara LPR según su PROPIO registro (ISAPI vehicleDetect/plates), copiado cada
-/// 30 s por camara-log.js. La cámara guarda sólo las últimas ~20 en memoria (sin tarjeta no hay
+/// 10 s por camara-log.js. La cámara guarda sólo las últimas ~20 en memoria (sin tarjeta no hay
 /// historial): por eso se copian, para poder comparar con lo que recibió OmniAccess (AccessEvent)
 /// y con lo que releyó OmniVision. `picName` es el id de la captura en la cámara.
 model LecturaCamara {
