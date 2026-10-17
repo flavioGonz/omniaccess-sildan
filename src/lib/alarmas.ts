@@ -83,6 +83,35 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
     ]);
     const nombre = new Map(devs.map((d) => [d.id, d.name]));
     const atendida = new Map(atendidas.map((a) => [a.clave, a]));
+    /*
+     * La foto de los avisos de patrones (16/10, Nico: «hay fotos que no llegan»). Sólo los de
+     * OmniVision traen la foto en `datos`; «primera vez de noche», «fuera de rutina» y compañía
+     * guardan el evento de acceso que los disparó, y la foto es la de ese evento. Los que no
+     * tienen evento («se quedó más de lo habitual») usan la última lectura de su chapa antes del
+     * aviso. Medido en San Nicolás: 13 de 17 avisos del día tenían la foto disponible y salían sin ella.
+     */
+    const evIds = [...new Set(avisos.map((a) => a.accessEventId).filter(Boolean))] as string[];
+    const chapasSinEvento = [...new Set(avisos.filter((a) => !a.accessEventId && a.plate && !(a.datos as any)?.foto).map((a) => normalizarMatricula(a.plate!)).filter(Boolean))] as string[];
+    const [evFotos, lecturasChapa] = await Promise.all([
+        evIds.length ? prisma.accessEvent.findMany({ where: { id: { in: evIds } }, select: { id: true, snapshotPath: true, imagePath: true } }).catch(() => []) : Promise.resolve([]),
+        chapasSinEvento.length ? prisma.accessEvent.findMany({ where: { plateDetected: { in: chapasSinEvento }, timestamp: { gte: new Date(desde.getTime() - 7 * 86_400_000) }, OR: [{ snapshotPath: { not: null } }, { imagePath: { not: null } }] }, orderBy: { timestamp: "desc" }, take: 500, select: { plateDetected: true, timestamp: true, snapshotPath: true, imagePath: true } }).catch(() => []) : Promise.resolve([]),
+    ]);
+    const fotoEvento = new Map(evFotos.map((e) => [e.id, e.snapshotPath || e.imagePath || null]));
+    const fotoDeAviso = (a: (typeof avisos)[number]): string | null => {
+        const f = (a.datos as any)?.foto;
+        if (typeof f === "string" && f) return f.startsWith("/") ? f : `/api/vision/imagen/${f}`;
+        if (a.accessEventId && fotoEvento.get(a.accessEventId)) return fotoEvento.get(a.accessEventId)!;
+        const ch = a.plate ? normalizarMatricula(a.plate) : null;
+        const l = ch ? lecturasChapa.find((x) => x.plateDetected === ch && x.timestamp <= a.creado) : null;
+        return l ? l.snapshotPath || l.imagePath || null : null;
+    };
+    /*
+     * La foto de una detección sin captura de la cámara: el cuadro propio de OmniVision, si lo
+     * sacó. Antes se ponía /api/snapshot/<cámara>, que es la imagen de AHORA: una foto de la calle
+     * vacía horas después, con aire de ser la de la alarma.
+     */
+    const fotoDeDeteccion = (d: (typeof dets)[number]): string | null =>
+        d.snapshotPath || ((d as any).verifAnalisis?.propio?.foto ? `/api/monitor/intrusion/verificacion/${d.id}` : null);
 
     const out: Alarma[] = [];
     for (const d of dets) {
@@ -90,7 +119,7 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
             id: `d:${d.id}`, fuente: "intrusion", tipo: d.type, titulo: NOMBRE_INTRUSION[d.type] || "Evento de cámara",
             detalle: d.label === "human" ? "Persona" : d.label === "vehicle" ? "Vehículo" : d.label || null,
             ts: d.timestamp.toISOString(), camara: (d.deviceId && nombre.get(d.deviceId)) || null, deviceId: d.deviceId, plate: null,
-            foto: d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null),
+            foto: fotoDeDeteccion(d),
             tono: d.type === "LINECROSS" || d.type === "INTRUSION" ? "mal" : "aviso",
             estado: d.acknowledged ? "atendida" : "pendiente", atendidaPor: null, atendidaAt: d.ackAt?.toISOString() || null,
             resultado: d.ackKind === "false" ? "falsa" : d.ackKind === "real" ? "real" : null, accessEventId: null,
@@ -99,11 +128,10 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
     }
     for (const a of avisos) {
         const et = ETIQUETA_AVISO[a.tipo as TipoAviso];
-        const f = (a.datos as any)?.foto;
         out.push({
             id: `a:${a.id}`, fuente: a.tipo.startsWith("VISION_") ? "vision" : "patron", tipo: a.tipo, titulo: et?.titulo || a.tipo,
             detalle: a.motivo, ts: a.creado.toISOString(), camara: a.camara, deviceId: null, plate: a.plate,
-            foto: typeof f === "string" && f ? (f.startsWith("/") ? f : `/api/vision/imagen/${f}`) : null,
+            foto: fotoDeAviso(a),
             tono: (et?.tono as TonoAlarma) || "aviso",
             estado: a.atendidoAt ? "atendida" : "pendiente", atendidaPor: a.atendidoPor, atendidaAt: a.atendidoAt?.toISOString() || null,
             resultado: (atendida.get(`a:${a.id}`)?.resultado as string) || null, accessEventId: a.accessEventId,
