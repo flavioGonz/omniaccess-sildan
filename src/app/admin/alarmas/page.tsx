@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
     Siren, Home, Ticket, CircleDashed, AlertTriangle, RefreshCw, Radar, ShieldAlert, ScanEye, Repeat, Car, Check, X, LogOut, Undo2,
-    Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers,
+    Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers, Loader2, NotebookPen,
 } from "lucide-react";
 import { Pestanias, type Pestania } from "@/components/ui/pestanias";
 import { Tooltip } from "react-tooltip";
@@ -408,6 +408,15 @@ function GestionAlarmas() {
     );
 }
 
+/** Al pasar el mouse sobre la foto: que se note que se abre la ficha. */
+function VerFichaEncima() {
+    return (
+        <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/0 group-hover:bg-black/35 transition-colors">
+            <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full bg-black/65 text-white text-[12px] font-semibold opacity-0 group-hover:opacity-100 transition-opacity"><FileText size={13} /> Ver ficha del evento</span>
+        </span>
+    );
+}
+
 function Foto({ src }: { src: string | null }) {
     const [ok, setOk] = useState(true);
     useEffect(() => { setOk(true); }, [src]);
@@ -464,7 +473,14 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
 
     return (
         <>
-            <Foto src={foto} />
+            {/* Tocar la foto abre la ficha del evento (17/10, Nico): la misma de «Ver ficha». */}
+            {eventoId && evento ? (
+                <EventDetailsDialog event={evento} timeStatus={null}>
+                    <button type="button" className="group relative block w-full text-left" aria-label="Abrir la ficha del evento"><Foto src={foto} /><VerFichaEncima /></button>
+                </EventDetailsDialog>
+            ) : det ? (
+                <button type="button" onClick={() => setFichaIntrusion(true)} className="group relative block w-full text-left" aria-label="Abrir la ficha de la detección"><Foto src={foto} /><VerFichaEncima /></button>
+            ) : <Foto src={foto} />}
             <div className="px-5 pt-4 pb-5 flex flex-col gap-4">
                 <div>
                     <div className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", tonoTexto(a.tono))}><I size={13} /> {NOMBRE_FUENTE[a.fuente]}</div>
@@ -486,13 +502,18 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                 </div>
 
                 {/* La gestión: qué se hizo. Se guarda sola o junto con la decisión. */}
-                <NotaGestion n={nota} />
+                {/* La nota y la decisión en un renglón (17/10, Nico): guardar la nota es secundario (borde),
+                    la decisión es la acción (llena). Antes eran dos botones azules en dos renglones. */}
+                <NotaGestion n={nota} sinBoton />
                 <div className="flex flex-wrap items-center gap-2">
-                    {conVeredicto ? (<>
-                        {(a.estado === "pendiente" || a.resultado !== "real") && <Button size="sm" disabled={nota.guardando} onClick={() => void decidir("real")}><Check size={14} /> {a.estado === "pendiente" ? "Es real" : "Era real"}</Button>}
+                    <Button size="sm" variant="outline" disabled={!nota.sucia || nota.guardando} onClick={() => void nota.guardar()}>
+                        {nota.guardando ? <Loader2 size={14} className="animate-spin" /> : <NotebookPen size={14} />} Guardar nota
+                    </Button>
+                    {conVeredicto ? (<span className="ml-auto flex items-center gap-2">
                         {(a.estado === "pendiente" || a.resultado !== "falsa") && <Button size="sm" variant="outline" disabled={nota.guardando} onClick={() => void decidir("falsa")}><X size={14} /> {a.estado === "pendiente" ? "Falsa alarma" : "Era falsa"}</Button>}
-                    </>) : a.estado === "pendiente" ? (
-                        <Button size="sm" disabled={nota.guardando} onClick={() => void decidir(null)}><Check size={14} /> Atendida</Button>
+                        {(a.estado === "pendiente" || a.resultado !== "real") && <Button size="sm" disabled={nota.guardando} onClick={() => void decidir("real")} className="pleno-mal hover:brightness-110"><Check size={14} /> {a.estado === "pendiente" ? "Es real" : "Era real"}</Button>}
+                    </span>) : a.estado === "pendiente" ? (
+                        <Button size="sm" disabled={nota.guardando} onClick={() => void decidir(null)} className="ml-auto pleno-bien hover:brightness-110"><Check size={14} /> Atendida</Button>
                     ) : null}
                 </div>
 

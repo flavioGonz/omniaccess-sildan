@@ -53,7 +53,9 @@ export function usarNotaGestion(id: string | null, inicial?: { nota: string | nu
     return { texto, setTexto, guardada, guardando, error, sucia, guardar };
 }
 
-export function NotaGestion({ n, oscuro, className }: { n: ReturnType<typeof usarNotaGestion>; oscuro?: boolean; className?: string }) {
+export function NotaGestion({ n, oscuro, className, sinBoton }: { n: ReturnType<typeof usarNotaGestion>; oscuro?: boolean; className?: string;
+    /** El botón «Guardar nota» lo pone quien la usa, en su renglón de acciones (Gestión de alarmas). */
+    sinBoton?: boolean }) {
     return (
         <div className={cn("flex flex-col gap-1.5", className)}>
             <label className={cn("inline-flex items-center gap-1.5 text-[11.5px] font-semibold", oscuro ? "text-white/70" : "text-muted-foreground")}>
@@ -66,11 +68,11 @@ export function NotaGestion({ n, oscuro, className }: { n: ReturnType<typeof usa
                     oscuro ? "bg-black/45 text-white placeholder:text-white/40 border border-white/15 focus:ring-[var(--accion-en-oscuro)]/60"
                         : "bg-background border border-border focus:ring-[var(--accion)]/40")} />
             <div className="flex items-center gap-2 min-h-[28px]">
-                <button type="button" onClick={() => void n.guardar()} disabled={!n.sucia || n.guardando}
+                {!sinBoton && <button type="button" onClick={() => void n.guardar()} disabled={!n.sucia || n.guardando}
                     className={cn("h-7 px-3 rounded-[6px] text-[12px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-40",
                         oscuro ? "bg-white/15 hover:bg-white/25 text-white" : "bg-[var(--accion)] text-white hover:brightness-110")}>
                     {n.guardando ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Guardar nota
-                </button>
+                </button>}
                 <span className={cn("text-[11px] truncate", n.error ? "tono-mal" : oscuro ? "text-white/50" : "text-muted-foreground")}>
                     {n.error ? n.error : n.sucia ? "Sin guardar · se guarda también al decidir" : n.guardada ? `Guardada${n.guardada.por ? ` por ${n.guardada.por}` : ""}${n.guardada.ts ? ` · ${new Date(n.guardada.ts).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}` : ""}` : ""}
                 </span>

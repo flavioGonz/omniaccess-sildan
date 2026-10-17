@@ -1233,10 +1233,8 @@ export function VisorCuadro({
                                 title={modo === "vivo" ? "Volver al cuadro guardado" : "Ver acá lo que la cámara ve ahora"}>
                                 {modo === "vivo" ? <IconoFoto size={15} /> : <Video size={15} />}
                             </BotonRiel>
-                            {/* El visor completo de la cámara: vivo con sus controles, a pantalla entera. */}
-                            <BotonRiel onClick={() => setAbrirCamara("live")} title="Abrir la cámara en vivo, con todos sus controles">
-                                <Cctv size={15} />
-                            </BotonRiel>
+                            {/* Se sacó «Abrir la cámara en vivo, con todos sus controles» (17/10, Nico): el vivo
+                                ya se ve acá con el botón de arriba, y abrir otro visor encima de la ficha confundía. */}
                             {verGrabacion && (
                                 <BotonRiel activo={modo === "grabacion"} onClick={modo === "grabacion" ? () => { setModo("foto"); setLimpio(false); } : verGrabacion}
                                     title={modo === "grabacion" ? "Volver a la foto del evento" : "Ver la grabación del NVR en este instante, acá"}>
