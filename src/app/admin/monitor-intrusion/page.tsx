@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, reclasificarComoFalsa, marcarDeteccion, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
-import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Eye, ScanEye, UserX, CircleDashed, Layers } from "lucide-react";
+import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Eye, ScanEye, UserX, CircleDashed, Layers, Repeat, Image as ImageIcon } from "lucide-react";
+import { useClipEvento, CLIP_ANTES_S } from "@/lib/clip-evento";
 import { cn } from "@/lib/utils";
 import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 import { InteriorCalibrator } from "@/components/InteriorCalibrator";
@@ -764,6 +765,11 @@ function MovablePip({ children, defaultW = 208, ring = "ring-white/15" }: { chil
  * La detección elegida en la tabla, arriba de la columna: la foto a todo el ancho y sin marco
  * (16/10, Nico: «debe mostrar arriba de esa columna, sin marcos, el evento seleccionado»), qué fue,
  * dónde y cuándo, lo que dijo OmniVision, y las tres cosas que se hacen con ella.
+ *
+ * La foto aparece al instante y, mientras se mira, se trae el clip del evento (los segundos de
+ * antes, del grabador) que entra encima en loop cuando ya corre (17/10, Nico: «debe cargar el
+ * video del evento mientras presenta la foto»). Mismo clip, misma preferencia y mismo caché que la
+ * ficha (lib/clip-evento): abrir la ficha después no le pide otro corte al NVR.
  */
 function SeleccionDeteccion({ d, cam, alFicha, alVivo, alGrabacion, alCerrar }: {
     d: DetItem | null; cam?: IntrusionCam;
@@ -771,7 +777,12 @@ function SeleccionDeteccion({ d, cam, alFicha, alVivo, alGrabacion, alCerrar }: 
 }) {
     const [ok, setOk] = useState(true);
     useEffect(() => { setOk(true); }, [d?.id]);
+    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible } = useClipEvento({
+        id: d?.id, deviceId: d?.deviceId, instante: d?.timestamp, nvrId: cam?.nvrId ?? null, ch: (d as any)?.ch ?? cam?.ch ?? null,
+        activo: !!d && !String(d.id).startsWith("live-"),
+    });
     if (!d) return null;
+    const enVideo = clipOn && clip.estado === "listo" && clipVisible;
     const m = META[d.type] || META.OTHER;
     const src = d.snapshotPath ? conAncho(d.snapshotPath, 880) : d.deviceId ? `/api/snapshot/${d.deviceId}?w=880&t=${d.id}` : null;
     const t = new Date(d.timestamp);
@@ -781,6 +792,25 @@ function SeleccionDeteccion({ d, cam, alFicha, alVivo, alGrabacion, alCerrar }: 
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 {src && ok ? <img key={src} src={src} alt="" className="absolute inset-0 w-full h-full object-cover" onError={() => setOk(false)} />
                     : <div className="absolute inset-0 grid place-items-center text-white/25 text-[12px] gap-1"><ImageOff size={20} /> Sin captura</div>}
+                {/* El clip entra encima cuando ya corre: nunca un cuadro negro entre la foto y el video. */}
+                {clipOn && clip.estado === "listo" && clip.url && (
+                    <video key={clip.url} src={clip.url} autoPlay muted loop playsInline onPlaying={() => setClipVisible(true)} onError={() => setClipVisible(false)}
+                        className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-500", clipVisible ? "opacity-100" : "opacity-0")} />
+                )}
+                {/* Qué se está viendo: la foto, el video trayéndose, o el loop. Tocar alterna (igual que C en la ficha). */}
+                {d.deviceId && !String(d.id).startsWith("live-") && (
+                    <button type="button" onClick={() => cambiarClip(!clipOn)} aria-pressed={clipOn}
+                        data-tooltip-id="mi-tip"
+                        data-tooltip-content={!clipOn ? `Ver en loop los ${CLIP_ANTES_S} s antes de la foto`
+                            : clip.estado === "sin" ? `Sin video: ${clip.motivo}. Tocá para ver sólo la foto`
+                                : clip.estado === "listo" ? `Video del evento en loop (${CLIP_ANTES_S} s antes). Tocá para ver sólo la foto` : "Trayendo el video del grabador…"}
+                        className="absolute top-2 left-2 h-7 pl-2 pr-2.5 rounded-full bg-black/55 hover:bg-black/75 text-white/90 inline-flex items-center gap-1.5 text-[11px] font-semibold tabular-nums">
+                        {!clipOn ? <><ImageIcon size={13} /> Foto</>
+                            : enVideo ? <><span className="w-1.5 h-1.5 rounded-full bg-[var(--accion-en-oscuro)]" /><Repeat size={13} /> {CLIP_ANTES_S} s antes</>
+                                : clip.estado === "sin" ? <><ImageIcon size={13} /> Sin video</>
+                                    : <><Loader2 size={13} className="animate-spin" /> Video…</>}
+                    </button>
+                )}
                 <button type="button" onClick={alCerrar} aria-label="Cerrar" data-tooltip-id="mi-tip" data-tooltip-content="Quitar la selección"
                     className="absolute top-2 right-2 w-7 h-7 grid place-items-center rounded-full bg-black/55 text-white/85 hover:bg-black/75 hover:text-white"><X size={14} /></button>
             </div>

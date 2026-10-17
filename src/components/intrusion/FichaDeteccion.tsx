@@ -1,5 +1,6 @@
 "use client";
 
+import { useClipEvento, CLIP_ANTES_S } from "@/lib/clip-evento";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     Check, ChevronLeft, ChevronRight, Clock, Cctv, Eye, EyeOff, ImageOff, Loader2, PlayCircle, Radar,
@@ -48,23 +49,7 @@ const VERIFICANDO_MS = 90_000;
 const TONO_VEREDICTO: Record<string, string> = { mal: "var(--mal)", aviso: "var(--aviso)", quieto: "var(--muted-foreground)", bien: "var(--bien)" };
 const TEXTO_VEREDICTO: Record<string, string> = { mal: "visor-mal", aviso: "visor-aviso", quieto: "text-white/75", bien: "visor-bien" };
 
-/*
- * El clip en loop (16/10, Nico: «si está activado, a los segundos que llega la foto, debe cargar
- * rápidamente el evento unos pocos segundos antes, en loop; si lo presionamos el video se retira y
- * sólo se muestra la foto»). La foto dice QUÉ había; los segundos de antes dicen CÓMO llegó, que es
- * lo que separa a alguien que salta el cerco de un vecino que pasa caminando.
- *
- * Sale de /api/clip/instante (el mismo corte de la alerta con video: del grabador, 480p, sin
- * audio). Se pide recién después de CLIP_ESPERA_MS en el mismo evento, así pasar eventos con las
- * flechas no le pide un corte al grabador por cada uno; y lo hecho se recuerda mientras la página
- * está abierta (el servidor guarda el archivo 10 min).
- */
-const CLIP_ANTES_S = 4;
-const CLIP_DESPUES_S = 1;
-const CLIP_ESPERA_MS = 1200;
-const CLAVE_CLIP = "ficha-deteccion:clip";
-const clipsHechos = new Map<string, string>();
-type EstadoClip = { estado: "nada" | "cargando" | "listo" | "sin"; url?: string; motivo?: string };
+// El clip en loop vive en lib/clip-evento (lo comparte el panel del Monitor de Intrusión).
 
 export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion, onMarcar, zCapa }: {
     det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void;
@@ -169,32 +154,9 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
             {nota.guardada ? "Ver nota" : "Nota"}{nota.guardada && !verNota && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accion-en-oscuro)]" />}
         </BotonDecision>
     ) : null;
-    const [clipOn, setClipOn] = useState(true);
-    useEffect(() => { try { const v = localStorage.getItem(CLAVE_CLIP); if (v != null) setClipOn(v === "1"); } catch { } }, []);
-    const cambiarClip = (v: boolean) => { setClipOn(v); try { localStorage.setItem(CLAVE_CLIP, v ? "1" : "0"); } catch { } };
-    const [clip, setClip] = useState<EstadoClip>({ estado: "nada" });
-    const [clipVisible, setClipVisible] = useState(false);
-    useEffect(() => {
-        setClip({ estado: "nada" }); setClipVisible(false);
-        if (!clipOn || !real || !cur.deviceId) return;
-        const hecho = clipsHechos.get(cur.id);
-        if (hecho) { setClip({ estado: "listo", url: hecho }); return; }
-        let vigente = true;
-        const t = setTimeout(async () => {
-            setClip({ estado: "cargando" });
-            try {
-                const r = await fetch("/api/clip/instante", {
-                    method: "POST", headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ deviceId: cur.deviceId, instante: new Date(cur.timestamp).getTime(), antes: CLIP_ANTES_S, despues: CLIP_DESPUES_S, para: "alerta", nvrId: cam?.nvrId ?? null, ch: cur.ch ?? cam?.ch ?? null }),
-                });
-                const j = await r.json().catch(() => ({}));
-                if (j?.ok && j.url) clipsHechos.set(cur.id, j.url);
-                if (vigente) setClip(j?.ok && j.url ? { estado: "listo", url: j.url } : { estado: "sin", motivo: j?.motivo || `el servidor respondió ${r.status}` });
-            } catch { if (vigente) setClip({ estado: "sin", motivo: "no se pudo pedir" }); }
-        }, CLIP_ESPERA_MS);
-        return () => { vigente = false; clearTimeout(t); };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cur.id, clipOn, real]);
+    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible } = useClipEvento({
+        id: cur.id, deviceId: cur.deviceId, instante: cur.timestamp, nvrId: cam?.nvrId ?? null, ch: cur.ch ?? cam?.ch ?? null, activo: real,
+    });
     const enVideo = clipOn && clip.estado === "listo" && clipVisible && !enPropio;
 
     const marcar = async (k: "real" | "false") => {
