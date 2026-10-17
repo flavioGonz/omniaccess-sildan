@@ -76,6 +76,8 @@ export type AutoAdentro = {
     /** La última vez que alguna cámara lo vio (puede ser una interior, después de entrar). */
     vistoUltimo: string;
     camara: string | null;
+    /** La cámara de la última lectura: el clip del evento en la ficha sale de ahí. */
+    deviceId: string | null;
     accessEventId: string | null;
     /** La captura de la última lectura. */
     foto: string | null;
@@ -118,7 +120,7 @@ const ROL_A_CLASE: Record<string, ClasePresencia> = {
     PROVIDER: "proveedor", VISITOR: "visita", TEMPORARY_VISITOR: "visita", WHITELISTED: "lista_blanca",
 };
 
-type Fila = { p: string; dir: string; t: Date; id: string; camara: string | null; userId: string | null; entrada: Date | null; e24: number; foto: string | null };
+type Fila = { p: string; dir: string; t: Date; id: string; camara: string | null; deviceId: string | null; userId: string | null; entrada: Date | null; e24: number; foto: string | null };
 
 let cache: { t: number; p: Promise<Presencia> } | null = null;
 export function calcularPresencia(): Promise<Presencia> {
@@ -146,13 +148,13 @@ async function calcular(): Promise<Presencia> {
     const filas = await prisma.$queryRawUnsafe<Fila[]>(`
         WITH x AS (
             SELECT upper(regexp_replace(e."plateDetected", '[^A-Za-z0-9]', '', 'g')) AS p, e.direction::text AS dir,
-                   e.timestamp AS t, e.id, d.name AS camara, e."userId", COALESCE(e."snapshotPath", e."imagePath") AS foto
+                   e.timestamp AS t, e.id, d.name AS camara, e."deviceId", e."userId", COALESCE(e."snapshotPath", e."imagePath") AS foto
               FROM "AccessEvent" e LEFT JOIN "Device" d ON d.id = e."deviceId"
              WHERE e.timestamp >= $1 AND e."plateDetected" IS NOT NULL ${soloPermitidas}),
         y AS (
             SELECT x.*, coalesce(t - lag(t) OVER (PARTITION BY p, dir ORDER BY t) > interval '${PASADA_MIN} minutes', true) AS nueva
               FROM x WHERE length(p) >= 5)
-        SELECT DISTINCT ON (p) p, dir, t, id, camara, "userId", foto,
+        SELECT DISTINCT ON (p) p, dir, t, id, camara, "deviceId", "userId", foto,
                max(t) FILTER (WHERE dir = 'ENTRY' AND nueva) OVER (PARTITION BY p) AS entrada,
                (count(*) FILTER (WHERE dir = 'ENTRY' AND nueva AND t >= now() - interval '24 hours') OVER (PARTITION BY p))::int AS e24
           FROM y
@@ -211,7 +213,7 @@ async function calcular(): Promise<Presencia> {
         const horasDesdeVisto = (ahora - visto.getTime()) / 3_600_000;
         autos.push({
             plate: p, clase, persona: u?.name || visita?.nombre || null, userId: u?.id || null, unidad: u?.unit?.name || visita?.loteNombre || null,
-            entrada: entrada.toISOString(), vistoUltimo: visto.toISOString(), camara: f?.camara || null, accessEventId: f?.id || null, foto: f?.foto || null,
+            entrada: entrada.toISOString(), vistoUltimo: visto.toISOString(), camara: f?.camara || null, deviceId: f?.deviceId || null, accessEventId: f?.id || null, foto: f?.foto || null,
             estimado: !marcaManda && horasDesdeVisto > (clase === "residente" ? ESTIMADO_RESIDENTE_HORAS : ESTIMADO_VISITA_HORAS),
             marcaManual: marcaManda, visitaId: visita?.id || null, tipoVisita: visita?.tipo || null,
             entradas24h: f?.e24 || 0, atipico: [],

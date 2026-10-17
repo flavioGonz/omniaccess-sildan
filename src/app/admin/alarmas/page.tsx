@@ -4,8 +4,9 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
     Siren, Home, Ticket, CircleDashed, AlertTriangle, RefreshCw, Radar, ShieldAlert, ScanEye, Repeat, Car, Check, X, LogOut, Undo2,
-    Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers, Loader2, NotebookPen,
+    Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers, Loader2, NotebookPen, Image as ImageIcon,
 } from "lucide-react";
+import { useClipEvento, CLIP_ANTES_S } from "@/lib/clip-evento";
 import { Pestanias, type Pestania } from "@/components/ui/pestanias";
 import { Tooltip } from "react-tooltip";
 import "react-tooltip/dist/react-tooltip.css";
@@ -417,14 +418,41 @@ function VerFichaEncima() {
     );
 }
 
-function Foto({ src }: { src: string | null }) {
+/**
+ * La captura del evento, y detrás el VIDEO de ese evento en loop (17/10, Nico: «el drawer trae la
+ * foto del evento, pero de fondo carga un video en loop del evento concreto»): la foto sale al
+ * instante; el clip del grabador (los segundos de antes, lib/clip-evento) se pide mientras se
+ * mira y entra encima cuando ya corre, sin cuadro negro. La píldora de arriba dice qué se ve y
+ * alterna (la misma preferencia que el Monitor de Intrusión y la ficha).
+ */
+function Foto({ src, clip }: { src: string | null; clip?: { id: string | null; deviceId: string | null; instante: string } }) {
     const [ok, setOk] = useState(true);
     useEffect(() => { setOk(true); }, [src]);
+    const c = useClipEvento({ id: clip?.id, deviceId: clip?.deviceId, instante: clip?.instante, activo: !!clip?.deviceId && !!clip?.id });
+    const enVideo = c.clipOn && c.clip.estado === "listo" && c.clipVisible;
+    const conClip = !!clip?.deviceId && !!clip?.id;
     return (
         <div className="relative aspect-video bg-black shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {src && ok ? <img key={src} src={src} alt="" className="absolute inset-0 w-full h-full object-contain" onError={() => setOk(false)} />
-                : <div className="absolute inset-0 grid place-items-center text-white/30 text-[12px]"><span className="inline-flex items-center gap-1.5"><ImageOff size={18} /> Sin captura</span></div>}
+                : !enVideo && <div className="absolute inset-0 grid place-items-center text-white/30 text-[12px]"><span className="inline-flex items-center gap-1.5"><ImageOff size={18} /> Sin captura</span></div>}
+            {c.clipOn && c.clip.estado === "listo" && c.clip.url && (
+                <video key={c.clip.url} src={c.clip.url} autoPlay muted loop playsInline onPlaying={() => c.setClipVisible(true)} onError={() => c.setClipVisible(false)}
+                    className={cn("absolute inset-0 w-full h-full object-contain transition-opacity duration-500", c.clipVisible ? "opacity-100" : "opacity-0")} />
+            )}
+            {conClip && (
+                // span y no button: la foto suele estar adentro del botón que abre la ficha.
+                <span role="button" tabIndex={0} aria-pressed={c.clipOn}
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); c.cambiarClip(!c.clipOn); }}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); c.cambiarClip(!c.clipOn); } }}
+                    title={!c.clipOn ? `Ver en loop los ${CLIP_ANTES_S} s antes de la foto` : c.clip.estado === "sin" ? `Sin video: ${c.clip.motivo}. Tocá para ver sólo la foto` : c.clip.estado === "listo" ? "Video del evento en loop. Tocá para ver sólo la foto" : "Trayendo el video del grabador…"}
+                    className="absolute top-2.5 left-2.5 z-[2] h-7 pl-2 pr-2.5 rounded-full bg-black/55 hover:bg-black/75 text-white/90 inline-flex items-center gap-1.5 text-[11px] font-semibold tabular-nums cursor-pointer">
+                    {!c.clipOn ? <><ImageIcon size={13} /> Foto</>
+                        : enVideo ? <><span className="w-1.5 h-1.5 rounded-full bg-[var(--accion-en-oscuro)]" /><Repeat size={13} /> {CLIP_ANTES_S} s antes</>
+                            : c.clip.estado === "sin" ? <><ImageIcon size={13} /> Sin video</>
+                                : <><Loader2 size={13} className="animate-spin" /> Video…</>}
+                </span>
+            )}
         </div>
     );
 }
@@ -447,6 +475,7 @@ function fotoChica(f: string | null, ancho: number) {
 function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto: string) => void; alRecargar: () => void }) {
     const I = ICONO_FUENTE[a.fuente];
     const foto = fotoChica(a.foto, 960);
+    const clip = { id: a.id, deviceId: a.deviceId, instante: a.ts };
     const conVeredicto = a.fuente === "intrusion" || a.fuente === "lpr";
     const t = new Date(a.ts);
     const nota = usarNotaGestion(a.id, { nota: a.nota, por: a.notaPor, ts: a.notaAt });
@@ -476,11 +505,11 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
             {/* Tocar la foto abre la ficha del evento (17/10, Nico): la misma de «Ver ficha». */}
             {eventoId && evento ? (
                 <EventDetailsDialog event={evento} timeStatus={null}>
-                    <button type="button" className="group relative block w-full text-left" aria-label="Abrir la ficha del evento"><Foto src={foto} /><VerFichaEncima /></button>
+                    <button type="button" className="group relative block w-full text-left" aria-label="Abrir la ficha del evento"><Foto src={foto} clip={clip} /><VerFichaEncima /></button>
                 </EventDetailsDialog>
             ) : det ? (
-                <button type="button" onClick={() => setFichaIntrusion(true)} className="group relative block w-full text-left" aria-label="Abrir la ficha de la detección"><Foto src={foto} /><VerFichaEncima /></button>
-            ) : <Foto src={foto} />}
+                <button type="button" onClick={() => setFichaIntrusion(true)} className="group relative block w-full text-left" aria-label="Abrir la ficha de la detección"><Foto src={foto} clip={clip} /><VerFichaEncima /></button>
+            ) : <Foto src={foto} clip={clip} />}
             <div className="px-5 pt-4 pb-5 flex flex-col gap-4">
                 <div>
                     <div className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", tonoTexto(a.tono))}><I size={13} /> {NOMBRE_FUENTE[a.fuente]}</div>
@@ -544,7 +573,7 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
 function DetalleAuto({ a, ocupado, alSalio, alCerrarVisita }: { a: AutoAdentro; ocupado: boolean; alSalio: () => void; alCerrarVisita: () => void }) {
     return (
         <>
-            <Foto src={getImagePath(a.foto)} />
+            <Foto src={getImagePath(a.foto)} clip={{ id: a.accessEventId, deviceId: a.deviceId, instante: a.vistoUltimo }} />
             <div className="px-5 pt-4 pb-5 flex flex-col gap-3">
                 <div>
                     <div className="flex items-center gap-2"><Matricula p={a.plate} className="text-[15px]" /><Estado tono={TONO_CLASE[a.clase]}>{NOMBRE_CLASE[a.clase]}</Estado></div>
