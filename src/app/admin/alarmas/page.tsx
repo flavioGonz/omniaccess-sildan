@@ -501,21 +501,9 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                     <Dato rotulo="Estado">{a.estado === "pendiente" ? <span className="tono-mal">Pendiente</span> : <span>{a.resultado === "falsa" ? "Falsa alarma" : a.resultado === "real" ? "Real" : "Atendida"}{a.atendidaPor ? ` · ${a.atendidaPor}` : ""}</span>}</Dato>
                 </div>
 
-                {/* La gestión: qué se hizo. Se guarda sola o junto con la decisión. */}
-                {/* La nota y la decisión en un renglón (17/10, Nico): guardar la nota es secundario (borde),
-                    la decisión es la acción (llena). Antes eran dos botones azules en dos renglones. */}
+                {/* La nota se escribe acá; se guarda (o se decide) desde la barra de abajo, que queda fija:
+                    guardar la nota es secundario (borde), la decisión es la acción (llena). */}
                 <NotaGestion n={nota} sinBoton />
-                <div className="flex flex-wrap items-center gap-2">
-                    <Button size="sm" variant="outline" disabled={!nota.sucia || nota.guardando} onClick={() => void nota.guardar()}>
-                        {nota.guardando ? <Loader2 size={14} className="animate-spin" /> : <NotebookPen size={14} />} Guardar nota
-                    </Button>
-                    {conVeredicto ? (<span className="ml-auto flex items-center gap-2">
-                        {(a.estado === "pendiente" || a.resultado !== "falsa") && <Button size="sm" variant="outline" disabled={nota.guardando} onClick={() => void decidir("falsa")}><X size={14} /> {a.estado === "pendiente" ? "Falsa alarma" : "Era falsa"}</Button>}
-                        {(a.estado === "pendiente" || a.resultado !== "real") && <Button size="sm" disabled={nota.guardando} onClick={() => void decidir("real")} className="pleno-mal hover:brightness-110"><Check size={14} /> {a.estado === "pendiente" ? "Es real" : "Era real"}</Button>}
-                    </span>) : a.estado === "pendiente" ? (
-                        <Button size="sm" disabled={nota.guardando} onClick={() => void decidir(null)} className="ml-auto pleno-bien hover:brightness-110"><Check size={14} /> Atendida</Button>
-                    ) : null}
-                </div>
 
                 {/* Quién la opera y la bitácora de lo que se hizo (16/10). */}
                 <div className="border-t border-border pt-3">
@@ -525,6 +513,20 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                         ...(a.estado === "atendida" && a.atendidaAt ? [{ id: `atendida-${a.id}`, ts: a.atendidaAt, por: a.atendidaPor, texto: a.resultado === "real" ? "la marcó real" : a.resultado === "falsa" ? "la marcó falsa alarma" : "la dio por atendida", tipo: (a.resultado === "real" ? "mal" : "bien") as "mal" | "bien", legado: "decision" as const }] : []),
                         ...(a.nota && a.notaAt ? [{ id: `nota-${a.id}`, ts: a.notaAt, por: a.notaPor, texto: "escribió una nota", detalle: `«${a.nota}»`, tipo: "info" as const, legado: "nota" as const }] : []),
                     ]} />
+                </div>
+                {/* Las acciones acopladas abajo (17/10, Nico: «los botones de acción se deben acoplar al
+                    scroll»): con la actividad larga quedaban fuera de vista. Quedan pegadas al pie del
+                    panel mientras se baja, siempre a mano. */}
+                <div className="sticky bottom-0 z-10 -mx-5 -mb-5 mt-auto px-5 py-3 bg-background/95 backdrop-blur border-t border-border flex flex-wrap items-center gap-2">
+                    <Button size="sm" variant="outline" disabled={!nota.sucia || nota.guardando} onClick={() => void nota.guardar()}>
+                        {nota.guardando ? <Loader2 size={14} className="animate-spin" /> : <NotebookPen size={14} />} Guardar nota
+                    </Button>
+                    {conVeredicto ? (<span className="ml-auto flex items-center gap-2">
+                        {(a.estado === "pendiente" || a.resultado !== "falsa") && <Button size="sm" variant="outline" disabled={nota.guardando} onClick={() => void decidir("falsa")}><X size={14} /> {a.estado === "pendiente" ? "Falsa alarma" : "Era falsa"}</Button>}
+                        {(a.estado === "pendiente" || a.resultado !== "real") && <Button size="sm" disabled={nota.guardando} onClick={() => void decidir("real")} className="pleno-mal hover:brightness-110"><Check size={14} /> {a.estado === "pendiente" ? "Es real" : "Era real"}</Button>}
+                    </span>) : a.estado === "pendiente" ? (
+                        <Button size="sm" disabled={nota.guardando} onClick={() => void decidir(null)} className="ml-auto pleno-bien hover:brightness-110"><Check size={14} /> Atendida</Button>
+                    ) : null}
                 </div>
             </div>
 
