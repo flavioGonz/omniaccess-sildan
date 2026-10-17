@@ -17,6 +17,7 @@ import { Anotador } from "@/components/vision/entrenar/Anotador";
 import { CerebroFlotante, GaleriaEntrenamientos, PanelEntrenar, useEntrenamientos } from "@/components/vision/entrenar/EntrenarDetector";
 import { SoltarFotos } from "@/components/vision/entrenar/SoltarFotos";
 import { CamarasOSubidas } from "@/components/vision/entrenar/CamarasOSubidas";
+import { ProbarModelo } from "@/components/vision/entrenar/ProbarModelo";
 import { GuiaDibujo, UnModeloVariasClases } from "@/components/vision/entrenar/GuiaDibujo";
 import { AlCelular } from "@/components/vision/entrenar/AlCelular";
 import { CaminoDetector, type PasoCamino } from "@/components/vision/entrenar/CaminoDetector";
@@ -288,6 +289,11 @@ export default function ObjetosPropios() {
                         )}
                     </section>
 
+                    {/* ── 4. Probar: ver qué marca el modelo en uso antes de confiar en él (17/10). ── */}
+                    <section id="probar" className="scroll-mt-4 space-y-2">
+                        <Titulo n={4} titulo="Probar el modelo" texto="Con una foto o una cámara, también en vivo: el recuadro de cada clase con su confianza. Es lo que haría en las cámaras." />
+                        <ProbarModelo camaras={camaras} clases={estado.clases} activo={ent.activo?.activo || null} />
+                    </section>
                 </div>
 
                 <aside className="lg:sticky lg:top-4 space-y-3">
