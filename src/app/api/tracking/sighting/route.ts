@@ -13,6 +13,7 @@ import {
     leerCaja, areaTipica, pareceChapa, area as areaDe, type Caja,
 } from "@/lib/recuadros";
 import { registrarPasoPorAcceso } from "@/lib/paso-por-acceso";
+import { avisarPorSocket } from "@/lib/avisar";
 
 export const dynamic = "force-dynamic";
 
@@ -143,6 +144,13 @@ export async function POST(req: NextRequest) {
 
     const confianza = body.confidence != null ? Number(body.confidence) : null;
     const minimo = Number(process.env.TRACKING_MIN_CONFIDENCE || 0.6);
+    // Lo que leyó omni-lpr, al instante y aunque después se descarte (17/10): la cabecera de la
+    // cámara en Dispositivos lo muestra sobre el video («ver qué lee rápidamente»). No suma
+    // inferencias: es la lectura que el seguimiento ya hizo.
+    if (body.deviceId) avisarPorSocket("lectura_lpr", {
+        deviceId: String(body.deviceId), plate: patente, confianza, fuente: "omni-lpr",
+        baja: confianza != null && confianza < minimo, ts: body.timestamp || new Date().toISOString(),
+    });
     if (confianza != null && confianza < minimo) {
         return NextResponse.json({ ok: true, ignorado: "confianza baja", confianza }, { status: 202 });
     }

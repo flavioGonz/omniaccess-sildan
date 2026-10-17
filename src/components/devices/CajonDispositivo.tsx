@@ -20,6 +20,7 @@ import { provisionLprDevice } from "@/app/actions/provision";
 import { getNvrList, getNvrChannels, getNvrChannelInfo, importarCanalesClasificados, type RolImport } from "@/app/actions/nvr";
 import { dondeGraba, asignarGrabacion, calcularRetencion, retencionGuardada } from "@/app/actions/grabaciones";
 import { CabeceraNvr } from "@/components/devices/CabeceraNvr";
+import { ControlesLente, LecturasEnVivo } from "@/components/devices/LenteYLecturas";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 import { ElegirModoIntrusion, ElegirModoLpr, ModoEnFila, OPCIONES_INTRUSION_FILA, OPCIONES_LPR_FILA } from "@/components/devices/ModoCamara";
@@ -1052,6 +1053,9 @@ function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNo
                 {!listo && !falla && <span className="absolute inset-0 grid place-items-center"><span className="flex items-center gap-2 text-white/80 text-[12px] font-semibold"><Loader2 size={15} className="animate-spin" /> Conectando el vivo…</span></span>}
             </>)}
             {!esVideo && <span className="absolute right-6 top-1/2 -translate-y-1/2 text-sky-400/25"><HardDrive size={72} /></span>}
+            {/* Lecturas en vivo y lente motorizado (17/10): se ajusta mirando si la chapa se sigue leyendo. */}
+            {esVideo && device?.id && <LecturasEnVivo deviceId={device.id} tt={TT} />}
+            {esVideo && device?.id && <ControlesLente deviceId={device.id} tt={TT} />}
             {/* degradados para leer los datos */}
             <span className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none" />
             <span className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
