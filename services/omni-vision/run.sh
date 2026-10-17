@@ -18,6 +18,8 @@ cd "$(dirname "$0")"
 docker rm -f omni-vision 2>/dev/null || true
 # El detector propio activo (lo escribe la app al activar un entrenamiento). Vacía = no hay.
 mkdir -p "${VISION_PROPIO_DIR:-/opt/OmniAccess/entrenamientos/activo}"
+# El índice de fotos del vocabulario abierto (indice_vocab.py): ~21 KB por foto, 30 días.
+mkdir -p "${VISION_VOCAB_INDICE_DIR:-/opt/OmniAccess/vocab-indice}"
 # Sin GPU (driver sin cargar) se levanta igual en CPU y se avisa: con `--gpus all` y sin driver,
 # Docker se niega a crear el contenedor y el detector quedaba directamente sin correr.
 GPU="--gpus all"
@@ -25,6 +27,7 @@ nvidia-smi -L >/dev/null 2>&1 || { GPU=""; echo "omni-vision: SIN GPU (nvidia-sm
 docker run -d --name omni-vision $GPU --restart unless-stopped \
   -p 127.0.0.1:8010:8010 \
   -v "${VISION_PROPIO_DIR:-/opt/OmniAccess/entrenamientos/activo}":/propio:ro \
+  -v "${VISION_VOCAB_INDICE_DIR:-/opt/OmniAccess/vocab-indice}":/indice \
   -e VISION_MODELO="${VISION_MODELO:-rfdetr-small}" \
   --cpus 2 --memory "${VISION_MEMORIA:-6g}" \
   omni-vision:gpu

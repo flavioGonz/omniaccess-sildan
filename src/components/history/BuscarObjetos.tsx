@@ -16,12 +16,16 @@ import { SUGERENCIAS_VOCABULARIO } from "@/lib/vocabulario";
  *
  * El buscador de arriba encuentra lo que ya se anotó de cada lectura; esto vuelve a mirar las
  * fotos buscando lo que se escriba («carretilla», «escalera»), aunque nadie lo haya anotado.
- * Cada foto es una pasada del modelo (~0,25 s), así que:
+ * Normalmente busca en el ÍNDICE (todas las fotos del rango en ~1 s; ver indice_vocab.py); lo
+ * que el índice todavía no tiene se revisa foto por foto. Sin índice, todo foto por foto:
  *  · respeta el rango y las cámaras de los filtros (sin rango, las últimas 24 h);
  *  · va de a lotes y muestra lo que encuentra mientras avanza; se puede parar;
  *  · revisa como mucho TOPE fotos por búsqueda, las más recientes (y lo dice si hay más).
  */
 const TOPE = 1000;
+/** Lo que el índice todavía no tiene (lo último) se revisa solo si son pocas fotos; si no, a pedido. */
+const PENDIENTES_AUTO = 150;
+type EstadoIndice = { indice: { fotos: number; ultimo_ts: number | null; dias: Record<string, number>; mb: number; activa: boolean } | null; conf: { modo: string; vivo?: string; atras?: string; ventana?: string } };
 
 type Hallazgo = { eventId: string; ts: string; camara: string | null; plate: string | null; foto: string | null; objetos: { nombre: string; confianza: number; caja_norm: [number, number, number, number] }[] };
 type Consulta = { escrita: string; enviada: string; traducida: boolean };
@@ -48,6 +52,11 @@ export function BuscarObjetos({ desde, hasta, camaras, alCerrar }: { desde: stri
     const [abierto, setAbierto] = useState<{ id: string; n: number } | null>(null);
     const parar = useRef(false);
     const campo = useRef<HTMLInputElement>(null);
+    const [indice, setIndice] = useState<EstadoIndice | null>(null);
+    const [modoBusqueda, setModoBusqueda] = useState<"indice" | "escanear" | null>(null);
+    const [pendientes, setPendientes] = useState<{ n: number; despuesDe: string } | null>(null);
+    const traerIndice = () => fetch("/api/vision/vocabulario/indice", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then(setIndice).catch(() => { });
+    useEffect(() => { traerIndice(); const i = setInterval(traerIndice, 30_000); return () => clearInterval(i); }, []);
     useEffect(() => { campo.current?.focus(); }, []);
     // Al irse, se corta: no seguir pidiendo fotos sin nadie mirando.
     useEffect(() => () => { parar.current = true; }, []);
@@ -56,30 +65,73 @@ export function BuscarObjetos({ desde, hasta, camaras, alCerrar }: { desde: stri
         ? `${desde ? new Date(`${desde}T00:00`).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" }) : "…"} – ${hasta ? new Date(`${hasta}T00:00`).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" }) : "hoy"}`
         : "últimas 24 h";
 
+    /** Foto por foto (lento): todo el rango si no hay índice, o sólo lo posterior a `despuesDe`. */
+    async function escanear(q: string, despuesDe: string | null, acumulado: number, totalPrevio: number | null) {
+        let antesDe: string | null = null, revisadas = acumulado, total = totalPrevio;
+        while (!parar.current) {
+            const r: Response = await fetch("/api/vision/vocabulario/historial", {
+                method: "POST", headers: { "content-type": "application/json" },
+                body: JSON.stringify({ q, modo: "escanear", desde: desde || undefined, hasta: hasta || undefined, camaras, antesDe, despuesDe }),
+            });
+            const j: any = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
+            if (j.total != null && !despuesDe) total = j.total;
+            if (j.consultas) setConsultas(j.consultas);
+            revisadas += j.revisadas || 0;
+            setProgreso({ revisadas, total });
+            if (j.hallazgos?.length) setHallazgos((h) => [...h, ...j.hallazgos]);
+            if (!j.siguiente || revisadas >= TOPE) break;
+            antesDe = j.siguiente;
+        }
+    }
+
     async function buscar() {
         const q = texto.trim();
         if (!q || buscando) return;
         parar.current = false;
-        setBuscando(true); setError(null); setHallazgos([]); setConsultas([]); setProgreso({ revisadas: 0, total: null });
-        let antesDe: string | null = null, revisadas = 0, total: number | null = null;
+        setBuscando(true); setError(null); setHallazgos([]); setConsultas([]); setPendientes(null); setProgreso({ revisadas: 0, total: null });
         try {
-            while (!parar.current) {
-                const r: Response = await fetch("/api/vision/vocabulario/historial", {
-                    method: "POST", headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ q, desde: desde || undefined, hasta: hasta || undefined, camaras, antesDe }),
-                });
-                const j: any = await r.json().catch(() => ({}));
-                if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
-                if (j.total != null) total = j.total;
-                if (j.consultas) setConsultas(j.consultas);
-                revisadas += j.revisadas || 0;
-                setProgreso({ revisadas, total });
-                if (j.hallazgos?.length) setHallazgos((h) => [...h, ...j.hallazgos]);
-                if (!j.siguiente || revisadas >= TOPE) break;
-                antesDe = j.siguiente;
+            // 1. El índice: todo el rango de una vez.
+            const r: Response = await fetch("/api/vision/vocabulario/historial", {
+                method: "POST", headers: { "content-type": "application/json" },
+                body: JSON.stringify({ q, desde: desde || undefined, hasta: hasta || undefined, camaras }),
+            });
+            const j: any = await r.json().catch(() => ({}));
+            if (r.ok) {
+                setModoBusqueda("indice");
+                setConsultas(j.consultas || []);
+                setHallazgos(j.hallazgos || []);
+                setProgreso({ revisadas: j.revisadas || 0, total: j.total ?? null });
+                // 2. Lo que el índice todavía no tiene (lo de los últimos minutos, o el día si indexa de noche).
+                const faltan = Math.max(0, (j.total || 0) - (j.revisadas || 0));
+                const vivo = indice?.conf?.vivo || null;
+                if (faltan > 0 && vivo) {
+                    if (faltan <= PENDIENTES_AUTO) await escanear(q, vivo, j.revisadas || 0, j.total ?? null);
+                    else setPendientes({ n: faltan, despuesDe: vivo });
+                }
+            } else if (j?.sinIndice) {
+                // Sin índice en este servidor: el camino lento, foto por foto.
+                setModoBusqueda("escanear");
+                await escanear(q, null, 0, null);
+            } else {
+                throw new Error(j?.error || `El servidor respondió ${r.status}`);
             }
         } catch (e: any) { setError(e?.message || "No se pudo buscar"); }
         finally { setBuscando(false); }
+    }
+
+    async function revisarPendientes() {
+        if (!pendientes || buscando) return;
+        parar.current = false; setBuscando(true); setError(null);
+        const p = pendientes; setPendientes(null);
+        try { await escanear(texto.trim(), p.despuesDe, progreso?.revisadas || 0, progreso?.total ?? null); }
+        catch (e: any) { setError(e?.message || "No se pudo revisar"); }
+        finally { setBuscando(false); }
+    }
+
+    async function cambiarModo(modo: string) {
+        const r = await fetch("/api/vision/vocabulario/indice", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ modo }) }).catch(() => null);
+        if (r?.ok) traerIndice();
     }
 
     const pct = progreso?.total ? Math.min(100, Math.round(progreso.revisadas / Math.min(progreso.total, TOPE) * 100)) : null;
@@ -163,6 +215,31 @@ export function BuscarObjetos({ desde, hasta, camaras, alCerrar }: { desde: stri
                             </div>
                         </button>
                     ))}
+                </div>
+            )}
+            {pendientes && !buscando && (
+                <div className="px-3 pb-3 -mt-1 text-[12px] text-muted-foreground flex items-center gap-2 flex-wrap">
+                    <span>{pendientes.n} fotos del rango todavía no están en el índice (las más recientes).</span>
+                    <Button size="sm" variant="outline" onClick={() => void revisarPendientes()}>Revisarlas una por una (lento)</Button>
+                </div>
+            )}
+            {/* El índice: qué cubre y cómo se mantiene. */}
+            {indice && (
+                <div className="px-3 py-2 border-t border-border text-[11.5px] text-muted-foreground flex items-center gap-2 flex-wrap">
+                    {indice.indice ? <>
+                        <span>Índice: <b className="text-foreground tabular-nums">{indice.indice.fotos.toLocaleString("es-UY")}</b> fotos{Object.keys(indice.indice.dias).length ? ` desde el ${new Date(`${Object.keys(indice.indice.dias).sort()[0]}T12:00`).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" })}` : ""}</span>
+                        {indice.indice.ultimo_ts && <span>· al día hasta las {new Date(indice.indice.ultimo_ts).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false })}</span>}
+                        {modoBusqueda === "indice" && progreso && <span>· búsqueda en el índice</span>}
+                    </> : <span>Este servidor no tiene índice: se revisa foto por foto.</span>}
+                    <span className="ml-auto flex items-center gap-1.5">
+                        Indexar
+                        <select value={indice.conf.modo} onChange={(e) => void cambiarModo(e.target.value)} className="h-7 rounded-md border border-border bg-background px-1.5 text-[11.5px] font-semibold"
+                            title="Continuo: cada foto se indexa al llegar (el modelo queda en la GPU). De noche: sólo en la ventana 02:00–06:00. Apagado: no indexa más.">
+                            <option value="continuo">siempre</option>
+                            <option value="noche">de noche</option>
+                            <option value="apagado">no</option>
+                        </select>
+                    </span>
                 </div>
             )}
             {abierto && <AbrirFicha key={abierto.n} id={abierto.id} alCerrar={() => setAbierto(null)} />}

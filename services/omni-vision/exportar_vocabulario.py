@@ -51,6 +51,14 @@ def main(carpeta: str) -> None:
         "pad": pad, "prueba": PRUEBA, "prueba_ids": tok.encode(PRUEBA).ids,
     }
     (out / "owlv2.json").write_text(json.dumps(meta))
+    # Las cabezas de clase y de objectness, del modelo original: el índice de fotos las usa para
+    # guardar de cada foto lo que hace falta para compararla después contra cualquier frase.
+    import numpy as np
+    from transformers import Owlv2ForObjectDetection
+    m = Owlv2ForObjectDetection.from_pretrained(ORIGINAL, revision=ORIGINAL_REV)
+    cab = {k.replace(".", "_"): v.detach().numpy().astype(np.float32) for k, v in m.state_dict().items()
+           if k.startswith(("class_head.", "objectness_head."))}
+    np.savez(out / "owlv2-cabezas.npz", **cab)
     print("owlv2:", meta["onnx"], "pad", pad, "listo")
 
 

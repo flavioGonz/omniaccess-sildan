@@ -94,53 +94,60 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
     const titulo = ch.plate ? textoChapa(ch) : f.persona || "Sin lectura";
     return (
         <button type="button" onClick={() => alAbrir(f)} title={`${titulo} · ${r.rotulo}`}
-            /* Sin marco: la captura llega al borde. El estado lo dice la etiqueta de arriba
-               (Denegado, merodeo); un anillo alrededor de cada foto la encerraba en un recuadro,
-               y con casi todas denegadas era una grilla de bordes rojos. Al pasar, el anillo
-               azul marca cuál se va a abrir. */
-            className={cn("group relative overflow-hidden rounded-[8px] bg-black text-left transition-[box-shadow] duration-200 hover:ring-2 hover:ring-[var(--accion)] focus-visible:ring-2 focus-visible:ring-[var(--accion)] outline-none [content-visibility:auto]",
-                bento ? (grande ? "col-span-2 row-span-2" : "") : "aspect-video")}>
-            {url ? (
-                /* La foto y sus siluetas en la misma caja: crecen juntas al pasar, si no se despegan. */
-                <span className="absolute inset-0 transition-transform duration-300 group-hover:scale-[1.03]">
-                    {!cargada && <span className="absolute inset-0 animate-pulse bg-white/5" />}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={conAncho(url, bento ? (grande ? ANCHO.grande : ANCHO.chica) : ANCHO.grilla)} alt="" loading="lazy" decoding="async"
-                        onLoad={() => setCargada(true)} onError={() => setCargada(true)}
-                        className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-300", cargada ? "opacity-100" : "opacity-0")} />
-                    {/* Lo que vio OmniVision, con el mismo recorte que la foto (cover). Sin rótulos: en una miniatura tapan. */}
-                    {siluetas && cargada && f.vision?.analisis && <CapaAnalisis analisis={f.vision.analisis} ajuste="cover" etiquetas={false} />}
-                </span>
-            ) : <span className="absolute inset-0 grid place-items-center text-white/40"><Camera size={20} /></span>}
-            <span className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent" />
+            /* La tarjeta sigue el tema (17/10, Nico: «el bento está en modo oscuro con el tema claro»):
+               la foto arriba y los datos DEBAJO, sobre la superficie de tarjeta, con los colores del
+               tema. Antes el texto iba blanco sobre la foto con un degradé negro, y como de noche las
+               capturas son infrarrojas, la grilla entera quedaba negra aunque el tema fuera claro.
+               Sin marco alrededor de la foto: el estado lo dice la etiqueta de arriba; al pasar, el
+               anillo azul marca cuál se va a abrir. */
+            className={cn("group relative flex flex-col overflow-hidden rounded-[10px] bg-card border border-border text-left transition-[box-shadow] duration-200 hover:ring-2 hover:ring-[var(--accion)] focus-visible:ring-2 focus-visible:ring-[var(--accion)] outline-none [content-visibility:auto]",
+                bento ? (grande ? "col-span-2 row-span-2" : "") : "")}>
+            <span className={cn("relative block overflow-hidden bg-muted", bento ? "flex-1 min-h-0" : "aspect-video")}>
+                {url ? (
+                    /* La foto y sus siluetas en la misma caja: crecen juntas al pasar, si no se despegan. */
+                    <span className="absolute inset-0 transition-transform duration-300 group-hover:scale-[1.03]">
+                        {!cargada && <span className="absolute inset-0 animate-pulse bg-muted" />}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={conAncho(url, bento ? (grande ? ANCHO.grande : ANCHO.chica) : ANCHO.grilla)} alt="" loading="lazy" decoding="async"
+                            onLoad={() => setCargada(true)} onError={() => setCargada(true)}
+                            className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-300", cargada ? "opacity-100" : "opacity-0")} />
+                        {/* Lo que vio OmniVision, con el mismo recorte que la foto (cover). Sin rótulos: en una miniatura tapan. */}
+                        {siluetas && cargada && f.vision?.analisis && <CapaAnalisis analisis={f.vision.analisis} ajuste="cover" etiquetas={false} />}
+                    </span>
+                ) : <span className="absolute inset-0 grid place-items-center text-muted-foreground"><Camera size={20} /></span>}
 
-            <span className="absolute top-1.5 left-1.5 right-1.5 flex items-start justify-between gap-1">
-                {acceso ? (
-                    <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]", denegado ? "pleno-mal" : "pleno-bien")}>
-                        {denegado ? <XCircle size={10} /> : <CheckCircle2 size={10} />}{chica ? "" : denegado ? "Denegado" : "Autorizado"}
+                {/* Sobre la foto sólo lo que es estado (etiquetas con su propio fondo). */}
+                <span className="absolute top-1.5 left-1.5 right-1.5 flex items-start justify-between gap-1">
+                    {acceso ? (
+                        <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]", denegado ? "pleno-mal" : "pleno-bien")}>
+                            {denegado ? <XCircle size={10} /> : <CheckCircle2 size={10} />}{chica ? "" : denegado ? "Denegado" : "Autorizado"}
+                        </span>
+                    ) : (
+                        <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] bg-black/55 text-white">
+                            <r.Ico size={10} />{chica ? "" : r.rotulo}
+                        </span>
+                    )}
+                    <span className="flex items-center gap-1">
+                        {f.empresa && <LogoSobreFoto empresa={f.empresa} className={chica ? "h-4 max-w-[54px]" : "h-6 max-w-[84px]"} />}
+                        {merodea && <span className="grid h-5 w-5 place-items-center rounded-md pleno-mal" title="Merodeo"><ShieldAlert size={11} /></span>}
                     </span>
-                ) : (
-                    <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] bg-black/55 text-white">
-                        <r.Ico size={10} />{chica ? "" : r.rotulo}
-                    </span>
-                )}
-                <span className="flex items-center gap-1">
-                    {f.empresa && <LogoSobreFoto empresa={f.empresa} className={chica ? "h-4 max-w-[54px]" : "h-6 max-w-[84px]"} />}
-                    {merodea && <span className="grid h-5 w-5 place-items-center rounded-md pleno-mal" title="Merodeo"><ShieldAlert size={11} /></span>}
                 </span>
             </span>
 
-            <span className="absolute bottom-1.5 left-2 right-2 min-w-0">
+            {/* Los datos, en la superficie de la tarjeta. */}
+            <span className={cn("block min-w-0 shrink-0", chica ? "px-1.5 py-1" : "px-2.5 py-1.5")}>
                 <span className="flex items-center gap-1.5 min-w-0">
-                    <span className={cn("font-bold tracking-wider text-white truncate tabular-nums", chica ? "text-[12.5px]" : "text-[17px]")}>{titulo}</span>
-                    {!leida && f.vision?.releida && <MarcaOmniVision r={f.vision.releida} oscuro tamano={chica ? "xs" : "sm"} soloIcono={chica} />}
+                    <span className={cn("font-bold tracking-wider text-foreground truncate tabular-nums", chica ? "text-[11.5px]" : "text-[15px]")}>{titulo}</span>
+                    {!leida && f.vision?.releida && <MarcaOmniVision r={f.vision.releida} tamano={chica ? "xs" : "sm"} soloIcono={chica} />}
+                    {chica && <span className="ml-auto text-[9.5px] text-muted-foreground tabular-nums shrink-0">{hora(new Date(f.momento))}</span>}
                 </span>
-                <span className={cn("block text-white/75 truncate tabular-nums", chica ? "text-[9.5px]" : "text-[11px]")}>
-                    {hora(new Date(f.momento))} · {r.rotulo}{!chica && leida && f.persona ? ` · ${f.persona}` : ""}
-                </span>
-                {!chica && <span className="block text-[10px] text-white/55 truncate">{fechaCorta(new Date(f.momento))} · {f.camara || "—"}</span>}
+                {!chica && (
+                    <span className="block text-[11px] text-muted-foreground truncate tabular-nums">
+                        {hora(new Date(f.momento))} · {r.rotulo}{leida && f.persona ? ` · ${f.persona}` : ""} · {fechaCorta(new Date(f.momento))} · {f.camara || "—"}
+                    </span>
+                )}
                 {!chica && f.vision && f.vision.vio.length > 0 && (
-                    <span className="block text-[10px] truncate tono-accion-oscuro" title="Lo que vio OmniVision en la foto">
+                    <span className="block text-[10.5px] truncate tono-accion" title="Lo que vio OmniVision en la foto">
                         {textoVision(f.vision)}
                     </span>
                 )}
@@ -186,7 +193,7 @@ export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReinten
                                en un recuadro de alto fijo y debajo quedaba la pantalla en blanco. */
                             <div>
                                 <div className={cn("grid", bento
-                                    ? "gap-2 grid-cols-[repeat(auto-fill,minmax(150px,1fr))] auto-rows-[96px] [grid-auto-flow:dense]"
+                                    ? "gap-2 grid-cols-[repeat(auto-fill,minmax(150px,1fr))] auto-rows-[118px] [grid-auto-flow:dense]"
                                     : "gap-3 grid-cols-[repeat(auto-fill,minmax(230px,1fr))]")}>
                                     {filas.map((f, i) => {
                                         const merodea = !!(f.plate && merodeando.has(f.plate));

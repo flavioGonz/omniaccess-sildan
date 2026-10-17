@@ -26,6 +26,7 @@ El preproceso replica Owlv2ImageProcessor (verificar_paridad.py lo compara contr
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import threading
@@ -33,7 +34,7 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 import motor
 from detector import Objeto
@@ -58,6 +59,24 @@ def _iou(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     inter = np.clip(x2 - x1, 0, None) * np.clip(y2 - y1, 0, None)
     area = lambda c: (c[..., 2] - c[..., 0]) * (c[..., 3] - c[..., 1])  # noqa: E731
     return inter / np.maximum(area(a) + area(b) - inter, 1e-9)
+
+
+def abrir_rapido(datos: bytes) -> tuple[Image.Image, tuple[int, int]]:
+    """La imagen decodificada ya chica (≥ 960 de lado): la mitad del tiempo por foto era decodificar
+    un JPEG de 4 MP entero para después achicarlo (medido 17/10: 227 ms de 447). `draft` le pide al
+    decodificador JPEG la escala 1/2, 1/4… sin pasar por el tamaño completo. Devuelve también el
+    tamaño ORIGINAL: las cajas se dan normalizadas, y en píxeles se pasan con ése."""
+    im = Image.open(io.BytesIO(datos))
+    tam = im.size
+    try:
+        im.draft("RGB", (LADO, LADO))
+    except Exception:
+        pass
+    im = ImageOps.exif_transpose(im).convert("RGB")
+    # exif_transpose puede girar: el tamaño original va girado igual.
+    if (im.size[0] > im.size[1]) != (tam[0] > tam[1]) and tam[0] != tam[1]:
+        tam = (tam[1], tam[0])
+    return im, tam
 
 
 def preparar(img: Image.Image) -> np.ndarray:
@@ -92,10 +111,19 @@ class Vocabulario:
         self.ultimo_ms = 0.0
         self.ultimo_uso = 0.0
         self._ms: list[float] = []
+        # Las cabezas de clase y de objectness (pesos de Google, exportados al construir): con ellas
+        # el índice guarda lo que hace falta para comparar una foto contra cualquier frase después.
+        p = carpeta / "owlv2-cabezas.npz"
+        self.cabezas = dict(np.load(p)) if p.exists() else None
+        self._textos: dict[str, np.ndarray] = {}
 
     @property
     def disponible(self) -> bool:
         return self.meta is not None
+
+    @property
+    def indexable(self) -> bool:
+        return self.meta is not None and self.cabezas is not None
 
     def _abrir(self):
         import onnxruntime as ort
@@ -138,7 +166,81 @@ class Vocabulario:
             return True
         return False
 
-    def detectar(self, img: Image.Image, consultas: list[str], umbral: float | None = None) -> list[Objeto]:
+    def _correr(self, x: np.ndarray, consultas: list[str], salidas: list[str]) -> dict[str, np.ndarray]:
+        if self.sesion is None:
+            self._abrir()
+        self.ultimo_uso = time.time()
+        enc = self.tok.encode_batch([c.lower() for c in consultas])
+        ids = np.array([e.ids for e in enc], dtype=np.int64)
+        mascara = np.array([e.attention_mask for e in enc], dtype=np.int64)
+        alimento = {e.name: (x if e.name == "pixel_values" else ids if e.name == "input_ids" else mascara) for e in self.entradas}
+        motor.Cola.esperando += 1
+        with motor.GPU:
+            motor.Cola.esperando -= 1
+            motor.Cola.en_vuelo = "vocabulario"
+            t0 = time.perf_counter()
+            try:
+                out = dict(zip(salidas, self.sesion.run(salidas, alimento)))
+            except Exception:
+                self.errores += 1
+                raise
+            finally:
+                motor.Cola.en_vuelo = ""
+            ms = (time.perf_counter() - t0) * 1000
+        self.total += 1
+        self.ultimo_ms = ms
+        self._ms = (self._ms + [ms])[-motor.HISTORIA:]
+        return out
+
+    def indexar(self, img: Image.Image, k: int) -> tuple[np.ndarray, np.ndarray]:
+        """Lo que guarda el índice de una foto: los k parches más «objeto» con su vector de clase
+        (int8), escala, corrimiento y escala del logit, y la caja normalizada a la foto."""
+        H = self.cabezas
+        out = self._correr(preparar(img), ["object"], ["image_embeds", "pred_boxes"])
+        fe = out["image_embeds"][0].reshape(-1, out["image_embeds"].shape[-1]).astype(np.float32)  # 3600×768
+        cajas = out["pred_boxes"][0]
+        # objectness: MLP 768→768→768→1 con GELU (la de Owlv2BoxPredictionHead).
+        o = _gelu(fe @ H["objectness_head_dense0_weight"].T + H["objectness_head_dense0_bias"])
+        o = _gelu(o @ H["objectness_head_dense1_weight"].T + H["objectness_head_dense1_bias"])
+        o = (o @ H["objectness_head_dense2_weight"].T + H["objectness_head_dense2_bias"])[:, 0]
+        top = np.argsort(-o)[:k]
+        f = fe[top]
+        ce = f @ H["class_head_dense0_weight"].T + H["class_head_dense0_bias"]
+        ce = ce / (np.linalg.norm(ce, axis=-1, keepdims=True) + 1e-6)
+        sh = (f @ H["class_head_logit_shift_weight"].T + H["class_head_logit_shift_bias"])[:, 0]
+        sc = (f @ H["class_head_logit_scale_weight"].T + H["class_head_logit_scale_bias"])[:, 0]
+        sc = np.where(sc > 0, sc, np.expm1(sc)) + 1.0  # ELU + 1
+        escala = np.abs(ce).max(axis=1) / 127.0 + 1e-12
+        emb = np.clip(np.round(ce / escala[:, None]), -127, 127).astype(np.int8)
+        # Cajas: cxcywh del cuadrado rellenado → xyxy 0-1 de la foto.
+        w, h = img.size
+        lado = float(max(w, h))
+        cx, cy, bw, bh = (cajas[top, i] * lado for i in range(4))
+        x1 = np.clip((cx - bw / 2) / w, 0, 1); x2 = np.clip((cx + bw / 2) / w, 0, 1)
+        y1 = np.clip((cy - bh / 2) / h, 0, 1); y2 = np.clip((cy + bh / 2) / h, 0, 1)
+        f16 = np.stack([escala, sh, sc, x1, y1, x2, y2], axis=1).astype(np.float16)
+        if len(top) < k:  # no pasa con 3600 parches, pero el formato es fijo
+            emb = np.vstack([emb, np.zeros((k - len(top), emb.shape[1]), np.int8)])
+            f16 = np.vstack([f16, np.zeros((k - len(top), 7), np.float16)])
+        return emb, f16
+
+    def vectores_texto(self, consultas: list[str]) -> np.ndarray:
+        """El vector de cada frase (Q×512, normalizado), con memoria: una frase se calcula una vez.
+        El ONNX no separa la mitad de texto, así que se corre con una imagen gris (una pasada)."""
+        faltan = [c for c in consultas if c not in self._textos]
+        if faltan:
+            gris = np.zeros((1, 3, LADO, LADO), np.float32)  # 0 después de normalizar ≈ gris medio
+            out = self._correr(gris, faltan, ["text_embeds"])
+            te = out["text_embeds"][0]
+            te = te / (np.linalg.norm(te, axis=-1, keepdims=True) + 1e-6)
+            for c, v in zip(faltan, te):
+                self._textos[c] = v.astype(np.float32)
+            if len(self._textos) > 512:
+                for c in list(self._textos)[:256]:
+                    del self._textos[c]
+        return np.stack([self._textos[c] for c in consultas])
+
+    def detectar(self, img: Image.Image, consultas: list[str], umbral: float | None = None, tam: tuple[int, int] | None = None) -> list[Objeto]:
         consultas = [c.strip()[:80] for c in consultas if c and c.strip()][:CONSULTAS_MAX]
         if not consultas:
             return []
@@ -169,7 +271,8 @@ class Vocabulario:
         self.total += 1
         self.ultimo_ms = ms
         self._ms = (self._ms + [ms])[-motor.HISTORIA:]
-        return decodificar(out["logits"][0], out["pred_boxes"][0], consultas, img.size, u)
+        # Las cajas salen normalizadas al cuadrado: valen para la foto decodificada chica y la original.
+        return decodificar(out["logits"][0], out["pred_boxes"][0], consultas, tam or img.size, u)
 
     def latencias(self) -> dict:
         if not self._ms:
@@ -216,3 +319,17 @@ def decodificar(logits: np.ndarray, cajas: np.ndarray, consultas: list[str], tam
             ))
     out.sort(key=lambda o: -o.confianza)
     return out
+
+
+def _erf(x: np.ndarray) -> np.ndarray:
+    """erf de Abramowitz–Stegun 7.1.26 (error < 1,5e-7): la imagen final no trae scipy."""
+    s = np.sign(x)
+    a = np.abs(x)
+    t = 1.0 / (1.0 + 0.3275911 * a)
+    y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * np.exp(-a * a)
+    return s * y
+
+
+def _gelu(x: np.ndarray) -> np.ndarray:
+    """GELU exacta (con erf), la de torch.nn.GELU por defecto."""
+    return 0.5 * x * (1.0 + _erf(x / np.sqrt(2.0)))

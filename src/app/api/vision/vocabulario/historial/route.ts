@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
-import { buscarVocabulario } from "@/lib/vision";
+import { buscarVocabulario, VISION_URL } from "@/lib/vision";
 import { consultasDe, traducirConsulta } from "@/lib/vocabulario";
 import { getImagePath } from "@/lib/image-path";
 
@@ -10,6 +10,13 @@ export const maxDuration = 60;
 
 /**
  * POST /api/vision/vocabulario/historial — buscar un OBJETO por nombre en las fotos del historial.
+ *
+ * DOS MODOS (17/10, «es demasiado lento»):
+ *  · índice (por defecto): busca en el índice de omni-vision (indice_vocab.py), que guarda de cada
+ *    foto lo que hace falta para compararla contra cualquier frase. Un mes en ~1 s. Lo indexa
+ *    vision-vocab-indice.js a medida que llegan las fotos (y hacia atrás, el relleno).
+ *  · escanear (modo: "escanear"): lo de abajo, foto por foto. Para lo que el índice todavía no
+ *    tiene (lo de los últimos minutos, o si el índice está apagado).
  *   { q: "carretilla, escalera", desde?: "AAAA-MM-DD", hasta?: "AAAA-MM-DD", camaras?: [nombre],
  *     antesDe?: ISO, lote?: n }
  *   → { total?, revisadas, hallazgos: [{ eventId, ts, camara, plate, foto, objetos }], siguiente, consultas }
@@ -51,7 +58,12 @@ export async function POST(req: NextRequest) {
     // El rango: el del historial (días enteros, hasta inclusive). Sin rango, las últimas 24 h.
     const desde = b?.desde ? new Date(`${b.desde}T00:00:00`) : new Date(Date.now() - 864e5);
     const hasta = b?.hasta ? new Date(`${b.hasta}T23:59:59.999`) : new Date();
+
+    if (b?.modo !== "escanear") return buscarEnIndice(consultas, desde, hasta, Array.isArray(b?.camaras) ? b.camaras : []);
     const antesDe = b?.antesDe ? new Date(b.antesDe) : null;
+    // Escanear sólo lo que el índice todavía no tiene: lo posterior a su último indexado.
+    const despuesDe = b?.despuesDe ? new Date(b.despuesDe) : null;
+    if (despuesDe && despuesDe > desde) desde.setTime(despuesDe.getTime() + 1);
     const camaras: string[] = Array.isArray(b?.camaras) ? b.camaras.filter((x: unknown) => typeof x === "string").slice(0, 50) : [];
     // Con cursor se sigue desde la última foto revisada (estrictamente antes); sin cursor, todo el rango.
     const tope = antesDe && antesDe < hasta ? antesDe : hasta;
@@ -96,4 +108,46 @@ export async function POST(req: NextRequest) {
         revisadas: eventos.length, hallazgos, consultas,
         siguiente: eventos.length === lote && ultimo ? ultimo.timestamp.toISOString() : null,
     }, { headers: { "Cache-Control": "no-store" } });
+}
+
+/** El modo índice: una sola consulta a omni-vision, y las fotos encontradas con sus datos. */
+async function buscarEnIndice(consultas: ReturnType<typeof traducirConsulta>[], desde: Date, hasta: Date, camarasNombres: string[]) {
+    const nombres = camarasNombres.filter((x) => typeof x === "string").slice(0, 50);
+    const devs = nombres.length ? (await prisma.device.findMany({ where: { name: { in: nombres } }, select: { id: true } })).map((d) => d.id) : [];
+    let r: Response;
+    try {
+        r = await fetch(`${VISION_URL()}/vocabulario/buscar`, {
+            method: "POST", headers: { "content-type": "application/json" }, cache: "no-store", signal: AbortSignal.timeout(60_000),
+            body: JSON.stringify({ consultas: consultas.map((c) => c.enviada), desde: desde.getTime(), hasta: hasta.getTime(), dispositivos: devs, maximo: 300 }),
+        });
+    } catch (e: any) { return NextResponse.json({ error: e?.message || "omni-vision no contestó" }, { status: 502 }); }
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok) {
+        // Sin índice (imagen vieja, carpeta sin montar) o la tarea apagada: la pantalla cae a escanear.
+        return NextResponse.json({ error: j?.error || `omni-vision respondió ${r.status}`, sinIndice: r.status === 501 || r.status === 503, apagado: r.status === 409 }, { status: 409 });
+    }
+    const porEnviada = new Map(consultas.map((c) => [c.enviada, c.escrita]));
+    const ids = [...new Set((j.resultados || []).map((x: any) => x.id as string))];
+    const eventos = ids.length ? await prisma.accessEvent.findMany({
+        where: { id: { in: ids as string[] } },
+        select: { id: true, timestamp: true, plateDetected: true, snapshotPath: true, imagePath: true, device: { select: { name: true } } },
+    }) : [];
+    const porId = new Map(eventos.map((e) => [e.id, e]));
+    const agrupado = new Map<string, any>();
+    for (const x of j.resultados || []) {
+        const e = porId.get(x.id);
+        if (!e) continue; // la foto se borró del historial después de indexarla
+        const h = agrupado.get(x.id) || {
+            eventId: e.id, ts: e.timestamp.toISOString(), camara: e.device?.name || null, plate: e.plateDetected,
+            foto: getImagePath(e.snapshotPath || e.imagePath), objetos: [] as any[], mejor: 0,
+        };
+        h.objetos.push({ nombre: porEnviada.get(x.consulta) || x.consulta, confianza: x.score, caja_norm: x.caja_norm });
+        h.mejor = Math.max(h.mejor, x.score);
+        agrupado.set(x.id, h);
+    }
+    const hallazgos = [...agrupado.values()].sort((a, b) => b.mejor - a.mejor);
+    // Cuánto del rango cubre el índice: las fotos del rango contra las indexadas.
+    const total = await prisma.accessEvent.count({ where: { timestamp: { gte: desde, lte: hasta }, OR: [{ snapshotPath: { not: null } }, { imagePath: { not: null } }], ...(devs.length ? { deviceId: { in: devs } } : {}) } });
+    return NextResponse.json({ modo: "indice", hallazgos, revisadas: j.revisadas || 0, total, consultas, ms: j.ms, siguiente: null },
+        { headers: { "Cache-Control": "no-store" } });
 }

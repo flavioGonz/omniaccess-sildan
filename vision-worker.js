@@ -36,6 +36,7 @@ const relecturas = require("./vision-relectura");
 const reglasVision = require("./vision-reglas");
 const zonasEntrenables = require("./vision-zonas");
 const analisisFotos = require("./vision-analisis");
+const vocabIndice = require("./vision-vocab-indice");
 
 const VISION = (process.env.OMNI_VISION_URL || "http://127.0.0.1:8010").replace(/\/$/, "");
 const GO2RTC = (process.env.GO2RTC_API || "http://127.0.0.1:1984").replace(/\/$/, "");
@@ -698,6 +699,8 @@ async function principal() {
         permitidas,
         bajar, subir,
     });
+    // El índice de fotos del vocabulario abierto: corre aparte, con su propio ritmo y modo.
+    vocabIndice.iniciar({ prisma, log, vision: VISION, apagado: () => ajustes.apagadas.has("vocabulario") });
     zonero = zonasEntrenables.iniciar({ prisma, log, vision: VISION, subir, borrar, activa: () => ajustes.zonas, segmentar: () => !ajustes.apagadas.has("segmentar"), permitidas });
     let ultEstado = 0, ultLimpieza = 0, hayTrabajo = false;
     while (corriendo) {

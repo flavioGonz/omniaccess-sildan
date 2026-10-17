@@ -18,6 +18,10 @@ Contrato (estable, independiente de los modelos):
         ?umbral=0.4  ?grupos=persona,vehiculo
   POST /vocabulario?q=wheelbarrow&q=ladder[&umbral=0.2] → cuerpo = la imagen; lo pedido por texto
                      (OWLv2, vocabulario abierto). Se abre al primer pedido y se suelta solo.
+  POST /vocabulario/indexar?id=&ts=<ms>&dev= → cuerpo = la foto: la guarda en el índice (indice_vocab).
+  GET  /vocabulario/indice → qué hay indexado (por día, último, tamaño).
+  POST /vocabulario/buscar {consultas, desde, hasta (ms), dispositivos?, umbral?, maximo?} → en el
+                     índice, sin volver a mirar las fotos: un mes en ~1 s.
      → {ancho, alto, tarea, modelo, ms, pasos:{…ms}, objetos:[{clase, nombre, grupo, confianza,
         caja, caja_norm, silueta?, area?, puntos?, postura?, atributos?, pista?}],
         textos?:[{texto, confianza, poligono, sobreimpreso, tipo, dentro?}]}
@@ -44,7 +48,8 @@ from seguimiento import Sesiones
 from texto import Lector
 from busqueda import Buscador, vector_imagen
 from propio import Propio
-from vocabulario import Vocabulario, UMBRAL_DEFECTO as UMBRAL_VOCAB
+from vocabulario import Vocabulario, UMBRAL_DEFECTO as UMBRAL_VOCAB, abrir_rapido
+from indice_vocab import Indice, K as K_INDICE
 import threading
 
 CARPETA = Path(os.environ.get("VISION_MODELOS", "/modelos"))
@@ -75,6 +80,7 @@ lector = Lector()
 buscador = Buscador(CARPETA)
 propio = Propio()
 vocab = Vocabulario(CARPETA)
+indice = Indice()
 NOMBRE_MODELO = {"detectar": MODELO, "segmentar": MODELO_SILUETAS, "pose": MODELO_POSE}
 arranque = time.time()
 
@@ -422,12 +428,17 @@ async def detectar(request: Request, umbral: float | None = None, grupos: str | 
 # ─────────────── vocabulario abierto (OWLv2) ───────────────
 
 def _vigilar_vocabulario() -> None:
-    """Suelta OWLv2 de la GPU tras un rato sin pedidos: es un giga largo que comparte la placa con omni-lpr."""
+    """Suelta OWLv2 de la GPU tras un rato sin pedidos (es un giga largo que comparte la placa con
+    omni-lpr) y poda el índice de los días que pasaron la retención."""
+    ultima_poda = 0.0
     while True:
         time.sleep(60)
         try:
             if vocab.soltar_si_inactivo():
                 gc.collect()
+            if indice.disponible and time.time() - ultima_poda > 6 * 3600:
+                indice.podar()
+                ultima_poda = time.time()
         except Exception:
             pass
 
@@ -451,13 +462,77 @@ async def vocabulario(request: Request, umbral: float | None = None):
         raise HTTPException(413, "La imagen pesa demasiado.")
     t0 = time.perf_counter()
     try:
-        img = D.abrir_imagen(datos)
-        objetos = await run_in_threadpool(lambda: _paso("vocabulario", lambda: vocab.detectar(img, consultas, umbral)))
+        img, tam = abrir_rapido(datos)
+        objetos = await run_in_threadpool(lambda: _paso("vocabulario", lambda: vocab.detectar(img, consultas, umbral, tam)))
     except Exception as e:
         return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=422 if "Image" in type(e).__name__ else 500)
     return {
-        "ancho": img.size[0], "alto": img.size[1], "consultas": consultas[:8], "modelo": vocab.meta["modelo"],
+        "ancho": tam[0], "alto": tam[1], "consultas": consultas[:8], "modelo": vocab.meta["modelo"],
         "umbral": umbral if umbral is not None else UMBRAL_VOCAB,
         "ms": round((time.perf_counter() - t0) * 1000, 1), "ms_inferencia": round(vocab.ultimo_ms, 1),
         "objetos": [o.a_dict() for o in objetos],
     }
+
+
+def _vocab_listo() -> JSONResponse | None:
+    if not vocab.indexable:
+        return JSONResponse({"error": "Esta imagen de omni-vision no trae el vocabulario abierto con índice."}, status_code=501)
+    if "vocabulario" in apagadas:
+        return JSONResponse({"error": "La tarea vocabulario está apagada.", "apagada": "vocabulario"}, status_code=409)
+    if not indice.disponible:
+        return JSONResponse({"error": "La carpeta del índice no se puede escribir (montaje /indice)."}, status_code=503)
+    return None
+
+
+@app.post("/vocabulario/indexar")
+async def vocabulario_indexar(request: Request, id: str, ts: int, dev: str | None = None):
+    no = _vocab_listo()
+    if no:
+        return no
+    id_ = id[:64]
+    if indice.tiene(id_, ts):
+        return {"ok": True, "ya": True}
+    datos = await request.body()
+    if not datos or len(datos) > MAX_BYTES:
+        raise HTTPException(400, "Falta la foto o pesa demasiado.")
+    t0 = time.perf_counter()
+    try:
+        def hacer():
+            img, _ = abrir_rapido(datos)
+            emb, f16 = vocab.indexar(img, K_INDICE)
+            indice.agregar(id_, ts, (dev or "")[:64] or None, emb, f16)
+        await run_in_threadpool(lambda: _paso("vocabulario", hacer))
+    except Exception as e:
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=422 if "Image" in type(e).__name__ else 500)
+    return {"ok": True, "ms": round((time.perf_counter() - t0) * 1000, 1), "ms_inferencia": round(vocab.ultimo_ms, 1)}
+
+
+@app.get("/vocabulario/indice")
+def vocabulario_indice():
+    return {**indice.estado(), "indexable": vocab.indexable, "activa": "vocabulario" not in apagadas}
+
+
+@app.post("/vocabulario/buscar")
+async def vocabulario_buscar(request: Request):
+    no = _vocab_listo()
+    if no:
+        return no
+    try:
+        b = await request.json()
+    except Exception:
+        raise HTTPException(400, "Se espera JSON.")
+    consultas = [str(c).strip()[:80] for c in (b.get("consultas") or []) if str(c).strip()][:8]
+    if not consultas:
+        raise HTTPException(400, "Falta qué buscar.")
+    desde, hasta = int(b.get("desde") or 0), int(b.get("hasta") or time.time() * 1000)
+    devs = {str(d) for d in (b.get("dispositivos") or [])} or None
+    umbral = max(0.05, min(0.95, float(b.get("umbral") or UMBRAL_VOCAB)))
+    maximo = max(1, min(500, int(b.get("maximo") or 200)))
+    t0 = time.perf_counter()
+    try:
+        T = await run_in_threadpool(vocab.vectores_texto, consultas)
+        res, revisadas = await run_in_threadpool(indice.buscar, T, desde, hasta, devs, umbral, maximo)
+    except Exception as e:
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
+    return {"resultados": [{**r, "consulta": consultas[r["q"]]} for r in res], "revisadas": revisadas,
+            "consultas": consultas, "umbral": umbral, "ms": round((time.perf_counter() - t0) * 1000, 1)}
