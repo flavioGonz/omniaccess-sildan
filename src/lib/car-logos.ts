@@ -61,12 +61,21 @@ const BRAND_ALIASES: Record<string, string> = {
     '1031': 'Buick',
 };
 
+/*
+ * Sin logos de fabricantes (17/10, Nico: «debemos ser más discretos con el fabricante, sólo
+ * texto sin logos»). La marca se sigue diciendo, en texto; el logo de una marca ajena dibujado en
+ * nuestras pantallas no suma información y la presenta como un sello (y los traía de GitHub, una
+ * dependencia externa por cada tarjeta). Todas las pantallas ya caen a texto o a un ícono
+ * genérico cuando no hay logo: apagarlo acá los apaga en todas a la vez.
+ */
+export const LOGOS_FABRICANTE = false as boolean;
+
 /**
- * Returns the logo URL for a given car brand name.
+ * Returns the logo URL for a given car brand name — null mientras LOGOS_FABRICANTE esté apagado.
  * Uses the dataset from filippofilip95/car-logos-dataset.
  */
 export function getCarLogo(brandName: string | null | undefined): string | null {
-    if (!brandName) return null;
+    if (!LOGOS_FABRICANTE || !brandName) return null;
 
     const normalizedInput = brandName.trim().toUpperCase();
 

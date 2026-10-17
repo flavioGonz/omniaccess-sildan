@@ -503,7 +503,10 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                 {tipo && <span className={cn("absolute left-0 top-0 bottom-0 w-1", tipo.dot)} />}
                 <div className="flex items-center gap-3">
                     <div className="w-16 h-14 rounded-lg border border-border shrink-0 bg-card/60 flex items-center justify-center overflow-hidden p-1.5" title={!marcaEv ? "Marca desconocida" : marcaEv.deCamara ? `${marcaEv.marca} · ${AVISO_MARCA_CAMARA}` : `${marcaEv.marca} · del padrón`}>
-                        {logoUrl ? <Image src={logoUrl} alt={marcaEv?.marca || "marca"} width={48} height={48} className={cn("object-contain w-full h-full", marcaEv?.deCamara && "grayscale opacity-40")} /> : <Car size={22} className="text-muted-foreground" />}
+                        {/* La marca en texto, sin logo del fabricante (17/10); la de la cámara, atenuada y en cursiva. */}
+                        {logoUrl ? <Image src={logoUrl} alt={marcaEv?.marca || "marca"} width={48} height={48} className={cn("object-contain w-full h-full", marcaEv?.deCamara && "grayscale opacity-40")} />
+                            : marcaEv ? <span className={cn("text-[10px] font-bold uppercase tracking-[0.04em] leading-[1.15] text-center line-clamp-2 break-words", marcaEv.deCamara ? "text-muted-foreground italic font-semibold" : "text-foreground")}>{marcaEv.marca}</span>
+                                : <Car size={22} className="text-muted-foreground" />}
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">

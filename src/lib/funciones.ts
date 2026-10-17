@@ -65,7 +65,7 @@ export const FUNCIONES: Funcion[] = [
         id: "LPR_MARCAS",
         modulo: "MODULE_LPR",
         nombre: "Marca del vehículo según la cámara",
-        que: "Muestra la marca (logo y nombre) que reconoce la cámara en cada lectura: en el monitor LPR, en la ficha del evento y en el visor. La marca del padrón se muestra siempre.",
+        que: "Muestra la marca (en texto) que reconoce la cámara en cada lectura: en el monitor LPR, en la ficha del evento y en el visor. La marca del padrón se muestra siempre.",
         siSeApaga: "Se dejan de mostrar las marcas que adivina la cámara, que fallan seguido y pueden confundir una búsqueda. Se siguen guardando con la lectura: prenderla otra vez las muestra también en lo ya leído.",
         porDefecto: false,
     },

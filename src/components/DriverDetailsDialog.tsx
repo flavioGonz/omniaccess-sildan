@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { addDeviceModel, deleteDeviceModel } from "@/app/actions/driver-models";
 import { HIKVISION_VEHICLE_BRANDS } from "@/lib/hikvision-codes";
-import { getCarLogo } from "@/lib/car-logos";
+import { getCarLogo, LOGOS_FABRICANTE } from "@/lib/car-logos";
 import carLogos from "@/lib/car-logos.json";
 import { saveHikvisionBrands } from "@/app/actions/settings";
 import { toast } from "@/lib/avisos";
@@ -997,7 +997,7 @@ function BrandEditor() {
                                                     className={cn("mr-2 h-3 w-3", newName === logo.name ? "opacity-100" : "opacity-0")}
                                                 />
                                                 <div className="flex items-center gap-3">
-                                                    {logo.image?.optimized ? (
+                                                    {LOGOS_FABRICANTE && logo.image?.optimized ? (
                                                         <div className="w-6 h-6 bg-white p-0.5 rounded flex items-center justify-center">
                                                             <img src={logo.image.optimized} alt="" className="max-w-full max-h-full object-contain" />
                                                         </div>
