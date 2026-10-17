@@ -297,8 +297,6 @@ export default function UsersPage() {
                             );
                         })}
                     </div>
-                    <ComportamientoPestania pestania={pestania} comportamiento={comportamiento} alCambiar={cambiarComportamiento}
-                        guardando={guardandoComp} avisos={avisos} />
                 </div>
 
                 <main className="flex-1 overflow-hidden px-8 py-4 flex flex-col">
@@ -336,6 +334,13 @@ export default function UsersPage() {
                             barra={<Filtros busqueda={searchQuery} alBuscar={setSearchQuery} placeholder="Nombre, DNI, unidad, matrícula o contacto" />}
                         />
                     )}
+                    {/* «Cómo se comporta» va debajo de la tabla (17/10, Nico): arriba se interponía
+                        entre las pestañas y los datos, y lo que el operador vino a ver es la lista.
+                        Es configuración de la pestaña: se consulta de vez en cuando, no a cada rato. */}
+                    <div className="shrink-0 pt-3">
+                        <ComportamientoPestania pestania={pestania} comportamiento={comportamiento} alCambiar={cambiarComportamiento}
+                            guardando={guardandoComp} avisos={avisos} />
+                    </div>
                 </main>
             </div>
 

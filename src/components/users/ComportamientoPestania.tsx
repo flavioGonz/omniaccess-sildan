@@ -12,7 +12,7 @@ import {
 } from "@/lib/padron";
 
 /**
- * «Cómo se comporta»: la franja de arriba de cada pestaña.
+ * «Cómo se comporta»: la franja de cada pestaña, debajo de su tabla.
  *
  * Dos clases de cosas, y se ven distintas a propósito:
  *   · lo FIJO (la barrera, las lectoras, la alarma de la lista negra) va como texto con su
