@@ -7,6 +7,8 @@ import {
     Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers,
 } from "lucide-react";
 import { Pestanias, type Pestania } from "@/components/ui/pestanias";
+import { Tooltip } from "react-tooltip";
+import "react-tooltip/dist/react-tooltip.css";
 import { ElegirDispositivo, type Equipo } from "@/components/alarmas/ElegirDispositivo";
 import { cn } from "@/lib/utils";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
@@ -272,48 +274,53 @@ function GestionAlarmas() {
     const plateSel = sel?.startsWith("p:") ? sel.slice(2) : sel;
     const autoSel = ver !== "alarmas" && ver !== "residentes" && !alarmaSel ? (p ? [...p.autosResidentes, ...p.autosVisitas, ...p.atipicos].find((a) => a.plate === plateSel) || null : null) : null;
 
+    /*
+     * Los filtros de la tabla en UN renglón (17/10, Nico: «el origen está mal ubicado, mucho texto;
+     * debe ser iconográfico, con react-tooltip, en la misma fila que 24 h / 3 días / 7 días»).
+     * Izquierda: buscar y el estado (¿qué falta atender?). Derecha: de dónde viene —cuatro íconos
+     * que se prenden y se apagan, con su cuenta; ninguno prendido es todos—, el equipo y hasta cuándo
+     * para atrás. Lo que decía cada chip en palabras pasó a la ayuda al pasar el mouse.
+     */
+    const etiquetaEstado = estado === "pendiente" ? "sin atender" : estado === "atendida" ? "atendidas" : "en total";
     const barraAlarmas = (
-                                /* Los filtros de la tabla, en el orden en que se piensa (16/10, Nico: «dos "Todas"
-                                   confunden»): primero qué estado (la pregunta de siempre: ¿qué falta atender?),
-                                   después de dónde viene —chips que se prenden y se apagan; ninguno prendido es
-                                   todos, así que no hay un segundo «Todas»— y a la derecha hasta cuándo para atrás. */
-                                <div className="flex flex-col gap-2">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        <Filtros busqueda={busqueda} alBuscar={setBusqueda} placeholder="Matrícula, cámara o tipo"
-                                            grupos={[{ clave: "estado", titulo: "¿Atendidas o no?", valor: estado, alElegir: (v) => setEstado(v as any), opciones: [
-                                                { valor: "pendiente", rotulo: "Sin atender", cuenta: cuentaEstado("pendiente"), tono: cuentaEstado("pendiente") ? "mal" : undefined },
-                                                { valor: "atendida", rotulo: "Atendidas", cuenta: cuentaEstado("atendida") },
-                                                { valor: "todas", rotulo: "Todas" }] }]} />
-                                        <div className="ml-auto">
-                                            <Filtros grupos={[{ clave: "rango", titulo: "Hasta cuándo para atrás se miran las alarmas", valor: String(horas), alElegir: (v) => setHoras(Number(v)),
-                                                opciones: [{ valor: "24", rotulo: "24 h" }, { valor: "72", rotulo: "3 días" }, { valor: "168", rotulo: "7 días" }] }]} />
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mr-1">Origen</span>
-                                        {(["intrusion", "lpr", "patron", "vision"] as FuenteAlarma[]).map((f) => {
-                                            const I = ICONO_FUENTE[f], on = origenes.includes(f), n = cuentaFuente(f);
-                                            return (
-                                                <button key={f} type="button" onClick={() => alternarOrigen(f)} aria-pressed={on} title={on ? `Quitar ${NOMBRE_FUENTE[f]}` : `Ver sólo ${NOMBRE_FUENTE[f]}${origenes.length ? " (además de los elegidos)" : ""}`}
-                                                    className={cn("h-[30px] pl-2.5 pr-3 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors",
-                                                        on ? "bg-[var(--accion)] border-[var(--accion)] text-white" : "border-border text-muted-foreground hover:text-foreground hover:bg-accent", !n && !on && "opacity-50")}>
-                                                    <I size={13} /> {NOMBRE_FUENTE[f]} <span className="tabular-nums opacity-70">{n}</span>
-                                                </button>
-                                            );
-                                        })}
-                                        {origenes.length > 0
-                                            ? <button type="button" onClick={() => setOrigenes([])} className="h-[30px] px-2.5 rounded-full text-[12px] font-semibold inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"><X size={13} /> Todos los orígenes</button>
-                                            : <span className="text-[11.5px] text-muted-foreground ml-1">todos · tocá uno para acotar</span>}
-                                        <span className="w-px h-5 bg-border mx-1.5" />
-                                        <ElegirDispositivo valor={equipo} alElegir={setEquipo} cuenta={cuentaEquipo} />
-                                    </div>
-                                </div>
+        <div className="flex items-center gap-2 flex-wrap">
+            <Filtros busqueda={busqueda} alBuscar={setBusqueda} placeholder="Matrícula, cámara o tipo"
+                grupos={[{ clave: "estado", titulo: "¿Atendidas o no?", valor: estado, alElegir: (v) => setEstado(v as any), opciones: [
+                    { valor: "pendiente", rotulo: "Sin atender", cuenta: cuentaEstado("pendiente"), tono: cuentaEstado("pendiente") ? "mal" : undefined },
+                    { valor: "atendida", rotulo: "Atendidas", cuenta: cuentaEstado("atendida") },
+                    { valor: "todas", rotulo: "Todas" }] }]} />
+            <div className="ml-auto flex items-center gap-2">
+                <div className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5 gap-0.5" role="group" aria-label="Origen">
+                    {(["intrusion", "lpr", "patron", "vision"] as FuenteAlarma[]).map((f) => {
+                        const I = ICONO_FUENTE[f], on = origenes.includes(f), n = cuentaFuente(f);
+                        return (
+                            <button key={f} type="button" onClick={() => alternarOrigen(f)} aria-pressed={on} aria-label={NOMBRE_FUENTE[f]}
+                                data-tooltip-id="tt-alarmas" data-tooltip-content={`${NOMBRE_FUENTE[f]} · ${n} ${etiquetaEstado}. ${on ? "Tocá para quitarlo." : origenes.length ? "Tocá para sumarlo." : "Tocá para ver sólo este origen."}`}
+                                className={cn("relative h-[30px] w-[34px] rounded-md grid place-items-center transition-colors",
+                                    on ? "bg-[var(--accion)] text-white" : "text-muted-foreground hover:text-foreground hover:bg-background", !n && !on && "opacity-40")}>
+                                <I size={15} />
+                                {n > 0 && <span className={cn("absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9.5px] font-bold tabular-nums grid place-items-center", on ? "bg-white text-[var(--accion)]" : f === "intrusion" || f === "lpr" ? "pleno-mal" : "bg-foreground text-background")}>{n > 99 ? "99+" : n}</span>}
+                            </button>
+                        );
+                    })}
+                    {origenes.length > 0 && (
+                        <button type="button" onClick={() => setOrigenes([])} aria-label="Todos los orígenes" data-tooltip-id="tt-alarmas" data-tooltip-content="Ver todos los orígenes"
+                            className="h-[30px] w-[26px] rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-background"><X size={13} /></button>
+                    )}
+                </div>
+                <ElegirDispositivo compacto valor={equipo} alElegir={setEquipo} cuenta={cuentaEquipo} />
+                <span className="w-px h-5 bg-border" />
+                <Filtros grupos={[{ clave: "rango", titulo: "Hasta cuándo para atrás se miran las alarmas", valor: String(horas), alElegir: (v) => setHoras(Number(v)),
+                    opciones: [{ valor: "24", rotulo: "24 h" }, { valor: "72", rotulo: "3 días" }, { valor: "168", rotulo: "7 días" }] }]} />
+            </div>
+        </div>
     );
     const comun = { alto: "100%", className: "flex-1 min-h-0", seleccionCeldas: false, cargando: cargando && !datos, error: !datos ? error : null, alReintentar: traer };
     const vacio = (titulo: string) => ({ titulo: t ? "Nada con esa búsqueda" : titulo, ayuda: t ? undefined : "Se actualiza sola con cada lectura y cada aviso." });
 
     return (
         <div className="h-full flex flex-col">
+            <Tooltip id="tt-alarmas" place="bottom" positionStrategy="fixed" className="!max-w-[260px] !text-[12px] !rounded-lg !z-[9999]" />
             {/* Cabecera */}
             <div className="shrink-0 px-6 pt-4 pb-3 border-b border-border flex flex-col gap-3">
                 <div className="flex items-center justify-between gap-4">

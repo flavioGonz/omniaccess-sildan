@@ -22,7 +22,9 @@ const TIPO: Record<string, string> = {
     FACE_TERMINAL: "Terminales faciales", ACCESS_CONTROL: "Control de acceso", DOOR_INTERCOM: "Porteros", QUEUE_COUNTER: "Contadores de filas",
 };
 
-export function ElegirDispositivo({ valor, alElegir, cuenta }: { valor: Equipo | null; alElegir: (e: Equipo | null) => void; cuenta: (e: Equipo) => number }) {
+export function ElegirDispositivo({ valor, alElegir, cuenta, compacto }: { valor: Equipo | null; alElegir: (e: Equipo | null) => void; cuenta: (e: Equipo) => number;
+    /** Sólo el ícono (en el renglón de filtros); el nombre del equipo elegido va en la ayuda (react-tooltip «tt-alarmas»). */
+    compacto?: boolean }) {
     const [abierto, setAbierto] = useState(false);
     const [buscar, setBuscar] = useState("");
     const [equipos, setEquipos] = useState<Equipo[] | null>(null);
@@ -45,6 +47,16 @@ export function ElegirDispositivo({ valor, alElegir, cuenta }: { valor: Equipo |
 
     return (
         <Popover open={abierto} onOpenChange={(o) => { setAbierto(o); if (!o) setBuscar(""); }}>
+            {compacto ? (
+                <PopoverTrigger asChild>
+                    <button type="button" aria-label={valor ? `Equipo: ${valor.name}` : "Acotar a un equipo"}
+                        data-tooltip-id="tt-alarmas" data-tooltip-content={valor ? `Sólo ${valor.name}. Tocá para cambiar o ver todos.` : "Todos los equipos. Tocá para acotar a una cámara, lectora o NVR."}
+                        className={cn("relative h-[34px] w-[34px] rounded-lg grid place-items-center transition-colors", valor ? "bg-[var(--accion)] text-white" : "bg-muted/60 text-muted-foreground hover:text-foreground")}>
+                        <Cpu size={15} />
+                        {valor && <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-white ring-2 ring-[var(--accion)]" />}
+                    </button>
+                </PopoverTrigger>
+            ) : (
             <span className="inline-flex items-center">
                 <PopoverTrigger asChild>
                     <button type="button" title="Acotar a un equipo"
@@ -57,6 +69,7 @@ export function ElegirDispositivo({ valor, alElegir, cuenta }: { valor: Equipo |
                 </PopoverTrigger>
                 {valor && <button type="button" onClick={() => alElegir(null)} aria-label="Todos los equipos" title="Todos los equipos" className="ml-1 h-[26px] w-[26px] grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent"><X size={13} /></button>}
             </span>
+            )}
             <PopoverContent align="start" className="p-0 w-[340px] overflow-hidden">
                 <div className="flex items-center gap-2 px-3 h-10 border-b border-border">
                     <Search size={14} className="text-muted-foreground shrink-0" />
