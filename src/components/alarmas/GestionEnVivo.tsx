@@ -28,7 +28,7 @@ export function usarGestion(clave: string | null) {
     return { datos, leer };
 }
 
-export function GestionEnVivo({ clave, deviceId, oscuro }: { clave: string; deviceId?: string | null; oscuro?: boolean }) {
+export function GestionEnVivo({ clave, deviceId, oscuro, inicio }: { clave: string; deviceId?: string | null; oscuro?: boolean; inicio?: EventoActividad[] }) {
     const { datos, leer } = usarGestion(clave);
     const [ocupado, setOcupado] = useState(false);
     const [pasando, setPasando] = useState(false);
@@ -60,20 +60,81 @@ export function GestionEnVivo({ clave, deviceId, oscuro }: { clave: string; devi
                     <button type="button" onClick={pasar} disabled={ocupado} className="h-9 px-3.5 rounded-[8px] text-[12px] font-bold bg-[var(--accion)] text-white disabled:opacity-60">Pasarla</button>
                 </div>
             )}
-            {datos && datos.pasos.length > 0 && (
-                <ol className="relative space-y-2 pl-4">
-                    <span aria-hidden className={cn("absolute left-[5px] top-1.5 bottom-1.5 w-px", oscuro ? "bg-white/15" : "bg-border")} />
-                    {[...datos.pasos].reverse().map((p) => (
-                        <li key={p.id} className="relative text-[12px] leading-snug">
-                            <span aria-hidden className={cn("absolute -left-[14.5px] top-[5px] h-2 w-2 rounded-full", p.accion === "TOMO" ? "bg-[var(--accion)]" : p.accion === "CONFIRMO_REAL" || p.accion === "MARCO_REAL" ? "bg-[var(--mal)]" : p.accion === "DESACTIVO" || p.accion === "ATENDIO" ? "bg-[var(--bien)]" : oscuro ? "bg-white/40" : "bg-muted-foreground/50")} />
-                            <span className="font-semibold">{p.por || "Sistema"}</span> <span className={suave}>{TEXTO_ACCION[p.accion]?.toLowerCase() || p.accion}</span>
-                            <span className={cn("tabular-nums ml-1.5 text-[11px]", suave)}>{hora(p.ts)}</span>
-                            {p.detalle && <div className={cn("text-[11.5px]", oscuro ? "text-white/75" : "text-foreground/80")}>{p.accion === "NOTA" || p.accion === "PASO" ? `«${p.detalle}»` : p.detalle}</div>}
-                        </li>
-                    ))}
+            {datos && <Actividad pasos={datos.pasos} inicio={inicio} oscuro={oscuro} />}
+        </div>
+    );
+}
+
+/*
+ * La actividad de la alarma, como un historial de git (16/10, Nico: «en el drawer debe estar el
+ * comportamiento de actividad tipo git»). Una línea vertical con un nodo por cosa que pasó, la más
+ * nueva arriba, agrupada por día: quién (con su inicial), qué, cuándo —«hace 3 min» a la derecha y la
+ * hora exacta al pasar el mouse— y el detalle debajo. El primer nodo es el origen: lo que abrió la
+ * alarma (la cámara, el patrón, la regla), para que la historia se lea entera aunque nadie la haya
+ * tocado todavía. `inicio` trae esos nodos que no están en la bitácora (el origen y, en alarmas
+ * atendidas antes de que existiera la bitácora, quién la atendió).
+ */
+export type EventoActividad = {
+    id: string; ts: string; por: string | null; texto: string; detalle?: string | null; tipo?: "origen" | "bien" | "mal" | "info";
+    /** De antes de la bitácora: se muestra sólo si la bitácora no tiene ya una decisión (o una nota). */
+    legado?: "decision" | "nota";
+};
+const DECISIONES = new Set(["CONFIRMO_REAL", "MARCO_FALSA", "MARCO_REAL", "DESACTIVO", "ERA_FALSA", "ATENDIO"]);
+
+const COLOR_NODO: Record<string, string> = {
+    TOMO: "var(--accion)", PASO: "var(--info)", CONFIRMO_REAL: "var(--mal)", MARCO_REAL: "var(--mal)", MARCO_FALSA: "var(--muted-foreground)",
+    ERA_FALSA: "var(--muted-foreground)", DESACTIVO: "var(--bien)", ATENDIO: "var(--bien)", NOTA: "var(--aviso)",
+    origen: "var(--mal)", bien: "var(--bien)", mal: "var(--mal)", info: "var(--info)",
+};
+const diaLargo = (iso: string) => new Date(iso).toLocaleDateString("es-UY", { weekday: "short", day: "numeric", month: "short", timeZone: "America/Montevideo" });
+const iniciales = (n: string | null) => (n || "S").split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0]!.toUpperCase()).join("");
+/** Un tono estable por persona: la misma persona, el mismo color en toda la historia. */
+const tonoPersona = (n: string | null) => { let h = 0; for (const c of n || "") h = (h * 31 + c.charCodeAt(0)) % 360; return `oklch(0.62 0.13 ${h})`; };
+
+function Actividad({ pasos, inicio = [], oscuro }: { pasos: PasoGestion[]; inicio?: EventoActividad[]; oscuro?: boolean }) {
+    const todos = [
+        ...pasos.map((p) => ({ id: p.id, ts: p.ts, por: p.por, texto: TEXTO_ACCION[p.accion]?.toLowerCase() || p.accion, detalle: p.detalle ? (p.accion === "NOTA" || p.accion === "PASO" ? `«${p.detalle}»` : p.detalle) : null, color: COLOR_NODO[p.accion] || "var(--muted-foreground)", origen: false })),
+        ...inicio.filter((e) => !e.legado || (e.legado === "decision" ? !pasos.some((p) => DECISIONES.has(p.accion)) : !pasos.some((p) => p.accion === "NOTA"))).map((e) => ({ id: e.id, ts: e.ts, por: e.por, texto: e.texto, detalle: e.detalle || null, color: COLOR_NODO[e.tipo || "info"], origen: e.tipo === "origen" })),
+    ].sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
+    const suave = oscuro ? "text-white/55" : "text-muted-foreground";
+    let diaPrevio = "";
+    return (
+        <div>
+            <div className="flex items-baseline justify-between mb-2">
+                <span className={cn("text-[10px] font-bold uppercase tracking-[0.14em]", suave)}>Actividad</span>
+                <span className={cn("text-[11px] tabular-nums", suave)}>{todos.length} {todos.length === 1 ? "evento" : "eventos"}</span>
+            </div>
+            {todos.length === 0 ? <p className={cn("text-[11.5px]", suave)}>Todavía no pasó nada con esta alarma.</p> : (
+                <ol className="relative">
+                    {/* El riel: une los nodos de arriba abajo, como el grafo de un log. */}
+                    <span aria-hidden className={cn("absolute left-[11px] top-3 bottom-3 w-[2px] rounded-full", oscuro ? "bg-white/12" : "bg-border")} />
+                    {todos.map((e) => {
+                        const d = diaLargo(e.ts);
+                        const separador = d !== diaPrevio; diaPrevio = d;
+                        return (
+                            <li key={e.id} className="relative">
+                                {separador && <div className={cn("relative pl-8 pt-1 pb-1.5 text-[10.5px] font-semibold capitalize", suave)}>{d}</div>}
+                                <div className="relative flex items-start gap-2.5 pb-3">
+                                    <span aria-hidden className={cn("relative z-[1] mt-[3px] grid place-items-center shrink-0", e.origen ? "h-[24px] w-[24px]" : "h-[24px] w-[24px]")}>
+                                        <span className={cn("block rounded-full ring-[3px]", e.origen ? "h-3.5 w-3.5 rotate-45 rounded-[3px]" : "h-3 w-3", oscuro ? "ring-[#05070b]" : "ring-background")} style={{ background: e.color }} />
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-start gap-2">
+                                            <span className="grid h-5 w-5 place-items-center rounded-full text-[9px] font-bold text-white shrink-0 mt-px" style={{ background: e.origen ? "var(--muted-foreground)" : tonoPersona(e.por) }} title={e.por || "Sistema"}>{e.origen ? "•" : iniciales(e.por)}</span>
+                                            <div className="min-w-0 flex-1 text-[12.5px] leading-snug">
+                                                <span className="font-semibold">{e.por || "Sistema"}</span> <span className={e.origen ? "" : suave}>{e.texto}</span>
+                                            </div>
+                                            <span className={cn("shrink-0 text-[11px] tabular-nums", suave)} title={`${diaLargo(e.ts)} ${hora(e.ts)}`}>{hace(e.ts)}</span>
+                                        </div>
+                                        {e.detalle && <div className={cn("mt-1 ml-7 text-[12px] leading-snug rounded-[8px] px-2.5 py-1.5", oscuro ? "bg-white/[0.06] text-white/80" : "bg-muted/50 text-foreground/85")}>{e.detalle}</div>}
+                                        <div className={cn("ml-7 mt-0.5 text-[10px] tabular-nums tracking-wide", oscuro ? "text-white/30" : "text-muted-foreground/60")}>{e.id.slice(-7)} · {hora(e.ts)}</div>
+                                    </div>
+                                </div>
+                            </li>
+                        );
+                    })}
                 </ol>
             )}
-            {datos && !datos.pasos.length && <p className={cn("text-[11.5px]", suave)}>Todavía nadie hizo nada con esta alarma.</p>}
         </div>
     );
 }

@@ -492,7 +492,11 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                 {/* Quién la opera y la bitácora de lo que se hizo (16/10). */}
                 <div className="border-t border-border pt-3">
                     <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Gestión</div>
-                    <GestionEnVivo clave={a.id} deviceId={a.deviceId} />
+                    <GestionEnVivo clave={a.id} deviceId={a.deviceId} inicio={[
+                        { id: `origen-${a.id}`, ts: a.ts, por: a.camara || NOMBRE_FUENTE[a.fuente], texto: `abrió la alarma: ${a.titulo}`, detalle: a.detalle, tipo: "origen" },
+                        ...(a.estado === "atendida" && a.atendidaAt ? [{ id: `atendida-${a.id}`, ts: a.atendidaAt, por: a.atendidaPor, texto: a.resultado === "real" ? "la marcó real" : a.resultado === "falsa" ? "la marcó falsa alarma" : "la dio por atendida", tipo: (a.resultado === "real" ? "mal" : "bien") as "mal" | "bien", legado: "decision" as const }] : []),
+                        ...(a.nota && a.notaAt ? [{ id: `nota-${a.id}`, ts: a.notaAt, por: a.notaPor, texto: "escribió una nota", detalle: `«${a.nota}»`, tipo: "info" as const, legado: "nota" as const }] : []),
+                    ]} />
                 </div>
             </div>
 

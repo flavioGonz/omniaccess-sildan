@@ -366,7 +366,10 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                         {/* Quién la opera y lo que se hizo (16/10): tomarla, pasarla a un compañero, la bitácora. */}
                         {real && (
                             <Seccion titulo="Gestión" icono={UserRound}>
-                                <GestionEnVivo clave={`d:${cur.id}`} deviceId={cur.deviceId} oscuro />
+                                <GestionEnVivo clave={`d:${cur.id}`} deviceId={cur.deviceId} oscuro inicio={[
+                                    { id: `origen-${cur.id}`, ts: cur.timestamp, por: cur.deviceName || cam?.name || "La cámara", texto: `detectó ${m.label.toLowerCase()}${clase ? ` · ${clase.toLowerCase()}` : ""}`, tipo: "origen" },
+                                    ...(ver ? [{ id: `vision-${cur.id}`, ts: new Date(new Date(cur.timestamp).getTime() + (verif?.propio?.despuesS ?? 5) * 1000).toISOString(), por: "OmniVision", texto: `la verificó: ${ver.rotulo.toLowerCase()}`, tipo: (ver.tono === "mal" ? "mal" : "info") as "mal" | "info" }] : []),
+                                ]} />
                             </Seccion>
                         )}
 
