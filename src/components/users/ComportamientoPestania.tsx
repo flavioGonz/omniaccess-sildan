@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Ban, BellRing, DoorClosed, MessageSquare, MonitorPlay, Palette, Search, Star, Volume2 } from "lucide-react";
+import { Ban, DoorClosed, MessageSquare, MonitorPlay, Palette, Search, Send, Star, Volume2, VolumeX } from "lucide-react";
+import { Tooltip } from "react-tooltip";
 import { cn } from "@/lib/utils";
-import { Switch } from "@/components/ui/switch";
-import { Pista } from "@/components/ui/pista";
 import { ExplicacionCategoria } from "@/components/WatchlistDialog";
 import {
     ESTILO_APAGADO, ESTILO_MONITOR, LO_FIJO, PESTANIAS_CON_VIP,
@@ -12,13 +11,17 @@ import {
 } from "@/lib/padron";
 
 /**
- * «Cómo se comporta»: la franja de cada pestaña, debajo de su tabla.
+ * «Cómo se comporta»: los interruptores y lo fijo de cada pestaña, en íconos a la derecha de
+ * los filtros de la tabla (17/10, Nico). Fue una franja arriba y después debajo de la tabla; las
+ * dos ocupaban un renglón entero para algo que se consulta de vez en cuando. Ahora cada cosa es
+ * un ícono y lo que dice va en la ayuda (react-tooltip, con contenido rico: la muestra del
+ * monitor y la tabla de efectos de la lista negra).
  *
  * Dos clases de cosas, y se ven distintas a propósito:
- *   · lo FIJO (la barrera, las lectoras, la alarma de la lista negra) va como texto con su
- *     explicación al pasar el mouse — no se puede elegir, así que no se dibuja como control;
- *   · los INTERRUPTORES son reales: los lee el monitor LPR al cargar (color propio, sonido al
- *     pasar). Cambiarlos se guarda en el momento.
+ *   · lo FIJO (la barrera, las lectoras, la alarma de la lista negra) es un ícono quieto con
+ *     su explicación en la ayuda — no se puede elegir, así que no se dibuja como botón;
+ *   · los INTERRUPTORES son botones (azul lleno = prendido) y son reales: los lee el monitor
+ *     LPR al cargar (color propio, sonido al pasar). Cambiarlos se guarda en el momento.
  *
  * La muestra «así se ve en el monitor» usa las mismas clases que el monitor (lib/padron →
  * ESTILO_MONITOR), sobre fondo oscuro como la consola: una muestra que no coincide con la
@@ -28,39 +31,65 @@ import {
 function Muestra({ clase, color }: { clase: ClaseMonitor; color: boolean }) {
     const e = ESTILO_MONITOR[clase];
     return (
-        <Pista titulo="Así se ve en el monitor LPR" texto={color ? "Con su color: la franja de la tarjeta y la etiqueta." : "Sin color propio: la etiqueta se sigue viendo, en gris."}>
-            <span className="inline-flex items-center gap-1.5 h-7 pl-1.5 pr-2 rounded-[6px] bg-neutral-900">
-                <span className={cn("w-1 h-4 rounded-full", color ? e.dot : "bg-neutral-700")} />
-                <span className={cn("text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", color ? e.badge : ESTILO_APAGADO.badge)}>{e.etiqueta}</span>
-            </span>
-        </Pista>
+        <span className="inline-flex items-center gap-1.5 h-7 pl-1.5 pr-2 rounded-[6px] bg-neutral-900">
+            <span className={cn("w-1 h-4 rounded-full", color ? e.dot : "bg-neutral-700")} />
+            <span className={cn("text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", color ? e.badge : ESTILO_APAGADO.badge)}>{e.etiqueta}</span>
+        </span>
     );
 }
 
-function Interruptor({ icono: Ic, rotulo, ayuda, valor, alCambiar, deshabilitado }: {
-    icono: any; rotulo: string; ayuda: string; valor: boolean; alCambiar: (v: boolean) => void; deshabilitado?: boolean;
+/** Un id de ayuda por pantalla: el contenido de cada ícono se arma en `render` según su clave. */
+const TT = "tt-comporta";
+
+type Ayuda = { titulo: string; cuerpo: React.ReactNode };
+
+function Ayudas({ ayudas }: { ayudas: Record<string, Ayuda> }) {
+    return (
+        <Tooltip id={TT} place="bottom" positionStrategy="fixed" noArrow delayShow={120} opacity={1}
+            className="!z-[9999] !max-w-[330px] !rounded-[10px] !bg-popover !text-popover-foreground !border !border-border !shadow-2xl !px-3 !py-2.5"
+            render={({ content }) => {
+                const a = content ? ayudas[content] : null;
+                if (!a) return null;
+                return (
+                    <div className="space-y-1.5">
+                        <div className="text-[12.5px] font-semibold">{a.titulo}</div>
+                        <div className="text-[11.5px] leading-snug text-muted-foreground">{a.cuerpo}</div>
+                    </div>
+                );
+            }} />
+    );
+}
+
+/** Un interruptor de verdad (lo lee el monitor): lleno en azul cuando está prendido. */
+function Llave({ clave, icono: Ic, iconoApagado, valor, alCambiar, deshabilitado, rotulo }: {
+    clave: string; icono: any; iconoApagado?: any; valor: boolean; alCambiar: (v: boolean) => void; deshabilitado?: boolean; rotulo: string;
 }) {
+    const I = !valor && iconoApagado ? iconoApagado : Ic;
     return (
-        <Pista titulo={rotulo} texto={ayuda} lado="abajo" ancho={280}>
-            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                <Switch checked={valor} onCheckedChange={alCambiar} disabled={deshabilitado} aria-label={rotulo} />
-                <span className="inline-flex items-center gap-1 text-[12px] text-foreground/90"><Ic size={13} className="text-muted-foreground" /> {rotulo}</span>
-            </label>
-        </Pista>
+        <button type="button" role="switch" aria-checked={valor} aria-label={rotulo} disabled={deshabilitado}
+            onClick={() => alCambiar(!valor)} data-tooltip-id={TT} data-tooltip-content={clave}
+            className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors disabled:opacity-50",
+                valor ? "bg-[var(--accion)] text-white" : "text-muted-foreground hover:text-foreground")}>
+            <I size={14} strokeWidth={2.2} />
+        </button>
     );
 }
 
-function Fijo({ icono: Ic, rotulo, texto }: { icono: any; rotulo: string; texto: React.ReactNode }) {
+/** Algo que no se elige (lo decide el sistema): ícono quieto, la explicación en la ayuda. */
+function Dato({ clave, icono: Ic, className, rotulo }: { clave: string; icono: any; className?: string; rotulo: string }) {
     return (
-        <Pista titulo={rotulo} texto={texto} lado="abajo" ancho={320}>
-            <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-[3px]">
-                <Ic size={13} /> {rotulo}
-            </span>
-        </Pista>
+        <span tabIndex={0} aria-label={rotulo} data-tooltip-id={TT} data-tooltip-content={clave}
+            className={cn("h-[30px] w-[30px] rounded-md grid place-items-center cursor-help text-muted-foreground hover:text-foreground", className)}>
+            <Ic size={14} strokeWidth={2.2} />
+        </span>
     );
 }
 
-const Separador = () => <span className="hidden md:block w-px h-6 bg-border" />;
+const Grupo = ({ children }: { children: React.ReactNode }) => (
+    <div className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5 gap-0.5">{children}</div>
+);
+
+const estado = (v: boolean) => <span className={cn("font-semibold", v ? "tono-accion" : "")}>{v ? "Prendido" : "Apagado"}</span>;
 
 export function ComportamientoPestania({ pestania, comportamiento, alCambiar, guardando, avisos }: {
     pestania: ClavePestania;
@@ -70,76 +99,68 @@ export function ComportamientoPestania({ pestania, comportamiento, alCambiar, gu
     /** Lista negra: las reglas de Notificaciones que escuchan WATCHLIST. */
     avisos?: { activas: number; total: number; canales: string[] } | null;
 }) {
-    const marco = "rounded-[10px] border border-border bg-card px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-2";
-    const rotulo = <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Cómo se comporta</span>;
-
     if (pestania === "listanegra") {
         const b = comportamiento.busqueda;
+        const ayudas: Record<string, Ayuda> = {
+            alerta: { titulo: "Alerta máxima", cuerpo: <div className="space-y-2"><Muestra clase="alerta" color /><ExplicacionCategoria cat="BLACKLISTED" /></div> },
+            busqueda: { titulo: "En búsqueda", cuerpo: <div className="space-y-2"><Muestra clase="busqueda" color /><ExplicacionCategoria cat="SEARCH" /></div> },
+            sonido: { titulo: "Sonido al pasar alguien en búsqueda", cuerpo: <>{estado(b.sonido)}. Suena el aviso corto cuando una cámara lee una matrícula en búsqueda, en el monitor LPR y en Control LPR (si tienen el sonido prendido). La alerta máxima suena siempre. Tocá para cambiarlo.</> },
+            // Dos caminos distintos, y se dicen los dos: el servidor manda SIEMPRE un Telegram al
+            // grupo de la guardia (server.js → notifyWatchTelegram), y además están las reglas de
+            // Notificaciones que escuchan WATCHLIST. Decir «ninguna regla avisa» a secas hacía
+            // creer que nadie se enteraba.
+            telegram: { titulo: "Telegram a la guardia: siempre", cuerpo: "Cada vez que una cámara lee una matrícula de esta lista, el servidor manda un Telegram al grupo de la guardia con la matrícula, quién es, el motivo y la cámara." },
+            reglas: { titulo: avisos == null ? "Reglas de aviso…" : avisos.activas ? `${avisos.activas} regla${avisos.activas === 1 ? "" : "s"} de aviso${avisos.canales.length ? ` (${avisos.canales.join(", ")})` : ""}` : "Ninguna regla de WhatsApp la escucha",
+                cuerpo: "A quién más se le avisa (WhatsApp, correo), por qué canal y en qué horario lo deciden las reglas de Notificaciones que escuchan «lista negra». Tocá para configurarlas allá." },
+        };
+        const sinReglas = avisos != null && !avisos.activas;
         return (
-            <section className={marco}>
-                {rotulo}
-                <span className="inline-flex items-center gap-2">
-                    <Muestra clase="alerta" color />
-                    <Fijo icono={Ban} rotulo="Alerta máxima: deniega, lectoras y alarma" texto={<ExplicacionCategoria cat="BLACKLISTED" />} />
-                </span>
-                <Separador />
-                <span className="inline-flex items-center gap-3 flex-wrap">
-                    <Muestra clase="busqueda" color />
-                    <Fijo icono={Search} rotulo="En búsqueda: pasa y avisa" texto={<ExplicacionCategoria cat="SEARCH" />} />
-                    <Interruptor icono={Volume2} rotulo="Sonido al pasar" valor={b.sonido} deshabilitado={guardando}
-                        ayuda="Suena el aviso corto cuando una cámara lee una matrícula en búsqueda, en el monitor LPR y en Control LPR (si tienen el sonido prendido). La alerta máxima suena siempre."
+            <div className="flex items-center gap-1.5">
+                <Grupo>
+                    <Dato clave="alerta" icono={Ban} rotulo="Alerta máxima" className="tono-mal hover:text-[inherit]" />
+                    <Dato clave="busqueda" icono={Search} rotulo="En búsqueda" className="tono-aviso hover:text-[inherit]" />
+                    <Llave clave="sonido" icono={Volume2} iconoApagado={VolumeX} rotulo="Sonido al pasar" valor={b.sonido} deshabilitado={guardando}
                         alCambiar={(v) => alCambiar("busqueda", { sonido: v })} />
-                </span>
-                <Separador />
-                <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
-                    <MessageSquare size={13} />
-                    {/* Dos caminos distintos, y se dicen los dos: el servidor manda SIEMPRE un
-                        Telegram al grupo de la guardia con cada lectura de la lista (server.js →
-                        notifyWatchTelegram), y además están las reglas de Notificaciones que
-                        escuchan WATCHLIST (WhatsApp, correo…). Decir «ninguna regla avisa» a secas
-                        hacía creer que nadie se enteraba. */}
-                    <Fijo icono={BellRing} rotulo="Telegram a la guardia: siempre"
-                        texto="Cada vez que una cámara lee una matrícula de esta lista, el servidor manda un Telegram al grupo de la guardia con la matrícula, quién es, el motivo y la cámara." />
-                    <span className="mx-1 text-border">·</span>
-                    {avisos == null ? "Reglas…" : avisos.activas
-                        ? <>Reglas de aviso: <b className="text-foreground tabular-nums">{avisos.activas}</b>{avisos.canales.length ? ` (${avisos.canales.join(", ")})` : ""}</>
-                        : <span className="tono-aviso">Ninguna regla de WhatsApp la escucha</span>}
-                    <Pista titulo="Reglas de aviso" texto="A quién más se le avisa (WhatsApp, correo), por qué canal y en qué horario lo deciden las reglas de Notificaciones que escuchan «lista negra» (WATCHLIST). Se cambian allá: un interruptor acá que no tocara esas reglas mentiría.">
-                        <Link href="/admin/notificaciones" className="tono-accion font-semibold ml-1">Configurar</Link>
-                    </Pista>
-                </span>
-            </section>
+                </Grupo>
+                <Grupo>
+                    <Dato clave="telegram" icono={Send} rotulo="Telegram a la guardia" />
+                    <Link href="/admin/notificaciones" aria-label="Reglas de aviso" data-tooltip-id={TT} data-tooltip-content="reglas"
+                        className={cn("relative h-[30px] w-[30px] rounded-md grid place-items-center hover:text-foreground", sinReglas ? "tono-aviso" : "text-muted-foreground")}>
+                        <MessageSquare size={14} strokeWidth={2.2} />
+                        {avisos != null && (
+                            <span className={cn("absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full text-[9.5px] font-bold tabular-nums grid place-items-center",
+                                sinReglas ? "pleno-aviso" : "bg-[var(--accion)] text-white")}>{avisos.activas}</span>
+                        )}
+                    </Link>
+                </Grupo>
+                <Ayudas ayudas={ayudas} />
+            </div>
         );
     }
 
     const clave = pestania as Exclude<ClavePestania, "listanegra">;
     const c = comportamiento[clave];
     const fijo = LO_FIJO[clave];
+    const conVip = PESTANIAS_CON_VIP.includes(pestania);
+    const ayudas: Record<string, Ayuda> = {
+        color: { titulo: "Color propio en el monitor", cuerpo: <div className="space-y-2"><Muestra clase={clave} color={c.color} /><div>{estado(c.color)}. La tarjeta del monitor LPR y la etiqueta de Control LPR llevan el color de esta pestaña. Apagado, la etiqueta se sigue viendo, en gris: para que lo que importa resalte más.</div></div> },
+        sonido: { titulo: "Sonido al pasar", cuerpo: <>{estado(c.sonido)}. Suena el aviso corto cada vez que una cámara lee a alguien de esta pestaña: en el monitor LPR (con su sonido prendido) y en Control LPR de Monitores (si esa pantalla tiene sonido).</> },
+        vip: { titulo: "Sonido al pasar un VIP", cuerpo: <div className="space-y-2"><Muestra clase="vip" color /><div>{estado(comportamiento.vip.sonido)}. VIP se marca en la ficha de cada persona; el monitor lo destaca en verde y no cambia lo que decide la barrera. Con esto, además, suena al pasar.</div></div> },
+        barrera: { titulo: "En la barrera", cuerpo: fijo.barrera },
+        monitores: { titulo: "En Control LPR", cuerpo: fijo.monitores },
+    };
     return (
-        <section className={marco}>
-            {rotulo}
-            <Muestra clase={clave} color={c.color} />
-            <Interruptor icono={Palette} rotulo="Color propio" valor={c.color} deshabilitado={guardando}
-                ayuda="La tarjeta del monitor LPR y la etiqueta de Control LPR llevan el color de esta pestaña. Apagado, la etiqueta se sigue viendo, en gris: para que lo que importa resalte más."
-                alCambiar={(v) => alCambiar(clave, { color: v })} />
-            <Interruptor icono={Volume2} rotulo="Sonido al pasar" valor={c.sonido} deshabilitado={guardando}
-                ayuda="Suena el aviso corto cada vez que una cámara lee a alguien de esta pestaña: en el monitor LPR (con su sonido prendido) y en Control LPR de Monitores (si esa pantalla tiene sonido)."
-                alCambiar={(v) => alCambiar(clave, { sonido: v })} />
-            {PESTANIAS_CON_VIP.includes(pestania) && (
-                <>
-                    <Separador />
-                    <span className="inline-flex items-center gap-3">
-                        <Muestra clase="vip" color />
-                        <Interruptor icono={BellRing} rotulo="Sonido al pasar un VIP" valor={comportamiento.vip.sonido} deshabilitado={guardando}
-                            ayuda="VIP se marca en la ficha de cada persona (Residentes y Personal). El monitor lo destaca en verde; con esto además suena al pasar."
-                            alCambiar={(v) => alCambiar("vip", { sonido: v })} />
-                    </span>
-                </>
-            )}
-            <Separador />
-            <Fijo icono={DoorClosed} rotulo="En la barrera" texto={fijo.barrera} />
-            <Fijo icono={MonitorPlay} rotulo="En Control LPR" texto={fijo.monitores} />
-            {pestania === "residentes" && <Fijo icono={Star} rotulo="VIP" texto="Una marca de la persona, en su ficha: el monitor la destaca. No cambia lo que decide la barrera." />}
-        </section>
+        <div className="flex items-center gap-1.5">
+            <Grupo>
+                <Llave clave="color" icono={Palette} rotulo="Color propio" valor={c.color} deshabilitado={guardando} alCambiar={(v) => alCambiar(clave, { color: v })} />
+                <Llave clave="sonido" icono={Volume2} iconoApagado={VolumeX} rotulo="Sonido al pasar" valor={c.sonido} deshabilitado={guardando} alCambiar={(v) => alCambiar(clave, { sonido: v })} />
+                {conVip && <Llave clave="vip" icono={Star} rotulo="Sonido al pasar un VIP" valor={comportamiento.vip.sonido} deshabilitado={guardando} alCambiar={(v) => alCambiar("vip", { sonido: v })} />}
+            </Grupo>
+            <Grupo>
+                <Dato clave="barrera" icono={DoorClosed} rotulo="En la barrera" />
+                <Dato clave="monitores" icono={MonitorPlay} rotulo="En Control LPR" />
+            </Grupo>
+            <Ayudas ayudas={ayudas} />
+        </div>
     );
 }

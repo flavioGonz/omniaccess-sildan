@@ -240,6 +240,9 @@ export default function UsersPage() {
         setFichaAbierta(null); setSelectedUser(u); setIsFormOpen(true);
     };
 
+    const comportaEnBarra = <ComportamientoPestania pestania={pestania} comportamiento={comportamiento} alCambiar={cambiarComportamiento}
+        guardando={guardandoComp} avisos={avisos} />;
+
     return (
         <TooltipProvider>
             <div className="relative h-full flex flex-col overflow-hidden bg-background">
@@ -300,6 +303,8 @@ export default function UsersPage() {
                 </div>
 
                 <main className="flex-1 overflow-hidden px-8 py-4 flex flex-col">
+                    {/* «Cómo se comporta», en íconos a la derecha de los filtros (17/10, Nico): ni
+                        franja arriba ni debajo de la tabla, que ocupaban un renglón entero. */}
                     {pestania === "listanegra" ? (
                         <TablaListaNegra
                             fichas={fichasVisibles}
@@ -315,6 +320,7 @@ export default function UsersPage() {
                                         { clave: "nivel", titulo: "Nivel", valor: filtroNivel, alElegir: setFiltroNivel, opciones: [{ valor: "todos", rotulo: "Todos" }, { valor: "BLACKLISTED", rotulo: "Alerta máxima" }, { valor: "SEARCH", rotulo: "En búsqueda" }] },
                                         { clave: "estado", titulo: "Estado", valor: filtroEstado, alElegir: setFiltroEstado, opciones: [{ valor: "activas", rotulo: "Activas" }, { valor: "baja", rotulo: "Dadas de baja" }, { valor: "todas", rotulo: "Todas" }] },
                                     ]}
+                                    acciones={comportaEnBarra}
                                 />
                             }
                         />
@@ -331,16 +337,9 @@ export default function UsersPage() {
                             traerMas={() => setALaVista((n) => n + PAGINA)}
                             alAbrir={(u) => { setSelectedUser(u as any); setIsFormOpen(true); }}
                             alBorrar={(u) => setUserToDelete(u as any)}
-                            barra={<Filtros busqueda={searchQuery} alBuscar={setSearchQuery} placeholder="Nombre, DNI, unidad, matrícula o contacto" />}
+                            barra={<Filtros busqueda={searchQuery} alBuscar={setSearchQuery} placeholder="Nombre, DNI, unidad, matrícula o contacto" acciones={comportaEnBarra} />}
                         />
                     )}
-                    {/* «Cómo se comporta» va debajo de la tabla (17/10, Nico): arriba se interponía
-                        entre las pestañas y los datos, y lo que el operador vino a ver es la lista.
-                        Es configuración de la pestaña: se consulta de vez en cuando, no a cada rato. */}
-                    <div className="shrink-0 pt-3">
-                        <ComportamientoPestania pestania={pestania} comportamiento={comportamiento} alCambiar={cambiarComportamiento}
-                            guardando={guardandoComp} avisos={avisos} />
-                    </div>
                 </main>
             </div>
 
