@@ -13,7 +13,8 @@ import { TablaUnificada } from "@/components/history/TablaUnificada";
 import { BarraFiltros, SIN_FILTROS, type FiltrosHistorial, type CambiarFiltros } from "@/components/history/BarraFiltros";
 import { SelectorVista, useVista } from "@/components/history/MosaicoHistorial";
 import { useSiluetas } from "@/lib/use-siluetas";
-import { Sparkles } from "lucide-react";
+import { Sparkles, ScanSearch } from "lucide-react";
+import { BuscarObjetos } from "@/components/history/BuscarObjetos";
 import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
 import { horaSeg } from "@/lib/fechas";
@@ -51,6 +52,8 @@ export default function HistoryPage() {
     /** Subirlo recarga la tabla desde la primera página. */
     const [version, setVersion] = useState(0);
     const [chapasMerodeo, setChapasMerodeo] = useState<Set<string>>(new Set());
+    /** Buscar un objeto por nombre en las fotos (vocabulario abierto, 17/10). */
+    const [objetos, setObjetos] = useState(false);
 
     useEffect(() => {
         getEnabledModules().then(modules => {
@@ -149,8 +152,16 @@ export default function HistoryPage() {
                     <div className="hidden min-[1800px]:block"><PulsoActividad dias={60} /></div>
                 </div>
 
-                <div ref={cajaBuscar} className="flex justify-center min-w-0">
-                    <Seek value={searchTerm} onChange={setSearchTerm} placeholder="Matrícula, persona, cámara o lo que vio OmniVision (moto blanca, chaleco)…  ( / )" startOpen width={420} alto={38} />
+                <div ref={cajaBuscar} className="flex justify-center items-center gap-2 min-w-0">
+                    <Seek value={searchTerm} onChange={setSearchTerm} placeholder="Matrícula, persona, cámara o lo que vio OmniVision (moto blanca, chaleco)…  ( / )" startOpen width={380} alto={38} />
+                    {/* El otro buscador: no en lo anotado sino en las fotos, por nombre de objeto (vocabulario abierto). */}
+                    <Pista titulo="Buscar objetos en las fotos" texto="Vocabulario abierto: vuelve a mirar las fotos buscando lo que escribas (carretilla, escalera, bolsa de basura), aunque no esté anotado. Usa el rango y las cámaras de los filtros.">
+                        <button type="button" onClick={() => setObjetos((v) => !v)} aria-pressed={objetos} aria-label="Buscar objetos en las fotos"
+                            className={cn("h-[38px] px-3 rounded-full border inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors shrink-0",
+                                objetos ? "bg-[var(--accion)] text-white border-transparent" : "border-border text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                            <ScanSearch size={15} /> Objetos
+                        </button>
+                    </Pista>
                 </div>
 
                 <div className="flex items-center justify-start lg:justify-end gap-1.5">
@@ -179,6 +190,8 @@ export default function HistoryPage() {
                     </Pista>
                 </div>
             </div>
+
+            {objetos && <BuscarObjetos desde={f.desde} hasta={f.hasta} camaras={f.camaras} alCerrar={() => setObjetos(false)} />}
 
             {/* Renglón 2 (barra de la tabla): los filtros a la vista */}
             <TablaUnificada
