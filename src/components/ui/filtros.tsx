@@ -64,7 +64,7 @@ export type GrupoFiltro = {
 
 const PLENO: Record<string, string> = { bien: "pleno-bien", aviso: "pleno-aviso", mal: "pleno-mal" };
 
-export function Filtros({ busqueda, alBuscar, placeholder, grupos, acciones, children, className, solido }: {
+export function Filtros({ busqueda, alBuscar, placeholder, grupos, acciones, children, className, solido, anchoBusqueda, ayudaId }: {
     busqueda?: string;
     alBuscar?: (v: string) => void;
     placeholder?: string;
@@ -80,6 +80,15 @@ export function Filtros({ busqueda, alBuscar, placeholder, grupos, acciones, chi
      * distinguía de un vistazo cuál estaba puesta.
      */
     solido?: boolean;
+    /** Ancho del buscador, px. Por defecto 280; en un panel angosto (Monitor de Intrusión) va menos. */
+    anchoBusqueda?: number;
+    /**
+     * El id de un `<Tooltip>` de react-tooltip que ya esté en la pantalla. Con esto las opciones
+     * de sólo ícono muestran su `titulo` con esa ayuda en vez del `title` nativo (17/10, Nico:
+     * «icono sin texto, con react tooltip»): el `title` del navegador tarda un segundo en salir
+     * y no se le puede dar estilo, y en una fila de íconos es lo único que dice qué es cada uno.
+     */
+    ayudaId?: string;
 }) {
     return (
         <div className={cn("flex items-center flex-wrap gap-2 min-h-[34px]", className)}>
@@ -89,7 +98,7 @@ export function Filtros({ busqueda, alBuscar, placeholder, grupos, acciones, chi
                    distinguía. `data-stroke` es el interruptor del propio Seek (globals.css). */
                 <span data-stroke="on" className="contents">
                     <Seek value={busqueda || ""} onChange={alBuscar}
-                        placeholder={placeholder || "Buscar"} startOpen width={280} alto={34} />
+                        placeholder={placeholder || "Buscar"} startOpen width={anchoBusqueda ?? 280} alto={34} />
                 </span>
             )}
 
@@ -98,14 +107,15 @@ export function Filtros({ busqueda, alBuscar, placeholder, grupos, acciones, chi
                 const primera = g.opciones[0]?.valor;
                 return (
                     <div key={g.clave} className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5"
-                        title={g.titulo}>
+                        title={ayudaId ? undefined : g.titulo}>
                         {g.opciones.map((o) => {
                             const activa = g.multiple
                                 ? (o.valor === primera ? puestos.length === 0 : puestos.includes(o.valor))
                                 : o.valor === g.valor;
                             return (
                                 <button key={o.valor} type="button" onClick={() => g.alElegir(o.valor)} aria-pressed={activa}
-                                    title={o.titulo} aria-label={o.titulo || undefined}
+                                    title={ayudaId ? undefined : o.titulo} aria-label={o.titulo || undefined}
+                                    data-tooltip-id={ayudaId && o.titulo ? ayudaId : undefined} data-tooltip-content={ayudaId ? o.titulo : undefined}
                                     className={cn(
                                         "h-[30px] rounded-md text-[12px] font-semibold transition-colors whitespace-nowrap", o.rotulo ? "px-3" : "px-2.5",
                                         activa

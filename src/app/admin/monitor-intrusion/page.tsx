@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, reclasificarComoFalsa, marcarDeteccion, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
-import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Eye, ScanEye } from "lucide-react";
+import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Eye, ScanEye, UserX, CircleDashed, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 import { InteriorCalibrator } from "@/components/InteriorCalibrator";
@@ -25,6 +25,9 @@ import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Filtros } from "@/components/ui/filtros";
 import { Seek } from "@/components/ui/search";
 import { Button } from "@/components/ui/button";
+
+/** El ícono de cada filtro de OmniVision, para la barra de sólo íconos de la lista. */
+const ICONO_VISION: Record<FiltroVision, typeof ScanEye> = { todas: ScanEye, alguien: User, nadie: UserX, sin: CircleDashed };
 
 type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[] };
 type AlarmChip = { id: string; type: string; label: string; ts: string };
@@ -1116,17 +1119,20 @@ export default function MonitorIntrusion() {
                         masFilas={{ hay: hayMasDets, cargando: cargandoMasDets, traer: traerMasDets, modo: "scroll" }}
                         pie={<span className="tabular-nums">{filasDets.length} de {dets.length} cargadas</span>}
                         barra={
-                            <div className="flex flex-col gap-2">
-                                <Filtros busqueda={busDets} alBuscar={setBusDets} placeholder="Cámara, NVR o tipo" />
-                                <Filtros grupos={[
-                                    { clave: "tipo", titulo: "Qué clase de detección", valor: filter, alElegir: (v) => setFilter(v as any), opciones: [
-                                        { valor: "ANALYTIC", rotulo: "Intrusión", icono: ShieldAlert }, { valor: "MOTION", rotulo: "Movimiento", icono: Activity }, { valor: "ALL", rotulo: "Todo" }] },
+                            /* Todo en un renglón, sólo íconos (17/10, Nico: «los filtros ocupan mucho
+                               espacio, que sean icono sin texto, con react tooltip, todos en una sola
+                               fila»). Eran tres renglones que le comían a la lista el alto de tres
+                               detecciones; cada ícono dice qué es en la ayuda (mi-tip). */
+                            <Filtros busqueda={busDets} alBuscar={setBusDets} placeholder="Buscar" anchoBusqueda={140} ayudaId="mi-tip"
+                                className="flex-nowrap gap-1.5"
+                                grupos={[
+                                    { clave: "tipo", valor: filter, alElegir: (v) => setFilter(v as any), opciones: [
+                                        { valor: "ANALYTIC", rotulo: "", icono: ShieldAlert, titulo: "Intrusión: cruce de línea, zona y analíticas" },
+                                        { valor: "MOTION", rotulo: "", icono: Activity, titulo: "Movimiento" },
+                                        { valor: "ALL", rotulo: "", icono: Layers, titulo: "Todas las clases" }] },
+                                    { clave: "vision", valor: vision, alElegir: (v) => setVision(v as FiltroVision),
+                                        opciones: FILTROS_VISION.map((f) => ({ valor: f.v, rotulo: "", icono: ICONO_VISION[f.v], titulo: `OmniVision · ${f.rotulo}: ${f.pista}` })) },
                                 ]} />
-                                <Filtros grupos={[
-                                    { clave: "vision", titulo: "Lo que concluyó OmniVision al mirar la captura", valor: vision, alElegir: (v) => setVision(v as FiltroVision),
-                                        opciones: FILTROS_VISION.map((f) => ({ valor: f.v, rotulo: f.rotulo, icono: f.v === "todas" ? ScanEye : undefined })) },
-                                ]} />
-                            </div>
                         } />
                 </div>
             </div>
