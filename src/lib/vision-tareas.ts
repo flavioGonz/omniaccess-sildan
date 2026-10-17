@@ -17,5 +17,6 @@ export const TAREAS_VISION: Record<string, { nombre: string; queApaga: string }>
     pose: { nombre: "Pose", queApaga: "Sólo la usa el laboratorio (modo Pose, postura de la persona). Apagada, suelta su memoria de la GPU." },
     atributos: { nombre: "Atributos", queApaga: "Las detecciones se siguen guardando, pero sin color, carrocería ni ropa: no se van a poder buscar por eso. Suelta su memoria de la GPU." },
     texto: { nombre: "Texto (OCR)", queApaga: "Se deja de leer el rotulado de los vehículos (empresa por rotulado) y el texto en el laboratorio. Suelta su memoria de la GPU." },
+    vocabulario: { nombre: "Vocabulario abierto", queApaga: "Se deja de poder buscar objetos por nombre (carretilla, escalera…) en el laboratorio. No afecta nada de lo demás: sólo se carga cuando se le pide algo, y se suelta solo de la GPU a los 5 minutos sin uso." },
     seguimiento: { nombre: "Seguimiento", queApaga: "Sin pistas no se sabe que un objeto en dos cuadros es el mismo: se frenan el registro de detecciones y las reglas. La detección suelta sigue andando en el laboratorio." },
 };

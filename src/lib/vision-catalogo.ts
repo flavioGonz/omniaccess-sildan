@@ -31,9 +31,9 @@ export type EstadoCapacidad = "corre" | "libre" | "pesado" | "no-aplica";
  * Qué tarea de omni-vision se usa para probar cada capacidad en el laboratorio (null = no se
  * puede probar acá). El seguimiento usa la detección sobre cuadros seguidos.
  */
-export const TAREA_DE_CAPACIDAD: Record<string, "detectar" | "segmentar" | "pose" | "atributos" | "seguir" | "texto" | null> = {
+export const TAREA_DE_CAPACIDAD: Record<string, "detectar" | "segmentar" | "pose" | "atributos" | "seguir" | "texto" | "vocabulario" | null> = {
     deteccion: "detectar", segmentacion: "segmentar", pose: "pose", seguimiento: "seguir", clasificacion: "atributos",
-    texto: "texto", descripcion: null, vocabulario: null, obb: null,
+    texto: "texto", descripcion: null, vocabulario: "vocabulario", obb: null,
 };
 
 /** Los 17 puntos de la pose, en el orden en que los devuelve el modelo (COCO). */
@@ -113,8 +113,8 @@ export const CAPACIDADES: Capacidad[] = [
         id: "vocabulario", nombre: "Vocabulario abierto", icono: "Sparkles",
         queEs: "Detectar cosas que no están en las 80 clases, pidiéndolas por texto: \"carretilla\", \"escalera\", \"bolsa de basura\".",
         paraQue: "Objetos propios de una obra o de un barrio que el modelo común no conoce.",
-        libre: "OWLv2 o Grounding DINO (Apache-2.0). Son varias veces más lentos: no para cada cuadro, sí para buscar o para una regla puntual. YOLOE-26 hace lo mismo pero es AGPL.",
-        estado: "pesado",
+        libre: "OWLv2 base de Google (Apache-2.0), corriendo en omni-vision desde el 17/10. Se escribe qué buscar en «Probar en las cámaras» (en castellano o inglés). Es varias veces más lento que la detección: se carga sólo cuando se le pide y se suelta de la GPU a los 5 minutos sin uso. Se apaga en la tabla de tareas. YOLOE-26 hace lo mismo pero es AGPL.",
+        estado: "corre",
     },
     {
         id: "obb", nombre: "Cajas orientadas (OBB)", icono: "Move",

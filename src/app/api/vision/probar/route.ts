@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
-import { detectar, empresasEnTextos, type TareaVision } from "@/lib/vision";
+import { detectar, empresasEnTextos, buscarVocabulario, type TareaVision } from "@/lib/vision";
+import { consultasDe, traducirConsulta } from "@/lib/vocabulario";
 import { leerCatalogo } from "@/lib/empresas-servidor";
 import { normalizarNombre } from "@/lib/empresas";
 
@@ -24,6 +25,10 @@ async function cuadro(stream: string): Promise<Buffer | null> {
 
 /**
  * GET /api/vision/probar?camara=<deviceId>&umbral=0.4[&tarea=segmentar|pose][&atributos=1][&texto=1][&sesion=<id>]
+ *
+ * Con vocab=carretilla,escalera además busca eso por nombre (vocabulario abierto, OWLv2) en el
+ * MISMO cuadro, y suma esos objetos (grupo «vocabulario»). Lo escrito en castellano se manda en
+ * inglés si está en el glosario (lib/vocabulario); la respuesta dice cómo se buscó.
  *
  * Con texto=1, lo leído se cruza con el catálogo de empresas acá (no en omni-vision): el
  * catálogo vive en la base de la app.
@@ -60,8 +65,24 @@ export async function GET(req: NextRequest) {
     try {
         const r = await detectar(foto, { umbral, tarea, atributos, sesion, fps: 2, texto });
         if (r.textos?.length) r.textos = empresasEnTextos(r.textos, await leerCatalogo(), normalizarNombre);
+        let vocab: { consultas: ReturnType<typeof traducirConsulta>[]; ms?: number; error?: string } | null = null;
+        const pedidas = consultasDe(req.nextUrl.searchParams.get("vocab") || "");
+        if (pedidas.length) {
+            const consultas = pedidas.map(traducirConsulta);
+            try {
+                const v = await buscarVocabulario(foto, consultas.map((c) => c.enviada));
+                // Se nombran como se escribieron, no como se mandaron: «carretilla», no «wheelbarrow».
+                const porEnviada = new Map(consultas.map((c) => [c.enviada, c.escrita]));
+                r.objetos = [...r.objetos, ...v.objetos.map((o) => ({ ...o, nombre: porEnviada.get(o.nombre) || o.nombre }))];
+                r.pasos = { ...(r.pasos || {}), vocabulario: v.ms_inferencia };
+                vocab = { consultas, ms: v.ms_inferencia };
+            } catch (e: any) {
+                // La detección sirve igual: se devuelve y se dice por qué no hubo vocabulario.
+                vocab = { consultas, error: e?.name === "TimeoutError" ? "omni-vision tardó demasiado (la primera vez carga el modelo: probá de nuevo)" : e?.message || "falló" };
+            }
+        }
         return NextResponse.json({
-            camara: dev, fuente, ms_cuadro: msCuadro, ...r,
+            camara: dev, fuente, ms_cuadro: msCuadro, ...r, ...(vocab ? { vocab } : {}),
             imagen: `data:image/jpeg;base64,${foto.toString("base64")}`,
             instante: new Date().toISOString(),
         }, { headers: { "Cache-Control": "no-store" } });

@@ -16,6 +16,8 @@ Contrato (estable, independiente de los modelos):
         ?sesion=<id>&fps=2               además, número de pista (cuadros seguidos de una cámara)
         ?texto=1                         además, el texto que se lee en la imagen (OCR de escena)
         ?umbral=0.4  ?grupos=persona,vehiculo
+  POST /vocabulario?q=wheelbarrow&q=ladder[&umbral=0.2] → cuerpo = la imagen; lo pedido por texto
+                     (OWLv2, vocabulario abierto). Se abre al primer pedido y se suelta solo.
      → {ancho, alto, tarea, modelo, ms, pasos:{…ms}, objetos:[{clase, nombre, grupo, confianza,
         caja, caja_norm, silueta?, area?, puntos?, postura?, atributos?, pista?}],
         textos?:[{texto, confianza, poligono, sobreimpreso, tipo, dentro?}]}
@@ -42,6 +44,8 @@ from seguimiento import Sesiones
 from texto import Lector
 from busqueda import Buscador, vector_imagen
 from propio import Propio
+from vocabulario import Vocabulario, UMBRAL_DEFECTO as UMBRAL_VOCAB
+import threading
 
 CARPETA = Path(os.environ.get("VISION_MODELOS", "/modelos"))
 MODELO = os.environ.get("VISION_MODELO", "rfdetr-small")
@@ -70,13 +74,14 @@ sesiones = Sesiones()
 lector = Lector()
 buscador = Buscador(CARPETA)
 propio = Propio()
+vocab = Vocabulario(CARPETA)
 NOMBRE_MODELO = {"detectar": MODELO, "segmentar": MODELO_SILUETAS, "pose": MODELO_POSE}
 arranque = time.time()
 
 # Las tareas apagadas desde la app (Setting VISION_TAREAS). La app es la dueña: este conjunto
 # arranca vacío y vision-worker lo vuelve a mandar en cada vuelta, así un reinicio del
 # contenedor no deja prendido lo que alguien apagó.
-TAREAS = ("detectar", "segmentar", "pose", "atributos", "texto", "seguimiento")
+TAREAS = ("detectar", "segmentar", "pose", "atributos", "texto", "seguimiento", "vocabulario")
 apagadas: set[str] = set()
 
 app = FastAPI(title="omni-vision", docs_url=None, redoc_url=None)
@@ -139,6 +144,8 @@ def _cargada(t: str) -> bool:
         return describidor.modelo.sesion is not None
     if t == "texto":
         return lector.motor is not None
+    if t == "vocabulario":
+        return vocab.sesion is not None
     return True  # seguimiento: no carga nada
 
 
@@ -224,6 +231,10 @@ def _soltar(t: str) -> None:
         elif t == "texto":
             lector.motor = None
             lector._parchado = False
+        elif t == "vocabulario":
+            # Directo y no vocab.soltar(): ya se tiene el turno de GPU y el cerrojo no es reentrante.
+            vocab.sesion = None
+            vocab.entradas = []
         elif t == "seguimiento":
             # Las pistas viejas no sirven al volver: se empiezan de cero.
             with sesiones._c:
@@ -264,6 +275,8 @@ def salud():
             **{t: {"modelo": NOMBRE_MODELO[t], **catalogo[NOMBRE_MODELO[t]], **m.estado(), "activa": t not in apagadas} for t, m in modelos.items()},
             "atributos": {"modelo": describidor.meta["modelo"], "licencia": describidor.meta["licencia"], **describidor.modelo.estado(), "activa": "atributos" not in apagadas},
             "texto": {"modelo": "RapidOCR · PP-OCR", "licencia": "Apache-2.0", **lector.estado(), "activa": "texto" not in apagadas},
+            **({"vocabulario": {"modelo": vocab.meta["modelo"], "licencia": vocab.meta["licencia"], **vocab.estado(), "activa": "vocabulario" not in apagadas}}
+               if vocab.disponible else {}),
         },
         "busqueda": buscador.estado(),
         "propio": propio.estado(),
@@ -402,5 +415,49 @@ async def detectar(request: Request, umbral: float | None = None, grupos: str | 
         "ms": round((time.perf_counter() - t0) * 1000, 1),
         # Compatibilidad con quien leía la latencia del detector con este nombre.
         "ms_inferencia": r["pasos"].get(tarea),
+        "objetos": [o.a_dict() for o in objetos],
+    }
+
+
+# ─────────────── vocabulario abierto (OWLv2) ───────────────
+
+def _vigilar_vocabulario() -> None:
+    """Suelta OWLv2 de la GPU tras un rato sin pedidos: es un giga largo que comparte la placa con omni-lpr."""
+    while True:
+        time.sleep(60)
+        try:
+            if vocab.soltar_si_inactivo():
+                gc.collect()
+        except Exception:
+            pass
+
+
+threading.Thread(target=_vigilar_vocabulario, daemon=True, name="vocabulario-inactivo").start()
+
+
+@app.post("/vocabulario")
+async def vocabulario(request: Request, umbral: float | None = None):
+    if not vocab.disponible:
+        return JSONResponse({"error": "Esta imagen de omni-vision no trae el vocabulario abierto (OWLv2)."}, status_code=501)
+    if "vocabulario" in apagadas:
+        return JSONResponse({"error": "La tarea vocabulario está apagada.", "apagada": "vocabulario"}, status_code=409)
+    consultas = [q for q in request.query_params.getlist("q") if q.strip()]
+    if not consultas:
+        raise HTTPException(400, "Falta qué buscar (?q=...).")
+    datos = await request.body()
+    if not datos:
+        raise HTTPException(400, "No llegó ninguna imagen.")
+    if len(datos) > MAX_BYTES:
+        raise HTTPException(413, "La imagen pesa demasiado.")
+    t0 = time.perf_counter()
+    try:
+        img = D.abrir_imagen(datos)
+        objetos = await run_in_threadpool(lambda: _paso("vocabulario", lambda: vocab.detectar(img, consultas, umbral)))
+    except Exception as e:
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=422 if "Image" in type(e).__name__ else 500)
+    return {
+        "ancho": img.size[0], "alto": img.size[1], "consultas": consultas[:8], "modelo": vocab.meta["modelo"],
+        "umbral": umbral if umbral is not None else UMBRAL_VOCAB,
+        "ms": round((time.perf_counter() - t0) * 1000, 1), "ms_inferencia": round(vocab.ultimo_ms, 1),
         "objetos": [o.a_dict() for o in objetos],
     }

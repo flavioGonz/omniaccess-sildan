@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ScanEye, PersonStanding, Tag, Layers, Radio, Type, Gauge, Cpu, Loader2, Camera, RefreshCw,
-    EyeOff, FlaskConical, Info, Square, Play,
+    EyeOff, FlaskConical, Info, Square, Play, Sparkles, X,
 } from "lucide-react";
+import { SUGERENCIAS_VOCABULARIO } from "@/lib/vocabulario";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -92,6 +93,8 @@ type Prueba = {
     ms_inferencia: number; ms: number; modelo: string; umbral: number; objetos: ObjetoVisto[]; imagen: string; instante: string;
     tarea?: TareaVision; pasos?: Record<string, number>; seguimiento?: { cuadro: number; pistas_vistas: number } | null;
     textos?: TextoLeido[];
+    /** Vocabulario abierto: cómo se buscó cada frase, cuánto tardó o por qué no corrió. */
+    vocab?: { consultas: { escrita: string; enviada: string; traducida: boolean }[]; ms?: number; error?: string };
 };
 /** El recorrido de cada pista durante "Seguir": puntos de apoyo (pie de la caja), normalizados. */
 type Recorridos = Record<number, { clase: string; nombre: string; puntos: [number, number][] }>;
@@ -119,14 +122,17 @@ export default function VisionLab() {
     const [tarea, setTarea] = useState<TareaVision>("detectar");
     const [conAtributos, setConAtributos] = useState(true);
     const [conTexto, setConTexto] = useState(false);
+    /** Vocabulario abierto: lo que se busca por nombre en el mismo cuadro (vacío = no se busca). */
+    const [vocab, setVocab] = useState("");
+    const campoVocab = useRef<HTMLInputElement>(null);
     const [siguiendo, setSiguiendo] = useState<{ cuadro: number } | null>(null);
     const [recorridos, setRecorridos] = useState<Recorridos | null>(null);
     const pararSeguir = useRef(false);
     const [vivo, setVivo] = useState<{ cuadros: number; desde: number; ms: number | null } | null>(null);
     const pararVivo = useRef(false);
     // El bucle lee lo elegido en cada vuelta: cambiar de cámara, de tarea o de umbral se nota sin cortar.
-    const elegido = useRef({ camara, tarea, conAtributos, conTexto, umbral });
-    useEffect(() => { elegido.current = { camara, tarea, conAtributos, conTexto, umbral }; }, [camara, tarea, conAtributos, conTexto, umbral]);
+    const elegido = useRef({ camara, tarea, conAtributos, conTexto, umbral, vocab });
+    useEffect(() => { elegido.current = { camara, tarea, conAtributos, conTexto, umbral, vocab }; }, [camara, tarea, conAtributos, conTexto, umbral, vocab]);
     const seccionPrueba = useRef<HTMLElement>(null);
 
     const cargar = useCallback(async () => {
@@ -180,13 +186,14 @@ export default function VisionLab() {
     }
 
     /** `op` pisa lo elegido en la barra: lo usa el botón "Probar" de cada tarjeta, que cambia la barra y corre en el mismo clic. */
-    async function probarCamara(id: string, sesion?: string, op?: { tarea?: TareaVision; atributos?: boolean; texto?: boolean; umbral?: number; todo?: boolean }): Promise<Prueba> {
-        const t = op?.tarea ?? tarea, a = op?.atributos ?? conAtributos, x = op?.texto ?? conTexto;
+    async function probarCamara(id: string, sesion?: string, op?: { tarea?: TareaVision; atributos?: boolean; texto?: boolean; umbral?: number; todo?: boolean; vocab?: string }): Promise<Prueba> {
+        const t = op?.tarea ?? tarea, a = op?.atributos ?? conAtributos, x = op?.texto ?? conTexto, v = (op?.vocab ?? vocab).trim();
         // «Seguir» usa la detección sola (necesita ritmo); «En vivo» (`todo`) usa lo elegido, con seguimiento.
         const completo = !sesion || !!op?.todo;
         const q = new URLSearchParams({ camara: id, umbral: String(op?.umbral ?? umbral), tarea: completo ? t : "detectar" });
         if (a && completo) q.set("atributos", "1");
         if (x && completo) q.set("texto", "1");
+        if (v && completo) q.set("vocab", v);
         if (sesion) q.set("sesion", sesion);
         const r = await fetch(`/api/vision/probar?${q}`, { cache: "no-store" });
         const j = await r.json().catch(() => ({}));
@@ -250,7 +257,7 @@ export default function VisionLab() {
                 if (el.camara !== camaraSesion) { camaraSesion = el.camara; sesion = `vivo-${Date.now().toString(36)}`; rec = {}; vistoPorPista = {}; setRecorridos({}); }
                 const t0 = Date.now();
                 try {
-                    const p = await probarCamara(el.camara, sesion, { tarea: el.tarea, atributos: el.conAtributos, texto: el.conTexto, umbral: el.umbral, todo: true });
+                    const p = await probarCamara(el.camara, sesion, { tarea: el.tarea, atributos: el.conAtributos, texto: el.conTexto, umbral: el.umbral, todo: true, vocab: el.vocab });
                     for (const o of p.objetos) {
                         if (o.pista == null) continue;
                         const [x1, , x2, y2] = o.caja_norm;
@@ -280,6 +287,12 @@ export default function VisionLab() {
         if (!t) return;
         seccionPrueba.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         if (t === "seguir") { seguir(); return; }
+        // Vocabulario: hay que decir qué buscar. Se lleva al campo; si ya hay algo escrito, se corre.
+        if (t === "vocabulario") {
+            setTimeout(() => campoVocab.current?.focus(), 350);
+            if (vocab.trim()) analizar({ tarea: "detectar" });
+            return;
+        }
         const op: { tarea: TareaVision; atributos?: boolean; texto?: boolean } =
             t === "atributos" ? { tarea: "detectar", atributos: true }
                 : t === "texto" ? { tarea: "detectar", texto: true }
@@ -528,6 +541,29 @@ export default function VisionLab() {
                             </Button>
                         </div>
                     </div>
+                    {/* Vocabulario abierto (17/10): buscar por nombre lo que no está en las 80 clases. */}
+                    <div className="px-3 py-2.5 border-b border-border flex items-center gap-2 flex-wrap">
+                        <div className="flex-1 min-w-[260px] flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-[var(--accion)]/30">
+                            <Sparkles size={14} className={cn("shrink-0", vocab.trim() ? "text-[var(--aviso)]" : "text-muted-foreground")} />
+                            <input ref={campoVocab} value={vocab} onChange={(e) => setVocab(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter" && camara && !probando && !vivo && !siguiendo) analizar(); }}
+                                disabled={apagadas.includes("vocabulario")}
+                                placeholder={apagadas.includes("vocabulario") ? "Vocabulario abierto apagado (se prende en la tabla de tareas)" : "Buscar por nombre: carretilla, escalera, bolsa de basura… (separado por comas; Enter analiza)"}
+                                className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground disabled:opacity-60" />
+                            {vocab && <button type="button" onClick={() => setVocab("")} aria-label="Borrar" className="text-muted-foreground hover:text-foreground"><X size={14} /></button>}
+                        </div>
+                        {!vocab.trim() && !apagadas.includes("vocabulario") && (
+                            <div className="flex items-center gap-1 flex-wrap">
+                                {SUGERENCIAS_VOCABULARIO.slice(0, 5).map((x) => (
+                                    <button key={x} type="button" onClick={() => setVocab(x)} className="h-7 px-2.5 rounded-full border border-border text-[11.5px] font-semibold text-muted-foreground hover:text-foreground">{x}</button>
+                                ))}
+                            </div>
+                        )}
+                        <Pista titulo="Vocabulario abierto (OWLv2)" ancho={320}
+                            texto="Busca en el cuadro lo que escribas, aunque no sea una de las 80 clases. Entiende mejor en inglés: las palabras comunes en castellano se traducen solas. Es más lento que la detección; la primera vez carga el modelo en la GPU (unos segundos) y lo suelta a los 5 minutos sin uso. Sus cajas van en ámbar.">
+                            <Info size={14} className="text-muted-foreground cursor-help" />
+                        </Pista>
+                    </div>
                     <ResultadoPrueba prueba={prueba} probando={probando || !!siguiendo || !!vivo} error={errorPrueba} prendidas={prendidas} recorridos={recorridos}
                         alAbrirClase={(c) => setClaseAbierta(CLASE_POR_NOMBRE[c] || null)} sinServicio={!s} />
                 </div>
@@ -764,7 +800,9 @@ function ResultadoPrueba({ prueba, probando, error, prendidas, recorridos, alAbr
             {probando ? <span className="inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Sacando un cuadro y analizándolo… (la primera vez que se pide la pose o las siluetas, el modelo se carga en la GPU y tarda unos segundos más)</span> : "Elegí una cámara, qué pedirle, y apretá «Analizar ahora»."}
         </div>
     );
-    const visibles = prueba.objetos.filter((o) => prendidas[o.clase]);
+    // Lo buscado por nombre (vocabulario abierto) se ve siempre: no es una clase que se apague.
+    const esVocab = (o: ObjetoVisto) => o.grupo === "vocabulario";
+    const visibles = prueba.objetos.filter((o) => prendidas[o.clase] || esVocab(o));
     const ocultos = prueba.objetos.length - visibles.length;
     // Los recorridos de clases apagadas tampoco se dibujan, igual que sus cajas.
     const pistas = recorridos ? Object.entries(recorridos).filter(([, r]) => prendidas[r.clase]) : [];
@@ -806,9 +844,9 @@ function ResultadoPrueba({ prueba, probando, error, prendidas, recorridos, alAbr
                         const rotulo = `${o.pista != null ? `#${o.pista} ` : ""}${o.nombre} ${pct(o.confianza)}${o.postura ? ` · ${o.postura}` : ""}`;
                         return (
                             <button key={i} type="button" onClick={() => alAbrirClase(o.clase)}
-                                className={cn("absolute rounded-[3px] hover:bg-white/10 text-left", o.silueta?.length || o.puntos ? "border border-dashed border-white/50" : "border-2 border-[var(--accion-en-oscuro)]")}
+                                className={cn("absolute rounded-[3px] hover:bg-white/10 text-left", esVocab(o) ? "border-2 border-[var(--aviso)]" : o.silueta?.length || o.puntos ? "border border-dashed border-white/50" : "border-2 border-[var(--accion-en-oscuro)]")}
                                 style={{ left: `${x1 * 100}%`, top: `${y1 * 100}%`, width: `${(x2 - x1) * 100}%`, height: `${(y2 - y1) * 100}%` }}>
-                                <span className="absolute -top-[19px] left-[-2px] px-1.5 py-[1px] rounded-[3px] bg-[var(--accion-en-oscuro)] text-black text-[11px] font-bold whitespace-nowrap tabular-nums">
+                                <span className={cn("absolute -top-[19px] left-[-2px] px-1.5 py-[1px] rounded-[3px] text-black text-[11px] font-bold whitespace-nowrap tabular-nums", esVocab(o) ? "bg-[var(--aviso)]" : "bg-[var(--accion-en-oscuro)]")}>
                                     {rotulo}
                                 </span>
                             </button>
@@ -823,6 +861,18 @@ function ResultadoPrueba({ prueba, probando, error, prendidas, recorridos, alAbr
                     <span>{prueba.modelo} · umbral {pct(prueba.umbral)}</span>
                     {prueba.seguimiento && <span>seguimiento: cuadro {prueba.seguimiento.cuadro}, {prueba.seguimiento.pistas_vistas} pistas</span>}
                 </div>
+                {prueba.vocab && (
+                    <div className={cn("mt-1.5 text-[11.5px] flex flex-wrap items-center gap-x-2 gap-y-1", prueba.vocab.error ? "tono-mal" : "text-muted-foreground")}>
+                        <Sparkles size={12} className="text-[var(--aviso)]" />
+                        {prueba.vocab.error ? <span>Vocabulario abierto: {prueba.vocab.error}</span> : <>
+                            <span>Buscado:</span>
+                            {prueba.vocab.consultas.map((c) => (
+                                <span key={c.escrita} className="text-foreground">{c.escrita}{c.traducida ? <span className="text-muted-foreground"> (como «{c.enviada}»)</span> : null}</span>
+                            ))}
+                            <span>· {prueba.objetos.filter(esVocab).length} encontrados</span>
+                        </>}
+                    </div>
+                )}
             </div>
             <div className="border-t lg:border-t-0 lg:border-l border-border p-3 min-w-0">
                 <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Qué vio</div>
@@ -904,7 +954,7 @@ function InterruptorTarea({ t, activa, alCambiar }: { t: string; activa: boolean
         </Pista>
     );
 }
-const NOMBRE_PASO: Record<string, string> = { detectar: "detección", segmentar: "siluetas", pose: "pose", atributos: "atributos", texto: "texto" };
+const NOMBRE_PASO: Record<string, string> = { detectar: "detección", segmentar: "siluetas", pose: "pose", atributos: "atributos", texto: "texto", vocabulario: "vocabulario" };
 
 /** Un objeto en la lista de la derecha: qué es, su pista, su postura y sus atributos. */
 function ItemVisto({ o, alAbrir }: { o: ObjetoVisto; alAbrir: () => void }) {

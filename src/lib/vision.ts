@@ -118,6 +118,24 @@ export async function detectar(imagen: Buffer, op: { umbral?: number; tarea?: Ta
     return j as ResultadoDeteccion;
 }
 
+/**
+ * Vocabulario abierto (OWLv2): lo pedido por texto en una imagen. `consultas` ya traducidas
+ * (lib/vocabulario). Devuelve los objetos con grupo «vocabulario» y clase «vocab:<frase>».
+ */
+export async function buscarVocabulario(imagen: Buffer, consultas: string[], umbral?: number): Promise<{ objetos: ObjetoVisto[]; ms: number; ms_inferencia: number; umbral: number }> {
+    const q = new URLSearchParams();
+    for (const c of consultas) q.append("q", c);
+    if (umbral != null) q.set("umbral", String(umbral));
+    const r = await fetch(`${VISION_URL()}/vocabulario?${q}`, {
+        method: "POST", body: new Uint8Array(imagen), headers: { "content-type": "image/jpeg" },
+        // La primera vez carga el modelo en la GPU (unos segundos): más margen que la detección.
+        cache: "no-store", signal: AbortSignal.timeout(TIEMPO_DETECTAR_MS * 3),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j?.error || j?.detail || `omni-vision respondió ${r.status}`);
+    return j;
+}
+
 /** Los interruptores guardados, sobre los valores por defecto del catálogo. */
 export async function leerInterruptores() {
     const [a, c] = await Promise.all([leerAjuste(CLAVE_ANALITICAS), leerAjuste(CLAVE_CLASES)]);

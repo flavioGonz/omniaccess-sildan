@@ -21,7 +21,7 @@ export const MIN_PEDIDOS_GPU = 3;
 /** Qué tarea de omni-vision mide a cada capacidad del laboratorio. */
 export const TAREA_DE_PESO: Record<string, string> = {
     deteccion: "detectar", segmentacion: "segmentar", pose: "pose", seguimiento: "seguimiento",
-    clasificacion: "atributos", texto: "texto",
+    clasificacion: "atributos", texto: "texto", vocabulario: "vocabulario",
 };
 
 /**
