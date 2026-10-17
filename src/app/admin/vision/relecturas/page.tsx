@@ -15,7 +15,8 @@ import { sileo as toast } from "sileo";
 import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
 import { Pista } from "@/components/ui/pista";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Cajon, CajonContenido } from "@/components/ui/cajon";
+import { ChapaGrande, Lupa, Recorte } from "@/components/lpr/CajonComparacion";
 
 /**
  * Relecturas de NO_LEIDA: cómo le va a la relectura del vehículo (vision-worker).
@@ -282,78 +283,136 @@ export default function RelecturasVision() {
                 </div>
             )}
 
-            <Dialog open={!!abierta} onOpenChange={(o) => { if (!o) setAbierta(null); }}>
-                <DialogContent className="sm:max-w-5xl p-0 gap-0 overflow-hidden">
-                    <DialogTitle className="sr-only">Relectura {abierta?.plate || ""}</DialogTitle>
-                    <DialogDescription className="sr-only">La foto del evento y lo que se releyó</DialogDescription>
-                    {abierta && (
-                        <div className="grid md:grid-cols-[1fr_300px]">
-                            <div className="bg-black">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                {abierta.foto ? (
-                                    <div className="relative">
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={getImagePath(abierta.foto) || abierta.foto} alt="Foto del evento" className="w-full max-h-[72vh] object-contain" />
-                                        {siluetas && abierta.analisis && <CapaAnalisis analisis={abierta.analisis} ajuste="contain" />}
-                                    </div>
-                                ) : <div className="p-10 text-center text-white/50 text-[13px]">El evento no tiene foto</div>}
+            <CajonRelectura f={abierta} umbral={datos.umbral} siluetas={siluetas} alCerrar={() => setAbierta(null)}
+                alRegistrar={(p) => { setAbierta(null); abrirRegistro(p); }}
+                alListaNegra={(a) => { setAbierta(null); void marcarNegra({ id: a.id, recorte: a.recorte?.replace("/api/vision/imagen/", "") || null, foto: null, camara: a.camara || "la lectora", primeraVez: a.ts }, a.plate); }} />
+            {cajones}
+        </div>
+    );
+}
+
+/**
+ * Lo que pasó con una relectura, contado en una frase (16/10, Nico: «comparación bien clara,
+ * descriptiva»): quién leyó qué, si alcanzó el umbral y quién lo confirmó.
+ */
+function relato(f: Fila, umbral: number): string[] {
+    const pct = (c: number | null) => (c != null ? `${Math.round(c * 100)} %` : "");
+    const out: string[] = [];
+    if (f.doble) {
+        out.push(`La cámara leyó ${f.camaraLeyo || "una chapa"} y OmniVision volvió a leer la foto para verificarla (doble verificación).`);
+        if (f.comparacion === "coincide") out.push(`OmniVision leyó lo mismo${f.confianza != null ? `, con ${pct(f.confianza)}` : ""}: la lectura de la cámara queda confirmada.`);
+        else if (f.comparacion === "casi") out.push(`OmniVision leyó ${f.plate}: difieren en un carácter. Conviene mirar el recorte de la chapa.`);
+        else if (f.comparacion === "difiere") out.push(`OmniVision leyó otra chapa (${f.plate}). Puede ser otro auto en el cuadro o una mala lectura de alguno de los dos: mirá los recortes.`);
+        else out.push("OmniVision no pudo releerla: vale la lectura de la cámara.");
+    } else {
+        out.push("La cámara no leyó la chapa (NO_LEIDA). OmniVision recortó el vehículo de la foto y la volvió a leer.");
+        if (f.plate) out.push(`Leyó ${f.plate}${f.confianza != null ? ` con ${pct(f.confianza)}` : ""}: ${f.estado === "LEIDA" ? `acertada (desde ${Math.round(umbral * 100)} %)` : `dudosa (por debajo de ${Math.round(umbral * 100)} %)`}.${f.acuerdo === true ? " Los dos lectores de OmniVision coinciden." : f.acuerdo === false ? " Los dos lectores de OmniVision no coinciden." : ""}`);
+        else out.push(f.estado === "SIN_CHAPA" ? "No encontró una chapa legible en el vehículo." : f.estado === "SIN_VEHICULO" ? "No encontró ningún vehículo en la foto." : f.estado === "SIN_FOTO" ? "El evento no tenía foto." : `No pudo releerla${f.error ? `: ${f.error}` : ""}.`);
+    }
+    if (f.plate) out.push(f.otraCamara ? `La misma chapa la leyó ${f.otraCamara.camara || "otra lectora"} a las ${hora(f.otraCamara.ts)}: es la confirmación que no depende de nadie.` : "Ninguna otra lectora la leyó en ±6 h.");
+    if (f.guardia) out.push(f.guardia === f.plate ? `El guardia cargó ${f.guardia}: la misma.` : `El guardia cargó ${f.guardia}, distinta de lo que leyó OmniVision.`);
+    return out;
+}
+
+/**
+ * Una relectura, en un cajón (16/10, Nico: «este modal debe ser un drawer, estilizado, con la
+ * comparación bien clara, descriptivo»). Antes era un diálogo con la foto y una columna de datos:
+ * lo que leyó cada uno estaba en dos cajitas chicas y había que leer la tabla para entender qué
+ * había pasado. Ahora, en este orden: la foto (con lupa, o con las siluetas), el veredicto en una
+ * franja, la cámara y OmniVision lado a lado como chapas —en rojo lo que difiere—, lo que pasó
+ * contado en palabras, los recortes grandes y, al final, qué se hace y los datos.
+ */
+function CajonRelectura({ f, umbral, siluetas, alCerrar, alRegistrar, alListaNegra }: {
+    f: Fila | null; umbral: number; siluetas: boolean; alCerrar: () => void; alRegistrar: (p: string) => void; alListaNegra: (f: Fila) => void;
+}) {
+    if (!f) return null;
+    const foto = getImagePath(f.foto);
+    const v = f.comparacion ? VEREDICTO[f.comparacion] : null;
+    const e = ESTADOS[f.estado] || ESTADOS.ERROR;
+    const titulo = v ? (f.comparacion === "coincide" ? "La cámara y OmniVision coinciden" : f.comparacion === "sin" ? "OmniVision no pudo verificarla" : "La cámara y OmniVision difieren")
+        : f.plate ? (f.estado === "LEIDA" ? "OmniVision leyó lo que la cámara no" : "OmniVision sugiere, con dudas") : "Nadie pudo leer la chapa";
+    const tono = v ? v.tono : f.plate ? (f.estado === "LEIDA" ? "bien" : "aviso") : "quieto";
+    const franja = tono === "bien" ? "pleno-bien" : tono === "aviso" ? "pleno-aviso" : tono === "mal" ? "pleno-mal" : "bg-muted text-foreground";
+    const I = tono === "bien" ? CheckCircle2 : tono === "quieto" ? Info : ShieldAlert;
+    return (
+        <Cajon open={!!f} onOpenChange={(o) => { if (!o) alCerrar(); }}>
+            <CajonContenido ancho="medio" titulo={`${f.camara || "Lectora"} · ${hora(f.ts)}`} descripcion={`${dia(f.ts)} · ${f.doble ? "doble verificación" : "relectura de una NO_LEIDA"} · barrera ${f.decision === "GRANT" ? "permitió" : f.decision === "DENY" ? "denegó" : "—"}`}
+                encabezado={foto ? (siluetas && f.analisis ? (
+                    <div className="relative bg-black">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={foto} alt="Foto del evento" className="block w-full max-h-[46vh] object-contain" />
+                        <CapaAnalisis analisis={f.analisis} ajuste="contain" />
+                    </div>
+                ) : <Lupa src={foto} alt="Foto del evento" />) : <div className="h-40 grid place-items-center bg-muted/40 text-[12.5px] text-muted-foreground">El evento no tiene foto</div>}>
+                <div className="px-6 py-5 space-y-5">
+                    <div className={cn("flex items-start gap-3 rounded-[12px] px-4 py-3", franja)}>
+                        <I size={20} className="shrink-0 mt-0.5" />
+                        <div className="min-w-0">
+                            <div className="text-[15px] font-extrabold leading-tight">{titulo}</div>
+                            <div className="text-[12.5px] opacity-90">{v ? v.r : e.r}{f.confianza != null ? ` · ${Math.round(f.confianza * 100)} % de confianza` : ""}</div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-[12px] bg-muted/40 p-4 flex flex-col items-center text-center gap-2.5">
+                            <span className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-muted-foreground"><Camera size={13} /> Leyó la cámara</span>
+                            <ChapaGrande p={f.camaraLeyo} />
+                            <span className="text-[11.5px] text-muted-foreground">{f.camaraLeyo ? "ANPR de la cámara" : "No leyó la chapa"}</span>
+                        </div>
+                        <div className="rounded-[12px] bg-muted/40 p-4 flex flex-col items-center text-center gap-2.5">
+                            <span className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-muted-foreground"><ScanEye size={13} /> Leyó OmniVision</span>
+                            <ChapaGrande p={f.plate} contra={f.camaraLeyo} />
+                            <span className={cn("text-[11.5px]", e.tono === "bien" ? "tono-bien" : e.tono === "aviso" ? "tono-aviso" : "text-muted-foreground")}>{e.r}{f.confianza != null ? ` · ${Math.round(f.confianza * 100)} %` : ""}</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Qué pasó</div>
+                        <ul className="space-y-1.5">
+                            {relato(f, umbral).map((t, k) => (
+                                <li key={k} className="flex items-start gap-2 text-[13px] leading-snug"><span className="mt-[0.5em] h-1.5 w-1.5 rounded-full bg-[var(--accion)] shrink-0" />{t}</li>
+                            ))}
+                        </ul>
+                    </div>
+
+                    {(f.fotoChapaCamara || f.chapa || f.recorte) && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <Recorte src={f.fotoChapaCamara} rotulo="Chapa · recorte de la cámara" />
+                            <Recorte src={f.chapa} rotulo="Chapa · recorte de OmniVision" />
+                            <Recorte src={f.recorte} rotulo="Vehículo · recorte de OmniVision" />
+                        </div>
+                    )}
+
+                    {f.otras.length > 0 && (
+                        <div>
+                            <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Otras lecturas de OmniVision en la foto</div>
+                            <div className="flex flex-wrap gap-1.5">{f.otras.map((o) => <span key={o.plate} className="inline-flex items-center gap-1"><ChapaGrande p={o.plate} contra={f.plate} chica /><span className="text-[11.5px] text-muted-foreground tabular-nums">{Math.round(o.confianza * 100)} %</span></span>)}</div>
+                        </div>
+                    )}
+
+                    {f.plate && (
+                        <div className="rounded-[12px] border border-border p-3.5 space-y-2.5">
+                            <div className="text-[12.5px]">
+                                {f.persona ? <><b>{f.persona.nombre}</b> <span className="text-muted-foreground">· {rolEtiqueta(f.persona.rol)}{f.persona.unidad ? ` · ${f.persona.unidad}` : ""}</span></> : <span className="text-muted-foreground">La chapa de OmniVision no está en el padrón.</span>}
+                                {f.vigilancia && <span className={cn("ml-2 inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11.5px] font-semibold", esNegra(f.vigilancia) ? "pleno-mal" : "chip-info")}><ShieldAlert size={12} /> {f.vigilancia.etiqueta}</span>}
                             </div>
-                            <div className="p-4 space-y-3 text-[12.5px]">
-                                <div>
-                                    <div className="grid grid-cols-2 gap-2 mb-2">
-                                        <div className="rounded-md bg-muted/50 px-2.5 py-1.5">
-                                            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-1"><Camera size={11} /> Cámara</div>
-                                            <div className={cn("text-[15px] font-bold tabular-nums tracking-[0.08em]", !abierta.camaraLeyo && "text-muted-foreground italic font-semibold tracking-normal text-[13px]")}>{abierta.camaraLeyo || "No leyó"}</div>
-                                        </div>
-                                        <div className="rounded-md bg-muted/50 px-2.5 py-1.5">
-                                            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-1"><ScanEye size={11} /> OmniVision</div>
-                                            <div className={cn("text-[15px] font-bold tabular-nums tracking-[0.08em]", !abierta.plate && "text-muted-foreground italic font-semibold tracking-normal text-[13px]")}>{abierta.plate || "No leyó"}</div>
-                                        </div>
-                                    </div>
-                                    {abierta.comparacion && <div className="mb-1.5"><span className={cn("inline-flex items-center h-6 px-2 rounded-full text-[11.5px] font-semibold", PLENO[VEREDICTO[abierta.comparacion].tono] || "chip-quieto")}>{VEREDICTO[abierta.comparacion].r}</span></div>}
-                                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{abierta.doble ? "Releída" : "Sugerida"}</div>
-                                    <div className="text-[22px] font-bold tabular-nums tracking-[0.12em]">{abierta.plate || "—"}</div>
-                                    <div className="text-muted-foreground">{abierta.confianza != null ? `${Math.round(abierta.confianza * 100)} % · ` : ""}{(ESTADOS[abierta.estado] || ESTADOS.ERROR).r}{abierta.acuerdo === true ? " · los dos lectores coinciden" : abierta.acuerdo === false ? " · los dos lectores no coinciden" : ""}</div>
-                                </div>
-                                {abierta.plate && (
-                                    <div className="space-y-1.5">
-                                        <div className="text-[12px]">
-                                            {abierta.persona ? <><b>{abierta.persona.nombre}</b> <span className="text-muted-foreground">· {rolEtiqueta(abierta.persona.rol)}{abierta.persona.unidad ? ` · ${abierta.persona.unidad}` : ""}</span></> : <span className="text-muted-foreground">La chapa sugerida no está en el padrón</span>}
-                                        </div>
-                                        {abierta.vigilancia && <span className={cn("inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11.5px] font-semibold", esNegra(abierta.vigilancia) ? "pleno-mal" : "chip-info")}><ShieldAlert size={12} /> {abierta.vigilancia.etiqueta}</span>}
-                                        <div className="flex flex-wrap gap-1.5">
-                                            <button type="button" onClick={() => { const p = abierta.plate!; setAbierta(null); abrirRegistro(p); }} className="h-8 px-3 rounded-md bg-[var(--accion)] text-white text-[12.5px] font-semibold inline-flex items-center gap-1.5">
-                                                <UserPlus size={14} /> {abierta.persona || abierta.vigilancia ? "Ver o cambiar registro" : "Registrar matrícula"}
-                                            </button>
-                                            <Link href={`/admin/history?search=${encodeURIComponent(abierta.plate)}`} className="h-8 px-3 rounded-md border border-border text-[12.5px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent">Historial <ArrowUpRight size={13} /></Link>
-                                        </div>
-                                    </div>
-                                )}
-                                <button type="button" onClick={() => { const a = abierta; setAbierta(null); void marcarNegra({ id: a.id, recorte: a.recorte?.replace("/api/vision/imagen/", "") || null, foto: null, camara: a.camara || "la lectora", primeraVez: a.ts }, a.plate); }}
-                                    className="w-full h-8 rounded-md border border-[color-mix(in_oklab,var(--mal)_40%,transparent)] bg-[var(--mal-suave)] tono-mal text-[12.5px] font-semibold inline-flex items-center justify-center gap-1.5 hover:border-[var(--mal)]">
-                                    <Ban size={14} /> Marcar en lista negra con esta captura
-                                </button>
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                {abierta.chapa && <img src={`${abierta.chapa}?w=320`} alt="Chapa" className="w-full rounded-md border border-border bg-black" />}
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                {abierta.recorte && <img src={`${abierta.recorte}?w=320`} alt="Vehículo" className="w-full rounded-md border border-border bg-black" />}
-                                <dl className="grid grid-cols-[92px_1fr] gap-x-2 gap-y-1">
-                                    <dt className="text-muted-foreground">Cámara</dt><dd>{abierta.camara || "—"}</dd>
-                                    <dt className="text-muted-foreground">Cuándo</dt><dd className="tabular-nums">{dia(abierta.ts)} {hora(abierta.ts)}</dd>
-                                    <dt className="text-muted-foreground">Barrera</dt><dd>{abierta.decision === "GRANT" ? "permitido" : abierta.decision === "DENY" ? "denegado" : "—"}</dd>
-                                    <dt className="text-muted-foreground">Vehículos</dt><dd>{abierta.vehiculos}{abierta.vehiculo ? ` (leído: ${abierta.vehiculo})` : ""}</dd>
-                                    <dt className="text-muted-foreground">Otras</dt><dd>{abierta.otras.length ? abierta.otras.map((o) => o.plate).join(", ") : "—"}</dd>
-                                    <dt className="text-muted-foreground">Coincide</dt><dd>{abierta.otraCamara ? `${abierta.otraCamara.camara} a las ${hora(abierta.otraCamara.ts)}` : "ninguna lectura"}</dd>
-                                    <dt className="text-muted-foreground">Guardia</dt><dd>{abierta.guardia ? `cargó ${abierta.guardia}` : "no cargó nada"}</dd>
-                                    <dt className="text-muted-foreground">Tardó</dt><dd className="tabular-nums">{abierta.ms != null ? `${abierta.ms} ms` : "—"}</dd>
-                                    {abierta.error && <><dt className="text-muted-foreground">Error</dt><dd className="tono-mal">{abierta.error}</dd></>}
-                                </dl>
+                            <div className="flex flex-wrap gap-2">
+                                <button type="button" onClick={() => alRegistrar(f.plate!)} className="h-9 px-3.5 rounded-[8px] bg-[var(--accion)] text-white text-[12.5px] font-semibold inline-flex items-center gap-1.5"><UserPlus size={14} /> {f.persona || f.vigilancia ? "Ver o cambiar registro" : "Registrar matrícula"}</button>
+                                <Link href={`/admin/history?search=${encodeURIComponent(f.plate)}`} className="h-9 px-3.5 rounded-[8px] border border-border text-[12.5px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent">Historial <ArrowUpRight size={13} /></Link>
+                                <button type="button" onClick={() => alListaNegra(f)} className="h-9 px-3.5 rounded-[8px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 tono-mal hover:bg-[var(--mal-suave)]"><Ban size={14} /> Lista negra con esta captura</button>
                             </div>
                         </div>
                     )}
-                </DialogContent>
-            </Dialog>
-            {cajones}
-        </div>
+
+                    <dl className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-1.5 text-[12.5px]">
+                        <dt className="text-muted-foreground">Lectora</dt><dd>{f.camara || "—"}{f.sentido ? ` · ${f.sentido === "EXIT" ? "salida" : "entrada"}` : ""}</dd>
+                        <dt className="text-muted-foreground">Cuándo</dt><dd className="tabular-nums">{dia(f.ts)} {hora(f.ts)}</dd>
+                        <dt className="text-muted-foreground">Vehículos en la foto</dt><dd>{f.vehiculos}{f.vehiculo ? ` (el leído: ${f.vehiculo})` : ""}</dd>
+                        <dt className="text-muted-foreground">Tardó</dt><dd className="tabular-nums">{f.ms != null ? `${(f.ms / 1000).toLocaleString("es-UY", { maximumFractionDigits: 1 })} s` : "—"}</dd>
+                        {f.error && <><dt className="text-muted-foreground">Error</dt><dd className="tono-mal">{f.error}</dd></>}
+                    </dl>
+                </div>
+            </CajonContenido>
+        </Cajon>
     );
 }

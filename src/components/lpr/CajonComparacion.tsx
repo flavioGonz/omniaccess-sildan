@@ -60,7 +60,7 @@ export function ChapaGrande({ p, contra, chica }: { p: string | null | undefined
 }
 
 /** Una foto con lupa: al pasar el mouse, un círculo con 3× de aumento sigue al puntero (la chapa se lee ahí). */
-function Lupa({ src, alt }: { src: string; alt: string }) {
+export function Lupa({ src, alt }: { src: string; alt: string }) {
     const caja = useRef<HTMLDivElement>(null);
     const img = useRef<HTMLImageElement>(null);
     const [l, setL] = useState<{ px: number; py: number; bw: number; bh: number; bx: number; by: number } | null>(null);
@@ -87,7 +87,7 @@ function Lupa({ src, alt }: { src: string; alt: string }) {
 }
 
 /** Un recorte de chapa, grande y con fondo negro: el dato crudo de quién leyó. */
-function Recorte({ src, rotulo }: { src: string | null | undefined; rotulo: string }) {
+export function Recorte({ src, rotulo }: { src: string | null | undefined; rotulo: string }) {
     const url = getImagePath(src || null);
     return (
         <figure className="rounded-[10px] bg-black overflow-hidden">
