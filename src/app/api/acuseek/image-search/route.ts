@@ -5,18 +5,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { createImageSearch, getImageSearchProgress, getImageSearchResults, fetchAcuSeekImage, AcuSeekNotActivatedError } from "@/lib/acuseek";
+import { nvrConAcuSeek, camarasDelNvr, conSesion, SIN_ACUSEEK } from "@/lib/acuseek-nvr";
 
-async function getNvr() {
-    const nvr = await prisma.device.findFirst({ where: { deviceType: "NVR" }, select: { ip: true, username: true, password: true, authType: true } });
-    if (!nvr?.ip) return null;
-    return { ip: nvr.ip, username: nvr.username || "admin", password: nvr.password || "", authType: nvr.authType || "DIGEST" };
-}
+/** El grabador que SÍ tiene AcuSearch (lib/acuseek-nvr), no el primero de la tabla. */
+async function getNvr() { return (await nvrConAcuSeek())?.dev ?? null; }
 
 export async function POST(req: NextRequest) {
+    const no = await conSesion(); if (no) return no;
     const nvr = await getNvr();
-    if (!nvr) return NextResponse.json({ ok: false, error: "No hay NVR configurado." }, { status: 404 });
+    if (!nvr) return NextResponse.json({ ok: false, sinAcuSeek: true, error: SIN_ACUSEEK }, { status: 404 });
     try {
         let image: Buffer | null = null;
         let p: Record<string, any> = {};
@@ -55,8 +53,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-    const nvr = await getNvr();
-    if (!nvr) return NextResponse.json({ ok: false, error: "No hay NVR configurado." }, { status: 404 });
+    const no = await conSesion(); if (no) return no;
+    const acu = await nvrConAcuSeek();
+    const nvr = acu?.dev ?? null;
+    if (!acu || !nvr) return NextResponse.json({ ok: false, sinAcuSeek: true, error: SIN_ACUSEEK }, { status: 404 });
     const taskID = req.nextUrl.searchParams.get("taskId") || req.nextUrl.searchParams.get("taskID");
     if (!taskID) return NextResponse.json({ ok: false, error: "Falta taskId." }, { status: 400 });
     const pos = parseInt(req.nextUrl.searchParams.get("pos") || "0", 10);
@@ -69,15 +69,10 @@ export async function GET(req: NextRequest) {
         // el motor de vehículos no acepta similarity en el request → filtro server-side (?minScore=0-100)
         const minScore = Number(req.nextUrl.searchParams.get("minScore") || 0);
         if (minScore > 0) res.matches = res.matches.filter((m: any) => m.score == null || m.score >= minScore);
-        // enriquecer con deviceId (canal → IP → device) para el Time Machine
+        // enriquecer con la cámara (canal de ESTE grabador → cámara) para la grabación
         try {
-            const row = await prisma.setting.findUnique({ where: { key: "NVR_CHANNEL_MAP" } });
-            const map = row?.value ? JSON.parse(row.value) as Record<string, number | string> : {};
-            const chToIp: Record<number, string> = {}; for (const [ip, ch] of Object.entries(map)) chToIp[Number(ch)] = ip;
-            const ips = Array.from(new Set(Object.values(chToIp)));
-            const devs = ips.length ? await prisma.device.findMany({ where: { ip: { in: ips } }, select: { id: true, ip: true } }) : [];
-            const byIp: Record<string, string> = {}; for (const d of devs) byIp[d.ip!] = d.id;
-            for (const m of res.matches as any[]) { const ip = chToIp[m.channel]; if (ip && byIp[ip]) m.deviceId = byIp[ip]; }
+            const cams = await camarasDelNvr(acu.id);
+            for (const m of res.matches as any[]) { const c = cams[m.channel]; if (c) { m.deviceId = c.id; m.deviceName = m.deviceName || c.nombre; } }
         } catch { /* best-effort */ }
         return NextResponse.json({ ok: true, status: "completed", progress: 100, totalMatches: res.total, more: res.more, matches: res.matches });
     } catch (e: any) {

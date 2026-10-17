@@ -5,12 +5,15 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAcuSeekStatus, getExampleTerms, getHistoricalTerms } from "@/lib/acuseek";
+import { nvrConAcuSeek, camarasDelNvr, conSesion, SIN_ACUSEEK } from "@/lib/acuseek-nvr";
 
 export async function GET() {
+    const no = await conSesion(); if (no) return no;
     try {
-        const nvr = await prisma.device.findFirst({ where: { deviceType: "NVR" }, select: { id: true, name: true, ip: true, username: true, password: true, deviceModel: true, authType: true } });
-        if (!nvr?.ip) return NextResponse.json({ ok: false, error: "No hay NVR configurado." }, { status: 404 });
-        const device = { ip: nvr.ip, username: nvr.username || "admin", password: nvr.password || "", authType: nvr.authType || "DIGEST" };
+        const acu = await nvrConAcuSeek();
+        if (!acu) return NextResponse.json({ ok: false, sinAcuSeek: true, error: SIN_ACUSEEK }, { status: 404 });
+        const nvr = (await prisma.device.findUnique({ where: { id: acu.id }, select: { id: true, name: true, ip: true, deviceModel: true } }))!;
+        const device = acu.dev;
 
         const status = await getAcuSeekStatus(device);
 
@@ -18,16 +21,10 @@ export async function GET() {
         let examples: string[] = [], recent: string[] = [], cameras: { channel: number; name: string }[] = [];
         if (status.activated) {
             [examples, recent] = await Promise.all([getExampleTerms(device), getHistoricalTerms(device)]);
-            // cámaras mapeadas (canal → nombre del device OmniAccess, si existe)
+            // cámaras de ESTE grabador (canal → nombre del equipo en OmniAccess)
             try {
-                const row = await prisma.setting.findUnique({ where: { key: "NVR_CHANNEL_MAP" } });
-                const map = row?.value ? JSON.parse(row.value) as Record<string, number | string> : {};
-                const chToIp: Record<number, string> = {};
-                for (const [ip, ch] of Object.entries(map)) chToIp[Number(ch)] = ip;
-                const ips = Array.from(new Set(Object.values(chToIp)));
-                const devs = ips.length ? await prisma.device.findMany({ where: { ip: { in: ips } }, select: { name: true, ip: true } }) : [];
-                const byIp: Record<string, string> = {}; for (const d of devs) byIp[d.ip!] = d.name;
-                cameras = Object.keys(chToIp).map(Number).sort((a, b) => a - b).map(ch => ({ channel: ch, name: byIp[chToIp[ch]] || `Canal ${ch}` }));
+                const cams = await camarasDelNvr(acu.id);
+                cameras = Object.keys(cams).map(Number).sort((a, b) => a - b).map((ch) => ({ channel: ch, name: cams[ch].nombre }));
             } catch { /* best-effort */ }
         }
 
