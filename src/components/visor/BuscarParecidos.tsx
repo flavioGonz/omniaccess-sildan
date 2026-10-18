@@ -169,7 +169,7 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
         <motion.section role="dialog" aria-label="Buscar parecidos"
             onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}
             initial={{ clipPath: "inset(0 0 100% 0)" }} animate={{ clipPath: "inset(0 0 0% 0)" }} exit={{ clipPath: "inset(0 0 100% 0)" }} transition={PERSIANA}
-            className="absolute inset-0 z-[60] flex flex-col bg-background/[0.97] backdrop-blur-xl text-foreground">
+            className="absolute inset-0 z-[60] flex flex-col cajon-vidrio text-foreground">
 
                 <div className="shrink-0 flex items-start gap-3 px-6 pt-5 pb-4 border-b border-border">
                     <span className="w-10 h-10 rounded-[10px] grid place-items-center bg-muted border border-border shrink-0"><ScanSearch size={18} className="text-[var(--accion)]" /></span>

@@ -2070,6 +2070,18 @@ html:not(.dark) .regla-tema .tms-tramo[data-tono="lectura"] { background: var(--
 .respirar-intrusion { animation: respirar-intrusion 2.2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .respirar-intrusion { animation: none; box-shadow: inset 0 0 0 6px rgba(239, 68, 68, 0.9); } }
 
+/* Los cajones del visor (Comportamiento, Buscar parecidos, Exportar clip, Compartir): vidrio,
+   no una placa. 18/10, Nico: «al blanco de comportamiento, ¿podés darle algo de transparencia a
+   esos drawers, similar a la ventana con la foto? queda muy blanco». Opacos al 95-97 % eran un
+   rectangulo blanco pegado a la foto; asi la foto se adivina detras, desenfocada, como en la
+   ficha. En oscuro un poco mas tapado: sobre una calle de noche el texto claro necesita fondo. */
+.cajon-vidrio {
+  background: color-mix(in oklab, var(--background) 72%, transparent);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+}
+.dark .cajon-vidrio { background: color-mix(in oklab, var(--background) 86%, transparent); }
+
 /* El tamano de la ventana del visor.
    FIJO, y no el de cada foto. Antes la ventana se ajustaba a la imagen, asi
    que cada captura abria una ventana de distinto tamano: se pasaba de un
