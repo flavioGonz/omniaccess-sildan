@@ -172,7 +172,7 @@ function HaceCuanto({ desde }: { desde: string }) {
     return <span className="text-[11.5px] text-muted-foreground tabular-nums">hace {leerDuracion(ms)}</span>;
 }
 
-export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, vision = [], barra, vista = "lista", onMerodeo, onResumen, onCargado }: {
+export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, vision = [], chapa = [], barra, vista = "lista", onMerodeo, onResumen, onCargado }: {
     buscar: string; desde: string; hasta: string; tipos: string[];
     /** Los filtros de acceso: con qué se identificó, si abrió, en qué sentido. Viajan al servidor. */
     identificacion?: string; resultado?: string; sentido?: string;
@@ -192,6 +192,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     vista?: Vista;
     /** Filtro OmniVision (ids de lib/historial-vision): viaja al servidor, que cruza con AnalisisFoto. */
     vision?: string[];
+    /** Tipos de chapa (lib/categoria-chapa): viaja al servidor, que filtra por cómo empieza la matrícula. */
+    chapa?: string[];
     onMerodeo?: (chapas: Set<string>) => void;
     /**
      * Lo que se puede decir de lo que está cargado: cuántos permitidos, cuántos denegados,
@@ -229,10 +231,11 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     const { marcar, es: esNueva } = useDestello();
 
     const visionClave = vision.join(",");
+    const chapaClave = chapa.join(",");
     const [visionTruncado, setVisionTruncado] = useState(false);
     const [omni, setOmni] = useState<FranjaOmni | null>(null);
     const camarasClave = (camaras || []).join("\u0001");
-    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave, camarasClave]);
+    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave, camarasClave, chapaClave]);
 
     useEffect(() => {
         let vivo = true;
@@ -246,6 +249,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         if (resultado !== "ALL") q.set("decision", resultado);
         if (sentido !== "ALL") q.set("direction", sentido);
         if (visionClave) q.set("vision", visionClave);
+        if (chapaClave) q.set("chapa", chapaClave);
         for (const c of camaras || []) q.append("cam", c);
         const esta = q.toString();
         clave.current = esta;
@@ -275,7 +279,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             .finally(() => { if (vivo) setCargando(false); });
         return () => { vivo = false; };
     // `version` entra por el reset de página; si ya estaba en 0 hace falta igual volver a pedir.
-    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version, visionClave, camarasClave]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version, visionClave, camarasClave, chapaClave]); // eslint-disable-line react-hooks/exhaustive-deps
 
     /**
      * En vivo.
@@ -542,10 +546,10 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                         /* Una NO_LEIDA: la chapa que leyó OmniVision (doble verificación) con su marca, o
                            «Sin lectura» si tampoco pudo. Antes salía «NO_LEIDA» dibujado como si fuera una chapa. */
                         const ch = chapaDe(f.plate, f.vision?.releida);
-                        if (f.plate && !esSinLectura(f.plate)) return <><Matricula p={f.plate} /><MarcaFormatoChapa plate={f.plate} /><MarcaVerificacion plate={f.plate} r={f.vision?.releida} tamano="xs" soloIcono /><CategoriaChapa plate={f.plate} extranjera /></>;
+                        if (f.plate && !esSinLectura(f.plate)) return <><Matricula p={f.plate} /><MarcaFormatoChapa plate={f.plate} /><MarcaVerificacion plate={f.plate} r={f.vision?.releida} tamano="xs" soloIcono /><CategoriaChapa plate={f.plate} extranjera aspecto={aspectoDe(f)} /></>;
                         if (ch.plate) return <><Matricula p={textoChapa(ch)} className="border-dashed" /><MarcaOmniVision r={f.vision?.releida} tamano="xs" /></>;
                         if (f.plate) return <><span className="text-[13px] text-muted-foreground">Sin lectura</span>{f.vision?.releida && <MarcaOmniVision r={f.vision.releida} tamano="xs" soloIcono />}</>;
-                        return <span className="text-[13px] text-muted-foreground">{f.persona || "—"}</span>;
+                        return <><span className="text-[13px] text-muted-foreground">{f.persona || "—"}</span>{aspectoDe(f) && <CategoriaChapa aspecto="taxi" />}</>;
                     })()}
                     {f.empresa && (
                         /* eslint-disable-next-line @next/next/no-img-element */
@@ -831,4 +835,10 @@ function FranjaOmniVision({ datos, buscar }: { datos: FranjaOmni; buscar: string
             </div>
         </div>
     );
+}
+
+/** Lo que OmniVision ve en el vehículo de la fila (atributo `servicio`, ver vision-analisis.js): hoy sólo «taxi». */
+function aspectoDe(f: { vision?: any }): "taxi" | null {
+    const a = f.vision?.analisis?.objetos?.[0]?.atributos;
+    return Array.isArray(a) && a.some((x: any) => x?.id === "servicio" && x?.valor === "taxi") ? "taxi" : null;
 }

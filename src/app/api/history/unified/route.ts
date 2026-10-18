@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { TIPOS_CHAPA, prefijosDeTipo } from "@/lib/categoria-chapa";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
 import { limitesDelDia } from "@/lib/fechas";
@@ -127,8 +128,10 @@ async function tamanoDeFoto(camara: string, clave: string): Promise<{ w: number;
         return v;
     } catch { return ya || null; }
 }
-async function objetosOmniVision(p: { soloChapas: boolean; desde: Date | null; hasta: Date | null; buscar: string; clases: string[]; grupos: string[]; camaras: string[]; limite: number }): Promise<FilaOV[]> {
+async function objetosOmniVision(p: { soloChapas: boolean; desde: Date | null; hasta: Date | null; buscar: string; clases: string[]; grupos: string[]; camaras: string[]; limite: number; tipoChapa?: { prefijos: string[]; taxiAspecto: boolean } | null }): Promise<FilaOV[]> {
     const q = p.buscar ? `%${p.buscar}%` : null;
+    const tc = p.tipoChapa;
+    const likes = tc ? tc.prefijos.map((x) => `${x}%`) : [];
     const qChapa = p.buscar ? `%${p.buscar.toUpperCase().replace(/[^A-Z0-9]/g, "")}%` : null;
     return prisma.$queryRaw<FilaOV[]>`
         SELECT o.id, o."deviceId", o.camara, o.clase, o.grupo, o.confianza, o."primeraVez", o.cuadros, o.recorte, o.foto, o.atributos, o.caja,
@@ -141,12 +144,13 @@ async function objetosOmniVision(p: { soloChapas: boolean; desde: Date | null; h
                 WHERE t->>'tipo' = 'matricula' AND coalesce(t->>'texto', '') <> ''
                 ORDER BY (t->>'confianza')::float DESC NULLS LAST LIMIT 1) m ON true
          WHERE (d.id IS NULL OR d."deviceType"::text <> 'LPR_CAMERA')
-           ${p.soloChapas ? Prisma.sql`AND m.texto IS NOT NULL` : Prisma.empty}
+           ${p.soloChapas && !tc?.taxiAspecto ? Prisma.sql`AND m.texto IS NOT NULL` : Prisma.empty}
            ${p.desde ? Prisma.sql`AND o."primeraVez" >= ${sinZona(p.desde)}::timestamp` : Prisma.empty}
            ${p.hasta ? Prisma.sql`AND o."primeraVez" <= ${sinZona(p.hasta)}::timestamp` : Prisma.empty}
            ${p.clases.length || p.grupos.length ? Prisma.sql`AND (o.clase = ANY(${p.clases}::text[]) OR o.grupo = ANY(${p.grupos}::text[]))` : Prisma.empty}
            ${p.camaras.length ? Prisma.sql`AND o.camara = ANY(${p.camaras}::text[])` : Prisma.empty}
            ${q ? Prisma.sql`AND (o.camara ILIKE ${q} OR o.clase ILIKE ${q} OR m.texto LIKE ${qChapa})` : Prisma.empty}
+           ${tc ? Prisma.sql`AND (m.texto LIKE ANY(${likes}::text[])${tc.taxiAspecto ? Prisma.sql` OR o.atributos @> '[{"id":"servicio","valor":"taxi"}]'::jsonb` : Prisma.empty})` : Prisma.empty}
          ORDER BY o."primeraVez" DESC
          LIMIT ${p.limite}`;
 }
@@ -327,6 +331,14 @@ export async function GET(req: NextRequest) {
      * mostraba lo que hubiera entre las primeras 60 filas: casi siempre nada.
      */
     const camaras = sp.getAll("cam").map((c) => c.trim()).filter(Boolean).slice(0, 50);
+    /**
+     * El tipo de chapa (lib/categoria-chapa: taxi, policía, ambulancia, diplomático…), por cómo
+     * empieza la matrícula. Taxi suma además lo que OmniVision reconoce como taxi por su aspecto.
+     */
+    const tiposChapa = (sp.get("chapa") || "").split(",").map((t) => t.trim()).filter((t) => TIPOS_CHAPA.some((x) => x.id === t));
+    const prefijosChapa = [...new Set(tiposChapa.flatMap(prefijosDeTipo))];
+    const tipoChapa = tiposChapa.length ? { prefijos: prefijosChapa, taxiAspecto: tiposChapa.includes("taxi") } : null;
+    const porChapa = (campo: string) => (tipoChapa ? { OR: prefijosChapa.map((x) => ({ [campo]: { startsWith: x } })) } : null);
 
     const rango: any = {};
     if (desde && !isNaN(+desde)) rango.gte = desde;
@@ -396,7 +408,10 @@ export async function GET(req: NextRequest) {
                 where: {
                     ...porFecha,
                     ...(porVision ? { id: { in: porVision.ids } } : {}),
-                    ...(camaras.length ? { AND: [{ OR: [{ device: { name: { in: camaras } } }, { location: { in: camaras } }] }] } : {}),
+                    ...(camaras.length || tipoChapa ? { AND: [
+                        ...(camaras.length ? [{ OR: [{ device: { name: { in: camaras } } }, { location: { in: camaras } }] }] : []),
+                        ...(tipoChapa ? [{ OR: [...porChapa("plateDetected")!.OR, ...porChapa("plateNumber")!.OR] }] : []),
+                    ] } : {}),
                     // Son enums de Prisma; un valor inventado en la URL no rompe la consulta, se ignora.
                     ...(["PLATE", "FACE", "TAG"].includes(identificacion) ? { accessType: identificacion as any } : {}),
                     ...(["GRANT", "DENY"].includes(decision) ? { decision: decision as any } : {}),
@@ -428,6 +443,7 @@ export async function GET(req: NextRequest) {
                     ...porFecha,
                     ...(camaras.length ? { cameraName: { in: camaras } } : {}),
                     ...(tipos.length ? { estado: { in: estadosPedidos } } : {}),
+                    ...(tipoChapa ? { AND: [porChapa("plate")!] } : {}),
                     ...(buscar
                         ? {
                             OR: [
@@ -442,7 +458,7 @@ export async function GET(req: NextRequest) {
             })
             : Promise.resolve([] as any[]),
         pedirOV
-            ? objetosOmniVision({ soloChapas: !quiereOVObjetos, desde, hasta, buscar, clases: clasesOV, grupos: gruposOV, camaras, limite: cuantas }).catch((e) => { console.error("[historial] OmniVision RTSP:", e?.message); return [] as FilaOV[]; })
+            ? objetosOmniVision({ soloChapas: !quiereOVObjetos, desde, hasta, buscar, clases: clasesOV, grupos: gruposOV, camaras, limite: cuantas, tipoChapa }).catch((e) => { console.error("[historial] OmniVision RTSP:", e?.message); return [] as FilaOV[]; })
             : Promise.resolve([] as FilaOV[]),
     ]);
 

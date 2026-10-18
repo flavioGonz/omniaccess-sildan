@@ -132,6 +132,7 @@ export default function HistoryPage() {
         if (f.color !== "ALL" || f.tipoVeh !== "ALL") n++;
         if (f.merodeo) n++;
         if (f.vision.length) n++;
+        if (f.chapa.length) n++;
         return n;
     }, [f, searchTerm, activeMode]);
 
@@ -224,6 +225,7 @@ export default function HistoryPage() {
                 version={version}
                 vista={vista}
                 vision={soloSeguimiento ? [] : f.vision}
+                chapa={f.chapa}
                 merodeo={f.merodeo && !soloSeguimiento ? chapasMerodeo : undefined}
                 color={soloSeguimiento ? "ALL" : f.color}
                 tipoVeh={soloSeguimiento ? "ALL" : f.tipoVeh}

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import {
     Bike, Bus, CalendarRange, Camera, Car, Check, ChevronDown, CreditCard, Eraser, Layers, LogIn, LogOut,
-    Motorbike, Palette, PawPrint, PersonStanding, ScanEye, ScanFace, ShieldAlert, ShieldCheck, ShieldX, Sparkles, Truck,
+    IdCard, Motorbike, Palette, PawPrint, PersonStanding, ScanEye, ScanFace, ShieldAlert, ShieldCheck, ShieldX, Sparkles, Truck,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Filtros, type GrupoFiltro } from "@/components/ui/filtros";
@@ -13,6 +13,7 @@ import { fechaCorta, paraInput } from "@/lib/fechas";
 import { RASGOS } from "@/components/history/TablaUnificada";
 import { OPCIONES_VISION, OPCION_RELEIDA } from "@/lib/historial-vision";
 import type { CamaraHistorial } from "@/app/api/history/camaras/route";
+import { TIPOS_CHAPA } from "@/lib/categoria-chapa";
 
 /**
  * Los filtros del historial, en una barra a la vista.
@@ -44,13 +45,15 @@ export type FiltrosHistorial = {
     merodeo: boolean;
     /** Ids de lib/historial-vision: qué tiene que haber visto OmniVision en la foto. */
     vision: string[];
+    /** Ids de lib/categoria-chapa (TIPOS_CHAPA): taxi, policía, ambulancia… por cómo empieza la chapa. */
+    chapa: string[];
 };
 
 export type CambiarFiltros = <K extends keyof FiltrosHistorial>(clave: K, valor: FiltrosHistorial[K]) => void;
 
 export const SIN_FILTROS: FiltrosHistorial = {
     desde: "", hasta: "", tipos: [], identificacion: "ALL", resultado: "ALL", sentido: "ALL",
-    camaras: [], color: "ALL", tipoVeh: "ALL", merodeo: false, vision: [],
+    camaras: [], color: "ALL", tipoVeh: "ALL", merodeo: false, vision: [], chapa: [],
 };
 
 /** Los atajos de período. Se calculan al apretar: la medianoche puede pasar con la pantalla abierta. */
@@ -131,7 +134,7 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
     modo: "LPR" | "FACE" | "QUEUE" | null;
     merodeando: number;
 }) {
-    const alternar = (clave: "tipos" | "camaras" | "vision", v: string) => {
+    const alternar = (clave: "tipos" | "camaras" | "vision" | "chapa", v: string) => {
         const actual = f[clave];
         cambiar(clave, actual.includes(v) ? actual.filter((x) => x !== v) : [...actual, v]);
     };
@@ -284,6 +287,21 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
                     <Casilla activa={f.vision.includes(OPCION_RELEIDA.id)} onClick={() => alternar("vision", OPCION_RELEIDA.id)} Ico={ScanEye} rotulo={OPCION_RELEIDA.rotulo} ayuda={OPCION_RELEIDA.ayuda} />
                 </div>
                 {visionPuesta > 0 && <button type="button" onClick={() => cambiar("vision", [])} className="text-[12px] font-semibold tono-accion">Quitar este filtro</button>}
+            </Desplegable>
+
+            <Desplegable Ico={IdCard} rotulo={f.chapa.length ? (f.chapa.length === 1 ? TIPOS_CHAPA.find((t) => t.id === f.chapa[0])?.rotulo || "Tipo de chapa" : `Tipo de chapa · ${f.chapa.length}`) : "Tipo de chapa"} puesto={f.chapa.length > 0} titulo="Tipo de chapa" ancho={320}>
+                <div>
+                    <Titulo>Lo que dice la matrícula</Titulo>
+                    <p className="text-[11px] text-muted-foreground leading-snug mt-1">
+                        Por las letras de la chapa uruguaya: en Montevideo es seguro (STX taxi, SMI policía, SCD diplomático); en el interior, probable. Taxi suma también los que OmniVision reconoce como taxi por su aspecto. Con varias tildadas alcanza con una.
+                    </p>
+                </div>
+                <div className="space-y-0.5">
+                    {TIPOS_CHAPA.map((t) => (
+                        <Casilla key={t.id} activa={f.chapa.includes(t.id)} onClick={() => alternar("chapa", t.id)} rotulo={t.rotulo} />
+                    ))}
+                </div>
+                {f.chapa.length > 0 && <button type="button" onClick={() => cambiar("chapa", [])} className="text-[12px] font-semibold tono-accion">Quitar este filtro</button>}
             </Desplegable>
 
             {!soloSeguimiento && (

@@ -14,7 +14,10 @@
  *                   En las particulares del interior, la 2.ª (a veces 2.ª y 3.ª) es la localidad
  *                   (Maldonado: BA Maldonado … BE Punta del Este).
  *   Color de letra  negro particular · azul oficial · rojo comercial · verde taxi/ambulancia/
- *                   transporte · dorado diplomático. (Lo leemos de la foto sólo como ayuda.)
+ *                   transporte · dorado diplomático, según la norma. NO se usa: medido el 18/10
+ *                   en 176 recortes de las LPR del lab, las letras de un taxi salen tan oscuras
+ *                   como las de un particular, y de noche el recorte es infrarrojo. La segunda
+ *                   prueba es el aspecto del vehículo (vision-analisis.js, atributo `servicio`).
  *
  * Medido en el lab, 60 días de accesos: STX 44 chapas distintas, SDI 7, SCC 6, SCD 6, SAT 5,
  * SRE 3, SAM 3, SES 2, SAL 2, SIM 2, STU 2, SMI 1, SOF 1, STP 1. Las de Montevideo cuadran.
@@ -140,4 +143,43 @@ export function leerChapa(texto: string | null | undefined): LecturaChapa | null
         }
     }
     return { departamento: dep, categoria: null, confianza: null, extranjera: null, frase: dep ? `${moto ? "Moto particular" : "Particular"} de ${dep}` : "Particular" };
+}
+
+/**
+ * Los tipos por los que se filtra el historial (18/10, Nico: «que el motor catalogue las chapas de
+ * Uruguay y sus tipos, no sólo en la búsqueda de parecidos»). Agrupan códigos de la tabla de arriba
+ * en lo que un guardia pregunta: «¿qué taxis entraron?», «¿pasó la policía?». `aspecto`: también
+ * cuenta lo que OmniVision ve en el vehículo (ver SERVICIO_TAXI en vision-analisis.js) — sólo para
+ * taxi, que es lo único que se midió que distingue (14 STX: 11 «taxi»; 284 particulares: 0).
+ */
+export type TipoChapa = { id: string; rotulo: string; codigos: string[]; series?: string[]; aspecto?: boolean };
+export const TIPOS_CHAPA: TipoChapa[] = [
+    { id: "taxi", rotulo: "Taxi", codigos: ["TX"], aspecto: true },
+    { id: "remise", rotulo: "Remise", codigos: ["RE"] },
+    { id: "transporte", rotulo: "Ómnibus, turismo y escolar", codigos: ["TC", "TU", "ES"] },
+    { id: "policia", rotulo: "Policía / Bomberos", codigos: ["MI"], series: ["SJP", "SMP"] },
+    { id: "ambulancia", rotulo: "Ambulancia", codigos: ["AM"] },
+    { id: "oficial", rotulo: "Oficial e intendencia", codigos: ["OF", "IM", "JD", "PL", "PE", "PJ"] },
+    { id: "militar", rotulo: "Fuerzas armadas", codigos: ["MD"], series: ["ENA", "ENT", "FAU", "ARN", "ANA"] },
+    { id: "diplomatico", rotulo: "Diplomático y consular", codigos: ["CD", "CC", "OI"] },
+    { id: "alquiler", rotulo: "Alquiler (rent a car)", codigos: ["AL"] },
+    { id: "carga", rotulo: "Carga y remolque", codigos: ["TP", "TR"] },
+    { id: "discapacidad", rotulo: "Discapacidad", codigos: ["DI"] },
+    { id: "temporal", rotulo: "Temporaria o de prueba", codigos: ["AT", "PR"] },
+];
+
+/**
+ * Los comienzos de chapa de un tipo, con la misma regla de confianza que `leerChapa`: en
+ * Montevideo (S…) todos los códigos; en el interior sólo los que no chocan con localidades.
+ * Sirven para filtrar con `startsWith` / `LIKE 'STX%'` sin expresiones regulares en la base.
+ */
+export function prefijosDeTipo(id: string): string[] {
+    const t = TIPOS_CHAPA.find((x) => x.id === id);
+    if (!t) return [];
+    const out = new Set<string>(t.series || []);
+    for (const c of t.codigos) {
+        out.add(`S${c}`);
+        if (EN_INTERIOR.has(c)) for (const d of Object.keys(DEPARTAMENTO)) if (d !== "S") out.add(`${d}${c}`);
+    }
+    return [...out];
 }
