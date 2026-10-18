@@ -513,7 +513,16 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                 <button type="button" onClick={() => setFichaIntrusion(true)} className="group relative block w-full text-left" aria-label="Abrir la ficha de la detección"><Foto src={foto} clip={clip} /><VerFichaEncima /></button>
             ) : <Foto src={foto} clip={clip} />}
             <div className="px-5 pt-4 pb-5 flex flex-col gap-4">
-                <div>
+                {/* El comportamiento de la chapa, ENSEGUIDA debajo de la foto/video (18/10, Nico: «debe estar
+                    enseguida, debajo de la foto/video del evento, así queda más claro»). Antes iba después de
+                    los datos y había que bajar para encontrarlo: es lo que dice si la chapa es de la casa. */}
+                {a.plate && (
+                    <div>
+                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1 flex items-center gap-1.5"><Activity size={11} /> Comportamiento · {a.plate}</div>
+                        <ComportamientoDeChapa plate={a.plate} momento={a.ts} evento={eventoId} />
+                    </div>
+                )}
+                <div className={cn(a.plate && "border-t border-border pt-3")}>
                     <div className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", tonoTexto(a.tono))}><I size={13} /> {NOMBRE_FUENTE[a.fuente]}</div>
                     <div className="text-[17px] font-bold tracking-tight">{a.titulo}{a.plate ? <span className="ml-2 align-middle"><Matricula p={a.plate} /></span> : null}</div>
                     {a.detalle && <div className="text-[13px] text-muted-foreground mt-0.5">{a.detalle}</div>}
@@ -532,14 +541,6 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                     <Dato rotulo="Estado">{a.estado === "pendiente" ? <span className="tono-mal">Pendiente</span> : <span>{a.resultado === "falsa" ? "Falsa alarma" : a.resultado === "real" ? "Real" : "Atendida"}{a.atendidaPor ? ` · ${a.atendidaPor}` : ""}</span>}</Dato>
                 </div>
 
-                {/* El comportamiento de la chapa, como en el visor (18/10, Nico: «en el drawer de la alarma
-                    debe tener el comportamiento, similar al de git»): cuándo entra, cuánto se queda. */}
-                {a.plate && (
-                    <div className="border-t border-border pt-3">
-                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1 flex items-center gap-1.5"><Activity size={11} /> Comportamiento · {a.plate}</div>
-                        <ComportamientoDeChapa plate={a.plate} momento={a.ts} evento={eventoId} />
-                    </div>
-                )}
 
                 {/* La nota se escribe acá; se guarda (o se decide) desde la barra de abajo, que queda fija:
                     guardar la nota es secundario (borde), la decisión es la acción (llena). */}
@@ -586,7 +587,12 @@ function DetalleAuto({ a, ocupado, alSalio, alCerrarVisita }: { a: AutoAdentro; 
         <>
             <Foto src={getImagePath(a.foto)} clip={{ id: a.accessEventId, deviceId: a.deviceId, instante: a.vistoUltimo }} />
             <div className="px-5 pt-4 pb-5 flex flex-col gap-3">
+                {/* El comportamiento, enseguida debajo de la foto (como en la alarma). */}
                 <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1 flex items-center gap-1.5"><Activity size={11} /> Comportamiento</div>
+                    <ComportamientoDeChapa plate={a.plate} momento={a.vistoUltimo} evento={a.accessEventId} />
+                </div>
+                <div className="border-t border-border pt-3">
                     <div className="flex items-center gap-2"><Matricula p={a.plate} className="text-[15px]" /><Estado tono={TONO_CLASE[a.clase]}>{NOMBRE_CLASE[a.clase]}</Estado></div>
                     <div className="text-[15px] font-bold tracking-tight mt-1.5">{a.persona || "Sin datos de quién es"}</div>
                     {a.unidad && <div className="text-[12.5px] text-muted-foreground">{a.unidad}</div>}
@@ -604,10 +610,6 @@ function DetalleAuto({ a, ocupado, alSalio, alCerrarVisita }: { a: AutoAdentro; 
                         ? <Button size="sm" disabled={ocupado} onClick={alCerrarVisita}><LogOut size={14} /> Cerrar visita</Button>
                         : <Button size="sm" disabled={ocupado} onClick={alSalio} title="La salida no se leyó: marcarlo afuera hasta su próxima lectura"><LogOut size={14} /> Salió</Button>}
                     <Button size="sm" variant="outline" asChild><a href={`/admin/history?search=${encodeURIComponent(a.plate)}`}><Car size={14} /> Historial de la matrícula</a></Button>
-                </div>
-                <div className="border-t border-border pt-3">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1 flex items-center gap-1.5"><Activity size={11} /> Comportamiento</div>
-                    <ComportamientoDeChapa plate={a.plate} momento={a.vistoUltimo} evento={a.accessEventId} />
                 </div>
             </div>
         </>
