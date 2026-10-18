@@ -119,7 +119,7 @@ export function CompartirEvento({ foto, deviceId, deviceName, instante, titulo, 
             <motion.div className="absolute inset-0 bg-black/45" initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={() => { if (!enviando) onCerrar(); }} />
             <motion.aside role="dialog" aria-label="Compartir el evento"
                 initial={{ x: "100%" }} animate={{ x: 0 }} transition={{ type: "spring", stiffness: 380, damping: 38 }}
-                className="absolute inset-y-0 right-0 w-full sm:w-[460px] flex flex-col cajon-vidrio border-l border-border text-foreground shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.45)]">
+                className="absolute inset-y-0 right-0 w-full sm:w-[460px] flex flex-col cajon-vidrio cajon-denso border-l border-border text-foreground shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.45)]">
 
                 {/* ── Encabezado ── */}
                 <div className="shrink-0 flex items-start gap-3 px-6 pt-5 pb-4 border-b border-border">

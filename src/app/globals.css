@@ -2081,6 +2081,11 @@ html:not(.dark) .regla-tema .tms-tramo[data-tono="lectura"] { background: var(--
   -webkit-backdrop-filter: blur(28px) saturate(160%);
 }
 .dark .cajon-vidrio { background: color-mix(in oklab, var(--background) 86%, transparent); }
+/* Más tapado para los que son un formulario (Compartir): 18/10, Nico: «un poco menos de
+   transparencia en el drawer de compartir». Al 72 % se leían a través los controles del visor
+   (el riel de la derecha, la cruz) y competían con las opciones y los destinatarios. */
+.cajon-vidrio.cajon-denso { background: color-mix(in oklab, var(--background) 90%, transparent); }
+.dark .cajon-vidrio.cajon-denso { background: color-mix(in oklab, var(--background) 95%, transparent); }
 
 /* El tamano de la ventana del visor.
    FIJO, y no el de cada foto. Antes la ventana se ajustaba a la imagen, asi
