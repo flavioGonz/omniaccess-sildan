@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Car, Check, ChevronLeft, ChevronRight, Crosshair, Download, Film, Loader2, Pause, Play, RefreshCw, RotateCcw, RotateCw, VideoOff } from "lucide-react";
+import { Car, Check, ChevronLeft, ChevronRight, Crosshair, Download, Film, Loader2, Pause, Play, RefreshCw, SkipBack, SkipForward, VideoOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { canalDe } from "@/components/video/VerGrabacion";
@@ -277,20 +277,21 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     }
 
     /*
-     * Sigue el tema (18/10, Nico: «lo mismo para el playback, clip»). La barra de controles va
-     * sobre el video con un velo; en claro el velo es de la superficie del tema y los controles
-     * van en tinta, como la ficha del visor. Lo que está SOBRE la imagen (el play grande, el
-     * «Cargando…», el aviso sobre el póster difuminado) sigue oscuro. La regla (Scrub) se
-     * comparte con reproductores que son oscuros siempre: se aclara sólo acá, con `.regla-tema`.
+     * La grabación es IMAGEN, y lo que va sobre la imagen es oscuro (como la foto del historial):
+     * escenario negro y controles de vidrio encima, sin bordes ni cajas (18/10, Nico: «no está bien
+     * ocupando los espacios del modal el video; sin bordes, sin marcos, controles overlay, como los
+     * del historial»). Antes el escenario seguía el tema y en claro el video quedaba entre dos
+     * franjas blancas, con un velo blanco que tapaba el tercio de abajo. Ahora los costados que el
+     * video no llena se rellenan con el mismo cuadro desenfocado (ambiente), y el velo de los
+     * controles es oscuro y corto.
      */
     return (
-        <div className="regla-tema absolute inset-0 z-[8] bg-muted dark:bg-black" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            {/* El póster detrás de la entrada y del aviso: desenfocado, y NO apagado a 0,4 como antes
-                (18/10, Nico: «mejorá esta entrada»): en claro era un pozo negro en medio de la ficha. */}
-            {poster && (cargando || sinGrabacion) && (<>
-                <img src={poster} alt="" className="absolute inset-0 w-full h-full object-cover blur-[14px] scale-110 opacity-60 dark:opacity-55" />
-                <div className="absolute inset-0 bg-background/35 dark:bg-black/35" />
+        <div className="absolute inset-0 z-[8] bg-black overflow-hidden" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+            {/* El ambiente: el cuadro desenfocado llena lo que el video (contain) no ocupa. */}
+            {poster && (<>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={poster} alt="" aria-hidden className={cn("absolute inset-0 w-full h-full object-cover scale-125 transition-[filter,opacity] duration-500", cargando || sinGrabacion ? "blur-[18px] opacity-70" : "blur-[40px] opacity-45")} />
+                <div className={cn("absolute inset-0 transition-colors duration-500", cargando || sinGrabacion ? "bg-black/30" : "bg-black/45")} />
             </>)}
             {url && (
                 <video key={url} ref={video} src={url} muted playsInline preload="auto" onClick={alternar}
@@ -312,7 +313,7 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
                         if (!pausadoAMano.current && sig < Date.now() - 15_000) irA(sig);
                     }}
                     onError={() => { if (url) alFallarVideo(url); }}
-                    className="absolute inset-0 w-full h-full object-contain cursor-pointer" />
+                    className={cn("absolute inset-0 w-full h-full object-contain cursor-pointer transition-opacity duration-300", cargando && !arranco.current ? "opacity-0" : "opacity-100")} />
             )}
 
             <AnimatePresence mode="wait">
@@ -337,42 +338,38 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
             </AnimatePresence>
             {rebufer && !cargando && <span className="absolute top-20 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-[6px] bg-black/60 text-white/80 text-[11px] font-semibold pointer-events-none">Cargando…</span>}
 
-            {/* ── La barra: controles y regla ── */}
-            <div className="absolute inset-x-0 bottom-0 px-5 md:px-7 pb-4 pt-20 bg-gradient-to-t from-background/95 via-background/60 to-transparent">
-                <div className="flex items-center gap-2 mb-2.5">
-                    <button type="button" onClick={alternar} disabled={!url} title={reproduciendo ? "Pausar  ( espacio )" : "Reproducir  ( espacio )"}
-                        className="w-10 h-10 rounded-full bg-foreground text-background grid place-items-center hover:brightness-95 disabled:opacity-40">
-                        {cargando && !sinGrabacion ? <Loader2 size={17} className="animate-spin" /> : reproduciendo ? <Pause size={17} /> : <Play size={17} className="ml-0.5" />}
+            {/* ── Los controles, sobre la imagen: velo oscuro corto y vidrio sin bordes ── */}
+            <div className="absolute inset-x-0 bottom-0 px-4 md:px-6 pb-3 pt-24 bg-[linear-gradient(to_top,rgba(0,0,0,.82)_0%,rgba(0,0,0,.55)_45%,transparent_100%)] text-white">
+                <div className="flex items-center gap-2 mb-1">
+                    {/* Atrás / adelante: al evento anterior o siguiente de esta cámara, como era su lógica original.
+                        Los 10 s quedan en ← → del teclado. */}
+                    <SaltoEvento lado="anterior" evento={vecinos.anterior} onClick={() => saltarA(vecinos.anterior)} />
+                    <button type="button" onClick={alternar} disabled={!url} title={reproduciendo ? "Pausar  ( espacio )" : "Reproducir  ( espacio )"} aria-label={reproduciendo ? "Pausar" : "Reproducir"}
+                        className="w-11 h-11 rounded-full bg-white text-black grid place-items-center hover:scale-105 active:scale-95 transition-transform disabled:opacity-40 shadow-[0_6px_20px_rgba(0,0,0,.35)]">
+                        {cargando && !sinGrabacion ? <Loader2 size={18} className="animate-spin" /> : reproduciendo ? <Pause size={18} fill="currentColor" /> : <Play size={18} className="ml-0.5" fill="currentColor" />}
                     </button>
-                    <BotonBarra onClick={() => irA(actual - SALTO_SEG * 1000)} title={`Atrás ${SALTO_SEG} s  ( ← )`}><RotateCcw size={15} /><span className="text-[10px] font-bold tabular-nums">{SALTO_SEG}</span></BotonBarra>
-                    <BotonBarra onClick={() => irA(actual + SALTO_SEG * 1000)} title={`Adelante ${SALTO_SEG} s  ( → )`}><span className="text-[10px] font-bold tabular-nums">{SALTO_SEG}</span><RotateCw size={15} /></BotonBarra>
-                    <div className="ml-2 leading-tight">
-                        <div className="text-[18px] font-bold tabular-nums text-foreground">{horaSeg(actual)}</div>
-                        <div className="text-[11px] text-muted-foreground tabular-nums">{fechaCorta(actual)} · {diferencia(actual, instanteMs)}</div>
+                    <SaltoEvento lado="siguiente" evento={vecinos.siguiente} onClick={() => saltarA(vecinos.siguiente)} />
+                    <div className="ml-3 leading-tight [text-shadow:0_1px_8px_rgba(0,0,0,.6)]">
+                        <div className="text-[19px] font-bold tabular-nums">{horaSeg(actual)}</div>
+                        <div className="text-[11px] text-white/70 tabular-nums">{fechaCorta(actual)} · {diferencia(actual, instanteMs)}</div>
                     </div>
                     <div className="ml-auto flex items-center gap-1.5">
-                        <BotonBarra onClick={() => irA(instanteMs)} title="Volver al instante del evento  ( E )"><Crosshair size={15} /> <span className="text-[11.5px] font-semibold">Evento</span></BotonBarra>
-                        <span className="w-px h-5 bg-border mx-1" />
-                        <span className="flex items-center rounded-full bg-muted border border-border p-0.5">
+                        <BotonBarra onClick={() => irA(instanteMs)} title="Volver al instante del evento  ( E )"><Crosshair size={15} /> <span className="text-[12px] font-semibold">Evento</span></BotonBarra>
+                        <span className="flex items-center rounded-full bg-white/10 backdrop-blur-md p-0.5">
                             {VELOCIDADES.map((v) => (
                                 <button key={v} type="button" onClick={() => setVelocidad(v)} aria-pressed={velocidad === v}
-                                    className={cn("h-7 min-w-[30px] px-2 rounded-full text-[11px] font-semibold tabular-nums", velocidad === v ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{v}×</button>
+                                    className={cn("h-7 min-w-[32px] px-2 rounded-full text-[11.5px] font-semibold tabular-nums transition-colors", velocidad === v ? "bg-white text-black" : "text-white/75 hover:text-white")}>{v}×</button>
                             ))}
                         </span>
-                        <span className="w-px h-5 bg-border mx-1" />
-                        <BotonBarra onClick={() => setDescarga(true)} title={`Bajar o mandar por WhatsApp un clip de este instante (${ventana.antes} s antes y ${ventana.despues} s después)`}><Download size={15} /> <span className="text-[11.5px] font-semibold">Clip</span></BotonBarra>
+                        <BotonBarra onClick={() => setDescarga(true)} title={`Bajar o mandar por WhatsApp un clip de este instante (${ventana.antes} s antes y ${ventana.despues} s después)`}><Download size={15} /> <span className="text-[12px] font-semibold">Clip</span></BotonBarra>
                     </div>
                 </div>
 
-                {/* La regla: la misma rueda del otro reproductor. Arrastrar va a otro minuto; las marcas, a su instante. */}
-                <div className="flex items-end gap-2">
-                    <FlechaEvento lado="anterior" evento={vecinos.anterior} onClick={() => saltarA(vecinos.anterior)} />
-                    <div ref={ancho} className="flex-1 min-w-0">
-                        <Scrub step="1" momentum={30} format="24h" width={anchoRegla} value={minutosDe(actual)} start={minutosDe(instanteMs)} difuminado={DIFUMINADO_REGLA}
-                            onChange={(min) => irA(msDeMinutos(min))}
-                            marcas={marcasScrub} onMarca={(k) => irA(k.id === "evento" ? instanteMs : msDeMinutos(k.m))} />
-                    </div>
-                    <FlechaEvento lado="siguiente" evento={vecinos.siguiente} onClick={() => saltarA(vecinos.siguiente)} />
+                {/* La regla: la misma rueda del otro reproductor, a todo el ancho. Arrastrar va a otro minuto; las marcas, a su instante. */}
+                <div ref={ancho} className="min-w-0">
+                    <Scrub step="1" momentum={30} format="24h" width={anchoRegla} value={minutosDe(actual)} start={minutosDe(instanteMs)} difuminado={DIFUMINADO_REGLA}
+                        onChange={(min) => irA(msDeMinutos(min))}
+                        marcas={marcasScrub} onMarca={(k) => irA(k.id === "evento" ? instanteMs : msDeMinutos(k.m))} />
                 </div>
             </div>
 
@@ -385,17 +382,22 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
 }
 
 /**
- * Las flechas a los costados de la regla: al evento anterior / siguiente que detectó esta cámara
- * (accesos, lecturas, detecciones). Dicen a qué hora está y qué fue; apagadas si no hay.
+ * Atrás / adelante del reproductor: al evento anterior / siguiente que detectó esta cámara
+ * (accesos, lecturas, detecciones, lo que registró OmniVision). Dicen a qué hora está y qué fue;
+ * apagadas si no hay. Antes eran ±10 s y las flechas de eventos iban aparte, a los costados de la
+ * regla, con borde (18/10, Nico: «deben llevar a la hora del evento anterior o posterior»).
  */
-function FlechaEvento({ lado, evento, onClick }: { lado: "anterior" | "siguiente"; evento: EventoCamara | null; onClick: () => void }) {
+function SaltoEvento({ lado, evento, onClick }: { lado: "anterior" | "siguiente"; evento: EventoCamara | null; onClick: () => void }) {
     const titulo = evento
         ? `${lado === "anterior" ? "Evento anterior" : "Evento siguiente"} de esta cámara · ${horaSeg(evento.ms)} · ${evento.titulo}  ( Shift ${lado === "anterior" ? "←" : "→"} )`
         : `No hay ${lado === "anterior" ? "eventos antes" : "eventos después"} en esta cámara (12 h)`;
     return (
         <button type="button" onClick={onClick} disabled={!evento} title={titulo} aria-label={titulo}
-            className="mb-[22px] shrink-0 w-11 h-11 rounded-full grid place-items-center border border-border bg-muted/60 text-foreground/85 hover:text-foreground hover:bg-muted disabled:opacity-25 disabled:hover:bg-muted/60 transition-colors">
-            {lado === "anterior" ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
+            className={cn("group h-9 rounded-full inline-flex items-center gap-1 bg-white/10 backdrop-blur-md text-white/90 hover:text-white hover:bg-white/20 disabled:opacity-30 disabled:hover:bg-white/10 transition-colors",
+                lado === "anterior" ? "pl-2 pr-3" : "pl-3 pr-2")}>
+            {lado === "anterior" && <SkipBack size={15} fill="currentColor" />}
+            <span className="text-[11.5px] font-semibold tabular-nums">{evento ? horaSeg(evento.ms) : "—"}</span>
+            {lado === "siguiente" && <SkipForward size={15} fill="currentColor" />}
         </button>
     );
 }
@@ -403,7 +405,7 @@ function FlechaEvento({ lado, evento, onClick }: { lado: "anterior" | "siguiente
 function BotonBarra({ children, onClick, title }: { children: React.ReactNode; onClick: () => void; title: string }) {
     return (
         <button type="button" onClick={onClick} title={title} aria-label={title}
-            className="h-8 px-2.5 rounded-[8px] inline-flex items-center gap-1 text-foreground/85 hover:text-foreground hover:bg-muted border border-border">
+            className="h-8 px-3 rounded-full inline-flex items-center gap-1.5 bg-white/10 backdrop-blur-md text-white/85 hover:text-white hover:bg-white/20 transition-colors">
             {children}
         </button>
     );
