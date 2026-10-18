@@ -764,6 +764,12 @@ export function VisorCuadro({
                 >
                     {/* La imagen, su retícula y la cápsula se mueven JUNTAS: van dentro del
                         mismo transform, si no el recuadro se despega de la chapa al acercar. */}
+                    {/* En vivo, el cuadro guardado desenfocado detrás de toda la ventana: rellena lo que el
+                        vivo (entero, sin recortar) no ocupa, en vez de franjas lisas. */}
+                    {modo === "vivo" && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={fotoUrl} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover blur-[40px] opacity-50 scale-110 pointer-events-none" />
+                    )}
                     <div
                         ref={cajaImg}
                         className="relative"
@@ -781,8 +787,14 @@ export function VisorCuadro({
                              * eso las superposiciones se pueden seguir midiendo en porcentaje:
                              * el recuadro de la chapa no se despega aunque sobresalga.
                              */
-                            height: proporcion >= AR_VENTANA ? "100%" : "auto",
-                            width: proporcion >= AR_VENTANA ? "auto" : "100%",
+                            /*
+                             * En vivo, al revés: la caja se ENCAJA (contain) para que el cuadro de la
+                             * cámara se vea entero (18/10, Nico: «que quepa en la ventana completo»).
+                             * En la foto recortar cielo o vereda no molesta; en el vivo, lo que pasa
+                             * en el borde es justo lo que se está mirando.
+                             */
+                            height: (proporcion >= AR_VENTANA) !== (modo === "vivo") ? "100%" : "auto",
+                            width: (proporcion >= AR_VENTANA) !== (modo === "vivo") ? "auto" : "100%",
                             aspectRatio: String(proporcion),
                             transform: `translate3d(${pos.x}px, ${pos.y}px, 0) scale(${escala})`,
                             transformOrigin: "center",
@@ -811,8 +823,10 @@ export function VisorCuadro({
                             draggable={false} />
                         {modo === "vivo" && (
                             <>
+                                {/* contain, no cover (18/10, Nico: «que quepa en la ventana completo»): con cover
+                                    el vivo se recortaba arriba y abajo y no se veía el cuadro entero de la cámara. */}
                                 <video ref={vivoRef} muted autoPlay playsInline
-                                    className="absolute inset-0 w-full h-full object-cover bg-black" />
+                                    className="absolute inset-0 w-full h-full object-contain" />
                                 {/* Los enlaces del seguimiento visual: tocar uno sigue en la cámara vecina. */}
                                 {vivoListo && idVivo && <SeguimientoVivo deviceId={idVivo} onSeguir={(c) => { setCamVivo(c.id === fila.deviceId ? null : c); }} />}
                                 {avisoCalidad > 0 && (

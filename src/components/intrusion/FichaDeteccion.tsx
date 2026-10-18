@@ -272,7 +272,10 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                 )}
                 {/* El vivo de la cámara, en la misma ventana. */}
                 {modo === "vivo" && cur.deviceId && (
-                    <div className="absolute inset-0 z-[8] bg-black">
+                    <div className="absolute inset-0 z-[8] bg-black overflow-hidden">
+                        {/* El cuadro de la detección desenfocado detrás: rellena lo que el vivo (entero) no ocupa. */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {captura && <img src={captura} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover blur-[40px] opacity-50 scale-110 pointer-events-none" />}
                         <video ref={vivoRef} muted autoPlay playsInline className="absolute inset-0 w-full h-full object-contain" />
                         {!vivoListo && (
                             <div className="absolute inset-0 grid place-items-center">

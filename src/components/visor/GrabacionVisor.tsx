@@ -286,13 +286,20 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
      * controles es oscuro y corto.
      */
     return (
-        <div className="absolute inset-0 z-[8] bg-black overflow-hidden" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+        <div className="absolute inset-0 z-[8] bg-black overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
             {/* El ambiente: el cuadro desenfocado llena lo que el video (contain) no ocupa. */}
             {poster && (<>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={poster} alt="" aria-hidden className={cn("absolute inset-0 w-full h-full object-cover scale-125 transition-[filter,opacity] duration-500", cargando || sinGrabacion ? "blur-[18px] opacity-70" : "blur-[40px] opacity-45")} />
                 <div className={cn("absolute inset-0 transition-colors duration-500", cargando || sinGrabacion ? "bg-black/30" : "bg-black/45")} />
             </>)}
+            {/*
+              * El cuadro, ENTERO, arriba de los controles (18/10, Nico: «adaptá el video de playback y
+              * live para que quepa en la ventana modal completo»). Con los controles encima del video
+              * el tercio de abajo —justo donde pasan los autos— quedaba tapado por la regla. Ahora el
+              * video ocupa el alto que queda sobre la barra y la barra va debajo, sobre el ambiente.
+              */}
+            <div className="relative flex-1 min-h-0">
             {url && (
                 <video key={url} ref={video} src={url} muted playsInline preload="auto" onClick={alternar}
                     onPlay={() => setReproduciendo(true)} onPause={() => setReproduciendo(false)}
@@ -331,15 +338,16 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
                 {url && !reproduciendo && !cargando && !sinGrabacion && (
                     <motion.button key="play" type="button" onClick={alternar} title="Reproducir  ( espacio )" aria-label="Reproducir"
                         initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.25 }} transition={{ duration: 0.18 }}
-                        className="absolute left-1/2 top-[42%] -translate-x-1/2 -translate-y-1/2 z-[2] w-[76px] h-[76px] rounded-full grid place-items-center bg-black/45 backdrop-blur-md border border-white/25 text-white hover:bg-black/60 hover:scale-105 transition-[background-color,transform]">
+                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[2] w-[76px] h-[76px] rounded-full grid place-items-center bg-black/45 backdrop-blur-md border border-white/25 text-white hover:bg-black/60 hover:scale-105 transition-[background-color,transform]">
                         <Play size={32} className="ml-1" fill="currentColor" />
                     </motion.button>
                 )}
             </AnimatePresence>
             {rebufer && !cargando && <span className="absolute top-20 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-[6px] bg-black/60 text-white/80 text-[11px] font-semibold pointer-events-none">Cargando…</span>}
+            </div>
 
             {/* ── Los controles, sobre la imagen: velo oscuro corto y vidrio sin bordes ── */}
-            <div className="absolute inset-x-0 bottom-0 px-4 md:px-6 pb-3 pt-24 bg-[linear-gradient(to_top,rgba(0,0,0,.82)_0%,rgba(0,0,0,.55)_45%,transparent_100%)] text-white">
+            <div className="relative shrink-0 px-4 md:px-6 pt-3 pb-2 bg-black/35 text-white">
                 <div className="flex items-center gap-2 mb-1">
                     {/* Atrás / adelante: al evento anterior o siguiente de esta cámara, como era su lógica original.
                         Los 10 s quedan en ← → del teclado. */}
@@ -415,8 +423,9 @@ function BotonBarra({ children, onClick, title }: { children: React.ReactNode; o
 function diferencia(ms: number, evento: number) {
     const s = Math.round((ms - evento) / 1000);
     if (Math.abs(s) < 1) return "en el evento";
-    const a = Math.abs(s), m = Math.floor(a / 60), r = a % 60;
-    const txt = m ? `${m} min${r ? ` ${r} s` : ""}` : `${r} s`;
+    const a = Math.abs(s), h = Math.floor(a / 3600), m = Math.floor((a % 3600) / 60), r = a % 60;
+    // Más de una hora: horas y minutos («13 h 19 min»), no «799 min 30 s».
+    const txt = h ? `${h} h${m ? ` ${m} min` : ""}` : m ? `${m} min${r ? ` ${r} s` : ""}` : `${r} s`;
     return `${txt} ${s < 0 ? "antes" : "después"} del evento`;
 }
 
@@ -446,7 +455,7 @@ function EntradaGrabacion({ camara, instante, canal, tramos, cubierto, pidiendo,
     ];
     return (
         <motion.div initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute inset-x-0 top-0 bottom-44 grid place-items-center pointer-events-none px-4">
+            className="absolute inset-0 grid place-items-center pointer-events-none px-4">
             <div className="cajon-vidrio w-[min(360px,100%)] rounded-[14px] border border-border shadow-xl px-5 py-4">
                 <div className="flex items-center gap-3">
                     <span className="relative w-10 h-10 shrink-0 grid place-items-center rounded-full bg-[var(--accion)]/12 text-[var(--accion)]">
@@ -500,7 +509,7 @@ function AvisoFallo({ fallo, camara, instante, cercanos, enEvento, antesSeg, onR
     const boton = "h-8 px-3 rounded-[8px] inline-flex items-center gap-1.5 text-[12px] font-semibold border border-border text-foreground/85 hover:text-foreground hover:bg-muted transition-colors";
     return (
         <motion.div initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute inset-x-0 top-0 bottom-44 grid place-items-center px-4">
+            className="absolute inset-0 grid place-items-center px-4">
             <div className="cajon-vidrio w-[min(400px,100%)] rounded-[14px] border border-border shadow-xl px-5 py-4">
                 <div className="flex items-start gap-3">
                     <span className={cn("w-10 h-10 shrink-0 grid place-items-center rounded-full", sinGrab ? "chip-quieto" : "chip-aviso")}><VideoOff size={18} /></span>
