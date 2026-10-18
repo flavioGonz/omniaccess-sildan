@@ -1,13 +1,14 @@
 "use client";
 
 import { useClipEvento, CLIP_ANTES_S } from "@/lib/clip-evento";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Check, ChevronLeft, ChevronRight, Clock, Cctv, Eye, EyeOff, ImageOff, Loader2, PlayCircle, Radar,
-    ScanEye, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen, Repeat, UserRound, Download,
+    ScanEye, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen, Repeat, UserRound, Download, Image as IconoFoto, Radio,
 } from "lucide-react";
 import { useAnalisisDeteccion } from "@/components/intrusion/AnalisisDeteccion";
-import { VerGrabacion } from "@/components/video/VerGrabacion";
+import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
+import { montarVivo } from "@/lib/vivo";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { BotonVisor, Dato, ListaVision, Seccion, describirObjeto } from "@/components/visor/FichaVisor";
@@ -72,7 +73,17 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     extraArriba?: React.ReactNode;
 }) {
     const [cur, setCur] = useState<any>(det);
-    const [abrir, setAbrir] = useState<null | "rec" | "live">(null);
+    /*
+     * La grabación y el vivo, EN la ventana (18/10, Nico: «el playback de los cruces de línea e
+     * intrusión llama al otro modal viejo; debe tener en su mismo modal el módulo de playback, como
+     * LPR»). Antes los dos botones abrían el reproductor viejo (LiveModal) encima de la ficha. Ahora
+     * son modos de la misma ventana, como en el visor de LPR: el reproductor con su regla y sus
+     * controles de tiempo (GrabacionVisor), o el vivo de la cámara, y se vuelve a la foto con un
+     * botón o con Esc. En esos modos la ficha se oculta; para decidir se vuelve a la foto.
+     */
+    const [modo, setModo] = useState<"foto" | "grabacion" | "vivo">("foto");
+    const vivoRef = useRef<HTMLVideoElement>(null);
+    const [vivoListo, setVivoListo] = useState(false);
     const [compartir, setCompartir] = useState(false);
     /*
      * Exportar el clip (18/10, Nico: «debe permitir también exportar los clips con el drawer»): el
@@ -101,7 +112,16 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     const [sibs, setSibs] = useState<DetHistItem[]>([]);
     useEffect(() => { setCur(det); }, [det]);
     useEffect(() => { if (!det.deviceId) { setSibs([]); return; } getDetectionHistory({ deviceId: det.deviceId, pageSize: 60 }).then((r) => setSibs(r.items)).catch(() => setSibs([])); }, [det.deviceId]);
-    useEffect(() => { setFoto("captura"); setProporcion(AR_VENTANA); }, [cur.id]);
+    useEffect(() => { setFoto("captura"); setProporcion(AR_VENTANA); setModo("foto"); }, [cur.id]);
+    useEffect(() => {
+        if (modo !== "vivo" || !cur.deviceId) return;
+        const v = vivoRef.current; if (!v) return;
+        setVivoListo(false);
+        const alAndar = () => setVivoListo(true);
+        v.addEventListener("playing", alAndar);
+        const cortar = montarVivo(v, cur.deviceId, 4, "sd");
+        return () => { v.removeEventListener("playing", alAndar); cortar(); };
+    }, [modo, cur.deviceId]);
     const idx = sibs.findIndex((x) => x.id === cur.id);
     const go = (d: number) => { if (idx < 0) return; const n = idx + d; if (n >= 0 && n < sibs.length) setCur(sibs[n]); };
     const hasPrev = idx >= 0 && idx < sibs.length - 1; // más viejo
@@ -145,9 +165,11 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (abrir || compartir || descarga) return;
+            if (compartir || descarga) return;
             const t = e.target as HTMLElement | null;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+            // En la grabación las flechas, el espacio y la E son del reproductor; Esc vuelve a la foto.
+            if (modo !== "foto") { if (e.key === "Escape") { e.preventDefault(); setModo("foto"); } return; }
             if (e.key === "ArrowLeft") { e.preventDefault(); go(1); }
             else if (e.key === "ArrowRight") { e.preventDefault(); go(-1); }
             else if (e.key === "Escape") { e.preventDefault(); if (verNota) setVerNota(false); else if (limpio) setLimpio(false); else if (enPropio) setFoto("captura"); else onClose(); }
@@ -185,6 +207,8 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
         id: cur.id, deviceId: cur.deviceId, instante: cur.timestamp, nvrId: cam?.nvrId ?? null, ch: cur.ch ?? cam?.ch ?? null, activo: real,
     });
     const enVideo = clipOn && clip.estado === "listo" && clipVisible && !enPropio;
+    /** Con la grabación o el vivo en la ventana, lo de encima se oculta como en la imagen limpia. */
+    const oculto = limpio || modo !== "foto";
 
     const marcar = async (k: "real" | "false") => {
         const r = await onMarcar!(cur.id, k);
@@ -230,18 +254,52 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                             <video key={clip.url} src={clip.url} autoPlay muted loop playsInline onPlaying={() => setClipVisible(true)} onError={() => setClipVisible(false)}
                                 className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-500", clipVisible ? "opacity-100" : "opacity-0")} />
                         )}
-                        {!limpio && <GeomOverlay geom={geom} alert={alarmaPendiente || atencionAbierta} />}
+                        {!oculto && <GeomOverlay geom={geom} alert={alarmaPendiente || atencionAbierta} />}
                         {/* Las siluetas son de la foto: sobre el video no coinciden. */}
-                        {!limpio && verSiluetas && capa && !enVideo && <CapaAnalisis analisis={capa} geom={g} className="z-[6]" />}
+                        {!oculto && verSiluetas && capa && !enVideo && <CapaAnalisis analisis={capa} geom={g} className="z-[6]" />}
                     </div>
                 </div>
-                {(alarmaPendiente || atencionAbierta) && !limpio && <div className="absolute inset-0 pointer-events-none intr-conf-borde z-[7]" />}
+                {(alarmaPendiente || atencionAbierta) && !oculto && <div className="absolute inset-0 pointer-events-none intr-conf-borde z-[7]" />}
                 {/* Los fondos que hacen legible el texto sobre la foto. */}
-                <div className={cn("visor-velo-vert absolute inset-0 z-[5] pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/60 transition-opacity", limpio && "opacity-0")} />
-                <div className={cn("visor-velo-izq absolute inset-y-0 left-0 w-[58%] z-[5] pointer-events-none bg-gradient-to-r from-black/85 via-black/50 to-transparent transition-opacity", limpio && "opacity-0")} />
+                <div className={cn("visor-velo-vert absolute inset-0 z-[5] pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/60 transition-opacity", oculto && "opacity-0")} />
+                <div className={cn("visor-velo-izq absolute inset-y-0 left-0 w-[58%] z-[5] pointer-events-none bg-gradient-to-r from-black/85 via-black/50 to-transparent transition-opacity", oculto && "opacity-0")} />
+
+                {/* La grabación del NVR, en el lugar de la foto, con su regla y sus controles (como en LPR). */}
+                {modo === "grabacion" && cur.deviceId && (
+                    <GrabacionVisor deviceId={cur.deviceId} camara={cur.deviceName || cam?.name} instanteMs={momento.getTime()} poster={captura} />
+                )}
+                {/* El vivo de la cámara, en la misma ventana. */}
+                {modo === "vivo" && cur.deviceId && (
+                    <div className="absolute inset-0 z-[8] bg-black">
+                        <video ref={vivoRef} muted autoPlay playsInline className="absolute inset-0 w-full h-full object-contain" />
+                        {!vivoListo && (
+                            <div className="absolute inset-0 grid place-items-center">
+                                <span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-xl border border-white/15 text-[11.5px] font-semibold text-white/80">
+                                    <Radio size={11} className="animate-pulse text-[var(--mal)]" /> Conectando con la cámara…
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                )}
+                {/* En la grabación o el vivo: qué se mira y cómo volver a la foto, arriba a la derecha. */}
+                {modo !== "foto" && (
+                    <div className="absolute top-4 right-4 z-40 flex items-center gap-2">
+                        <span className="h-9 pl-2.5 pr-3 rounded-full bg-black/55 backdrop-blur-xl border border-white/15 text-white/85 text-[12px] font-semibold flex items-center gap-2 max-w-[300px]">
+                            {modo === "vivo" ? <Radio size={14} className="animate-pulse text-[var(--mal)] shrink-0" /> : <PlayCircle size={14} className="text-[var(--accion-en-oscuro)] shrink-0" />}
+                            <span className="truncate">{modo === "vivo" ? "En vivo" : "Grabación"} · {cur.deviceName || cam?.name || "Cámara"}</span>
+                        </span>
+                        <span className="h-9 rounded-full bg-black/55 backdrop-blur-xl border border-white/15 p-0.5 flex items-center gap-0.5">
+                            <button type="button" onClick={() => setModo("foto")} title="Volver a la foto de la detección  ( Esc )" aria-label="Volver a la foto"
+                                className="w-8 h-8 rounded-full grid place-items-center text-white/80 hover:text-white hover:bg-white/15"><IconoFoto size={15} /></button>
+                            <span className="w-px h-4 bg-white/15 mx-0.5" />
+                            <button type="button" onClick={onClose} title="Cerrar" aria-label="Cerrar"
+                                className="w-8 h-8 rounded-full grid place-items-center text-white/80 hover:text-white hover:bg-white/15"><X size={15} /></button>
+                        </span>
+                    </div>
+                )}
 
                 {/* ── ARRIBA · qué fue, dónde y cuándo ── */}
-                <div className={cn("visor-zona absolute top-0 inset-x-0 z-30 flex items-start justify-between gap-4 p-4 md:px-7 md:py-5 transition-opacity", limpio && "opacity-0 pointer-events-none")}>
+                <div className={cn("visor-zona absolute top-0 inset-x-0 z-30 flex items-start justify-between gap-4 p-4 md:px-7 md:py-5 transition-opacity", oculto && "opacity-0 pointer-events-none")}>
                     <div className="flex items-center gap-4 min-w-0">
                         <div className="min-w-0 visor-sombra-texto">
                             <h1 className="flex items-center gap-2.5 text-[20px] md:text-[22px] font-bold tracking-[-0.015em] leading-tight">
@@ -285,14 +343,14 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     </div>
                 </div>
 
-                {limpio && (
+                {limpio && modo === "foto" && (
                     <button type="button" onClick={() => setLimpio(false)} title="Mostrar la ficha y los controles  ( H )"
                         className="absolute top-4 right-4 z-40 h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/80 text-[11.5px] font-semibold flex items-center gap-1.5 opacity-40 hover:opacity-100 transition-opacity">
                         <Eye size={14} /> Mostrar controles
                     </button>
                 )}
 
-                {enPropio && !limpio && (
+                {enPropio && !oculto && (
                     <div className="visor-zona absolute top-[92px] left-1/2 -translate-x-1/2 z-30 visor-panel rounded-[10px] pl-3.5 pr-1.5 py-1.5 flex items-center gap-3 text-[12px] text-white/85">
                         <ScanEye size={14} className="text-white/55" />
                         <span>Cuadro propio de OmniVision · <b className="text-white">{verif?.propio?.despuesS ?? "?"} s después</b>{verif?.propio ? ` · ${VEREDICTOS[verif.propio.veredicto].rotulo.toLowerCase()}` : ""}</span>
@@ -302,7 +360,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
 
                 {/* ── IZQUIERDA · la ficha ── */}
                 <div className={cn("visor-zona absolute left-5 md:left-8 top-[88px] bottom-[96px] z-20 w-[min(420px,42vw)] overflow-y-auto overscroll-contain [scrollbar-width:none] flex flex-col transition-opacity",
-                    limpio && "opacity-0 pointer-events-none")}>
+                    oculto && "opacity-0 pointer-events-none")}>
                     <div className="my-auto flex flex-col gap-3 py-2 visor-sombra-texto">
                         {/* El veredicto de OmniVision, en grande: es lo primero que se quiere saber. */}
                         <div className="flex items-start gap-3">
@@ -400,7 +458,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                 </div>
 
                 {/* ── ABAJO · la decisión, a la derecha (16/10, Nico); los atajos, a la izquierda ── */}
-                <div className={cn("visor-zona absolute bottom-0 inset-x-0 z-30 px-5 md:px-8 pb-5 pt-3 flex items-end justify-between gap-4 transition-opacity", limpio && "opacity-0 pointer-events-none")}>
+                <div className={cn("visor-zona absolute bottom-0 inset-x-0 z-30 px-5 md:px-8 pb-5 pt-3 flex items-end justify-between gap-4 transition-opacity", oculto && "opacity-0 pointer-events-none")}>
                     <span className="text-[11px] text-white/45 tabular-nums visor-sombra-texto">
                         ← → eventos · H imagen limpia{real ? " · C clip" : ""} · Esc {enPropio ? "volver a la captura" : "cerrar"}
                         <span className="block text-[10px] text-white/30 select-all">{cur.id}</span>
@@ -436,7 +494,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
 
                 {/* La nota de gestión, a pedido: flota sobre sus botones, abajo a la derecha, no sobre la columna. */}
                 {verNota && real && (
-                    <div className={cn("visor-zona absolute bottom-[84px] right-5 md:right-8 z-40 w-[min(460px,62vw)] visor-panel rounded-[14px] p-3 shadow-[0_18px_40px_rgba(0,0,0,0.55)]", limpio && "hidden")}
+                    <div className={cn("visor-zona absolute bottom-[84px] right-5 md:right-8 z-40 w-[min(460px,62vw)] visor-panel rounded-[14px] p-3 shadow-[0_18px_40px_rgba(0,0,0,0.55)]", oculto && "hidden")}
                         onClick={(e) => e.stopPropagation()}>
                         <button type="button" onClick={() => setVerNota(false)} aria-label="Cerrar la nota" title="Cerrar"
                             className="absolute top-2 right-2 w-7 h-7 grid place-items-center rounded-full text-white/60 hover:text-white hover:bg-white/15"><X size={14} /></button>
@@ -446,9 +504,9 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
 
                 {/* ── DERECHA · lo que se hace con la cámara ── */}
                 <div className={cn("visor-zona absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5 transition-opacity",
-                    limpio && "opacity-0 pointer-events-none")}>
-                    {cur.deviceId && real && <BotonRiel onClick={() => setAbrir("rec")} title="Ver la grabación de este momento (con las marcas de los eventos)"><PlayCircle size={15} /></BotonRiel>}
-                    {cur.deviceId && <BotonRiel onClick={() => setAbrir("live")} title="Abrir la cámara en vivo"><Cctv size={15} /></BotonRiel>}
+                    oculto && "opacity-0 pointer-events-none")}>
+                    {cur.deviceId && real && <BotonRiel onClick={() => setModo("grabacion")} title="Ver la grabación de este momento, acá (con su regla y los eventos de la cámara)"><PlayCircle size={15} /></BotonRiel>}
+                    {cur.deviceId && <BotonRiel onClick={() => setModo("vivo")} title="Ver la cámara en vivo, acá"><Cctv size={15} /></BotonRiel>}
                     {real && cur.deviceId && canalClip && ventanaClip && <BotonRiel onClick={() => setDescarga(true)} title={`Exportar un clip: bajarlo o mandarlo por WhatsApp (${ventanaClip.antes} s antes y ${ventanaClip.despues} s después)`}><Download size={15} /></BotonRiel>}
                     {real && cur.snapshotPath && <BotonRiel onClick={() => setCompartir(true)} title="Compartir por WhatsApp o Telegram"><Share2 size={15} /></BotonRiel>}
                     <span className="w-4 h-px bg-white/15" />
@@ -466,11 +524,6 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                 )}
             </div>
 
-            {/* Adentro del árbol de la ficha: el visor va en un portal, pero sus clics suben por React y el fondo cerraría la ficha. */}
-            <div onClick={(e) => e.stopPropagation()}>
-                {abrir && cur.deviceId && <VerGrabacion deviceId={cur.deviceId} nombre={cur.deviceName || cam?.name} tab={abrir}
-                    instanteMs={momento.getTime()} canal={cur.ch ?? cam?.ch ?? null} nvrId={cam?.nvrId ?? null} onClose={() => setAbrir(null)} />}
-            </div>
         </div>
     );
 }
