@@ -230,7 +230,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     const visionClave = vision.join(",");
     const [visionTruncado, setVisionTruncado] = useState(false);
     const [omni, setOmni] = useState<FranjaOmni | null>(null);
-    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave]);
+    const camarasClave = (camaras || []).join("\u0001");
+    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave, camarasClave]);
 
     useEffect(() => {
         let vivo = true;
@@ -244,6 +245,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         if (resultado !== "ALL") q.set("decision", resultado);
         if (sentido !== "ALL") q.set("direction", sentido);
         if (visionClave) q.set("vision", visionClave);
+        for (const c of camaras || []) q.append("cam", c);
         const esta = q.toString();
         clave.current = esta;
 
@@ -272,7 +274,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             .finally(() => { if (vivo) setCargando(false); });
         return () => { vivo = false; };
     // `version` entra por el reset de página; si ya estaba en 0 hace falta igual volver a pedir.
-    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version, visionClave]);
+    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version, visionClave, camarasClave]); // eslint-disable-line react-hooks/exhaustive-deps
 
     /**
      * En vivo.

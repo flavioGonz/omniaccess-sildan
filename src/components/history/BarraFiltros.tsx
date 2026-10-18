@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { fechaCorta, paraInput } from "@/lib/fechas";
 import { RASGOS } from "@/components/history/TablaUnificada";
 import { OPCIONES_VISION, OPCION_RELEIDA } from "@/lib/historial-vision";
+import type { CamaraHistorial } from "@/app/api/history/camaras/route";
 
 /**
  * Los filtros del historial, en una barra a la vista.
@@ -67,6 +68,13 @@ const CLASES: { valor: string; rotulo: string; Ico: any; ayuda: string }[] = [
     { valor: "OV_OBJETO", rotulo: "Objetos OmniVision", Ico: RASGOS.OV_OBJETO.Ico, ayuda: RASGOS.OV_OBJETO.ayuda },
 ];
 
+/** Los grupos del filtro de cámaras, en el orden en que se muestran. */
+const GRUPOS_CAMARA: { origen: CamaraHistorial["origen"]; titulo: string; Ico: any }[] = [
+    { origen: "lpr", titulo: "Cámaras LPR", Ico: Camera },
+    { origen: "seguimiento", titulo: "Seguimiento", Ico: Camera },
+    { origen: "omnivision", titulo: "OmniVision (cámaras RTSP)", Ico: Sparkles },
+];
+
 const ICONO_VISION: Record<string, any> = { persona: PersonStanding, auto: Car, camion: Truck, moto: Motorbike, bici: Bike, omnibus: Bus, animal: PawPrint };
 
 /** El botón de un desplegable: dice lo que tiene puesto, y en azul si filtra algo. */
@@ -112,11 +120,13 @@ const Titulo = ({ children }: { children: React.ReactNode }) => (
     <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{children}</div>
 );
 
-export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles, colores, tiposVeh, soloSeguimiento, modo, merodeando }: {
+export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles, camarasServidor, colores, tiposVeh, soloSeguimiento, modo, merodeando }: {
     f: FiltrosHistorial; cambiar: CambiarFiltros; limpiar: () => void;
     /** Cuántos filtros hay puestos (más la búsqueda): con alguno aparece «Limpiar». */
     puestos: number;
     camarasDisponibles: string[]; colores: string[]; tiposVeh: string[];
+    /** Las cámaras del período según el servidor, con su origen. Si llegaron, mandan sobre las de lo cargado. */
+    camarasServidor?: CamaraHistorial[] | null;
     soloSeguimiento: boolean;
     modo: "LPR" | "FACE" | "QUEUE" | null;
     merodeando: number;
@@ -201,19 +211,40 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
                 </div>
             </Desplegable>
 
-            {camarasDisponibles.length >= 2 && (
+            {(camarasServidor ? camarasServidor.length >= 1 : camarasDisponibles.length >= 2) && (
                 <Desplegable Ico={Camera} rotulo={f.camaras.length ? (f.camaras.length === 1 ? f.camaras[0] : `${f.camaras.length} cámaras`) : "Cámaras"}
-                    puesto={f.camaras.length > 0} titulo="Cámaras" ancho={280}>
-                    <Titulo>Cámaras con registros en lo cargado</Titulo>
-                    <div className="space-y-0.5 max-h-[320px] overflow-auto custom-scrollbar">
+                    puesto={f.camaras.length > 0} titulo="Cámaras" ancho={300}>
+                    <div className="space-y-0.5 max-h-[380px] overflow-auto custom-scrollbar">
                         <Casilla activa={f.camaras.length === 0} onClick={() => cambiar("camaras", [])} rotulo="Todas" />
-                        {(verTodasCamaras ? camarasDisponibles : camarasDisponibles.slice(0, CAMARAS_A_LA_VISTA)).map((c) => (
-                            <Casilla key={c} activa={f.camaras.includes(c)} onClick={() => alternar("camaras", c)} Ico={Camera} rotulo={c} />
-                        ))}
+                        {camarasServidor ? (
+                            /* Agrupadas por de dónde sale lo que registran (18/10): las RTSP de OmniVision tienen que estar. */
+                            GRUPOS_CAMARA.map((g) => {
+                                const lista = camarasServidor.filter((c) => c.origen === g.origen);
+                                if (!lista.length) return null;
+                                return (
+                                    <div key={g.origen} className="pt-1.5">
+                                        <Titulo>{g.titulo}</Titulo>
+                                        {lista.map((c) => (
+                                            <Casilla key={c.nombre} activa={f.camaras.includes(c.nombre)} onClick={() => alternar("camaras", c.nombre)} Ico={g.Ico}
+                                                rotulo={`${c.nombre} · ${c.n.toLocaleString("es-UY")}`}
+                                                ayuda={c.origen === "omnivision" ? (c.chapas ? `${c.chapas} con chapa leída` : "sin chapas leídas: sólo objetos") : undefined} />
+                                        ))}
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <>
+                                <Titulo>Cámaras con registros en lo cargado</Titulo>
+                                {(verTodasCamaras ? camarasDisponibles : camarasDisponibles.slice(0, CAMARAS_A_LA_VISTA)).map((c) => (
+                                    <Casilla key={c} activa={f.camaras.includes(c)} onClick={() => alternar("camaras", c)} Ico={Camera} rotulo={c} />
+                                ))}
+                                {camarasDisponibles.length > CAMARAS_A_LA_VISTA && !verTodasCamaras && (
+                                    <button type="button" onClick={() => setVerTodasCamaras(true)} className="text-[12px] font-semibold tono-accion">Ver las {camarasDisponibles.length}</button>
+                                )}
+                            </>
+                        )}
                     </div>
-                    {camarasDisponibles.length > CAMARAS_A_LA_VISTA && !verTodasCamaras && (
-                        <button type="button" onClick={() => setVerTodasCamaras(true)} className="text-[12px] font-semibold tono-accion">Ver las {camarasDisponibles.length}</button>
-                    )}
+                    {camarasServidor && <p className="text-[11px] text-muted-foreground leading-snug">{f.desde || f.hasta ? "En el período elegido." : "En los últimos 30 días."} Una cámara de OmniVision muestra también sus objetos.</p>}
                 </Desplegable>
             )}
 

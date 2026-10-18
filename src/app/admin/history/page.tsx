@@ -18,6 +18,7 @@ import { BuscarObjetos } from "@/components/history/BuscarObjetos";
 import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
 import { horaSeg } from "@/lib/fechas";
+import type { CamaraHistorial } from "@/app/api/history/camaras/route";
 
 /**
  * El historial: accesos y seguimiento en un solo registro.
@@ -105,6 +106,19 @@ export default function HistoryPage() {
      * ni sentido.
      */
     const soloSeguimiento = f.tipos.length > 0 && !f.tipos.includes("ACCESO");
+
+    /* Las cámaras del filtro, del servidor y del período entero (api/history/camaras): las de las
+       filas cargadas dejaban afuera a las que tienen pocas lecturas, como las RTSP de OmniVision. */
+    const [camarasServidor, setCamarasServidor] = useState<CamaraHistorial[] | null>(null);
+    useEffect(() => {
+        let vivo = true;
+        const q = new URLSearchParams();
+        if (f.desde) q.set("from", f.desde);
+        if (f.hasta) q.set("to", f.hasta);
+        fetch(`/api/history/camaras?${q}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+            .then((j) => { if (vivo && j?.camaras) setCamarasServidor(j.camaras); }).catch(() => { });
+        return () => { vivo = false; };
+    }, [f.desde, f.hasta]);
 
     /** Cuántos filtros hay puestos (para «Limpiar»). La identificación fija por módulo no cuenta: no la puso nadie. */
     const puestos = useMemo(() => {
@@ -197,7 +211,7 @@ export default function HistoryPage() {
             <TablaUnificada
                 barra={
                     <BarraFiltros f={f} cambiar={cambiar} limpiar={limpiarFiltros} puestos={puestos}
-                        camarasDisponibles={resumen.camaras} colores={resumen.colores} tiposVeh={resumen.tipos}
+                        camarasDisponibles={resumen.camaras} camarasServidor={camarasServidor} colores={resumen.colores} tiposVeh={resumen.tipos}
                         soloSeguimiento={soloSeguimiento} modo={modosListos ? activeMode : "LPR"} merodeando={chapasMerodeo.size} />
                 }
                 buscar={searchTerm}
