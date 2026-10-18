@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { estacionamientoPrendido } from "@/lib/estacionamiento";
+import { camarasVision } from "@/lib/vision-camaras";
 import { prisma } from "@/lib/prisma";
 import {
     cerrarEstadia, confirmarEstadia, miradasSinVerlo, ESTACIONADO,
@@ -106,18 +108,40 @@ export async function POST(req: NextRequest) {
      * excluye. Las cámaras con franja pasan a medirse por matrícula, igual que las que
      * nunca tuvieron una dibujada. No hace falta ninguna otra rama.
      */
+    /*
+     * Desde el 18/10 el estacionamiento es una analítica de OmniVision (lib/estacionamiento):
+     * con ella prendida, las franjas de las cámaras que mira OmniVision las mide la visión, no
+     * los píxeles — acá no se las mira y quedan excluidas del barrido por chapa (las mide otro).
+     * Sólo las que OmniVision NO mira (o con la analítica apagada) siguen con el criterio viejo,
+     * que necesita el vacío aprendido.
+     */
+    const porVision = await estacionamientoPrendido();
+    const visionCams = porVision ? await camarasVision() : null;
+    const deVision = visionCams ? (await prisma.franja.findMany({ where: { activa: true }, select: { deviceId: true } }))
+        .filter((f) => visionCams.todas || visionCams.ids.has(f.deviceId)).map((f) => f.deviceId) : [];
     const ocupacion = await funcionActiva("LPR_OCUPACION");
-    const conFranja = ocupacion ? await prisma.franja.findMany({
+    const conFranja = ocupacion ? (await prisma.franja.findMany({
         where: { activa: true, vacio: { not: null } },
         select: { deviceId: true, device: { select: { id: true, name: true, rtspUrl: true } } },
-    }) : [];
+    })).filter((f) => !deVision.includes(f.deviceId)) : [];
     const franjas = [];
     for (const f of conFranja) {
         franjas.push(await mirarLaFranja(f.device).catch((e: any) => ({
             deviceId: f.deviceId, medida: false, motivo: e?.message || "falló la mirada",
         })));
     }
-    const camarasDeFranja = conFranja.map((f) => f.deviceId);
+    const camarasDeFranja = [...deVision, ...conFranja.map((f) => f.deviceId)];
+    /*
+     * Las lecturas de una cámara con franja quedan en VISTO (nombran al ocupante, no abren
+     * estadía) y, como esas cámaras no entran en el barrido por chapa, nadie las cerraba: filas
+     * abiertas para siempre (la auditoría del 18/10). Se cierran en silencio cuando envejecen.
+     */
+    if (camarasDeFranja.length) {
+        await prisma.plateSighting.updateMany({
+            where: { source: "TRACK", deviceId: { in: camarasDeFranja }, estado: "VISTO", estCerrada: false, timestamp: { lt: new Date(Date.now() - 30 * 60_000) } },
+            data: { estCerrada: true },
+        }).catch(() => null);
+    }
 
     const ahora = Date.now();
     const corte = new Date(ahora - ESTADIA_VENCE_MIN * 60 * 1000);

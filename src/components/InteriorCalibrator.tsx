@@ -18,7 +18,6 @@ import {
 } from "@/components/tracking/MenuEscena";
 import { useFranja } from "@/components/tracking/useFranja";
 import { FranjaLienzo } from "@/components/tracking/FranjaLienzo";
-import { FranjaPanel } from "@/components/tracking/FranjaPanel";
 
 type Roi = Zona;
 const ROI_COMPLETA: Roi = ZONA_COMPLETA;
@@ -330,7 +329,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                         </div>
 
                         {herramienta === "franja" && (
-                            <FranjaLienzo franja={franja} encuadre={{ left: 0, top: 0, w: caja.ancho, h: caja.alto }} />
+                            <FranjaLienzo franja={franja} editable={false} encuadre={{ left: 0, top: 0, w: caja.ancho, h: caja.alto }} />
                         )}
                     </EscenaViva>
 
@@ -427,7 +426,15 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                                 initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
                                 transition={{ duration: 0.18 }}>
                                 <Rotulo icono={ParkingSquare}>Dónde estacionan</Rotulo>
-                                <FranjaPanel franja={franja} compacto />
+                                {/* El estacionamiento pasó a ser una analítica de OmniVision (18/10): se dibuja y se
+                                    ve en Visión → Estacionamiento, en cualquier cámara, y ya no hace falta enseñarle la
+                                    calle vacía. Acá queda la franja a la vista y el camino. */}
+                                <div className="rounded-[10px] border border-border bg-muted/40 p-3 text-[12.5px] text-muted-foreground space-y-2">
+                                    <p>{franja.existe ? `Esta cámara tiene ${franja.lugares} lugares dibujados.` : "Esta cámara no tiene lugares dibujados."} El estacionamiento ahora lo mide OmniVision viendo los vehículos, y se dibuja en su pantalla.</p>
+                                    <a href={`/admin/vision/estacionamiento?camara=${encodeURIComponent(device.id)}`} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-[8px] bg-[var(--accion)] text-white text-[12px] font-semibold hover:brightness-110">
+                                        <ParkingSquare size={14} /> Abrir Estacionamiento
+                                    </a>
+                                </div>
                             </motion.div>
                         ) : (
                             <motion.div key="ajustes"

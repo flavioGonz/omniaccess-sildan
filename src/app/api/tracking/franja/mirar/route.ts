@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { mirarLaFranja } from "@/lib/ocupaciones";
+import { estacionamientoPrendido } from "@/lib/estacionamiento";
+import { camarasVision } from "@/lib/vision-camaras";
+import { funcionActiva } from "@/app/actions/funciones";
 
 export const dynamic = "force-dynamic";
 
@@ -39,5 +42,19 @@ export async function POST(req: NextRequest) {
     });
     if (!equipo) return NextResponse.json({ error: "No existe ese equipo" }, { status: 404 });
 
-    return NextResponse.json(await mirarLaFranja(equipo));
+    /*
+     * La auditoría del 18/10: esta ruta no miraba si el motor estaba prendido — con todo apagado
+     * igual abría ocupaciones y mandaba «estacionó». Ahora: con la analítica de OmniVision
+     * prendida y la cámara mirada por OmniVision, la mide la visión (cada pocos segundos) y acá
+     * no se hace nada; con el criterio viejo, sólo si «Ocupación» está prendida.
+     */
+    const vision = await camarasVision();
+    if ((await estacionamientoPrendido()) && (vision.todas || vision.ids.has(deviceId))) {
+        return NextResponse.json({ deviceId, medida: false, motivo: "la mide OmniVision (analítica Estacionamiento)" });
+    }
+    if (!(await funcionActiva("LPR_ESTADIAS")) || !(await funcionActiva("LPR_OCUPACION"))) {
+        return NextResponse.json({ deviceId, medida: false, motivo: "Ocupación apagada" });
+    }
+    try { return NextResponse.json(await mirarLaFranja(equipo)); }
+    catch (e: any) { return NextResponse.json({ deviceId, medida: false, motivo: e?.message || "falló la mirada" }); }
 }

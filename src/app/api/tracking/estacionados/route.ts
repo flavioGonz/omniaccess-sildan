@@ -68,8 +68,10 @@ export async function GET() {
      * — que es lo honesto: la celda dice bien hacia dónde está el auto, y no dice a qué
      * distancia está.
      */
+    // Sólo las de franjas activas (la auditoría del 18/10: el plano dibujaba ocupaciones de franjas
+    // apagadas o redibujadas, que nadie iba a cerrar: autos fantasma).
     const ocupadas = await prisma.ocupacion.findMany({
-        where: { cerrada: false, avisado: true },
+        where: { cerrada: false, avisado: true, franja: { activa: true } },
         orderBy: { desde: "asc" },
         include: { franja: true, device: { select: { name: true } } },
     });

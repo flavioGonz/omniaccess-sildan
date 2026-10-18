@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Boxes, DoorOpen, Car, FlaskConical, GraduationCap, Hash, ListVideo, Plus, ScanLine, ScanSearch, ShieldAlert, ShieldCheck, Sparkles, UserRound, Users } from "lucide-react";
+import { Boxes, DoorOpen, Car, SquareParking, FlaskConical, GraduationCap, Hash, ListVideo, Plus, ScanLine, ScanSearch, ShieldAlert, ShieldCheck, Sparkles, UserRound, Users } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
@@ -42,6 +42,7 @@ const PANTALLA_DE_ANALITICA: Record<string, { href: string; rotulo: string; icon
     motos: { href: "/admin/vision/accesos", rotulo: "Ver accesos", icono: DoorOpen },
     "sin-lectura": { href: "/admin/vision/accesos", rotulo: "Ver accesos", icono: DoorOpen },
     colado: { href: "/admin/vision/accesos", rotulo: "Ver accesos", icono: DoorOpen },
+    estacionamiento: { href: "/admin/vision/estacionamiento", rotulo: "Dibujar y ver lugares", icono: SquareParking },
 };
 
 /**

@@ -423,6 +423,12 @@ export const ANALITICAS: Analitica[] = [
         limite: "Para chapas, omni-lpr lee mejor: esto es para donde omni-lpr no mira.",
     },
     {
+        id: "estacionamiento", nombre: "Estacionamiento", icono: "SquareParking", modo: "LPR",
+        queHace: "Sobre una franja dibujada a lo largo del cordón, con los lugares que entran, OmniVision ve qué lugares tienen un vehículo: «estacionó» cuando se queda más de 3 minutos y «se retiró» cuando se va, con la chapa leída del auto. Se ve en el plano y en Visión → Estacionamiento, y dispara las reglas de aviso de LPR (estacionó / se retiró).",
+        necesita: ["deteccion", "seguimiento", "texto"], clases: ["car", "truck", "bus", "motorcycle"], estado: "corre", porDefecto: true,
+        limite: "Sólo cámaras de equipo (no canales sueltos de un NVR). Sin franja dibujada no mira nada.",
+    },
+    {
         id: "permanencia", nombre: "Tiempo de permanencia", icono: "Timer", modo: "Conteo",
         queHace: "Cuánto se quedó cada persona o vehículo en una zona; avisa a la guardia cuando pasa del tiempo indicado (autos estacionados donde no se puede, alguien parado en la garita). Se configura en Visión → Reglas.",
         necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle"], estado: "corre", porDefecto: true,
