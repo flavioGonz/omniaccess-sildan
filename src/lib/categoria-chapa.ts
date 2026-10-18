@@ -183,3 +183,14 @@ export function prefijosDeTipo(id: string): string[] {
     }
     return [...out];
 }
+
+/**
+ * El tipo (id de TIPOS_CHAPA) de una chapa leída, con la misma regla de confianza que
+ * `leerChapa`; null si es particular, extranjera o no tiene forma de chapa. Lo usan las reglas
+ * de aviso (lib/reglas-notificacion): «avisame cuando entre una ambulancia».
+ */
+export function tipoDeChapa(texto: string | null | undefined): string | null {
+    const c = leerChapa(texto)?.categoria;
+    if (!c) return null;
+    return TIPOS_CHAPA.find((t) => t.codigos.includes(c.codigo) || t.series?.includes(c.codigo))?.id ?? null;
+}

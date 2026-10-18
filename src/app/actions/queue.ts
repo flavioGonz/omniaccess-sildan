@@ -1,5 +1,6 @@
 "use server";
 
+import { TIPOS_CHAPA } from "@/lib/categoria-chapa";
 import { prisma } from "@/lib/prisma";
 import { EQUIPO_PUBLICO } from "@/lib/equipo-publico";
 
@@ -613,9 +614,16 @@ type RuleInput = {
     dedupe?: boolean;
     /** Intrusión: «avisar» (al instante) o «confirmada» (sólo si omni-vision ve a alguien). Ver lib/doble-verificacion. */
     verificacion?: string;
+    /** LPR: tipos de chapa que la disparan (csv de ids de TIPOS_CHAPA); vacío = cualquiera. */
+    tiposChapa?: string | null;
 };
 /** Los valores que acepta `verificacion`: cualquier otra cosa queda como siempre. */
 const VERIFICACIONES = new Set(["avisar", "confirmada"]);
+/** Sólo ids conocidos de TIPOS_CHAPA; un id inventado no puede dejar una regla que nunca dispara. */
+const limpiarTiposChapa = (v: string | null | undefined) => {
+    const ids = String(v || "").split(",").map((x) => x.trim()).filter((x) => TIPOS_CHAPA.some((t) => t.id === x));
+    return ids.length ? [...new Set(ids)].join(",") : null;
+};
 
 export async function createNotificationRule(data: RuleInput) {
     return prisma.notificationRule.create({
@@ -637,6 +645,7 @@ export async function createNotificationRule(data: RuleInput) {
             cooldownSec: data.cooldownSec ?? 60,
             dedupe: data.dedupe ?? true,
             verificacion: VERIFICACIONES.has(String(data.verificacion)) ? data.verificacion! : "avisar",
+            tiposChapa: limpiarTiposChapa(data.tiposChapa),
         },
     });
 }
@@ -662,6 +671,7 @@ export async function updateNotificationRule(id: string, data: Partial<RuleInput
             ...(data.cooldownSec !== undefined ? { cooldownSec: data.cooldownSec } : {}),
             ...(data.dedupe !== undefined ? { dedupe: data.dedupe } : {}),
             ...(data.verificacion !== undefined && VERIFICACIONES.has(String(data.verificacion)) ? { verificacion: data.verificacion } : {}),
+            ...(data.tiposChapa !== undefined ? { tiposChapa: limpiarTiposChapa(data.tiposChapa) } : {}),
         },
     });
 }
