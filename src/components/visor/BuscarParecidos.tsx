@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, ChevronUp, Crop, Image as ImageIcon, LayoutGrid, Loader2, PlayCircle, Scan, ScanSearch, Search, Server, Sparkles } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, ChevronUp, Crop, Film, Image as ImageIcon, LayoutGrid, Loader2, PlayCircle, Scan, ScanSearch, Search, Server, Sparkles } from "lucide-react";
+import { useClipEvento, CLIP_ANTES_S } from "@/lib/clip-evento";
+import { hace } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { ICONO_GRUPO, nombreClase } from "@/components/vision/ObjetoRegistro";
@@ -90,8 +92,17 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
         };
         window.addEventListener("keydown", k, true); return () => window.removeEventListener("keydown", k, true);
     }, [onCerrar, abiertoIdx, res]);
-    // La miniatura del abierto, siempre a la vista en la tira.
-    useEffect(() => { if (abiertoIdx != null) tira.current?.querySelector<HTMLElement>(`[data-i="${abiertoIdx}"]`)?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" }); }, [abiertoIdx]);
+    /*
+     * La miniatura del abierto, siempre a la vista en la tira. Con scrollLeft de la TIRA y no con
+     * scrollIntoView: scrollIntoView corre también a los contenedores de afuera aunque tengan
+     * overflow hidden, y desplazaba la persiana entera de costado (18/10: el panel quedaba cortado
+     * a la izquierda y la foto del resultado fuera de la vista).
+     */
+    useEffect(() => {
+        const t = tira.current; if (abiertoIdx == null || !t) return;
+        const el = t.querySelector<HTMLElement>(`[data-i="${abiertoIdx}"]`); if (!el) return;
+        t.scrollTo({ left: el.offsetLeft - t.clientWidth / 2 + el.clientWidth / 2, behavior: "smooth" });
+    }, [abiertoIdx]);
     // Una búsqueda nueva vuelve a la grilla.
     useEffect(() => { setAbiertoIdx(null); }, [res]);
 
@@ -261,7 +272,7 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                     {/* ── Derecha: los resultados ── */}
                     <div className="min-h-0 flex flex-col">
                         {abierto && res ? (
-                            <DetalleResultado r={abierto} i={abiertoIdx!} total={res.resultados.length} resultados={res.resultados} tira={tira}
+                            <DetalleResultado r={abierto} i={abiertoIdx!} total={res.resultados.length} resultados={res.resultados} tira={tira} min={min} max={max}
                                 alElegir={setAbiertoIdx} alVolver={() => setAbiertoIdx(null)} onVerGrabacion={onVerGrabacion} />
                         ) : (<>
                         <div className="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-b border-border">
@@ -335,61 +346,136 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
     );
 }
 
+/** Qué tan parecido, en palabras: el coseno crudo no le dice nada a nadie. */
+function parecido(rel: number) {
+    return rel >= 0.8 ? { texto: "Muy parecido", tono: "bien" } : rel >= 0.45 ? { texto: "Parecido", tono: "aviso" } : { texto: "Algo parecido", tono: "quieto" };
+}
+
 /**
- * Un resultado abierto, en el panel de resultados: la foto a sangre con el objeto marcado, los
- * datos y la grabación en una barra, y la tira de todos los resultados abajo. Sin marco ni
- * fondo oscurecido: es el mismo panel que cambia de grilla a detalle, no otra ventana encima.
+ * Un resultado abierto (18/10, Nico: «sólo trae miniaturas, no lleva a una foto del hecho; debe traer
+ * la foto y un clip de video para apreciar la detección; la presentación es fea, no es premium»).
+ *
+ * Ahora es una ficha del hecho, como el visor: la foto del momento a sangre con la silueta del objeto
+ * (la de la segmentación, pedida a api/history/ov-siluetas; mientras tanto, su recuadro), y encima,
+ * cuando llega, el clip de los segundos de antes en loop (el mismo de las alarmas: useClipEvento),
+ * con la píldora Foto/Video. Abajo a la izquierda qué es, dónde y cuándo, y qué tan parecido; a la
+ * derecha las acciones (la grabación, OmniVision › Buscar). La tira de los demás, abajo.
  */
-function DetalleResultado({ r, i, total, resultados, tira, alElegir, alVolver, onVerGrabacion }: {
-    r: Resultado; i: number; total: number; resultados: Resultado[]; tira: React.RefObject<HTMLDivElement | null>;
+function DetalleResultado({ r, i, total, resultados, tira, min, max, alElegir, alVolver, onVerGrabacion }: {
+    r: Resultado; i: number; total: number; resultados: Resultado[]; tira: React.RefObject<HTMLDivElement | null>; min: number; max: number;
     alElegir: (i: number) => void; alVolver: () => void; onVerGrabacion?: (deviceId: string, ms: number, camara: string) => void;
 }) {
     const I = ICONO_GRUPO[r.grupo] || Scan;
     const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
-    useEffect(() => { setNat(null); }, [r.id]);
-    const flecha = "w-10 h-10 grid place-items-center rounded-full bg-black/55 hover:bg-black/80 text-white disabled:opacity-0 transition-opacity";
+    const [silueta, setSilueta] = useState<[number, number][][] | null>(null);
+    useEffect(() => { setNat(null); setSilueta(null); }, [r.id]);
+    // La silueta de verdad (segmentación a pedido, guardada al lado de la foto).
+    useEffect(() => {
+        if (!r.foto) return;
+        let vivo = true;
+        fetch("/api/history/ov-siluetas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [r.id] }) })
+            .then((x) => (x.ok ? x.json() : null)).then((j) => { if (vivo && j?.siluetas?.[r.id]) setSilueta(j.siluetas[r.id]); }).catch(() => { });
+        return () => { vivo = false; };
+    }, [r.id, r.foto]);
+    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible } = useClipEvento({ id: `parecido-${r.id}`, deviceId: r.deviceId, instante: r.primeraVez, activo: !!r.deviceId });
+    const enVideo = clipOn && clip.estado === "listo" && clipVisible;
+    const rel = max > min ? (r.coseno - min) / (max - min) : 1;
+    const p = parecido(rel);
+    const flecha = "w-11 h-11 grid place-items-center rounded-full bg-black/45 hover:bg-black/70 backdrop-blur-md border border-white/15 text-white disabled:opacity-0 transition-[opacity,background-color]";
+    const W = nat?.w || 1, H = nat?.h || 1;
     return (
         <>
+            {/* ── Arriba: volver a la grilla, cuál de cuántos ── */}
             <div className="shrink-0 flex items-center gap-3 px-5 py-2.5 border-b border-border">
                 <button type="button" onClick={alVolver} title="Volver a la grilla  ( Esc )"
                     className="h-8 pl-2 pr-3 rounded-[6px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-muted">
                     <LayoutGrid size={14} /> Resultados
                 </button>
                 <span className="text-[12px] text-muted-foreground tabular-nums">{i + 1} de {total}</span>
-                <span className="min-w-0 flex items-center gap-1.5 text-[13px] font-semibold truncate"><I size={13} className="shrink-0 text-muted-foreground" /> {nombreClase(r.clase)} · {r.camara}</span>
-                <span className="text-[12px] text-muted-foreground tabular-nums whitespace-nowrap">{fechaCorta(r.primeraVez)} {horaSeg(r.primeraVez)}</span>
-                <div className="ml-auto flex items-center gap-1.5">
-                    <a href="/admin/vision/buscar" className="h-8 px-2.5 rounded-[6px] text-[12.5px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted inline-flex items-center gap-1.5"><Search size={13} /> OmniVision › Buscar</a>
-                    {onVerGrabacion && r.deviceId && (
-                        <button type="button" onClick={() => onVerGrabacion(r.deviceId!, Date.parse(r.primeraVez), r.camara)}
-                            className="h-8 px-3.5 rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] text-white text-[12.5px] font-bold inline-flex items-center gap-1.5">
-                            <PlayCircle size={14} /> Ver grabación
-                        </button>
-                    )}
-                </div>
+                <span className="ml-auto text-[11px] text-muted-foreground">← → para pasar · Esc vuelve</span>
             </div>
-            <div className="relative flex-1 min-h-0 bg-muted overflow-hidden">
-                {/* La foto llena el panel (contain) y el recuadro va en un SVG con el mismo tamaño
-                    natural y el mismo encaje: así queda sobre el objeto a cualquier tamaño de panel. */}
+
+            {/* ── La foto del hecho, a sangre, con la silueta; el clip encima cuando llega ── */}
+            <div className="relative flex-1 min-h-0 bg-black overflow-hidden">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img key={r.id} src={img(r.foto || r.recorte)} alt="" onLoad={(e) => setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
                     className="absolute inset-0 w-full h-full object-contain" />
-                {r.foto && r.caja && nat && (
-                    <svg viewBox={`0 0 ${nat.w} ${nat.h}`} preserveAspectRatio="xMidYMid meet" className="absolute inset-0 w-full h-full pointer-events-none">
-                        <rect x={r.caja[0] * nat.w} y={r.caja[1] * nat.h} width={(r.caja[2] - r.caja[0]) * nat.w} height={(r.caja[3] - r.caja[1]) * nat.h}
-                            rx={3} fill="none" stroke="var(--accion-en-oscuro)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                {clipOn && clip.estado === "listo" && clip.url && (
+                    <video key={clip.url} src={clip.url} autoPlay muted loop playsInline onPlaying={() => setClipVisible(true)} onError={() => setClipVisible(false)}
+                        className={cn("absolute inset-0 w-full h-full object-contain transition-opacity duration-500", clipVisible ? "opacity-100" : "opacity-0")} />
+                )}
+                {r.foto && r.caja && nat && !enVideo && (
+                    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" className="absolute inset-0 w-full h-full pointer-events-none">
+                        <defs>
+                            <filter id={`brillo-${r.id}`} x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation={Math.min(W, H) * 0.004} result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+                        </defs>
+                        {silueta ? silueta.map((poli, k) => (
+                            <polygon key={k} points={poli.map(([x, y]) => `${x * W},${y * H}`).join(" ")} fill="var(--accion-en-oscuro)" fillOpacity={0.18}
+                                stroke="var(--accion-en-oscuro)" strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" filter={`url(#brillo-${r.id})`} />
+                        )) : (
+                            <rect x={r.caja[0] * W} y={r.caja[1] * H} width={(r.caja[2] - r.caja[0]) * W} height={(r.caja[3] - r.caja[1]) * H} rx={Math.min(W, H) * 0.006}
+                                fill="var(--accion-en-oscuro)" fillOpacity={0.08} stroke="var(--accion-en-oscuro)" strokeWidth={2} vectorEffect="non-scaling-stroke" filter={`url(#brillo-${r.id})`} />
+                        )}
                     </svg>
                 )}
-                <button type="button" aria-label="Anterior" disabled={i === 0} onClick={() => alElegir(i - 1)} className={cn(flecha, "absolute left-3 top-1/2 -translate-y-1/2")}><ChevronLeft size={20} /></button>
-                <button type="button" aria-label="Siguiente" disabled={i >= total - 1} onClick={() => alElegir(i + 1)} className={cn(flecha, "absolute right-3 top-1/2 -translate-y-1/2")}><ChevronRight size={20} /></button>
+                <div className="absolute inset-x-0 bottom-0 h-[45%] bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
+                <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
+
+                {/* Arriba: la píldora Foto / Video, como en las alarmas. */}
+                {r.deviceId && (
+                    <div className="absolute top-3 right-3 flex items-center rounded-full bg-black/50 backdrop-blur-xl border border-white/15 p-0.5 text-[11.5px] font-semibold">
+                        <button type="button" onClick={() => cambiarClip(false)} aria-pressed={!clipOn}
+                            className={cn("h-7 px-3 rounded-full inline-flex items-center gap-1.5", !clipOn ? "bg-white text-black" : "text-white/75 hover:text-white")}><ImageIcon size={12} /> Foto</button>
+                        <button type="button" onClick={() => cambiarClip(true)} aria-pressed={clipOn}
+                            title={clip.estado === "sin" ? `Sin video: ${clip.motivo}` : `Los ${CLIP_ANTES_S} s de antes, en loop`}
+                            className={cn("h-7 px-3 rounded-full inline-flex items-center gap-1.5", clipOn ? "bg-white text-black" : "text-white/75 hover:text-white")}>
+                            {clipOn && clip.estado === "cargando" ? <Loader2 size={12} className="animate-spin" /> : <Film size={12} />}
+                            {clipOn && clip.estado === "sin" ? "Sin video" : clipOn && clip.estado === "cargando" ? "Video…" : "Video"}
+                        </button>
+                    </div>
+                )}
+
+                {/* Abajo: qué es, dónde y cuándo, qué tan parecido; y las acciones. */}
+                <div className="absolute inset-x-0 bottom-0 p-5 flex flex-wrap items-end gap-4">
+                    <div className="min-w-0 flex-1 text-white">
+                        <div className="flex items-center gap-2 mb-1.5">
+                            <span className={cn("inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[11px] font-bold", `pleno-${p.tono}`)}>
+                                <Sparkles size={11} /> {p.texto}
+                            </span>
+                            <span className="text-[11px] text-white/60 tabular-nums">#{i + 1} de {total}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[22px] font-bold tracking-[-0.015em] leading-tight [text-shadow:0_2px_12px_rgba(0,0,0,.8)]">
+                            <I size={20} className="shrink-0 opacity-90" /> <span className="truncate">{nombreClase(r.clase)}</span>
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-2 text-[13px] text-white/80 tabular-nums">
+                            <Camera size={13} className="opacity-70" /> <span className="font-semibold text-white/95 truncate">{r.camara}</span>
+                            <span className="text-white/35">·</span><span>{fechaCorta(r.primeraVez)} {horaSeg(r.primeraVez)}</span>
+                            <span className="text-white/35">·</span><span className="text-white/60">{hace(r.primeraVez)}</span>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <a href="/admin/vision/buscar" className="h-9 px-3 rounded-[8px] text-[12.5px] font-semibold text-white/85 hover:text-white bg-white/10 hover:bg-white/20 border border-white/15 backdrop-blur-md inline-flex items-center gap-1.5"><Search size={13} /> OmniVision</a>
+                        {onVerGrabacion && r.deviceId && (
+                            <button type="button" onClick={() => onVerGrabacion(r.deviceId!, Date.parse(r.primeraVez), r.camara)}
+                                className="h-9 px-4 rounded-[8px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] text-white text-[13px] font-bold inline-flex items-center gap-1.5">
+                                <PlayCircle size={15} /> Ver la grabación
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                <button type="button" aria-label="Anterior" disabled={i === 0} onClick={() => alElegir(i - 1)} className={cn(flecha, "absolute left-4 top-1/2 -translate-y-1/2")}><ChevronLeft size={22} /></button>
+                <button type="button" aria-label="Siguiente" disabled={i >= total - 1} onClick={() => alElegir(i + 1)} className={cn(flecha, "absolute right-4 top-1/2 -translate-y-1/2")}><ChevronRight size={22} /></button>
             </div>
-            <div ref={tira} className="shrink-0 flex gap-1.5 overflow-x-auto px-5 py-2.5 border-t border-border">
+
+            {/* ── La tira de todos ── */}
+            <div ref={tira} className="shrink-0 flex gap-2 overflow-x-auto px-5 py-3 border-t border-border [scrollbar-width:thin]">
                 {resultados.map((x, j) => (
-                    <button key={x.id} data-i={j} type="button" onClick={() => alElegir(j)} aria-pressed={j === i} title={`${j + 1} · ${x.camara}`}
-                        className={cn("relative shrink-0 w-[72px] h-[54px] rounded-[6px] overflow-hidden bg-black transition-opacity", j === i ? "ring-2 ring-[var(--accion)]" : "opacity-55 hover:opacity-100")}>
+                    <button key={x.id} data-i={j} type="button" onClick={() => alElegir(j)} aria-pressed={j === i} title={`${j + 1} · ${x.camara} · ${horaSeg(x.primeraVez)}`}
+                        className={cn("relative shrink-0 w-[96px] aspect-video rounded-[8px] overflow-hidden bg-black transition-[opacity,box-shadow]", j === i ? "ring-2 ring-[var(--accion)] ring-offset-2 ring-offset-background" : "opacity-60 hover:opacity-100")}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {x.recorte && <img src={img(x.recorte, 128)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
-                        <span className="absolute left-0.5 top-0.5 px-1 rounded-[4px] bg-black/70 text-white text-[9.5px] font-bold tabular-nums">{j + 1}</span>
+                        {x.recorte && <img src={img(x.recorte, 160)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
+                        <span className="absolute left-1 top-1 px-1 rounded-[4px] bg-black/70 text-white text-[9.5px] font-bold tabular-nums">{j + 1}</span>
                     </button>
                 ))}
             </div>
