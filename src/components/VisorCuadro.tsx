@@ -711,7 +711,7 @@ export function VisorCuadro({
          * El costo de equivocarse en un sentido (cerrar sin querer) es mucho mayor que en
          * el otro (tener que apuntarle a la cruz).
          */
-        <div className={cn("fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-150",
+        <div className={cn("visor-raiz visor-fondo fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-150",
             tapado ? "z-[calc(var(--capa-panel)-1)]" : "z-[3400]")}>
 
             <motion.div
@@ -720,7 +720,7 @@ export function VisorCuadro({
                 transition={{ type: "spring", stiffness: 380, damping: 30, mass: 0.7 }}
                 onClick={(e) => e.stopPropagation()}
                 style={{ ["--visor-tono" as any]: tono, borderRadius: "var(--radio-ventana)" }}
-                className="visor-ventana relative overflow-hidden border border-white/15 shadow-[0_25px_70px_rgba(0,0,0,0.85)] bg-[#05070b]">
+                className="visor-ventana visor-marco relative overflow-hidden border border-white/15 shadow-[0_25px_70px_rgba(0,0,0,0.85)] bg-[#05070b]">
 
                 <div
                     ref={marco}
@@ -879,11 +879,11 @@ export function VisorCuadro({
                     {/* El tinte del estado no va sobre el vivo: es del evento, y sobre un video lo ensucia. */}
                     <div className={cn("visor-ambiente absolute inset-0 z-[5] pointer-events-none transition-opacity duration-300",
                         (acercado || limpio || modo === "vivo") && "opacity-0")} />
-                    <div className={cn("absolute inset-0 z-[5] pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/55 transition-opacity duration-300",
+                    <div className={cn("visor-velo-vert absolute inset-0 z-[5] pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/55 transition-opacity duration-300",
                         (acercado || limpio) && "opacity-0")} />
                     {/* Detrás de la ficha: la ficha ahora es texto en renglones, y el texto sobre
                         una calle de día necesita un fondo que le gane, no una caja. */}
-                    <div className={cn("absolute inset-y-0 left-0 w-[58%] z-[5] pointer-events-none bg-gradient-to-r from-black/80 via-black/45 to-transparent transition-opacity duration-300",
+                    <div className={cn("visor-velo-izq absolute inset-y-0 left-0 w-[58%] z-[5] pointer-events-none bg-gradient-to-r from-black/80 via-black/45 to-transparent transition-opacity duration-300",
                         (acercado || limpio) && "opacity-0")} />
                     {/* El orbe late con una animación de opacidad, que le gana a la clase: en la
                         vista limpia directamente no se dibuja. */}
@@ -911,7 +911,7 @@ export function VisorCuadro({
                     Era un chip chico («LPR Entrada») perdido en la esquina: lo primero que uno
                     quiere saber de un evento — dónde y cuándo — estaba escrito en 11px. Ahora es
                     el título de la ventana, y el punto del color del estado lo ata a la cápsula. */}
-                <div className={cn("absolute top-0 inset-x-0 z-30 flex items-start justify-between gap-4 p-4 md:px-7 md:py-5 pointer-events-none transition-opacity duration-200",
+                <div className={cn("visor-zona absolute top-0 inset-x-0 z-30 flex items-start justify-between gap-4 p-4 md:px-7 md:py-5 pointer-events-none transition-opacity duration-200",
                     limpio && "opacity-0")}>
                     <div className={cn("flex items-center gap-4 min-w-0", !limpio && "pointer-events-auto")}>
                         <div className="min-w-0 visor-sombra-texto">
@@ -942,7 +942,7 @@ export function VisorCuadro({
                             </button>
                         )}
                         {vig && (
-                            <span className="shrink-0 h-8 px-3 rounded-[8px] border flex items-center gap-1.5 text-[11.5px] font-bold"
+                            <span className="visor-vig shrink-0 h-8 px-3 rounded-[8px] border flex items-center gap-1.5 text-[11.5px] font-bold"
                                 style={{
                                     background: "color-mix(in oklab, var(--visor-tono) 22%, transparent)",
                                     borderColor: "color-mix(in oklab, var(--visor-tono) 50%, transparent)",
@@ -1013,7 +1013,7 @@ export function VisorCuadro({
 
                 {/* Mirando un paso anterior: se dice cuál, y se ofrece volver. */}
                 {enPaso && pasoViendo && (
-                    <div className={cn("absolute top-[92px] left-1/2 -translate-x-1/2 z-30 visor-panel rounded-[10px] pl-3.5 pr-1.5 py-1.5 flex items-center gap-3 text-[12px] text-white/85 tabular-nums",
+                    <div className={cn("visor-zona absolute top-[92px] left-1/2 -translate-x-1/2 z-30 visor-panel rounded-[10px] pl-3.5 pr-1.5 py-1.5 flex items-center gap-3 text-[12px] text-white/85 tabular-nums",
                         limpio && "hidden")}>
                         <GalleryHorizontal size={14} className="text-white/55" />
                         <span>
@@ -1028,7 +1028,7 @@ export function VisorCuadro({
                 {/* Todo a la vista y nada en cajones: con OmniVision la ficha puede pasar del alto
                     de la ventana, así que se desplaza (centrada si entra). */}
                 <div className={cn(
-                    "absolute left-5 md:left-8 top-[88px] z-20 w-[min(420px,42vw)] overflow-y-auto overscroll-contain [scrollbar-width:none] flex flex-col transition-opacity duration-200",
+                    "visor-zona absolute left-5 md:left-8 top-[88px] z-20 w-[min(420px,42vw)] overflow-y-auto overscroll-contain [scrollbar-width:none] flex flex-col transition-opacity duration-200",
                     panel === "pasos" ? "bottom-[214px]" : modo === "grabacion" ? "bottom-[150px]" : "bottom-12",
                     (acercado || limpio) && "opacity-0 pointer-events-none",
                 )}>
@@ -1228,7 +1228,7 @@ export function VisorCuadro({
                 </div>
 
                 {/* ── DERECHA · LOS CONTROLES, EN VERTICAL ─────────────────────────── */}
-                <div className={cn("absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5 transition-opacity duration-200",
+                <div className={cn("visor-zona absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5 transition-opacity duration-200",
                     limpio && "opacity-0 pointer-events-none")}>
                     {fila.deviceId && (
                         <>
@@ -1280,7 +1280,7 @@ export function VisorCuadro({
 
                 {/* ── ABAJO · con qué se está mirando ──────────────────────────────── */}
                 {!panel && modo !== "grabacion" && (
-                    <div className={cn("absolute bottom-0 inset-x-0 z-30 flex items-center justify-between px-5 md:px-7 py-3.5 pointer-events-none text-[11px] text-white/50 tabular-nums transition-opacity",
+                    <div className={cn("visor-zona absolute bottom-0 inset-x-0 z-30 flex items-center justify-between px-5 md:px-7 py-3.5 pointer-events-none text-[11px] text-white/50 tabular-nums transition-opacity",
                         limpio && "opacity-0")}>
                         <span className="flex items-center gap-2.5">
                             {modo === "vivo" ? (
