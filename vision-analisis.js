@@ -99,8 +99,13 @@ const SERVICIO_CLASES = {
     furgon: ["una camioneta de transporte de pasajeros", "a passenger van"],
     camion: ["un camión", "a truck"],
 };
-/** Cuánto le tiene que ganar «taxi» a «auto particular» (coseno). Medido: taxis +0,028 de mediana; particulares −0,015 en el p90. */
-const SERVICIO_MARGEN_TAXI = 0.005;
+/**
+ * Cuánto le tiene que ganar «taxi» a «auto particular» (coseno). Primero fue 0,005 (taxis +0,028 de
+ * mediana; particulares −0,015 en el p90) y en producción dio 116 marcados de los que, cruzados con
+ * la lectura LPR del mismo instante, 16 de 26 eran STX: 62 %. Los que no eran taxi quedaban todos
+ * debajo de 0,02, salvo tres (y uno, SYA0523, era el taxi STX0523 mal leído). Con 0,02: ~85 %.
+ */
+const SERVICIO_MARGEN_TAXI = 0.02;
 /** De a cuántas huellas viejas se repasan en un rato libre (sólo cuentas: no toca la GPU). */
 const SERVICIO_LOTE = 400;
 
@@ -178,7 +183,13 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
         if (!filas.length) { repasoTerminado = true; log(`servicio: repaso terminado (${contadores.taxis} taxis)`); return false; }
         const textos = await vectoresServicio();
         for (const f of filas) {
-            if (Array.isArray(f.atributos) && f.atributos.some((a) => a?.id === "servicio")) continue;
+            const puesto = Array.isArray(f.atributos) ? f.atributos.find((a) => a?.id === "servicio") : null;
+            // Uno marcado con un umbral anterior más bajo: se le saca (el umbral cambia, la marca vieja no debe quedar).
+            if (puesto && typeof puesto.margen === "number" && puesto.margen < SERVICIO_MARGEN_TAXI) {
+                await prisma.objetoVisto.update({ where: { id: f.id }, data: { atributos: f.atributos.filter((a) => a?.id !== "servicio") } }).catch(() => null);
+                continue;
+            }
+            if (puesto) continue;
             const q = new Int8Array(f.vector.buffer, f.vector.byteOffset, f.vector.byteLength);
             const sv = servicioDe(normalizarV(Array.from(q, (x) => x * f.escala)), textos);
             if (!sv) continue;
