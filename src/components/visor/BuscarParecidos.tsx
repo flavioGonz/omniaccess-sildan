@@ -194,7 +194,10 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                     </button>
                 </div>
 
-                <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[380px_1fr]">
+                {/* minmax(0,1fr) y min-w-0: con 1fr a secas la columna crece hasta el ancho de su contenido, y la
+                    tira de 60 miniaturas la estiraba fuera de la ventana: la foto del resultado quedaba
+                    centrada en una caja más ancha que lo visible (negro, sin flecha derecha ni Foto/Video). */}
+                <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)]">
                     {/* ── Izquierda: la foto y el recorte ── */}
                     <div className="border-b lg:border-b-0 lg:border-r border-border p-5 space-y-3 overflow-y-auto">
                         <div ref={lienzo} className="relative rounded-[10px] overflow-hidden bg-black select-none touch-none cursor-crosshair"
@@ -270,7 +273,7 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                     </div>
 
                     {/* ── Derecha: los resultados ── */}
-                    <div className="min-h-0 flex flex-col">
+                    <div className="min-h-0 min-w-0 flex flex-col">
                         {abierto && res ? (
                             <DetalleResultado r={abierto} i={abiertoIdx!} total={res.resultados.length} resultados={res.resultados} tira={tira} min={min} max={max}
                                 alElegir={setAbiertoIdx} alVolver={() => setAbiertoIdx(null)} onVerGrabacion={onVerGrabacion} />
