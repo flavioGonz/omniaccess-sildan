@@ -8,6 +8,8 @@ import { empresasDeLecturas } from "@/lib/empresas-servidor";
 import { esNoLeida } from "@/lib/relectura";
 import { accesosDeObjetos, objetosPorTexto, type ObjetoParecido } from "@/lib/busqueda-vision";
 import { NOMBRE_CLASE_REGLA } from "@/lib/vision-reglas";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { getS3Client } from "@/lib/s3";
 
 export const dynamic = "force-dynamic";
 
@@ -88,13 +90,48 @@ const sinZona = (d: Date) => d.toISOString().replace("T", " ").replace("Z", "");
  */
 type FilaOV = {
     id: string; deviceId: string | null; camara: string; clase: string; grupo: string; confianza: number;
-    primeraVez: Date; cuadros: number; recorte: string | null; foto: string | null; atributos: any; chapa: string | null; chapaConf: number | null;
+    primeraVez: Date; cuadros: number; recorte: string | null; foto: string | null; atributos: any; caja: any; chapa: string | null; chapaConf: number | null;
 };
+
+/*
+ * Las siluetas de las filas de OmniVision (18/10, Nico: «faltan las siluetas»). El registro guarda
+ * la caja de cada objeto (0-1, como la capa) pero no el tamaño de la foto, y la capa lo necesita
+ * para la proporción del dibujo y el tamaño de los rótulos: sin él, el recuadro cae corrido. Se lee del encabezado del
+ * JPEG (los primeros KB, con Range) y se guarda por cámara: todas las fotos de una cámara salen del
+ * mismo flujo. Se vuelve a mirar cada 10 minutos por si cambió el flujo.
+ */
+const BUCKET_VISION = process.env.VISION_BUCKET || "objetos";
+const TAMANO_MS = 10 * 60_000;
+const tamanoPorCamara = new Map<string, { t: number; w: number; h: number }>();
+function tamanoJpeg(b: Uint8Array): { w: number; h: number } | null {
+    let i = 2;
+    while (i + 9 < b.length) {
+        if (b[i] !== 0xff) { i++; continue; }
+        const m = b[i + 1];
+        // SOF0..SOF15 salvo DHT (C4), JPG (C8) y DAC (CC): ahí están alto y ancho.
+        if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: (b[i + 5] << 8) | b[i + 6], w: (b[i + 7] << 8) | b[i + 8] };
+        if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue; }
+        i += 2 + ((b[i + 2] << 8) | b[i + 3]);
+    }
+    return null;
+}
+async function tamanoDeFoto(camara: string, clave: string): Promise<{ w: number; h: number } | null> {
+    const ya = tamanoPorCamara.get(camara);
+    if (ya && Date.now() - ya.t < TAMANO_MS) return ya;
+    try {
+        const r = await (await getS3Client()).send(new GetObjectCommand({ Bucket: BUCKET_VISION, Key: clave, Range: "bytes=0-65535" }));
+        const t = tamanoJpeg(await r.Body!.transformToByteArray());
+        if (!t) return ya || null;
+        const v = { t: Date.now(), ...t };
+        tamanoPorCamara.set(camara, v);
+        return v;
+    } catch { return ya || null; }
+}
 async function objetosOmniVision(p: { soloChapas: boolean; desde: Date | null; hasta: Date | null; buscar: string; clases: string[]; grupos: string[]; camaras: string[]; limite: number }): Promise<FilaOV[]> {
     const q = p.buscar ? `%${p.buscar}%` : null;
     const qChapa = p.buscar ? `%${p.buscar.toUpperCase().replace(/[^A-Z0-9]/g, "")}%` : null;
     return prisma.$queryRaw<FilaOV[]>`
-        SELECT o.id, o."deviceId", o.camara, o.clase, o.grupo, o.confianza, o."primeraVez", o.cuadros, o.recorte, o.foto, o.atributos,
+        SELECT o.id, o."deviceId", o.camara, o.clase, o.grupo, o.confianza, o."primeraVez", o.cuadros, o.recorte, o.foto, o.atributos, o.caja,
                m.texto AS chapa, m.conf AS "chapaConf"
           FROM "ObjetoVisto" o
           LEFT JOIN "Device" d ON d.id = o."deviceId"
@@ -475,7 +512,9 @@ export async function GET(req: NextRequest) {
                     estDesde: null, bbox: null, estCerrada: false, estHasta: null,
                     detalles: null, permanencia: null, raw: null,
                     vision: { vio: [{ clase: o.clase, nombre, n: 1 }], releida: null, analisis: null },
-                };
+                    // Para armar la silueta después de paginar (ver tamanoDeFoto): no viaja al navegador.
+                    _ov: { camara: o.camara, foto: o.foto, caja: o.caja, clase: o.clase, grupo: o.grupo, nombre, confianza: o.confianza, atributos: o.atributos },
+                } as Fila;
             }),
     ];
 
@@ -484,6 +523,18 @@ export async function GET(req: NextRequest) {
 
     const vistas = await visionDe(pagina.filter((f) => f.tipo === "ACCESO" && f.raw?.id).map((f) => f.raw.id)).catch(() => new Map<string, VisionFila>());
     for (const f of pagina) if (f.tipo === "ACCESO" && f.raw?.id) f.vision = vistas.get(f.raw.id) || null;
+    // Las filas de OmniVision: su objeto como análisis de la foto, para la capa de siluetas (un recuadro: el registro no guarda contorno).
+    await Promise.all(pagina.filter((f) => (f as any)._ov).map(async (f) => {
+        const o = (f as any)._ov; delete (f as any)._ov;
+        const c = Array.isArray(o.caja) && o.caja.length === 4 ? o.caja.map(Number) : null;
+        if (!o.foto || !c || !f.vision) return;
+        const t = await tamanoDeFoto(o.camara, o.foto);
+        if (!t) return;
+        f.vision.analisis = {
+            ancho: t.w, alto: t.h,
+            objetos: [{ clase: o.clase, nombre: o.nombre, grupo: o.grupo, confianza: o.confianza, caja: c as [number, number, number, number], silueta: null, atributos: Array.isArray(o.atributos) ? o.atributos : null }],
+        };
+    }));
     // El logo de la empresa: de la visita abierta a esa hora, o del proveedor dueño del vehículo.
     const conChapa = pagina.filter((f) => f.plate && !esNoLeida(f.plate));
     const empresas = await empresasDeLecturas(conChapa.map((f) => ({ clave: f.id, plate: f.plate as string, momento: new Date(f.momento) }))).catch(() => new Map());
