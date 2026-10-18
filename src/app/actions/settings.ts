@@ -109,12 +109,23 @@ export async function getS3InternalClient() {
         console.warn("Failed to fetch S3 settings from DB, falling back to env/defaults", e);
     }
 
+    /*
+     * Sin respaldo escrito en el código (18/10, deuda de entrega). Antes, sin S3 configurado,
+     * esto se conectaba a 192.168.99.108 con la clave del MinIO de otro barrio escrita acá: una
+     * instalación nueva no fallaba, le hablaba a un servidor ajeno. Ahora es un error que se ve.
+     * La clave sigue en el historial de git: sólo rotarla la desactiva (va en la rotación previa
+     * a la entrega).
+     */
+    const ep = endpoint?.value || process.env.S3_ENDPOINT || "";
+    if (!ep || !(accessKey?.value || process.env.S3_ACCESS_KEY) || !(secretKey?.value || process.env.S3_SECRET_KEY)) {
+        throw new Error("El almacenamiento (S3/MinIO) no está configurado: Ajustes → Almacenamiento.");
+    }
     return new S3Client({
-        endpoint: endpoint?.value || process.env.S3_ENDPOINT || "http://192.168.99.108:9000",
+        endpoint: ep,
         region: "us-east-1",
         credentials: {
-            accessKeyId: accessKey?.value || process.env.S3_ACCESS_KEY || "root",
-            secretAccessKey: secretKey?.value || process.env.S3_SECRET_KEY || "flavio20",
+            accessKeyId: accessKey?.value || process.env.S3_ACCESS_KEY || "",
+            secretAccessKey: secretKey?.value || process.env.S3_SECRET_KEY || "",
         },
         forcePathStyle: true,
     });
@@ -174,9 +185,9 @@ export async function testS3Connection(bucketType: "lpr" | "face" = "lpr") {
         ]);
 
         const config = {
-            endpoint: endpoint?.value || process.env.S3_ENDPOINT || "http://192.168.99.108:9000",
-            accessKey: accessKey?.value || process.env.S3_ACCESS_KEY || "root",
-            secretKey: secretKey?.value || process.env.S3_SECRET_KEY || "flavio20",
+            endpoint: endpoint?.value || process.env.S3_ENDPOINT || "",
+            accessKey: accessKey?.value || process.env.S3_ACCESS_KEY || "",
+            secretKey: secretKey?.value || process.env.S3_SECRET_KEY || "",
             bucketName: bucketType === "lpr"
                 ? (bucketLpr?.value || process.env.S3_BUCKET || "lpr")
                 : (bucketFace?.value || "face")

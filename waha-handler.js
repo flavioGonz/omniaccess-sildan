@@ -39,11 +39,11 @@ async function getS3Client(prisma) {
     ]);
 
     return new S3Client({
-        endpoint: endpoint?.value || process.env.S3_ENDPOINT || "http://192.168.99.108:9000",
+        endpoint: endpoint?.value || process.env.S3_ENDPOINT || "",
         region: "us-east-1",
         credentials: {
-            accessKeyId: accessKey?.value || process.env.S3_ACCESS_KEY || "root",
-            secretAccessKey: secretKey?.value || process.env.S3_SECRET_KEY || "flavio20",
+            accessKeyId: accessKey?.value || process.env.S3_ACCESS_KEY || "",
+            secretAccessKey: secretKey?.value || process.env.S3_SECRET_KEY || "",
         },
         forcePathStyle: true,
     });

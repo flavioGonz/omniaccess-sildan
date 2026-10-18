@@ -15,18 +15,18 @@ async function getS3Config() {
         ]);
 
         return {
-            endpoint: endpoint?.value || process.env.S3_ENDPOINT || "http://192.168.99.108:9000",
-            accessKey: accessKey?.value || process.env.S3_ACCESS_KEY || "root",
-            secretKey: secretKey?.value || process.env.S3_SECRET_KEY || "flavio20",
+            endpoint: endpoint?.value || process.env.S3_ENDPOINT || "",
+            accessKey: accessKey?.value || process.env.S3_ACCESS_KEY || "",
+            secretKey: secretKey?.value || process.env.S3_SECRET_KEY || "",
             bucketLpr: bucketLpr?.value || process.env.S3_BUCKET || "lpr",
             bucketFace: bucketFace?.value || "face"
         };
     } catch (e) {
         console.warn("[S3 Config] Error fetching from DB, using ENV:", e.message);
         return {
-            endpoint: process.env.S3_ENDPOINT || "http://192.168.99.108:9000",
-            accessKey: process.env.S3_ACCESS_KEY || "root",
-            secretKey: process.env.S3_SECRET_KEY || "flavio20",
+            endpoint: process.env.S3_ENDPOINT || "",
+            accessKey: process.env.S3_ACCESS_KEY || "",
+            secretKey: process.env.S3_SECRET_KEY || "",
             bucketLpr: process.env.S3_BUCKET || "lpr",
             bucketFace: "face"
         };
