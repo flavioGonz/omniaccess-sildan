@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Activity, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { diaSemana, fechaCorta, fechaNumerica, horaSeg } from "@/lib/fechas";
@@ -63,11 +63,6 @@ export function PanelComportamiento({ plate, datos, viendo, onElegir, onCerrar }
     onElegir: (p: PasoVisor) => void;
     onCerrar: () => void;
 }) {
-    const { items, pasa, unen, abren, cortadas, arribaAbierta, estadias } = useMemo(() => armarGrafo(datos.pasos), [datos.pasos]);
-    const max = Math.max(1, ...datos.franja.flat());
-    const perfil = datos.perfil;
-    const mediana = perfil?.permanenciaMedianaMin ?? (estadias.length ? Math.round(estadias.sort((a, b) => a - b)[Math.floor(estadias.length / 2)] / 60000) : null);
-
     return (
         /* Sigue el tema (18/10, Nico: «lo mismo para comportamiento»), como la ficha del visor:
            era un panel casi negro con el blanco escrito a mano, también en tema claro. */
@@ -79,10 +74,35 @@ export function PanelComportamiento({ plate, datos, viendo, onElegir, onCerrar }
                 </div>
                 <button type="button" onClick={onCerrar} aria-label="Cerrar" title="Cerrar  ( Esc )" className="w-8 h-8 rounded-[8px] grid place-items-center text-foreground/80 hover:text-foreground hover:bg-muted"><X size={16} /></button>
             </header>
-
             <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-width:thin]">
+                <ContenidoComportamiento datos={datos} viendo={viendo} onElegir={onElegir} />
+            </div>
+        </aside>
+    );
+}
+
+/**
+ * Lo de adentro del panel (cifras, franja día × hora y el grafo de estadías), sin el marco: lo usa
+ * también el cajón de Gestión de alarmas (18/10, Nico: «en el drawer de la alarma debe tener el
+ * comportamiento, similar al de git»). Sin `onElegir`, los pasos no se tocan.
+ */
+export function ContenidoComportamiento({ datos, viendo, onElegir, compacto }: {
+    datos: ComportamientoVisor;
+    viendo?: string | null;
+    onElegir?: (p: PasoVisor) => void;
+    /** En un cajón angosto: las cifras en dos columnas y sin márgenes laterales propios. */
+    compacto?: boolean;
+}) {
+    const { items, pasa, unen, abren, cortadas, arribaAbierta, estadias } = useMemo(() => armarGrafo(datos.pasos), [datos.pasos]);
+    const max = Math.max(1, ...datos.franja.flat());
+    const perfil = datos.perfil;
+    const mediana = perfil?.permanenciaMedianaMin ?? (estadias.length ? Math.round([...estadias].sort((a, b) => a - b)[Math.floor(estadias.length / 2)] / 60000) : null);
+    const px = compacto ? "px-0" : "px-5";
+
+    return (
+        <>
                 {/* El perfil, en cifras. */}
-                <div className="grid grid-cols-3 border-b border-border">
+                <div className={cn("grid border-b border-border", compacto ? "grid-cols-3 [&>div]:px-2" : "grid-cols-3")}>
                     <Cifra rotulo="Clase" valor={perfil ? (NOMBRE_CLASE as Record<string, string>)[perfil.clase] || perfil.clase : "—"} />
                     <Cifra rotulo="Entradas · salidas" valor={perfil ? `${perfil.entradas} · ${perfil.salidas}` : `${datos.pasos.filter((p) => p.direccion === "ENTRY").length} · ${datos.pasos.filter((p) => p.direccion === "EXIT").length}`} />
                     <Cifra rotulo="Se queda (típico)" valor={mediana != null ? leerDuracion(mediana * 60000) : "—"}
@@ -93,7 +113,7 @@ export function PanelComportamiento({ plate, datos, viendo, onElegir, onCerrar }
                 </div>
 
                 {/* La franja: cuándo se lo ve en la semana. */}
-                <section className="px-5 py-4 border-b border-border">
+                <section className={cn(px, "py-4 border-b border-border")}>
                     <h3 className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2.5">Cuándo se lo ve</h3>
                     <div className="grid grid-cols-[28px_1fr] gap-x-1.5 gap-y-[3px]">
                         {datos.franja.map((fila, d) => (
@@ -116,7 +136,7 @@ export function PanelComportamiento({ plate, datos, viendo, onElegir, onCerrar }
                 </section>
 
                 {/* El grafo de estadías. */}
-                <section className="px-3 py-3">
+                <section className={compacto ? "py-3" : "px-3 py-3"}>
                     <div className="flex items-center justify-between px-2 mb-1.5">
                         <h3 className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Entradas y salidas</h3>
                         <span className="flex items-center gap-3 text-[10.5px] text-muted-foreground">
@@ -148,9 +168,9 @@ export function PanelComportamiento({ plate, datos, viendo, onElegir, onCerrar }
                                 const verbo = negado ? "No abrió" : p.direccion === "ENTRY" ? "Entró" : salida ? "Salió" : "Pasó";
                                 return (
                                     <li key={it.clave} style={{ height: alto }}>
-                                        <button type="button" disabled={!p.foto} onClick={() => onElegir({ ...p, id: it.clave })}
+                                        <button type="button" disabled={!p.foto || !onElegir} onClick={() => onElegir?.({ ...p, id: it.clave })}
                                             className={cn("w-full h-full flex items-center rounded-[6px] pr-2 text-left transition-colors disabled:cursor-default",
-                                                viendo === it.clave ? "bg-muted" : "hover:bg-muted")}>
+                                                viendo === it.clave ? "bg-muted" : onElegir ? "hover:bg-muted" : "")}>
                                             {grafo}
                                             <span className="flex-1 min-w-0">
                                                 <span className="flex items-baseline gap-2 text-[12.5px]">
@@ -170,9 +190,32 @@ export function PanelComportamiento({ plate, datos, viendo, onElegir, onCerrar }
                         </ol>
                     )}
                 </section>
-            </div>
-        </aside>
+        </>
     );
+}
+
+/**
+ * El comportamiento de una chapa pedido por su cuenta (/api/history/ficha), para quien no tiene la
+ * ficha a mano: el cajón de Gestión de alarmas. Con sus estados: cargando, error, sin pasos.
+ */
+export function ComportamientoDeChapa({ plate, momento, evento }: { plate: string; momento: string; evento?: string | null }) {
+    const [estado, setEstado] = useState<{ cargando: boolean; datos: ComportamientoVisor | null; error: string | null }>({ cargando: true, datos: null, error: null });
+    const [vuelta, setVuelta] = useState(0);
+    useEffect(() => {
+        let vivo = true;
+        setEstado({ cargando: true, datos: null, error: null });
+        const q = new URLSearchParams({ plate, momento });
+        if (evento) q.set("evento", evento);
+        fetch(`/api/history/ficha?${q}`, { cache: "no-store" })
+            .then(async (r) => { if (!r.ok) throw new Error(`El servidor respondió ${r.status}`); return r.json(); })
+            .then((j) => { if (vivo) setEstado({ cargando: false, datos: j?.comportamiento || null, error: null }); })
+            .catch((e) => { if (vivo) setEstado({ cargando: false, datos: null, error: e?.message || "No se pudo traer" }); });
+        return () => { vivo = false; };
+    }, [plate, momento, evento, vuelta]);
+    if (estado.cargando) return <div className="py-3 text-[12px] text-muted-foreground flex items-center gap-2"><Activity size={13} className="animate-pulse" /> Armando el comportamiento de {plate}…</div>;
+    if (estado.error) return <div className="py-3 text-[12px] tono-mal flex items-center gap-2">No se pudo traer el comportamiento: {estado.error}. <button type="button" onClick={() => setVuelta((n) => n + 1)} className="underline">Reintentar</button></div>;
+    if (!estado.datos || !estado.datos.pasos.length) return <div className="py-3 text-[12px] text-muted-foreground">Sin otros pasos de {plate} en los últimos días.</div>;
+    return <ContenidoComportamiento datos={estado.datos} compacto />;
 }
 
 function Cifra({ rotulo, valor, sub }: { rotulo: string; valor: string; sub?: string }) {

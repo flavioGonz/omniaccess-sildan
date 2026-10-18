@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
     Siren, Home, Ticket, CircleDashed, AlertTriangle, RefreshCw, Radar, ShieldAlert, ScanEye, Repeat, Car, Check, X, LogOut, Undo2,
     Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers, Loader2, NotebookPen, Image as ImageIcon,
+    Activity,
 } from "lucide-react";
 import { useClipEvento, CLIP_ANTES_S } from "@/lib/clip-evento";
 import { Pestanias, type Pestania } from "@/components/ui/pestanias";
@@ -31,6 +32,7 @@ import { VerGrabacion } from "@/components/video/VerGrabacion";
 import { getAnalyticsGeometryBatch, marcarDeteccion } from "@/app/actions/detections";
 import type { Geom } from "@/components/intrusion/comun";
 import type { Presencia, AutoAdentro, ResidenteAdentro, VisitaAdentro, ClasePresencia, Atipico } from "@/lib/presencia";
+import { ComportamientoDeChapa } from "@/components/visor/PanelComportamiento";
 
 /**
  * Gestión de alarmas (16/10, Nico): «un panel de gestión centralizado de todos los tipos de
@@ -530,6 +532,15 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                     <Dato rotulo="Estado">{a.estado === "pendiente" ? <span className="tono-mal">Pendiente</span> : <span>{a.resultado === "falsa" ? "Falsa alarma" : a.resultado === "real" ? "Real" : "Atendida"}{a.atendidaPor ? ` · ${a.atendidaPor}` : ""}</span>}</Dato>
                 </div>
 
+                {/* El comportamiento de la chapa, como en el visor (18/10, Nico: «en el drawer de la alarma
+                    debe tener el comportamiento, similar al de git»): cuándo entra, cuánto se queda. */}
+                {a.plate && (
+                    <div className="border-t border-border pt-3">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1 flex items-center gap-1.5"><Activity size={11} /> Comportamiento · {a.plate}</div>
+                        <ComportamientoDeChapa plate={a.plate} momento={a.ts} evento={eventoId} />
+                    </div>
+                )}
+
                 {/* La nota se escribe acá; se guarda (o se decide) desde la barra de abajo, que queda fija:
                     guardar la nota es secundario (borde), la decisión es la acción (llena). */}
                 <NotaGestion n={nota} sinBoton />
@@ -593,6 +604,10 @@ function DetalleAuto({ a, ocupado, alSalio, alCerrarVisita }: { a: AutoAdentro; 
                         ? <Button size="sm" disabled={ocupado} onClick={alCerrarVisita}><LogOut size={14} /> Cerrar visita</Button>
                         : <Button size="sm" disabled={ocupado} onClick={alSalio} title="La salida no se leyó: marcarlo afuera hasta su próxima lectura"><LogOut size={14} /> Salió</Button>}
                     <Button size="sm" variant="outline" asChild><a href={`/admin/history?search=${encodeURIComponent(a.plate)}`}><Car size={14} /> Historial de la matrícula</a></Button>
+                </div>
+                <div className="border-t border-border pt-3">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1 flex items-center gap-1.5"><Activity size={11} /> Comportamiento</div>
+                    <ComportamientoDeChapa plate={a.plate} momento={a.vistoUltimo} evento={a.accessEventId} />
                 </div>
             </div>
         </>
