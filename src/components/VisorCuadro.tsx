@@ -274,7 +274,7 @@ export function VisorCuadro({
     historial, cargandoHistorial,
     onGrabacion, hrefClip, onClip, onExportar, onListaNegra, enListaNegra, ocupadoLista,
     hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar,
-    datos, cargandoFicha,
+    datos, cargandoFicha, tapado,
 }: {
     fila: CuadroAvistamiento;
     ficha?: FichaMatricula | null;
@@ -284,6 +284,13 @@ export function VisorCuadro({
     cargandoFicha?: boolean;
     /** Dar de alta esta matrícula. Sin esto, los campos vacíos solo informan. */
     onRegistrar?: (plate: string) => void;
+    /**
+     * Un cajón abierto desde el visor (el alta de la matrícula) va encima. El visor vive sobre
+     * la capa de los paneles para poder abrirse desde una ficha en un cajón, así que el alta
+     * quedaba DEBAJO, tapada. Mientras esto está prendido el visor baja una capa y deja el
+     * teclado: Esc cierra el cajón, no el evento que se está registrando.
+     */
+    tapado?: boolean;
     /** Contra qué minutos se mide el anillo de la estadía. Sin esto el anillo barre el minuto. */
     limiteMin?: number | null;
 
@@ -501,7 +508,7 @@ export function VisorCuadro({
     useEffect(() => {
         const tecla = (e: KeyboardEvent) => {
             // Con el visor completo de la cámara abierto encima, las teclas son de él.
-            if (abrirCamara || compartir || clip || parecidos || grabacionDe) return;
+            if (tapado || abrirCamara || compartir || clip || parecidos || grabacionDe) return;
             if (e.key === "Escape") {
                 // Esc deshace de a una cosa, de la más nueva a la más vieja: no cierra el evento
                 // de golpe estando en un paso anterior o con un panel abierto.
@@ -527,7 +534,7 @@ export function VisorCuadro({
         };
         window.addEventListener("keydown", tecla);
         return () => window.removeEventListener("keydown", tecla);
-    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio, modo, clip, parecidos, grabacionDe]);
+    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio, modo, clip, parecidos, grabacionDe, tapado]);
 
     // La rueda se escucha a mano y no con onWheel: React lo registra como pasivo y no
     // deja frenar el desplazamiento de la página detrás del visor.
@@ -704,7 +711,8 @@ export function VisorCuadro({
          * El costo de equivocarse en un sentido (cerrar sin querer) es mucho mayor que en
          * el otro (tener que apuntarle a la cruz).
          */
-        <div className="fixed inset-0 z-[3400] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-150">
+        <div className={cn("fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-150",
+            tapado ? "z-[calc(var(--capa-panel)-1)]" : "z-[3400]")}>
 
             <motion.div
                 initial={{ opacity: 0, scale: 0.97, y: 8 }}
@@ -1106,8 +1114,9 @@ export function VisorCuadro({
                         ) : (
                             <div className="flex items-center justify-between gap-3 py-0.5">
                                 <span className="text-[12.5px] text-white/60">Esta matrícula no está en el padrón.</span>
-                                {onRegistrar && (
-                                    <BotonVisor icono={UserPlus} destacada onClick={() => onRegistrar(fila.plate)}>Registrar</BotonVisor>
+                                {/* Con la chapa que se ve (la releída, en una NO_LEIDA). Sin chapa no hay qué dar de alta. */}
+                                {onRegistrar && chapaVisor.plate && (
+                                    <BotonVisor icono={UserPlus} destacada onClick={() => onRegistrar(chapaVisor.plate!)}>Registrar</BotonVisor>
                                 )}
                             </div>
                         )}

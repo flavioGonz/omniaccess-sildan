@@ -15,6 +15,7 @@ import { Momento, Matricula, Miniatura, Nada } from "@/components/ui/celdas";
 import { MarcaFormatoChapa } from "@/components/ui/MarcaFormatoChapa";
 import { useTiempoReal, useDestello } from "@/lib/tiempo-real";
 import { VisorCuadro } from "@/components/VisorCuadro";
+import { useRegistrarDesdeCaptura } from "@/components/vision/buscar/RegistrarDesdeCaptura";
 import { FlujoMatricula, type PasoFlujo } from "@/components/history/FlujoMatricula";
 import { parseVehicleMeta } from "@/lib/vehicle-details";
 import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
@@ -380,6 +381,15 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
      * no leyó pero OmniVision releyó la chapa, la ficha es la de la chapa releída.
      */
     const [datosVisor, setDatosVisor] = useState<{ id: string; datos: DatosVisor | null; cargando: boolean } | null>(null);
+    /*
+     * Registrar la chapa desde el visor (17/10, Nico: «le faltan los controles de poder agregar
+     * la matrícula»). El visor ya tenía el botón, pero sólo se dibuja si le pasan con qué: acá
+     * nunca se le pasó, y una chapa desconocida quedaba en «no está en el padrón» sin salida.
+     * Es el mismo alta que el monitor de LPR y OmniVision (elegir qué es → el cajón del alta).
+     * Al terminar se vuelve a pedir la ficha, así el visor pasa a «Registrada» sin cerrarlo.
+     */
+    const [vueltaFicha, setVueltaFicha] = useState(0);
+    const alta = useRegistrarDesdeCaptura(() => setVueltaFicha((n) => n + 1));
     useEffect(() => {
         if (!viendo) { setDatosVisor(null); return; }
         let vivo = true;
@@ -393,7 +403,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             .then((j) => { if (vivo) setDatosVisor({ id, datos: j, cargando: false }); })
             .catch(() => { if (vivo) setDatosVisor({ id, datos: null, cargando: false }); });
         return () => { vivo = false; };
-    }, [viendo]);
+    }, [viendo, vueltaFicha]);
 
     /**
      * Los pasos anteriores de esa chapa — sacados de la tabla que ya está cargada.
@@ -719,9 +729,12 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                     }}
                     cargandoFicha={!!datosVisor?.cargando}
                     historial={historialDe(viendo)}
+                    onRegistrar={alta.abrirRegistro}
+                    tapado={alta.abierto}
                     onCerrar={() => setViendo(null)}
                 />
             )}
+            {alta.cajones}
         </>
     );
 }
