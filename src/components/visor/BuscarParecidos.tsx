@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, ChevronLeft, ChevronRight, Crop, Download, Film, Image as ImageIcon, Loader2, PlayCircle, Scan, ScanSearch, Search, Server, Share2, Sparkles, X } from "lucide-react";
+import { Activity, Camera, Check, ChevronLeft, ChevronRight, Crop, Download, Film, Image as ImageIcon, Loader2, Maximize2, PlayCircle, Scan, ScanSearch, Search, Server, Share2, Sparkles, X } from "lucide-react";
 import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
 import { useClipEvento, CLIP_ANTES_S } from "@/lib/clip-evento";
@@ -12,6 +12,9 @@ import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { ICONO_GRUPO, nombreClase } from "@/components/vision/ObjetoRegistro";
 import { AcuSearchPanel } from "@/components/dashboard/AcuSearchPanel";
 import { hasAcuSeekNvr } from "@/app/actions/acuseek";
+import { mismaChapa } from "@/lib/matriculas";
+import { CategoriaChapa } from "@/components/ui/CategoriaChapa";
+import { ComportamientoDeChapa } from "@/components/visor/PanelComportamiento";
 
 /**
  * Buscar lo que se ve en el evento en todas las cámaras: se recorta un pedazo de la foto (o se
@@ -52,6 +55,12 @@ const PASO_ATRAS = { initial: { x: "-6%", opacity: 0 }, animate: { x: 0, opacity
 type Caja = [number, number, number, number];
 type Objeto = { caja: Caja; clase: string; grupo: string; confianza: number };
 type Resultado = { id: string; camara: string; deviceId: string | null; clase: string; grupo: string; primeraVez: string; recorte: string | null; foto: string | null; caja: Caja | null; coseno: number };
+/** La matrícula de un resultado (api/vision/parecidos/chapas): la del registro o la leída a pedido. */
+type Chapa = { texto: string; confianza: number; recorte: string | null; fuente: "registro" | "foto" };
+/** Cómo se abre un resultado desde su miniatura: la ficha, o directo en la grabación o en compartir. */
+type Apertura = "foto" | "grabacion" | "compartir";
+/** De a cuántos se piden las chapas: lo que lee omni-vision sin que la grilla espere demasiado. */
+const LOTE_CHAPAS = 12;
 
 /** Lado mayor con que se manda la foto: alcanza para detectar sin subir megas. */
 const LADO_MAX = 1600;
@@ -63,9 +72,11 @@ const RANGOS = [{ h: 24, r: "24 h" }, { h: 168, r: "7 días" }, { h: 720, r: "30
 
 const img = (k: string | null, w?: number) => (k ? `/api/vision/imagen/${k}${w ? `?w=${w}` : ""}` : "");
 
-export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: {
+export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar, onVerGrabacion }: {
     foto: string;
     instanteMs: number;
+    /** La chapa del evento desde el que se busca, si tiene: para decir qué resultado es EL MISMO vehículo. */
+    chapa?: string | null;
     onCerrar: () => void;
     /** Abrir la grabación de un resultado (su cámara, su instante). */
     onVerGrabacion?: (deviceId: string, ms: number, camara: string) => void;
@@ -88,6 +99,12 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
     /** El resultado abierto, por posición en la lista: así ← y → pasan al anterior y al siguiente. */
     const [abiertoIdx, setAbiertoIdx] = useState<number | null>(null);
     const abierto = abiertoIdx != null ? res?.resultados[abiertoIdx] ?? null : null;
+    const [apertura, setApertura] = useState<Apertura>("foto");
+    /** Chapa por resultado: undefined = todavía no se sabe, null = no tiene (o no se pudo leer). */
+    const [chapas, setChapas] = useState<Record<string, Chapa | null>>({});
+    const [leyendoChapas, setLeyendoChapas] = useState(false);
+    /** La chapa por la que se filtra la grilla (el representante del grupo). */
+    const [filtroChapa, setFiltroChapa] = useState<string | null>(null);
     const tira = useRef<HTMLDivElement>(null);
     /** El resultado abierto tiene algo propio abierto (la grabación, compartir, el clip): las teclas son de eso. */
     const detalleOcupado = useRef(false);
@@ -117,7 +134,41 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
         t.scrollTo({ left: el.offsetLeft - t.clientWidth / 2 + el.clientWidth / 2, behavior: "smooth" });
     }, [abiertoIdx]);
     // Una búsqueda nueva vuelve a la grilla.
-    useEffect(() => { setAbiertoIdx(null); }, [res]);
+    useEffect(() => { setAbiertoIdx(null); setFiltroChapa(null); }, [res]);
+
+    /*
+     * La chapa de cada resultado (18/10, Nico: «¿podés leer también la matrícula de la foto del
+     * parecido e intentar relacionarlas?»). Se piden de a lotes, primero los más parecidos; la
+     * grilla no espera: cada miniatura muestra su chapa cuando llega.
+     */
+    useEffect(() => {
+        const ids = (res?.resultados || []).filter((r) => r.grupo === "vehiculo").map((r) => r.id);
+        if (!ids.length) { setLeyendoChapas(false); return; }
+        let vivo = true;
+        setLeyendoChapas(true);
+        (async () => {
+            for (let i = 0; i < ids.length && vivo; i += LOTE_CHAPAS) {
+                const lote = ids.slice(i, i + LOTE_CHAPAS);
+                try {
+                    const r = await fetch("/api/vision/parecidos/chapas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: lote }), cache: "no-store" });
+                    const j = r.ok ? await r.json() : null;
+                    // Se guarda siempre, aunque la búsqueda haya cambiado: los ids son únicos.
+                    if (j?.chapas) setChapas((c) => ({ ...c, ...j.chapas }));
+                } catch { break; }
+            }
+            if (vivo) setLeyendoChapas(false);
+        })();
+        return () => { vivo = false; };
+    }, [res]);
+
+    /** Los resultados agrupados por chapa (con la tolerancia del OCR: ver lib/matriculas). */
+    const grupos = useMemo(() => agruparPorChapa(res?.resultados || [], chapas, chapaEvento || null), [res, chapas, chapaEvento]);
+    const visibles = useMemo(() => {
+        const todos = (res?.resultados || []).map((r, i) => ({ r, i }));
+        if (!filtroChapa) return todos;
+        const g = grupos.find((x) => x.chapa === filtroChapa);
+        return g ? todos.filter(({ r }) => g.ids.includes(r.id)) : todos;
+    }, [res, grupos, filtroChapa]);
 
     // La foto del evento, achicada, y lo que OmniVision reconoce en ella.
     useEffect(() => {
@@ -199,8 +250,9 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
             {abierto && res ? (
                 <motion.div key="detalle" className="absolute inset-0 flex flex-col" {...PASO_ADELANTE}>
                     <DetalleResultado r={abierto} i={abiertoIdx!} total={res.resultados.length} resultados={res.resultados} tira={tira} min={min} max={max}
-                        buscado={recorte?.miniatura || null} etiqueta={etiqueta} ocupado={detalleOcupado}
-                        alElegir={setAbiertoIdx} alVolver={() => setAbiertoIdx(null)} alCerrar={onCerrar} />
+                        buscado={recorte?.miniatura || null} etiqueta={etiqueta} ocupado={detalleOcupado} inicial={apertura}
+                        chapas={chapas} chapaEvento={chapaEvento || null}
+                        alElegir={(i) => { setApertura("foto"); setAbiertoIdx(i); }} alVolver={() => setAbiertoIdx(null)} alCerrar={onCerrar} />
                 </motion.div>
             ) : (
             <motion.div key="busqueda" className="absolute inset-0 flex flex-col" {...PASO_ATRAS}>
@@ -335,27 +387,18 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                             ) : !res.resultados.length ? (
                                 <div className="h-full grid place-items-center text-center text-muted-foreground text-[13px] px-6">Nada parecido en {RANGOS.find((r) => r.h === h)?.r}. Probá un rango más largo o un recorte más ajustado.</div>
                             ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5">
-                                    {res.resultados.map((r, i) => {
-                                        const rel = max > min ? (r.coseno - min) / (max - min) : 1;
-                                        const I = ICONO_GRUPO[r.grupo] || Scan;
-                                        return (
-                                            <button key={r.id} type="button" onClick={() => setAbiertoIdx(i)}
-                                                className="text-left rounded-[10px] border border-border overflow-hidden hover:border-[var(--accion)] transition-colors bg-card">
-                                                <div className="relative aspect-square bg-black">
-                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                    {r.recorte && <img src={img(r.recorte, 256)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
-                                                    <span className="absolute left-1.5 top-1.5 h-5 min-w-5 px-1 rounded-[5px] bg-black/70 text-white text-[10.5px] font-bold tabular-nums grid place-items-center">{i + 1}</span>
-                                                </div>
-                                                <div className="px-2 py-1.5">
-                                                    <div className="flex items-center gap-1 text-[11.5px] font-semibold truncate"><I size={11} className="shrink-0 text-muted-foreground" /> {r.camara}</div>
-                                                    <div className="text-[10.5px] text-muted-foreground tabular-nums">{fechaCorta(r.primeraVez)} {horaSeg(r.primeraVez)}</div>
-                                                    <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden" title={`coseno ${r.coseno}`}><div className="h-full bg-[var(--accion)]" style={{ width: `${Math.max(8, rel * 100)}%` }} /></div>
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
+                                <>
+                                    <FranjaChapas grupos={grupos} leyendo={leyendoChapas} filtro={filtroChapa} onFiltro={setFiltroChapa} chapaEvento={chapaEvento || null} />
+                                    {/* Sin marco (18/10, Nico: «las mini capturas de parecidos deben ser sin marcos, con
+                                        controles y datos overlay»): la foto ocupa la tarjeta entera y los datos van encima. */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
+                                        {visibles.map(({ r, i }) => (
+                                            <Miniatura key={r.id} r={r} i={i} rel={max > min ? (r.coseno - min) / (max - min) : 1}
+                                                chapa={chapas[r.id]} leyendo={r.grupo === "vehiculo" && chapas[r.id] === undefined && leyendoChapas} chapaEvento={chapaEvento || null}
+                                                onAbrir={(m) => { setApertura(m); setAbiertoIdx(i); }} />
+                                        ))}
+                                    </div>
+                                </>
                             )}
                         </div>
                         </>
@@ -384,28 +427,40 @@ function parecido(rel: number) {
  * encontrado, qué es, dónde y cuándo); a la derecha el riel (la grabación AHÍ MISMO, con su regla y
  * sus controles, exportar el clip, compartir); abajo la tira de los demás resultados.
  */
-function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, etiqueta, ocupado, alElegir, alVolver, alCerrar }: {
+function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, etiqueta, ocupado, inicial, chapas, chapaEvento, alElegir, alVolver, alCerrar }: {
     r: Resultado; i: number; total: number; resultados: Resultado[]; tira: React.RefObject<HTMLDivElement | null>; min: number; max: number;
     /** El recorte que se buscó, para ponerlo al lado de lo encontrado. */
     buscado: string | null; etiqueta: string;
     /** Le avisa a la búsqueda que las teclas son de lo que está abierto acá (grabación, compartir, clip). */
     ocupado: React.MutableRefObject<boolean>;
+    /** Con qué se abre: la ficha, o directo la grabación o compartir (los controles de la miniatura). */
+    inicial: Apertura;
+    chapas: Record<string, Chapa | null>; chapaEvento: string | null;
     alElegir: (i: number) => void; alVolver: () => void; alCerrar: () => void;
 }) {
+    const chapa = chapas[r.id] || null;
+    const coincide = chapa && chapaEvento ? mismaChapa(chapa.texto, chapaEvento) : null;
+    const [historial, setHistorial] = useState(false);
     const I = ICONO_GRUPO[r.grupo] || Scan;
     const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
     const [silueta, setSilueta] = useState<[number, number][][] | null>(null);
     const [modo, setModo] = useState<"foto" | "grabacion">("foto");
     const [clipGrab, setClipGrab] = useState(false);
     const [compartir, setCompartir] = useState(false);
-    useEffect(() => { setNat(null); setSilueta(null); setModo("foto"); setClipGrab(false); setCompartir(false); }, [r.id]);
-    useEffect(() => { ocupado.current = modo !== "foto" || compartir; return () => { ocupado.current = false; }; }, [modo, compartir, ocupado]);
+    useEffect(() => { setNat(null); setSilueta(null); setModo(inicial === "grabacion" ? "grabacion" : "foto"); setClipGrab(false); setCompartir(inicial === "compartir"); setHistorial(false); }, [r.id, inicial]);
+    useEffect(() => { ocupado.current = modo !== "foto" || compartir || historial; return () => { ocupado.current = false; }; }, [modo, compartir, historial, ocupado]);
     // Esc en la grabación vuelve a la foto (el cajón del clip y compartir manejan su propio Esc).
     useEffect(() => {
         if (modo === "foto") return;
-        const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !clipGrab && !compartir) { e.preventDefault(); setModo("foto"); } };
+        const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !clipGrab && !compartir && !historial) { e.preventDefault(); setModo("foto"); } };
         window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
-    }, [modo, clipGrab, compartir]);
+    }, [modo, clipGrab, compartir, historial]);
+    // Esc cierra el historial de la chapa.
+    useEffect(() => {
+        if (!historial) return;
+        const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setHistorial(false); } };
+        window.addEventListener("keydown", k, true); return () => window.removeEventListener("keydown", k, true);
+    }, [historial]);
     // La silueta de verdad (segmentación a pedido, guardada al lado de la foto).
     useEffect(() => {
         if (!r.foto) return;
@@ -482,6 +537,21 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
                             <div className="mt-1 flex items-center gap-2 text-[13px] text-white/85"><Camera size={13} className="opacity-70" /><span className="font-semibold truncate">{r.camara}</span></div>
                             <div className="mt-0.5 text-[13px] text-white/70 tabular-nums">{fechaCorta(r.primeraVez)} · {horaSeg(r.primeraVez)} <span className="text-white/45">· {hace(r.primeraVez)}</span></div>
                         </div>
+                        {/* La chapa: lo que dice si es EL MISMO vehículo o sólo uno parecido. */}
+                        {chapa && (
+                            <div className="flex flex-wrap items-center gap-2 [text-shadow:none]">
+                                <PlacaChapa texto={chapa.texto} grande />
+                                <CategoriaChapa plate={chapa.texto} />
+                                {coincide != null && (
+                                    <span className={cn("inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11px] font-bold", coincide ? "pleno-bien" : "pleno-quieto")}>
+                                        {coincide ? <><Check size={12} strokeWidth={3} /> Mismo vehículo</> : "Otra chapa"}
+                                    </span>
+                                )}
+                                <button type="button" onClick={() => setHistorial(true)} title="Por dónde anduvo esta chapa"
+                                    className="h-7 px-2.5 rounded-full visor-vidrio text-white/85 hover:text-white text-[11.5px] font-semibold inline-flex items-center gap-1.5"><Activity size={13} /> Comportamiento</button>
+                                {chapa.fuente === "foto" && <span className="w-full text-[10.5px] text-white/50">Leída de esta foto · {Math.round(chapa.confianza * 100)} %</span>}
+                            </div>
+                        )}
                         {/* Lo buscado al lado de lo encontrado: se compara mirando. */}
                         <div className="visor-panel rounded-[12px] p-2.5 [text-shadow:none]">
                             <div className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-white/55 mb-2">Lo buscado · lo encontrado</div>
@@ -536,10 +606,29 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
                     </div>
                 )}
 
+                {/* El comportamiento de la chapa, en un cajón dentro de la ventana (como en el visor). */}
+                <AnimatePresence>
+                    {historial && chapa && (
+                        <motion.aside key="historial" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={ENTRADA}
+                            className="absolute right-0 inset-y-0 z-[55] w-[min(420px,92%)] cajon-vidrio border-l border-border text-foreground flex flex-col">
+                            <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-border">
+                                <Activity size={15} className="text-[var(--accion)]" />
+                                <span className="text-[13.5px] font-bold">Comportamiento</span>
+                                <PlacaChapa texto={chapa.texto} />
+                                <button type="button" onClick={() => setHistorial(false)} aria-label="Cerrar" title="Cerrar  ( Esc )"
+                                    className="ml-auto w-8 h-8 rounded-[8px] grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted"><X size={16} /></button>
+                            </div>
+                            <div className="flex-1 min-h-0 overflow-y-auto p-4">
+                                <ComportamientoDeChapa plate={chapa.texto} momento={r.primeraVez} />
+                            </div>
+                        </motion.aside>
+                    )}
+                </AnimatePresence>
+
                 {compartir && (
                     <CompartirEvento foto={r.foto ? img(r.foto) : null} deviceId={r.deviceId} deviceName={r.camara} instante={r.primeraVez}
                         titulo={`🔎 ${nombreClase(r.clase)} · ${r.camara}`}
-                        lineas={[`${fechaCorta(r.primeraVez)} ${horaSeg(r.primeraVez)}`, `Parecido a lo buscado (${p.texto.toLowerCase()}) · OmniVision`]}
+                        lineas={[`${fechaCorta(r.primeraVez)} ${horaSeg(r.primeraVez)}`, ...(chapa ? [`Matrícula ${chapa.texto}`] : []), `Parecido a lo buscado (${p.texto.toLowerCase()}) · OmniVision`]}
                         onCerrar={() => setCompartir(false)} />
                 )}
             </div>
@@ -552,6 +641,7 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         {x.recorte && <img src={img(x.recorte, 160)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
                         <span className="absolute left-1 top-1 px-1 rounded-[4px] bg-black/70 text-white text-[9.5px] font-bold tabular-nums">{j + 1}</span>
+                        {chapas[x.id] && <span className="absolute inset-x-1 bottom-1 truncate text-center px-1 rounded-[3px] bg-white/90 text-black text-[9px] font-bold tracking-wide">{chapas[x.id]!.texto}</span>}
                     </button>
                 ))}
             </div>
@@ -576,4 +666,112 @@ function recortar(base: HTMLCanvasElement, caja: Caja | null): HTMLCanvasElement
 
 function aBlob(c: HTMLCanvasElement): Promise<Blob> {
     return new Promise((ok, mal) => c.toBlob((b) => (b ? ok(b) : mal(new Error("No se pudo preparar el recorte"))), "image/jpeg", 0.9));
+}
+
+/** Un grupo de resultados con la misma chapa (tolerando la confusión del OCR). */
+type GrupoChapa = { chapa: string; ids: string[]; coincide: boolean };
+
+function agruparPorChapa(resultados: Resultado[], chapas: Record<string, Chapa | null>, chapaEvento: string | null): GrupoChapa[] {
+    const grupos: (GrupoChapa & { conf: number })[] = [];
+    for (const r of resultados) {
+        const c = chapas[r.id]; if (!c) continue;
+        const g = grupos.find((x) => mismaChapa(x.chapa, c.texto));
+        if (g) { g.ids.push(r.id); if (c.confianza > g.conf) { g.chapa = c.texto; g.conf = c.confianza; } }
+        else grupos.push({ chapa: c.texto, ids: [r.id], conf: c.confianza, coincide: false });
+    }
+    for (const g of grupos) g.coincide = !!chapaEvento && mismaChapa(g.chapa, chapaEvento);
+    // Primero la del evento, después las que más se repiten.
+    return grupos.sort((a, b) => Number(b.coincide) - Number(a.coincide) || b.ids.length - a.ids.length).map(({ conf, ...g }) => g);
+}
+
+/** La chapa dibujada como chapa: blanca, tinta negra, cifras parejas. Va sobre foto o sobre el panel. */
+function PlacaChapa({ texto, grande }: { texto: string; grande?: boolean }) {
+    return (
+        <span className={cn("inline-flex items-center rounded-[4px] bg-white text-black font-bold tabular-nums tracking-[0.06em] ring-1 ring-black/15",
+            grande ? "h-7 px-2.5 text-[14px]" : "h-[18px] px-1.5 text-[10.5px]")}>{texto}</span>
+    );
+}
+
+/**
+ * Las chapas que aparecieron en los resultados, arriba de la grilla: cuántas veces está cada una
+ * y, si la búsqueda salió de un evento con chapa, cuál es el mismo vehículo. Tocar una filtra.
+ */
+function FranjaChapas({ grupos, leyendo, filtro, onFiltro, chapaEvento }: {
+    grupos: GrupoChapa[]; leyendo: boolean; filtro: string | null; onFiltro: (c: string | null) => void; chapaEvento: string | null;
+}) {
+    if (!grupos.length && !leyendo) return null;
+    const mismo = grupos.find((g) => g.coincide);
+    return (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mr-1">Chapas</span>
+            {chapaEvento && !leyendo && grupos.length > 0 && !mismo && (
+                <span className="h-7 px-2.5 rounded-full chip-quieto text-[11.5px] font-semibold inline-flex items-center">Ninguna es {chapaEvento}</span>
+            )}
+            {grupos.map((g) => {
+                const sel = filtro === g.chapa;
+                return (
+                    <button key={g.chapa} type="button" onClick={() => onFiltro(sel ? null : g.chapa)} aria-pressed={sel}
+                        title={g.coincide ? "La misma chapa del evento: es el mismo vehículo" : `Mostrar sólo ${g.chapa}`}
+                        className={cn("h-7 pl-1 pr-2.5 rounded-full border text-[11.5px] font-semibold inline-flex items-center gap-1.5 transition-colors",
+                            sel ? "border-foreground bg-foreground text-background" : g.coincide ? "border-[var(--bien)]/50 bg-[var(--bien)]/10 text-foreground hover:bg-[var(--bien)]/15" : "border-border text-foreground/85 hover:bg-muted")}>
+                        <PlacaChapa texto={g.chapa} />
+                        {g.coincide && <Check size={12} strokeWidth={3} className="tono-bien" />}
+                        <span className="tabular-nums text-muted-foreground">{g.ids.length > 1 ? `×${g.ids.length}` : ""}</span>
+                    </button>
+                );
+            })}
+            {leyendo && <span className="h-7 px-2 inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground"><Loader2 size={12} className="animate-spin" /> Leyendo chapas…</span>}
+            {filtro && <button type="button" onClick={() => onFiltro(null)} className="h-7 px-2 text-[11.5px] font-semibold text-[var(--accion)] hover:underline">Ver todos</button>}
+        </div>
+    );
+}
+
+/**
+ * Una miniatura de resultado: la foto a sangre, sin marco ni pie (18/10, Nico: «sin marcos, con
+ * controles y datos overlay»). Encima: el número y qué tan parecido arriba, la chapa, la cámara y
+ * la hora abajo, y al pasar el mouse los controles para ir directo a la grabación o a compartir.
+ * La barrita de parecido queda pegada al borde de abajo.
+ */
+function Miniatura({ r, i, rel, chapa, leyendo, chapaEvento, onAbrir }: {
+    r: Resultado; i: number; rel: number; chapa: Chapa | null | undefined; leyendo: boolean; chapaEvento: string | null; onAbrir: (m: Apertura) => void;
+}) {
+    const I = ICONO_GRUPO[r.grupo] || Scan;
+    const p = parecido(rel);
+    const coincide = chapa && chapaEvento ? mismaChapa(chapa.texto, chapaEvento) : false;
+    const control = "w-7 h-7 rounded-full grid place-items-center bg-black/55 backdrop-blur-md border border-white/20 text-white/90 hover:text-white hover:bg-black/75 transition-colors";
+    const parar = (m: Apertura) => (e: React.MouseEvent) => { e.stopPropagation(); onAbrir(m); };
+    return (
+        <div role="button" tabIndex={0} onClick={() => onAbrir("foto")} onKeyDown={(e) => { if (e.key === "Enter") onAbrir("foto"); }}
+            title={`${i + 1} · ${nombreClase(r.clase)} · ${r.camara} · ${horaSeg(r.primeraVez)}`}
+            className={cn("group relative aspect-[4/3] rounded-[10px] overflow-hidden bg-black cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                coincide && "ring-2 ring-[var(--bien)]")}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {r.recorte && <img src={img(r.recorte, 320)} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.05]" />}
+            <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(to_bottom,rgba(0,0,0,.45)_0%,transparent_32%,transparent_48%,rgba(0,0,0,.85)_100%)]" />
+
+            <div className="absolute left-2 right-2 top-2 flex items-center gap-1.5">
+                <span className="h-5 min-w-5 px-1.5 rounded-full bg-black/55 backdrop-blur-md text-white text-[10.5px] font-bold tabular-nums grid place-items-center">{i + 1}</span>
+                <span className={cn("h-5 px-2 rounded-full text-[10px] font-bold inline-flex items-center transition-opacity group-hover:opacity-0", `pleno-${p.tono}`)}>{p.texto}</span>
+                <span className="ml-auto flex items-center gap-1 opacity-0 translate-y-[-2px] group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 transition-[opacity,transform] duration-150">
+                    {r.deviceId && <button type="button" onClick={parar("grabacion")} title="Ver la grabación de ese momento" aria-label="Ver la grabación" className={control}><PlayCircle size={14} /></button>}
+                    {r.foto && <button type="button" onClick={parar("compartir")} title="Compartir por WhatsApp o Telegram" aria-label="Compartir" className={control}><Share2 size={13} /></button>}
+                    <button type="button" onClick={parar("foto")} title="Abrir la ficha" aria-label="Abrir" className={control}><Maximize2 size={13} /></button>
+                </span>
+            </div>
+
+            <div className="absolute inset-x-2 bottom-2.5 text-white pointer-events-none">
+                {(chapa || leyendo) && (
+                    <div className="mb-1 flex items-center gap-1">
+                        {chapa ? <PlacaChapa texto={chapa.texto} /> : <span className="h-[18px] px-1.5 rounded-[4px] bg-white/20 text-white/70 text-[9.5px] font-semibold inline-flex items-center gap-1"><Loader2 size={9} className="animate-spin" /> chapa</span>}
+                        {coincide && <span className="h-[18px] px-1.5 rounded-full pleno-bien text-[9.5px] font-bold inline-flex items-center gap-0.5"><Check size={10} strokeWidth={3} /> mismo</span>}
+                    </div>
+                )}
+                <div className="flex items-center gap-1 text-[11.5px] font-semibold truncate [text-shadow:0_1px_6px_rgba(0,0,0,.6)]"><I size={11} className="shrink-0 opacity-80" /> <span className="truncate">{r.camara}</span></div>
+                <div className="text-[10.5px] text-white/75 tabular-nums">{fechaCorta(r.primeraVez)} {horaSeg(r.primeraVez)}</div>
+            </div>
+            <div className="absolute inset-x-0 bottom-0 h-[3px] bg-white/10 pointer-events-none" title={`coseno ${r.coseno}`}>
+                <div className="h-full bg-[var(--accion-en-oscuro)]" style={{ width: `${Math.max(8, rel * 100)}%` }} />
+            </div>
+        </div>
+    );
 }

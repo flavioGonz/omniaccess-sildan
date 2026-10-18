@@ -1322,7 +1322,7 @@ export function VisorCuadro({
                 {/* Buscar parecidos baja como persiana DENTRO de esta ventana (antes era otra ventana a la derecha). */}
                 <AnimatePresence>
                     {parecidos && fila.snapshotUrl && (
-                        <BuscarParecidos key="parecidos" foto={fila.snapshotUrl} instanteMs={new Date(fila.timestamp).getTime()} onCerrar={() => setParecidos(false)}
+                        <BuscarParecidos key="parecidos" foto={fila.snapshotUrl} instanteMs={new Date(fila.timestamp).getTime()} chapa={chapaVisor.plate || fila.plate || null} onCerrar={() => setParecidos(false)}
                             onVerGrabacion={(deviceId, ms, camara) => setGrabacionDe({ deviceId, ms, camara })} />
                     )}
                 </AnimatePresence>
