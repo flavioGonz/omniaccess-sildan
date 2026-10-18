@@ -2038,6 +2038,15 @@ html:not(.dark) .visor-raiz .visor-zona .border-white\/30 { border-color: color-
 html:not(.dark) .visor-raiz .visor-zona .bg-black\/55 { background-color: color-mix(in oklab, var(--card) 85%, transparent); }
 html:not(.dark) .visor-raiz .visor-zona .bg-black\/45 { background-color: color-mix(in oklab, var(--card) 75%, transparent); }
 
+/* La ficha de intrusión (FichaDeteccion) pone text-white en la ventana entera: en claro, lo
+   que hereda ese blanco dentro de una zona pasa a tinta. Y las clases que usa y el visor de LPR no. */
+html:not(.dark) .visor-raiz .visor-zona { color: var(--foreground); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/40 { color: color-mix(in oklab, var(--foreground) 40%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .bg-white\/12 { background-color: color-mix(in oklab, var(--foreground) 8%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .bg-white\/\[0\.06\] { background-color: color-mix(in oklab, var(--foreground) 5%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .hover\:bg-white\/12:hover { background-color: color-mix(in oklab, var(--foreground) 8%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .hover\:bg-white\/20:hover { background-color: color-mix(in oklab, var(--foreground) 13%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .bg-white.text-black { background-color: var(--foreground); color: var(--background); border-color: var(--foreground); }
 html:not(.dark) .visor-raiz .visor-zona .visor-vig { color: color-mix(in oklab, var(--visor-tono) 70%, #000) !important; }
 
 /* La regla del reproductor del visor en tema claro (ver GrabacionVisor). Scrub dibuja en
@@ -2051,6 +2060,15 @@ html:not(.dark) .regla-tema .tms-hour { color: var(--muted-foreground); text-sha
 html:not(.dark) .regla-tema .tms-tick { background: var(--foreground); }
 html:not(.dark) .regla-tema .tms-marca { border-color: var(--background); }
 html:not(.dark) .regla-tema .tms-tramo[data-tono="lectura"] { background: var(--foreground); }
+
+/* La respiracion roja de la alerta de intrusion sobre la ficha (AlertaIntrusionGlobal). La misma
+   que define la ventana de la pared; aca hace falta tambien sin esa ventana montada. */
+@keyframes respirar-intrusion {
+  0%, 100% { box-shadow: inset 0 0 0 0 rgba(239, 68, 68, 0), inset 0 0 90px 10px rgba(239, 68, 68, 0); }
+  50% { box-shadow: inset 0 0 0 6px rgba(239, 68, 68, 0.9), inset 0 0 140px 40px rgba(239, 68, 68, 0.45); }
+}
+.respirar-intrusion { animation: respirar-intrusion 2.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .respirar-intrusion { animation: none; box-shadow: inset 0 0 0 6px rgba(239, 68, 68, 0.9); } }
 
 /* El tamano de la ventana del visor.
    FIJO, y no el de cada foto. Antes la ventana se ajustaba a la imagen, asi

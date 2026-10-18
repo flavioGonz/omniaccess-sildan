@@ -133,6 +133,16 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
      */
     const [ops, setOps] = useState<Record<string, OperadorVista>>({});
     const [pasadas, setPasadas] = useState<Set<string>>(() => new Set());
+    /*
+     * UNA sola ventana (18/10, Nico: «hay dos y quiero una sola»). La alerta del panel era una
+     * ventana propia (foto, video y los botones) y «Ver evento» abría encima OTRA, la ficha de
+     * intrusión, que es la que de verdad sirve para decidir. Ahora la detección salta directamente
+     * en la ficha, con sus botones de decisión. Lo que la ventana vieja agregaba (el sonido, las
+     * otras cámaras) va en la cabecera de la ficha. Cerrarla sin decidir no la descarta: queda
+     * POSTERGADA en la barra de arriba, con «Ver evento», hasta que alguien decida. Una detección
+     * nueva vuelve a saltar.
+     */
+    const [postergadas, setPostergadas] = useState<Set<string>>(() => new Set());
     const [camsInfo, setCamsInfo] = useState<Record<string, IntrusionCam>>({});
     /** «Ver evento»: la ficha de intrusión, abierta ahí mismo sobre la alerta. */
     const [ficha, setFicha] = useState<null | { det: any; confirmada: boolean }>(null);
@@ -202,24 +212,41 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
     }, [alarmas, ocultas]);
     /** De una cámara con detecciones pendientes, la clave de la más nueva: la que se toma y se pasa. */
     const claveDe = (c: { lista: Alarma[] }) => `d:${c.lista[0].id}`;
-    const ajena = (clave: string) => { const o = ops[clave]; return (!!o?.operador && !o.soyYo) || pasadas.has(clave); };
+    const ajena = (clave: string) => { const o = ops[clave]; return (!!o?.operador && !o.soyYo) || pasadas.has(clave) || postergadas.has(clave); };
     const pendientesAjenas = soloLectura ? [] : porCamara.filter((c) => ajena(claveDe(c)));
     const porCamaraMias = soloLectura ? porCamara : porCamara.filter((c) => !ajena(claveDe(c)));
-    const visible = !ficha && (soloLectura ? (porCamara.length > 0 || confirmadasVisibles.length > 0) : (porCamaraMias.length > 0 && !enMonitor));
+    /** La ventana propia queda sólo para la pared; en el panel la detección salta en la ficha (alertaPanel). */
+    const visible = !ficha && soloLectura && (porCamara.length > 0 || confirmadasVisibles.length > 0);
+    const alertaPanel = !soloLectura && !ficha && !enMonitor && porCamaraMias.length > 0;
+    /* La detección que salta en la ficha: el mismo objeto mientras sea la misma (si cambiara en cada
+       render, la ficha volvería a esa detección cada vez que se lee algo y no se podría navegar). */
+    const primeraId = alertaPanel ? porCamaraMias[0].lista[0].id : null;
+    const detPanel = useMemo(() => {
+        if (!alertaPanel) return null;
+        const a = porCamaraMias[0].lista[0];
+        return {
+            id: a.id, deviceId: a.deviceId, deviceName: a.deviceName || nombres[a.deviceId] || null, type: a.type, eventType: null,
+            snapshotPath: snapshots[a.id] || a.snapshotPath || null, timestamp: a.ts, label: a.label || null, acknowledged: false, ackKind: null,
+        };
+    }, [primeraId, snapshots[primeraId || ""]]); // eslint-disable-line react-hooks/exhaustive-deps
+    const [geomPanel, setGeomPanel] = useState<Geom | undefined>(undefined);
+    const devPanel = detPanel?.deviceId;
+    useEffect(() => { setGeomPanel(undefined); if (devPanel) getAnalyticsGeometryBatch([devPanel]).then((g) => setGeomPanel((g as any)?.[devPanel])).catch(() => { }); }, [devPanel]);
     /** Pared con la ventana cerrada a mano y la alarma todavía vigente: la píldora para volver a verla. */
     const quedanOcultas = soloLectura && !visible && !enVistaIntrusion && (alarmas.length > 0 || confirmadas.length > 0);
     const cerrar = () => setOcultas((o) => new Set([...o, ...alarmas.map((a) => a.id), ...confirmadas.map(claveConfirmada)]));
 
     // Suena al aparecer y cada tanto mientras siga sin aceptar.
     const ultimaCantidad = useRef(0);
+    const suena = visible || alertaPanel;
     useEffect(() => {
-        if (!visible) { ultimaCantidad.current = 0; return; }
+        if (!suena) { ultimaCantidad.current = 0; return; }
         if (!silencio && alarmas.length > ultimaCantidad.current) pitido(true);
         ultimaCantidad.current = alarmas.length;
         if (silencio) return;
         const iv = setInterval(() => pitido(false), INTERVALO_SONIDO_MS);
         return () => clearInterval(iv);
-    }, [visible, alarmas.length, silencio]);
+    }, [suena, alarmas.length, silencio]);
 
     const resolver = async (deviceId: string, kind: "real" | "false") => {
         setResolviendo(deviceId);
@@ -248,7 +275,7 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
      * pitido cada tanto, hasta que alguien la DESACTIVA (resuelta) o la corrige (era falsa).
      * Desactivar pide confirmar: es una decisión, no un clic al pasar.
      */
-    const barraVisible = !soloLectura && (confirmadas.length > 0 || pendientesAjenas.length > 0) && !visible && !ficha;
+    const barraVisible = !soloLectura && (confirmadas.length > 0 || pendientesAjenas.length > 0) && !alertaPanel && !ficha;
 
     /** «Ver evento»: si nadie la tiene, la tomo; y se abre la ficha de intrusión ahí mismo. */
     const verEvento = (d: { id: string | null; deviceId: string; deviceName?: string | null; type: string; label?: string | null; ts: string | null; snapshotPath?: string | null }, confirmada: boolean, clave: string) => {
@@ -361,7 +388,33 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
             hasAlarm={!ficha.confirmada} onResolveAlarm={(id, k) => { setFicha(null); void resolver(id, k); }}
             enAtencion={ficha.confirmada} onCerrarAtencion={(id, como) => { setFicha(null); void cerrarConfirmada(id, como); }} />
     ) : null;
-    if (!visible) return <>{barra}{fichaEl}</>;
+    /* La detección del panel, directo en la ficha (ver `postergadas`). */
+    const actualPanel = alertaPanel ? porCamaraMias[0] : null;
+    const primeraPanel = actualPanel?.lista[0] || null;
+    const otrasPanel = alertaPanel ? porCamara.filter((c) => c.deviceId !== actualPanel!.deviceId) : [];
+    const fichaAlerta = actualPanel && primeraPanel ? (
+        <>
+            {/* La respiración roja de toda la pantalla, por encima del fondo de la ficha. */}
+            <div aria-hidden className="fixed inset-0 z-[2460] pointer-events-none respirar-intrusion" />
+            <FichaDeteccion key={primeraPanel.id} det={detPanel!} cam={camsInfo[actualPanel.deviceId]} geom={geomPanel} zCapa={2450}
+                hasAlarm onResolveAlarm={(id, k) => { void resolver(id, k); }}
+                onClose={() => setPostergadas((p) => new Set(p).add(`d:${primeraPanel.id}`))}
+                extraArriba={<>
+                    {(actualPanel.lista.length > 1 || otrasPanel.length > 0) && (
+                        <span className="hidden md:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-full visor-vidrio text-[11px] font-semibold tabular-nums"
+                            title={otrasPanel.map((c) => `${nombres[c.deviceId] || c.lista[0].deviceName || c.deviceId} · ${c.lista.length}`).join("\n") || undefined}>
+                            <Radar size={12} />
+                            {actualPanel.lista.length > 1 ? `${actualPanel.lista.length} en esta cámara` : ""}
+                            {actualPanel.lista.length > 1 && otrasPanel.length > 0 ? " · " : ""}
+                            {otrasPanel.length > 0 ? `${otrasPanel.length === 1 ? "1 cámara más" : `${otrasPanel.length} cámaras más`}` : ""}
+                        </span>
+                    )}
+                    <button type="button" onClick={cambiarSilencio} title={silencio ? "Activar el sonido" : "Silenciar (la alerta sigue)"} aria-label={silencio ? "Activar el sonido" : "Silenciar"}
+                        className="visor-vidrio w-9 h-9 rounded-full grid place-items-center">{silencio ? <VolumeX size={15} /> : <Volume2 size={15} />}</button>
+                </>} />
+        </>
+    ) : null;
+    if (!visible) return <>{barra}{fichaEl}{fichaAlerta}</>;
     // En la pared, sin pendientes, se muestra la confirmada más reciente.
     const confirmada = porCamaraMias.length === 0 ? confirmadasVisibles[0] : null;
     const actual = porCamaraMias[0] || { deviceId: confirmada!.deviceId, lista: [{ id: confirmada!.id || confirmada!.deviceId, deviceId: confirmada!.deviceId, type: confirmada!.type, ts: confirmada!.ts || new Date().toISOString(), deviceName: confirmada!.deviceName, snapshotPath: confirmada!.snapshotPath } as Alarma] };
