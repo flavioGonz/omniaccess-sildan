@@ -101,17 +101,17 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
             <motion.div className="absolute inset-0 bg-black/45" initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={() => { if (!ocupado) onClose(); }} />
             <motion.aside role="dialog" aria-label="Exportar clip"
                 initial={{ x: "100%" }} animate={{ x: 0 }} transition={{ type: "spring", stiffness: 380, damping: 38 }}
-                className="absolute inset-y-0 right-0 w-full sm:w-[480px] flex flex-col bg-[#0c0e12]/[0.97] backdrop-blur-xl border-l border-white/10 text-white shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.7)]">
+                className="absolute inset-y-0 right-0 w-full sm:w-[480px] flex flex-col bg-background/[0.97] backdrop-blur-xl border-l border-border text-foreground shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.45)]">
 
                 {/* ── Encabezado ── */}
-                <div className="shrink-0 flex items-start gap-3 px-6 pt-5 pb-4 border-b border-white/[0.08]">
-                    <span className="w-10 h-10 rounded-[10px] grid place-items-center bg-white/[0.07] border border-white/10 shrink-0"><Film size={18} className="text-[var(--accion-en-oscuro)]" /></span>
+                <div className="shrink-0 flex items-start gap-3 px-6 pt-5 pb-4 border-b border-border">
+                    <span className="w-10 h-10 rounded-[10px] grid place-items-center bg-muted border border-border shrink-0"><Film size={18} className="text-[var(--accion)]" /></span>
                     <div className="min-w-0 flex-1">
                         <div className="text-[17px] font-bold leading-tight">Exportar clip</div>
-                        <div className="text-[12.5px] text-white/55 mt-0.5 truncate">{camara ? <>{camara} · </> : null}{fechaCorta(instante)}</div>
+                        <div className="text-[12.5px] text-muted-foreground mt-0.5 truncate">{camara ? <>{camara} · </> : null}{fechaCorta(instante)}</div>
                     </div>
                     <button type="button" onClick={onClose} disabled={ocupado} aria-label="Cerrar" title="Cerrar  ( Esc )"
-                        className="w-8 h-8 grid place-items-center rounded-[6px] text-white/60 hover:text-white hover:bg-white/10 disabled:opacity-30"><X size={17} /></button>
+                        className="w-8 h-8 grid place-items-center rounded-[6px] text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30"><X size={17} /></button>
                 </div>
 
                 {fase.tipo === "eligiendo" && (
@@ -119,17 +119,17 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                         <div className="flex-1 min-h-0 overflow-y-auto">
                             {/* La foto del instante: de qué es el clip. */}
                             {poster && (
-                                <div className="relative mx-6 mt-5 aspect-video rounded-[10px] overflow-hidden bg-black border border-white/10">
+                                <div className="relative mx-6 mt-5 aspect-video rounded-[10px] overflow-hidden bg-black border border-border">
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src={poster} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                                    <span className="absolute left-2.5 bottom-2.5 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[6px] bg-black/65 backdrop-blur text-[12px] font-bold tabular-nums"><Clock size={12} /> {horaSeg(instante)}</span>
+                                    <span className="absolute left-2.5 bottom-2.5 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[6px] bg-black/65 backdrop-blur text-[12px] font-bold text-white tabular-nums"><Clock size={12} /> {horaSeg(instante)}</span>
                                     {matricula && <span className="absolute right-2.5 bottom-2.5 h-7 px-2.5 rounded-[6px] bg-white text-black text-[12.5px] font-bold tabular-nums grid place-items-center tracking-wide">{matricula}</span>}
                                 </div>
                             )}
 
                             {/* ── El tramo ── */}
                             <section className="px-6 pt-5">
-                                <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-white/45 mb-3">El tramo</div>
+                                <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-3">El tramo</div>
                                 <ReglaTramo a={a} d={d} antesMax={antesMax} despuesMax={despuesMax} instante={instante} />
                                 <div className="mt-4 flex flex-wrap gap-1.5">
                                     {atajos.map((x) => {
@@ -137,7 +137,7 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                                         return (
                                             <button key={`${x.antes}-${x.despues}`} type="button" aria-pressed={activo} onClick={() => { setAntes(x.antes); setDespues(x.despues); }}
                                                 className={cn("h-8 px-3 rounded-full text-[12px] font-semibold tabular-nums border transition-colors",
-                                                    activo ? "bg-white text-black border-white" : "border-white/15 text-white/75 hover:text-white hover:bg-white/[0.06]")}>
+                                                    activo ? "bg-foreground text-background border-foreground" : "border-border text-foreground/80 hover:text-foreground hover:bg-muted")}>
                                                 {duracion(x.antes + x.despues)}
                                             </button>
                                         );
@@ -145,7 +145,7 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                                     {!atajos.some((x) => x.antes === ventana.antes && x.despues === ventana.despues) && (
                                         <button type="button" aria-pressed={!cambiado} onClick={() => { setAntes(ventana.antes); setDespues(ventana.despues); }}
                                             className={cn("h-8 px-3 rounded-full text-[12px] font-semibold tabular-nums border transition-colors",
-                                                !cambiado ? "bg-white text-black border-white" : "border-white/15 text-white/75 hover:text-white hover:bg-white/[0.06]")}>
+                                                !cambiado ? "bg-foreground text-background border-foreground" : "border-border text-foreground/80 hover:text-foreground hover:bg-muted")}>
                                             Ajustes · {duracion(ventana.antes + ventana.despues)}
                                         </button>
                                     )}
@@ -154,15 +154,15 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                                     <Deslizador rotulo="Antes del instante" valor={a} min={0} max={antesMax} onChange={setAntes} />
                                     <Deslizador rotulo="Después del instante" valor={d} min={despuesMin} max={despuesMax} onChange={setDespues} />
                                 </div>
-                                <p className="mt-4 text-[11.5px] text-white/50 leading-snug">
-                                    Lo configurado en <span className="text-white/75 font-semibold">Ajustes → Video del evento</span> es {ventana.antes} s antes y {ventana.despues} s después
+                                <p className="mt-4 text-[11.5px] text-muted-foreground leading-snug">
+                                    Lo configurado en <span className="text-foreground/80 font-semibold">Ajustes → Video del evento</span> es {ventana.antes} s antes y {ventana.despues} s después
                                     {cambiado ? "; este cambio vale sólo para este clip." : "."}
                                 </p>
                             </section>
 
                             {/* ── Qué hacer con él ── */}
                             <section className="px-6 pt-6 pb-6">
-                                <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-white/45 mb-3">Qué hacer con él</div>
+                                <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-3">Qué hacer con él</div>
                                 <div className="grid grid-cols-3 gap-2">
                                     <OpcionDestino activo={destino === "bajar"} onClick={() => setDestino("bajar")} Icon={Download} titulo="Descargar" detalle="MP4 a esta computadora" />
                                     <OpcionDestino activo={destino === "whatsapp"} onClick={() => setDestino("whatsapp")} Icon={MessageCircle} titulo="WhatsApp"
@@ -186,9 +186,9 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                         </div>
 
                         {/* ── Pie: la acción ── */}
-                        <div className="shrink-0 flex items-center gap-2 px-6 py-4 border-t border-white/[0.08] bg-black/30">
-                            <span className="text-[12px] text-white/50 tabular-nums mr-auto">{horaSeg(instante - a * 1000)} → {horaSeg(instante + d * 1000)}</span>
-                            <button type="button" onClick={onClose} className="h-9 px-4 rounded-[6px] text-[13px] font-semibold text-white/70 hover:text-white hover:bg-white/10">Cancelar</button>
+                        <div className="shrink-0 flex items-center gap-2 px-6 py-4 border-t border-border bg-muted/40">
+                            <span className="text-[12px] text-muted-foreground tabular-nums mr-auto">{horaSeg(instante - a * 1000)} → {horaSeg(instante + d * 1000)}</span>
+                            <button type="button" onClick={onClose} className="h-9 px-4 rounded-[6px] text-[13px] font-semibold text-foreground/80 hover:text-foreground hover:bg-muted">Cancelar</button>
                             {destino === "bajar" ? (
                                 <a href={href(a, d, instante)} download onClick={onClose}
                                     className="h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] text-white text-[13px] font-bold">
@@ -222,17 +222,17 @@ function ReglaTramo({ a, d, antesMax, despuesMax, instante }: { a: number; d: nu
     const der = despuesMax ? (d / despuesMax) * 50 : 0;
     return (
         <div>
-            <div className="flex items-end justify-between text-[11px] text-white/45 tabular-nums mb-1.5">
+            <div className="flex items-end justify-between text-[11px] text-muted-foreground tabular-nums mb-1.5">
                 <span>−{antesMax} s</span>
-                <span className="text-white text-[22px] font-bold leading-none tracking-[-0.02em]">{duracion(a + d)}</span>
+                <span className="text-foreground text-[22px] font-bold leading-none tracking-[-0.02em]">{duracion(a + d)}</span>
                 <span>+{despuesMax} s</span>
             </div>
-            <div className="relative h-10 rounded-[6px] bg-white/[0.05] border border-white/10 overflow-hidden">
-                <div className="absolute inset-y-0 bg-[var(--accion-en-oscuro)]/30 border-x-2 border-[var(--accion-en-oscuro)] transition-all"
+            <div className="relative h-10 rounded-[6px] bg-muted/50 border border-border overflow-hidden">
+                <div className="absolute inset-y-0 bg-[var(--accion)]/30 border-x-2 border-[var(--accion)] transition-all"
                     style={{ left: `${50 - izq}%`, right: `${50 - der}%` }} />
-                <span className="absolute inset-y-0 left-1/2 w-0.5 -ml-px bg-white" />
+                <span className="absolute inset-y-0 left-1/2 w-0.5 -ml-px bg-foreground" />
             </div>
-            <div className="mt-1.5 text-center text-[12px] font-semibold tabular-nums text-white/70">{horaSeg(instante - a * 1000)} → {horaSeg(instante + d * 1000)}</div>
+            <div className="mt-1.5 text-center text-[12px] font-semibold tabular-nums text-foreground/80">{horaSeg(instante - a * 1000)} → {horaSeg(instante + d * 1000)}</div>
         </div>
     );
 }
@@ -241,15 +241,15 @@ function Deslizador({ rotulo, valor, min, max, onChange }: { rotulo: string; val
     return (
         <label className="block">
             <span className="flex items-baseline justify-between mb-1.5">
-                <span className="text-[12.5px] text-white/70">{rotulo}</span>
+                <span className="text-[12.5px] text-foreground/80">{rotulo}</span>
                 <span className="flex items-center gap-1">
                     <input type="number" min={min} max={max} value={valor} onChange={(e) => onChange(acotar(Number(e.target.value), min, max))}
-                        className="w-14 h-7 rounded-[6px] bg-white/[0.07] border border-white/10 focus:border-[var(--accion-en-oscuro)] px-2 text-right text-[13px] font-bold tabular-nums text-white outline-none" />
-                    <span className="text-[12px] text-white/50">s</span>
+                        className="w-14 h-7 rounded-[6px] bg-muted border border-border focus:border-[var(--accion)] px-2 text-right text-[13px] font-bold tabular-nums text-foreground outline-none" />
+                    <span className="text-[12px] text-muted-foreground">s</span>
                 </span>
             </span>
             <input type="range" min={min} max={max} value={valor} onChange={(e) => onChange(Number(e.target.value))}
-                className="w-full h-1.5 cursor-pointer accent-[var(--accion-en-oscuro)]" />
+                className="w-full h-1.5 cursor-pointer accent-[var(--accion)]" />
         </label>
     );
 }
@@ -260,11 +260,11 @@ function OpcionDestino({ activo, onClick, Icon, titulo, detalle, apagado, motivo
     return (
         <button type="button" onClick={apagado ? undefined : onClick} disabled={apagado} aria-pressed={activo} title={motivo || detalle}
             className={cn("rounded-[10px] border px-3 py-3 text-left transition-colors",
-                activo ? "border-[var(--accion-en-oscuro)] bg-[var(--accion-en-oscuro)]/10" : "border-white/10 hover:bg-white/[0.05]",
+                activo ? "border-[var(--accion)] bg-[var(--accion)]/10" : "border-border hover:bg-muted",
                 apagado && "opacity-45 cursor-not-allowed hover:bg-transparent")}>
-            <Icon size={18} className={activo ? "text-[var(--accion-en-oscuro)]" : "text-white/70"} />
+            <Icon size={18} className={activo ? "text-[var(--accion)]" : "text-foreground/80"} />
             <span className="block mt-2 text-[13px] font-bold">{titulo}</span>
-            <span className="block text-[11px] text-white/50 leading-tight mt-0.5">{detalle}</span>
+            <span className="block text-[11px] text-muted-foreground leading-tight mt-0.5">{detalle}</span>
         </button>
     );
 }
@@ -300,40 +300,40 @@ function PanelDestinatarios({ instante, camara, matricula, segundos, onCambio }:
 
     return (
         <div className="space-y-3">
-            <div className="rounded-[10px] border border-white/10 bg-white/[0.03] divide-y divide-white/[0.06] max-h-[240px] overflow-y-auto">
-                {cargando && <div className="px-3 py-3 text-[12px] text-white/50 inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Cargando destinatarios…</div>}
-                {!cargando && error && <div className="px-3 py-3 text-[12px] text-red-300 flex items-start gap-2"><AlertTriangle size={13} className="shrink-0 mt-0.5" /> {error}</div>}
-                {!cargando && !error && todos.length === 0 && <div className="px-3 py-3 text-[12px] text-white/50">No hay destinatarios de WhatsApp en el Centro de Notificaciones. Buscá un usuario abajo.</div>}
+            <div className="rounded-[10px] border border-border bg-muted/50 divide-y divide-border max-h-[240px] overflow-y-auto">
+                {cargando && <div className="px-3 py-3 text-[12px] text-muted-foreground inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Cargando destinatarios…</div>}
+                {!cargando && error && <div className="px-3 py-3 text-[12px] tono-mal flex items-start gap-2"><AlertTriangle size={13} className="shrink-0 mt-0.5" /> {error}</div>}
+                {!cargando && !error && todos.length === 0 && <div className="px-3 py-3 text-[12px] text-muted-foreground">No hay destinatarios de WhatsApp en el Centro de Notificaciones. Buscá un usuario abajo.</div>}
                 {todos.map((x) => (
-                    <button key={x.telefono} type="button" onClick={() => alternar(x.telefono)} className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.04]">
-                        <span className={cn("w-[18px] h-[18px] rounded-[5px] grid place-items-center border shrink-0", elegidos.has(x.telefono) ? "bg-[var(--accion)] border-[var(--accion)]" : "border-white/25")}>{elegidos.has(x.telefono) && <Check size={12} className="text-white" />}</span>
+                    <button key={x.telefono} type="button" onClick={() => alternar(x.telefono)} className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-muted">
+                        <span className={cn("w-[18px] h-[18px] rounded-[5px] grid place-items-center border shrink-0", elegidos.has(x.telefono) ? "bg-[var(--accion)] border-[var(--accion)]" : "border-border")}>{elegidos.has(x.telefono) && <Check size={12} className="text-white" />}</span>
                         <span className="min-w-0 flex-1">
                             <span className="block text-[13px] font-semibold truncate">{x.nombre}</span>
-                            <span className="block text-[11px] text-white/50 truncate tabular-nums">{x.detalle} · +{x.telefono}</span>
+                            <span className="block text-[11px] text-muted-foreground truncate tabular-nums">{x.detalle} · +{x.telefono}</span>
                         </span>
                     </button>
                 ))}
             </div>
             <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Sumar un usuario: nombre, lote o teléfono"
-                    className="w-full h-9 rounded-[6px] bg-white/[0.07] border border-white/10 focus:border-[var(--accion-en-oscuro)] pl-9 pr-3 text-[13px] text-white placeholder:text-white/35 outline-none" />
+                    className="w-full h-9 rounded-[6px] bg-muted border border-border focus:border-[var(--accion)] pl-9 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground outline-none" />
                 {hallados.length === 0 && q.trim().length >= 2 && buscado === q && (
-                    <div className="absolute z-10 left-0 right-0 mt-1 rounded-[10px] bg-neutral-800 border border-white/10 px-3 py-2.5 text-[12px] text-white/55">Ningún usuario con teléfono coincide con «{q}». El teléfono se carga en la ficha del usuario.</div>
+                    <div className="absolute z-10 left-0 right-0 mt-1 rounded-[10px] bg-popover text-popover-foreground border border-border px-3 py-2.5 text-[12px] text-muted-foreground">Ningún usuario con teléfono coincide con «{q}». El teléfono se carga en la ficha del usuario.</div>
                 )}
                 {hallados.length > 0 && (
-                    <div className="absolute z-10 left-0 right-0 mt-1 rounded-[14px] bg-neutral-800 border border-white/10 shadow-2xl overflow-hidden">
+                    <div className="absolute z-10 left-0 right-0 mt-1 rounded-[14px] bg-popover text-popover-foreground border border-border shadow-2xl overflow-hidden">
                         {hallados.map((u) => (
-                            <button key={u.telefono} type="button" onClick={() => sumar(u)} className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-white/[0.06]">
-                                <Plus size={14} className="text-[var(--accion-en-oscuro)] shrink-0" />
-                                <span className="min-w-0"><span className="block text-[13px] font-semibold truncate">{u.nombre}</span><span className="block text-[11px] text-white/50 truncate tabular-nums">{u.detalle} · +{u.telefono}</span></span>
+                            <button key={u.telefono} type="button" onClick={() => sumar(u)} className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-muted">
+                                <Plus size={14} className="text-[var(--accion)] shrink-0" />
+                                <span className="min-w-0"><span className="block text-[13px] font-semibold truncate">{u.nombre}</span><span className="block text-[11px] text-muted-foreground truncate tabular-nums">{u.detalle} · +{u.telefono}</span></span>
                             </button>
                         ))}
                     </div>
                 )}
             </div>
-            <div className="rounded-[10px] bg-white/[0.03] border border-white/10 px-3 py-2.5 text-[11.5px] text-white/55 flex items-start gap-2">
-                <Info size={13} className="shrink-0 mt-0.5 text-white/40" /> <span>Va con el texto <span className="text-white/80">{leyenda}</span> · {segundos} s. Queda registrado en Despachos.</span>
+            <div className="rounded-[10px] bg-muted/50 border border-border px-3 py-2.5 text-[11.5px] text-muted-foreground flex items-start gap-2">
+                <Info size={13} className="shrink-0 mt-0.5 text-muted-foreground" /> <span>Va con el texto <span className="text-foreground/80">{leyenda}</span> · {segundos} s. Queda registrado en Despachos.</span>
             </div>
         </div>
     );
@@ -349,11 +349,11 @@ function EnCurso({ desde, segundos }: { desde: number; segundos: number }) {
     return (
         <div className="flex-1 grid place-items-center px-8">
             <div className="w-full">
-                <Loader2 size={28} className="animate-spin text-[var(--accion-en-oscuro)] mx-auto" />
+                <Loader2 size={28} className="animate-spin text-[var(--accion)] mx-auto" />
                 <div className="mt-4 text-center text-[16px] font-bold">{pasaron < segundos ? "Armando el clip desde la grabación…" : "Enviando por WhatsApp…"}</div>
-                <div className="mt-1 text-center text-[12px] text-white/50 tabular-nums">{Math.floor(pasaron)} s de ~{total} s</div>
-                <div className="mt-5 h-1.5 rounded-full bg-white/10 overflow-hidden"><motion.div className="h-full bg-[var(--accion-en-oscuro)]" animate={{ width: `${p * 100}%` }} transition={{ ease: "linear", duration: 0.25 }} /></div>
-                <p className="mt-4 text-center text-[11.5px] text-white/45">El grabador entrega el video a tiempo real: {segundos} s de clip tardan algo más que eso. No cierres este panel.</p>
+                <div className="mt-1 text-center text-[12px] text-muted-foreground tabular-nums">{Math.floor(pasaron)} s de ~{total} s</div>
+                <div className="mt-5 h-1.5 rounded-full bg-muted overflow-hidden"><motion.div className="h-full bg-[var(--accion)]" animate={{ width: `${p * 100}%` }} transition={{ ease: "linear", duration: 0.25 }} /></div>
+                <p className="mt-4 text-center text-[11.5px] text-muted-foreground">El grabador entrega el video a tiempo real: {segundos} s de clip tardan algo más que eso. No cierres este panel.</p>
             </div>
         </div>
     );
@@ -373,19 +373,19 @@ function Resultado({ r, onOtro, onCerrar }: { r: ResultadoEnvioClip; onOtro: () 
                     </div>
                 </div>
                 {r.ok && !todosOk && (
-                    <div className="rounded-[10px] border border-white/10 divide-y divide-white/[0.06]">
+                    <div className="rounded-[10px] border border-border divide-y divide-border">
                         {r.enviados.map((e) => (
                             <div key={e.telefono} className="px-3 py-2 flex items-center gap-2 text-[12.5px]">
-                                {e.ok ? <Check size={13} className="text-emerald-300" /> : <X size={13} className="text-red-300" />}
+                                {e.ok ? <Check size={13} className="tono-bien" /> : <X size={13} className="tono-mal" />}
                                 <span className="font-semibold">{e.nombre}</span>
-                                {!e.ok && <span className="text-white/50 truncate">· {e.error}</span>}
+                                {!e.ok && <span className="text-muted-foreground truncate">· {e.error}</span>}
                             </div>
                         ))}
                     </div>
                 )}
             </div>
-            <div className="shrink-0 flex items-center justify-end gap-2 px-6 py-4 border-t border-white/[0.08] bg-black/30">
-                <button type="button" onClick={onOtro} className="h-9 px-4 rounded-[6px] text-[13px] font-semibold text-white/70 hover:text-white hover:bg-white/10">{r.ok ? "Enviar a otro" : "Volver"}</button>
+            <div className="shrink-0 flex items-center justify-end gap-2 px-6 py-4 border-t border-border bg-muted/40">
+                <button type="button" onClick={onOtro} className="h-9 px-4 rounded-[6px] text-[13px] font-semibold text-foreground/80 hover:text-foreground hover:bg-muted">{r.ok ? "Enviar a otro" : "Volver"}</button>
                 <button type="button" onClick={onCerrar} className="h-9 px-4 rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] text-white text-[13px] font-bold">Listo</button>
             </div>
         </>

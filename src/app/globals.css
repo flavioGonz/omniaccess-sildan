@@ -2040,6 +2040,18 @@ html:not(.dark) .visor-raiz .visor-zona .bg-black\/45 { background-color: color-
 
 html:not(.dark) .visor-raiz .visor-zona .visor-vig { color: color-mix(in oklab, var(--visor-tono) 70%, #000) !important; }
 
+/* La regla del reproductor del visor en tema claro (ver GrabacionVisor). Scrub dibuja en
+   blanco porque casi siempre va sobre video oscuro; aca va sobre el velo claro de la barra.
+   Solo se tocan la tinta, las marcas y los halos: los colores de los tramos y de las marcas
+   (evento, pasos) son estado y quedan igual. */
+html:not(.dark) .regla-tema .tms { color: var(--foreground); }
+html:not(.dark) .regla-tema .tms-time { text-shadow: 0 1px 8px color-mix(in oklab, var(--background) 90%, transparent); }
+html:not(.dark) .regla-tema .tms-mer,
+html:not(.dark) .regla-tema .tms-hour { color: var(--muted-foreground); text-shadow: none; }
+html:not(.dark) .regla-tema .tms-tick { background: var(--foreground); }
+html:not(.dark) .regla-tema .tms-marca { border-color: var(--background); }
+html:not(.dark) .regla-tema .tms-tramo[data-tono="lectura"] { background: var(--foreground); }
+
 /* El tamano de la ventana del visor.
    FIJO, y no el de cada foto. Antes la ventana se ajustaba a la imagen, asi
    que cada captura abria una ventana de distinto tamano: se pasaba de un

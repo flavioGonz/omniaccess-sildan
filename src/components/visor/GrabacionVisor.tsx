@@ -185,11 +185,18 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     }, []);
 
     if (canal && (canal.ch == null || !canal.nvr)) {
-        return <div className="absolute inset-0 z-[8] grid place-items-center bg-black text-white/60 text-[13px]">Esta cámara no tiene un canal de NVR asignado: no hay grabación que mostrar.</div>;
+        return <div className="absolute inset-0 z-[8] grid place-items-center bg-muted dark:bg-black text-muted-foreground text-[13px]">Esta cámara no tiene un canal de NVR asignado: no hay grabación que mostrar.</div>;
     }
 
+    /*
+     * Sigue el tema (18/10, Nico: «lo mismo para el playback, clip»). La barra de controles va
+     * sobre el video con un velo; en claro el velo es de la superficie del tema y los controles
+     * van en tinta, como la ficha del visor. Lo que está SOBRE la imagen (el play grande, el
+     * «Cargando…», el aviso sobre el póster difuminado) sigue oscuro. La regla (Scrub) se
+     * comparte con reproductores que son oscuros siempre: se aclara sólo acá, con `.regla-tema`.
+     */
     return (
-        <div className="absolute inset-0 z-[8] bg-black" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+        <div className="regla-tema absolute inset-0 z-[8] bg-muted dark:bg-black" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {poster && cargando && <img src={poster} alt="" className="absolute inset-0 w-full h-full object-contain blur-[6px] brightness-[0.4] scale-105" />}
             {url && (
@@ -216,12 +223,12 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
 
             {(cargando || !canal) && !sinGrabacion && (
                 <div className="absolute inset-x-0 top-0 bottom-60 grid place-items-center pointer-events-none">
-                    <span className="flex items-center gap-2 text-white/85 text-[14px] font-semibold drop-shadow"><Loader2 size={16} className="animate-spin" /> Buscando la grabación en el NVR…</span>
+                    <span className={cn("flex items-center gap-2 text-[14px] font-semibold", poster ? "text-white/85 drop-shadow" : "text-muted-foreground")}><Loader2 size={16} className="animate-spin" /> Buscando la grabación en el NVR…</span>
                 </div>
             )}
             {sinGrabacion && (
                 <div className="absolute inset-x-0 top-0 bottom-60 grid place-items-center pointer-events-none text-center">
-                    <span><span className="block text-white text-[16px] font-bold">Sin grabación en este horario</span><span className="block text-white/55 text-[12px] mt-1">Probá otro momento en la regla.</span></span>
+                    <span><span className="block text-foreground text-[16px] font-bold">Sin grabación en este horario</span><span className="block text-muted-foreground text-[12px] mt-1">Probá otro momento en la regla.</span></span>
                 </div>
             )}
             {/* El play grande del centro: está mientras el video está en pausa y se va al reproducir.
@@ -238,28 +245,28 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
             {rebufer && !cargando && <span className="absolute top-20 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-[6px] bg-black/60 text-white/80 text-[11px] font-semibold pointer-events-none">Cargando…</span>}
 
             {/* ── La barra: controles y regla ── */}
-            <div className="absolute inset-x-0 bottom-0 px-5 md:px-7 pb-4 pt-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent">
+            <div className="absolute inset-x-0 bottom-0 px-5 md:px-7 pb-4 pt-20 bg-gradient-to-t from-background/95 via-background/60 to-transparent">
                 <div className="flex items-center gap-2 mb-2.5">
                     <button type="button" onClick={alternar} disabled={!url} title={reproduciendo ? "Pausar  ( espacio )" : "Reproducir  ( espacio )"}
-                        className="w-10 h-10 rounded-full bg-white text-black grid place-items-center hover:brightness-95 disabled:opacity-40">
+                        className="w-10 h-10 rounded-full bg-foreground text-background grid place-items-center hover:brightness-95 disabled:opacity-40">
                         {cargando && !sinGrabacion ? <Loader2 size={17} className="animate-spin" /> : reproduciendo ? <Pause size={17} /> : <Play size={17} className="ml-0.5" />}
                     </button>
                     <BotonBarra onClick={() => irA(actual - SALTO_SEG * 1000)} title={`Atrás ${SALTO_SEG} s  ( ← )`}><RotateCcw size={15} /><span className="text-[10px] font-bold tabular-nums">{SALTO_SEG}</span></BotonBarra>
                     <BotonBarra onClick={() => irA(actual + SALTO_SEG * 1000)} title={`Adelante ${SALTO_SEG} s  ( → )`}><span className="text-[10px] font-bold tabular-nums">{SALTO_SEG}</span><RotateCw size={15} /></BotonBarra>
                     <div className="ml-2 leading-tight">
-                        <div className="text-[18px] font-bold tabular-nums text-white">{horaSeg(actual)}</div>
-                        <div className="text-[11px] text-white/55 tabular-nums">{fechaCorta(actual)} · {diferencia(actual, instanteMs)}</div>
+                        <div className="text-[18px] font-bold tabular-nums text-foreground">{horaSeg(actual)}</div>
+                        <div className="text-[11px] text-muted-foreground tabular-nums">{fechaCorta(actual)} · {diferencia(actual, instanteMs)}</div>
                     </div>
                     <div className="ml-auto flex items-center gap-1.5">
                         <BotonBarra onClick={() => irA(instanteMs)} title="Volver al instante del evento  ( E )"><Crosshair size={15} /> <span className="text-[11.5px] font-semibold">Evento</span></BotonBarra>
-                        <span className="w-px h-5 bg-white/15 mx-1" />
-                        <span className="flex items-center rounded-full bg-white/[0.07] border border-white/12 p-0.5">
+                        <span className="w-px h-5 bg-border mx-1" />
+                        <span className="flex items-center rounded-full bg-muted border border-border p-0.5">
                             {VELOCIDADES.map((v) => (
                                 <button key={v} type="button" onClick={() => setVelocidad(v)} aria-pressed={velocidad === v}
-                                    className={cn("h-7 min-w-[30px] px-2 rounded-full text-[11px] font-semibold tabular-nums", velocidad === v ? "bg-white text-black" : "text-white/70 hover:text-white")}>{v}×</button>
+                                    className={cn("h-7 min-w-[30px] px-2 rounded-full text-[11px] font-semibold tabular-nums", velocidad === v ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{v}×</button>
                             ))}
                         </span>
-                        <span className="w-px h-5 bg-white/15 mx-1" />
+                        <span className="w-px h-5 bg-border mx-1" />
                         <BotonBarra onClick={() => setDescarga(true)} title={`Bajar o mandar por WhatsApp un clip de este instante (${ventana.antes} s antes y ${ventana.despues} s después)`}><Download size={15} /> <span className="text-[11.5px] font-semibold">Clip</span></BotonBarra>
                     </div>
                 </div>
@@ -294,7 +301,7 @@ function FlechaEvento({ lado, evento, onClick }: { lado: "anterior" | "siguiente
         : `No hay ${lado === "anterior" ? "eventos antes" : "eventos después"} en esta cámara (12 h)`;
     return (
         <button type="button" onClick={onClick} disabled={!evento} title={titulo} aria-label={titulo}
-            className="mb-[22px] shrink-0 w-11 h-11 rounded-full grid place-items-center border border-white/15 bg-white/[0.06] text-white/85 hover:text-white hover:bg-white/15 disabled:opacity-25 disabled:hover:bg-white/[0.06] transition-colors">
+            className="mb-[22px] shrink-0 w-11 h-11 rounded-full grid place-items-center border border-border bg-muted/60 text-foreground/85 hover:text-foreground hover:bg-muted disabled:opacity-25 disabled:hover:bg-muted/60 transition-colors">
             {lado === "anterior" ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
         </button>
     );
@@ -303,7 +310,7 @@ function FlechaEvento({ lado, evento, onClick }: { lado: "anterior" | "siguiente
 function BotonBarra({ children, onClick, title }: { children: React.ReactNode; onClick: () => void; title: string }) {
     return (
         <button type="button" onClick={onClick} title={title} aria-label={title}
-            className="h-8 px-2.5 rounded-[8px] inline-flex items-center gap-1 text-white/85 hover:text-white hover:bg-white/10 border border-white/12">
+            className="h-8 px-2.5 rounded-[8px] inline-flex items-center gap-1 text-foreground/85 hover:text-foreground hover:bg-muted border border-border">
             {children}
         </button>
     );
