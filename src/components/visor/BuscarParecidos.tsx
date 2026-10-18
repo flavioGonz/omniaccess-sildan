@@ -158,27 +158,34 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
     const min = res?.resultados[res.resultados.length - 1]?.coseno ?? 0;
     const elegidoEs = useMemo(() => (o: Objeto) => !!caja && JSON.stringify(conMargen(o.caja)) === JSON.stringify(caja), [caja]);
 
+    /*
+     * Sigue el tema (18/10, Nico: «lo mismo para buscar parecidos», tras el visor en claro).
+     * Antes forzaba `dark` y un fondo casi negro: en tema claro bajaba una persiana negra sobre
+     * el visor ya claro. Ahora el panel usa las superficies y la tinta del tema; lo que va SOBRE
+     * una foto (el recorte, los números de las tarjetas, las flechas) sigue oscuro, porque ahí
+     * lo que hay abajo es la imagen y no el panel.
+     */
     return (
         <motion.section role="dialog" aria-label="Buscar parecidos"
             onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}
             initial={{ clipPath: "inset(0 0 100% 0)" }} animate={{ clipPath: "inset(0 0 0% 0)" }} exit={{ clipPath: "inset(0 0 100% 0)" }} transition={PERSIANA}
-            className="dark absolute inset-0 z-[60] flex flex-col bg-[#0c0e12]/[0.97] backdrop-blur-xl text-white">
+            className="absolute inset-0 z-[60] flex flex-col bg-background/[0.97] backdrop-blur-xl text-foreground">
 
-                <div className="shrink-0 flex items-start gap-3 px-6 pt-5 pb-4 border-b border-white/[0.08]">
-                    <span className="w-10 h-10 rounded-[10px] grid place-items-center bg-white/[0.07] border border-white/10 shrink-0"><ScanSearch size={18} className="text-[var(--accion-en-oscuro)]" /></span>
+                <div className="shrink-0 flex items-start gap-3 px-6 pt-5 pb-4 border-b border-border">
+                    <span className="w-10 h-10 rounded-[10px] grid place-items-center bg-muted border border-border shrink-0"><ScanSearch size={18} className="text-[var(--accion)]" /></span>
                     <div className="min-w-0 flex-1">
                         <div className="text-[17px] font-bold leading-tight">Buscar parecidos</div>
-                        <div className="text-[12.5px] text-white/55 mt-0.5">Recortá lo que querés buscar en la foto (o tocá lo que reconoce OmniVision) y se busca en todas las cámaras.</div>
+                        <div className="text-[12.5px] text-muted-foreground mt-0.5">Recortá lo que querés buscar en la foto (o tocá lo que reconoce OmniVision) y se busca en todas las cámaras.</div>
                     </div>
                     <button type="button" onClick={onCerrar} aria-label="Subir la persiana" title="Volver al evento  ( Esc )"
-                        className="h-8 pl-2 pr-3 rounded-[6px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 text-white/70 hover:text-white hover:bg-white/10">
+                        className="h-8 pl-2 pr-3 rounded-[6px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-muted">
                         <ChevronUp size={16} /> Volver al evento
                     </button>
                 </div>
 
                 <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[380px_1fr]">
                     {/* ── Izquierda: la foto y el recorte ── */}
-                    <div className="border-b lg:border-b-0 lg:border-r border-white/[0.08] p-5 space-y-3 overflow-y-auto">
+                    <div className="border-b lg:border-b-0 lg:border-r border-border p-5 space-y-3 overflow-y-auto">
                         <div ref={lienzo} className="relative rounded-[10px] overflow-hidden bg-black select-none touch-none cursor-crosshair"
                             onPointerDown={(e) => { if (!url) return; (e.currentTarget as any).setPointerCapture(e.pointerId); const p = fraccion(e); setArrastre({ x0: p.x, y0: p.y, x: p.x, y: p.y }); }}
                             onPointerMove={(e) => { if (!arrastre) return; const p = fraccion(e); setArrastre((a) => (a ? { ...a, x: p.x, y: p.y } : a)); }}
@@ -210,7 +217,7 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                                 );
                             })()}
                             {url && !objetos && (
-                                <span className="absolute left-2 top-2 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[6px] bg-black/65 text-[11.5px] font-semibold"><Loader2 size={12} className="animate-spin" /> Mirando la foto…</span>
+                                <span className="absolute left-2 top-2 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[6px] bg-black/65 text-white text-[11.5px] font-semibold"><Loader2 size={12} className="animate-spin" /> Mirando la foto…</span>
                             )}
                         </div>
 
@@ -224,28 +231,28 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                                 return (
                                     <button key={i} type="button" onClick={() => { setCaja(conMargen(o.caja)); setEtiqueta(nombre); }} aria-pressed={sel}
                                         className={cn("h-8 pl-1 pr-2.5 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors",
-                                            sel ? "border-white bg-white text-black" : "border-white/15 text-white/80 hover:bg-white/[0.06]")}>
-                                        <span className={cn("grid place-items-center h-6 w-6 rounded-full", sel ? "bg-black/10" : "bg-white/10")}><I size={13} /></span>
+                                            sel ? "border-foreground bg-foreground text-background" : "border-border text-foreground/80 hover:bg-muted")}>
+                                        <span className={cn("grid place-items-center h-6 w-6 rounded-full", sel ? "bg-background/15" : "bg-muted")}><I size={13} /></span>
                                         {nombre}
                                     </button>
                                 );
                             })}
                             <button type="button" onClick={() => { setCaja(null); setEtiqueta("Toda la foto"); }} aria-pressed={!caja && etiqueta === "Toda la foto"}
                                 className={cn("h-8 pl-1 pr-2.5 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors",
-                                    !caja && etiqueta === "Toda la foto" ? "border-white bg-white text-black" : "border-white/15 text-white/80 hover:bg-white/[0.06]")}>
-                                <span className="grid place-items-center h-6 w-6 rounded-full bg-white/10"><ImageIcon size={13} /></span> Toda la foto
+                                    !caja && etiqueta === "Toda la foto" ? "border-foreground bg-foreground text-background" : "border-border text-foreground/80 hover:bg-muted")}>
+                                <span className="grid place-items-center h-6 w-6 rounded-full bg-muted"><ImageIcon size={13} /></span> Toda la foto
                             </button>
                         </div>
-                        <p className="text-[11.5px] text-white/50 flex items-start gap-1.5"><Crop size={12} className="mt-0.5 shrink-0" /> Arrastrá sobre la foto para recortar a mano. Lo que no sea una persona, un vehículo o un animal se encuentra peor.</p>
-                        {errorFoto && <p className="text-[12px] text-red-300">{errorFoto}</p>}
+                        <p className="text-[11.5px] text-muted-foreground flex items-start gap-1.5"><Crop size={12} className="mt-0.5 shrink-0" /> Arrastrá sobre la foto para recortar a mano. Lo que no sea una persona, un vehículo o un animal se encuentra peor.</p>
+                        {errorFoto && <p className="text-[12px] tono-mal">{errorFoto}</p>}
 
                         {recorte && (
-                            <div className="flex items-center gap-3 rounded-[10px] border border-white/10 bg-white/[0.03] p-2.5">
+                            <div className="flex items-center gap-3 rounded-[10px] border border-border bg-muted/40 p-2.5">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={recorte.miniatura} alt="" className="w-14 h-14 object-cover rounded-[6px] bg-black" />
                                 <div className="min-w-0">
                                     <div className="text-[12.5px] font-semibold">{etiqueta || "Recorte"}</div>
-                                    <div className="text-[11px] text-white/50">del evento del {fechaCorta(instanteMs)} {horaSeg(instanteMs)}</div>
+                                    <div className="text-[11px] text-muted-foreground">del evento del {fechaCorta(instanteMs)} {horaSeg(instanteMs)}</div>
                                 </div>
                             </div>
                         )}
@@ -257,28 +264,28 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                             <DetalleResultado r={abierto} i={abiertoIdx!} total={res.resultados.length} resultados={res.resultados} tira={tira}
                                 alElegir={setAbiertoIdx} alVolver={() => setAbiertoIdx(null)} onVerGrabacion={onVerGrabacion} />
                         ) : (<>
-                        <div className="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-b border-white/[0.08]">
-                            <span className="flex items-center rounded-full border border-white/15 p-0.5">
+                        <div className="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-b border-border">
+                            <span className="flex items-center rounded-full border border-border p-0.5">
                                 <button type="button" onClick={() => setMotor("omni")} aria-pressed={motor === "omni"}
-                                    className={cn("h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center gap-1.5", motor === "omni" ? "bg-white text-black" : "text-white/70 hover:text-white")}>
+                                    className={cn("h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center gap-1.5", motor === "omni" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
                                     <Sparkles size={13} /> OmniVision
                                 </button>
                                 <button type="button" onClick={() => conNvr && setMotor("nvr")} aria-pressed={motor === "nvr"} disabled={!conNvr}
                                     title={conNvr ? "La misma búsqueda en el NVR (AcuSearch)" : "No hay un NVR Hikvision VPro dado de alta: la búsqueda del NVR no está en esta instalación."}
-                                    className={cn("h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center gap-1.5", motor === "nvr" ? "bg-white text-black" : "text-white/70 hover:text-white", !conNvr && "opacity-40 cursor-not-allowed hover:text-white/70")}>
+                                    className={cn("h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center gap-1.5", motor === "nvr" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground", !conNvr && "opacity-40 cursor-not-allowed hover:text-muted-foreground")}>
                                     <Server size={13} /> NVR (AcuSearch)
                                 </button>
                             </span>
                             {motor === "omni" && (
-                                <span className="flex items-center rounded-full border border-white/15 p-0.5">
+                                <span className="flex items-center rounded-full border border-border p-0.5">
                                     {RANGOS.map((x) => (
                                         <button key={x.h} type="button" onClick={() => setH(x.h)} aria-pressed={h === x.h}
-                                            className={cn("h-7 px-2.5 rounded-full text-[12px] font-semibold tabular-nums", h === x.h ? "bg-white text-black" : "text-white/70 hover:text-white")}>{x.r}</button>
+                                            className={cn("h-7 px-2.5 rounded-full text-[12px] font-semibold tabular-nums", h === x.h ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{x.r}</button>
                                     ))}
                                 </span>
                             )}
                             {motor === "omni" && res && !buscando && (
-                                <span className="ml-auto text-[11.5px] text-white/50 tabular-nums">{res.resultados.length} más parecidos de {res.comparados.toLocaleString("es-UY")} · {res.ms} ms</span>
+                                <span className="ml-auto text-[11.5px] text-muted-foreground tabular-nums">{res.resultados.length} más parecidos de {res.comparados.toLocaleString("es-UY")} · {res.ms} ms</span>
                             )}
                         </div>
 
@@ -286,11 +293,11 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                             {motor === "nvr" ? (
                                 recorte && <AcuSearchPanel image={recorte.blob} previewUrl={recorte.miniatura} engine="vehicle" centerTimeMs={instanteMs} onBack={() => setMotor("omni")} title="Búsqueda en el NVR" />
                             ) : error ? (
-                                <div className="rounded-[10px] border border-red-400/30 bg-red-500/10 px-4 py-3 text-[12.5px]">{error}</div>
+                                <div className="rounded-[10px] border border-[var(--mal)]/30 bg-[var(--mal)]/10 tono-mal px-4 py-3 text-[12.5px]">{error}</div>
                             ) : buscando || !res ? (
-                                <div className="h-full grid place-items-center text-white/60 text-[13px]"><span className="inline-flex items-center gap-2"><Loader2 size={15} className="animate-spin" /> Buscando en lo que vieron las cámaras…</span></div>
+                                <div className="h-full grid place-items-center text-muted-foreground text-[13px]"><span className="inline-flex items-center gap-2"><Loader2 size={15} className="animate-spin" /> Buscando en lo que vieron las cámaras…</span></div>
                             ) : !res.resultados.length ? (
-                                <div className="h-full grid place-items-center text-center text-white/60 text-[13px] px-6">Nada parecido en {RANGOS.find((r) => r.h === h)?.r}. Probá un rango más largo o un recorte más ajustado.</div>
+                                <div className="h-full grid place-items-center text-center text-muted-foreground text-[13px] px-6">Nada parecido en {RANGOS.find((r) => r.h === h)?.r}. Probá un rango más largo o un recorte más ajustado.</div>
                             ) : (
                                 <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5">
                                     {res.resultados.map((r, i) => {
@@ -298,16 +305,16 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                                         const I = ICONO_GRUPO[r.grupo] || Scan;
                                         return (
                                             <button key={r.id} type="button" onClick={() => setAbiertoIdx(i)}
-                                                className="text-left rounded-[10px] border border-white/10 overflow-hidden hover:border-[var(--accion-en-oscuro)] transition-colors bg-white/[0.02]">
+                                                className="text-left rounded-[10px] border border-border overflow-hidden hover:border-[var(--accion)] transition-colors bg-card">
                                                 <div className="relative aspect-square bg-black">
                                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                                     {r.recorte && <img src={img(r.recorte, 256)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
-                                                    <span className="absolute left-1.5 top-1.5 h-5 min-w-5 px-1 rounded-[5px] bg-black/70 text-[10.5px] font-bold tabular-nums grid place-items-center">{i + 1}</span>
+                                                    <span className="absolute left-1.5 top-1.5 h-5 min-w-5 px-1 rounded-[5px] bg-black/70 text-white text-[10.5px] font-bold tabular-nums grid place-items-center">{i + 1}</span>
                                                 </div>
                                                 <div className="px-2 py-1.5">
-                                                    <div className="flex items-center gap-1 text-[11.5px] font-semibold truncate"><I size={11} className="shrink-0 text-white/60" /> {r.camara}</div>
-                                                    <div className="text-[10.5px] text-white/50 tabular-nums">{fechaCorta(r.primeraVez)} {horaSeg(r.primeraVez)}</div>
-                                                    <div className="mt-1 h-1 rounded-full bg-white/10 overflow-hidden" title={`coseno ${r.coseno}`}><div className="h-full bg-[var(--accion-en-oscuro)]" style={{ width: `${Math.max(8, rel * 100)}%` }} /></div>
+                                                    <div className="flex items-center gap-1 text-[11.5px] font-semibold truncate"><I size={11} className="shrink-0 text-muted-foreground" /> {r.camara}</div>
+                                                    <div className="text-[10.5px] text-muted-foreground tabular-nums">{fechaCorta(r.primeraVez)} {horaSeg(r.primeraVez)}</div>
+                                                    <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden" title={`coseno ${r.coseno}`}><div className="h-full bg-[var(--accion)]" style={{ width: `${Math.max(8, rel * 100)}%` }} /></div>
                                                 </div>
                                             </button>
                                         );
@@ -321,8 +328,8 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
 
                 {/* El borde de abajo de la persiana: tirar de acá la enrolla. */}
                 <button type="button" onClick={onCerrar} aria-label="Subir la persiana" title="Volver al evento  ( Esc )"
-                    className="shrink-0 h-5 grid place-items-center border-t border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.07] transition-colors">
-                    <span className="block w-12 h-1 rounded-full bg-white/30" />
+                    className="shrink-0 h-5 grid place-items-center border-t border-border bg-muted/50 hover:bg-muted transition-colors">
+                    <span className="block w-12 h-1 rounded-full bg-foreground/25" />
                 </button>
         </motion.section>
     );
@@ -343,16 +350,16 @@ function DetalleResultado({ r, i, total, resultados, tira, alElegir, alVolver, o
     const flecha = "w-10 h-10 grid place-items-center rounded-full bg-black/55 hover:bg-black/80 text-white disabled:opacity-0 transition-opacity";
     return (
         <>
-            <div className="shrink-0 flex items-center gap-3 px-5 py-2.5 border-b border-white/[0.08]">
+            <div className="shrink-0 flex items-center gap-3 px-5 py-2.5 border-b border-border">
                 <button type="button" onClick={alVolver} title="Volver a la grilla  ( Esc )"
-                    className="h-8 pl-2 pr-3 rounded-[6px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 text-white/70 hover:text-white hover:bg-white/10">
+                    className="h-8 pl-2 pr-3 rounded-[6px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-muted">
                     <LayoutGrid size={14} /> Resultados
                 </button>
-                <span className="text-[12px] text-white/45 tabular-nums">{i + 1} de {total}</span>
-                <span className="min-w-0 flex items-center gap-1.5 text-[13px] font-semibold truncate"><I size={13} className="shrink-0 text-white/60" /> {nombreClase(r.clase)} · {r.camara}</span>
-                <span className="text-[12px] text-white/55 tabular-nums whitespace-nowrap">{fechaCorta(r.primeraVez)} {horaSeg(r.primeraVez)}</span>
+                <span className="text-[12px] text-muted-foreground tabular-nums">{i + 1} de {total}</span>
+                <span className="min-w-0 flex items-center gap-1.5 text-[13px] font-semibold truncate"><I size={13} className="shrink-0 text-muted-foreground" /> {nombreClase(r.clase)} · {r.camara}</span>
+                <span className="text-[12px] text-muted-foreground tabular-nums whitespace-nowrap">{fechaCorta(r.primeraVez)} {horaSeg(r.primeraVez)}</span>
                 <div className="ml-auto flex items-center gap-1.5">
-                    <a href="/admin/vision/buscar" className="h-8 px-2.5 rounded-[6px] text-[12.5px] font-semibold text-white/60 hover:text-white hover:bg-white/10 inline-flex items-center gap-1.5"><Search size={13} /> OmniVision › Buscar</a>
+                    <a href="/admin/vision/buscar" className="h-8 px-2.5 rounded-[6px] text-[12.5px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted inline-flex items-center gap-1.5"><Search size={13} /> OmniVision › Buscar</a>
                     {onVerGrabacion && r.deviceId && (
                         <button type="button" onClick={() => onVerGrabacion(r.deviceId!, Date.parse(r.primeraVez), r.camara)}
                             className="h-8 px-3.5 rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] text-white text-[12.5px] font-bold inline-flex items-center gap-1.5">
@@ -361,7 +368,7 @@ function DetalleResultado({ r, i, total, resultados, tira, alElegir, alVolver, o
                     )}
                 </div>
             </div>
-            <div className="relative flex-1 min-h-0 bg-black overflow-hidden">
+            <div className="relative flex-1 min-h-0 bg-muted overflow-hidden">
                 {/* La foto llena el panel (contain) y el recuadro va en un SVG con el mismo tamaño
                     natural y el mismo encaje: así queda sobre el objeto a cualquier tamaño de panel. */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -376,13 +383,13 @@ function DetalleResultado({ r, i, total, resultados, tira, alElegir, alVolver, o
                 <button type="button" aria-label="Anterior" disabled={i === 0} onClick={() => alElegir(i - 1)} className={cn(flecha, "absolute left-3 top-1/2 -translate-y-1/2")}><ChevronLeft size={20} /></button>
                 <button type="button" aria-label="Siguiente" disabled={i >= total - 1} onClick={() => alElegir(i + 1)} className={cn(flecha, "absolute right-3 top-1/2 -translate-y-1/2")}><ChevronRight size={20} /></button>
             </div>
-            <div ref={tira} className="shrink-0 flex gap-1.5 overflow-x-auto px-5 py-2.5 border-t border-white/[0.08]">
+            <div ref={tira} className="shrink-0 flex gap-1.5 overflow-x-auto px-5 py-2.5 border-t border-border">
                 {resultados.map((x, j) => (
                     <button key={x.id} data-i={j} type="button" onClick={() => alElegir(j)} aria-pressed={j === i} title={`${j + 1} · ${x.camara}`}
-                        className={cn("relative shrink-0 w-[72px] h-[54px] rounded-[6px] overflow-hidden bg-black transition-opacity", j === i ? "ring-2 ring-[var(--accion-en-oscuro)]" : "opacity-55 hover:opacity-100")}>
+                        className={cn("relative shrink-0 w-[72px] h-[54px] rounded-[6px] overflow-hidden bg-black transition-opacity", j === i ? "ring-2 ring-[var(--accion)]" : "opacity-55 hover:opacity-100")}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         {x.recorte && <img src={img(x.recorte, 128)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
-                        <span className="absolute left-0.5 top-0.5 px-1 rounded-[4px] bg-black/70 text-[9.5px] font-bold tabular-nums">{j + 1}</span>
+                        <span className="absolute left-0.5 top-0.5 px-1 rounded-[4px] bg-black/70 text-white text-[9.5px] font-bold tabular-nums">{j + 1}</span>
                     </button>
                 ))}
             </div>
