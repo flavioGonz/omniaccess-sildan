@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Download, Send, X, Check, Plus, Loader2, AlertTriangle, MessageCircle, Search, Film, Clock, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { buscarDestinatariosClip, enviarClipPorWhatsApp, type DestinatarioClip, type ResultadoEnvioClip } from "@/app/actions/clips";
+import { buscarDestinatariosClip, enviarClipPorWhatsApp, estadoWhatsApp, type DestinatarioClip, type ResultadoEnvioClip } from "@/app/actions/clips";
+import type { EstadoWhatsApp } from "@/lib/whatsapp";
 import { ENVIO_MAX_SEG } from "@/lib/clips";
 
 /**
@@ -75,6 +76,20 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
     const [fase, setFase] = useState<Fase>({ tipo: "eligiendo" });
     const ocupado = fase.tipo === "armando";
     const [telefonos, setTelefonos] = useState<string[]>([]);
+    /*
+     * ¿WhatsApp anda? Se pregunta al abrir (18/10, Nico: «darse cuenta si está cargado y funcional;
+     * si no está activo, bloquear el envío»). Con la sesión caída la opción queda apagada y dice
+     * por qué, en vez de dejar elegir destinatarios y esperar el clip para fallar al final.
+     */
+    const [wa, setWa] = useState<EstadoWhatsApp | null>(null);
+    useEffect(() => {
+        if (!deviceId) return;
+        let vivo = true;
+        estadoWhatsApp().then((e) => { if (vivo) setWa(e); }).catch(() => { if (vivo) setWa({ ok: false, estado: "SIN_RESPUESTA", motivo: "No se pudo consultar el estado de WhatsApp." }); });
+        return () => { vivo = false; };
+    }, [deviceId]);
+    const waListo = !!wa?.ok;
+    useEffect(() => { if (wa && !wa.ok) setDestino((x) => (x === "whatsapp" ? "bajar" : x)); }, [wa]);
 
     useEffect(() => {
         const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !ocupado) { e.stopPropagation(); onClose(); } };
@@ -166,12 +181,19 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                                 <div className="grid grid-cols-3 gap-2">
                                     <OpcionDestino activo={destino === "bajar"} onClick={() => setDestino("bajar")} Icon={Download} titulo="Descargar" detalle="MP4 a esta computadora" />
                                     <OpcionDestino activo={destino === "whatsapp"} onClick={() => setDestino("whatsapp")} Icon={MessageCircle} titulo="WhatsApp"
-                                        detalle={deviceId ? `Hasta ${ENVIO_MAX_SEG} s` : "Sin cámara asociada"} apagado={!deviceId} />
+                                        detalle={!deviceId ? "Sin cámara asociada" : !wa ? "Verificando…" : wa.ok ? `Hasta ${ENVIO_MAX_SEG} s` : "No está conectado"}
+                                        apagado={!deviceId || !waListo} motivo={wa && !wa.ok ? wa.motivo : undefined} />
                                     <OpcionDestino activo={false} Icon={Send} titulo="Telegram" detalle="Todavía no envía video" apagado
                                         motivo="Por Telegram salen las fotos de los avisos; el envío de video todavía no existe. Para mandar el clip, usá WhatsApp o descargalo." />
                                 </div>
 
-                                {destino === "whatsapp" && deviceId && (
+                                {deviceId && wa && !wa.ok && (
+                                    <div className="mt-3 rounded-[10px] px-3 py-2.5 text-[11.5px] leading-snug chip-aviso flex items-start gap-2">
+                                        <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                                        <span><b>WhatsApp no está activo.</b> {wa.motivo} Mientras tanto, el clip se puede descargar.</span>
+                                    </div>
+                                )}
+                                {destino === "whatsapp" && deviceId && waListo && (
                                     <div className="mt-4">
                                         {recortado && (
                                             <div className="mb-3 rounded-[10px] px-3 py-2.5 text-[11.5px] leading-snug chip-aviso flex items-start gap-2">
@@ -195,7 +217,7 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                                     <Download size={15} /> Descargar {duracion(a + d)}
                                 </a>
                             ) : (
-                                <button type="button" disabled={telefonos.length === 0} onClick={enviar}
+                                <button type="button" disabled={telefonos.length === 0 || !waListo} onClick={enviar}
                                     className="h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] disabled:opacity-40 disabled:pointer-events-none text-white text-[13px] font-bold">
                                     <Send size={14} /> {telefonos.length ? `Enviar a ${telefonos.length}` : "Elegí a quién"}
                                 </button>

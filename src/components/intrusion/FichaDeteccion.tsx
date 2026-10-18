@@ -82,6 +82,8 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
      * botón o con Esc. En esos modos la ficha se oculta; para decidir se vuelve a la foto.
      */
     const [modo, setModo] = useState<"foto" | "grabacion" | "vivo">("foto");
+    /** El cajón del clip de la grabación: mientras está abierto, la barrita de arriba no lo tapa. */
+    const [clipGrab, setClipGrab] = useState(false);
     const vivoRef = useRef<HTMLVideoElement>(null);
     const [vivoListo, setVivoListo] = useState(false);
     const [compartir, setCompartir] = useState(false);
@@ -112,7 +114,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     const [sibs, setSibs] = useState<DetHistItem[]>([]);
     useEffect(() => { setCur(det); }, [det]);
     useEffect(() => { if (!det.deviceId) { setSibs([]); return; } getDetectionHistory({ deviceId: det.deviceId, pageSize: 60 }).then((r) => setSibs(r.items)).catch(() => setSibs([])); }, [det.deviceId]);
-    useEffect(() => { setFoto("captura"); setProporcion(AR_VENTANA); setModo("foto"); }, [cur.id]);
+    useEffect(() => { setFoto("captura"); setProporcion(AR_VENTANA); setModo("foto"); setClipGrab(false); }, [cur.id]);
     useEffect(() => {
         if (modo !== "vivo" || !cur.deviceId) return;
         const v = vivoRef.current; if (!v) return;
@@ -169,7 +171,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
             const t = e.target as HTMLElement | null;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
             // En la grabación las flechas, el espacio y la E son del reproductor; Esc vuelve a la foto.
-            if (modo !== "foto") { if (e.key === "Escape") { e.preventDefault(); setModo("foto"); } return; }
+            if (modo !== "foto") { if (e.key === "Escape" && !clipGrab) { e.preventDefault(); setModo("foto"); } return; }
             if (e.key === "ArrowLeft") { e.preventDefault(); go(1); }
             else if (e.key === "ArrowRight") { e.preventDefault(); go(-1); }
             else if (e.key === "Escape") { e.preventDefault(); if (verNota) setVerNota(false); else if (limpio) setLimpio(false); else if (enPropio) setFoto("captura"); else onClose(); }
@@ -266,7 +268,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
 
                 {/* La grabación del NVR, en el lugar de la foto, con su regla y sus controles (como en LPR). */}
                 {modo === "grabacion" && cur.deviceId && (
-                    <GrabacionVisor deviceId={cur.deviceId} camara={cur.deviceName || cam?.name} instanteMs={momento.getTime()} poster={captura} />
+                    <GrabacionVisor deviceId={cur.deviceId} camara={cur.deviceName || cam?.name} instanteMs={momento.getTime()} poster={captura} clip={clipGrab} onClip={setClipGrab} />
                 )}
                 {/* El vivo de la cámara, en la misma ventana. */}
                 {modo === "vivo" && cur.deviceId && (
@@ -282,7 +284,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     </div>
                 )}
                 {/* En la grabación o el vivo: qué se mira y cómo volver a la foto, arriba a la derecha. */}
-                {modo !== "foto" && (
+                {modo !== "foto" && !clipGrab && (
                     <div className="absolute top-4 right-4 z-40 flex items-center gap-2">
                         <span className="h-9 pl-2.5 pr-3 rounded-full bg-black/55 backdrop-blur-xl border border-white/15 text-white/85 text-[12px] font-semibold flex items-center gap-2 max-w-[300px]">
                             {modo === "vivo" ? <Radio size={14} className="animate-pulse text-[var(--mal)] shrink-0" /> : <PlayCircle size={14} className="text-[var(--accion-en-oscuro)] shrink-0" />}

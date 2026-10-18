@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { PERMISOS_VIDEO } from "@/lib/clip-instante";
-import { telefonoWhatsApp } from "@/lib/whatsapp";
+import { telefonoWhatsApp, estadoSesionWhatsApp } from "@/lib/whatsapp";
 import { enqueueDispatch } from "@/lib/dispatch-queue";
 
 /**
@@ -94,10 +94,13 @@ export async function opcionesCompartir(q = ""): Promise<OpcionesCompartir> {
         tgDestinos.push({ canal: "telegram", destino: "", nombre: "Grupo de la guardia", detalle: "El chat de Telegram del Centro de Notificaciones" });
     }
 
+    // Configurado no alcanza: la sesión tiene que estar andando (ver estadoSesionWhatsApp).
+    const waConfigurado = !!(waUrl || process.env.OPENWA_URL);
+    const waEstado = waConfigurado ? await estadoSesionWhatsApp() : null;
     return {
         whatsapp: {
-            disponible: !!(waUrl || process.env.OPENWA_URL),
-            motivo: !(waUrl || process.env.OPENWA_URL) ? "WhatsApp no está configurado en el Centro de Notificaciones." : undefined,
+            disponible: waConfigurado && !!waEstado?.ok,
+            motivo: !waConfigurado ? "WhatsApp no está configurado en el Centro de Notificaciones." : !waEstado?.ok ? waEstado?.motivo : undefined,
             avisos, usuarios,
         },
         telegram: {

@@ -124,3 +124,42 @@ export async function enviarVideoWaha(p: { telefono: string; urlRelativa: string
         }
     }
 }
+
+/**
+ * ¿Está WhatsApp en condiciones de mandar, ahora? (18/10, Nico: «debe ser inteligente y darse
+ * cuenta si está cargado y funcional; si no está activo, consultarlo antes y bloquear el envío».)
+ *
+ * Hasta acá «disponible» quería decir «hay una URL cargada»: con la sesión caída (en el lab estaba
+ * FAILED) el panel ofrecía WhatsApp, el operador elegía destinatarios, esperaba lo que tarda armar
+ * el clip y recién al final fallaba —o peor, quedaba encolado como si fuera a salir—. Ahora se le
+ * pregunta a la pasarela por la sesión (WAHA y OpenWA contestan igual: /api/sessions/{nombre} con
+ * `status`) y sólo WORKING cuenta como disponible. Se guarda 15 s para no consultar en cada clic.
+ */
+export type EstadoWhatsApp = { ok: boolean; estado: string; motivo?: string };
+const ESTADO_WA_MS = 15_000;
+let estadoWaCache: { t: number; v: EstadoWhatsApp } | null = null;
+const MOTIVO_WA: Record<string, string> = {
+    FAILED: "La sesión de WhatsApp está caída: hay que volver a vincular el teléfono (Centro de Notificaciones → WhatsApp).",
+    STOPPED: "La sesión de WhatsApp está detenida: hay que iniciarla (Centro de Notificaciones → WhatsApp).",
+    STARTING: "WhatsApp está arrancando: probá de nuevo en un minuto.",
+    SCAN_QR_CODE: "WhatsApp espera que se escanee el código QR para vincular el teléfono (Centro de Notificaciones → WhatsApp).",
+};
+export async function estadoSesionWhatsApp(forzar = false): Promise<EstadoWhatsApp> {
+    if (!forzar && estadoWaCache && Date.now() - estadoWaCache.t < ESTADO_WA_MS) return estadoWaCache.v;
+    let v: EstadoWhatsApp;
+    try {
+        const cfg = await getWhatsAppConfig();
+        const r = await axios.get(`${cfg.url}/api/sessions/${encodeURIComponent(cfg.session)}`, { headers: authHeaders(cfg.apiKey), timeout: 4000, validateStatus: () => true });
+        if (r.status === 404) v = { ok: false, estado: "SIN_SESION", motivo: `La pasarela de WhatsApp no tiene la sesión «${cfg.session}». Hay que crearla y vincular el teléfono.` };
+        else if (r.status === 401 || r.status === 403) v = { ok: false, estado: "SIN_PERMISO", motivo: "La pasarela de WhatsApp rechazó la clave de acceso (Centro de Notificaciones → WhatsApp)." };
+        else if (r.status >= 400) v = { ok: false, estado: `HTTP_${r.status}`, motivo: `La pasarela de WhatsApp respondió ${r.status}.` };
+        else {
+            const estado = String(r.data?.status || "DESCONOCIDO").toUpperCase();
+            v = estado === "WORKING" ? { ok: true, estado } : { ok: false, estado, motivo: MOTIVO_WA[estado] || `La sesión de WhatsApp no está activa (${estado}).` };
+        }
+    } catch (e: any) {
+        v = { ok: false, estado: "SIN_RESPUESTA", motivo: "El servicio de WhatsApp no contesta: no se puede mandar nada por ahí ahora." };
+    }
+    estadoWaCache = { t: Date.now(), v };
+    return v;
+}
