@@ -38,6 +38,7 @@ const PANTALLA_POST_DE_LECTURA = ['/api/monitor/camaras/siluetas']
 
 /** Los caminos de medios: pasan con credencial, pedido interno o firma (ver más abajo). */
 const MEDIOS = ['/api/files/', '/api/snapshot/', '/api/nvr/', '/api/clip/']
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 
 const secretKey = process.env.JWT_SECRET
 const key = secretKey ? new TextEncoder().encode(secretKey) : null
@@ -121,7 +122,13 @@ export async function middleware(request: NextRequest) {
     // MEDIOS_PUBLICOS=1 vuelve a lo de antes, por si algo de afuera que no se previó deja de andar.
     if (MEDIOS.some((m) => pathname.startsWith(m))) {
         if (process.env.MEDIOS_PUBLICOS === '1') return NextResponse.next()
-        const interno = !request.headers.get('x-forwarded-for') && !request.headers.get('x-real-ip')
+        // Interno = del propio equipo. Next agrega x-forwarded-for con la dirección del socket aunque
+        // el pedido no lo traiga (medido el 18/10: un curl a 127.0.0.1 llegó con el encabezado), así
+        // que «sin encabezado» no sirve: se mira que sea UNA sola dirección y de loopback. Por el
+        // proxy llega «cliente[, …]» y además X-Real-IP; un x-forwarded-for falso que mande alguien
+        // de afuera queda adelante de su IP real («127.0.0.1, 1.2.3.4») y no pasa.
+        const xff = (request.headers.get('x-forwarded-for') || '').trim()
+        const interno = !request.headers.get('x-real-ip') && (!xff || LOOPBACK.has(xff))
         if (interno || firmaDeMedioValida(pathname, request.nextUrl.searchParams.get(PARAM_FIRMA))) return NextResponse.next()
         if (await firmaValida(request.cookies.get('session')?.value)) return NextResponse.next()
         if (await firmaValida(request.cookies.get('guardia')?.value, 'guardia')) return NextResponse.next()
