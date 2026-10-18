@@ -46,6 +46,8 @@ const HOLGURA_TRAMO_MS = 3000;
 /** Se espera esto al arrastrar antes de pedir el tramo: un pedido por arrastre, no uno por píxel. */
 const ASENTAR_MS = 300;
 const VELOCIDADES = [1, 2, 4, 8];
+/** Quietud tras la que se esconden los controles mientras se reproduce. */
+const CONTROLES_QUIETOS_MS = 2500;
 /** El salto de los botones y de ← → . */
 const SALTO_SEG = 10;
 /** Esfumado de los bordes de la regla (%): a lo ancho del visor, el 22 del vivo la hacía ver cortada. */
@@ -106,6 +108,16 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     const [descargaPropia, setDescargaPropia] = useState(false);
     const descarga = clip ?? descargaPropia;
     const setDescarga = onClip ?? setDescargaPropia;
+    /** Los controles se esconden solos mientras se reproduce y nadie toca nada (ver el comentario del video). */
+    const [despierto, setDespierto] = useState(true);
+    const sobreControles = useRef(false);
+    const dormirTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const despertar = useCallback(() => {
+        setDespierto(true);
+        if (dormirTimer.current) clearTimeout(dormirTimer.current);
+        dormirTimer.current = setTimeout(() => { if (!sobreControles.current) setDespierto(false); }, CONTROLES_QUIETOS_MS);
+    }, []);
+    useEffect(() => () => { if (dormirTimer.current) clearTimeout(dormirTimer.current); }, []);
     // Los eventos de ESTA cámara alrededor del instante: para las flechas y para la regla.
     const [eventos, setEventos] = useState<EventoCamara[]>([]);
     useEffect(() => { let vivo = true; eventosDeCamara(deviceId, instanteMs).then((e) => { if (vivo) setEventos(e); }).catch(() => { }); return () => { vivo = false; }; }, [deviceId, instanteMs]);
@@ -272,6 +284,8 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
         ro.observe(el); return () => ro.disconnect();
     }, []);
 
+    const controlesVisibles = despierto || !reproduciendo || cargando || sinGrabacion || descarga;
+
     if (canal && (canal.ch == null || !canal.nvr)) {
         return <div className="absolute inset-0 z-[8] grid place-items-center bg-muted dark:bg-black text-muted-foreground text-[13px]">Esta cámara no tiene un canal de NVR asignado: no hay grabación que mostrar.</div>;
     }
@@ -286,20 +300,24 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
      * controles es oscuro y corto.
      */
     return (
-        <div className="absolute inset-0 z-[8] bg-black overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+        <div className={cn("absolute inset-0 z-[8] bg-black overflow-hidden", !controlesVisibles && "cursor-none")}
+            onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => { e.stopPropagation(); despertar(); }}
+            onPointerMove={despertar}>
             {/* El ambiente: el cuadro desenfocado llena lo que el video (contain) no ocupa. */}
             {poster && (<>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={poster} alt="" aria-hidden className={cn("absolute inset-0 w-full h-full object-cover scale-125 transition-[filter,opacity] duration-500", cargando || sinGrabacion ? "blur-[18px] opacity-70" : "blur-[40px] opacity-45")} />
-                <div className={cn("absolute inset-0 transition-colors duration-500", cargando || sinGrabacion ? "bg-black/30" : "bg-black/45")} />
+                <img src={poster} alt="" aria-hidden className={cn("absolute inset-0 w-full h-full object-cover scale-125 transition-[filter,opacity] duration-500", cargando || sinGrabacion ? "blur-[18px] opacity-70" : "blur-[28px] opacity-80")} />
+                <div className={cn("absolute inset-0 transition-colors duration-500", cargando || sinGrabacion ? "bg-black/30" : "bg-black/20")} />
             </>)}
             {/*
-              * El cuadro, ENTERO, arriba de los controles (18/10, Nico: «adaptá el video de playback y
-              * live para que quepa en la ventana modal completo»). Con los controles encima del video
-              * el tercio de abajo —justo donde pasan los autos— quedaba tapado por la regla. Ahora el
-              * video ocupa el alto que queda sobre la barra y la barra va debajo, sobre el ambiente.
+              * El video a toda la ventana, sin marcos, y los controles ENCIMA que se esconden solos
+              * mientras se reproduce (18/10, Nico). Se probó primero la barra debajo del video para
+              * que no tapara el tercio de abajo: el video quedaba más bajo que la ventana y aparecían
+              * dos franjas a los costados («no ves que tiene marcos el video»). La ventana del visor es
+              * 16:9 como las cámaras: a toda la ventana el cuadro entra justo. Los controles aparecen
+              * al mover el mouse, en pausa, cargando o sin video, y se van a los 2,5 s de quietud.
               */}
-            <div className="relative flex-1 min-h-0">
+            <div className="absolute inset-0">
             {url && (
                 <video key={url} ref={video} src={url} muted playsInline preload="auto" onClick={alternar}
                     onPlay={() => setReproduciendo(true)} onPause={() => setReproduciendo(false)}
@@ -347,7 +365,9 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
             </div>
 
             {/* ── Los controles, sobre la imagen: velo oscuro corto y vidrio sin bordes ── */}
-            <div className="relative shrink-0 px-4 md:px-6 pt-3 pb-2 bg-black/35 text-white">
+            <div className={cn("absolute inset-x-0 bottom-0 px-4 md:px-6 pb-2 pt-16 bg-[linear-gradient(to_top,rgba(0,0,0,.8)_0%,rgba(0,0,0,.5)_50%,transparent_100%)] text-white transition-[opacity,transform] duration-300",
+                controlesVisibles ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3 pointer-events-none")}
+                onPointerEnter={() => { sobreControles.current = true; }} onPointerLeave={() => { sobreControles.current = false; }}>
                 <div className="flex items-center gap-2 mb-1">
                     {/* Atrás / adelante: al evento anterior o siguiente de esta cámara, como era su lógica original.
                         Los 10 s quedan en ← → del teclado. */}
