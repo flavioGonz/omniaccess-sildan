@@ -29,7 +29,7 @@ import { Sparkles } from "lucide-react";
 
 export type FilaHistorial = {
     id: string;
-    tipo: "ACCESO" | "PASO" | "ESTACIONADO" | "VISTO";
+    tipo: "ACCESO" | "PASO" | "ESTACIONADO" | "VISTO" | "OV_CHAPA" | "OV_OBJETO";
     momento: string;
     plate: string | null;
     persona: string | null;
@@ -89,6 +89,15 @@ export const RASGOS: Record<string, { Ico: any; rotulo: string; ayuda: string; c
     ESTACIONADO: {
         Ico: ParkingCircle, rotulo: "Estacionado", chip: "bg-slate-500/20 text-slate-700 dark:text-slate-200 border-slate-400/30", punto: "bg-slate-400",
         ayuda: "El vehículo se quedó quieto en el mismo lugar del cuadro más de un minuto. Es UNA fila por estadía, con su intervalo, no una fila por relectura.",
+    },
+    /* Lo que OmniVision ve en las cámaras RTSP (no LPR): ver api/history/unified. */
+    OV_CHAPA: {
+        Ico: Sparkles, rotulo: "Leída por OmniVision", chip: "bg-[var(--accion)]/10 text-[var(--accion)] border-[var(--accion)]/30", punto: "bg-[var(--accion)]",
+        ayuda: "OmniVision leyó esta matrícula en una cámara que no es LPR (por RTSP). No abre barrera: deja constancia de dónde se vio el vehículo.",
+    },
+    OV_OBJETO: {
+        Ico: Sparkles, rotulo: "OmniVision", chip: "bg-muted text-muted-foreground border-border", punto: "bg-muted-foreground/50",
+        ayuda: "Un objeto (vehículo, persona, animal) que OmniVision vio en una cámara que no es LPR. Sale sólo si se lo pide en el filtro de tipos: son muchos por día.",
     },
     VISTO: {
         Ico: Eye, rotulo: "Visto", chip: "bg-muted text-muted-foreground border-border", punto: "bg-muted-foreground/50",

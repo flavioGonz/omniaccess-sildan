@@ -63,6 +63,8 @@ const CLASES: { valor: string; rotulo: string; Ico: any; ayuda: string }[] = [
     { valor: "PASO", rotulo: "Avistamientos", Ico: RASGOS.PASO.Ico, ayuda: RASGOS.PASO.ayuda },
     { valor: "ESTACIONADO", rotulo: "Estacionados", Ico: RASGOS.ESTACIONADO.Ico, ayuda: RASGOS.ESTACIONADO.ayuda },
     { valor: "VISTO", rotulo: "Vistos", Ico: RASGOS.VISTO.Ico, ayuda: RASGOS.VISTO.ayuda },
+    { valor: "OV_CHAPA", rotulo: "Chapas OmniVision", Ico: RASGOS.OV_CHAPA.Ico, ayuda: RASGOS.OV_CHAPA.ayuda },
+    { valor: "OV_OBJETO", rotulo: "Objetos OmniVision", Ico: RASGOS.OV_OBJETO.Ico, ayuda: RASGOS.OV_OBJETO.ayuda },
 ];
 
 const ICONO_VISION: Record<string, any> = { persona: PersonStanding, auto: Car, camion: Truck, moto: Motorbike, bici: Bike, omnibus: Bus, animal: PawPrint };
