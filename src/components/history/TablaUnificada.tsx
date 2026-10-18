@@ -365,6 +365,36 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
      * alimentar la tabla cuando se unificó el historial. Un control que no hace nada es
      * peor que no tenerlo, porque el operador cree que ya descartó lo que no buscaba.
      */
+    /*
+     * La silueta de las filas de OmniVision (cámaras RTSP), a pedido: llegan con el recuadro del
+     * registro y la silueta se segmenta en el servidor sólo para lo que se está mirando (ver
+     * api/history/ov-siluetas). De a tandas chicas, una por vez; aparece unos segundos después.
+     */
+    const pedidasSil = useRef(new Set<string>());
+    useEffect(() => {
+        const faltan = filas.filter((f) => (f.tipo === "OV_CHAPA" || f.tipo === "OV_OBJETO") && f.vision?.analisis?.objetos?.[0] && !f.vision.analisis.objetos[0].silueta && !pedidasSil.current.has(f.id));
+        if (!faltan.length) return;
+        let vivo = true;
+        (async () => {
+            for (let i = 0; i < faltan.length && vivo; i += 12) {
+                const tanda = faltan.slice(i, i + 12);
+                tanda.forEach((f) => pedidasSil.current.add(f.id));
+                const j = await fetch("/api/history/ov-siluetas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: tanda.map((f) => f.id.slice(2)) }) })
+                    .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+                const sil: Record<string, any> = j?.siluetas || {};
+                // Se aplica aunque la lista haya cambiado mientras tanto (ya quedaron como pedidas): el map busca por id.
+                if (!Object.values(sil).some(Boolean)) continue;
+                setFilas((prev) => prev.map((f) => {
+                    const s = sil[f.id.slice(2)];
+                    if (!s || !f.vision?.analisis) return f;
+                    const [o0, ...resto] = f.vision.analisis.objetos;
+                    return { ...f, vision: { ...f.vision, analisis: { ...f.vision.analisis, objetos: [{ ...o0, silueta: s }, ...resto] } } };
+                }));
+            }
+        })();
+        return () => { vivo = false; };
+    }, [filas]);
+
     const visibles = useMemo(() => {
         let v = merodeo && merodeo.size ? filas.filter((f) => f.plate && merodeo.has(f.plate)) : filas;
         const porColor = color && color !== "ALL";
