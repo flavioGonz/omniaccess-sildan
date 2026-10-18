@@ -17,6 +17,7 @@ import { ContornoDeteccion } from "@/components/tracking/ContornoDeteccion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { montarVivo } from "@/lib/vivo";
 import { leerRecuadro } from "@/lib/deteccion";
+import { leerChapa } from "@/lib/categoria-chapa";
 import { getCarLogo } from "@/lib/car-logos";
 import { datoDeCamara, useMarcasCamara } from "@/lib/marca-vehiculo";
 import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
@@ -1113,7 +1114,10 @@ export function VisorCuadro({
                             </dl>
                         ) : (
                             <div className="flex items-center justify-between gap-3 py-0.5">
-                                <span className="text-[12.5px] text-white/60">Esta matrícula no está en el padrón.</span>
+                                {/* Lo que dice la chapa sola (18/10, Nico: «dar una mejor descripción a desconocidos»). */}
+                                <span className="text-[12.5px] text-white/60">
+                                    {(() => { const l = chapaVisor.plate ? leerChapa(chapaVisor.plate) : null; return l && (l.categoria || l.extranjera) ? <>No está en el padrón. <b className="text-white/90">{l.frase}</b>{l.confianza === "probable" ? " (probable)" : ""}.</> : "Esta matrícula no está en el padrón."; })()}
+                                </span>
                                 {/* Con la chapa que se ve (la releída, en una NO_LEIDA). Sin chapa no hay qué dar de alta. */}
                                 {onRegistrar && chapaVisor.plate && (
                                     <BotonVisor icono={UserPlus} destacada onClick={() => onRegistrar(chapaVisor.plate!)}>Registrar</BotonVisor>
