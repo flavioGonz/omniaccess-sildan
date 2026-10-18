@@ -411,7 +411,34 @@ async function leerRotulo(p) {
     if (!r.ok) throw new Error(j.error || `omni-vision respondió ${r.status}`);
     const textos = (j.textos || [])
         .filter((t) => !t.sobreimpreso && !PARECE_SOBREIMPRESO.test(String(t.texto)) && t.confianza >= CONF_TEXTO && String(t.texto).replace(/[^A-Za-z0-9]/g, "").length >= 3)
-        .map((t) => ({ texto: t.texto, confianza: t.confianza, tipo: t.tipo }));
+        .map((t) => ({ texto: t.texto, confianza: t.confianza, tipo: t.tipo, poligono: t.poligono }));
+    /*
+     * Dónde está la matrícula en el cuadro, y su recorte nítido (18/10, Nico: «falta la captura de
+     * la matrícula en el auto, como en los eventos LPR»). La chapa se lee en el cuadro PRINCIPAL y el
+     * registro guarda el substream (640×360): sin esto el historial no sabía dónde marcarla, y en la
+     * foto guardada la chapa es una mancha. Se guarda su caja en fracciones del cuadro (el mismo
+     * encuadre que la foto: es la misma cámara) y un recorte del principal (<base>-c.jpg).
+     */
+    for (const t of textos) {
+        const pol = Array.isArray(t.poligono) ? t.poligono : null;
+        delete t.poligono;
+        if (t.tipo !== "matricula" || !pol || pol.length < 3) continue;
+        const xs = pol.map((q) => left + q[0] * width), ys = pol.map((q) => top + q[1] * height);
+        const px1 = Math.min(...xs), py1 = Math.min(...ys), px2 = Math.max(...xs), py2 = Math.max(...ys);
+        t.caja = [round(px1 / W), round(py1 / H), round(px2 / W), round(py2 / H)];
+        if (!t.recorte && p.recorte && p.recorte.endsWith("-r.jpg")) {
+            try {
+                const mx = (px2 - px1) * 0.35, my = (py2 - py1) * 0.6;
+                const l = Math.max(0, Math.floor(px1 - mx)), tp = Math.max(0, Math.floor(py1 - my));
+                const w = Math.min(W - l, Math.ceil(px2 - px1 + 2 * mx)), h = Math.min(H - tp, Math.ceil(py2 - py1 + 2 * my));
+                if (w > 8 && h > 4) {
+                    const clave = p.recorte.replace(/-r\.jpg$/, "-c.jpg");
+                    await subir(clave, await sharp(p.hd.jpeg).extract({ left: l, top: tp, width: w, height: h }).resize({ width: 480, withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer());
+                    t.recorte = clave;
+                }
+            } catch { /* sin recorte: queda la caja */ }
+        }
+    }
     return textos.length ? textos.slice(0, 12) : [];
 }
 
@@ -595,7 +622,7 @@ async function limpiar() {
         const viejas = await prisma.objetoVisto.findMany({ where: { primeraVez: { lt: limite } }, select: { id: true, recorte: true, foto: true }, take: LIMPIEZA_LOTE });
         if (!viejas.length) return;
         // Con la silueta que el historial calcula a pedido (<id>-s.json, api/history/ov-siluetas): si no existe, S3 lo ignora.
-        const claves = viejas.flatMap((v) => [v.recorte, v.foto, v.foto && v.foto.endsWith("-f.jpg") ? v.foto.replace(/-f\.jpg$/, "-s.json") : null]).filter(Boolean).map((Key) => ({ Key }));
+        const claves = viejas.flatMap((v) => [v.recorte, v.foto, v.foto && v.foto.endsWith("-f.jpg") ? v.foto.replace(/-f\.jpg$/, "-s.json") : null, v.recorte && v.recorte.endsWith("-r.jpg") ? v.recorte.replace(/-r\.jpg$/, "-c.jpg") : null]).filter(Boolean).map((Key) => ({ Key }));
         for (let i = 0; i < claves.length; i += 1000) {
             await (await cliente()).send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: claves.slice(i, i + 1000), Quiet: true } })).catch((e) => log("limpieza S3:", e.message));
         }

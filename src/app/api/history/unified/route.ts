@@ -90,7 +90,7 @@ const sinZona = (d: Date) => d.toISOString().replace("T", " ").replace("Z", "");
  */
 type FilaOV = {
     id: string; deviceId: string | null; camara: string; clase: string; grupo: string; confianza: number;
-    primeraVez: Date; cuadros: number; recorte: string | null; foto: string | null; atributos: any; caja: any; chapa: string | null; chapaConf: number | null;
+    primeraVez: Date; cuadros: number; recorte: string | null; foto: string | null; atributos: any; caja: any; chapa: string | null; chapaConf: number | null; chapaCaja: any;
 };
 
 /*
@@ -132,11 +132,11 @@ async function objetosOmniVision(p: { soloChapas: boolean; desde: Date | null; h
     const qChapa = p.buscar ? `%${p.buscar.toUpperCase().replace(/[^A-Z0-9]/g, "")}%` : null;
     return prisma.$queryRaw<FilaOV[]>`
         SELECT o.id, o."deviceId", o.camara, o.clase, o.grupo, o.confianza, o."primeraVez", o.cuadros, o.recorte, o.foto, o.atributos, o.caja,
-               m.texto AS chapa, m.conf AS "chapaConf"
+               m.texto AS chapa, m.conf AS "chapaConf", m.caja AS "chapaCaja"
           FROM "ObjetoVisto" o
           LEFT JOIN "Device" d ON d.id = o."deviceId"
           LEFT JOIN LATERAL (
-               SELECT upper(regexp_replace(t->>'texto', '[^A-Za-z0-9]', '', 'g')) AS texto, (t->>'confianza')::float AS conf
+               SELECT upper(regexp_replace(t->>'texto', '[^A-Za-z0-9]', '', 'g')) AS texto, (t->>'confianza')::float AS conf, t->'caja' AS caja
                  FROM jsonb_array_elements(CASE WHEN jsonb_typeof(o.textos) = 'array' THEN o.textos ELSE '[]'::jsonb END) t
                 WHERE t->>'tipo' = 'matricula' AND coalesce(t->>'texto', '') <> ''
                 ORDER BY (t->>'confianza')::float DESC NULLS LAST LIMIT 1) m ON true
@@ -513,7 +513,7 @@ export async function GET(req: NextRequest) {
                     detalles: null, permanencia: null, raw: null,
                     vision: { vio: [{ clase: o.clase, nombre, n: 1 }], releida: null, analisis: null },
                     // Para armar la silueta después de paginar (ver tamanoDeFoto): no viaja al navegador.
-                    _ov: { camara: o.camara, foto: o.foto, caja: o.caja, clase: o.clase, grupo: o.grupo, nombre, confianza: o.confianza, atributos: o.atributos },
+                    _ov: { camara: o.camara, foto: o.foto, caja: o.caja, clase: o.clase, grupo: o.grupo, nombre, confianza: o.confianza, atributos: o.atributos, chapaCaja: o.chapaCaja },
                 } as Fila;
             }),
     ];
@@ -530,6 +530,9 @@ export async function GET(req: NextRequest) {
         if (!o.foto || !c || !f.vision) return;
         const t = await tamanoDeFoto(o.camara, o.foto);
         if (!t) return;
+        // Dónde está la chapa (vision-worker la guarda desde el 18/10): el visor la marca y acerca, como en LPR.
+        const cc = Array.isArray(o.chapaCaja) && o.chapaCaja.length === 4 ? o.chapaCaja.map(Number) : null;
+        if (cc && cc[2] > cc[0] && cc[3] > cc[1]) f.bbox = JSON.stringify({ x: cc[0], y: cc[1], w: cc[2] - cc[0], h: cc[3] - cc[1], ar: t.w / t.h });
         f.vision.analisis = {
             ancho: t.w, alto: t.h,
             objetos: [{ clase: o.clase, nombre: o.nombre, grupo: o.grupo, confianza: o.confianza, caja: c as [number, number, number, number], silueta: null, atributos: Array.isArray(o.atributos) ? o.atributos : null }],

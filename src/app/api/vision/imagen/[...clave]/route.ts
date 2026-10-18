@@ -24,10 +24,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ clav
     if (auth.pantalla) return forbiddenResponse("El registro de detecciones no es una vista de pantalla.");
     const { clave } = await params;
     const key = (clave || []).join("/");
-    // Las del registro (día/id-r|f.jpg), las de la relectura de NO_LEIDA (relectura/día/evento-v|c.jpg)
+    // Las del registro (día/id-r|f|c.jpg: recorte, cuadro y chapa), las de la relectura de NO_LEIDA (relectura/día/evento-v|c.jpg)
     // las de los eventos de las reglas (eventos/día/id.jpg) y las muestras de las analíticas
     // entrenables (zonas/zona/día/id.jpg) y las fotos del detector propio (entrenamiento/día/id.jpg).
-    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+-[rf]\.jpg$/.test(key) && !/^relectura\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9-]+-[vc]\.jpg$/.test(key)
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+-[rfc]\.jpg$/.test(key) && !/^relectura\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9-]+-[vc]\.jpg$/.test(key)
         && !/^eventos\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key)
         && !/^zonas\/[a-z0-9]+\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key)
         && !/^entrenamiento\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key))
