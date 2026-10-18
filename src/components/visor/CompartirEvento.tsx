@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { AlertTriangle, Check, Loader2, MessageCircle, Search, Send, X } from "lucide-react";
+import { motion } from "framer-motion";
+import { AlertTriangle, Check, Loader2, MessageCircle, Search, Send, Share2, X } from "lucide-react";
+import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 import { compartirEvento, estadoCompartido, opcionesCompartir, type DestinoCompartir, type OpcionesCompartir } from "@/app/actions/compartir";
 
@@ -27,6 +28,11 @@ function IconoTelegram({ size = 15 }: { size?: number }) {
  * Lo que se va a mandar se ve antes de mandarlo (foto y texto), y después se sigue envío por envío
  * hasta que el worker dice cómo terminó: «enviado» en pantalla quiere decir que salió, no que se
  * encoló. Un canal sin configurar se muestra apagado y con el porqué.
+ *
+ * Es un CAJÓN dentro de la ventana del visor, el mismo de «Exportar clip» (18/10, Nico: «llama a
+ * un modal que no deseo, deseo el drawer»). Antes era un diálogo centrado, oscuro siempre, que
+ * tapaba la ficha y la foto; el cajón deja ver el evento al costado y sigue el tema. Quien lo usa
+ * lo monta ADENTRO de la ventana (va con `absolute`, como DescargaClip).
  */
 export function CompartirEvento({ foto, deviceId, deviceName, instante, titulo, lineas, onCerrar }: {
     foto: string | null;
@@ -101,124 +107,157 @@ export function CompartirEvento({ foto, deviceId, deviceName, instante, titulo, 
         setTrabajos(r.trabajos.map((t) => ({ ...t, estado: "PENDING", error: null })));
     };
 
-    if (typeof document === "undefined") return null;
     const terminado = trabajos?.every((t) => t.estado === "SENT" || t.estado === "FAILED");
+    const momento = new Date(instante);
+    const rotulo = "text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-3";
+    const cuantos = (c: "whatsapp" | "telegram") => !op ? "Buscando…" : !op[c].disponible ? (op[c].motivo || "No configurado")
+        : c === "telegram" ? `${op.telegram.destinos.length} ${op.telegram.destinos.length === 1 ? "destino" : "destinos"}`
+            : `${op.whatsapp.avisos.length} de avisos · o buscá un usuario`;
 
-    return createPortal(
-        <div className="fixed inset-0 z-[calc(var(--capa-panel)+600)] bg-black/60 grid place-items-center p-4 pointer-events-auto" onClick={(e) => { e.stopPropagation(); onCerrar(); }}>
-            <div onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Compartir el evento"
-                className="w-[min(460px,100%)] max-h-[90vh] flex flex-col rounded-[14px] bg-[#0b0f16] border border-white/12 shadow-[0_24px_70px_rgba(0,0,0,0.7)] text-white overflow-hidden">
-                <header className="flex items-center justify-between px-4 pt-3.5 pb-3 border-b border-white/10">
-                    <h2 className="text-[15px] font-bold">Compartir el evento</h2>
-                    <button type="button" onClick={onCerrar} aria-label="Cerrar" className="w-8 h-8 rounded-[8px] grid place-items-center text-white/70 hover:text-white hover:bg-white/10"><X size={16} /></button>
-                </header>
+    return (
+        <div className="absolute inset-0 z-[60]" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+            <motion.div className="absolute inset-0 bg-black/45" initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={() => { if (!enviando) onCerrar(); }} />
+            <motion.aside role="dialog" aria-label="Compartir el evento"
+                initial={{ x: "100%" }} animate={{ x: 0 }} transition={{ type: "spring", stiffness: 380, damping: 38 }}
+                className="absolute inset-y-0 right-0 w-full sm:w-[460px] flex flex-col bg-background/[0.97] backdrop-blur-xl border-l border-border text-foreground shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.45)]">
 
-                <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3.5 space-y-3.5">
-                    {/* Lo que va a salir, tal cual. */}
-                    <div className="flex gap-3">
-                        {foto && (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img src={`${foto}${foto.includes("?") ? "&" : "?"}w=320`} alt="" className="w-[120px] aspect-video rounded-[6px] object-cover bg-black shrink-0" />
-                        )}
-                        <div className="min-w-0 text-[12px] leading-snug">
-                            <div className="font-semibold text-white">{titulo}</div>
-                            {lineas.filter(Boolean).map((l, i) => <div key={i} className="text-white/65">{l}</div>)}
-                        </div>
+                {/* ── Encabezado ── */}
+                <div className="shrink-0 flex items-start gap-3 px-6 pt-5 pb-4 border-b border-border">
+                    <span className="w-10 h-10 rounded-[10px] grid place-items-center bg-muted border border-border shrink-0"><Share2 size={18} className="text-[var(--accion)]" /></span>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[17px] font-bold leading-tight">Compartir el evento</div>
+                        <div className="text-[12.5px] text-muted-foreground mt-0.5 truncate">{deviceName ? <>{deviceName} · </> : null}{fechaCorta(momento)} {horaSeg(momento)}</div>
                     </div>
+                    <button type="button" onClick={onCerrar} aria-label="Cerrar" title="Cerrar  ( Esc )"
+                        className="w-8 h-8 grid place-items-center rounded-[6px] text-muted-foreground hover:text-foreground hover:bg-muted"><X size={17} /></button>
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                    {/* ── Lo que va a salir, tal cual ── */}
+                    <section className="px-6 pt-5">
+                        <div className={rotulo}>Lo que se manda</div>
+                        <div className="rounded-[10px] border border-border overflow-hidden">
+                            {foto && (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img src={`${foto}${foto.includes("?") ? "&" : "?"}w=640`} alt="" className="w-full aspect-video object-cover bg-black" />
+                            )}
+                            <div className="px-3 py-2.5 text-[12px] leading-snug bg-muted/40">
+                                <div className="font-semibold">{titulo}</div>
+                                {lineas.filter(Boolean).map((l, i) => <div key={i} className="text-muted-foreground">{l}</div>)}
+                            </div>
+                        </div>
+                    </section>
 
                     {trabajos ? (
-                        <div>
-                            <div className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-white/50 mb-1.5">Envíos</div>
-                            <ul className="divide-y divide-white/[0.07]">
+                        <section className="px-6 pt-6 pb-6">
+                            <div className={rotulo}>Envíos</div>
+                            <div className="rounded-[10px] border border-border divide-y divide-border">
                                 {trabajos.map((t) => (
-                                    <li key={t.id} className="flex items-start justify-between gap-3 py-2 text-[12.5px]">
+                                    <div key={t.id} className="flex items-start justify-between gap-3 px-3 py-2.5 text-[12.5px]">
                                         <span className="font-semibold">{t.nombre}</span>
-                                        <span className={cn("flex items-center gap-1.5 text-right", t.estado === "SENT" ? "visor-bien" : t.estado === "FAILED" ? "visor-mal" : "text-white/60")}>
+                                        <span className={cn("flex items-center gap-1.5 text-right", t.estado === "SENT" ? "tono-bien" : t.estado === "FAILED" ? "tono-mal" : "text-muted-foreground")}>
                                             {t.estado === "SENT" ? <><Check size={14} /> Enviado</>
                                                 : t.estado === "FAILED" ? <><AlertTriangle size={14} className="shrink-0" /> <span className="max-w-[220px]">{t.error || "No salió"}</span></>
                                                     : <><Loader2 size={14} className="animate-spin" /> Enviando…</>}
                                         </span>
-                                    </li>
+                                    </div>
                                 ))}
-                            </ul>
-                            {!terminado && <p className="text-[11px] text-white/45 mt-1">{op?.conClip ? "Con el clip tarda lo que dura el video. " : ""}Si se cierra esta ventana el envío sigue: queda en Despachos.</p>}
-                        </div>
+                            </div>
+                            {!terminado && <p className="text-[11.5px] text-muted-foreground mt-2">{op?.conClip ? "Con el clip tarda lo que dura el video. " : ""}Si se cierra este panel el envío sigue: queda en Despachos.</p>}
+                        </section>
                     ) : (
                         <>
-                            {/* El canal: elegir uno, por eso es píldora. */}
-                            <div className="flex gap-1.5">
-                                {(["whatsapp", "telegram"] as const).map((c) => {
-                                    const ok = op ? op[c].disponible : true;
-                                    return (
-                                        <button key={c} type="button" onClick={() => setCanal(c)} aria-pressed={canal === c}
-                                            className={cn("h-8 px-3.5 rounded-full text-[12.5px] font-semibold inline-flex items-center gap-1.5 border transition-colors",
-                                                canal === c ? "bg-white text-black border-transparent" : "border-white/20 text-white/80 hover:text-white",
-                                                !ok && canal !== c && "opacity-50")}>
-                                            {c === "whatsapp" ? <MessageCircle size={14} /> : <IconoTelegram size={14} />}
-                                            {c === "whatsapp" ? "WhatsApp" : "Telegram"}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-
-                            {!op ? (
-                                <p className="text-[12px] text-white/55 flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Buscando destinatarios…</p>
-                            ) : !disponible ? (
-                                <p className="text-[12.5px] text-white/70 flex items-start gap-2"><AlertTriangle size={14} className="visor-aviso mt-0.5 shrink-0" /> {motivo}</p>
-                            ) : (
-                                <div>
-                                    <div className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-white/50 mb-1">Para</div>
-                                    <ul className="divide-y divide-white/[0.07]">
-                                        {destinos.map((d) => (
-                                            <li key={d.destino || "grupo"}>
-                                                <label className="flex items-center gap-2.5 py-2 cursor-pointer text-[12.5px]">
-                                                    <input type="checkbox" checked={elegidos.has(d.destino)} onChange={() => alternar(d.destino)} className="accent-[var(--accion)] w-4 h-4" />
-                                                    <span className="min-w-0 flex-1">
-                                                        <span className="font-semibold block truncate">{d.nombre}</span>
-                                                        <span className="text-[11px] text-white/45 block truncate">{d.detalle}</span>
-                                                    </span>
-                                                </label>
-                                            </li>
-                                        ))}
-                                        {!destinos.length && <li className="py-2 text-[12px] text-white/50">No hay destinatarios cargados. Buscá un usuario abajo.</li>}
-                                    </ul>
-                                    {canal === "whatsapp" && (
-                                        <div className="relative mt-1.5">
-                                            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" />
-                                            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar un usuario con teléfono (nombre, lote…)"
-                                                className="w-full h-9 pl-8 pr-3 rounded-[6px] bg-white/[0.06] border border-white/12 text-[12.5px] placeholder:text-white/35 focus:outline-none focus:border-[var(--accion-en-oscuro)]" />
-                                        </div>
-                                    )}
-                                    {[...elegidos].filter((d) => !destinos.some((x) => x.destino === d)).map((d) => (
-                                        <div key={d} className="flex items-center gap-2 mt-1.5 text-[12px] text-white/75"><Check size={13} /> {nombres.current.get(d) || d}
-                                            <button type="button" onClick={() => alternar(d)} className="text-white/45 hover:text-white">quitar</button></div>
-                                    ))}
+                            {/* ── Por dónde: elegir uno ── */}
+                            <section className="px-6 pt-6">
+                                <div className={rotulo}>Por dónde</div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {(["whatsapp", "telegram"] as const).map((c) => {
+                                        const ok = op ? op[c].disponible : true;
+                                        const activo = canal === c;
+                                        return (
+                                            <button key={c} type="button" onClick={() => ok && setCanal(c)} disabled={!ok} aria-pressed={activo} title={!ok ? op?.[c].motivo : undefined}
+                                                className={cn("rounded-[10px] border px-3 py-3 text-left transition-colors",
+                                                    activo ? "border-[var(--accion)] bg-[var(--accion)]/10" : "border-border hover:bg-muted",
+                                                    !ok && "opacity-45 cursor-not-allowed hover:bg-transparent")}>
+                                                <span className={activo ? "text-[var(--accion)]" : "text-foreground/80"}>{c === "whatsapp" ? <MessageCircle size={18} /> : <IconoTelegram size={18} />}</span>
+                                                <span className="block mt-2 text-[13px] font-bold">{c === "whatsapp" ? "WhatsApp" : "Telegram"}</span>
+                                                <span className="block text-[11px] text-muted-foreground leading-tight mt-0.5">{cuantos(c)}</span>
+                                            </button>
+                                        );
+                                    })}
                                 </div>
-                            )}
+                            </section>
 
-                            <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={2} maxLength={300} placeholder="Una nota para quien lo recibe (opcional)"
-                                className="w-full px-3 py-2 rounded-[6px] bg-white/[0.06] border border-white/12 text-[12.5px] placeholder:text-white/35 resize-none focus:outline-none focus:border-[var(--accion-en-oscuro)]" />
+                            {/* ── Para quién ── */}
+                            <section className="px-6 pt-6">
+                                <div className={rotulo}>Para</div>
+                                {!op ? (
+                                    <p className="text-[12px] text-muted-foreground flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Buscando destinatarios…</p>
+                                ) : !disponible ? (
+                                    <p className="text-[12.5px] text-foreground/80 flex items-start gap-2"><AlertTriangle size={14} className="tono-aviso mt-0.5 shrink-0" /> {motivo}</p>
+                                ) : (
+                                    <div className="space-y-2">
+                                        <div className="rounded-[10px] border border-border bg-muted/50 divide-y divide-border max-h-[240px] overflow-y-auto">
+                                            {destinos.map((d) => {
+                                                const si = elegidos.has(d.destino);
+                                                return (
+                                                    <button key={d.destino || "grupo"} type="button" onClick={() => alternar(d.destino)} aria-pressed={si}
+                                                        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-muted">
+                                                        <span className={cn("w-[18px] h-[18px] rounded-[5px] grid place-items-center border shrink-0", si ? "bg-[var(--accion)] border-[var(--accion)]" : "border-border")}>{si && <Check size={12} className="text-white" />}</span>
+                                                        <span className="min-w-0 flex-1">
+                                                            <span className="block text-[13px] font-semibold truncate">{d.nombre}</span>
+                                                            <span className="block text-[11px] text-muted-foreground truncate">{d.detalle}</span>
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })}
+                                            {!destinos.length && <div className="px-3 py-3 text-[12px] text-muted-foreground">No hay destinatarios cargados.{canal === "whatsapp" ? " Buscá un usuario abajo." : ""}</div>}
+                                        </div>
+                                        {canal === "whatsapp" && (
+                                            <div className="relative">
+                                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                                                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar un usuario con teléfono (nombre, lote…)"
+                                                    className="w-full h-9 rounded-[6px] bg-muted border border-border focus:border-[var(--accion)] pl-9 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground outline-none" />
+                                            </div>
+                                        )}
+                                        {[...elegidos].filter((d) => !destinos.some((x) => x.destino === d)).map((d) => (
+                                            <div key={d} className="flex items-center gap-2 text-[12px] text-foreground/80"><Check size={13} className="text-[var(--accion)]" /> {nombres.current.get(d) || d}
+                                                <button type="button" onClick={() => alternar(d)} className="text-muted-foreground hover:text-foreground">quitar</button></div>
+                                        ))}
+                                    </div>
+                                )}
+                            </section>
+
+                            {/* ── Nota ── */}
+                            <section className="px-6 pt-6 pb-6">
+                                <div className={rotulo}>Nota</div>
+                                <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={3} maxLength={300} placeholder="Para quien lo recibe (opcional)"
+                                    className="w-full px-3 py-2 rounded-[6px] bg-muted border border-border text-[13px] text-foreground placeholder:text-muted-foreground resize-none outline-none focus:border-[var(--accion)]" />
+                            </section>
                         </>
                     )}
-                    {error && <p className="text-[12px] visor-mal flex items-start gap-2"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}</p>}
+                    {error && <p className="mx-6 mb-6 text-[12px] tono-mal flex items-start gap-2"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}</p>}
                 </div>
 
-                <footer className="flex items-center justify-between gap-3 px-4 py-3 border-t border-white/10">
-                    <span className="text-[11px] text-white/45 leading-snug">
+                {/* ── Pie ── */}
+                <div className="shrink-0 flex items-center gap-2 px-6 py-4 border-t border-border bg-muted/40">
+                    <span className="text-[12px] text-muted-foreground mr-auto leading-snug">
                         {trabajos ? "" : op?.conClip ? "Sale con la foto y el clip del instante." : "Sale con la foto del evento."}
                     </span>
                     {trabajos ? (
-                        <button type="button" onClick={onCerrar} className="h-9 px-4 rounded-[8px] bg-white/10 hover:bg-white/15 text-[12.5px] font-semibold">Listo</button>
+                        <button type="button" onClick={onCerrar} className="h-9 px-4 rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] text-white text-[13px] font-bold">Listo</button>
                     ) : (
-                        <button type="button" onClick={enviar} disabled={!disponible || !elegidos.size || enviando}
-                            className="h-9 px-4 rounded-[8px] bg-[var(--accion)] text-white text-[12.5px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-40">
-                            {enviando ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                            Enviar{elegidos.size ? ` a ${elegidos.size}` : ""}
-                        </button>
+                        <>
+                            <button type="button" onClick={onCerrar} className="h-9 px-4 rounded-[6px] text-[13px] font-semibold text-foreground/80 hover:text-foreground hover:bg-muted">Cancelar</button>
+                            <button type="button" onClick={enviar} disabled={!disponible || !elegidos.size || enviando}
+                                className="h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] disabled:opacity-40 disabled:pointer-events-none text-white text-[13px] font-bold">
+                                {enviando ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                                Enviar{elegidos.size ? ` a ${elegidos.size}` : ""}
+                            </button>
+                        </>
                     )}
-                </footer>
-            </div>
-        </div>,
-        document.body,
+                </div>
+            </motion.aside>
+        </div>
     );
 }

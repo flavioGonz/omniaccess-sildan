@@ -425,15 +425,17 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     <span className="w-4 h-px bg-white/15" />
                     <BotonRiel onClick={() => setLimpio(true)} title="Ver la imagen limpia, sin nada encima  ( H )"><EyeOff size={15} /></BotonRiel>
                 </div>
+
+                {/* Compartir: un cajón dentro de la ventana, como «Exportar clip». */}
+                {compartir && <CompartirEvento foto={cur.snapshotPath || null} deviceId={cur.deviceId || null} deviceName={cur.deviceName || cam?.name || null}
+                    instante={cur.timestamp} titulo={`🚨 ${m.label}${clase ? ` · ${clase}` : ""} · ${cur.deviceName || cam?.name || "Cámara"}`} lineas={lineasCompartir}
+                    onCerrar={() => setCompartir(false)} />}
             </div>
 
             {/* Adentro del árbol de la ficha: el visor va en un portal, pero sus clics suben por React y el fondo cerraría la ficha. */}
             <div onClick={(e) => e.stopPropagation()}>
                 {abrir && cur.deviceId && <VerGrabacion deviceId={cur.deviceId} nombre={cur.deviceName || cam?.name} tab={abrir}
                     instanteMs={momento.getTime()} canal={cur.ch ?? cam?.ch ?? null} nvrId={cam?.nvrId ?? null} onClose={() => setAbrir(null)} />}
-                {compartir && <CompartirEvento foto={cur.snapshotPath || null} deviceId={cur.deviceId || null} deviceName={cur.deviceName || cam?.name || null}
-                    instante={cur.timestamp} titulo={`🚨 ${m.label}${clase ? ` · ${clase}` : ""} · ${cur.deviceName || cam?.name || "Cámara"}`} lineas={lineasCompartir}
-                    onCerrar={() => setCompartir(false)} />}
             </div>
         </div>
     );

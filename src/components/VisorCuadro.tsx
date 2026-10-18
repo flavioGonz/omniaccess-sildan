@@ -1322,12 +1322,13 @@ export function VisorCuadro({
                             onVerGrabacion={(deviceId, ms, camara) => setGrabacionDe({ deviceId, ms, camara })} />
                     )}
                 </AnimatePresence>
+                {/* Compartir: un cajón dentro de la ventana, como «Exportar clip». */}
+                {compartir && (
+                    <CompartirEvento foto={fila.snapshotUrl || null} deviceId={fila.deviceId || null} deviceName={fila.cameraName || null}
+                        instante={fila.timestamp} titulo={textoCompartir.titulo} lineas={textoCompartir.lineas} onCerrar={() => setCompartir(false)} />
+                )}
             </motion.div>
 
-            {compartir && (
-                <CompartirEvento foto={fila.snapshotUrl || null} deviceId={fila.deviceId || null} deviceName={fila.cameraName || null}
-                    instante={fila.timestamp} titulo={textoCompartir.titulo} lineas={textoCompartir.lineas} onCerrar={() => setCompartir(false)} />
-            )}
             {grabacionDe && (
                 <VerGrabacion deviceId={grabacionDe.deviceId} nombre={grabacionDe.camara} instanteMs={grabacionDe.ms} onClose={() => setGrabacionDe(null)} />
             )}
