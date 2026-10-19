@@ -42,6 +42,9 @@ export interface BoschVca {
 }
 
 const RCP_CONF = "0x0a1b";
+/** Relecturas para confirmar una escritura, y la espera antes de cada una (la cámara reinicia el motor). */
+const RELECTURAS = 3;
+const ESPERA_RELECTURA_MS = 2_500;
 
 async function rcp(c: BoschConn, cmd: string, type: string, direction: "READ" | "WRITE", payload?: string, timeout = 45_000): Promise<string> {
     const q = new URLSearchParams({ command: cmd, type, direction, num: "1" });
@@ -172,16 +175,27 @@ export function aplicar(script: string, cambios: CambiosVca): string {
  * no coinciden, restaura `respaldo` y lanza error.
  */
 export async function escribirBlob(c: BoschConn, blob: Buffer, respaldo: Buffer): Promise<void> {
-    const resp = await rcp(c, RCP_CONF, "P_OCTET", "WRITE", "0x" + blob.toString("hex"), 90_000);
+    /* La respuesta de la escritura no es la verdad: en la DINION 7100i de HB (19/10) la cámara
+       contestó err 0x70 a una escritura que SÍ aplicó (la relectura traía la zona nueva) y la app
+       decía «No se guardó». Lo que manda es la relectura; el error de la respuesta sólo se
+       informa si la relectura tampoco coincide. */
+    let errorEscritura: string | null = null;
     let ok = false;
-    try { ok = hexDe(resp).equals(blob); } catch { ok = false; }
-    if (ok) {
-        await new Promise((r) => setTimeout(r, 2500));
+    try {
+        const resp = await rcp(c, RCP_CONF, "P_OCTET", "WRITE", "0x" + blob.toString("hex"), 90_000);
+        try { ok = hexDe(resp).equals(blob); } catch { ok = false; }
+    } catch (e: any) {
+        errorEscritura = e?.message || String(e);
+    }
+    // Después de escribir, el motor de analíticas se reinicia: se relee unas veces con espera.
+    for (let i = 0; i < RELECTURAS; i++) {
+        await new Promise((r) => setTimeout(r, ESPERA_RELECTURA_MS));
         try { ok = (await leerBlob(c)).equals(blob); } catch { ok = false; }
+        if (ok) break;
     }
     if (!ok) {
         try { await rcp(c, RCP_CONF, "P_OCTET", "WRITE", "0x" + respaldo.toString("hex"), 90_000); } catch { /* se informa abajo */ }
-        throw new Error("La cámara no aceptó la configuración nueva; se restauró la anterior.");
+        throw new Error(`La cámara no aceptó la configuración nueva${errorEscritura ? ` (${errorEscritura})` : ""}; se restauró la anterior.`);
     }
 }
 
