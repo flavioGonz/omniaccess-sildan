@@ -57,6 +57,8 @@ const ENFRIO_INTRUSION_MS = 60_000;
  */
 /** Una misma pista no entra y sale dos veces en esto: el pie tiembla sobre el borde de la zona. */
 const FILA_BORDE_MS = 4_000;
+/** Cada cuánto se manda a la pantalla dónde está la gente de la fila (socket, sin guardar nada). */
+const FILA_VIVO_MS = 1_000;
 /** El límite de una fila que no lo tiene guardado: el mismo que propone la pantalla. */
 const FILA_LIMITE_DEFECTO = 10;
 
@@ -442,12 +444,35 @@ function iniciar({ prisma, subir, log }) {
     }
 
     async function fila(r, cam, personas, jpeg, ahora, t) {
-        const f = filas.get(r.id) || { aceptado: null, candidato: null, desde: t, llenoDesde: null, ultimoAviso: 0, escalado: false, pistas: new Map() };
+        const f = filas.get(r.id) || { aceptado: null, candidato: null, desde: t, llenoDesde: null, ultimoAviso: 0, escalado: false, pistas: new Map(), vivo: 0 };
         filas.set(r.id, f);
-        const dentro = personas.filter((o) => adentro(pie(o), r.zona));
+        const minimo = Math.max(0, r.permanencia ?? 0) * 1000;
+
+        // Cada pista: si está adentro, desde cuándo, y su cruce del borde (entradas y salidas).
+        for (const o of personas) {
+            if (o.pista == null) continue;
+            const k = String(o.pista), adentroAhora = adentro(pie(o), r.zona), p = f.pistas.get(k);
+            if (!p) { f.pistas.set(k, { dentro: adentroAhora, visto: t, cambio: 0, desde: adentroAhora ? t : null }); continue; }
+            p.visto = t;
+            if (p.dentro === adentroAhora || t - p.cambio < FILA_BORDE_MS) continue;
+            // Al salir, cuánto estuvo adentro: es la espera MEDIDA (la del kiosco es una estimación).
+            const estuvo = !adentroAhora && p.desde ? Math.round((t - p.desde) / 1000) : null;
+            await evento({ tipo: adentroAhora ? "FILA_ENTRA" : "FILA_SALE", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", pista: o.pista, sentido: adentroAhora ? "entra" : "sale", valor: estuvo, ts: ahora });
+            p.dentro = adentroAhora; p.cambio = t; p.desde = adentroAhora ? t : null;
+        }
+        for (const [k, p] of f.pistas) if (t - p.visto > OLVIDO_MS) f.pistas.delete(k);
+
+        // Aforo: los que están adentro; con «permanencia mínima», sólo los que ya llevan ese tiempo
+        // (el que cruza la zona caminando no hace fila). Sin número de pista cuenta igual.
+        const dentro = personas.filter((o) => {
+            if (!adentro(pie(o), r.zona)) return false;
+            if (!minimo || o.pista == null) return true;
+            const p = f.pistas.get(String(o.pista));
+            return !p?.desde || t - p.desde >= minimo;
+        });
         const n = dentro.length;
 
-        // Aforo, con su tiempo de rebote.
+        // Con su tiempo de rebote.
         if (n !== f.candidato) { f.candidato = n; f.desde = t; }
         if (n !== f.aceptado && (f.aceptado === null || t - f.desde >= (r.rebote ?? 2) * 1000)) {
             f.aceptado = n;
@@ -456,16 +481,15 @@ function iniciar({ prisma, subir, log }) {
             emitir("vision_fila", { reglaId: r.id, deviceId: cam.id, valor: n, ts: ahora.toISOString() });
         }
 
-        // Entradas y salidas por el borde de la zona, por pista.
-        for (const o of personas) {
-            if (o.pista == null) continue;
-            const k = String(o.pista), adentroAhora = adentro(pie(o), r.zona), p = f.pistas.get(k);
-            if (p && p.dentro !== adentroAhora && t - p.cambio >= FILA_BORDE_MS) {
-                await evento({ tipo: adentroAhora ? "FILA_ENTRA" : "FILA_SALE", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", pista: o.pista, sentido: adentroAhora ? "entra" : "sale", ts: ahora });
-                f.pistas.set(k, { dentro: adentroAhora, visto: t, cambio: t });
-            } else f.pistas.set(k, { dentro: p && p.dentro !== adentroAhora ? p.dentro : adentroAhora, visto: t, cambio: p ? p.cambio : 0 });
+        // En vivo para Visión → Filas: dónde está cada pie y si cuenta, como mucho una vez por segundo.
+        if (t - f.vivo >= FILA_VIVO_MS) {
+            f.vivo = t;
+            const cuentan = new Set(dentro);
+            emitir("vision_fila_vivo", {
+                reglaId: r.id, aforo: f.aceptado, candidato: f.candidato,
+                pies: personas.slice(0, 60).map((o) => { const [x, y] = pie(o); return [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000, cuentan.has(o) ? 1 : 0]; }),
+            });
         }
-        for (const [k, p] of f.pistas) if (t - p.visto > OLVIDO_MS) f.pistas.delete(k);
 
         // El límite: aviso, enfriamiento y escalamiento, dentro del horario de atención.
         // Una regla guardada antes de tener límite usa el de la pantalla (TIPOS_REGLA.fila.maximoDefecto).

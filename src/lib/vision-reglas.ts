@@ -49,6 +49,11 @@ export type ReglaVision = {
      * (cooldown de la alerta de Filas).
      */
     rebote?: number;
+    /**
+     * Fila: segundos que una persona tiene que llevar adentro de la zona para contar (el que la
+     * cruza caminando no hace fila). 0 = cuenta en cuanto entra, como el aforo de la cámara.
+     */
+    permanencia?: number;
     escalarMin?: number;
     enfrioMin?: number;
     /** Si además de registrarlo crea un aviso a la guardia (consola, Control LPR, Visitas). */
@@ -211,6 +216,7 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
                 regla.clases = ["person"];
                 regla.maximo = n(r?.maximo, t.maximoDefecto ?? 10, FILA.maximo.min, FILA.maximo.max);
                 regla.rebote = n(r?.rebote, FILA.rebote.defecto, FILA.rebote.min, FILA.rebote.max);
+                regla.permanencia = n(r?.permanencia, FILA.permanencia.defecto, FILA.permanencia.min, FILA.permanencia.max);
                 regla.escalarMin = n(r?.escalarMin, FILA.escalarMin.defecto, FILA.escalarMin.min, FILA.escalarMin.max);
                 regla.enfrioMin = n(r?.enfrioMin, FILA.enfrioMin.defecto, FILA.enfrioMin.min, FILA.enfrioMin.max);
             } else if (tipo === "intrusion") {
@@ -242,6 +248,7 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
 export const FILA = {
     maximo: { min: 1, max: 500 },
     rebote: { defecto: 2, min: 0, max: 30 },
+    permanencia: { defecto: 0, min: 0, max: 120 },
     escalarMin: { defecto: 5, min: 1, max: 120 },
     enfrioMin: { defecto: 5, min: 1, max: 120 },
 } as const;

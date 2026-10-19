@@ -861,9 +861,13 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                         <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
                             <CampoNumero rotulo="Límite" valor={r.maximo ?? 10} min={FILA.maximo.min} max={FILA.maximo.max} unidad="personas" alCambiar={(n) => cambiar({ maximo: n })} ayuda="El aforo máximo de la fila: al llegar avisa, y la fila se pinta en aviso desde el 70 %." />
                             <CampoNumero rotulo="Rebote" valor={r.rebote ?? FILA.rebote.defecto} min={FILA.rebote.min} max={FILA.rebote.max} unidad="s" alCambiar={(n) => cambiar({ rebote: n })} ayuda="Cuánto tiene que sostenerse un número nuevo para valer, como el «Tiempo de rebote» de la cámara: uno tapado un instante no mueve la fila." />
+                            <CampoNumero rotulo="Cuenta desde" valor={r.permanencia ?? FILA.permanencia.defecto} min={FILA.permanencia.min} max={FILA.permanencia.max} unidad="s adentro" alCambiar={(n) => cambiar({ permanencia: n })} ayuda="Cuánto tiene que llevar una persona adentro de la zona para contar en la fila. El que la cruza caminando no hace fila. 0: cuenta en cuanto entra." />
                             <CampoNumero rotulo="Supervisor a los" valor={r.escalarMin ?? FILA.escalarMin.defecto} min={FILA.escalarMin.min} max={FILA.escalarMin.max} unidad="min llena" alCambiar={(n) => cambiar({ escalarMin: n })} ayuda="Si la fila sigue en el límite estos minutos, un segundo aviso: avisar al supervisor. Uno por episodio." />
                             <CampoNumero rotulo="Entre avisos" valor={r.enfrioMin ?? FILA.enfrioMin.defecto} min={FILA.enfrioMin.min} max={FILA.enfrioMin.max} unidad="min" alCambiar={(n) => cambiar({ enfrioMin: n })} ayuda="Con la fila llena, no repite el aviso antes de esto." />
                         </div>
+                    )}
+                    {r.tipo === "fila" && (g.zona || []).some(([x, y]) => x < 0.02 || y < 0.02 || x > 0.98 || y > 0.98) && (
+                        <p className="text-[11.5px] tono-aviso leading-snug">La zona toca el borde del cuadro: el que sale por ahí se va de la cámara sin cruzar el borde de la zona, y no cuenta como salida. Dejá un margen.</p>
                     )}
                     {r.tipo !== "conteo" && r.tipo !== "fila" && (
                         <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
