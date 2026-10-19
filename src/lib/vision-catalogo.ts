@@ -306,8 +306,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "persona-suelo", nombre: "Persona en el suelo", icono: "PersonStanding", modo: "Intrusión",
-        queHace: "Alguien caído en la calle o en un espacio común, por la posición del cuerpo.",
-        necesita: ["deteccion", "pose"], clases: ["person"], estado: "posible", porDefecto: false,
+        queHace: "Alguien caído en la calle o en un espacio común, por la posición del cuerpo: acostado en la zona los segundos indicados.",
+        necesita: ["deteccion", "pose"], clases: ["person"], estado: "corre", fase: 3, porDefecto: true,
+        limite: "En prueba en el lab desde el 19/10: sus falsas alarmas todavía no están medidas.",
     },
     {
         id: "tipo-vehiculo", nombre: "Tipo de vehículo en lecturas", icono: "Car", modo: "LPR",
@@ -387,8 +388,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "trepar", nombre: "Persona trepando", icono: "PersonStanding", modo: "Intrusión",
-        queHace: "Manos por encima de la cabeza y pies separados del suelo junto a un cerco o muro marcado: alguien trepando.",
-        necesita: ["deteccion", "pose"], clases: ["person"], estado: "posible", porDefecto: false,
+        queHace: "Las dos manos por encima de los hombros, unos segundos seguidos, junto a un cerco o muro marcado: alguien trepando.",
+        necesita: ["deteccion", "pose"], clases: ["person"], estado: "corre", fase: 3, porDefecto: true,
+        limite: "En prueba en el lab desde el 19/10: sus falsas alarmas todavía no están medidas.",
     },
     {
         id: "aglomeracion", nombre: "Aglomeración", icono: "Users", modo: "Intrusión",
@@ -449,7 +451,8 @@ export const ANALITICAS: Analitica[] = [
     {
         id: "epp", nombre: "Casco y chaleco en obras", icono: "HardHat", modo: "Obras",
         queHace: "Personas sin casco o sin chaleco reflectivo dentro de una obra marcada (las obras del barrio, el personal de mantenimiento).",
-        necesita: ["deteccion", "clasificacion"], clases: ["person"], estado: "posible", porDefecto: false,
+        necesita: ["deteccion", "clasificacion"], clases: ["person"], estado: "corre", fase: 3, porDefecto: true,
+        limite: "En prueba en el lab desde el 19/10: sus falsas alarmas todavía no están medidas.",
     },
     {
         id: "fuego", nombre: "Humo y fuego", icono: "Flame", modo: "Intrusión",

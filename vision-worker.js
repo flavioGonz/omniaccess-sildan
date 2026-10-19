@@ -348,6 +348,12 @@ async function detectar(jpeg, deviceId, op = {}) {
     await tomarFicha();
     marcarAnalisis(deviceId);
     const q = new URLSearchParams({ umbral: String(UMBRAL), atributos: op.atributos === false || ajustes.apagadas.has("atributos") ? "0" : "1", sesion: `registro-${deviceId}`, fps: String(op.fps || 1000 / INTERVALO_MS) });
+    /*
+     * Otra tarea (la pose, para las reglas de persona en el suelo y trepando): sin sesión de
+     * seguimiento. Si fuera con la del registro, las personas de la pose entrarían al mismo
+     * rastreador que las de la detección y le cambiarían los números a las pistas.
+     */
+    if (op.tarea) { q.set("tarea", op.tarea); q.delete("sesion"); q.delete("fps"); }
     const r = await fetch(`${VISION}/detectar?${q}`, {
         method: "POST", body: jpeg, headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(20000),
     });
@@ -746,7 +752,14 @@ function sincronizarRapidas(registro) {
 
 async function principal() {
     log(`arranca · ${VISION} · cada ${INTERVALO_MS} ms · umbral ${UMBRAL} · cambio ${CAMBIO_MIN}`);
-    reglero = reglasVision.iniciar({ prisma, subir, log });
+    reglero = reglasVision.iniciar({
+        prisma, subir, log,
+        // La pose del mismo cuadro, sólo cuando una regla la necesita (ver poseDe en vision-reglas.js).
+        pose: async (jpeg, deviceId) => {
+            if (ajustes.apagadas.has("pose")) throw new Error("la tarea pose está apagada en el laboratorio");
+            return (await detectar(jpeg, deviceId, { tarea: "pose", atributos: false })).objetos || [];
+        },
+    });
     await leerAjustes().catch((e) => log("ajustes:", e.message));
     const permitidas = () => ({ todas: ajustes.todas !== false, ids: [...(ajustes.permitidas || [])] });
     relector = relecturas.iniciar({ prisma, subir, ajuste, log, vision: VISION, activa: () => ajustes.relectura, permitidas });

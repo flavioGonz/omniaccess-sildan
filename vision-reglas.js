@@ -23,8 +23,8 @@ const crypto = require("crypto");
 const sharp = require("sharp");
 
 /** Las analíticas del laboratorio que prenden cada tipo, y su valor si nadie las tocó. */
-const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion", fila: "fila", cruce: "linea-propia", intrusion: "zona-propia", merodeo: "merodeo", retirado: "retirado", animal: "animal", dejado: "dejados" };
-const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, aglomeracion: true, fila: true, "linea-propia": true, "zona-propia": true, merodeo: true, retirado: true, animal: true, dejados: true };
+const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion", fila: "fila", cruce: "linea-propia", intrusion: "zona-propia", merodeo: "merodeo", retirado: "retirado", animal: "animal", dejado: "dejados", suelo: "persona-suelo", trepar: "trepar", epp: "epp" };
+const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, aglomeracion: true, fila: true, "linea-propia": true, "zona-propia": true, merodeo: true, retirado: true, animal: true, dejados: true, "persona-suelo": true, trepar: true, epp: true };
 /** Cuánto tiene que correrse el pie (fracción del cuadro) para contar como movimiento. */
 const MOVIMIENTO_MIN = 0.01;
 /** Una pista que no se ve hace esto deja de existir para las reglas. */
@@ -103,7 +103,42 @@ const DEJADO_DUENO = 1.5;
 const DEJADO_OLVIDO_MS = 3 * 60_000;
 const ENFRIO_DEJADO_MS = 60_000;
 
-const TIPO_AVISO = { ANIMAL: "VISION_ANIMAL", DEJADO: "VISION_DEJADO", FILA_LLENA: "VISION_FILA", FILA_ESCALADA: "VISION_FILA", SENTIDO_CONTRARIO: "VISION_SENTIDO", PERMANENCIA: "VISION_PERMANENCIA", AGLOMERACION: "VISION_AGLOMERACION", CRUCE_LINEA: "VISION_CRUCE", INTRUSION: "VISION_INTRUSION", MERODEO: "VISION_MERODEO", RETIRADO: "VISION_RETIRADO" };
+/**
+ * Fase 3 (19/10): las reglas que miran el CUERPO. Persona en el suelo y trepando piden la pose
+ * del cuadro (otra inferencia, ~30 ms): se pide sólo con una persona en la zona y como mucho una
+ * vez por cuadro y cámara, aunque haya varias reglas (POSE_* abajo).
+ *
+ * Suelo: la pose dice «acostada» (torso a más de 60° de la vertical, ver detector.py) con el
+ * centro de la caja en la zona, `segundos` seguidos. Es la misma persona mientras su caja se
+ * superpone SUELO_IOU con la anterior; no se la olvida hasta SUELO_OLVIDO_MS sin verla acostada,
+ * porque a una persona tirada a veces no se le ven hombros y caderas y la postura sale vacía.
+ */
+const SUELO_IOU = 0.3;
+const SUELO_OLVIDO_MS = 15_000;
+const ENFRIO_SUELO_MS = 2 * 60_000;
+/**
+ * Trepando: las dos muñecas por encima de la línea de los hombros, a más de TREPA_MANOS largos de
+ * torso, con la persona en la zona (dibujada sobre el cerco o el muro), `segundos` seguidos. Un
+ * punto de la pose se usa si «se ve» en POSE_VISIBLE (el mismo PUNTO_VISIBLE de detector.py).
+ * Alguien que saluda con los brazos arriba también lo cumple: por eso pide la zona y el tiempo.
+ */
+const TREPA_MANOS = 0.25;
+const TREPA_OLVIDO_MS = 6_000;
+const ENFRIO_TREPA_MS = 2 * 60_000;
+const POSE_VISIBLE = 0.3;
+/** Un error de la pose (apagada, omni-vision ocupado) se anota como mucho una vez por minuto. */
+const POSE_AVISO_ERROR_MS = 60_000;
+/**
+ * Casco y chaleco: los atributos de SigLIP de cada persona (los mismos del registro). Se juntan
+ * las lecturas NO dudosas de cada pista; avisa cuando lleva `segundos` en la zona, hay al menos
+ * EPP_LECTURAS_MIN lecturas del elemento y EPP_FALTA de ellas dicen «no». Una sola lectura en
+ * contra no alcanza: el recorte de una persona de espaldas o lejos se equivoca seguido.
+ */
+const EPP_LECTURAS_MIN = 3;
+const EPP_FALTA = 0.6;
+const ENFRIO_EPP_MS = 2 * 60_000;
+
+const TIPO_AVISO = { SUELO: "VISION_SUELO", TREPA: "VISION_TREPA", EPP: "VISION_EPP", ANIMAL: "VISION_ANIMAL", DEJADO: "VISION_DEJADO", FILA_LLENA: "VISION_FILA", FILA_ESCALADA: "VISION_FILA", SENTIDO_CONTRARIO: "VISION_SENTIDO", PERMANENCIA: "VISION_PERMANENCIA", AGLOMERACION: "VISION_AGLOMERACION", CRUCE_LINEA: "VISION_CRUCE", INTRUSION: "VISION_INTRUSION", MERODEO: "VISION_MERODEO", RETIRADO: "VISION_RETIRADO" };
 const NOMBRE_CLASE = { person: "persona", car: "auto", truck: "camioneta", bus: "ómnibus", motorcycle: "moto", bicycle: "bicicleta", dog: "perro",
     cat: "gato", horse: "caballo", cow: "vaca", sheep: "oveja",
     backpack: "mochila", handbag: "bolso", suitcase: "valija", chair: "silla", bench: "banco", "potted plant": "maceta" };
@@ -236,7 +271,7 @@ function emitir(evento, datos) {
     } catch { }
 }
 
-function iniciar({ prisma, subir, log }) {
+function iniciar({ prisma, subir, log, pose }) {
     let reglas = [];
     let analiticas = {};
     const contadores = { cruces: 0, sentido: 0, permanencia: 0, aglomeracion: 0, filas: 0, crucesPropios: 0, intrusiones: 0, merodeos: 0, retirados: 0, aprendidos: 0, avisos: 0, errores: 0, ultimoError: null };
@@ -265,6 +300,17 @@ function iniciar({ prisma, subir, log }) {
     /** Objeto dejado, por regla: { lista: [{ clase, caja, desde, visto, avisado }] } (ver DEJADO_*). */
     const dejados = new Map();
     const ultimoAvisoDejado = new Map();
+    /** Persona en el suelo / trepando, por regla: [{ caja, desde, visto, avisado }]. */
+    const suelos = new Map();
+    const trepadas = new Map();
+    const ultimoAvisoSuelo = new Map();
+    const ultimoAvisoTrepa = new Map();
+    /** Casco y chaleco: `${regla}:${pista}` → { desde, visto, avisado, deviceId, si: {casco, chaleco}, no: {…} }. */
+    const epps = new Map();
+    const ultimoAvisoEpp = new Map();
+    /** La pose del último cuadro de cada cámara: { t, objetos } (una inferencia por cuadro, la compartan las reglas que sea). */
+    const poses = new Map();
+    let poseError = 0;
     /**
      * Conteo de fila, por regla: { aceptado, candidato, desde, llenoDesde, ultimoAviso, escalado,
      * pistas: pista → { dentro, visto, cambio } }.
@@ -301,6 +347,9 @@ function iniciar({ prisma, subir, log }) {
             if (r.tipo === "animal") for (const [k, v] of animales) if (k.startsWith(r.id + ":") && !v.avisado) return true;
             // Un bulto nuevo juntando tiempo: si la escena queda quieta se analizaría una vez por minuto.
             if (r.tipo === "dejado" && (dejados.get(r.id)?.lista || []).some((a) => !a.avisado)) return true;
+            if (r.tipo === "suelo" && (suelos.get(r.id) || []).some((a) => !a.avisado)) return true;
+            if (r.tipo === "trepar" && (trepadas.get(r.id) || []).some((a) => !a.avisado)) return true;
+            if (r.tipo === "epp") for (const [k, v] of epps) if (k.startsWith(r.id + ":") && !v.avisado) return true;
             // Algo aprendido que está faltando: se mira seguido hasta decidir si se lo llevaron.
             if (r.tipo === "retirado" && (aprendidos.get(r.id) || []).some((a) => a.estable && a.faltas > 0)) return true;
         }
@@ -352,6 +401,8 @@ function iniciar({ prisma, subir, log }) {
                     else if (r.tipo === "animal") await animal(r, cam, valen, objetos, jpeg, ahora, t);
                     // Dejado no usa la pista (un bulto quieto puede cambiar de número), como retirado.
                     else if (r.tipo === "dejado") await dejado(r, cam, objetos, jpeg, ahora, t);
+                    else if (r.tipo === "suelo" || r.tipo === "trepar") await cuerpo(r, cam, valen, jpeg, ahora, t);
+                    else if (r.tipo === "epp") await epp(r, cam, valen, jpeg, ahora, t);
                     // Retirado mira también a las personas (para saber si tapan lo aprendido).
                     else if (r.tipo === "retirado") await retirado(r, cam, objetos, jpeg, ahora, t);
                     else if (r.tipo === "permanencia") await permanencia(r, cam, valen, jpeg, ahora, t);
@@ -375,6 +426,7 @@ function iniciar({ prisma, subir, log }) {
         for (const [k, v] of intrusos) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) intrusos.delete(k);
         for (const [k, v] of merodeos) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) merodeos.delete(k);
         for (const [k, v] of animales) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) animales.delete(k);
+        for (const [k, v] of epps) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) epps.delete(k);
         await cerrarEstadias(cam, t, false);
     }
 
@@ -602,6 +654,106 @@ function iniciar({ prisma, subir, log }) {
                 ultimoAvisoDejado.set(r.id, t);
                 await avisar(r, "DEJADO", `${nombreDe(a.clase)} sin dueño hace ${lleva(seg)} en ${r.nombre}`, ev.id,
                     await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: a.caja, tono: "aviso", texto: `${nombreDe(a.clase)} · ${lleva(seg)}` }] }, f), cam);
+            }
+        }
+    }
+
+    /** La pose de este cuadro (una sola inferencia por cuadro y cámara). null si no se pudo. */
+    async function poseDe(cam, jpeg, t) {
+        const c = poses.get(cam.id);
+        if (c && c.t === t) return c.objetos;
+        let objetos = null;
+        try { objetos = pose ? await pose(jpeg, cam.id) : null; }
+        catch (e) {
+            if (Date.now() - poseError > POSE_AVISO_ERROR_MS) { poseError = Date.now(); log("reglas: no se pudo pedir la pose:", e.message); }
+            contadores.errores++; contadores.ultimoError = `pose: ${e.message}`;
+        }
+        poses.set(cam.id, { t, objetos });
+        return objetos;
+    }
+
+    /** ¿Las dos muñecas por encima de los hombros? (puntos normalizados [x, y, se ve]). */
+    function manosArriba(p) {
+        const pt = Array.isArray(p?.puntos) ? p.puntos : null;
+        if (!pt || pt.length < 13) return false;
+        const ve = (i) => pt[i] && pt[i][2] >= POSE_VISIBLE;
+        if (![5, 6, 9, 10, 11, 12].every(ve)) return false;
+        const hombros = (pt[5][1] + pt[6][1]) / 2, caderas = (pt[11][1] + pt[12][1]) / 2;
+        const torso = Math.abs(caderas - hombros);
+        if (torso < 0.01) return false;
+        return pt[9][1] < hombros - TREPA_MANOS * torso && pt[10][1] < hombros - TREPA_MANOS * torso;
+    }
+
+    /**
+     * Persona en el suelo y trepando: la misma mecánica sobre la pose. Se pide la pose sólo si hay
+     * una persona en la zona o algo en curso; las personas de la pose se siguen por superposición
+     * de cajas (la pose no tiene número de pista: va sin sesión, ver detectar en vision-worker).
+     */
+    async function cuerpo(r, cam, valen, jpeg, ahora, t) {
+        const suelo = r.tipo === "suelo";
+        const mapa = suelo ? suelos : trepadas;
+        let lista = mapa.get(r.id) || [];
+        const enZona = valen.some((o) => adentro(pie(o), r.zona) || adentro(centro(o.caja_norm), r.zona));
+        if (!enZona && !lista.length) return;
+        const objetos = await poseDe(cam, jpeg, t);
+        if (!objetos) return;
+        const cumplen = objetos.filter((p) => p.clase === "person" && Array.isArray(p.caja_norm)
+            && (adentro(centro(p.caja_norm), r.zona) || adentro(pie(p), r.zona))
+            && (suelo ? p.postura === "acostada" : manosArriba(p)));
+        const usados = new Set();
+        for (const a of lista) {
+            const i = cumplen.findIndex((p, j) => !usados.has(j) && iou(p.caja_norm, a.caja) >= SUELO_IOU);
+            if (i >= 0) { usados.add(i); a.visto = t; a.caja = cumplen[i].caja_norm; }
+        }
+        cumplen.forEach((p, j) => { if (!usados.has(j)) lista.push({ caja: p.caja_norm, desde: t, visto: t, avisado: false }); });
+        // Trepando pide continuidad (manos arriba un instante es saludar): se olvida antes.
+        lista = lista.filter((a) => t - a.visto <= (suelo ? SUELO_OLVIDO_MS : TREPA_OLVIDO_MS));
+        mapa.set(r.id, lista);
+        if (!enHorario(r.horario, ahora)) return;
+        for (const a of lista) {
+            if (a.avisado || a.visto !== t || (t - a.desde) / 1000 < (r.segundos ?? (suelo ? 20 : 2))) continue;
+            a.avisado = true;
+            const seg = Math.round((t - a.desde) / 1000);
+            const tipo = suelo ? "SUELO" : "TREPA";
+            const f = await foto(jpeg, ahora);
+            const ev = await evento({ tipo, reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: seg, foto: f, caja: a.caja, ts: new Date(a.desde) });
+            contadores[suelo ? "suelos" : "trepadas"] = (contadores[suelo ? "suelos" : "trepadas"] || 0) + 1;
+            const ultimo = suelo ? ultimoAvisoSuelo : ultimoAvisoTrepa;
+            if (t - (ultimo.get(r.id) || 0) > (suelo ? ENFRIO_SUELO_MS : ENFRIO_TREPA_MS)) {
+                ultimo.set(r.id, t);
+                await avisar(r, tipo, suelo ? `Persona en el suelo hace ${lleva(seg)} en ${r.nombre}` : `Persona trepando en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: a.caja, tono: "mal", texto: suelo ? `En el suelo · ${lleva(seg)}` : "Trepando" }] }, f), cam);
+            }
+        }
+    }
+
+    /** Casco y chaleco en una obra: ver EPP_*. Una vez por pista. */
+    async function epp(r, cam, valen, jpeg, ahora, t) {
+        const requiere = Array.isArray(r.requiere) && r.requiere.length ? r.requiere : ["casco", "chaleco"];
+        const armada = enHorario(r.horario, ahora);
+        for (const o of valen) {
+            const k = `${r.id}:${o.pista}`;
+            if (!armada || !adentro(pie(o), r.zona)) { epps.delete(k); continue; }
+            let e = epps.get(k);
+            if (!e) { e = { desde: t, visto: t, avisado: false, deviceId: cam.id, si: {}, no: {} }; epps.set(k, e); }
+            e.visto = t;
+            for (const a of Array.isArray(o.atributos) ? o.atributos : []) {
+                if (!requiere.includes(a.id) || a.dudoso) continue;
+                if (a.valor === "no") e.no[a.id] = (e.no[a.id] || 0) + 1; else e.si[a.id] = (e.si[a.id] || 0) + 1;
+            }
+            if (e.avisado || (t - e.desde) / 1000 < (r.segundos ?? 10)) continue;
+            const faltan = requiere.filter((id) => { const n = (e.si[id] || 0) + (e.no[id] || 0); return n >= EPP_LECTURAS_MIN && (e.no[id] || 0) / n >= EPP_FALTA; });
+            if (!faltan.length) continue;
+            e.avisado = true;
+            const que = faltan.length === 2 ? "sin casco ni chaleco" : faltan[0] === "casco" ? "sin casco" : "sin chaleco";
+            const f = await foto(jpeg, ahora);
+            const seg = Math.round((t - e.desde) / 1000);
+            const ev = await evento({ tipo: "EPP", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", pista: o.pista, sentido: faltan.join(","), valor: seg, foto: f, caja: o.caja_norm, ts: new Date(e.desde) });
+            contadores.epp = (contadores.epp || 0) + 1;
+            if (t - (ultimoAvisoEpp.get(r.id) || 0) > ENFRIO_EPP_MS) {
+                ultimoAvisoEpp.set(r.id, t);
+                await avisar(r, "EPP", `Persona ${que} en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: que.charAt(0).toUpperCase() + que.slice(1) }] }, f), cam);
             }
         }
     }

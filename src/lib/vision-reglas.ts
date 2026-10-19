@@ -19,7 +19,7 @@
 
 export const CLAVE_REGLAS = "VISION_REGLAS";
 
-export type TipoRegla = "conteo" | "sentido" | "permanencia" | "aglomeracion" | "fila" | "cruce" | "intrusion" | "merodeo" | "retirado" | "animal" | "dejado";
+export type TipoRegla = "conteo" | "sentido" | "permanencia" | "aglomeracion" | "fila" | "cruce" | "intrusion" | "merodeo" | "retirado" | "animal" | "dejado" | "suelo" | "trepar" | "epp";
 export type Punto = [number, number];
 export type Sentido = "ab" | "ba";
 
@@ -58,6 +58,8 @@ export type ReglaVision = {
     enfrioMin?: number;
     /** Animal en zona: sólo avisa si no hay ninguna persona en la zona (el perro con su dueño no está suelto). */
     sinPersona?: boolean;
+    /** Casco y chaleco: qué tiene que llevar la persona en la zona. */
+    requiere?: ("casco" | "chaleco")[];
     /** Si además de registrarlo crea un aviso a la guardia (consola, Control LPR, Visitas). */
     avisar: boolean;
     /** Cruce propio: en qué sentido avisa («ambos», o sólo de A a B, o de B a A). */
@@ -150,6 +152,26 @@ export const TIPOS_REGLA: Record<TipoRegla, {
         queHace: "Avisa cuando aparece un bolso, una mochila o una valija en la zona y se queda quieto los minutos indicados sin nadie al lado. Lo que ya estaba al crear la regla no cuenta.",
         clasesDefecto: ["backpack", "handbag", "suitcase"], avisarDefecto: true, segundosDefecto: 120,
     },
+    /*
+     * Fase 3 (19/10): las que miran el cuerpo. Suelo y trepando piden la pose del cuadro (sólo con
+     * una persona en la zona); casco y chaleco usan los atributos que ya calcula el registro.
+     * Antes de prometerlas se miden sus falsas alarmas en el lab (reglas sin aviso).
+     */
+    suelo: {
+        nombre: "Persona en el suelo", analitica: "persona-suelo", geometria: "zona",
+        queHace: "Avisa cuando una persona queda acostada en la zona los segundos indicados: alguien que se cayó en la calle, en la plaza o en un espacio común. Usa la pose (la posición del cuerpo).",
+        clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 20,
+    },
+    trepar: {
+        nombre: "Persona trepando", analitica: "trepar", geometria: "zona",
+        queHace: "Avisa cuando una persona junto al cerco o al muro (la zona dibujada sobre él) tiene las dos manos por encima de los hombros unos segundos seguidos: alguien trepando. Usa la pose. Con horario, sólo de noche.",
+        clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 2,
+    },
+    epp: {
+        nombre: "Casco y chaleco", analitica: "epp", geometria: "zona",
+        queHace: "Avisa cuando una persona anda en la obra (la zona) sin casco o sin chaleco reflectivo. Se decide con varias miradas de la misma persona, no con una sola foto.",
+        clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 10,
+    },
 };
 
 /** Merodeo: desde 20 s (menos es pasar caminando) hasta 1 h. Retirado: cuánto tiene que faltar, de 5 s a 10 min. */
@@ -157,6 +179,10 @@ const SEGUNDOS_MERODEO = { min: 20, max: 3600 };
 const SEGUNDOS_RETIRADO = { min: 5, max: 600 };
 /** Objeto dejado: cuánto tiene que quedar solo, de 10 s a 1 h. */
 const SEGUNDOS_DEJADO = { min: 10, max: 3600 };
+/** Suelo: de 5 s a 10 min acostada. Trepando: de 1 a 30 s con las manos arriba. Casco y chaleco: de 5 s a 10 min en la obra. */
+const SEGUNDOS_SUELO = { min: 5, max: 600 };
+const SEGUNDOS_TREPA = { min: 1, max: 30 };
+const SEGUNDOS_EPP = { min: 5, max: 600 };
 
 /** La intrusión avisa casi en el acto: su demora va de 0 a 2 min, no desde los 5 s de la permanencia. */
 const SEGUNDOS_INTRUSION = { min: 0, max: 120 };
@@ -230,7 +256,7 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
             if (tipo === "cruce") regla.sentidos = r?.sentidos === "ab" || r?.sentidos === "ba" ? r.sentidos : "ambos";
         } else {
             const zona = (Array.isArray(r?.zona) ? r.zona : []).map(punto).filter(Boolean) as Punto[];
-            if ((tipo === "permanencia" || tipo === "intrusion" || tipo === "retirado" || tipo === "fila" || tipo === "animal" || tipo === "dejado") && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
+            if ((tipo === "permanencia" || tipo === "intrusion" || tipo === "retirado" || tipo === "fila" || tipo === "animal" || tipo === "dejado" || tipo === "suelo" || tipo === "trepar" || tipo === "epp") && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
             regla.zona = zona.length >= 3 ? zona.slice(0, 30) : null;
             if (tipo === "fila") {
                 // Las mismas perillas que la tarea de aforo de la cámara y la alerta de Filas.
@@ -244,11 +270,18 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
             } else if (tipo === "intrusion" || tipo === "animal") {
                 const v = Number(r?.segundos);
                 regla.segundos = Math.round(Math.max(SEGUNDOS_INTRUSION.min, Math.min(SEGUNDOS_INTRUSION.max, Number.isFinite(v) && r?.segundos !== "" && r?.segundos != null ? v : t.segundosDefecto ?? 2)));
-            } else if (tipo === "merodeo" || tipo === "retirado" || tipo === "dejado") {
-                const lim = tipo === "merodeo" ? SEGUNDOS_MERODEO : tipo === "dejado" ? SEGUNDOS_DEJADO : SEGUNDOS_RETIRADO;
+            } else if (tipo === "merodeo" || tipo === "retirado" || tipo === "dejado" || tipo === "suelo" || tipo === "trepar" || tipo === "epp") {
+                const lim = tipo === "merodeo" ? SEGUNDOS_MERODEO : tipo === "dejado" ? SEGUNDOS_DEJADO : tipo === "suelo" ? SEGUNDOS_SUELO : tipo === "trepar" ? SEGUNDOS_TREPA : tipo === "epp" ? SEGUNDOS_EPP : SEGUNDOS_RETIRADO;
                 regla.segundos = Math.round(Math.max(lim.min, Math.min(lim.max, Number(r?.segundos) || t.segundosDefecto || lim.min)));
             } else regla.segundos = Math.round(Math.max(SEGUNDOS.min, Math.min(SEGUNDOS.max, Number(r?.segundos) || t.segundosDefecto || 60)));
             if (tipo === "animal") regla.sinPersona = r?.sinPersona !== false;
+            // Las del cuerpo son de personas, sin elegir.
+            if (tipo === "suelo" || tipo === "trepar" || tipo === "epp") regla.clases = ["person"];
+            if (tipo === "epp") {
+                const req = (Array.isArray(r?.requiere) ? r.requiere : ["casco", "chaleco"]).filter((x: string) => x === "casco" || x === "chaleco");
+                if (!req.length) { errores.push(`${nombre}: elegí casco, chaleco o los dos`); continue; }
+                regla.requiere = [...new Set(req)] as ("casco" | "chaleco")[];
+            }
             if (tipo === "aglomeracion") regla.maximo = Math.round(Math.max(MAXIMO.min, Math.min(MAXIMO.max, Number(r?.maximo) || t.maximoDefecto || 5)));
         }
         if (CON_HORARIO.includes(tipo)) {
@@ -295,6 +328,9 @@ export const TIPOS_EVENTO: Record<string, { nombre: string; tono: "info" | "mal"
     RETIRADO: { nombre: "Objeto retirado", tono: "mal" },
     ANIMAL: { nombre: "Animal en zona", tono: "aviso" },
     DEJADO: { nombre: "Objeto dejado", tono: "aviso" },
+    SUELO: { nombre: "Persona en el suelo", tono: "mal" },
+    TREPA: { nombre: "Persona trepando", tono: "mal" },
+    EPP: { nombre: "Sin casco o chaleco", tono: "aviso" },
     FILA_LLENA: { nombre: "Fila llena", tono: "aviso" },
     FILA_ESCALADA: { nombre: "Fila llena · supervisor", tono: "mal" },
 };
@@ -305,7 +341,7 @@ export const TIPOS_EVENTO: Record<string, { nombre: string; tono: "info" | "mal"
  */
 export const TIPOS_FILA_DATOS = ["FILA", "FILA_ENTRA", "FILA_SALE"];
 /** Los tipos que tienen horario de armado. */
-export const CON_HORARIO: TipoRegla[] = ["cruce", "intrusion", "merodeo", "retirado", "fila", "animal", "dejado"];
+export const CON_HORARIO: TipoRegla[] = ["cruce", "intrusion", "merodeo", "retirado", "fila", "animal", "dejado", "suelo", "trepar", "epp"];
 
 /** «2 min 30 s», «1 h 5 min». */
 export function duracionCorta(seg: number | null | undefined): string {
