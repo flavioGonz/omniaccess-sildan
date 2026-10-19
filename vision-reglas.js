@@ -20,6 +20,7 @@
 
 const http = require("http");
 const crypto = require("crypto");
+const sharp = require("sharp");
 
 /** Las analíticas del laboratorio que prenden cada tipo, y su valor si nadie las tocó. */
 const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion", fila: "fila", cruce: "linea-propia", intrusion: "zona-propia", merodeo: "merodeo", retirado: "retirado" };
@@ -136,6 +137,78 @@ function enHorario(h, d) {
     return a < b ? x >= a && x < b : x >= a || x < b;
 }
 
+/**
+ * La foto del aviso, MARCADA: la zona (o la línea) de la regla y la caja de quien la disparó.
+ *
+ * 19/10, Nico, con la alarma «Se quedó en la zona» de Prueba puesto 7: «cuando saca una captura,
+ * no la saca bien, no se ve quién ocupa». La foto era el cuadro crudo: el auto estaba (caja
+ * 0,42–0,51 × 0,09–0,17, arriba, entre otros estacionados) pero nada decía cuál era, y en una
+ * escena con diez autos la foto no contesta la pregunta del aviso. La caja ya se guardaba en
+ * EventoVision; la consola de alarmas, el WhatsApp y el push muestran sólo la foto. Por eso se
+ * dibuja SOBRE la imagen: así viaja a cualquier lado y se entiende sola.
+ *
+ * El cuadro crudo se sigue guardando en EventoVision.foto cuando el evento tiene caja (Reglas,
+ * Verificación y el entrenamiento la usan sin marcas); la marcada va al aviso. En la fila y la
+ * aglomeración, que no guardan caja, la marcada es también la del evento.
+ *
+ * Los colores son los tokens del diseño pasados a hex (librsvg no entiende oklch):
+ * --accion-en-oscuro, --aviso y --mal de globals.css. Si cambian allá, cambian acá.
+ */
+const COLOR_MARCA = { accion: "#49a9ff", aviso: "#db8d0f", mal: "#e32a4e" };
+/** Una zona que cubre casi todo el cuadro no se dibuja: sería un marco alrededor de la foto. */
+const ZONA_SIN_DIBUJO = 0.85;
+const xml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+function areaZona(z) {
+    let a = 0;
+    for (let i = 0, j = z.length - 1; i < z.length; j = i++) a += (z[j][0] + z[i][0]) * (z[j][1] - z[i][1]);
+    return Math.abs(a / 2);
+}
+/** `marcas`: { zona?, linea?, cajas?: [{ caja, tono, texto? }], rotulo?: { texto, tono } }. */
+async function marcar(jpeg, marcas) {
+    const meta = await sharp(jpeg).metadata();
+    const W = meta.width || 1920, H = meta.height || 1080;
+    const trazo = Math.max(2, Math.round(W / 640)), letra = Math.max(13, Math.round(W / 70));
+    const px = (p) => `${(p[0] * W).toFixed(1)},${(p[1] * H).toFixed(1)}`;
+    const chip = (x, y, texto, tono) => {
+        const ancho = Math.round(texto.length * letra * 0.58 + letra * 1.6), alto = Math.round(letra * 1.7);
+        const cx = Math.max(0, Math.min(W - ancho, x)), cy = Math.max(0, Math.min(H - alto, y));
+        return `<rect x="${cx}" y="${cy}" width="${ancho}" height="${alto}" rx="${Math.round(alto / 3)}" fill="rgba(10,12,16,0.78)"/>`
+            + `<rect x="${cx + letra * 0.45}" y="${cy + alto * 0.3}" width="${letra * 0.4}" height="${alto * 0.4}" rx="${letra * 0.1}" fill="${COLOR_MARCA[tono] || COLOR_MARCA.aviso}"/>`
+            + `<text x="${cx + letra * 1.15}" y="${cy + alto * 0.7}" font-family="Outfit, DejaVu Sans, Arial, sans-serif" font-size="${letra}" font-weight="600" fill="#fff">${xml(texto)}</text>`;
+    };
+    let svg = "";
+    const zona = Array.isArray(marcas.zona) && marcas.zona.length >= 3 ? marcas.zona : null;
+    if (zona && areaZona(zona) < ZONA_SIN_DIBUJO) {
+        const pts = zona.map(px).join(" ");
+        svg += `<polygon points="${pts}" fill="${COLOR_MARCA.accion}" fill-opacity="0.10" stroke="rgba(0,0,0,0.55)" stroke-width="${trazo * 2.5}"/>`
+            + `<polygon points="${pts}" fill="none" stroke="${COLOR_MARCA.accion}" stroke-width="${trazo}" stroke-dasharray="${trazo * 5} ${trazo * 3}"/>`;
+    }
+    if (marcas.linea?.a && marcas.linea?.b) {
+        const [a, b] = [marcas.linea.a, marcas.linea.b].map(px);
+        svg += `<polyline points="${a} ${b}" stroke="rgba(0,0,0,0.55)" stroke-width="${trazo * 3}" fill="none"/>`
+            + `<polyline points="${a} ${b}" stroke="${COLOR_MARCA.accion}" stroke-width="${trazo * 1.5}" fill="none"/>`;
+    }
+    for (const c of marcas.cajas || []) {
+        if (!Array.isArray(c.caja)) continue;
+        // Un poco más grande que la caja: que el borde no tape al que se está señalando.
+        const m = 0.006, [x1, y1, x2, y2] = [c.caja[0] - m, c.caja[1] - m, c.caja[2] + m, c.caja[3] + m].map((v, i) => Math.max(0, Math.min(1, v)) * (i % 2 ? H : W));
+        const color = COLOR_MARCA[c.tono] || COLOR_MARCA.aviso;
+        svg += `<rect x="${x1}" y="${y1}" width="${x2 - x1}" height="${y2 - y1}" rx="${trazo * 2}" fill="none" stroke="rgba(0,0,0,0.6)" stroke-width="${trazo * 3}"/>`
+            + `<rect x="${x1}" y="${y1}" width="${x2 - x1}" height="${y2 - y1}" rx="${trazo * 2}" fill="none" stroke="${color}" stroke-width="${trazo * 1.5}"/>`;
+        if (c.texto) svg += chip(x1, y1 - letra * 1.7 - trazo * 2 >= 0 ? y1 - letra * 1.7 - trazo * 2 : y2 + trazo * 2, c.texto, c.tono);
+    }
+    if (marcas.rotulo?.texto) {
+        // El rótulo de toda la escena (la fila, la aglomeración): arriba del vértice más alto de la zona.
+        const tope = zona ? zona.reduce((a, p) => (p[1] < a[1] ? p : a)) : [0.02, 0.06];
+        svg += chip(tope[0] * W, tope[1] * H - letra * 2.2, marcas.rotulo.texto, marcas.rotulo.tono);
+    }
+    if (!svg) return jpeg;
+    return sharp(jpeg).composite([{ input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">${svg}</svg>`), top: 0, left: 0 }]).jpeg({ quality: 85 }).toBuffer();
+}
+/** Cuánto lleva, para el rótulo de la caja: «15 min», «40 s». */
+const lleva = (seg) => (seg >= 60 ? `${Math.round(seg / 60)} min` : `${Math.round(seg)} s`);
+const nombreDe = (clase) => { const n = NOMBRE_CLASE[clase] || String(clase || "").replace(/^propio:.*/, "objeto"); return n.charAt(0).toUpperCase() + n.slice(1); };
+
 function emitir(evento, datos) {
     try {
         const cuerpo = JSON.stringify({ __event: evento, ...datos });
@@ -210,6 +283,16 @@ function iniciar({ prisma, subir, log }) {
     async function foto(jpeg, ahora) {
         const clave = `eventos/${ahora.toISOString().slice(0, 10)}/${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}.jpg`;
         try { await subir(clave, jpeg); return clave; } catch (e) { log("reglas: no se pudo guardar la foto:", e.message); return null; }
+    }
+
+    /** La foto marcada (ver `marcar`); si algo falla, la cruda: un aviso sin marcas es mejor que sin foto. */
+    async function fotoMarcada(jpeg, ahora, marcas) {
+        try { return await foto(await marcar(jpeg, marcas), ahora); }
+        catch (e) { log("reglas: no se pudo marcar la foto:", e.message); return foto(jpeg, ahora); }
+    }
+    /** Para el aviso: la marcada, sólo si la regla avisa (si no, nadie la va a ver). */
+    async function fotoDelAviso(r, jpeg, ahora, marcas, cruda) {
+        return r.avisar ? fotoMarcada(jpeg, ahora, marcas) : cruda;
     }
 
     async function avisar(r, tipoEvento, motivo, eventoId, fotoClave, cam) {
@@ -291,7 +374,8 @@ function iniciar({ prisma, subir, log }) {
                 contadores.crucesPropios++;
                 if (t - (ultimoAvisoCruce.get(r.id) || 0) > ENFRIO_CRUCE_MS) {
                     ultimoAvisoCruce.set(r.id, t);
-                    await avisar(r, "CRUCE_LINEA", `${NOMBRE_CLASE[o.clase] || o.clase} cruzó ${r.nombre}`, ev.id, f, cam);
+                    await avisar(r, "CRUCE_LINEA", `${NOMBRE_CLASE[o.clase] || o.clase} cruzó ${r.nombre}`, ev.id,
+                        await fotoDelAviso(r, jpeg, ahora, { linea: r.linea, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: nombreDe(o.clase) }] }, f), cam);
                 }
             } else if (sentido !== r.permitido) {
                 const f = await foto(jpeg, ahora);
@@ -299,7 +383,8 @@ function iniciar({ prisma, subir, log }) {
                 contadores.sentido++;
                 if (t - (ultimoAvisoSentido.get(r.id) || 0) > ENFRIO_SENTIDO_MS) {
                     ultimoAvisoSentido.set(r.id, t);
-                    await avisar(r, "SENTIDO_CONTRARIO", `${NOMBRE_CLASE[o.clase] || o.clase} en sentido contrario · ${r.nombre}`, ev.id, f, cam);
+                    await avisar(r, "SENTIDO_CONTRARIO", `${NOMBRE_CLASE[o.clase] || o.clase} en sentido contrario · ${r.nombre}`, ev.id,
+                        await fotoDelAviso(r, jpeg, ahora, { linea: r.linea, cajas: [{ caja: o.caja_norm, tono: "mal", texto: `${nombreDe(o.clase)} · contramano` }] }, f), cam);
                 }
             }
         }
@@ -320,7 +405,8 @@ function iniciar({ prisma, subir, log }) {
                 e.eventoId = ev.id;
                 contadores.permanencia++;
                 const min = Math.round(seg / 60);
-                await avisar(r, "PERMANENCIA", `${NOMBRE_CLASE[o.clase] || o.clase} hace ${min >= 1 ? `${min} min` : `${Math.round(seg)} s`} en ${r.nombre}`, ev.id, f, cam);
+                await avisar(r, "PERMANENCIA", `${NOMBRE_CLASE[o.clase] || o.clase} hace ${min >= 1 ? `${min} min` : `${Math.round(seg)} s`} en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: `${nombreDe(o.clase)} · ${lleva(seg)}` }] }, f), cam);
             }
         }
     }
@@ -341,7 +427,8 @@ function iniciar({ prisma, subir, log }) {
             contadores.intrusiones++;
             if (t - (ultimoAvisoIntrusion.get(r.id) || 0) > ENFRIO_INTRUSION_MS) {
                 ultimoAvisoIntrusion.set(r.id, t);
-                await avisar(r, "INTRUSION", `${NOMBRE_CLASE[o.clase] || o.clase} en ${r.nombre}`, ev.id, f, cam);
+                await avisar(r, "INTRUSION", `${NOMBRE_CLASE[o.clase] || o.clase} en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "mal", texto: nombreDe(o.clase) }] }, f), cam);
             }
         }
     }
@@ -369,7 +456,8 @@ function iniciar({ prisma, subir, log }) {
             contadores.merodeos++;
             if (t - (ultimoAvisoMerodeo.get(r.id) || 0) > ENFRIO_MERODEO_MS) {
                 ultimoAvisoMerodeo.set(r.id, t);
-                await avisar(r, "MERODEO", `${NOMBRE_CLASE[o.clase] || o.clase} dando vueltas hace ${seg >= 60 ? `${Math.floor(seg / 60)} min` : `${seg} s`} en ${r.nombre}`, ev.id, f, cam);
+                await avisar(r, "MERODEO", `${NOMBRE_CLASE[o.clase] || o.clase} dando vueltas hace ${seg >= 60 ? `${Math.floor(seg / 60)} min` : `${seg} s`} en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: `${nombreDe(o.clase)} · ${lleva(seg)}` }] }, f), cam);
             }
         }
     }
@@ -411,7 +499,8 @@ function iniciar({ prisma, subir, log }) {
             contadores.retirados++;
             if (t - (ultimoAvisoRetirado.get(r.id) || 0) > ENFRIO_RETIRADO_MS) {
                 ultimoAvisoRetirado.set(r.id, t);
-                await avisar(r, "RETIRADO", `Se llevaron ${ARTICULO[a.clase] || "un"} ${NOMBRE_CLASE[a.clase] || a.clase} de ${r.nombre}`, ev.id, fDespues, cam);
+                await avisar(r, "RETIRADO", `Se llevaron ${ARTICULO[a.clase] || "un"} ${NOMBRE_CLASE[a.clase] || a.clase} de ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: a.caja, tono: "mal", texto: `Acá estaba ${ARTICULO[a.clase] || "un"} ${NOMBRE_CLASE[a.clase] || a.clase}` }] }, fDespues), cam);
             }
         }
         aprendidos.set(r.id, quedan);
@@ -437,7 +526,8 @@ function iniciar({ prisma, subir, log }) {
         grupos.set(r.id, g);
         if ((t - g.desde) / 1000 < r.segundos || t - g.ultimoAviso < ENFRIO_AGLOMERACION_MS) return;
         g.ultimoAviso = t;
-        const f = await foto(jpeg, ahora);
+        // Sin caja en el evento: la marcada (la zona y cada uno de los que cuentan) es la del evento también.
+        const f = await fotoMarcada(jpeg, ahora, { zona: r.zona, cajas: dentro.map((o) => ({ caja: o.caja_norm, tono: "aviso" })), rotulo: { texto: `${dentro.length} personas juntas`, tono: "aviso" } });
         const ev = await evento({ tipo: "AGLOMERACION", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: dentro.length, foto: f, ts: ahora });
         contadores.aglomeracion++;
         await avisar(r, "AGLOMERACION", `${dentro.length} personas juntas en ${r.nombre}`, ev.id, f, cam);
@@ -496,16 +586,26 @@ function iniciar({ prisma, subir, log }) {
         const limite = r.maximo ?? FILA_LIMITE_DEFECTO;
         if (f.aceptado < limite || !enHorario(r.horario, ahora)) { f.llenoDesde = null; f.escalado = false; return; }
         if (!f.llenoDesde) f.llenoDesde = t;
+        /*
+         * La foto de la fila: la zona, una caja por cada uno que CUENTA (en el tono del aviso) y
+         * las de los que están adentro pero todavía no cuentan (permanencia mínima) en azul, para
+         * que se vea por qué el número es ése. Sin esto la foto mostraba la escena y nada más.
+         */
+        const cuentan = new Set(dentro);
+        const marcasFila = (tono, texto) => ({
+            zona: r.zona, rotulo: { texto, tono },
+            cajas: personas.filter((o) => adentro(pie(o), r.zona)).map((o) => ({ caja: o.caja_norm, tono: cuentan.has(o) ? tono : "accion" })),
+        });
         if (t - f.ultimoAviso >= (r.enfrioMin ?? 5) * 60_000) {
             f.ultimoAviso = t;
-            const fo = await foto(jpeg, ahora);
+            const fo = await fotoMarcada(jpeg, ahora, marcasFila("aviso", `${f.aceptado} en la fila · límite ${limite}`));
             const ev = await evento({ tipo: "FILA_LLENA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: f.aceptado, foto: fo, ts: ahora });
             await avisar(r, "FILA_LLENA", `${r.nombre}: ${f.aceptado} personas en la fila (límite ${limite})`, ev.id, fo, cam);
         }
         const min = (t - f.llenoDesde) / 60_000;
         if (!f.escalado && min >= (r.escalarMin ?? 5)) {
             f.escalado = true;
-            const fo = await foto(jpeg, ahora);
+            const fo = await fotoMarcada(jpeg, ahora, marcasFila("mal", `${f.aceptado} en la fila hace ${Math.round(min)} min · límite ${limite}`));
             const ev = await evento({ tipo: "FILA_ESCALADA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: f.aceptado, foto: fo, ts: ahora });
             await avisar(r, "FILA_ESCALADA", `Avisar al supervisor: ${r.nombre} sigue llena hace ${Math.round(min)} min (${f.aceptado} personas, límite ${limite})`, ev.id, fo, cam);
         }
