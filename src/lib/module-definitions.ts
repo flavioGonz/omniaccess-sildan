@@ -41,7 +41,7 @@ export interface ModuleInfo {
     /** La clave del Setting donde vive el nombre del bucket. */
     key: string;
     /** El identificador que usan las acciones de S3 para elegir la configuración. */
-    tipo: "lpr" | "face";
+    tipo: "lpr" | "face" | "queue";
   };
   defaultEnabled: boolean;
   /**
@@ -83,6 +83,7 @@ export const MODULE_DEFINITIONS: ModuleInfo[] = [
     name: 'Filas',
     description: 'Mide cuánta gente espera en cada acceso y cuánto tarda en pasar, para saber cuándo hace falta abrir otro puesto.',
     icon: 'Users',
+    bucket: { key: 'S3_BUCKET_QUEUE', tipo: 'queue' },
     defaultEnabled: false,
     exclusive: true,
   },

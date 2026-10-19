@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
         const imgBuf = await new BoschDriver().getSnapshot(device);
         if (imgBuf && imgBuf.length > 100) {
             const filename = `queue/${device.id}/${Date.now()}.jpg`;
-            snapshotPath = await uploadToS3(imgBuf, filename, "image/jpeg");
+            snapshotPath = await uploadToS3(imgBuf, filename, "image/jpeg", "queue");
         }
     } catch (e) {
         console.log(`${logPrefix} Snapshot grab failed:`, e);
@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
         let snapshotPath: string | null = null;
         if (imageBuffer && imageBuffer.length > 100) {
             const filename = `queue/${device.id}/${Date.now()}.jpg`;
-            snapshotPath = await uploadToS3(imageBuffer, filename, "image/jpeg");
+            snapshotPath = await uploadToS3(imageBuffer, filename, "image/jpeg", "queue");
         }
 
         // Save QueueEvent

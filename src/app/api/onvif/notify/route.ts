@@ -81,7 +81,7 @@ async function grabSnapshot(
                     if (buf.length < 100) { resolve(null); return; }
                     try {
                         const filename = `queue/${deviceId}/${Date.now()}.jpg`;
-                        const path = await uploadToS3(buf, filename, "image/jpeg");
+                        const path = await uploadToS3(buf, filename, "image/jpeg", "queue");
                         resolve(path);
                     } catch { resolve(null); }
                 });

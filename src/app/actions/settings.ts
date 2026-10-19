@@ -173,15 +173,16 @@ export async function updateBucketLifecycle(bucketName: string, days: number) {
     }
 }
 
-export async function testS3Connection(bucketType: "lpr" | "face" = "lpr") {
+export async function testS3Connection(bucketType: "lpr" | "face" | "queue" = "lpr") {
     try {
         // Fetch config from DB
-        const [endpoint, accessKey, secretKey, bucketLpr, bucketFace] = await Promise.all([
+        const [endpoint, accessKey, secretKey, bucketLpr, bucketFace, bucketQueue] = await Promise.all([
             prisma.setting.findUnique({ where: { key: "S3_ENDPOINT" } }),
             prisma.setting.findUnique({ where: { key: "S3_ACCESS_KEY" } }),
             prisma.setting.findUnique({ where: { key: "S3_SECRET_KEY" } }),
             prisma.setting.findUnique({ where: { key: "S3_BUCKET_LPR" } }),
             prisma.setting.findUnique({ where: { key: "S3_BUCKET_FACE" } }),
+            prisma.setting.findUnique({ where: { key: "S3_BUCKET_QUEUE" } }),
         ]);
 
         const config = {
@@ -190,7 +191,9 @@ export async function testS3Connection(bucketType: "lpr" | "face" = "lpr") {
             secretKey: secretKey?.value || process.env.S3_SECRET_KEY || "",
             bucketName: bucketType === "lpr"
                 ? (bucketLpr?.value || process.env.S3_BUCKET || "lpr")
-                : (bucketFace?.value || "face")
+                : bucketType === "queue"
+                    ? (bucketQueue?.value || "queue")
+                    : (bucketFace?.value || "face")
         };
 
         const client = new S3Client({
