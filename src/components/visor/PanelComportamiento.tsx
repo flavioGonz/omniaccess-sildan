@@ -66,7 +66,7 @@ export function PanelComportamiento({ plate, datos, viendo, onElegir, onCerrar }
     return (
         /* Sigue el tema (18/10, Nico: «lo mismo para comportamiento»), como la ficha del visor:
            era un panel casi negro con el blanco escrito a mano, también en tema claro. */
-        <aside className="absolute right-0 top-0 bottom-0 z-[45] w-[min(500px,50vw)] flex flex-col cajon-vidrio border-l border-border shadow-[0_0_60px_rgba(0,0,0,0.35)] text-foreground animate-in slide-in-from-right-4 duration-200">
+        <aside className="absolute right-0 top-0 bottom-0 z-[45] w-[min(500px,50vw)] flex flex-col cajon-vidrio cajon-denso border-l border-border shadow-[0_0_60px_rgba(0,0,0,0.35)] text-foreground animate-in slide-in-from-right-4 duration-200">
             <header className="shrink-0 flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-border">
                 <div>
                     <h2 className="flex items-center gap-2 text-[15px] font-bold tracking-[-0.01em]"><Activity size={16} className="text-muted-foreground" /> Comportamiento</h2>

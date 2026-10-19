@@ -688,6 +688,13 @@ export function VisorCuadro({
      * el estado no depende del recuadro: que no se sepa DÓNDE está el auto no quiere decir
      * que no se sepa que estacionó hace cuarenta minutos.
      */
+    /*
+     * La cápsula sobre la foto, sólo para un estacionado (19/10, Nico: «el chip dentro de la foto
+     * que dice Entró, con la hora, no debe estar ahí, retíralo»). En un acceso repetía lo que ya
+     * dice el título —sentido, «no abrió» y la hora— y tapaba el auto. En un estacionado es otra
+     * cosa: el cronómetro de cuánto lleva, que no está en ningún otro lado.
+     */
+    const conCapsula = estacionado;
     const capsula = (
         <motion.div
             initial={{ opacity: 0, y: 6, scale: 0.94 }}
@@ -886,7 +893,7 @@ export function VisorCuadro({
                         {/* La cápsula va DENTRO del transform para seguir al auto mientras
                             se acerca, pero con la escala invertida: si creciera con el zoom,
                             a 8x taparía media foto. */}
-                        {rotulo && !enPaso && !limpio && (
+                        {rotulo && conCapsula && !enPaso && !limpio && (
                             <>
                                 <div className="visor-guia absolute z-[19] pointer-events-none"
                                     style={{
@@ -936,7 +943,7 @@ export function VisorCuadro({
 
                 {/* Sin recuadro no hay a qué anclarla, pero el estado sigue siendo un
                     dato: va arriba al centro, donde no tapa la ficha ni los controles. */}
-                {!rotulo && !enPaso && modo !== "grabacion" && (
+                {!rotulo && conCapsula && !enPaso && modo !== "grabacion" && (
                     <div className={cn("absolute top-24 left-1/2 -translate-x-1/2 z-20 transition-opacity duration-200",
                         (acercado || limpio) && "opacity-0 pointer-events-none")}>
                         {capsula}
@@ -1240,7 +1247,7 @@ export function VisorCuadro({
                             </BotonVisor>
                         )}
                         {onListaNegra && (
-                            <BotonVisor icono={ShieldBan} onClick={onListaNegra} encendida={enListaNegra} ocupada={ocupadoLista}
+                            <BotonVisor icono={ShieldBan} onClick={onListaNegra} peligro encendida={enListaNegra} ocupada={ocupadoLista}
                                 title={enListaNegra ? "Sacar de la lista negra: vuelve a decidir la credencial y el modo LPR; si tiene credencial vuelve a la lista blanca de las lectoras" : "Lista negra: toda lectura se registra DENEGADA (aunque tenga credencial), va a la lista negra de las lectoras, el monitor la muestra en rojo y avisa"}>
                                 {enListaNegra ? "Quitar de la lista" : "Lista negra"}
                             </BotonVisor>

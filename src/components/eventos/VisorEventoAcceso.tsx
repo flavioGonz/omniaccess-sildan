@@ -64,6 +64,8 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
     const [ocupadoLista, setOcupadoLista] = useState(false);
     /** La chapa ya está en otra categoría de la lista: qué era, para preguntar antes de pisarla. */
     const [conflicto, setConflicto] = useState<{ etiqueta: string; cat: string; motivo: string | null } | null>(null);
+    /** Mandar a la lista negra se confirma antes (19/10, Nico: «preguntar si estás seguro»). */
+    const [confirmarNegra, setConfirmarNegra] = useState(false);
     // "Clip": el mismo diálogo que el playback (antes bajaba directo un clip "de treinta segundos"
     // que medía lo de Ajustes).
     const [descarga, setDescarga] = useState(false);
@@ -164,6 +166,16 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
             new Date(a.timestamp) > new Date(b.timestamp) ? a : b);
         return msEvento - new Date(ultima.timestamp).getTime();
     }, [event?.direction, event?.stayDuration, historial, msEvento]);
+
+    /**
+     * El botón de la lista negra: sacar es inmediato (vuelve todo a como estaba), mandar se
+     * confirma — la barrera deja de abrirle aunque tenga credencial y la lectora lo recibe.
+     */
+    const pedirLista = useCallback(() => {
+        if (!conChapa) return;
+        if (vigilada?.category === "BLACKLISTED") void alternarLista();
+        else setConfirmarNegra(true);
+    }, [conChapa, vigilada]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const alternarLista = useCallback(async () => {
         if (!conChapa) return;
@@ -294,12 +306,20 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
                         : null}
                     onClip={canalNvr != null && ventanaClip ? () => setDescarga(true) : undefined}
                     onExportar={exportar}
-                    onListaNegra={conChapa ? alternarLista : undefined}
+                    onListaNegra={conChapa ? pedirLista : undefined}
+                    tapado={!!conflicto || confirmarNegra || descarga}
                     enListaNegra={vigilada?.category === "BLACKLISTED"}
                     ocupadoLista={ocupadoLista}
                     onCerrar={() => setAbierto(false)}
                 />, document.body,
             )}
+
+            <ConfirmarAccion id={`negra-${chapa}`} open={confirmarNegra} onOpenChange={(o) => { if (!o) setConfirmarNegra(false); }}
+                title={`Enviar ${chapa} a la lista negra`}
+                description={`Toda lectura de ${chapa} se va a registrar DENEGADA, aunque tenga credencial: la barrera no le abre, las lectoras la reciben en su lista negra, el monitor la muestra en rojo y avisa a la guardia. Se puede sacar después desde esta misma ficha.`}
+                etiquetaAccion="Enviar a la lista negra"
+                onDelete={async () => { await alternarLista(); return { success: true }; }}
+                onSuccess={() => setConfirmarNegra(false)} />
 
             <ConfirmarAccion id={chapa} open={!!conflicto} onOpenChange={(o) => { if (!o) setConflicto(null); }}
                 title={`Pasar ${chapa} a lista negra`}
@@ -314,17 +334,20 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
                 }}
                 onSuccess={() => setConflicto(null)} />
 
-            {descarga && ventanaClip && canalNvr != null && (
-                <div className="fixed inset-0 z-[3300]">
+            {/* El clip, también en portal y ENCIMA del visor (19/10, Nico: «Clip se abre atrás del
+                modal LPR»): el visor va en portal a z 3400 y esto quedaba en la tarjeta a 3300. Con
+                el clip abierto el visor se corre abajo (`tapado`). */}
+            {descarga && ventanaClip && canalNvr != null && typeof document !== "undefined" && createPortal(
+                <div className="fixed inset-0 z-[3500]">
                     <DescargaClip instante={msEvento} ventana={ventanaClip} onClose={() => setDescarga(false)}
                         href={(antes, despues, instante) => `/api/nvr/playback?ch=${canalNvr}&t=${Math.floor(instante)}&pre=${antes}&dur=${antes + despues}&download=1${nvrId ? `&nvr=${nvrId}` : ""}${conChapa ? `&matricula=${encodeURIComponent(chapa)}` : ""}`}
                         deviceId={dispositivo?.id} camara={dispositivo?.name} matricula={conChapa ? chapa : null} />
-                </div>
+                </div>, document.body,
             )}
 
-            {verGrabacion && canalNvr != null && dispositivo?.id && (
+            {verGrabacion && canalNvr != null && dispositivo?.id && typeof document !== "undefined" && createPortal(
                 <VerGrabacion deviceId={dispositivo.id} nombre={dispositivo?.name} canal={canalNvr} nvrId={nvrId}
-                    instanteMs={msEvento} onClose={() => setVerGrabacion(false)} />
+                    instanteMs={msEvento} onClose={() => setVerGrabacion(false)} />, document.body,
             )}
         </>
     );
