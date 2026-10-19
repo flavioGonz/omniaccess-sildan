@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { sileo as toast } from "sileo";
 import { VisorCuadro, leerDetalles, type DatosVisor } from "@/components/VisorCuadro";
@@ -38,6 +39,8 @@ type Props = {
     /** Abrir directo en la grabación del NVR. */
     autoRecording?: boolean;
     onRegister?: (plate?: string) => void;
+    /** La empresa de la matrícula (delivery, taxi), si la pantalla ya la sabe: la ficha la trae igual. */
+    empresa?: { nombre: string; logo: string; transparente: boolean } | null;
 };
 
 const limpiar = (p?: string | null) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -46,7 +49,7 @@ const limpiar = (p?: string | null) => String(p || "").toUpperCase().replace(/[^
 const SIN_LECTURA = new Set(["", "UNKNOWN", "NOLEIDA", "NO_LEIDA", "SP", "S/P"]);
 const hayChapa = (p?: string | null) => !SIN_LECTURA.has(limpiar(p));
 
-export function VisorEventoAcceso({ event, children, autoRecording, onRegister }: Props) {
+export function VisorEventoAcceso({ event, children, autoRecording, onRegister, empresa }: Props) {
     const router = useRouter();
     const [abierto, setAbierto] = useState(false);
 
@@ -79,14 +82,22 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
      * la foto y, si releyó la chapa, la ficha de esa chapa.
      */
     const [datosOmni, setDatosOmni] = useState<DatosVisor | null>(null);
+    /**
+     * Desde el 19/10 también con chapa (Nico: «que quede una única ficha»): el monitor LPR abría la
+     * ficha vieja y el historial esta, y esta, con chapa, no pedía nada — sin OmniVision, sin el
+     * padrón completo (lote, teléfono, cochera), sin comportamiento ni empresa. Ahora pide la misma
+     * ficha que el historial. `refresco` la vuelve a pedir después de tocar la lista negra.
+     */
+    const [refresco, setRefresco] = useState(0);
     useEffect(() => {
-        if (!abierto || conChapa || !event?.id) { setDatosOmni(null); return; }
+        if (!abierto || !event?.id) { setDatosOmni(null); return; }
         let vivo = true;
         const q = new URLSearchParams({ evento: event.id, momento: new Date(event.timestamp).toISOString() });
+        if (conChapa) q.set("plate", chapa);
         fetch(`/api/history/ficha?${q}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
             .then((j) => { if (vivo) setDatosOmni(j); }).catch(() => { });
         return () => { vivo = false; };
-    }, [abierto, conChapa, event?.id, event?.timestamp]);
+    }, [abierto, conChapa, chapa, event?.id, event?.timestamp, refresco]);
 
     /** El canal del NVR, que decide si hay grabación y clip. */
     useEffect(() => {
@@ -182,6 +193,7 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
             toast.error({ title: "No se pudo actualizar la lista", description: e?.message });
         } finally {
             setOcupadoLista(false);
+            setRefresco((n) => n + 1);
         }
     }, [conChapa, chapa, vigilada, meta.Marca, meta.Color]);
 
@@ -242,7 +254,10 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
         <>
             <span onClick={() => setAbierto(true)} className="contents">{children}</span>
 
-            {abierto && (
+            {/* En un portal: el monitor LPR la abre desde tarjetas con transformaciones y desenfoque
+                (animate-in, backdrop-blur), que hacen de caja a un `fixed` y la encerraban adentro
+                de la tarjeta. La ficha vieja era un Dialog y ya iba en portal. */}
+            {abierto && typeof document !== "undefined" && createPortal(
                 <VisorCuadro
                     fila={{
                         plate: conChapa ? event.plateDetected : "",
@@ -261,8 +276,8 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                         })(),
                         detalles: event?.details || null,
                     }}
-                    ficha={ficha || datosOmni?.ficha || null}
-                    datos={datosOmni}
+                    ficha={datosOmni?.ficha ? { ...datosOmni.ficha, vigilancia: (datosOmni.ficha as any).vigilancia ?? ficha?.vigilancia ?? null } : ficha}
+                    datos={datosOmni ? { ...datosOmni, empresa: (datosOmni as any).empresa ?? empresa ?? null } as DatosVisor : empresa ? ({ empresa } as any) : null}
                     historial={conChapa ? (historial || []).map((h: any) => ({
                         id: h.id,
                         momento: h.timestamp,
@@ -283,7 +298,7 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                     enListaNegra={vigilada?.category === "BLACKLISTED"}
                     ocupadoLista={ocupadoLista}
                     onCerrar={() => setAbierto(false)}
-                />
+                />, document.body,
             )}
 
             <ConfirmarAccion id={chapa} open={!!conflicto} onOpenChange={(o) => { if (!o) setConflicto(null); }}

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Matricula } from "@/components/ui/celdas";
 import { fechaHoraSeg } from "@/lib/fechas";
 import { getAccessEvent } from "@/app/actions/history";
-import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
+import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { SUGERENCIAS_VOCABULARIO } from "@/lib/vocabulario";
 
 /**
@@ -38,7 +38,7 @@ function AbrirFicha({ id, alCerrar }: { id: string; alCerrar: () => void }) {
     useEffect(() => { getAccessEvent(id).then(setEv).catch(() => cerrar.current()); }, [id]);
     useEffect(() => { if (ev) setTimeout(() => boton.current?.click(), 0); }, [ev]);
     if (!ev) return null;
-    return <EventDetailsDialog event={ev} timeStatus={null}><button ref={boton} type="button" className="hidden" aria-hidden /></EventDetailsDialog>;
+    return <VisorEventoAcceso event={ev} timeStatus={null}><button ref={boton} type="button" className="hidden" aria-hidden /></VisorEventoAcceso>;
 }
 
 export function BuscarObjetos({ desde, hasta, camaras, alCerrar }: { desde: string; hasta: string; camaras: string[]; alCerrar: () => void }) {

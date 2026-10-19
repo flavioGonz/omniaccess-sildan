@@ -28,6 +28,7 @@ import type { Analisis } from "@/lib/vision-capa";
 import { BotonVisor, Dato, ListaVision, Seccion } from "@/components/visor/FichaVisor";
 import { TiraPasos, type PasoVisor } from "@/components/visor/TiraPasos";
 import { PanelComportamiento, type ComportamientoVisor } from "@/components/visor/PanelComportamiento";
+import { PerfilChapa } from "@/components/visor/PerfilChapa";
 import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
 import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
@@ -943,19 +944,6 @@ export function VisorCuadro({
                                 <span>{horaSeg(momento)}</span>
                             </p>
                         </div>
-                        {vision && modo === "foto" && !enPaso && (
-                            /* Un interruptor: se prende y se apaga, por eso es píldora. */
-                            <button type="button" onClick={() => setVerSiluetas(!verSiluetas)} aria-pressed={verSiluetas}
-                                title={verSiluetas ? "Ocultar las siluetas de OmniVision  ( O )" : "Mostrar lo que detectó OmniVision  ( O )"}
-                                className={cn("shrink-0 h-8 px-3 rounded-full border flex items-center gap-1.5 text-[11.5px] font-semibold transition-colors",
-                                    verSiluetas ? "bg-[var(--accion)] border-transparent text-white" : "bg-black/45 backdrop-blur-xl border-white/15 text-white/80 hover:text-white")}>
-                                <Sparkles size={12} />
-                                OmniVision · {vision.objetos.length}
-                                <span className={cn("ml-0.5 w-6 h-3.5 rounded-full relative transition-colors", verSiluetas ? "bg-white/35" : "bg-white/15")}>
-                                    <span className={cn("absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-all", verSiluetas ? "left-3" : "left-0.5")} />
-                                </span>
-                            </button>
-                        )}
                         {vig && (
                             <span className="visor-vig shrink-0 h-8 px-3 rounded-[8px] border flex items-center gap-1.5 text-[11.5px] font-bold"
                                 style={{
@@ -1152,6 +1140,10 @@ export function VisorCuadro({
                         )}
                     </Seccion>
 
+                    {/* ── Los hábitos de la chapa: frecuencia, horarios y cámaras habituales (lo que tenía
+                        la pestaña «Perfil» de la ficha vieja del monitor LPR). ── */}
+                    {(chapaVisor.plate || fila.plate) && !esSinLectura(chapaVisor.plate || fila.plate) && <PerfilChapa plate={chapaVisor.plate || fila.plate} />}
+
                     {/* ── Lo que dijo la cámara LPR ── separado de OmniVision: son dos equipos distintos
                         mirando la misma foto, y cuando no coinciden hay que poder ver quién dijo qué. */}
                     {(conf != null || fila.reads != null || recuadro || vehiculoCamara) && (
@@ -1294,6 +1286,23 @@ export function VisorCuadro({
                     <BotonRiel onClick={() => zoomEn(escala / 1.6)} disabled={!acercado} title="Alejar  ( − )"><ZoomOut size={15} /></BotonRiel>
                     <BotonRiel onClick={reiniciar} disabled={!acercado} title="Volver al tamaño original  ( 0 )"><Maximize2 size={14} /></BotonRiel>
                     </>}
+                    {/* OmniVision, al final del riel y sólo el ícono (19/10, Nico): era una píldora
+                        con interruptor al lado del título, y competía con el nombre de la cámara.
+                        El número de objetos va en un puntito sobre el ícono. */}
+                    {vision && modo === "foto" && !enPaso && (
+                        <>
+                            <span className="w-4 h-px bg-white/15" />
+                            <span className="relative">
+                                <BotonRiel activo={verSiluetas} onClick={() => setVerSiluetas(!verSiluetas)}
+                                    title={verSiluetas ? `Ocultar lo que detectó OmniVision (${vision.objetos.length})  ( O )` : `Mostrar lo que detectó OmniVision (${vision.objetos.length})  ( O )`}>
+                                    <Sparkles size={15} />
+                                </BotonRiel>
+                                {vision.objetos.length > 0 && (
+                                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accion)] text-white text-[9.5px] font-bold tabular-nums grid place-items-center pointer-events-none">{vision.objetos.length}</span>
+                                )}
+                            </span>
+                        </>
+                    )}
                 </div>
 
                 {/* ── ABAJO · con qué se está mirando ──────────────────────────────── */}

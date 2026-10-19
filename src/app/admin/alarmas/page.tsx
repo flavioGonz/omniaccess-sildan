@@ -26,7 +26,7 @@ import { Miniatura } from "@/components/ui/celdas";
 import { NotaGestion, usarNotaGestion } from "@/components/alarmas/NotaGestion";
 import { GestionEnVivo } from "@/components/alarmas/GestionEnVivo";
 import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
-import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
+import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { getAccessEvent } from "@/app/actions/history";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
 import { getAnalyticsGeometryBatch, marcarDeteccion } from "@/app/actions/detections";
@@ -506,9 +506,9 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
         <>
             {/* Tocar la foto abre la ficha del evento (17/10, Nico): la misma de «Ver ficha». */}
             {eventoId && evento ? (
-                <EventDetailsDialog event={evento} timeStatus={null}>
+                <VisorEventoAcceso event={evento} timeStatus={null}>
                     <button type="button" className="group relative block w-full text-left" aria-label="Abrir la ficha del evento"><Foto src={foto} clip={clip} /><VerFichaEncima /></button>
-                </EventDetailsDialog>
+                </VisorEventoAcceso>
             ) : det ? (
                 <button type="button" onClick={() => setFichaIntrusion(true)} className="group relative block w-full text-left" aria-label="Abrir la ficha de la detección"><Foto src={foto} clip={clip} /><VerFichaEncima /></button>
             ) : <Foto src={foto} clip={clip} />}
@@ -530,7 +530,7 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                 <div className="flex flex-wrap items-center gap-2">
                     {det && <Button size="sm" variant="outline" onClick={() => setFichaIntrusion(true)}><FileText size={14} /> Ver ficha</Button>}
                     {eventoId && (evento
-                        ? <EventDetailsDialog event={evento} timeStatus={null}><Button size="sm" variant="outline"><FileText size={14} /> Ver ficha</Button></EventDetailsDialog>
+                        ? <VisorEventoAcceso event={evento} timeStatus={null}><Button size="sm" variant="outline"><FileText size={14} /> Ver ficha</Button></VisorEventoAcceso>
                         : <Button size="sm" variant="outline" disabled><FileText size={14} /> Ver ficha</Button>)}
                     {a.deviceId && <Button size="sm" variant="outline" onClick={() => setGrabacion(true)}><Film size={14} /> Grabación</Button>}
                     {a.plate && <Button size="sm" variant="outline" asChild><a href={`/admin/history?search=${encodeURIComponent(a.plate)}`}><Clock size={14} /> Historial</a></Button>}

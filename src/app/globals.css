@@ -2007,6 +2007,7 @@ html:not(.dark) .visor-raiz .visor-zona .visor-bien { color: var(--bien-texto); 
 html:not(.dark) .visor-raiz .visor-zona .visor-aviso { color: var(--aviso-texto); }
 html:not(.dark) .visor-raiz .visor-zona .visor-mal { color: var(--mal-texto); }
 html:not(.dark) .visor-raiz .visor-zona .text-\[var\(--accion-en-oscuro\)\] { color: var(--accion); }
+html:not(.dark) .visor-raiz .visor-zona .bg-\[var\(--accion-en-oscuro\)\] { background-color: var(--accion); }
 /* El blanco de Tailwind, a tinta. Se salta lo que va sobre el azul de accion (Registrar,
    OmniVision prendido): blanco sobre azul se lee en los dos temas. */
 html:not(.dark) .visor-raiz .visor-zona .text-white:not([class*="bg-[var(--accion)]"]) { color: var(--foreground); }
