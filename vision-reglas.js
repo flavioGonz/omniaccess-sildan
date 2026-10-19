@@ -57,6 +57,8 @@ const ENFRIO_INTRUSION_MS = 60_000;
  */
 /** Una misma pista no entra y sale dos veces en esto: el pie tiembla sobre el borde de la zona. */
 const FILA_BORDE_MS = 4_000;
+/** El límite de una fila que no lo tiene guardado: el mismo que propone la pantalla. */
+const FILA_LIMITE_DEFECTO = 10;
 
 /** La hora del barrio, para el horario de armado de cruce e intrusión. */
 const ZONA = process.env.NEXT_PUBLIC_TZ || "America/Montevideo";
@@ -466,20 +468,22 @@ function iniciar({ prisma, subir, log }) {
         for (const [k, p] of f.pistas) if (t - p.visto > OLVIDO_MS) f.pistas.delete(k);
 
         // El límite: aviso, enfriamiento y escalamiento, dentro del horario de atención.
-        if (!r.maximo || f.aceptado < r.maximo || !enHorario(r.horario, ahora)) { f.llenoDesde = null; f.escalado = false; return; }
+        // Una regla guardada antes de tener límite usa el de la pantalla (TIPOS_REGLA.fila.maximoDefecto).
+        const limite = r.maximo ?? FILA_LIMITE_DEFECTO;
+        if (f.aceptado < limite || !enHorario(r.horario, ahora)) { f.llenoDesde = null; f.escalado = false; return; }
         if (!f.llenoDesde) f.llenoDesde = t;
         if (t - f.ultimoAviso >= (r.enfrioMin ?? 5) * 60_000) {
             f.ultimoAviso = t;
             const fo = await foto(jpeg, ahora);
             const ev = await evento({ tipo: "FILA_LLENA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: f.aceptado, foto: fo, ts: ahora });
-            await avisar(r, "FILA_LLENA", `${r.nombre}: ${f.aceptado} personas en la fila (límite ${r.maximo})`, ev.id, fo, cam);
+            await avisar(r, "FILA_LLENA", `${r.nombre}: ${f.aceptado} personas en la fila (límite ${limite})`, ev.id, fo, cam);
         }
         const min = (t - f.llenoDesde) / 60_000;
         if (!f.escalado && min >= (r.escalarMin ?? 5)) {
             f.escalado = true;
             const fo = await foto(jpeg, ahora);
             const ev = await evento({ tipo: "FILA_ESCALADA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: f.aceptado, foto: fo, ts: ahora });
-            await avisar(r, "FILA_ESCALADA", `Avisar al supervisor: ${r.nombre} sigue llena hace ${Math.round(min)} min (${f.aceptado} personas, límite ${r.maximo})`, ev.id, fo, cam);
+            await avisar(r, "FILA_ESCALADA", `Avisar al supervisor: ${r.nombre} sigue llena hace ${Math.round(min)} min (${f.aceptado} personas, límite ${limite})`, ev.id, fo, cam);
         }
     }
 
