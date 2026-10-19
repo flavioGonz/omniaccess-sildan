@@ -43,13 +43,15 @@ const ENFRIO_CRUCE_MS = 30_000;
 /** Lo mismo para la intrusión en zona propia. */
 const ENFRIO_INTRUSION_MS = 60_000;
 /**
- * Conteo de fila: cuántos análisis seguidos se miran para decidir el número (la mediana). Un
- * cuadro en que el detector no ve a uno que está tapado por otro no cambia la fila; dos sí. Y
+ * Conteo de fila: cuántos análisis seguidos se miran para decidir el número (la mediana). Uno o
+ * dos cuadros en que el detector no ve a uno que está tapado por otro no cambian la fila. Y
  * entre dos envíos al módulo Filas, al menos FILA_ENVIO_MIN_MS: la fila no se mueve tan rápido y
  * cada envío es un renglón en QueueEvent.
  */
-const FILA_MUESTRAS = 3;
-const FILA_ENVIO_MIN_MS = 4_000;
+// Medido en el lab el 18/10 (puesto 7, de noche): con 3 muestras y 4 s la cuenta saltaba 1↔2
+// cada ~12 s por alguien en el borde del cuadro: 5 renglones por minuto para nada.
+const FILA_MUESTRAS = 5;
+const FILA_ENVIO_MIN_MS = 10_000;
 /** La misma cuenta del canal que src/lib/vision-reglas.ts (canalDeFila): si cambia allá, cambia acá. */
 function canalDeFila(nombre) {
     const n = String(nombre || "").trim() || "Fila";
