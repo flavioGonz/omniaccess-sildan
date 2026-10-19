@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
-    PersonStanding, Car, Bike, Dog, Backpack, Boxes, Gauge, ListOrdered,
+    PersonStanding, Car, Bike, Dog, Backpack, Boxes, Gauge, ListOrdered, Luggage,
     TriangleAlert, ScanEye, ChevronDown, Check, Layers, Maximize2, Copy, PanelRight, X, type LucideIcon,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -64,9 +64,9 @@ function vistosPorCamara(vistos: Respuesta["vistos"], clases: string[]): Map<str
     return m;
 }
 
-const ICONO: Record<TipoRegla, LucideIcon> = { conteo: Spline, sentido: ArrowLeftRight, permanencia: Timer, aglomeracion: Users, fila: ListOrdered, cruce: Fence, intrusion: ShieldAlert, merodeo: Footprints, retirado: PackageMinus };
+const ICONO: Record<TipoRegla, LucideIcon> = { conteo: Spline, sentido: ArrowLeftRight, permanencia: Timer, aglomeracion: Users, fila: ListOrdered, cruce: Fence, intrusion: ShieldAlert, merodeo: Footprints, retirado: PackageMinus, animal: Dog, dejado: Luggage };
 /** Lo que se cuenta hoy en la tarjeta de cada tipo que no es conteo. */
-const CUENTA_HOY: Partial<Record<TipoRegla, string>> = { fila: "en la fila ahora", sentido: "en contra hoy", permanencia: "se quedaron hoy", aglomeracion: "aglomeraciones hoy", cruce: "cruces hoy", intrusion: "intrusiones hoy", merodeo: "merodeos hoy", retirado: "retirados hoy" };
+const CUENTA_HOY: Partial<Record<TipoRegla, string>> = { fila: "en la fila ahora", sentido: "en contra hoy", permanencia: "se quedaron hoy", aglomeracion: "aglomeraciones hoy", cruce: "cruces hoy", intrusion: "intrusiones hoy", merodeo: "merodeos hoy", retirado: "retirados hoy", animal: "animales hoy", dejado: "dejados hoy" };
 /**
  * Cómo aparece el nombre de la regla en el aviso, por tipo (los textos los arma vision-reglas.js).
  * Antes la ayuda daba el ejemplo de sentido contrario para cualquier tipo, y en una regla de
@@ -79,6 +79,7 @@ const EJEMPLO_AVISO: Record<TipoRegla, (n: string) => string> = {
     fila: (n) => `«${n}: 12 personas en la fila (límite 10)»`,
     cruce: (n) => `«Persona cruzó ${n}»`, intrusion: (n) => `«Persona en ${n}»`,
     merodeo: (n) => `«Persona dando vueltas hace 2 min en ${n}»`, retirado: (n) => `«Se llevaron una bicicleta de ${n}»`,
+    animal: (n) => `«Perro suelto en ${n}»`, dejado: (n) => `«Mochila sin dueño hace 2 min en ${n}»`,
 };
 /** El horario que se propone al armar de noche: lo más común en un barrio. */
 const HORARIO_NOCHE = { desde: "22:00", hasta: "06:00" };
@@ -97,6 +98,7 @@ function reglaNueva(tipo: TipoRegla, deviceId: string): ReglaVision {
         linea: null, zona: [], ...(tipo === "sentido" ? { permitido: "ab" as const } : {}),
         ...(t.segundosDefecto ? { segundos: t.segundosDefecto } : {}), ...(t.maximoDefecto ? { maximo: t.maximoDefecto } : {}),
         ...(tipo === "cruce" ? { sentidos: "ambos" as const } : {}), ...(CON_HORARIO.includes(tipo) ? { horario: null } : {}),
+        ...(tipo === "animal" ? { sinPersona: true } : {}),
     };
 }
 
@@ -497,6 +499,8 @@ function Esquema({ tipo }: { tipo: TipoRegla }) {
                 : tipo === "fila" ? [18, 26, 34, 42].map((x, i) => <circle key={i} cx={x} cy={30 - i * 3} r="2.4" fill="currentColor" />)
                 : tipo === "merodeo" ? <path d="M20 30 q8 -14 16 -2 t12 -6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeDasharray="2 3" />
                 : tipo === "retirado" ? <rect x="26" y="20" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeDasharray="2 2" />
+                : tipo === "dejado" ? <><rect x="26" y="20" width="12" height="10" rx="1.5" fill="currentColor" /><circle cx="44" cy="16" r="2" fill="currentColor" fillOpacity="0.45" /></>
+                : tipo === "animal" ? <><ellipse cx="32" cy="28" rx="5" ry="4" fill="currentColor" />{[[25, 21], [30, 18], [35, 18], [40, 21]].map(([x, y], i) => <circle key={i} cx={x} cy={y} r="1.8" fill="currentColor" />)}</>
                 : tipo === "permanencia" ? <><circle cx="32" cy="25" r="7" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M32 21 v4 l3 2" fill="none" stroke="currentColor" strokeWidth="1.6" /></>
                 : <circle cx={linea ? 40 : 32} cy={linea ? 30 : 25} r="3" fill="currentColor" />}
         </svg>
@@ -519,13 +523,15 @@ const PLANTILLAS: Plantilla[] = [
     { id: "aforo", nombre: "Contar los que pasan", tipo: "conteo", que: "Cuenta los vehículos que cruzan la línea, por sentido, clase y hora. No avisa.", ejemplo: "Cuántos autos entran por la calle principal cada hora.", aplicar: { clases: ["car", "truck", "bus", "motorcycle"], avisar: false } },
     { id: "grupo", nombre: "Grupo de personas", tipo: "aglomeracion", que: "Avisa si hay 6 personas o más juntas durante 1 min.", ejemplo: "Una reunión en la plaza o frente a la garita de noche.", aplicar: { clases: ["person"], maximo: 6, segundos: 60, avisar: true } },
     { id: "fila-caja", nombre: "Fila de una caja", tipo: "fila", que: "Cuenta las personas en la fila, las que entran y las que salen, y avisa a la guardia al llegar a 10 (al supervisor si sigue llena 5 min).", ejemplo: "La fila de la caja o del mostrador de la garita.", aplicar: { clases: ["person"], maximo: 10, rebote: 2, escalarMin: 5, enfrioMin: 5, avisar: true } },
+    { id: "perro-suelto", nombre: "Perro suelto", tipo: "animal", que: "Avisa si un perro, gato o caballo anda 3 s en la zona sin ninguna persona.", ejemplo: "La plaza, la piscina, la calle de entrada.", aplicar: { clases: ["dog", "cat", "horse"], segundos: 3, sinPersona: true, avisar: true } },
+    { id: "bulto", nombre: "Bulto abandonado", tipo: "dejado", que: "Avisa si aparece un bolso, una mochila o una valija y queda 2 min sin nadie al lado.", ejemplo: "La garita, la parada del ómnibus, el hall.", aplicar: { clases: ["backpack", "handbag", "suitcase"], segundos: 120, avisar: true } },
     { id: "bicicletero", nombre: "Se llevan algo", tipo: "retirado", que: "Aprende lo que está quieto en la zona y avisa si desaparece más de 20 s.", ejemplo: "Una bici en el bicicletero, una moto estacionada.", aplicar: { clases: ["bicycle", "motorcycle"], segundos: 20, avisar: true } },
 ];
 
 /** Qué forma se dibuja en cada tipo, en pocas palabras (para el desplegable). */
 const FORMA: Record<TipoRegla, string> = {
     conteo: "Con una línea", sentido: "Con una línea", cruce: "Con una línea · avisa", permanencia: "Con una zona",
-    aglomeracion: "Con una zona o todo el cuadro", fila: "Con una zona · aforo y límite", intrusion: "Con una zona · avisa", merodeo: "Zona o todo el cuadro · avisa", retirado: "Con una zona · avisa",
+    aglomeracion: "Con una zona o todo el cuadro", fila: "Con una zona · aforo y límite", intrusion: "Con una zona · avisa", merodeo: "Zona o todo el cuadro · avisa", retirado: "Con una zona · avisa", animal: "Con una zona · avisa", dejado: "Con una zona · avisa",
 };
 
 /**
@@ -852,8 +858,9 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                         <CajonCampo etiqueta="Qué cuenta" ayuda="Personas con los pies adentro de la zona (el aforo), y las que cruzan su borde hacia adentro (entran) o hacia afuera (salen). Que la zona no toque el borde del cuadro: el que sale del cuadro no cruza el borde de la zona.">
                             <span className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-full chip-info text-[12px] font-semibold"><PersonStanding size={13} /> Personas</span>
                         </CajonCampo>
-                    ) : <CajonCampo etiqueta="Qué cuenta" ayuda={r.tipo === "retirado" ? "Lo que se aprende quieto en la zona y avisa si falta. Personas y animales no: se mueven solos." : "Sólo lo elegido dispara la regla. Lo entrenado acá va primero."}>
-                        <ElegirClases valor={r.clases} alCambiar={(clases) => cambiar({ clases })} propias={listaPropias()} excluir={r.tipo === "retirado" ? ["persona", "animal"] : []} />
+                    ) : <CajonCampo etiqueta="Qué cuenta" ayuda={r.tipo === "retirado" ? "Lo que se aprende quieto en la zona y avisa si falta. Personas y animales no: se mueven solos." : r.tipo === "dejado" ? "Lo que aparece en la zona y queda solo. Lo entrenado acá también vale (un bulto propio)." : r.tipo === "animal" ? "Los animales que avisan." : "Sólo lo elegido dispara la regla. Lo entrenado acá va primero."}>
+                        <ElegirClases valor={r.clases} alCambiar={(clases) => cambiar({ clases })} propias={r.tipo === "animal" ? [] : listaPropias()}
+                            excluir={r.tipo === "retirado" ? ["persona", "animal"] : r.tipo === "dejado" ? ["persona", "animal", "vehiculo"] : r.tipo === "animal" ? ["persona", "vehiculo", "objeto", "calle", "casa", "comida", "deporte"] : []} />
                     </CajonCampo>}
 
                     {/* Cuándo dispara: los parámetros del tipo, en un renglón. */}
@@ -875,6 +882,13 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                             {r.tipo === "cruce" && <label className="flex items-center gap-2 text-[12.5px]"><span className="text-muted-foreground">Avisa al cruzar</span><Segmentos valor={r.sentidos || "ambos"} opciones={[["ambos", "Los dos sentidos"], ["ab", "A→B"], ["ba", "B→A"]]} alElegir={(v) => cambiar({ sentidos: v })} /></label>}
                             {r.tipo === "intrusion" && <CampoNumero rotulo="Avisa a los" valor={r.segundos ?? 2} min={0} max={120} unidad="s adentro" alCambiar={(n) => cambiar({ segundos: n })} ayuda="Seguidos adentro de la zona. 2 s alcanza para que una sombra o un paso por el borde no avise." />}
                             {r.tipo === "merodeo" && <CampoNumero rotulo="Avisa a los" valor={r.segundos ?? 90} min={20} max={3600} unidad="s dando vueltas" alCambiar={(n) => cambiar({ segundos: n })} ayuda="En la zona y caminando: alguien parado esperando no es merodeo." />}
+                            {r.tipo === "animal" && <>
+                                <CampoNumero rotulo="Avisa a los" valor={r.segundos ?? 3} min={0} max={120} unidad="s en la zona" alCambiar={(n) => cambiar({ segundos: n })} ayuda="Seguidos adentro. Unos segundos alcanzan para que uno que pasa corriendo por el borde no avise." />
+                                <label className="flex items-center gap-2 text-[12.5px]" title="Con una persona en la zona no avisa: el perro que pasea con su dueño no está suelto. Si la persona se va, avisa.">
+                                    <Switch checked={r.sinPersona !== false} onCheckedChange={(v) => cambiar({ sinPersona: v })} /> <span>Sólo si no hay nadie</span>
+                                </label>
+                            </>}
+                            {r.tipo === "dejado" && <CampoNumero rotulo="Avisa a los" valor={Math.max(1, Math.round((r.segundos ?? 120) / 60))} min={1} max={60} unidad="min solo" alCambiar={(n) => cambiar({ segundos: n * 60 })} ayuda="Quieto en la zona y sin una persona al lado. Si el dueño está al lado, no avisa." />}
                             {r.tipo === "retirado" && <CampoNumero rotulo="Avisa si falta" valor={r.segundos ?? 20} min={5} max={600} unidad="s" alCambiar={(n) => cambiar({ segundos: n })} ayuda="Sin verse ni estar tapado por una persona." />}
                             {r.tipo === "permanencia" && <CampoNumero rotulo="Avisa a los" valor={Math.round((r.segundos ?? 300) / 60)} min={1} max={1440} unidad="min en la zona" alCambiar={(n) => cambiar({ segundos: n * 60 })} />}
                             {r.tipo === "aglomeracion" && <>
@@ -937,7 +951,7 @@ const SUJETOS_BASE: Sujeto[] = [
     { id: "personas", nombre: "Personas", detalle: "Gente caminando", clases: ["person"], icono: PersonStanding },
     { id: "vehiculos", nombre: "Vehículos", detalle: "Autos, camionetas, ómnibus, motos", clases: ["car", "truck", "bus", "motorcycle"], icono: Car },
     { id: "bicis", nombre: "Bicicletas", detalle: "Bicis, en movimiento o estacionadas", clases: ["bicycle"], icono: Bike },
-    { id: "perros", nombre: "Perros", detalle: "Animales sueltos", clases: ["dog"], icono: Dog },
+    { id: "perros", nombre: "Animales", detalle: "Perros, gatos, caballos sueltos", clases: ["dog", "cat", "horse", "cow", "sheep"], icono: Dog },
     { id: "objetos", nombre: "Objetos", detalle: "Mochilas, bolsos, valijas, sillas, bancos, macetas", clases: CLASES_OBJETO.map((c) => c.clase), icono: Backpack },
 ];
 
@@ -949,6 +963,8 @@ const SITUACIONES: Situacion[] = [
     { id: "vueltas", tipo: "merodeo", nombre: "Da vueltas (merodeo)", detalle: "Una persona camina por la zona un buen rato, sin quedarse quieta.", icono: Footprints, solo: ["personas"] },
     { id: "fila", tipo: "fila", nombre: "Hacen fila", detalle: "Cuántas esperan en la zona, cuántas entran y salen, y aviso al llegar al límite.", icono: ListOrdered, solo: ["personas"], enCamara: "Como la analítica de aforo de las cámaras Bosch del modo Filas, pero la hace OmniVision: anda con cualquier cámara." },
     { id: "juntan", tipo: "aglomeracion", nombre: "Se juntan varios", detalle: "Más personas juntas de las que digas, durante un rato.", icono: Users, solo: ["personas"] },
+    { id: "suelto", tipo: "animal", nombre: "Anda suelto", detalle: "Un animal en la zona sin ninguna persona con él.", icono: Dog, solo: ["perros"] },
+    { id: "dejan", tipo: "dejado", nombre: "Lo dejan (abandonado)", detalle: "Aparece un bulto y queda solo, sin nadie al lado.", icono: Luggage, solo: ["objetos"] },
     { id: "desaparece", tipo: "retirado", nombre: "Desaparece (se lo llevan)", detalle: "Algo que estaba quieto en la zona ya no está.", icono: PackageMinus, nunca: ["personas", "perros"] },
     { id: "contar", tipo: "conteo", nombre: "Contar los que pasan", detalle: "Suma por sentido, clase y hora. No avisa.", icono: Spline },
 ];

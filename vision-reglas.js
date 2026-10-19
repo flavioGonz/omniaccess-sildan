@@ -23,8 +23,8 @@ const crypto = require("crypto");
 const sharp = require("sharp");
 
 /** Las analíticas del laboratorio que prenden cada tipo, y su valor si nadie las tocó. */
-const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion", fila: "fila", cruce: "linea-propia", intrusion: "zona-propia", merodeo: "merodeo", retirado: "retirado" };
-const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, aglomeracion: true, fila: true, "linea-propia": true, "zona-propia": true, merodeo: true, retirado: true };
+const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion", fila: "fila", cruce: "linea-propia", intrusion: "zona-propia", merodeo: "merodeo", retirado: "retirado", animal: "animal", dejado: "dejados" };
+const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, aglomeracion: true, fila: true, "linea-propia": true, "zona-propia": true, merodeo: true, retirado: true, animal: true, dejados: true };
 /** Cuánto tiene que correrse el pie (fracción del cuadro) para contar como movimiento. */
 const MOVIMIENTO_MIN = 0.01;
 /** Una pista que no se ve hace esto deja de existir para las reglas. */
@@ -86,11 +86,29 @@ const RETIRADO_FALTAS_MIN = 5;
 const RETIRADO_TAPADO = 0.3;
 const ENFRIO_RETIRADO_MS = 60_000;
 
-const TIPO_AVISO = { FILA_LLENA: "VISION_FILA", FILA_ESCALADA: "VISION_FILA", SENTIDO_CONTRARIO: "VISION_SENTIDO", PERMANENCIA: "VISION_PERMANENCIA", AGLOMERACION: "VISION_AGLOMERACION", CRUCE_LINEA: "VISION_CRUCE", INTRUSION: "VISION_INTRUSION", MERODEO: "VISION_MERODEO", RETIRADO: "VISION_RETIRADO" };
+/**
+ * Animal en zona: entre dos avisos de la misma regla (un perro que entra y sale de la zona no
+ * avisa cada vez).
+ */
+const ENFRIO_ANIMAL_MS = 2 * 60_000;
+/**
+ * Objeto dejado. Un bulto es «el mismo» mientras su caja se superpone con la primera en
+ * DEJADO_IOU_MISMO: el que alguien lleva en la mano se corre y empieza de cero en cada cuadro,
+ * así que nunca junta tiempo. El dueño «está al lado» si una persona toca la caja del bulto
+ * agrandada DEJADO_DUENO veces su tamaño para cada lado. Lo ya avisado se olvida si no se lo ve
+ * DEJADO_OLVIDO_MS (con la escena quieta se analiza una vez por minuto).
+ */
+const DEJADO_IOU_MISMO = 0.35;
+const DEJADO_DUENO = 1.5;
+const DEJADO_OLVIDO_MS = 3 * 60_000;
+const ENFRIO_DEJADO_MS = 60_000;
+
+const TIPO_AVISO = { ANIMAL: "VISION_ANIMAL", DEJADO: "VISION_DEJADO", FILA_LLENA: "VISION_FILA", FILA_ESCALADA: "VISION_FILA", SENTIDO_CONTRARIO: "VISION_SENTIDO", PERMANENCIA: "VISION_PERMANENCIA", AGLOMERACION: "VISION_AGLOMERACION", CRUCE_LINEA: "VISION_CRUCE", INTRUSION: "VISION_INTRUSION", MERODEO: "VISION_MERODEO", RETIRADO: "VISION_RETIRADO" };
 const NOMBRE_CLASE = { person: "persona", car: "auto", truck: "camioneta", bus: "ómnibus", motorcycle: "moto", bicycle: "bicicleta", dog: "perro",
+    cat: "gato", horse: "caballo", cow: "vaca", sheep: "oveja",
     backpack: "mochila", handbag: "bolso", suitcase: "valija", chair: "silla", bench: "banco", "potted plant": "maceta" };
 /** Para el texto del aviso: «se llevaron una bicicleta», «un bolso». */
-const ARTICULO = { bicycle: "una", motorcycle: "una", backpack: "una", suitcase: "una", chair: "una", "potted plant": "una", handbag: "un", bench: "un" };
+const ARTICULO = { dog: "un", cat: "un", horse: "un", cow: "una", sheep: "una", bicycle: "una", motorcycle: "una", backpack: "una", suitcase: "una", chair: "una", "potted plant": "una", handbag: "un", bench: "un" };
 /** Intersección sobre unión de dos cajas [x1,y1,x2,y2]. */
 function iou(a, b) {
     const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
@@ -241,6 +259,12 @@ function iniciar({ prisma, subir, log }) {
     /** Objeto retirado, por regla: lo aprendido en la zona → [{ clase, caja, desde, visto, faltas, jpeg, estable }]. */
     const aprendidos = new Map();
     const ultimoAvisoRetirado = new Map();
+    /** Animal en zona: `${regla}:${pista}` → { desde, visto, avisado, deviceId }. */
+    const animales = new Map();
+    const ultimoAvisoAnimal = new Map();
+    /** Objeto dejado, por regla: { lista: [{ clase, caja, desde, visto, avisado }] } (ver DEJADO_*). */
+    const dejados = new Map();
+    const ultimoAvisoDejado = new Map();
     /**
      * Conteo de fila, por regla: { aceptado, candidato, desde, llenoDesde, ultimoAviso, escalado,
      * pistas: pista → { dentro, visto, cambio } }.
@@ -274,6 +298,9 @@ function iniciar({ prisma, subir, log }) {
             if (r.tipo === "permanencia") for (const k of estadias.keys()) if (k.startsWith(r.id + ":")) return true;
             if (r.tipo === "intrusion") for (const k of intrusos.keys()) if (k.startsWith(r.id + ":")) return true;
             if (r.tipo === "merodeo") for (const k of merodeos.keys()) if (k.startsWith(r.id + ":")) return true;
+            if (r.tipo === "animal") for (const [k, v] of animales) if (k.startsWith(r.id + ":") && !v.avisado) return true;
+            // Un bulto nuevo juntando tiempo: si la escena queda quieta se analizaría una vez por minuto.
+            if (r.tipo === "dejado" && (dejados.get(r.id)?.lista || []).some((a) => !a.avisado)) return true;
             // Algo aprendido que está faltando: se mira seguido hasta decidir si se lo llevaron.
             if (r.tipo === "retirado" && (aprendidos.get(r.id) || []).some((a) => a.estable && a.faltas > 0)) return true;
         }
@@ -322,6 +349,9 @@ function iniciar({ prisma, subir, log }) {
                     if (r.tipo === "conteo" || r.tipo === "sentido" || r.tipo === "cruce") await lineas(r, cam, valen, jpeg, ahora, t);
                     else if (r.tipo === "intrusion") await intrusion(r, cam, valen, jpeg, ahora, t);
                     else if (r.tipo === "merodeo") await merodeo(r, cam, valen, jpeg, ahora, t);
+                    else if (r.tipo === "animal") await animal(r, cam, valen, objetos, jpeg, ahora, t);
+                    // Dejado no usa la pista (un bulto quieto puede cambiar de número), como retirado.
+                    else if (r.tipo === "dejado") await dejado(r, cam, objetos, jpeg, ahora, t);
                     // Retirado mira también a las personas (para saber si tapan lo aprendido).
                     else if (r.tipo === "retirado") await retirado(r, cam, objetos, jpeg, ahora, t);
                     else if (r.tipo === "permanencia") await permanencia(r, cam, valen, jpeg, ahora, t);
@@ -344,6 +374,7 @@ function iniciar({ prisma, subir, log }) {
         for (const [k, v] of cruces) if (t - v.t > OLVIDO_MS * 3) cruces.delete(k);
         for (const [k, v] of intrusos) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) intrusos.delete(k);
         for (const [k, v] of merodeos) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) merodeos.delete(k);
+        for (const [k, v] of animales) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) animales.delete(k);
         await cerrarEstadias(cam, t, false);
     }
 
@@ -504,6 +535,75 @@ function iniciar({ prisma, subir, log }) {
             }
         }
         aprendidos.set(r.id, quedan);
+    }
+
+    /**
+     * Animal en zona (catálogo «Animal en zona»): un perro, gato, caballo, vaca u oveja con el pie
+     * en la zona `segundos` seguidos, en horario y —salvo que la regla diga lo contrario— sin
+     * ninguna persona en la zona: el perro que pasea con su dueño no está suelto. Una vez por pista.
+     */
+    async function animal(r, cam, valen, todos, jpeg, ahora, t) {
+        const armada = enHorario(r.horario, ahora);
+        const conGente = r.sinPersona !== false && todos.some((o) => o.grupo === "persona" && Array.isArray(o.caja_norm) && adentro(pie(o), r.zona));
+        for (const o of valen) {
+            const k = `${r.id}:${o.pista}`;
+            if (!armada || !adentro(pie(o), r.zona)) { animales.delete(k); continue; }
+            let e = animales.get(k);
+            if (!e) { e = { desde: t, visto: t, avisado: false, deviceId: cam.id }; animales.set(k, e); }
+            e.visto = t;
+            // Con una persona en la zona no avisa, pero el tiempo sigue corriendo: si se va, avisa.
+            if (e.avisado || conGente || (t - e.desde) / 1000 < (r.segundos ?? 3)) continue;
+            e.avisado = true;
+            const f = await foto(jpeg, ahora);
+            const seg = Math.round((t - e.desde) / 1000);
+            const ev = await evento({ tipo: "ANIMAL", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: o.clase, pista: o.pista, valor: seg, foto: f, caja: o.caja_norm, ts: new Date(e.desde) });
+            contadores.animales = (contadores.animales || 0) + 1;
+            if (t - (ultimoAvisoAnimal.get(r.id) || 0) > ENFRIO_ANIMAL_MS) {
+                ultimoAvisoAnimal.set(r.id, t);
+                await avisar(r, "ANIMAL", `${nombreDe(o.clase)} suelto en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: `${nombreDe(o.clase)} · ${lleva(seg)}` }] }, f), cam);
+            }
+        }
+    }
+
+    /**
+     * Objeto dejado (catálogo «Objetos dejados»): un bulto que APARECE en la zona, se queda quieto
+     * `segundos` y no tiene a nadie al lado. Lo que ya estaba la primera vez que la regla mira la
+     * cámara (al crearla o al arrancar el worker) no cuenta: si no, cada reinicio avisaría por la
+     * maceta de siempre. Reconoce el bulto por clase y por dónde está, como retirado.
+     */
+    async function dejado(r, cam, todos, jpeg, ahora, t) {
+        const enZona = todos.filter((o) => r.clases.includes(o.clase) && Array.isArray(o.caja_norm) && adentro(centro(o.caja_norm), r.zona));
+        let d = dejados.get(r.id);
+        if (!d) {
+            dejados.set(r.id, { lista: enZona.map((o) => ({ clase: o.clase, caja: o.caja_norm, desde: t, visto: t, avisado: true })) });
+            return;
+        }
+        const usados = new Set();
+        for (const a of d.lista) {
+            const i = enZona.findIndex((o, j) => !usados.has(j) && o.clase === a.clase && iou(o.caja_norm, a.caja) >= DEJADO_IOU_MISMO);
+            if (i >= 0) { usados.add(i); a.visto = t; }
+        }
+        enZona.forEach((o, j) => { if (!usados.has(j)) d.lista.push({ clase: o.clase, caja: o.caja_norm, desde: t, visto: t, avisado: false }); });
+        d.lista = d.lista.filter((a) => t - a.visto <= (a.avisado ? DEJADO_OLVIDO_MS : OLVIDO_MS));
+        if (!enHorario(r.horario, ahora)) return;
+        const personas = todos.filter((o) => o.grupo === "persona" && Array.isArray(o.caja_norm));
+        for (const a of d.lista) {
+            if (a.avisado || a.visto !== t || (t - a.desde) / 1000 < (r.segundos ?? 120)) continue;
+            const [x1, y1, x2, y2] = a.caja, w = (x2 - x1) * DEJADO_DUENO, h = (y2 - y1) * DEJADO_DUENO;
+            const alrededor = [x1 - w, y1 - h, x2 + w, y2 + h];
+            if (personas.some((p) => cubre(p.caja_norm, alrededor) > 0)) continue;
+            a.avisado = true;
+            const seg = Math.round((t - a.desde) / 1000);
+            const f = await foto(jpeg, ahora);
+            const ev = await evento({ tipo: "DEJADO", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: a.clase, valor: seg, foto: f, caja: a.caja, ts: new Date(a.desde) });
+            contadores.dejados = (contadores.dejados || 0) + 1;
+            if (t - (ultimoAvisoDejado.get(r.id) || 0) > ENFRIO_DEJADO_MS) {
+                ultimoAvisoDejado.set(r.id, t);
+                await avisar(r, "DEJADO", `${nombreDe(a.clase)} sin dueño hace ${lleva(seg)} en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: a.caja, tono: "aviso", texto: `${nombreDe(a.clase)} · ${lleva(seg)}` }] }, f), cam);
+            }
+        }
     }
 
     /** Las estadías que terminaron (salió de la zona o dejó de verse): se guarda cuánto duraron. */

@@ -19,7 +19,7 @@
 
 export const CLAVE_REGLAS = "VISION_REGLAS";
 
-export type TipoRegla = "conteo" | "sentido" | "permanencia" | "aglomeracion" | "fila" | "cruce" | "intrusion" | "merodeo" | "retirado";
+export type TipoRegla = "conteo" | "sentido" | "permanencia" | "aglomeracion" | "fila" | "cruce" | "intrusion" | "merodeo" | "retirado" | "animal" | "dejado";
 export type Punto = [number, number];
 export type Sentido = "ab" | "ba";
 
@@ -56,6 +56,8 @@ export type ReglaVision = {
     permanencia?: number;
     escalarMin?: number;
     enfrioMin?: number;
+    /** Animal en zona: sólo avisa si no hay ninguna persona en la zona (el perro con su dueño no está suelto). */
+    sinPersona?: boolean;
     /** Si además de registrarlo crea un aviso a la guardia (consola, Control LPR, Visitas). */
     avisar: boolean;
     /** Cruce propio: en qué sentido avisa («ambos», o sólo de A a B, o de B a A). */
@@ -134,11 +136,27 @@ export const TIPOS_REGLA: Record<TipoRegla, {
         queHace: "Aprende lo que está quieto en la zona (una bicicleta, una moto, una silla, un bulto) y avisa si desaparece, con la foto de antes y la de después. Si alguien se para delante, no cuenta como desaparecido.",
         clasesDefecto: ["bicycle", "motorcycle", "backpack", "suitcase", "handbag", "chair", "bench", "potted plant"], avisarDefecto: true, segundosDefecto: 20,
     },
+    /*
+     * Fase 2 de las «próximas» del catálogo (19/10, Nico: «vamos por fase 2»): animal en zona y
+     * objetos dejados, sobre lo que el detector ya ve. Las dos avisan con la foto marcada.
+     */
+    animal: {
+        nombre: "Animal en zona", analitica: "animal", geometria: "zona",
+        queHace: "Avisa cuando un perro, gato, caballo, vaca u oveja anda en la zona unos segundos sin ninguna persona: perro suelto, animal en la piscina, caballo en la calle. Una vez por animal.",
+        clasesDefecto: ["dog", "cat", "horse", "cow", "sheep"], avisarDefecto: true, segundosDefecto: 3,
+    },
+    dejado: {
+        nombre: "Objeto dejado", analitica: "dejados", geometria: "zona",
+        queHace: "Avisa cuando aparece un bolso, una mochila o una valija en la zona y se queda quieto los minutos indicados sin nadie al lado. Lo que ya estaba al crear la regla no cuenta.",
+        clasesDefecto: ["backpack", "handbag", "suitcase"], avisarDefecto: true, segundosDefecto: 120,
+    },
 };
 
 /** Merodeo: desde 20 s (menos es pasar caminando) hasta 1 h. Retirado: cuánto tiene que faltar, de 5 s a 10 min. */
 const SEGUNDOS_MERODEO = { min: 20, max: 3600 };
 const SEGUNDOS_RETIRADO = { min: 5, max: 600 };
+/** Objeto dejado: cuánto tiene que quedar solo, de 10 s a 1 h. */
+const SEGUNDOS_DEJADO = { min: 10, max: 3600 };
 
 /** La intrusión avisa casi en el acto: su demora va de 0 a 2 min, no desde los 5 s de la permanencia. */
 const SEGUNDOS_INTRUSION = { min: 0, max: 120 };
@@ -162,6 +180,10 @@ export const CLASES_REGLA: { clase: string; nombre: string }[] = [
     { clase: "motorcycle", nombre: "Motos" },
     { clase: "bicycle", nombre: "Bicicletas" },
     { clase: "dog", nombre: "Perros" },
+    { clase: "cat", nombre: "Gatos" },
+    { clase: "horse", nombre: "Caballos" },
+    { clase: "cow", nombre: "Vacas" },
+    { clase: "sheep", nombre: "Ovejas" },
 ];
 /** Lo que se puede llevar alguien: las clases que ofrece «Objeto retirado» además de las de arriba. */
 export const CLASES_OBJETO: { clase: string; nombre: string }[] = [
@@ -208,7 +230,7 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
             if (tipo === "cruce") regla.sentidos = r?.sentidos === "ab" || r?.sentidos === "ba" ? r.sentidos : "ambos";
         } else {
             const zona = (Array.isArray(r?.zona) ? r.zona : []).map(punto).filter(Boolean) as Punto[];
-            if ((tipo === "permanencia" || tipo === "intrusion" || tipo === "retirado" || tipo === "fila") && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
+            if ((tipo === "permanencia" || tipo === "intrusion" || tipo === "retirado" || tipo === "fila" || tipo === "animal" || tipo === "dejado") && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
             regla.zona = zona.length >= 3 ? zona.slice(0, 30) : null;
             if (tipo === "fila") {
                 // Las mismas perillas que la tarea de aforo de la cámara y la alerta de Filas.
@@ -219,13 +241,14 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
                 regla.permanencia = n(r?.permanencia, FILA.permanencia.defecto, FILA.permanencia.min, FILA.permanencia.max);
                 regla.escalarMin = n(r?.escalarMin, FILA.escalarMin.defecto, FILA.escalarMin.min, FILA.escalarMin.max);
                 regla.enfrioMin = n(r?.enfrioMin, FILA.enfrioMin.defecto, FILA.enfrioMin.min, FILA.enfrioMin.max);
-            } else if (tipo === "intrusion") {
+            } else if (tipo === "intrusion" || tipo === "animal") {
                 const v = Number(r?.segundos);
                 regla.segundos = Math.round(Math.max(SEGUNDOS_INTRUSION.min, Math.min(SEGUNDOS_INTRUSION.max, Number.isFinite(v) && r?.segundos !== "" && r?.segundos != null ? v : t.segundosDefecto ?? 2)));
-            } else if (tipo === "merodeo" || tipo === "retirado") {
-                const lim = tipo === "merodeo" ? SEGUNDOS_MERODEO : SEGUNDOS_RETIRADO;
+            } else if (tipo === "merodeo" || tipo === "retirado" || tipo === "dejado") {
+                const lim = tipo === "merodeo" ? SEGUNDOS_MERODEO : tipo === "dejado" ? SEGUNDOS_DEJADO : SEGUNDOS_RETIRADO;
                 regla.segundos = Math.round(Math.max(lim.min, Math.min(lim.max, Number(r?.segundos) || t.segundosDefecto || lim.min)));
             } else regla.segundos = Math.round(Math.max(SEGUNDOS.min, Math.min(SEGUNDOS.max, Number(r?.segundos) || t.segundosDefecto || 60)));
+            if (tipo === "animal") regla.sinPersona = r?.sinPersona !== false;
             if (tipo === "aglomeracion") regla.maximo = Math.round(Math.max(MAXIMO.min, Math.min(MAXIMO.max, Number(r?.maximo) || t.maximoDefecto || 5)));
         }
         if (CON_HORARIO.includes(tipo)) {
@@ -270,6 +293,8 @@ export const TIPOS_EVENTO: Record<string, { nombre: string; tono: "info" | "mal"
     INTRUSION: { nombre: "Intrusión", tono: "mal" },
     MERODEO: { nombre: "Merodeo", tono: "aviso" },
     RETIRADO: { nombre: "Objeto retirado", tono: "mal" },
+    ANIMAL: { nombre: "Animal en zona", tono: "aviso" },
+    DEJADO: { nombre: "Objeto dejado", tono: "aviso" },
     FILA_LLENA: { nombre: "Fila llena", tono: "aviso" },
     FILA_ESCALADA: { nombre: "Fila llena · supervisor", tono: "mal" },
 };
@@ -280,7 +305,7 @@ export const TIPOS_EVENTO: Record<string, { nombre: string; tono: "info" | "mal"
  */
 export const TIPOS_FILA_DATOS = ["FILA", "FILA_ENTRA", "FILA_SALE"];
 /** Los tipos que tienen horario de armado. */
-export const CON_HORARIO: TipoRegla[] = ["cruce", "intrusion", "merodeo", "retirado", "fila"];
+export const CON_HORARIO: TipoRegla[] = ["cruce", "intrusion", "merodeo", "retirado", "fila", "animal", "dejado"];
 
 /** «2 min 30 s», «1 h 5 min». */
 export function duracionCorta(seg: number | null | undefined): string {

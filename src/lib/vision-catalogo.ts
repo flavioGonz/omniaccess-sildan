@@ -297,7 +297,7 @@ export const ANALITICAS: Analitica[] = [
     {
         id: "animal", nombre: "Animal en zona", icono: "Dog", modo: "Intrusión",
         queHace: "Avisa cuando en una zona dibujada hay un perro, gato o caballo y ninguna persona: perro suelto, animal en la piscina, caballo en la calle.",
-        necesita: ["deteccion"], clases: ["dog", "cat", "horse", "cow", "sheep"], estado: "posible", porDefecto: false,
+        necesita: ["deteccion", "seguimiento"], clases: ["dog", "cat", "horse", "cow", "sheep"], estado: "corre", fase: 2, porDefecto: true,
     },
     {
         id: "merodeo", nombre: "Merodeo", icono: "Footprints", modo: "Intrusión",
@@ -368,8 +368,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "dejados", nombre: "Objetos dejados", icono: "Luggage", modo: "Búsqueda",
-        queHace: "Un bolso, mochila o valija que apareció en una zona marcada y quedó quieto más de N minutos.",
-        necesita: ["deteccion", "seguimiento"], clases: ["backpack", "handbag", "suitcase"], estado: "desarrollo", fase: 3, porDefecto: false,
+        queHace: "Un bolso, mochila o valija que apareció en una zona marcada y quedó quieto más de N minutos sin nadie al lado.",
+        necesita: ["deteccion"], clases: ["backpack", "handbag", "suitcase"], estado: "corre", fase: 2, porDefecto: true,
+        limite: "Lo chico se ve de cerca: una mochila en el piso a 20 m de la cámara puede no detectarse.",
     },
 
     // ── Lo que hace la industria y faltaba en la lista (revisado el 9/10). Las piezas ya corren;
@@ -419,9 +420,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "chapa-sin-lectora", nombre: "Matrícula sin lectora", icono: "ScanLine", modo: "LPR",
-        queHace: "Leer chapas con la lectura de texto en cámaras comunes (perimetrales, de calle), sobre todo motos, que las lectoras no ven.",
-        necesita: ["deteccion", "texto"], clases: ["car", "truck", "motorcycle"], estado: "posible", porDefecto: false,
-        limite: "Para chapas, omni-lpr lee mejor: esto es para donde omni-lpr no mira.",
+        queHace: "Leer chapas en cámaras comunes (perimetrales, de calle), que no son lectoras: cuando OmniVision ve pasar un vehículo, el seguimiento le pasa los cuadros de ese momento al lector de matrículas. Se elige por cámara en su calibrador («Cuando OmniVision ve un vehículo»); los estacionados no disparan.",
+        necesita: ["deteccion", "seguimiento"], clases: ["car", "truck", "motorcycle"], estado: "corre", fase: 2, porDefecto: true,
+        limite: "Depende del ángulo: de costado, de atrás o lejos no lee. Medido el 19/10 en la LPR Interior: 4 pasadas, ninguna chapa legible.",
     },
     {
         id: "estacionamiento", nombre: "Estacionamiento", icono: "SquareParking", modo: "LPR",
@@ -443,7 +444,7 @@ export const ANALITICAS: Analitica[] = [
     {
         id: "mapa-calor", nombre: "Mapa de calor", icono: "Flame", modo: "Conteo",
         queHace: "Por dónde camina y circula la gente en cada cámara, a partir de los recorridos del registro de detecciones.",
-        necesita: ["deteccion", "seguimiento"], clases: ["person", "car"], estado: "posible", porDefecto: false,
+        necesita: ["deteccion", "seguimiento"], clases: ["person", "car"], estado: "corre", fase: 2, porDefecto: true,
     },
     {
         id: "epp", nombre: "Casco y chaleco en obras", icono: "HardHat", modo: "Obras",
@@ -455,12 +456,6 @@ export const ANALITICAS: Analitica[] = [
         queHace: "Humo o llamas en la imagen: un incendio de pasto, una parrilla fuera de lugar.",
         necesita: ["deteccion"], clases: [], estado: "entrenar", porDefecto: false,
         limite: "No está en las 80 clases. Los modelos de humo y fuego que circulan son AGPL; hay que entrenar uno propio con un set de datos libre (D-Fire) o preguntarle al modelo que describe la escena.",
-    },
-    {
-        id: "pelea", nombre: "Pelea o violencia", icono: "TriangleAlert", modo: "Intrusión",
-        queHace: "Personas forcejeando o golpeándose.",
-        necesita: ["deteccion", "pose", "seguimiento"], clases: ["person"], estado: "entrenar", porDefecto: false,
-        limite: "Es reconocimiento de acciones sobre varios cuadros, no de objetos: no hay un modelo libre que lo haga bien sin entrenar con video propio. Da muchas falsas alarmas.",
     },
 ];
 

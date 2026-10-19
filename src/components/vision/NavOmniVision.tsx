@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { DoorOpen, ListOrdered, SquareParking, FlaskConical, GraduationCap, ListVideo, ScanEye, ScanLine, ScanSearch, ShieldCheck, Sparkles, Spline, type LucideIcon } from "lucide-react";
+import { DoorOpen, Flame, ListOrdered, SquareParking, FlaskConical, GraduationCap, ListVideo, ScanEye, ScanLine, ScanSearch, ShieldCheck, Sparkles, Spline, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,6 +22,7 @@ export const SECCIONES_OMNIVISION: { href: string; rotulo: string; menu: string;
     { href: "/admin/vision/relecturas", rotulo: "Relecturas", menu: "Relecturas", icono: ScanLine },
     { href: "/admin/vision/verificacion", rotulo: "Verificación", menu: "Doble verificación", icono: ShieldCheck },
     { href: "/admin/vision/filas", rotulo: "Filas", menu: "Conteo de filas", icono: ListOrdered },
+    { href: "/admin/vision/calor", rotulo: "Calor", menu: "Mapa de calor", icono: Flame },
     { href: "/admin/vision/estacionamiento", rotulo: "Estacionamiento", menu: "Estacionamiento", icono: SquareParking },
     { href: "/admin/vision/entrenar", rotulo: "Entrenar", menu: "Analíticas entrenables", icono: GraduationCap },
     { href: "/admin/vision", rotulo: "Laboratorio", menu: "Laboratorio", icono: FlaskConical, exacta: true },
