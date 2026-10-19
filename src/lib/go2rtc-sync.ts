@@ -3,6 +3,7 @@ import net from "net";
 import yaml from "js-yaml";
 import { prisma } from "@/lib/prisma";
 import { getChannelMap, resolveNvrById } from "@/lib/nvr-resolve";
+import { nombreStreamFila } from "@/lib/stream-fila";
 
 /** ¿Responde el puerto RTSP de este host? (para decidir directo-a-cámara vs NVR). */
 function tcpReachable(ip: string, port = 554, ms = 1500): Promise<boolean> {
@@ -114,6 +115,18 @@ export async function syncLprStream(dev: Dev): Promise<void> {
         }
 
         if (!dev.ip) return;
+
+        // Contador de fila Bosch: el vivo lo piden las pantallas de Filas por `bosch_<ip>`
+        // (nombre que arman con la IP, no con el id). Túnel RTSP de Bosch: línea 1, inst 2 = sub
+        // (vivo liviano), inst 1 = principal.
+        if (dev.deviceType === "QUEUE_COUNTER" && String(dev.brand || "").toUpperCase() === "BOSCH") {
+            const base = nombreStreamFila(dev.ip);
+            const cred = `${enc(dev.username || "admin")}:${enc(dev.password || "")}@`;
+            await writeStreams(base, `${base}_hd`,
+                `rtsp://${cred}${dev.ip}/rtsp_tunnel?p=1&line=1&inst=2&vcd=2`,
+                `rtsp://${cred}${dev.ip}/rtsp_tunnel?p=0&line=1&inst=1&vcd=2`);
+            return;
+        }
 
         if (dev.deviceType === "CAMERA") {
             // resolver NVR + canal por el mapa

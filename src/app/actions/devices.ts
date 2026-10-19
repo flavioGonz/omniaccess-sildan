@@ -380,6 +380,10 @@ export async function probeDeviceInfo(input: { ip: string; username?: string; pa
         } catch { /* sin NVR Dahua o no respondió: queda el error original */ }
         return r1;
     }
+    if (brand === "BOSCH") {
+        const { infoBosch } = await import("@/lib/bosch-info");
+        return infoBosch(ip, input.username || "admin", input.password || "");
+    }
     if (brand !== "HIKVISION") return { ok: false, error: `Autodetección no disponible para ${brand}` };
     const driver = new HikvisionDriver();
     const order = (input.authType || "DIGEST").toUpperCase() === "BASIC" ? ["BASIC", "DIGEST"] : ["DIGEST", "BASIC"];

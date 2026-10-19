@@ -105,6 +105,7 @@ import {
 import { cn } from "@/lib/utils";
 import { HardDrive as HardDriveIco, ScanSearch, Calculator } from "lucide-react";
 import { CajonDispositivo } from "@/components/devices/CajonDispositivo";
+import { CajonContadorFila } from "@/components/devices/CajonContadorFila";
 import { ChipModo } from "@/components/devices/ModoCamara";
 import { esLprDeAcceso, modoLprDe } from "@/lib/modo-camara";
 import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
@@ -135,7 +136,7 @@ const TYPE_META: Record<string, { label: string; color: string; activeClass: str
     LPR_CAMERA: { label: "Cámaras LPR", color: "text-amber-400", activeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
     CAMERA: { label: "Intrusión", color: "text-red-400", activeClass: "bg-red-500/15 text-red-300 border-red-500/30" },
     FACE_TERMINAL: { label: "Face", color: "text-teal-400", activeClass: "bg-teal-500/15 text-teal-300 border-teal-500/30" },
-    QUEUE_COUNTER: { label: "Queue", color: "text-violet-400", activeClass: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
+    QUEUE_COUNTER: { label: "Contadores de fila", color: "text-violet-400", activeClass: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
     NVR: { label: "NVR", color: "text-blue-400", activeClass: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
     // (SN) La LPR de seguimiento interior: la página de Olivos no tenía este tipo y el equipo no
     // aparecía en ninguna vista. Se edita con el formulario general (menú «…»).
@@ -313,8 +314,15 @@ export default function DevicesPage() {
     const pedido = searchParams.get('type');
     const typeFilter = pedido && allowedTypes.includes(pedido) ? pedido : (allowedTypes[0] || "LPR_CAMERA");
     // Alta: un solo botón que pregunta qué se agrega (LPR, intrusión o NVR) e importar canales de un NVR.
-    const [alta, setAlta] = useState<null | "lpr" | "intrusion" | "nvr" | "otro">(null);
+    const [alta, setAlta] = useState<null | "lpr" | "intrusion" | "nvr" | "fila" | "otro">(null);
     const [editando, setEditando] = useState<any>(null);
+    // Contador de fila (Bosch): su propio cajón, con la fila (límite, conteo) en vez de grabación y modos.
+    const [editandoFila, setEditandoFila] = useState<any>(null);
+    /** Abre la ficha que corresponde al equipo, si tiene una de cajón. */
+    const abrirFicha = (d: any) => {
+        if (vistaDe(d) === "QUEUE_COUNTER") setEditandoFila(d);
+        else if (["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(d))) setEditando(d);
+    };
     const [calibIntr, setCalibIntr] = useState<any>(null);
     // Sincronizar hora: siempre se pregunta antes (lista de equipos + desfase actual).
     const [pedirHora, setPedirHora] = useState<any[] | null>(null);
@@ -554,7 +562,7 @@ export default function DevicesPage() {
                         <TimerReset size={17} className="text-emerald-500" />
                     </button>
                                     <span className="w-px h-7 bg-border mx-1" />
-                    <Button onClick={() => setAlta(modules.MODULE_LPR ? "lpr" : "otro")} data-tooltip-id="tt-grab" data-tooltip-content="Alta guiada: primero elegís qué equipo es (cámara LPR, cámara de intrusión o NVR) y después sólo se piden los datos de ese tipo."
+                    <Button onClick={() => setAlta(modules.MODULE_LPR ? "lpr" : modules.MODULE_QUEUE ? "fila" : "otro")} data-tooltip-id="tt-grab" data-tooltip-content="Alta guiada: primero elegís qué equipo es (cámara LPR, cámara de intrusión o NVR) y después sólo se piden los datos de ese tipo."
                     className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-10 px-5 rounded-xl transition-all active:scale-95 text-sm gap-2 shrink-0 shadow-lg shadow-indigo-600/20">
                     <Plus size={16} /> Agregar
                 </Button>
@@ -563,14 +571,14 @@ export default function DevicesPage() {
 
             <div className="flex gap-4 items-start">
                 <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={typeFilter}
-                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(d)) ? setEditando(d) : null)} health={health} alertasDe={alertasDe}
+                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={abrirFicha} health={health} alertasDe={alertasDe}
                     colapsado={panelCerrado} onColapsar={colapsarPanel} onTipo={(t) => { setAreaSel(TODAS); setFilter(t); }}
                     tipos={allowedTypes.map((t) => ({ tipo: t, rotulo: TYPE_META[t]?.label || t, cuenta: devices.filter((d) => vistaDe(d) === t).length, alertas: devices.filter((d) => vistaDe(d) === t && alertasDe[d.id]?.length).length }))} />
                 <div className="flex-1 min-w-0 space-y-4">
             {areaSel !== TODAS ? (
                 <VistaArea estado={areas} areaId={areaSel} devices={devices.filter((d) => allowedTypes.includes(d.deviceType))} busqueda={searchTerm}
                     health={health} alertasDe={alertasDe} grab={grab} detectando={detectando} calculando={calculando}
-                    onDetectar={(ids) => detectar(ids)} onRetencion={retencion} onEditar={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(d.deviceType) ? setEditando(d) : null)}
+                    onDetectar={(ids) => detectar(ids)} onRetencion={retencion} onEditar={abrirFicha}
                     onCalibrar={(d) => (d.deviceType === "CAMERA" ? setCalibIntr(d) : setCalibrating(d))}
                     onSalud={(d) => setHealthHistory(d)} onElegirArea={setAreaSel} />
             ) : (<>
@@ -610,7 +618,7 @@ export default function DevicesPage() {
                             const h = health[dev.id];
 
                             return (
-                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; if (["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(dev))) setEditando(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
+                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; abrirFicha(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
                                     <TableCell className="py-2 pl-4">
                                         <div className="flex items-center gap-3 min-w-0">
                                             <div className="relative shrink-0">
@@ -803,8 +811,8 @@ export default function DevicesPage() {
 
                                                     <DropdownMenuSeparator className="bg-foreground/10" />
 
-                                                    {dev.deviceType === "LPR_CAMERA" ? (
-                                                        <DropdownMenuItem onClick={() => setEditando(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-blue-400 focus:bg-foreground/10 focus:text-blue-400">
+                                                    {dev.deviceType === "LPR_CAMERA" || dev.deviceType === "QUEUE_COUNTER" ? (
+                                                        <DropdownMenuItem onClick={() => abrirFicha(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-blue-400 focus:bg-foreground/10 focus:text-blue-400">
                                                             <Settings2 size={14} /> Editar configuración
                                                         </DropdownMenuItem>
                                                     ) : (
@@ -1036,6 +1044,8 @@ export default function DevicesPage() {
                 alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} />
             <CajonDispositivo device={editando} groups={groups} open={!!editando} onOpenChange={(v) => !v && setEditando(null)} onSuccess={() => { loadData(); cargarGrab(); }}
                 alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} />
+            <CajonContadorFila open={alta === "fila"} onOpenChange={(v) => !v && setAlta(null)} onSuccess={() => loadData()} />
+            <CajonContadorFila device={editandoFila} open={!!editandoFila} onOpenChange={(v) => !v && setEditandoFila(null)} onSuccess={() => loadData()} />
             <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "otro"} alCambiarAbierto={(v) => !v && setAlta(null)} />
             <ConfirmarHora equipos={pedirHora || []} health={health} open={!!pedirHora} onOpenChange={(v) => !v && setPedirHora(null)} onListo={() => setTimeout(refreshHealth, 1500)} />
             <ReactTooltip id="tt-alertas" place="top" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[60]" />

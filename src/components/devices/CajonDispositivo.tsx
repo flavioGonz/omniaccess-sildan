@@ -46,8 +46,8 @@ type Tarea = { clave: string; titulo: string; ayuda: string; icono: any; estado:
 type Ubic = { nvrId: string | null; nvrNombre: string | null; ch: number; canalNombre?: string | null };
 type Canal = { channel: number; ip: string | null; name: string; model?: string | null; marca: string; protocolo?: string | null; sensorDe?: number | null; existente: { id: string; name: string; tipo: string } | null };
 
-const TT = "tt-cajon-disp";
-const tip = (texto: string) => ({ "data-tooltip-id": TT, "data-tooltip-content": texto });
+export const TT = "tt-cajon-disp";
+export const tip = (texto: string) => ({ "data-tooltip-id": TT, "data-tooltip-content": texto });
 const ES_LPR = /\b(lpr|anpr)\b|matr[ií]cula|patente|entrada|salida|acceso|barrera/i;
 
 const TIPOS: { valor: Tipo; rotulo: string; que: string; icono: any; color: string; ejemplo: string }[] = [
@@ -95,7 +95,7 @@ type EleccionCanal = { rol: RolImport; direction: "ENTRY" | "EXIT"; modoLpr?: Mo
 
 /* ── Piezas de formulario con ícono y tooltip ─────────────────────────────────── */
 
-function Etiqueta({ texto, ayuda }: { texto: string; ayuda?: string }) {
+export function Etiqueta({ texto, ayuda }: { texto: string; ayuda?: string }) {
     return (
         <span className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground/85 mb-1.5">
             {texto}
@@ -104,7 +104,7 @@ function Etiqueta({ texto, ayuda }: { texto: string; ayuda?: string }) {
     );
 }
 
-function Campo({ etiqueta, ayuda, icono: I, value, onChange, placeholder, tipo = "text", mono, autoFocus, className }: {
+export function Campo({ etiqueta, ayuda, icono: I, value, onChange, placeholder, tipo = "text", mono, autoFocus, className }: {
     etiqueta: string; ayuda?: string; icono: any; value: string; onChange: (v: string) => void; placeholder?: string;
     tipo?: string; mono?: boolean; autoFocus?: boolean; className?: string;
 }) {
@@ -124,7 +124,7 @@ function Campo({ etiqueta, ayuda, icono: I, value, onChange, placeholder, tipo =
     );
 }
 
-function Opcion({ activa, onClick, icono: I, titulo, detalle, color, ayuda }: { activa: boolean; onClick: () => void; icono: any; titulo: string; detalle?: string; color: string; ayuda?: string }) {
+export function Opcion({ activa, onClick, icono: I, titulo, detalle, color, ayuda }: { activa: boolean; onClick: () => void; icono: any; titulo: string; detalle?: string; color: string; ayuda?: string }) {
     return (
         <button type="button" onClick={onClick} {...(ayuda ? tip(ayuda) : {})}
             className={cn("rounded-xl border p-3.5 text-left flex items-center gap-3 transition-all", activa ? "border-[var(--accion)] ring-2 ring-[color-mix(in_oklab,var(--accion)_25%,transparent)] bg-[color-mix(in_oklab,var(--accion)_6%,transparent)]" : "border-border hover:bg-accent/60")}>
@@ -135,7 +135,7 @@ function Opcion({ activa, onClick, icono: I, titulo, detalle, color, ayuda }: { 
     );
 }
 
-function Bloque({ titulo, icono: I, ayuda, children, accion }: { titulo: string; icono: any; ayuda?: string; children: React.ReactNode; accion?: React.ReactNode }) {
+export function Bloque({ titulo, icono: I, ayuda, children, accion }: { titulo: string; icono: any; ayuda?: string; children: React.ReactNode; accion?: React.ReactNode }) {
     return (
         <section className="px-6 py-6 border-b border-border last:border-0">
             <div className="flex items-center gap-2 mb-4">
@@ -1105,7 +1105,7 @@ function textoRetencion(r: { dias: number; desde: string; grabando: boolean | nu
  * Un dato que lee el equipo y no se escribe: el modelo. Antes era un campo de texto, y lo que se
  * tipeaba ahí se usaba para elegir foto y driver; un «DS-2CD» mal escrito no fallaba, elegía mal.
  */
-function Dato({ etiqueta, icono: I, valor, faltante, ayuda }: { etiqueta: string; icono: any; valor?: string | null; faltante: string; ayuda?: string }) {
+export function Dato({ etiqueta, icono: I, valor, faltante, ayuda }: { etiqueta: string; icono: any; valor?: string | null; faltante: string; ayuda?: string }) {
     return (
         <div>
             <Etiqueta texto={etiqueta} ayuda={ayuda} />

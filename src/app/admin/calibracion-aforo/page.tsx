@@ -204,7 +204,11 @@ export default function CalibracionPage() {
     const [tab, setTab] = useState<"zona" | "senal">("zona");
     const [devs, setDevs] = useState<{ id: string; name: string; ip: string; brand: string }[]>([]);
     const [sel, setSel] = useState("");
-    useEffect(() => { getQueueDevices().then((d: any[]) => { setDevs(d); if (d[0]) setSel(d[0].id); }).catch(() => {}); }, []);
+    useEffect(() => {
+        // ?device=<id>: se llega desde la ficha del contador con esa cámara elegida.
+        const pedido = new URLSearchParams(window.location.search).get("device");
+        getQueueDevices().then((d: any[]) => { setDevs(d); const el = d.find((x) => x.id === pedido) || d[0]; if (el) setSel(el.id); }).catch(() => {});
+    }, []);
     const dev = devs.find((d) => d.id === sel);
     const tabs = [
         { id: "zona" as const, label: "Zona y rebote en la cámara", icon: ScanLine },
