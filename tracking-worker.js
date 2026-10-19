@@ -2011,7 +2011,12 @@ async function quietosDe(deviceId) {
     const c = omniQuietos.get(deviceId);
     if (c && Date.now() - c.t < 60_000) return c.cajas;
     const filas = await prisma.objetoVisto.findMany({
-        where: { deviceId, grupo: "vehiculo", primeraVez: { gte: new Date(Date.now() - OMNI_QUIETO_VENTANA_MS) } },
+        /*
+         * Lo que estuvo a la VISTA en la ventana (ultimaVez), no lo que EMPEZÓ en ella. Con
+         * primeraVez, una camioneta estacionada desde hacía 47 min ya no contaba como quieta y su
+         * pista nueva disparó (19/10 10:50, LPR Interior). primeraVez acota por el índice.
+         */
+        where: { deviceId, grupo: "vehiculo", primeraVez: { gte: new Date(Date.now() - 24 * 3_600_000) }, ultimaVez: { gte: new Date(Date.now() - OMNI_QUIETO_VENTANA_MS) } },
         select: { caja: true, primeraVez: true, ultimaVez: true, recorrido: true }, take: 500,
     }).catch(() => []);
     const cajas = [];
