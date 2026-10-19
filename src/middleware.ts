@@ -159,6 +159,8 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/api/queue/schedule/tick') ||
         pathname.startsWith('/api/queue/report/tick') ||
         pathname.startsWith('/api/onvif/notify') ||
+        // Las filas de OmniVision: vision-worker (sin sesión) manda el x-tracking-token y la ruta lo verifica.
+        pathname === '/api/queue/vision' ||
         pathname.startsWith('/api/tracking/') ||
         // La entrada interna del motor de reglas: server.js (proceso aparte, sin sesión) la
         // llama con x-tracking-token y la ruta lo verifica. Sin esta línea el middleware le

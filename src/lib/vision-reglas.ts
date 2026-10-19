@@ -1,6 +1,6 @@
 /**
  * Las reglas de las analíticas de visión: conteo por línea, sentido contrario, tiempo de
- * permanencia y aglomeración. Una regla es una cámara, una geometría (línea o zona) y unos
+ * permanencia, aglomeración, fila, y las de intrusión propias. Una regla es una cámara, una geometría (línea o zona) y unos
  * números; vision-worker (vision-reglas.js) las aplica sobre el seguimiento de cada cámara y
  * escribe lo que pasa en EventoVision.
  *
@@ -19,7 +19,7 @@
 
 export const CLAVE_REGLAS = "VISION_REGLAS";
 
-export type TipoRegla = "conteo" | "sentido" | "permanencia" | "aglomeracion" | "cruce" | "intrusion" | "merodeo" | "retirado";
+export type TipoRegla = "conteo" | "sentido" | "permanencia" | "aglomeracion" | "fila" | "cruce" | "intrusion" | "merodeo" | "retirado";
 export type Punto = [number, number];
 export type Sentido = "ab" | "ba";
 
@@ -83,6 +83,18 @@ export const TIPOS_REGLA: Record<TipoRegla, {
         nombre: "Aglomeración", analitica: "aglomeracion", geometria: "zona",
         queHace: "Avisa cuando hay más personas juntas de lo indicado en la zona (o en todo el cuadro), durante un rato.",
         clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 30, maximoDefecto: 5,
+    },
+    /*
+     * Conteo de fila (18/10, Nico: «falta la analítica de control de filas, tipo zona»). Estaba en
+     * el catálogo como «en desarrollo» y nunca se hizo. No es otra analítica con su propio
+     * registro: alimenta el MÓDULO FILAS, como si la cámara fuera un contador de fila (Hikvision o
+     * Bosch con analítica de ocupación). Así una cámara cualquiera aparece en Filas, el Monitor de
+     * filas, las alertas por umbral, las reglas de notificación y los reportes, sin otra pantalla.
+     */
+    fila: {
+        nombre: "Conteo de fila", analitica: "fila", geometria: "zona",
+        queHace: "Cuenta las personas paradas en la zona (la fila de una caja, un mostrador, la garita) y lo manda al módulo Filas, como un contador de fila: se ve en Filas y en el Monitor de filas, y avisa con las alertas y las reglas de notificación de Filas.",
+        clasesDefecto: ["person"], avisarDefecto: false,
     },
     cruce: {
         nombre: "Cruce de línea propio", analitica: "linea-propia", geometria: "linea",
@@ -178,9 +190,14 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
             if (tipo === "cruce") regla.sentidos = r?.sentidos === "ab" || r?.sentidos === "ba" ? r.sentidos : "ambos";
         } else {
             const zona = (Array.isArray(r?.zona) ? r.zona : []).map(punto).filter(Boolean) as Punto[];
-            if ((tipo === "permanencia" || tipo === "intrusion" || tipo === "retirado") && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
+            if ((tipo === "permanencia" || tipo === "intrusion" || tipo === "retirado" || tipo === "fila") && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
             regla.zona = zona.length >= 3 ? zona.slice(0, 30) : null;
-            if (tipo === "intrusion") {
+            if (tipo === "fila") {
+                // La fila es de personas y no avisa por su cuenta: los avisos son los de Filas
+                // (alertas por umbral y reglas de notificación), que ya saben de horarios y enfríos.
+                regla.clases = ["person"];
+                regla.avisar = false;
+            } else if (tipo === "intrusion") {
                 const v = Number(r?.segundos);
                 regla.segundos = Math.round(Math.max(SEGUNDOS_INTRUSION.min, Math.min(SEGUNDOS_INTRUSION.max, Number.isFinite(v) && r?.segundos !== "" && r?.segundos != null ? v : t.segundosDefecto ?? 2)));
             } else if (tipo === "merodeo" || tipo === "retirado") {
@@ -198,7 +215,25 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
         }
         out.push(regla);
     }
+    // Dos filas con el mismo nombre en la misma cámara serían el mismo canal en Filas.
+    const canales = new Set<string>();
+    for (const r of out) {
+        if (r.tipo !== "fila") continue;
+        const k = `${r.deviceId}:${canalDeFila(r.nombre).toLowerCase()}`;
+        if (canales.has(k)) { errores.push(`${r.nombre}: ya hay otra fila con ese nombre en la misma cámara`); continue; }
+        canales.add(k);
+    }
     return { reglas: out, errores };
+}
+
+/**
+ * El canal con que una regla de fila aparece en el módulo Filas. Filas reconoce la ocupación por
+ * el nombre del canal («Aforo», «Occupancy»…): «Caja 1» se publica como «Aforo Caja 1», y un
+ * nombre que ya lo dice («Aforo mostrador») queda igual. vision-reglas.js repite esta función.
+ */
+export function canalDeFila(nombre: string): string {
+    const n = String(nombre || "").trim() || "Fila";
+    return /aforo|occupancy|ocupaci/i.test(n) ? n : `Aforo ${n}`;
 }
 
 /** Los tipos de evento que escribe el worker, con su rótulo. */

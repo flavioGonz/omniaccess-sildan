@@ -746,7 +746,7 @@ function sincronizarRapidas(registro) {
 
 async function principal() {
     log(`arranca · ${VISION} · cada ${INTERVALO_MS} ms · umbral ${UMBRAL} · cambio ${CAMBIO_MIN}`);
-    reglero = reglasVision.iniciar({ prisma, subir, log });
+    reglero = reglasVision.iniciar({ prisma, subir, log, app: APP, token: () => ajustes.tokenTracking });
     await leerAjustes().catch((e) => log("ajustes:", e.message));
     const permitidas = () => ({ todas: ajustes.todas !== false, ids: [...(ajustes.permitidas || [])] });
     relector = relecturas.iniciar({ prisma, subir, ajuste, log, vision: VISION, activa: () => ajustes.relectura, permitidas });

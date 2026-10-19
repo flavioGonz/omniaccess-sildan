@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import https from "https";
+import { filasVision } from "@/lib/filas-vision";
 
 /**
  * GET /api/queue/vca-config?deviceId=xxx
@@ -162,6 +163,19 @@ export async function GET(req: NextRequest) {
 
         if (!device) {
             return NextResponse.json({ error: "Device not found" }, { status: 404 });
+        }
+
+        // Una cámara con «Conteo de fila» de OmniVision: sus zonas son las de las reglas, no las
+        // de la cámara. Se devuelven como reglas de ocupación, así el Filas y el Monitor de filas
+        // las dibujan sobre el video igual que las de un Bosch.
+        const deVision = (await filasVision()).filter((r) => r.deviceId === device.id);
+        if (deVision.length) {
+            const rules: VCARule[] = deVision.map((r) => ({
+                name: r.canal, type: "OccupancyCounting", armed: true,
+                points: (r.zona || []).map(([x, y]) => ({ x: x * 100, y: y * 100 })),
+                rawPoints: (r.zona || []).map(([x, y]) => ({ x: x * 2 - 1, y: 1 - y * 2 })),
+            }));
+            return NextResponse.json({ deviceId: device.id, deviceName: device.name, rules, fetchedAt: new Date().toISOString(), fuente: "omnivision" });
         }
 
         if (device.brand !== "BOSCH") {

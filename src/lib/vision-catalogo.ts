@@ -351,8 +351,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "fila", nombre: "Conteo de fila", icono: "Users", modo: "Filas",
-        queHace: "Personas dentro de una zona dibujada, para cámaras que no traen analítica de filas.",
-        necesita: ["deteccion"], clases: ["person"], estado: "desarrollo", fase: 2, porDefecto: true,
+        queHace: "Cuenta las personas dentro de una zona dibujada (la fila de una caja, un mostrador) y lo manda al módulo Filas como un contador de fila más: se ve en Filas y en el Monitor de filas, con su zona dibujada sobre el video, y avisa con las alertas y las reglas de notificación de Filas. Para cámaras que no traen analítica de filas. Se configura en Visión → Reglas.",
+        necesita: ["deteccion"], clases: ["person"], estado: "corre", porDefecto: true,
+        limite: "Cada cámara se mira cada ~2 s y el número se suaviza con los últimos análisis: sigue la fila, no cada paso. Una persona tapada por otra no se cuenta. Sólo cámaras de equipo (no canales sueltos de un NVR).",
     },
     {
         id: "busqueda", nombre: "Búsqueda de objetos", icono: "ScanSearch", modo: "Búsqueda",

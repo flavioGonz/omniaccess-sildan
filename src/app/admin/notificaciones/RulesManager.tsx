@@ -254,7 +254,8 @@ export default function RulesManager() {
     ];
 
     const esFilas = form.modulo === "QUEUE";
-    const equiposDelModulo = equipos.filter((d) => (TIPOS_POR_MODULO[form.modulo] || []).includes(d.deviceType || ""));
+    // Una cámara con «Conteo de fila» de OmniVision también es una fila, sea del tipo que sea.
+    const equiposDelModulo = equipos.filter((d) => (TIPOS_POR_MODULO[form.modulo] || []).includes(d.deviceType || "") || (form.modulo === "QUEUE" && (d as any).filaVision));
     const activas = reglas.filter((r) => r.enabled).length;
 
     return (
@@ -353,7 +354,7 @@ export default function RulesManager() {
                                     <Rotulo texto="Zona" pista={<Ayuda que="La zona del contador. Vacío: cualquiera." ejemplo="Entrada: sólo la línea de entrada de la fila." />}>
                                         <Select value={form.channelName || "cualquiera"} onValueChange={(v) => setForm({ ...form, channelName: v === "cualquiera" ? "" : v })}>
                                             <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                                            <SelectContent><SelectItem value="cualquiera">Cualquiera</SelectItem>{ZONAS.map((z) => <SelectItem key={z} value={z}>{z}</SelectItem>)}</SelectContent>
+                                            <SelectContent><SelectItem value="cualquiera">Cualquiera</SelectItem>{[...ZONAS, ...((equipos.find((d) => d.id === form.deviceId) as any)?.canalesFila || [])].map((z: string) => <SelectItem key={z} value={z}>{z}</SelectItem>)}</SelectContent>
                                         </Select>
                                     </Rotulo>
                                     <Rotulo texto="Condición" pista={<Ayuda que="Cómo se compara la medida con el umbral." ejemplo="«≥ igual o más» con umbral 8: avisa cuando hay 8 o más." />}>

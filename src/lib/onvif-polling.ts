@@ -133,7 +133,7 @@ function emitBoschEvent(deviceName: string, channelName: string, count: number) 
 }
 
 // Emit an arbitrary socket event through the server.js bridge (/internal/emit).
-function emitSocket(event: string, data: Record<string, any>) {
+export function emitSocket(event: string, data: Record<string, any>) {
     try {
         const http = require("http");
         const payload = JSON.stringify({ __event: event, ...data });
@@ -667,7 +667,7 @@ const METRIC_CHANNELS: Record<string, string[]> = {
 function _hhmm(d: Date) { return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
 function _isoDay(d: Date) { const x = d.getDay(); return x === 0 ? 7 : x; }
 
-async function evaluateNotificationRules(deviceId: string, channelName: string | null | undefined, count: number, snapshotPath?: string | null) {
+export async function evaluateNotificationRules(deviceId: string, channelName: string | null | undefined, count: number, snapshotPath?: string | null) {
     let rules: any[];
     // Sólo las de Filas: sin el filtro, una regla de Matrículas o Intrusión (que también tiene
     // metric/operator/threshold, con sus valores por defecto) se evaluaba contra el aforo.
@@ -682,7 +682,11 @@ async function evaluateNotificationRules(deviceId: string, channelName: string |
         if (r.deviceId && r.deviceId !== deviceId) continue;
         if (r.channelName && r.channelName !== ch) continue;
         const allowed = METRIC_CHANNELS[r.metric] || METRIC_CHANNELS.aforo;
-        if (!allowed.includes(ch)) continue;
+        // El aforo se reconoce también por el nombre («Aforo Caja 1», «IVA Aforo»): las filas de
+        // OmniVision publican un canal por fila con ese prefijo (lib/vision-reglas, canalDeFila).
+        // Antes sólo pasaban los nombres exactos y una regla de aforo nunca disparaba con ellas.
+        const esAforo = (r.metric || "aforo") === "aforo" && /aforo|occupancy|ocupaci/i.test(ch);
+        if (!allowed.includes(ch) && !esAforo) continue;
         if (!r.daysOfWeek.split(",").includes(day)) continue;
         if (!(r.startTime <= hhmm && hhmm <= r.endTime)) continue;
         const op = r.operator;
@@ -713,7 +717,7 @@ async function getDispatchRecipientsRaw(): Promise<any[]> {
 }
 
 // Umbral minimo de alerta habilitada para un dispositivo/canal (para gatear la captura de fotos).
-async function getMinAlertThreshold(deviceId: string, channelName: string | null | undefined): Promise<number | null> {
+export async function getMinAlertThreshold(deviceId: string, channelName: string | null | undefined): Promise<number | null> {
     const alerts = await prisma.queueAlert.findMany({
         where: {
             enabled: true,
@@ -736,7 +740,7 @@ async function getMinAlertThreshold(deviceId: string, channelName: string | null
     return Math.min(...alerts.map(a => a.threshold));
 }
 
-async function checkQueueAlerts(deviceId: string, channelName: string | null | undefined, count: number, snapshotPath?: string | null) {
+export async function checkQueueAlerts(deviceId: string, channelName: string | null | undefined, count: number, snapshotPath?: string | null) {
     const alerts = await prisma.queueAlert.findMany({
         where: {
             enabled: true,

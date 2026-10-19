@@ -81,6 +81,17 @@ export async function GET() {
     }
     for (const o of otros) { const s = resumen[o.reglaId]; if (s) { s.hoy += o._count._all; s.max = o._max.valor ?? s.max; } }
     for (const h of porHora as any[]) { const s = resumen[h.regla]; if (s && h.h >= 0 && h.h < 24) s.porHora[h.h] = h.n; }
+    // Las filas no escriben EventoVision: su número vive en QueueEvent (el módulo Filas), con la
+    // regla en regionId. En la tarjeta: cuántos hay ahora y el máximo de hoy.
+    const filas = reglas.filter((r) => r.tipo === "fila").map((r) => r.id);
+    if (filas.length) {
+        const [ultimos, maximos] = await Promise.all([
+            prisma.$queryRaw<{ regla: string; n: number }[]>`SELECT DISTINCT ON ("regionId") "regionId" AS regla, "peopleCount" AS n FROM "QueueEvent" WHERE "regionId" = ANY(${filas}) ORDER BY "regionId", timestamp DESC`.catch(() => []),
+            prisma.queueEvent.groupBy({ by: ["regionId"], where: { regionId: { in: filas }, timestamp: { gte: hoy } }, _max: { peopleCount: true } }).catch(() => []),
+        ]);
+        for (const u of ultimos as any[]) if (resumen[u.regla]) resumen[u.regla].hoy = Number(u.n) || 0;
+        for (const m of maximos as any[]) if (m.regionId && resumen[m.regionId]) resumen[m.regionId].max = m._max.peopleCount ?? null;
+    }
 
     const analiticas: Record<TipoRegla, boolean> = Object.fromEntries((Object.keys(TIPOS_REGLA) as TipoRegla[]).map((t) => [t, inter.analiticas[TIPOS_REGLA[t].analitica] !== false])) as any;
     let estado: any = null;
@@ -103,6 +114,9 @@ export async function PUT(req: NextRequest) {
     const ids = new Set((await prisma.device.findMany({ select: { id: true } })).map((d) => d.id));
     // Los canales de NVR que están en OmniVision también son cámaras válidas para una regla.
     for (const id of (await camarasVision()).ids) if (CANAL_NVR.test(id)) ids.add(id);
+    // Una fila escribe en QueueEvent, que cuelga de un equipo: un canal suelto de NVR no puede.
+    const filaEnCanal = reglas.find((r) => r.tipo === "fila" && CANAL_NVR.test(r.deviceId));
+    if (filaEnCanal) return NextResponse.json({ error: `«${filaEnCanal.nombre}»: el conteo de fila necesita una cámara dada de alta como equipo, no un canal de NVR.` }, { status: 400 });
     const sinCamara = reglas.filter((r) => !ids.has(r.deviceId));
     if (sinCamara.length) return NextResponse.json({ error: `La cámara de «${sinCamara[0].nombre}» ya no existe.` }, { status: 400 });
     await guardarAjuste(CLAVE_REGLAS, JSON.stringify(reglas));
