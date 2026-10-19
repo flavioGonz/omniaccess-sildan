@@ -39,11 +39,16 @@ export default function LoginPage() {
             const result = await login(formData);
             if (result?.error) {
                 setError(result.error);
+                setLoading(false);
+            } else if (result?.destino) {
+                // Queda «cargando» hasta que abra la pantalla de destino.
+                router.replace(result.destino);
+            } else {
+                setLoading(false);
             }
         } catch (err) {
             console.error(err);
             setError('Ocurrió un error inesperado');
-        } finally {
             setLoading(false);
         }
     };

@@ -2,7 +2,6 @@
 
 import { cookies } from 'next/headers'
 import { pantallaInicio } from '@/lib/landing'
-import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { SignJWT, jwtVerify } from 'jose'
 import { ROL_ADMINISTRADOR_ID, CLAVES_PERMISOS, PERMISOS_OPERADOR, esAdministrador } from '@/lib/permisos'
@@ -166,14 +165,17 @@ export async function login(formData: FormData) {
 
     // Si se vino de una pantalla que pidió entrar (?volver=), se vuelve ahí. Sólo rutas propias:
     // una dirección absoluta o «//otro.sitio» sería una redirección abierta para un enlace trucho.
+    // El destino se devuelve en vez de hacer redirect() acá: llamada desde un manejador de
+    // evento, la redirección de la acción le llega a la página como un error y el login
+    // mostraba «Ocurrió un error inesperado» aunque entrara (HB, 19/10). La página navega.
     const volver = String(formData.get('volver') || '')
-    if (/^\/(?!\/)[\w\-\/.?=&%]*$/.test(volver) && !volver.startsWith('/login')) redirect(volver)
+    if (/^\/(?!\/)[\w\-\/.?=&%]*$/.test(volver) && !volver.startsWith('/login')) return { destino: volver }
 
     // Entrar directo al monitor del modo activo: es la pantalla de trabajo real,
     // y la misma que abre "Monitor en Vivo" en el menú.
     const modos = await prisma.setting.findMany({ where: { key: { in: ['MODULE_QUEUE', 'MODULE_FACE', 'MODULE_LPR'] } } })
     const activo = (k: string) => modos.find(m => m.key === k)?.value === 'true'
-    redirect(pantallaInicio({ MODULE_QUEUE: activo('MODULE_QUEUE'), MODULE_FACE: activo('MODULE_FACE'), MODULE_LPR: activo('MODULE_LPR') }))
+    return { destino: pantallaInicio({ MODULE_QUEUE: activo('MODULE_QUEUE'), MODULE_FACE: activo('MODULE_FACE'), MODULE_LPR: activo('MODULE_LPR') }) }
 }
 
 export async function resetPassword(formData: FormData) {
