@@ -765,11 +765,14 @@ export default function FilasPage() {
 
             {/* KPI info moved to video overlay */}
 
-            {/* HERO: Centered Video with Drawing Overlay */}
+            {/* Video a la izquierda y la detección por fila a la derecha (Nico, HB 19/10: «compactar,
+                ordenar mejor los datos en pantalla»). Antes el video iba centrado a 3xl y la tabla
+                abajo, a todo el ancho, con media pantalla vacía a los costados. */}
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-5 items-start">
             {liveCounts.length > 0 && (
-                <div className="flex flex-col items-center gap-3">
+                <div className="flex flex-col gap-3 min-w-0">
                     {/* VCA Analytics Toolbar */}
-                    <div className="flex items-center gap-2 w-full max-w-3xl">
+                    <div className="flex items-center gap-2 w-full">
                         <div className="flex items-center gap-1.5 text-xs text-foreground/70">
                             <Target size={13} className="text-violet-400" />
                             <span className="font-bold">Analíticas VCA</span>
@@ -802,7 +805,7 @@ export default function FilasPage() {
                     <div
                         ref={videoContainerRef}
                         className={cn(
-                            "relative rounded-xl overflow-hidden border-2 transition-all w-full max-w-3xl",
+                            "relative rounded-xl overflow-hidden border-2 transition-all w-full",
                             globalStatus === "alert" ? "border-red-500/50 shadow-lg shadow-red-500/10" :
                             globalStatus === "warning" ? "border-amber-500/40" : "border-border"
                         )}
@@ -948,56 +951,38 @@ export default function FilasPage() {
                 </div>
             )}
 
-            {/* ── Filas detectadas (tabla) ── */}
-            <div className="rounded-xl border border-border bg-card overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                    <div className="flex items-center gap-2">
-                        <Rows3 size={15} className="text-violet-400" />
-                        <h3 className="text-sm font-bold text-foreground">Detección por fila (en vivo)</h3>
-                        <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{liveCounts.length} fila{liveCounts.length !== 1 ? "s" : ""} · {detectedRows.length} analíticas</span>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground hidden sm:block">Cada fila puede tener varias analíticas: aforo (ocupación) + flujo (entradas/salidas). Solo se muestran las que la cámara está reportando ahora.</p>
+            {/* ── Detección por fila: columna derecha, una tarjeta por analítica ── */}
+            <div className="rounded-[10px] border border-border bg-card overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+                    <Rows3 size={15} className="text-muted-foreground" />
+                    <h3 className="text-[15px] font-semibold text-foreground">Detección por fila</h3>
+                    <span className="ml-auto text-[11px] text-muted-foreground tabular-nums"
+                        title="Cada fila puede tener varias analíticas: aforo (ocupación) y flujo (entradas y salidas). Sólo se muestran las que la cámara está reportando ahora.">
+                        {liveCounts.length} fila{liveCounts.length !== 1 ? "s" : ""} · {detectedRows.length} analítica{detectedRows.length !== 1 ? "s" : ""}
+                    </span>
                 </div>
                 {detectedRows.length === 0 ? (
                     <div className="py-10 text-center text-xs text-muted-foreground"><Camera size={26} className="mx-auto mb-2 opacity-30" /> Sin lecturas todavía de las cámaras de filas.</div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead className="bg-muted/40">
-                                <tr className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                    <th className="text-left font-semibold px-4 py-2">Fila / Cámara</th>
-                                    <th className="text-left font-semibold px-3 py-2">Zona / Canal</th>
-                                    <th className="text-left font-semibold px-3 py-2">Tipo</th>
-                                    <th className="text-right font-semibold px-3 py-2">Valor</th>
-                                    <th className="text-center font-semibold px-3 py-2">Umbral</th>
-                                    <th className="text-center font-semibold px-3 py-2">Estado</th>
-                                    <th className="text-right font-semibold px-4 py-2">Última lectura</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {detectedRows.map((r, i) => (
-                                    <tr key={i} className="border-t border-border hover:bg-muted/20 transition-colors">
-                                        <td className="px-4 py-2.5">
-                                            <div className="flex items-center gap-2 min-w-0">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                                                <div className="min-w-0">
-                                                    <p className="font-semibold text-foreground truncate">{r.devName}</p>
-                                                    <p className="text-[10px] text-muted-foreground font-mono truncate">{r.ip}</p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-3 py-2.5 text-foreground/80">{r.channelName || "—"}</td>
-                                        <td className="px-3 py-2.5"><span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-md", r.tipo.cls)}>{r.tipo.label}</span></td>
-                                        <td className="px-3 py-2.5 text-right"><span className={cn("text-base font-bold tabular-nums", r.valueColor)}>{r.peopleCount}</span></td>
-                                        <td className="px-3 py-2.5 text-center text-muted-foreground tabular-nums">{r.isAforo ? (r.threshold || "—") : "—"}</td>
-                                        <td className="px-3 py-2.5 text-center">{r.isAforo ? <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-md", r.estado.cls)}>{r.estado.label}</span> : <span className="text-[10px] text-muted-foreground">—</span>}</td>
-                                        <td className="px-4 py-2.5 text-right text-[11px] text-muted-foreground whitespace-nowrap">{r.rel}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <ul className="divide-y divide-border">
+                        {detectedRows.map((r, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-3">
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[13px] font-semibold text-foreground truncate">{r.channelName || "—"}</span>
+                                        <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0", r.tipo.cls)}>{r.tipo.label}</span>
+                                    </div>
+                                    <div className="text-[11px] text-muted-foreground truncate">
+                                        {r.devName} · {r.rel}{r.isAforo && r.threshold ? ` · límite ${r.threshold}` : ""}
+                                    </div>
+                                </div>
+                                {r.isAforo && <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0", r.estado.cls)}>{r.estado.label}</span>}
+                                <span className={cn("text-[22px] font-bold tabular-nums leading-none w-10 text-right shrink-0", r.valueColor)}>{r.peopleCount}</span>
+                            </li>
+                        ))}
+                    </ul>
                 )}
+            </div>
             </div>
 
             {/* ── Analíticas ONVIF Modal ── */}
