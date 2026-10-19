@@ -230,6 +230,9 @@ export default function AdminLayout({
                         ve("mapa") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapa" href="/admin/mapa" active={pathname === "/admin/mapa"} collapsed={collapsed} />)
                     )}
                     {ve("monitores") && (<SidebarItem icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />)}
+                    {/* En Filas la sección Gestión no se muestra, y con ella se iba Dispositivos: no había
+                        cómo llegar a dar de alta o editar la cámara de conteo desde el menú (HB, 19/10). */}
+                    {modules.MODULE_QUEUE && ve("dispositivos") && (<SidebarItem icon={<Video size={18} />} label="Dispositivos" href="/admin/devices" active={!!pathname?.startsWith("/admin/devices")} collapsed={collapsed} />)}
 
                     {!modules.MODULE_QUEUE && (
                         <>
