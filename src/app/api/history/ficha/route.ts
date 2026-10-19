@@ -8,6 +8,7 @@ import { empresasDeLecturas } from "@/lib/empresas-servidor";
 import { leerAjustesVisitas } from "@/lib/visitas/ajustes";
 import { getImagePath } from "@/lib/image-path";
 import { ZONA } from "@/lib/fechas";
+import { claseDe } from "@/lib/visitas/calculos";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,30 @@ const MARGEN_VISITA_MS = 30 * 60_000;
  * sugerencia. Con el evento vienen también el análisis de OmniVision (siluetas, atributos) y
  * la empresa con su logo.
  */
+/**
+ * El perfil armado con los pasos, cuando la chapa no tiene PerfilMatricula (19/10, Nico: «los
+ * datos de esa tabla comportamiento nunca se llenan»). Los perfiles los calcula la tarea «Visitas
+ * y patrones» cada 10 minutos, y una chapa nueva —o una instancia donde la tarea no corre, como
+ * el lab— quedaba con clase, días, primera y última vez en «—» aunque los pasos estuvieran a la
+ * vista. Esto da lo que se puede contar sin la tarea: días con pasos, entradas y salidas, primera
+ * vez (la de siempre) y última, y la clase sin rutina (ésa la detecta la tarea). La permanencia la
+ * calcula el panel con las estadías.
+ */
+function perfilDePasos(pasos: { timestamp: Date; direction: string | null }[], primera: Date | null, enPadron: boolean) {
+    if (!pasos.length) return null;
+    const dia = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: ZONA });
+    const dias = new Set(pasos.map((p) => dia(p.timestamp))).size;
+    const ms = pasos.map((p) => +p.timestamp);
+    return {
+        clase: claseDe({ enPadron, rutina: null, diasVistos: dias }), diasVistos: dias,
+        entradas: pasos.filter((p) => p.direction === "ENTRY").length, salidas: pasos.filter((p) => p.direction === "EXIT").length,
+        primeraVez: (primera || new Date(Math.min(...ms))).toISOString(), ultimaVez: new Date(Math.max(...ms)).toISOString(),
+        permanenciaMedianaMin: null, permanenciaP90Min: null,
+        /** No es el perfil de la tarea: el panel lo dice. */
+        estimado: true,
+    };
+}
+
 export async function GET(req: NextRequest) {
     const auth = await verifyApiAuth();
     if (!auth.authenticated) return unauthorizedResponse();
@@ -50,7 +75,7 @@ export async function GET(req: NextRequest) {
     let plate = normalizarMatricula(sp.get("plate"));
 
     const [evento, analisis, relecturas] = eventoId ? await Promise.all([
-        prisma.accessEvent.findUnique({ where: { id: eventoId }, select: { userId: true } }).catch(() => null),
+        prisma.accessEvent.findUnique({ where: { id: eventoId }, select: { userId: true, deviceId: true, location: true, device: { select: { name: true } } } }).catch(() => null),
         prisma.analisisFoto.findUnique({ where: { accessEventId: eventoId }, select: { estado: true, analisis: true } }).catch(() => null),
         relecturasDe([eventoId], (clave) => `/api/vision/imagen/${clave}`).catch(() => new Map()),
     ]) : [null, null, new Map()];
@@ -99,7 +124,7 @@ export async function GET(req: NextRequest) {
 
     // El comportamiento: los pasos (con foto, para la tira) y la franja día × hora (para el mapa de calor).
     const desdeComp = new Date(Date.now() - COMPORTAMIENTO_DIAS * 86_400_000);
-    const [pasos, franjaFilas, perfil] = conChapa ? await Promise.all([
+    const [pasos, franjaFilas, perfil, primerPaso] = conChapa ? await Promise.all([
         prisma.accessEvent.findMany({
             where: { plateDetected: plate, timestamp: { gte: desdeComp } }, orderBy: { timestamp: "desc" }, take: PASOS_MAX,
             select: { id: true, timestamp: true, direction: true, decision: true, snapshotPath: true, imagePath: true, location: true, device: { select: { name: true } } },
@@ -111,7 +136,8 @@ export async function GET(req: NextRequest) {
              WHERE "plateDetected" = ${plate} AND timestamp >= now() - (${String(COMPORTAMIENTO_DIAS)} || ' days')::interval
              GROUP BY 1, 2`.catch(() => []),
         prisma.perfilMatricula.findUnique({ where: { plate } }).catch(() => null),
-    ]) : [[], [], null];
+        prisma.accessEvent.findFirst({ where: { plateDetected: plate }, orderBy: { timestamp: "asc" }, select: { timestamp: true } }).catch(() => null),
+    ]) : [[], [], null, null];
     const franja = Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
     for (const f of franjaFilas as any[]) if (f.dow >= 1 && f.dow <= 7 && f.h >= 0 && f.h < 24) franja[f.dow - 1][f.h] = f.n;
     const comportamiento = conChapa ? {
@@ -126,9 +152,12 @@ export async function GET(req: NextRequest) {
             clase: perfil.clase, diasVistos: perfil.diasVistos, entradas: perfil.entradas, salidas: perfil.salidas,
             primeraVez: perfil.primeraVez.toISOString(), ultimaVez: perfil.ultimaVez.toISOString(),
             permanenciaMedianaMin: perfil.permanenciaMedianaMin, permanenciaP90Min: perfil.permanenciaP90Min,
-        } : null,
+        } : perfilDePasos(pasos as any[], primerPaso?.timestamp || null, !!u),
     } : null;
     return NextResponse.json({
+        // La cámara del evento: hay pantallas que mandan el evento sin el equipo incluido (las
+        // lecturas de una LPR interior en el monitor), y el visor decía «Cámara desconocida».
+        camara: (evento as any)?.device?.name || (evento as any)?.location || null, deviceId: (evento as any)?.deviceId || null,
         plate: conChapa ? plate : null,
         porRelectura,
         ficha,

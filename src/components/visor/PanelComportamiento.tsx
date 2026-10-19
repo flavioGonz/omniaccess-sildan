@@ -18,6 +18,8 @@ export type ComportamientoVisor = {
         clase: string; diasVistos: number; entradas: number; salidas: number;
         primeraVez: string; ultimaVez: string;
         permanenciaMedianaMin: number | null; permanenciaP90Min: number | null;
+        /** Armado con los pasos porque la chapa no tiene perfil calculado todavía. */
+        estimado?: boolean;
     } | null;
 };
 
@@ -103,7 +105,8 @@ export function ContenidoComportamiento({ datos, viendo, onElegir, compacto }: {
         <>
                 {/* El perfil, en cifras. */}
                 <div className={cn("grid border-b border-border", compacto ? "grid-cols-3 [&>div]:px-2" : "grid-cols-3")}>
-                    <Cifra rotulo="Clase" valor={perfil ? (NOMBRE_CLASE as Record<string, string>)[perfil.clase] || perfil.clase : "—"} />
+                    <Cifra rotulo="Clase" valor={perfil ? (NOMBRE_CLASE as Record<string, string>)[perfil.clase] || perfil.clase : "—"}
+                        sub={perfil?.estimado ? `por sus pasos de ${datos.dias} días` : undefined} />
                     <Cifra rotulo="Entradas · salidas" valor={perfil ? `${perfil.entradas} · ${perfil.salidas}` : `${datos.pasos.filter((p) => p.direccion === "ENTRY").length} · ${datos.pasos.filter((p) => p.direccion === "EXIT").length}`} />
                     <Cifra rotulo="Se queda (típico)" valor={mediana != null ? leerDuracion(mediana * 60000) : "—"}
                         sub={perfil?.permanenciaP90Min != null ? `9 de 10, menos de ${leerDuracion(perfil.permanenciaP90Min * 60000)}` : undefined} />

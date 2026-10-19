@@ -83,7 +83,9 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
     const conChapa = hayChapa(event?.plateDetected);
     const meta = useMemo(() => leerDetalles(event?.details), [event?.details]);
     const msEvento = useMemo(() => new Date(event?.timestamp).getTime(), [event?.timestamp]);
-    const dispositivo = event?.device;
+    // Sin el equipo incluido (lecturas de una LPR interior en el monitor): con el id alcanza para el
+    // vivo y la grabación; el nombre lo completa la ficha.
+    const dispositivo = event?.device || (event?.deviceId ? { id: event.deviceId, name: event.deviceName || null } : null);
 
     /**
      * Una NO_LEIDA: lo que dijo OmniVision (la doble verificación). /api/history/ficha trae la
@@ -296,8 +298,8 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
                 <VisorCuadro
                     fila={{
                         plate: conChapa ? event.plateDetected : "",
-                        cameraName: dispositivo?.name || event?.location || null,
-                        deviceId: dispositivo?.id || null,
+                        cameraName: dispositivo?.name || event?.deviceName || (datosOmni as any)?.camara || event?.location || null,
+                        deviceId: dispositivo?.id || (datosOmni as any)?.deviceId || null,
                         timestamp: event?.timestamp,
                         snapshotUrl: foto,
                         decision: event?.decision || null,

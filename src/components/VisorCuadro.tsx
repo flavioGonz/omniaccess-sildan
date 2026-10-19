@@ -695,6 +695,13 @@ export function VisorCuadro({
      * cosa: el cronómetro de cuánto lleva, que no está en ningún otro lado.
      */
     const conCapsula = estacionado;
+    /** El botón de la lista negra: va en el padrón, al lado de Registrar (o debajo del dueño). */
+    const listaNegraBoton = onListaNegra ? (
+        <BotonVisor icono={ShieldBan} onClick={onListaNegra} peligro encendida={enListaNegra} ocupada={ocupadoLista}
+            title={enListaNegra ? "Sacar de la lista negra: vuelve a decidir la credencial y el modo LPR; si tiene credencial vuelve a la lista blanca de las lectoras" : "Lista negra: toda lectura se registra DENEGADA (aunque tenga credencial), va a la lista negra de las lectoras, el monitor la muestra en rojo y avisa"}>
+            {enListaNegra ? "Quitar de la lista" : "Lista negra"}
+        </BotonVisor>
+    ) : null;
     const capsula = (
         <motion.div
             initial={{ opacity: 0, y: 6, scale: 0.94 }}
@@ -1141,6 +1148,9 @@ export function VisorCuadro({
                                 <Dato rotulo="Teléfono" valor={dueno.telefono} />
                                 <Dato rotulo="Cochera" valor={dueno.cochera} falta="sin asignar" />
                             </dl>
+                        ) : null}
+                        {cargandoFicha && !dueno ? null : dueno ? (
+                            listaNegraBoton && <div className="flex justify-end pt-1">{listaNegraBoton}</div>
                         ) : (
                             <div className="flex items-center justify-between gap-3 py-0.5">
                                 {/* Lo que dice la chapa sola (18/10, Nico: «dar una mejor descripción a desconocidos»). */}
@@ -1148,9 +1158,15 @@ export function VisorCuadro({
                                     {(() => { const l = chapaVisor.plate ? leerChapa(chapaVisor.plate) : null; return l && (l.categoria || l.extranjera) ? <>No está en el padrón. <b className="text-white/90">{l.frase}</b>{l.confianza === "probable" ? " (probable)" : ""}.</> : "Esta matrícula no está en el padrón."; })()}
                                 </span>
                                 {/* Con la chapa que se ve (la releída, en una NO_LEIDA). Sin chapa no hay qué dar de alta. */}
-                                {onRegistrar && chapaVisor.plate && (
-                                    <BotonVisor icono={UserPlus} destacada onClick={() => onRegistrar(chapaVisor.plate!)}>Registrar</BotonVisor>
-                                )}
+                                {/* Lista negra al lado de Registrar (19/10, Nico): son las dos decisiones sobre
+                                    una chapa que no está en el padrón, y la lista negra quedaba abajo, entre
+                                    Clip y Exportar. */}
+                                <span className="flex items-center gap-1.5 shrink-0">
+                                    {listaNegraBoton}
+                                    {onRegistrar && chapaVisor.plate && (
+                                        <BotonVisor icono={UserPlus} destacada onClick={() => onRegistrar(chapaVisor.plate!)}>Registrar</BotonVisor>
+                                    )}
+                                </span>
                             </div>
                         )}
                         {ficha?.visita && (
@@ -1244,12 +1260,6 @@ export function VisorCuadro({
                         {onExportar && (
                             <BotonVisor icono={Archive} onClick={onExportar} title="Un ZIP con la foto, el clip y los datos del evento">
                                 Exportar
-                            </BotonVisor>
-                        )}
-                        {onListaNegra && (
-                            <BotonVisor icono={ShieldBan} onClick={onListaNegra} peligro encendida={enListaNegra} ocupada={ocupadoLista}
-                                title={enListaNegra ? "Sacar de la lista negra: vuelve a decidir la credencial y el modo LPR; si tiene credencial vuelve a la lista blanca de las lectoras" : "Lista negra: toda lectura se registra DENEGADA (aunque tenga credencial), va a la lista negra de las lectoras, el monitor la muestra en rojo y avisa"}>
-                                {enListaNegra ? "Quitar de la lista" : "Lista negra"}
                             </BotonVisor>
                         )}
                     </div>
