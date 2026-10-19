@@ -43,21 +43,21 @@ const ENFRIO_CRUCE_MS = 30_000;
 /** Lo mismo para la intrusión en zona propia. */
 const ENFRIO_INTRUSION_MS = 60_000;
 /**
- * Conteo de fila: cuántos análisis seguidos se miran para decidir el número (la mediana). Uno o
- * dos cuadros en que el detector no ve a uno que está tapado por otro no cambian la fila. Y
- * entre dos envíos al módulo Filas, al menos FILA_ENVIO_MIN_MS: la fila no se mueve tan rápido y
- * cada envío es un renglón en QueueEvent.
+ * Conteo de fila: la analítica de aforo de una cámara Bosch del modo Filas, hecha por OmniVision.
+ *  · Aforo: las personas con el pie adentro de la zona. Un número nuevo vale cuando se sostiene el
+ *    «rebote» de la regla (el «Tiempo de rebote» de la tarea de aforo de la cámara): una persona
+ *    tapada un cuadro, o el que pasa rozando el borde, no mueve la fila.
+ *  · Entradas y salidas: una pista que pasa de afuera a adentro de la zona entra, de adentro a
+ *    afuera sale (EnteringField / LeavingField). Una pista que APARECE adentro no cuenta: es casi
+ *    siempre la misma persona renumerada por el seguimiento.
+ *  · El límite: al llegar, aviso a la guardia con la foto (con su enfriamiento); si sigue llena
+ *    `escalarMin` minutos, un aviso más «avisar al supervisor», uno por episodio.
+ * Todo se escribe en EventoVision (FILA cuando el aforo cambia, FILA_ENTRA / FILA_SALE, FILA_LLENA,
+ * FILA_ESCALADA); Visión → Filas lo lee de ahí.
  */
-// Medido en el lab el 18/10 (puesto 7, de noche): con 3 muestras y 4 s la cuenta saltaba 1↔2
-// cada ~12 s por alguien en el borde del cuadro: 5 renglones por minuto para nada.
-const FILA_MUESTRAS = 5;
-const FILA_ENVIO_MIN_MS = 10_000;
-/** La misma cuenta del canal que src/lib/vision-reglas.ts (canalDeFila): si cambia allá, cambia acá. */
-function canalDeFila(nombre) {
-    const n = String(nombre || "").trim() || "Fila";
-    return /aforo|occupancy|ocupaci/i.test(n) ? n : `Aforo ${n}`;
-}
-const mediana = (v) => { const o = [...v].sort((a, b) => a - b); return o[Math.floor(o.length / 2)]; };
+/** Una misma pista no entra y sale dos veces en esto: el pie tiembla sobre el borde de la zona. */
+const FILA_BORDE_MS = 4_000;
+
 /** La hora del barrio, para el horario de armado de cruce e intrusión. */
 const ZONA = process.env.NEXT_PUBLIC_TZ || "America/Montevideo";
 
@@ -81,7 +81,7 @@ const RETIRADO_FALTAS_MIN = 5;
 const RETIRADO_TAPADO = 0.3;
 const ENFRIO_RETIRADO_MS = 60_000;
 
-const TIPO_AVISO = { SENTIDO_CONTRARIO: "VISION_SENTIDO", PERMANENCIA: "VISION_PERMANENCIA", AGLOMERACION: "VISION_AGLOMERACION", CRUCE_LINEA: "VISION_CRUCE", INTRUSION: "VISION_INTRUSION", MERODEO: "VISION_MERODEO", RETIRADO: "VISION_RETIRADO" };
+const TIPO_AVISO = { FILA_LLENA: "VISION_FILA", FILA_ESCALADA: "VISION_FILA", SENTIDO_CONTRARIO: "VISION_SENTIDO", PERMANENCIA: "VISION_PERMANENCIA", AGLOMERACION: "VISION_AGLOMERACION", CRUCE_LINEA: "VISION_CRUCE", INTRUSION: "VISION_INTRUSION", MERODEO: "VISION_MERODEO", RETIRADO: "VISION_RETIRADO" };
 const NOMBRE_CLASE = { person: "persona", car: "auto", truck: "camioneta", bus: "ómnibus", motorcycle: "moto", bicycle: "bicicleta", dog: "perro",
     backpack: "mochila", handbag: "bolso", suitcase: "valija", chair: "silla", bench: "banco", "potted plant": "maceta" };
 /** Para el texto del aviso: «se llevaron una bicicleta», «un bolso». */
@@ -141,7 +141,7 @@ function emitir(evento, datos) {
     } catch { }
 }
 
-function iniciar({ prisma, subir, log, app, token }) {
+function iniciar({ prisma, subir, log }) {
     let reglas = [];
     let analiticas = {};
     const contadores = { cruces: 0, sentido: 0, permanencia: 0, aglomeracion: 0, filas: 0, crucesPropios: 0, intrusiones: 0, merodeos: 0, retirados: 0, aprendidos: 0, avisos: 0, errores: 0, ultimoError: null };
@@ -164,7 +164,10 @@ function iniciar({ prisma, subir, log, app, token }) {
     /** Objeto retirado, por regla: lo aprendido en la zona → [{ clase, caja, desde, visto, faltas, jpeg, estable }]. */
     const aprendidos = new Map();
     const ultimoAvisoRetirado = new Map();
-    /** Conteo de fila, por regla: { muestras, enviado, t } (lo último que se mandó a Filas). */
+    /**
+     * Conteo de fila, por regla: { aceptado, candidato, desde, llenoDesde, ultimoAviso, escalado,
+     * pistas: pista → { dentro, visto, cambio } }.
+     */
     const filas = new Map();
 
     const prendida = (r) => r.activa !== false && (analiticas[ANALITICA[r.tipo]] ?? DEFECTO[ANALITICA[r.tipo]]) !== false;
@@ -188,6 +191,9 @@ function iniciar({ prisma, subir, log, app, token }) {
         for (const r of reglas) {
             if (r.deviceId !== deviceId || !prendida(r)) continue;
             if (r.tipo === "aglomeracion" && grupos.get(r.id)?.desde) return true;
+            // Un número de la fila esperando su rebote: si la imagen queda quieta y no se mira
+            // más, el cambio no se confirma nunca. Y con gente en la fila, se sigue mirando.
+            if (r.tipo === "fila") { const f = filas.get(r.id); if (f && (f.candidato !== f.aceptado || f.aceptado > 0)) return true; }
             if (r.tipo === "permanencia") for (const k of estadias.keys()) if (k.startsWith(r.id + ":")) return true;
             if (r.tipo === "intrusion") for (const k of intrusos.keys()) if (k.startsWith(r.id + ":")) return true;
             if (r.tipo === "merodeo") for (const k of merodeos.keys()) if (k.startsWith(r.id + ":")) return true;
@@ -235,7 +241,7 @@ function iniciar({ prisma, subir, log, app, token }) {
                     else if (r.tipo === "aglomeracion") await aglomeracion(r, cam, valen, jpeg, ahora, t);
                     // La fila cuenta a todos los que se ven, tengan número de pista o no: el que
                     // está quieto en la fila es justo el que el seguimiento a veces renumera.
-                    else if (r.tipo === "fila") fila(r, cam, objetos.filter((o) => r.clases.includes(o.clase) && Array.isArray(o.caja_norm)), ahora, t);
+                    else if (r.tipo === "fila") await fila(r, cam, objetos.filter((o) => r.clases.includes(o.clase) && Array.isArray(o.caja_norm)), jpeg, ahora, t);
                 } catch (e) { contadores.errores++; contadores.ultimoError = `${r.nombre}: ${e.message}`; }
             }
         }
@@ -433,30 +439,48 @@ function iniciar({ prisma, subir, log, app, token }) {
         await avisar(r, "AGLOMERACION", `${dentro.length} personas juntas en ${r.nombre}`, ev.id, f, cam);
     }
 
-    /**
-     * Conteo de fila: las personas con el pie adentro de la zona, suavizado con la mediana de los
-     * últimos análisis, y mandado al módulo Filas (/api/queue/vision) cuando cambia. La ruta hace
-     * lo mismo que con un contador de fila de cámara: el renglón en QueueEvent, el socket, las
-     * alertas por umbral (con su foto) y las reglas de notificación. Sin esperar la respuesta: el
-     * análisis de la cámara sigue.
-     */
-    function fila(r, cam, personas, ahora, t) {
-        const n = personas.filter((o) => adentro(pie(o), r.zona)).length;
-        const f = filas.get(r.id) || { muestras: [], enviado: null, t: 0 };
-        f.muestras.push(n);
-        if (f.muestras.length > FILA_MUESTRAS) f.muestras.shift();
+    async function fila(r, cam, personas, jpeg, ahora, t) {
+        const f = filas.get(r.id) || { aceptado: null, candidato: null, desde: t, llenoDesde: null, ultimoAviso: 0, escalado: false, pistas: new Map() };
         filas.set(r.id, f);
-        const cuenta = mediana(f.muestras);
-        if (cuenta === f.enviado || t - f.t < FILA_ENVIO_MIN_MS || !app) return;
-        f.enviado = cuenta; f.t = t;
-        contadores.filas++;
-        fetch(`${app}/api/queue/vision`, {
-            method: "POST", headers: { "content-type": "application/json", "x-tracking-token": (token && token()) || "" },
-            body: JSON.stringify({ reglaId: r.id, deviceId: cam.id, canal: canalDeFila(r.nombre), count: cuenta, ts: ahora.getTime() }), signal: AbortSignal.timeout(15000),
-        }).then((res) => {
-            // Si no llegó, se vuelve a mandar en el próximo análisis.
-            if (!res.ok) { f.enviado = null; contadores.errores++; contadores.ultimoError = `fila ${r.nombre}: la app respondió ${res.status}`; }
-        }).catch((e) => { f.enviado = null; contadores.errores++; contadores.ultimoError = `fila ${r.nombre}: ${e.message}`; });
+        const dentro = personas.filter((o) => adentro(pie(o), r.zona));
+        const n = dentro.length;
+
+        // Aforo, con su tiempo de rebote.
+        if (n !== f.candidato) { f.candidato = n; f.desde = t; }
+        if (n !== f.aceptado && (f.aceptado === null || t - f.desde >= (r.rebote ?? 2) * 1000)) {
+            f.aceptado = n;
+            contadores.filas++;
+            await evento({ tipo: "FILA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: n, ts: ahora });
+            emitir("vision_fila", { reglaId: r.id, deviceId: cam.id, valor: n, ts: ahora.toISOString() });
+        }
+
+        // Entradas y salidas por el borde de la zona, por pista.
+        for (const o of personas) {
+            if (o.pista == null) continue;
+            const k = String(o.pista), adentroAhora = adentro(pie(o), r.zona), p = f.pistas.get(k);
+            if (p && p.dentro !== adentroAhora && t - p.cambio >= FILA_BORDE_MS) {
+                await evento({ tipo: adentroAhora ? "FILA_ENTRA" : "FILA_SALE", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", pista: o.pista, sentido: adentroAhora ? "entra" : "sale", ts: ahora });
+                f.pistas.set(k, { dentro: adentroAhora, visto: t, cambio: t });
+            } else f.pistas.set(k, { dentro: p && p.dentro !== adentroAhora ? p.dentro : adentroAhora, visto: t, cambio: p ? p.cambio : 0 });
+        }
+        for (const [k, p] of f.pistas) if (t - p.visto > OLVIDO_MS) f.pistas.delete(k);
+
+        // El límite: aviso, enfriamiento y escalamiento, dentro del horario de atención.
+        if (!r.maximo || f.aceptado < r.maximo || !enHorario(r.horario, ahora)) { f.llenoDesde = null; f.escalado = false; return; }
+        if (!f.llenoDesde) f.llenoDesde = t;
+        if (t - f.ultimoAviso >= (r.enfrioMin ?? 5) * 60_000) {
+            f.ultimoAviso = t;
+            const fo = await foto(jpeg, ahora);
+            const ev = await evento({ tipo: "FILA_LLENA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: f.aceptado, foto: fo, ts: ahora });
+            await avisar(r, "FILA_LLENA", `${r.nombre}: ${f.aceptado} personas en la fila (límite ${r.maximo})`, ev.id, fo, cam);
+        }
+        const min = (t - f.llenoDesde) / 60_000;
+        if (!f.escalado && min >= (r.escalarMin ?? 5)) {
+            f.escalado = true;
+            const fo = await foto(jpeg, ahora);
+            const ev = await evento({ tipo: "FILA_ESCALADA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: f.aceptado, foto: fo, ts: ahora });
+            await avisar(r, "FILA_ESCALADA", `Avisar al supervisor: ${r.nombre} sigue llena hace ${Math.round(min)} min (${f.aceptado} personas, límite ${r.maximo})`, ev.id, fo, cam);
+        }
     }
 
     return { cargar, camaras, camarasRapidas, enCurso, procesar, contadores, cerrarTodo: () => cerrarEstadias(null, Date.now(), true) };

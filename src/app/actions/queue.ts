@@ -2,7 +2,6 @@
 
 import { TIPOS_CHAPA } from "@/lib/categoria-chapa";
 import { prisma } from "@/lib/prisma";
-import { dondeEquiposDeFila, filasVision } from "@/lib/filas-vision";
 import { EQUIPO_PUBLICO } from "@/lib/equipo-publico";
 
 // --- Get Queue Events (history) ---
@@ -43,14 +42,10 @@ export async function getQueueEvents(options?: {
 
 // --- Get latest count per channel (live view) ---
 export async function getLatestQueueCounts() {
-    // Los contadores de fila y las cámaras con «Conteo de fila» de OmniVision (lib/filas-vision).
-    const equipos = await prisma.device.findMany({
-        where: await dondeEquiposDeFila(),
-        select: { id: true, name: true, ip: true, location: true, brand: true, deviceType: true },
+    const devices = await prisma.device.findMany({
+        where: { deviceType: "QUEUE_COUNTER" },
+        select: { id: true, name: true, ip: true, location: true, brand: true },
     });
-    // `stream`: el video en vivo de una cámara de OmniVision es su stream de go2rtc (lpr_<id>), no
-    // el «bosch_<ip>» de los contadores; el Monitor de filas lo usa si viene.
-    const devices = equipos.map(({ deviceType, ...d }) => ({ ...d, stream: deviceType === "QUEUE_COUNTER" ? null : `lpr_${d.id}` }));
 
     if (devices.length === 0) return [];
 
@@ -403,24 +398,15 @@ export async function getQueueMonthlyBreakdown(deviceId?: string, from?: Date, t
 // --- Get queue devices for selects ---
 /** Todos los equipos con su tipo, para que cada regla elija entre las cámaras de su modo. */
 export async function getDispositivosParaReglas() {
-    const [equipos, filas] = await Promise.all([
-        prisma.device.findMany({
-            select: { id: true, name: true, ip: true, location: true, brand: true, deviceType: true },
-            orderBy: { name: "asc" },
-        }),
-        filasVision(),
-    ]);
-    // `filaVision`: la cámara cuenta una fila con OmniVision, así que también vale para una regla
-    // de Filas; `canalesFila`, sus canales («Aforo Caja 1»), para elegir uno en la regla.
-    return equipos.map((d) => {
-        const canalesFila = filas.filter((f) => f.deviceId === d.id).map((f) => f.canal);
-        return { ...d, filaVision: canalesFila.length > 0, canalesFila };
+    return prisma.device.findMany({
+        select: { id: true, name: true, ip: true, location: true, brand: true, deviceType: true },
+        orderBy: { name: "asc" },
     });
 }
 
 export async function getQueueDevices() {
     return prisma.device.findMany({
-        where: await dondeEquiposDeFila(),
+        where: { deviceType: "QUEUE_COUNTER" },
         select: { id: true, name: true, ip: true, location: true, brand: true },
         orderBy: { name: "asc" },
     });

@@ -574,7 +574,7 @@ export default function MonitorQueuePage() {
                     deviceMap.set(item.device.id, {
                         deviceId: item.device.id, deviceName: item.device.name, deviceIp: item.device.ip, location: item.device.location,
                         peopleCount: maxCount, avgCount, channelCount: item.channels.length, lastUpdate: latestUpdate,
-                        threshold: alert?.threshold ?? 10, channels: item.channels.map((c: any) => c.channelName), streamName: (item.device as any).stream || getStreamName(item.device.ip),
+                        threshold: alert?.threshold ?? 10, channels: item.channels.map((c: any) => c.channelName), streamName: getStreamName(item.device.ip),
                     });
                 } else {
                     existing.peopleCount = maxCount;

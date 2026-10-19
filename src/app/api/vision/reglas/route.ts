@@ -6,7 +6,7 @@ import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/ap
 import { leerAjuste, guardarAjuste } from "@/lib/ajustes-db";
 import { leerInterruptores } from "@/lib/vision";
 import { camarasVision, CANAL_NVR } from "@/lib/vision-camaras";
-import { CLAVE_REGLAS, TIPOS_REGLA, validarReglas, type ReglaVision, type TipoRegla } from "@/lib/vision-reglas";
+import { CLAVE_REGLAS, TIPOS_REGLA, TIPOS_FILA_DATOS, validarReglas, type ReglaVision, type TipoRegla } from "@/lib/vision-reglas";
 
 export const dynamic = "force-dynamic";
 
@@ -62,8 +62,8 @@ export async function GET() {
     // Los números de hoy, por regla, con una consulta por tipo de dato.
     const [cruces, otros, eventos] = ids.length ? await Promise.all([
         prisma.eventoVision.groupBy({ by: ["reglaId", "sentido", "clase"], where: { reglaId: { in: ids }, tipo: "CRUCE", ts: { gte: hoy } }, _count: { _all: true } }),
-        prisma.eventoVision.groupBy({ by: ["reglaId", "tipo"], where: { reglaId: { in: ids }, tipo: { not: "CRUCE" }, ts: { gte: hoy } }, _count: { _all: true }, _max: { valor: true } }),
-        prisma.eventoVision.findMany({ where: { reglaId: { in: ids }, tipo: { not: "CRUCE" }, ts: { gte: new Date(Date.now() - EVENTOS_DIAS * 86_400_000) } }, orderBy: { ts: "desc" }, take: EVENTOS_MAX }),
+        prisma.eventoVision.groupBy({ by: ["reglaId", "tipo"], where: { reglaId: { in: ids }, tipo: { notIn: ["CRUCE", ...TIPOS_FILA_DATOS] }, ts: { gte: hoy } }, _count: { _all: true }, _max: { valor: true } }),
+        prisma.eventoVision.findMany({ where: { reglaId: { in: ids }, tipo: { notIn: ["CRUCE", ...TIPOS_FILA_DATOS] }, ts: { gte: new Date(Date.now() - EVENTOS_DIAS * 86_400_000) } }, orderBy: { ts: "desc" }, take: EVENTOS_MAX }),
     ]) : [[], [], []];
     // Cruces por hora de hoy (para la barrita de cada regla de conteo).
     const porHora = ids.length ? await prisma.$queryRaw<{ regla: string; h: number; n: number }[]>`
@@ -81,16 +81,16 @@ export async function GET() {
     }
     for (const o of otros) { const s = resumen[o.reglaId]; if (s) { s.hoy += o._count._all; s.max = o._max.valor ?? s.max; } }
     for (const h of porHora as any[]) { const s = resumen[h.regla]; if (s && h.h >= 0 && h.h < 24) s.porHora[h.h] = h.n; }
-    // Las filas no escriben EventoVision: su número vive en QueueEvent (el módulo Filas), con la
-    // regla en regionId. En la tarjeta: cuántos hay ahora y el máximo de hoy.
+    // La fila: en la tarjeta, cuántos hay ahora (el último FILA) y el máximo de hoy, en vez de
+    // cuántos eventos tuvo (los FILA son renglones de la curva, no eventos).
     const filas = reglas.filter((r) => r.tipo === "fila").map((r) => r.id);
     if (filas.length) {
         const [ultimos, maximos] = await Promise.all([
-            prisma.$queryRaw<{ regla: string; n: number }[]>`SELECT DISTINCT ON ("regionId") "regionId" AS regla, "peopleCount" AS n FROM "QueueEvent" WHERE "regionId" = ANY(${filas}) ORDER BY "regionId", timestamp DESC`.catch(() => []),
-            prisma.queueEvent.groupBy({ by: ["regionId"], where: { regionId: { in: filas }, timestamp: { gte: hoy } }, _max: { peopleCount: true } }).catch(() => []),
+            prisma.$queryRaw<{ regla: string; n: number }[]>`SELECT DISTINCT ON ("reglaId") "reglaId" AS regla, valor AS n FROM "EventoVision" WHERE tipo = 'FILA' AND "reglaId" = ANY(${filas}) ORDER BY "reglaId", ts DESC`.catch(() => []),
+            prisma.eventoVision.groupBy({ by: ["reglaId"], where: { reglaId: { in: filas }, tipo: "FILA", ts: { gte: hoy } }, _max: { valor: true } }).catch(() => []),
         ]);
         for (const u of ultimos as any[]) if (resumen[u.regla]) resumen[u.regla].hoy = Number(u.n) || 0;
-        for (const m of maximos as any[]) if (m.regionId && resumen[m.regionId]) resumen[m.regionId].max = m._max.peopleCount ?? null;
+        for (const m of maximos as any[]) if (resumen[m.reglaId]) resumen[m.reglaId].max = m._max.valor ?? null;
     }
 
     const analiticas: Record<TipoRegla, boolean> = Object.fromEntries((Object.keys(TIPOS_REGLA) as TipoRegla[]).map((t) => [t, inter.analiticas[TIPOS_REGLA[t].analitica] !== false])) as any;
@@ -114,9 +114,6 @@ export async function PUT(req: NextRequest) {
     const ids = new Set((await prisma.device.findMany({ select: { id: true } })).map((d) => d.id));
     // Los canales de NVR que están en OmniVision también son cámaras válidas para una regla.
     for (const id of (await camarasVision()).ids) if (CANAL_NVR.test(id)) ids.add(id);
-    // Una fila escribe en QueueEvent, que cuelga de un equipo: un canal suelto de NVR no puede.
-    const filaEnCanal = reglas.find((r) => r.tipo === "fila" && CANAL_NVR.test(r.deviceId));
-    if (filaEnCanal) return NextResponse.json({ error: `«${filaEnCanal.nombre}»: el conteo de fila necesita una cámara dada de alta como equipo, no un canal de NVR.` }, { status: 400 });
     const sinCamara = reglas.filter((r) => !ids.has(r.deviceId));
     if (sinCamara.length) return NextResponse.json({ error: `La cámara de «${sinCamara[0].nombre}» ya no existe.` }, { status: 400 });
     await guardarAjuste(CLAVE_REGLAS, JSON.stringify(reglas));

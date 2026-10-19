@@ -351,9 +351,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "fila", nombre: "Conteo de fila", icono: "Users", modo: "Filas",
-        queHace: "Cuenta las personas dentro de una zona dibujada (la fila de una caja, un mostrador) y lo manda al módulo Filas como un contador de fila más: se ve en Filas y en el Monitor de filas, con su zona dibujada sobre el video, y avisa con las alertas y las reglas de notificación de Filas. Para cámaras que no traen analítica de filas. Se configura en Visión → Reglas.",
-        necesita: ["deteccion"], clases: ["person"], estado: "corre", porDefecto: true,
-        limite: "Cada cámara se mira cada ~2 s y el número se suaviza con los últimos análisis: sigue la fila, no cada paso. Una persona tapada por otra no se cuenta. Sólo cámaras de equipo (no canales sueltos de un NVR).",
+        queHace: "La analítica de aforo de las cámaras Bosch del modo Filas, hecha por OmniVision en cualquier cámara: cuántas personas hay en la zona (con tiempo de rebote), cuántas entran y salen por su borde, el límite con su aviso a la guardia y el escalamiento al supervisor si sigue llena, el tiempo de espera estimado y el horario de atención que reinicia las entradas y salidas al abrir. Se configura en Visión → Reglas y se ve en Visión → Filas.",
+        necesita: ["deteccion", "seguimiento"], clases: ["person"], estado: "corre", porDefecto: true,
+        limite: "Cada cámara se mira cada ~2 s: sigue la fila, no cada paso. Una persona tapada por otra no se cuenta, y una que aparece adentro de la zona (renumerada por el seguimiento) no cuenta como entrada.",
     },
     {
         id: "busqueda", nombre: "Búsqueda de objetos", icono: "ScanSearch", modo: "Búsqueda",

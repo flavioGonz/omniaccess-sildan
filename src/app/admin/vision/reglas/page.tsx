@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
-    PersonStanding, Car, Bike, Dog, Backpack, Boxes, Gauge, ListOrdered, ArrowUpRight,
+    PersonStanding, Car, Bike, Dog, Backpack, Boxes, Gauge, ListOrdered,
     TriangleAlert, ScanEye, ChevronDown, Check, Layers, Maximize2, Copy, PanelRight, X, type LucideIcon,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -19,7 +19,7 @@ import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { EditorGeometria } from "@/components/vision/EditorGeometria";
 import {
-    TIPOS_REGLA, CLASES_OBJETO, CON_HORARIO, TIPOS_EVENTO, duracionCorta, canalDeFila,
+    TIPOS_REGLA, CLASES_OBJETO, CON_HORARIO, TIPOS_EVENTO, duracionCorta, FILA,
     type ReglaVision, type TipoRegla, type Punto,
 } from "@/lib/vision-reglas";
 import { listaPropias, useNombresPropios } from "@/lib/nombres-propios";
@@ -76,12 +76,14 @@ const CUENTA_HOY: Partial<Record<TipoRegla, string>> = { fila: "en la fila ahora
 const EJEMPLO_AVISO: Record<TipoRegla, (n: string) => string> = {
     conteo: (n) => `La tarjeta se llama «${n}»`, sentido: (n) => `«Auto en sentido contrario · ${n}»`,
     permanencia: (n) => `«Persona hace 5 min en ${n}»`, aglomeracion: (n) => `«6 personas juntas en ${n}»`,
-    fila: (n) => `en Filas sale como «${canalDeFila(n)}»`,
+    fila: (n) => `«${n}: 12 personas en la fila (límite 10)»`,
     cruce: (n) => `«Persona cruzó ${n}»`, intrusion: (n) => `«Persona en ${n}»`,
     merodeo: (n) => `«Persona dando vueltas hace 2 min en ${n}»`, retirado: (n) => `«Se llevaron una bicicleta de ${n}»`,
 };
 /** El horario que se propone al armar de noche: lo más común en un barrio. */
 const HORARIO_NOCHE = { desde: "22:00", hasta: "06:00" };
+/** El horario de atención que se propone a una fila. */
+const HORARIO_ATENCION = { desde: "08:00", hasta: "20:00" };
 const REFRESCO_MS = 15_000;
 const CLAVE_PANEL = "reglas-vision:panel-eventos";
 const hora = (iso: string) => new Date(iso).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Montevideo" });
@@ -465,8 +467,8 @@ function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar, enGrupo }:
                     </div>
                 )}
                 <div className="flex items-center gap-1.5 text-[10.5px] text-muted-foreground min-w-0">
-                    {r.tipo === "fila" ? <ListOrdered size={11} className="shrink-0" /> : r.avisar ? <BellRing size={11} className="shrink-0" /> : <BellOff size={11} className="shrink-0" />}
-                    {r.tipo === "fila" && <span className="shrink-0">en Filas como «{canalDeFila(r.nombre)}»</span>}
+                    {r.avisar ? <BellRing size={11} className="shrink-0" /> : <BellOff size={11} className="shrink-0" />}
+                    {r.tipo === "fila" && <span className="shrink-0">límite {r.maximo ?? 10}</span>}
                     {CON_HORARIO.includes(r.tipo) && <span className="shrink-0 inline-flex items-center gap-0.5"><Clock size={10} /> {r.horario ? `${r.horario.desde}–${r.horario.hasta}` : "siempre"}</span>}
                     <span className="truncate">· {r.clases.map(nombreClase).join(", ")}</span>
                 </div>
@@ -516,14 +518,14 @@ const PLANTILLAS: Plantilla[] = [
     { id: "detenido", nombre: "Vehículo detenido mucho rato", tipo: "permanencia", que: "Avisa si un auto o una camioneta se queda más de 15 min en la zona.", ejemplo: "Un auto parado frente a la garita o en la banquina.", aplicar: { clases: ["car", "truck"], segundos: 900, avisar: true } },
     { id: "aforo", nombre: "Contar los que pasan", tipo: "conteo", que: "Cuenta los vehículos que cruzan la línea, por sentido, clase y hora. No avisa.", ejemplo: "Cuántos autos entran por la calle principal cada hora.", aplicar: { clases: ["car", "truck", "bus", "motorcycle"], avisar: false } },
     { id: "grupo", nombre: "Grupo de personas", tipo: "aglomeracion", que: "Avisa si hay 6 personas o más juntas durante 1 min.", ejemplo: "Una reunión en la plaza o frente a la garita de noche.", aplicar: { clases: ["person"], maximo: 6, segundos: 60, avisar: true } },
-    { id: "fila-caja", nombre: "Fila de una caja", tipo: "fila", que: "Cuenta las personas paradas en la zona y lo manda al módulo Filas: se ve en el Monitor de filas y avisa con sus alertas.", ejemplo: "La fila de la caja o del mostrador de la garita.", aplicar: { clases: ["person"], avisar: false } },
+    { id: "fila-caja", nombre: "Fila de una caja", tipo: "fila", que: "Cuenta las personas en la fila, las que entran y las que salen, y avisa a la guardia al llegar a 10 (al supervisor si sigue llena 5 min).", ejemplo: "La fila de la caja o del mostrador de la garita.", aplicar: { clases: ["person"], maximo: 10, rebote: 2, escalarMin: 5, enfrioMin: 5, avisar: true } },
     { id: "bicicletero", nombre: "Se llevan algo", tipo: "retirado", que: "Aprende lo que está quieto en la zona y avisa si desaparece más de 20 s.", ejemplo: "Una bici en el bicicletero, una moto estacionada.", aplicar: { clases: ["bicycle", "motorcycle"], segundos: 20, avisar: true } },
 ];
 
 /** Qué forma se dibuja en cada tipo, en pocas palabras (para el desplegable). */
 const FORMA: Record<TipoRegla, string> = {
     conteo: "Con una línea", sentido: "Con una línea", cruce: "Con una línea · avisa", permanencia: "Con una zona",
-    aglomeracion: "Con una zona o todo el cuadro", fila: "Con una zona · va a Filas", intrusion: "Con una zona · avisa", merodeo: "Zona o todo el cuadro · avisa", retirado: "Con una zona · avisa",
+    aglomeracion: "Con una zona o todo el cuadro", fila: "Con una zona · aforo y límite", intrusion: "Con una zona · avisa", merodeo: "Zona o todo el cuadro · avisa", retirado: "Con una zona · avisa",
 };
 
 /**
@@ -847,7 +849,7 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
 
                     {/* Lo que cuenta: todo el catálogo de OmniVision en un campo, no siete píldoras. */}
                     {r.tipo === "fila" ? (
-                        <CajonCampo etiqueta="Qué cuenta" ayuda="Personas con los pies adentro de la zona. El número se suaviza con los últimos análisis: uno tapado un instante no cambia la fila.">
+                        <CajonCampo etiqueta="Qué cuenta" ayuda="Personas con los pies adentro de la zona (el aforo), y las que cruzan su borde hacia adentro (entran) o hacia afuera (salen). Que la zona no toque el borde del cuadro: el que sale del cuadro no cruza el borde de la zona.">
                             <span className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-full chip-info text-[12px] font-semibold"><PersonStanding size={13} /> Personas</span>
                         </CajonCampo>
                     ) : <CajonCampo etiqueta="Qué cuenta" ayuda={r.tipo === "retirado" ? "Lo que se aprende quieto en la zona y avisa si falta. Personas y animales no: se mueven solos." : "Sólo lo elegido dispara la regla. Lo entrenado acá va primero."}>
@@ -855,6 +857,14 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                     </CajonCampo>}
 
                     {/* Cuándo dispara: los parámetros del tipo, en un renglón. */}
+                    {r.tipo === "fila" && (
+                        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+                            <CampoNumero rotulo="Límite" valor={r.maximo ?? 10} min={FILA.maximo.min} max={FILA.maximo.max} unidad="personas" alCambiar={(n) => cambiar({ maximo: n })} ayuda="El aforo máximo de la fila: al llegar avisa, y la fila se pinta en aviso desde el 70 %." />
+                            <CampoNumero rotulo="Rebote" valor={r.rebote ?? FILA.rebote.defecto} min={FILA.rebote.min} max={FILA.rebote.max} unidad="s" alCambiar={(n) => cambiar({ rebote: n })} ayuda="Cuánto tiene que sostenerse un número nuevo para valer, como el «Tiempo de rebote» de la cámara: uno tapado un instante no mueve la fila." />
+                            <CampoNumero rotulo="Supervisor a los" valor={r.escalarMin ?? FILA.escalarMin.defecto} min={FILA.escalarMin.min} max={FILA.escalarMin.max} unidad="min llena" alCambiar={(n) => cambiar({ escalarMin: n })} ayuda="Si la fila sigue en el límite estos minutos, un segundo aviso: avisar al supervisor. Uno por episodio." />
+                            <CampoNumero rotulo="Entre avisos" valor={r.enfrioMin ?? FILA.enfrioMin.defecto} min={FILA.enfrioMin.min} max={FILA.enfrioMin.max} unidad="min" alCambiar={(n) => cambiar({ enfrioMin: n })} ayuda="Con la fila llena, no repite el aviso antes de esto." />
+                        </div>
+                    )}
                     {r.tipo !== "conteo" && r.tipo !== "fila" && (
                         <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
                             {r.tipo === "sentido" && <label className="flex items-center gap-2 text-[12.5px]"><span className="text-muted-foreground">Se pasa</span><Segmentos valor={r.permitido || "ab"} opciones={[["ab", "De A a B"], ["ba", "De B a A"]]} alElegir={(v) => cambiar({ permitido: v })} /></label>}
@@ -873,9 +883,9 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                     {/* Horario y aviso, en dos renglones cortos. */}
                     <div className="rounded-[10px] border border-border divide-y divide-border">
                         {CON_HORARIO.includes(r.tipo) && (
-                            <div className="flex flex-wrap items-center gap-3 px-3 py-2.5" title="Fuera de horario no registra ni avisa: el jardinero que cruza a las 10 no es una intrusión; el que cruza a las 3, sí.">
-                                <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold min-w-[110px]"><Clock size={13} /> Armada</span>
-                                <Segmentos valor={r.horario ? "horario" : "siempre"} opciones={[["siempre", "Siempre"], ["horario", "En un horario"]]} alElegir={(v) => cambiar({ horario: v === "siempre" ? null : r.horario || HORARIO_NOCHE })} />
+                            <div className="flex flex-wrap items-center gap-3 px-3 py-2.5" title={r.tipo === "fila" ? "El horario de atención: fuera de él la fila se sigue contando pero no avisa, y al abrir empiezan de cero las entradas y salidas del día." : "Fuera de horario no registra ni avisa: el jardinero que cruza a las 10 no es una intrusión; el que cruza a las 3, sí."}>
+                                <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold min-w-[110px]"><Clock size={13} /> {r.tipo === "fila" ? "Atiende" : "Armada"}</span>
+                                <Segmentos valor={r.horario ? "horario" : "siempre"} opciones={[["siempre", "Siempre"], ["horario", "En un horario"]]} alElegir={(v) => cambiar({ horario: v === "siempre" ? null : r.horario || (r.tipo === "fila" ? HORARIO_ATENCION : HORARIO_NOCHE) })} />
                                 {r.horario && (
                                     <span className="inline-flex items-center gap-2 text-[12.5px]">
                                         <Input type="time" value={r.horario.desde} onChange={(e) => cambiar({ horario: { ...r.horario!, desde: e.target.value } })} className="w-28 h-9 tabular-nums" />
@@ -886,19 +896,13 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                                 )}
                             </div>
                         )}
-                        {r.tipo === "fila" ? (
-                            <div className="flex items-center gap-3 px-3 py-2.5">
-                                <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold min-w-[110px]"><BellRing size={13} /> Avisos</span>
-                                <span className="flex-1 text-[11.5px] text-muted-foreground leading-snug">Los de Filas: la alerta por umbral (con foto) y las reglas de notificación por WhatsApp o Telegram, con su horario. La fila sale como «{canalDeFila(r.nombre || nombreAuto(t.nombre))}».</span>
-                                <a href="/admin/filas" className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-[var(--accion)] hover:underline">Filas <ArrowUpRight size={12} /></a>
-                            </div>
-                        ) : <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer">
+                        <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer">
                             <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold min-w-[110px]"><BellRing size={13} /> Avisar</span>
                             <span className="flex-1 text-[11.5px] text-muted-foreground leading-snug">
-                                {r.tipo === "conteo" ? "El conteo no avisa: suma los cruces por sentido, clase y hora (90 días)." : r.avisar ? "Aviso con foto a la consola del guardia, Control LPR y Gestión de alarmas." : "Sólo queda registrado acá, con su foto."}
+                                {r.tipo === "conteo" ? "El conteo no avisa: suma los cruces por sentido, clase y hora (90 días)." : r.tipo === "fila" ? (r.avisar ? "Al llegar al límite, aviso con foto a la consola del guardia; si sigue llena, otro para el supervisor. La fila se ve en Visión → Filas." : "No avisa: la fila sólo se ve en Visión → Filas.") : r.avisar ? "Aviso con foto a la consola del guardia, Control LPR y Gestión de alarmas." : "Sólo queda registrado acá, con su foto."}
                             </span>
                             {r.tipo !== "conteo" && <Switch checked={r.avisar} onCheckedChange={(v) => cambiar({ avisar: v })} />}
-                        </label>}
+                        </label>
                     </div>
                     <p className="text-[11px] text-muted-foreground">Cada cámara se mira cada ~2 s: personas y autos a paso de barrio se siguen bien; un auto rápido puede perderse entre dos cuadros.</p>
                 </div>
@@ -939,7 +943,7 @@ const SITUACIONES: Situacion[] = [
     { id: "contramano", tipo: "sentido", nombre: "Va en contramano", detalle: "Cruza la línea en el sentido que no corresponde.", icono: ArrowLeftRight, nunca: ["objetos"] },
     { id: "queda", tipo: "permanencia", nombre: "Se queda mucho tiempo", detalle: "Sigue en la zona más de los minutos que digas.", icono: Timer },
     { id: "vueltas", tipo: "merodeo", nombre: "Da vueltas (merodeo)", detalle: "Una persona camina por la zona un buen rato, sin quedarse quieta.", icono: Footprints, solo: ["personas"] },
-    { id: "fila", tipo: "fila", nombre: "Hacen fila", detalle: "Cuántas personas esperan en la zona, en el módulo Filas.", icono: ListOrdered, solo: ["personas"], enCamara: "Para cámaras sin analítica de filas: la cuenta OmniVision y Filas la trata como un contador más." },
+    { id: "fila", tipo: "fila", nombre: "Hacen fila", detalle: "Cuántas esperan en la zona, cuántas entran y salen, y aviso al llegar al límite.", icono: ListOrdered, solo: ["personas"], enCamara: "Como la analítica de aforo de las cámaras Bosch del modo Filas, pero la hace OmniVision: anda con cualquier cámara." },
     { id: "juntan", tipo: "aglomeracion", nombre: "Se juntan varios", detalle: "Más personas juntas de las que digas, durante un rato.", icono: Users, solo: ["personas"] },
     { id: "desaparece", tipo: "retirado", nombre: "Desaparece (se lo llevan)", detalle: "Algo que estaba quieto en la zona ya no está.", icono: PackageMinus, nunca: ["personas", "perros"] },
     { id: "contar", tipo: "conteo", nombre: "Contar los que pasan", detalle: "Suma por sentido, clase y hora. No avisa.", icono: Spline },
@@ -991,7 +995,8 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
         setSujetos(ids); setExtras([]); setSituacion(SITUACIONES.find((s) => s.tipo === p.tipo)?.id || null); setNoche(!!p.aplicar.horario);
     };
     const clases = [...new Set([...sujetos.flatMap((x) => sujetosTodos.find((s) => s.id === x)?.clases || []), ...extras])];
-    const conHorario = !!sit && CON_HORARIO.includes(sit.tipo);
+    // «De noche» es para armar una vigilancia; el horario de una fila (atención) se elige en el editor.
+    const conHorario = !!sit && CON_HORARIO.includes(sit.tipo) && sit.tipo !== "fila";
     const listoPaso1 = !!sit && clases.length > 0;
     const nombresSujetos = [...sujetos.map((x) => sujetosTodos.find((s) => s.id === x)?.nombre), ...extras.map(nombreClase)].filter(Boolean).join(", ");
     const resumen = sit ? `${sit.nombre}${clases.length ? ` · ${nombresSujetos}` : ""}${conHorario && noche ? " · de 22 a 6" : ""}` : null;

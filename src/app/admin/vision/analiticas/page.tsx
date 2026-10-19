@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Boxes, DoorOpen, Car, SquareParking, FlaskConical, GraduationCap, Hash, ListVideo, Plus, ScanLine, ScanSearch, ShieldAlert, ShieldCheck, Sparkles, UserRound, Users } from "lucide-react";
+import { Boxes, DoorOpen, Car, SquareParking, FlaskConical, GraduationCap, Hash, ListOrdered, ListVideo, Plus, ScanLine, ScanSearch, ShieldAlert, ShieldCheck, Sparkles, UserRound, Users } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
@@ -112,6 +112,8 @@ export default function AnaliticasVision() {
                     {n?.total ? <Chip tono={n.activas ? "bien" : "quieto"}>{n.total} {n.total === 1 ? "regla" : "reglas"}{n.activas !== n.total ? ` · ${n.activas} activa${n.activas === 1 ? "" : "s"}` : ""}</Chip>
                         : !enFicha && estado?.analiticas[a.id] ? <span className="text-[11px] text-muted-foreground whitespace-nowrap">sin regla: no mira nada</span> : null}
                     <Link href={`/admin/vision/reglas?nueva=${tipo}`} className={boton}><Plus size={13} /> {n?.total ? "Otra regla" : "Crear regla"}</Link>
+                    {/* La fila, además de reglas, tiene su pantalla: el aforo en vivo, el flujo y la espera. */}
+                    {tipo === "fila" && !!n?.total && <Link href="/admin/vision/filas" className={boton}><ListOrdered size={13} /> Ver filas</Link>}
                 </span>
             );
         }

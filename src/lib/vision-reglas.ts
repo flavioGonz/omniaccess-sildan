@@ -39,8 +39,18 @@ export type ReglaVision = {
     clases: string[];
     /** Permanencia: desde cuántos segundos adentro avisa. Aglomeración: cuánto tiene que durar. */
     segundos?: number;
-    /** Aglomeración: desde cuántas personas a la vez. */
+    /** Aglomeración: desde cuántas personas a la vez. Fila: el límite (aforo máximo). */
     maximo?: number;
+    /**
+     * Fila: lo que en una cámara Bosch se configura en la tarea de aforo de la cámara, acá en la
+     * regla. `rebote`: segundos que un número nuevo tiene que sostenerse para valer («Tiempo de
+     * rebote»). `escalarMin`: con la fila llena seguida esos minutos, un segundo aviso «avisar al
+     * supervisor» (QUEUE_ESCALATE_MIN en Filas). `enfrioMin`: entre dos avisos de fila llena
+     * (cooldown de la alerta de Filas).
+     */
+    rebote?: number;
+    escalarMin?: number;
+    enfrioMin?: number;
     /** Si además de registrarlo crea un aviso a la guardia (consola, Control LPR, Visitas). */
     avisar: boolean;
     /** Cruce propio: en qué sentido avisa («ambos», o sólo de A a B, o de B a A). */
@@ -85,16 +95,19 @@ export const TIPOS_REGLA: Record<TipoRegla, {
         clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 30, maximoDefecto: 5,
     },
     /*
-     * Conteo de fila (18/10, Nico: «falta la analítica de control de filas, tipo zona»). Estaba en
-     * el catálogo como «en desarrollo» y nunca se hizo. No es otra analítica con su propio
-     * registro: alimenta el MÓDULO FILAS, como si la cámara fuera un contador de fila (Hikvision o
-     * Bosch con analítica de ocupación). Así una cámara cualquiera aparece en Filas, el Monitor de
-     * filas, las alertas por umbral, las reglas de notificación y los reportes, sin otra pantalla.
+     * Conteo de fila (18-19/10, Nico: «falta la analítica de control de filas, tipo zona»; «no
+     * quiero cambiar el modo de filas, quiero que copies lo que tiene ese modo, para desarrollar
+     * nuestra analítica de OmniVision»). Es la analítica de aforo de una cámara Bosch del modo
+     * Filas, hecha por OmniVision y con todo adentro de Visión: el aforo de la zona con su tiempo
+     * de rebote, las entradas y salidas por el borde de la zona (EnteringField / LeavingField), el
+     * límite con su aviso, el enfriamiento y el escalamiento al supervisor, y el horario de
+     * atención que reinicia las entradas y salidas al abrir. Se ve en Visión → Filas. El modo Filas
+     * no se toca.
      */
     fila: {
         nombre: "Conteo de fila", analitica: "fila", geometria: "zona",
-        queHace: "Cuenta las personas paradas en la zona (la fila de una caja, un mostrador, la garita) y lo manda al módulo Filas, como un contador de fila: se ve en Filas y en el Monitor de filas, y avisa con las alertas y las reglas de notificación de Filas.",
-        clasesDefecto: ["person"], avisarDefecto: false,
+        queHace: "Cuenta las personas en la zona (la fila de una caja, un mostrador, la garita) con su tiempo de rebote, cuenta las que entran y salen por el borde, y avisa a la guardia cuando llega al límite —y al supervisor si sigue llena—. Se ve en Visión → Filas.",
+        clasesDefecto: ["person"], avisarDefecto: true, maximoDefecto: 10,
     },
     cruce: {
         nombre: "Cruce de línea propio", analitica: "linea-propia", geometria: "linea",
@@ -193,10 +206,13 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
             if ((tipo === "permanencia" || tipo === "intrusion" || tipo === "retirado" || tipo === "fila") && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
             regla.zona = zona.length >= 3 ? zona.slice(0, 30) : null;
             if (tipo === "fila") {
-                // La fila es de personas y no avisa por su cuenta: los avisos son los de Filas
-                // (alertas por umbral y reglas de notificación), que ya saben de horarios y enfríos.
+                // Las mismas perillas que la tarea de aforo de la cámara y la alerta de Filas.
+                const n = (v: unknown, d: number, min: number, max: number) => { const x = Number(v); return Math.round(Math.max(min, Math.min(max, Number.isFinite(x) && v !== "" && v != null ? x : d))); };
                 regla.clases = ["person"];
-                regla.avisar = false;
+                regla.maximo = n(r?.maximo, t.maximoDefecto ?? 10, FILA.maximo.min, FILA.maximo.max);
+                regla.rebote = n(r?.rebote, FILA.rebote.defecto, FILA.rebote.min, FILA.rebote.max);
+                regla.escalarMin = n(r?.escalarMin, FILA.escalarMin.defecto, FILA.escalarMin.min, FILA.escalarMin.max);
+                regla.enfrioMin = n(r?.enfrioMin, FILA.enfrioMin.defecto, FILA.enfrioMin.min, FILA.enfrioMin.max);
             } else if (tipo === "intrusion") {
                 const v = Number(r?.segundos);
                 regla.segundos = Math.round(Math.max(SEGUNDOS_INTRUSION.min, Math.min(SEGUNDOS_INTRUSION.max, Number.isFinite(v) && r?.segundos !== "" && r?.segundos != null ? v : t.segundosDefecto ?? 2)));
@@ -206,7 +222,7 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
             } else regla.segundos = Math.round(Math.max(SEGUNDOS.min, Math.min(SEGUNDOS.max, Number(r?.segundos) || t.segundosDefecto || 60)));
             if (tipo === "aglomeracion") regla.maximo = Math.round(Math.max(MAXIMO.min, Math.min(MAXIMO.max, Number(r?.maximo) || t.maximoDefecto || 5)));
         }
-        if (tipo === "cruce" || tipo === "intrusion" || tipo === "merodeo" || tipo === "retirado") {
+        if (CON_HORARIO.includes(tipo)) {
             const h = r?.horario;
             if (h && (h.desde || h.hasta)) {
                 if (!HORA.test(String(h.desde)) || !HORA.test(String(h.hasta))) { errores.push(`${nombre}: el horario va como 22:00 a 06:00`); continue; }
@@ -215,25 +231,26 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
         }
         out.push(regla);
     }
-    // Dos filas con el mismo nombre en la misma cámara serían el mismo canal en Filas.
-    const canales = new Set<string>();
-    for (const r of out) {
-        if (r.tipo !== "fila") continue;
-        const k = `${r.deviceId}:${canalDeFila(r.nombre).toLowerCase()}`;
-        if (canales.has(k)) { errores.push(`${r.nombre}: ya hay otra fila con ese nombre en la misma cámara`); continue; }
-        canales.add(k);
-    }
     return { reglas: out, errores };
 }
 
 /**
- * El canal con que una regla de fila aparece en el módulo Filas. Filas reconoce la ocupación por
- * el nombre del canal («Aforo», «Occupancy»…): «Caja 1» se publica como «Aforo Caja 1», y un
- * nombre que ya lo dice («Aforo mostrador») queda igual. vision-reglas.js repite esta función.
+ * Las perillas de una fila, con sus topes y lo que vale si no se tocan. Los valores por defecto
+ * son los del modo Filas: rebote de 2 s (el HOLD con que Calibración de aforo simula el «Tiempo de
+ * rebote» de la cámara), escalamiento a los 5 min (QUEUE_ESCALATE_MIN) y enfriamiento de 5 min.
  */
-export function canalDeFila(nombre: string): string {
-    const n = String(nombre || "").trim() || "Fila";
-    return /aforo|occupancy|ocupaci/i.test(n) ? n : `Aforo ${n}`;
+export const FILA = {
+    maximo: { min: 1, max: 500 },
+    rebote: { defecto: 2, min: 0, max: 30 },
+    escalarMin: { defecto: 5, min: 1, max: 120 },
+    enfrioMin: { defecto: 5, min: 1, max: 120 },
+} as const;
+
+/** Las bandas del aforo contra el límite, las mismas del modo Filas: <70 % bien, <100 % aviso, lleno. */
+export function bandaFila(n: number, limite: number | null | undefined): "bien" | "aviso" | "mal" {
+    if (!limite) return "bien";
+    const r = n / limite;
+    return r >= 1 ? "mal" : r >= 0.7 ? "aviso" : "bien";
 }
 
 /** Los tipos de evento que escribe el worker, con su rótulo. */
@@ -246,9 +263,17 @@ export const TIPOS_EVENTO: Record<string, { nombre: string; tono: "info" | "mal"
     INTRUSION: { nombre: "Intrusión", tono: "mal" },
     MERODEO: { nombre: "Merodeo", tono: "aviso" },
     RETIRADO: { nombre: "Objeto retirado", tono: "mal" },
+    FILA_LLENA: { nombre: "Fila llena", tono: "aviso" },
+    FILA_ESCALADA: { nombre: "Fila llena · supervisor", tono: "mal" },
 };
+/**
+ * Los renglones de la fila que no son eventos para mirar: el aforo cada vez que cambia y cada
+ * entrada o salida. Viven en EventoVision para que Visión → Filas arme la curva y el flujo, pero
+ * no van en las listas de eventos con foto.
+ */
+export const TIPOS_FILA_DATOS = ["FILA", "FILA_ENTRA", "FILA_SALE"];
 /** Los tipos que tienen horario de armado. */
-export const CON_HORARIO: TipoRegla[] = ["cruce", "intrusion", "merodeo", "retirado"];
+export const CON_HORARIO: TipoRegla[] = ["cruce", "intrusion", "merodeo", "retirado", "fila"];
 
 /** «2 min 30 s», «1 h 5 min». */
 export function duracionCorta(seg: number | null | undefined): string {
