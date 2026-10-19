@@ -94,6 +94,8 @@ const RAFAGA_DESPUES_MS = Number(process.env.TRACKING_BURST_AFTER_MS || 1200);
 const RAFAGA_MAX_CUADROS = Number(process.env.TRACKING_BURST_FRAMES || 8);
 // Tiempo mudo tras resolver una rafaga, para no leer el mismo auto tres veces.
 const MUDO_MS = Number(process.env.TRACKING_QUIET_MS || 4000);
+/** Microsegundos sin datos del RTSP antes de que ffmpeg corte y se reenganche (ver engancharCamara). */
+const RTSP_SIN_DATOS_US = Number(process.env.TRACKING_RTSP_TIMEOUT_US || 15_000_000);
 // Cuantos cuadros tienen que coincidir para dar una lectura por buena...
 const COINCIDENCIAS_MIN = Number(process.env.TRACKING_MIN_AGREE || 2);
 // ...salvo que una sola lectura venga muy segura.
@@ -1168,6 +1170,15 @@ function engancharCamara(est) {
         // vista en vivo; en la GPU practicamente no se nota.
         "-hwaccel", "cuda",
         "-rtsp_transport", "tcp",
+        /*
+         * Cortar si la cámara deja de mandar (19/10, medido en el lab): el ffmpeg de la LPR
+         * Interior quedó TRES DÍAS colgado, conectado y sin recibir nada (0,2 % de CPU, el
+         * socket con timeout=0), sin salir y sin errores. En modo escena eso no se distingue
+         * de una calle tranquila: cero cuadros, cero ráfagas, cero lecturas, y el reintento
+         * («cámara caída») nunca llegaba porque el proceso no terminaba. Con 15 s sin datos
+         * el socket falla, ffmpeg sale y se reengancha solo.
+         */
+        "-timeout", String(RTSP_SIN_DATOS_US),
         "-i", cam.rtsp,
         "-vf", filtro,
         "-vsync", "vfr", "-q:v", "3", "-f", "image2pipe", "-vcodec", "mjpeg", "-",
@@ -1191,7 +1202,9 @@ function engancharCamara(est) {
         if (buffer.length > 8 * 1024 * 1024) buffer = Buffer.alloc(0); // guarda de seguridad
     });
     ch.stderr.on("data", (d) => {
-        const t = String(d).trim();
+        // Sin la clave: ffmpeg repite la URL entera (rtsp://usuario:clave@…) en sus errores, y
+        // el log la dejaba escrita en claro.
+        const t = String(d).trim().replace(/(rtsps?:\/\/)[^@\s/]+@/gi, "$1***@");
         if (t) log(`ffmpeg ${cam.name}: ${t.slice(0, 160)}`);
     });
     const reintentar = () => {
