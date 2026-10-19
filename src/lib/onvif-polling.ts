@@ -736,7 +736,29 @@ async function getMinAlertThreshold(deviceId: string, channelName: string | null
     return Math.min(...alerts.map(a => a.threshold));
 }
 
+/* Horarios de la fila (lib/filas/horario): fuera de horario no se avisa que está llena. Son
+   opcionales: una fila sin horarios avisa a toda hora, como siempre. Se leen cada minuto, no en
+   cada lectura de aforo. */
+const CACHE_HORARIO_MS = 60_000;
+let cacheHorario: { t: number; horarios: any[]; especiales: any[] } | null = null;
+async function atiendeAhora(deviceId: string): Promise<boolean> {
+    try {
+        if (!cacheHorario || Date.now() - cacheHorario.t > CACHE_HORARIO_MS) {
+            const { enMontevideo } = await import("@/lib/filas/horario");
+            const ayer = enMontevideo(new Date(Date.now() - 24 * 3600_000)).fecha;
+            const [horarios, especiales] = await Promise.all([
+                prisma.queueSchedule.findMany({ where: { enabled: true } }),
+                (prisma as any).queueDiaEspecial.findMany({ where: { fecha: { gte: ayer } } }),
+            ]);
+            cacheHorario = { t: Date.now(), horarios, especiales };
+        }
+        const { estadoFila } = await import("@/lib/filas/horario");
+        return estadoFila(cacheHorario.horarios, cacheHorario.especiales, deviceId).abierta;
+    } catch { return true; /* si no se pudo leer el horario, se avisa: callar un aviso es peor */ }
+}
+
 async function checkQueueAlerts(deviceId: string, channelName: string | null | undefined, count: number, snapshotPath?: string | null) {
+    if (!(await atiendeAhora(deviceId))) return;
     const alerts = await prisma.queueAlert.findMany({
         where: {
             enabled: true,

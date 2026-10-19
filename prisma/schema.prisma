@@ -586,6 +586,23 @@ model QueueSchedule {
   updatedAt   DateTime  @updatedAt
 }
 
+/// Un día que no sigue el horario de siempre de una fila: feriado (cerrada) o con otro horario.
+/// Sin deviceId vale para todas las filas; con deviceId manda sobre el general ese día.
+/// Los horarios siguen siendo opcionales: una fila sin horarios se considera siempre abierta.
+model QueueDiaEspecial {
+  id        String   @id @default(cuid())
+  fecha     String // AAAA-MM-DD, hora de Montevideo
+  deviceId  String?
+  cerrada   Boolean  @default(true)
+  openTime  String?
+  closeTime String?
+  nota      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([fecha])
+}
+
 model CameraOutage {
   id          String    @id @default(cuid())
   deviceId    String

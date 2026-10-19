@@ -48,3 +48,27 @@ export async function runQueueReset(deviceId?: string | null) {
     }
     return { reset: devices.length };
 }
+
+/* ── Días especiales (feriados u horario distinto) ── */
+export async function getDiasEspeciales(desde?: string, hasta?: string) {
+    const where: any = {};
+    if (desde || hasta) where.fecha = { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) };
+    return prisma.queueDiaEspecial.findMany({ where, orderBy: { fecha: "asc" } });
+}
+
+const FECHA_RX = /^\d{4}-\d{2}-\d{2}$/;
+const HORA_RX = /^\d{2}:\d{2}$/;
+
+export async function guardarDiaEspecial(data: { id?: string; fecha: string; deviceId?: string | null; cerrada: boolean; openTime?: string | null; closeTime?: string | null; nota?: string | null }) {
+    if (!FECHA_RX.test(data.fecha)) throw new Error("Fecha inválida");
+    if (!data.cerrada && (!HORA_RX.test(data.openTime || "") || !HORA_RX.test(data.closeTime || ""))) throw new Error("Falta el horario de ese día");
+    const datos = {
+        fecha: data.fecha, deviceId: data.deviceId || null, cerrada: data.cerrada,
+        openTime: data.cerrada ? null : data.openTime, closeTime: data.cerrada ? null : data.closeTime, nota: data.nota?.trim() || null,
+    };
+    return data.id ? prisma.queueDiaEspecial.update({ where: { id: data.id }, data: datos }) : prisma.queueDiaEspecial.create({ data: datos });
+}
+
+export async function borrarDiaEspecial(id: string) {
+    return prisma.queueDiaEspecial.delete({ where: { id } });
+}
