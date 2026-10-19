@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
+import { CajonListaNegra } from "@/components/users/CajonListaNegra";
 import { sileo as toast } from "sileo";
 import { VisorCuadro, leerDetalles, type DatosVisor } from "@/components/VisorCuadro";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
@@ -64,8 +65,14 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
     const [ocupadoLista, setOcupadoLista] = useState(false);
     /** La chapa ya está en otra categoría de la lista: qué era, para preguntar antes de pisarla. */
     const [conflicto, setConflicto] = useState<{ etiqueta: string; cat: string; motivo: string | null } | null>(null);
-    /** Mandar a la lista negra se confirma antes (19/10, Nico: «preguntar si estás seguro»). */
-    const [confirmarNegra, setConfirmarNegra] = useState(false);
+    /**
+     * Mandar a la lista negra (19/10, Nico): primero «preguntar si estás seguro»; después «debe
+     * indicar el motivo, como tenemos ya». Ya existía: el cajón de lista negra de Detecciones y
+     * Buscar (CajonListaNegra), con la chapa, la foto de la captura y el motivo escritos de
+     * antemano y editables, la categoría, y su propia confirmación de lo que va a pasar. Se usa
+     * ése en vez de un «¿seguro?» sin motivo.
+     */
+    const [negra, setNegra] = useState<{ foto: File | null; motivo: string } | null>(null);
     // "Clip": el mismo diálogo que el playback (antes bajaba directo un clip "de treinta segundos"
     // que medía lo de Ajustes).
     const [descarga, setDescarga] = useState(false);
@@ -171,11 +178,27 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
      * El botón de la lista negra: sacar es inmediato (vuelve todo a como estaba), mandar se
      * confirma — la barrera deja de abrirle aunque tenga credencial y la lectora lo recibe.
      */
-    const pedirLista = useCallback(() => {
+    const pedirLista = useCallback(async () => {
         if (!conChapa) return;
-        if (vigilada?.category === "BLACKLISTED") void alternarLista();
-        else setConfirmarNegra(true);
-    }, [conChapa, vigilada]); // eslint-disable-line react-hooks/exhaustive-deps
+        if (vigilada?.category === "BLACKLISTED") { void alternarLista(); return; }
+        const camara = dispositivo?.name || event?.location || "la lectora";
+        const cuando = new Date(event?.timestamp).toLocaleString("es-UY", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Montevideo" });
+        const decision = event?.decision === "DENY" ? " (denegado)" : event?.decision === "GRANT" ? " (permitido)" : "";
+        let fotoArchivo: File | null = null;
+        try {
+            if (foto) { const b = await (await fetch(foto)).blob(); fotoArchivo = new File([b], `captura-${event.id}.jpg`, { type: b.type || "image/jpeg" }); }
+        } catch { /* sin foto: se carga a mano en el cajón */ }
+        setNegra({ foto: fotoArchivo, motivo: `Leída en ${camara}, ${cuando}${decision}.` });
+    }, [conChapa, vigilada, dispositivo?.name, event?.location, event?.timestamp, event?.decision, event?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    /** Después de guardar en el cajón: la ficha y el botón vuelven a preguntar si está en la lista. */
+    const releerLista = useCallback(() => {
+        getWatchlist().then((filas: any[]) => {
+            const w = filas.find((r: any) => limpiar(r.plate) === chapa && r.active !== false);
+            setVigilada(w ? { id: w.id, category: w.category } : null);
+        }).catch(() => { });
+        setRefresco((n) => n + 1);
+    }, [chapa]);
 
     const alternarLista = useCallback(async () => {
         if (!conChapa) return;
@@ -307,19 +330,15 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
                     onClip={canalNvr != null && ventanaClip ? () => setDescarga(true) : undefined}
                     onExportar={exportar}
                     onListaNegra={conChapa ? pedirLista : undefined}
-                    tapado={!!conflicto || confirmarNegra || descarga}
+                    tapado={!!conflicto || !!negra || descarga}
                     enListaNegra={vigilada?.category === "BLACKLISTED"}
                     ocupadoLista={ocupadoLista}
                     onCerrar={() => setAbierto(false)}
                 />, document.body,
             )}
 
-            <ConfirmarAccion id={`negra-${chapa}`} open={confirmarNegra} onOpenChange={(o) => { if (!o) setConfirmarNegra(false); }}
-                title={`Enviar ${chapa} a la lista negra`}
-                description={`Toda lectura de ${chapa} se va a registrar DENEGADA, aunque tenga credencial: la barrera no le abre, las lectoras la reciben en su lista negra, el monitor la muestra en rojo y avisa a la guardia. Se puede sacar después desde esta misma ficha.`}
-                etiquetaAccion="Enviar a la lista negra"
-                onDelete={async () => { await alternarLista(); return { success: true }; }}
-                onSuccess={() => setConfirmarNegra(false)} />
+            <CajonListaNegra abierta={!!negra} ficha={null} chapaInicial={chapa} fotoInicial={negra?.foto} motivoInicial={negra?.motivo}
+                alCerrar={() => setNegra(null)} alCambiar={releerLista} />
 
             <ConfirmarAccion id={chapa} open={!!conflicto} onOpenChange={(o) => { if (!o) setConflicto(null); }}
                 title={`Pasar ${chapa} a lista negra`}
