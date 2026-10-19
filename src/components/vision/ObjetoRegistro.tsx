@@ -1,19 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { Type, Video, Clock, Route, User, Car, PawPrint, Backpack, Shapes, ScanSearch, type LucideIcon, Boxes } from "lucide-react";
+import { Type, Clock, User, Car, PawPrint, Backpack, Shapes, type LucideIcon, Boxes } from "lucide-react";
 import { nombrePropio } from "@/lib/nombres-propios";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/estados";
-import { CajonSeccion } from "@/components/ui/cajon";
-import { VerGrabacion } from "@/components/video/VerGrabacion";
 import { CLASE_POR_NOMBRE } from "@/lib/vision-catalogo";
 import type { Atributo } from "@/lib/vision";
 
 /**
- * Una pista del registro de detecciones (ObjetoVisto): su tarjeta y su ficha. Las comparten
- * Detecciones y Buscar, para que un objeto se vea igual en las dos pantallas.
+ * Una pista del registro de detecciones (ObjetoVisto): su tarjeta y sus formatos. Las comparten
+ * Detecciones y Buscar, para que un objeto se vea igual en las dos pantallas. El cajón de la
+ * pista está en CajonPista.
  */
 
 /** Una pista vista hace menos de esto está "en curso" (el proceso la cierra a los 15 s sin verla). */
@@ -93,74 +89,5 @@ export function TarjetaObjeto({ f, alAbrir, pie }: { f: FilaObjeto; alAbrir: () 
                 )}
             </div>
         </button>
-    );
-}
-
-/** La ficha de una pista: el cuadro con la caja y el recorrido, el rotulado, los atributos y la grabación. */
-export function FichaObjeto({ f, alParecidos }: { f: FilaObjeto; alParecidos?: () => void }) {
-    const [grabacion, setGrabacion] = useState(false);
-    const caja = f.caja;
-    const rec = f.recorrido || [];
-    return (
-        <>
-            <CajonSeccion titulo="" compacta>
-                <div className="relative rounded-md overflow-hidden bg-black">
-                    {f.foto && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={img(f.foto, 960)} alt="Cuadro del mejor momento" className="w-full h-auto block" />
-                    )}
-                    <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
-                        {rec.length > 1 && <polyline points={rec.map(([x, y]) => `${x},${y}`).join(" ")} fill="none" stroke="var(--aviso)" strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />}
-                        {caja && <rect x={caja[0]} y={caja[1]} width={caja[2] - caja[0]} height={caja[3] - caja[1]} fill="none" stroke="var(--accion-en-oscuro)" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
-                    </svg>
-                </div>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted-foreground tabular-nums">
-                    <span>confianza <b className="text-foreground">{pct(f.confianza)}</b></span>
-                    <span>{f.cuadros} {f.cuadros === 1 ? "cuadro" : "cuadros"}</span>
-                    {f.pista != null && <span>pista #{f.pista}</span>}
-                    <span className="inline-flex items-center gap-1"><Route size={12} /> {rec.length} puntos de recorrido</span>
-                    {alParecidos && (
-                        <Button variant="outline" size="sm" className="ml-auto" onClick={alParecidos}>
-                            <ScanSearch size={13} /> Buscar parecidos
-                        </Button>
-                    )}
-                    {f.deviceId && (
-                        <Button variant="outline" size="sm" className={alParecidos ? "" : "ml-auto"} onClick={() => setGrabacion(true)}>
-                            <Video size={13} /> Ver la grabación de ese momento
-                        </Button>
-                    )}
-                </div>
-                <p className="text-[11px] text-muted-foreground">La foto es la del cuadro con mejor confianza; la línea amarilla es por dónde pasó (el pie de la caja, cuadro a cuadro).</p>
-            </CajonSeccion>
-            {f.textos && (
-                <CajonSeccion titulo="Rotulado" compacta ayuda="El texto que omni-vision leyó en el vehículo, en un cuadro del stream principal. Si coincide con una empresa del catálogo (nombre o alias), se marca.">
-                    {f.textos.length === 0 ? <p className="text-[12.5px] text-muted-foreground">Se buscó y no tenía texto legible.</p> : (
-                        <div className="flex flex-wrap gap-1.5">
-                            {f.textos.map((t, i) => (
-                                <span key={i} className={cn("inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-[12.5px]", t.empresa ? "chip-bien" : "border-border")}>
-                                    <b>{t.texto}</b> <span className="text-[11px] opacity-70 tabular-nums">{pct(t.confianza)}</span>{t.empresa && <span className="text-[11px]">→ {t.empresa.nombre}</span>}
-                                </span>
-                            ))}
-                        </div>
-                    )}
-                </CajonSeccion>
-            )}
-            <CajonSeccion titulo="Atributos" compacta ayuda="De SigLIP 2 sobre el recorte del mejor cuadro. Lo dudoso va entre signos de pregunta.">
-                {!f.atributos?.length ? <p className="text-[12.5px] text-muted-foreground">Esta clase no tiene atributos, o el recorte era muy chico para describirlo.</p> : (
-                    <div className="grid sm:grid-cols-2 gap-2">
-                        {f.atributos.map((a) => (
-                            <div key={a.id} className="rounded-md bg-muted px-3 py-2">
-                                <div className="text-[11px] text-muted-foreground">{a.nombre}</div>
-                                <div className="text-[14px] font-bold">{a.dudoso ? `¿${a.valor}?` : a.valor} <span className="text-[12px] font-normal text-muted-foreground tabular-nums">{pct(a.prob)}</span></div>
-                                <div className="text-[11px] text-muted-foreground mt-0.5">{a.opciones.map((o) => `${o.valor} ${pct(o.prob)}`).join(" · ")}</div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </CajonSeccion>
-            {grabacion && f.deviceId && (
-                <VerGrabacion deviceId={f.deviceId} nombre={f.camara} instanteMs={new Date(f.primeraVez).getTime()} onClose={() => setGrabacion(false)} />
-            )}
-        </>
     );
 }
