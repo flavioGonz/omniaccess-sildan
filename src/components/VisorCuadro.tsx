@@ -379,6 +379,14 @@ export function VisorCuadro({
     // vista, se le encimarían. Mientras está abierto, la vista queda limpia.
     useEffect(() => { if (clip) setLimpio(true); }, [clip]);
     const [vivoListo, setVivoListo] = useState(false);
+    /**
+     * La proporción del VIDEO en vivo (19/10, Nico mandó la captura del vivo con marcos alrededor).
+     * La caja tomaba la proporción de la FOTO del evento, y la foto de una lectora no tiene la del
+     * flujo en vivo (la de LPR Salida trae abajo la franja de texto de la cámara, más alta): la caja
+     * quedaba más angosta que la ventana y el video, encajado adentro, además dejaba franjas arriba
+     * y abajo. Con la proporción del video, un vivo 16:9 llena la ventana a sangre.
+     */
+    const [proporcionVivo, setProporcionVivo] = useState<number | null>(null);
     /** HD (flujo principal) o SD (secundario, liviano), como el botón del visor de intrusión. */
     const [calidad, setCalidad] = useState<"hd" | "sd">("hd");
     const [avisoCalidad, setAvisoCalidad] = useState(0);
@@ -459,10 +467,14 @@ export function VisorCuadro({
         const v = vivoRef.current;
         if (!v || !idVivo) return;
         setVivoListo(false);
+        setProporcionVivo(null);
         const alAndar = () => setVivoListo(true);
+        const medirVivo = () => { if (v.videoWidth && v.videoHeight) setProporcionVivo(v.videoWidth / v.videoHeight); };
         v.addEventListener("playing", alAndar);
+        v.addEventListener("loadedmetadata", medirVivo);
+        v.addEventListener("resize", medirVivo);
         const cortar = montarVivo(v, idVivo, 4, calidad);
-        return () => { v.removeEventListener("playing", alAndar); cortar(); };
+        return () => { v.removeEventListener("playing", alAndar); v.removeEventListener("loadedmetadata", medirVivo); v.removeEventListener("resize", medirVivo); cortar(); };
     }, [modo, idVivo, calidad]);
 
     /**
@@ -702,6 +714,9 @@ export function VisorCuadro({
         </motion.div>
     );
 
+    /** En vivo manda la proporción del video (cuando ya se conoce); en la foto, la de la foto. */
+    const cajaProporcion = modo === "vivo" && proporcionVivo ? proporcionVivo : proporcion;
+
     return (
         /*
          * El fondo NO cierra.
@@ -769,7 +784,12 @@ export function VisorCuadro({
                         vivo (entero, sin recortar) no ocupa, en vez de franjas lisas. */}
                     {modo === "vivo" && (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={fotoUrl} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover blur-[40px] opacity-50 scale-110 pointer-events-none" />
+                        <>
+                            {/* Como el ambiente de la grabación: fuerte y oscurecido. A 50 % sobre el marco
+                                (claro en el tema claro) se veía como un marco gris liso. */}
+                            <img src={fotoUrl} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover blur-[28px] opacity-80 scale-110 pointer-events-none" />
+                            <span aria-hidden className="absolute inset-0 bg-black/30 pointer-events-none" />
+                        </>
                     )}
                     <div
                         ref={cajaImg}
@@ -794,9 +814,9 @@ export function VisorCuadro({
                              * En la foto recortar cielo o vereda no molesta; en el vivo, lo que pasa
                              * en el borde es justo lo que se está mirando.
                              */
-                            height: (proporcion >= AR_VENTANA) !== (modo === "vivo") ? "100%" : "auto",
-                            width: (proporcion >= AR_VENTANA) !== (modo === "vivo") ? "auto" : "100%",
-                            aspectRatio: String(proporcion),
+                            height: (cajaProporcion >= AR_VENTANA) !== (modo === "vivo") ? "100%" : "auto",
+                            width: (cajaProporcion >= AR_VENTANA) !== (modo === "vivo") ? "auto" : "100%",
+                            aspectRatio: String(cajaProporcion),
                             transform: `translate3d(${pos.x}px, ${pos.y}px, 0) scale(${escala})`,
                             transformOrigin: "center",
                             transition: arrastre.current || pellizco.current != null ? "none" : "transform 160ms cubic-bezier(.22,1,.36,1)",
