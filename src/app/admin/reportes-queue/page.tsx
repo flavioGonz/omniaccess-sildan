@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import {
     FileBarChart, RefreshCw, Download, Calendar, TrendingUp,
     ChevronLeft, ChevronRight, FileText, Table2, Clock,
-    BarChart3, CalendarDays, CalendarRange, CalendarCheck,
+    BarChart3, CalendarDays, CalendarRange, CalendarCheck, Users, Send, BellRing, Radio, MessageCircle, Mail, Webhook, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,9 +18,13 @@ import {
     getQueueIntervalBreakdown,
     getQueueDevices,
     getCameraOutages,
+    getLatestQueueCounts,
+    getQueueAlerts,
+    getQueueNotifications,
+    getDispatchHistory,
 } from "@/app/actions/queue";
 import { toast } from "@/lib/avisos";
-import { fecha, fechaHora } from "@/lib/fechas";
+import { fecha, fechaHora, hace } from "@/lib/fechas";
 
 /* ── Types ─────────────────────────────────── */
 interface HourlyData { hour: number; avg: number; max: number; count: number; }
@@ -607,6 +611,76 @@ function OutagesPanel({ outages, devices }: { outages: any[]; devices: { id: str
     );
 }
 
+/* ── Monitor en vivo (modo Filas) ─────────────────────────────────────────────
+ *
+ * Pedido de Nico (HB, 19/10): Reportes pasa a ser el Monitor en vivo. Se queda la gráfica
+ * (y su animación, que es lo que le gustaba) y se ordena todo lo demás:
+ *   - fuera los chips de «lecturas del día / aforo promedio / pico» encima de la gráfica;
+ *   - filtros en una sola fila: período, fecha, fila e intervalo;
+ *   - arriba, cómo está cada fila AHORA (aforo contra su límite);
+ *   - a la derecha de la gráfica, las últimas veces que una fila se llenó y los últimos
+ *     despachos (mensajes enviados), que antes había que ir a buscar a otras pantallas;
+ *   - la tabla del período debajo de la gráfica, en la misma tarjeta.
+ * Exportar a Excel/PDF y los cortes de cámara se mantienen.
+ */
+
+/** Cada cuánto se refresca el aforo de ahora. Es JSON chico: no pesa en el LTE. */
+const REFRESCO_VIVO_MS = 5_000;
+/** Cada cuánto se refrescan filas llenas y despachos. */
+const REFRESCO_LISTAS_MS = 30_000;
+/** Cuántos renglones muestran las listas de la derecha. */
+const RENGLONES_LISTA = 6;
+/** El límite que usa el servidor cuando la fila no tiene uno guardado (onvif-polling). */
+const LIMITE_POR_DEFECTO = 10;
+/** Desde qué fracción del límite la fila está «en aviso». */
+const UMBRAL_AVISO = 0.7;
+const ES_AFORO = /aforo|occupancy|ocupaci/i;
+const INTERVALOS = [5, 15, 30, 45, 60];
+
+type FilaAhora = { id: string; nombre: string; aforo: number | null; cuando: string | null; limite: number };
+type Tono = "bien" | "aviso" | "mal" | "quieto";
+
+const tonoDe = (aforo: number | null, limite: number): Tono =>
+    aforo == null ? "quieto" : aforo >= limite ? "mal" : aforo >= limite * UMBRAL_AVISO ? "aviso" : "bien";
+const ROTULO_TONO: Record<Tono, string> = { bien: "Fluida", aviso: "Cargada", mal: "Llena", quieto: "Sin datos" };
+
+const ICONO_CANAL: Record<string, any> = { telegram: Send, whatsapp: MessageCircle, email: Mail, webhook: Webhook };
+const ESTADO_DESPACHO: Record<string, { rotulo: string; tono: string }> = {
+    SENT: { rotulo: "Enviado", tono: "chip-bien" },
+    PENDING: { rotulo: "En cola", tono: "chip-info" },
+    PROCESSING: { rotulo: "Enviando", tono: "chip-info" },
+    FAILED: { rotulo: "Falló", tono: "chip-mal" },
+    CANCELLED: { rotulo: "Cancelado", tono: "chip-quieto" },
+};
+
+/** Un día o un rango, según el período. Pastilla porque es una elección. */
+function Pastillas<T extends string | number>({ valor, opciones, onCambiar }: { valor: T; opciones: { v: T; r: React.ReactNode }[]; onCambiar: (v: T) => void }) {
+    return (
+        <div className="inline-flex items-center gap-0.5 p-0.5 rounded-full bg-muted border border-border">
+            {opciones.map((o) => (
+                <button key={String(o.v)} onClick={() => onCambiar(o.v)}
+                    className={cn("inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-semibold transition-colors",
+                        valor === o.v ? "bg-[var(--accion)] text-white" : "text-muted-foreground hover:text-foreground")}>
+                    {o.r}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+function Tarjeta({ titulo, icono: I, accion, children, className }: { titulo: string; icono: any; accion?: React.ReactNode; children: React.ReactNode; className?: string }) {
+    return (
+        <section className={cn("rounded-[10px] border border-border bg-card overflow-hidden", className)}>
+            <header className="flex items-center gap-2 px-4 h-11 border-b border-border">
+                <I size={15} className="text-muted-foreground" />
+                <h2 className="text-[15px] font-semibold tracking-[-0.01em]">{titulo}</h2>
+                {accion && <div className="ml-auto">{accion}</div>}
+            </header>
+            {children}
+        </section>
+    );
+}
+
 export default function ReportesQueuePage() {
     const [activeTab, setActiveTab] = useState<TabKey>("hora");
     const [slideDir, setSlideDir] = useState<"l" | "r">("r");
@@ -614,14 +688,12 @@ export default function ReportesQueuePage() {
     const switchTab = (k: TabKey) => { setSlideDir(tabOrder.indexOf(k) >= tabOrder.indexOf(activeTab) ? "r" : "l"); setActiveTab(k); };
     const [devices, setDevices] = useState<{ id: string; name: string }[]>([]);
     const [selectedDevice, setSelectedDevice] = useState<string>("");
-    const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
-    const [dateFrom, setDateFrom] = useState(() => {
-        const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split("T")[0];
-    });
-    const [dateTo, setDateTo] = useState(() => new Date().toISOString().split("T")[0]);
+    const [selectedDate, setSelectedDate] = useState(() => paraFecha(new Date()));
+    const [dateFrom, setDateFrom] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return paraFecha(d); });
+    const [dateTo, setDateTo] = useState(() => paraFecha(new Date()));
     const [loading, setLoading] = useState(true);
+    const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
-    const [hourly, setHourly] = useState<HourlyData[]>([]);
     const [gran, setGran] = useState<number>(60);
     const [intervalRows, setIntervalRows] = useState<any[]>([]);
     const [daily, setDaily] = useState<DailyData[]>([]);
@@ -629,419 +701,274 @@ export default function ReportesQueuePage() {
     const [monthly, setMonthly] = useState<MonthlyData[]>([]);
     const [outages, setOutages] = useState<any[]>([]);
 
+    // En vivo
+    const [ahora, setAhora] = useState<FilaAhora[] | null>(null);
+    const [llenas, setLlenas] = useState<any[] | null>(null);
+    const [despachos, setDespachos] = useState<any[] | null>(null);
+
     const loadData = useCallback(async () => {
-        setLoading(true);
+        setLoading(true); setErrorCarga(null);
         try {
             const devicesData = await getQueueDevices();
             setDevices(devicesData);
-
             const devId = selectedDevice || undefined;
             const from = new Date(dateFrom + "T00:00:00");
             const to = new Date(dateTo + "T23:59:59");
-
-            if (activeTab === "hora") {
-                const date = new Date(selectedDate + "T12:00:00");
-                const data = await getQueueIntervalBreakdown(devId, date, gran);
-                setIntervalRows(data as any[]);
-            } else if (activeTab === "dia") {
-                const data = await getQueueDailyBreakdown(devId, from, to);
-                setDaily(data);
-            } else if (activeTab === "semana") {
-                const data = await getQueueWeeklyBreakdown(devId, from, to);
-                setWeekly(data);
-            } else {
-                const data = await getQueueMonthlyBreakdown(devId, from, to);
-                setMonthly(data);
-            }
-            // Camera outages for the active period
-            let oFrom = from, oTo = to;
-            if (activeTab === "hora") {
-                oFrom = new Date(selectedDate + "T00:00:00");
-                oTo = new Date(selectedDate + "T23:59:59");
-            }
-            const outagesData = await getCameraOutages({ from: oFrom, to: oTo, deviceId: devId, includeOpen: true });
-            setOutages(outagesData || []);
-            setLoading(false);
-        } catch (err) {
+            if (activeTab === "hora") setIntervalRows(await getQueueIntervalBreakdown(devId, new Date(selectedDate + "T12:00:00"), gran) as any[]);
+            else if (activeTab === "dia") setDaily(await getQueueDailyBreakdown(devId, from, to) as DailyData[]);
+            else if (activeTab === "semana") setWeekly(await getQueueWeeklyBreakdown(devId, from, to));
+            else setMonthly(await getQueueMonthlyBreakdown(devId, from, to));
+            const [oFrom, oTo] = activeTab === "hora" ? [new Date(selectedDate + "T00:00:00"), new Date(selectedDate + "T23:59:59")] : [from, to];
+            setOutages((await getCameraOutages({ from: oFrom, to: oTo, deviceId: devId, includeOpen: true })) || []);
+        } catch (err: any) {
             console.error(err);
-            toast.error("Error cargando reportes");
-            setLoading(false);
-        }
+            setErrorCarga(err?.message || "No se pudieron leer los datos del período");
+        } finally { setLoading(false); }
     }, [activeTab, selectedDate, dateFrom, dateTo, selectedDevice, gran]);
-
     useEffect(() => { loadData(); }, [loadData]);
+
+    const cargarAhora = useCallback(async () => {
+        try {
+            const [conteos, alertas] = await Promise.all([getLatestQueueCounts(), getQueueAlerts()]);
+            setAhora((conteos as any[]).map((d) => {
+                const c = d.channels.find((x: any) => ES_AFORO.test(x.channelName || ""));
+                // El límite de la fila: su alerta de aforo activa (la menor, como el servidor).
+                const propias = (alertas as any[]).filter((a) => a.enabled && a.deviceId === d.device.id && (!a.channelName || ES_AFORO.test(a.channelName)));
+                const limite = propias.length ? Math.min(...propias.map((a) => a.threshold)) : LIMITE_POR_DEFECTO;
+                return { id: d.device.id, nombre: d.device.name, aforo: c ? c.peopleCount : null, cuando: c ? c.lastUpdate : null, limite };
+            }));
+        } catch { setAhora((a) => a ?? []); }
+    }, []);
+    const cargarListas = useCallback(async () => {
+        const [n, h] = await Promise.allSettled([getQueueNotifications({ take: RENGLONES_LISTA }), getDispatchHistory({ take: RENGLONES_LISTA })]);
+        setLlenas(n.status === "fulfilled" ? n.value : []);
+        setDespachos(h.status === "fulfilled" ? h.value : []);
+    }, []);
+    useEffect(() => {
+        cargarAhora(); cargarListas();
+        const a = setInterval(cargarAhora, REFRESCO_VIVO_MS);
+        const b = setInterval(cargarListas, REFRESCO_LISTAS_MS);
+        return () => { clearInterval(a); clearInterval(b); };
+    }, [cargarAhora, cargarListas]);
 
     const changeDate = (delta: number) => {
         const d = new Date(selectedDate + "T12:00:00");
         d.setDate(d.getDate() + delta);
-        setSelectedDate(d.toISOString().split("T")[0]);
+        setSelectedDate(paraFecha(d));
     };
+    const deviceLabel = devices.find(d => d.id === selectedDevice)?.name || "Todas las filas";
+    const mesDe = (m: string) => { const [y, mo] = m.split("-"); return `${MONTHS_ES[parseInt(mo) - 1]} ${y}`; };
 
-    const deviceLabel = devices.find(d => d.id === selectedDevice)?.name || "Todos";
-
-    /* ── Export handlers ── */
+    /* ── Exportar ── */
     const handleExport = async (format: "pdf" | "xlsx") => {
         if (activeTab === "hora") {
             const ivLabel = gran === 60 ? "1 h" : `${gran} min`;
-            const cols = [
-                { key: "rangeLabel", label: "Intervalo" },
-                { key: "last", label: "Aforo exacto" },
-                { key: "max", label: "Máximo" },
-                { key: "avg", label: "Promedio" },
-                { key: "count", label: "Lecturas" },
-            ];
+            const cols = [{ key: "rangeLabel", label: "Intervalo" }, { key: "last", label: "Aforo exacto" }, { key: "max", label: "Máximo" }, { key: "avg", label: "Promedio" }, { key: "count", label: "Lecturas" }];
             const rows = intervalRows.filter((r: any) => r.count > 0);
             const dateLabel = fecha(new Date(selectedDate + "T12:00:00"));
             if (format === "xlsx") await exportXLSX(`Afluencia (${ivLabel})`, cols, rows, `afluencia-${gran}min-${selectedDate}.xlsx`);
             else await exportPDF(`Afluencia por intervalo (${ivLabel})`, `${dateLabel} - ${deviceLabel}`, cols, rows, `afluencia-${gran}min-${selectedDate}.pdf`);
-        } else if (activeTab === "dia") {
-            const cols = [
-                { key: "dateLabel", label: "Fecha" },
-                { key: "avg", label: "Promedio" },
-                { key: "max", label: "Máximo" },
-                { key: "last", label: "Aforo exacto" },
-                { key: "count", label: "Eventos" },
-                { key: "total", label: "Total" },
-            ];
+            return;
+        }
+        const base = [{ key: "avg", label: "Promedio" }, { key: "max", label: "Máximo" }, { key: "last", label: "Aforo exacto" }, { key: "count", label: "Eventos" }, { key: "total", label: "Total" }];
+        if (activeTab === "dia") {
             const rows = daily.map(d => ({ dateLabel: fmtDate(d.date), avg: d.avg, max: d.max, last: d.last, count: d.count, total: d.total }));
+            const cols = [{ key: "dateLabel", label: "Fecha" }, ...base];
             if (format === "xlsx") await exportXLSX("Afluencia por Día", cols, rows, `afluencia-diaria-${dateFrom}-${dateTo}.xlsx`);
             else await exportPDF("Afluencia por Día", `${dateFrom} a ${dateTo} - ${deviceLabel}`, cols, rows, `afluencia-diaria-${dateFrom}-${dateTo}.pdf`);
         } else if (activeTab === "semana") {
-            const cols = [
-                { key: "week", label: "Semana" },
-                { key: "avg", label: "Promedio" },
-                { key: "max", label: "Máximo" },
-                { key: "last", label: "Aforo exacto" },
-                { key: "count", label: "Eventos" },
-                { key: "total", label: "Total" },
-            ];
+            const cols = [{ key: "week", label: "Semana" }, ...base];
             if (format === "xlsx") await exportXLSX("Afluencia por Semana", cols, weekly, `afluencia-semanal-${dateFrom}-${dateTo}.xlsx`);
             else await exportPDF("Afluencia por Semana", `${dateFrom} a ${dateTo} - ${deviceLabel}`, cols, weekly, `afluencia-semanal-${dateFrom}-${dateTo}.pdf`);
         } else {
-            const cols = [
-                { key: "monthLabel", label: "Mes" },
-                { key: "avg", label: "Promedio" },
-                { key: "max", label: "Máximo" },
-                { key: "last", label: "Aforo exacto" },
-                { key: "count", label: "Eventos" },
-                { key: "total", label: "Total" },
-            ];
-            const rows = monthly.map(m => {
-                const [y, mo] = m.month.split("-");
-                return { monthLabel: `${MONTHS_ES[parseInt(mo) - 1]} ${y}`, avg: m.avg, max: m.max, last: m.last, count: m.count, total: m.total };
-            });
+            const rows = monthly.map(m => ({ monthLabel: mesDe(m.month), avg: m.avg, max: m.max, last: m.last, count: m.count, total: m.total }));
+            const cols = [{ key: "monthLabel", label: "Mes" }, ...base];
             if (format === "xlsx") await exportXLSX("Afluencia por Mes", cols, rows, `afluencia-mensual.xlsx`);
             else await exportPDF("Afluencia por Mes", `${deviceLabel}`, cols, rows, `afluencia-mensual.pdf`);
         }
     };
 
-    /* ── Render sections per tab ── */
-    const renderContent = () => {
-        if (loading) return (
-            <div className="flex items-center justify-center py-20">
-                <FileBarChart className="w-8 h-8 text-violet-500 animate-pulse" />
-            </div>
-        );
+    /* ── La gráfica y la tabla del período ── */
+    const SERIES = { valueKeys: ["max", "last", "avg"], colors: ["bg-violet-500/40", "bg-cyan-500/40", "bg-amber-500/40"], labels: ["Máximo", "Aforo exacto", "Promedio"] };
+    const periodo = (() => {
+        if (activeTab === "hora") return {
+            titulo: `Aforo por intervalo · ${fecha(new Date(selectedDate + "T12:00:00"))}`,
+            grafica: <BarChart data={intervalRows} labelKey="label" {...SERIES} />,
+            tabla: <DataTable columns={[{ key: "rangeLabel", label: "Intervalo" }, { key: "last", label: "Aforo exacto", align: "right" }, { key: "max", label: "Máximo", align: "right" }, { key: "avg", label: "Promedio", align: "right" }, { key: "count", label: "Lecturas", align: "right" }]}
+                data={intervalRows.filter((r: any) => r.count > 0)} />,
+        };
+        const cols = [{ key: "avg", label: "Promedio", align: "right" }, { key: "max", label: "Máximo", align: "right" }, { key: "last", label: "Aforo exacto", align: "right" }, { key: "count", label: "Eventos", align: "right" }, { key: "total", label: "Total", align: "right" }];
+        if (activeTab === "dia") return {
+            titulo: "Aforo por día",
+            grafica: <BarChart data={daily.map(d => ({ ...d, label: fmtDate(d.date) }))} labelKey="label" {...SERIES} />,
+            tabla: <DataTable columns={[{ key: "dateLabel", label: "Fecha" }, ...cols]} data={daily.filter(d => d.count > 0).map(d => ({ dateLabel: fmtDate(d.date), avg: d.avg, max: d.max, last: d.last, count: d.count, total: d.total }))} />,
+        };
+        if (activeTab === "semana") return {
+            titulo: "Aforo por semana",
+            grafica: <BarChart data={weekly} labelKey="week" {...SERIES} />,
+            tabla: <DataTable columns={[{ key: "week", label: "Semana" }, ...cols]} data={weekly} />,
+        };
+        return {
+            titulo: "Aforo por mes",
+            grafica: <BarChart data={monthly.map(m => ({ ...m, label: mesDe(m.month) }))} labelKey="label" valueKeys={["max", "avg"]} colors={["bg-violet-500/20", "bg-violet-500/60"]} labels={["Máximo", "Promedio"]} />,
+            tabla: <DataTable columns={[{ key: "monthLabel", label: "Mes" }, ...cols.filter((c) => c.key !== "last")]} data={monthly.map(m => ({ monthLabel: mesDe(m.month), avg: m.avg, max: m.max, count: m.count, total: m.total }))} />,
+        };
+    })();
 
-        if (activeTab === "hora") {
-            const rows = intervalRows;
-            const withData = rows.filter((r: any) => r.count > 0);
-            const totalReadings = rows.reduce((s: number, r: any) => s + r.count, 0);
-            const avgAforo = withData.length ? Math.round(withData.reduce((s: number, r: any) => s + r.avg, 0) / withData.length * 10) / 10 : 0;
-            const peak = rows.reduce((p: any, r: any) => (r.max > (p?.max ?? -1) ? r : p), rows[0] || { max: 0, label: "—" });
-            const granOptions = [5, 15, 30, 45, 60];
-
-            return (
-                <div className="space-y-5">
-                    {/* Granularity + explicación */}
-                    <div className="flex items-center justify-between flex-wrap gap-3">
-                        <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Intervalo</span>
-                            <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-muted/60 border border-border">
-                                {granOptions.map(g => (
-                                    <button key={g} onClick={() => setGran(g)} className={cn("px-2.5 py-1 rounded-md text-xs font-semibold transition", gran === g ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground")}>{g === 60 ? "1 h" : `${g} min`}</button>
-                                ))}
-                            </div>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground">
-                            <b className="text-cyan-400">Aforo exacto</b> = última lectura del intervalo · <b className="text-violet-400">Máximo</b> = aforo más alto · <b className="text-amber-400">Promedio</b> = aforo medio
-                        </p>
-                    </div>
-
-                    {/* Mini KPIs */}
-                    <div className="grid grid-cols-3 gap-3">
-                        <div className="rounded-lg border border-border bg-foreground/[0.04] px-4 py-3">
-                            <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">Lecturas del día</div>
-                            <div className="text-xl font-bold text-violet-400 tabular-nums">{totalReadings}</div>
-                        </div>
-                        <div className="rounded-lg border border-border bg-foreground/[0.04] px-4 py-3">
-                            <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">Aforo promedio</div>
-                            <div className="text-xl font-bold text-sky-400 tabular-nums">{avgAforo}</div>
-                        </div>
-                        <div className="rounded-lg border border-border bg-foreground/[0.04] px-4 py-3">
-                            <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">Pico máximo</div>
-                            <div className="text-xl font-bold text-red-400 tabular-nums">{peak?.max || 0} <span className="text-xs font-normal text-muted-foreground">a las {peak?.label || "—"}</span></div>
-                        </div>
-                    </div>
-
-                    {/* Chart */}
-                    <div className="rounded-lg border border-border bg-foreground/[0.04] p-5">
-                        <BarChart
-                            data={rows}
-                            labelKey="label" valueKeys={["max", "last", "avg"]}
-                            colors={["bg-violet-500/40", "bg-cyan-500/40", "bg-amber-500/40"]}
-                            labels={["Máximo", "Aforo exacto", "Promedio"]}
-                        />
-                    </div>
-
-                    {/* Table */}
-                    <DataTable
-                        columns={[
-                            { key: "rangeLabel", label: "Intervalo" },
-                            { key: "last", label: "Aforo exacto", align: "right" },
-                            { key: "max", label: "Máximo", align: "right" },
-                            { key: "avg", label: "Promedio", align: "right" },
-                            { key: "count", label: "Lecturas", align: "right" },
-                        ]}
-                        data={withData}
-                    />
-                </div>
-            );
-        }
-
-        if (activeTab === "dia") {
-            const totalEvents = daily.reduce((s, d) => s + d.count, 0);
-            const peak = daily.reduce((p, d) => d.max > p.max ? d : p, daily[0] || { max: 0, date: "" });
-            const avgAll = daily.length > 0 ? Math.round(daily.filter(d => d.count > 0).reduce((s, d) => s + d.avg, 0) / Math.max(daily.filter(d => d.count > 0).length, 1) * 10) / 10 : 0;
-
-            return (
-                <div className="space-y-5">
-                    <div className="grid grid-cols-3 gap-3">
-                        <div className="rounded-lg border border-border bg-foreground/[0.04] px-4 py-3">
-                            <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">{"Total eventos"}</div>
-                            <div className="text-xl font-bold text-violet-400 tabular-nums">{totalEvents}</div>
-                        </div>
-                        <div className="rounded-lg border border-border bg-foreground/[0.04] px-4 py-3">
-                            <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">{"Promedio diario"}</div>
-                            <div className="text-xl font-bold text-sky-400 tabular-nums">{avgAll}</div>
-                        </div>
-                        <div className="rounded-lg border border-border bg-foreground/[0.04] px-4 py-3">
-                            <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">{"Día pico"}</div>
-                            <div className="text-xl font-bold text-red-400 tabular-nums">{peak?.max || 0} <span className="text-xs font-normal text-muted-foreground">{peak?.date ? fmtDate(peak.date) : ""}</span></div>
-                        </div>
-                    </div>
-
-                    <div className="rounded-lg border border-border bg-foreground/[0.04] p-5">
-                        <BarChart
-                            data={daily.map(d => ({ ...d, label: fmtDate(d.date) }))}
-                            labelKey="label" valueKeys={["max", "last", "avg"]}
-                            colors={["bg-violet-500/40", "bg-cyan-500/40", "bg-amber-500/40"]}
-                            labels={["Máximo", "Aforo exacto", "Promedio"]} height={220}
-                        />
-                    </div>
-
-                    <DataTable
-                        columns={[
-                            { key: "dateLabel", label: "Fecha" },
-                            { key: "avg", label: "Promedio", align: "right" },
-                            { key: "max", label: "Máximo", align: "right" },
-                            { key: "last", label: "Aforo exacto", align: "right" },
-                            { key: "count", label: "Eventos", align: "right" },
-                            { key: "total", label: "Total", align: "right" },
-                        ]}
-                        data={daily.filter(d => d.count > 0).map(d => ({
-                            dateLabel: fmtDate(d.date), avg: d.avg, max: d.max, last: d.last, count: d.count, total: d.total,
-                        }))}
-                    />
-                </div>
-            );
-        }
-
-        if (activeTab === "semana") {
-            const totalEvents = weekly.reduce((s, w) => s + w.count, 0);
-            const peak = weekly.reduce((p, w) => w.max > p.max ? w : p, weekly[0] || { max: 0, week: "" });
-
-            return (
-                <div className="space-y-5">
-                    <div className="grid grid-cols-3 gap-3">
-                        <div className="rounded-lg border border-border bg-foreground/[0.04] px-4 py-3">
-                            <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">{"Total eventos"}</div>
-                            <div className="text-xl font-bold text-violet-400 tabular-nums">{totalEvents}</div>
-                        </div>
-                        <div className="rounded-lg border border-border bg-foreground/[0.04] px-4 py-3">
-                            <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">{"Semanas"}</div>
-                            <div className="text-xl font-bold text-sky-400 tabular-nums">{weekly.length}</div>
-                        </div>
-                        <div className="rounded-lg border border-border bg-foreground/[0.04] px-4 py-3">
-                            <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">{"Semana pico"}</div>
-                            <div className="text-xl font-bold text-red-400 tabular-nums">{peak?.max || 0} <span className="text-xs font-normal text-muted-foreground">{peak?.week || ""}</span></div>
-                        </div>
-                    </div>
-
-                    <div className="rounded-lg border border-border bg-foreground/[0.04] p-5">
-                        <BarChart
-                            data={weekly}
-                            labelKey="week" valueKeys={["max", "last", "avg"]}
-                            colors={["bg-violet-500/40", "bg-cyan-500/40", "bg-amber-500/40"]}
-                            labels={["Máximo", "Aforo exacto", "Promedio"]} height={220}
-                        />
-                    </div>
-
-                    <DataTable
-                        columns={[
-                            { key: "week", label: "Semana" },
-                            { key: "avg", label: "Promedio", align: "right" },
-                            { key: "max", label: "Máximo", align: "right" },
-                            { key: "last", label: "Aforo exacto", align: "right" },
-                            { key: "count", label: "Eventos", align: "right" },
-                            { key: "total", label: "Total", align: "right" },
-                        ]}
-                        data={weekly}
-                    />
-                </div>
-            );
-        }
-
-        // Mes
-        const totalEvents = monthly.reduce((s, m) => s + m.count, 0);
-        const peak = monthly.reduce((p, m) => m.max > p.max ? m : p, monthly[0] || { max: 0, month: "" });
-
-        return (
-            <div className="space-y-5">
-                <div className="grid grid-cols-3 gap-3">
-                    <div className="rounded-lg border border-border bg-foreground/[0.04] px-4 py-3">
-                        <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">{"Total eventos"}</div>
-                        <div className="text-xl font-bold text-violet-400 tabular-nums">{totalEvents}</div>
-                    </div>
-                    <div className="rounded-lg border border-border bg-foreground/[0.04] px-4 py-3">
-                        <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">{"Meses"}</div>
-                        <div className="text-xl font-bold text-sky-400 tabular-nums">{monthly.length}</div>
-                    </div>
-                    <div className="rounded-lg border border-border bg-foreground/[0.04] px-4 py-3">
-                        <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">{"Mes pico"}</div>
-                        <div className="text-xl font-bold text-red-400 tabular-nums">{peak?.max || 0} <span className="text-xs font-normal text-muted-foreground">{peak?.month ? (() => { const [y, m] = peak.month.split("-"); return `${MONTHS_ES[parseInt(m) - 1]} ${y}`; })() : ""}</span></div>
-                    </div>
-                </div>
-
-                <div className="rounded-lg border border-border bg-foreground/[0.04] p-5">
-                    <BarChart
-                        data={monthly.map(m => { const [y, mo] = m.month.split("-"); return { ...m, label: `${MONTHS_ES[parseInt(mo) - 1]} ${y}` }; })}
-                        labelKey="label" valueKeys={["max", "avg"]}
-                        colors={["bg-violet-500/20", "bg-violet-500/60"]}
-                        labels={["Máximo", "Promedio"]} height={220}
-                    />
-                </div>
-
-                <DataTable
-                    columns={[
-                        { key: "monthLabel", label: "Mes" },
-                        { key: "avg", label: "Promedio", align: "right" },
-                        { key: "max", label: "Máximo", align: "right" },
-                        { key: "count", label: "Eventos", align: "right" },
-                        { key: "total", label: "Total", align: "right" },
-                    ]}
-                    data={monthly.map(m => { const [y, mo] = m.month.split("-"); return { monthLabel: `${MONTHS_ES[parseInt(mo) - 1]} ${y}`, avg: m.avg, max: m.max, last: m.last, count: m.count, total: m.total }; })}
-                />
-            </div>
-        );
-    };
+    const filasVisibles = (ahora || []).filter((f) => !selectedDevice || f.id === selectedDevice);
 
     return (
-        <div className="space-y-5 p-6">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
-                        <FileBarChart size={18} className="text-violet-400" />
-                    </div>
-                    <div>
-                        <h1 className="text-lg font-bold text-foreground tracking-tight">Reportes de Afluencia</h1>
-                        <p className="text-[11px] text-muted-foreground">{"Análisis y exportación de datos de aforo"}</p>
-                    </div>
+        <div className="p-6 space-y-5 max-w-[1680px] mx-auto">
+            {/* Encabezado: título, y exportar a la derecha */}
+            <div className="flex items-center gap-3">
+                <div>
+                    <h1 className="text-[28px] font-bold tracking-[-0.02em] leading-tight">Monitor en vivo</h1>
+                    <p className="text-[13px] text-muted-foreground">Cómo están las filas ahora y cómo vienen en el período elegido.</p>
                 </div>
-                <div className="flex items-center gap-1.5">
-                    <Button variant="outline" size="sm" onClick={() => handleExport("xlsx")}
-                        className="border-emerald-500/20 bg-emerald-500/5 text-emerald-400 hover:bg-emerald-500/10 gap-1.5 h-8 text-[11px]">
-                        <Table2 size={12} /> Excel
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleExport("pdf")}
-                        className="border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/10 gap-1.5 h-8 text-[11px]">
-                        <FileText size={12} /> PDF
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={loadData} className="text-muted-foreground hover:text-foreground h-8">
-                        <RefreshCw size={12} />
-                    </Button>
+                <div className="ml-auto flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => handleExport("xlsx")} className="gap-1.5"><Table2 size={14} /> Excel</Button>
+                    <Button variant="outline" size="sm" onClick={() => handleExport("pdf")} className="gap-1.5"><FileText size={14} /> PDF</Button>
+                    <Button variant="ghost" size="sm" onClick={() => { loadData(); cargarAhora(); cargarListas(); }} title="Actualizar"><RefreshCw size={14} /></Button>
                 </div>
             </div>
 
-            {/* Toolbar: segmented tabs (left) + filters (right) */}
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-                {/* Segmented control */}
-                <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-muted/60 border border-border">
-                    {TABS.map(tab => (
-                        <button key={tab.key} onClick={() => switchTab(tab.key)}
-                            className={cn(
-                                "inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all",
-                                activeTab === tab.key
-                                    ? "bg-violet-600 text-white shadow-sm shadow-violet-900/30"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.05]"
-                            )}>
-                            {tab.icon}
-                            <span className="hidden sm:inline">{tab.label}</span>
-                        </button>
-                    ))}
-                </div>
+            {/* Filtros: una sola fila */}
+            <div className="flex items-center gap-3 flex-wrap rounded-[10px] border border-border bg-card px-3 py-2">
+                <Pastillas valor={activeTab} onCambiar={switchTab}
+                    opciones={[{ v: "hora", r: <><Clock size={13} /> Día</> }, { v: "dia", r: <><CalendarDays size={13} /> Días</> }, { v: "semana", r: <><CalendarRange size={13} /> Semanas</> }, { v: "mes", r: <><CalendarCheck size={13} /> Meses</> }]} />
+                {activeTab === "hora" ? (
+                    <div className="inline-flex items-center gap-1 h-8 rounded-[6px] border border-border px-1">
+                        <button onClick={() => changeDate(-1)} className="h-6 w-6 grid place-items-center rounded-[6px] hover:bg-accent text-muted-foreground" title="Día anterior"><ChevronLeft size={14} /></button>
+                        <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="bg-transparent text-[12px] font-semibold tabular-nums outline-none px-1" />
+                        <button onClick={() => changeDate(1)} className="h-6 w-6 grid place-items-center rounded-[6px] hover:bg-accent text-muted-foreground" title="Día siguiente"><ChevronRight size={14} /></button>
+                    </div>
+                ) : (
+                    <div className="inline-flex items-center gap-2 h-8 rounded-[6px] border border-border px-2.5 text-[12px]">
+                        <Calendar size={13} className="text-muted-foreground" />
+                        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="bg-transparent font-semibold tabular-nums outline-none" />
+                        <span className="text-muted-foreground">a</span>
+                        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="bg-transparent font-semibold tabular-nums outline-none" />
+                    </div>
+                )}
+                {devices.length > 1 && (
+                    <Pastillas valor={selectedDevice} onCambiar={setSelectedDevice}
+                        opciones={[{ v: "", r: "Todas las filas" }, ...devices.map((d) => ({ v: d.id, r: d.name }))]} />
+                )}
+                {activeTab === "hora" && (
+                    <div className="ml-auto flex items-center gap-2">
+                        <span className="text-[11px] text-muted-foreground">Intervalo</span>
+                        <Pastillas valor={gran} onCambiar={setGran} opciones={INTERVALOS.map((g) => ({ v: g, r: g === 60 ? "1 h" : `${g} min` }))} />
+                    </div>
+                )}
+            </div>
 
-                {/* Filters */}
-                <div className="flex items-center gap-2 flex-wrap">
-                    {activeTab === "hora" ? (
-                        <div className="flex items-center gap-1 bg-muted/60 border border-border rounded-lg p-1">
-                            <button onClick={() => changeDate(-1)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-                                <ChevronLeft size={14} />
-                            </button>
-                            <div className="flex items-center gap-1.5 px-2">
-                                <Calendar size={12} className="text-violet-400" />
-                                <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
-                                    className="bg-transparent text-foreground text-xs font-mono border-none outline-none" />
+            {/* Ahora: una tarjeta por fila */}
+            <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(260px,1fr))]">
+                {ahora === null && <div className="rounded-[10px] border border-border bg-card h-[92px] animate-pulse" />}
+                {ahora !== null && filasVisibles.length === 0 && (
+                    <div className="rounded-[10px] border border-dashed border-border px-4 py-5 text-[13px] text-muted-foreground">No hay contadores de fila dados de alta. Se agregan en Dispositivos.</div>
+                )}
+                {filasVisibles.map((f) => {
+                    const t = tonoDe(f.aforo, f.limite);
+                    const pct = f.aforo == null ? 0 : Math.min(100, Math.round((f.aforo / f.limite) * 100));
+                    return (
+                        <div key={f.id} className="rounded-[10px] border border-border bg-card px-4 py-3">
+                            <div className="flex items-center gap-2">
+                                <Users size={14} className="text-muted-foreground" />
+                                <span className="text-[13px] font-semibold truncate">{f.nombre}</span>
+                                <span className={cn("ml-auto text-[11px] font-semibold px-2 py-0.5 rounded-full border", `chip-${t}`)}>{ROTULO_TONO[t]}</span>
                             </div>
-                            <button onClick={() => changeDate(1)} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-                                <ChevronRight size={14} />
-                            </button>
+                            <div className="flex items-end gap-2 mt-1.5">
+                                <span className={cn("text-[34px] font-bold leading-none tabular-nums", `tono-${t}`)}>{f.aforo ?? "—"}</span>
+                                <span className="text-[13px] text-muted-foreground mb-1 tabular-nums">/ {f.limite}</span>
+                                <span className="ml-auto text-[11px] text-muted-foreground mb-1">{f.cuando ? hace(f.cuando) : "sin datos"}</span>
+                            </div>
+                            <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
+                                <div className={cn("h-full rounded-full transition-[width] duration-700", `pleno-${t}`)} style={{ width: `${pct}%` }} />
+                            </div>
                         </div>
+                    );
+                })}
+            </div>
+
+            {/* Gráfica + tabla a la izquierda; filas llenas y despachos a la derecha */}
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-5 items-start">
+                <Tarjeta titulo={periodo.titulo} icono={BarChart3}
+                    accion={<span className="text-[11px] text-muted-foreground">{deviceLabel}</span>}>
+                    {errorCarga ? (
+                        <div className="p-8 text-center space-y-3">
+                            <div className="text-[13px] tono-mal inline-flex items-center gap-2"><AlertTriangle size={15} /> {errorCarga}</div>
+                            <div><Button size="sm" variant="outline" onClick={loadData}>Reintentar</Button></div>
+                        </div>
+                    ) : loading ? (
+                        <div className="h-[300px] grid place-items-center"><FileBarChart className="w-7 h-7 text-muted-foreground animate-pulse" /></div>
                     ) : (
-                        <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-lg p-1.5 px-3">
-                            <Calendar size={12} className="text-violet-400" />
-                            <span className="text-[9px] text-muted-foreground font-mono uppercase">Desde</span>
-                            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                                className="bg-transparent text-foreground text-xs font-mono border-none outline-none" />
-                            <span className="text-[9px] text-muted-foreground font-mono uppercase">Hasta</span>
-                            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                                className="bg-transparent text-foreground text-xs font-mono border-none outline-none" />
+                        <div key={activeTab} className={cn("animate-in fade-in duration-300 ease-out", slideDir === "r" ? "slide-in-from-right-6" : "slide-in-from-left-6")}>
+                            <div className="px-4 pt-4">{periodo.grafica}</div>
+                            <div className="p-4">{periodo.tabla}</div>
                         </div>
                     )}
-                    <select value={selectedDevice} onChange={e => setSelectedDevice(e.target.value)}
-                        className="rounded-lg bg-muted/60 border border-border text-foreground text-xs px-3 py-2 outline-none">
-                        <option value="">{"Todos los dispositivos"}</option>
-                        {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                    </select>
+                </Tarjeta>
+
+                <div className="space-y-5">
+                    <Tarjeta titulo="Filas que se llenaron" icono={BellRing}>
+                        {llenas === null ? <div className="h-24 animate-pulse" /> : llenas.length === 0 ? (
+                            <div className="px-4 py-6 text-[13px] text-muted-foreground">Ninguna fila llegó a su límite.</div>
+                        ) : (
+                            <ul className="divide-y divide-border">
+                                {llenas.map((n) => (
+                                    <li key={n.id} className="flex items-center gap-3 px-4 py-2.5">
+                                        {n.snapshotPath
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            ? <img src={n.snapshotPath} alt="" className="h-10 w-16 rounded-[6px] object-cover shrink-0 bg-muted" />
+                                            : <span className="h-10 w-16 rounded-[6px] bg-muted shrink-0 grid place-items-center"><Users size={14} className="text-muted-foreground" /></span>}
+                                        <div className="min-w-0 flex-1">
+                                            <div className="text-[13px] font-semibold truncate">{n.device?.name || n.alertName}</div>
+                                            <div className="text-[11px] text-muted-foreground">{fechaHora(n.timestamp)}</div>
+                                        </div>
+                                        <span className="text-[13px] font-bold tabular-nums tono-mal">{n.peopleCount}<span className="text-muted-foreground font-normal">/{n.threshold}</span></span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </Tarjeta>
+
+                    <Tarjeta titulo="Despachos" icono={Send}
+                        accion={<a href="/admin/despachos" className="text-[12px] font-semibold text-[var(--accion)] hover:underline">Ver todos</a>}>
+                        {despachos === null ? <div className="h-24 animate-pulse" /> : despachos.length === 0 ? (
+                            <div className="px-4 py-6 text-[13px] text-muted-foreground">Todavía no se envió ningún mensaje.</div>
+                        ) : (
+                            <ul className="divide-y divide-border">
+                                {despachos.map((d) => {
+                                    const I = ICONO_CANAL[String(d.recipientChannel || d.channel).toLowerCase()] || Radio;
+                                    const e = ESTADO_DESPACHO[d.status] || { rotulo: d.status, tono: "chip-quieto" };
+                                    return (
+                                        <li key={d.id} className="flex items-start gap-3 px-4 py-2.5" title={d.lastError || undefined}>
+                                            <span className="h-8 w-8 rounded-[6px] bg-muted grid place-items-center shrink-0"><I size={14} className="text-muted-foreground" /></span>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[13px] font-semibold truncate">{d.recipient || d.ruleName}</span>
+                                                    <span className={cn("ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full border shrink-0", e.tono)}>{e.rotulo}</span>
+                                                </div>
+                                                <div className="text-[11px] text-muted-foreground truncate">{d.message || d.ruleName}</div>
+                                                <div className="text-[11px] text-muted-foreground">{fechaHora(d.sentAt || d.createdAt)}</div>
+                                            </div>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        )}
+                    </Tarjeta>
                 </div>
             </div>
 
-            {/* Content */}
-            <div key={activeTab} className={cn("animate-in fade-in duration-300 ease-out", slideDir === "r" ? "slide-in-from-right-6" : "slide-in-from-left-6")}>
-                {renderContent()}
-            </div>
-
-            {/* Camera outages */}
+            {/* Cortes de cámara del período */}
             <OutagesPanel outages={outages} devices={devices} />
-
-            {/* Footer */}
-            <div className="flex items-center justify-center pt-2">
-                <div className="flex items-center gap-2 bg-muted/60 backdrop-blur-sm rounded-full px-4 py-1.5 border border-border">
-                    <BarChart3 size={8} className="text-violet-400" />
-                    <span className="text-[9px] text-muted-foreground font-mono uppercase tracking-widest">{"OmniAccess Reportes · Exporta PDF y Excel"}</span>
-                </div>
-            </div>
         </div>
     );
+}
+
+/** AAAA-MM-DD en la hora local (toISOString da la fecha UTC: de noche en Uruguay ya es mañana). */
+function paraFecha(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
