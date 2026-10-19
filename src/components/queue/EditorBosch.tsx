@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { getQueueBounceAnalysis } from "@/app/actions/queue";
 import { cn } from "@/lib/utils";
+import { VivoConPlay } from "@/components/queue/VivoConPlay";
 
 type Pt = { x: number; y: number };
 type Field = { id: number; points: Pt[]; pct: Pt[]; debounce: number | null; objectSet: string | null };
@@ -186,7 +187,7 @@ export default function EditorBosch({ deviceId, streamSrc }: { deviceId: string;
             <div className="space-y-3">
                 <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-border bg-muted">
                     {videoOk ? (
-                        <video src={`/go2rtc/api/stream.mp4?src=${streamSrc}`} poster={`/api/snapshot/${deviceId}`} autoPlay muted playsInline onError={() => setVideoOk(false)} className="absolute inset-0 w-full h-full object-fill" />
+                        <VivoConPlay deviceId={deviceId} compacto><video src={`/go2rtc/api/stream.mp4?src=${streamSrc}`} poster={`/api/snapshot/${deviceId}`} autoPlay muted playsInline onError={() => setVideoOk(false)} className="absolute inset-0 w-full h-full object-fill" /></VivoConPlay>
                     ) : (
                         <img src={`/api/snapshot/${deviceId}`} alt="" className="absolute inset-0 w-full h-full object-fill" />
                     )}

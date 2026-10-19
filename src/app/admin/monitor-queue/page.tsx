@@ -14,6 +14,7 @@ import {
 import { toast } from "@/lib/avisos";
 import { io } from "socket.io-client";
 import { hora, horaSeg } from "@/lib/fechas";
+import { VivoConPlay } from "@/components/queue/VivoConPlay";
 
 interface DeviceView {
     deviceId: string; deviceName: string; deviceIp: string; location: string | null;
@@ -231,7 +232,7 @@ function DeviceCell({ device, selected, onSelect, vcaRules }: { device: DeviceVi
             selected && "shadow-lg shadow-violet-500/20 ring-1 ring-violet-500/30"
         )} onClick={onSelect}>
             <div className="relative aspect-video vid-surface">
-                <LiveVideo streamName={device.streamName} fallbackDeviceId={device.deviceId} className="absolute inset-0 w-full h-full" />
+                <VivoConPlay deviceId={device.deviceId}><LiveVideo streamName={device.streamName} fallbackDeviceId={device.deviceId} className="absolute inset-0 w-full h-full" /></VivoConPlay>
                 <VCAOverlay rules={vcaRules} />
                 {centroid && (
                     <div className="absolute z-[9] pointer-events-none select-none"

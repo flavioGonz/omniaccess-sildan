@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { getQueueEvents, getQueueStatsToday, getQueueHourlyBreakdown, getQueueDevices, getCameraOutages, getQueueFlowHourly, getQueueAforoSeries, getQueueFlowSeries } from "@/app/actions/queue";
 import Image from "next/image";
 import { fecha, fechaCorta, horaSeg } from "@/lib/fechas";
+import { VivoConPlay } from "@/components/queue/VivoConPlay";
 
 // ─── Brand Config (logos) ────────────────────────────
 const BRAND_CONFIG: Record<string, { label: string; color: string; logoUrl: string }> = {
@@ -601,7 +602,7 @@ export default function FlujoFilasPage() {
                     );
                     return (
                         <div className="relative rounded-xl border border-border bg-black overflow-hidden min-h-[200px]">
-                            <LiveVideo streamName={getStreamName(vd.ip)} fallbackDeviceId={vd.id} className="absolute inset-0 w-full h-full" />
+                            <VivoConPlay deviceId={vd.id}><LiveVideo streamName={getStreamName(vd.ip)} fallbackDeviceId={vd.id} className="absolute inset-0 w-full h-full" /></VivoConPlay>
                             {/* Top: EN VIVO + device */}
                             <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 py-2 bg-gradient-to-b from-black/70 to-transparent pointer-events-none z-10">
                                 <span className="flex items-center gap-1.5 text-[10px] font-bold text-white/90" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9)" }}><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> EN VIVO</span>

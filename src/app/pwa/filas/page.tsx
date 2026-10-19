@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { getQueueDevices, getLatestQueueCounts, getQueueAlerts } from "@/app/actions/queue";
 import io from "socket.io-client";
 import { fechaHoraSeg, hora, horaSeg } from "@/lib/fechas";
+import { VivoConPlay } from "@/components/queue/VivoConPlay";
 
 const OCC = ["Aforo", "Occupancy", "Ocupación", "Ocupacion"];
 type Dev = { id: string; name: string; ip: string };
@@ -410,7 +411,7 @@ export default function FilasPWA() {
                             const a = aforo[d.id] ?? 0; const col = statusColor(a, limit);
                             return (
                                 <div key={d.id} ref={(el) => { feedRefs.current[d.id] = el; }} className="relative w-full aspect-video border-b border-border bg-black">
-                                    <LiveVideo streamName={getStreamName(d.ip)} deviceId={d.id} className="absolute inset-0 w-full h-full" />
+                                    <VivoConPlay deviceId={d.id}><LiveVideo streamName={getStreamName(d.ip)} deviceId={d.id} className="absolute inset-0 w-full h-full" /></VivoConPlay>
                                     {showVca && (<><VCAOverlay rules={vcaRules[d.id] || []} /><AforoOverZone rules={vcaRules[d.id] || []} occ={a} color={col} /></>)}
                                     <div className="absolute top-2 left-3 text-[11px] font-mono text-white/90" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9)" }}>{tStr}</div>
                                     <div className="absolute top-2 right-3 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/55 text-[9px] font-bold uppercase tracking-wider"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />Live</div>

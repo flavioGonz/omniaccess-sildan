@@ -26,6 +26,7 @@ import { toast } from "@/lib/avisos";
 import io from "socket.io-client";
 import { OnvifDiscoveryPanel } from "@/components/OnvifDiscoveryPanel";
 import { hora } from "@/lib/fechas";
+import { VivoConPlay } from "@/components/queue/VivoConPlay";
 
 interface Alert {
     id: string;
@@ -807,11 +808,13 @@ export default function FilasPage() {
                         )}
                     >
                         <div className="relative aspect-video vid-surface">
+                            <VivoConPlay deviceId={liveCounts[0].device.id}>
                             <LiveVideo
                                 streamName={getStreamName(liveCounts[0].device.ip)}
                                 fallbackDeviceId={liveCounts[0].device.id}
                                 className="absolute inset-0 w-full h-full"
                             />
+                            </VivoConPlay>
 
                             {/* VCA Analytics Overlay (camera zones - shapes only) */}
                             <VCAOverlay rules={vcaRules} showVca={showVca} />
