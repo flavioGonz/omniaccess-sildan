@@ -1122,3 +1122,103 @@ export async function getQueueBounceAnalysis(deviceId?: string, minutes: number 
         sugerido: { debounce: debounceSugerido, ventana: ventanaSugerida },
     };
 }
+
+/* ── Filas: tabla y ficha (HB, 19/10) ─────────────────────────────────────────
+ * Pedido de Nico: Filas pasa a ser una tabla con una fila por cola (no un video), y cada una abre
+ * su ficha con aforo, entradas y salidas. Acá se arma todo del lado del servidor y con SÓLO el
+ * canal que corresponde: el desglose por hora de arriba (getQueueHourlyBreakdown) mezcla el aforo
+ * con los contadores de Entrada/Salida, que son acumulados de la cámara (10, 8…) y no gente en
+ * la fila — la ficha mostraría picos falsos.
+ */
+const CANAL_AFORO_RX = /aforo|occupancy|ocupaci/i;
+const CANAL_ENTRADA = "Entrada";
+const CANAL_SALIDA = "Salida";
+/** Límite cuando la fila no tiene uno guardado (el mismo que usa onvif-polling). */
+const LIMITE_FILA_POR_DEFECTO = 10;
+/** Ventana para la espera estimada: salidas de los últimos N minutos. */
+const VENTANA_ESPERA_MIN = 15;
+
+async function limitesPorFila(): Promise<Record<string, number>> {
+    const alertas = await prisma.queueAlert.findMany({ where: { enabled: true, deviceId: { not: null } } });
+    const out: Record<string, number> = {};
+    for (const a of alertas) {
+        if (a.channelName && !CANAL_AFORO_RX.test(a.channelName)) continue;
+        out[a.deviceId!] = Math.min(out[a.deviceId!] ?? Infinity, a.threshold);
+    }
+    return out;
+}
+
+/** Una fila por contador, con lo de ahora y lo de hoy. */
+export async function getResumenFilas() {
+    const devices = await prisma.device.findMany({
+        where: { deviceType: "QUEUE_COUNTER" },
+        // Lo que necesita la ficha de la cámara para editar sin pisar nada (MAC, modelo, autenticación).
+        select: { id: true, name: true, ip: true, location: true, brand: true, mac: true, deviceModel: true, authType: true },
+        orderBy: { name: "asc" },
+    });
+    const limites = await limitesPorFila();
+    const { start } = uyDayWindow(new Date());
+    const desde15 = new Date(Date.now() - VENTANA_ESPERA_MIN * 60_000);
+    return Promise.all(devices.map(async (d) => {
+        const [ultimo, hoy, entradas, salidas, salidas15] = await Promise.all([
+            prisma.queueEvent.findFirst({ where: { deviceId: d.id, NOT: { channelName: { in: [CANAL_ENTRADA, CANAL_SALIDA] } } }, orderBy: { timestamp: "desc" } }),
+            prisma.queueEvent.findMany({ where: { deviceId: d.id, timestamp: { gte: start }, NOT: { channelName: { in: [CANAL_ENTRADA, CANAL_SALIDA] } } }, select: { peopleCount: true, timestamp: true } }),
+            prisma.queueEvent.count({ where: { deviceId: d.id, channelName: CANAL_ENTRADA, timestamp: { gte: start } } }),
+            prisma.queueEvent.count({ where: { deviceId: d.id, channelName: CANAL_SALIDA, timestamp: { gte: start } } }),
+            prisma.queueEvent.count({ where: { deviceId: d.id, channelName: CANAL_SALIDA, timestamp: { gte: desde15 } } }),
+        ]);
+        const limite = limites[d.id] ?? LIMITE_FILA_POR_DEFECTO;
+        const pico = hoy.reduce<{ max: number; at: Date | null }>((p, e) => (e.peopleCount > p.max ? { max: e.peopleCount, at: e.timestamp } : p), { max: 0, at: null });
+        // Veces que se llenó hoy: cada vez que el aforo pasa de abajo del límite a llegar a él.
+        let llenas = 0, antes = 0;
+        for (const e of [...hoy].sort((a, b) => +a.timestamp - +b.timestamp)) { if (e.peopleCount >= limite && antes < limite) llenas++; antes = e.peopleCount; }
+        const aforo = ultimo?.peopleCount ?? null;
+        const porMin = salidas15 / VENTANA_ESPERA_MIN;
+        return {
+            id: d.id, nombre: d.name, ip: d.ip, ubicacion: d.location, marca: d.brand,
+            equipo: { id: d.id, name: d.name, ip: d.ip, location: d.location, brand: d.brand, mac: d.mac, deviceModel: d.deviceModel, authType: d.authType, deviceType: "QUEUE_COUNTER" },
+            aforo, ultimoDato: ultimo?.timestamp ?? null, limite,
+            entradasHoy: entradas, salidasHoy: salidas,
+            picoHoy: pico.max, picoHoyA: pico.at, llenasHoy: llenas,
+            esperaMin: aforo != null && porMin > 0 ? Math.round(aforo / porMin) : null,
+        };
+    }));
+}
+
+/**
+ * La ficha de una fila: aforo (máximo y promedio) y flujo (entradas y salidas) por hora del día
+ * elegido, o por día en 7/30 días. Todo en hora de Montevideo.
+ */
+export async function getFichaFila(deviceId: string, rango: "hoy" | "7d" | "30d" = "hoy") {
+    const dias = rango === "7d" ? 7 : rango === "30d" ? 30 : 1;
+    const { start: hoy0 } = uyDayWindow(new Date());
+    const start = new Date(hoy0.getTime() - (dias - 1) * 24 * 3600_000);
+    const eventos = await prisma.queueEvent.findMany({
+        where: { deviceId, timestamp: { gte: start } },
+        select: { channelName: true, peopleCount: true, timestamp: true },
+        orderBy: { timestamp: "asc" },
+    });
+    const nBuckets = dias === 1 ? 24 : dias;
+    const cubo = (t: Date) => dias === 1 ? uyHour(t) : Math.floor((t.getTime() - start.getTime()) / (24 * 3600_000));
+    const etiqueta = (i: number) => {
+        if (dias === 1) return `${String(i).padStart(2, "0")}h`;
+        const d = new Date(start.getTime() + i * 24 * 3600_000 - UY_OFFSET_MS);
+        return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    };
+    const buckets = Array.from({ length: nBuckets }, (_, i) => ({ label: etiqueta(i), max: 0, suma: 0, n: 0, entradas: 0, salidas: 0 }));
+    for (const e of eventos) {
+        const i = cubo(e.timestamp);
+        if (i < 0 || i >= nBuckets) continue;
+        const b = buckets[i];
+        if (e.channelName === CANAL_ENTRADA) b.entradas++;
+        else if (e.channelName === CANAL_SALIDA) b.salidas++;
+        else { b.max = Math.max(b.max, e.peopleCount); b.suma += e.peopleCount; b.n++; }
+    }
+    return {
+        rango,
+        buckets: buckets.map((b) => ({ label: b.label, max: b.max, prom: b.n ? Math.round((b.suma / b.n) * 10) / 10 : 0, entradas: b.entradas, salidas: b.salidas })),
+        totalEntradas: buckets.reduce((s, b) => s + b.entradas, 0),
+        totalSalidas: buckets.reduce((s, b) => s + b.salidas, 0),
+        pico: buckets.reduce((s, b) => Math.max(s, b.max), 0),
+    };
+}

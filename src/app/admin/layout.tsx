@@ -276,7 +276,7 @@ export default function AdminLayout({
                     {modules.MODULE_QUEUE && (
                         <>
                             {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-violet-500/60 uppercase tracking-widest">Filas</div>}
-                            {ve("filas") && (<SidebarItem icon={<Rows3 size={18} />} label="Filas" href="/admin/filas" active={pathname === "/admin/filas"} collapsed={collapsed} />)}
+                            {ve("filas") && (<SidebarItem icon={<Rows3 size={18} />} label="Filas" href="/admin/filas" active={!!pathname?.startsWith("/admin/filas")} collapsed={collapsed} />)}
                             {ve("filas") && (<SidebarItem icon={<Send size={18} />} label="Despachos" href="/admin/despachos" active={pathname === "/admin/despachos"} collapsed={collapsed} />)}
                             {/* Reportes ya no tiene entrada propia: es el Monitor en vivo (gráfica, tabla y exportar). */}
                             {ve("filas") && (<SidebarItem icon={<Calendar size={18} />} label="Horarios de Filas" href="/admin/horarios-filas" active={pathname === "/admin/horarios-filas"} collapsed={collapsed} />)}
