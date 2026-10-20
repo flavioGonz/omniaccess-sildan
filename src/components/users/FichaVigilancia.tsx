@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { ShieldAlert, Loader2, Bell, BellOff, Ban, RotateCcw, Save, User as UserIco, History, Images, ImagePlus, ScanFace } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Estado, Matricula, Momento, Nada } from "@/components/ui/celdas";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,13 @@ import { ExplicacionCategoria } from "@/components/WatchlistDialog";
  * Las filas "por rol" (módulo facial) se abren en sólo lectura: no tienen entrada propia que
  * editar, pero sí detecciones que mirar.
  */
+
+/**
+ * La ficha del evento (el visor del Monitor LPR), en vez de la foto suelta en un cuadro (20/10, Nico:
+ * «trae un modal feo, debe usar el modal de eventos LPR»). Se carga aparte para no cerrar un círculo
+ * de imports: el visor usa el cajón de lista negra, que usa piezas de este archivo.
+ */
+const FichaDeEvento = dynamic(() => import("@/components/eventos/FichaDeEvento").then((m) => m.FichaDeEvento), { ssr: false });
 
 /** Cuántas capturas se muestran como evidencia. Las detecciones siguen todas en su tabla. */
 const EVIDENCIAS_A_LA_VISTA = 12;
@@ -118,7 +125,8 @@ export function FichaVigilancia({ fila, alCerrar, alCambiar }: { fila: Fila | nu
     const [guardando, setGuardando] = useState(false);
     const [det, setDet] = useState<{ detecciones: DeteccionFicha[]; total: number } | null>(null);
     const [errorDet, setErrorDet] = useState<string | null>(null);
-    const [ampliada, setAmpliada] = useState<DeteccionFicha | null>(null);
+    /** La lectura abierta en su ficha. Mientras, el cajón se corre: el visor va encima de todo y el cajón le tomaría los clicks. */
+    const [evento, setEvento] = useState<string | null>(null);
 
     const cargarDet = (plate: string) => {
         setDet(null); setErrorDet(null);
@@ -168,7 +176,8 @@ export function FichaVigilancia({ fila, alCerrar, alCambiar }: { fila: Fila | nu
     ];
 
     return (
-        <Cajon open={!!fila} onOpenChange={(o) => { if (!o) alCerrar(); }}>
+        <>
+        <Cajon open={!!fila && !evento} onOpenChange={(o) => { if (!o) alCerrar(); }}>
             <CajonContenido
                 ancho="intermedio"
                 titulo={fila.plate}
@@ -237,7 +246,7 @@ export function FichaVigilancia({ fila, alCerrar, alCambiar }: { fila: Fila | nu
                 </CajonSeccion>
 
                 {/* ── Evidencias ── */}
-                <CajonSeccion titulo="Evidencias" icono={Images} ayuda={det && evidencias.length ? `Las ${evidencias.length} capturas más recientes de las lectoras. Tocá una para verla grande.` : undefined}>
+                <CajonSeccion titulo="Evidencias" icono={Images} ayuda={det && evidencias.length ? `Las ${evidencias.length} capturas más recientes de las lectoras. Tocá una para abrir la ficha del evento.` : undefined}>
                     {!det && !errorDet ? (
                         <div className="text-[12px] text-muted-foreground inline-flex items-center gap-2"><Loader2 size={12} className="animate-spin" /> Buscando capturas…</div>
                     ) : errorDet ? (
@@ -247,7 +256,7 @@ export function FichaVigilancia({ fila, alCerrar, alCambiar }: { fila: Fila | nu
                     ) : (
                         <div className="grid grid-cols-3 gap-2">
                             {evidencias.map((d) => (
-                                <button key={d.id} type="button" onClick={() => setAmpliada(d)} className="group text-left">
+                                <button key={d.id} type="button" onClick={() => setEvento(d.id)} className="group text-left">
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src={d.foto!} alt={`${fila.plate} · ${d.camara || ""}`} loading="lazy" className="w-full aspect-video object-cover rounded-md border border-border bg-black group-hover:opacity-85 transition-opacity" />
                                     <div className="mt-1 text-[10.5px] text-muted-foreground truncate"><Momento t={d.ts} />{d.camara ? ` · ${d.camara}` : ""}</div>
@@ -268,7 +277,7 @@ export function FichaVigilancia({ fila, alCerrar, alCambiar }: { fila: Fila | nu
                         cargando={!det && !errorDet}
                         error={errorDet}
                         alReintentar={() => cargarDet(fila.plate)}
-                        alClickFila={(d) => { if (d.foto) setAmpliada(d); }}
+                        alClickFila={(d) => setEvento(d.id)}
                         alto="42vh"
                         nombreArchivo={`detecciones-${fila.plate}`}
                         vacio={{ icono: History, titulo: "Sin detecciones", ayuda: "Ninguna lectora leyó esta matrícula." }}
@@ -276,24 +285,8 @@ export function FichaVigilancia({ fila, alCerrar, alCambiar }: { fila: Fila | nu
                 </CajonSeccion>
             </CajonContenido>
 
-            {/* La captura grande, encima del cajón. */}
-            <Dialog open={!!ampliada} onOpenChange={(o) => { if (!o) setAmpliada(null); }}>
-                <DialogContent className="sm:max-w-4xl p-0 gap-0 overflow-hidden bg-black border-border">
-                    <DialogTitle className="sr-only">Captura de {fila.plate}</DialogTitle>
-                    <DialogDescription className="sr-only">Captura de la lectora</DialogDescription>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {ampliada?.foto && <img src={ampliada.foto} alt={fila.plate} className="w-full max-h-[78vh] object-contain bg-black" />}
-                    {ampliada && (
-                        <div className="flex items-center gap-3 px-4 py-2.5 bg-card text-[12px]">
-                            <Matricula p={fila.plate} />
-                            <Momento t={ampliada.ts} />
-                            {ampliada.camara && <span className="text-muted-foreground">{ampliada.camara}</span>}
-                            {ampliada.direccion && <span className="text-muted-foreground">{SENTIDO[ampliada.direccion] || ampliada.direccion}</span>}
-                            <span className="ml-auto">{ampliada.decision === "GRANT" ? <Estado tono="bien">concedido</Estado> : ampliada.decision === "DENY" ? <Estado tono="mal">denegado</Estado> : null}</span>
-                        </div>
-                    )}
-                </DialogContent>
-            </Dialog>
         </Cajon>
+        {fila && evento && <FichaDeEvento id={evento} alCerrar={() => setEvento(null)} />}
+        </>
     );
 }

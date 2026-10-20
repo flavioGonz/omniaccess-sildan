@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
@@ -42,6 +42,12 @@ type Props = {
     onRegister?: (plate?: string) => void;
     /** La empresa de la matrícula (delivery, taxi), si la pantalla ya la sabe: la ficha la trae igual. */
     empresa?: { nombre: string; logo: string; transparente: boolean } | null;
+    /**
+     * Abrirla sin un click (FichaDeEvento: desde una tabla o un cajón que sólo tiene el id) y avisar
+     * al cerrarla, para que quien la abrió vuelva a lo suyo.
+     */
+    abrirAlMontar?: boolean;
+    alCerrar?: () => void;
 };
 
 const limpiar = (p?: string | null) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -50,9 +56,15 @@ const limpiar = (p?: string | null) => String(p || "").toUpperCase().replace(/[^
 const SIN_LECTURA = new Set(["", "UNKNOWN", "NOLEIDA", "NO_LEIDA", "SP", "S/P"]);
 const hayChapa = (p?: string | null) => !SIN_LECTURA.has(limpiar(p));
 
-export function VisorEventoAcceso({ event, children, autoRecording, onRegister, empresa }: Props) {
+export function VisorEventoAcceso({ event, children, autoRecording, onRegister, empresa, abrirAlMontar, alCerrar }: Props) {
     const router = useRouter();
-    const [abierto, setAbierto] = useState(false);
+    const [abierto, setAbierto] = useState(!!abrirAlMontar);
+    const fueAbierto = useRef(!!abrirAlMontar);
+    const cerrar = useRef(alCerrar); cerrar.current = alCerrar;
+    useEffect(() => {
+        if (abierto) { fueAbierto.current = true; return; }
+        if (fueAbierto.current) { fueAbierto.current = false; cerrar.current?.(); }
+    }, [abierto]);
 
     const [canalNvr, setCanalNvr] = useState<number | null>(null);
     /** El NVR dueño del canal: sin él, el clip iba al NVR "por defecto", que con tres

@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { Ban, Car, History, Images, Loader2, Plus, RotateCcw, Save, Search, ShieldAlert, User as UserIco, X, ExternalLink } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Estado, Matricula, Momento, Nada } from "@/components/ui/celdas";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,12 @@ import { FotoRegistro, avisarCamaras, subirFoto } from "@/components/users/Ficha
 /** Cuántas capturas se muestran como evidencia; las lecturas siguen todas en la tabla. */
 const EVIDENCIAS_A_LA_VISTA = 9;
 const SENTIDO: Record<string, string> = { ENTRY: "Entrada", EXIT: "Salida" };
+/**
+ * La ficha del evento (el visor del Monitor LPR), en vez de la foto suelta en un cuadro (20/10, Nico:
+ * «trae un modal feo, debe usar el modal de eventos LPR»). Se carga aparte: el visor importa este
+ * cajón (para «Lista negra»), y un import directo cerraría el círculo entre los dos módulos.
+ */
+const FichaDeEvento = dynamic(() => import("@/components/eventos/FichaDeEvento").then((m) => m.FichaDeEvento), { ssr: false });
 const limpiar = (v: string) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 type Deteccion = DeteccionFicha & { plate: string };
@@ -68,7 +74,8 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
     const [avisos, setAvisos] = useState<{ lista: string[]; accion: "guardar" | "reactivar" } | null>(null);
     const [det, setDet] = useState<{ detecciones: Deteccion[]; total: number } | null>(null);
     const [errorDet, setErrorDet] = useState<string | null>(null);
-    const [ampliada, setAmpliada] = useState<Deteccion | null>(null);
+    /** La lectura abierta en su ficha. Mientras, el cajón se corre: el visor va encima de todo y el cajón le tomaría los clicks. */
+    const [evento, setEvento] = useState<string | null>(null);
 
     const cargarDet = (lista: string[]) => {
         setDet(null); setErrorDet(null);
@@ -150,7 +157,8 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
         : `${NIVELES[ficha!.nivel].titulo}${ficha!.activa ? "" : " · dada de baja"}${ficha!.origen === "persona" ? " · persona del padrón" : ficha!.origen === "rol" ? " · por rol (módulo facial)" : ""}`;
 
     return (
-        <Cajon open={abierta} onOpenChange={(o) => { if (!o) alCerrar(); }}>
+        <>
+        <Cajon open={abierta && !evento} onOpenChange={(o) => { if (!o) alCerrar(); }}>
             <CajonContenido ancho="intermedio" titulo={titulo} descripcion={descripcion}
                 pie={
                     <>
@@ -260,7 +268,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
                 {ficha && (
                     <>
                         <CajonSeccion titulo="Capturas" icono={Images}
-                            ayuda={evidencias.length ? "Las más recientes de las lectoras. Tocá una para verla grande." : undefined}>
+                            ayuda={evidencias.length ? "Las más recientes de las lectoras. Tocá una para abrir la ficha del evento." : undefined}>
                             {!det && !errorDet ? (
                                 <div className="text-[12px] text-muted-foreground inline-flex items-center gap-2"><Loader2 size={12} className="animate-spin" /> Buscando capturas…</div>
                             ) : errorDet ? (
@@ -270,7 +278,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
                             ) : (
                                 <div className="grid grid-cols-3 gap-2">
                                     {evidencias.map((d) => (
-                                        <button key={d.id} type="button" onClick={() => setAmpliada(d)} className="group text-left">
+                                        <button key={d.id} type="button" onClick={() => setEvento(d.id)} className="group text-left">
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
                                             <img src={d.foto!} alt={`${d.plate} · ${d.camara || ""}`} loading="lazy" className="w-full aspect-video object-cover rounded-md border border-border bg-black group-hover:opacity-85 transition-opacity" />
                                             <div className="mt-1 text-[10.5px] text-muted-foreground truncate"><Momento t={d.ts} />{d.camara ? ` · ${d.camara}` : ""}</div>
@@ -289,7 +297,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
                                 cargando={!det && !errorDet}
                                 error={errorDet}
                                 alReintentar={() => cargarDet(ficha.matriculas)}
-                                alClickFila={(d) => { if (d.foto) setAmpliada(d); }}
+                                alClickFila={(d) => setEvento(d.id)}
                                 alto="40vh"
                                 nombreArchivo={`lista-negra-${ficha.matriculas[0] || "ficha"}`}
                                 vacio={{ icono: History, titulo: "Sin lecturas", ayuda: "Ninguna lectora leyó estas matrículas." }}
@@ -299,23 +307,8 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
                 )}
             </CajonContenido>
 
-            <Dialog open={!!ampliada} onOpenChange={(o) => { if (!o) setAmpliada(null); }}>
-                <DialogContent className="sm:max-w-4xl p-0 gap-0 overflow-hidden bg-black border-border">
-                    <DialogTitle className="sr-only">Captura de {ampliada?.plate}</DialogTitle>
-                    <DialogDescription className="sr-only">Captura de la lectora</DialogDescription>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {ampliada?.foto && <img src={ampliada.foto} alt={ampliada.plate} className="w-full max-h-[78vh] object-contain bg-black" />}
-                    {ampliada && (
-                        <div className="flex items-center gap-3 px-4 py-2.5 bg-card text-[12px]">
-                            <Matricula p={ampliada.plate} />
-                            <Momento t={ampliada.ts} />
-                            {ampliada.camara && <span className="text-muted-foreground">{ampliada.camara}</span>}
-                            {ampliada.direccion && <span className="text-muted-foreground">{SENTIDO[ampliada.direccion] || ampliada.direccion}</span>}
-                            <span className="ml-auto">{ampliada.decision === "GRANT" ? <Estado tono="bien">concedido</Estado> : ampliada.decision === "DENY" ? <Estado tono="mal">denegado</Estado> : null}</span>
-                        </div>
-                    )}
-                </DialogContent>
-            </Dialog>
         </Cajon>
+        {abierta && evento && <FichaDeEvento id={evento} alCerrar={() => setEvento(null)} />}
+        </>
     );
 }
