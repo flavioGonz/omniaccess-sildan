@@ -20,9 +20,9 @@ async function getSetting(key, fallback) {
     catch { return fallback; }
 }
 
-function telegramSend(token, chatId, text) {
+function telegramSend(token, chatId, text, extra) {
     return new Promise((resolve) => {
-        const body = JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true });
+        const body = JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true, ...(extra || {}) });
         const req = https.request(`https://api.telegram.org/bot${token}/sendMessage`,
             { method: "POST", headers: { "Content-Type": "application/json" }, timeout: 12000 },
             (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode === 200, body: d })); });
@@ -32,9 +32,9 @@ function telegramSend(token, chatId, text) {
     });
 }
 
-function telegramSendPhoto(token, chatId, photoUrl, caption) {
+function telegramSendPhoto(token, chatId, photoUrl, caption, extra) {
     return new Promise((resolve) => {
-        const body = JSON.stringify({ chat_id: chatId, photo: photoUrl, caption, parse_mode: "HTML" });
+        const body = JSON.stringify({ chat_id: chatId, photo: photoUrl, caption, parse_mode: "HTML", ...(extra || {}) });
         const req = https.request(`https://api.telegram.org/bot${token}/sendPhoto`,
             { method: "POST", headers: { "Content-Type": "application/json" }, timeout: 20000 },
             (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode === 200, body: d })); });
@@ -273,9 +273,9 @@ function openwaSendVideoUrl(baseUrl, apiKey, session, chatId, videoUrl, caption)
 }
 
 // Telegram sendAnimation (by public URL).
-function telegramSendAnimation(token, chatId, animationUrl, caption) {
+function telegramSendAnimation(token, chatId, animationUrl, caption, extra) {
     return new Promise((resolve) => {
-        const body = JSON.stringify({ chat_id: chatId, animation: animationUrl, caption, parse_mode: "HTML" });
+        const body = JSON.stringify({ chat_id: chatId, animation: animationUrl, caption, parse_mode: "HTML", ...(extra || {}) });
         const req = https.request(`https://api.telegram.org/bot${token}/sendAnimation`,
             { method: "POST", headers: { "Content-Type": "application/json" }, timeout: 25000 },
             (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode === 200, body: d })); });
@@ -391,14 +391,20 @@ async function handle(job) {
                     `📍 ${p.deviceName || "Fila"} · ${p.channelName || "Aforo"}\n` +
                     `Valor <b>${p.count}</b> (umbral ${p.threshold})`
                 );
+                // Los botones de la alerta (20/10, bot de Telegram): «la cámara ahora», «clip 10 s» e «historial» de la
+                // matrícula. Los atiende el proceso telegram-bot; si no está corriendo, la alerta llega igual.
+                const filaBotones = [];
+                if (dj.deviceId) filaBotones.push({ text: "📷 La cámara ahora", callback_data: ("cam:" + dj.deviceId).slice(0, 64) }, { text: "🎬 Clip 10 s", callback_data: ("clip:" + dj.deviceId).slice(0, 64) });
+                const chapa = String(p.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                const extraTg = filaBotones.length || chapa ? { reply_markup: { inline_keyboard: [filaBotones, chapa ? [{ text: "🚘 Historial de " + chapa, callback_data: "m:h:" + chapa }] : []].filter((f) => f.length) } } : undefined;
                 let r;
                 if (clip) {
-                    r = await telegramSendAnimation(token, chat, base.replace(/\/+$/, "") + "/api/clip/" + clip.nombre, htmlText);
+                    r = await telegramSendAnimation(token, chat, base.replace(/\/+$/, "") + "/api/clip/" + clip.nombre, htmlText, extraTg);
                     if (!r || !r.ok) notaVideo = "sin video: Telegram rechazó el clip (" + String((r && r.body) || "").slice(0, 80) + ")";
                 }
                 if (!r || !r.ok) {
                     const img = imageUrlFor(base, p.snapshotPath, dj.deviceId);
-                    r = img ? await telegramSendPhoto(token, chat, img, htmlText) : await telegramSend(token, chat, htmlText);
+                    r = img ? await telegramSendPhoto(token, chat, img, htmlText, extraTg) : await telegramSend(token, chat, htmlText, extraTg);
                 }
                 if (!r.ok) throw new Error("Telegram: " + r.body);
             } else if (dj.channel === "whatsapp") {
