@@ -1,7 +1,7 @@
 "use client";
 
 import { useFuncion } from "@/lib/funciones-cliente";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { getImagePath } from "@/lib/image-path";
@@ -34,6 +34,8 @@ const AGRUPAR_MS = 5 * 60_000;
 const VIDA_ALERTA_MS = 30 * 60_000;
 const AVISOS_QUE_NO_SALTAN = new Set(["SIN_REGISTRAR"]);
 const SENTIDO: Record<string, string> = { ENTRY: "entrada", EXIT: "salida" };
+/** Cada cuánto se vuelve a pedir la lista de proveedores con pase libre. */
+const PASE_LIBRE_REFRESCO_MS = 5 * 60_000;
 const limpiar = (p: unknown) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 type Item = {
@@ -58,7 +60,23 @@ export function AvisosLpr({ soloLectura = false }: {
     // Sin «En búsqueda» (función de LPR, apagada en San Nicolás) no salta ese aviso.
     const busquedaOn = useFuncion("LPR_BUSQUEDA");
 
+    /*
+     * Proveedores con pase libre (20/10, Nico: «no deben notificar este nuevo sistema de noti»): sus
+     * matrículas no saltan acá salvo por lista negra. Se pide al montar y cada PASE_LIBRE_REFRESCO_MS
+     * (alguien pudo darle pase libre a otro proveedor). Ver api/avisos/pase-libre.
+     */
+    const paseLibre = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        let vivo = true;
+        const pedir = () => fetch("/api/avisos/pase-libre", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+            .then((j) => { if (vivo && Array.isArray(j?.matriculas)) paseLibre.current = new Set(j.matriculas); }).catch(() => { });
+        pedir();
+        const t = setInterval(pedir, PASE_LIBRE_REFRESCO_MS);
+        return () => { vivo = false; clearInterval(t); };
+    }, []);
+
     const sumar = useCallback((n: Item) => setItems((prev) => {
+        if (n.tipo !== "lista-negra" && n.plate && paseLibre.current.has(limpiar(n.plate))) return prev;
         const ahora = Date.now();
         const vivos = prev.filter((x) => x.nivel === "critico" || ahora - new Date(x.ts).getTime() < VIDA_ALERTA_MS);
         const i = vivos.findIndex((x) => x.grupo === n.grupo && ahora - new Date(x.ts).getTime() < AGRUPAR_MS);

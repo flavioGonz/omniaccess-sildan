@@ -2317,3 +2317,9 @@ html:not(.dark) .regla-tema .tms-tramo[data-tono="lectura"] { background: var(--
 @keyframes oa-aparecer { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .oa-aparecer { animation: oa-aparecer 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 @media (prefers-reduced-motion: reduce) { .oa-aparecer { animation: none; } }
+
+/* El brillo que cruza un marco que está cargando (components/ui/marco-refinado). Sólo transform. */
+@keyframes marco-barrido {
+  from { transform: translateX(0) skewX(-14deg); }
+  to { transform: translateX(400%) skewX(-14deg); }
+}

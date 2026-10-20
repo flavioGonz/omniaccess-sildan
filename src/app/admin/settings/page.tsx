@@ -219,6 +219,7 @@ const NAV_GROUPS = [
     /* OmniVision no es una sección de esta página: son pantallas propias (/admin/vision/*),
        con su barra. El menú lleva a ellas (`href`) y sale de la misma lista que esa barra. */
     { id: "omnivision", label: "OmniVision", icon: ScanEye, items: SECCIONES_OMNIVISION.map((x) => (
+        // Las analíticas cuelgan de «Analíticas» (20/10): acá se entra por ella y adentro está su submenú.
         { sec: "", btab: "", href: x.href, label: x.menu, icon: x.icono }
     )) },
     /* Sistema va último: es lo que se mira cuando algo anda mal, no lo primero que se configura. */

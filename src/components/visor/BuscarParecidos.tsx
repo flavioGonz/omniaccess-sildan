@@ -15,6 +15,7 @@ import { hasAcuSeekNvr } from "@/app/actions/acuseek";
 import { mismaChapa } from "@/lib/matriculas";
 import { CategoriaChapa } from "@/components/ui/CategoriaChapa";
 import { ComportamientoDeChapa } from "@/components/visor/PanelComportamiento";
+import { MarcoRefinado } from "@/components/ui/marco-refinado";
 
 /**
  * Buscar lo que se ve en el evento en todas las cámaras: se recorta un pedazo de la foto (o se
@@ -69,6 +70,11 @@ const MARGEN = 0.06;
 /** Un recorte más chico que esto (fracción del lado) es un clic sin arrastre, no un recorte. */
 const RECORTE_MIN = 0.03;
 const RANGOS = [{ h: 24, r: "24 h" }, { h: 168, r: "7 días" }, { h: 720, r: "30 días" }];
+
+/** El rótulo de cada grupo de la columna izquierda. */
+const ROTULO = "text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground";
+/** La grilla de resultados: llena el ancho que haya, con tarjetas de al menos 200 px. */
+const GRILLA = "grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2";
 
 const img = (k: string | null, w?: number) => (k ? `/api/vision/imagen/${k}${w ? `?w=${w}` : ""}` : "");
 
@@ -255,28 +261,20 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                         alElegir={(i) => { setApertura("foto"); setAbiertoIdx(i); }} alVolver={() => setAbiertoIdx(null)} alCerrar={onCerrar} />
                 </motion.div>
             ) : (
-            <motion.div key="busqueda" className="absolute inset-0 flex flex-col" {...PASO_ATRAS}>
-
-                <div className="shrink-0 flex items-start gap-3 px-6 pt-5 pb-4 border-b border-border">
-                    {/* Navegación de la ventana: se vuelve al evento como se vuelve de una pantalla. */}
-                    <button type="button" onClick={onCerrar} aria-label="Volver al evento" title="Volver al evento  ( Esc )"
-                        className="h-10 pl-1.5 pr-3 -ml-2 rounded-[10px] text-[13px] font-semibold inline-flex items-center gap-0.5 text-[var(--accion)] hover:bg-muted shrink-0">
-                        <ChevronLeft size={20} /> Evento
-                    </button>
-                    <span className="w-px self-stretch bg-border shrink-0" />
-                    <span className="w-10 h-10 rounded-[10px] grid place-items-center bg-muted border border-border shrink-0"><ScanSearch size={18} className="text-[var(--accion)]" /></span>
-                    <div className="min-w-0 flex-1">
-                        <div className="text-[17px] font-bold leading-tight">Buscar parecidos</div>
-                        <div className="text-[12.5px] text-muted-foreground mt-0.5">Recortá lo que querés buscar en la foto (o tocá lo que reconoce OmniVision) y se busca en todas las cámaras.</div>
-                    </div>
-                </div>
-
-                {/* minmax(0,1fr) y min-w-0: con 1fr a secas la columna crece hasta el ancho de su contenido, y la
-                    tira de 60 miniaturas la estiraba fuera de la ventana: la foto del resultado quedaba
-                    centrada en una caja más ancha que lo visible (negro, sin flecha derecha ni Foto/Video). */}
-                <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)]">
-                    {/* ── Izquierda: la foto y el recorte ── */}
-                    <div className="border-b lg:border-b-0 lg:border-r border-border p-5 space-y-3 overflow-y-auto">
+            <motion.div key="busqueda" className="absolute inset-0" {...PASO_ATRAS}>
+                {/*
+                  * Dos columnas sin barra de título (20/10, Nico, sobre un boceto): a la izquierda todo lo
+                  * que define la búsqueda —la foto con el recorte, qué se busca, dónde y cuándo, las
+                  * chapas—; a la derecha SÓLO los resultados, a todo el alto. La barra de arriba ocupaba
+                  * una franja entera para un título; el título pasa a ir sobre la foto, y «‹ Evento» deja
+                  * de ser un botón con texto a la izquierda: es la cruz de la esquina, como cualquier ventana.
+                  *
+                  * minmax(0,1fr) y min-w-0: con 1fr a secas la columna crece hasta el ancho de su contenido
+                  * (ver el resultado abierto, más abajo).
+                  */}
+                <div className="h-full grid grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-rows-1 lg:grid-cols-[340px_minmax(0,1fr)]">
+                    {/* ── Izquierda: qué se busca, dónde y cuándo ── */}
+                    <aside className="min-h-0 overflow-y-auto border-b lg:border-b-0 lg:border-r border-border p-4 space-y-4">
                         <div ref={lienzo} className="relative rounded-[10px] overflow-hidden bg-black select-none touch-none cursor-crosshair"
                             onPointerDown={(e) => { if (!url) return; (e.currentTarget as any).setPointerCapture(e.pointerId); const p = fraccion(e); setArrastre({ x0: p.x, y0: p.y, x: p.x, y: p.y }); }}
                             onPointerMove={(e) => { if (!arrastre) return; const p = fraccion(e); setArrastre((a) => (a ? { ...a, x: p.x, y: p.y } : a)); }}
@@ -287,7 +285,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                             {url ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img src={url} alt="" className="block w-full h-auto pointer-events-none" draggable={false} />
-                            ) : <div className="aspect-video grid place-items-center"><Loader2 size={18} className="animate-spin text-white/50" /></div>}
+                            ) : <MarcoRefinado className="aspect-video" etapa={errorFoto ? "error" : "cargando"} />}
                             {objetos?.map((o, i) => {
                                 const [x1, y1, x2, y2] = o.caja;
                                 return (
@@ -307,104 +305,126 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                                     </>
                                 );
                             })()}
+                            {/* El título, sobre la foto (antes era una barra entera arriba de las dos columnas). */}
+                            <div className="absolute inset-x-0 top-0 px-2.5 pt-2.5 pb-6 pointer-events-none bg-[linear-gradient(to_bottom,rgba(0,0,0,.72),transparent)] flex items-center gap-2 text-white">
+                                <span className="w-7 h-7 rounded-[8px] grid place-items-center bg-white/15 backdrop-blur-md border border-white/15 shrink-0"><ScanSearch size={14} /></span>
+                                <div className="min-w-0 leading-tight [text-shadow:0_1px_6px_rgba(0,0,0,.6)]">
+                                    <div className="text-[13px] font-bold">Buscar parecidos</div>
+                                    <div className="text-[10.5px] text-white/75 tabular-nums truncate">Evento del {fechaCorta(instanteMs)} · {horaSeg(instanteMs)}</div>
+                                </div>
+                            </div>
                             {url && !objetos && (
-                                <span className="absolute left-2 top-2 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[6px] bg-black/65 text-white text-[11.5px] font-semibold"><Loader2 size={12} className="animate-spin" /> Mirando la foto…</span>
+                                <span className="absolute left-2 bottom-2 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[6px] bg-black/65 text-white text-[11.5px] font-semibold"><Loader2 size={12} className="animate-spin" /> Mirando la foto…</span>
                             )}
                         </div>
 
-                        <div className="flex flex-wrap gap-1.5">
-                            {objetos?.map((o, i) => {
-                                const I = ICONO_GRUPO[o.grupo] || Scan;
-                                const sel = elegidoEs(o);
-                                // Dos autos en la foto eran dos pastillas «Auto» iguales: se numeran, de izquierda a derecha.
-                                const iguales = objetos.filter((x) => x.clase === o.clase);
-                                const nombre = iguales.length > 1 ? `${nombreClase(o.clase)} ${[...iguales].sort((a, b) => a.caja[0] - b.caja[0]).indexOf(o) + 1}` : nombreClase(o.clase);
-                                return (
-                                    <button key={i} type="button" onClick={() => { setCaja(conMargen(o.caja)); setEtiqueta(nombre); }} aria-pressed={sel}
-                                        className={cn("h-8 pl-1 pr-2.5 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors",
-                                            sel ? "border-foreground bg-foreground text-background" : "border-border text-foreground/80 hover:bg-muted")}>
-                                        <span className={cn("grid place-items-center h-6 w-6 rounded-full", sel ? "bg-background/15" : "bg-muted")}><I size={13} /></span>
-                                        {nombre}
-                                    </button>
-                                );
-                            })}
-                            <button type="button" onClick={() => { setCaja(null); setEtiqueta("Toda la foto"); }} aria-pressed={!caja && etiqueta === "Toda la foto"}
-                                className={cn("h-8 pl-1 pr-2.5 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors",
-                                    !caja && etiqueta === "Toda la foto" ? "border-foreground bg-foreground text-background" : "border-border text-foreground/80 hover:bg-muted")}>
-                                <span className="grid place-items-center h-6 w-6 rounded-full bg-muted"><ImageIcon size={13} /></span> Toda la foto
-                            </button>
-                        </div>
-                        <p className="text-[11.5px] text-muted-foreground flex items-start gap-1.5"><Crop size={12} className="mt-0.5 shrink-0" /> Arrastrá sobre la foto para recortar a mano. Lo que no sea una persona, un vehículo o un animal se encuentra peor.</p>
-                        {errorFoto && <p className="text-[12px] tono-mal">{errorFoto}</p>}
-
-                        {recorte && (
-                            <div className="flex items-center gap-3 rounded-[10px] border border-border bg-muted/40 p-2.5">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={recorte.miniatura} alt="" className="w-14 h-14 object-cover rounded-[6px] bg-black" />
-                                <div className="min-w-0">
-                                    <div className="text-[12.5px] font-semibold">{etiqueta || "Recorte"}</div>
-                                    <div className="text-[11px] text-muted-foreground">del evento del {fechaCorta(instanteMs)} {horaSeg(instanteMs)}</div>
-                                </div>
+                        <div className="space-y-2">
+                            <div className={ROTULO}>Qué se busca</div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {objetos?.map((o, i) => {
+                                    const I = ICONO_GRUPO[o.grupo] || Scan;
+                                    const sel = elegidoEs(o);
+                                    // Dos autos en la foto eran dos pastillas «Auto» iguales: se numeran, de izquierda a derecha.
+                                    const iguales = objetos.filter((x) => x.clase === o.clase);
+                                    const nombre = iguales.length > 1 ? `${nombreClase(o.clase)} ${[...iguales].sort((a, b) => a.caja[0] - b.caja[0]).indexOf(o) + 1}` : nombreClase(o.clase);
+                                    return (
+                                        <button key={i} type="button" onClick={() => { setCaja(conMargen(o.caja)); setEtiqueta(nombre); }} aria-pressed={sel}
+                                            className={cn("h-8 pl-1 pr-2.5 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors",
+                                                sel ? "border-foreground bg-foreground text-background" : "border-border text-foreground/80 hover:bg-muted")}>
+                                            <span className={cn("grid place-items-center h-6 w-6 rounded-full", sel ? "bg-background/15" : "bg-muted")}><I size={13} /></span>
+                                            {nombre}
+                                        </button>
+                                    );
+                                })}
+                                <button type="button" onClick={() => { setCaja(null); setEtiqueta("Toda la foto"); }} aria-pressed={!caja && etiqueta === "Toda la foto"}
+                                    className={cn("h-8 pl-1 pr-2.5 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors",
+                                        !caja && etiqueta === "Toda la foto" ? "border-foreground bg-foreground text-background" : "border-border text-foreground/80 hover:bg-muted")}>
+                                    <span className="grid place-items-center h-6 w-6 rounded-full bg-muted"><ImageIcon size={13} /></span> Toda la foto
+                                </button>
                             </div>
-                        )}
-                    </div>
+                            <p className="text-[11.5px] text-muted-foreground flex items-start gap-1.5"><Crop size={12} className="mt-0.5 shrink-0" /> Arrastrá sobre la foto para recortar a mano. Lo que no sea una persona, un vehículo o un animal se encuentra peor.</p>
+                            {errorFoto && <p className="text-[12px] tono-mal">{errorFoto}</p>}
+                            {recorte && (
+                                <div className="flex items-center gap-3 rounded-[10px] border border-border bg-muted/40 p-2">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={recorte.miniatura} alt="" className="w-12 h-12 object-cover rounded-[6px] bg-black" />
+                                    <div className="min-w-0">
+                                        <div className="text-[12.5px] font-semibold">{etiqueta || "Recorte"}</div>
+                                        <div className="text-[11px] text-muted-foreground">lo que se manda a buscar</div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
 
-                    {/* ── Derecha: los resultados ── */}
-                    <div className="min-h-0 min-w-0 flex flex-col">
-                        <>
-                        <div className="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-b border-border">
-                            <span className="flex items-center rounded-full border border-border p-0.5">
+                        {/* Dónde y cuándo: estaba en la barra de los resultados (boceto del 20/10). */}
+                        <div className="space-y-2">
+                            <div className={ROTULO}>Dónde y cuándo</div>
+                            <span className="flex w-full items-center rounded-full border border-border p-0.5">
                                 <button type="button" onClick={() => setMotor("omni")} aria-pressed={motor === "omni"}
-                                    className={cn("h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center gap-1.5", motor === "omni" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
+                                    className={cn("flex-1 h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center justify-center gap-1.5", motor === "omni" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
                                     <Sparkles size={13} /> OmniVision
                                 </button>
                                 <button type="button" onClick={() => conNvr && setMotor("nvr")} aria-pressed={motor === "nvr"} disabled={!conNvr}
                                     title={conNvr ? "La misma búsqueda en el NVR (AcuSearch)" : "No hay un NVR Hikvision VPro dado de alta: la búsqueda del NVR no está en esta instalación."}
-                                    className={cn("h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center gap-1.5", motor === "nvr" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground", !conNvr && "opacity-40 cursor-not-allowed hover:text-muted-foreground")}>
+                                    className={cn("flex-1 h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center justify-center gap-1.5", motor === "nvr" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground", !conNvr && "opacity-40 cursor-not-allowed hover:text-muted-foreground")}>
                                     <Server size={13} /> NVR (AcuSearch)
                                 </button>
                             </span>
                             {motor === "omni" && (
-                                <span className="flex items-center rounded-full border border-border p-0.5">
+                                <span className="flex w-full items-center rounded-full border border-border p-0.5">
                                     {RANGOS.map((x) => (
                                         <button key={x.h} type="button" onClick={() => setH(x.h)} aria-pressed={h === x.h}
-                                            className={cn("h-7 px-2.5 rounded-full text-[12px] font-semibold tabular-nums", h === x.h ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{x.r}</button>
+                                            className={cn("flex-1 h-7 px-2.5 rounded-full text-[12px] font-semibold tabular-nums", h === x.h ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{x.r}</button>
                                     ))}
                                 </span>
                             )}
-                            {motor === "omni" && res && !buscando && (
-                                <span className="ml-auto text-[11.5px] text-muted-foreground tabular-nums">{res.resultados.length} más parecidos de {res.comparados.toLocaleString("es-UY")} · {res.ms} ms</span>
+                            {motor === "omni" && (
+                                <p className="text-[11.5px] text-muted-foreground tabular-nums min-h-[17px]">
+                                    {buscando ? "Buscando…" : res ? <>{res.resultados.length} más parecidos de {res.comparados.toLocaleString("es-UY")} · {res.ms} ms</> : null}
+                                </p>
                             )}
                         </div>
 
-                        <div className="flex-1 min-h-0 overflow-y-auto p-5">
+                        {motor === "omni" && res && !buscando && <FranjaChapas grupos={grupos} leyendo={leyendoChapas} filtro={filtroChapa} onFiltro={setFiltroChapa} chapaEvento={chapaEvento || null} />}
+                    </aside>
+
+                    {/* ── Derecha: sólo los resultados, a todo el alto ── */}
+                    <div className="relative min-h-0 min-w-0">
+                        <button type="button" onClick={onCerrar} aria-label="Volver al evento" title="Volver al evento  ( Esc )"
+                            className="absolute right-3 top-3 z-20 w-9 h-9 rounded-full grid place-items-center bg-black/55 backdrop-blur-md border border-white/20 text-white/90 hover:text-white hover:bg-black/75 transition-colors">
+                            <X size={17} />
+                        </button>
+                        <div className={cn("h-full overflow-y-auto p-3", motor === "nvr" && "pt-14 px-5")}>
                             {motor === "nvr" ? (
                                 recorte && <AcuSearchPanel image={recorte.blob} previewUrl={recorte.miniatura} engine="vehicle" centerTimeMs={instanteMs} onBack={() => setMotor("omni")} title="Búsqueda en el NVR" />
                             ) : error ? (
-                                <div className="rounded-[10px] border border-[var(--mal)]/30 bg-[var(--mal)]/10 tono-mal px-4 py-3 text-[12.5px]">{error}</div>
+                                <div className="h-full grid place-items-center px-6"><div className="rounded-[10px] border border-[var(--mal)]/30 bg-[var(--mal)]/10 tono-mal px-4 py-3 text-[12.5px] max-w-md">{error}</div></div>
                             ) : buscando || !res ? (
-                                <div className="h-full grid place-items-center text-muted-foreground text-[13px]"><span className="inline-flex items-center gap-2"><Loader2 size={15} className="animate-spin" /> Buscando en lo que vieron las cámaras…</span></div>
+                                /* Mientras busca: los lugares de la grilla ya reservados, cada uno con su marco trabajando. */
+                                <div className="relative">
+                                    <div className={GRILLA}>
+                                        {Array.from({ length: 12 }, (_, k) => <MarcoRefinado key={k} etapa={k < 4 ? "cargando" : "cola"} retardo={k} conEtapa={false} className="aspect-[4/3] rounded-[10px]" />)}
+                                    </div>
+                                    <span className="sticky bottom-3 mt-3 mx-auto w-max flex items-center gap-2 h-8 px-3 rounded-full bg-black/60 backdrop-blur-md text-white/90 text-[12px] font-semibold">
+                                        <Loader2 size={13} className="animate-spin" /> Buscando en lo que vieron las cámaras…
+                                    </span>
+                                </div>
                             ) : !res.resultados.length ? (
                                 <div className="h-full grid place-items-center text-center text-muted-foreground text-[13px] px-6">Nada parecido en {RANGOS.find((r) => r.h === h)?.r}. Probá un rango más largo o un recorte más ajustado.</div>
                             ) : (
-                                <>
-                                    <FranjaChapas grupos={grupos} leyendo={leyendoChapas} filtro={filtroChapa} onFiltro={setFiltroChapa} chapaEvento={chapaEvento || null} />
-                                    {/* Sin marco (18/10, Nico: «las mini capturas de parecidos deben ser sin marcos, con
-                                        controles y datos overlay»): la foto ocupa la tarjeta entera y los datos van encima. */}
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
-                                        {visibles.map(({ r, i }) => (
-                                            <Miniatura key={r.id} r={r} i={i} rel={max > min ? (r.coseno - min) / (max - min) : 1}
-                                                chapa={chapas[r.id]} leyendo={r.grupo === "vehiculo" && chapas[r.id] === undefined && leyendoChapas} chapaEvento={chapaEvento || null}
-                                                onAbrir={(m) => { setApertura(m); setAbiertoIdx(i); }} />
-                                        ))}
-                                    </div>
-                                </>
+                                /* Sin marco (18/10, Nico: «las mini capturas de parecidos deben ser sin marcos, con
+                                   controles y datos overlay»): la foto ocupa la tarjeta entera y los datos van encima. */
+                                <div className={GRILLA}>
+                                    {visibles.map(({ r, i }) => (
+                                        <Miniatura key={r.id} r={r} i={i} rel={max > min ? (r.coseno - min) / (max - min) : 1}
+                                            chapa={chapas[r.id]} leyendo={r.grupo === "vehiculo" && chapas[r.id] === undefined && leyendoChapas} chapaEvento={chapaEvento || null}
+                                            onAbrir={(m) => { setApertura(m); setAbiertoIdx(i); }} />
+                                    ))}
+                                </div>
                             )}
                         </div>
-                        </>
                     </div>
                 </div>
-
             </motion.div>
             )}
             </AnimatePresence>
@@ -702,8 +722,9 @@ function FranjaChapas({ grupos, leyendo, filtro, onFiltro, chapaEvento }: {
     if (!grupos.length && !leyendo) return null;
     const mismo = grupos.find((g) => g.coincide);
     return (
-        <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mr-1">Chapas</span>
+        <div className="space-y-2">
+            <div className={ROTULO}>Chapas en los resultados</div>
+            <div className="flex flex-wrap items-center gap-1.5">
             {chapaEvento && !leyendo && grupos.length > 0 && !mismo && (
                 <span className="h-7 px-2.5 rounded-full chip-quieto text-[11.5px] font-semibold inline-flex items-center">Ninguna es {chapaEvento}</span>
             )}
@@ -722,6 +743,7 @@ function FranjaChapas({ grupos, leyendo, filtro, onFiltro, chapaEvento }: {
             })}
             {leyendo && <span className="h-7 px-2 inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground"><Loader2 size={12} className="animate-spin" /> Leyendo chapas…</span>}
             {filtro && <button type="button" onClick={() => onFiltro(null)} className="h-7 px-2 text-[11.5px] font-semibold text-[var(--accion)] hover:underline">Ver todos</button>}
+            </div>
         </div>
     );
 }
@@ -745,21 +767,24 @@ function Miniatura({ r, i, rel, chapa, leyendo, chapaEvento, onAbrir }: {
             title={`${i + 1} · ${nombreClase(r.clase)} · ${r.camara} · ${horaSeg(r.primeraVez)}`}
             className={cn("group relative aspect-[4/3] rounded-[10px] overflow-hidden bg-black cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 coincide && "ring-2 ring-[var(--bien)]")}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            {r.recorte && <img src={img(r.recorte, 320)} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.05]" />}
+            {/* La foto entra con el marco que se afina (components/ui/marco-refinado): mientras llega, la
+                tarjeta ya ocupa su lugar y dice en qué está; no salta la grilla. */}
+            <MarcoRefinado src={r.recorte ? img(r.recorte, 320) : null} etapa={r.recorte ? undefined : "error"} retardo={i}
+                className="absolute inset-0" imgClassName="group-hover:scale-[1.05] group-hover:duration-500" />
             <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(to_bottom,rgba(0,0,0,.45)_0%,transparent_32%,transparent_48%,rgba(0,0,0,.85)_100%)]" />
 
             <div className="absolute left-2 right-2 top-2 flex items-center gap-1.5">
                 <span className="h-5 min-w-5 px-1.5 rounded-full bg-black/55 backdrop-blur-md text-white text-[10.5px] font-bold tabular-nums grid place-items-center">{i + 1}</span>
-                <span className={cn("h-5 px-2 rounded-full text-[10px] font-bold inline-flex items-center transition-opacity group-hover:opacity-0", `pleno-${p.tono}`)}>{p.texto}</span>
-                <span className="ml-auto flex items-center gap-1 opacity-0 translate-y-[-2px] group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 transition-[opacity,transform] duration-150">
-                    {r.deviceId && <button type="button" onClick={parar("grabacion")} title="Ver la grabación de ese momento" aria-label="Ver la grabación" className={control}><PlayCircle size={14} /></button>}
-                    {r.foto && <button type="button" onClick={parar("compartir")} title="Compartir por WhatsApp o Telegram" aria-label="Compartir" className={control}><Share2 size={13} /></button>}
-                    <button type="button" onClick={parar("foto")} title="Abrir la ficha" aria-label="Abrir" className={control}><Maximize2 size={13} /></button>
-                </span>
+                <span className={cn("h-5 px-2 rounded-full text-[10px] font-bold inline-flex items-center", `pleno-${p.tono}`)}>{p.texto}</span>
             </div>
+            {/* Los controles, abajo a la derecha al pasar el mouse: arriba a la derecha de la grilla va la cruz. */}
+            <span className="absolute right-2 bottom-3 z-[2] flex items-center gap-1 opacity-0 translate-y-[2px] group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 transition-[opacity,transform] duration-150">
+                {r.deviceId && <button type="button" onClick={parar("grabacion")} title="Ver la grabación de ese momento" aria-label="Ver la grabación" className={control}><PlayCircle size={14} /></button>}
+                {r.foto && <button type="button" onClick={parar("compartir")} title="Compartir por WhatsApp o Telegram" aria-label="Compartir" className={control}><Share2 size={13} /></button>}
+                <button type="button" onClick={parar("foto")} title="Abrir la ficha" aria-label="Abrir" className={control}><Maximize2 size={13} /></button>
+            </span>
 
-            <div className="absolute inset-x-2 bottom-2.5 text-white pointer-events-none">
+            <div className="absolute left-2 right-2 group-hover:right-[100px] group-focus-within:right-[100px] transition-[right] duration-150 bottom-2.5 text-white pointer-events-none">
                 {(chapa || leyendo) && (
                     <div className="mb-1 flex items-center gap-1">
                         {chapa ? <PlacaChapa texto={chapa.texto} /> : <span className="h-[18px] px-1.5 rounded-[4px] bg-white/20 text-white/70 text-[9.5px] font-semibold inline-flex items-center gap-1"><Loader2 size={9} className="animate-spin" /> chapa</span>}
