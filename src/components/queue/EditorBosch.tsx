@@ -277,7 +277,7 @@ export default function EditorBosch({ deviceId, streamSrc }: { deviceId: string;
                     onPointerMove={onMove} onPointerUp={() => setArrastrando(null)} onPointerCancel={() => setArrastrando(null)}
                     onDoubleClick={(e) => { if (puntos.length >= MIN_PUNTOS && !(e.target as Element).closest("button")) agregarEnBorde(e); }}>
                     {videoOk ? (
-                        <VivoConPlay deviceId={deviceId} compacto><video src={`/go2rtc/api/stream.mp4?src=${streamSrc}`} poster={`/api/snapshot/${deviceId}`} autoPlay muted playsInline onError={() => setVideoOk(false)} className="absolute inset-0 w-full h-full object-fill" /></VivoConPlay>
+                        <VivoConPlay deviceId={deviceId} compacto zona={puntos.length >= MIN_PUNTOS ? puntos.map(pctAScript) : null}><video src={`/go2rtc/api/stream.mp4?src=${streamSrc}`} poster={`/api/snapshot/${deviceId}`} autoPlay muted playsInline onError={() => setVideoOk(false)} className="absolute inset-0 w-full h-full object-fill" /></VivoConPlay>
                     ) : (
                         <img src={`/api/snapshot/${deviceId}`} alt="" className="absolute inset-0 w-full h-full object-fill" />
                     )}

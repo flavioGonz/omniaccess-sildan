@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, ScanSearch } from "lucide-react";
+import { SiluetasBosch, type PuntoZona } from "@/components/queue/SiluetasBosch";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,17 +17,22 @@ import { cn } from "@/lib/utils";
 /** Cada cuánto se renueva la foto mientras el vivo está pausado. */
 const REFRESCO_FOTO_MS = 15_000;
 
-export function VivoConPlay({ deviceId, children, className, compacto = false }: {
+export function VivoConPlay({ deviceId, children, className, compacto = false, siluetas = true, zona }: {
     deviceId: string;
     /** El reproductor del vivo: sólo se monta después del play. */
     children: ReactNode;
     className?: string;
     /** Botón chico en la esquina en vez de centrado (para editores con cosas encima del video). */
     compacto?: boolean;
+    /** Las personas que ve la Bosch, dibujadas sobre el vivo mientras anda (components/queue/SiluetasBosch). */
+    siluetas?: boolean;
+    /** La zona de la fila (script Bosch), para pintar quién cuenta y quién no. */
+    zona?: PuntoZona[] | null;
 }) {
     const [andando, setAndando] = useState(false);
     const [marca, setMarca] = useState(() => Date.now());
     const [sinFoto, setSinFoto] = useState(false);
+    const [verSiluetas, setVerSiluetas] = useState(siluetas);
 
     useEffect(() => {
         if (andando) return;
@@ -42,6 +48,15 @@ export function VivoConPlay({ deviceId, children, className, compacto = false }:
 
     return (
         <div className={cn("absolute inset-0", className)}>
+            {andando && siluetas && <SiluetasBosch deviceId={deviceId} activo={verSiluetas} zona={zona} />}
+            {andando && siluetas && (
+                <button type="button" onClick={(e) => { e.stopPropagation(); setVerSiluetas((v) => !v); }} aria-pressed={verSiluetas}
+                    title="Dibujar las personas que ve la cámara"
+                    className={cn("absolute left-[92px] bottom-2 z-20 flex items-center gap-1.5 rounded-full backdrop-blur px-2.5 py-1 text-[11px] font-semibold border transition",
+                        verSiluetas ? "bg-[var(--accion)] text-[var(--accion-texto)] border-transparent" : "bg-background/80 text-foreground border-border hover:bg-background")}>
+                    <ScanSearch size={12} /> Siluetas
+                </button>
+            )}
             {andando ? children : (
                 sinFoto
                     ? <div className="absolute inset-0 bg-muted" />

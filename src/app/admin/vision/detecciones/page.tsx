@@ -13,6 +13,8 @@ import { MosaicoBuscar, type ResultadoBusqueda as Fila } from "@/components/visi
 import { useRegistrarDesdeCaptura } from "@/components/vision/buscar/RegistrarDesdeCaptura";
 import { useNombresPropios } from "@/lib/nombres-propios";
 import { useSiluetas } from "@/lib/use-siluetas";
+import { useSoloFilas } from "@/components/vision/useSoloFilas";
+import { GaleriaCapturas } from "@/components/queue/GaleriaCapturas";
 
 /**
  * Detecciones: lo que guardó el registro de OmniVision (vision-worker), en vivo.
@@ -50,7 +52,39 @@ const GRUPOS: { v: string; r: string; icono: LucideIcon }[] = [
     { v: "propio", r: "Propios", icono: Boxes },
 ];
 
-export default function DeteccionesVision() {
+/** Qué se mira: lo que guardó la Bosch de las filas, o el registro de OmniVision. */
+type Origen = "filas" | "vision";
+
+/**
+ * En una instalación de filas (HB, 20/10, Nico: «detecciones debe tener también las de control de
+ * filas»), las detecciones que existen son las de la Bosch —cada foto con cuánta gente contó—, no
+ * las de OmniVision, que ahí no corre. Arrancan ésas, y el registro de OmniVision queda a un clic
+ * por si algún día se instala. Fuera del modo Filas, la página es la de siempre.
+ */
+export default function Detecciones() {
+    const soloFilas = useSoloFilas();
+    const [origen, setOrigen] = useState<Origen | null>(null);
+    if (soloFilas === null) return <div className="p-6 lg:p-8 max-w-[1500px] mx-auto"><Cargando texto="Cargando…" /></div>;
+    if (!soloFilas) return <DeteccionesVision />;
+    const o: Origen = origen ?? "filas";
+    return (
+        <div>
+            <div className="px-6 pt-6 max-w-[1680px] mx-auto">
+                <div className="inline-flex items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
+                    {([["filas", "Control de filas"], ["vision", "OmniVision"]] as const).map(([k, r]) => (
+                        <button key={k} type="button" onClick={() => setOrigen(k)}
+                            className={cn("rounded-full px-3 py-1 text-[12px] font-semibold", o === k ? "bg-[var(--accion)] text-[var(--accion-texto)]" : "text-muted-foreground hover:text-foreground")}>{r}</button>
+                    ))}
+                </div>
+            </div>
+            {o === "filas"
+                ? <GaleriaCapturas titulo="Detecciones" descripcion="Lo que contaron las cámaras de las filas, foto por foto." />
+                : <DeteccionesVision />}
+        </div>
+    );
+}
+
+function DeteccionesVision() {
     useNombresPropios();  // las clases del detector propio con su nombre, no «propio:…»
     const [datos, setDatos] = useState<Respuesta | null>(null);
     const [mas, setMas] = useState<Fila[]>([]);
