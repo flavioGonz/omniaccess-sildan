@@ -159,18 +159,24 @@ export async function videoConMarca(clip: string, d: DatosMarca): Promise<string
             sharp(Buffer.from(cuadro(d, i / FPS))).png().toFile(path.join(tmp, `c${String(i).padStart(3, "0")}.png`))));
         await sharp(Buffer.from(franja(d))).png().toFile(path.join(tmp, "franja.png"));
         const salida = clip.replace(/\.mp4$/i, "") + "_omni.mp4";
+        // El grafo se arma con un arreglo y join en tiempo de ejecución: armado con plantillas
+        // concatenadas, el compilador de Next lo plegó mal en el build de HB (se comió el tramo
+        // del clip y quedó «…fps=25[intro][cm]xfade», que ffmpeg rechaza).
+        // settb: xfade exige la misma base de tiempo en las dos entradas (ffmpeg 7: «First input
+        // link main timebase (1/12800) do not match … (1/25)»).
+        const desplazamiento = (PRESENTACION_SEG - FUNDIDO_SEG).toFixed(2);
+        const filtro = [
+            ["[0:v]fps=" + FPS, "format=yuv420p", "setsar=1", "settb=AVTB[intro]"].join(","),
+            ["[1:v]scale=" + ANCHO + ":" + ALTO + ":force_original_aspect_ratio=decrease", "pad=" + ANCHO + ":" + ALTO + ":(ow-iw)/2:(oh-ih)/2", "fps=" + FPS, "setsar=1[c]"].join(","),
+            ["[c][2:v]overlay=0:0:shortest=1", "format=yuv420p", "settb=AVTB[cm]"].join(","),
+            ["[intro][cm]xfade=transition=fade:duration=" + FUNDIDO_SEG + ":offset=" + desplazamiento, "format=yuv420p[v]"].join(","),
+        ].join(";");
         const ok = await ffmpeg([
             "-y", "-loglevel", "error",
             "-framerate", String(FPS), "-i", path.join(tmp, "c%03d.png"),
             "-i", clip,
             "-loop", "1", "-i", path.join(tmp, "franja.png"),
-            "-filter_complex",
-            // settb: xfade exige la misma base de tiempo en las dos entradas (ffmpeg 7 de HB no la iguala solo:
-            // «First input link main timebase (1/12800) do not match … (1/25)»).
-            `[0:v]fps=${FPS},format=yuv420p,setsar=1,settb=AVTB[intro];` +
-            `[1:v]scale=${ANCHO}:${ALTO}:force_original_aspect_ratio=decrease,pad=${ANCHO}:${ALTO}:(ow-iw)/2:(oh-ih)/2,fps=${FPS},setsar=1[c];` +
-            `[c][2:v]overlay=0:0:shortest=1,format=yuv420p,settb=AVTB[cm];` +
-            `[intro][cm]xfade=transition=fade:duration=${FUNDIDO_SEG}:offset=${(PRESENTACION_SEG - FUNDIDO_SEG).toFixed(2)},format=yuv420p[v]`,
+            "-filter_complex", filtro,
             "-map", "[v]", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-movflags", "+faststart", salida,
         ]);
         return ok && fs.existsSync(salida) && fs.statSync(salida).size > 1500 ? salida : null;
