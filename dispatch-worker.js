@@ -452,6 +452,7 @@ async function handle(job) {
                     let buf = null;
                     try { buf = fs.readFileSync(path.join(DIR_CLIPS, clip.nombre)); } catch {}
                     if (buf) r = await telegramSubir(token, chat, "sendVideo", "video", buf, clip.nombre, "video/mp4", htmlText, { supports_streaming: "true" });
+                    if (r && !r.ok) console.error("[tg-video] sendVideo: " + String(r.body || "").slice(0, 300));
                     if (!r || !r.ok) r = await telegramSendAnimation(token, chat, firmarUrl(base.replace(/\/+$/, "") + "/api/clip/" + clip.nombre), htmlText);
                     if (!r || !r.ok) notaVideo = "sin video: Telegram rechazó el clip (" + String((r && r.body) || "").slice(0, 80) + ")";
                 }

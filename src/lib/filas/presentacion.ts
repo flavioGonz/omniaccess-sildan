@@ -142,7 +142,7 @@ function ffmpeg(args: string[], topeMs = TOPE_FFMPEG_MS): Promise<boolean> {
         let err = "";
         ff.stderr.on("data", (c) => { err = (err + c).slice(-2000); });
         const k = setTimeout(() => { try { ff.kill("SIGKILL"); } catch { } resolve(false); }, topeMs);
-        ff.on("close", (code) => { clearTimeout(k); if (code !== 0) console.error(`[marca-video] ffmpeg ${code}: ${err.slice(-400)}`); resolve(code === 0); });
+        ff.on("close", (code) => { clearTimeout(k); if (code !== 0) console.error(`[marca-video] ffmpeg ${code}: ${err.slice(-1200)}`); resolve(code === 0); });
         ff.on("error", () => { clearTimeout(k); resolve(false); });
     });
 }
@@ -165,9 +165,11 @@ export async function videoConMarca(clip: string, d: DatosMarca): Promise<string
             "-i", clip,
             "-loop", "1", "-i", path.join(tmp, "franja.png"),
             "-filter_complex",
-            `[0:v]format=yuv420p,setsar=1[intro];` +
+            // settb: xfade exige la misma base de tiempo en las dos entradas (ffmpeg 7 de HB no la iguala solo:
+            // «First input link main timebase (1/12800) do not match … (1/25)»).
+            `[0:v]fps=${FPS},format=yuv420p,setsar=1,settb=AVTB[intro];` +
             `[1:v]scale=${ANCHO}:${ALTO}:force_original_aspect_ratio=decrease,pad=${ANCHO}:${ALTO}:(ow-iw)/2:(oh-ih)/2,fps=${FPS},setsar=1[c];` +
-            `[c][2:v]overlay=0:0:shortest=1,format=yuv420p[cm];` +
+            `[c][2:v]overlay=0:0:shortest=1,format=yuv420p,settb=AVTB[cm];` +
             `[intro][cm]xfade=transition=fade:duration=${FUNDIDO_SEG}:offset=${(PRESENTACION_SEG - FUNDIDO_SEG).toFixed(2)},format=yuv420p[v]`,
             "-map", "[v]", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-movflags", "+faststart", salida,
         ]);
