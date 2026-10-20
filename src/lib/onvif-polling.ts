@@ -230,7 +230,10 @@ function httpsRequest(
     return pedirCamaraConDigest(url, "POST", body, username, password, timeoutMs).then((r) => {
         const data = r.datos.toString();
         if (r.status >= 200 && r.status < 300) return data;
-        throw new Error(`HTTP ${r.status}: ${data.substring(0, 200)}`);
+        // Un SOAP Fault dice el porqué en Subcode y Reason; los primeros 200 caracteres eran sólo el sobre.
+        const codigos = [...data.matchAll(/<[\w-]*:?Value>([^<]+)<\/[\w-]*:?Value>/g)].map((m) => m[1]).join(" / ");
+        const razon = data.match(/<[\w-]*:?Text[^>]*>([^<]+)<\/[\w-]*:?Text>/)?.[1];
+        throw new Error(`HTTP ${r.status}: ${codigos || razon ? [codigos, razon].filter(Boolean).join(" · ") : data.substring(0, 200)}`);
     });
 }
 
