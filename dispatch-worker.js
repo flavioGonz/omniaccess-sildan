@@ -77,6 +77,27 @@ async function marcaAguaFoto() {
 }
 
 // Fetch an image from the local web process and return base64 (no data-uri prefix).
+// La foto de un aviso de filas va editada (personas marcadas y la cuenta, lib/filas/presentacion);
+// la de cualquier otro aviso, como siempre.
+function fotoParaEnviar(p, dj) {
+    if (p.aviso && dj.deviceId) {
+        const q = new URLSearchParams({ device: dj.deviceId, personas: String(p.count ?? ""), titulo: p.aviso === "escalamiento" ? "Sigue sobre el límite" : "Fila sobre el límite" });
+        if (p.snapshotPath && String(p.snapshotPath).startsWith("/api/files/")) q.set("ruta", p.snapshotPath);
+        return "/api/filas/foto-marcada?" + q.toString();
+    }
+    return imagePathFor(p.snapshotPath, dj.deviceId);
+}
+function postInternalLargo(ruta, cuerpo) {
+    return new Promise((resolve) => {
+        const data = JSON.stringify(cuerpo || {});
+        const req = http.request({ hostname: "127.0.0.1", port: 10001, path: ruta, method: "POST", timeout: 90000, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) } },
+            (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body: d })); });
+        req.on("error", (e) => resolve({ ok: false, body: e.message }));
+        req.on("timeout", () => { req.destroy(); resolve({ ok: false, body: "timeout" }); });
+        req.write(data); req.end();
+    });
+}
+
 function fetchLocalBase64(path) {
     return new Promise((resolve) => {
         const req = http.request({ hostname: "127.0.0.1", port: 10001, path, method: "GET", timeout: 12000 },
@@ -94,7 +115,8 @@ function fetchLocalBase64(path) {
                         let img = sharp(await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).toBuffer());
                         // Logo de OmniAccess (Ajustes → Video del evento; = AJUSTE_MARCA_AGUA y
                         // MARCA_AGUA_ANCHO/MARGEN de lib/clips). Con placa oscura: se lee sobre cualquier fondo.
-                        const marca = await marcaAguaFoto();
+                        // La foto editada de filas ya trae la marca de OmniAccess: no se le pega otra encima.
+                        const marca = path.startsWith("/api/filas/foto-marcada") ? null : await marcaAguaFoto();
                         if (marca) {
                             const { width = 1280, height = 720 } = await img.metadata();
                             const ancho = Math.round(width * 0.18), margen = Math.round(width * 0.02);
@@ -404,6 +426,13 @@ async function handle(job) {
                     const inst = Date.parse(p.instante || p.timestamp || "") || Number(p.alertTs) || new Date(dj.createdAt).getTime();
                     const r = await pedirClip(dj.deviceId, inst, p.clipAntes, p.clipDespues);
                     if (r && r.ok && r.nombre) clip = r;
+                    // Aviso de filas: el clip con la presentación de OmniAccess adelante (lib/filas/presentacion).
+                    if (clip && p.aviso) {
+                        const m = await postInternalLargo("/api/filas/video-marcado", { nombre: clip.nombre, datos: {
+                            fila: p.deviceName, titulo: p.aviso === "escalamiento" ? "Sigue sobre el límite" : "Fila sobre el límite",
+                            personas: p.count, limite: p.threshold, esperaMin: p.esperaMin, momento: p.instante || p.timestamp } });
+                        try { const j = JSON.parse(m.body || "{}"); if (j.nombre) clip = { ...clip, nombre: j.nombre }; } catch {}
+                    }
                     else notaVideo = "sin video: " + ((r && r.motivo) || "no se pudo armar el clip");
                 }
             }
@@ -428,7 +457,7 @@ async function handle(job) {
                 }
                 if (!r || !r.ok) {
                     // La foto, también subida (la de la lectura, o el cuadro de ahora).
-                    const imgPath = imagePathFor(p.snapshotPath, dj.deviceId);
+                    const imgPath = fotoParaEnviar(p, dj);
                     const b64 = imgPath ? await fetchLocalBase64(imgPath) : null;
                     if (b64) r = await telegramSubir(token, chat, "sendPhoto", "photo", Buffer.from(b64, "base64"), "foto.jpg", "image/jpeg", htmlText);
                     if (!r || !r.ok) {
@@ -464,7 +493,7 @@ async function handle(job) {
                     } else { console.log("[wa-video] OK por URL", vurl, "fuente=" + clip.fuente); }
                 } else if (notaVideo) { console.log("[wa-video] " + notaVideo + " device=" + dj.deviceId); }
                 if (!r || !r.ok) {
-                    const imgPath = imagePathFor(p.snapshotPath, dj.deviceId);
+                    const imgPath = fotoParaEnviar(p, dj);
                     const b64 = imgPath ? await fetchLocalBase64(imgPath) : null;
                     r = b64 ? await openwaSendImage(url, key, session, chatId, b64, text) : await openwaSend(url, key, session, chatId, text);
                 }
