@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Speech, Siren, ShieldAlert, Eye, Hand, ArrowRightLeft, Check, X, Power, History, Volume2, VolumeX, SlidersHorizontal, ChevronUp, ChevronDown, UserRound, Loader2, Radar, ScanEye, Repeat, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { hora } from "@/lib/fechas";
 import { Switch } from "@/components/ui/switch";
 import { useFuncion } from "@/lib/funciones-cliente";
 import {
@@ -112,7 +113,13 @@ export function PilaAvisos({ soloCriticos = false }: {
                 .oa-barra-critica { animation: oa-barra-critica 1.6s ease-in-out infinite; }
                 @keyframes oa-barra-entra { from { transform: translateY(18px); opacity: 0; } to { transform: none; opacity: 1; } }
                 .oa-barra-entra { animation: oa-barra-entra .22s ease-out; }
-                @media (prefers-reduced-motion: reduce) { .oa-respirar-critico, .oa-barra-critica, .oa-barra-entra { animation: none; } }
+                @keyframes oa-activa-brillo { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+                @keyframes oa-activa-punto { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.7); } }
+                .oa-barra-activa { position: relative; overflow: hidden; outline: 2px solid rgba(255,255,255,.55); outline-offset: -2px; }
+                .oa-barra-activa::before { content: ""; position: absolute; inset: 0; width: 40%; pointer-events: none;
+                    background: linear-gradient(100deg, transparent, rgba(255,255,255,.16), transparent); animation: oa-activa-brillo 2.4s ease-in-out infinite; }
+                .oa-activa-punto { animation: oa-activa-punto 1s ease-in-out infinite; }
+                @media (prefers-reduced-motion: reduce) { .oa-respirar-critico, .oa-barra-critica, .oa-barra-entra, .oa-barra-activa::before, .oa-activa-punto { animation: none; } }
             `}</style>
         </>,
         document.body,
@@ -140,12 +147,20 @@ function BarraAviso({ a }: { a: Aviso }) {
     const translucido = "bg-[color-mix(in_oklab,currentColor_16%,transparent)] hover:bg-[color-mix(in_oklab,currentColor_26%,transparent)]";
 
     return (
-        <div className={cn("oa-barra-entra flex items-center gap-3 rounded-[14px] pl-1.5 pr-2 py-1.5 shadow-2xl", a.nivel === "critico" && "oa-barra-critica")}
-            style={{ background: t.fondo, color: t.texto }}>
-            {a.foto && foto
-                // eslint-disable-next-line @next/next/no-img-element
-                ? <img src={a.foto} alt="" onError={() => setFoto(false)} className="w-[88px] aspect-video rounded-[9px] object-cover bg-black shrink-0" />
-                : <span className={cn("w-[88px] aspect-video rounded-[9px] grid place-items-center shrink-0", translucido)}><I size={22} /></span>}
+        <div className={cn("oa-barra-entra flex items-center gap-3 rounded-[14px] pl-1.5 pr-2 py-1.5 shadow-2xl", a.nivel === "critico" && "oa-barra-critica", a.activa && "oa-barra-activa")}
+            style={{ background: a.activa ? "var(--mal)" : t.fondo, color: a.activa ? "#fff" : t.texto }}>
+            {/* Una alarma activa muestra la foto del evento más grande, con el punto de «en curso». */}
+            <span className={cn("relative shrink-0", a.activa ? "w-[128px]" : "w-[88px]")}>
+                {a.foto && foto
+                    // eslint-disable-next-line @next/next/no-img-element
+                    ? <img src={a.foto} alt="" onError={() => setFoto(false)} className="w-full aspect-video rounded-[9px] object-cover bg-black" />
+                    : <span className={cn("w-full aspect-video rounded-[9px] grid place-items-center", translucido)}><I size={22} /></span>}
+                {a.activa && (
+                    <span className="absolute left-1.5 top-1.5 h-5 px-1.5 rounded-full bg-black/65 text-white text-[9.5px] font-extrabold uppercase tracking-[0.12em] inline-flex items-center gap-1">
+                        <span className="oa-activa-punto w-1.5 h-1.5 rounded-full bg-[#ff4d4d]" /> Activa
+                    </span>
+                )}
+            </span>
             <div className="min-w-0 flex-1">
                 <div className="text-[10px] font-bold uppercase tracking-[0.16em] opacity-80 inline-flex items-center gap-1.5">
                     <I size={11} /> {a.rotulo}{a.veces && a.veces > 1 ? <span className="tabular-nums normal-case tracking-normal font-extrabold opacity-100"> · ×{a.veces}</span> : null}
@@ -153,7 +168,11 @@ function BarraAviso({ a }: { a: Aviso }) {
                 <div className="text-[15px] font-extrabold leading-tight truncate">
                     {a.titulo}<span className="font-semibold opacity-85">{a.detalle ? ` · ${a.detalle}` : ""} · {hace(a.ts)}</span>
                 </div>
-                {a.operador !== undefined && (
+                {a.activa ? (
+                    <div className="text-[11.5px] font-semibold opacity-95 inline-flex items-center gap-1 truncate max-w-full">
+                        <ShieldAlert size={12} /> Confirmada real por <b className="font-extrabold">{a.activa.por || "la guardia"}</b> · {hora(a.activa.desde)} ({hace(a.activa.desde)})
+                    </div>
+                ) : a.operador !== undefined && (
                     <div className="text-[11px] font-semibold opacity-85 inline-flex items-center gap-1 truncate max-w-full"><UserRound size={11} /> {a.operador || "Nadie la tomó"}</div>
                 )}
             </div>
@@ -165,7 +184,7 @@ function BarraAviso({ a }: { a: Aviso }) {
                         <button key={acc.clave} type="button" onClick={() => void correr(acc)} disabled={!!corriendo} title={acc.ayuda}
                             className={cn("h-9 px-3 rounded-[9px] text-[12.5px] font-bold inline-flex items-center gap-1.5 disabled:opacity-50 transition-colors",
                                 conf ? "bg-black text-white ring-2 ring-white" : acc.principal ? "bg-white hover:bg-white/90 font-extrabold" : translucido)}
-                            style={acc.principal && !conf ? { color: a.tipo === "busqueda" || a.tipo === "merodeo" ? "#16120a" : t.fondo } : undefined}>
+                            style={acc.principal && !conf ? { color: a.activa ? "var(--mal)" : a.tipo === "busqueda" || a.tipo === "merodeo" ? "#16120a" : t.fondo } : undefined}>
                             {corriendo === acc.clave ? <Loader2 size={14} className="animate-spin" /> : Ic ? <Ic size={14} /> : null}
                             {conf ? acc.confirmar : acc.etiqueta}
                         </button>

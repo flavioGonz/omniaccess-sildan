@@ -59,6 +59,11 @@ export type Aviso = {
     cerrar?: () => void;
     /** Quien lo publica ya hace sonar el suyo (la intrusión tiene su propio ritmo). */
     sonidoPropio?: boolean;
+    /**
+     * Una alarma ya confirmada como real y todavía activa (20/10): la barra no se va al decidir,
+     * queda encendida y animada con quién la confirmó y cuándo, hasta que alguien la desactiva.
+     */
+    activa?: { por: string | null; desde: string };
 };
 
 /** El tono de cada tipo: siempre los del sistema (globals.css). Intrusión ajena es el rojo apagado de siempre. */

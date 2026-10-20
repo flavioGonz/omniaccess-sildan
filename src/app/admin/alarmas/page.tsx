@@ -538,6 +538,17 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
         snapshotPath: a.foto && !a.foto.startsWith("/api/snapshot/") ? a.foto : null,
         acknowledged: a.estado === "atendida", ackKind: a.resultado === "falsa" ? "false" : a.resultado === "real" ? "real" : null,
         label: a.detalle === "Persona" ? "human" : a.detalle === "Vehículo" ? "vehicle" : null,
+    } : a.fuente === "vision" && a.vision && a.deviceId ? {
+        /*
+         * Un aviso de OmniVision («se quedó en la zona», merodeo, objeto dejado…) es una detección de
+         * cámara como la intrusión: se abre en la misma ventana, con la foto del evento, su grabación y
+         * su clip (20/10, Nico: «cada fila tendrá su drawer, pero la ficha se podrá abrir en el modal de
+         * cada uno según corresponda»). Real / falsa se decide acá, en la alarma: la ventana no corrige
+         * una detección de intrusión que no existe (sin onMarcar).
+         */
+        id: `vision-${a.vision.eventoId}`, deviceId: a.deviceId, deviceName: a.camara, type: "OTHER", eventType: a.detalle, timestamp: a.vision.ts,
+        snapshotPath: a.foto, acknowledged: a.estado === "atendida", ackKind: a.resultado === "falsa" ? "false" : a.resultado === "real" ? "real" : null,
+        label: a.vision.clase === "person" ? "human" : a.vision.clase && ["car", "truck", "bus", "motorcycle"].includes(a.vision.clase) ? "vehicle" : null,
     } : null;
 
     return (
@@ -615,7 +626,8 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
             )}
             {fichaIntrusion && det && (
                 <FichaDeteccion det={det} geom={geom} onClose={() => { setFichaIntrusion(false); alRecargar(); }}
-                    onMarcar={async (id, k) => marcarDeteccion(id, k)} />
+                    onMarcar={a.fuente === "intrusion" ? async (id, k) => marcarDeteccion(id, k) : undefined}
+                    claveGestion={a.fuente === "intrusion" ? undefined : a.id} titulo={a.fuente === "intrusion" ? undefined : a.titulo} />
             )}
         </>
     );

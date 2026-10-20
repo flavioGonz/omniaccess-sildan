@@ -52,6 +52,13 @@ export type Alarma = {
      * sigue ahí y el panel cuenta en vivo.
      */
     estadia?: { desde: string; hasta: string | null; segundos: number | null; como: string | null; umbral: number | null } | null;
+    /**
+     * El evento de OmniVision detrás de un aviso VISION_* (EventoVision): de qué cámara es, cuándo
+     * pasó y qué era. Con esto la ficha de la alarma abre la ventana de la detección, con su
+     * grabación y su clip (20/10, Nico: «no tengo la ficha en el modal de eventos»). Antes el aviso
+     * llegaba sin cámara (deviceId null) y la ficha no tenía qué abrir.
+     */
+    vision?: { eventoId: string; ts: string; clase: string | null } | null;
 };
 
 export const NOMBRE_FUENTE: Record<FuenteAlarma, string> = { intrusion: "Intrusión", lpr: "LPR", patron: "Patrones", vision: "OmniVision" };
@@ -103,6 +110,18 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
         chapasSinEvento.length ? prisma.accessEvent.findMany({ where: { plateDetected: { in: chapasSinEvento }, timestamp: { gte: new Date(desde.getTime() - 7 * 86_400_000) }, OR: [{ snapshotPath: { not: null } }, { imagePath: { not: null } }] }, orderBy: { timestamp: "desc" }, take: 500, select: { plateDetected: true, timestamp: true, snapshotPath: true, imagePath: true } }).catch(() => []) : Promise.resolve([]),
     ]);
     const fotoEvento = new Map(evFotos.map((e) => [e.id, e.snapshotPath || e.imagePath || null]));
+    // El evento de OmniVision de cada aviso VISION_*: por el id que guarda vision-reglas en `datos`, o por avisoId.
+    const avisosVision = avisos.filter((a) => a.tipo.startsWith("VISION_"));
+    const idsEvVision = [...new Set(avisosVision.map((a) => (a.datos as any)?.eventoId).filter((x) => typeof x === "string"))] as string[];
+    const evVision = avisosVision.length ? await prisma.eventoVision.findMany({
+        where: { OR: [{ id: { in: idsEvVision } }, { avisoId: { in: avisosVision.map((a) => a.id) } }] },
+        select: { id: true, avisoId: true, deviceId: true, ts: true, clase: true },
+    }).catch(() => []) : [];
+    const visionDe = (a: (typeof avisos)[number]) => {
+        if (!a.tipo.startsWith("VISION_")) return null;
+        const id = (a.datos as any)?.eventoId;
+        return evVision.find((e) => e.id === id) || evVision.find((e) => e.avisoId === a.id) || null;
+    };
     const fotoDeAviso = (a: (typeof avisos)[number]): string | null => {
         const f = (a.datos as any)?.foto;
         if (typeof f === "string" && f) return f.startsWith("/") ? f : `/api/vision/imagen/${f}`;
@@ -134,9 +153,11 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
     }
     for (const a of avisos) {
         const et = ETIQUETA_AVISO[a.tipo as TipoAviso];
+        const ev = visionDe(a);
         out.push({
             id: `a:${a.id}`, fuente: a.tipo.startsWith("VISION_") ? "vision" : "patron", tipo: a.tipo, titulo: et?.titulo || a.tipo,
-            detalle: a.motivo, ts: a.creado.toISOString(), camara: a.camara, deviceId: null, plate: a.plate,
+            detalle: a.motivo, ts: a.creado.toISOString(), camara: a.camara, deviceId: ev?.deviceId || null, plate: a.plate,
+            vision: ev ? { eventoId: ev.id, ts: ev.ts.toISOString(), clase: ev.clase } : null,
             foto: fotoDeAviso(a),
             tono: (et?.tono as TonoAlarma) || "aviso",
             estado: a.atendidoAt ? "atendida" : "pendiente", atendidaPor: a.atendidoPor, atendidaAt: a.atendidoAt?.toISOString() || null,
@@ -237,6 +258,44 @@ export async function gestionarAlarma(id: string, g: { atender: boolean; resulta
     // La bitácora (lib/gestion-alarma): qué se decidió y la nota, con quién.
     if (g.atender) await registrarGestion(id, g.resultado === "real" ? "MARCO_REAL" : g.resultado === "falsa" ? "MARCO_FALSA" : "ATENDIO", por);
     if (g.nota) await registrarGestion(id, "NOTA", por, { detalle: g.nota });
-    avisarPorSocket("alarma_atendida", { id });
+    // Con el resultado y quién: la pila de avisos deja una «real» como alarma activa (20/10).
+    avisarPorSocket("alarma_atendida", { id, resultado: g.atender ? g.resultado : undefined, por });
     return true;
+}
+
+/**
+ * Cuánto tiempo una alarma confirmada real sigue «activa» si nadie la desactiva. Es un tope de
+ * seguridad para que una pantalla no quede con una alarma de ayer encendida; lo normal es que la
+ * guardia la desactive cuando la resolvió.
+ */
+export const HORAS_ALARMA_ACTIVA = 12;
+export type AlarmaActiva = Alarma & { confirmadaPor: string | null; confirmadaAt: string };
+
+/**
+ * Las alarmas confirmadas como reales que nadie desactivó todavía (20/10, Nico: «cuando es real,
+ * sólo se va … pretendo que quede una alarma activa animada en el lugar de la notificación,
+ * indicando quién la confirmó, y la foto del evento»).
+ *
+ * Sale de lo que ya se guarda: la decisión (AlarmaAtendida, resultado «real») y la bitácora
+ * (AlarmaGestion): una DESACTIVO posterior a la confirmación la apaga; si después alguien la vuelve
+ * a marcar real, vuelve a estar activa. Las intrusiones no van: tienen su propia alarma en curso
+ * (la cámara en atención, AlertaIntrusionGlobal) y saldrían dos veces.
+ */
+export async function alarmasActivas(): Promise<AlarmaActiva[]> {
+    const desde = new Date(Date.now() - HORAS_ALARMA_ACTIVA * 3_600_000);
+    const reales = await prisma.alarmaAtendida.findMany({
+        where: { resultado: "real", atendida: true, ts: { gte: desde }, NOT: { clave: { startsWith: "d:" } } },
+        select: { clave: true, por: true, ts: true },
+    }).catch(() => []);
+    if (!reales.length) return [];
+    const cierres = await prisma.alarmaGestion.findMany({ where: { clave: { in: reales.map((r) => r.clave) }, accion: "DESACTIVO" }, select: { clave: true, ts: true } }).catch(() => []);
+    const abiertas = reales.filter((r) => !cierres.some((c) => c.clave === r.clave && c.ts >= r.ts));
+    if (!abiertas.length) return [];
+    // La alarma pudo haberse abierto antes de confirmarse: se mira un día más para atrás.
+    const todas = await listarAlarmas(HORAS_ALARMA_ACTIVA + 24);
+    const porClave = new Map(todas.map((a) => [a.id, a]));
+    return abiertas.flatMap((r) => {
+        const a = porClave.get(r.clave);
+        return a ? [{ ...a, confirmadaPor: r.por, confirmadaAt: r.ts.toISOString() }] : [];
+    }).sort((x, y) => y.confirmadaAt.localeCompare(x.confirmadaAt));
 }

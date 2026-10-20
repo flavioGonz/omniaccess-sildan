@@ -34,6 +34,8 @@ const AGRUPAR_MS = 5 * 60_000;
 const VIDA_ALERTA_MS = 30 * 60_000;
 const AVISOS_QUE_NO_SALTAN = new Set(["SIN_REGISTRAR"]);
 const SENTIDO: Record<string, string> = { ENTRY: "entrada", EXIT: "salida" };
+/** La foto de una alarma de la lista: las rutas de la app tal cual; los archivos, por su ruta de imágenes. */
+const fotoDeAlarma = (f: string) => (f.startsWith("/") ? f : getImagePath(f) || null);
 /** Cada cuánto se vuelve a pedir la lista de proveedores con pase libre. */
 const PASE_LIBRE_REFRESCO_MS = 5 * 60_000;
 const limpiar = (p: unknown) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -142,8 +144,22 @@ export function AvisosLpr({ soloLectura = false }: {
         });
     });
 
-    // Decidida en otra pantalla (Gestión de alarmas, otra guardia): se va de acá también.
-    useTiempoReal("alarma_atendida", (x: any) => { if (x?.id) quitarClaves([String(x.id)]); });
+    /*
+     * Las alarmas confirmadas como reales y todavía activas (api/avisos/activas): quedan en la pila,
+     * encendidas, hasta que alguien las desactiva. Se piden al montar, cuando alguien decide o
+     * desactiva una (en cualquier pantalla), y cada minuto por el tope de horas.
+     */
+    const [activas, setActivas] = useState<any[]>([]);
+    const pedirActivas = useCallback(() => {
+        fetch("/api/avisos/activas", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+            .then((j) => { if (Array.isArray(j?.activas)) setActivas(j.activas); }).catch(() => { });
+    }, []);
+    useEffect(() => { pedirActivas(); const t = setInterval(pedirActivas, 60_000); return () => clearInterval(t); }, [pedirActivas]);
+    useTiempoReal("alarma_resuelta", () => pedirActivas());
+
+    // Decidida en otra pantalla (Gestión de alarmas, otra guardia): se va de acá también; si fue
+    // real, vuelve enseguida como alarma activa.
+    useTiempoReal("alarma_atendida", (x: any) => { if (x?.id) quitarClaves([String(x.id)]); if (x?.resultado === "real") pedirActivas(); });
     useTiempoReal("alarma_gestion", () => setPulso((n) => n + 1));
 
     // Quién atiende cada una (Tomar / Pasar, como la intrusión).
@@ -187,7 +203,28 @@ export function AvisosLpr({ soloLectura = false }: {
             cerrar: it.nivel === "critico" && !soloLectura ? undefined : () => setItems((p) => p.filter((x) => x.id !== it.id)),
         };
     }), [items, ops, soloLectura, decidir, router]);
-    usePublicarAvisos("lpr", avisos);
+
+    const avisosActivos: Aviso[] = useMemo(() => activas.map((a: any) => {
+        const tipo: TipoAviso = a.fuente === "lpr" ? (a.tipo === "EN_BUSQUEDA" ? "busqueda" : "lista-negra") : a.fuente === "vision" ? "vision" : "patron";
+        const acciones: AccionAviso[] = [];
+        if (!soloLectura) {
+            acciones.push(a.accessEventId
+                ? { clave: "ver", etiqueta: "Ver evento", icono: "ver", ayuda: "La ficha del evento, acá mismo", correr: () => setFicha(a.accessEventId) }
+                : { clave: "ver", etiqueta: "Ver", icono: "ver", ayuda: "Abrirla en Gestión de alarmas", correr: () => router.push(`/admin/alarmas?ver=alarmas&id=${encodeURIComponent(a.id)}`) });
+            acciones.push({
+                clave: "desactivar", etiqueta: "Desactivar", icono: "desactivar", principal: true, confirmar: "¿Resuelta? Desactivar",
+                ayuda: "Ya se resolvió: la alarma se apaga en todas las pantallas y queda en la bitácora",
+                correr: () => fetch("/api/avisos/activas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: a.id }) }).then(() => pedirActivas()),
+            });
+        }
+        return {
+            id: `activa|${a.id}`, tipo, nivel: "critico", ts: a.ts, foto: a.foto ? fotoDeAlarma(a.foto) : null,
+            rotulo: `Alarma real · ${a.titulo}`, titulo: a.plate || a.camara || a.titulo, detalle: a.plate ? a.camara : a.detalle,
+            // Ya confirmada: no vuelve a sonar cada tanto (la guardia ya sabe); queda encendida y animada.
+            acciones, activa: { por: a.confirmadaPor, desde: a.confirmadaAt }, sonidoPropio: true,
+        };
+    }), [activas, soloLectura, router, pedirActivas]);
+    usePublicarAvisos("lpr", useMemo(() => [...avisosActivos, ...avisos.filter((x) => !activas.some((a: any) => x.id.endsWith(`|${a.id}`)))], [avisosActivos, avisos, activas]));
 
     return ficha ? <FichaDeEvento id={ficha} alCerrar={() => setFicha(null)} /> : null;
 }

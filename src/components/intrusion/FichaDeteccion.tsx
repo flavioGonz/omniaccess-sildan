@@ -58,7 +58,7 @@ const TEXTO_VEREDICTO: Record<string, string> = { mal: "visor-mal", aviso: "viso
 
 // El clip en loop vive en lib/clip-evento (lo comparte el panel del Monitor de Intrusión).
 
-export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion, onMarcar, zCapa, extraArriba }: {
+export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion, onMarcar, zCapa, extraArriba, claveGestion, titulo }: {
     det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void;
     onResolveAlarm?: (deviceId: string, kind: "real" | "false") => void; hasAlarm?: boolean;
     /** La cámara tiene una intrusión confirmada como real y sin resolver. */
@@ -71,6 +71,14 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     zCapa?: number;
     /** Lo que agrega quien la abre, arriba a la derecha (la alerta global: el sonido y las otras cámaras). */
     extraArriba?: React.ReactNode;
+    /**
+     * La ventana abierta para algo que NO es una detección de intrusión (un aviso de OmniVision desde
+     * Gestión de alarmas, 20/10): su clave de gestión (`a:<aviso>`), para que la nota y la bitácora
+     * sean las de esa alarma, y sin pedir la verificación de intrusión, que no existe para ella.
+     */
+    claveGestion?: string;
+    /** El nombre de lo detectado cuando no es un tipo de intrusión («Se quedó en la zona»…). */
+    titulo?: string;
 }) {
     const [cur, setCur] = useState<any>(det);
     /*
@@ -134,15 +142,16 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
        vision-worker avisa que la terminó (una detección recién llegada todavía se está mirando). */
     const [verif, setVerif] = useState<Verificacion | null>(null);
     const pedirVerif = useCallback(() => {
-        if (!real) return;
+        if (!real || claveGestion) return;
         fetch(`/api/monitor/intrusion/verificacion?ids=${encodeURIComponent(cur.id)}`, { cache: "no-store" })
             .then((r) => (r.ok ? r.json() : {})).then((j: Record<string, Verificacion>) => setVerif(j?.[cur.id] || null)).catch(() => { });
-    }, [cur.id, real]);
+    }, [cur.id, real, claveGestion]);
     useEffect(() => { setVerif(null); pedirVerif(); }, [pedirVerif]);
     useTiempoReal("detection_verified", (x: any) => { if (x?.id && x.id === cur.id) pedirVerif(); });
-    const { analisis: alrededor, error: errorAlrededor } = useAnalisisDeteccion(real ? cur.id : null);
+    const { analisis: alrededor, error: errorAlrededor } = useAnalisisDeteccion(real && !claveGestion ? cur.id : null);
 
-    const m = META_DETECCION[cur.type] || META_DETECCION.OTHER;
+    const m0 = META_DETECCION[cur.type] || META_DETECCION.OTHER;
+    const m = titulo ? { ...m0, label: titulo } : m0;
     const clase = cur.label && CLASE[cur.label] ? CLASE[cur.label] : null;
     const nvr = cur.nvrName || cam?.nvrName; const ch = cur.ch ?? cam?.ch;
     const [rk] = useState(Date.now());
@@ -153,7 +162,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     const capa = enPropio ? propio : verif?.analisis || null;
     const g = useMemo(() => geomDeIntrusion(geom as any), [geom]);
     const ver = verif?.veredicto ? VEREDICTOS[verif.veredicto] : null;
-    const verificando = !verif?.estado && real && Date.now() - new Date(cur.timestamp).getTime() < VERIFICANDO_MS;
+    const verificando = !verif?.estado && real && !claveGestion && Date.now() - new Date(cur.timestamp).getTime() < VERIFICANDO_MS;
     const momento = new Date(cur.timestamp);
 
     const alarmaPendiente = !!(hasAlarm && cur.deviceId && onResolveAlarm);
@@ -194,7 +203,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
 
     /* La nota de gestión de esta detección (la misma que en Gestión de alarmas). Lo escrito se
        guarda también al decidir, para que la decisión no quede sin su porqué. */
-    const nota = usarNotaGestion(real ? `d:${cur.id}` : null);
+    const nota = usarNotaGestion(real ? claveGestion || `d:${cur.id}` : null);
     const conNota = (f: () => unknown) => () => { f(); if (nota.sucia) void nota.guardar(); };
     /* La nota se abre a pedido (16/10, Nico: «sólo debe abrirse al presionar el botón»): siempre a
        la vista tapaba las detecciones de la columna izquierda. Flota abajo al centro, sobre la foto. */
@@ -419,7 +428,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                         {/* Quién la opera y lo que se hizo (16/10): tomarla, pasarla a un compañero, la bitácora. */}
                         {real && (
                             <Seccion titulo="Gestión" icono={UserRound}>
-                                <GestionEnVivo clave={`d:${cur.id}`} deviceId={cur.deviceId} oscuro inicio={[
+                                <GestionEnVivo clave={claveGestion || `d:${cur.id}`} deviceId={cur.deviceId} oscuro inicio={[
                                     { id: `origen-${cur.id}`, ts: cur.timestamp, por: cur.deviceName || cam?.name || "La cámara", texto: `detectó ${m.label.toLowerCase()}${clase ? ` · ${clase.toLowerCase()}` : ""}`, tipo: "origen" },
                                     ...(ver ? [{ id: `vision-${cur.id}`, ts: new Date(new Date(cur.timestamp).getTime() + (verif?.propio?.despuesS ?? 5) * 1000).toISOString(), por: "OmniVision", texto: `la verificó: ${ver.rotulo.toLowerCase()}`, tipo: (ver.tono === "mal" ? "mal" : "info") as "mal" | "info" }] : []),
                                 ]} />
