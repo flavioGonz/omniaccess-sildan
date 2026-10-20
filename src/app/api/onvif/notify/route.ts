@@ -105,19 +105,19 @@ export async function POST(req: NextRequest) {
             const timeMatch = block.match(/UtcTime="([^"]+)"/);
             const utcTime = timeMatch ? timeMatch[1] : new Date().toISOString();
 
-            const sourceIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+            // La ÚLTIMA dirección de x-forwarded-for: Next agrega ahí la del socket. La primera la puede
+            // escribir cualquiera («x-forwarded-for: 10.96.8.77») y hacerse pasar por la cámara.
+            const sourceIp = req.headers.get("x-forwarded-for")?.split(",").pop()?.trim()
                 || req.headers.get("x-real-ip")
                 || "unknown";
 
-            let device = await prisma.device.findFirst({
+            const device = await prisma.device.findFirst({
                 where: { brand: "BOSCH", ip: sourceIp },
             });
 
-            if (!device) {
-                device = await prisma.device.findFirst({
-                    where: { brand: "BOSCH", deviceType: "QUEUE_COUNTER" },
-                });
-            }
+            /* Antes, si la IP no era de ninguna cámara, se tomaba «la primera Bosch de fila»: cualquiera
+               que llegara al puerto podía mandar un aforo inventado (la ruta es pública: la cámara
+               no tiene sesión). Ahora sólo cuenta lo que viene de la IP de una cámara dada de alta. */
 
             if (!device) {
                 console.log(`${logPrefix} No Bosch device found for IP ${sourceIp}`);

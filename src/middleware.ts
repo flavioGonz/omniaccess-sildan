@@ -39,6 +39,8 @@ const PANTALLA_POST_DE_LECTURA = ['/api/monitor/camaras/siluetas']
 /** Los caminos de medios: pasan con credencial, pedido interno o firma (ver más abajo). */
 const MEDIOS = ['/api/files/', '/api/snapshot/', '/api/nvr/', '/api/clip/']
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
+/** Rutas de Filas que sólo llaman el cron del equipo o una sesión del panel (ver más abajo). */
+const FILAS_INTERNAS = ['/api/queue/poll', '/api/queue/reset', '/api/queue/report/send', '/api/queue/schedule/tick', '/api/queue/report/tick']
 
 const secretKey = process.env.JWT_SECRET
 const key = secretKey ? new TextEncoder().encode(secretKey) : null
@@ -136,6 +138,18 @@ export async function middleware(request: NextRequest) {
         return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
+    // --- Filas: lo que llama el cron del propio equipo ---
+    // Antes estaban en la lista pública: cualquiera que llegara al puerto podía poner en cero las
+    // filas (/api/queue/reset), disparar reportes a Telegram (/report/send) o arrancar y parar el
+    // sondeo, sin sesión (auditoría de HB, 19/10). Las llama el cron del CT por 127.0.0.1: pasan
+    // si el pedido es interno (mismo criterio que los medios) o si trae sesión del panel.
+    if (FILAS_INTERNAS.some((r) => pathname.startsWith(r))) {
+        const xff = (request.headers.get('x-forwarded-for') || '').trim()
+        const interno = !request.headers.get('x-real-ip') && (!xff || LOOPBACK.has(xff))
+        if (interno || await firmaValida(request.cookies.get('session')?.value)) return NextResponse.next()
+        return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+
     // --- PUBLIC API ROUTES (webhooks, external integrations) ---
     if (
         pathname === '/api/health' ||
@@ -150,14 +164,7 @@ export async function middleware(request: NextRequest) {
         // quien preguntara, el historial de accesos de cualquier matricula. Ahora exige
         // sesion como el resto de la aplicacion.
         pathname.startsWith('/api/topology/') ||
-        pathname === '/api/queue-report' ||
-        pathname.startsWith('/api/queue/poll') ||
-        pathname.startsWith('/api/queue/vca-config') ||
         pathname.startsWith('/api/chatbot/') ||
-        pathname.startsWith('/api/queue/report/send') ||
-        pathname.startsWith('/api/queue/reset') ||
-        pathname.startsWith('/api/queue/schedule/tick') ||
-        pathname.startsWith('/api/queue/report/tick') ||
         pathname.startsWith('/api/onvif/notify') ||
         pathname.startsWith('/api/tracking/') ||
         // La entrada interna del motor de reglas: server.js (proceso aparte, sin sesión) la
