@@ -171,7 +171,8 @@ async function clipGrabado(e) {
     try {
         const r = await fetch(`${WEB}/api/clip/instante`, {
             method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json", "x-tracking-token": trackingToken },
-            body: JSON.stringify({ deviceId: e.deviceId, instante: new Date(e.timestamp).getTime(), para: "envio", matricula: e.plateNumber || null, intro: false }),
+            // Con la intro y la marca de agua de OmniAccess, igual que los clips exportados desde el panel.
+            body: JSON.stringify({ deviceId: e.deviceId, instante: new Date(e.timestamp).getTime(), para: "envio", matricula: e.plateNumber && e.plateNumber !== "NO_LEIDA" ? e.plateNumber : null, descripcion: e.descripcion || null, intro: true }),
         });
         const j = await r.json().catch(() => ({}));
         if (!j.ok) return { motivo: j.motivo || `respuesta ${r.status}` };
@@ -639,7 +640,7 @@ async function cmdClipDeteccion(chat, detId) {
     const dev = await prisma.device.findUnique({ where: { id: d.deviceId }, select: { name: true } }).catch(() => null);
     const aviso = await texto(chat, `Buscando la grabación de ${esc(dev?.name || "la cámara")} (${fecha(d.timestamp)})…`);
     await accion(chat, "upload_video");
-    const r = await clipGrabado({ deviceId: d.deviceId, timestamp: d.timestamp, plateNumber: null });
+    const r = await clipGrabado({ deviceId: d.deviceId, timestamp: d.timestamp, plateNumber: null, descripcion: `${TIPOS_INTRUSION[d.type] || "Detección"} · ${OBJETIVOS[d.label === "human" || d.label === "vehicle" ? d.label : "otro"]}` });
     tg("deleteMessage", { chat_id: chat, message_id: aviso.message_id }).catch(() => { });
     if (!r.buf) return texto(chat, `No pude armar el clip: ${esc(r.motivo)}.`, { reply_markup: { inline_keyboard: [[{ text: "Reintentar", callback_data: `iclip:${d.id}` }]] } });
     if (r.buf.length > 49 * 1024 * 1024) return texto(chat, "El clip supera el límite de Telegram (50 MB).");

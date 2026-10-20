@@ -12,7 +12,7 @@ import { ventanaPlayback } from "@/lib/ventana-playback";
 import {
     AJUSTE_ALERTA_ANTES, AJUSTE_ALERTA_DESPUES, ALERTA_ANTES_POR_DEFECTO, ALERTA_DESPUES_POR_DEFECTO,
     ALERTA_ANTES_MAX, ALERTA_DESPUES_MAX, ENVIO_MAX_SEG, SEG_ANILLO_SEG, MARGEN_GRABACION_SEG, CLIP_RETENCION_MIN,
-    AJUSTE_MARCA_AGUA, ARCHIVO_MARCA_AGUA,
+    AJUSTE_MARCA_AGUA, ARCHIVO_MARCA_AGUA, MARCA_AGUA_ANCHO, MARCA_AGUA_MARGEN, overlayMarca, posicionMarca,
 } from "@/lib/clips";
 
 /**
@@ -155,7 +155,7 @@ function ffmpeg(args: string[], topeMs: number): Promise<boolean> {
  * así que el primero que sirve arranca en (fin − SEG). Se reencodea (sub-stream chico, barato)
  * porque con copy el corte cae en el keyframe y el clip arrancaría segundos antes o después.
  */
-export async function cortarDesdeAnillo(dir: string, inicioMs: number, finMs: number, destino: string): Promise<{ ok: boolean; motivo?: string }> {
+export async function cortarDesdeAnillo(dir: string, inicioMs: number, finMs: number, destino: string, marca?: string | null): Promise<{ ok: boolean; motivo?: string }> {
     const segMs = SEG_ANILLO_SEG * 1000;
     const segs = segmentosAnillo(dir).filter((s) => s.fin > inicioMs && s.fin - segMs < finMs);
     if (!segs.length) return { ok: false, motivo: "la grabación local no tiene ese horario (guarda sólo los últimos segundos)" };
@@ -163,8 +163,15 @@ export async function cortarDesdeAnillo(dir: string, inicioMs: number, finMs: nu
     fs.writeFileSync(lista, segs.map((s) => `file '${s.fp.replace(/'/g, "'\\''")}'`).join("\n"));
     const desde = Math.max(0, (inicioMs - (segs[0].fin - segMs)) / 1000);
     const dur = (finMs - inicioMs) / 1000;
-    const ok = await ffmpeg(["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lista, "-ss", desde.toFixed(2), "-t", dur.toFixed(2),
-        "-an", "-vf", `scale=-2:'min(${ALTURA_ALERTA},ih)',format=yuv420p`, "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-movflags", "+faststart", destino], 30_000);
+    // Lo que se exporta a mano lleva el mismo logo que los clips del NVR (misma posición y tamaño).
+    let filtro: string[] = ["-vf", `scale=-2:'min(${ALTURA_ALERTA},ih)',format=yuv420p`];
+    if (marca) {
+        const ancho = Math.round(ALTURA_ALERTA * 16 / 9);
+        const logoAncho = Math.round(ancho * MARCA_AGUA_ANCHO / 2) * 2;
+        filtro = ["-i", marca, "-filter_complex", `[1:v]scale=${logoAncho}:-1[m];[0:v]scale=-2:${ALTURA_ALERTA},format=yuv420p[v];[v][m]overlay=${overlayMarca(await posicionMarca(), Math.round(ancho * MARCA_AGUA_MARGEN))},format=yuv420p`];
+    }
+    const ok = await ffmpeg(["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lista, ...filtro, "-ss", desde.toFixed(2), "-t", dur.toFixed(2),
+        "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-movflags", "+faststart", destino], 40_000);
     try { fs.unlinkSync(lista); } catch { }
     return ok ? { ok: true } : { ok: false, motivo: "no se pudo armar el clip desde la grabación local" };
 }
@@ -218,7 +225,7 @@ export async function clipDeInstante(p: { deviceId: string; instante: number; an
         ok = await cortarDesdeNvr(fuente.conn, String(fuente.ch), inicioMs, (finMs - inicioMs) / 1000, destino, { cfg: cfgCorte, marcaAgua: marca, topeMs: marca ? 75_000 : undefined });
         if (!ok) motivo = "el grabador no entregó grabación de ese horario";
     } else {
-        const r = await cortarDesdeAnillo(fuente.dir, inicioMs, finMs, destino);
+        const r = await cortarDesdeAnillo(fuente.dir, inicioMs, finMs, destino, p.para === "envio" ? await marcaAgua() : null);
         ok = r.ok; motivo = r.motivo || "";
     }
 
