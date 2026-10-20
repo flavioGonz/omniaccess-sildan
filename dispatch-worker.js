@@ -274,6 +274,60 @@ function openwaSendVideoUrl(baseUrl, apiKey, session, chatId, videoUrl, caption)
     return wahaPost(baseUrl, apiKey, "/api/sendVideo", { session, chatId, file: { mimetype: "video/mp4", filename: "clip.mp4", url: videoUrl }, caption }, 40000);
 }
 
+/*
+ * Telegram por SUBIDA, no por URL (20/10, Nico, al compartir un evento en San Nicolás: «Bad Request:
+ * failed to get HTTP URL content»). Mandar la URL obligaba a Telegram a bajar la foto o el clip del
+ * barrio, y no puede: San Nicolás no tiene dirección pública cargada (PUBLIC_BASE_URL cae en la del
+ * primer barrio) y los medios están detrás de la firma. Este proceso los tiene a mano (la web en
+ * 127.0.0.1, el clip en el mismo disco), así que los sube él: llega siempre, sin depender de afuera.
+ */
+async function telegramSubir(token, metodo, campo, buf, nombre, tipo, caption, extra) {
+    try {
+        const f = new FormData();
+        f.append("chat_id", String(extra && extra.chat_id ? extra.chat_id : ""));
+        f.append(campo, new Blob([buf], { type: tipo }), nombre);
+        if (caption) { f.append("caption", String(caption).slice(0, 1024)); f.append("parse_mode", "HTML"); }
+        if (campo === "animation" || campo === "video") f.append("supports_streaming", "true");
+        if (extra && extra.reply_markup) f.append("reply_markup", JSON.stringify(extra.reply_markup));
+        const r = await fetch(`https://api.telegram.org/bot${token}/${metodo}`, { method: "POST", body: f, signal: AbortSignal.timeout(60000) });
+        const d = await r.text();
+        return { ok: r.ok, body: d };
+    } catch (e) { return { ok: false, body: e.message || String(e) }; }
+}
+/** La foto del evento para Telegram: la de la web local, achicada y con el logo (la misma de WhatsApp). */
+async function telegramFotoSubida(token, chatId, snapshotPath, deviceId, caption, extra) {
+    const ruta = imagePathFor(snapshotPath, deviceId);
+    const b64 = ruta ? await fetchLocalBase64(ruta) : null;
+    if (!b64) return null;
+    return telegramSubir(token, "sendPhoto", "photo", Buffer.from(b64, "base64"), "evento.jpg", "image/jpeg", caption, { ...(extra || {}), chat_id: chatId });
+}
+/** El clip para Telegram: del disco que comparte con la web (lib/clip-instante DIR_CLIPS) o, si no está, por la web local. */
+async function telegramClipSubido(token, chatId, nombre, caption, extra) {
+    let buf = null;
+    try { buf = fs.readFileSync(path.join(process.env.CLIPS_DIR || path.join(os.tmpdir(), "omniaccess-clips"), nombre)); } catch { }
+    if (!buf) buf = await new Promise((resolve) => {
+        const req = http.request({ hostname: "127.0.0.1", port: 10001, path: "/api/clip/" + encodeURIComponent(nombre), method: "GET", timeout: 20000 }, (res) => {
+            if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+            const ch = []; res.on("data", (x) => ch.push(x)); res.on("end", () => resolve(Buffer.concat(ch)));
+        });
+        req.on("error", () => resolve(null)); req.on("timeout", () => { req.destroy(); resolve(null); }); req.end();
+    });
+    if (!buf || buf.length < 1500) return { ok: false, body: "el clip no está en el disco" };
+    return telegramSubir(token, "sendAnimation", "animation", buf, nombre, "video/mp4", caption, { ...(extra || {}), chat_id: chatId });
+}
+/** Lo que contesta Telegram, en castellano: el JSON crudo terminaba en la pantalla del operador. */
+function errorTelegram(body) {
+    let d = String(body || "");
+    try { const j = JSON.parse(d); d = j.description || d; } catch { }
+    if (/chat not found/i.test(d)) return "Telegram no encuentra el chat: el bot no está en el grupo, o la persona nunca le escribió.";
+    if (/kicked|not a member/i.test(d)) return "Sacaron al bot del grupo: hay que volver a agregarlo.";
+    if (/blocked by the user/i.test(d)) return "Esa persona bloqueó al bot.";
+    if (/unauthorized/i.test(d)) return "El token del bot no es válido (Centro de Notificaciones → Telegram).";
+    if (/failed to get HTTP URL content|wrong file identifier/i.test(d)) return "Telegram no pudo bajar la imagen del barrio.";
+    if (/too large|entity too large/i.test(d)) return "El archivo es demasiado grande para Telegram.";
+    return d.slice(0, 160);
+}
+
 // Telegram sendAnimation (by public URL).
 function telegramSendAnimation(token, chatId, animationUrl, caption, extra) {
     return new Promise((resolve) => {
@@ -400,15 +454,19 @@ async function handle(job) {
                 const chapa = String(p.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
                 const extraTg = filaBotones.length || chapa ? { reply_markup: { inline_keyboard: [filaBotones, chapa ? [{ text: "🚘 Historial de " + chapa, callback_data: "m:h:" + chapa }] : []].filter((f) => f.length) } } : undefined;
                 let r;
+                // Subidos, no por URL (ver telegramSubir). La URL queda sólo de último recurso.
                 if (clip) {
-                    r = await telegramSendAnimation(token, chat, firmarUrl(base.replace(/\/+$/, "") + "/api/clip/" + clip.nombre), htmlText, extraTg);
-                    if (!r || !r.ok) notaVideo = "sin video: Telegram rechazó el clip (" + String((r && r.body) || "").slice(0, 80) + ")";
+                    r = await telegramClipSubido(token, chat, clip.nombre, htmlText, extraTg);
+                    if (!r || !r.ok) notaVideo = "sin video: Telegram rechazó el clip (" + errorTelegram(r && r.body) + ")";
                 }
+                if (!r || !r.ok) r = await telegramFotoSubida(token, chat, p.snapshotPath, dj.deviceId, htmlText, extraTg);
                 if (!r || !r.ok) {
                     const img = imageUrlFor(base, p.snapshotPath, dj.deviceId);
-                    r = img ? await telegramSendPhoto(token, chat, img, htmlText, extraTg) : await telegramSend(token, chat, htmlText, extraTg);
+                    const conFoto = img ? await telegramSendPhoto(token, chat, img, htmlText, extraTg) : null;
+                    // Sin foto que llegue, el texto solo: mejor el aviso sin imagen que ningún aviso.
+                    r = conFoto && conFoto.ok ? conFoto : await telegramSend(token, chat, htmlText, extraTg);
                 }
-                if (!r.ok) throw new Error("Telegram: " + r.body);
+                if (!r.ok) throw new Error("Telegram: " + errorTelegram(r.body));
             } else if (dj.channel === "whatsapp") {
                 const url = await getSetting("OPENWA_URL", await getSetting("WAHA_URL", "http://192.168.99.22:2785"));
                 const key = await getSetting("OPENWA_API_KEY", await getSetting("WAHA_API_KEY", ""));

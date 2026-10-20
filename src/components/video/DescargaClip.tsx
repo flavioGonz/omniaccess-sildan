@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PreparandoEnvio } from "./PreparandoEnvio";
 import { motion } from "framer-motion";
 import { Download, Send, X, Check, Plus, Loader2, AlertTriangle, MessageCircle, Search, Film, Clock, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -39,10 +40,6 @@ export type VentanaClip = { antes: number; despues: number; topes: { antesMax: n
 const horaSeg = (ms: number) => new Date(ms).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 const fechaCorta = (ms: number) => new Date(ms).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric" });
 const acotar = (v: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(Number.isFinite(v) ? v : min)));
-/** Lo que tarda en salir un clip: el NVR lo entrega a tiempo real, más la espera del tramo y el envío. */
-const estimadoSeg = (seg: number) => seg + EDICION_SEG + 6;
-/** Lo que tarda en ponerle la intro y el logo (lib/clip-editado): ~10 s para un minuto de video. */
-const EDICION_SEG = 8;
 /** «20 s», «1 min 30 s». */
 const duracion = (s: number) => { const m = Math.floor(s / 60), r = s % 60; return m ? `${m} min${r ? ` ${r} s` : ""}` : `${r} s`; };
 
@@ -59,7 +56,7 @@ type Destino = "bajar" | "whatsapp" | "telegram";
 type ResultadoVista =
     | { ok: true; canal: "WhatsApp" | "Telegram"; enviados: { clave: string; nombre: string; ok: boolean; error?: string }[]; segundos: number; fuente: string; editado?: boolean }
     | { ok: false; error: string };
-type Fase = { tipo: "eligiendo" } | { tipo: "armando"; desde: number } | { tipo: "listo"; r: ResultadoVista };
+type Fase = { tipo: "eligiendo" } | { tipo: "armando"; desde: number; antes: number } | { tipo: "listo"; r: ResultadoVista };
 
 export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose, deviceId, camara, matricula, poster }: {
     instante: number;
@@ -127,10 +124,10 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
 
     const enviar = async () => {
         if (!deviceId || cuantos === 0) return;
-        setFase({ tipo: "armando", desde: Date.now() });
         // Se manda un máximo de ENVIO_MAX_SEG: se recorta parejo de los dos lados para que el instante quede donde estaba.
         const proporcion = a + d > ENVIO_MAX_SEG ? ENVIO_MAX_SEG / (a + d) : 1;
         const antesEnvio = Math.floor(a * proporcion);
+        setFase({ tipo: "armando", desde: Date.now(), antes: antesEnvio });
         const tramo = { deviceId, instante, antes: antesEnvio, despues: largoEnvio - antesEnvio, matricula };
         const fallo = (e: any) => ({ ok: false as const, error: String(e?.message || e) });
         let r: ResultadoVista;
@@ -271,7 +268,14 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                     </>
                 )}
 
-                {fase.tipo === "armando" && <EnCurso desde={fase.desde} segundos={largoEnvio} canal={destino === "telegram" ? "Telegram" : "WhatsApp"} />}
+                {fase.tipo === "armando" && (
+                    <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-3">
+                        <PreparandoEnvio poster={poster} camara={camara} instante={instante} segundos={largoEnvio} antes={fase.antes}
+                            canal={destino === "telegram" ? "Telegram" : "WhatsApp"} deviceId={deviceId} desde={fase.desde}
+                            conIntro={tg?.conMarca !== false} />
+                        <p className="text-center text-[11.5px] text-muted-foreground">El grabador entrega el video a tiempo real: {largoEnvio} s de clip tardan algo más que eso. No cierres este panel.</p>
+                    </div>
+                )}
                 {fase.tipo === "listo" && <Resultado r={fase.r} onOtro={() => setFase({ tipo: "eligiendo" })} onCerrar={onClose} />}
             </motion.aside>
         </div>
@@ -401,26 +405,6 @@ function PanelDestinatarios({ instante, camara, matricula, segundos, onCambio }:
             </div>
             <div className="rounded-[10px] bg-muted/50 border border-border px-3 py-2.5 text-[11.5px] text-muted-foreground flex items-start gap-2">
                 <Info size={13} className="shrink-0 mt-0.5 text-muted-foreground" /> <span>Va con el texto <span className="text-foreground/80">{leyenda}</span> · {segundos} s. Queda registrado en Despachos.</span>
-            </div>
-        </div>
-    );
-}
-
-/** Mientras se arma y se manda. La barra se basa en el tiempo esperado (el NVR va a tiempo real); el texto no inventa avances. */
-function EnCurso({ desde, segundos, canal }: { desde: number; segundos: number; canal: "WhatsApp" | "Telegram" }) {
-    const [ahora, setAhora] = useState(Date.now());
-    useEffect(() => { const i = setInterval(() => setAhora(Date.now()), 250); return () => clearInterval(i); }, []);
-    const pasaron = (ahora - desde) / 1000;
-    const total = estimadoSeg(segundos);
-    const p = Math.min(0.95, pasaron / total);
-    return (
-        <div className="flex-1 grid place-items-center px-8">
-            <div className="w-full">
-                <Loader2 size={28} className="animate-spin text-[var(--accion)] mx-auto" />
-                <div className="mt-4 text-center text-[16px] font-bold">{pasaron < segundos ? "Armando el clip desde la grabación…" : pasaron < segundos + EDICION_SEG ? "Sumando la intro de OmniAccess…" : `Enviando por ${canal}…`}</div>
-                <div className="mt-1 text-center text-[12px] text-muted-foreground tabular-nums">{Math.floor(pasaron)} s de ~{total} s</div>
-                <div className="mt-5 h-1.5 rounded-full bg-muted overflow-hidden"><motion.div className="h-full bg-[var(--accion)]" animate={{ width: `${p * 100}%` }} transition={{ ease: "linear", duration: 0.25 }} /></div>
-                <p className="mt-4 text-center text-[11.5px] text-muted-foreground">El grabador entrega el video a tiempo real: {segundos} s de clip tardan algo más que eso. No cierres este panel.</p>
             </div>
         </div>
     );
