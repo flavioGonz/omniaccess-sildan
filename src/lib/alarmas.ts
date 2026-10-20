@@ -46,6 +46,12 @@ export type Alarma = {
     notaPor: string | null;
     notaAt: string | null;
     accessEventId: string | null;
+    /**
+     * «Se quedó en la zona» (OmniVision): desde cuándo está y, cuando se fue, hasta cuándo y cómo
+     * terminó (salio · no-se-ve · reinicio; ver vision-reglas.js cerrarAvisoEstadia). Sin `hasta`,
+     * sigue ahí y el panel cuenta en vivo.
+     */
+    estadia?: { desde: string; hasta: string | null; segundos: number | null; como: string | null; umbral: number | null } | null;
 };
 
 export const NOMBRE_FUENTE: Record<FuenteAlarma, string> = { intrusion: "Intrusión", lpr: "LPR", patron: "Patrones", vision: "OmniVision" };
@@ -135,6 +141,7 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
             tono: (et?.tono as TonoAlarma) || "aviso",
             estado: a.atendidoAt ? "atendida" : "pendiente", atendidaPor: a.atendidoPor, atendidaAt: a.atendidoAt?.toISOString() || null,
             resultado: (atendida.get(`a:${a.id}`)?.resultado as string) || null, accessEventId: a.accessEventId,
+            estadia: estadiaDe(a.datos),
             // La nota de gestión; si no hay, la que dejó quien la atendió desde Visitas.
             ...notaDe(atendida.get(`a:${a.id}`), a.nota ? { nota: a.nota, por: a.atendidoPor, ts: a.atendidoAt } : null),
         });
@@ -157,11 +164,37 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
     return out.sort((a, b) => (a.ts < b.ts ? 1 : -1));
 }
 
+function estadiaDe(datos: unknown): Alarma["estadia"] {
+    const d = (datos || {}) as any;
+    if (typeof d.desde !== "string") return null;
+    return { desde: d.desde, hasta: typeof d.hasta === "string" ? d.hasta : null, segundos: Number.isFinite(d.segundos) ? d.segundos : null, como: d.como || null, umbral: Number.isFinite(d.umbral) ? d.umbral : null };
+}
+
 type FilaGestion = { nota: string | null; por: string | null; ts: Date; resultado?: string | null } | null | undefined;
 function notaDe(g: FilaGestion, previa?: { nota: string; por: string | null; ts: Date | null } | null) {
     if (g?.nota) return { nota: g.nota, notaPor: g.por, notaAt: g.ts.toISOString() };
     if (previa) return { nota: previa.nota, notaPor: previa.por, notaAt: previa.ts?.toISOString() || null };
     return { nota: null, notaPor: null, notaAt: null };
+}
+
+/** Lo que se decidió de un auto adentro (Atípicos, Desconocidos…): se guarda sobre su última lectura, `l:<evento>`. */
+export type GestionAuto = { resultado: "real" | "falsa" | null; atendida: boolean; nota: string | null; por: string | null; ts: string };
+
+/**
+ * La gestión de las lecturas que muestran las listas de quién está adentro (20/10, Nico: «no sé
+ * cómo moderar las alarmas LPR… las de intrusión sí»). Un atípico no es una fila de alarma: es un
+ * auto adentro con su última lectura. La decisión (real / falsa) y la nota se guardan sobre esa
+ * lectura con la misma clave que una alarma LPR (`l:<id del evento>`), así una lectura de lista
+ * negra marcada en Alarmas aparece marcada también en Atípicos, y al revés.
+ */
+export async function gestionesDeLecturas(eventos: (string | null | undefined)[]): Promise<Record<string, GestionAuto>> {
+    const claves = [...new Set(eventos.filter(Boolean))].map((id) => `l:${id}`);
+    if (!claves.length) return {};
+    const filas = await prisma.alarmaAtendida.findMany({ where: { clave: { in: claves } } }).catch(() => []);
+    return Object.fromEntries(filas.map((g) => [g.clave.slice(2), {
+        resultado: g.resultado === "real" || g.resultado === "falsa" ? g.resultado : null,
+        atendida: !!g.atendida, nota: g.nota || null, por: g.por || null, ts: g.ts.toISOString(),
+    }]));
 }
 
 /** La gestión guardada de una alarma (la ficha de intrusión la pide al abrirse). */

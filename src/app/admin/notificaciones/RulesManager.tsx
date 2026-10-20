@@ -23,6 +23,7 @@ import {
     getDispositivosParaReglas,
 } from "@/app/actions/queue";
 import { getEnabledModules } from "@/app/actions/modules";
+import { TIPOS_CHAPA } from "@/lib/categoria-chapa";
 
 /**
  * Las reglas de notificación: qué evento, de qué cámara, en qué horario, sale por qué canal.
@@ -42,6 +43,7 @@ type Rule = {
     endTime: string; channels: string; minSeverity: string | null; cooldownSec: number; dedupe: boolean;
     modulo?: string; eventos?: string | null; lastFiredAt?: string | Date | null;
     verificacion?: string;
+    tiposChapa?: string | null;
 };
 type Dev = { id: string; name: string; deviceType?: string };
 
@@ -99,7 +101,7 @@ const MODULO_POR_DEFECTO = "LPR";
 const vacia = (modulo: string) => ({
     name: "", enabled: true, modulo, eventos: "", deviceId: "", channelName: "", metric: "aforo", operator: ">=",
     threshold: 5, daysOfWeek: TODOS_LOS_DIAS, startTime: "00:00", endTime: "23:59",
-    channels: "whatsapp", minSeverity: "", cooldownSec: 60, dedupe: true, verificacion: "avisar",
+    channels: "whatsapp", minSeverity: "", cooldownSec: 60, dedupe: true, verificacion: "avisar", tiposChapa: "",
 });
 
 function listaCsv(csv: string | null | undefined) { return String(csv || "").split(",").map((x) => x.trim()).filter(Boolean); }
@@ -113,8 +115,9 @@ function diasLegibles(csv: string) {
 function queDispara(r: Rule) {
     if ((r.modulo || "QUEUE") === "QUEUE") return `${METRICAS.find((m) => m.v === r.metric)?.l || r.metric} ${r.operator} ${r.threshold}`;
     const ev = listaCsv(r.eventos);
-    if (!ev.length) return "Todos los eventos";
-    return ev.map((e) => EVENTOS[r.modulo || ""]?.find((x) => x.v === e)?.l || e).join(" · ");
+    const tipos = listaCsv(r.tiposChapa).map((t) => TIPOS_CHAPA.find((x) => x.id === t)?.rotulo || t);
+    const base = !ev.length ? "Todos los eventos" : ev.map((e) => EVENTOS[r.modulo || ""]?.find((x) => x.v === e)?.l || e).join(" · ");
+    return tipos.length ? `${base} · ${tipos.join(", ")}` : base;
 }
 
 /** Rótulo de un grupo de botones: como el de CajonCampo, pero sin <label> (un label con
@@ -185,11 +188,11 @@ export default function RulesManager() {
     const nombreEquipo = (id: string | null) => id ? (equipos.find((d) => d.id === id)?.name || "Cámara borrada") : "Todas";
 
     const abrir = (r: Rule | null) => {
-        if (r) setForm({ ...r, modulo: r.modulo || "QUEUE", eventos: r.eventos || "", deviceId: r.deviceId || "", channelName: r.channelName || "", minSeverity: r.minSeverity || "", verificacion: r.verificacion || "avisar" });
+        if (r) setForm({ ...r, modulo: r.modulo || "QUEUE", eventos: r.eventos || "", deviceId: r.deviceId || "", channelName: r.channelName || "", minSeverity: r.minSeverity || "", verificacion: r.verificacion || "avisar", tiposChapa: r.tiposChapa || "" });
         else setForm(vacia(moduloInicial));
         setAbierta(r ? r.id : "nueva");
     };
-    const alternar = (campo: "daysOfWeek" | "channels" | "eventos", v: string, orden: string[]) => {
+    const alternar = (campo: "daysOfWeek" | "channels" | "eventos" | "tiposChapa", v: string, orden: string[]) => {
         const set = new Set(listaCsv(form[campo]));
         set.has(v) ? set.delete(v) : set.add(v);
         setForm({ ...form, [campo]: orden.filter((x) => set.has(x)).join(",") });
@@ -313,7 +316,7 @@ export default function RulesManager() {
                         <CajonSeccion titulo="Qué la dispara" icono={Zap}>
                             <Rotulo texto="Módulo" pista={<Ayuda que="De qué parte del sistema salen los eventos que mira esta regla. Cambiarlo borra los eventos elegidos, porque cada módulo tiene los suyos." ejemplo="Matrículas para la barrera y las cámaras de calle; Intrusión para las perimetrales." />}>
                                 <div className="flex flex-wrap gap-1.5">
-                                    {modulosVisibles.map((m) => <button key={m.v} type="button" onClick={() => setForm({ ...form, modulo: m.v, eventos: "", deviceId: "" })} className={pastilla(form.modulo === m.v)}>{m.l}</button>)}
+                                    {modulosVisibles.map((m) => <button key={m.v} type="button" onClick={() => setForm({ ...form, modulo: m.v, eventos: "", deviceId: "", tiposChapa: "" })} className={pastilla(form.modulo === m.v)}>{m.l}</button>)}
                                 </div>
                             </Rotulo>
 
@@ -328,7 +331,18 @@ export default function RulesManager() {
                                     </div>
                                     {!listaCsv(form.eventos).length && <p className="mt-1.5 text-[11.5px] tono-aviso">Sin eventos marcados: dispara con todos.</p>}
                                 </Rotulo>
-                            ) : (
+                            ) : null}
+                            {/* Tipo de chapa (18/10): «avisame cuando entre una ambulancia o la policía». */}
+                            {form.modulo === "LPR" ? (
+                                <Rotulo texto="Tipo de chapa" pista={<Ayuda que="Sólo con estas chapas, por sus letras: en Montevideo es seguro (STX taxi, SMI policía, SAM ambulancia, SCD diplomático); en el interior, probable. Sin ninguno marcado, cualquier chapa." ejemplo="Policía / Bomberos y Ambulancia con el evento «Entrada»: un aviso cuando entra un servicio de emergencia." />}>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {TIPOS_CHAPA.map((t) => (
+                                            <button key={t.id} type="button" onClick={() => alternar("tiposChapa", t.id, TIPOS_CHAPA.map((x) => x.id))} className={pastilla(listaCsv(form.tiposChapa).includes(t.id))}>{t.rotulo}</button>
+                                        ))}
+                                    </div>
+                                </Rotulo>
+                            ) : null}
+                            {!esFilas ? null : (
                                 <div className="grid grid-cols-2 gap-3">
                                     <Rotulo texto="Qué se mide" pista={<Ayuda que="El número del contador de la fila que se compara contra el umbral." ejemplo="Aforo: cuántas personas hay ahora en la fila." />}>
                                         <Select value={form.metric} onValueChange={(v) => setForm({ ...form, metric: v })}>

@@ -1,4 +1,5 @@
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
+const { firmarUrl } = require("./firma-medios");
 const { Readable } = require("stream");
 const axios = require("axios");
 const crypto = require("crypto");
@@ -39,11 +40,11 @@ async function getS3Client(prisma) {
     ]);
 
     return new S3Client({
-        endpoint: endpoint?.value || process.env.S3_ENDPOINT || "http://192.168.99.108:9000",
+        endpoint: endpoint?.value || process.env.S3_ENDPOINT || "",
         region: "us-east-1",
         credentials: {
-            accessKeyId: accessKey?.value || process.env.S3_ACCESS_KEY || "root",
-            secretAccessKey: secretKey?.value || process.env.S3_SECRET_KEY || "flavio20",
+            accessKeyId: accessKey?.value || process.env.S3_ACCESS_KEY || "",
+            secretAccessKey: secretKey?.value || process.env.S3_SECRET_KEY || "",
         },
         forcePathStyle: true,
     });
@@ -684,7 +685,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             const ultimo = dets[0];
             caption += `\n🚨 *Más reciente:* ${TIPO[ultimo.type] || ultimo.type} en *${nombre[ultimo.deviceId] || '¿cámara?'}*${ultimo.label && CLASE[ultimo.label] ? ' (' + CLASE[ultimo.label] + ')' : ''}\n📅 ${hhmm(ultimo.timestamp)}\n━━━━━━━━━━━━━━━━━━━━`;
             // La captura vive en MinIO (bucket intrusion) y snapshotPath ya es /api/files/intrusion/<id>.jpg
-            const foto = ultimo.snapshotPath ? (ultimo.snapshotPath.startsWith('http') ? ultimo.snapshotPath : `${serverBaseUrl}${ultimo.snapshotPath}`) : null;
+            const foto = ultimo.snapshotPath ? (ultimo.snapshotPath.startsWith('http') ? ultimo.snapshotPath : firmarUrl(`${serverBaseUrl}${ultimo.snapshotPath}`)) : null;
             if (foto) { try { await sendImage(foto, caption); } catch (e) { console.error('[WAHA] foto intrusión:', e.message); await sendText(caption); } }
             else await sendText(caption);
             res.writeHead(200); res.end('OK'); return;
@@ -757,7 +758,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                     const bucketConf = await prisma.setting.findUnique({ where: { key: bucketSetting } });
                     const bucket = bucketConf?.value || (lastEvent.accessType === 'FACE' ? 'face' : 'lpr');
 
-                    imagePublicUrl = `${serverBaseUrl}/api/files/${bucket}/${cleanKey}`;
+                    imagePublicUrl = firmarUrl(`${serverBaseUrl}/api/files/${bucket}/${cleanKey}`);
                 }
 
                 if (imagePublicUrl) {
@@ -818,7 +819,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                             const bucketConf = await prisma.setting.findUnique({ where: { key: bucketSetting } });
                             const bucket = bucketConf?.value || (eventWithImage.accessType === 'FACE' ? 'face' : 'lpr');
 
-                            imagePublicUrl = `${serverBaseUrl}/api/files/${bucket}/${cleanKey}`;
+                            imagePublicUrl = firmarUrl(`${serverBaseUrl}/api/files/${bucket}/${cleanKey}`);
                             caption += `\n📸 *Foto del evento más reciente*`;
                         } else {
                             caption += `\n⚠️ No hay fotos recientes.`;

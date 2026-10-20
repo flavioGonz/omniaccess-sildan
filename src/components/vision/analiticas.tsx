@@ -1,7 +1,7 @@
 "use client";
 
 import {
-    ScanEye, ScanSearch, Shapes, PersonStanding, Waypoints, Tag, Sparkles, Move, User, Users, Car, PawPrint,
+    ScanEye, ScanSearch, Shapes, PersonStanding, Waypoints, Tag, Sparkles, Move, User, Users, Car, PawPrint, SquareParking,
     Backpack, TrafficCone, Sofa, Utensils, Volleyball, Truck, Bike, Bus, TrainFront, Sailboat, Plane, Dog,
     Cat, Bird, Briefcase, Luggage, Umbrella, Smartphone, Shirt, Laptop, Book, Scissors, Baby, Fan, Brush,
     Octagon, FireExtinguisher, ParkingMeter, Armchair, Flower2, Bed, Table, Toilet, Tv, TvMinimal, Mouse,
@@ -30,7 +30,7 @@ export const ICONOS: Record<string, LucideIcon> = {
     ParkingMeter, Armchair, Flower2, Bed, Table, Toilet, Tv, TvMinimal, Mouse, Keyboard, Microwave, CookingPot, Bath,
     Refrigerator, Clock, Flower, Milk, Wine, Coffee, UtensilsCrossed, Soup, Banana, Apple, Sandwich, Citrus, Salad,
     Carrot, Pizza, Donut, Cake, Footprints, MountainSnow, Wind, Trophy, Hand, Waves, ShieldCheck, ScanLine, Layers,
-    Type, MessageSquareText, ListVideo, Spline, PackageMinus, ArrowLeftRight, Timer, Flame, HardHat, TriangleAlert, Gauge, GraduationCap,
+    Type, MessageSquareText, ListVideo, Spline, PackageMinus, ArrowLeftRight, Timer, Flame, HardHat, TriangleAlert, Gauge, GraduationCap, SquareParking,
 };
 export function Ic({ n, size = 16, className }: { n: string; size?: number; className?: string }) {
     const C = ICONOS[n] || ScanSearch;

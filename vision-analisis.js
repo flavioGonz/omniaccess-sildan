@@ -75,6 +75,57 @@ function emitir(evento, datos) {
  * @param {object} o
  * @param o.estado  () => { verificar, lpr, atributos, segmentar, detectar } — lo que hoy está prendido
  */
+/**
+ * «¿Es un taxi?» por cómo se ve (18/10, Nico: «que el motor LPR catalogue mejor las chapas de
+ * Uruguay y sus tipos»). La chapa dice el tipo por sus letras (lib/categoria-chapa), pero una
+ * lectura equivocada inventa una categoría (en el lab un «SAM9863», ambulancia, era SDH 9863) y en
+ * el interior el prefijo sólo es «probable». El aspecto es una segunda prueba que no depende del OCR.
+ *
+ * Se compara la huella SigLIP del vehículo (la misma de la búsqueda) con frases de siete clases de
+ * vehículo. Medido el 18/10 en el lab, uniendo cada acceso LPR con su pista de OmniVision: de 14
+ * taxis STX, 11 dieron «taxi» como la clase más parecida; de 284 particulares, ninguno. Las otras
+ * clases (ambulancia, policía, ómnibus) NO se afirman: con 2 o 3 casos no hay medición, y el 3,5 %
+ * de los particulares salía «patrullero». Sólo se guarda el taxi, como atributo del vehículo
+ * (`servicio`), que el historial muestra como rasgo y usa en el filtro de tipo de chapa.
+ *
+ * Las frases son las de la medición: no cambiarlas sin volver a medir (vision-medir/siglip-cat).
+ */
+const SERVICIO_CLASES = {
+    taxi: ["un taxi", "a taxi cab with a roof sign"],
+    particular: ["un auto particular", "a private car"],
+    ambulancia: ["una ambulancia", "an ambulance"],
+    policia: ["un patrullero de policía", "a police car"],
+    omnibus: ["un ómnibus", "a bus"],
+    furgon: ["una camioneta de transporte de pasajeros", "a passenger van"],
+    camion: ["un camión", "a truck"],
+};
+/**
+ * Cuánto le tiene que ganar «taxi» a «auto particular» (coseno). Primero fue 0,005 (taxis +0,028 de
+ * mediana; particulares −0,015 en el p90) y en producción dio 116 marcados de los que, cruzados con
+ * la lectura LPR del mismo instante, 16 de 26 eran STX: 62 %. Los que no eran taxi quedaban todos
+ * debajo de 0,02, salvo tres (y uno, SYA0523, era el taxi STX0523 mal leído). Con 0,02: ~85 %.
+ */
+const SERVICIO_MARGEN_TAXI = 0.02;
+/** De a cuántas huellas viejas se repasan en un rato libre (sólo cuentas: no toca la GPU). */
+const SERVICIO_LOTE = 400;
+
+function normalizarV(v) { let n = 0; for (const x of v) n += x * x; n = Math.sqrt(n) || 1; return v.map((x) => x / n); }
+/** El servicio que se le ve al vehículo, o null. `v` normalizado; `textos` de vectoresServicio(). */
+function servicioDe(v, textos) {
+    let mejor = null, sMejor = -Infinity;
+    const s = {};
+    for (const [k, t] of Object.entries(textos)) {
+        let d = 0; for (let i = 0; i < t.length; i++) d += t[i] * v[i];
+        s[k] = d; if (d > sMejor) { sMejor = d; mejor = k; }
+    }
+    const margen = s.taxi - s.particular;
+    return mejor === "taxi" && margen >= SERVICIO_MARGEN_TAXI ? { valor: "taxi", margen: Math.round(margen * 10000) / 10000 } : null;
+}
+function conServicio(atributos, sv) {
+    const lista = Array.isArray(atributos) ? atributos.filter((a) => a?.id !== "servicio") : [];
+    return [...lista, { id: "servicio", nombre: "Servicio", valor: sv.valor, prob: Math.min(0.99, 0.6 + sv.margen * 8), dudoso: false, margen: sv.margen }];
+}
+
 /** int8 con su escala: v ≈ q × escala. Para ordenar por coseno alcanza y ocupa la cuarta parte. */
 function aInt8(v) {
     const max = Math.max(...v.map((x) => Math.abs(x))) || 1;
@@ -96,7 +147,58 @@ function filtroCamaras(p) {
 }
 
 function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () => null }) {
-    const contadores = { verificadas: 0, lecturas: 0, huellas: 0, sinFoto: 0, errores: 0, ultimoError: null, msUltima: null };
+    const contadores = { verificadas: 0, lecturas: 0, huellas: 0, taxis: 0, sinFoto: 0, errores: 0, ultimoError: null, msUltima: null };
+    /** Las frases de SERVICIO_CLASES ya vectorizadas (una vez por proceso; se reintenta si omni-vision no estaba). */
+    let textosServicio = null;
+    async function vectoresServicio() {
+        if (textosServicio) return textosServicio;
+        const out = {};
+        for (const [k, frases] of Object.entries(SERVICIO_CLASES)) {
+            const r = await fetch(`${vision}/vector_texto`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ textos: frases }), signal: AbortSignal.timeout(20000) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || !Array.isArray(j.vectores)) throw new Error(j.error || `omni-vision respondió ${r.status}`);
+            const v = new Array(j.vectores[0].length).fill(0);
+            for (const x of j.vectores) x.forEach((y, i) => (v[i] += y));
+            out[k] = normalizarV(v);
+        }
+        return (textosServicio = out);
+    }
+    /** Se anota el taxi en el vehículo. Nunca se borra un servicio puesto antes. */
+    async function anotarServicio(id, atributos, vector) {
+        const sv = servicioDe(normalizarV(vector), await vectoresServicio());
+        if (!sv) return false;
+        await prisma.objetoVisto.update({ where: { id }, data: { atributos: conServicio(atributos, sv) } });
+        contadores.taxis++;
+        return true;
+    }
+    /** El repaso de las huellas que ya estaban: hacia atrás desde que arrancó el proceso, de a lotes. */
+    let repasoHasta = sinZona(Date.now());
+    let repasoTerminado = false;
+    async function unRepasoServicio() {
+        if (repasoTerminado) return false;
+        const filas = await prisma.$queryRaw`
+            SELECT o.id, o.atributos, o."primeraVez", h.vector, h.escala FROM "ObjetoVisto" o JOIN "HuellaObjeto" h ON h."objetoId" = o.id
+             WHERE o.grupo = 'vehiculo' AND o."primeraVez" < ${repasoHasta}::timestamp
+             ORDER BY o."primeraVez" DESC LIMIT ${SERVICIO_LOTE}`;
+        if (!filas.length) { repasoTerminado = true; log(`servicio: repaso terminado (${contadores.taxis} taxis)`); return false; }
+        const textos = await vectoresServicio();
+        for (const f of filas) {
+            const puesto = Array.isArray(f.atributos) ? f.atributos.find((a) => a?.id === "servicio") : null;
+            // Uno marcado con un umbral anterior más bajo: se le saca (el umbral cambia, la marca vieja no debe quedar).
+            if (puesto && typeof puesto.margen === "number" && puesto.margen < SERVICIO_MARGEN_TAXI) {
+                await prisma.objetoVisto.update({ where: { id: f.id }, data: { atributos: f.atributos.filter((a) => a?.id !== "servicio") } }).catch(() => null);
+                continue;
+            }
+            if (puesto) continue;
+            const q = new Int8Array(f.vector.buffer, f.vector.byteOffset, f.vector.byteLength);
+            const sv = servicioDe(normalizarV(Array.from(q, (x) => x * f.escala)), textos);
+            if (!sv) continue;
+            await prisma.objetoVisto.update({ where: { id: f.id }, data: { atributos: conServicio(f.atributos, sv) } }).catch(() => null);
+            contadores.taxis++;
+        }
+        repasoHasta = sinZona(new Date(filas[filas.length - 1].primeraVez).getTime());
+        return true;
+    }
     /** Recortes que no se pudieron bajar (la retención los borró): no se reintentan en esta vuelta del proceso. */
     const sinRecorte = new Set();
 
@@ -223,7 +325,7 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
         // Los que no se pudieron bajar se excluyen en la consulta: filtrarlos después de un LIMIT
         // dejaba la cola trabada si los primeros veinte eran todos de ésos.
         const filas = await prisma.$queryRaw`
-            SELECT o.id, o.recorte FROM "ObjetoVisto" o LEFT JOIN "HuellaObjeto" h ON h."objetoId" = o.id
+            SELECT o.id, o.recorte, o.grupo, o.atributos FROM "ObjetoVisto" o LEFT JOIN "HuellaObjeto" h ON h."objetoId" = o.id
             WHERE h."objetoId" IS NULL AND o.recorte IS NOT NULL AND o."ultimaVez" < ${sinZona(Date.now() - PISTA_CERRADA_MS)}::timestamp
               AND NOT (o.id = ANY(${[...sinRecorte]}::text[]))
             ORDER BY o."primeraVez" DESC LIMIT 1`;
@@ -236,6 +338,7 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
         if (!r.ok || !Array.isArray(j.vector)) throw new Error(j.error || `omni-vision respondió ${r.status}`);
         await prisma.huellaObjeto.upsert({ where: { objetoId: o.id }, create: { objetoId: o.id, ...aInt8(j.vector) }, update: aInt8(j.vector) });
         contadores.huellas++;
+        if (o.grupo === "vehiculo") await anotarServicio(o.id, o.atributos, j.vector).catch((e) => { contadores.ultimoError = `servicio: ${e.message}`; });
         return true;
     }
 
@@ -251,6 +354,8 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
                     if (e.verificar) hizo = await unaIntrusion();
                     if (!hizo && e.lpr) hizo = await unaLectura();
                     if (!hizo && e.huellas) hizo = await unaHuella();
+                    // En los ratos libres, el taxi de las huellas que ya estaban (sólo cuentas, sin GPU).
+                    if (!hizo && e.huellas) hizo = await unRepasoServicio();
                 }
             } catch (err) {
                 contadores.errores++; contadores.ultimoError = err.message;

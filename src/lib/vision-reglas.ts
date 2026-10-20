@@ -1,6 +1,6 @@
 /**
  * Las reglas de las analíticas de visión: conteo por línea, sentido contrario, tiempo de
- * permanencia y aglomeración. Una regla es una cámara, una geometría (línea o zona) y unos
+ * permanencia, aglomeración, fila, y las de intrusión propias. Una regla es una cámara, una geometría (línea o zona) y unos
  * números; vision-worker (vision-reglas.js) las aplica sobre el seguimiento de cada cámara y
  * escribe lo que pasa en EventoVision.
  *
@@ -19,7 +19,7 @@
 
 export const CLAVE_REGLAS = "VISION_REGLAS";
 
-export type TipoRegla = "conteo" | "sentido" | "permanencia" | "aglomeracion" | "cruce" | "intrusion" | "merodeo" | "retirado";
+export type TipoRegla = "conteo" | "sentido" | "permanencia" | "aglomeracion" | "fila" | "cruce" | "intrusion" | "merodeo" | "retirado" | "animal" | "dejado" | "suelo" | "trepar" | "epp";
 export type Punto = [number, number];
 export type Sentido = "ab" | "ba";
 
@@ -39,8 +39,27 @@ export type ReglaVision = {
     clases: string[];
     /** Permanencia: desde cuántos segundos adentro avisa. Aglomeración: cuánto tiene que durar. */
     segundos?: number;
-    /** Aglomeración: desde cuántas personas a la vez. */
+    /** Aglomeración: desde cuántas personas a la vez. Fila: el límite (aforo máximo). */
     maximo?: number;
+    /**
+     * Fila: lo que en una cámara Bosch se configura en la tarea de aforo de la cámara, acá en la
+     * regla. `rebote`: segundos que un número nuevo tiene que sostenerse para valer («Tiempo de
+     * rebote»). `escalarMin`: con la fila llena seguida esos minutos, un segundo aviso «avisar al
+     * supervisor» (QUEUE_ESCALATE_MIN en Filas). `enfrioMin`: entre dos avisos de fila llena
+     * (cooldown de la alerta de Filas).
+     */
+    rebote?: number;
+    /**
+     * Fila: segundos que una persona tiene que llevar adentro de la zona para contar (el que la
+     * cruza caminando no hace fila). 0 = cuenta en cuanto entra, como el aforo de la cámara.
+     */
+    permanencia?: number;
+    escalarMin?: number;
+    enfrioMin?: number;
+    /** Animal en zona: sólo avisa si no hay ninguna persona en la zona (el perro con su dueño no está suelto). */
+    sinPersona?: boolean;
+    /** Casco y chaleco: qué tiene que llevar la persona en la zona. */
+    requiere?: ("casco" | "chaleco")[];
     /** Si además de registrarlo crea un aviso a la guardia (consola, Control LPR, Visitas). */
     avisar: boolean;
     /** Cruce propio: en qué sentido avisa («ambos», o sólo de A a B, o de B a A). */
@@ -84,6 +103,21 @@ export const TIPOS_REGLA: Record<TipoRegla, {
         queHace: "Avisa cuando hay más personas juntas de lo indicado en la zona (o en todo el cuadro), durante un rato.",
         clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 30, maximoDefecto: 5,
     },
+    /*
+     * Conteo de fila (18-19/10, Nico: «falta la analítica de control de filas, tipo zona»; «no
+     * quiero cambiar el modo de filas, quiero que copies lo que tiene ese modo, para desarrollar
+     * nuestra analítica de OmniVision»). Es la analítica de aforo de una cámara Bosch del modo
+     * Filas, hecha por OmniVision y con todo adentro de Visión: el aforo de la zona con su tiempo
+     * de rebote, las entradas y salidas por el borde de la zona (EnteringField / LeavingField), el
+     * límite con su aviso, el enfriamiento y el escalamiento al supervisor, y el horario de
+     * atención que reinicia las entradas y salidas al abrir. Se ve en Visión → Filas. El modo Filas
+     * no se toca.
+     */
+    fila: {
+        nombre: "Conteo de fila", analitica: "fila", geometria: "zona",
+        queHace: "Cuenta las personas en la zona (la fila de una caja, un mostrador, la garita) con su tiempo de rebote, cuenta las que entran y salen por el borde, y avisa a la guardia cuando llega al límite —y al supervisor si sigue llena—. Se ve en Visión → Filas.",
+        clasesDefecto: ["person"], avisarDefecto: true, maximoDefecto: 10,
+    },
     cruce: {
         nombre: "Cruce de línea propio", analitica: "linea-propia", geometria: "linea",
         queHace: "Avisa cuando algo cruza la línea (en los dos sentidos o en uno), con la foto. La línea es de OmniAccess, no de la cámara: anda en cualquier marca y no hay que configurar el equipo. Con horario, se arma sólo de noche.",
@@ -104,11 +138,51 @@ export const TIPOS_REGLA: Record<TipoRegla, {
         queHace: "Aprende lo que está quieto en la zona (una bicicleta, una moto, una silla, un bulto) y avisa si desaparece, con la foto de antes y la de después. Si alguien se para delante, no cuenta como desaparecido.",
         clasesDefecto: ["bicycle", "motorcycle", "backpack", "suitcase", "handbag", "chair", "bench", "potted plant"], avisarDefecto: true, segundosDefecto: 20,
     },
+    /*
+     * Fase 2 de las «próximas» del catálogo (19/10, Nico: «vamos por fase 2»): animal en zona y
+     * objetos dejados, sobre lo que el detector ya ve. Las dos avisan con la foto marcada.
+     */
+    animal: {
+        nombre: "Animal en zona", analitica: "animal", geometria: "zona",
+        queHace: "Avisa cuando un perro, gato, caballo, vaca u oveja anda en la zona unos segundos sin ninguna persona: perro suelto, animal en la piscina, caballo en la calle. Una vez por animal.",
+        clasesDefecto: ["dog", "cat", "horse", "cow", "sheep"], avisarDefecto: true, segundosDefecto: 3,
+    },
+    dejado: {
+        nombre: "Objeto dejado", analitica: "dejados", geometria: "zona",
+        queHace: "Avisa cuando aparece un bolso, una mochila o una valija en la zona y se queda quieto los minutos indicados sin nadie al lado. Lo que ya estaba al crear la regla no cuenta.",
+        clasesDefecto: ["backpack", "handbag", "suitcase"], avisarDefecto: true, segundosDefecto: 120,
+    },
+    /*
+     * Fase 3 (19/10): las que miran el cuerpo. Suelo y trepando piden la pose del cuadro (sólo con
+     * una persona en la zona); casco y chaleco usan los atributos que ya calcula el registro.
+     * Antes de prometerlas se miden sus falsas alarmas en el lab (reglas sin aviso).
+     */
+    suelo: {
+        nombre: "Persona en el suelo", analitica: "persona-suelo", geometria: "zona",
+        queHace: "Avisa cuando una persona queda acostada en la zona los segundos indicados: alguien que se cayó en la calle, en la plaza o en un espacio común. Usa la pose (la posición del cuerpo).",
+        clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 20,
+    },
+    trepar: {
+        nombre: "Persona trepando", analitica: "trepar", geometria: "zona",
+        queHace: "Avisa cuando una persona junto al cerco o al muro (la zona dibujada sobre él) tiene las dos manos por encima de los hombros unos segundos seguidos: alguien trepando. Usa la pose. Con horario, sólo de noche.",
+        clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 2,
+    },
+    epp: {
+        nombre: "Casco y chaleco", analitica: "epp", geometria: "zona",
+        queHace: "Avisa cuando una persona anda en la obra (la zona) sin casco o sin chaleco reflectivo. Se decide con varias miradas de la misma persona, no con una sola foto.",
+        clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 10,
+    },
 };
 
 /** Merodeo: desde 20 s (menos es pasar caminando) hasta 1 h. Retirado: cuánto tiene que faltar, de 5 s a 10 min. */
 const SEGUNDOS_MERODEO = { min: 20, max: 3600 };
 const SEGUNDOS_RETIRADO = { min: 5, max: 600 };
+/** Objeto dejado: cuánto tiene que quedar solo, de 10 s a 1 h. */
+const SEGUNDOS_DEJADO = { min: 10, max: 3600 };
+/** Suelo: de 5 s a 10 min acostada. Trepando: de 1 a 30 s con las manos arriba. Casco y chaleco: de 5 s a 10 min en la obra. */
+const SEGUNDOS_SUELO = { min: 5, max: 600 };
+const SEGUNDOS_TREPA = { min: 1, max: 30 };
+const SEGUNDOS_EPP = { min: 5, max: 600 };
 
 /** La intrusión avisa casi en el acto: su demora va de 0 a 2 min, no desde los 5 s de la permanencia. */
 const SEGUNDOS_INTRUSION = { min: 0, max: 120 };
@@ -132,6 +206,10 @@ export const CLASES_REGLA: { clase: string; nombre: string }[] = [
     { clase: "motorcycle", nombre: "Motos" },
     { clase: "bicycle", nombre: "Bicicletas" },
     { clase: "dog", nombre: "Perros" },
+    { clase: "cat", nombre: "Gatos" },
+    { clase: "horse", nombre: "Caballos" },
+    { clase: "cow", nombre: "Vacas" },
+    { clase: "sheep", nombre: "Ovejas" },
 ];
 /** Lo que se puede llevar alguien: las clases que ofrece «Objeto retirado» además de las de arriba. */
 export const CLASES_OBJETO: { clase: string; nombre: string }[] = [
@@ -178,18 +256,35 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
             if (tipo === "cruce") regla.sentidos = r?.sentidos === "ab" || r?.sentidos === "ba" ? r.sentidos : "ambos";
         } else {
             const zona = (Array.isArray(r?.zona) ? r.zona : []).map(punto).filter(Boolean) as Punto[];
-            if ((tipo === "permanencia" || tipo === "intrusion" || tipo === "retirado") && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
+            if ((tipo === "permanencia" || tipo === "intrusion" || tipo === "retirado" || tipo === "fila" || tipo === "animal" || tipo === "dejado" || tipo === "suelo" || tipo === "trepar" || tipo === "epp") && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
             regla.zona = zona.length >= 3 ? zona.slice(0, 30) : null;
-            if (tipo === "intrusion") {
+            if (tipo === "fila") {
+                // Las mismas perillas que la tarea de aforo de la cámara y la alerta de Filas.
+                const n = (v: unknown, d: number, min: number, max: number) => { const x = Number(v); return Math.round(Math.max(min, Math.min(max, Number.isFinite(x) && v !== "" && v != null ? x : d))); };
+                regla.clases = ["person"];
+                regla.maximo = n(r?.maximo, t.maximoDefecto ?? 10, FILA.maximo.min, FILA.maximo.max);
+                regla.rebote = n(r?.rebote, FILA.rebote.defecto, FILA.rebote.min, FILA.rebote.max);
+                regla.permanencia = n(r?.permanencia, FILA.permanencia.defecto, FILA.permanencia.min, FILA.permanencia.max);
+                regla.escalarMin = n(r?.escalarMin, FILA.escalarMin.defecto, FILA.escalarMin.min, FILA.escalarMin.max);
+                regla.enfrioMin = n(r?.enfrioMin, FILA.enfrioMin.defecto, FILA.enfrioMin.min, FILA.enfrioMin.max);
+            } else if (tipo === "intrusion" || tipo === "animal") {
                 const v = Number(r?.segundos);
                 regla.segundos = Math.round(Math.max(SEGUNDOS_INTRUSION.min, Math.min(SEGUNDOS_INTRUSION.max, Number.isFinite(v) && r?.segundos !== "" && r?.segundos != null ? v : t.segundosDefecto ?? 2)));
-            } else if (tipo === "merodeo" || tipo === "retirado") {
-                const lim = tipo === "merodeo" ? SEGUNDOS_MERODEO : SEGUNDOS_RETIRADO;
+            } else if (tipo === "merodeo" || tipo === "retirado" || tipo === "dejado" || tipo === "suelo" || tipo === "trepar" || tipo === "epp") {
+                const lim = tipo === "merodeo" ? SEGUNDOS_MERODEO : tipo === "dejado" ? SEGUNDOS_DEJADO : tipo === "suelo" ? SEGUNDOS_SUELO : tipo === "trepar" ? SEGUNDOS_TREPA : tipo === "epp" ? SEGUNDOS_EPP : SEGUNDOS_RETIRADO;
                 regla.segundos = Math.round(Math.max(lim.min, Math.min(lim.max, Number(r?.segundos) || t.segundosDefecto || lim.min)));
             } else regla.segundos = Math.round(Math.max(SEGUNDOS.min, Math.min(SEGUNDOS.max, Number(r?.segundos) || t.segundosDefecto || 60)));
+            if (tipo === "animal") regla.sinPersona = r?.sinPersona !== false;
+            // Las del cuerpo son de personas, sin elegir.
+            if (tipo === "suelo" || tipo === "trepar" || tipo === "epp") regla.clases = ["person"];
+            if (tipo === "epp") {
+                const req = (Array.isArray(r?.requiere) ? r.requiere : ["casco", "chaleco"]).filter((x: string) => x === "casco" || x === "chaleco");
+                if (!req.length) { errores.push(`${nombre}: elegí casco, chaleco o los dos`); continue; }
+                regla.requiere = [...new Set(req)] as ("casco" | "chaleco")[];
+            }
             if (tipo === "aglomeracion") regla.maximo = Math.round(Math.max(MAXIMO.min, Math.min(MAXIMO.max, Number(r?.maximo) || t.maximoDefecto || 5)));
         }
-        if (tipo === "cruce" || tipo === "intrusion" || tipo === "merodeo" || tipo === "retirado") {
+        if (CON_HORARIO.includes(tipo)) {
             const h = r?.horario;
             if (h && (h.desde || h.hasta)) {
                 if (!HORA.test(String(h.desde)) || !HORA.test(String(h.hasta))) { errores.push(`${nombre}: el horario va como 22:00 a 06:00`); continue; }
@@ -199,6 +294,26 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
         out.push(regla);
     }
     return { reglas: out, errores };
+}
+
+/**
+ * Las perillas de una fila, con sus topes y lo que vale si no se tocan. Los valores por defecto
+ * son los del modo Filas: rebote de 2 s (el HOLD con que Calibración de aforo simula el «Tiempo de
+ * rebote» de la cámara), escalamiento a los 5 min (QUEUE_ESCALATE_MIN) y enfriamiento de 5 min.
+ */
+export const FILA = {
+    maximo: { min: 1, max: 500 },
+    rebote: { defecto: 2, min: 0, max: 30 },
+    permanencia: { defecto: 0, min: 0, max: 120 },
+    escalarMin: { defecto: 5, min: 1, max: 120 },
+    enfrioMin: { defecto: 5, min: 1, max: 120 },
+} as const;
+
+/** Las bandas del aforo contra el límite, las mismas del modo Filas: <70 % bien, <100 % aviso, lleno. */
+export function bandaFila(n: number, limite: number | null | undefined): "bien" | "aviso" | "mal" {
+    if (!limite) return "bien";
+    const r = n / limite;
+    return r >= 1 ? "mal" : r >= 0.7 ? "aviso" : "bien";
 }
 
 /** Los tipos de evento que escribe el worker, con su rótulo. */
@@ -211,9 +326,22 @@ export const TIPOS_EVENTO: Record<string, { nombre: string; tono: "info" | "mal"
     INTRUSION: { nombre: "Intrusión", tono: "mal" },
     MERODEO: { nombre: "Merodeo", tono: "aviso" },
     RETIRADO: { nombre: "Objeto retirado", tono: "mal" },
+    ANIMAL: { nombre: "Animal en zona", tono: "aviso" },
+    DEJADO: { nombre: "Objeto dejado", tono: "aviso" },
+    SUELO: { nombre: "Persona en el suelo", tono: "mal" },
+    TREPA: { nombre: "Persona trepando", tono: "mal" },
+    EPP: { nombre: "Sin casco o chaleco", tono: "aviso" },
+    FILA_LLENA: { nombre: "Fila llena", tono: "aviso" },
+    FILA_ESCALADA: { nombre: "Fila llena · supervisor", tono: "mal" },
 };
+/**
+ * Los renglones de la fila que no son eventos para mirar: el aforo cada vez que cambia y cada
+ * entrada o salida. Viven en EventoVision para que Visión → Filas arme la curva y el flujo, pero
+ * no van en las listas de eventos con foto.
+ */
+export const TIPOS_FILA_DATOS = ["FILA", "FILA_ENTRA", "FILA_SALE"];
 /** Los tipos que tienen horario de armado. */
-export const CON_HORARIO: TipoRegla[] = ["cruce", "intrusion", "merodeo", "retirado"];
+export const CON_HORARIO: TipoRegla[] = ["cruce", "intrusion", "merodeo", "retirado", "fila", "animal", "dejado", "suelo", "trepar", "epp"];
 
 /** «2 min 30 s», «1 h 5 min». */
 export function duracionCorta(seg: number | null | undefined): string {

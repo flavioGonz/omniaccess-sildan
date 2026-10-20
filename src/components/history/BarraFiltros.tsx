@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import {
     Bike, Bus, CalendarRange, Camera, Car, Check, ChevronDown, CreditCard, Eraser, Layers, LogIn, LogOut,
-    Motorbike, Palette, PawPrint, PersonStanding, ScanEye, ScanFace, ShieldAlert, ShieldCheck, ShieldX, Sparkles, Truck,
+    IdCard, Motorbike, Palette, PawPrint, PersonStanding, ScanEye, ScanFace, ShieldAlert, ShieldCheck, ShieldX, Sparkles, Truck,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Filtros, type GrupoFiltro } from "@/components/ui/filtros";
@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 import { fechaCorta, paraInput } from "@/lib/fechas";
 import { RASGOS } from "@/components/history/TablaUnificada";
 import { OPCIONES_VISION, OPCION_RELEIDA } from "@/lib/historial-vision";
+import type { CamaraHistorial } from "@/app/api/history/camaras/route";
+import { TIPOS_CHAPA } from "@/lib/categoria-chapa";
 
 /**
  * Los filtros del historial, en una barra a la vista.
@@ -43,13 +45,15 @@ export type FiltrosHistorial = {
     merodeo: boolean;
     /** Ids de lib/historial-vision: qué tiene que haber visto OmniVision en la foto. */
     vision: string[];
+    /** Ids de lib/categoria-chapa (TIPOS_CHAPA): taxi, policía, ambulancia… por cómo empieza la chapa. */
+    chapa: string[];
 };
 
 export type CambiarFiltros = <K extends keyof FiltrosHistorial>(clave: K, valor: FiltrosHistorial[K]) => void;
 
 export const SIN_FILTROS: FiltrosHistorial = {
     desde: "", hasta: "", tipos: [], identificacion: "ALL", resultado: "ALL", sentido: "ALL",
-    camaras: [], color: "ALL", tipoVeh: "ALL", merodeo: false, vision: [],
+    camaras: [], color: "ALL", tipoVeh: "ALL", merodeo: false, vision: [], chapa: [],
 };
 
 /** Los atajos de período. Se calculan al apretar: la medianoche puede pasar con la pantalla abierta. */
@@ -63,6 +67,15 @@ const CLASES: { valor: string; rotulo: string; Ico: any; ayuda: string }[] = [
     { valor: "PASO", rotulo: "Avistamientos", Ico: RASGOS.PASO.Ico, ayuda: RASGOS.PASO.ayuda },
     { valor: "ESTACIONADO", rotulo: "Estacionados", Ico: RASGOS.ESTACIONADO.Ico, ayuda: RASGOS.ESTACIONADO.ayuda },
     { valor: "VISTO", rotulo: "Vistos", Ico: RASGOS.VISTO.Ico, ayuda: RASGOS.VISTO.ayuda },
+    { valor: "OV_CHAPA", rotulo: "Chapas OmniVision", Ico: RASGOS.OV_CHAPA.Ico, ayuda: RASGOS.OV_CHAPA.ayuda },
+    { valor: "OV_OBJETO", rotulo: "Objetos OmniVision", Ico: RASGOS.OV_OBJETO.Ico, ayuda: RASGOS.OV_OBJETO.ayuda },
+];
+
+/** Los grupos del filtro de cámaras, en el orden en que se muestran. */
+const GRUPOS_CAMARA: { origen: CamaraHistorial["origen"]; titulo: string; Ico: any }[] = [
+    { origen: "lpr", titulo: "Cámaras LPR", Ico: Camera },
+    { origen: "seguimiento", titulo: "Seguimiento", Ico: Camera },
+    { origen: "omnivision", titulo: "OmniVision (cámaras RTSP)", Ico: Sparkles },
 ];
 
 const ICONO_VISION: Record<string, any> = { persona: PersonStanding, auto: Car, camion: Truck, moto: Motorbike, bici: Bike, omnibus: Bus, animal: PawPrint };
@@ -110,16 +123,18 @@ const Titulo = ({ children }: { children: React.ReactNode }) => (
     <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{children}</div>
 );
 
-export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles, colores, tiposVeh, soloSeguimiento, modo, merodeando }: {
+export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles, camarasServidor, colores, tiposVeh, soloSeguimiento, modo, merodeando }: {
     f: FiltrosHistorial; cambiar: CambiarFiltros; limpiar: () => void;
     /** Cuántos filtros hay puestos (más la búsqueda): con alguno aparece «Limpiar». */
     puestos: number;
     camarasDisponibles: string[]; colores: string[]; tiposVeh: string[];
+    /** Las cámaras del período según el servidor, con su origen. Si llegaron, mandan sobre las de lo cargado. */
+    camarasServidor?: CamaraHistorial[] | null;
     soloSeguimiento: boolean;
     modo: "LPR" | "FACE" | "QUEUE" | null;
     merodeando: number;
 }) {
-    const alternar = (clave: "tipos" | "camaras" | "vision", v: string) => {
+    const alternar = (clave: "tipos" | "camaras" | "vision" | "chapa", v: string) => {
         const actual = f[clave];
         cambiar(clave, actual.includes(v) ? actual.filter((x) => x !== v) : [...actual, v]);
     };
@@ -199,19 +214,40 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
                 </div>
             </Desplegable>
 
-            {camarasDisponibles.length >= 2 && (
+            {(camarasServidor ? camarasServidor.length >= 1 : camarasDisponibles.length >= 2) && (
                 <Desplegable Ico={Camera} rotulo={f.camaras.length ? (f.camaras.length === 1 ? f.camaras[0] : `${f.camaras.length} cámaras`) : "Cámaras"}
-                    puesto={f.camaras.length > 0} titulo="Cámaras" ancho={280}>
-                    <Titulo>Cámaras con registros en lo cargado</Titulo>
-                    <div className="space-y-0.5 max-h-[320px] overflow-auto custom-scrollbar">
+                    puesto={f.camaras.length > 0} titulo="Cámaras" ancho={300}>
+                    <div className="space-y-0.5 max-h-[380px] overflow-auto custom-scrollbar">
                         <Casilla activa={f.camaras.length === 0} onClick={() => cambiar("camaras", [])} rotulo="Todas" />
-                        {(verTodasCamaras ? camarasDisponibles : camarasDisponibles.slice(0, CAMARAS_A_LA_VISTA)).map((c) => (
-                            <Casilla key={c} activa={f.camaras.includes(c)} onClick={() => alternar("camaras", c)} Ico={Camera} rotulo={c} />
-                        ))}
+                        {camarasServidor ? (
+                            /* Agrupadas por de dónde sale lo que registran (18/10): las RTSP de OmniVision tienen que estar. */
+                            GRUPOS_CAMARA.map((g) => {
+                                const lista = camarasServidor.filter((c) => c.origen === g.origen);
+                                if (!lista.length) return null;
+                                return (
+                                    <div key={g.origen} className="pt-1.5">
+                                        <Titulo>{g.titulo}</Titulo>
+                                        {lista.map((c) => (
+                                            <Casilla key={c.nombre} activa={f.camaras.includes(c.nombre)} onClick={() => alternar("camaras", c.nombre)} Ico={g.Ico}
+                                                rotulo={`${c.nombre} · ${c.n.toLocaleString("es-UY")}`}
+                                                ayuda={c.origen === "omnivision" ? (c.chapas ? `${c.chapas} con chapa leída` : "sin chapas leídas: sólo objetos") : undefined} />
+                                        ))}
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <>
+                                <Titulo>Cámaras con registros en lo cargado</Titulo>
+                                {(verTodasCamaras ? camarasDisponibles : camarasDisponibles.slice(0, CAMARAS_A_LA_VISTA)).map((c) => (
+                                    <Casilla key={c} activa={f.camaras.includes(c)} onClick={() => alternar("camaras", c)} Ico={Camera} rotulo={c} />
+                                ))}
+                                {camarasDisponibles.length > CAMARAS_A_LA_VISTA && !verTodasCamaras && (
+                                    <button type="button" onClick={() => setVerTodasCamaras(true)} className="text-[12px] font-semibold tono-accion">Ver las {camarasDisponibles.length}</button>
+                                )}
+                            </>
+                        )}
                     </div>
-                    {camarasDisponibles.length > CAMARAS_A_LA_VISTA && !verTodasCamaras && (
-                        <button type="button" onClick={() => setVerTodasCamaras(true)} className="text-[12px] font-semibold tono-accion">Ver las {camarasDisponibles.length}</button>
-                    )}
+                    {camarasServidor && <p className="text-[11px] text-muted-foreground leading-snug">{f.desde || f.hasta ? "En el período elegido." : "En los últimos 30 días."} Una cámara de OmniVision muestra también sus objetos.</p>}
                 </Desplegable>
             )}
 
@@ -251,6 +287,21 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
                     <Casilla activa={f.vision.includes(OPCION_RELEIDA.id)} onClick={() => alternar("vision", OPCION_RELEIDA.id)} Ico={ScanEye} rotulo={OPCION_RELEIDA.rotulo} ayuda={OPCION_RELEIDA.ayuda} />
                 </div>
                 {visionPuesta > 0 && <button type="button" onClick={() => cambiar("vision", [])} className="text-[12px] font-semibold tono-accion">Quitar este filtro</button>}
+            </Desplegable>
+
+            <Desplegable Ico={IdCard} rotulo={f.chapa.length ? (f.chapa.length === 1 ? TIPOS_CHAPA.find((t) => t.id === f.chapa[0])?.rotulo || "Tipo de chapa" : `Tipo de chapa · ${f.chapa.length}`) : "Tipo de chapa"} puesto={f.chapa.length > 0} titulo="Tipo de chapa" ancho={320}>
+                <div>
+                    <Titulo>Lo que dice la matrícula</Titulo>
+                    <p className="text-[11px] text-muted-foreground leading-snug mt-1">
+                        Por las letras de la chapa uruguaya: en Montevideo es seguro (STX taxi, SMI policía, SCD diplomático); en el interior, probable. Taxi suma también los que OmniVision reconoce como taxi por su aspecto. Con varias tildadas alcanza con una.
+                    </p>
+                </div>
+                <div className="space-y-0.5">
+                    {TIPOS_CHAPA.map((t) => (
+                        <Casilla key={t.id} activa={f.chapa.includes(t.id)} onClick={() => alternar("chapa", t.id)} rotulo={t.rotulo} />
+                    ))}
+                </div>
+                {f.chapa.length > 0 && <button type="button" onClick={() => cambiar("chapa", [])} className="text-[12px] font-semibold tono-accion">Quitar este filtro</button>}
             </Desplegable>
 
             {!soloSeguimiento && (

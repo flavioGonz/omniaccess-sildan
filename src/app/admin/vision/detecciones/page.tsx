@@ -7,9 +7,9 @@ import { cn } from "@/lib/utils";
 import { ErrorEstado, Cargando, Vacio } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
 import { Pista } from "@/components/ui/pista";
-import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
-import { FichaObjeto as Ficha, pct, hora, fecha, duracion, nombreClase } from "@/components/vision/ObjetoRegistro";
-import { MosaicoBuscar, HistorialDePista, type ResultadoBusqueda as Fila } from "@/components/vision/buscar/MosaicoBuscar";
+import { pct, nombreClase } from "@/components/vision/ObjetoRegistro";
+import { CajonPista } from "@/components/vision/CajonPista";
+import { MosaicoBuscar, type ResultadoBusqueda as Fila } from "@/components/vision/buscar/MosaicoBuscar";
 import { useRegistrarDesdeCaptura } from "@/components/vision/buscar/RegistrarDesdeCaptura";
 import { useNombresPropios } from "@/lib/nombres-propios";
 import { useSiluetas } from "@/lib/use-siluetas";
@@ -205,17 +205,9 @@ export default function DeteccionesVision() {
                 </>
             )}
 
-            <Cajon open={!!abierta} onOpenChange={(o) => { if (!o) setAbierta(null); }}>
-                {abierta && (
-                    <CajonContenido ancho="ancho" titulo={`${nombreClase(abierta.clase)} · ${abierta.camara}`}
-                        descripcion={`${fecha(abierta.primeraVez)}, ${hora(abierta.primeraVez)} a ${hora(abierta.ultimaVez)} · ${duracion(abierta.primeraVez, abierta.ultimaVez)}`}>
-                        <CajonSeccion titulo="En el historial" compacta ayuda="Lo que el sistema sabe de este momento: la chapa que leyó la lectora de esta cámara, de quién es, si está vigilada, y las alertas de la cámara.">
-                            <HistorialDePista r={abierta} alRegistrar={(p) => { setAbierta(null); abrirRegistro(p); }} alListaNegra={() => { void marcarNegra(abierta); setAbierta(null); }} />
-                        </CajonSeccion>
-                        <Ficha f={abierta} />
-                    </CajonContenido>
-                )}
-            </Cajon>
+            <CajonPista r={abierta} alCerrar={() => setAbierta(null)}
+                alRegistrar={(p) => { setAbierta(null); abrirRegistro(p); }}
+                alListaNegra={() => { if (abierta) void marcarNegra(abierta); setAbierta(null); }} />
             {cajones}
         </div>
     );

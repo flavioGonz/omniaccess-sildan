@@ -94,6 +94,27 @@ const RAFAGA_DESPUES_MS = Number(process.env.TRACKING_BURST_AFTER_MS || 1200);
 const RAFAGA_MAX_CUADROS = Number(process.env.TRACKING_BURST_FRAMES || 8);
 // Tiempo mudo tras resolver una rafaga, para no leer el mismo auto tres veces.
 const MUDO_MS = Number(process.env.TRACKING_QUIET_MS || 4000);
+/** Disparo por OmniVision: cada cuánto se pregunta por pistas nuevas, y la ráfaga. */
+const OMNI_CADA_MS = Number(process.env.TRACKING_OMNI_POLL_MS || 1000);
+/** OmniVision mira cada ~2-3 s: la pista se abre con el auto ya en cuadro, así que se mira más atrás. */
+const OMNI_ANTES_MS = Number(process.env.TRACKING_OMNI_BEFORE_MS || 2500);
+const OMNI_DESPUES_MS = Number(process.env.TRACKING_OMNI_AFTER_MS || 2500);
+/** Cuadros de antes y en total por ráfaga: cada cuadro son ~6 baldosas contra el presupuesto por minuto. */
+const OMNI_PREVIOS = Number(process.env.TRACKING_OMNI_PREV_FRAMES || 4);
+const OMNI_CUADROS = Number(process.env.TRACKING_OMNI_FRAMES || 8);
+const OMNI_FPS = Number(process.env.TRACKING_OMNI_FPS || 3);
+/**
+ * Un vehículo QUIETO no dispara: el seguimiento renumera a un auto estacionado y cada número nuevo
+ * es una pista nueva (la camioneta de la casa de la LPR Interior). Quieto = una pista de los
+ * últimos OMNI_QUIETO_VENTANA_MS que duró más de OMNI_QUIETO_MIN_MS y cuyo pie se movió menos de
+ * OMNI_QUIETO_MOV (fracción del cuadro). Una pista nueva que se le superpone (IoU) no dispara.
+ */
+const OMNI_QUIETO_VENTANA_MS = 30 * 60_000;
+const OMNI_QUIETO_MIN_MS = 60_000;
+const OMNI_QUIETO_MOV = 0.04;
+const OMNI_QUIETO_IOU = 0.5;
+/** Microsegundos sin datos del RTSP antes de que ffmpeg corte y se reenganche (ver engancharCamara). */
+const RTSP_SIN_DATOS_US = Number(process.env.TRACKING_RTSP_TIMEOUT_US || 15_000_000);
 // Cuantos cuadros tienen que coincidir para dar una lectura por buena...
 const COINCIDENCIAS_MIN = Number(process.env.TRACKING_MIN_AGREE || 2);
 // ...salvo que una sola lectura venga muy segura.
@@ -289,6 +310,17 @@ const log = (...a) => console.log(new Date().toISOString(), "[track]", ...a);
 
 /** Modos en los que es la camara la que avisa: por zona de intrusion o por cruce de linea. */
 const porAviso = (m) => m === "camara" || m === "zona" || m === "linea";
+/**
+ * Disparo por OmniVision (19/10, Nico: «la LPR Interior, que es RTSP y no ANPR, detecta poco»).
+ * Una cámara sin analítica propia no avisa cuándo pasa un auto, y el respaldo por cambio de
+ * imagen se despierta con viento, sombras y luz: medido en el lab, la LPR Interior hizo 9, 7 y 2
+ * lecturas por día y se espaciaba sola por ráfagas secas, mientras OmniVision veía en la misma
+ * cámara 1141 pistas de vehículos en 24 h. En este modo el aviso lo da OmniVision: cuando el
+ * registro abre la pista de un vehículo (ObjetoVisto) en esta cámara, se abre una ráfaga con los
+ * cuadros de antes y de después, como cuando avisa la cámara. ffmpeg muestrea continuo (sin el
+ * filtro de escena) para tener esos cuadros en memoria.
+ */
+const porOmni = (m) => m === "omnivision";
 
 // Contadores del minuto en curso. Se vuelcan a la muestra y se ponen en cero.
 const contadores = { disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0, frenados: 0, fallos: 0 };
@@ -877,7 +909,7 @@ function gastar(est, inferencias) {
  * cada rafaga seca, hasta el techo.
  */
 function mudoQueCorresponde(est) {
-    if (porAviso(est.modoEfectivo)) return MUDO_MS;
+    if (porAviso(est.modoEfectivo) || porOmni(est.modoEfectivo)) return MUDO_MS;
 
     /*
      * Espaciar SOLO si el respaldo es el modo elegido, no si es una degradacion.
@@ -922,12 +954,15 @@ function disparar(est, motivo) {
 
     // Los cuadros de justo antes del aviso suelen ser los mejores: el vehiculo
     // todavia esta entrando en cuadro y la chapa no se fue de foco.
-    const previos = est.memoria.filter((c) => ahora - c.t <= RAFAGA_ANTES_MS).map((c) => c.jpeg);
+    const omni = motivo === "omnivision";
+    const previos = est.memoria.filter((c) => ahora - c.t <= (omni ? OMNI_ANTES_MS : RAFAGA_ANTES_MS)).map((c) => c.jpeg);
     contadores.disparos++;
     cuenta(est.cam, "disparos");
-    est.rafaga = { motivo, cuadros: previos.slice(-RAFAGA_MAX_CUADROS) };
+    // Por OmniVision, los de antes espaciados (el auto ya venía en cuadro) y el resto después.
+    const antes = omni ? previos.filter((_, i, a) => a.length <= OMNI_PREVIOS || i % Math.ceil(a.length / OMNI_PREVIOS) === 0).slice(-OMNI_PREVIOS) : previos.slice(-RAFAGA_MAX_CUADROS);
+    est.rafaga = { motivo, cuadros: antes, max: omni ? OMNI_CUADROS : RAFAGA_MAX_CUADROS };
     if (motivo !== "escena") log(`${est.cam.name}: rafaga abierta por ${motivo} (${previos.length} cuadros previos)`);
-    est.temporizador = setTimeout(() => resolverRafaga(est), RAFAGA_DESPUES_MS);
+    est.temporizador = setTimeout(() => resolverRafaga(est), omni ? OMNI_DESPUES_MS : RAFAGA_DESPUES_MS);
 }
 
 /**
@@ -1024,7 +1059,7 @@ async function resolverRafaga(est) {
                `mudoQueCorresponde`. Decir "se empieza a espaciar" en una camara que ya
                NO se espacia seria mandar a revisar el calibrador por un sintoma que no
                existe. */
-            if (!porAviso(est.modoEfectivo) && est.secas === RESPALDO_PACIENCIA) {
+            if (est.modoEfectivo === "escena" && est.secas === RESPALDO_PACIENCIA) {
                 if (porAviso(est.cam.disparo)) {
                     log(`${cam.name}: ${est.secas} rafagas por escena sin una sola matricula. `
                         + `Esta camara DEBERIA disparar por aviso y no lo esta haciendo: el respaldo `
@@ -1050,7 +1085,7 @@ async function resolverRafaga(est) {
         // Salio algo: el respaldo recupera el ritmo de una vez. No se castiga a una calle
         // tranquila por estar tranquila.
         if (est.secas) {
-            if (!porAviso(est.modoEfectivo) && est.secas >= RESPALDO_PACIENCIA) {
+            if (est.modoEfectivo === "escena" && est.secas >= RESPALDO_PACIENCIA) {
                 log(`${cam.name}: el respaldo por escena volvio a leer; se recupera el ritmo`);
             }
             est.secas = 0;
@@ -1144,14 +1179,15 @@ function engancharCamara(est) {
 
     const escena = cam.escena ?? 0.08;
     // "camara" quedo de la primera version; ahora el modo dice ademas COMO avisa.
-    const porCamara = porAviso(est.modoEfectivo);
+    // Por OmniVision se muestrea continuo, como por aviso: la ráfaga necesita los cuadros de antes.
+    const porCamara = porAviso(est.modoEfectivo) || porOmni(est.modoEfectivo);
     // En modo camara conviene un ritmo mas alto: el disparo ya es preciso, y lo que
     // se quiere es tener varios cuadros del auto pasando. En modo escena se muestrea
     // bajo y es ffmpeg el que decide cual vale.
     // El fps configurado es el del modo por aviso, donde la rafaga dura un segundo y se
     // quieren varios cuadros del auto pasando. El respaldo mira continuo: heredar ese
     // numero era pedir seis cuadros por segundo las veinticuatro horas.
-    const fps = porCamara ? (cam.fps ?? 6) : RESPALDO_FPS;
+    const fps = porOmni(est.modoEfectivo) ? (cam.fps ?? OMNI_FPS) : porCamara ? (cam.fps ?? 6) : RESPALDO_FPS;
 
     const r = cam.roi;
     const recorte = r && r.w > 0 && r.h > 0 && (r.w < 1 || r.h < 1 || r.x > 0 || r.y > 0)
@@ -1168,13 +1204,22 @@ function engancharCamara(est) {
         // vista en vivo; en la GPU practicamente no se nota.
         "-hwaccel", "cuda",
         "-rtsp_transport", "tcp",
+        /*
+         * Cortar si la cámara deja de mandar (19/10, medido en el lab): el ffmpeg de la LPR
+         * Interior quedó TRES DÍAS colgado, conectado y sin recibir nada (0,2 % de CPU, el
+         * socket con timeout=0), sin salir y sin errores. En modo escena eso no se distingue
+         * de una calle tranquila: cero cuadros, cero ráfagas, cero lecturas, y el reintento
+         * («cámara caída») nunca llegaba porque el proceso no terminaba. Con 15 s sin datos
+         * el socket falla, ffmpeg sale y se reengancha solo.
+         */
+        "-timeout", String(RTSP_SIN_DATOS_US),
         "-i", cam.rtsp,
         "-vf", filtro,
         "-vsync", "vfr", "-q:v", "3", "-f", "image2pipe", "-vcodec", "mjpeg", "-",
     ];
     const ch = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
     est.ffmpeg = ch;
-    log(`camara enganchada: ${cam.name} (disparo: ${porCamara ? "camara" : "escena por respaldo"}, ${fps} c/s${recorte ? ", con zona de interes" : ""})`);
+    log(`camara enganchada: ${cam.name} (disparo: ${porOmni(est.modoEfectivo) ? "omnivision" : porCamara ? "camara" : "escena por respaldo"}, ${fps} c/s${recorte ? ", con zona de interes" : ""})`);
 
     let buffer = Buffer.alloc(0);
     ch.stdout.on("data", (chunk) => {
@@ -1191,7 +1236,9 @@ function engancharCamara(est) {
         if (buffer.length > 8 * 1024 * 1024) buffer = Buffer.alloc(0); // guarda de seguridad
     });
     ch.stderr.on("data", (d) => {
-        const t = String(d).trim();
+        // Sin la clave: ffmpeg repite la URL entera (rtsp://usuario:clave@…) en sus errores, y
+        // el log la dejaba escrita en claro.
+        const t = String(d).trim().replace(/(rtsps?:\/\/)[^@\s/]+@/gi, "$1***@");
         if (t) log(`ffmpeg ${cam.name}: ${t.slice(0, 160)}`);
     });
     const reintentar = () => {
@@ -1228,11 +1275,12 @@ function recibirCuadro(est, jpeg) {
     while (est.memoria.length > MEMORIA_CUADROS) est.memoria.shift();
 
     if (est.rafaga) {
-        if (est.rafaga.cuadros.length < RAFAGA_MAX_CUADROS) est.rafaga.cuadros.push(jpeg);
+        if (est.rafaga.cuadros.length < (est.rafaga.max || RAFAGA_MAX_CUADROS)) est.rafaga.cuadros.push(jpeg);
         return;
     }
     // En modo escena, que ffmpeg emita un cuadro YA significa que algo cambio.
-    if (!porAviso(est.modoEfectivo)) disparar(est, "escena");
+    // (Sólo en escena: por OmniVision los cuadros llegan continuos y el aviso viene de afuera.)
+    if (est.modoEfectivo === "escena") disparar(est, "escena");
 }
 
 // ──────────────── Aviso de la propia camara (AcuSense) ────────────────
@@ -1823,7 +1871,7 @@ async function muestrear() {
          * Entra lo que tuvo actividad, y lo que está en respaldo aunque no la haya tenido
          * — una camara degradada y quieta es el dato, no el ruido.
          */
-        const degradada = (est) => !porAviso(est.modoEfectivo);
+        const degradada = (est) => est.modoEfectivo === "escena";
         if (porCamara.size || [...camarasVivas.values()].some(degradada)) {
             try {
                 /*
@@ -1847,7 +1895,7 @@ async function muestrear() {
                         nombre: est.cam.name || null,
                         disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0, frenados: 0,
                         reconexiones: 0,
-                        modo: porAviso(est.modoEfectivo) ? "camara" : "escena",
+                        modo: porOmni(est.modoEfectivo) ? "omnivision" : porAviso(est.modoEfectivo) ? "camara" : "escena",
                     });
                 }
                 for (const [deviceId, c] of porCamara.entries()) {
@@ -1944,6 +1992,77 @@ function resumenAvisos() {
     }
 }
 
+// ───────────────────── Disparo por OmniVision ─────────────────────
+
+/** Desde cuándo se miran pistas nuevas (createdAt del registro). Arranca ahora: lo viejo no dispara. */
+let omniDesde = new Date();
+let omniOcupado = false;
+/** Por cámara: las cajas de los vehículos quietos, y cuándo se armó la lista. */
+const omniQuietos = new Map();
+
+function iou(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return 0;
+    const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+    const i = ix * iy, u = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i;
+    return u > 0 ? i / u : 0;
+}
+
+async function quietosDe(deviceId) {
+    const c = omniQuietos.get(deviceId);
+    if (c && Date.now() - c.t < 60_000) return c.cajas;
+    const filas = await prisma.objetoVisto.findMany({
+        /*
+         * Lo que estuvo a la VISTA en la ventana (ultimaVez), no lo que EMPEZÓ en ella. Con
+         * primeraVez, una camioneta estacionada desde hacía 47 min ya no contaba como quieta y su
+         * pista nueva disparó (19/10 10:50, LPR Interior). primeraVez acota por el índice.
+         */
+        where: { deviceId, grupo: "vehiculo", primeraVez: { gte: new Date(Date.now() - 24 * 3_600_000) }, ultimaVez: { gte: new Date(Date.now() - OMNI_QUIETO_VENTANA_MS) } },
+        select: { caja: true, primeraVez: true, ultimaVez: true, recorrido: true }, take: 500,
+    }).catch(() => []);
+    const cajas = [];
+    for (const f of filas) {
+        if (+f.ultimaVez - +f.primeraVez < OMNI_QUIETO_MIN_MS || !Array.isArray(f.caja)) continue;
+        const r = Array.isArray(f.recorrido) ? f.recorrido : [];
+        const xs = r.map((p) => p[0]), ys = r.map((p) => p[1]);
+        const mov = r.length ? Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) : 0;
+        if (mov < OMNI_QUIETO_MOV) cajas.push(f.caja);
+    }
+    omniQuietos.set(deviceId, { t: Date.now(), cajas });
+    return cajas;
+}
+
+/** Pregunta por las pistas de vehículos que abrió OmniVision en las cámaras con disparo por OmniVision. */
+async function vigilarOmni() {
+    const porId = new Map();
+    for (const [, est] of camarasVivas) if (porOmni(est.modoEfectivo) && est.cam.deviceId) porId.set(est.cam.deviceId, est);
+    if (!porId.size) { omniDesde = new Date(); return; }
+    if (omniOcupado) return;
+    omniOcupado = true;
+    try {
+        const filas = await prisma.objetoVisto.findMany({
+            // primeraVez acota por el índice (deviceId, primeraVez); createdAt dice qué es nuevo.
+            where: { deviceId: { in: [...porId.keys()] }, grupo: "vehiculo", primeraVez: { gte: new Date(Date.now() - 5 * 60_000) }, createdAt: { gt: omniDesde } },
+            orderBy: { createdAt: "asc" }, take: 50,
+            select: { deviceId: true, clase: true, caja: true, createdAt: true },
+        });
+        for (const f of filas) {
+            if (+f.createdAt > +omniDesde) omniDesde = f.createdAt;
+            const est = porId.get(f.deviceId);
+            if (!est) continue;
+            const quietos = await quietosDe(f.deviceId);
+            if (quietos.some((q) => iou(q, f.caja) >= OMNI_QUIETO_IOU)) {
+                est.omniQuietos = (est.omniQuietos || 0) + 1;
+                continue;
+            }
+            disparar(est, "omnivision");
+        }
+    } catch (e) {
+        log(`disparo por omnivision: ${e.message}`);
+    } finally {
+        omniOcupado = false;
+    }
+}
+
 (async () => {
     log(`pasarela iniciada · Omni-LPR en ${LPR_URL}`);
     /**
@@ -1963,6 +2082,7 @@ function resumenAvisos() {
     setInterval(sincronizar, 60000);   // toma cambios de configuracion sin reiniciar
     setInterval(resumenAvisos, 120000);
     setInterval(vigilarDisparo, 60000);
+    setInterval(vigilarOmni, OMNI_CADA_MS);
     setInterval(barrerEstadias, 60000);
     muestrear();
     setInterval(muestrear, 60000);

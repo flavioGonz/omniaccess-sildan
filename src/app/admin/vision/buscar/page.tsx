@@ -8,10 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Pista } from "@/components/ui/pista";
 import { ErrorEstado } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
-import { Cajon, CajonContenido } from "@/components/ui/cajon";
-import { FichaObjeto, img, nombreClase, fecha, hora, type FilaObjeto } from "@/components/vision/ObjetoRegistro";
-import { CajonSeccion } from "@/components/ui/cajon";
-import { MosaicoBuscar, HistorialDePista, PasosDeChapa, type ResultadoBusqueda } from "@/components/vision/buscar/MosaicoBuscar";
+import { CajonPista } from "@/components/vision/CajonPista";
+import { img, nombreClase, hora, type FilaObjeto } from "@/components/vision/ObjetoRegistro";
+import { MosaicoBuscar, PasosDeChapa, type ResultadoBusqueda } from "@/components/vision/buscar/MosaicoBuscar";
 import { useRegistrarDesdeCaptura } from "@/components/vision/buscar/RegistrarDesdeCaptura";
 import type { PasoChapa } from "@/lib/vision-historial";
 import { FotoParaBuscar, type FotoElegida } from "@/components/vision/FotoParaBuscar";
@@ -231,16 +230,10 @@ export default function BuscarVision() {
                     </>
                 )}
 
-            <Cajon open={!!abierta} onOpenChange={(o) => { if (!o) setAbierta(null); }}>
-                {abierta && (
-                    <CajonContenido ancho="intermedio" titulo={`${nombreClase(abierta.clase)} · ${abierta.camara}`} descripcion={`${fecha(abierta.primeraVez)} ${hora(abierta.primeraVez)}`}>
-                        <CajonSeccion titulo="En el historial" compacta ayuda="Lo que el sistema sabe de este momento: la chapa que leyó la lectora de esta cámara mientras el vehículo estaba a la vista, de quién es, si está vigilada, y las alertas de la cámara.">
-                            <HistorialDePista r={abierta} alRegistrar={(p) => { setAbierta(null); abrirRegistro(p); }} alListaNegra={() => { void marcarNegra(abierta); setAbierta(null); }} />
-                        </CajonSeccion>
-                        <FichaObjeto f={abierta} alParecidos={() => { setPedido({ parecido: abierta }); setAbierta(null); }} />
-                    </CajonContenido>
-                )}
-            </Cajon>
+            <CajonPista r={abierta} alCerrar={() => setAbierta(null)}
+                alRegistrar={(p) => { setAbierta(null); abrirRegistro(p); }}
+                alListaNegra={() => { if (abierta) void marcarNegra(abierta); setAbierta(null); }}
+                alParecidos={() => { if (abierta) setPedido({ parecido: abierta }); setAbierta(null); }} />
 
             {cajones}
         </div>

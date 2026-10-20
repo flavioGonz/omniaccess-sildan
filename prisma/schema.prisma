@@ -624,6 +624,9 @@ model NotificationRule {
   /// Intrusión: «avisar» (como siempre, al instante) o «confirmada» (espera a que omni-vision
   /// mire la captura y avisa sólo si ve una persona o un vehículo). Ver lib/doble-verificacion.
   verificacion String   @default("avisar")
+  /// LPR: los tipos de chapa que la disparan (ids de lib/categoria-chapa TIPOS_CHAPA, csv:
+  /// «ambulancia,policia»). null = cualquier chapa. Ver lib/reglas-notificacion.
+  tiposChapa  String?
   lastFiredAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

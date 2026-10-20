@@ -673,7 +673,7 @@ const EVENTOS_CAMARA_MAX = 1500;
 /** Dos registros de la misma cámara a menos de esto son el mismo momento (el acceso y su avistamiento, la detección y su cruce). */
 const EVENTOS_CAMARA_JUNTAR_MS = 1500;
 
-export type EventoCamara = { ms: number; tipo: "acceso" | "lectura" | "deteccion"; titulo: string };
+export type EventoCamara = { ms: number; tipo: "acceso" | "lectura" | "deteccion" | "vision"; titulo: string };
 
 /**
  * Los eventos que detectó UNA cámara alrededor de un instante: accesos de la lectora, lecturas de
@@ -687,12 +687,21 @@ export async function eventosDeCamara(deviceId: string, instanteMs: number): Pro
     if (!deviceId || !Number.isFinite(instanteMs)) return [];
     const desde = new Date(instanteMs - EVENTOS_CAMARA_HORAS * 3_600_000), hasta = new Date(Math.min(Date.now(), instanteMs + EVENTOS_CAMARA_HORAS * 3_600_000));
     const rango = { gte: desde, lte: hasta };
-    const [accesos, lecturas, detecciones, cruces] = await Promise.all([
+    const [accesos, lecturas, detecciones, cruces, vistos] = await Promise.all([
         prisma.accessEvent.findMany({ where: { deviceId, timestamp: rango }, select: { timestamp: true, plateDetected: true, decision: true }, orderBy: { timestamp: "asc" }, take: EVENTOS_CAMARA_MAX }).catch(() => []),
         prisma.plateSighting.findMany({ where: { deviceId, timestamp: rango, accessEventId: null }, select: { timestamp: true, plate: true }, orderBy: { timestamp: "asc" }, take: EVENTOS_CAMARA_MAX }).catch(() => []),
         prisma.detection.findMany({ where: { deviceId, timestamp: rango }, select: { timestamp: true, type: true, label: true }, orderBy: { timestamp: "asc" }, take: EVENTOS_CAMARA_MAX }).catch(() => []),
         prisma.intrusionEvent.findMany({ where: { deviceId, timestamp: rango }, select: { timestamp: true, type: true }, orderBy: { timestamp: "asc" }, take: EVENTOS_CAMARA_MAX }).catch(() => []),
+        // Lo que registró OmniVision en esta cámara (18/10): en una cámara RTSP sin lector ni
+        // analíticas del equipo era lo único que había, y las flechas de la grabación quedaban apagadas.
+        prisma.objetoVisto.findMany({ where: { deviceId, primeraVez: rango, grupo: { in: ["persona", "vehiculo", "animal", "propio"] } }, select: { primeraVez: true, clase: true, textos: true }, orderBy: { primeraVez: "asc" }, take: EVENTOS_CAMARA_MAX }).catch(() => []),
     ]);
+    const chapaDeTextos = (t: unknown): string | null => {
+        if (!Array.isArray(t)) return null;
+        const m = (t as any[]).find((x) => x?.tipo === "matricula" && x.texto);
+        return m ? String(m.texto).toUpperCase().replace(/[^A-Z0-9]/g, "") : null;
+    };
+    const CLASE_VISION: Record<string, string> = { car: "Auto", truck: "Camión", bus: "Ómnibus", motorcycle: "Moto", bicycle: "Bicicleta", person: "Persona", dog: "Perro", cat: "Gato" };
     const TIPO_DETECCION: Record<string, string> = { LINECROSS: "Cruce de línea", INTRUSION: "Intrusión", REGION_ENTER: "Entrada a zona", REGION_EXIT: "Salida de zona", MOTION: "Movimiento" };
     const DECISION: Record<string, string> = { GRANT: "autorizado", DENY: "denegado" };
     const todos: EventoCamara[] = [
@@ -700,6 +709,7 @@ export async function eventosDeCamara(deviceId: string, instanteMs: number): Pro
         ...lecturas.map((e) => ({ ms: e.timestamp.getTime(), tipo: "lectura" as const, titulo: e.plate || "Lectura" })),
         ...detecciones.map((e) => ({ ms: e.timestamp.getTime(), tipo: "deteccion" as const, titulo: e.label || TIPO_DETECCION[e.type] || e.type })),
         ...cruces.map((e) => ({ ms: e.timestamp.getTime(), tipo: "deteccion" as const, titulo: TIPO_DETECCION[e.type] || e.type })),
+        ...vistos.map((e) => ({ ms: e.primeraVez.getTime(), tipo: "vision" as const, titulo: [CLASE_VISION[e.clase] || e.clase, chapaDeTextos(e.textos)].filter(Boolean).join(" · ") })),
     ].sort((x, y) => x.ms - y.ms);
     const juntos: EventoCamara[] = [];
     for (const e of todos) {

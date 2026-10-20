@@ -57,7 +57,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
+import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
@@ -255,9 +255,9 @@ function CamTile({ dev, accent = "emerald", ev, onRegister, className }: { dev: 
     // interior) no tiene ficha que abrir: el diálogo pediría un AccessEvent que no existe.
     return ev && !ev.sinEvento ? (
         <div className="relative group/cam">
-            <EventDetailsDialog event={relCam && !ev.relectura ? { ...ev, relectura: relCam } : ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
+            <VisorEventoAcceso event={relCam && !ev.relectura ? { ...ev, relectura: relCam } : ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
                 <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
-            </EventDetailsDialog>
+            </VisorEventoAcceso>
             {anomalous && ev.id && (
                 <div className="absolute top-1.5 right-1.5 z-30">
                     <PlateManualButton eventId={ev.id} currentPlate={plate} onSaved={() => camRouter.refresh()} className="!bg-black/60 hover:!bg-black/80 !text-amber-300 rounded-md !p-1.5 shadow-lg" />
@@ -494,7 +494,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     useEffect(() => { let alive = true; const dev = (event as any).device; if (dev?.id) fetchNvrChannel(dev.id).then((ch) => { if (alive) setNvrCh(ch); }); return () => { alive = false; }; }, [(event as any).device?.id]);
     return (
       <>
-        <EventDetailsDialog event={relCard && !event.relectura ? { ...event, relectura: relCard } : event} timeStatus={null} onRegister={(p) => onRegister(p)} empresa={empresa}>
+        <VisorEventoAcceso event={relCard && !event.relectura ? { ...event, relectura: relCard } : event} timeStatus={null} onRegister={(p) => onRegister(p)} empresa={empresa}>
             <div className={cn(
                 "relative p-3 cursor-pointer transition-all group border-b border-border last:border-0",
                 isAnomalous ? "bg-yellow-500/5 hover:bg-yellow-500/10" : "hover:bg-accent",
@@ -554,7 +554,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                     </div>
                 </div>
             </div>
-        </EventDetailsDialog>
+        </VisorEventoAcceso>
         {/* El visor único (vivo · grabación · evidencias), abierto en Grabación en el instante de la lectura. */}
         {showVid && nvrCh != null && (event as any).device?.id && <VerGrabacion deviceId={(event as any).device.id} nombre={(event as any).device?.name} canal={nvrCh} instanteMs={new Date(event.timestamp).getTime()} onClose={() => setShowVid(false)} />}
       </>
@@ -592,7 +592,7 @@ function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any
                             isBlack ? "border-red-500/60 ring-2 ring-red-500/40" : anomalous ? "border-yellow-500/50" : "border-border"
                         )}>
                             <button onClick={() => onDismiss(ev.id)} title="Cerrar" className="absolute top-1.5 right-1.5 z-10 h-6 w-6 rounded-md bg-black/50 hover:bg-black/70 text-white/80 hover:text-white flex items-center justify-center backdrop-blur"><X size={13} /></button>
-                            <EventDetailsDialog event={!ev.relectura && relMap[ev.id] ? { ...ev, relectura: relMap[ev.id] } : ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
+                            <VisorEventoAcceso event={!ev.relectura && relMap[ev.id] ? { ...ev, relectura: relMap[ev.id] } : ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
                                 <div className="flex gap-2.5 p-2.5 cursor-pointer">
                                     <div className="w-24 h-16 rounded-lg overflow-hidden shrink-0 border border-border">
                                         <SmartThumb src={img} w={240} className="w-full h-full" />
@@ -620,7 +620,7 @@ function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any
                                         </div>
                                     </div>
                                 </div>
-                            </EventDetailsDialog>
+                            </VisorEventoAcceso>
                         </div>
                     );
                 })}
@@ -689,7 +689,7 @@ function CriticalAlerts({ items, onDismiss, onClear, onRegister, onAbrirIntrusio
                                     </div>
                                 </button>
                             ) : (
-                                <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
+                                <VisorEventoAcceso event={ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
                                     <div className="flex gap-2.5 p-2.5 cursor-pointer">
                                         <div className="w-24 h-16 rounded-lg overflow-hidden shrink-0 border border-red-500/40">
                                             <SmartThumb src={img} w={240} className="w-full h-full" />
@@ -706,7 +706,7 @@ function CriticalAlerts({ items, onDismiss, onClear, onRegister, onAbrirIntrusio
                                             <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground"><TimeAgo timestamp={ev.timestamp} />{ev.device?.name && <span className="truncate">· {ev.device.name}</span>}</div>
                                         </div>
                                     </div>
-                                </EventDetailsDialog>
+                                </VisorEventoAcceso>
                             )}
                         </div>
                     );

@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Ban, Camera, CheckCircle2, LogIn, LogOut, ShieldAlert, Shapes, UserPlus, XCircle } from "lucide-react";
+import { ArrowUpRight, Ban, Camera, CheckCircle2, ShieldAlert, Shapes, UserPlus, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getImagePath } from "@/lib/image-path";
 import { metaDe } from "@/components/intrusion/comun";
@@ -231,7 +231,7 @@ export function MosaicoBuscar({ resultados, alAbrir, relativa, lejos = false, at
 
 /* ─────────────────────────── La ficha: lo que sabe el historial ─────────────────────────── */
 
-function QuienEs({ plate, persona, vigilancia }: { plate: string; persona: Persona | null; vigilancia: Vigilancia | null }) {
+export function QuienEs({ plate, persona, vigilancia }: { plate: string; persona: Persona | null; vigilancia: Vigilancia | null }) {
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className="inline-flex items-center h-8 px-2.5 rounded-md border-2 border-foreground/80 bg-background text-[15px] font-bold tracking-[0.12em] tabular-nums">{plate}</span>
@@ -243,59 +243,6 @@ function QuienEs({ plate, persona, vigilancia }: { plate: string; persona: Perso
                     <ShieldAlert size={12} /> {vigilancia.etiqueta}{vigilancia.motivo ? ` · ${vigilancia.motivo}` : ""}
                 </span>
             )}
-        </div>
-    );
-}
-
-/**
- * Lo que el historial dice de la pista, con las acciones: registrar la chapa (residente,
- * personal, proveedor o lista negra: el mismo selector del monitor de LPR), marcar en lista negra
- * con la foto de la captura, e ir al historial de esa matrícula.
- */
-export function HistorialDePista({ r, alRegistrar, alListaNegra }: {
-    r: ResultadoBusqueda;
-    alRegistrar: (plate: string) => void;
-    alListaNegra: () => void;
-}) {
-    const l: LecturaCruzada | null = r.historial?.lectura || null;
-    const alertas = r.historial?.alertas || [];
-    return (
-        <div className="space-y-3">
-            {l ? (
-                <div className="rounded-[10px] border border-border bg-card p-3 space-y-2.5">
-                    <div className="flex items-center gap-2 text-[12px] text-muted-foreground tabular-nums">
-                        {l.sentido === "EXIT" ? <LogOut size={13} /> : <LogIn size={13} />}
-                        La lectora la leyó {l.sentido === "EXIT" ? "saliendo" : "entrando"} a las {hora(l.ts)}
-                        <span className={cn("ml-auto inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11.5px] font-semibold", l.decision === "DENY" ? "chip-mal" : "chip-bien")}>
-                            {l.decision === "DENY" ? <XCircle size={12} /> : <CheckCircle2 size={12} />}{l.decision === "DENY" ? "Denegado" : "Autorizado"}
-                        </span>
-                    </div>
-                    <QuienEs plate={l.plate} persona={l.persona} vigilancia={l.vigilancia} />
-                    <div className="flex flex-wrap gap-2 pt-0.5">
-                        <button type="button" onClick={() => alRegistrar(l.plate)} className="h-8 px-3 rounded-md bg-[var(--accion)] text-white text-[12.5px] font-semibold inline-flex items-center gap-1.5">
-                            <UserPlus size={14} /> {l.persona || l.vigilancia ? "Ver o cambiar registro" : "Registrar matrícula"}
-                        </button>
-                        <Link href={`/admin/history?search=${encodeURIComponent(l.plate)}`} className="h-8 px-3 rounded-md border border-border text-[12.5px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent">
-                            Historial de {l.plate} <ArrowUpRight size={13} />
-                        </Link>
-                    </div>
-                </div>
-            ) : (
-                <p className="text-[12.5px] text-muted-foreground">
-                    {r.grupo === "vehiculo" ? "Ninguna lectora leyó una chapa en esta cámara mientras el vehículo estaba a la vista." : "Las personas no se cruzan con las lecturas de chapa: pasar frente a la lectora no hace a nadie dueño de un auto."}
-                </p>
-            )}
-            {alertas.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                    {alertas.slice(0, 6).map((a) => { const m = metaDe(a.tipo); return (
-                        <span key={a.id} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md chip-aviso text-[12px] font-semibold tabular-nums"><m.Icon size={13} /> {m.label} · {hora(a.ts)}</span>
-                    ); })}
-                </div>
-            )}
-            <button type="button" onClick={alListaNegra}
-                className="w-full h-9 rounded-md border border-[color-mix(in_oklab,var(--mal)_40%,transparent)] bg-[var(--mal-suave)] tono-mal text-[12.5px] font-semibold inline-flex items-center justify-center gap-1.5 hover:border-[var(--mal)]">
-                <Ban size={14} /> Marcar en lista negra con esta captura
-            </button>
         </div>
     );
 }

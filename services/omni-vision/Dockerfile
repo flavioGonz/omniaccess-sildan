@@ -1,5 +1,5 @@
 # omni-vision: visión libre (Apache-2.0) para OmniAccess — detección, siluetas, pose, atributos,
-# seguimiento y lectura de texto.
+# seguimiento, lectura de texto y vocabulario abierto (OWLv2).
 #
 # Dos etapas. La primera exporta los modelos a ONNX con PyTorch en CPU (RF-DETR y SigLIP 2) y
 # comprueba que nuestro pre/posproceso da lo mismo que las librerías originales (si no, la
@@ -23,6 +23,12 @@ RUN python exportar.py /modelos
 RUN curl -fsSL -o /tmp/prueba.jpg https://media.roboflow.com/dog.jpg \
  && curl -fsSL -o /tmp/persona.jpg http://images.cocodataset.org/val2017/000000000785.jpg \
  && python verificar_paridad.py /modelos /tmp/prueba.jpg /tmp/persona.jpg
+# Vocabulario abierto (OWLv2, Apache-2.0): el ONNX de revisión fija, comparado contra el modelo
+# original de Google en PyTorch con nuestro pre y posproceso. Si no da lo mismo, no se construye.
+COPY exportar_vocabulario.py verificar_vocabulario.py vocabulario.py ./
+RUN python exportar_vocabulario.py /modelos \
+ && python verificar_vocabulario.py /modelos /tmp/prueba.jpg /tmp/persona.jpg \
+ && rm -rf /root/.cache/huggingface
 
 FROM nvidia/cuda:13.0.2-cudnn-runtime-ubuntu24.04
 ENV DEBIAN_FRONTEND=noninteractive PIP_BREAK_SYSTEM_PACKAGES=1
@@ -32,7 +38,7 @@ RUN pip install --no-cache-dir onnxruntime-gpu==1.30.0 numpy pillow fastapi uvic
       opencv-python-headless trackers==2.6.1 supervision==0.30.9 rapidocr==3.10.0 tokenizers==0.23.3
 COPY --from=exportador /modelos /modelos
 WORKDIR /app
-COPY detector.py motor.py atributos.py seguimiento.py texto.py busqueda.py propio.py app.py ./
+COPY detector.py motor.py atributos.py seguimiento.py texto.py busqueda.py propio.py vocabulario.py indice_vocab.py app.py ./
 ENV VISION_MODELOS=/modelos VISION_MODELO=rfdetr-small VISION_UMBRAL=0.4 \
     VISION_TOPE_VRAM_MB=1536 VISION_HILOS_CPU=2 OMP_NUM_THREADS=2
 EXPOSE 8010

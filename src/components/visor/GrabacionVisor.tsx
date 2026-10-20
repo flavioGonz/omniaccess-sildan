@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Car, ChevronLeft, ChevronRight, Crosshair, Download, Loader2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
+import { Car, Check, ChevronLeft, ChevronRight, Crosshair, Download, Film, Loader2, Pause, Play, RefreshCw, SkipBack, SkipForward, VideoOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { canalDe } from "@/components/video/VerGrabacion";
@@ -30,12 +30,24 @@ const MIN_SEG_PARA_ENCADENAR = 3;
 /** Búfer por delante antes de dar play, y a cuánto se arranca igual (ver LiveModal). */
 const COLCHON_SEG = 1;
 const ARRANQUE_FORZADO_MS = 600;
-/** Sin cuadros a los 9 s se reintenta (dos veces); después, «sin grabación en este horario». */
-const ESPERA_CUADRO_MS = 9000;
-const REINTENTOS = 2;
+/**
+ * Sin cuadros a los 28 s se da por perdido. El servidor ya espera el primer dato hasta 20 s y,
+ * si no llega, contesta con el MOTIVO (ver api/nvr/playback): esto es sólo el tope del navegador.
+ * Antes eran 9 s y dos reintentos a ciegas, y todo terminaba en «sin grabación en este horario»
+ * aunque la grabación estuviera (18/10, canal 7 del NVR 6).
+ */
+const ESPERA_CUADRO_MS = 28_000;
+/** Un solo reintento, y sólo cuando el motivo deja esperar algo de él (no cuando no hay grabación). */
+const REINTENTOS = 1;
+/** Hasta cuándo se espera saber si a esa hora se grabó, antes de pedir el video igual. */
+const ESPERA_TRAMOS_MS = 4000;
+/** Holgura al preguntar si un instante cae dentro de lo grabado (los archivos se cortan por hora). */
+const HOLGURA_TRAMO_MS = 3000;
 /** Se espera esto al arrastrar antes de pedir el tramo: un pedido por arrastre, no uno por píxel. */
 const ASENTAR_MS = 300;
 const VELOCIDADES = [1, 2, 4, 8];
+/** Quietud tras la que se esconden los controles mientras se reproduce. */
+const CONTROLES_QUIETOS_MS = 2500;
 /** El salto de los botones y de ← → . */
 const SALTO_SEG = 10;
 /** Esfumado de los bordes de la regla (%): a lo ancho del visor, el 22 del vivo la hacía ver cortada. */
@@ -76,7 +88,19 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     useEffect(() => { const t = setTimeout(() => setTramo(destino), ASENTAR_MS); return () => clearTimeout(t); }, [destino]);
     const [reintento, setReintento] = useState(0);
     const [cargando, setCargando] = useState(true);
-    const [sinGrabacion, setSinGrabacion] = useState(false);
+    /** Por qué no hay video, cuando no lo hay: lo que el NVR o la búsqueda de tramos dijeron. */
+    const [fallo, setFallo] = useState<Fallo | null>(null);
+    const sinGrabacion = fallo != null;
+    /** Ya llegan bytes del video (el NVR entregó y ffmpeg está armando): el último paso de la entrada. */
+    const [recibiendo, setRecibiendo] = useState(false);
+    /** Segundos desde que se pidió el tramo: la entrada dice cuánto lleva, no gira en silencio. */
+    const [espera, setEspera] = useState(0);
+    /** Lo grabado en el canal ese día: undefined = preguntando, null = no se pudo saber. */
+    const [tramos, setTramos] = useState<[number, number][] | null | undefined>(undefined);
+    /** Tramos que el operador pidió intentar aunque la búsqueda diga que no hay grabación. */
+    const [forzados, setForzados] = useState<number[]>([]);
+    /** Reintento automático convirtiendo (tx=1): por si lo que falló fue la copia directa. El manual no convierte. */
+    const [tx, setTx] = useState(false);
     const [rebufer, setRebufer] = useState(false);
     const [reproduciendo, setReproduciendo] = useState(false);
     const [velocidad, setVelocidad] = useState(1);
@@ -84,6 +108,16 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     const [descargaPropia, setDescargaPropia] = useState(false);
     const descarga = clip ?? descargaPropia;
     const setDescarga = onClip ?? setDescargaPropia;
+    /** Los controles se esconden solos mientras se reproduce y nadie toca nada (ver el comentario del video). */
+    const [despierto, setDespierto] = useState(true);
+    const sobreControles = useRef(false);
+    const dormirTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const despertar = useCallback(() => {
+        setDespierto(true);
+        if (dormirTimer.current) clearTimeout(dormirTimer.current);
+        dormirTimer.current = setTimeout(() => { if (!sobreControles.current) setDespierto(false); }, CONTROLES_QUIETOS_MS);
+    }, []);
+    useEffect(() => () => { if (dormirTimer.current) clearTimeout(dormirTimer.current); }, []);
     // Los eventos de ESTA cámara alrededor del instante: para las flechas y para la regla.
     const [eventos, setEventos] = useState<EventoCamara[]>([]);
     useEffect(() => { let vivo = true; eventosDeCamara(deviceId, instanteMs).then((e) => { if (vivo) setEventos(e); }).catch(() => { }); return () => { vivo = false; }; }, [deviceId, instanteMs]);
@@ -94,8 +128,34 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     const pausadoAMano = useRef(false);
     const ultimaPos = useRef(0);
 
-    const url = canal?.ch != null && canal.nvr
-        ? `/api/nvr/playback?ch=${canal.ch}&t=${Math.floor(tramo)}&nvr=${canal.nvr}&dur=${DUR_TRAMO_SEG}${reintento > 0 ? "&tx=1" : ""}`
+    // Lo grabado del día, antes de pedir el video: si a esa hora no hay nada se dice al toque.
+    const diaTramo = new Date(tramo).toDateString();
+    useEffect(() => {
+        if (canal?.ch == null || !canal.nvr) return;
+        let vivo = true;
+        setTramos(undefined);
+        const tope = setTimeout(() => { if (vivo) setTramos((t) => (t === undefined ? null : t)); }, ESPERA_TRAMOS_MS);
+        fetch(`/api/nvr/tramos?nvr=${encodeURIComponent(canal.nvr)}&ch=${canal.ch}&t=${Math.floor(tramo)}`, { cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : null)).then((d) => { if (vivo) setTramos(Array.isArray(d?.tramos) ? d.tramos : null); })
+            .catch(() => { if (vivo) setTramos(null); });
+        return () => { vivo = false; clearTimeout(tope); };
+    }, [canal?.ch, canal?.nvr, diaTramo]); // eslint-disable-line react-hooks/exhaustive-deps
+    const cubierto = tramos == null ? null : tramos.some(([a, b]) => tramo >= a - HOLGURA_TRAMO_MS && tramo <= b + HOLGURA_TRAMO_MS);
+    /** Lo grabado más cerca, para ofrecerlo cuando a esa hora no hay nada. */
+    const cercanos = useMemo(() => {
+        if (!tramos?.length) return { antes: null as number | null, despues: null as number | null };
+        let antes: number | null = null, despues: number | null = null;
+        for (const [a, b] of tramos) {
+            if (b < tramo) antes = b;
+            else if (a > tramo) { despues = a; break; }
+        }
+        return { antes, despues };
+    }, [tramos, tramo]);
+    const forzado = forzados.includes(tramo);
+    const pedir = canal?.ch != null && !!canal.nvr && tramos !== undefined && (cubierto !== false || forzado);
+
+    const url = pedir
+        ? `/api/nvr/playback?ch=${canal!.ch}&t=${Math.floor(tramo)}&nvr=${canal!.nvr}&dur=${DUR_TRAMO_SEG}${tx ? "&tx=1" : ""}&r=${reintento}`
         : null;
     /** El video empieza «antes» segundos antes del instante pedido (Ajustes → Video del evento). */
     const inicioTramo = tramo - ventana.antes * 1000;
@@ -127,19 +187,59 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
         if (colchon >= COLCHON_SEG || v.readyState >= 4) v.play().catch(() => { });
     }, []);
 
+    const fallar = useCallback((f: Fallo) => { setCargando(false); setFallo(f); }, []);
+    // A esa hora el NVR no grabó (lo dijo la búsqueda de tramos): no se pide nada.
+    useEffect(() => {
+        if (cubierto === false && !forzado) fallar({ motivo: "sin-grabacion", fuente: "tramos" });
+    }, [cubierto, forzado, tramo, fallar]);
+
+    /**
+     * El video no llegó: se le pregunta al servidor POR QUÉ (la misma URL contesta un JSON con el
+     * motivo cuando no hay video). Un <video> no expone el estado HTTP, así que es la única
+     * forma de distinguir «no hay grabación» de «el NVR no contesta».
+     */
+    const diagnosticar = useCallback(async (u: string): Promise<Fallo | null> => {
+        const ac = new AbortController();
+        const tope = setTimeout(() => ac.abort(), 25_000);
+        try {
+            const r = await fetch(u, { cache: "no-store", signal: ac.signal });
+            if (r.ok) { ac.abort(); return null; } // ahora sí entrega: era pasajero
+            const j = await r.json().catch(() => null);
+            return { motivo: (j?.motivo as MotivoFallo) || "nvr-error", detalle: j?.detalle || null, fuente: "nvr" };
+        } catch { return { motivo: "nvr-no-responde", fuente: "nvr" }; }
+        finally { clearTimeout(tope); }
+    }, []);
+    const alFallarVideo = useCallback(async (u: string) => {
+        const f = await diagnosticar(u);
+        if (!f || ((f.motivo === "nvr-error" || f.motivo === "nvr-lento") && intentos.current < REINTENTOS)) {
+            intentos.current++; setTx(true); setTimeout(() => setReintento((r) => r + 1), 400); return;
+        }
+        fallar(f);
+    }, [diagnosticar, fallar]);
+
     // Cada tramo nuevo: se arranca de cero, con su espera y sus reintentos.
     useEffect(() => {
-        setCargando(true); setSinGrabacion(false); setRebufer(false); setReproduciendo(false); arranco.current = false;
+        if (!url) return;
+        setCargando(true); setFallo(null); setRecibiendo(false); setEspera(0); setRebufer(false); setReproduciendo(false); arranco.current = false;
         const forzar = setTimeout(() => { const v = video.current; if (v && !arranco.current && !pausadoAMano.current) v.play().catch(() => { }); }, ARRANQUE_FORZADO_MS);
-        const espera = setTimeout(() => {
+        const reloj = setInterval(() => setEspera((s) => s + 1), 1000);
+        const tope = setTimeout(() => {
             const v = video.current;
             if (v && v.readyState < 2) {
-                if (intentos.current < REINTENTOS) { intentos.current++; setReintento((r) => r + 1); }
-                else { setCargando(false); setSinGrabacion(true); }
+                if (intentos.current < REINTENTOS) { intentos.current++; setTx(true); setReintento((r) => r + 1); }
+                else fallar({ motivo: "nvr-lento", fuente: "nvr" });
             }
         }, ESPERA_CUADRO_MS);
-        return () => { clearTimeout(forzar); clearTimeout(espera); };
-    }, [tramo, reintento, url]);
+        return () => { clearTimeout(forzar); clearTimeout(tope); clearInterval(reloj); };
+    }, [tramo, reintento, url, fallar]);
+    // Mientras se pregunta por los tramos también se está «cargando».
+    useEffect(() => { if (!url && tramos === undefined) { setCargando(true); setFallo(null); } }, [url, tramos]);
+    /** Volver a intentar el mismo instante, de cero (y aunque la búsqueda diga que no se grabó). */
+    const reintentar = useCallback(() => {
+        intentos.current = 0;
+        if (fallo?.fuente === "tramos") setForzados((f) => [...f, tramo]);
+        setTx(false); setFallo(null); setReintento((r) => r + 1);
+    }, [fallo, tramo]);
     useEffect(() => { const v = video.current; if (v) try { v.playbackRate = velocidad; } catch { } }, [velocidad, tramo, reintento]);
 
     const alternar = useCallback(() => {
@@ -184,20 +284,47 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
         ro.observe(el); return () => ro.disconnect();
     }, []);
 
+    const controlesVisibles = despierto || !reproduciendo || cargando || sinGrabacion || descarga;
+
     if (canal && (canal.ch == null || !canal.nvr)) {
-        return <div className="absolute inset-0 z-[8] grid place-items-center bg-black text-white/60 text-[13px]">Esta cámara no tiene un canal de NVR asignado: no hay grabación que mostrar.</div>;
+        return <div className="absolute inset-0 z-[8] grid place-items-center bg-muted dark:bg-black text-muted-foreground text-[13px]">Esta cámara no tiene un canal de NVR asignado: no hay grabación que mostrar.</div>;
     }
 
+    /*
+     * La grabación es IMAGEN, y lo que va sobre la imagen es oscuro (como la foto del historial):
+     * escenario negro y controles de vidrio encima, sin bordes ni cajas (18/10, Nico: «no está bien
+     * ocupando los espacios del modal el video; sin bordes, sin marcos, controles overlay, como los
+     * del historial»). Antes el escenario seguía el tema y en claro el video quedaba entre dos
+     * franjas blancas, con un velo blanco que tapaba el tercio de abajo. Ahora los costados que el
+     * video no llena se rellenan con el mismo cuadro desenfocado (ambiente), y el velo de los
+     * controles es oscuro y corto.
+     */
     return (
-        <div className="absolute inset-0 z-[8] bg-black" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            {poster && cargando && <img src={poster} alt="" className="absolute inset-0 w-full h-full object-contain blur-[6px] brightness-[0.4] scale-105" />}
+        <div className={cn("absolute inset-0 z-[8] bg-black overflow-hidden", !controlesVisibles && "cursor-none")}
+            onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => { e.stopPropagation(); despertar(); }}
+            onPointerMove={despertar}>
+            {/* El ambiente: el cuadro desenfocado llena lo que el video (contain) no ocupa. */}
+            {poster && (<>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={poster} alt="" aria-hidden className={cn("absolute inset-0 w-full h-full object-cover scale-125 transition-[filter,opacity] duration-500", cargando || sinGrabacion ? "blur-[18px] opacity-70" : "blur-[28px] opacity-80")} />
+                <div className={cn("absolute inset-0 transition-colors duration-500", cargando || sinGrabacion ? "bg-black/30" : "bg-black/20")} />
+            </>)}
+            {/*
+              * El video a toda la ventana, sin marcos, y los controles ENCIMA que se esconden solos
+              * mientras se reproduce (18/10, Nico). Se probó primero la barra debajo del video para
+              * que no tapara el tercio de abajo: el video quedaba más bajo que la ventana y aparecían
+              * dos franjas a los costados («no ves que tiene marcos el video»). La ventana del visor es
+              * 16:9 como las cámaras: a toda la ventana el cuadro entra justo. Los controles aparecen
+              * al mover el mouse, en pausa, cargando o sin video, y se van a los 2,5 s de quietud.
+              */}
+            <div className="absolute inset-0">
             {url && (
-                <video key={`${url}#${reintento}`} ref={video} src={url} muted playsInline preload="auto" onClick={alternar}
+                <video key={url} ref={video} src={url} muted playsInline preload="auto" onClick={alternar}
                     onPlay={() => setReproduciendo(true)} onPause={() => setReproduciendo(false)}
-                    onLoadedData={() => { intentos.current = 0; setSinGrabacion(false); try { video.current!.playbackRate = velocidad; } catch { } intentarPlay(); }}
-                    onCanPlay={intentarPlay} onProgress={intentarPlay}
-                    onPlaying={() => { intentos.current = 0; arranco.current = true; setSinGrabacion(false); setRebufer(false); setCargando(false); }}
+                    onLoadStart={() => setRecibiendo(false)} onLoadedMetadata={() => setRecibiendo(true)}
+                    onLoadedData={() => { intentos.current = 0; setFallo(null); try { video.current!.playbackRate = velocidad; } catch { } intentarPlay(); }}
+                    onCanPlay={intentarPlay} onProgress={() => { setRecibiendo(true); intentarPlay(); }}
+                    onPlaying={() => { intentos.current = 0; arranco.current = true; setFallo(null); setRebufer(false); setCargando(false); }}
                     onWaiting={() => { if (arranco.current) setRebufer(true); else setCargando(true); }}
                     onTimeUpdate={(e) => {
                         if (rebufer) setRebufer(false);
@@ -206,73 +333,71 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
                     }}
                     onEnded={() => {
                         const v = video.current; if (!v) return;
-                        if (v.currentTime < MIN_SEG_PARA_ENCADENAR) { setCargando(false); setSinGrabacion(true); return; }
+                        if (v.currentTime < MIN_SEG_PARA_ENCADENAR) { fallar({ motivo: "sin-grabacion", fuente: "nvr" }); return; }
                         const sig = inicioTramo + v.currentTime * 1000 + ventana.antes * 1000 + 100;
                         if (!pausadoAMano.current && sig < Date.now() - 15_000) irA(sig);
                     }}
-                    onError={() => { if (intentos.current < REINTENTOS) { intentos.current++; setTimeout(() => setReintento((r) => r + 1), 800); } else { setCargando(false); setSinGrabacion(true); } }}
-                    className="absolute inset-0 w-full h-full object-contain cursor-pointer" />
+                    onError={() => { if (url) alFallarVideo(url); }}
+                    className={cn("absolute inset-0 w-full h-full object-contain cursor-pointer transition-opacity duration-300", cargando && !arranco.current ? "opacity-0" : "opacity-100")} />
             )}
 
-            {(cargando || !canal) && !sinGrabacion && (
-                <div className="absolute inset-x-0 top-0 bottom-60 grid place-items-center pointer-events-none">
-                    <span className="flex items-center gap-2 text-white/85 text-[14px] font-semibold drop-shadow"><Loader2 size={16} className="animate-spin" /> Buscando la grabación en el NVR…</span>
-                </div>
-            )}
-            {sinGrabacion && (
-                <div className="absolute inset-x-0 top-0 bottom-60 grid place-items-center pointer-events-none text-center">
-                    <span><span className="block text-white text-[16px] font-bold">Sin grabación en este horario</span><span className="block text-white/55 text-[12px] mt-1">Probá otro momento en la regla.</span></span>
-                </div>
-            )}
+            <AnimatePresence mode="wait">
+                {(cargando || !canal) && !sinGrabacion && (
+                    <EntradaGrabacion key="entrada" camara={camara} instante={tramo} canal={canal} tramos={tramos} cubierto={cubierto} pidiendo={!!url} recibiendo={recibiendo} espera={espera} reintento={reintento} />
+                )}
+                {fallo && (
+                    <AvisoFallo key="fallo" fallo={fallo} camara={camara} instante={tramo} cercanos={cercanos} enEvento={Math.abs(tramo - instanteMs) < 1500}
+                        onReintentar={reintentar} onIr={(ms) => irA(ms)} onEvento={() => irA(instanteMs)} antesSeg={ventana.antes} />
+                )}
+            </AnimatePresence>
             {/* El play grande del centro: está mientras el video está en pausa y se va al reproducir.
                 Tocar el video en cualquier lado hace lo mismo (pausa y sigue). */}
             <AnimatePresence>
                 {url && !reproduciendo && !cargando && !sinGrabacion && (
                     <motion.button key="play" type="button" onClick={alternar} title="Reproducir  ( espacio )" aria-label="Reproducir"
                         initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.25 }} transition={{ duration: 0.18 }}
-                        className="absolute left-1/2 top-[42%] -translate-x-1/2 -translate-y-1/2 z-[2] w-[76px] h-[76px] rounded-full grid place-items-center bg-black/45 backdrop-blur-md border border-white/25 text-white hover:bg-black/60 hover:scale-105 transition-[background-color,transform]">
+                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[2] w-[76px] h-[76px] rounded-full grid place-items-center bg-black/45 backdrop-blur-md border border-white/25 text-white hover:bg-black/60 hover:scale-105 transition-[background-color,transform]">
                         <Play size={32} className="ml-1" fill="currentColor" />
                     </motion.button>
                 )}
             </AnimatePresence>
             {rebufer && !cargando && <span className="absolute top-20 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-[6px] bg-black/60 text-white/80 text-[11px] font-semibold pointer-events-none">Cargando…</span>}
+            </div>
 
-            {/* ── La barra: controles y regla ── */}
-            <div className="absolute inset-x-0 bottom-0 px-5 md:px-7 pb-4 pt-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent">
-                <div className="flex items-center gap-2 mb-2.5">
-                    <button type="button" onClick={alternar} disabled={!url} title={reproduciendo ? "Pausar  ( espacio )" : "Reproducir  ( espacio )"}
-                        className="w-10 h-10 rounded-full bg-white text-black grid place-items-center hover:brightness-95 disabled:opacity-40">
-                        {cargando && !sinGrabacion ? <Loader2 size={17} className="animate-spin" /> : reproduciendo ? <Pause size={17} /> : <Play size={17} className="ml-0.5" />}
+            {/* ── Los controles, sobre la imagen: velo oscuro corto y vidrio sin bordes ── */}
+            <div className={cn("absolute inset-x-0 bottom-0 px-4 md:px-6 pb-2 pt-16 bg-[linear-gradient(to_top,rgba(0,0,0,.8)_0%,rgba(0,0,0,.5)_50%,transparent_100%)] text-white transition-[opacity,transform] duration-300",
+                controlesVisibles ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3 pointer-events-none")}
+                onPointerEnter={() => { sobreControles.current = true; }} onPointerLeave={() => { sobreControles.current = false; }}>
+                <div className="flex items-center gap-2 mb-1">
+                    {/* Atrás / adelante: al evento anterior o siguiente de esta cámara, como era su lógica original.
+                        Los 10 s quedan en ← → del teclado. */}
+                    <SaltoEvento lado="anterior" evento={vecinos.anterior} onClick={() => saltarA(vecinos.anterior)} />
+                    <button type="button" onClick={alternar} disabled={!url} title={reproduciendo ? "Pausar  ( espacio )" : "Reproducir  ( espacio )"} aria-label={reproduciendo ? "Pausar" : "Reproducir"}
+                        className="w-11 h-11 rounded-full bg-white text-black grid place-items-center hover:scale-105 active:scale-95 transition-transform disabled:opacity-40 shadow-[0_6px_20px_rgba(0,0,0,.35)]">
+                        {cargando && !sinGrabacion ? <Loader2 size={18} className="animate-spin" /> : reproduciendo ? <Pause size={18} fill="currentColor" /> : <Play size={18} className="ml-0.5" fill="currentColor" />}
                     </button>
-                    <BotonBarra onClick={() => irA(actual - SALTO_SEG * 1000)} title={`Atrás ${SALTO_SEG} s  ( ← )`}><RotateCcw size={15} /><span className="text-[10px] font-bold tabular-nums">{SALTO_SEG}</span></BotonBarra>
-                    <BotonBarra onClick={() => irA(actual + SALTO_SEG * 1000)} title={`Adelante ${SALTO_SEG} s  ( → )`}><span className="text-[10px] font-bold tabular-nums">{SALTO_SEG}</span><RotateCw size={15} /></BotonBarra>
-                    <div className="ml-2 leading-tight">
-                        <div className="text-[18px] font-bold tabular-nums text-white">{horaSeg(actual)}</div>
-                        <div className="text-[11px] text-white/55 tabular-nums">{fechaCorta(actual)} · {diferencia(actual, instanteMs)}</div>
+                    <SaltoEvento lado="siguiente" evento={vecinos.siguiente} onClick={() => saltarA(vecinos.siguiente)} />
+                    <div className="ml-3 leading-tight [text-shadow:0_1px_8px_rgba(0,0,0,.6)]">
+                        <div className="text-[19px] font-bold tabular-nums">{horaSeg(actual)}</div>
+                        <div className="text-[11px] text-white/70 tabular-nums">{fechaCorta(actual)} · {diferencia(actual, instanteMs)}</div>
                     </div>
                     <div className="ml-auto flex items-center gap-1.5">
-                        <BotonBarra onClick={() => irA(instanteMs)} title="Volver al instante del evento  ( E )"><Crosshair size={15} /> <span className="text-[11.5px] font-semibold">Evento</span></BotonBarra>
-                        <span className="w-px h-5 bg-white/15 mx-1" />
-                        <span className="flex items-center rounded-full bg-white/[0.07] border border-white/12 p-0.5">
+                        <BotonBarra onClick={() => irA(instanteMs)} title="Volver al instante del evento  ( E )"><Crosshair size={15} /> <span className="text-[12px] font-semibold">Evento</span></BotonBarra>
+                        <span className="flex items-center rounded-full bg-white/10 backdrop-blur-md p-0.5">
                             {VELOCIDADES.map((v) => (
                                 <button key={v} type="button" onClick={() => setVelocidad(v)} aria-pressed={velocidad === v}
-                                    className={cn("h-7 min-w-[30px] px-2 rounded-full text-[11px] font-semibold tabular-nums", velocidad === v ? "bg-white text-black" : "text-white/70 hover:text-white")}>{v}×</button>
+                                    className={cn("h-7 min-w-[32px] px-2 rounded-full text-[11.5px] font-semibold tabular-nums transition-colors", velocidad === v ? "bg-white text-black" : "text-white/75 hover:text-white")}>{v}×</button>
                             ))}
                         </span>
-                        <span className="w-px h-5 bg-white/15 mx-1" />
-                        <BotonBarra onClick={() => setDescarga(true)} title={`Bajar o mandar por WhatsApp un clip de este instante (${ventana.antes} s antes y ${ventana.despues} s después)`}><Download size={15} /> <span className="text-[11.5px] font-semibold">Clip</span></BotonBarra>
+                        <BotonBarra onClick={() => setDescarga(true)} title={`Bajar o mandar por WhatsApp un clip de este instante (${ventana.antes} s antes y ${ventana.despues} s después)`}><Download size={15} /> <span className="text-[12px] font-semibold">Clip</span></BotonBarra>
                     </div>
                 </div>
 
-                {/* La regla: la misma rueda del otro reproductor. Arrastrar va a otro minuto; las marcas, a su instante. */}
-                <div className="flex items-end gap-2">
-                    <FlechaEvento lado="anterior" evento={vecinos.anterior} onClick={() => saltarA(vecinos.anterior)} />
-                    <div ref={ancho} className="flex-1 min-w-0">
-                        <Scrub step="1" momentum={30} format="24h" width={anchoRegla} value={minutosDe(actual)} start={minutosDe(instanteMs)} difuminado={DIFUMINADO_REGLA}
-                            onChange={(min) => irA(msDeMinutos(min))}
-                            marcas={marcasScrub} onMarca={(k) => irA(k.id === "evento" ? instanteMs : msDeMinutos(k.m))} />
-                    </div>
-                    <FlechaEvento lado="siguiente" evento={vecinos.siguiente} onClick={() => saltarA(vecinos.siguiente)} />
+                {/* La regla: la misma rueda del otro reproductor, a todo el ancho. Arrastrar va a otro minuto; las marcas, a su instante. */}
+                <div ref={ancho} className="min-w-0">
+                    <Scrub step="1" momentum={30} format="24h" width={anchoRegla} value={minutosDe(actual)} start={minutosDe(instanteMs)} difuminado={DIFUMINADO_REGLA}
+                        onChange={(min) => irA(msDeMinutos(min))}
+                        marcas={marcasScrub} onMarca={(k) => irA(k.id === "evento" ? instanteMs : msDeMinutos(k.m))} />
                 </div>
             </div>
 
@@ -285,17 +410,22 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
 }
 
 /**
- * Las flechas a los costados de la regla: al evento anterior / siguiente que detectó esta cámara
- * (accesos, lecturas, detecciones). Dicen a qué hora está y qué fue; apagadas si no hay.
+ * Atrás / adelante del reproductor: al evento anterior / siguiente que detectó esta cámara
+ * (accesos, lecturas, detecciones, lo que registró OmniVision). Dicen a qué hora está y qué fue;
+ * apagadas si no hay. Antes eran ±10 s y las flechas de eventos iban aparte, a los costados de la
+ * regla, con borde (18/10, Nico: «deben llevar a la hora del evento anterior o posterior»).
  */
-function FlechaEvento({ lado, evento, onClick }: { lado: "anterior" | "siguiente"; evento: EventoCamara | null; onClick: () => void }) {
+function SaltoEvento({ lado, evento, onClick }: { lado: "anterior" | "siguiente"; evento: EventoCamara | null; onClick: () => void }) {
     const titulo = evento
         ? `${lado === "anterior" ? "Evento anterior" : "Evento siguiente"} de esta cámara · ${horaSeg(evento.ms)} · ${evento.titulo}  ( Shift ${lado === "anterior" ? "←" : "→"} )`
         : `No hay ${lado === "anterior" ? "eventos antes" : "eventos después"} en esta cámara (12 h)`;
     return (
         <button type="button" onClick={onClick} disabled={!evento} title={titulo} aria-label={titulo}
-            className="mb-[22px] shrink-0 w-11 h-11 rounded-full grid place-items-center border border-white/15 bg-white/[0.06] text-white/85 hover:text-white hover:bg-white/15 disabled:opacity-25 disabled:hover:bg-white/[0.06] transition-colors">
-            {lado === "anterior" ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
+            className={cn("group h-9 rounded-full inline-flex items-center gap-1 bg-white/10 backdrop-blur-md text-white/90 hover:text-white hover:bg-white/20 disabled:opacity-30 disabled:hover:bg-white/10 transition-colors",
+                lado === "anterior" ? "pl-2 pr-3" : "pl-3 pr-2")}>
+            {lado === "anterior" && <SkipBack size={15} fill="currentColor" />}
+            <span className="text-[11.5px] font-semibold tabular-nums">{evento ? horaSeg(evento.ms) : "—"}</span>
+            {lado === "siguiente" && <SkipForward size={15} fill="currentColor" />}
         </button>
     );
 }
@@ -303,7 +433,7 @@ function FlechaEvento({ lado, evento, onClick }: { lado: "anterior" | "siguiente
 function BotonBarra({ children, onClick, title }: { children: React.ReactNode; onClick: () => void; title: string }) {
     return (
         <button type="button" onClick={onClick} title={title} aria-label={title}
-            className="h-8 px-2.5 rounded-[8px] inline-flex items-center gap-1 text-white/85 hover:text-white hover:bg-white/10 border border-white/12">
+            className="h-8 px-3 rounded-full inline-flex items-center gap-1.5 bg-white/10 backdrop-blur-md text-white/85 hover:text-white hover:bg-white/20 transition-colors">
             {children}
         </button>
     );
@@ -313,7 +443,132 @@ function BotonBarra({ children, onClick, title }: { children: React.ReactNode; o
 function diferencia(ms: number, evento: number) {
     const s = Math.round((ms - evento) / 1000);
     if (Math.abs(s) < 1) return "en el evento";
-    const a = Math.abs(s), m = Math.floor(a / 60), r = a % 60;
-    const txt = m ? `${m} min${r ? ` ${r} s` : ""}` : `${r} s`;
+    const a = Math.abs(s), h = Math.floor(a / 3600), m = Math.floor((a % 3600) / 60), r = a % 60;
+    // Más de una hora: horas y minutos («13 h 19 min»), no «799 min 30 s».
+    const txt = h ? `${h} h${m ? ` ${m} min` : ""}` : m ? `${m} min${r ? ` ${r} s` : ""}` : `${r} s`;
     return `${txt} ${s < 0 ? "antes" : "después"} del evento`;
+}
+
+type MotivoFallo = "sin-grabacion" | "nvr-credenciales" | "nvr-no-responde" | "nvr-lento" | "sdp-cambiado" | "nvr-error";
+/** Por qué no hay video. `fuente`: lo dijo la búsqueda de tramos (antes de pedir) o el NVR al pedir. */
+type Fallo = { motivo: MotivoFallo; detalle?: string | null; fuente: "tramos" | "nvr" };
+
+/**
+ * La entrada de la grabación (18/10, Nico: «queda cargando, mejorá esta entrada antes de cargar
+ * una grabación»). Antes era una línea girando —«Buscando la grabación en el NVR…»— sobre el
+ * póster apagado, igual a los 2 s que a los 20, sin decir en qué estaba. Ahora son los pasos
+ * reales del pedido, cada uno se tilda cuando pasa, y el que está en curso dice cuánto lleva:
+ * ubicar la cámara en el NVR, confirmar que a esa hora se grabó, pedir el tramo, recibirlo.
+ */
+function EntradaGrabacion({ camara, instante, canal, tramos, cubierto, pidiendo, recibiendo, espera, reintento }: {
+    camara?: string | null; instante: number; canal: { ch: number | null; nvr: string | null } | null;
+    tramos: [number, number][] | null | undefined; cubierto: boolean | null; pidiendo: boolean; recibiendo: boolean; espera: number; reintento: number;
+}) {
+    const pasos: { texto: string; estado: "hecho" | "ahora" | "luego"; nota?: string }[] = [
+        { texto: canal ? `Cámara ubicada${canal.ch != null ? ` · canal ${canal.ch}` : ""}` : "Ubicando la cámara en el NVR", estado: canal ? "hecho" : "ahora" },
+        {
+            texto: tramos === undefined ? "Confirmando que a esa hora se grabó" : cubierto ? "Hay grabación a esa hora" : "No se pudo confirmar: se intenta igual",
+            estado: !canal ? "luego" : tramos === undefined ? "ahora" : "hecho",
+        },
+        { texto: recibiendo ? "El NVR entregó el tramo" : "Pidiendo el tramo al NVR", estado: !pidiendo ? "luego" : recibiendo ? "hecho" : "ahora", nota: pidiendo && !recibiendo && espera >= 2 ? `${espera} s` : undefined },
+        { texto: "Armando el video", estado: recibiendo ? "ahora" : "luego" },
+    ];
+    return (
+        <motion.div initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-0 grid place-items-center pointer-events-none px-4">
+            <div className="cajon-vidrio w-[min(360px,100%)] rounded-[14px] border border-border shadow-xl px-5 py-4">
+                <div className="flex items-center gap-3">
+                    <span className="relative w-10 h-10 shrink-0 grid place-items-center rounded-full bg-[var(--accion)]/12 text-[var(--accion)]">
+                        <Film size={18} />
+                        <span className="absolute inset-0 rounded-full border-2 border-[var(--accion)]/25 border-t-[var(--accion)] animate-spin [animation-duration:1.1s]" />
+                    </span>
+                    <div className="min-w-0 leading-tight">
+                        <div className="text-[14px] font-bold text-foreground truncate">Grabación{camara ? ` · ${camara}` : ""}</div>
+                        <div className="text-[12px] text-muted-foreground tabular-nums">{fechaCorta(instante)} · {horaSeg(instante)}{reintento > 0 ? " · otro intento" : ""}</div>
+                    </div>
+                </div>
+                <ol className="mt-3.5 space-y-2">
+                    {pasos.map((p, i) => (
+                        <li key={i} className={cn("flex items-center gap-2.5 text-[12.5px]", p.estado === "luego" ? "text-muted-foreground/60" : p.estado === "ahora" ? "text-foreground font-semibold" : "text-muted-foreground")}>
+                            <span className="w-4 h-4 shrink-0 grid place-items-center">
+                                {p.estado === "hecho" ? <Check size={14} className="tono-bien" strokeWidth={3} />
+                                    : p.estado === "ahora" ? <Loader2 size={14} className="animate-spin text-[var(--accion)]" />
+                                        : <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40" />}
+                            </span>
+                            <span className="truncate">{p.texto}</span>
+                            {p.nota && <span className="ml-auto text-[11px] text-muted-foreground font-normal tabular-nums">{p.nota}</span>}
+                        </li>
+                    ))}
+                </ol>
+            </div>
+        </motion.div>
+    );
+}
+
+/**
+ * Cuando no hay video, decir POR QUÉ y qué se puede hacer. Antes todo terminaba en «Sin
+ * grabación en este horario», incluso cuando la grabación estaba y lo que fallaba era el NVR
+ * (18/10, canal 7 del NVR 6). Cada motivo tiene su frase, y lo grabado más cerca se ofrece
+ * como botón en vez de «probá otro momento en la regla».
+ */
+const TEXTO_FALLO: Record<MotivoFallo, { titulo: string; cuerpo: string; reintentar: boolean }> = {
+    "sin-grabacion": { titulo: "El NVR no grabó a esa hora", cuerpo: "No hay video de este momento en el disco del NVR.", reintentar: false },
+    "nvr-credenciales": { titulo: "El NVR rechazó el usuario", cuerpo: "Revisar el usuario y la clave del NVR en Dispositivos.", reintentar: true },
+    "nvr-no-responde": { titulo: "El NVR no contesta", cuerpo: "No llegó respuesta. Puede estar sin red o reiniciándose.", reintentar: true },
+    "nvr-lento": { titulo: "El NVR no entregó el video a tiempo", cuerpo: "Contestó pero no mandó cuadros. Suele pasar cuando está atendiendo muchos pedidos.", reintentar: true },
+    "sdp-cambiado": { titulo: "El NVR anuncia otro códec", cuerpo: "Se corrigió y se puede volver a intentar.", reintentar: true },
+    "nvr-error": { titulo: "No se pudo reproducir este tramo", cuerpo: "El NVR contestó con un error.", reintentar: true },
+};
+
+function AvisoFallo({ fallo, camara, instante, cercanos, enEvento, antesSeg, onReintentar, onIr, onEvento }: {
+    fallo: Fallo; camara?: string | null; instante: number; cercanos: { antes: number | null; despues: number | null };
+    enEvento: boolean; antesSeg: number; onReintentar: () => void; onIr: (ms: number) => void; onEvento: () => void;
+}) {
+    const t = TEXTO_FALLO[fallo.motivo] || TEXTO_FALLO["nvr-error"];
+    const sinGrab = fallo.motivo === "sin-grabacion";
+    const boton = "h-8 px-3 rounded-[8px] inline-flex items-center gap-1.5 text-[12px] font-semibold border border-border text-foreground/85 hover:text-foreground hover:bg-muted transition-colors";
+    return (
+        <motion.div initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-0 grid place-items-center px-4">
+            <div className="cajon-vidrio w-[min(400px,100%)] rounded-[14px] border border-border shadow-xl px-5 py-4">
+                <div className="flex items-start gap-3">
+                    <span className={cn("w-10 h-10 shrink-0 grid place-items-center rounded-full", sinGrab ? "chip-quieto" : "chip-aviso")}><VideoOff size={18} /></span>
+                    <div className="min-w-0">
+                        <div className="text-[15px] font-bold text-foreground leading-snug">{t.titulo}</div>
+                        <div className="mt-0.5 text-[12.5px] text-muted-foreground">
+                            {camara ? <span className="font-semibold text-foreground/80">{camara}</span> : "La cámara"} · <span className="tabular-nums">{fechaCorta(instante)} {horaSeg(instante)}</span>
+                        </div>
+                        <p className="mt-1.5 text-[12.5px] text-muted-foreground">{t.cuerpo}</p>
+                        {fallo.detalle && !sinGrab && <p className="mt-1 text-[11px] text-muted-foreground/70 break-words line-clamp-2" title={fallo.detalle}>{fallo.detalle}</p>}
+                    </div>
+                </div>
+                {sinGrab && (cercanos.antes != null || cercanos.despues != null) && (
+                    <div className="mt-3.5">
+                        <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Lo grabado más cerca</div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button type="button" disabled={cercanos.antes == null} onClick={() => cercanos.antes != null && onIr(cercanos.antes - 20_000)}
+                                className="h-11 px-3 rounded-[10px] border border-border text-left hover:bg-muted disabled:opacity-35 transition-colors">
+                                <div className="text-[10.5px] text-muted-foreground flex items-center gap-1"><ChevronLeft size={12} /> Termina</div>
+                                <div className="text-[13px] font-bold tabular-nums text-foreground">{cercanos.antes != null ? horaSeg(cercanos.antes) : "—"}</div>
+                            </button>
+                            <button type="button" disabled={cercanos.despues == null} onClick={() => cercanos.despues != null && onIr(cercanos.despues + antesSeg * 1000)}
+                                className="h-11 px-3 rounded-[10px] border border-border text-right hover:bg-muted disabled:opacity-35 transition-colors">
+                                <div className="text-[10.5px] text-muted-foreground flex items-center justify-end gap-1">Empieza <ChevronRight size={12} /></div>
+                                <div className="text-[13px] font-bold tabular-nums text-foreground">{cercanos.despues != null ? horaSeg(cercanos.despues) : "—"}</div>
+                            </button>
+                        </div>
+                    </div>
+                )}
+                <div className="mt-3.5 flex items-center gap-2 flex-wrap">
+                    {(t.reintentar || fallo.fuente === "tramos") && (
+                        <button type="button" onClick={onReintentar}
+                            className={cn("h-8 px-3 rounded-[8px] inline-flex items-center gap-1.5 text-[12px] font-semibold", t.reintentar ? "bg-[var(--accion)] text-white hover:brightness-110" : boton)}>
+                            <RefreshCw size={13} /> {t.reintentar ? "Reintentar" : "Pedirlo igual"}
+                        </button>
+                    )}
+                    {!enEvento && <button type="button" onClick={onEvento} className={boton}><Crosshair size={13} /> Volver al evento</button>}
+                </div>
+            </div>
+        </motion.div>
+    );
 }

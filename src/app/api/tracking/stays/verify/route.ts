@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cerrarEstadia } from "@/lib/estadias";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
 import { capturarCuadro, leerMatriculas } from "@/lib/cuadro";
@@ -134,10 +135,10 @@ export async function POST(req: NextRequest) {
     // vez que SÍ se lo vio, no en este momento: el auto se fue en algún punto entre esas
     // dos marcas, y poner la hora de la verificación diría que estuvo hasta recién.
     const ahora = new Date();
-    await prisma.plateSighting.update({
-        where: { id: estadia.id },
-        data: { estCerrada: true, estHasta: estadia.estHasta || estadia.timestamp },
-    });
+    // Por `cerrarEstadia` y no con un update directo (la auditoría del 18/10): así sale el «se
+    // retiró» si había avisado «estacionó», el plano se entera por socket y se borra la nota de vigilia.
+    await cerrarEstadia({ ...(estadia as any), estHasta: estadia.estHasta || estadia.timestamp }).catch(() => null);
+    await prisma.plateSighting.update({ where: { id: estadia.id }, data: { estCerrada: true, estHasta: estadia.estHasta || estadia.timestamp } }).catch(() => null);
 
     return NextResponse.json({
         resultado: "se_fue",

@@ -1941,6 +1941,153 @@ video::-webkit-media-controls { display: none !important; }
 .visor-aviso { color: color-mix(in oklab, var(--aviso) 52%, #fff); }
 .visor-mal   { color: color-mix(in oklab, var(--mal)   52%, #fff); }
 
+/* ── El visor en tema claro ──────────────────────────────────────────────
+   (17/10, Nico: «adaptarse a light o dark, la veo muy oscura».) El visor se
+   habia pensado oscuro siempre, por lo que dice arriba: la foto es la misma
+   en los dos temas. Pero en tema claro la ventana caia como un apagon sobre
+   la pantalla: fondo negro al 85 %, marco negro, todo el texto en blanco.
+
+   Lo que cambia en claro es lo que NO es la foto: el fondo de la pantalla,
+   el marco y los velos que hacen legible la ficha pasan a la superficie del
+   tema, y el texto de la ficha, el titulo y los controles pasan a tinta.
+   Lo que va pegado a la imagen (la capsula sobre el auto, la chapa, la vista
+   limpia, la grabacion, buscar parecidos) sigue oscuro: esta sobre la foto y
+   ahi lo oscuro es lo que se lee.
+
+   Va como capa sobre las clases de Tailwind de adentro de .visor-zona en vez
+   de reescribir las ochenta y tantas clases de los componentes: el visor
+   oscuro queda exactamente como estaba, y si esto no convence se borra este
+   bloque y nada mas. */
+html:not(.dark) .visor-raiz.visor-fondo { background: color-mix(in oklab, var(--background) 78%, transparent); }
+html:not(.dark) .visor-raiz .visor-marco {
+  background: var(--muted);
+  border-color: var(--border);
+  box-shadow: 0 25px 70px -20px rgba(15, 23, 42, 0.35);
+}
+/* Los velos: la misma forma, en la superficie del tema. */
+html:not(.dark) .visor-raiz .visor-velo-izq {
+  background-image: linear-gradient(90deg,
+    color-mix(in oklab, var(--background) 88%, transparent) 0%,
+    color-mix(in oklab, var(--background) 62%, transparent) 50%, transparent 100%);
+}
+html:not(.dark) .visor-raiz .visor-velo-vert {
+  background-image: linear-gradient(0deg,
+    color-mix(in oklab, var(--background) 70%, transparent) 0%, transparent 30%,
+    transparent 75%, color-mix(in oklab, var(--background) 72%, transparent) 100%);
+}
+html:not(.dark) .visor-raiz .visor-ambiente {
+  background:
+    radial-gradient(ellipse 65% 75% at 18% 45%,
+      color-mix(in oklab, var(--visor-tono) 22%, transparent) 0%,
+      color-mix(in oklab, var(--visor-tono) 9%, transparent) 45%, transparent 85%),
+    linear-gradient(90deg,
+      color-mix(in oklab, var(--background) 70%, transparent) 0%,
+      color-mix(in oklab, var(--background) 40%, transparent) 32%, transparent 70%);
+}
+html:not(.dark) .visor-raiz .visor-orbe { opacity: 0.35; }
+/* El texto sobre la foto: el halo pasa a claro, que es lo que le gana a una calle de noche
+   detras de una letra oscura. */
+html:not(.dark) .visor-raiz .visor-zona .visor-sombra-texto, html:not(.dark) .visor-raiz .visor-zona.visor-sombra-texto {
+  text-shadow: 0 0 14px color-mix(in oklab, var(--background) 90%, transparent), 0 1px 3px color-mix(in oklab, var(--background) 80%, transparent);
+}
+html:not(.dark) .visor-raiz .visor-zona .visor-panel, html:not(.dark) .visor-raiz .visor-zona.visor-panel {
+  background: color-mix(in oklab, var(--card) 82%, transparent);
+  border-color: var(--border);
+  box-shadow: 0 18px 40px -16px rgba(15, 23, 42, 0.3);
+}
+html:not(.dark) .visor-raiz .visor-zona .visor-vidrio {
+  background: color-mix(in oklab, var(--card) 70%, transparent);
+  border-color: var(--border);
+  box-shadow: 0 4px 14px -6px rgba(15, 23, 42, 0.25);
+}
+html:not(.dark) .visor-raiz .visor-zona .visor-vidrio:hover:not(:disabled) { background: var(--card); border-color: color-mix(in oklab, var(--foreground) 22%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .visor-vidrio-activo { background: color-mix(in oklab, var(--visor-tono) 22%, var(--card)); border-color: color-mix(in oklab, var(--visor-tono) 50%, transparent); }
+/* Los tonos: en claro, la version de tinta (la que se lee sobre blanco). */
+html:not(.dark) .visor-raiz .visor-zona .visor-bien { color: var(--bien-texto); }
+html:not(.dark) .visor-raiz .visor-zona .visor-aviso { color: var(--aviso-texto); }
+html:not(.dark) .visor-raiz .visor-zona .visor-mal { color: var(--mal-texto); }
+html:not(.dark) .visor-raiz .visor-zona .text-\[var\(--accion-en-oscuro\)\] { color: var(--accion); }
+html:not(.dark) .visor-raiz .visor-zona .bg-\[var\(--accion-en-oscuro\)\] { background-color: var(--accion); }
+/* El blanco de Tailwind, a tinta. Se salta lo que va sobre el azul de accion (Registrar,
+   OmniVision prendido): blanco sobre azul se lee en los dos temas. */
+html:not(.dark) .visor-raiz .visor-zona .text-white:not([class*="bg-[var(--accion)]"]) { color: var(--foreground); }
+html:not(.dark) .visor-raiz .visor-zona .hover\:text-white:hover:not([class*="bg-[var(--accion)]"]) { color: var(--foreground); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/20 { color: color-mix(in oklab, var(--foreground) 20%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/30 { color: color-mix(in oklab, var(--foreground) 30%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/45 { color: color-mix(in oklab, var(--foreground) 45%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/50 { color: color-mix(in oklab, var(--foreground) 50%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/55 { color: color-mix(in oklab, var(--foreground) 55%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/60 { color: color-mix(in oklab, var(--foreground) 60%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/65 { color: color-mix(in oklab, var(--foreground) 65%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/70 { color: color-mix(in oklab, var(--foreground) 70%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/75 { color: color-mix(in oklab, var(--foreground) 75%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/80 { color: color-mix(in oklab, var(--foreground) 80%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/85 { color: color-mix(in oklab, var(--foreground) 85%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/90 { color: color-mix(in oklab, var(--foreground) 90%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/95 { color: color-mix(in oklab, var(--foreground) 95%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .bg-white\/10 { background-color: color-mix(in oklab, var(--foreground) 7%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .bg-white\/15 { background-color: color-mix(in oklab, var(--foreground) 10%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .bg-white\/20 { background-color: color-mix(in oklab, var(--foreground) 13%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .bg-white\/\[0\.07\] { background-color: color-mix(in oklab, var(--foreground) 5%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .hover\:bg-white\/10:hover { background-color: color-mix(in oklab, var(--foreground) 7%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .hover\:bg-white\/15:hover { background-color: color-mix(in oklab, var(--foreground) 10%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .border-white\/12 { border-color: color-mix(in oklab, var(--foreground) 12%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .border-white\/15 { border-color: color-mix(in oklab, var(--foreground) 15%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .border-white\/20 { border-color: color-mix(in oklab, var(--foreground) 20%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .border-white\/25 { border-color: color-mix(in oklab, var(--foreground) 25%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .border-white\/30 { border-color: color-mix(in oklab, var(--foreground) 30%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .bg-black\/55 { background-color: color-mix(in oklab, var(--card) 85%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .bg-black\/45 { background-color: color-mix(in oklab, var(--card) 75%, transparent); }
+
+/* La ficha de intrusión (FichaDeteccion) pone text-white en la ventana entera: en claro, lo
+   que hereda ese blanco dentro de una zona pasa a tinta. Y las clases que usa y el visor de LPR no. */
+html:not(.dark) .visor-raiz .visor-zona { color: var(--foreground); }
+html:not(.dark) .visor-raiz .visor-zona .text-white\/40 { color: color-mix(in oklab, var(--foreground) 40%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .bg-white\/12 { background-color: color-mix(in oklab, var(--foreground) 8%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .bg-white\/\[0\.06\] { background-color: color-mix(in oklab, var(--foreground) 5%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .hover\:bg-white\/12:hover { background-color: color-mix(in oklab, var(--foreground) 8%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .hover\:bg-white\/20:hover { background-color: color-mix(in oklab, var(--foreground) 13%, transparent); }
+html:not(.dark) .visor-raiz .visor-zona .bg-white.text-black { background-color: var(--foreground); color: var(--background); border-color: var(--foreground); }
+html:not(.dark) .visor-raiz .visor-zona .visor-vig { color: color-mix(in oklab, var(--visor-tono) 70%, #000) !important; }
+
+/* La regla del reproductor del visor en tema claro (ver GrabacionVisor). Scrub dibuja en
+   blanco porque casi siempre va sobre video oscuro; aca va sobre el velo claro de la barra.
+   Solo se tocan la tinta, las marcas y los halos: los colores de los tramos y de las marcas
+   (evento, pasos) son estado y quedan igual. */
+html:not(.dark) .regla-tema .tms { color: var(--foreground); }
+html:not(.dark) .regla-tema .tms-time { text-shadow: 0 1px 8px color-mix(in oklab, var(--background) 90%, transparent); }
+html:not(.dark) .regla-tema .tms-mer,
+html:not(.dark) .regla-tema .tms-hour { color: var(--muted-foreground); text-shadow: none; }
+html:not(.dark) .regla-tema .tms-tick { background: var(--foreground); }
+html:not(.dark) .regla-tema .tms-marca { border-color: var(--background); }
+html:not(.dark) .regla-tema .tms-tramo[data-tono="lectura"] { background: var(--foreground); }
+
+/* La respiracion roja de la alerta de intrusion sobre la ficha (AlertaIntrusionGlobal). La misma
+   que define la ventana de la pared; aca hace falta tambien sin esa ventana montada. */
+@keyframes respirar-intrusion {
+  0%, 100% { box-shadow: inset 0 0 0 0 rgba(239, 68, 68, 0), inset 0 0 90px 10px rgba(239, 68, 68, 0); }
+  50% { box-shadow: inset 0 0 0 6px rgba(239, 68, 68, 0.9), inset 0 0 140px 40px rgba(239, 68, 68, 0.45); }
+}
+.respirar-intrusion { animation: respirar-intrusion 2.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .respirar-intrusion { animation: none; box-shadow: inset 0 0 0 6px rgba(239, 68, 68, 0.9); } }
+
+/* Los cajones del visor (Comportamiento, Buscar parecidos, Exportar clip, Compartir): vidrio,
+   no una placa. 18/10, Nico: «al blanco de comportamiento, ¿podés darle algo de transparencia a
+   esos drawers, similar a la ventana con la foto? queda muy blanco». Opacos al 95-97 % eran un
+   rectangulo blanco pegado a la foto; asi la foto se adivina detras, desenfocada, como en la
+   ficha. En oscuro un poco mas tapado: sobre una calle de noche el texto claro necesita fondo. */
+.cajon-vidrio {
+  background: color-mix(in oklab, var(--background) 72%, transparent);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+}
+.dark .cajon-vidrio { background: color-mix(in oklab, var(--background) 86%, transparent); }
+/* Más tapado para los que son un formulario (Compartir): 18/10, Nico: «un poco menos de
+   transparencia en el drawer de compartir». Al 72 % se leían a través los controles del visor
+   (el riel de la derecha, la cruz) y competían con las opciones y los destinatarios. */
+.cajon-vidrio.cajon-denso { background: color-mix(in oklab, var(--background) 90%, transparent); }
+.dark .cajon-vidrio.cajon-denso { background: color-mix(in oklab, var(--background) 95%, transparent); }
+
 /* El tamano de la ventana del visor.
    FIJO, y no el de cada foto. Antes la ventana se ajustaba a la imagen, asi
    que cada captura abria una ventana de distinto tamano: se pasaba de un

@@ -13,8 +13,10 @@ import { Pista } from "@/components/ui/pista";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Momento, Matricula, Miniatura, Nada } from "@/components/ui/celdas";
 import { MarcaFormatoChapa } from "@/components/ui/MarcaFormatoChapa";
+import { CategoriaChapa } from "@/components/ui/CategoriaChapa";
 import { useTiempoReal, useDestello } from "@/lib/tiempo-real";
 import { VisorCuadro } from "@/components/VisorCuadro";
+import { useRegistrarDesdeCaptura } from "@/components/vision/buscar/RegistrarDesdeCaptura";
 import { FlujoMatricula, type PasoFlujo } from "@/components/history/FlujoMatricula";
 import { parseVehicleMeta } from "@/lib/vehicle-details";
 import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
@@ -28,7 +30,7 @@ import { Sparkles } from "lucide-react";
 
 export type FilaHistorial = {
     id: string;
-    tipo: "ACCESO" | "PASO" | "ESTACIONADO" | "VISTO";
+    tipo: "ACCESO" | "PASO" | "ESTACIONADO" | "VISTO" | "OV_CHAPA" | "OV_OBJETO";
     momento: string;
     plate: string | null;
     persona: string | null;
@@ -88,6 +90,15 @@ export const RASGOS: Record<string, { Ico: any; rotulo: string; ayuda: string; c
     ESTACIONADO: {
         Ico: ParkingCircle, rotulo: "Estacionado", chip: "bg-slate-500/20 text-slate-700 dark:text-slate-200 border-slate-400/30", punto: "bg-slate-400",
         ayuda: "El vehículo se quedó quieto en el mismo lugar del cuadro más de un minuto. Es UNA fila por estadía, con su intervalo, no una fila por relectura.",
+    },
+    /* Lo que OmniVision ve en las cámaras RTSP (no LPR): ver api/history/unified. */
+    OV_CHAPA: {
+        Ico: Sparkles, rotulo: "Leída por OmniVision", chip: "bg-[var(--accion)]/10 text-[var(--accion)] border-[var(--accion)]/30", punto: "bg-[var(--accion)]",
+        ayuda: "OmniVision leyó esta matrícula en una cámara que no es LPR (por RTSP). No abre barrera: deja constancia de dónde se vio el vehículo.",
+    },
+    OV_OBJETO: {
+        Ico: Sparkles, rotulo: "OmniVision", chip: "bg-muted text-muted-foreground border-border", punto: "bg-muted-foreground/50",
+        ayuda: "Un objeto (vehículo, persona, animal) que OmniVision vio en una cámara que no es LPR. Sale sólo si se lo pide en el filtro de tipos: son muchos por día.",
     },
     VISTO: {
         Ico: Eye, rotulo: "Visto", chip: "bg-muted text-muted-foreground border-border", punto: "bg-muted-foreground/50",
@@ -161,7 +172,7 @@ function HaceCuanto({ desde }: { desde: string }) {
     return <span className="text-[11.5px] text-muted-foreground tabular-nums">hace {leerDuracion(ms)}</span>;
 }
 
-export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, vision = [], barra, vista = "lista", onMerodeo, onResumen, onCargado }: {
+export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, vision = [], chapa = [], barra, vista = "lista", onMerodeo, onResumen, onCargado }: {
     buscar: string; desde: string; hasta: string; tipos: string[];
     /** Los filtros de acceso: con qué se identificó, si abrió, en qué sentido. Viajan al servidor. */
     identificacion?: string; resultado?: string; sentido?: string;
@@ -181,6 +192,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     vista?: Vista;
     /** Filtro OmniVision (ids de lib/historial-vision): viaja al servidor, que cruza con AnalisisFoto. */
     vision?: string[];
+    /** Tipos de chapa (lib/categoria-chapa): viaja al servidor, que filtra por cómo empieza la matrícula. */
+    chapa?: string[];
     onMerodeo?: (chapas: Set<string>) => void;
     /**
      * Lo que se puede decir de lo que está cargado: cuántos permitidos, cuántos denegados,
@@ -218,9 +231,11 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     const { marcar, es: esNueva } = useDestello();
 
     const visionClave = vision.join(",");
+    const chapaClave = chapa.join(",");
     const [visionTruncado, setVisionTruncado] = useState(false);
     const [omni, setOmni] = useState<FranjaOmni | null>(null);
-    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave]);
+    const camarasClave = (camaras || []).join("\u0001");
+    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave, camarasClave, chapaClave]);
 
     useEffect(() => {
         let vivo = true;
@@ -234,6 +249,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         if (resultado !== "ALL") q.set("decision", resultado);
         if (sentido !== "ALL") q.set("direction", sentido);
         if (visionClave) q.set("vision", visionClave);
+        if (chapaClave) q.set("chapa", chapaClave);
+        for (const c of camaras || []) q.append("cam", c);
         const esta = q.toString();
         clave.current = esta;
 
@@ -262,7 +279,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             .finally(() => { if (vivo) setCargando(false); });
         return () => { vivo = false; };
     // `version` entra por el reset de página; si ya estaba en 0 hace falta igual volver a pedir.
-    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version, visionClave]);
+    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version, visionClave, camarasClave, chapaClave]); // eslint-disable-line react-hooks/exhaustive-deps
 
     /**
      * En vivo.
@@ -353,6 +370,36 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
      * alimentar la tabla cuando se unificó el historial. Un control que no hace nada es
      * peor que no tenerlo, porque el operador cree que ya descartó lo que no buscaba.
      */
+    /*
+     * La silueta de las filas de OmniVision (cámaras RTSP), a pedido: llegan con el recuadro del
+     * registro y la silueta se segmenta en el servidor sólo para lo que se está mirando (ver
+     * api/history/ov-siluetas). De a tandas chicas, una por vez; aparece unos segundos después.
+     */
+    const pedidasSil = useRef(new Set<string>());
+    useEffect(() => {
+        const faltan = filas.filter((f) => (f.tipo === "OV_CHAPA" || f.tipo === "OV_OBJETO") && f.vision?.analisis?.objetos?.[0] && !f.vision.analisis.objetos[0].silueta && !pedidasSil.current.has(f.id));
+        if (!faltan.length) return;
+        let vivo = true;
+        (async () => {
+            for (let i = 0; i < faltan.length && vivo; i += 12) {
+                const tanda = faltan.slice(i, i + 12);
+                tanda.forEach((f) => pedidasSil.current.add(f.id));
+                const j = await fetch("/api/history/ov-siluetas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: tanda.map((f) => f.id.slice(2)) }) })
+                    .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+                const sil: Record<string, any> = j?.siluetas || {};
+                // Se aplica aunque la lista haya cambiado mientras tanto (ya quedaron como pedidas): el map busca por id.
+                if (!Object.values(sil).some(Boolean)) continue;
+                setFilas((prev) => prev.map((f) => {
+                    const s = sil[f.id.slice(2)];
+                    if (!s || !f.vision?.analisis) return f;
+                    const [o0, ...resto] = f.vision.analisis.objetos;
+                    return { ...f, vision: { ...f.vision, analisis: { ...f.vision.analisis, objetos: [{ ...o0, silueta: s }, ...resto] } } };
+                }));
+            }
+        })();
+        return () => { vivo = false; };
+    }, [filas]);
+
     const visibles = useMemo(() => {
         let v = merodeo && merodeo.size ? filas.filter((f) => f.plate && merodeo.has(f.plate)) : filas;
         const porColor = color && color !== "ALL";
@@ -380,6 +427,15 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
      * no leyó pero OmniVision releyó la chapa, la ficha es la de la chapa releída.
      */
     const [datosVisor, setDatosVisor] = useState<{ id: string; datos: DatosVisor | null; cargando: boolean } | null>(null);
+    /*
+     * Registrar la chapa desde el visor (17/10, Nico: «le faltan los controles de poder agregar
+     * la matrícula»). El visor ya tenía el botón, pero sólo se dibuja si le pasan con qué: acá
+     * nunca se le pasó, y una chapa desconocida quedaba en «no está en el padrón» sin salida.
+     * Es el mismo alta que el monitor de LPR y OmniVision (elegir qué es → el cajón del alta).
+     * Al terminar se vuelve a pedir la ficha, así el visor pasa a «Registrada» sin cerrarlo.
+     */
+    const [vueltaFicha, setVueltaFicha] = useState(0);
+    const alta = useRegistrarDesdeCaptura(() => setVueltaFicha((n) => n + 1));
     useEffect(() => {
         if (!viendo) { setDatosVisor(null); return; }
         let vivo = true;
@@ -393,7 +449,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             .then((j) => { if (vivo) setDatosVisor({ id, datos: j, cargando: false }); })
             .catch(() => { if (vivo) setDatosVisor({ id, datos: null, cargando: false }); });
         return () => { vivo = false; };
-    }, [viendo]);
+    }, [viendo, vueltaFicha]);
 
     /**
      * Los pasos anteriores de esa chapa — sacados de la tabla que ya está cargada.
@@ -490,10 +546,10 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                         /* Una NO_LEIDA: la chapa que leyó OmniVision (doble verificación) con su marca, o
                            «Sin lectura» si tampoco pudo. Antes salía «NO_LEIDA» dibujado como si fuera una chapa. */
                         const ch = chapaDe(f.plate, f.vision?.releida);
-                        if (f.plate && !esSinLectura(f.plate)) return <><Matricula p={f.plate} /><MarcaFormatoChapa plate={f.plate} /><MarcaVerificacion plate={f.plate} r={f.vision?.releida} tamano="xs" soloIcono /></>;
+                        if (f.plate && !esSinLectura(f.plate)) return <><Matricula p={f.plate} /><MarcaFormatoChapa plate={f.plate} /><MarcaVerificacion plate={f.plate} r={f.vision?.releida} tamano="xs" soloIcono /><CategoriaChapa plate={f.plate} extranjera aspecto={aspectoDe(f)} /></>;
                         if (ch.plate) return <><Matricula p={textoChapa(ch)} className="border-dashed" /><MarcaOmniVision r={f.vision?.releida} tamano="xs" /></>;
                         if (f.plate) return <><span className="text-[13px] text-muted-foreground">Sin lectura</span>{f.vision?.releida && <MarcaOmniVision r={f.vision.releida} tamano="xs" soloIcono />}</>;
-                        return <span className="text-[13px] text-muted-foreground">{f.persona || "—"}</span>;
+                        return <><span className="text-[13px] text-muted-foreground">{f.persona || "—"}</span>{aspectoDe(f) && <CategoriaChapa aspecto="taxi" />}</>;
                     })()}
                     {f.empresa && (
                         /* eslint-disable-next-line @next/next/no-img-element */
@@ -719,9 +775,12 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                     }}
                     cargandoFicha={!!datosVisor?.cargando}
                     historial={historialDe(viendo)}
+                    onRegistrar={alta.abrirRegistro}
+                    tapado={alta.abierto}
                     onCerrar={() => setViendo(null)}
                 />
             )}
+            {alta.cajones}
         </>
     );
 }
@@ -776,4 +835,10 @@ function FranjaOmniVision({ datos, buscar }: { datos: FranjaOmni; buscar: string
             </div>
         </div>
     );
+}
+
+/** Lo que OmniVision ve en el vehículo de la fila (atributo `servicio`, ver vision-analisis.js): hoy sólo «taxi». */
+function aspectoDe(f: { vision?: any }): "taxi" | null {
+    const a = f.vision?.analisis?.objetos?.[0]?.atributos;
+    return Array.isArray(a) && a.some((x: any) => x?.id === "servicio" && x?.valor === "taxi") ? "taxi" : null;
 }

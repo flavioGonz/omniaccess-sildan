@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
+import { CajonListaNegra } from "@/components/users/CajonListaNegra";
 import { sileo as toast } from "sileo";
 import { VisorCuadro, leerDetalles, type DatosVisor } from "@/components/VisorCuadro";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
@@ -38,6 +40,14 @@ type Props = {
     /** Abrir directo en la grabación del NVR. */
     autoRecording?: boolean;
     onRegister?: (plate?: string) => void;
+    /** La empresa de la matrícula (delivery, taxi), si la pantalla ya la sabe: la ficha la trae igual. */
+    empresa?: { nombre: string; logo: string; transparente: boolean } | null;
+    /**
+     * Abrirla sin un click (FichaDeEvento: desde una tabla o un cajón que sólo tiene el id) y avisar
+     * al cerrarla, para que quien la abrió vuelva a lo suyo.
+     */
+    abrirAlMontar?: boolean;
+    alCerrar?: () => void;
 };
 
 const limpiar = (p?: string | null) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -46,9 +56,15 @@ const limpiar = (p?: string | null) => String(p || "").toUpperCase().replace(/[^
 const SIN_LECTURA = new Set(["", "UNKNOWN", "NOLEIDA", "NO_LEIDA", "SP", "S/P"]);
 const hayChapa = (p?: string | null) => !SIN_LECTURA.has(limpiar(p));
 
-export function VisorEventoAcceso({ event, children, autoRecording, onRegister }: Props) {
+export function VisorEventoAcceso({ event, children, autoRecording, onRegister, empresa, abrirAlMontar, alCerrar }: Props) {
     const router = useRouter();
-    const [abierto, setAbierto] = useState(false);
+    const [abierto, setAbierto] = useState(!!abrirAlMontar);
+    const fueAbierto = useRef(!!abrirAlMontar);
+    const cerrar = useRef(alCerrar); cerrar.current = alCerrar;
+    useEffect(() => {
+        if (abierto) { fueAbierto.current = true; return; }
+        if (fueAbierto.current) { fueAbierto.current = false; cerrar.current?.(); }
+    }, [abierto]);
 
     const [canalNvr, setCanalNvr] = useState<number | null>(null);
     /** El NVR dueño del canal: sin él, el clip iba al NVR "por defecto", que con tres
@@ -61,6 +77,14 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
     const [ocupadoLista, setOcupadoLista] = useState(false);
     /** La chapa ya está en otra categoría de la lista: qué era, para preguntar antes de pisarla. */
     const [conflicto, setConflicto] = useState<{ etiqueta: string; cat: string; motivo: string | null } | null>(null);
+    /**
+     * Mandar a la lista negra (19/10, Nico): primero «preguntar si estás seguro»; después «debe
+     * indicar el motivo, como tenemos ya». Ya existía: el cajón de lista negra de Detecciones y
+     * Buscar (CajonListaNegra), con la chapa, la foto de la captura y el motivo escritos de
+     * antemano y editables, la categoría, y su propia confirmación de lo que va a pasar. Se usa
+     * ése en vez de un «¿seguro?» sin motivo.
+     */
+    const [negra, setNegra] = useState<{ foto: File | null; motivo: string } | null>(null);
     // "Clip": el mismo diálogo que el playback (antes bajaba directo un clip "de treinta segundos"
     // que medía lo de Ajustes).
     const [descarga, setDescarga] = useState(false);
@@ -71,7 +95,9 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
     const conChapa = hayChapa(event?.plateDetected);
     const meta = useMemo(() => leerDetalles(event?.details), [event?.details]);
     const msEvento = useMemo(() => new Date(event?.timestamp).getTime(), [event?.timestamp]);
-    const dispositivo = event?.device;
+    // Sin el equipo incluido (lecturas de una LPR interior en el monitor): con el id alcanza para el
+    // vivo y la grabación; el nombre lo completa la ficha.
+    const dispositivo = event?.device || (event?.deviceId ? { id: event.deviceId, name: event.deviceName || null } : null);
 
     /**
      * Una NO_LEIDA: lo que dijo OmniVision (la doble verificación). /api/history/ficha trae la
@@ -79,14 +105,22 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
      * la foto y, si releyó la chapa, la ficha de esa chapa.
      */
     const [datosOmni, setDatosOmni] = useState<DatosVisor | null>(null);
+    /**
+     * Desde el 19/10 también con chapa (Nico: «que quede una única ficha»): el monitor LPR abría la
+     * ficha vieja y el historial esta, y esta, con chapa, no pedía nada — sin OmniVision, sin el
+     * padrón completo (lote, teléfono, cochera), sin comportamiento ni empresa. Ahora pide la misma
+     * ficha que el historial. `refresco` la vuelve a pedir después de tocar la lista negra.
+     */
+    const [refresco, setRefresco] = useState(0);
     useEffect(() => {
-        if (!abierto || conChapa || !event?.id) { setDatosOmni(null); return; }
+        if (!abierto || !event?.id) { setDatosOmni(null); return; }
         let vivo = true;
         const q = new URLSearchParams({ evento: event.id, momento: new Date(event.timestamp).toISOString() });
+        if (conChapa) q.set("plate", chapa);
         fetch(`/api/history/ficha?${q}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
             .then((j) => { if (vivo) setDatosOmni(j); }).catch(() => { });
         return () => { vivo = false; };
-    }, [abierto, conChapa, event?.id, event?.timestamp]);
+    }, [abierto, conChapa, chapa, event?.id, event?.timestamp, refresco]);
 
     /** El canal del NVR, que decide si hay grabación y clip. */
     useEffect(() => {
@@ -154,6 +188,32 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
         return msEvento - new Date(ultima.timestamp).getTime();
     }, [event?.direction, event?.stayDuration, historial, msEvento]);
 
+    /**
+     * El botón de la lista negra: sacar es inmediato (vuelve todo a como estaba), mandar se
+     * confirma — la barrera deja de abrirle aunque tenga credencial y la lectora lo recibe.
+     */
+    const pedirLista = useCallback(async () => {
+        if (!conChapa) return;
+        if (vigilada?.category === "BLACKLISTED") { void alternarLista(); return; }
+        const camara = dispositivo?.name || event?.location || "la lectora";
+        const cuando = new Date(event?.timestamp).toLocaleString("es-UY", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Montevideo" });
+        const decision = event?.decision === "DENY" ? " (denegado)" : event?.decision === "GRANT" ? " (permitido)" : "";
+        let fotoArchivo: File | null = null;
+        try {
+            if (foto) { const b = await (await fetch(foto)).blob(); fotoArchivo = new File([b], `captura-${event.id}.jpg`, { type: b.type || "image/jpeg" }); }
+        } catch { /* sin foto: se carga a mano en el cajón */ }
+        setNegra({ foto: fotoArchivo, motivo: `Leída en ${camara}, ${cuando}${decision}.` });
+    }, [conChapa, vigilada, dispositivo?.name, event?.location, event?.timestamp, event?.decision, event?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    /** Después de guardar en el cajón: la ficha y el botón vuelven a preguntar si está en la lista. */
+    const releerLista = useCallback(() => {
+        getWatchlist().then((filas: any[]) => {
+            const w = filas.find((r: any) => limpiar(r.plate) === chapa && r.active !== false);
+            setVigilada(w ? { id: w.id, category: w.category } : null);
+        }).catch(() => { });
+        setRefresco((n) => n + 1);
+    }, [chapa]);
+
     const alternarLista = useCallback(async () => {
         if (!conChapa) return;
         setOcupadoLista(true);
@@ -182,6 +242,7 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
             toast.error({ title: "No se pudo actualizar la lista", description: e?.message });
         } finally {
             setOcupadoLista(false);
+            setRefresco((n) => n + 1);
         }
     }, [conChapa, chapa, vigilada, meta.Marca, meta.Color]);
 
@@ -242,12 +303,15 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
         <>
             <span onClick={() => setAbierto(true)} className="contents">{children}</span>
 
-            {abierto && (
+            {/* En un portal: el monitor LPR la abre desde tarjetas con transformaciones y desenfoque
+                (animate-in, backdrop-blur), que hacen de caja a un `fixed` y la encerraban adentro
+                de la tarjeta. La ficha vieja era un Dialog y ya iba en portal. */}
+            {abierto && typeof document !== "undefined" && createPortal(
                 <VisorCuadro
                     fila={{
                         plate: conChapa ? event.plateDetected : "",
-                        cameraName: dispositivo?.name || event?.location || null,
-                        deviceId: dispositivo?.id || null,
+                        cameraName: dispositivo?.name || event?.deviceName || (datosOmni as any)?.camara || event?.location || null,
+                        deviceId: dispositivo?.id || (datosOmni as any)?.deviceId || null,
                         timestamp: event?.timestamp,
                         snapshotUrl: foto,
                         decision: event?.decision || null,
@@ -261,8 +325,8 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                         })(),
                         detalles: event?.details || null,
                     }}
-                    ficha={ficha || datosOmni?.ficha || null}
-                    datos={datosOmni}
+                    ficha={datosOmni?.ficha ? { ...datosOmni.ficha, vigilancia: (datosOmni.ficha as any).vigilancia ?? ficha?.vigilancia ?? null } : ficha}
+                    datos={datosOmni ? { ...datosOmni, empresa: (datosOmni as any).empresa ?? empresa ?? null } as DatosVisor : empresa ? ({ empresa } as any) : null}
                     historial={conChapa ? (historial || []).map((h: any) => ({
                         id: h.id,
                         momento: h.timestamp,
@@ -279,12 +343,16 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                         : null}
                     onClip={canalNvr != null && ventanaClip ? () => setDescarga(true) : undefined}
                     onExportar={exportar}
-                    onListaNegra={conChapa ? alternarLista : undefined}
+                    onListaNegra={conChapa ? pedirLista : undefined}
+                    tapado={!!conflicto || !!negra || descarga}
                     enListaNegra={vigilada?.category === "BLACKLISTED"}
                     ocupadoLista={ocupadoLista}
                     onCerrar={() => setAbierto(false)}
-                />
+                />, document.body,
             )}
+
+            <CajonListaNegra abierta={!!negra} ficha={null} chapaInicial={chapa} fotoInicial={negra?.foto} motivoInicial={negra?.motivo}
+                alCerrar={() => setNegra(null)} alCambiar={releerLista} />
 
             <ConfirmarAccion id={chapa} open={!!conflicto} onOpenChange={(o) => { if (!o) setConflicto(null); }}
                 title={`Pasar ${chapa} a lista negra`}
@@ -299,17 +367,20 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                 }}
                 onSuccess={() => setConflicto(null)} />
 
-            {descarga && ventanaClip && canalNvr != null && (
-                <div className="fixed inset-0 z-[3300]">
+            {/* El clip, también en portal y ENCIMA del visor (19/10, Nico: «Clip se abre atrás del
+                modal LPR»): el visor va en portal a z 3400 y esto quedaba en la tarjeta a 3300. Con
+                el clip abierto el visor se corre abajo (`tapado`). */}
+            {descarga && ventanaClip && canalNvr != null && typeof document !== "undefined" && createPortal(
+                <div className="fixed inset-0 z-[3500]">
                     <DescargaClip instante={msEvento} ventana={ventanaClip} onClose={() => setDescarga(false)}
                         href={(antes, despues, instante) => `/api/nvr/playback?ch=${canalNvr}&t=${Math.floor(instante)}&pre=${antes}&dur=${antes + despues}&download=1${nvrId ? `&nvr=${nvrId}` : ""}${conChapa ? `&matricula=${encodeURIComponent(chapa)}` : ""}`}
                         deviceId={dispositivo?.id} camara={dispositivo?.name} matricula={conChapa ? chapa : null} />
-                </div>
+                </div>, document.body,
             )}
 
-            {verGrabacion && canalNvr != null && dispositivo?.id && (
+            {verGrabacion && canalNvr != null && dispositivo?.id && typeof document !== "undefined" && createPortal(
                 <VerGrabacion deviceId={dispositivo.id} nombre={dispositivo?.name} canal={canalNvr} nvrId={nvrId}
-                    instanteMs={msEvento} onClose={() => setVerGrabacion(false)} />
+                    instanteMs={msEvento} onClose={() => setVerGrabacion(false)} />, document.body,
             )}
         </>
     );

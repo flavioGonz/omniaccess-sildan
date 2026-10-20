@@ -36,6 +36,7 @@ const relecturas = require("./vision-relectura");
 const reglasVision = require("./vision-reglas");
 const zonasEntrenables = require("./vision-zonas");
 const analisisFotos = require("./vision-analisis");
+const vocabIndice = require("./vision-vocab-indice");
 
 const VISION = (process.env.OMNI_VISION_URL || "http://127.0.0.1:8010").replace(/\/$/, "");
 const GO2RTC = (process.env.GO2RTC_API || "http://127.0.0.1:1984").replace(/\/$/, "");
@@ -51,6 +52,16 @@ const INTERVALO_MS = Number(process.env.VISION_REGISTRO_INTERVALO_MS || 2000);
 const CAMBIO_MIN = Number(process.env.VISION_REGISTRO_CAMBIO_MIN || 3.5);
 /** Aunque no cambie nada, cada tanto se analiza igual: un objeto quieto también existe. */
 const ANALIZAR_IGUAL_MS = 60_000;
+/**
+ * Estacionamiento (analítica «estacionamiento», src/lib/estacionamiento.ts): las cámaras con
+ * franja se analizan al menos cada esto AUNQUE la imagen no cambie — un auto quieto no cambia la
+ * imagen, y con la compuerta normal (una vez por minuto) el lugar tardaría minutos en ocuparse y
+ * en liberarse. Lo que se ve se manda a /api/tracking/franja/vision, que decide.
+ */
+const ESTAC_CADA_MS = Number(process.env.VISION_ESTAC_CADA_MS || 15_000);
+/** Entre dos envíos de la misma cámara (si la imagen cambia se analiza cada 2 s; no hace falta mandar todo). */
+const ESTAC_ENVIO_MIN_MS = 5_000;
+const APP = (process.env.APP_INTERNAL_URL || "http://127.0.0.1:10001").replace(/\/$/, "");
 /** Cuántos cuadros se piden a go2rtc a la vez en la ronda (ver el bucle principal). */
 const CUADROS_EN_PARALELO = Math.max(1, Number(process.env.VISION_CUADROS_PARALELO || 4));
 /** Hasta cuánto se espacia el pedido a una cámara que no entrega cuadros (ver mirar). */
@@ -213,10 +224,12 @@ async function mandarTareas(apagadas) {
 }
 
 async function leerAjustes() {
-    const [a, c, cams, ret, reglas, tareas, tope, nombres] = await Promise.all([
+    const [a, c, cams, ret, reglas, tareas, tope, nombres, token] = await Promise.all([
         ajuste("VISION_ANALITICAS"), ajuste("VISION_CLASES"), ajuste("VISION_CAMARAS"), ajuste("VISION_RETENCION_DIAS"), ajuste("VISION_REGLAS"), ajuste("VISION_TAREAS"),
-        ajuste("VISION_TOPE_POR_SEG"), ajuste("VISION_CAMARAS_NOMBRES"),
+        ajuste("VISION_TOPE_POR_SEG"), ajuste("VISION_CAMARAS_NOMBRES"), ajuste("TRACKING_TOKEN"),
     ]);
+    // Las cámaras con franja de estacionamiento activa (analítica «estacionamiento»).
+    const franjas = await prisma.franja.findMany({ where: { activa: true }, select: { deviceId: true } }).catch(() => []);
     const apagadas = new Set((json(tareas, {}).apagadas || []).map(String));
     await mandarTareas(apagadas);
     const analiticas = json(a, {});
@@ -248,6 +261,10 @@ async function leerAjustes() {
         huellas: analiticas.busqueda !== false && !apagadas.has("atributos"),
         // Analíticas entrenables (zonas fijas): necesitan el vector SigLIP de los atributos.
         zonas: analiticas["zona-entrenable"] !== false && !apagadas.has("atributos"),
+        // Estacionamiento: prendida por defecto; sólo mira las cámaras que tienen franja dibujada.
+        estacionamiento: analiticas.estacionamiento !== false,
+        franjas: new Set(franjas.map((f) => f.deviceId)),
+        tokenTracking: process.env.TRACKING_TOKEN || token || "",
         dispositivos,
         clases: json(c, {}),
         camaras: Array.isArray(elegidas) && elegidas.length ? dispositivos.filter((d) => elegidas.includes(d.id)) : dispositivos,
@@ -331,6 +348,12 @@ async function detectar(jpeg, deviceId, op = {}) {
     await tomarFicha();
     marcarAnalisis(deviceId);
     const q = new URLSearchParams({ umbral: String(UMBRAL), atributos: op.atributos === false || ajustes.apagadas.has("atributos") ? "0" : "1", sesion: `registro-${deviceId}`, fps: String(op.fps || 1000 / INTERVALO_MS) });
+    /*
+     * Otra tarea (la pose, para las reglas de persona en el suelo y trepando): sin sesión de
+     * seguimiento. Si fuera con la del registro, las personas de la pose entrarían al mismo
+     * rastreador que las de la detección y le cambiarían los números a las pistas.
+     */
+    if (op.tarea) { q.set("tarea", op.tarea); q.delete("sesion"); q.delete("fps"); }
     const r = await fetch(`${VISION}/detectar?${q}`, {
         method: "POST", body: jpeg, headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(20000),
     });
@@ -410,7 +433,34 @@ async function leerRotulo(p) {
     if (!r.ok) throw new Error(j.error || `omni-vision respondió ${r.status}`);
     const textos = (j.textos || [])
         .filter((t) => !t.sobreimpreso && !PARECE_SOBREIMPRESO.test(String(t.texto)) && t.confianza >= CONF_TEXTO && String(t.texto).replace(/[^A-Za-z0-9]/g, "").length >= 3)
-        .map((t) => ({ texto: t.texto, confianza: t.confianza, tipo: t.tipo }));
+        .map((t) => ({ texto: t.texto, confianza: t.confianza, tipo: t.tipo, poligono: t.poligono }));
+    /*
+     * Dónde está la matrícula en el cuadro, y su recorte nítido (18/10, Nico: «falta la captura de
+     * la matrícula en el auto, como en los eventos LPR»). La chapa se lee en el cuadro PRINCIPAL y el
+     * registro guarda el substream (640×360): sin esto el historial no sabía dónde marcarla, y en la
+     * foto guardada la chapa es una mancha. Se guarda su caja en fracciones del cuadro (el mismo
+     * encuadre que la foto: es la misma cámara) y un recorte del principal (<base>-c.jpg).
+     */
+    for (const t of textos) {
+        const pol = Array.isArray(t.poligono) ? t.poligono : null;
+        delete t.poligono;
+        if (t.tipo !== "matricula" || !pol || pol.length < 3) continue;
+        const xs = pol.map((q) => left + q[0] * width), ys = pol.map((q) => top + q[1] * height);
+        const px1 = Math.min(...xs), py1 = Math.min(...ys), px2 = Math.max(...xs), py2 = Math.max(...ys);
+        t.caja = [round(px1 / W), round(py1 / H), round(px2 / W), round(py2 / H)];
+        if (!t.recorte && p.recorte && p.recorte.endsWith("-r.jpg")) {
+            try {
+                const mx = (px2 - px1) * 0.35, my = (py2 - py1) * 0.6;
+                const l = Math.max(0, Math.floor(px1 - mx)), tp = Math.max(0, Math.floor(py1 - my));
+                const w = Math.min(W - l, Math.ceil(px2 - px1 + 2 * mx)), h = Math.min(H - tp, Math.ceil(py2 - py1 + 2 * my));
+                if (w > 8 && h > 4) {
+                    const clave = p.recorte.replace(/-r\.jpg$/, "-c.jpg");
+                    await subir(clave, await sharp(p.hd.jpeg).extract({ left: l, top: tp, width: w, height: h }).resize({ width: 480, withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer());
+                    t.recorte = clave;
+                }
+            } catch { /* sin recorte: queda la caja */ }
+        }
+    }
     return textos.length ? textos.slice(0, 12) : [];
 }
 
@@ -488,7 +538,8 @@ async function analizarCuadro(cam, jpeg, registra, rapido = null) {
         if (!mueve && Date.now() - (ultimoAnalisis[cam.id] || 0) < INTERVALO_MS) { est.saltados++; contadores.saltados++; return; }
     } else {
         const conPistas = [...abiertas.values()].some((p) => p.deviceId === cam.id) || !!reglero?.enCurso(cam.id);
-        if (dif < CAMBIO_MIN && !conPistas && Date.now() - (ultimoAnalisis[cam.id] || 0) < ANALIZAR_IGUAL_MS) {
+        const igualCada = esEstacionamiento(cam.id) ? ESTAC_CADA_MS : ANALIZAR_IGUAL_MS;
+        if (dif < CAMBIO_MIN && !conPistas && Date.now() - (ultimoAnalisis[cam.id] || 0) < igualCada) {
             est.saltados++; contadores.saltados++;
             return;
         }
@@ -501,6 +552,7 @@ async function analizarCuadro(cam, jpeg, registra, rapido = null) {
     est.ms = Date.now() - t0; est.ultimo = ahora.toISOString(); est.error = null;
     // Las reglas miran todo lo que vio (cada una elige sus clases); el registro, sólo las clases prendidas.
     try { await reglero?.procesar(cam, r.objetos || [], jpeg, ahora); } catch (e) { est.error = `reglas: ${e.message}`; }
+    if (esEstacionamiento(cam.id)) mandarEstacionamiento(cam.id, ahora, r.objetos || []);
     const objetos = registra ? (r.objetos || []).filter((o) => clasePrendida(o.clase)) : [];
     est.objetos = (r.objetos || []).length;
     for (const o of objetos) {
@@ -512,6 +564,20 @@ async function analizarCuadro(cam, jpeg, registra, rapido = null) {
             else await seguir(p, o, jpeg, r, ahora);
         } catch (e) { est.error = `guardar: ${e.message}`; contadores.errores++; }
     }
+}
+
+const esEstacionamiento = (id) => !!(ajustes.estacionamiento && ajustes.franjas?.has(id) && ajustes.mira && ajustes.permitidas?.has(id));
+const ultimoEnvioEstac = {};
+/** Lo que se vio, a la ruta que decide (lib/estacionamiento). Sin esperar: el análisis sigue. */
+function mandarEstacionamiento(deviceId, ahora, objetos) {
+    if (Date.now() - (ultimoEnvioEstac[deviceId] || 0) < ESTAC_ENVIO_MIN_MS) return;
+    ultimoEnvioEstac[deviceId] = Date.now();
+    const vehiculos = objetos.filter((o) => Array.isArray(o.caja_norm)).map((o) => ({ caja: o.caja_norm, clase: o.clase, confianza: o.confianza, pista: o.pista ?? null }));
+    fetch(`${APP}/api/tracking/franja/vision`, {
+        method: "POST", headers: { "content-type": "application/json", "x-tracking-token": ajustes.tokenTracking || "" },
+        body: JSON.stringify({ deviceId, ts: ahora.getTime(), vehiculos }), signal: AbortSignal.timeout(20000),
+    }).then((r) => { if (!r.ok && Date.now() - ultimoErrorLog > 60_000) { log(`estacionamiento: la app respondió ${r.status}`); ultimoErrorLog = Date.now(); } })
+        .catch((e) => { if (Date.now() - ultimoErrorLog > 60_000) { log(`estacionamiento: ${e.message}`); ultimoErrorLog = Date.now(); } });
 }
 
 async function cerrarVencidas(forzar = false) {
@@ -593,7 +659,8 @@ async function limpiar() {
     for (;;) {
         const viejas = await prisma.objetoVisto.findMany({ where: { primeraVez: { lt: limite } }, select: { id: true, recorte: true, foto: true }, take: LIMPIEZA_LOTE });
         if (!viejas.length) return;
-        const claves = viejas.flatMap((v) => [v.recorte, v.foto]).filter(Boolean).map((Key) => ({ Key }));
+        // Con la silueta que el historial calcula a pedido (<id>-s.json, api/history/ov-siluetas): si no existe, S3 lo ignora.
+        const claves = viejas.flatMap((v) => [v.recorte, v.foto, v.foto && v.foto.endsWith("-f.jpg") ? v.foto.replace(/-f\.jpg$/, "-s.json") : null, v.recorte && v.recorte.endsWith("-r.jpg") ? v.recorte.replace(/-r\.jpg$/, "-c.jpg") : null]).filter(Boolean).map((Key) => ({ Key }));
         for (let i = 0; i < claves.length; i += 1000) {
             await (await cliente()).send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: claves.slice(i, i + 1000), Quiet: true } })).catch((e) => log("limpieza S3:", e.message));
         }
@@ -685,7 +752,14 @@ function sincronizarRapidas(registro) {
 
 async function principal() {
     log(`arranca · ${VISION} · cada ${INTERVALO_MS} ms · umbral ${UMBRAL} · cambio ${CAMBIO_MIN}`);
-    reglero = reglasVision.iniciar({ prisma, subir, log });
+    reglero = reglasVision.iniciar({
+        prisma, subir, log,
+        // La pose del mismo cuadro, sólo cuando una regla la necesita (ver poseDe en vision-reglas.js).
+        pose: async (jpeg, deviceId) => {
+            if (ajustes.apagadas.has("pose")) throw new Error("la tarea pose está apagada en el laboratorio");
+            return (await detectar(jpeg, deviceId, { tarea: "pose", atributos: false })).objetos || [];
+        },
+    });
     await leerAjustes().catch((e) => log("ajustes:", e.message));
     const permitidas = () => ({ todas: ajustes.todas !== false, ids: [...(ajustes.permitidas || [])] });
     relector = relecturas.iniciar({ prisma, subir, ajuste, log, vision: VISION, activa: () => ajustes.relectura, permitidas });
@@ -698,6 +772,8 @@ async function principal() {
         permitidas,
         bajar, subir,
     });
+    // El índice de fotos del vocabulario abierto: corre aparte, con su propio ritmo y modo.
+    vocabIndice.iniciar({ prisma, log, vision: VISION, apagado: () => ajustes.apagadas.has("vocabulario") });
     zonero = zonasEntrenables.iniciar({ prisma, log, vision: VISION, subir, borrar, activa: () => ajustes.zonas, segmentar: () => !ajustes.apagadas.has("segmentar"), permitidas });
     let ultEstado = 0, ultLimpieza = 0, hayTrabajo = false;
     while (corriendo) {
@@ -707,13 +783,15 @@ async function principal() {
             // Las cámaras del registro (si está prendido) más las que tienen una regla prendida.
             const porReglas = ajustes.mira ? new Set([...reglero.camaras()].filter((id) => ajustes.permitidas.has(id))) : new Set();
             const registro = new Set(ajustes.activo && ajustes.mira ? ajustes.camaras.map((c) => c.id) : []);
+            // Las de estacionamiento se miran aunque el registro esté apagado: la analítica es aparte.
+            const porEstac = new Set(ajustes.estacionamiento && ajustes.mira ? [...(ajustes.franjas || [])].filter((id) => ajustes.permitidas.has(id)) : []);
             sincronizarRapidas(registro);
             // Las del carril rápido no van en la ronda: las analiza su propio bucle.
-            const lista = ajustes.dispositivos.filter((d) => (registro.has(d.id) || porReglas.has(d.id)) && !rapidas.has(d.id)
+            const lista = ajustes.dispositivos.filter((d) => (registro.has(d.id) || porReglas.has(d.id) || porEstac.has(d.id)) && !rapidas.has(d.id)
                 && !((porCamara[d.id]?.esperarHasta || 0) > Date.now()));
             // Lo que se informa es sólo de las cámaras que se miran: una que se sacó de OmniVision
             // quedaba en el estado con su último error para siempre.
-            const vigentes = new Set([...registro, ...porReglas, ...rapidas.keys()]);
+            const vigentes = new Set([...registro, ...porReglas, ...porEstac, ...rapidas.keys()]);
             for (const k of Object.keys(porCamara)) if (!vigentes.has(k)) delete porCamara[k];
             hayTrabajo = lista.length > 0 || rapidas.size > 0;
             if (hayTrabajo) {

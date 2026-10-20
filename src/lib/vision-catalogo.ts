@@ -31,9 +31,9 @@ export type EstadoCapacidad = "corre" | "libre" | "pesado" | "no-aplica";
  * Qué tarea de omni-vision se usa para probar cada capacidad en el laboratorio (null = no se
  * puede probar acá). El seguimiento usa la detección sobre cuadros seguidos.
  */
-export const TAREA_DE_CAPACIDAD: Record<string, "detectar" | "segmentar" | "pose" | "atributos" | "seguir" | "texto" | null> = {
+export const TAREA_DE_CAPACIDAD: Record<string, "detectar" | "segmentar" | "pose" | "atributos" | "seguir" | "texto" | "vocabulario" | null> = {
     deteccion: "detectar", segmentacion: "segmentar", pose: "pose", seguimiento: "seguir", clasificacion: "atributos",
-    texto: "texto", descripcion: null, vocabulario: null, obb: null,
+    texto: "texto", descripcion: null, vocabulario: "vocabulario", obb: null,
 };
 
 /** Los 17 puntos de la pose, en el orden en que los devuelve el modelo (COCO). */
@@ -113,8 +113,8 @@ export const CAPACIDADES: Capacidad[] = [
         id: "vocabulario", nombre: "Vocabulario abierto", icono: "Sparkles",
         queEs: "Detectar cosas que no están en las 80 clases, pidiéndolas por texto: \"carretilla\", \"escalera\", \"bolsa de basura\".",
         paraQue: "Objetos propios de una obra o de un barrio que el modelo común no conoce.",
-        libre: "OWLv2 o Grounding DINO (Apache-2.0). Son varias veces más lentos: no para cada cuadro, sí para buscar o para una regla puntual. YOLOE-26 hace lo mismo pero es AGPL.",
-        estado: "pesado",
+        libre: "OWLv2 base de Google (Apache-2.0), corriendo en omni-vision desde el 17/10. Se escribe qué buscar en «Probar en las cámaras» (en castellano o inglés). Es varias veces más lento que la detección: se carga sólo cuando se le pide y se suelta de la GPU a los 5 minutos sin uso. Se apaga en la tabla de tareas. YOLOE-26 hace lo mismo pero es AGPL.",
+        estado: "corre",
     },
     {
         id: "obb", nombre: "Cajas orientadas (OBB)", icono: "Move",
@@ -297,7 +297,7 @@ export const ANALITICAS: Analitica[] = [
     {
         id: "animal", nombre: "Animal en zona", icono: "Dog", modo: "Intrusión",
         queHace: "Avisa cuando en una zona dibujada hay un perro, gato o caballo y ninguna persona: perro suelto, animal en la piscina, caballo en la calle.",
-        necesita: ["deteccion"], clases: ["dog", "cat", "horse", "cow", "sheep"], estado: "posible", porDefecto: false,
+        necesita: ["deteccion", "seguimiento"], clases: ["dog", "cat", "horse", "cow", "sheep"], estado: "corre", fase: 2, porDefecto: true,
     },
     {
         id: "merodeo", nombre: "Merodeo", icono: "Footprints", modo: "Intrusión",
@@ -306,8 +306,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "persona-suelo", nombre: "Persona en el suelo", icono: "PersonStanding", modo: "Intrusión",
-        queHace: "Alguien caído en la calle o en un espacio común, por la posición del cuerpo.",
-        necesita: ["deteccion", "pose"], clases: ["person"], estado: "posible", porDefecto: false,
+        queHace: "Alguien caído en la calle o en un espacio común, por la posición del cuerpo: acostado en la zona los segundos indicados.",
+        necesita: ["deteccion", "pose"], clases: ["person"], estado: "corre", fase: 3, porDefecto: true,
+        limite: "En prueba en el lab desde el 19/10: sus falsas alarmas todavía no están medidas.",
     },
     {
         id: "tipo-vehiculo", nombre: "Tipo de vehículo en lecturas", icono: "Car", modo: "LPR",
@@ -351,8 +352,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "fila", nombre: "Conteo de fila", icono: "Users", modo: "Filas",
-        queHace: "Personas dentro de una zona dibujada, para cámaras que no traen analítica de filas.",
-        necesita: ["deteccion"], clases: ["person"], estado: "desarrollo", fase: 2, porDefecto: true,
+        queHace: "La analítica de aforo de las cámaras Bosch del modo Filas, hecha por OmniVision en cualquier cámara: cuántas personas hay en la zona (con tiempo de rebote), cuántas entran y salen por su borde, el límite con su aviso a la guardia y el escalamiento al supervisor si sigue llena, el tiempo de espera estimado y el horario de atención que reinicia las entradas y salidas al abrir. Se configura en Visión → Reglas y se ve en Visión → Filas.",
+        necesita: ["deteccion", "seguimiento"], clases: ["person"], estado: "corre", porDefecto: true,
+        limite: "Cada cámara se mira cada ~2 s: sigue la fila, no cada paso. Una persona tapada por otra no se cuenta, y una que aparece adentro de la zona (renumerada por el seguimiento) no cuenta como entrada.",
     },
     {
         id: "busqueda", nombre: "Búsqueda de objetos", icono: "ScanSearch", modo: "Búsqueda",
@@ -367,8 +369,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "dejados", nombre: "Objetos dejados", icono: "Luggage", modo: "Búsqueda",
-        queHace: "Un bolso, mochila o valija que apareció en una zona marcada y quedó quieto más de N minutos.",
-        necesita: ["deteccion", "seguimiento"], clases: ["backpack", "handbag", "suitcase"], estado: "desarrollo", fase: 3, porDefecto: false,
+        queHace: "Un bolso, mochila o valija que apareció en una zona marcada y quedó quieto más de N minutos sin nadie al lado.",
+        necesita: ["deteccion"], clases: ["backpack", "handbag", "suitcase"], estado: "corre", fase: 2, porDefecto: true,
+        limite: "Lo chico se ve de cerca: una mochila en el piso a 20 m de la cámara puede no detectarse.",
     },
 
     // ── Lo que hace la industria y faltaba en la lista (revisado el 9/10). Las piezas ya corren;
@@ -385,8 +388,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "trepar", nombre: "Persona trepando", icono: "PersonStanding", modo: "Intrusión",
-        queHace: "Manos por encima de la cabeza y pies separados del suelo junto a un cerco o muro marcado: alguien trepando.",
-        necesita: ["deteccion", "pose"], clases: ["person"], estado: "posible", porDefecto: false,
+        queHace: "Las dos manos por encima de los hombros, unos segundos seguidos, junto a un cerco o muro marcado: alguien trepando.",
+        necesita: ["deteccion", "pose"], clases: ["person"], estado: "corre", fase: 3, porDefecto: true,
+        limite: "En prueba en el lab desde el 19/10: sus falsas alarmas todavía no están medidas.",
     },
     {
         id: "aglomeracion", nombre: "Aglomeración", icono: "Users", modo: "Intrusión",
@@ -418,9 +422,15 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "chapa-sin-lectora", nombre: "Matrícula sin lectora", icono: "ScanLine", modo: "LPR",
-        queHace: "Leer chapas con la lectura de texto en cámaras comunes (perimetrales, de calle), sobre todo motos, que las lectoras no ven.",
-        necesita: ["deteccion", "texto"], clases: ["car", "truck", "motorcycle"], estado: "posible", porDefecto: false,
-        limite: "Para chapas, omni-lpr lee mejor: esto es para donde omni-lpr no mira.",
+        queHace: "Leer chapas en cámaras comunes (perimetrales, de calle), que no son lectoras: cuando OmniVision ve pasar un vehículo, el seguimiento le pasa los cuadros de ese momento al lector de matrículas. Se elige por cámara en su calibrador («Cuando OmniVision ve un vehículo»); los estacionados no disparan.",
+        necesita: ["deteccion", "seguimiento"], clases: ["car", "truck", "motorcycle"], estado: "corre", fase: 2, porDefecto: true,
+        limite: "Depende del ángulo: de costado, de atrás o lejos no lee. Medido el 19/10 en la LPR Interior: 4 pasadas, ninguna chapa legible.",
+    },
+    {
+        id: "estacionamiento", nombre: "Estacionamiento", icono: "SquareParking", modo: "LPR",
+        queHace: "Sobre una franja dibujada a lo largo del cordón, con los lugares que entran, OmniVision ve qué lugares tienen un vehículo: «estacionó» cuando se queda más de 3 minutos y «se retiró» cuando se va, con la chapa leída del auto. Se ve en el plano y en Visión → Estacionamiento, y dispara las reglas de aviso de LPR (estacionó / se retiró).",
+        necesita: ["deteccion", "seguimiento", "texto"], clases: ["car", "truck", "bus", "motorcycle"], estado: "corre", porDefecto: true,
+        limite: "Sólo cámaras de equipo (no canales sueltos de un NVR). Sin franja dibujada no mira nada.",
     },
     {
         id: "permanencia", nombre: "Tiempo de permanencia", icono: "Timer", modo: "Conteo",
@@ -436,24 +446,19 @@ export const ANALITICAS: Analitica[] = [
     {
         id: "mapa-calor", nombre: "Mapa de calor", icono: "Flame", modo: "Conteo",
         queHace: "Por dónde camina y circula la gente en cada cámara, a partir de los recorridos del registro de detecciones.",
-        necesita: ["deteccion", "seguimiento"], clases: ["person", "car"], estado: "posible", porDefecto: false,
+        necesita: ["deteccion", "seguimiento"], clases: ["person", "car"], estado: "corre", fase: 2, porDefecto: true,
     },
     {
         id: "epp", nombre: "Casco y chaleco en obras", icono: "HardHat", modo: "Obras",
         queHace: "Personas sin casco o sin chaleco reflectivo dentro de una obra marcada (las obras del barrio, el personal de mantenimiento).",
-        necesita: ["deteccion", "clasificacion"], clases: ["person"], estado: "posible", porDefecto: false,
+        necesita: ["deteccion", "clasificacion"], clases: ["person"], estado: "corre", fase: 3, porDefecto: true,
+        limite: "En prueba en el lab desde el 19/10: sus falsas alarmas todavía no están medidas.",
     },
     {
         id: "fuego", nombre: "Humo y fuego", icono: "Flame", modo: "Intrusión",
         queHace: "Humo o llamas en la imagen: un incendio de pasto, una parrilla fuera de lugar.",
         necesita: ["deteccion"], clases: [], estado: "entrenar", porDefecto: false,
         limite: "No está en las 80 clases. Los modelos de humo y fuego que circulan son AGPL; hay que entrenar uno propio con un set de datos libre (D-Fire) o preguntarle al modelo que describe la escena.",
-    },
-    {
-        id: "pelea", nombre: "Pelea o violencia", icono: "TriangleAlert", modo: "Intrusión",
-        queHace: "Personas forcejeando o golpeándose.",
-        necesita: ["deteccion", "pose", "seguimiento"], clases: ["person"], estado: "entrenar", porDefecto: false,
-        limite: "Es reconocimiento de acciones sobre varios cuadros, no de objetos: no hay un modelo libre que lo haga bien sin entrenar con video propio. Da muchas falsas alarmas.",
     },
 ];
 

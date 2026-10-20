@@ -8,7 +8,7 @@ import { permisosDeSesion } from "@/lib/permisos";
 import { clipDeInstante, DIR_CLIPS, DIR_ANILLO, PERMISOS_VIDEO, segmentosAnillo } from "@/lib/clip-instante";
 import { TIPOS_POR_MODULO } from "@/lib/clips";
 import { getChannelMap } from "@/lib/nvr-resolve";
-import { enviarVideoWaha, telefonoWhatsApp } from "@/lib/whatsapp";
+import { enviarVideoWaha, estadoSesionWhatsApp, telefonoWhatsApp, type EstadoWhatsApp } from "@/lib/whatsapp";
 import { fecha, hora } from "@/lib/fechas";
 
 /**
@@ -48,6 +48,12 @@ async function destinatariosDeAviso(): Promise<DestinatarioClip[]> {
 
 const ROL: Record<string, string> = { RESIDENT: "Residente", STAFF: "Personal", ADMIN: "Administración", SECURITY: "Seguridad", OPERATOR: "Operador", PROVIDER: "Proveedor", VISITOR: "Visita" };
 
+/** Si WhatsApp puede mandar ahora: el cajón lo pregunta al abrir y apaga la opción si no. */
+export async function estadoWhatsApp(): Promise<EstadoWhatsApp> {
+    try { await exigirVideo(); } catch (e: any) { return { ok: false, estado: "SIN_PERMISO", motivo: e.message }; }
+    return estadoSesionWhatsApp(true);
+}
+
 /** Los destinatarios de avisos (siempre) y, si hay búsqueda, los usuarios con teléfono que coinciden. */
 export async function buscarDestinatariosClip(q: string): Promise<{ avisos: DestinatarioClip[]; usuarios: DestinatarioClip[] }> {
     await exigirVideo();
@@ -85,6 +91,9 @@ export async function enviarClipPorWhatsApp(p: { deviceId: string; instante: num
     const pedidos = [...new Set((p.telefonos || []).map(telefonoWhatsApp).filter(Boolean))];
     if (!pedidos.length) return { ok: false, error: "Elegí al menos un destinatario." };
     if (!p.deviceId || !Number.isFinite(p.instante)) return { ok: false, error: "Falta la cámara o el instante." };
+    // Antes de armar nada: con la sesión caída el clip se armaba (decenas de segundos) para fallar al final.
+    const wa = await estadoSesionWhatsApp();
+    if (!wa.ok) return { ok: false, error: wa.motivo || "WhatsApp no está activo." };
 
     // Cada número tiene que ser alguien conocido: un destinatario de avisos o un usuario con ese teléfono.
     const avisos = await destinatariosDeAviso();

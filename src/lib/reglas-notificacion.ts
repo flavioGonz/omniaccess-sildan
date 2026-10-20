@@ -5,6 +5,7 @@ import { enqueueDispatch } from "@/lib/dispatch-queue";
 import { fecha, hora } from "@/lib/fechas";
 import { ventanaAlerta } from "@/lib/clip-instante";
 import { MARGEN_GRABACION_SEG } from "@/lib/clips";
+import { leerChapa, tipoDeChapa } from "@/lib/categoria-chapa";
 
 /**
  * Motor de reglas de notificación, compartido por los tres modos.
@@ -80,11 +81,15 @@ function armarTexto(plantilla: string | null, ev: EventoNotificable, ahora: Date
         "{count}": String(ev.extra?.count ?? ""),
         "{threshold}": String(ev.extra?.threshold ?? ""),
         "{wait}": String(ev.extra?.wait ?? ""),
+        // Lo que dice la chapa (lib/categoria-chapa): «Ambulancia de Montevideo», «Particular de Canelones».
+        "{tipo}": leerChapa(ev.plate)?.frase || "—",
     };
     const base = plantilla || (ev.modulo === "FACE"
         ? "👤 {evento}\n{persona}\n{device} · {channel}\n{date} {time}"
         : ev.modulo === "INTRUSION"
             ? "🚨 {evento}\n{device} · {clase}\n{date} {time}"
+            // Una chapa especial dice qué es al lado («SAM1234 · Ambulancia de Montevideo»).
+            : tipoDeChapa(ev.plate) ? "🚗 {evento}\n{plate} · {tipo}\n{device} · {channel}\n{date} {time}"
             : "🚗 {evento}\n{plate}\n{device} · {channel}\n{date} {time}");
     return Object.entries(vars).reduce((t, [k, v]) => t.split(k).join(v), base);
 }
@@ -182,6 +187,14 @@ export async function notificarEvento(ev: EventoNotificable): Promise<number> {
             // Evento: vacío significa "cualquiera".
             const pedidos = String(regla.eventos || "").split(",").map((e) => e.trim().toUpperCase()).filter(Boolean);
             if (pedidos.length && !pedidos.includes(ev.evento.toUpperCase())) continue;
+
+            // Tipo de chapa (taxi, policía, ambulancia…): vacío significa "cualquiera". Sólo por las
+            // letras de la chapa: el aspecto (taxi por OmniVision) llega después, no al leer.
+            const tipos = String((regla as any).tiposChapa || "").split(",").map((t) => t.trim()).filter(Boolean);
+            if (tipos.length) {
+                const tipo = tipoDeChapa(ev.plate);
+                if (!tipo || !tipos.includes(tipo)) continue;
+            }
 
             if (!enHorario(regla, ahora)) continue;
 

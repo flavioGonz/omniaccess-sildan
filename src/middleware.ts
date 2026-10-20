@@ -4,6 +4,7 @@ import { jwtVerify } from 'jose'
 import { puedeAbrir, permisosDeSesion } from '@/lib/permisos'
 import { esVista, alcanceCubre, enlaceAbre, COOKIE_PANTALLA, PARAM_PANTALLA, type ClaveVista } from '@/lib/monitor/vistas'
 import { accionPermitidaSinSesion } from '@/lib/acciones-publicas'
+import { firmaDeMedioValida, PARAM_FIRMA } from '@/lib/firma-medios'
 
 /**
  * Lo único de go2rtc que pide un navegador: el vivo en MP4 (las 23 llamadas del cliente) y,
@@ -34,6 +35,10 @@ const GO2RTC_NOMBRE_STREAM = /^[A-Za-z0-9_-]{1,120}$/
  * servidor el cuadro que está mostrando y recibe lo que vio OmniVision (15/10, pared de cámaras).
  */
 const PANTALLA_POST_DE_LECTURA = ['/api/monitor/camaras/siluetas']
+
+/** Los caminos de medios: pasan con credencial, pedido interno o firma (ver más abajo). */
+const MEDIOS = ['/api/files/', '/api/snapshot/', '/api/nvr/', '/api/clip/']
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 
 const secretKey = process.env.JWT_SECRET
 const key = secretKey ? new TextEncoder().encode(secretKey) : null
@@ -109,6 +114,28 @@ export async function middleware(request: NextRequest) {
         return NextResponse.next()
     }
 
+    // --- MEDIOS: fotos, clips y grabaciones ---
+    // Eran públicos (cualquiera con un enlace veía las capturas y pedía grabaciones al NVR). Ahora
+    // pasan con sesión, guardia o pantalla identificados, un pedido interno (los procesos del
+    // propio servidor y los contenedores del equipo hablan directo al puerto, sin el proxy) o un
+    // enlace FIRMADO (lo que se manda afuera: Telegram, correo; ver lib/firma-medios).
+    // MEDIOS_PUBLICOS=1 vuelve a lo de antes, por si algo de afuera que no se previó deja de andar.
+    if (MEDIOS.some((m) => pathname.startsWith(m))) {
+        if (process.env.MEDIOS_PUBLICOS === '1') return NextResponse.next()
+        // Interno = del propio equipo. Next agrega x-forwarded-for con la dirección del socket aunque
+        // el pedido no lo traiga (medido el 18/10: un curl a 127.0.0.1 llegó con el encabezado), así
+        // que «sin encabezado» no sirve: se mira que sea UNA sola dirección y de loopback. Por el
+        // proxy llega «cliente[, …]» y además X-Real-IP; un x-forwarded-for falso que mande alguien
+        // de afuera queda adelante de su IP real («127.0.0.1, 1.2.3.4») y no pasa.
+        const xff = (request.headers.get('x-forwarded-for') || '').trim()
+        const interno = !request.headers.get('x-real-ip') && (!xff || LOOPBACK.has(xff))
+        if (interno || firmaDeMedioValida(pathname, request.nextUrl.searchParams.get(PARAM_FIRMA))) return NextResponse.next()
+        if (await firmaValida(request.cookies.get('session')?.value)) return NextResponse.next()
+        if (await firmaValida(request.cookies.get('guardia')?.value, 'guardia')) return NextResponse.next()
+        if (await firmaValida(request.cookies.get(COOKIE_PANTALLA)?.value, 'pantalla')) return NextResponse.next()
+        return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+
     // --- PUBLIC API ROUTES (webhooks, external integrations) ---
     if (
         pathname === '/api/health' ||
@@ -122,7 +149,6 @@ export async function middleware(request: NextRequest) {
         // /api/events NO va aca: estaba en la lista publica y devolvia, sin sesion y a
         // quien preguntara, el historial de accesos de cualquier matricula. Ahora exige
         // sesion como el resto de la aplicacion.
-        pathname.startsWith('/api/files/') ||
         pathname.startsWith('/api/topology/') ||
         pathname === '/api/queue-report' ||
         pathname.startsWith('/api/queue/poll') ||
@@ -133,7 +159,6 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/api/queue/schedule/tick') ||
         pathname.startsWith('/api/queue/report/tick') ||
         pathname.startsWith('/api/onvif/notify') ||
-        pathname.startsWith('/api/snapshot/') ||
         pathname.startsWith('/api/tracking/') ||
         // La entrada interna del motor de reglas: server.js (proceso aparte, sin sesión) la
         // llama con x-tracking-token y la ruta lo verifica. Sin esta línea el middleware le
@@ -144,8 +169,7 @@ export async function middleware(request: NextRequest) {
         pathname === '/api/vigilancia/bot' ||   // bot de WhatsApp → lista de vigilancia (token propio)
         pathname.startsWith('/api/invitado/') ||   // el QR del pase: lo baja el bot y el invitado
         pathname.startsWith('/api/branding/') ||   // logos subidos (login, QR): los ve quien no inició sesión
-        pathname.startsWith('/api/nvr/') ||
-        pathname.startsWith('/api/clip/') ||
+
         pathname.startsWith('/api/min-interior') ||
         pathname.startsWith('/facepad/')
     ) {

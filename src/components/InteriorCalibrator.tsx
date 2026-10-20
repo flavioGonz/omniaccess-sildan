@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { sileo as toast } from "sileo";
 import {
     X, Loader2, Save, RotateCcw, SquareDashed, ParkingSquare, ScanLine,
-    Minus, Gauge, Timer, Crosshair, Trash2, ArrowLeftRight, CheckCircle2, XCircle,
+    Minus, Gauge, Timer, Crosshair, Sparkles, Trash2, ArrowLeftRight, CheckCircle2, XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -18,9 +18,10 @@ import {
 } from "@/components/tracking/MenuEscena";
 import { useFranja } from "@/components/tracking/useFranja";
 import { FranjaLienzo } from "@/components/tracking/FranjaLienzo";
-import { FranjaPanel } from "@/components/tracking/FranjaPanel";
 
 type Roi = Zona;
+/** Qué dispara la lectura (Device.trackTrigger; «camara» se muestra como zona). */
+type Modo = "escena" | "zona" | "linea" | "omnivision";
 const ROI_COMPLETA: Roi = ZONA_COMPLETA;
 
 /**
@@ -97,6 +98,10 @@ const AYUDA: Record<string, { titulo: string; detalle: string }> = {
         titulo: "Disparo al entrar en la zona",
         detalle: "La cámara avisa mientras haya un vehículo dentro del área marcada. Sirve para vigilar un sector entero, pero un auto quieto adentro vuelve a disparar con cada movimiento. Necesita una cámara con analítica propia.",
     },
+    "modo-omnivision": {
+        titulo: "Disparo cuando OmniVision ve un vehículo",
+        detalle: "La lectura arranca cuando OmniVision abre la pista de un auto, una moto o un camión en esta cámara, y mira los cuadros de un par de segundos antes y después. Sirve para las cámaras que sólo entregan RTSP: no se despierta con sombras ni ramas, y los vehículos estacionados no disparan. Necesita la cámara en el análisis de OmniVision.",
+    },
     "modo-escena": {
         titulo: "Disparo por cambio de imagen",
         detalle: "Lo decide el servidor mirando si la imagen cambió. Funciona con cualquier cámara, incluso una que solo entregue RTSP y no tenga analítica. A cambio trabaja más y también se despierta con una sombra o una rama, así que pide una zona bien ajustada.",
@@ -117,7 +122,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
     const [linea, setLinea] = useState<Linea | null>(null);
     const [herramienta, setHerramienta] = useState<"mirar" | "zona" | "linea" | "franja">("mirar");
     const [regla, setRegla] = useState<any>(null);
-    const [modo, setModo] = useState<"escena" | "zona" | "linea">("escena");
+    const [modo, setModo] = useState<Modo>("escena");
     const [aplicando, setAplicando] = useState(false);
 
     /** La caja exacta del video. Sin bandas: el overlay usa estas medidas y nada más. */
@@ -240,7 +245,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
         setGuardando(true);
         try {
             await axios.put("/api/tracking/calibration", { deviceId: device.id, escena, confianza, fps, roi, linea });
-            if (modo !== "escena") {
+            if (modo === "zona" || modo === "linea") {
                 await axios.post("/api/tracking/camera-rule", { deviceId: device.id, modo, linea: modo === "linea" ? linea : undefined });
             }
             // La línea que la cámara ya tenía (la de intrusión): borrada acá → se apaga en la
@@ -251,7 +256,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
             }
             toast.success({
                 title: "Calibración guardada",
-                description: lineaEnCamara && !linea ? "La línea se quitó de la cámara." : modo === "escena" ? "La pasarela la toma en menos de un minuto." : "Aplicada también en la cámara.",
+                description: lineaEnCamara && !linea ? "La línea se quitó de la cámara." : modo === "escena" || modo === "omnivision" ? "La pasarela la toma en menos de un minuto." : "Aplicada también en la cámara.",
             });
             onClose();
         } catch (e: any) {
@@ -259,7 +264,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
         } finally { setGuardando(false); }
     };
 
-    const cambiarModo = async (m: "escena" | "zona" | "linea") => {
+    const cambiarModo = async (m: Modo) => {
         setAplicando(true);
         try {
             await axios.post("/api/tracking/camera-rule", { deviceId: device.id, modo: m, linea: m === "linea" ? linea : undefined });
@@ -277,6 +282,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
     const MODOS = useMemo(() => [
         { id: "linea" as const, ic: Minus, txt: "Al cruzar una línea", puede: regla?.soportaLinea, listo: !!linea, falta: "dibujá la línea" },
         { id: "zona" as const, ic: SquareDashed, txt: "Al entrar en la zona", puede: regla?.soportaZona, listo: !zonaCompleta, falta: "marcá la zona" },
+        { id: "omnivision" as const, ic: Sparkles, txt: "Cuando OmniVision ve un vehículo", puede: !!regla?.enVision, listo: true, falta: "", noPuede: "no está en OmniVision" },
         { id: "escena" as const, ic: Gauge, txt: "Por cambio de imagen", puede: true, listo: true, falta: "" },
     ], [regla, linea, zonaCompleta]);
 
@@ -330,7 +336,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                         </div>
 
                         {herramienta === "franja" && (
-                            <FranjaLienzo franja={franja} encuadre={{ left: 0, top: 0, w: caja.ancho, h: caja.alto }} />
+                            <FranjaLienzo franja={franja} editable={false} encuadre={{ left: 0, top: 0, w: caja.ancho, h: caja.alto }} />
                         )}
                     </EscenaViva>
 
@@ -427,7 +433,15 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                                 initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
                                 transition={{ duration: 0.18 }}>
                                 <Rotulo icono={ParkingSquare}>Dónde estacionan</Rotulo>
-                                <FranjaPanel franja={franja} compacto />
+                                {/* El estacionamiento pasó a ser una analítica de OmniVision (18/10): se dibuja y se
+                                    ve en Visión → Estacionamiento, en cualquier cámara, y ya no hace falta enseñarle la
+                                    calle vacía. Acá queda la franja a la vista y el camino. */}
+                                <div className="rounded-[10px] border border-border bg-muted/40 p-3 text-[12.5px] text-muted-foreground space-y-2">
+                                    <p>{franja.existe ? `Esta cámara tiene ${franja.lugares} lugares dibujados.` : "Esta cámara no tiene lugares dibujados."} El estacionamiento ahora lo mide OmniVision viendo los vehículos, y se dibuja en su pantalla.</p>
+                                    <a href={`/admin/vision/estacionamiento?camara=${encodeURIComponent(device.id)}`} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-[8px] bg-[var(--accion)] text-white text-[12px] font-semibold hover:brightness-110">
+                                        <ParkingSquare size={14} /> Abrir Estacionamiento
+                                    </a>
+                                </div>
                             </motion.div>
                         ) : (
                             <motion.div key="ajustes"
@@ -460,7 +474,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                                                     <span className={cn("relative z-10 flex-1 font-medium", activo && "text-[var(--accion-texto)]")}>
                                                         {o.txt}
                                                     </span>
-                                                    {!o.puede && <span className="relative z-10 text-[11px] opacity-70">no la soporta</span>}
+                                                    {!o.puede && <span className="relative z-10 text-[11px] opacity-70">{("noPuede" in o && o.noPuede) || "no la soporta"}</span>}
                                                     {o.puede && !o.listo && o.id !== "escena" && (
                                                         <span className="relative z-10 text-[11px] opacity-70">{o.falta}</span>
                                                     )}

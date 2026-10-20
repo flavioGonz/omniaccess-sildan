@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authenticatedRequest } from "@/lib/digest-auth";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
+import { analizaVision } from "@/lib/vision-camaras";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,12 @@ export const dynamic = "force-dynamic";
  *    la regla entera. Hay que forzarlo en cada escritura.
  */
 
-type Modo = "escena" | "zona" | "linea";
+/**
+ * «omnivision» tampoco toca la cámara: dispara cuando OmniVision abre la pista de un vehículo
+ * (tracking-worker, vigilarOmni). Sólo tiene sentido si la cámara está en el análisis de
+ * OmniVision; si no, nunca dispararía.
+ */
+type Modo = "escena" | "zona" | "linea" | "omnivision";
 
 function equipo(d: any) {
     return { ip: d.ip, username: d.username, password: d.password, authType: d.authType || "DIGEST" };
@@ -142,6 +148,7 @@ export async function GET(req: NextRequest) {
 
     const d = await leerDispositivo(req.nextUrl.searchParams.get("deviceId") || "");
     if (!d) return NextResponse.json({ error: "Dispositivo no encontrado" }, { status: 404 });
+    const enVision = await analizaVision(d.id).catch(() => false);
 
     try {
         const cap = await authenticatedRequest("GET", "/ISAPI/Smart/capabilities", equipo(d), {
@@ -169,9 +176,10 @@ export async function GET(req: NextRequest) {
             avisaAlServidor: avisa,
             modo: (d.trackTrigger === "camara" ? "zona" : d.trackTrigger) || "escena",
             linea: d.trackLine ? JSON.parse(d.trackLine) : null,
+            enVision,
         });
     } catch (e: any) {
-        return NextResponse.json({ soportada: false, error: e?.message || "sin respuesta", modo: d.trackTrigger || "escena" });
+        return NextResponse.json({ soportada: false, error: e?.message || "sin respuesta", modo: d.trackTrigger || "escena", enVision });
     }
 }
 
@@ -210,7 +218,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true });
     }
 
-    const modo: Modo = body.modo === "zona" || body.modo === "linea" ? body.modo : "escena";
+    const modo: Modo = body.modo === "zona" || body.modo === "linea" || body.modo === "omnivision" ? body.modo : "escena";
+    if (modo === "omnivision" && !(await analizaVision(d.id).catch(() => false))) {
+        return NextResponse.json({ error: "Esta cámara no está en el análisis de OmniVision: prendela en OmniVision › Cámaras antes de disparar por ahí." }, { status: 400 });
+    }
     const linea = body.linea ?? (d.trackLine ? JSON.parse(d.trackLine) : null);
     let roi: any = null;
     try { roi = d.trackRoi ? JSON.parse(d.trackRoi) : null; } catch { }
@@ -231,7 +242,7 @@ export async function POST(req: NextRequest) {
          * necesita la regla para nada; si la cámara igual avisa por intrusión (objetivo
          * persona), el worker lo descarta.
          */
-        if (modo !== "escena") {
+        if (modo === "zona" || modo === "linea") {
             // Una sola regla a la vez: si conviven, cada auto dispara dos veces.
             await escribirRegla(d, "zona", modo === "zona", modo === "zona" ? puntosZona(roi) : undefined);
             await escribirRegla(d, "linea", modo === "linea", modo === "linea" ? puntosLinea(linea) : undefined, linea?.sentido || "any");

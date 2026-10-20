@@ -47,5 +47,8 @@ export function useRegistrarDesdeCaptura(alCambiar?: () => void) {
                 alCerrar={() => setNegra(null)} alCambiar={() => alCambiar?.()} />
         </>
     );
-    return { abrirRegistro, marcarNegra, cajones };
+    /** Hay un cajón abierto. Lo usa quien los abre desde una ventana que va por encima de los
+     *  paneles (el visor del evento): mientras tanto se corre abajo y no escucha el teclado. */
+    const abierto = registrar !== null || !!negra;
+    return { abrirRegistro, marcarNegra, cajones, abierto };
 }

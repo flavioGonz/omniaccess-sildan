@@ -1,7 +1,7 @@
 /**
  * Las reglas de las analíticas de visión, dentro de vision-worker: conteo por línea, sentido
- * contrario, tiempo de permanencia, aglomeración, cruce de línea propio, intrusión en zona propia,
- * merodeo y objeto retirado (ver src/lib/vision-reglas.ts, que define
+ * contrario, tiempo de permanencia, aglomeración, conteo de fila, cruce de línea propio, intrusión
+ * en zona propia, merodeo y objeto retirado (ver src/lib/vision-reglas.ts, que define
  * las reglas y su validación; acá se aplican).
  *
  * Trabaja sobre lo que ya hace el registro: cada cámara se mira cada ~2 s y omni-vision
@@ -20,10 +20,11 @@
 
 const http = require("http");
 const crypto = require("crypto");
+const sharp = require("sharp");
 
 /** Las analíticas del laboratorio que prenden cada tipo, y su valor si nadie las tocó. */
-const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion", cruce: "linea-propia", intrusion: "zona-propia", merodeo: "merodeo", retirado: "retirado" };
-const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, aglomeracion: true, "linea-propia": true, "zona-propia": true, merodeo: true, retirado: true };
+const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion", fila: "fila", cruce: "linea-propia", intrusion: "zona-propia", merodeo: "merodeo", retirado: "retirado", animal: "animal", dejado: "dejados", suelo: "persona-suelo", trepar: "trepar", epp: "epp" };
+const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, aglomeracion: true, fila: true, "linea-propia": true, "zona-propia": true, merodeo: true, retirado: true, animal: true, dejados: true, "persona-suelo": true, trepar: true, epp: true };
 /** Cuánto tiene que correrse el pie (fracción del cuadro) para contar como movimiento. */
 const MOVIMIENTO_MIN = 0.01;
 /** Una pista que no se ve hace esto deja de existir para las reglas. */
@@ -42,6 +43,26 @@ const ENFRIO_AGLOMERACION_MS = 10 * 60_000;
 const ENFRIO_CRUCE_MS = 30_000;
 /** Lo mismo para la intrusión en zona propia. */
 const ENFRIO_INTRUSION_MS = 60_000;
+/**
+ * Conteo de fila: la analítica de aforo de una cámara Bosch del modo Filas, hecha por OmniVision.
+ *  · Aforo: las personas con el pie adentro de la zona. Un número nuevo vale cuando se sostiene el
+ *    «rebote» de la regla (el «Tiempo de rebote» de la tarea de aforo de la cámara): una persona
+ *    tapada un cuadro, o el que pasa rozando el borde, no mueve la fila.
+ *  · Entradas y salidas: una pista que pasa de afuera a adentro de la zona entra, de adentro a
+ *    afuera sale (EnteringField / LeavingField). Una pista que APARECE adentro no cuenta: es casi
+ *    siempre la misma persona renumerada por el seguimiento.
+ *  · El límite: al llegar, aviso a la guardia con la foto (con su enfriamiento); si sigue llena
+ *    `escalarMin` minutos, un aviso más «avisar al supervisor», uno por episodio.
+ * Todo se escribe en EventoVision (FILA cuando el aforo cambia, FILA_ENTRA / FILA_SALE, FILA_LLENA,
+ * FILA_ESCALADA); Visión → Filas lo lee de ahí.
+ */
+/** Una misma pista no entra y sale dos veces en esto: el pie tiembla sobre el borde de la zona. */
+const FILA_BORDE_MS = 4_000;
+/** Cada cuánto se manda a la pantalla dónde está la gente de la fila (socket, sin guardar nada). */
+const FILA_VIVO_MS = 1_000;
+/** El límite de una fila que no lo tiene guardado: el mismo que propone la pantalla. */
+const FILA_LIMITE_DEFECTO = 10;
+
 /** La hora del barrio, para el horario de armado de cruce e intrusión. */
 const ZONA = process.env.NEXT_PUBLIC_TZ || "America/Montevideo";
 
@@ -65,11 +86,64 @@ const RETIRADO_FALTAS_MIN = 5;
 const RETIRADO_TAPADO = 0.3;
 const ENFRIO_RETIRADO_MS = 60_000;
 
-const TIPO_AVISO = { SENTIDO_CONTRARIO: "VISION_SENTIDO", PERMANENCIA: "VISION_PERMANENCIA", AGLOMERACION: "VISION_AGLOMERACION", CRUCE_LINEA: "VISION_CRUCE", INTRUSION: "VISION_INTRUSION", MERODEO: "VISION_MERODEO", RETIRADO: "VISION_RETIRADO" };
+/**
+ * Animal en zona: entre dos avisos de la misma regla (un perro que entra y sale de la zona no
+ * avisa cada vez).
+ */
+const ENFRIO_ANIMAL_MS = 2 * 60_000;
+/**
+ * Objeto dejado. Un bulto es «el mismo» mientras su caja se superpone con la primera en
+ * DEJADO_IOU_MISMO: el que alguien lleva en la mano se corre y empieza de cero en cada cuadro,
+ * así que nunca junta tiempo. El dueño «está al lado» si una persona toca la caja del bulto
+ * agrandada DEJADO_DUENO veces su tamaño para cada lado. Lo ya avisado se olvida si no se lo ve
+ * DEJADO_OLVIDO_MS (con la escena quieta se analiza una vez por minuto).
+ */
+const DEJADO_IOU_MISMO = 0.35;
+const DEJADO_DUENO = 1.5;
+const DEJADO_OLVIDO_MS = 3 * 60_000;
+const ENFRIO_DEJADO_MS = 60_000;
+
+/**
+ * Fase 3 (19/10): las reglas que miran el CUERPO. Persona en el suelo y trepando piden la pose
+ * del cuadro (otra inferencia, ~30 ms): se pide sólo con una persona en la zona y como mucho una
+ * vez por cuadro y cámara, aunque haya varias reglas (POSE_* abajo).
+ *
+ * Suelo: la pose dice «acostada» (torso a más de 60° de la vertical, ver detector.py) con el
+ * centro de la caja en la zona, `segundos` seguidos. Es la misma persona mientras su caja se
+ * superpone SUELO_IOU con la anterior; no se la olvida hasta SUELO_OLVIDO_MS sin verla acostada,
+ * porque a una persona tirada a veces no se le ven hombros y caderas y la postura sale vacía.
+ */
+const SUELO_IOU = 0.3;
+const SUELO_OLVIDO_MS = 15_000;
+const ENFRIO_SUELO_MS = 2 * 60_000;
+/**
+ * Trepando: las dos muñecas por encima de la línea de los hombros, a más de TREPA_MANOS largos de
+ * torso, con la persona en la zona (dibujada sobre el cerco o el muro), `segundos` seguidos. Un
+ * punto de la pose se usa si «se ve» en POSE_VISIBLE (el mismo PUNTO_VISIBLE de detector.py).
+ * Alguien que saluda con los brazos arriba también lo cumple: por eso pide la zona y el tiempo.
+ */
+const TREPA_MANOS = 0.25;
+const TREPA_OLVIDO_MS = 6_000;
+const ENFRIO_TREPA_MS = 2 * 60_000;
+const POSE_VISIBLE = 0.3;
+/** Un error de la pose (apagada, omni-vision ocupado) se anota como mucho una vez por minuto. */
+const POSE_AVISO_ERROR_MS = 60_000;
+/**
+ * Casco y chaleco: los atributos de SigLIP de cada persona (los mismos del registro). Se juntan
+ * las lecturas NO dudosas de cada pista; avisa cuando lleva `segundos` en la zona, hay al menos
+ * EPP_LECTURAS_MIN lecturas del elemento y EPP_FALTA de ellas dicen «no». Una sola lectura en
+ * contra no alcanza: el recorte de una persona de espaldas o lejos se equivoca seguido.
+ */
+const EPP_LECTURAS_MIN = 3;
+const EPP_FALTA = 0.6;
+const ENFRIO_EPP_MS = 2 * 60_000;
+
+const TIPO_AVISO = { SUELO: "VISION_SUELO", TREPA: "VISION_TREPA", EPP: "VISION_EPP", ANIMAL: "VISION_ANIMAL", DEJADO: "VISION_DEJADO", FILA_LLENA: "VISION_FILA", FILA_ESCALADA: "VISION_FILA", SENTIDO_CONTRARIO: "VISION_SENTIDO", PERMANENCIA: "VISION_PERMANENCIA", AGLOMERACION: "VISION_AGLOMERACION", CRUCE_LINEA: "VISION_CRUCE", INTRUSION: "VISION_INTRUSION", MERODEO: "VISION_MERODEO", RETIRADO: "VISION_RETIRADO" };
 const NOMBRE_CLASE = { person: "persona", car: "auto", truck: "camioneta", bus: "ómnibus", motorcycle: "moto", bicycle: "bicicleta", dog: "perro",
+    cat: "gato", horse: "caballo", cow: "vaca", sheep: "oveja",
     backpack: "mochila", handbag: "bolso", suitcase: "valija", chair: "silla", bench: "banco", "potted plant": "maceta" };
 /** Para el texto del aviso: «se llevaron una bicicleta», «un bolso». */
-const ARTICULO = { bicycle: "una", motorcycle: "una", backpack: "una", suitcase: "una", chair: "una", "potted plant": "una", handbag: "un", bench: "un" };
+const ARTICULO = { dog: "un", cat: "un", horse: "un", cow: "una", sheep: "una", bicycle: "una", motorcycle: "una", backpack: "una", suitcase: "una", chair: "una", "potted plant": "una", handbag: "un", bench: "un" };
 /** Intersección sobre unión de dos cajas [x1,y1,x2,y2]. */
 function iou(a, b) {
     const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
@@ -116,6 +190,83 @@ function enHorario(h, d) {
     return a < b ? x >= a && x < b : x >= a || x < b;
 }
 
+/**
+ * La foto del aviso, MARCADA: la zona (o la línea) de la regla y la caja de quien la disparó.
+ *
+ * 19/10, Nico, con la alarma «Se quedó en la zona» de Prueba puesto 7: «cuando saca una captura,
+ * no la saca bien, no se ve quién ocupa». La foto era el cuadro crudo: el auto estaba (caja
+ * 0,42–0,51 × 0,09–0,17, arriba, entre otros estacionados) pero nada decía cuál era, y en una
+ * escena con diez autos la foto no contesta la pregunta del aviso. La caja ya se guardaba en
+ * EventoVision; la consola de alarmas, el WhatsApp y el push muestran sólo la foto. Por eso se
+ * dibuja SOBRE la imagen: así viaja a cualquier lado y se entiende sola.
+ *
+ * El cuadro crudo se sigue guardando en EventoVision.foto cuando el evento tiene caja (Reglas,
+ * Verificación y el entrenamiento la usan sin marcas); la marcada va al aviso. En la fila y la
+ * aglomeración, que no guardan caja, la marcada es también la del evento.
+ *
+ * Los colores son los tokens del diseño pasados a hex (librsvg no entiende oklch):
+ * --accion-en-oscuro, --aviso y --mal de globals.css. Si cambian allá, cambian acá.
+ */
+const COLOR_MARCA = { accion: "#49a9ff", aviso: "#db8d0f", mal: "#e32a4e" };
+/** Una zona que cubre casi todo el cuadro no se dibuja: sería un marco alrededor de la foto. */
+const ZONA_SIN_DIBUJO = 0.85;
+const xml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+function areaZona(z) {
+    let a = 0;
+    for (let i = 0, j = z.length - 1; i < z.length; j = i++) a += (z[j][0] + z[i][0]) * (z[j][1] - z[i][1]);
+    return Math.abs(a / 2);
+}
+/** `marcas`: { zona?, linea?, cajas?: [{ caja, tono, texto? }], rotulo?: { texto, tono } }. */
+async function marcar(jpeg, marcas) {
+    const meta = await sharp(jpeg).metadata();
+    const W = meta.width || 1920, H = meta.height || 1080;
+    const trazo = Math.max(2, Math.round(W / 640)), letra = Math.max(13, Math.round(W / 70));
+    const px = (p) => `${(p[0] * W).toFixed(1)},${(p[1] * H).toFixed(1)}`;
+    const chip = (x, y, texto, tono) => {
+        const ancho = Math.round(texto.length * letra * 0.58 + letra * 1.6), alto = Math.round(letra * 1.7);
+        const cx = Math.max(0, Math.min(W - ancho, x)), cy = Math.max(0, Math.min(H - alto, y));
+        return `<rect x="${cx}" y="${cy}" width="${ancho}" height="${alto}" rx="${Math.round(alto / 3)}" fill="rgba(10,12,16,0.78)"/>`
+            + `<rect x="${cx + letra * 0.45}" y="${cy + alto * 0.3}" width="${letra * 0.4}" height="${alto * 0.4}" rx="${letra * 0.1}" fill="${COLOR_MARCA[tono] || COLOR_MARCA.aviso}"/>`
+            + `<text x="${cx + letra * 1.15}" y="${cy + alto * 0.7}" font-family="Outfit, DejaVu Sans, Arial, sans-serif" font-size="${letra}" font-weight="600" fill="#fff">${xml(texto)}</text>`;
+    };
+    let svg = "";
+    const zona = Array.isArray(marcas.zona) && marcas.zona.length >= 3 ? marcas.zona : null;
+    if (zona && areaZona(zona) < ZONA_SIN_DIBUJO) {
+        const pts = zona.map(px).join(" ");
+        svg += `<polygon points="${pts}" fill="${COLOR_MARCA.accion}" fill-opacity="0.10" stroke="rgba(0,0,0,0.55)" stroke-width="${trazo * 2.5}"/>`
+            + `<polygon points="${pts}" fill="none" stroke="${COLOR_MARCA.accion}" stroke-width="${trazo}" stroke-dasharray="${trazo * 5} ${trazo * 3}"/>`;
+    }
+    if (marcas.linea?.a && marcas.linea?.b) {
+        const [a, b] = [marcas.linea.a, marcas.linea.b].map(px);
+        svg += `<polyline points="${a} ${b}" stroke="rgba(0,0,0,0.55)" stroke-width="${trazo * 3}" fill="none"/>`
+            + `<polyline points="${a} ${b}" stroke="${COLOR_MARCA.accion}" stroke-width="${trazo * 1.5}" fill="none"/>`;
+    }
+    for (const c of marcas.cajas || []) {
+        if (!Array.isArray(c.caja)) continue;
+        // Un poco más grande que la caja: que el borde no tape al que se está señalando.
+        const m = 0.006, [x1, y1, x2, y2] = [c.caja[0] - m, c.caja[1] - m, c.caja[2] + m, c.caja[3] + m].map((v, i) => Math.max(0, Math.min(1, v)) * (i % 2 ? H : W));
+        const color = COLOR_MARCA[c.tono] || COLOR_MARCA.aviso;
+        svg += `<rect x="${x1}" y="${y1}" width="${x2 - x1}" height="${y2 - y1}" rx="${trazo * 2}" fill="none" stroke="rgba(0,0,0,0.6)" stroke-width="${trazo * 3}"/>`
+            + `<rect x="${x1}" y="${y1}" width="${x2 - x1}" height="${y2 - y1}" rx="${trazo * 2}" fill="none" stroke="${color}" stroke-width="${trazo * 1.5}"/>`;
+        if (c.texto) svg += chip(x1, y1 - letra * 1.7 - trazo * 2 >= 0 ? y1 - letra * 1.7 - trazo * 2 : y2 + trazo * 2, c.texto, c.tono);
+    }
+    if (marcas.rotulo?.texto) {
+        // El rótulo de toda la escena (la fila, la aglomeración): arriba del vértice más alto de la zona.
+        const tope = zona ? zona.reduce((a, p) => (p[1] < a[1] ? p : a)) : [0.02, 0.06];
+        svg += chip(tope[0] * W, tope[1] * H - letra * 2.2, marcas.rotulo.texto, marcas.rotulo.tono);
+    }
+    if (!svg) return jpeg;
+    return sharp(jpeg).composite([{ input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">${svg}</svg>`), top: 0, left: 0 }]).jpeg({ quality: 85 }).toBuffer();
+}
+/** Cómo terminó una estadía con aviso (ver cerrarAvisoEstadia). */
+const COMO_TERMINO = { salio: "salió de la zona", "no-se-ve": "dejó de verse", reinicio: "se dejó de seguir (se reinició el análisis)" };
+/** «40 s», «23 min», «1 h 05 min». */
+const duracion = (seg) => { if (seg < 60) return `${Math.round(seg)} s`; const m = Math.round(seg / 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`; };
+const hhmm = (d) => d.toLocaleTimeString("es-UY", { timeZone: process.env.NEXT_PUBLIC_TZ || "America/Montevideo", hour: "2-digit", minute: "2-digit", hour12: false });
+/** Cuánto lleva, para el rótulo de la caja: «15 min», «40 s». */
+const lleva = (seg) => (seg >= 60 ? `${Math.round(seg / 60)} min` : `${Math.round(seg)} s`);
+const nombreDe = (clase) => { const n = NOMBRE_CLASE[clase] || String(clase || "").replace(/^propio:.*/, "objeto"); return n.charAt(0).toUpperCase() + n.slice(1); };
+
 function emitir(evento, datos) {
     try {
         const cuerpo = JSON.stringify({ __event: evento, ...datos });
@@ -125,10 +276,10 @@ function emitir(evento, datos) {
     } catch { }
 }
 
-function iniciar({ prisma, subir, log }) {
+function iniciar({ prisma, subir, log, pose }) {
     let reglas = [];
     let analiticas = {};
-    const contadores = { cruces: 0, sentido: 0, permanencia: 0, aglomeracion: 0, crucesPropios: 0, intrusiones: 0, merodeos: 0, retirados: 0, aprendidos: 0, avisos: 0, errores: 0, ultimoError: null };
+    const contadores = { cruces: 0, sentido: 0, permanencia: 0, aglomeracion: 0, filas: 0, crucesPropios: 0, intrusiones: 0, merodeos: 0, retirados: 0, aprendidos: 0, avisos: 0, errores: 0, ultimoError: null };
     /** Último pie visto de cada pista: `${deviceId}:${pista}` → { p, t }. */
     const pies = new Map();
     /** Por regla y pista: último cruce { t, sentido }. */
@@ -148,6 +299,28 @@ function iniciar({ prisma, subir, log }) {
     /** Objeto retirado, por regla: lo aprendido en la zona → [{ clase, caja, desde, visto, faltas, jpeg, estable }]. */
     const aprendidos = new Map();
     const ultimoAvisoRetirado = new Map();
+    /** Animal en zona: `${regla}:${pista}` → { desde, visto, avisado, deviceId }. */
+    const animales = new Map();
+    const ultimoAvisoAnimal = new Map();
+    /** Objeto dejado, por regla: { lista: [{ clase, caja, desde, visto, avisado }] } (ver DEJADO_*). */
+    const dejados = new Map();
+    const ultimoAvisoDejado = new Map();
+    /** Persona en el suelo / trepando, por regla: [{ caja, desde, visto, avisado }]. */
+    const suelos = new Map();
+    const trepadas = new Map();
+    const ultimoAvisoSuelo = new Map();
+    const ultimoAvisoTrepa = new Map();
+    /** Casco y chaleco: `${regla}:${pista}` → { desde, visto, avisado, deviceId, si: {casco, chaleco}, no: {…} }. */
+    const epps = new Map();
+    const ultimoAvisoEpp = new Map();
+    /** La pose del último cuadro de cada cámara: { t, objetos } (una inferencia por cuadro, la compartan las reglas que sea). */
+    const poses = new Map();
+    let poseError = 0;
+    /**
+     * Conteo de fila, por regla: { aceptado, candidato, desde, llenoDesde, ultimoAviso, escalado,
+     * pistas: pista → { dentro, visto, cambio } }.
+     */
+    const filas = new Map();
 
     const prendida = (r) => r.activa !== false && (analiticas[ANALITICA[r.tipo]] ?? DEFECTO[ANALITICA[r.tipo]]) !== false;
 
@@ -170,9 +343,18 @@ function iniciar({ prisma, subir, log }) {
         for (const r of reglas) {
             if (r.deviceId !== deviceId || !prendida(r)) continue;
             if (r.tipo === "aglomeracion" && grupos.get(r.id)?.desde) return true;
+            // Un número de la fila esperando su rebote: si la imagen queda quieta y no se mira
+            // más, el cambio no se confirma nunca. Y con gente en la fila, se sigue mirando.
+            if (r.tipo === "fila") { const f = filas.get(r.id); if (f && (f.candidato !== f.aceptado || f.aceptado > 0)) return true; }
             if (r.tipo === "permanencia") for (const k of estadias.keys()) if (k.startsWith(r.id + ":")) return true;
             if (r.tipo === "intrusion") for (const k of intrusos.keys()) if (k.startsWith(r.id + ":")) return true;
             if (r.tipo === "merodeo") for (const k of merodeos.keys()) if (k.startsWith(r.id + ":")) return true;
+            if (r.tipo === "animal") for (const [k, v] of animales) if (k.startsWith(r.id + ":") && !v.avisado) return true;
+            // Un bulto nuevo juntando tiempo: si la escena queda quieta se analizaría una vez por minuto.
+            if (r.tipo === "dejado" && (dejados.get(r.id)?.lista || []).some((a) => !a.avisado)) return true;
+            if (r.tipo === "suelo" && (suelos.get(r.id) || []).some((a) => !a.avisado)) return true;
+            if (r.tipo === "trepar" && (trepadas.get(r.id) || []).some((a) => !a.avisado)) return true;
+            if (r.tipo === "epp") for (const [k, v] of epps) if (k.startsWith(r.id + ":") && !v.avisado) return true;
             // Algo aprendido que está faltando: se mira seguido hasta decidir si se lo llevaron.
             if (r.tipo === "retirado" && (aprendidos.get(r.id) || []).some((a) => a.estable && a.faltas > 0)) return true;
         }
@@ -184,10 +366,20 @@ function iniciar({ prisma, subir, log }) {
         try { await subir(clave, jpeg); return clave; } catch (e) { log("reglas: no se pudo guardar la foto:", e.message); return null; }
     }
 
-    async function avisar(r, tipoEvento, motivo, eventoId, fotoClave, cam) {
+    /** La foto marcada (ver `marcar`); si algo falla, la cruda: un aviso sin marcas es mejor que sin foto. */
+    async function fotoMarcada(jpeg, ahora, marcas) {
+        try { return await foto(await marcar(jpeg, marcas), ahora); }
+        catch (e) { log("reglas: no se pudo marcar la foto:", e.message); return foto(jpeg, ahora); }
+    }
+    /** Para el aviso: la marcada, sólo si la regla avisa (si no, nadie la va a ver). */
+    async function fotoDelAviso(r, jpeg, ahora, marcas, cruda) {
+        return r.avisar ? fotoMarcada(jpeg, ahora, marcas) : cruda;
+    }
+
+    async function avisar(r, tipoEvento, motivo, eventoId, fotoClave, cam, extra = {}) {
         if (!r.avisar) return null;
         try {
-            const aviso = await prisma.avisoGuardia.create({ data: { tipo: TIPO_AVISO[tipoEvento], motivo, camara: cam.name, datos: { reglaId: r.id, regla: r.nombre, eventoId, foto: fotoClave } } });
+            const aviso = await prisma.avisoGuardia.create({ data: { tipo: TIPO_AVISO[tipoEvento], motivo, camara: cam.name, datos: { reglaId: r.id, regla: r.nombre, eventoId, foto: fotoClave, ...extra } } });
             await prisma.eventoVision.update({ where: { id: eventoId }, data: { avisoId: aviso.id } }).catch(() => null);
             emitir("aviso_guardia", { accion: "nuevo", aviso });
             contadores.avisos++;
@@ -211,10 +403,18 @@ function iniciar({ prisma, subir, log }) {
                     if (r.tipo === "conteo" || r.tipo === "sentido" || r.tipo === "cruce") await lineas(r, cam, valen, jpeg, ahora, t);
                     else if (r.tipo === "intrusion") await intrusion(r, cam, valen, jpeg, ahora, t);
                     else if (r.tipo === "merodeo") await merodeo(r, cam, valen, jpeg, ahora, t);
+                    else if (r.tipo === "animal") await animal(r, cam, valen, objetos, jpeg, ahora, t);
+                    // Dejado no usa la pista (un bulto quieto puede cambiar de número), como retirado.
+                    else if (r.tipo === "dejado") await dejado(r, cam, objetos, jpeg, ahora, t);
+                    else if (r.tipo === "suelo" || r.tipo === "trepar") await cuerpo(r, cam, valen, jpeg, ahora, t);
+                    else if (r.tipo === "epp") await epp(r, cam, valen, jpeg, ahora, t);
                     // Retirado mira también a las personas (para saber si tapan lo aprendido).
                     else if (r.tipo === "retirado") await retirado(r, cam, objetos, jpeg, ahora, t);
                     else if (r.tipo === "permanencia") await permanencia(r, cam, valen, jpeg, ahora, t);
                     else if (r.tipo === "aglomeracion") await aglomeracion(r, cam, valen, jpeg, ahora, t);
+                    // La fila cuenta a todos los que se ven, tengan número de pista o no: el que
+                    // está quieto en la fila es justo el que el seguimiento a veces renumera.
+                    else if (r.tipo === "fila") await fila(r, cam, objetos.filter((o) => r.clases.includes(o.clase) && Array.isArray(o.caja_norm)), jpeg, ahora, t);
                 } catch (e) { contadores.errores++; contadores.ultimoError = `${r.nombre}: ${e.message}`; }
             }
         }
@@ -230,6 +430,8 @@ function iniciar({ prisma, subir, log }) {
         for (const [k, v] of cruces) if (t - v.t > OLVIDO_MS * 3) cruces.delete(k);
         for (const [k, v] of intrusos) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) intrusos.delete(k);
         for (const [k, v] of merodeos) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) merodeos.delete(k);
+        for (const [k, v] of animales) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) animales.delete(k);
+        for (const [k, v] of epps) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) epps.delete(k);
         await cerrarEstadias(cam, t, false);
     }
 
@@ -260,7 +462,8 @@ function iniciar({ prisma, subir, log }) {
                 contadores.crucesPropios++;
                 if (t - (ultimoAvisoCruce.get(r.id) || 0) > ENFRIO_CRUCE_MS) {
                     ultimoAvisoCruce.set(r.id, t);
-                    await avisar(r, "CRUCE_LINEA", `${NOMBRE_CLASE[o.clase] || o.clase} cruzó ${r.nombre}`, ev.id, f, cam);
+                    await avisar(r, "CRUCE_LINEA", `${NOMBRE_CLASE[o.clase] || o.clase} cruzó ${r.nombre}`, ev.id,
+                        await fotoDelAviso(r, jpeg, ahora, { linea: r.linea, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: nombreDe(o.clase) }] }, f), cam);
                 }
             } else if (sentido !== r.permitido) {
                 const f = await foto(jpeg, ahora);
@@ -268,7 +471,8 @@ function iniciar({ prisma, subir, log }) {
                 contadores.sentido++;
                 if (t - (ultimoAvisoSentido.get(r.id) || 0) > ENFRIO_SENTIDO_MS) {
                     ultimoAvisoSentido.set(r.id, t);
-                    await avisar(r, "SENTIDO_CONTRARIO", `${NOMBRE_CLASE[o.clase] || o.clase} en sentido contrario · ${r.nombre}`, ev.id, f, cam);
+                    await avisar(r, "SENTIDO_CONTRARIO", `${NOMBRE_CLASE[o.clase] || o.clase} en sentido contrario · ${r.nombre}`, ev.id,
+                        await fotoDelAviso(r, jpeg, ahora, { linea: r.linea, cajas: [{ caja: o.caja_norm, tono: "mal", texto: `${nombreDe(o.clase)} · contramano` }] }, f), cam);
                 }
             }
         }
@@ -280,7 +484,7 @@ function iniciar({ prisma, subir, log }) {
             const dentro = adentro(pie(o), r.zona);
             let e = estadias.get(k);
             if (!dentro) { if (e) { e.visto = t; e.fuera = true; } continue; }
-            if (!e) { e = { desde: t, visto: t, eventoId: null, clase: o.clase, deviceId: cam.id, fuera: false }; estadias.set(k, e); }
+            if (!e) { e = { desde: t, visto: t, eventoId: null, avisoId: null, clase: o.clase, deviceId: cam.id, camara: cam.name, regla: r.nombre, fuera: false }; estadias.set(k, e); }
             e.visto = t; e.fuera = false;
             const seg = (t - e.desde) / 1000;
             if (!e.eventoId && seg >= r.segundos) {
@@ -288,8 +492,13 @@ function iniciar({ prisma, subir, log }) {
                 const ev = await evento({ tipo: "PERMANENCIA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: o.clase, pista: o.pista, valor: Math.round(seg), foto: f, caja: o.caja_norm, ts: new Date(e.desde) });
                 e.eventoId = ev.id;
                 contadores.permanencia++;
-                const min = Math.round(seg / 60);
-                await avisar(r, "PERMANENCIA", `${NOMBRE_CLASE[o.clase] || o.clase} hace ${min >= 1 ? `${min} min` : `${Math.round(seg)} s`} en ${r.nombre}`, ev.id, f, cam);
+                // «lleva», no «hace»: «auto hace 15 min» se leía como «pasó hace 15 min» (20/10, Nico:
+                // «no comprendo mucho el se quedó y ese timer»). Con `desde`, el panel cuenta en vivo
+                // cuánto lleva; al irse, cerrarEstadias completa el aviso con cuándo y cuánto fue.
+                const aviso = await avisar(r, "PERMANENCIA", `${nombreDe(o.clase)} lleva ${duracion(seg)} en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: `${nombreDe(o.clase)} · ${lleva(seg)}` }] }, f), cam,
+                    { desde: new Date(e.desde).toISOString(), umbral: r.segundos });
+                if (aviso) e.avisoId = aviso.id;
             }
         }
     }
@@ -310,7 +519,8 @@ function iniciar({ prisma, subir, log }) {
             contadores.intrusiones++;
             if (t - (ultimoAvisoIntrusion.get(r.id) || 0) > ENFRIO_INTRUSION_MS) {
                 ultimoAvisoIntrusion.set(r.id, t);
-                await avisar(r, "INTRUSION", `${NOMBRE_CLASE[o.clase] || o.clase} en ${r.nombre}`, ev.id, f, cam);
+                await avisar(r, "INTRUSION", `${NOMBRE_CLASE[o.clase] || o.clase} en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "mal", texto: nombreDe(o.clase) }] }, f), cam);
             }
         }
     }
@@ -338,7 +548,8 @@ function iniciar({ prisma, subir, log }) {
             contadores.merodeos++;
             if (t - (ultimoAvisoMerodeo.get(r.id) || 0) > ENFRIO_MERODEO_MS) {
                 ultimoAvisoMerodeo.set(r.id, t);
-                await avisar(r, "MERODEO", `${NOMBRE_CLASE[o.clase] || o.clase} dando vueltas hace ${seg >= 60 ? `${Math.floor(seg / 60)} min` : `${seg} s`} en ${r.nombre}`, ev.id, f, cam);
+                await avisar(r, "MERODEO", `${NOMBRE_CLASE[o.clase] || o.clase} dando vueltas hace ${seg >= 60 ? `${Math.floor(seg / 60)} min` : `${seg} s`} en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: `${nombreDe(o.clase)} · ${lleva(seg)}` }] }, f), cam);
             }
         }
     }
@@ -380,10 +591,180 @@ function iniciar({ prisma, subir, log }) {
             contadores.retirados++;
             if (t - (ultimoAvisoRetirado.get(r.id) || 0) > ENFRIO_RETIRADO_MS) {
                 ultimoAvisoRetirado.set(r.id, t);
-                await avisar(r, "RETIRADO", `Se llevaron ${ARTICULO[a.clase] || "un"} ${NOMBRE_CLASE[a.clase] || a.clase} de ${r.nombre}`, ev.id, fDespues, cam);
+                await avisar(r, "RETIRADO", `Se llevaron ${ARTICULO[a.clase] || "un"} ${NOMBRE_CLASE[a.clase] || a.clase} de ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: a.caja, tono: "mal", texto: `Acá estaba ${ARTICULO[a.clase] || "un"} ${NOMBRE_CLASE[a.clase] || a.clase}` }] }, fDespues), cam);
             }
         }
         aprendidos.set(r.id, quedan);
+    }
+
+    /**
+     * Animal en zona (catálogo «Animal en zona»): un perro, gato, caballo, vaca u oveja con el pie
+     * en la zona `segundos` seguidos, en horario y —salvo que la regla diga lo contrario— sin
+     * ninguna persona en la zona: el perro que pasea con su dueño no está suelto. Una vez por pista.
+     */
+    async function animal(r, cam, valen, todos, jpeg, ahora, t) {
+        const armada = enHorario(r.horario, ahora);
+        const conGente = r.sinPersona !== false && todos.some((o) => o.grupo === "persona" && Array.isArray(o.caja_norm) && adentro(pie(o), r.zona));
+        for (const o of valen) {
+            const k = `${r.id}:${o.pista}`;
+            if (!armada || !adentro(pie(o), r.zona)) { animales.delete(k); continue; }
+            let e = animales.get(k);
+            if (!e) { e = { desde: t, visto: t, avisado: false, deviceId: cam.id }; animales.set(k, e); }
+            e.visto = t;
+            // Con una persona en la zona no avisa, pero el tiempo sigue corriendo: si se va, avisa.
+            if (e.avisado || conGente || (t - e.desde) / 1000 < (r.segundos ?? 3)) continue;
+            e.avisado = true;
+            const f = await foto(jpeg, ahora);
+            const seg = Math.round((t - e.desde) / 1000);
+            const ev = await evento({ tipo: "ANIMAL", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: o.clase, pista: o.pista, valor: seg, foto: f, caja: o.caja_norm, ts: new Date(e.desde) });
+            contadores.animales = (contadores.animales || 0) + 1;
+            if (t - (ultimoAvisoAnimal.get(r.id) || 0) > ENFRIO_ANIMAL_MS) {
+                ultimoAvisoAnimal.set(r.id, t);
+                await avisar(r, "ANIMAL", `${nombreDe(o.clase)} suelto en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: `${nombreDe(o.clase)} · ${lleva(seg)}` }] }, f), cam);
+            }
+        }
+    }
+
+    /**
+     * Objeto dejado (catálogo «Objetos dejados»): un bulto que APARECE en la zona, se queda quieto
+     * `segundos` y no tiene a nadie al lado. Lo que ya estaba la primera vez que la regla mira la
+     * cámara (al crearla o al arrancar el worker) no cuenta: si no, cada reinicio avisaría por la
+     * maceta de siempre. Reconoce el bulto por clase y por dónde está, como retirado.
+     */
+    async function dejado(r, cam, todos, jpeg, ahora, t) {
+        const enZona = todos.filter((o) => r.clases.includes(o.clase) && Array.isArray(o.caja_norm) && adentro(centro(o.caja_norm), r.zona));
+        let d = dejados.get(r.id);
+        if (!d) {
+            dejados.set(r.id, { lista: enZona.map((o) => ({ clase: o.clase, caja: o.caja_norm, desde: t, visto: t, avisado: true })) });
+            return;
+        }
+        const usados = new Set();
+        for (const a of d.lista) {
+            const i = enZona.findIndex((o, j) => !usados.has(j) && o.clase === a.clase && iou(o.caja_norm, a.caja) >= DEJADO_IOU_MISMO);
+            if (i >= 0) { usados.add(i); a.visto = t; }
+        }
+        enZona.forEach((o, j) => { if (!usados.has(j)) d.lista.push({ clase: o.clase, caja: o.caja_norm, desde: t, visto: t, avisado: false }); });
+        d.lista = d.lista.filter((a) => t - a.visto <= (a.avisado ? DEJADO_OLVIDO_MS : OLVIDO_MS));
+        if (!enHorario(r.horario, ahora)) return;
+        const personas = todos.filter((o) => o.grupo === "persona" && Array.isArray(o.caja_norm));
+        for (const a of d.lista) {
+            if (a.avisado || a.visto !== t || (t - a.desde) / 1000 < (r.segundos ?? 120)) continue;
+            const [x1, y1, x2, y2] = a.caja, w = (x2 - x1) * DEJADO_DUENO, h = (y2 - y1) * DEJADO_DUENO;
+            const alrededor = [x1 - w, y1 - h, x2 + w, y2 + h];
+            if (personas.some((p) => cubre(p.caja_norm, alrededor) > 0)) continue;
+            a.avisado = true;
+            const seg = Math.round((t - a.desde) / 1000);
+            const f = await foto(jpeg, ahora);
+            const ev = await evento({ tipo: "DEJADO", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: a.clase, valor: seg, foto: f, caja: a.caja, ts: new Date(a.desde) });
+            contadores.dejados = (contadores.dejados || 0) + 1;
+            if (t - (ultimoAvisoDejado.get(r.id) || 0) > ENFRIO_DEJADO_MS) {
+                ultimoAvisoDejado.set(r.id, t);
+                await avisar(r, "DEJADO", `${nombreDe(a.clase)} sin dueño hace ${lleva(seg)} en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: a.caja, tono: "aviso", texto: `${nombreDe(a.clase)} · ${lleva(seg)}` }] }, f), cam);
+            }
+        }
+    }
+
+    /** La pose de este cuadro (una sola inferencia por cuadro y cámara). null si no se pudo. */
+    async function poseDe(cam, jpeg, t) {
+        const c = poses.get(cam.id);
+        if (c && c.t === t) return c.objetos;
+        let objetos = null;
+        try { objetos = pose ? await pose(jpeg, cam.id) : null; }
+        catch (e) {
+            if (Date.now() - poseError > POSE_AVISO_ERROR_MS) { poseError = Date.now(); log("reglas: no se pudo pedir la pose:", e.message); }
+            contadores.errores++; contadores.ultimoError = `pose: ${e.message}`;
+        }
+        poses.set(cam.id, { t, objetos });
+        return objetos;
+    }
+
+    /** ¿Las dos muñecas por encima de los hombros? (puntos normalizados [x, y, se ve]). */
+    function manosArriba(p) {
+        const pt = Array.isArray(p?.puntos) ? p.puntos : null;
+        if (!pt || pt.length < 13) return false;
+        const ve = (i) => pt[i] && pt[i][2] >= POSE_VISIBLE;
+        if (![5, 6, 9, 10, 11, 12].every(ve)) return false;
+        const hombros = (pt[5][1] + pt[6][1]) / 2, caderas = (pt[11][1] + pt[12][1]) / 2;
+        const torso = Math.abs(caderas - hombros);
+        if (torso < 0.01) return false;
+        return pt[9][1] < hombros - TREPA_MANOS * torso && pt[10][1] < hombros - TREPA_MANOS * torso;
+    }
+
+    /**
+     * Persona en el suelo y trepando: la misma mecánica sobre la pose. Se pide la pose sólo si hay
+     * una persona en la zona o algo en curso; las personas de la pose se siguen por superposición
+     * de cajas (la pose no tiene número de pista: va sin sesión, ver detectar en vision-worker).
+     */
+    async function cuerpo(r, cam, valen, jpeg, ahora, t) {
+        const suelo = r.tipo === "suelo";
+        const mapa = suelo ? suelos : trepadas;
+        let lista = mapa.get(r.id) || [];
+        const enZona = valen.some((o) => adentro(pie(o), r.zona) || adentro(centro(o.caja_norm), r.zona));
+        if (!enZona && !lista.length) return;
+        const objetos = await poseDe(cam, jpeg, t);
+        if (!objetos) return;
+        const cumplen = objetos.filter((p) => p.clase === "person" && Array.isArray(p.caja_norm)
+            && (adentro(centro(p.caja_norm), r.zona) || adentro(pie(p), r.zona))
+            && (suelo ? p.postura === "acostada" : manosArriba(p)));
+        const usados = new Set();
+        for (const a of lista) {
+            const i = cumplen.findIndex((p, j) => !usados.has(j) && iou(p.caja_norm, a.caja) >= SUELO_IOU);
+            if (i >= 0) { usados.add(i); a.visto = t; a.caja = cumplen[i].caja_norm; }
+        }
+        cumplen.forEach((p, j) => { if (!usados.has(j)) lista.push({ caja: p.caja_norm, desde: t, visto: t, avisado: false }); });
+        // Trepando pide continuidad (manos arriba un instante es saludar): se olvida antes.
+        lista = lista.filter((a) => t - a.visto <= (suelo ? SUELO_OLVIDO_MS : TREPA_OLVIDO_MS));
+        mapa.set(r.id, lista);
+        if (!enHorario(r.horario, ahora)) return;
+        for (const a of lista) {
+            if (a.avisado || a.visto !== t || (t - a.desde) / 1000 < (r.segundos ?? (suelo ? 20 : 2))) continue;
+            a.avisado = true;
+            const seg = Math.round((t - a.desde) / 1000);
+            const tipo = suelo ? "SUELO" : "TREPA";
+            const f = await foto(jpeg, ahora);
+            const ev = await evento({ tipo, reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: seg, foto: f, caja: a.caja, ts: new Date(a.desde) });
+            contadores[suelo ? "suelos" : "trepadas"] = (contadores[suelo ? "suelos" : "trepadas"] || 0) + 1;
+            const ultimo = suelo ? ultimoAvisoSuelo : ultimoAvisoTrepa;
+            if (t - (ultimo.get(r.id) || 0) > (suelo ? ENFRIO_SUELO_MS : ENFRIO_TREPA_MS)) {
+                ultimo.set(r.id, t);
+                await avisar(r, tipo, suelo ? `Persona en el suelo hace ${lleva(seg)} en ${r.nombre}` : `Persona trepando en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: a.caja, tono: "mal", texto: suelo ? `En el suelo · ${lleva(seg)}` : "Trepando" }] }, f), cam);
+            }
+        }
+    }
+
+    /** Casco y chaleco en una obra: ver EPP_*. Una vez por pista. */
+    async function epp(r, cam, valen, jpeg, ahora, t) {
+        const requiere = Array.isArray(r.requiere) && r.requiere.length ? r.requiere : ["casco", "chaleco"];
+        const armada = enHorario(r.horario, ahora);
+        for (const o of valen) {
+            const k = `${r.id}:${o.pista}`;
+            if (!armada || !adentro(pie(o), r.zona)) { epps.delete(k); continue; }
+            let e = epps.get(k);
+            if (!e) { e = { desde: t, visto: t, avisado: false, deviceId: cam.id, si: {}, no: {} }; epps.set(k, e); }
+            e.visto = t;
+            for (const a of Array.isArray(o.atributos) ? o.atributos : []) {
+                if (!requiere.includes(a.id) || a.dudoso) continue;
+                if (a.valor === "no") e.no[a.id] = (e.no[a.id] || 0) + 1; else e.si[a.id] = (e.si[a.id] || 0) + 1;
+            }
+            if (e.avisado || (t - e.desde) / 1000 < (r.segundos ?? 10)) continue;
+            const faltan = requiere.filter((id) => { const n = (e.si[id] || 0) + (e.no[id] || 0); return n >= EPP_LECTURAS_MIN && (e.no[id] || 0) / n >= EPP_FALTA; });
+            if (!faltan.length) continue;
+            e.avisado = true;
+            const que = faltan.length === 2 ? "sin casco ni chaleco" : faltan[0] === "casco" ? "sin casco" : "sin chaleco";
+            const f = await foto(jpeg, ahora);
+            const seg = Math.round((t - e.desde) / 1000);
+            const ev = await evento({ tipo: "EPP", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", pista: o.pista, sentido: faltan.join(","), valor: seg, foto: f, caja: o.caja_norm, ts: new Date(e.desde) });
+            contadores.epp = (contadores.epp || 0) + 1;
+            if (t - (ultimoAvisoEpp.get(r.id) || 0) > ENFRIO_EPP_MS) {
+                ultimoAvisoEpp.set(r.id, t);
+                await avisar(r, "EPP", `Persona ${que} en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: que.charAt(0).toUpperCase() + que.slice(1) }] }, f), cam);
+            }
+        }
     }
 
     /** Las estadías que terminaron (salió de la zona o dejó de verse): se guarda cuánto duraron. */
@@ -394,7 +775,38 @@ function iniciar({ prisma, subir, log }) {
             if (!termino) continue;
             estadias.delete(k);
             if (e.eventoId) await prisma.eventoVision.update({ where: { id: e.eventoId }, data: { valor: Math.round((e.visto - e.desde) / 1000) } }).catch(() => null);
+            if (e.avisoId) await cerrarAvisoEstadia(e, todas ? "reinicio" : e.fuera ? "salio" : "no-se-ve");
         }
+    }
+
+    /**
+     * Cuando el que se quedó se va, el aviso lo dice (20/10, Nico: «debés indicar cuándo se va
+     * también»). Antes la estadía se cerraba sólo en el registro de detecciones y la alarma quedaba
+     * para siempre en «auto hace 15 min», sin saber si seguía ahí.
+     *
+     * Tres finales distintos, porque no significan lo mismo para el guardia:
+     *   - salio: se lo vio AFUERA de la zona — se fue;
+     *   - no-se-ve: dejó de verse OLVIDO_MS (20 s) sin que se lo viera salir — puede haberse ido, o
+     *     algo lo tapó o el seguimiento lo perdió;
+     *   - reinicio: se reinició el análisis (no se sabe qué pasó después).
+     * El aviso se reescribe («estuvo 23 min · salió 16:06»), `datos` guarda hasta / segundos / cómo,
+     * y la bitácora de la alarma suma el paso SE_FUE.
+     */
+    async function cerrarAvisoEstadia(e, como) {
+        const seg = Math.max(0, Math.round((e.visto - e.desde) / 1000));
+        const hasta = new Date(e.visto);
+        const que = COMO_TERMINO[como];
+        try {
+            const previo = await prisma.avisoGuardia.findUnique({ where: { id: e.avisoId }, select: { datos: true } });
+            if (!previo) return;
+            await prisma.avisoGuardia.update({ where: { id: e.avisoId }, data: {
+                motivo: `${nombreDe(e.clase)} estuvo ${duracion(seg)} en ${e.regla} · ${que} ${hhmm(hasta)}`,
+                datos: { ...(previo.datos || {}), hasta: hasta.toISOString(), segundos: seg, como },
+            } });
+            await prisma.alarmaGestion.create({ data: { clave: `a:${e.avisoId}`, accion: "SE_FUE", por: e.camara || "OmniVision", deviceId: e.deviceId, detalle: `${que} · estuvo ${duracion(seg)}` } });
+            emitir("alarma_gestion", { clave: `a:${e.avisoId}`, accion: "SE_FUE" });
+            emitir("aviso_guardia", { accion: "actualizado", id: e.avisoId });
+        } catch (err) { contadores.errores++; contadores.ultimoError = `cierre de estadía: ${err.message}`; }
     }
 
     async function aglomeracion(r, cam, valen, jpeg, ahora, t) {
@@ -406,10 +818,89 @@ function iniciar({ prisma, subir, log }) {
         grupos.set(r.id, g);
         if ((t - g.desde) / 1000 < r.segundos || t - g.ultimoAviso < ENFRIO_AGLOMERACION_MS) return;
         g.ultimoAviso = t;
-        const f = await foto(jpeg, ahora);
+        // Sin caja en el evento: la marcada (la zona y cada uno de los que cuentan) es la del evento también.
+        const f = await fotoMarcada(jpeg, ahora, { zona: r.zona, cajas: dentro.map((o) => ({ caja: o.caja_norm, tono: "aviso" })), rotulo: { texto: `${dentro.length} personas juntas`, tono: "aviso" } });
         const ev = await evento({ tipo: "AGLOMERACION", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: dentro.length, foto: f, ts: ahora });
         contadores.aglomeracion++;
         await avisar(r, "AGLOMERACION", `${dentro.length} personas juntas en ${r.nombre}`, ev.id, f, cam);
+    }
+
+    async function fila(r, cam, personas, jpeg, ahora, t) {
+        const f = filas.get(r.id) || { aceptado: null, candidato: null, desde: t, llenoDesde: null, ultimoAviso: 0, escalado: false, pistas: new Map(), vivo: 0 };
+        filas.set(r.id, f);
+        const minimo = Math.max(0, r.permanencia ?? 0) * 1000;
+
+        // Cada pista: si está adentro, desde cuándo, y su cruce del borde (entradas y salidas).
+        for (const o of personas) {
+            if (o.pista == null) continue;
+            const k = String(o.pista), adentroAhora = adentro(pie(o), r.zona), p = f.pistas.get(k);
+            if (!p) { f.pistas.set(k, { dentro: adentroAhora, visto: t, cambio: 0, desde: adentroAhora ? t : null }); continue; }
+            p.visto = t;
+            if (p.dentro === adentroAhora || t - p.cambio < FILA_BORDE_MS) continue;
+            // Al salir, cuánto estuvo adentro: es la espera MEDIDA (la del kiosco es una estimación).
+            const estuvo = !adentroAhora && p.desde ? Math.round((t - p.desde) / 1000) : null;
+            await evento({ tipo: adentroAhora ? "FILA_ENTRA" : "FILA_SALE", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", pista: o.pista, sentido: adentroAhora ? "entra" : "sale", valor: estuvo, ts: ahora });
+            p.dentro = adentroAhora; p.cambio = t; p.desde = adentroAhora ? t : null;
+        }
+        for (const [k, p] of f.pistas) if (t - p.visto > OLVIDO_MS) f.pistas.delete(k);
+
+        // Aforo: los que están adentro; con «permanencia mínima», sólo los que ya llevan ese tiempo
+        // (el que cruza la zona caminando no hace fila). Sin número de pista cuenta igual.
+        const dentro = personas.filter((o) => {
+            if (!adentro(pie(o), r.zona)) return false;
+            if (!minimo || o.pista == null) return true;
+            const p = f.pistas.get(String(o.pista));
+            return !p?.desde || t - p.desde >= minimo;
+        });
+        const n = dentro.length;
+
+        // Con su tiempo de rebote.
+        if (n !== f.candidato) { f.candidato = n; f.desde = t; }
+        if (n !== f.aceptado && (f.aceptado === null || t - f.desde >= (r.rebote ?? 2) * 1000)) {
+            f.aceptado = n;
+            contadores.filas++;
+            await evento({ tipo: "FILA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: n, ts: ahora });
+            emitir("vision_fila", { reglaId: r.id, deviceId: cam.id, valor: n, ts: ahora.toISOString() });
+        }
+
+        // En vivo para Visión → Filas: dónde está cada pie y si cuenta, como mucho una vez por segundo.
+        if (t - f.vivo >= FILA_VIVO_MS) {
+            f.vivo = t;
+            const cuentan = new Set(dentro);
+            emitir("vision_fila_vivo", {
+                reglaId: r.id, aforo: f.aceptado, candidato: f.candidato,
+                pies: personas.slice(0, 60).map((o) => { const [x, y] = pie(o); return [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000, cuentan.has(o) ? 1 : 0]; }),
+            });
+        }
+
+        // El límite: aviso, enfriamiento y escalamiento, dentro del horario de atención.
+        // Una regla guardada antes de tener límite usa el de la pantalla (TIPOS_REGLA.fila.maximoDefecto).
+        const limite = r.maximo ?? FILA_LIMITE_DEFECTO;
+        if (f.aceptado < limite || !enHorario(r.horario, ahora)) { f.llenoDesde = null; f.escalado = false; return; }
+        if (!f.llenoDesde) f.llenoDesde = t;
+        /*
+         * La foto de la fila: la zona, una caja por cada uno que CUENTA (en el tono del aviso) y
+         * las de los que están adentro pero todavía no cuentan (permanencia mínima) en azul, para
+         * que se vea por qué el número es ése. Sin esto la foto mostraba la escena y nada más.
+         */
+        const cuentan = new Set(dentro);
+        const marcasFila = (tono, texto) => ({
+            zona: r.zona, rotulo: { texto, tono },
+            cajas: personas.filter((o) => adentro(pie(o), r.zona)).map((o) => ({ caja: o.caja_norm, tono: cuentan.has(o) ? tono : "accion" })),
+        });
+        if (t - f.ultimoAviso >= (r.enfrioMin ?? 5) * 60_000) {
+            f.ultimoAviso = t;
+            const fo = await fotoMarcada(jpeg, ahora, marcasFila("aviso", `${f.aceptado} en la fila · límite ${limite}`));
+            const ev = await evento({ tipo: "FILA_LLENA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: f.aceptado, foto: fo, ts: ahora });
+            await avisar(r, "FILA_LLENA", `${r.nombre}: ${f.aceptado} personas en la fila (límite ${limite})`, ev.id, fo, cam);
+        }
+        const min = (t - f.llenoDesde) / 60_000;
+        if (!f.escalado && min >= (r.escalarMin ?? 5)) {
+            f.escalado = true;
+            const fo = await fotoMarcada(jpeg, ahora, marcasFila("mal", `${f.aceptado} en la fila hace ${Math.round(min)} min · límite ${limite}`));
+            const ev = await evento({ tipo: "FILA_ESCALADA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: "person", valor: f.aceptado, foto: fo, ts: ahora });
+            await avisar(r, "FILA_ESCALADA", `Avisar al supervisor: ${r.nombre} sigue llena hace ${Math.round(min)} min (${f.aceptado} personas, límite ${limite})`, ev.id, fo, cam);
+        }
     }
 
     return { cargar, camaras, camarasRapidas, enCurso, procesar, contadores, cerrarTodo: () => cerrarEstadias(null, Date.now(), true) };

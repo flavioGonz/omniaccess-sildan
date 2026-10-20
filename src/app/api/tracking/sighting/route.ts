@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { estacionamientoPrendido } from "@/lib/estacionamiento";
 import { prisma } from "@/lib/prisma";
 import { franjaDe, nombrarOcupante } from "@/lib/ocupaciones";
 import { lugarDeLaChapa } from "@/lib/franja";
@@ -290,7 +291,9 @@ export async function POST(req: NextRequest) {
      * Apagado, `franja` queda en null y la lectura sigue de largo hasta el criterio por
      * matrícula, que es el mismo camino que recorren las cámaras sin franja.
      */
-    const franja = (body.deviceId && await funcionActiva("LPR_OCUPACION"))
+    // Con la analítica Estacionamiento de OmniVision (18/10) la franja la mide la visión; la
+    // lectura sigue nombrando al ocupante igual que antes. Sin ninguno de los dos motores, null.
+    const franja = (body.deviceId && (await funcionActiva("LPR_OCUPACION") || await estacionamientoPrendido()))
         ? await franjaDe(body.deviceId)
         : null;
 

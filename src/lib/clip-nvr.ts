@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import type { NvrConn } from "@/lib/nvr-resolve";
+import { pasamanosSdpH264, sdpCambiado, marcarSdpCambiado, esSdpCambiado } from "@/lib/rtsp-sdp";
 import { configClips, filtroEscala, CRF_POR_CALIDAD, MARCA_AGUA_ANCHO, MARCA_AGUA_MARGEN, type ConfigClip } from "@/lib/clips";
 
 /**
@@ -84,13 +85,14 @@ export async function getCodec(conn: any, ch: string): Promise<string | null> {
 
 
 /** codec: lo que graba el canal ("h264", "hevc"…; null si no se supo o se forzó la conversión). */
-export type PlanDeCorte = { url: string; canCopy: boolean; codec: string | null; DEC: string[]; SWUP: string[]; VF: string; ENC: string[] };
+export type PlanDeCorte = { url: string; canCopy: boolean; codec: string | null; DEC: string[]; SWUP: string[]; VF: string; ENC: string[]; corregido: boolean };
 
 /** URL de playback + cómo procesarla (copy si el canal graba H.264, transcode si HEVC). */
 export async function planDeCorte(conn: NvrConn, ch: string, startMs: number, durSeg: number, opciones: { forceTx?: boolean; cfg?: ConfigClip } = {}): Promise<PlanDeCorte> {
     const forceTx = !!opciones.forceTx;
     const port = conn.rtspPort || "554";
     let url: string;
+    let corregido = false;
     if (conn.brand === "DAHUA") {
         const s = fmtDahua(startMs), e = fmtDahua(startMs + durSeg * 1000);
         url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/cam/playback?channel=${ch}&starttime=${s}&endtime=${e}`;
@@ -105,10 +107,19 @@ export async function planDeCorte(conn: NvrConn, ch: string, startMs: number, du
         // con cuadros extraídos de los dos NVR (DS-7616NI-M2/16P V4.63 y DS-7616NXI-K2(D)
         // V4.83): `tracks` cae en el segundo pedido; `Channels` en la hora actual.
         url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/Streaming/tracks/${ch}01?starttime=${start}&endtime=${end}`;
+        // Un canal cuyo SDP se aprendió que miente (anuncia H.265 y manda H.264): se lo pide por
+        // el pasamanos que corrige el SDP, y lo que llega es H.264 (ver lib/rtsp-sdp).
+        if (sdpCambiado(conn.ip, ch)) {
+            try {
+                const local = await pasamanosSdpH264(conn.ip, Number(port));
+                url = `rtsp://${conn.user}:${conn.pass}@127.0.0.1:${local}/Streaming/tracks/${ch}01?starttime=${start}&endtime=${end}`;
+                corregido = true;
+            } catch { /* sin pasamanos se intenta derecho: fallará como antes, con su motivo */ }
+        }
     }
 
     // ¿El origen es H.264? → remux directo (copy). ¿HEVC? → transcode.
-    const srcCodec = forceTx ? null : await getCodec(conn, ch);
+    const srcCodec = forceTx ? null : corregido ? "h264" : await getCodec(conn, ch);
     const canCopy = !forceTx && srcCodec === "h264";
 
     // Decode por codec (solo ruta transcode): Dahua = H.264 -> GPU (VAAPI);
@@ -130,7 +141,7 @@ export async function planDeCorte(conn: NvrConn, ch: string, startMs: number, du
         ? ["-c:v", "h264_vaapi", "-qp", String(CRF_POR_CALIDAD[cfg.calidad])]
         : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-crf", String(CRF_POR_CALIDAD[cfg.calidad]), "-g", "25", "-threads", "4"];
 
-    return { url, canCopy, codec: srcCodec, DEC, SWUP, VF, ENC };
+    return { url, canCopy, codec: srcCodec, DEC, SWUP, VF, ENC, corregido };
 }
 
 /**
@@ -146,7 +157,15 @@ export const CORTE_TOPE_MS = 45_000;
  * quedó un archivo; no inventa nada si el NVR no tiene ese tramo.
  */
 export async function cortarDesdeNvr(conn: NvrConn, ch: string, startMs: number, durSeg: number, destino: string, opciones: { forceTx?: boolean; cfg?: ConfigClip; topeMs?: number; marcaAgua?: string | null } = {}): Promise<boolean> {
-    const { url, canCopy, DEC, SWUP, VF, ENC } = await planDeCorte(conn, ch, startMs, durSeg, opciones);
+    const r = await cortarUnaVez(conn, ch, startMs, durSeg, destino, opciones);
+    if (r.ok || r.corregido || !esSdpCambiado(r.salida)) return r.ok;
+    // El SDP del canal mentía (anuncia H.265, manda H.264): se aprende y se corta otra vez por el pasamanos.
+    marcarSdpCambiado(conn.ip, ch);
+    return (await cortarUnaVez(conn, ch, startMs, durSeg, destino, opciones)).ok;
+}
+
+async function cortarUnaVez(conn: NvrConn, ch: string, startMs: number, durSeg: number, destino: string, opciones: { forceTx?: boolean; cfg?: ConfigClip; topeMs?: number; marcaAgua?: string | null }): Promise<{ ok: boolean; salida: string; corregido: boolean }> {
+    const { url, canCopy, DEC, SWUP, VF, ENC, corregido } = await planDeCorte(conn, ch, startMs, durSeg, opciones);
     const cfg = opciones.cfg || await configClips();
     // Altura "tal cual graba el NVR" (0) no se conoce sin sondear: se asume 1080, la de estos equipos.
     const altoSalida = cfg.altura || 1080;
@@ -172,10 +191,16 @@ export async function cortarDesdeNvr(conn: NvrConn, ch: string, startMs: number,
            "-an", "-c:v", "copy", "-movflags", "+faststart", "-y", destino]
         : [...DEC, "-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(durSeg),
            "-an", ...SWUP, "-vf", VF, ...ENC, "-movflags", "+faststart", "-y", destino];
-    return new Promise<boolean>((resolve) => {
-        const ff = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "ignore"] });
-        const killer = setTimeout(() => { try { ff.kill("SIGKILL"); } catch { } resolve(false); }, opciones.topeMs ?? CORTE_TOPE_MS);
-        ff.on("close", (code) => { clearTimeout(killer); resolve(code === 0); });
-        ff.on("error", () => { clearTimeout(killer); resolve(false); });
+    return new Promise((resolve) => {
+        const ff = spawn("ffmpeg", ["-v", "error", ...args], { stdio: ["ignore", "ignore", "pipe"] });
+        let salida = "";
+        ff.stderr.on("data", (d: Buffer) => {
+            if (salida.length < 8000) salida += d.toString();
+            // Con el SDP cambiado ffmpeg no termina nunca (espera un SPS que no va a ver): se corta ya.
+            if (!corregido && esSdpCambiado(salida)) { try { ff.kill("SIGKILL"); } catch { } }
+        });
+        const killer = setTimeout(() => { try { ff.kill("SIGKILL"); } catch { } resolve({ ok: false, salida, corregido }); }, opciones.topeMs ?? CORTE_TOPE_MS);
+        ff.on("close", (code) => { clearTimeout(killer); resolve({ ok: code === 0, salida, corregido }); });
+        ff.on("error", () => { clearTimeout(killer); resolve({ ok: false, salida, corregido }); });
     });
 }

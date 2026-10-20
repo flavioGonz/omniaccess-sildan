@@ -1,6 +1,7 @@
 // Standalone BullMQ worker — consumes the "dispatch" queue and sends
 // notifications/reports with retries. Run via PM2 (process: dispatch-worker).
 require("dotenv").config({ path: require("path").join(__dirname, ".env") });
+const { firmarUrl } = require("./firma-medios");
 const { Worker } = require("bullmq");
 const IORedis = require("ioredis");
 const https = require("https");
@@ -44,15 +45,16 @@ function telegramSendPhoto(token, chatId, photoUrl, caption, extra) {
     });
 }
 
-// Resolve a public image URL: stored snapshot, else the live camera frame.
+// Resolve a public image URL: stored snapshot, else the live camera frame. FIRMADA: la baja
+// alguien sin sesión (Telegram, el correo, un webhook) y los medios ya no son públicos (firma-medios.js).
 function imageUrlFor(base, snapshotPath, deviceId) {
     const b = (base || "https://omniaccess.infratec.com.uy").replace(/\/+$/, "");
     if (snapshotPath) {
-        if (/^https?:\/\//i.test(snapshotPath)) return snapshotPath;
-        if (snapshotPath.startsWith("/")) return b + snapshotPath;
-        return b + "/api/files/lpr-prod/" + snapshotPath;
+        if (/^https?:\/\//i.test(snapshotPath)) return snapshotPath.startsWith(b) ? firmarUrl(snapshotPath) : snapshotPath;
+        if (snapshotPath.startsWith("/")) return firmarUrl(b + snapshotPath);
+        return firmarUrl(b + "/api/files/lpr-prod/" + snapshotPath);
     }
-    if (deviceId) return b + "/api/snapshot/" + deviceId;
+    if (deviceId) return firmarUrl(b + "/api/snapshot/" + deviceId);
     return null;
 }
 
@@ -290,8 +292,8 @@ function snapshotUrl(base, snapshotPath) {
     if (!snapshotPath) return null;
     const b = (base || "https://omniaccess.infratec.com.uy").replace(/\/+$/, "");
     if (/^https?:\/\//i.test(snapshotPath)) return snapshotPath;
-    if (snapshotPath.startsWith("/")) return b + snapshotPath;
-    return b + "/api/files/lpr-prod/" + snapshotPath;
+    if (snapshotPath.startsWith("/")) return firmarUrl(b + snapshotPath);
+    return firmarUrl(b + "/api/files/lpr-prod/" + snapshotPath);
 }
 
 // Normalize a phone/jid to a WhatsApp chatId (<digits>@c.us)
@@ -399,7 +401,7 @@ async function handle(job) {
                 const extraTg = filaBotones.length || chapa ? { reply_markup: { inline_keyboard: [filaBotones, chapa ? [{ text: "🚘 Historial de " + chapa, callback_data: "m:h:" + chapa }] : []].filter((f) => f.length) } } : undefined;
                 let r;
                 if (clip) {
-                    r = await telegramSendAnimation(token, chat, base.replace(/\/+$/, "") + "/api/clip/" + clip.nombre, htmlText, extraTg);
+                    r = await telegramSendAnimation(token, chat, firmarUrl(base.replace(/\/+$/, "") + "/api/clip/" + clip.nombre), htmlText, extraTg);
                     if (!r || !r.ok) notaVideo = "sin video: Telegram rechazó el clip (" + String((r && r.body) || "").slice(0, 80) + ")";
                 }
                 if (!r || !r.ok) {

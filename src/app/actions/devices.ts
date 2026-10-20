@@ -58,14 +58,18 @@ function camposSeguimiento(formData: FormData) {
      *   linea   la camara avisa cuando algo cruzo la linea que le dibujaron. El disparo
      *           es el instante del cruce y entre auto y auto la GPU queda en reposo.
      *   zona    igual, pero con una region en vez de una linea.
+     *   omnivision  dispara cuando OmniVision abre la pista de un vehiculo en esa camara.
+     *           Para las que solo dan RTSP (la LPR Interior): la escena se despertaba con
+     *           cualquier cosa y abria rafagas sin chapa, y OmniVision ya sabe que ahi paso
+     *           un auto. Los vehiculos estacionados no disparan.
      *
-     * Son los tres valores que entiende el worker (ver porAviso en tracking-worker.js);
+     * Son los valores que entiende el worker (ver porAviso en tracking-worker.js);
      * "camara" se acepta por las camaras que ya estaban cargadas con ese nombre. Un valor
      * que no sea ninguno de esos cae en escena, que es el que funciona en todos lados.
      */
     if (formData.has("trackTrigger")) {
         const t = ((formData.get("trackTrigger") as string) || "").trim();
-        datos.trackTrigger = ["escena", "linea", "zona", "camara"].includes(t) ? t : "escena";
+        datos.trackTrigger = ["escena", "linea", "zona", "camara", "omnivision"].includes(t) ? t : "escena";
     }
     /*
      * Que mira la camara interior: una calle de adentro (lo normal) o un acceso.

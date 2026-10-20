@@ -58,12 +58,18 @@ export function Dato({ rotulo, valor, falta = "sin cargar", sufijo, tono }: {
  * Un botón del visor. Rectángulo de 8px: la píldora en este sistema quiere decir «elegir» (un
  * chip que se prende y se apaga), y estos disparan una acción.
  */
-export function BotonVisor({ icono: Ico, children, onClick, href, destacada, encendida, ocupada, title, className }: {
+export function BotonVisor({ icono: Ico, children, onClick, href, destacada, peligro, encendida, ocupada, title, className }: {
     icono: React.ComponentType<{ size?: number; className?: string }>;
     children?: React.ReactNode;
     onClick?: () => void;
     href?: string | null;
     destacada?: boolean;
+    /**
+     * Una acción de peligro (19/10, Nico: «lista negra debe ser de color rojo el botón»): en rojo
+     * lleno; encendida (ya en la lista), roja de contorno. El blanco va en `style` porque la capa
+     * del tema claro pasa `text-white` a oscuro dentro del visor, y sobre rojo tiene que ser blanco.
+     */
+    peligro?: boolean;
     encendida?: boolean;
     ocupada?: boolean;
     title?: string;
@@ -71,14 +77,16 @@ export function BotonVisor({ icono: Ico, children, onClick, href, destacada, enc
 }) {
     const clase = cn(
         "inline-flex items-center gap-1.5 h-8 px-3 rounded-[8px] text-[12px] font-semibold whitespace-nowrap transition-colors disabled:opacity-60",
-        destacada ? "bg-[var(--accion)] text-white hover:brightness-110"
+        peligro ? (encendida ? "bg-[color-mix(in_oklab,var(--mal)_18%,transparent)] border border-[var(--mal)] visor-mal hover:bg-[color-mix(in_oklab,var(--mal)_28%,transparent)]" : "bg-[var(--mal)] border border-transparent hover:brightness-110 shadow-[0_2px_10px_color-mix(in_oklab,var(--mal)_40%,transparent)]")
+        : destacada ? "bg-[var(--accion)] text-white hover:brightness-110"
             : encendida ? "bg-white/20 text-white border border-white/30"
                 : "bg-white/[0.07] text-white/85 border border-white/15 hover:bg-white/15 hover:text-white",
         className,
     );
     const dentro = <>{ocupada ? <Loader2 size={14} className="animate-spin" /> : <Ico size={14} />}{children}</>;
-    if (href) return <a href={href} download title={title} className={clase}>{dentro}</a>;
-    return <button type="button" onClick={onClick} disabled={ocupada} title={title} className={clase}>{dentro}</button>;
+    const estilo = peligro && !encendida ? { color: "#fff" } : undefined;
+    if (href) return <a href={href} download title={title} className={clase} style={estilo}>{dentro}</a>;
+    return <button type="button" onClick={onClick} disabled={ocupada} title={title} className={clase} style={estilo}>{dentro}</button>;
 }
 
 /* ── OmniVision, en palabras ─────────────────────────────────────────────── */

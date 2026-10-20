@@ -6,7 +6,7 @@ import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/ap
 import { leerAjuste, guardarAjuste } from "@/lib/ajustes-db";
 import { leerInterruptores } from "@/lib/vision";
 import { camarasVision, CANAL_NVR } from "@/lib/vision-camaras";
-import { CLAVE_REGLAS, TIPOS_REGLA, validarReglas, type ReglaVision, type TipoRegla } from "@/lib/vision-reglas";
+import { CLAVE_REGLAS, TIPOS_REGLA, TIPOS_FILA_DATOS, validarReglas, type ReglaVision, type TipoRegla } from "@/lib/vision-reglas";
 
 export const dynamic = "force-dynamic";
 
@@ -62,8 +62,8 @@ export async function GET() {
     // Los números de hoy, por regla, con una consulta por tipo de dato.
     const [cruces, otros, eventos] = ids.length ? await Promise.all([
         prisma.eventoVision.groupBy({ by: ["reglaId", "sentido", "clase"], where: { reglaId: { in: ids }, tipo: "CRUCE", ts: { gte: hoy } }, _count: { _all: true } }),
-        prisma.eventoVision.groupBy({ by: ["reglaId", "tipo"], where: { reglaId: { in: ids }, tipo: { not: "CRUCE" }, ts: { gte: hoy } }, _count: { _all: true }, _max: { valor: true } }),
-        prisma.eventoVision.findMany({ where: { reglaId: { in: ids }, tipo: { not: "CRUCE" }, ts: { gte: new Date(Date.now() - EVENTOS_DIAS * 86_400_000) } }, orderBy: { ts: "desc" }, take: EVENTOS_MAX }),
+        prisma.eventoVision.groupBy({ by: ["reglaId", "tipo"], where: { reglaId: { in: ids }, tipo: { notIn: ["CRUCE", ...TIPOS_FILA_DATOS] }, ts: { gte: hoy } }, _count: { _all: true }, _max: { valor: true } }),
+        prisma.eventoVision.findMany({ where: { reglaId: { in: ids }, tipo: { notIn: ["CRUCE", ...TIPOS_FILA_DATOS] }, ts: { gte: new Date(Date.now() - EVENTOS_DIAS * 86_400_000) } }, orderBy: { ts: "desc" }, take: EVENTOS_MAX }),
     ]) : [[], [], []];
     // Cruces por hora de hoy (para la barrita de cada regla de conteo).
     const porHora = ids.length ? await prisma.$queryRaw<{ regla: string; h: number; n: number }[]>`
@@ -81,6 +81,17 @@ export async function GET() {
     }
     for (const o of otros) { const s = resumen[o.reglaId]; if (s) { s.hoy += o._count._all; s.max = o._max.valor ?? s.max; } }
     for (const h of porHora as any[]) { const s = resumen[h.regla]; if (s && h.h >= 0 && h.h < 24) s.porHora[h.h] = h.n; }
+    // La fila: en la tarjeta, cuántos hay ahora (el último FILA) y el máximo de hoy, en vez de
+    // cuántos eventos tuvo (los FILA son renglones de la curva, no eventos).
+    const filas = reglas.filter((r) => r.tipo === "fila").map((r) => r.id);
+    if (filas.length) {
+        const [ultimos, maximos] = await Promise.all([
+            prisma.$queryRaw<{ regla: string; n: number }[]>`SELECT DISTINCT ON ("reglaId") "reglaId" AS regla, valor AS n FROM "EventoVision" WHERE tipo = 'FILA' AND "reglaId" = ANY(${filas}) ORDER BY "reglaId", ts DESC`.catch(() => []),
+            prisma.eventoVision.groupBy({ by: ["reglaId"], where: { reglaId: { in: filas }, tipo: "FILA", ts: { gte: hoy } }, _max: { valor: true } }).catch(() => []),
+        ]);
+        for (const u of ultimos as any[]) if (resumen[u.regla]) resumen[u.regla].hoy = Number(u.n) || 0;
+        for (const m of maximos as any[]) if (resumen[m.reglaId]) resumen[m.reglaId].max = m._max.valor ?? null;
+    }
 
     const analiticas: Record<TipoRegla, boolean> = Object.fromEntries((Object.keys(TIPOS_REGLA) as TipoRegla[]).map((t) => [t, inter.analiticas[TIPOS_REGLA[t].analitica] !== false])) as any;
     let estado: any = null;

@@ -17,6 +17,7 @@ import { ContornoDeteccion } from "@/components/tracking/ContornoDeteccion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { montarVivo } from "@/lib/vivo";
 import { leerRecuadro } from "@/lib/deteccion";
+import { leerChapa } from "@/lib/categoria-chapa";
 import { getCarLogo } from "@/lib/car-logos";
 import { datoDeCamara, useMarcasCamara } from "@/lib/marca-vehiculo";
 import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
@@ -27,6 +28,7 @@ import type { Analisis } from "@/lib/vision-capa";
 import { BotonVisor, Dato, ListaVision, Seccion } from "@/components/visor/FichaVisor";
 import { TiraPasos, type PasoVisor } from "@/components/visor/TiraPasos";
 import { PanelComportamiento, type ComportamientoVisor } from "@/components/visor/PanelComportamiento";
+import { PerfilChapa } from "@/components/visor/PerfilChapa";
 import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
 import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
@@ -274,7 +276,7 @@ export function VisorCuadro({
     historial, cargandoHistorial,
     onGrabacion, hrefClip, onClip, onExportar, onListaNegra, enListaNegra, ocupadoLista,
     hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar,
-    datos, cargandoFicha,
+    datos, cargandoFicha, tapado,
 }: {
     fila: CuadroAvistamiento;
     ficha?: FichaMatricula | null;
@@ -284,6 +286,13 @@ export function VisorCuadro({
     cargandoFicha?: boolean;
     /** Dar de alta esta matrícula. Sin esto, los campos vacíos solo informan. */
     onRegistrar?: (plate: string) => void;
+    /**
+     * Un cajón abierto desde el visor (el alta de la matrícula) va encima. El visor vive sobre
+     * la capa de los paneles para poder abrirse desde una ficha en un cajón, así que el alta
+     * quedaba DEBAJO, tapada. Mientras esto está prendido el visor baja una capa y deja el
+     * teclado: Esc cierra el cajón, no el evento que se está registrando.
+     */
+    tapado?: boolean;
     /** Contra qué minutos se mide el anillo de la estadía. Sin esto el anillo barre el minuto. */
     limiteMin?: number | null;
 
@@ -370,6 +379,14 @@ export function VisorCuadro({
     // vista, se le encimarían. Mientras está abierto, la vista queda limpia.
     useEffect(() => { if (clip) setLimpio(true); }, [clip]);
     const [vivoListo, setVivoListo] = useState(false);
+    /**
+     * La proporción del VIDEO en vivo (19/10, Nico mandó la captura del vivo con marcos alrededor).
+     * La caja tomaba la proporción de la FOTO del evento, y la foto de una lectora no tiene la del
+     * flujo en vivo (la de LPR Salida trae abajo la franja de texto de la cámara, más alta): la caja
+     * quedaba más angosta que la ventana y el video, encajado adentro, además dejaba franjas arriba
+     * y abajo. Con la proporción del video, un vivo 16:9 llena la ventana a sangre.
+     */
+    const [proporcionVivo, setProporcionVivo] = useState<number | null>(null);
     /** HD (flujo principal) o SD (secundario, liviano), como el botón del visor de intrusión. */
     const [calidad, setCalidad] = useState<"hd" | "sd">("hd");
     const [avisoCalidad, setAvisoCalidad] = useState(0);
@@ -450,10 +467,14 @@ export function VisorCuadro({
         const v = vivoRef.current;
         if (!v || !idVivo) return;
         setVivoListo(false);
+        setProporcionVivo(null);
         const alAndar = () => setVivoListo(true);
+        const medirVivo = () => { if (v.videoWidth && v.videoHeight) setProporcionVivo(v.videoWidth / v.videoHeight); };
         v.addEventListener("playing", alAndar);
+        v.addEventListener("loadedmetadata", medirVivo);
+        v.addEventListener("resize", medirVivo);
         const cortar = montarVivo(v, idVivo, 4, calidad);
-        return () => { v.removeEventListener("playing", alAndar); cortar(); };
+        return () => { v.removeEventListener("playing", alAndar); v.removeEventListener("loadedmetadata", medirVivo); v.removeEventListener("resize", medirVivo); cortar(); };
     }, [modo, idVivo, calidad]);
 
     /**
@@ -501,7 +522,7 @@ export function VisorCuadro({
     useEffect(() => {
         const tecla = (e: KeyboardEvent) => {
             // Con el visor completo de la cámara abierto encima, las teclas son de él.
-            if (abrirCamara || compartir || clip || parecidos || grabacionDe) return;
+            if (tapado || abrirCamara || compartir || clip || parecidos || grabacionDe) return;
             if (e.key === "Escape") {
                 // Esc deshace de a una cosa, de la más nueva a la más vieja: no cierra el evento
                 // de golpe estando en un paso anterior o con un panel abierto.
@@ -527,7 +548,7 @@ export function VisorCuadro({
         };
         window.addEventListener("keydown", tecla);
         return () => window.removeEventListener("keydown", tecla);
-    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio, modo, clip, parecidos, grabacionDe]);
+    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio, modo, clip, parecidos, grabacionDe, tapado]);
 
     // La rueda se escucha a mano y no con onWheel: React lo registra como pasivo y no
     // deja frenar el desplazamiento de la página detrás del visor.
@@ -667,6 +688,20 @@ export function VisorCuadro({
      * el estado no depende del recuadro: que no se sepa DÓNDE está el auto no quiere decir
      * que no se sepa que estacionó hace cuarenta minutos.
      */
+    /*
+     * La cápsula sobre la foto, sólo para un estacionado (19/10, Nico: «el chip dentro de la foto
+     * que dice Entró, con la hora, no debe estar ahí, retíralo»). En un acceso repetía lo que ya
+     * dice el título —sentido, «no abrió» y la hora— y tapaba el auto. En un estacionado es otra
+     * cosa: el cronómetro de cuánto lleva, que no está en ningún otro lado.
+     */
+    const conCapsula = estacionado;
+    /** El botón de la lista negra: va en el padrón, al lado de Registrar (o debajo del dueño). */
+    const listaNegraBoton = onListaNegra ? (
+        <BotonVisor icono={ShieldBan} onClick={onListaNegra} peligro encendida={enListaNegra} ocupada={ocupadoLista}
+            title={enListaNegra ? "Sacar de la lista negra: vuelve a decidir la credencial y el modo LPR; si tiene credencial vuelve a la lista blanca de las lectoras" : "Lista negra: toda lectura se registra DENEGADA (aunque tenga credencial), va a la lista negra de las lectoras, el monitor la muestra en rojo y avisa"}>
+            {enListaNegra ? "Quitar de la lista" : "Lista negra"}
+        </BotonVisor>
+    ) : null;
     const capsula = (
         <motion.div
             initial={{ opacity: 0, y: 6, scale: 0.94 }}
@@ -693,6 +728,9 @@ export function VisorCuadro({
         </motion.div>
     );
 
+    /** En vivo manda la proporción del video (cuando ya se conoce); en la foto, la de la foto. */
+    const cajaProporcion = modo === "vivo" && proporcionVivo ? proporcionVivo : proporcion;
+
     return (
         /*
          * El fondo NO cierra.
@@ -704,7 +742,8 @@ export function VisorCuadro({
          * El costo de equivocarse en un sentido (cerrar sin querer) es mucho mayor que en
          * el otro (tener que apuntarle a la cruz).
          */
-        <div className="fixed inset-0 z-[3400] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-150">
+        <div className={cn("visor-raiz visor-fondo fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-150",
+            tapado ? "z-[calc(var(--capa-panel)-1)]" : "z-[3400]")}>
 
             <motion.div
                 initial={{ opacity: 0, scale: 0.97, y: 8 }}
@@ -712,7 +751,7 @@ export function VisorCuadro({
                 transition={{ type: "spring", stiffness: 380, damping: 30, mass: 0.7 }}
                 onClick={(e) => e.stopPropagation()}
                 style={{ ["--visor-tono" as any]: tono, borderRadius: "var(--radio-ventana)" }}
-                className="visor-ventana relative overflow-hidden border border-white/15 shadow-[0_25px_70px_rgba(0,0,0,0.85)] bg-[#05070b]">
+                className="visor-ventana visor-marco relative overflow-hidden border border-white/15 shadow-[0_25px_70px_rgba(0,0,0,0.85)] bg-[#05070b]">
 
                 <div
                     ref={marco}
@@ -755,6 +794,17 @@ export function VisorCuadro({
                 >
                     {/* La imagen, su retícula y la cápsula se mueven JUNTAS: van dentro del
                         mismo transform, si no el recuadro se despega de la chapa al acercar. */}
+                    {/* En vivo, el cuadro guardado desenfocado detrás de toda la ventana: rellena lo que el
+                        vivo (entero, sin recortar) no ocupa, en vez de franjas lisas. */}
+                    {modo === "vivo" && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <>
+                            {/* Como el ambiente de la grabación: fuerte y oscurecido. A 50 % sobre el marco
+                                (claro en el tema claro) se veía como un marco gris liso. */}
+                            <img src={fotoUrl} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover blur-[28px] opacity-80 scale-110 pointer-events-none" />
+                            <span aria-hidden className="absolute inset-0 bg-black/30 pointer-events-none" />
+                        </>
+                    )}
                     <div
                         ref={cajaImg}
                         className="relative"
@@ -772,9 +822,15 @@ export function VisorCuadro({
                              * eso las superposiciones se pueden seguir midiendo en porcentaje:
                              * el recuadro de la chapa no se despega aunque sobresalga.
                              */
-                            height: proporcion >= AR_VENTANA ? "100%" : "auto",
-                            width: proporcion >= AR_VENTANA ? "auto" : "100%",
-                            aspectRatio: String(proporcion),
+                            /*
+                             * En vivo, al revés: la caja se ENCAJA (contain) para que el cuadro de la
+                             * cámara se vea entero (18/10, Nico: «que quepa en la ventana completo»).
+                             * En la foto recortar cielo o vereda no molesta; en el vivo, lo que pasa
+                             * en el borde es justo lo que se está mirando.
+                             */
+                            height: (cajaProporcion >= AR_VENTANA) !== (modo === "vivo") ? "100%" : "auto",
+                            width: (cajaProporcion >= AR_VENTANA) !== (modo === "vivo") ? "auto" : "100%",
+                            aspectRatio: String(cajaProporcion),
                             transform: `translate3d(${pos.x}px, ${pos.y}px, 0) scale(${escala})`,
                             transformOrigin: "center",
                             transition: arrastre.current || pellizco.current != null ? "none" : "transform 160ms cubic-bezier(.22,1,.36,1)",
@@ -802,8 +858,10 @@ export function VisorCuadro({
                             draggable={false} />
                         {modo === "vivo" && (
                             <>
+                                {/* contain, no cover (18/10, Nico: «que quepa en la ventana completo»): con cover
+                                    el vivo se recortaba arriba y abajo y no se veía el cuadro entero de la cámara. */}
                                 <video ref={vivoRef} muted autoPlay playsInline
-                                    className="absolute inset-0 w-full h-full object-cover bg-black" />
+                                    className="absolute inset-0 w-full h-full object-contain" />
                                 {/* Los enlaces del seguimiento visual: tocar uno sigue en la cámara vecina. */}
                                 {vivoListo && idVivo && <SeguimientoVivo deviceId={idVivo} onSeguir={(c) => { setCamVivo(c.id === fila.deviceId ? null : c); }} />}
                                 {avisoCalidad > 0 && (
@@ -842,7 +900,7 @@ export function VisorCuadro({
                         {/* La cápsula va DENTRO del transform para seguir al auto mientras
                             se acerca, pero con la escala invertida: si creciera con el zoom,
                             a 8x taparía media foto. */}
-                        {rotulo && !enPaso && !limpio && (
+                        {rotulo && conCapsula && !enPaso && !limpio && (
                             <>
                                 <div className="visor-guia absolute z-[19] pointer-events-none"
                                     style={{
@@ -871,11 +929,11 @@ export function VisorCuadro({
                     {/* El tinte del estado no va sobre el vivo: es del evento, y sobre un video lo ensucia. */}
                     <div className={cn("visor-ambiente absolute inset-0 z-[5] pointer-events-none transition-opacity duration-300",
                         (acercado || limpio || modo === "vivo") && "opacity-0")} />
-                    <div className={cn("absolute inset-0 z-[5] pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/55 transition-opacity duration-300",
+                    <div className={cn("visor-velo-vert absolute inset-0 z-[5] pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/55 transition-opacity duration-300",
                         (acercado || limpio) && "opacity-0")} />
                     {/* Detrás de la ficha: la ficha ahora es texto en renglones, y el texto sobre
                         una calle de día necesita un fondo que le gane, no una caja. */}
-                    <div className={cn("absolute inset-y-0 left-0 w-[58%] z-[5] pointer-events-none bg-gradient-to-r from-black/80 via-black/45 to-transparent transition-opacity duration-300",
+                    <div className={cn("visor-velo-izq absolute inset-y-0 left-0 w-[58%] z-[5] pointer-events-none bg-gradient-to-r from-black/80 via-black/45 to-transparent transition-opacity duration-300",
                         (acercado || limpio) && "opacity-0")} />
                     {/* El orbe late con una animación de opacidad, que le gana a la clase: en la
                         vista limpia directamente no se dibuja. */}
@@ -892,7 +950,7 @@ export function VisorCuadro({
 
                 {/* Sin recuadro no hay a qué anclarla, pero el estado sigue siendo un
                     dato: va arriba al centro, donde no tapa la ficha ni los controles. */}
-                {!rotulo && !enPaso && modo !== "grabacion" && (
+                {!rotulo && conCapsula && !enPaso && modo !== "grabacion" && (
                     <div className={cn("absolute top-24 left-1/2 -translate-x-1/2 z-20 transition-opacity duration-200",
                         (acercado || limpio) && "opacity-0 pointer-events-none")}>
                         {capsula}
@@ -903,7 +961,7 @@ export function VisorCuadro({
                     Era un chip chico («LPR Entrada») perdido en la esquina: lo primero que uno
                     quiere saber de un evento — dónde y cuándo — estaba escrito en 11px. Ahora es
                     el título de la ventana, y el punto del color del estado lo ata a la cápsula. */}
-                <div className={cn("absolute top-0 inset-x-0 z-30 flex items-start justify-between gap-4 p-4 md:px-7 md:py-5 pointer-events-none transition-opacity duration-200",
+                <div className={cn("visor-zona absolute top-0 inset-x-0 z-30 flex items-start justify-between gap-4 p-4 md:px-7 md:py-5 pointer-events-none transition-opacity duration-200",
                     limpio && "opacity-0")}>
                     <div className={cn("flex items-center gap-4 min-w-0", !limpio && "pointer-events-auto")}>
                         <div className="min-w-0 visor-sombra-texto">
@@ -920,21 +978,8 @@ export function VisorCuadro({
                                 <span>{horaSeg(momento)}</span>
                             </p>
                         </div>
-                        {vision && modo === "foto" && !enPaso && (
-                            /* Un interruptor: se prende y se apaga, por eso es píldora. */
-                            <button type="button" onClick={() => setVerSiluetas(!verSiluetas)} aria-pressed={verSiluetas}
-                                title={verSiluetas ? "Ocultar las siluetas de OmniVision  ( O )" : "Mostrar lo que detectó OmniVision  ( O )"}
-                                className={cn("shrink-0 h-8 px-3 rounded-full border flex items-center gap-1.5 text-[11.5px] font-semibold transition-colors",
-                                    verSiluetas ? "bg-[var(--accion)] border-transparent text-white" : "bg-black/45 backdrop-blur-xl border-white/15 text-white/80 hover:text-white")}>
-                                <Sparkles size={12} />
-                                OmniVision · {vision.objetos.length}
-                                <span className={cn("ml-0.5 w-6 h-3.5 rounded-full relative transition-colors", verSiluetas ? "bg-white/35" : "bg-white/15")}>
-                                    <span className={cn("absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-all", verSiluetas ? "left-3" : "left-0.5")} />
-                                </span>
-                            </button>
-                        )}
                         {vig && (
-                            <span className="shrink-0 h-8 px-3 rounded-[8px] border flex items-center gap-1.5 text-[11.5px] font-bold"
+                            <span className="visor-vig shrink-0 h-8 px-3 rounded-[8px] border flex items-center gap-1.5 text-[11.5px] font-bold"
                                 style={{
                                     background: "color-mix(in oklab, var(--visor-tono) 22%, transparent)",
                                     borderColor: "color-mix(in oklab, var(--visor-tono) 50%, transparent)",
@@ -1005,7 +1050,7 @@ export function VisorCuadro({
 
                 {/* Mirando un paso anterior: se dice cuál, y se ofrece volver. */}
                 {enPaso && pasoViendo && (
-                    <div className={cn("absolute top-[92px] left-1/2 -translate-x-1/2 z-30 visor-panel rounded-[10px] pl-3.5 pr-1.5 py-1.5 flex items-center gap-3 text-[12px] text-white/85 tabular-nums",
+                    <div className={cn("visor-zona absolute top-[92px] left-1/2 -translate-x-1/2 z-30 visor-panel rounded-[10px] pl-3.5 pr-1.5 py-1.5 flex items-center gap-3 text-[12px] text-white/85 tabular-nums",
                         limpio && "hidden")}>
                         <GalleryHorizontal size={14} className="text-white/55" />
                         <span>
@@ -1020,7 +1065,7 @@ export function VisorCuadro({
                 {/* Todo a la vista y nada en cajones: con OmniVision la ficha puede pasar del alto
                     de la ventana, así que se desplaza (centrada si entra). */}
                 <div className={cn(
-                    "absolute left-5 md:left-8 top-[88px] z-20 w-[min(420px,42vw)] overflow-y-auto overscroll-contain [scrollbar-width:none] flex flex-col transition-opacity duration-200",
+                    "visor-zona absolute left-5 md:left-8 top-[88px] z-20 w-[min(420px,42vw)] overflow-y-auto overscroll-contain [scrollbar-width:none] flex flex-col transition-opacity duration-200",
                     panel === "pasos" ? "bottom-[214px]" : modo === "grabacion" ? "bottom-[150px]" : "bottom-12",
                     (acercado || limpio) && "opacity-0 pointer-events-none",
                 )}>
@@ -1103,12 +1148,25 @@ export function VisorCuadro({
                                 <Dato rotulo="Teléfono" valor={dueno.telefono} />
                                 <Dato rotulo="Cochera" valor={dueno.cochera} falta="sin asignar" />
                             </dl>
+                        ) : null}
+                        {cargandoFicha && !dueno ? null : dueno ? (
+                            listaNegraBoton && <div className="flex justify-end pt-1">{listaNegraBoton}</div>
                         ) : (
                             <div className="flex items-center justify-between gap-3 py-0.5">
-                                <span className="text-[12.5px] text-white/60">Esta matrícula no está en el padrón.</span>
-                                {onRegistrar && (
-                                    <BotonVisor icono={UserPlus} destacada onClick={() => onRegistrar(fila.plate)}>Registrar</BotonVisor>
-                                )}
+                                {/* Lo que dice la chapa sola (18/10, Nico: «dar una mejor descripción a desconocidos»). */}
+                                <span className="text-[12.5px] text-white/60">
+                                    {(() => { const l = chapaVisor.plate ? leerChapa(chapaVisor.plate) : null; return l && (l.categoria || l.extranjera) ? <>No está en el padrón. <b className="text-white/90">{l.frase}</b>{l.confianza === "probable" ? " (probable)" : ""}.</> : "Esta matrícula no está en el padrón."; })()}
+                                </span>
+                                {/* Con la chapa que se ve (la releída, en una NO_LEIDA). Sin chapa no hay qué dar de alta. */}
+                                {/* Lista negra al lado de Registrar (19/10, Nico): son las dos decisiones sobre
+                                    una chapa que no está en el padrón, y la lista negra quedaba abajo, entre
+                                    Clip y Exportar. */}
+                                <span className="flex items-center gap-1.5 shrink-0">
+                                    {listaNegraBoton}
+                                    {onRegistrar && chapaVisor.plate && (
+                                        <BotonVisor icono={UserPlus} destacada onClick={() => onRegistrar(chapaVisor.plate!)}>Registrar</BotonVisor>
+                                    )}
+                                </span>
                             </div>
                         )}
                         {ficha?.visita && (
@@ -1124,6 +1182,10 @@ export function VisorCuadro({
                             </p>
                         )}
                     </Seccion>
+
+                    {/* ── Los hábitos de la chapa: frecuencia, horarios y cámaras habituales (lo que tenía
+                        la pestaña «Perfil» de la ficha vieja del monitor LPR). ── */}
+                    {(chapaVisor.plate || fila.plate) && !esSinLectura(chapaVisor.plate || fila.plate) && <PerfilChapa plate={chapaVisor.plate || fila.plate} />}
 
                     {/* ── Lo que dijo la cámara LPR ── separado de OmniVision: son dos equipos distintos
                         mirando la misma foto, y cuando no coinciden hay que poder ver quién dijo qué. */}
@@ -1200,12 +1262,6 @@ export function VisorCuadro({
                                 Exportar
                             </BotonVisor>
                         )}
-                        {onListaNegra && (
-                            <BotonVisor icono={ShieldBan} onClick={onListaNegra} encendida={enListaNegra} ocupada={ocupadoLista}
-                                title={enListaNegra ? "Sacar de la lista negra: vuelve a decidir la credencial y el modo LPR; si tiene credencial vuelve a la lista blanca de las lectoras" : "Lista negra: toda lectura se registra DENEGADA (aunque tenga credencial), va a la lista negra de las lectoras, el monitor la muestra en rojo y avisa"}>
-                                {enListaNegra ? "Quitar de la lista" : "Lista negra"}
-                            </BotonVisor>
-                        )}
                     </div>
 
                     {veredicto && (
@@ -1219,7 +1275,7 @@ export function VisorCuadro({
                 </div>
 
                 {/* ── DERECHA · LOS CONTROLES, EN VERTICAL ─────────────────────────── */}
-                <div className={cn("absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5 transition-opacity duration-200",
+                <div className={cn("visor-zona absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5 transition-opacity duration-200",
                     limpio && "opacity-0 pointer-events-none")}>
                     {fila.deviceId && (
                         <>
@@ -1267,11 +1323,28 @@ export function VisorCuadro({
                     <BotonRiel onClick={() => zoomEn(escala / 1.6)} disabled={!acercado} title="Alejar  ( − )"><ZoomOut size={15} /></BotonRiel>
                     <BotonRiel onClick={reiniciar} disabled={!acercado} title="Volver al tamaño original  ( 0 )"><Maximize2 size={14} /></BotonRiel>
                     </>}
+                    {/* OmniVision, al final del riel y sólo el ícono (19/10, Nico): era una píldora
+                        con interruptor al lado del título, y competía con el nombre de la cámara.
+                        El número de objetos va en un puntito sobre el ícono. */}
+                    {vision && modo === "foto" && !enPaso && (
+                        <>
+                            <span className="w-4 h-px bg-white/15" />
+                            <span className="relative">
+                                <BotonRiel activo={verSiluetas} onClick={() => setVerSiluetas(!verSiluetas)}
+                                    title={verSiluetas ? `Ocultar lo que detectó OmniVision (${vision.objetos.length})  ( O )` : `Mostrar lo que detectó OmniVision (${vision.objetos.length})  ( O )`}>
+                                    <Sparkles size={15} />
+                                </BotonRiel>
+                                {vision.objetos.length > 0 && (
+                                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accion)] text-white text-[9.5px] font-bold tabular-nums grid place-items-center pointer-events-none">{vision.objetos.length}</span>
+                                )}
+                            </span>
+                        </>
+                    )}
                 </div>
 
                 {/* ── ABAJO · con qué se está mirando ──────────────────────────────── */}
                 {!panel && modo !== "grabacion" && (
-                    <div className={cn("absolute bottom-0 inset-x-0 z-30 flex items-center justify-between px-5 md:px-7 py-3.5 pointer-events-none text-[11px] text-white/50 tabular-nums transition-opacity",
+                    <div className={cn("visor-zona absolute bottom-0 inset-x-0 z-30 flex items-center justify-between px-5 md:px-7 py-3.5 pointer-events-none text-[11px] text-white/50 tabular-nums transition-opacity",
                         limpio && "opacity-0")}>
                         <span className="flex items-center gap-2.5">
                             {modo === "vivo" ? (
@@ -1309,16 +1382,17 @@ export function VisorCuadro({
                 {/* Buscar parecidos baja como persiana DENTRO de esta ventana (antes era otra ventana a la derecha). */}
                 <AnimatePresence>
                     {parecidos && fila.snapshotUrl && (
-                        <BuscarParecidos key="parecidos" foto={fila.snapshotUrl} instanteMs={new Date(fila.timestamp).getTime()} onCerrar={() => setParecidos(false)}
+                        <BuscarParecidos key="parecidos" foto={fila.snapshotUrl} instanteMs={new Date(fila.timestamp).getTime()} chapa={chapaVisor.plate || fila.plate || null} onCerrar={() => setParecidos(false)}
                             onVerGrabacion={(deviceId, ms, camara) => setGrabacionDe({ deviceId, ms, camara })} />
                     )}
                 </AnimatePresence>
+                {/* Compartir: un cajón dentro de la ventana, como «Exportar clip». */}
+                {compartir && (
+                    <CompartirEvento foto={fila.snapshotUrl || null} deviceId={fila.deviceId || null} deviceName={fila.cameraName || null}
+                        instante={fila.timestamp} titulo={textoCompartir.titulo} lineas={textoCompartir.lineas} onCerrar={() => setCompartir(false)} />
+                )}
             </motion.div>
 
-            {compartir && (
-                <CompartirEvento foto={fila.snapshotUrl || null} deviceId={fila.deviceId || null} deviceName={fila.cameraName || null}
-                    instante={fila.timestamp} titulo={textoCompartir.titulo} lineas={textoCompartir.lineas} onCerrar={() => setCompartir(false)} />
-            )}
             {grabacionDe && (
                 <VerGrabacion deviceId={grabacionDe.deviceId} nombre={grabacionDe.camara} instanteMs={grabacionDe.ms} onClose={() => setGrabacionDe(null)} />
             )}

@@ -24,6 +24,8 @@ export type AutoParado = {
     deviceId: string | null; camara: string | null;
     desde: string | null; visto: string | null;
     foto: string | null; bbox: string | null;
+    /** El área de la celda de franja (si viene de un lugar): la referencia de distancia de ESE recuadro. */
+    areaCelda?: number | null;
 };
 
 export type Camara = { deviceId: string; lat: number; lng: number; rumbo?: number; angulo?: number };
@@ -51,7 +53,7 @@ export const lapso = (desde: string | null) => {
 /** El dibujo del auto parado. Es el mismo en las dos vistas, a propósito. */
 export const autoHtml = (plate: string, conocida: boolean, tiempo: string) => `
 <div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-6px)">
-  <span style="padding:1px 5px;border-radius:5px;background:${conocida ? "rgba(16,185,129,.95)" : "rgba(100,116,139,.95)"};color:#fff;font-size:9.5px;font-weight:700;letter-spacing:.06em;white-space:nowrap;box-shadow:0 2px 5px rgba(0,0,0,.45)">${plate}</span>
+  <span style="padding:1px 5px;border-radius:5px;background:${conocida ? "rgba(16,185,129,.95)" : "rgba(100,116,139,.95)"};color:#fff;font-size:9.5px;font-weight:700;letter-spacing:.06em;white-space:nowrap;box-shadow:0 2px 5px rgba(0,0,0,.45)">${plate || "sin chapa"}</span>
   <span style="margin-top:1px;width:22px;height:22px;border-radius:6px;background:#0f172a;border:2px solid ${conocida ? "#10b981" : "#94a3b8"};display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.5)">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18.4 7c-.3-.6-.9-1-1.6-1H7.2c-.7 0-1.3.4-1.6 1l-2.1 4.1C2.7 11.3 2 12.1 2 13v3c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>
   </span>
@@ -134,7 +136,9 @@ export function useEstacionados(camaras: Camara[], socket: any, visible = true) 
             if (grupo.cam.rumbo == null) { pendientes.push(grupo); continue; }
             for (const a of grupo.autos) {
                 const caja = leerCaja(a.bbox) as Caja | null;
-                const p = ubicarEnLaEscena(grupo.cam, caja, tipica[grupo.cam.deviceId] ?? null);
+                // Un auto de franja trae el área de su celda como referencia: comparar una celda contra
+                // el área típica de una CHAPA lo dibujaba pegado al lente (la auditoría del 18/10).
+                const p = ubicarEnLaEscena(grupo.cam, caja, a.areaCelda ?? tipica[grupo.cam.deviceId] ?? null);
                 ubicados.push({ auto: a, cam: grupo.cam, lat: p.lat, lng: p.lng, metros: p.metros, desvio: p.desvio });
             }
         }

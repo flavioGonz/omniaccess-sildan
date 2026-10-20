@@ -6,7 +6,9 @@ import {
     ANCHO_MIRADA, celda, cuadroUtil, enGrises, huellasDeLaFranja, juzgarCelda,
     leerEsquinas, leerVacio, type EstadoCelda, type Esquinas,
 } from "@/lib/franja";
-import { olvidarFranjas } from "@/lib/ocupaciones";
+import { olvidarFranjas, cerrarOcupacion } from "@/lib/ocupaciones";
+import { getSession } from "@/app/actions/auth";
+import { permisosDeSesion } from "@/lib/permisos";
 
 /**
  * La franja, desde la ficha del equipo.
@@ -73,10 +75,17 @@ export async function leerFranja(deviceId: string) {
     };
 }
 
+/** Escribir pide Ajustes (la auditoría del 18/10: cualquier sesión podía borrar o redibujar la franja). */
+async function exigirAjustes() {
+    const s: any = await getSession();
+    if (!s || !permisosDeSesion(s).includes("ajustes")) throw new Error("Sólo quien tiene Ajustes puede cambiar el estacionamiento.");
+}
+
 export async function guardarFranja(
     deviceId: string,
     datos: { esquinas: Esquinas; lugares: number; activa: boolean },
 ) {
+    await exigirAjustes();
     const lugares = Math.max(1, Math.min(40, Math.round(datos.lugares)));
     const previa = await prisma.franja.findUnique({ where: { deviceId } });
 
@@ -107,6 +116,10 @@ export async function guardarFranja(
 }
 
 export async function borrarFranja(deviceId: string) {
+    await exigirAjustes();
+    // Las abiertas se cierran con su «se retiró» antes de borrar (antes se iban en cascada sin aviso).
+    const abiertas = await prisma.ocupacion.findMany({ where: { deviceId, cerrada: false } });
+    for (const o of abiertas) await cerrarOcupacion(o as any, deviceId).catch(() => null);
     await prisma.franja.deleteMany({ where: { deviceId } });
     olvidarFranjas();
     return { ok: true };
@@ -120,6 +133,7 @@ export async function borrarFranja(deviceId: string) {
  * equivocarse acá se paga en cada medición futura.
  */
 export async function aprenderVacio(deviceId: string): Promise<Medicion> {
+    await exigirAjustes();
     const equipo = await equipoDe(deviceId);
     if (!equipo?.rtspUrl) return { ok: false, error: "El equipo no tiene RTSP configurado." };
 

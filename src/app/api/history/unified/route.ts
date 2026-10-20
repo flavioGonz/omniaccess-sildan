@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { TIPOS_CHAPA, prefijosDeTipo } from "@/lib/categoria-chapa";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
 import { limitesDelDia } from "@/lib/fechas";
@@ -7,6 +8,9 @@ import { clasesDe, RELECTURA_CON_CHAPA, VISION_IDS_MAX, type EmpresaFila, type V
 import { empresasDeLecturas } from "@/lib/empresas-servidor";
 import { esNoLeida } from "@/lib/relectura";
 import { accesosDeObjetos, objetosPorTexto, type ObjetoParecido } from "@/lib/busqueda-vision";
+import { NOMBRE_CLASE_REGLA } from "@/lib/vision-reglas";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { getS3Client } from "@/lib/s3";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +31,7 @@ export const dynamic = "force-dynamic";
 
 type Fila = {
     id: string;
-    tipo: "ACCESO" | "PASO" | "ESTACIONADO" | "VISTO";
+    tipo: "ACCESO" | "PASO" | "ESTACIONADO" | "VISTO" | "OV_CHAPA" | "OV_OBJETO";
     momento: string;
     plate: string | null;
     persona: string | null;
@@ -70,6 +74,95 @@ type Fila = {
  * 3 h (ver vision-analisis.js). Se pasa como texto UTC sin zona, que es lo que la columna guarda.
  */
 const sinZona = (d: Date) => d.toISOString().replace("T", " ").replace("Z", "");
+
+/*
+ * Lo que OmniVision ve en las cámaras RTSP (18/10, Nico: «no veo las detecciones que realiza
+ * OmniVision en las cámaras RTSP, las que no son LPR»). El historial juntaba accesos (cámaras LPR)
+ * y lecturas del seguimiento; lo que OmniVision ve en el resto de las cámaras (ObjetoVisto) no
+ * llegaba: en el lab, ~10.000 objetos en dos días, de los que en 8 leyó la chapa.
+ *
+ *   OV_CHAPA   un objeto en el que OmniVision leyó una matrícula (textos tipo «matricula»).
+ *              Entra siempre, como una lectura más: es lo que se busca en un historial.
+ *   OV_OBJETO  cualquier objeto (vehículo, persona…). Sólo si se lo pide en el filtro de tipos:
+ *              son miles por día y taparían los accesos.
+ *
+ * Las cámaras LPR quedan afuera: lo que ven ya está en el historial como acceso, con su foto y su
+ * análisis.
+ */
+type FilaOV = {
+    id: string; deviceId: string | null; camara: string; clase: string; grupo: string; confianza: number;
+    primeraVez: Date; cuadros: number; recorte: string | null; foto: string | null; atributos: any; caja: any; chapa: string | null; chapaConf: number | null; chapaCaja: any;
+};
+
+/*
+ * Las siluetas de las filas de OmniVision (18/10, Nico: «faltan las siluetas»). El registro guarda
+ * la caja de cada objeto (0-1, como la capa) pero no el tamaño de la foto, y la capa lo necesita
+ * para la proporción del dibujo y el tamaño de los rótulos: sin él, el recuadro cae corrido. Se lee del encabezado del
+ * JPEG (los primeros KB, con Range) y se guarda por cámara: todas las fotos de una cámara salen del
+ * mismo flujo. Se vuelve a mirar cada 10 minutos por si cambió el flujo.
+ */
+const BUCKET_VISION = process.env.VISION_BUCKET || "objetos";
+const TAMANO_MS = 10 * 60_000;
+const tamanoPorCamara = new Map<string, { t: number; w: number; h: number }>();
+function tamanoJpeg(b: Uint8Array): { w: number; h: number } | null {
+    let i = 2;
+    while (i + 9 < b.length) {
+        if (b[i] !== 0xff) { i++; continue; }
+        const m = b[i + 1];
+        // SOF0..SOF15 salvo DHT (C4), JPG (C8) y DAC (CC): ahí están alto y ancho.
+        if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: (b[i + 5] << 8) | b[i + 6], w: (b[i + 7] << 8) | b[i + 8] };
+        if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue; }
+        i += 2 + ((b[i + 2] << 8) | b[i + 3]);
+    }
+    return null;
+}
+async function tamanoDeFoto(camara: string, clave: string): Promise<{ w: number; h: number } | null> {
+    const ya = tamanoPorCamara.get(camara);
+    if (ya && Date.now() - ya.t < TAMANO_MS) return ya;
+    try {
+        const r = await (await getS3Client()).send(new GetObjectCommand({ Bucket: BUCKET_VISION, Key: clave, Range: "bytes=0-65535" }));
+        const t = tamanoJpeg(await r.Body!.transformToByteArray());
+        if (!t) return ya || null;
+        const v = { t: Date.now(), ...t };
+        tamanoPorCamara.set(camara, v);
+        return v;
+    } catch { return ya || null; }
+}
+async function objetosOmniVision(p: { soloChapas: boolean; desde: Date | null; hasta: Date | null; buscar: string; clases: string[]; grupos: string[]; camaras: string[]; limite: number; tipoChapa?: { prefijos: string[]; taxiAspecto: boolean } | null }): Promise<FilaOV[]> {
+    const q = p.buscar ? `%${p.buscar}%` : null;
+    const tc = p.tipoChapa;
+    const likes = tc ? tc.prefijos.map((x) => `${x}%`) : [];
+    const qChapa = p.buscar ? `%${p.buscar.toUpperCase().replace(/[^A-Z0-9]/g, "")}%` : null;
+    return prisma.$queryRaw<FilaOV[]>`
+        SELECT o.id, o."deviceId", o.camara, o.clase, o.grupo, o.confianza, o."primeraVez", o.cuadros, o.recorte, o.foto, o.atributos, o.caja,
+               m.texto AS chapa, m.conf AS "chapaConf", m.caja AS "chapaCaja"
+          FROM "ObjetoVisto" o
+          LEFT JOIN "Device" d ON d.id = o."deviceId"
+          LEFT JOIN LATERAL (
+               SELECT upper(regexp_replace(t->>'texto', '[^A-Za-z0-9]', '', 'g')) AS texto, (t->>'confianza')::float AS conf, t->'caja' AS caja
+                 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(o.textos) = 'array' THEN o.textos ELSE '[]'::jsonb END) t
+                WHERE t->>'tipo' = 'matricula' AND coalesce(t->>'texto', '') <> ''
+                ORDER BY (t->>'confianza')::float DESC NULLS LAST LIMIT 1) m ON true
+         WHERE (d.id IS NULL OR d."deviceType"::text <> 'LPR_CAMERA')
+           ${p.soloChapas && !tc?.taxiAspecto ? Prisma.sql`AND m.texto IS NOT NULL` : Prisma.empty}
+           ${p.desde ? Prisma.sql`AND o."primeraVez" >= ${sinZona(p.desde)}::timestamp` : Prisma.empty}
+           ${p.hasta ? Prisma.sql`AND o."primeraVez" <= ${sinZona(p.hasta)}::timestamp` : Prisma.empty}
+           ${p.clases.length || p.grupos.length ? Prisma.sql`AND (o.clase = ANY(${p.clases}::text[]) OR o.grupo = ANY(${p.grupos}::text[]))` : Prisma.empty}
+           ${p.camaras.length ? Prisma.sql`AND o.camara = ANY(${p.camaras}::text[])` : Prisma.empty}
+           ${q ? Prisma.sql`AND (o.camara ILIKE ${q} OR o.clase ILIKE ${q} OR m.texto LIKE ${qChapa})` : Prisma.empty}
+           ${tc ? Prisma.sql`AND (m.texto LIKE ANY(${likes}::text[])${tc.taxiAspecto ? Prisma.sql` OR o.atributos @> '[{"id":"servicio","valor":"taxi"}]'::jsonb` : Prisma.empty})` : Prisma.empty}
+         ORDER BY o."primeraVez" DESC
+         LIMIT ${p.limite}`;
+}
+/** «persona — ropa naranja, chaleco reflectivo»: los rasgos seguros; un «no» no se escribe. */
+function rasgosOV(atributos: any): string[] {
+    const out: string[] = [];
+    for (const a of Array.isArray(atributos) ? atributos : []) {
+        if (!a || a.dudoso || !a.valor || a.valor === "no") continue;
+        out.push(a.valor === "sí" || a.valor === "si" ? String(a.nombre || a.id || "").toLowerCase() : a.id === "color" ? `color ${a.valor}` : a.id === "ropa" ? `ropa ${a.valor}` : String(a.valor));
+    }
+    return out.filter(Boolean);
+}
 
 /**
  * Los accesos cuya foto cumple el filtro OmniVision, de los más nuevos, hasta VISION_IDS_MAX.
@@ -232,6 +325,20 @@ export async function GET(req: NextRequest) {
     /** Filtro OmniVision (ids de lib/historial-vision). Sólo aplica a accesos: el seguimiento no tiene análisis. */
     const vision = (sp.get("vision") || "").split(",").map((t) => t.trim()).filter(Boolean);
     const quiere = (t: string) => tipos.length === 0 || tipos.includes(t);
+    /*
+     * Las cámaras, filtradas en el servidor (cam=… repetido: los nombres pueden tener comas). Antes
+     * el filtro se aplicaba sólo sobre lo ya cargado, así que elegir una cámara con pocas lecturas
+     * mostraba lo que hubiera entre las primeras 60 filas: casi siempre nada.
+     */
+    const camaras = sp.getAll("cam").map((c) => c.trim()).filter(Boolean).slice(0, 50);
+    /**
+     * El tipo de chapa (lib/categoria-chapa: taxi, policía, ambulancia, diplomático…), por cómo
+     * empieza la matrícula. Taxi suma además lo que OmniVision reconoce como taxi por su aspecto.
+     */
+    const tiposChapa = (sp.get("chapa") || "").split(",").map((t) => t.trim()).filter((t) => TIPOS_CHAPA.some((x) => x.id === t));
+    const prefijosChapa = [...new Set(tiposChapa.flatMap(prefijosDeTipo))];
+    const tipoChapa = tiposChapa.length ? { prefijos: prefijosChapa, taxiAspecto: tiposChapa.includes("taxi") } : null;
+    const porChapa = (campo: string) => (tipoChapa ? { OR: prefijosChapa.map((x) => ({ [campo]: { startsWith: x } })) } : null);
 
     const rango: any = {};
     if (desde && !isNaN(+desde)) rango.gte = desde;
@@ -286,12 +393,25 @@ export async function GET(req: NextRequest) {
     // Con el filtro OmniVision sólo quedan accesos: las lecturas del seguimiento no se analizan.
     const pedirTrack = estadosPedidos.length > 0 && !vision.length;
 
-    const [accesos, avistamientos] = await Promise.all([
+    /* OmniVision en cámaras RTSP (ver objetosOmniVision). Los filtros propios de un acceso (con qué
+       se identificó, si abrió, en qué sentido) no aplican: con alguno puesto, no entran. */
+    // PLATE no cuenta: en un barrio sólo con LPR viene puesto siempre (es el módulo), y lo de OmniVision también es por chapa.
+    const filtrosDeAcceso = ["FACE", "TAG"].includes(identificacion) || ["GRANT", "DENY"].includes(decision) || ["ENTRY", "EXIT"].includes(sentido);
+    // Con cámaras elegidas (y sin tipos), también los objetos: son de esas cámaras, no miles.
+    const quiereOVObjetos = tipos.includes("OV_OBJETO") || (camaras.length > 0 && tipos.length === 0);
+    const pedirOV = !filtrosDeAcceso && (quiere("OV_CHAPA") || quiereOVObjetos);
+    const { clases: clasesOV, grupos: gruposOV } = clasesDe(vision);
+
+    const [accesos, avistamientos, objetosOV] = await Promise.all([
         pedirAccesos
             ? prisma.accessEvent.findMany({
                 where: {
                     ...porFecha,
                     ...(porVision ? { id: { in: porVision.ids } } : {}),
+                    ...(camaras.length || tipoChapa ? { AND: [
+                        ...(camaras.length ? [{ OR: [{ device: { name: { in: camaras } } }, { location: { in: camaras } }] }] : []),
+                        ...(tipoChapa ? [{ OR: [...porChapa("plateDetected")!.OR, ...porChapa("plateNumber")!.OR] }] : []),
+                    ] } : {}),
                     // Son enums de Prisma; un valor inventado en la URL no rompe la consulta, se ignora.
                     ...(["PLATE", "FACE", "TAG"].includes(identificacion) ? { accessType: identificacion as any } : {}),
                     ...(["GRANT", "DENY"].includes(decision) ? { decision: decision as any } : {}),
@@ -321,7 +441,9 @@ export async function GET(req: NextRequest) {
                 where: {
                     source: "TRACK",
                     ...porFecha,
+                    ...(camaras.length ? { cameraName: { in: camaras } } : {}),
                     ...(tipos.length ? { estado: { in: estadosPedidos } } : {}),
+                    ...(tipoChapa ? { AND: [porChapa("plate")!] } : {}),
                     ...(buscar
                         ? {
                             OR: [
@@ -335,6 +457,9 @@ export async function GET(req: NextRequest) {
                 take: cuantas,
             })
             : Promise.resolve([] as any[]),
+        pedirOV
+            ? objetosOmniVision({ soloChapas: !quiereOVObjetos, desde, hasta, buscar, clases: clasesOV, grupos: gruposOV, camaras, limite: cuantas, tipoChapa }).catch((e) => { console.error("[historial] OmniVision RTSP:", e?.message); return [] as FilaOV[]; })
+            : Promise.resolve([] as FilaOV[]),
     ]);
 
     const filas: Fila[] = [
@@ -380,6 +505,33 @@ export async function GET(req: NextRequest) {
             permanencia: null,
             raw: null,
         })),
+        ...objetosOV
+            // Con el filtro de tipos puesto, cada fila tiene que ser de un tipo pedido (una chapa con «sólo objetos» también entra: es un objeto).
+            .filter((o) => tipos.length === 0 || (o.chapa ? quiere("OV_CHAPA") || quiereOVObjetos : quiereOVObjetos))
+            .map((o): Fila => {
+                const nombre = NOMBRE_CLASE_REGLA[o.clase] || o.clase;
+                const rasgos = rasgosOV(o.atributos);
+                return {
+                    id: `o_${o.id}`,
+                    tipo: o.chapa ? "OV_CHAPA" : "OV_OBJETO",
+                    momento: new Date(o.primeraVez).toISOString(),
+                    plate: o.chapa,
+                    // Sin chapa, lo que se puede decir del objeto va en la columna de identificación.
+                    persona: `${nombre}${rasgos.length ? ` — ${rasgos.join(", ")}` : ""}`,
+                    camara: o.camara,
+                    deviceId: o.deviceId,
+                    decision: null,
+                    sentido: null,
+                    confianza: o.chapa ? o.chapaConf : o.confianza,
+                    lecturas: o.cuadros ?? null,
+                    foto: o.foto || o.recorte ? `/api/vision/imagen/${o.foto || o.recorte}` : null,
+                    estDesde: null, bbox: null, estCerrada: false, estHasta: null,
+                    detalles: null, permanencia: null, raw: null,
+                    vision: { vio: [{ clase: o.clase, nombre, n: 1 }], releida: null, analisis: null },
+                    // Para armar la silueta después de paginar (ver tamanoDeFoto): no viaja al navegador.
+                    _ov: { camara: o.camara, foto: o.foto, caja: o.caja, clase: o.clase, grupo: o.grupo, nombre, confianza: o.confianza, atributos: o.atributos, chapaCaja: o.chapaCaja },
+                } as Fila;
+            }),
     ];
 
     filas.sort((a, b) => b.momento.localeCompare(a.momento));
@@ -387,6 +539,21 @@ export async function GET(req: NextRequest) {
 
     const vistas = await visionDe(pagina.filter((f) => f.tipo === "ACCESO" && f.raw?.id).map((f) => f.raw.id)).catch(() => new Map<string, VisionFila>());
     for (const f of pagina) if (f.tipo === "ACCESO" && f.raw?.id) f.vision = vistas.get(f.raw.id) || null;
+    // Las filas de OmniVision: su objeto como análisis de la foto, para la capa de siluetas (un recuadro: el registro no guarda contorno).
+    await Promise.all(pagina.filter((f) => (f as any)._ov).map(async (f) => {
+        const o = (f as any)._ov; delete (f as any)._ov;
+        const c = Array.isArray(o.caja) && o.caja.length === 4 ? o.caja.map(Number) : null;
+        if (!o.foto || !c || !f.vision) return;
+        const t = await tamanoDeFoto(o.camara, o.foto);
+        if (!t) return;
+        // Dónde está la chapa (vision-worker la guarda desde el 18/10): el visor la marca y acerca, como en LPR.
+        const cc = Array.isArray(o.chapaCaja) && o.chapaCaja.length === 4 ? o.chapaCaja.map(Number) : null;
+        if (cc && cc[2] > cc[0] && cc[3] > cc[1]) f.bbox = JSON.stringify({ x: cc[0], y: cc[1], w: cc[2] - cc[0], h: cc[3] - cc[1], ar: t.w / t.h });
+        f.vision.analisis = {
+            ancho: t.w, alto: t.h,
+            objetos: [{ clase: o.clase, nombre: o.nombre, grupo: o.grupo, confianza: o.confianza, caja: c as [number, number, number, number], silueta: null, atributos: Array.isArray(o.atributos) ? o.atributos : null }],
+        };
+    }));
     // El logo de la empresa: de la visita abierta a esa hora, o del proveedor dueño del vehículo.
     const conChapa = pagina.filter((f) => f.plate && !esNoLeida(f.plate));
     const empresas = await empresasDeLecturas(conChapa.map((f) => ({ clave: f.id, plate: f.plate as string, momento: new Date(f.momento) }))).catch(() => new Map());
