@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Tooltip } from "react-tooltip";
 import {
     CalendarClock, ChevronLeft, ChevronRight, Plus, RotateCcw, Users, Type, Clock, CalendarX2, Trash2, Loader2, Save, CalendarDays, StickyNote,
@@ -48,6 +48,17 @@ const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "
 const GRILLA_POR_DEFECTO = { desde: 7, hasta: 21 };
 const ALTO_HORA_PX = 44;
 const TODAS = "__todas";
+/**
+ * Arrastrar en la semana (Nico, HB 19/10: «permite drag and drop en el calendario»).
+ * Los horarios se mueven y se estiran de a 15 minutos: con minutos libres el arrastre deja
+ * horarios como 09:07, que nadie quiso poner y que después cuesta leer en la grilla.
+ */
+const PASO_MIN = 15;
+/** Debajo de esto, soltar es un clic (abre el editor) y no un arrastre. Un pulso de mano en el mouse mueve 1–3 px. */
+const UMBRAL_ARRASTRE_PX = 4;
+/** Alto del borde de abajo de una franja que la estira en vez de moverla. */
+const BORDE_ESTIRAR_PX = 7;
+const DIA_MIN = 24 * 60;
 
 /* ── Fechas como texto AAAA-MM-DD: el calendario es de días, no de instantes ── */
 const aTexto = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -56,6 +67,9 @@ const sumarDias = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.g
 const lunesDe = (d: Date) => sumarDias(d, -((d.getDay() + 6) % 7));
 const dowDe = (d: Date) => (d.getDay() === 0 ? 7 : d.getDay());
 const minutos = (hhmm: string) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
+/** Minutos del día → HH:MM. El fin del día se guarda 23:59: «00:00» como cierre se lee como turno que pasa la medianoche. */
+const aHora = (m: number) => (m >= DIA_MIN ? "23:59" : `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
+const ajustar = (m: number) => Math.round(m / PASO_MIN) * PASO_MIN;
 
 /** Lo que pasa un día con una fila: cerrada, o sus franjas (y si vienen de un día especial). */
 function franjasDelDia(horarios: Horario[], especiales: Especial[], filaId: string, fecha: string) {
@@ -121,6 +135,58 @@ export default function HorariosFilasPage() {
         catch (e: any) { toast.error({ title: "No se pudo cambiar", description: e?.message }); }
     }
 
+    /**
+     * Soltar una franja arrastrada. Un horario es «de siempre» y puede abarcar varios días; por eso:
+     *  - mismo día, otra hora: cambia el horario entero (todos sus días). Arrastrar el lunes de un
+     *    «Lun a Vie 8–18» a las 9 es, casi siempre, «ahora abrimos a las 9»; partirlo dejaría cinco
+     *    horarios sueltos para algo que se pensó como uno solo;
+     *  - otro día: cambia SÓLO ese día. Si el horario tenía varios, se le saca el día de origen y se
+     *    crea uno nuevo para el destino. Llevar el lunes al sábado no quiere decir que el martes
+     *    también se mude.
+     */
+    async function soltarHorario(h: Horario, origen: number, destino: number, abre: number, cierra: number) {
+        const nuevo = { openTime: aHora(abre), closeTime: aHora(cierra) };
+        const dias = diasDe(h.daysOfWeek);
+        const mismaHora = nuevo.openTime === h.openTime && nuevo.closeTime === h.closeTime;
+        try {
+            if (origen === destino) {
+                if (mismaHora) return;
+                await updateQueueSchedule(h.id, nuevo);
+                toast.success({ title: `${nuevo.openTime}–${nuevo.closeTime}`, description: dias.length > 1 ? `Cambia en todos sus días (${dias.map((n) => DIAS[n - 1].corto).join(", ")}).` : h.name });
+            } else if (dias.length === 1) {
+                await updateQueueSchedule(h.id, { ...nuevo, daysOfWeek: String(destino) });
+                toast.success({ title: `Pasa al ${DIAS[destino - 1].largo.toLowerCase()}`, description: `${nuevo.openTime}–${nuevo.closeTime}` });
+            } else {
+                const resto = dias.filter((n) => n !== origen).join(",");
+                await updateQueueSchedule(h.id, { daysOfWeek: resto });
+                // Si el destino ya estaba en el horario con la misma hora, alcanza con sacar el origen.
+                if (!(dias.includes(destino) && mismaHora)) {
+                    await createQueueSchedule({
+                        name: `${h.name || "Horario"} (${DIAS[destino - 1].corto})`, deviceId: h.deviceId, daysOfWeek: String(destino),
+                        ...nuevo, resetOnOpen: h.resetOnOpen, enabled: h.enabled,
+                    });
+                }
+                toast.success({ title: `Sólo el ${DIAS[origen - 1].largo.toLowerCase()} pasa al ${DIAS[destino - 1].largo.toLowerCase()}`, description: "Los demás días del horario quedan como estaban." });
+            }
+        } catch (e: any) { toast.error({ title: "No se pudo mover", description: e?.message }); }
+        await cargar();
+    }
+
+    /** Llevar un día especial a otra fecha (vista Mes). Dos para la misma fila el mismo día se pisarían: no se deja. */
+    async function moverEspecial(e: Especial, fecha: string) {
+        if (fecha === e.fecha) return;
+        if (especiales.some((x) => x.id !== e.id && x.fecha === fecha && (x.deviceId || null) === (e.deviceId || null))) {
+            toast.error({ title: "Ese día ya tiene uno", description: "Abrilo y editalo, o quitalo primero." });
+            return;
+        }
+        try {
+            await guardarDiaEspecial({ ...e, fecha });
+            const d = deTexto(fecha);
+            toast.success({ title: "Día especial movido", description: `${DIAS[dowDe(d) - 1].largo} ${d.getDate()} de ${MESES[d.getMonth()]}` });
+        } catch (err: any) { toast.error({ title: "No se pudo mover", description: err?.message }); }
+        await cargar();
+    }
+
     const proximosEspeciales = especiales.filter((e) => e.fecha >= ahora.fecha && (!filtro || !e.deviceId || e.deviceId === filtro)).slice(0, 8);
     const horariosVisibles = horarios.filter((h) => !filtro || !h.deviceId || h.deviceId === filtro);
 
@@ -176,9 +242,12 @@ export default function HorariosFilasPage() {
                         <Semana dias={dias} grilla={grilla} filas={filasVisibles} horarios={horarios} especiales={especiales} ahora={ahora}
                             nombreFila={nombreFila}
                             alNuevo={(fecha, hhmm) => setEditHorario({ name: "", deviceId: filtro || null, daysOfWeek: String(dowDe(deTexto(fecha))), openTime: hhmm, closeTime: `${String(Math.min(23, Number(hhmm.slice(0, 2)) + 4)).padStart(2, "0")}:00`, resetOnOpen: true, enabled: true })}
+                            alRango={(fecha, abre, cierra, deviceId) => setEditHorario({ name: "", deviceId: deviceId ?? (filtro || null), daysOfWeek: String(dowDe(deTexto(fecha))), openTime: aHora(abre), closeTime: aHora(cierra), resetOnOpen: true, enabled: true })}
+                            alSoltar={soltarHorario}
                             alHorario={(h) => setEditHorario(h)} alEspecial={(e) => setEditEspecial(e)} />
                     ) : (
                         <Mes dias={dias} mes={ancla.getMonth()} filas={filasVisibles} horarios={horarios} especiales={especiales} ahora={ahora}
+                            alMoverEspecial={moverEspecial}
                             alDia={(fecha) => setEditEspecial(especiales.find((e) => e.fecha === fecha && (filtro ? e.deviceId === filtro : true)) || { fecha, deviceId: filtro || null, cerrada: true })} />
                     )}
                 </div>
@@ -254,24 +323,139 @@ export default function HorariosFilasPage() {
 }
 
 /* ── Vista semana: agenda con franjas ───────────────────────────────────────── */
-function Semana({ dias, grilla, filas, horarios, especiales, ahora, nombreFila, alNuevo, alHorario, alEspecial }: {
+/**
+ * Lo que se está arrastrando. Va en un ref además del estado: los manejadores del puntero viven
+ * en `window` mientras dura el gesto y tienen que leer el valor de ESTE instante, no el del render
+ * en que se colgaron.
+ *  - mover: la franja entera, a otra hora y/o a otro día (columna).
+ *  - estirar: sólo el cierre, desde el borde de abajo.
+ *  - crear: se pinta un rango en un hueco y al soltar se abre el editor con ese horario.
+ */
+type Arrastre =
+    | { tipo: "mover" | "estirar"; horario: Horario; k: number; n: number; origen: number; diaIdx: number; abre: number; cierra: number; x0: number; y0: number; movido: boolean }
+    | { tipo: "crear"; k: number; n: number; filaId: string | null; diaIdx: number; desde: number; hasta: number; x0: number; y0: number; movido: boolean };
+
+function Semana({ dias, grilla, filas, horarios, especiales, ahora, nombreFila, alNuevo, alRango, alSoltar, alHorario, alEspecial }: {
     dias: Date[]; grilla: { desde: number; hasta: number }; filas: Fila[]; horarios: Horario[]; especiales: Especial[];
     ahora: { fecha: string; hhmm: string }; nombreFila: (id: string | null) => string;
-    alNuevo: (fecha: string, hhmm: string) => void; alHorario: (h: Horario) => void; alEspecial: (e: Especial) => void;
+    alNuevo: (fecha: string, hhmm: string) => void;
+    alRango: (fecha: string, abre: number, cierra: number, deviceId: string | null) => void;
+    alSoltar: (h: Horario, origen: number, destino: number, abre: number, cierra: number) => Promise<void>;
+    alHorario: (h: Horario) => void; alEspecial: (e: Especial) => void;
 }) {
     const horas = Array.from({ length: grilla.hasta - grilla.desde }, (_, i) => grilla.desde + i);
     const alto = horas.length * ALTO_HORA_PX;
     const topDe = (hhmm: string) => ((minutos(hhmm) - grilla.desde * 60) / 60) * ALTO_HORA_PX;
+    const topMin = (m: number) => ((m - grilla.desde * 60) / 60) * ALTO_HORA_PX;
+
+    const cuerpo = useRef<HTMLDivElement>(null);
+    const [arr, setArr] = useState<Arrastre | null>(null);
+    const arrRef = useRef<Arrastre | null>(null);
+    /** Mientras se guarda, la franja fantasma queda donde se soltó: si volviera a su lugar hasta que llegue la recarga, parecería que no se movió. */
+    const [guardando, setGuardando] = useState(false);
+    const poner = (a: Arrastre | null) => { arrRef.current = a; setArr(a); };
+
+    /** Geometría del cuerpo: minuto del día bajo el puntero y día (0–6) bajo el puntero. */
+    const geo = () => {
+        const r = cuerpo.current!.getBoundingClientRect();
+        const anchoDia = (r.width - 56) / 7;
+        return {
+            minuto: (y: number) => grilla.desde * 60 + ((y - r.top) / ALTO_HORA_PX) * 60,
+            dia: (x: number) => Math.max(0, Math.min(6, Math.floor((x - r.left - 56) / anchoDia))),
+        };
+    };
+
+    useEffect(() => {
+        if (!arr || guardando) return;
+        const mover = (e: PointerEvent) => {
+            const a = arrRef.current; if (!a) return;
+            const g = geo();
+            const movido = a.movido || Math.abs(e.clientX - a.x0) > UMBRAL_ARRASTRE_PX || Math.abs(e.clientY - a.y0) > UMBRAL_ARRASTRE_PX;
+            if (a.tipo === "crear") {
+                const m = Math.max(0, Math.min(DIA_MIN, ajustar(g.minuto(e.clientY))));
+                poner({ ...a, hasta: m, movido });
+            } else if (a.tipo === "estirar") {
+                const h = a.horario; const delta = ajustar(g.minuto(e.clientY) - g.minuto(a.y0));
+                const cierra = Math.max(minutos(h.openTime) + PASO_MIN, Math.min(DIA_MIN, minutos(h.closeTime) + delta));
+                poner({ ...a, cierra, movido });
+            } else {
+                const h = a.horario; const dur = minutos(h.closeTime) - minutos(h.openTime);
+                const delta = ajustar(g.minuto(e.clientY) - g.minuto(a.y0));
+                const abre = Math.max(0, Math.min(DIA_MIN - dur, minutos(h.openTime) + delta));
+                poner({ ...a, abre, cierra: abre + dur, diaIdx: g.dia(e.clientX), movido });
+            }
+        };
+        const soltar = async () => {
+            const a = arrRef.current; if (!a) return;
+            if (!a.movido) {
+                poner(null);
+                if (a.tipo !== "crear") alHorario(a.horario);
+                return;
+            }
+            if (a.tipo === "crear") {
+                poner(null);
+                const desde = Math.min(a.desde, a.hasta), hasta = Math.max(a.desde, a.hasta);
+                if (hasta - desde >= PASO_MIN) alRango(aTexto(dias[a.diaIdx]), desde, hasta, a.filaId);
+                return;
+            }
+            setGuardando(true);
+            try { await alSoltar(a.horario, a.origen, dowDe(dias[a.diaIdx]), a.abre, a.cierra); }
+            finally { setGuardando(false); poner(null); }
+        };
+        const escape = (e: KeyboardEvent) => { if (e.key === "Escape") poner(null); };
+        window.addEventListener("pointermove", mover);
+        window.addEventListener("pointerup", soltar);
+        window.addEventListener("keydown", escape);
+        return () => { window.removeEventListener("pointermove", mover); window.removeEventListener("pointerup", soltar); window.removeEventListener("keydown", escape); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [!!arr, guardando]);
+
+    /** Empezar a arrastrar una franja: desde el borde de abajo la estira, desde el resto la mueve. */
+    function tomarFranja(e: React.PointerEvent<HTMLElement>, h: Horario, k: number, n: number, diaIdx: number) {
+        if (e.button !== 0) return;
+        e.stopPropagation(); e.preventDefault();
+        const r = e.currentTarget.getBoundingClientRect();
+        const tipo = r.bottom - e.clientY <= BORDE_ESTIRAR_PX ? "estirar" : "mover";
+        poner({ tipo, horario: h, k, n, origen: dowDe(dias[diaIdx]), diaIdx, abre: minutos(h.openTime), cierra: minutos(h.closeTime), x0: e.clientX, y0: e.clientY, movido: false });
+    }
+    /** Pintar un rango en un hueco de un día. Con varias filas a la vista, el horario nuevo es de la columna donde se pintó. */
+    function pintarRango(e: React.PointerEvent<HTMLElement>, diaIdx: number) {
+        if (e.button !== 0 || (e.target !== e.currentTarget && !(e.target as HTMLElement).dataset.hueco)) return;
+        e.preventDefault();
+        const r = e.currentTarget.getBoundingClientRect();
+        const n = Math.max(1, filas.length);
+        const k = Math.max(0, Math.min(n - 1, Math.floor(((e.clientX - r.left) / r.width) * n)));
+        const m = Math.max(0, Math.min(DIA_MIN - PASO_MIN, Math.floor(geo().minuto(e.clientY) / PASO_MIN) * PASO_MIN));
+        poner({ tipo: "crear", k, n, filaId: filas.length > 1 ? filas[k].id : null, diaIdx, desde: m, hasta: m + PASO_MIN, x0: e.clientX, y0: e.clientY, movido: false });
+    }
+
+    /** La franja fantasma: dónde va a quedar y con qué horario, mientras dura el arrastre. */
+    const fantasma = arr && arr.movido ? (() => {
+        const desde = arr.tipo === "crear" ? Math.min(arr.desde, arr.hasta) : arr.tipo === "estirar" ? minutos(arr.horario.openTime) : arr.abre;
+        const hasta = arr.tipo === "crear" ? Math.max(arr.desde, arr.hasta) : arr.cierra;
+        const anchoDia = `((100% - 56px) / 7)`;
+        return {
+            diaIdx: arr.diaIdx,
+            texto: `${aHora(desde)}–${aHora(hasta)}`,
+            sub: arr.tipo === "crear" ? "Nuevo horario" : arr.tipo === "mover" && dowDe(dias[arr.diaIdx]) !== arr.origen ? `Sólo ${DIAS[dowDe(dias[arr.diaIdx]) - 1].largo.toLowerCase()}` : arr.horario.name,
+            style: {
+                top: topMin(desde), height: Math.max(18, topMin(hasta) - topMin(desde)),
+                left: `calc(56px + ${anchoDia} * ${arr.diaIdx} + ${anchoDia} * ${arr.k / arr.n} + 2px)`,
+                width: `calc(${anchoDia} / ${arr.n} - 4px)`,
+            },
+        };
+    })() : null;
+
     return (
         <div className="overflow-x-auto">
-            <div className="min-w-[760px]">
+            <div className={cn("min-w-[760px]", arr?.movido && "select-none", arr?.movido && (arr.tipo === "estirar" ? "cursor-ns-resize" : arr.tipo === "mover" ? "cursor-grabbing" : "cursor-crosshair"))}>
                 {/* Encabezado de días */}
                 <div className="grid grid-cols-[56px_repeat(7,minmax(0,1fr))] border-b border-border">
                     <div />
-                    {dias.map((d) => {
+                    {dias.map((d, i) => {
                         const f = aTexto(d); const hoy = f === ahora.fecha;
                         return (
-                            <div key={f} className="px-2 py-2 text-center border-l border-border">
+                            <div key={f} className={cn("px-2 py-2 text-center border-l border-border transition-colors", fantasma && fantasma.diaIdx === i && "bg-accent/60")}>
                                 <div className="text-[11px] text-muted-foreground">{DIAS[dowDe(d) - 1].corto}</div>
                                 <div className={cn("mx-auto mt-0.5 h-7 w-7 grid place-items-center rounded-full text-[14px] font-bold tabular-nums", hoy && "bg-[var(--accion)] text-white")}>{d.getDate()}</div>
                             </div>
@@ -279,41 +463,56 @@ function Semana({ dias, grilla, filas, horarios, especiales, ahora, nombreFila, 
                     })}
                 </div>
                 {/* Cuerpo */}
-                <div className="grid grid-cols-[56px_repeat(7,minmax(0,1fr))] relative" style={{ height: alto }}>
+                <div ref={cuerpo} className="grid grid-cols-[56px_repeat(7,minmax(0,1fr))] relative" style={{ height: alto }}>
                     <div className="relative">
                         {horas.map((h, i) => <div key={h} className="absolute right-2 text-[10px] text-muted-foreground tabular-nums -translate-y-1/2" style={{ top: i * ALTO_HORA_PX }}>{i === 0 ? "" : `${String(h).padStart(2, "0")}:00`}</div>)}
                     </div>
-                    {dias.map((d) => {
+                    {dias.map((d, diaIdx) => {
                         const fecha = aTexto(d);
                         const columnas = filas.map((fila) => ({ fila, ...franjasDelDia(horarios, especiales, fila.id, fecha) }));
                         const n = Math.max(1, columnas.length);
                         return (
-                            <div key={fecha} className="relative border-l border-border"
-                                onDoubleClick={(e) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); const h = Math.floor((e.clientY - r.top) / ALTO_HORA_PX) + grilla.desde; alNuevo(fecha, `${String(h).padStart(2, "0")}:00`); }}>
-                                {horas.map((h, i) => <div key={h} className="absolute inset-x-0 border-t border-border/60" style={{ top: i * ALTO_HORA_PX }} />)}
+                            <div key={fecha} className="relative border-l border-border cursor-crosshair"
+                                onPointerDown={(e) => pintarRango(e, diaIdx)}
+                                onDoubleClick={(e) => { if (e.target !== e.currentTarget && !(e.target as HTMLElement).dataset.hueco) return; const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); const h = Math.floor((e.clientY - r.top) / ALTO_HORA_PX) + grilla.desde; alNuevo(fecha, `${String(h).padStart(2, "0")}:00`); }}>
+                                {horas.map((h, i) => <div key={h} data-hueco="1" className="absolute inset-x-0 border-t border-border/60" style={{ top: i * ALTO_HORA_PX }} />)}
                                 {fecha === ahora.fecha && minutos(ahora.hhmm) >= grilla.desde * 60 && minutos(ahora.hhmm) <= grilla.hasta * 60 && (
-                                    <div className="absolute inset-x-0 z-10 h-px bg-[var(--mal)]" style={{ top: topDe(ahora.hhmm) }}><span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-[var(--mal)]" /></div>
+                                    <div className="absolute inset-x-0 z-10 h-px bg-[var(--mal)] pointer-events-none" style={{ top: topDe(ahora.hhmm) }}><span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-[var(--mal)]" /></div>
                                 )}
                                 {columnas.map((c, k) => {
                                     const izq = `calc(${(k / n) * 100}% + 2px)`; const ancho = `calc(${100 / n}% - 4px)`;
                                     if (c.cerrada) return (
-                                        <button key={c.fila.id} onClick={() => c.especial && alEspecial(c.especial)} {...tip(`${c.fila.name}: ${c.especial?.nota || "cerrada"} (día especial)`)}
-                                            className="absolute top-1 bottom-1 rounded-[6px] border border-dashed chip-mal text-[10.5px] font-semibold px-1.5 pt-1 text-left overflow-hidden" style={{ left: izq, width: ancho }}>
+                                        <button key={c.fila.id} onPointerDown={(e) => e.stopPropagation()} onClick={() => c.especial && alEspecial(c.especial)} {...tip(`${c.fila.name}: ${c.especial?.nota || "cerrada"} (día especial)`)}
+                                            className="absolute top-1 bottom-1 rounded-[6px] border border-dashed chip-mal text-[10.5px] font-semibold px-1.5 pt-1 text-left overflow-hidden cursor-pointer" style={{ left: izq, width: ancho }}>
                                             Cerrada{n > 1 ? ` · ${c.fila.name}` : ""}
                                         </button>
                                     );
                                     return c.franjas.map((fr, j) => {
                                         const top = Math.max(0, topDe(fr.abre));
-                                        const fin = minutos(fr.cierra) <= minutos(fr.abre) ? grilla.hasta * 60 : minutos(fr.cierra);
+                                        const pasaMedianoche = minutos(fr.cierra) <= minutos(fr.abre);
+                                        const fin = pasaMedianoche ? grilla.hasta * 60 : minutos(fr.cierra);
                                         const altoB = Math.max(18, ((fin - minutos(fr.abre)) / 60) * ALTO_HORA_PX);
+                                        // Se arrastran sólo los horarios de siempre que no pasan la medianoche: un día
+                                        // especial se edita en su cajón (o se mueve en la vista Mes), y un turno nocturno
+                                        // dibujado hasta el borde de la grilla no tiene un «abajo» real que estirar.
+                                        const arrastrable = !c.especial && !!fr.horario && !pasaMedianoche;
+                                        const esteSeMueve = !!arr?.movido && arr.tipo !== "crear" && arr.horario.id === fr.horario?.id && arr.k === k;
                                         return (
-                                            <button key={`${c.fila.id}-${j}`} onClick={() => (c.especial ? alEspecial(c.especial) : fr.horario && alHorario(fr.horario))}
-                                                {...tip(`${c.fila.name} · ${fr.abre}–${fr.cierra}${c.especial ? ` · día especial${c.especial.nota ? `: ${c.especial.nota}` : ""}` : fr.horario ? ` · ${fr.horario.name || "horario"} (${nombreFila(fr.horario.deviceId)})` : ""}`)}
-                                                className={cn("absolute rounded-[6px] border px-1.5 py-1 text-left overflow-hidden transition-colors", c.especial ? "chip-aviso" : "chip-info hover:brightness-95")}
+                                            <button key={`${c.fila.id}-${j}`}
+                                                onPointerDown={(e) => { if (arrastrable) tomarFranja(e, fr.horario!, k, n, diaIdx); else e.stopPropagation(); }}
+                                                onClick={() => { if (!arrastrable) (c.especial ? alEspecial(c.especial) : fr.horario && alHorario(fr.horario)); }}
+                                                {...tip(`${c.fila.name} · ${fr.abre}–${fr.cierra}${c.especial ? ` · día especial${c.especial.nota ? `: ${c.especial.nota}` : ""}` : fr.horario ? ` · ${fr.horario.name || "horario"} (${nombreFila(fr.horario.deviceId)})` : ""}${arrastrable ? " · arrastrá para mover, el borde de abajo para estirar" : ""}`)}
+                                                className={cn("group absolute rounded-[6px] border px-1.5 py-1 text-left overflow-hidden transition-[opacity,filter]", c.especial ? "chip-aviso cursor-pointer" : "chip-info hover:brightness-95",
+                                                    arrastrable && "cursor-grab touch-none", esteSeMueve && "opacity-35")}
                                                 style={{ top, height: altoB, left: izq, width: ancho }}>
                                                 <div className="text-[11px] font-bold tabular-nums leading-tight">{fr.abre}–{fr.cierra}</div>
                                                 <div className="text-[10.5px] leading-tight truncate opacity-90">{c.fila.name}</div>
                                                 {fr.horario?.resetOnOpen && altoB > 52 && <RotateCcw size={11} className="mt-0.5 opacity-70" />}
+                                                {arrastrable && (
+                                                    <span aria-hidden className="absolute inset-x-0 bottom-0 cursor-ns-resize flex justify-center items-end pb-0.5" style={{ height: BORDE_ESTIRAR_PX }}>
+                                                        <span className="h-[3px] w-6 rounded-full bg-current opacity-0 group-hover:opacity-40 transition-opacity" />
+                                                    </span>
+                                                )}
                                             </button>
                                         );
                                     });
@@ -321,12 +520,19 @@ function Semana({ dias, grilla, filas, horarios, especiales, ahora, nombreFila, 
                             </div>
                         );
                     })}
+                    {fantasma && (
+                        <div className="absolute z-20 rounded-[6px] border-2 border-dashed border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_14%,transparent)] px-1.5 py-1 pointer-events-none overflow-hidden" style={fantasma.style}>
+                            <div className="text-[11.5px] font-bold tabular-nums leading-tight text-[var(--accion)]">{fantasma.texto}</div>
+                            {fantasma.sub && <div className="text-[10.5px] leading-tight truncate text-foreground/80">{fantasma.sub}</div>}
+                            {guardando && <Loader2 size={12} className="mt-0.5 animate-spin text-[var(--accion)]" />}
+                        </div>
+                    )}
                 </div>
                 <div className="px-3 py-2 border-t border-border text-[11px] text-muted-foreground flex items-center gap-4 flex-wrap">
                     <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm chip-info border" /> Horario de siempre</span>
                     <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm chip-aviso border" /> Día especial</span>
                     <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm chip-mal border border-dashed" /> Cerrada</span>
-                    <span className="ml-auto">Doble clic en un hueco para crear un horario a esa hora.</span>
+                    <span className="ml-auto">Arrastrá en un hueco para crear · arrastrá una franja para moverla · su borde de abajo la estira · Esc cancela.</span>
                 </div>
             </div>
         </div>
@@ -334,11 +540,43 @@ function Semana({ dias, grilla, filas, horarios, especiales, ahora, nombreFila, 
 }
 
 /* ── Vista mes: qué pasa cada día ───────────────────────────────────────────── */
-function Mes({ dias, mes, filas, horarios, especiales, ahora, alDia }: {
+function Mes({ dias, mes, filas, horarios, especiales, ahora, alDia, alMoverEspecial }: {
     dias: Date[]; mes: number; filas: Fila[]; horarios: Horario[]; especiales: Especial[]; ahora: { fecha: string }; alDia: (fecha: string) => void;
+    alMoverEspecial: (e: Especial, fecha: string) => Promise<void>;
 }) {
+    /**
+     * Un día especial se lleva a otra fecha arrastrando su etiqueta (un feriado que se corrió, un
+     * inventario que se pasó al viernes). El destino se busca con elementFromPoint sobre las celdas
+     * marcadas con data-fecha: el puntero pasa por encima de botones que no son el que se tomó.
+     */
+    const [toma, setToma] = useState<{ esp: Especial; destino: string | null; x0: number; y0: number; movido: boolean } | null>(null);
+    const tomaRef = useRef(toma);
+    const poner = (t: typeof toma) => { tomaRef.current = t; setToma(t); };
+    /** El clic que sigue a soltar cae en la celda: no tiene que abrir el editor de ese día. */
+    const recienSoltado = useRef(false);
+
+    useEffect(() => {
+        if (!toma) return;
+        const mover = (e: PointerEvent) => {
+            const t = tomaRef.current; if (!t) return;
+            const movido = t.movido || Math.abs(e.clientX - t.x0) > UMBRAL_ARRASTRE_PX || Math.abs(e.clientY - t.y0) > UMBRAL_ARRASTRE_PX;
+            const celda = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest("[data-fecha]") as HTMLElement | null;
+            poner({ ...t, movido, destino: celda?.dataset.fecha || null });
+        };
+        const soltar = async () => {
+            const t = tomaRef.current; poner(null);
+            if (!t || !t.movido) return;
+            recienSoltado.current = true; setTimeout(() => { recienSoltado.current = false; }, 0);
+            if (t.destino) await alMoverEspecial(t.esp, t.destino);
+        };
+        window.addEventListener("pointermove", mover);
+        window.addEventListener("pointerup", soltar);
+        return () => { window.removeEventListener("pointermove", mover); window.removeEventListener("pointerup", soltar); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [!!toma]);
+
     return (
-        <div>
+        <div className={cn(toma?.movido && "select-none cursor-grabbing")}>
             <div className="grid grid-cols-7 border-b border-border">
                 {DIAS.map((d) => <div key={d.n} className="px-2 py-2 text-[11px] text-muted-foreground text-center">{d.corto}</div>)}
             </div>
@@ -346,16 +584,26 @@ function Mes({ dias, mes, filas, horarios, especiales, ahora, alDia }: {
                 {dias.map((d, i) => {
                     const fecha = aTexto(d); const fuera = d.getMonth() !== mes; const hoy = fecha === ahora.fecha;
                     const items = filas.map((f) => ({ f, ...franjasDelDia(horarios, especiales, f.id, fecha) }));
+                    const esDestino = !!toma?.movido && toma.destino === fecha && toma.destino !== toma.esp.fecha;
                     return (
-                        <button key={fecha} onClick={() => alDia(fecha)}
-                            className={cn("min-h-[104px] p-1.5 text-left border-border hover:bg-accent/40 transition-colors flex flex-col gap-1", i % 7 !== 0 && "border-l", i >= 7 && "border-t", fuera && "bg-muted/30")}>
+                        <button key={fecha} data-fecha={fecha} onClick={() => { if (!recienSoltado.current) alDia(fecha); }}
+                            className={cn("min-h-[104px] p-1.5 text-left border-border hover:bg-accent/40 transition-colors flex flex-col gap-1", i % 7 !== 0 && "border-l", i >= 7 && "border-t", fuera && "bg-muted/30",
+                                esDestino && "bg-[color-mix(in_oklab,var(--accion)_12%,transparent)] ring-2 ring-inset ring-[var(--accion)]")}>
                             <span className={cn("h-6 w-6 grid place-items-center rounded-full text-[12px] font-bold tabular-nums", hoy ? "bg-[var(--accion)] text-white" : fuera ? "text-muted-foreground/60" : "")}>{d.getDate()}</span>
-                            {items.map(({ f, cerrada, especial, franjas }) => (
-                                cerrada ? <span key={f.id} className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-[6px] border chip-mal truncate">{filas.length > 1 ? `${f.name}: ` : ""}{especial?.nota || "Cerrada"}</span>
-                                    : franjas.length ? <span key={f.id} className={cn("text-[10.5px] font-semibold px-1.5 py-0.5 rounded-[6px] border truncate tabular-nums", especial ? "chip-aviso" : "chip-info")}>
+                            {items.map(({ f, cerrada, especial, franjas }) => {
+                                // Sólo la etiqueta de un día especial se toma para arrastrar; la de un horario de siempre es de todas las semanas.
+                                const esp = especial as Especial | null;
+                                const tomar = esp ? {
+                                    onPointerDown: (e: React.PointerEvent) => { if (e.button !== 0) return; e.stopPropagation(); poner({ esp, destino: fecha, x0: e.clientX, y0: e.clientY, movido: false }); },
+                                    ...tip("Arrastrá a otro día para moverlo"),
+                                } : {};
+                                const tomado = !!toma?.movido && !!esp && toma.esp.id === esp.id;
+                                return cerrada ? <span key={f.id} {...tomar} className={cn("text-[10.5px] font-semibold px-1.5 py-0.5 rounded-[6px] border chip-mal truncate", esp && "cursor-grab touch-none", tomado && "opacity-40")}>{filas.length > 1 ? `${f.name}: ` : ""}{esp?.nota || "Cerrada"}</span>
+                                    : franjas.length ? <span key={f.id} {...tomar} className={cn("text-[10.5px] font-semibold px-1.5 py-0.5 rounded-[6px] border truncate tabular-nums", esp ? "chip-aviso cursor-grab touch-none" : "chip-info", tomado && "opacity-40")}>
                                         {filas.length > 1 ? `${f.name}: ` : ""}{franjas.map((x) => `${x.abre}–${x.cierra}`).join(", ")}</span>
-                                        : null
-                            ))}
+                                        : null;
+                            })}
+                            {esDestino && toma && <span className="mt-auto text-[10.5px] font-semibold text-[var(--accion)] truncate">Mover «{toma.esp.nota || (toma.esp.cerrada ? "Cerrada" : `${toma.esp.openTime}–${toma.esp.closeTime}`)}» acá</span>}
                         </button>
                     );
                 })}
