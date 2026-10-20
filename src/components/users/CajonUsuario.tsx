@@ -1,5 +1,6 @@
 "use client";
 
+import { useFuncion } from "@/lib/funciones-cliente";
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
@@ -191,6 +192,8 @@ export function CajonUsuario({
     const [lotes, setLotes] = useState<LoteDelMapa[]>([]);
     const loteDeLaCasa = lotes.find((l) => l.unitId && l.unitId === unidadId);
     const [cocheraId, setCocheraId] = useState<string>(user?.parkingSlotId || "none");
+    // Con «Plazas de parking» apagada (función de LPR) no se ofrece la cochera; la que tenía se conserva al guardar.
+    const plazasOn = useFuncion("LPR_PLAZAS");
     /* La cochera que el plano dice que le corresponde a esa casa. Se ofrece, no se impone:
        una cochera se puede haber prestado, alquilado o cambiado, y el plano no se entera. */
     const cocheraDelLote = loteDeLaCasa?.parkingSlotId
@@ -709,7 +712,7 @@ export function CajonUsuario({
                                 </Select>
                             </CajonCampo>
 
-                            <CajonCampo etiqueta="Cochera"
+                            {plazasOn && <CajonCampo etiqueta="Cochera"
                                 pista="Las que están ocupadas por otra persona aparecen apagadas: una cochera es de uno solo, y dejar elegir una tomada crea un conflicto que después nadie sabe de dónde salió.">
                                 <Select name="parkingSlotId" value={cocheraId} onValueChange={setCocheraId}>
                                     <SelectTrigger>
@@ -743,7 +746,7 @@ export function CajonUsuario({
                                         <span className="font-semibold text-[var(--accion)] shrink-0">Usarla</span>
                                     </button>
                                 )}
-                            </CajonCampo>
+                            </CajonCampo>}
                         </div>
 
                         {(esEdificio || user?.apartment) && (

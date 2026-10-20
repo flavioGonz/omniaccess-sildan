@@ -1,5 +1,6 @@
 "use client";
 
+import { useFuncion } from "@/lib/funciones-cliente";
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
     Camera,
@@ -174,6 +175,8 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
     const [merodeoSet, setMerodeoSet] = useState<Set<string>>(new Set());
     const [recEvent, setRecEvent] = useState<any>(null);
     const [parkingByPlate, setParkingByPlate] = useState<Record<string, string>>({});
+    // «Plazas de parking» (función de LPR): apagada, no hay pestaña de plazas ni marca de plaza en las capturas.
+    const plazasOn = useFuncion("LPR_PLAZAS");
     const [lprEntries, setLprEntries] = useState<any[]>([]);
     const [isLprLoading, setIsLprLoading] = useState(false);
     const [lprSearch, setLprSearch] = useState("");
@@ -912,10 +915,12 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         const t = e.changedTouches[0];
         const dx = t.clientX - s.x, dy = t.clientY - s.y;
         if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.6) return; // horizontal claro
-        const idx = TAB_ORDER.indexOf(activeTab);
+        // Sin «Plazas de parking», deslizar salta la pestaña de plazas (no está en la barra).
+        const orden = plazasOn ? TAB_ORDER : TAB_ORDER.filter((t) => t !== "map");
+        const idx = orden.indexOf(activeTab);
         if (idx < 0) return;
-        if (dx < 0 && idx < TAB_ORDER.length - 1) handleTabChange(TAB_ORDER[idx + 1]);
-        else if (dx > 0 && idx > 0) handleTabChange(TAB_ORDER[idx - 1]);
+        if (dx < 0 && idx < orden.length - 1) handleTabChange(orden[idx + 1]);
+        else if (dx > 0 && idx > 0) handleTabChange(orden[idx - 1]);
     };
 
     // Filtered Units
@@ -1871,7 +1876,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative pb-24">
                 <div className="flex-1 overflow-hidden relative" onTouchStart={onContentTouchStart} onTouchEnd={onContentTouchEnd}>
                     <AnimatePresence mode="wait" custom={tabDir}>
-                        {activeTab === "map" && (
+                        {activeTab === "map" && plazasOn && (
                             <motion.div key="map" custom={tabDir} variants={tabVariants} initial="enter" animate="center" exit="exit" transition={tabTransition} className="h-full w-full relative z-0">
                                 <GuardParkingView />
                             </motion.div>
@@ -2530,7 +2535,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                             {/* Indicadores de la captura */}
                                                             <div className="flex items-center gap-1.5 mt-2">
                                                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 text-[8px] font-bold uppercase tracking-wider" title="Ver análisis de la matrícula"><ScanSearch size={11} /> Análisis</span>
-                                                                {plaza && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 text-[8px] font-bold uppercase tracking-wider" title={`Plaza asignada: ${plaza}`}><SquareParking size={11} /> {plaza}</span>}
+                                                                {plaza && plazasOn && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 text-[8px] font-bold uppercase tracking-wider" title={`Plaza asignada: ${plaza}`}><SquareParking size={11} /> {plaza}</span>}
                                                                 {isUnknown && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 text-[8px] font-bold uppercase tracking-wider" title="Registrar nuevo usuario"><UserPlus size={11} /> Registrar</span>}
                                                                 {isMerodeo && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-500/10 text-red-600 text-[8px] font-bold uppercase tracking-wider" title="Vehículo con merodeo detectado"><ShieldAlert size={11} /> Merodeo</span>}
                                                             </div>
@@ -2914,7 +2919,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                         </div>
                         <BottomTab icon={customIcons.lpr ? <Image src={customIcons.lpr} width={20} height={20} className="object-contain md:w-6 md:h-6" alt="Icon" /> : <Car size={20} className="md:w-6 md:h-6" />} active={activeTab === "lpr"} onClick={() => handleTabChange("lpr")} label="LPR" alertActive={isAlertMode} />
 
-                        <BottomTab icon={customIcons.map ? <Image src={customIcons.map} width={20} height={20} className="object-contain md:w-6 md:h-6" alt="Icon" /> : <SquareParking size={20} className="md:w-6 md:h-6" />} active={activeTab === "map"} onClick={() => handleTabChange("map")} label="Plazas" alertActive={isAlertMode} />
+                        {plazasOn && <BottomTab icon={customIcons.map ? <Image src={customIcons.map} width={20} height={20} className="object-contain md:w-6 md:h-6" alt="Icon" /> : <SquareParking size={20} className="md:w-6 md:h-6" />} active={activeTab === "map"} onClick={() => handleTabChange("map")} label="Plazas" alertActive={isAlertMode} />}
 
                         <BottomTab icon={<MapIcon size={20} className="md:w-6 md:h-6" />} active={activeTab === "guardmap"} onClick={() => handleTabChange("guardmap")} label="Mapa" alertActive={isAlertMode} />
                     </nav>

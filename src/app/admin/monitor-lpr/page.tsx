@@ -1,5 +1,6 @@
 "use client";
 
+import { useFuncion } from "@/lib/funciones-cliente";
 import { useSilencioAvisos } from "@/lib/avisos-pantalla";
 import { useEffect, useState, useMemo, useRef, memo, useCallback, createContext, useContext } from "react";
 import { io, Socket } from "socket.io-client";
@@ -551,7 +552,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                             {event.decision !== "GRANT" && <button onClick={(e) => { e.stopPropagation(); onRegister(event.plateDetected!); }} title="Registrar" className="p-2 rounded-lg text-emerald-500 hover:bg-emerald-500/15 transition-colors"><UserPlus size={17} /></button>}
                         </>)}
                         {nvrCh != null && <button onClick={(e) => { e.stopPropagation(); setShowVid(true); }} title="Ver grabación" className="p-2 rounded-lg text-cyan-400 hover:bg-cyan-500/15 transition-colors"><PlayCircle size={17} /></button>}
-                        <button onClick={(e) => { e.stopPropagation(); if (!isAnomalous && event.plateDetected) onPlaza?.(String(event.plateDetected).toUpperCase()); }} disabled={isAnomalous} title={isAnomalous ? "Sin matrícula leída: no hay plaza que buscar" : hasPlaza ? "Ver su plaza y el camino" : "Sin plaza: tocá para asignarle una"} className={cn("p-2 rounded-lg transition-colors", hasPlaza ? "text-emerald-500 hover:bg-emerald-500/15" : "text-red-500 hover:bg-red-500/15")}><SquareParking size={18} /></button>
+                        {onPlaza && <button onClick={(e) => { e.stopPropagation(); if (!isAnomalous && event.plateDetected) onPlaza?.(String(event.plateDetected).toUpperCase()); }} disabled={isAnomalous} title={isAnomalous ? "Sin matrícula leída: no hay plaza que buscar" : hasPlaza ? "Ver su plaza y el camino" : "Sin plaza: tocá para asignarle una"} className={cn("p-2 rounded-lg transition-colors", hasPlaza ? "text-emerald-500 hover:bg-emerald-500/15" : "text-red-500 hover:bg-red-500/15")}><SquareParking size={18} /></button>}
                     </div>
                 </div>
             </div>
@@ -698,7 +699,8 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
     platesPark: Set<string>;
     watchMap: Record<string, any>;
     logos: LogosMatricula;
-    onPlaza: (plate: string) => void;
+    /** Sin «Plazas de parking» (función de LPR) no hay botón de plaza. */
+    onPlaza?: (plate: string) => void;
 }) {
     const entrada = dir === "ENTRY";
     const Icono = entrada ? LogIn : LogOut;
@@ -827,6 +829,7 @@ export default function MonitorLPR() {
     const [platesPark, setPlatesPark] = useState<Set<string>>(new Set());
     /** La matrícula cuya plaza se está mirando o asignando. Un solo cajón para toda la pantalla, no uno por fila. */
     const [plazaDe, setPlazaDe] = useState<string | null>(null);
+    const plazasOn = useFuncion("LPR_PLAZAS");
     useEffect(() => { Promise.all([getUnits(), getAccessGroups(), getParkingSlots()]).then(([u, g, p]: any) => { setUnits(u || []); setGroups(g || []); setParkingSlots(p || []); }).catch(() => {}); getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => {}); }, []);
 
     // Watchlist (lista negra / búsqueda / VIP) — resaltado + sonido
@@ -1178,18 +1181,18 @@ export default function MonitorLPR() {
                 {/* Dos columnas, un sentido cada una. */}
                 <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border overflow-hidden">
                     <ColumnaSentido dir="ENTRY" camaras={entryCams} eventos={entryEvents} ultimaPorCamara={(id) => lastByCam[id] || lastCapByDev[id]}
-                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={setPlazaDe} logos={logos} />
+                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={plazasOn ? setPlazaDe : undefined} logos={logos} />
                     <ColumnaSentido dir="EXIT" camaras={exitCams} eventos={exitEvents} ultimaPorCamara={(id) => lastByCam[id] || lastCapByDev[id]}
-                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={setPlazaDe} logos={logos} />
+                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={plazasOn ? setPlazaDe : undefined} logos={logos} />
                 </div>
             </div>
                 {fichaDet && <FichaDeteccion det={fichaDet} geom={geomDet} onClose={() => { setFichaDet(null); setVerDetecciones(true); }}
                     hasAlarm={alarmas.tieneAlarma(fichaDet.deviceId)} onResolveAlarm={(id, k) => { alarmas.resolver(id, k); setFichaDet(null); setVerDetecciones(true); }}
                     enAtencion={alarmas.enAtencion(fichaDet.deviceId)} onCerrarAtencion={(id, como) => { alarmas.cerrarAtencion(id, como); setFichaDet(null); setVerDetecciones(true); }}
                     onMarcar={alarmas.marcar} />}
-                <CajonPlaza plate={plazaDe} onClose={() => setPlazaDe(null)}
+                {plazasOn && <CajonPlaza plate={plazaDe} onClose={() => setPlazaDe(null)}
                     onRegistrar={(p) => { setPlazaDe(null); openRegister(p); }}
-                    alCambiar={() => getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => { })} />
+                    alCambiar={() => getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => { })} />}
                 <PinnedAnomalies items={pinned} onDismiss={dismissPin} onClear={() => setPinned([])} onRegister={openRegister} />
                 {/* Registrar pregunta primero qué es la matrícula (persona del barrio o seguimiento)
                     y recién ahí abre el cajón que corresponde. Antes abría el alta vieja de persona. */}

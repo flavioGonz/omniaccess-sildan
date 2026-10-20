@@ -54,6 +54,7 @@
  * verdad. Las dos cosas se ven distintas porque SON distintas.
  */
 
+import { fijarFuncion } from "@/lib/funciones-cliente";
 import { useEffect, useState } from "react";
 import { Car, ScanFace, Users, ShieldCheck, Cpu, CornerDownRight, Check, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -283,6 +284,7 @@ export default function ModosSection({ onActivar }: {
         if (r.ok) {
             setFunciones((p) => ({ ...p, [f.id]: valor }));
             if (f.id === "LPR_MARCAS") fijarMarcasCamara(valor);  // el resto del panel, sin recargar
+            fijarFuncion(f.id, valor);  // menú, monitor, fichas: lo ven sin recargar (lib/funciones-cliente)
             toast.success({ title: valor ? "Función activada" : "Función desactivada" });
         } else {
             toast.error({ title: "No se pudo cambiar la función" });

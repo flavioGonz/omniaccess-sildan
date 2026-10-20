@@ -1,5 +1,6 @@
 "use client";
 
+import { useFuncion } from "@/lib/funciones-cliente";
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
     LayoutGrid,
@@ -61,7 +62,26 @@ interface Unit {
     }[];
 }
 
+/**
+ * Con «Plazas de parking» apagada (Ajustes → Modos → LPR) la pantalla no se ofrece: lo dice y
+ * lleva a prenderla. Las cocheras cargadas siguen en la base.
+ */
 export default function PlazasPage() {
+    const on = useFuncion("LPR_PLAZAS");
+    if (on === null) return null;
+    if (!on) return (
+        <div className="h-full grid place-items-center p-8 text-center">
+            <div className="max-w-sm space-y-2">
+                <div className="text-[15px] font-bold">Plazas de parking está apagada</div>
+                <p className="text-[13px] text-muted-foreground">Es una función del modo LPR. Se prende en Ajustes → Modos → Matrículas. Las cocheras ya cargadas no se borraron.</p>
+                <a href="/admin/settings?tab=modos" className="inline-block mt-2 text-[13px] font-semibold text-[var(--accion)]">Ir a Ajustes → Modos</a>
+            </div>
+        </div>
+    );
+    return <PlazasContenido />;
+}
+
+function PlazasContenido() {
     const [mapImage, setMapImage] = useState<string | null>(null);
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [slots, setSlots] = useState<ParkingSlot[]>([]);

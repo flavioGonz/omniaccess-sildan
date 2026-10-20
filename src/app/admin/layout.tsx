@@ -1,5 +1,6 @@
 "use client";
 
+import { useFuncion } from "@/lib/funciones-cliente";
 import React, { useState, useEffect } from "react";
 import { pantallaInicio } from "@/lib/landing";
 import { useSessionRole } from "@/hooks/useSessionRole";
@@ -105,6 +106,8 @@ export default function AdminLayout({
     children: React.ReactNode;
 }) {
     const pathname = usePathname();
+    // «Plazas de parking» es una función de LPR que se apaga (20/10: San Nicolás no la usa).
+    const plazasOn = useFuncion("LPR_PLAZAS");
     const searchParams = useSearchParams();
     // La pestaña Lista negra tiene su entrada en el menú: las dos viven en /admin/users.
     const enListaNegra = pathname === "/admin/users" && searchParams?.get("tab") === "listanegra";
@@ -291,7 +294,7 @@ export default function AdminLayout({
                     )}
 
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
-                        ve("plazas") && (<SidebarItem icon={<LayoutGrid size={18} />} label="Plazas de Parking" href="/admin/plazas" active={pathname === "/admin/plazas"} collapsed={collapsed} />)
+                        ve("plazas") && plazasOn && (<SidebarItem icon={<LayoutGrid size={18} />} label="Plazas de Parking" href="/admin/plazas" active={pathname === "/admin/plazas"} collapsed={collapsed} />)
                     )}
 
                     {modules.MODULE_LPR && modules.MODULE_GUARD && (

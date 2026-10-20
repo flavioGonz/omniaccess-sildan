@@ -1,5 +1,6 @@
 "use client";
 
+import { useFuncion } from "@/lib/funciones-cliente";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
@@ -324,6 +325,8 @@ export function VisorCuadro({
     onSiguiente?: () => void;
     onCerrar: () => void;
 }) {
+    // La cochera del dueño, sólo con «Plazas de parking» prendida (función de LPR).
+    const plazasOn = useFuncion("LPR_PLAZAS");
     const [escala, setEscala] = useState(1);
     const [pos, setPos] = useState({ x: 0, y: 0 });
     const [verContorno, setVerContorno] = useState(true);
@@ -1146,7 +1149,7 @@ export function VisorCuadro({
                                 <Dato rotulo="Residente" valor={dueno.nombre} />
                                 <Dato rotulo="Lote" valor={[dueno.unidad, dueno.apartamento].filter(Boolean).join(" · ") || null} />
                                 <Dato rotulo="Teléfono" valor={dueno.telefono} />
-                                <Dato rotulo="Cochera" valor={dueno.cochera} falta="sin asignar" />
+                                {plazasOn && <Dato rotulo="Cochera" valor={dueno.cochera} falta="sin asignar" />}
                             </dl>
                         ) : null}
                         {cargandoFicha && !dueno ? null : dueno ? (
