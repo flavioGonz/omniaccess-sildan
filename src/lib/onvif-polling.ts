@@ -200,6 +200,13 @@ function pedirCamara(url: string, metodo: "GET" | "POST", cuerpo: string | null,
         });
         req.on("error", reject);
         req.on("timeout", () => { req.destroy(); reject(new Error(`Timeout after ${timeoutMs}ms`)); });
+        /*
+         * Un tope TOTAL, además del de inactividad: por la VPN del Hospital Británico la respuesta
+         * llegaba a cuentagotas, el socket nunca quedaba quieto el tiempo de `timeout` y el pedido
+         * no terminaba nunca. Como el ciclo espera a cada cámara, se quedaba colgado entero.
+         */
+        const tope = setTimeout(() => { req.destroy(new Error(`Timeout after ${timeoutMs}ms`)); }, timeoutMs + 2000);
+        req.on("close", () => clearTimeout(tope));
         if (cuerpo !== null) req.write(cuerpo);
         req.end();
     });
