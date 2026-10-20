@@ -22,6 +22,9 @@ import { cn } from "@/lib/utils";
  */
 
 const POR_PAGINA = 60;
+/** Bento (por defecto, pedido de Nico) o grilla pareja. Se recuerda por navegador. */
+type Vista = "bento" | "grilla";
+const CLAVE_VISTA = "capturas-filas:vista";
 /** Filtros de gente: desde 1 (todas las que tienen foto), varias personas, o la fila en su límite. */
 const MINIMOS = [{ k: "1", rotulo: "Todas" }, { k: "3", rotulo: "3 o más" }, { k: "limite", rotulo: "En el límite" }] as const;
 
@@ -37,6 +40,10 @@ export default function CapturasFilasPage() {
     const [error, setError] = useState<string | null>(null);
     const [abierta, setAbierta] = useState<Captura | null>(null);
     const [retencion, setRetencion] = useState(false);
+    const [vista, setVista] = useState<Vista>("bento");
+    useEffect(() => { try { const v = localStorage.getItem(CLAVE_VISTA); if (v === "bento" || v === "grilla") setVista(v); } catch { } }, []);
+    const cambiarVista = (v: Vista) => { setVista(v); try { localStorage.setItem(CLAVE_VISTA, v); } catch { } };
+    const abrir = useCallback((c: Lectura) => setAbierta({ foto: c.foto, t: c.t, fila: c.fila, personas: c.personas, limite: c.limite, canal: c.canal, titulo: "Captura" }), []);
 
     useEffect(() => { getFilasConLimite().then(setFilas).catch(() => {}); }, []);
 
@@ -65,6 +72,18 @@ export default function CapturasFilasPage() {
         return [...g.entries()];
     }, [capturas]);
 
+    /** La destacada de cada hora (y fila): la de más gente. */
+    const destacadas = useMemo(() => {
+        const mejor = new Map<string, Lectura>();
+        for (const c of capturas) {
+            const m = enMontevideo(new Date(c.t));
+            const k = `${m.fecha}-${m.hhmm.slice(0, 2)}-${c.deviceId}`;
+            const b = mejor.get(k);
+            if (!b || c.personas > b.personas) mejor.set(k, c);
+        }
+        return new Set([...mejor.values()].map((c) => c.id));
+    }, [capturas]);
+
     return (
         <div className="p-6 space-y-5 max-w-[1680px] mx-auto">
             <div className="flex flex-wrap items-end gap-3">
@@ -75,6 +94,7 @@ export default function CapturasFilasPage() {
                 {filas.length > 1 && (
                     <Pastillas valor={deviceId} alCambiar={setDeviceId} opciones={[{ k: "", rotulo: "Todas las filas" }, ...filas.map((f) => ({ k: f.id, rotulo: f.name }))]} />
                 )}
+                <Pastillas valor={vista} alCambiar={(v) => cambiarVista(v as Vista)} opciones={[{ k: "bento", rotulo: "Bento" }, { k: "grilla", rotulo: "Grilla" }]} />
                 <Pastillas valor={minimo} alCambiar={(v) => setMinimo(v as any)} opciones={MINIMOS.map((m) => ({ k: m.k, rotulo: m.rotulo }))} />
                 <Input type="date" value={dia} onChange={(e) => setDia(e.target.value)} className="h-8 w-[150px] text-[12.5px]" aria-label="Día" />
                 {dia && <Button variant="ghost" size="sm" onClick={() => setDia("")}>Todos los días</Button>}
@@ -104,22 +124,17 @@ export default function CapturasFilasPage() {
                             <h2 className="flex items-baseline gap-2 text-[13px] font-semibold">
                                 <span className="capitalize">{diaSemana(`${d}T12:00:00-03:00`)}</span> <span className="text-muted-foreground font-normal">{fecha(`${d}T12:00:00-03:00`)} · {lista.length}{lista.length === POR_PAGINA ? "+" : ""}</span>
                             </h2>
-                            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
-                                {lista.map((c) => {
-                                    const t = tonoFila(c.personas, c.limite);
-                                    return (
-                                        <button key={c.id} type="button" onClick={() => setAbierta({ foto: c.foto, t: c.t, fila: c.fila, personas: c.personas, limite: c.limite, canal: c.canal, titulo: "Captura" })}
-                                            className="group relative aspect-video rounded-[10px] overflow-hidden bg-black text-left focus-visible:ring-2 ring-ring">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img src={c.foto!} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
-                                            <div className="absolute inset-x-0 bottom-0 px-2 py-1.5 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-between text-white">
-                                                <span className="text-[11px] font-semibold tabular-nums">{horaSeg(c.t)}{filas.length > 1 && <span className="text-white/70 font-normal"> · {c.fila}</span>}</span>
-                                                <span className={cn("text-[11px] font-bold px-1.5 rounded-full border tabular-nums", `chip-${t}`)}>{c.personas}</span>
-                                            </div>
-                                        </button>
-                                    );
-                                })}
-                            </div>
+                            {vista === "bento" ? (
+                                // Bento: por cada hora, la foto con más gente va grande (2×2) y las demás chicas
+                                // alrededor. «dense» rellena los huecos: el día se lee como un mosaico, no una lista.
+                                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3 [grid-auto-flow:dense]">
+                                    {lista.map((c) => <Tesela key={c.id} c={c} grande={destacadas.has(c.id)} conFila={filas.length > 1} alAbrir={abrir} />)}
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
+                                    {lista.map((c) => <Tesela key={c.id} c={c} conFila={filas.length > 1} alAbrir={abrir} />)}
+                                </div>
+                            )}
                         </section>
                     ))}
                     {capturas.length < total && (
@@ -135,6 +150,24 @@ export default function CapturasFilasPage() {
             <CajonCaptura detalle={abierta} alCerrar={() => setAbierta(null)} />
             <CajonRetencion open={retencion} onOpenChange={setRetencion} />
         </div>
+    );
+}
+
+function Tesela({ c, grande, conFila, alAbrir }: { c: Lectura; grande?: boolean; conFila: boolean; alAbrir: (c: Lectura) => void }) {
+    const t = tonoFila(c.personas, c.limite);
+    return (
+        <button type="button" onClick={() => alAbrir(c)}
+            className={cn("group relative aspect-video rounded-[10px] overflow-hidden bg-black text-left focus-visible:ring-2 ring-ring",
+                grande && "col-span-2 row-span-2")}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={c.foto!} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+            <div className={cn("absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-between text-white", grande ? "px-3 py-2.5" : "px-2 py-1.5")}>
+                <span className={cn("font-semibold tabular-nums", grande ? "text-[13px]" : "text-[11px]")}>{horaSeg(c.t)}{conFila && <span className="text-white/70 font-normal"> · {c.fila}</span>}</span>
+                <span className={cn("font-bold rounded-full border tabular-nums", `chip-${t}`, grande ? "text-[13px] px-2 py-0.5" : "text-[11px] px-1.5")}>
+                    {c.personas}{grande && (c.personas === 1 ? " persona" : " personas")}
+                </span>
+            </div>
+        </button>
     );
 }
 
