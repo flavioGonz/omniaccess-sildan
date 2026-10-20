@@ -89,7 +89,8 @@ export async function demoraFila(deviceId: string, ahora = new Date()): Promise<
     const porMin = salidas15 / VENTANA_ESPERA_MIN;
     return {
         aforo, limite,
-        esperaMin: aforo != null && porMin > 0 ? Math.max(1, Math.round(aforo / porMin)) : null,
+        // Sin nadie en la fila no hay espera (antes decía «~1 min» con 0 personas).
+        esperaMin: aforo === 0 ? 0 : aforo != null && porMin > 0 ? Math.max(1, Math.round(aforo / porMin)) : null,
         entradas15, salidas15, sobreDesde, llenasHoy: llenas, picoHoy: pico, picoHoyA: picoA,
     };
 }

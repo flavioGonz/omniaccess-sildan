@@ -40,7 +40,26 @@ export function correspondeFoto(deviceId: string, canal: string | null | undefin
  * fotos. Es la red local de la cámara, la misma por la que ya viaja el video.
  */
 export async function cuadroBosch(cam: CamaraFila): Promise<Buffer | null> {
-    return (await pedirCuadro(cam, false)) || (await pedirCuadro(cam, true));
+    return (await pedirCuadro(cam, false)) || (await pedirCuadro(cam, true)) || (await cuadroGo2rtc(cam));
+}
+
+/**
+ * Último recurso: el cuadro desde go2rtc, que ya tiene abierta la sesión RTSP de la cámara. El 20/10
+ * a las 08:46 la Bosch no contestaba snap.jpg ni por HTTP ni por HTTPS mientras el video seguía
+ * andando: el servidor web de la cámara se traba y el RTSP no.
+ */
+const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
+async function cuadroGo2rtc(cam: CamaraFila): Promise<Buffer | null> {
+    for (const src of [`lpr_${cam.id}`, cam.ip ? `bosch_${cam.ip.replace(/\./g, "_")}` : ""]) {
+        if (!src) continue;
+        try {
+            const r = await fetch(`${GO2RTC}/api/frame.jpeg?src=${encodeURIComponent(src)}`, { cache: "no-store", signal: AbortSignal.timeout(TOPE_CUADRO_MS) });
+            if (!r.ok) continue;
+            const b = Buffer.from(await r.arrayBuffer());
+            if (b.length >= BYTES_MINIMOS) return b;
+        } catch { /* la siguiente */ }
+    }
+    return null;
 }
 
 /** Tope por HTTP: si no contesta rápido, se prueba HTTPS sin hacer esperar a la lectura de más. */

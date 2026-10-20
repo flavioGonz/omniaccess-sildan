@@ -62,7 +62,7 @@ async function estado(): Promise<RespuestaBot> {
         const d = await demoraFila(f.id);
         const ultimo = await prisma.queueEvent.findFirst({ where: { deviceId: f.id, NOT: { channelName: { in: [CANAL_ENTRADA, CANAL_SALIDA] } } }, orderBy: { timestamp: "desc" }, select: { timestamp: true } });
         const l = [`<b>${esc(f.name)}</b> · ${ESTADO(d.aforo, d.limite)}`, `👥 ${d.aforo ?? "—"} personas · límite ${d.limite}`];
-        l.push(d.esperaMin != null ? `⏳ Espera estimada ~${d.esperaMin} min` : `⏳ Sin salidas en ${VENTANA_ESPERA_MIN} min`);
+        l.push(d.esperaMin === 0 ? "⏳ Sin espera" : d.esperaMin != null ? `⏳ Espera estimada ~${d.esperaMin} min` : `⏳ Sin salidas en ${VENTANA_ESPERA_MIN} min`);
         if (d.sobreDesde) l.push(`⏱️ Sobre el límite desde las ${hhmm(d.sobreDesde)}`);
         l.push(`🚶 ${VENTANA_ESPERA_MIN} min: entraron ${d.entradas15} · atendidos ${d.salidas15}`);
         l.push(`<i>Último dato ${hace(ultimo?.timestamp)}</i>`);

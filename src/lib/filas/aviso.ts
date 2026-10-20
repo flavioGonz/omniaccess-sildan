@@ -35,7 +35,7 @@ export function textoAvisoFila(p: { fila: string; demora: DemoraFila; tipo: Tipo
         : `🟠 <b>${esc(p.fila)} — fila sobre el límite</b>`);
     lineas.push("");
     lineas.push(`👥 <b>${personas} personas</b> · límite ${d.limite}${sobran > 0 ? ` (+${sobran})` : ""}`);
-    lineas.push(d.esperaMin != null
+    lineas.push(d.esperaMin === 0 ? "⏳ Sin espera" : d.esperaMin != null
         ? `⏳ Espera estimada <b>~${d.esperaMin} min</b>`
         : `⏳ Espera estimada: sin salidas en ${VENTANA_ESPERA_MIN} min`);
     if (d.sobreDesde) {
