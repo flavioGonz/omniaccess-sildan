@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getChannelMap, resolveNvrById, type NvrConn } from "@/lib/nvr-resolve";
 import { configClips, nombreDeClip, type ConfigClip } from "@/lib/clips";
 import { cortarDesdeNvr } from "@/lib/clip-nvr";
+import { editarClip, cuandoLargo } from "@/lib/clip-editado";
 import { ventanaPlayback } from "@/lib/ventana-playback";
 import {
     AJUSTE_ALERTA_ANTES, AJUSTE_ALERTA_DESPUES, ALERTA_ANTES_POR_DEFECTO, ALERTA_DESPUES_POR_DEFECTO,
@@ -63,7 +64,9 @@ export type FuenteVideo =
     | { tipo: null; motivo: string };
 
 export type ResultadoClip =
-    | { ok: true; archivo: string; nombre: string; url: string; fuente: "nvr" | "anillo"; ventana: Ventana; bytes: number }
+    | { ok: true; archivo: string; nombre: string; url: string; fuente: "nvr" | "anillo"; ventana: Ventana; bytes: number;
+        /** Lleva la intro de OmniAccess (sólo lo que se manda a mano, con el logo prendido). */
+        editado?: boolean; ancho?: number; alto?: number; segundos?: number }
     | { ok: false; motivo: string; ventana: Ventana; fuente: "nvr" | "anillo" | null };
 
 const acotar = (v: unknown, def: number, max: number) => {
@@ -209,10 +212,11 @@ export async function clipDeInstante(p: { deviceId: string; instante: number; an
 
     let ok = false;
     let motivo = "";
+    // El clip que se manda a mano (WhatsApp o Telegram) lleva el logo y la intro; el de una alerta
+    // sigue su ajuste aparte. Con el logo apagado en Ajustes, ninguna de las dos cosas.
+    const marca = p.para === "envio" ? await marcaAgua() : null;
     if (fuente.tipo === "nvr") {
         const cfgCorte: ConfigClip = p.para === "alerta" ? { ...cfg, altura: ALTURA_ALERTA } : cfg;
-        // El clip que se manda a mano por WhatsApp lleva el logo; el de una alerta sigue su ajuste aparte.
-        const marca = p.para === "envio" ? await marcaAgua() : null;
         ok = await cortarDesdeNvr(fuente.conn, String(fuente.ch), inicioMs, (finMs - inicioMs) / 1000, destino, { cfg: cfgCorte, marcaAgua: marca, topeMs: marca ? 75_000 : undefined });
         if (!ok) motivo = "el grabador no entregó grabación de ese horario";
     } else {
@@ -227,5 +231,14 @@ export async function clipDeInstante(p: { deviceId: string; instante: number; an
         try { fs.unlinkSync(destino); } catch { }
         return { ok: false, motivo: motivo || "el clip salió vacío", ventana, fuente: fuente.tipo };
     }
-    return { ok: true, archivo: destino, nombre, url: `/api/clip/${nombre}`, fuente: fuente.tipo, ventana, bytes };
+    // La intro de OmniAccess (y el logo, si el corte no lo trae: el del anillo no lo dibuja). Si la
+    // edición falla, va el clip como salió del grabador: mejor sin intro que sin clip.
+    let edicion: { editado?: boolean; ancho?: number; alto?: number; segundos?: number } = {};
+    if (marca) {
+        const d = new Date(p.instante);
+        const e = await editarClip(destino, { titulo: dev?.name || "Cámara", lineas: [cuandoLargo(d), p.matricula ? `Matrícula ${p.matricula}` : ""], conMarca: fuente.tipo === "anillo" });
+        if (e.ok) { edicion = { editado: true, ancho: e.ancho, alto: e.alto, segundos: e.segundos }; try { bytes = fs.statSync(destino).size; } catch { } }
+        else console.warn(`[clip] sin intro (${dev?.name || p.deviceId}): ${e.motivo}`);
+    }
+    return { ok: true, archivo: destino, nombre, url: `/api/clip/${nombre}`, fuente: fuente.tipo, ventana, bytes, ...edicion };
 }

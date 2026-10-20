@@ -13,6 +13,7 @@ import { fecha, hora } from "@/lib/fechas";
 
 /**
  * Mandar por WhatsApp un clip de la grabación, desde el diálogo de descarga del playback.
+ * (El gemelo por Telegram está en actions/clips-telegram.)
  *
  * Los destinatarios sólo pueden ser gente que el sistema ya conoce: los destinatarios de
  * WhatsApp del Centro de Notificaciones y los usuarios/residentes con teléfono en su ficha.
@@ -20,8 +21,12 @@ import { fecha, hora } from "@/lib/fechas";
  * (tipo CLIP) con quién lo mandó, a quién y cómo terminó.
  */
 
-/** Cuánto espera el operador, como mucho: armar el clip (tiempo real del NVR) + mandarlo. */
-const TOPE_ENVIO_MS = 90_000;
+/**
+ * Cuánto espera el operador, como mucho: armar el clip (tiempo real del NVR) + la intro de
+ * OmniAccess (~10 s para un minuto de video, ver lib/clip-editado) + mandarlo. Eran 90 s antes
+ * de la intro; con ella un clip de 60 s quedaba justo en el borde.
+ */
+const TOPE_ENVIO_MS = 120_000;
 
 export type DestinatarioClip = { telefono: string; nombre: string; detalle: string; origen: "aviso" | "usuario"; habilitado: boolean };
 
@@ -71,7 +76,7 @@ export async function buscarDestinatariosClip(q: string): Promise<{ avisos: Dest
 }
 
 export type ResultadoEnvioClip =
-    | { ok: true; enviados: { telefono: string; nombre: string; ok: boolean; error?: string }[]; segundos: number; fuente: string }
+    | { ok: true; enviados: { telefono: string; nombre: string; ok: boolean; error?: string }[]; segundos: number; fuente: string; editado?: boolean }
     | { ok: false; error: string };
 
 export async function enviarClipPorWhatsApp(p: { deviceId: string; instante: number; antes: number; despues: number; telefonos: string[]; matricula?: string | null }): Promise<ResultadoEnvioClip> {
@@ -117,11 +122,11 @@ export async function enviarClipPorWhatsApp(p: { deviceId: string; instante: num
         await cerrar(fallidos.length === enviados.length ? "FAILED" : "SENT",
             fallidos.length ? `no llegó a ${fallidos.map((f) => `${f.nombre} (${f.error})`).join(", ")}` : null,
             { enviados, fuente: clip.fuente, ventana: clip.ventana });
-        return { ok: true, enviados, segundos: clip.ventana.antes + clip.ventana.despues, fuente: clip.fuente };
+        return { ok: true, enviados, segundos: clip.ventana.antes + clip.ventana.despues, fuente: clip.fuente, editado: !!clip.editado };
     })();
-    const tope = new Promise<ResultadoEnvioClip>((r) => setTimeout(() => r({ ok: false, error: "Se pasó el tiempo de espera (90 s). Mirá Despachos: puede haber salido igual." }), TOPE_ENVIO_MS));
+    const tope = new Promise<ResultadoEnvioClip>((r) => setTimeout(() => r({ ok: false, error: `Se pasó el tiempo de espera (${TOPE_ENVIO_MS / 1000} s). Mirá Despachos: puede haber salido igual.` }), TOPE_ENVIO_MS));
     const r = await Promise.race([trabajo, tope]);
-    if (!r.ok && r.error.startsWith("Se pasó")) await cerrar("FAILED", "tope de 90 s");
+    if (!r.ok && r.error.startsWith("Se pasó")) await cerrar("FAILED", `tope de ${TOPE_ENVIO_MS / 1000} s`);
     return r;
 }
 
