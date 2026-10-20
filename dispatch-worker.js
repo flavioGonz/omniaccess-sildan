@@ -546,6 +546,78 @@ async function handle(job) {
     }
 }
 
+// ── Bot de Telegram de las filas (HB, 20/10) ───────────────────────────────
+// Lee los comandos del grupo (getUpdates, sondeo largo) y le pregunta a la web qué contestar
+// (/api/filas/bot, lib/filas/bot): /estado, /foto, /video, /hoy, /pronostico, /ayuda. Sólo en una
+// instalación con Filas y bot configurado, y sólo contesta en el grupo de Ajustes (TELEGRAM_CHAT_ID):
+// lo que muestra (fotos de una sala de espera) no puede salir a quien encuentre el bot.
+const BOT_ESPERA_LARGA_S = 25;          // getUpdates espera hasta esto por un mensaje nuevo
+const BOT_MENSAJE_VIEJO_S = 120;        // al arrancar se ignoran comandos de hace más de esto
+const BOT_PAUSA_SIN_CONFIG_MS = 60_000; // sin bot configurado (o sin Filas), se vuelve a mirar cada minuto
+function telegramGet(token, metodo, qs, tope) {
+    return new Promise((resolve) => {
+        const req = https.request(`https://api.telegram.org/bot${token}/${metodo}?${qs || ""}`, { method: "GET", timeout: tope || 15000 },
+            (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve({ ok: false }); } }); });
+        req.on("error", () => resolve({ ok: false })); req.on("timeout", () => { req.destroy(); resolve({ ok: false }); }); req.end();
+    });
+}
+function telegramPost(token, metodo, cuerpo) {
+    return new Promise((resolve) => {
+        const body = JSON.stringify(cuerpo);
+        const req = https.request(`https://api.telegram.org/bot${token}/${metodo}`, { method: "POST", headers: { "Content-Type": "application/json" }, timeout: 15000 },
+            (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode === 200, body: d })); });
+        req.on("error", (e) => resolve({ ok: false, body: e.message })); req.on("timeout", () => { req.destroy(); resolve({ ok: false, body: "timeout" }); });
+        req.write(body); req.end();
+    });
+}
+function preguntarAlPanel(texto) {
+    return new Promise((resolve) => {
+        const data = JSON.stringify({ texto });
+        const req = http.request({ hostname: "127.0.0.1", port: 10001, path: "/api/filas/bot", method: "POST", timeout: 60000, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) } },
+            (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve({ texto: "El panel no contestó bien." }); } }); });
+        req.on("error", () => resolve({ texto: "El panel no está contestando." }));
+        req.on("timeout", () => { req.destroy(); resolve({ texto: "El panel tardó demasiado." }); });
+        req.write(data); req.end();
+    });
+}
+let botMenuPuesto = null;
+async function cicloBot(offset) {
+    const [token, chat, filas] = await Promise.all([getSetting("TELEGRAM_BOT_TOKEN", process.env.TELEGRAM_BOT_TOKEN), getSetting("TELEGRAM_CHAT_ID", process.env.TELEGRAM_CHAT_ID), getSetting("MODULE_QUEUE", "false")]);
+    if (!token || !chat || filas !== "true") { await sleep(BOT_PAUSA_SIN_CONFIG_MS); return offset; }
+    if (botMenuPuesto !== token) {
+        // El menú de comandos que muestra Telegram (lo mismo que /ayuda).
+        const r = await new Promise((resolve) => http.get("http://127.0.0.1:10001/api/filas/bot", (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } }); }).on("error", () => resolve(null)));
+        if (r && r.comandos) { const ok = await telegramPost(token, "setMyCommands", { commands: r.comandos.map((c) => ({ command: c.comando, description: c.descripcion })) }); if (ok.ok) botMenuPuesto = token; }
+    }
+    const qs = `timeout=${BOT_ESPERA_LARGA_S}&allowed_updates=${encodeURIComponent('["message"]')}${offset ? `&offset=${offset}` : ""}`;
+    const u = await telegramGet(token, "getUpdates", qs, (BOT_ESPERA_LARGA_S + 10) * 1000);
+    if (!u || !u.ok) { await sleep(5000); return offset; }
+    for (const up of u.result || []) {
+        offset = up.update_id + 1;
+        const m = up.message;
+        if (!m || typeof m.text !== "string" || !m.text.startsWith("/")) continue;
+        if (Date.now() / 1000 - m.date > BOT_MENSAJE_VIEJO_S) continue;
+        if (String(m.chat.id) !== String(chat).trim()) {
+            if (m.chat.type === "private") await telegramPost(token, "sendMessage", { chat_id: m.chat.id, text: "Este bot contesta sólo en el grupo de la instalación." });
+            continue;
+        }
+        console.log(`[bot] ${m.from && (m.from.username || m.from.first_name)}: ${m.text}`);
+        await telegramPost(token, "sendChatAction", { chat_id: chat, action: "typing" });
+        const r = await preguntarAlPanel(m.text);
+        if (!r || r.ignorar) continue;
+        let env = null;
+        const extra = { reply_to_message_id: String(m.message_id) };
+        if (r.foto) env = await telegramSubir(token, chat, "sendPhoto", "photo", Buffer.from(r.foto, "base64"), "foto.jpg", "image/jpeg", r.texto, extra);
+        else if (r.video) { let b = null; try { b = fs.readFileSync(path.join(DIR_CLIPS, r.video)); } catch {} if (b) env = await telegramSubir(token, chat, "sendVideo", "video", b, r.video, "video/mp4", r.texto, { ...extra, supports_streaming: "true" }); }
+        if (!env || !env.ok) await telegramPost(token, "sendMessage", { chat_id: chat, text: r.texto || "—", parse_mode: "HTML", reply_to_message_id: m.message_id, disable_web_page_preview: true });
+    }
+    return offset;
+}
+(async function botFilas() {
+    let offset = 0;
+    for (;;) { try { offset = await cicloBot(offset); } catch (e) { console.error("[bot] " + ((e && e.message) || e)); await sleep(5000); } }
+})();
+
 const worker = new Worker("dispatch", handle, { connection, concurrency: 4 });
 
 // ── Clip sweeper: descarta clips generados viejos (robusto ante reinicios) ──
