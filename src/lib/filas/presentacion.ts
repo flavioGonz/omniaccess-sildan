@@ -4,6 +4,7 @@ import path from "path";
 import { spawn } from "child_process";
 import sharp from "sharp";
 import { enMontevideo } from "@/lib/filas/horario";
+import { ARCHIVO_MARCA_AGUA, MARCA_AGUA_ANCHO, MARCA_AGUA_MARGEN } from "@/lib/clips";
 
 /**
  * La marca de OmniAccess en lo que sale por Telegram y WhatsApp (HB, 20/10, Nico: «a los videos
@@ -14,9 +15,10 @@ import { enMontevideo } from "@/lib/filas/horario";
  *   · presentación animada de PRESENTACION_SEG: el isotipo se dibuja (los anillos y el paso), entra
  *     la marca, y después los datos del momento — fila, estado, personas contra límite, espera,
  *     fecha y hora — en escalera; cruza con fundido al video;
- *   · durante el video, una franja inferior con la fila, el momento y el logo (abajo: arriba están
- *     la fecha y el logo que sobreimprime la propia cámara);
- *   · la foto: las personas que vio la cámara dibujadas, y una franja con la cuenta.
+ *   · durante el video, una franja inferior con la fila y el momento, y la marca de agua de
+ *     OmniAccess en el ángulo inferior derecho (arriba están la fecha y el logo de la cámara);
+ *   · la foto: las personas que vio la cámara dibujadas, una franja con la cuenta y la misma marca
+ *     de agua abajo a la derecha.
  *
  * Los cuadros se dibujan como SVG con sharp (que no lee variables CSS: los colores van escritos,
  * son los del isotipo, public/omniaccess-mark.svg) y los junta ffmpeg. La tipografía es Outfit
@@ -123,7 +125,7 @@ ${filaTxt(5, y0 + 214, `<text x="388" y="__Y__" font-family="${FUENTE}" font-siz
 </svg>`;
 }
 
-/** La franja de abajo durante el video, con el logo a la derecha (PNG con transparencia). */
+/** La franja de abajo durante el video (PNG con transparencia; la marca de agua se le compone encima). */
 function franja(d: DatosMarca): string {
     const tono = tonoDe(d), col = C[tono];
     const { fecha, hora } = fechaHora(d.momento);
@@ -133,8 +135,23 @@ function franja(d: DatosMarca): string {
 <rect x="0" y="${ALTO - 70}" width="${ANCHO}" height="70" fill="url(#sombra)"/>
 <rect x="18" y="${ALTO - 40}" width="4" height="22" rx="2" fill="${col}"/>
 <text x="32" y="${ALTO - 23}" font-family="${FUENTE}" font-size="16" font-weight="700" fill="${C.tinta}">${txt}</text>
-<g opacity=".95">${isotipo(ANCHO - 140, ALTO - 46, 0.42, 1)}<text x="${ANCHO - 110}" y="${ALTO - 23}" font-family="${FUENTE}" font-size="15" font-weight="700" fill="${C.tinta}">OmniAccess</text></g>
 </svg>`;
+}
+
+/**
+ * La marca de agua de OmniAccess (public/marca-agua-omniaccess.png, el logo con su placa) en el
+ * ángulo inferior derecho, como pidió Nico (20/10): en el video y en la foto. Mismo tamaño relativo
+ * que la de las alertas de WhatsApp (MARCA_AGUA_ANCHO y MARGEN de lib/clips).
+ */
+export async function marcaDeAgua(W: number, H: number): Promise<sharp.OverlayOptions[]> {
+    try {
+        const fp = path.join(/* turbopackIgnore: true */ process.cwd(), "public", ARCHIVO_MARCA_AGUA);
+        if (!fs.existsSync(fp)) return [];
+        const ancho = Math.round(W * MARCA_AGUA_ANCHO), margen = Math.round(W * MARCA_AGUA_MARGEN);
+        const logo = await sharp(fp).resize({ width: ancho }).png().toBuffer();
+        const alto = (await sharp(logo).metadata()).height || 0;
+        return [{ input: logo, left: W - ancho - margen, top: Math.max(0, H - alto - margen) }];
+    } catch { return []; }
 }
 
 function ffmpeg(args: string[], topeMs = TOPE_FFMPEG_MS): Promise<boolean> {
@@ -158,7 +175,7 @@ export async function videoConMarca(clip: string, d: DatosMarca): Promise<string
         const n = Math.round(PRESENTACION_SEG * FPS);
         await Promise.all(Array.from({ length: n }, (_, i) =>
             sharp(Buffer.from(cuadro(d, i / FPS))).png().toFile(path.join(tmp, `c${String(i).padStart(3, "0")}.png`))));
-        await sharp(Buffer.from(franja(d))).png().toFile(path.join(tmp, "franja.png"));
+        await sharp(Buffer.from(franja(d))).composite(await marcaDeAgua(ANCHO, ALTO)).png().toFile(path.join(tmp, "franja.png"));
         const salida = clip.replace(/\.mp4$/i, "") + "_omni.mp4";
         // El grafo se arma con un arreglo y join en tiempo de ejecución: armado con plantillas
         // concatenadas, el compilador de Next lo plegó mal en el build de HB (se comió el tramo
@@ -230,5 +247,5 @@ ${isotipo(14, (alto - 44) / 2, 44 / 64, 1)}
   <text x="0" y="${alto * 0.82}" text-anchor="end" font-family="${FUENTE}" font-size="${Math.round(alto * 0.2)}" font-weight="600" fill="${C.tinta}">${sub}</text>
 </g>
 </svg>`;
-    return sharp(data).composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).jpeg({ quality: 84 }).toBuffer();
+    return sharp(data).composite([{ input: Buffer.from(svg), top: 0, left: 0 }, ...(await marcaDeAgua(W, H))]).jpeg({ quality: 84 }).toBuffer();
 }

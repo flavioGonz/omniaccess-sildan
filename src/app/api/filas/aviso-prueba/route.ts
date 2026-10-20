@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     if (!dev) return NextResponse.json({ ok: false, error: "No hay contadores de fila" }, { status: 404 });
     const ultimo = await prisma.queueEvent.findFirst({ where: { deviceId: dev.id, NOT: { channelName: { in: ["Entrada", "Salida"] } } }, orderBy: { timestamp: "desc" }, select: { peopleCount: true, snapshotPath: true } });
     const limite = await limiteDeFila(dev.id);
-    const n = await avisarFila({
+    const n = await avisarFila({ forzar: true,
         deviceId: dev.id, alerta: "Prueba del aviso", personas: ultimo?.peopleCount ?? 0, limite,
         snapshotPath: ultimo?.snapshotPath || null, tipo: q.get("tipo") === "escalamiento" ? "escalamiento" : "lleno", canal: "Aforo",
     });

@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
-import { contestar, COMANDOS } from "@/lib/filas/bot";
+import { contestar, boton, COMANDOS } from "@/lib/filas/bot";
 
 /**
  * POST /api/filas/bot { texto } → { texto, foto?, video? } — lo que el bot de Telegram contesta a un
@@ -12,7 +12,11 @@ import { contestar, COMANDOS } from "@/lib/filas/bot";
  */
 export async function POST(req: NextRequest) {
     const b = await req.json().catch(() => ({}));
-    try { return NextResponse.json((await contestar(String(b?.texto || ""))) || { ignorar: true }); }
+    try {
+        // { accion, usuario }: un botón tocado (callback_query); { texto }: un comando escrito.
+        const r = b?.accion ? await boton(String(b.accion), String(b.usuario || "Alguien")) : await contestar(String(b?.texto || ""));
+        return NextResponse.json(r || { ignorar: true });
+    }
     catch (e: any) { return NextResponse.json({ texto: `No pude contestar: ${e?.message || e}` }); }
 }
 

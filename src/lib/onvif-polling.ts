@@ -19,6 +19,7 @@ import { sendWebPushToAll } from "@/lib/webpush";
 import { pushVigente } from "@/lib/filas/push";
 import { fotoDeLectura, cuadroBosch } from "@/lib/filas/foto";
 import { avisarFila } from "@/lib/filas/avisar";
+import { acuseDesde } from "@/lib/filas/acuses";
 
 // ─── Types ─────────────────────────────────────────
 interface ONVIFSubscription {
@@ -727,6 +728,11 @@ async function checkQueueAlerts(deviceId: string, channelName: string | null | u
         if (sustainedMin >= escalateMin && !escalatedEpisode.has(ekey)) {
             escalatedEpisode.add(ekey);
             const mins = Math.round(sustainedMin);
+            // «Lo atiendo» desde Telegram después de que empezó este episodio: alguien ya se ocupa,
+            // no se le avisa al supervisor (lib/filas/acuses).
+            const acuse = await acuseDesde(deviceId, new Date(overThresholdSince.get(ekey) as number)).catch(() => null);
+            if (acuse) console.log(`[QueueAlert] "${alert.name}" sin escalar: lo atiende ${acuse.quien}`);
+            else {
             console.log(`[QueueAlert] 🔴 ESCALATION "${alert.name}" sustained ${mins}min >= threshold ${alert.threshold}`);
             try {
                 const dev = await prisma.device.findUnique({ where: { id: deviceId }, select: { name: true } });
@@ -740,6 +746,7 @@ async function checkQueueAlerts(deviceId: string, channelName: string | null | u
                 // Critical-event trigger: enqueue an episode report for dispatch
                 enqueueDispatch({ type: "REPORT", channel: "telegram", deviceId, payload: { period: "daily", deviceId, reason: "escalation", ruleName: alert.name } }).catch(() => {});
             } catch (e) { console.warn(`[QueueAlert] escalation dispatch failed "${alert.name}":`, e); }
+            }
         }
 
         if (alert.lastFiredAt) {

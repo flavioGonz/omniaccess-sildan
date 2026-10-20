@@ -3,6 +3,8 @@ import { enqueueDispatch } from "@/lib/dispatch-queue";
 import { demoraFila } from "@/lib/filas/demora";
 import { textoAvisoFila, textoPlano, type TipoAviso } from "@/lib/filas/aviso";
 import { AVISO_CLIP_ANTES_SEG, AVISO_CLIP_DESPUES_SEG } from "@/lib/filas/constantes";
+import { silencioHasta } from "@/lib/filas/acuses";
+import { botonesAviso } from "@/lib/filas/bot";
 
 /**
  * Manda el aviso de fila sobre el límite por la cola de despachos: al grupo de Telegram de
@@ -21,8 +23,15 @@ import { AVISO_CLIP_ANTES_SEG, AVISO_CLIP_DESPUES_SEG } from "@/lib/filas/consta
 export async function avisarFila(p: {
     deviceId: string; alerta: string; personas: number; limite: number;
     snapshotPath?: string | null; tipo: TipoAviso; canal?: string | null;
+    /** El aviso de prueba sale aunque estén silenciados: es para ver cómo queda. */
+    forzar?: boolean;
 }): Promise<number> {
     const ahora = new Date();
+    // «Silenciar 30 min» desde Telegram: no sale nada hasta esa hora (el panel sigue mostrando la fila).
+    if (!p.forzar) {
+        const sil = await silencioHasta();
+        if (sil) { console.log(`[aviso-fila] silenciado hasta ${sil.toISOString()}: no se manda`); return 0; }
+    }
     const [dev, demora, destinatarios, grupo] = await Promise.all([
         prisma.device.findUnique({ where: { id: p.deviceId }, select: { name: true } }),
         demoraFila(p.deviceId, ahora),
@@ -37,6 +46,8 @@ export async function avisarFila(p: {
         html, text: textoPlano(html), aviso: p.tipo,
         conVideo: true, clipAntes: AVISO_CLIP_ANTES_SEG, clipDespues: AVISO_CLIP_DESPUES_SEG,
         instante: ahora.toISOString(), timestamp: ahora.toISOString(), alertTs: ahora.getTime(),
+        // Botones del aviso (Lo atiendo, Foto, Video, Gráfica, Silenciar): sólo los usa Telegram.
+        botones: botonesAviso(p.deviceId),
         esperaMin: demora.esperaMin, sobreDesde: demora.sobreDesde?.toISOString() || null,
     };
 

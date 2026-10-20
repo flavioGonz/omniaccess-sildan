@@ -445,13 +445,17 @@ async function handle(job) {
                     `📍 ${p.deviceName || "Fila"} · ${p.channelName || "Aforo"}\n` +
                     `Valor <b>${p.count}</b> (umbral ${p.threshold})`
                 );
+                // Los botones del aviso (Lo atiendo, Foto, Video, Gráfica, Silenciar) sólo en el grupo: el
+                // bot contesta únicamente ahí, y en otro chat el botón quedaría tocándose sin respuesta.
+                const grupo = String(await getSetting("TELEGRAM_CHAT_ID", process.env.TELEGRAM_CHAT_ID) || "").trim();
+                const tecl = (p.botones && String(chat).trim() === grupo) ? { reply_markup: teclado(p.botones) } : {};
                 let r;
                 if (clip) {
                     // El clip SUBIDO (sendVideo): se reproduce en el chat sin bajarlo, y no depende de
                     // que Telegram alcance esta instalación desde internet.
                     let buf = null;
                     try { buf = fs.readFileSync(path.join(DIR_CLIPS, clip.nombre)); } catch {}
-                    if (buf) r = await telegramSubir(token, chat, "sendVideo", "video", buf, clip.nombre, "video/mp4", htmlText, { supports_streaming: "true" });
+                    if (buf) r = await telegramSubir(token, chat, "sendVideo", "video", buf, clip.nombre, "video/mp4", htmlText, { supports_streaming: "true", ...tecl });
                     if (r && !r.ok) console.error("[tg-video] sendVideo: " + String(r.body || "").slice(0, 300));
                     if (!r || !r.ok) r = await telegramSendAnimation(token, chat, firmarUrl(base.replace(/\/+$/, "") + "/api/clip/" + clip.nombre), htmlText);
                     if (!r || !r.ok) notaVideo = "sin video: Telegram rechazó el clip (" + String((r && r.body) || "").slice(0, 80) + ")";
@@ -460,12 +464,16 @@ async function handle(job) {
                     // La foto, también subida (la de la lectura, o el cuadro de ahora).
                     const imgPath = fotoParaEnviar(p, dj);
                     const b64 = imgPath ? await fetchLocalBase64(imgPath) : null;
-                    if (b64) r = await telegramSubir(token, chat, "sendPhoto", "photo", Buffer.from(b64, "base64"), "foto.jpg", "image/jpeg", htmlText);
+                    if (b64) r = await telegramSubir(token, chat, "sendPhoto", "photo", Buffer.from(b64, "base64"), "foto.jpg", "image/jpeg", htmlText, tecl);
                     if (!r || !r.ok) {
                         const img = imageUrlFor(base, p.snapshotPath, dj.deviceId);
                         r = img ? await telegramSendPhoto(token, chat, img, htmlText) : await telegramSend(token, chat, htmlText);
                     }
                     if (!r.ok) r = await telegramSend(token, chat, htmlText);
+                }
+                // Si salió por un camino sin botones (por URL), los botones van en un mensaje aparte.
+                if (r.ok && tecl.reply_markup && !/"reply_markup"/.test(String(r.body || ""))) {
+                    await telegramPost(token, "sendMessage", { chat_id: chat, text: "¿Qué hacemos?", reply_markup: JSON.parse(tecl.reply_markup) });
                 }
                 if (!r.ok) throw new Error("Telegram: " + r.body);
             } else if (dj.channel === "whatsapp") {
@@ -600,9 +608,13 @@ function telegramPost(token, metodo, cuerpo) {
         req.write(body); req.end();
     });
 }
-function preguntarAlPanel(texto) {
+/** Los botones del panel ({t, d}) en el formato de Telegram (inline_keyboard), como texto JSON. */
+function teclado(filas) {
+    return JSON.stringify({ inline_keyboard: filas.map((f) => f.map((b) => ({ text: b.t, callback_data: b.d }))) });
+}
+function preguntarAlPanel(cuerpo) {
     return new Promise((resolve) => {
-        const data = JSON.stringify({ texto });
+        const data = JSON.stringify(typeof cuerpo === "string" ? { texto: cuerpo } : cuerpo);
         const req = http.request({ hostname: "127.0.0.1", port: 10001, path: "/api/filas/bot", method: "POST", timeout: 60000, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) } },
             (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve({ texto: "El panel no contestó bien." }); } }); });
         req.on("error", () => resolve({ texto: "El panel no está contestando." }));
@@ -619,11 +631,12 @@ async function cicloBot(offset) {
         const r = await new Promise((resolve) => http.get("http://127.0.0.1:10001/api/filas/bot", (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } }); }).on("error", () => resolve(null)));
         if (r && r.comandos) { const ok = await telegramPost(token, "setMyCommands", { commands: r.comandos.map((c) => ({ command: c.comando, description: c.descripcion })) }); if (ok.ok) botMenuPuesto = token; }
     }
-    const qs = `timeout=${BOT_ESPERA_LARGA_S}&allowed_updates=${encodeURIComponent('["message"]')}${offset ? `&offset=${offset}` : ""}`;
+    const qs = `timeout=${BOT_ESPERA_LARGA_S}&allowed_updates=${encodeURIComponent('["message","callback_query"]')}${offset ? `&offset=${offset}` : ""}`;
     const u = await telegramGet(token, "getUpdates", qs, (BOT_ESPERA_LARGA_S + 10) * 1000);
     if (!u || !u.ok) { await sleep(5000); return offset; }
     for (const up of u.result || []) {
         offset = up.update_id + 1;
+        if (up.callback_query) { await botonTocado(token, chat, up.callback_query); continue; }
         const m = up.message;
         if (!m || typeof m.text !== "string" || !m.text.startsWith("/")) continue;
         if (Date.now() / 1000 - m.date > BOT_MENSAJE_VIEJO_S) continue;
@@ -635,13 +648,49 @@ async function cicloBot(offset) {
         await telegramPost(token, "sendChatAction", { chat_id: chat, action: "typing" });
         const r = await preguntarAlPanel(m.text);
         if (!r || r.ignorar) continue;
-        let env = null;
-        const extra = { reply_to_message_id: String(m.message_id) };
-        if (r.foto) env = await telegramSubir(token, chat, "sendPhoto", "photo", Buffer.from(r.foto, "base64"), "foto.jpg", "image/jpeg", r.texto, extra);
-        else if (r.video) { let b = null; try { b = fs.readFileSync(path.join(DIR_CLIPS, r.video)); } catch {} if (b) env = await telegramSubir(token, chat, "sendVideo", "video", b, r.video, "video/mp4", r.texto, { ...extra, supports_streaming: "true" }); }
-        if (!env || !env.ok) await telegramPost(token, "sendMessage", { chat_id: chat, text: r.texto || "—", parse_mode: "HTML", reply_to_message_id: m.message_id, disable_web_page_preview: true });
+        await responder(token, chat, r, m.message_id);
     }
     return offset;
+}
+/** Manda la respuesta del panel: foto, video o texto, con sus botones, como respuesta a `aMensaje`. */
+async function responder(token, chat, r, aMensaje) {
+    let env = null;
+    const extra = { reply_to_message_id: String(aMensaje), allow_sending_without_reply: "true" };
+    if (r.botones) extra.reply_markup = teclado(r.botones);
+    if (r.foto) env = await telegramSubir(token, chat, "sendPhoto", "photo", Buffer.from(r.foto, "base64"), r.foto.startsWith("iVBOR") ? "grafica.png" : "foto.jpg", r.foto.startsWith("iVBOR") ? "image/png" : "image/jpeg", r.texto, extra);
+    else if (r.video) {
+        await telegramPost(token, "sendChatAction", { chat_id: chat, action: "upload_video" });
+        let b = null; try { b = fs.readFileSync(path.join(DIR_CLIPS, r.video)); } catch {}
+        if (b) env = await telegramSubir(token, chat, "sendVideo", "video", b, r.video, "video/mp4", r.texto, { ...extra, supports_streaming: "true" });
+    }
+    if (!env || !env.ok) await telegramPost(token, "sendMessage", { chat_id: chat, text: r.texto || "—", parse_mode: "HTML", reply_to_message_id: aMensaje, allow_sending_without_reply: true, disable_web_page_preview: true, ...(r.botones ? { reply_markup: JSON.parse(extra.reply_markup) } : {}) });
+}
+/**
+ * Un botón tocado (callback_query). Telegram muestra un relojito en el botón hasta que se contesta
+ * answerCallbackQuery, así que se contesta siempre, también cuando no corresponde.
+ */
+async function botonTocado(token, chat, q) {
+    const msg = q.message;
+    if (!msg || String(msg.chat.id) !== String(chat).trim()) { await telegramPost(token, "answerCallbackQuery", { callback_query_id: q.id, text: "Este bot contesta sólo en el grupo de la instalación." }); return; }
+    const quien = (q.from && ([q.from.first_name, q.from.last_name].filter(Boolean).join(" ") || q.from.username)) || "Alguien";
+    console.log(`[bot] ${quien} tocó ${q.data}`);
+    // Las consultas pesadas (video) tardan: primero se apaga el relojito, después se contesta.
+    const pesada = /^(video|foto|grafica)/.test(String(q.data || ""));
+    if (pesada) await telegramPost(token, "answerCallbackQuery", { callback_query_id: q.id, text: "Preparando…" });
+    const r = await preguntarAlPanel({ accion: q.data, usuario: quien });
+    if (!pesada) await telegramPost(token, "answerCallbackQuery", { callback_query_id: q.id, text: (r && r.aviso) || "" });
+    if (!r || r.ignorar) return;
+    if (r.quitarBoton && msg.reply_markup && msg.reply_markup.inline_keyboard) {
+        // «Lo atiendo» desaparece del aviso: ya lo tomó alguien, y queda a la vista quién.
+        const filas = msg.reply_markup.inline_keyboard.map((f) => f.filter((b) => b.callback_data !== r.quitarBoton)).filter((f) => f.length);
+        await telegramPost(token, "editMessageReplyMarkup", { chat_id: chat, message_id: msg.message_id, reply_markup: { inline_keyboard: filas } });
+    }
+    if (r.editar && typeof msg.text === "string" && !r.foto && !r.video) {
+        const e = await telegramPost(token, "editMessageText", { chat_id: chat, message_id: msg.message_id, text: r.texto, parse_mode: "HTML", disable_web_page_preview: true, ...(r.botones ? { reply_markup: JSON.parse(teclado(r.botones)) } : {}) });
+        // «message is not modified»: no cambió nada desde la última vez; no hace falta otro mensaje.
+        if (e.ok || /not modified/.test(String(e.body || ""))) return;
+    }
+    await responder(token, chat, r, msg.message_id);
 }
 (async function botFilas() {
     let offset = 0;
