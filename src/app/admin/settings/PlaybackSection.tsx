@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import EntregaClips from "./EntregaClips";
 import VentanaAlerta from "./VentanaAlerta";
+import VentanaFicha from "./VentanaFicha";
 import MarcaAgua from "./MarcaAgua";
 import { getSetting, updateSetting } from "@/app/actions/settings";
 import {
@@ -113,6 +114,8 @@ export default function PlaybackSection() {
                     </div>
                 </div>
             )}
+            {/* El video que arranca solo al abrir la ficha de una detección (lib/clip-evento). */}
+            <VentanaFicha />
             {/* El logo de OmniAccess en la foto de las alertas y en el clip mandado a mano. */}
             <MarcaAgua />
             {/* El clip que lleva un aviso: ventana propia, más corta (cada segundo es demora del aviso).

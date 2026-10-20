@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Activity, Camera, Check, ChevronLeft, ChevronRight, Crop, Download, Film, Image as ImageIcon, Loader2, Maximize2, PlayCircle, Scan, ScanSearch, Search, Server, Share2, Sparkles, X } from "lucide-react";
 import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
-import { useClipEvento, CLIP_ANTES_S } from "@/lib/clip-evento";
+import { useClipEvento } from "@/lib/clip-evento";
 import { hace } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
@@ -469,7 +469,7 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
             .then((x) => (x.ok ? x.json() : null)).then((j) => { if (vivo && j?.siluetas?.[r.id]) setSilueta(j.siluetas[r.id]); }).catch(() => { });
         return () => { vivo = false; };
     }, [r.id, r.foto]);
-    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible } = useClipEvento({ id: `parecido-${r.id}`, deviceId: r.deviceId, instante: r.primeraVez, activo: !!r.deviceId && modo === "foto" });
+    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible, ventana: ventanaFicha } = useClipEvento({ id: `parecido-${r.id}`, deviceId: r.deviceId, instante: r.primeraVez, activo: !!r.deviceId && modo === "foto" });
     const enVideo = clipOn && clip.estado === "listo" && clipVisible && modo === "foto";
     const rel = max > min ? (r.coseno - min) / (max - min) : 1;
     const p = parecido(rel);
@@ -574,7 +574,7 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
                             <button type="button" onClick={() => cambiarClip(false)} aria-pressed={!clipOn}
                                 className={cn("h-7 px-3 rounded-full inline-flex items-center gap-1.5", !clipOn ? "bg-white text-black" : "text-white/75 hover:text-white")}><ImageIcon size={12} /> Foto</button>
                             <button type="button" onClick={() => cambiarClip(true)} aria-pressed={clipOn}
-                                title={clip.estado === "sin" ? `Sin video: ${clip.motivo}` : `Los ${CLIP_ANTES_S} s de antes, en loop`}
+                                title={clip.estado === "sin" ? `Sin video: ${clip.motivo}` : `Los ${ventanaFicha.antes} s de antes, en loop`}
                                 className={cn("h-7 px-3 rounded-full inline-flex items-center gap-1.5", clipOn ? "bg-white text-black" : "text-white/75 hover:text-white")}>
                                 {clipOn && clip.estado === "cargando" ? <Loader2 size={12} className="animate-spin" /> : <Film size={12} />}
                                 {clipOn && clip.estado === "sin" ? "Sin video" : clipOn && clip.estado === "cargando" ? "Video…" : "Video"}

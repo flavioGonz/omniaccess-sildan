@@ -1,6 +1,6 @@
 "use client";
 
-import { useClipEvento, CLIP_ANTES_S } from "@/lib/clip-evento";
+import { useClipEvento } from "@/lib/clip-evento";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Check, ChevronLeft, ChevronRight, Clock, Cctv, Eye, EyeOff, ImageOff, Loader2, PlayCircle, Radar,
@@ -205,7 +205,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
             {nota.guardada ? "Ver nota" : "Nota"}{nota.guardada && !verNota && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accion-en-oscuro)]" />}
         </BotonDecision>
     ) : null;
-    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible } = useClipEvento({
+    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible, ventana: ventanaFicha } = useClipEvento({
         id: cur.id, deviceId: cur.deviceId, instante: cur.timestamp, nvrId: cam?.nvrId ?? null, ch: cur.ch ?? cam?.ch ?? null, activo: real,
     });
     const enVideo = clipOn && clip.estado === "listo" && clipVisible && !enPropio;
@@ -329,14 +329,14 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                             )}
                             {real && cur.deviceId && (
                                 <BotonArriba activo={clipOn} onClick={() => cambiarClip(!clipOn)}
-                                    title={!clipOn ? `Ver en loop los ${CLIP_ANTES_S} s antes de la foto  ( C )`
+                                    title={!clipOn ? `Ver en loop los ${ventanaFicha.antes} s antes de la foto  ( C )`
                                         : clip.estado === "sin" ? `Sin clip: ${clip.motivo}. Tocá para ver sólo la foto  ( C )`
-                                            : clip.estado === "cargando" ? "Trayendo el clip del grabador…  ( C )" : `Clip en loop: ${CLIP_ANTES_S} s antes de la foto. Tocá para ver sólo la foto  ( C )`}>
+                                            : clip.estado === "cargando" ? "Trayendo el clip del grabador…  ( C )" : `Clip en loop: ${ventanaFicha.antes} s antes de la foto. Tocá para ver sólo la foto  ( C )`}>
                                     {clipOn && clip.estado === "cargando" ? <Loader2 size={15} className="animate-spin" /> : <Repeat size={15} />}
                                     {clipOn && clip.estado === "sin" && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--aviso)] ring-2 ring-black/60" />}
                                 </BotonArriba>
                             )}
-                            {enVideo && <span className="text-[11px] font-semibold text-white/70 visor-sombra-texto tabular-nums">En loop · {CLIP_ANTES_S} s antes</span>}
+                            {enVideo && <span className="text-[11px] font-semibold text-white/70 visor-sombra-texto tabular-nums">En loop · {ventanaFicha.antes} s antes</span>}
                             {clipOn && clip.estado === "sin" && <span className="text-[11px] text-white/50 visor-sombra-texto max-w-[220px] truncate" title={clip.motivo}>Sin clip: {clip.motivo}</span>}
                         </div>
                     </div>

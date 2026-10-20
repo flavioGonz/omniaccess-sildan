@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Speech, Siren, ShieldAlert, Eye, Hand, ArrowRightLeft, Check, X, Power, History, Volume2, VolumeX, SlidersHorizontal, ChevronUp, ChevronDown, UserRound, Loader2, Radar, ScanEye, Repeat, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import { useFuncion } from "@/lib/funciones-cliente";
 import {
     useAvisos, avisoVigente, usePrefsAvisos, cambiarPrefs, pitidoAviso, useDestrabarAudio, leerAvisos,
     FONDO_TIPO, TIPOS_APAGABLES, type Aviso, type AccionAviso, type TipoAviso,
@@ -238,30 +240,36 @@ function AjustesAvisos({ alCerrar, abajo }: { alCerrar: () => void; abajo?: bool
         return () => { window.removeEventListener("pointerdown", fuera); window.removeEventListener("keydown", esc); };
     }, [alCerrar]);
     const alternar = (t: TipoAviso) => cambiarPrefs({ apagados: prefs.apagados.includes(t) ? prefs.apagados.filter((x) => x !== t) : [...prefs.apagados, t] });
+    // «En búsqueda» es una función de LPR que se apaga (Ajustes → Modos): apagada, no hay nada que silenciar.
+    const busqueda = useFuncion("LPR_BUSQUEDA");
+    const tipos = TIPOS_APAGABLES.filter((t) => t !== "busqueda" || busqueda === true);
     return (
-        <div ref={ref} className={cn("absolute right-0 z-[2390] w-[260px]", abajo ? "top-10" : "bottom-10", " rounded-[14px] bg-popover text-popover-foreground border border-border shadow-2xl p-3")}>
-            <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Saltan en esta pantalla</div>
-            <div className="space-y-1">
-                {TIPOS_APAGABLES.map((t) => {
-                    const on = !prefs.apagados.includes(t);
-                    return (
-                        <button key={t} type="button" onClick={() => alternar(t)} aria-pressed={on} className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] hover:bg-muted text-left">
-                            <span className="w-3 h-3 rounded-full shrink-0" style={{ background: FONDO_TIPO[t].fondo }} />
-                            <span className="flex-1 text-[13px]">{FONDO_TIPO[t].nombre}</span>
-                            <span className={cn("text-[11px] font-semibold", on ? "tono-bien" : "text-muted-foreground")}>{on ? "Sí" : "No"}</span>
-                        </button>
-                    );
-                })}
+        <div ref={ref} className={cn("absolute right-0 z-[2390] w-[280px]", abajo ? "top-10" : "bottom-10", " rounded-[14px] bg-popover text-popover-foreground border border-border shadow-2xl p-3")}>
+            <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1.5 px-2">Saltan en esta pantalla</div>
+            <div>
+                {tipos.map((t) => (
+                    <FilaInterruptor key={t} prendido={!prefs.apagados.includes(t)} onCambio={() => alternar(t)}
+                        icono={<span className="w-2.5 h-2.5 rounded-full" style={{ background: FONDO_TIPO[t].fondo }} />} texto={FONDO_TIPO[t].nombre} />
+                ))}
             </div>
-            <button type="button" onClick={() => cambiarPrefs({ voz: !prefs.voz })} className="mt-2 w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] hover:bg-muted text-left border-t border-border pt-2.5">
-                <Speech size={14} /><span className="flex-1 text-[13px]">Leer en voz alta</span>
-                <span className={cn("text-[11px] font-semibold", prefs.voz ? "tono-bien" : "text-muted-foreground")}>{prefs.voz ? "Sí" : "No"}</span>
-            </button>
-            <button type="button" onClick={() => cambiarPrefs({ silencio: !prefs.silencio })} className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] hover:bg-muted text-left">
-                {prefs.silencio ? <VolumeX size={14} /> : <Volume2 size={14} />}<span className="flex-1 text-[13px]">Sonido</span>
-                <span className={cn("text-[11px] font-semibold", prefs.silencio ? "text-muted-foreground" : "tono-bien")}>{prefs.silencio ? "Apagado" : "Prendido"}</span>
-            </button>
-            <p className="mt-2 text-[11px] text-muted-foreground leading-snug">Lista negra e intrusión saltan siempre. Lo apagado acá sigue en Gestión de alarmas. Vale para este navegador.</p>
+            <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mt-3 mb-1.5 px-2 pt-2.5 border-t border-border">Cómo avisan</div>
+            <FilaInterruptor prendido={prefs.voz} onCambio={() => cambiarPrefs({ voz: !prefs.voz })} icono={<Speech size={14} />} texto="Leer en voz alta" />
+            <FilaInterruptor prendido={!prefs.silencio} onCambio={() => cambiarPrefs({ silencio: !prefs.silencio })} icono={prefs.silencio ? <VolumeX size={14} /> : <Volume2 size={14} />} texto="Sonido" />
+            <p className="mt-2 px-2 text-[11px] text-muted-foreground leading-snug">Lista negra e intrusión saltan siempre. Lo apagado acá sigue en Gestión de alarmas. Vale para este navegador.</p>
         </div>
+    );
+}
+
+/**
+ * Un renglón con interruptor (20/10, Nico: «deben ser toggle buttons»): antes era un texto «Sí / No»
+ * que no se leía como algo que se toca. Todo el renglón es el blanco; el interruptor dice el estado.
+ */
+function FilaInterruptor({ prendido, onCambio, icono, texto }: { prendido: boolean; onCambio: () => void; icono: ReactNode; texto: string }) {
+    return (
+        <label className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] hover:bg-muted cursor-pointer select-none">
+            <span className="w-4 grid place-items-center shrink-0 text-muted-foreground">{icono}</span>
+            <span className={cn("flex-1 text-[13px]", !prendido && "text-muted-foreground")}>{texto}</span>
+            <Switch checked={prendido} onCheckedChange={onCambio} aria-label={texto} className="data-[state=checked]:bg-[var(--accion)]" />
+        </label>
     );
 }

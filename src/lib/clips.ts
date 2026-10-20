@@ -85,6 +85,18 @@ export const ALERTA_ANTES_MAX = 15;
 export const ALERTA_DESPUES_MAX = 15;
 
 /**
+ * Ventana del video que arranca solo al abrir la ficha de una detección (el clip en loop sobre la
+ * foto, lib/clip-evento). 20/10, Nico: «poder indicarle cuánto tiempo antes y después para ese video
+ * que se auto carga al abrir la ficha». Era 4 s antes y 1 s después escrito en el código. Comparte los
+ * topes de la alerta porque sale por el mismo corte (/api/clip/instante, para «alerta») y por la misma
+ * razón: el grabador entrega a tiempo real, así que cada segundo es espera con la ficha abierta.
+ */
+export const AJUSTE_FICHA_ANTES = "FICHA_CLIP_ANTES_SEG";
+export const AJUSTE_FICHA_DESPUES = "FICHA_CLIP_DESPUES_SEG";
+export const FICHA_ANTES_POR_DEFECTO = 4;
+export const FICHA_DESPUES_POR_DEFECTO = 1;
+
+/**
  * Tope del clip que un operador manda por WhatsApp. El NVR entrega la grabación a tiempo real
  * (medido el 7/10: 10 s de video tardan ~11 s en salir, sea copy o transcode), y el operador
  * espera con el diálogo abierto; un minuto es lo que se banca esperar.

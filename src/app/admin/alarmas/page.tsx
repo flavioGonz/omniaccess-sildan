@@ -7,7 +7,7 @@ import {
     Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers, Loader2, NotebookPen, Image as ImageIcon,
     Activity,
 } from "lucide-react";
-import { useClipEvento, CLIP_ANTES_S } from "@/lib/clip-evento";
+import { useClipEvento } from "@/lib/clip-evento";
 import { Pestanias, type Pestania } from "@/components/ui/pestanias";
 import { Tooltip } from "react-tooltip";
 import "react-tooltip/dist/react-tooltip.css";
@@ -457,10 +457,10 @@ function Foto({ src, clip }: { src: string | null; clip?: { id: string | null; d
                 <span role="button" tabIndex={0} aria-pressed={c.clipOn}
                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); c.cambiarClip(!c.clipOn); }}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); c.cambiarClip(!c.clipOn); } }}
-                    title={!c.clipOn ? `Ver en loop los ${CLIP_ANTES_S} s antes de la foto` : c.clip.estado === "sin" ? `Sin video: ${c.clip.motivo}. Tocá para ver sólo la foto` : c.clip.estado === "listo" ? "Video del evento en loop. Tocá para ver sólo la foto" : "Trayendo el video del grabador…"}
+                    title={!c.clipOn ? `Ver en loop los ${c.ventana.antes} s antes de la foto` : c.clip.estado === "sin" ? `Sin video: ${c.clip.motivo}. Tocá para ver sólo la foto` : c.clip.estado === "listo" ? "Video del evento en loop. Tocá para ver sólo la foto" : "Trayendo el video del grabador…"}
                     className="absolute top-2.5 left-2.5 z-[2] h-7 pl-2 pr-2.5 rounded-full bg-black/55 hover:bg-black/75 text-white/90 inline-flex items-center gap-1.5 text-[11px] font-semibold tabular-nums cursor-pointer">
                     {!c.clipOn ? <><ImageIcon size={13} /> Foto</>
-                        : enVideo ? <><span className="w-1.5 h-1.5 rounded-full bg-[var(--accion-en-oscuro)]" /><Repeat size={13} /> {CLIP_ANTES_S} s antes</>
+                        : enVideo ? <><span className="w-1.5 h-1.5 rounded-full bg-[var(--accion-en-oscuro)]" /><Repeat size={13} /> {c.ventana.antes} s antes</>
                             : c.clip.estado === "sin" ? <><ImageIcon size={13} /> Sin video</>
                                 : <><Loader2 size={13} className="animate-spin" /> Video…</>}
                 </span>

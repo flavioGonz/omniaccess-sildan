@@ -5,7 +5,7 @@ import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, reclasificarComoFalsa, marcarDeteccion, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
 import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Eye, ScanEye, UserX, CircleDashed, Layers, Repeat, Image as ImageIcon } from "lucide-react";
-import { useClipEvento, CLIP_ANTES_S } from "@/lib/clip-evento";
+import { useClipEvento } from "@/lib/clip-evento";
 import { cn } from "@/lib/utils";
 import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 import { InteriorCalibrator } from "@/components/InteriorCalibrator";
@@ -777,7 +777,7 @@ function SeleccionDeteccion({ d, cam, alFicha, alVivo, alGrabacion, alCerrar }: 
 }) {
     const [ok, setOk] = useState(true);
     useEffect(() => { setOk(true); }, [d?.id]);
-    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible } = useClipEvento({
+    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible, ventana: ventanaFicha } = useClipEvento({
         id: d?.id, deviceId: d?.deviceId, instante: d?.timestamp, nvrId: cam?.nvrId ?? null, ch: (d as any)?.ch ?? cam?.ch ?? null,
         activo: !!d && !String(d.id).startsWith("live-"),
     });
@@ -801,12 +801,12 @@ function SeleccionDeteccion({ d, cam, alFicha, alVivo, alGrabacion, alCerrar }: 
                 {d.deviceId && !String(d.id).startsWith("live-") && (
                     <button type="button" onClick={() => cambiarClip(!clipOn)} aria-pressed={clipOn}
                         data-tooltip-id="mi-tip"
-                        data-tooltip-content={!clipOn ? `Ver en loop los ${CLIP_ANTES_S} s antes de la foto`
+                        data-tooltip-content={!clipOn ? `Ver en loop los ${ventanaFicha.antes} s antes de la foto`
                             : clip.estado === "sin" ? `Sin video: ${clip.motivo}. Tocá para ver sólo la foto`
-                                : clip.estado === "listo" ? `Video del evento en loop (${CLIP_ANTES_S} s antes). Tocá para ver sólo la foto` : "Trayendo el video del grabador…"}
+                                : clip.estado === "listo" ? `Video del evento en loop (${ventanaFicha.antes} s antes). Tocá para ver sólo la foto` : "Trayendo el video del grabador…"}
                         className="absolute top-2 left-2 h-7 pl-2 pr-2.5 rounded-full bg-black/55 hover:bg-black/75 text-white/90 inline-flex items-center gap-1.5 text-[11px] font-semibold tabular-nums">
                         {!clipOn ? <><ImageIcon size={13} /> Foto</>
-                            : enVideo ? <><span className="w-1.5 h-1.5 rounded-full bg-[var(--accion-en-oscuro)]" /><Repeat size={13} /> {CLIP_ANTES_S} s antes</>
+                            : enVideo ? <><span className="w-1.5 h-1.5 rounded-full bg-[var(--accion-en-oscuro)]" /><Repeat size={13} /> {ventanaFicha.antes} s antes</>
                                 : clip.estado === "sin" ? <><ImageIcon size={13} /> Sin video</>
                                     : <><Loader2 size={13} className="animate-spin" /> Video…</>}
                     </button>

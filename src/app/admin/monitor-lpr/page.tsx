@@ -565,95 +565,6 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
 });
 
 
-/** Mini-ventanas apiladas abajo a la derecha con las lecturas anómalas.
- *  Quedan FIJAS hasta que el guardia cierra cada una (o todas). */
-/**
- * Lecturas para revisar (sin lectura, desconocidas): un CONTADOR, no una pila de ventanas (20/10,
- * Nico, unificar los avisos). Eran cuatro tarjetas amarillas fijas abajo a la derecha que se
- * comían la pantalla y casi nunca eran urgentes; lo urgente (lista negra, merodeo, intrusión) va a
- * la pila de avisos. Ahora es una píldora con la cuenta que se despliega al tocarla.
- */
-function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any[]; onDismiss: (id: string) => void; onClear: () => void; onRegister: (p?: string) => void }) {
-    const comp = useContext(ComportamientoCtx);
-    const relMap = useContext(RelecturasCtx);
-    const [abierta, setAbierta] = useState(false);
-    useEffect(() => { if (!items.length) setAbierta(false); }, [items.length]);
-    if (!items.length) return null;
-    if (!abierta) return (
-        <button type="button" onClick={() => setAbierta(true)} title="Ver las lecturas para revisar"
-            className="fixed bottom-4 right-4 z-[400] h-9 pl-3 pr-3.5 rounded-full bg-card border border-border shadow-lg inline-flex items-center gap-2 text-[12.5px] font-semibold">
-            <AlertTriangle size={14} className="tono-aviso" /> <span className="tabular-nums">{items.length}</span> {items.length === 1 ? "lectura para revisar" : "lecturas para revisar"}
-        </button>
-    );
-    return (
-        <div className="fixed bottom-4 right-4 z-[400] w-[340px] max-w-[92vw] flex flex-col gap-2 pointer-events-none">
-            <div className="flex items-center justify-between px-1 pointer-events-auto">
-                <button type="button" onClick={() => setAbierta(false)} className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider tono-aviso" title="Plegar">
-                    <AlertTriangle size={13} /> Lecturas para revisar · {items.length}
-                </button>
-                <button onClick={onClear} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground bg-card border border-border rounded px-2 py-0.5">Cerrar todas</button>
-            </div>
-            <div className="flex flex-col gap-2 pr-0.5 pointer-events-auto">
-                {items.slice(0, 4).map((ev) => {
-                    const plate = (ev.plateDetected || "").toUpperCase();
-                    const anomalous = !ev.plateDetected || ["NO_LEIDA", "UNKNOWN", "S/P"].includes(plate);
-                    const watch = ev.watch;
-                    const watchMeta = watch ? watchCatMeta(watch.category) : null;
-                    const tipo = tipoDeteccion(ev, watch, comp);
-                    const img = getImagePath(ev.snapshotPath || ev.imagePath) || "";
-                    const dir = ev.direction;
-                    const isBlack = tipo?.key === "negra";
-                    return (
-                        <div key={ev.id} className={cn(
-                            "relative rounded-xl border bg-card shadow-2xl overflow-hidden animate-in slide-in-from-right-4 duration-200",
-                            isBlack ? "border-red-500/60 ring-2 ring-red-500/40" : anomalous ? "border-yellow-500/50" : "border-border"
-                        )}>
-                            <button onClick={() => onDismiss(ev.id)} title="Cerrar" className="absolute top-1.5 right-1.5 z-10 h-6 w-6 rounded-md bg-black/50 hover:bg-black/70 text-white/80 hover:text-white flex items-center justify-center backdrop-blur"><X size={13} /></button>
-                            <VisorEventoAcceso event={!ev.relectura && relMap[ev.id] ? { ...ev, relectura: relMap[ev.id] } : ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
-                                <div className="flex gap-2.5 p-2.5 cursor-pointer">
-                                    <div className="w-24 h-16 rounded-lg overflow-hidden shrink-0 border border-border">
-                                        <SmartThumb src={img} w={240} className="w-full h-full" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            {anomalous && chapaDe(ev.plateDetected, ev.relectura || relMap[ev.id]).omni ? (
-                                                <span className="inline-flex items-center gap-1.5"><span className="font-mono text-sm font-bold tracking-wider text-foreground">{textoChapa(chapaDe(ev.plateDetected, ev.relectura || relMap[ev.id]))}</span><MarcaOmniVision r={ev.relectura || relMap[ev.id]} tamano="xs" /></span>
-                                            ) : anomalous ? (
-                                                <span className="inline-flex items-center gap-1 text-xs font-bold text-yellow-300"><AlertTriangle size={12} /> SIN LECTURA</span>
-                                            ) : (
-                                                <span className="inline-flex items-center gap-1.5"><span className="font-mono text-sm font-bold tracking-wider text-foreground">{ev.plateDetected}</span><MarcaVerificacion plate={ev.plateDetected} r={ev.relectura || relMap[ev.id]} tamano="xs" /></span>
-                                            )}
-                                            <Badge className={cn("text-[8px] px-1 py-0", dir === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>{dir === "EXIT" ? "SALIDA" : "ENTRADA"}</Badge>
-                                        </div>
-                                        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                                            {watchMeta
-                                                ? <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchMeta.badge)}><ShieldAlert size={9} /> {watchMeta.label.toUpperCase()}</span>
-                                                : tipo && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
-                                            {ev.user?.name && <span className="text-[10px] text-blue-400 truncate max-w-[120px]">{ev.user.name}</span>}
-                                        </div>
-                                        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                                            <TimeAgo timestamp={ev.timestamp} />
-                                            {ev.device?.name && <span className="truncate">· {ev.device.name}</span>}
-                                        </div>
-                                    </div>
-                                </div>
-                            </VisorEventoAcceso>
-                        </div>
-                    );
-                })}
-            </div>
-            {items.length > 4 && (
-                <div className="relative h-8 mt-0.5 pointer-events-auto">
-                    <div className="absolute inset-x-3 top-2 h-7 rounded-xl bg-card/50 border border-border" />
-                    <div className="absolute inset-x-1.5 top-1 h-7 rounded-xl bg-card/75 border border-border" />
-                    <div className="absolute inset-x-0 top-0 h-8 rounded-xl bg-card border border-border shadow-lg flex items-center justify-center gap-1.5 text-[11px] font-bold text-muted-foreground">
-                        <AlertTriangle size={12} className="text-yellow-400" /> +{items.length - 4} en cola
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
 
 /**
  * Una columna del monitor: todo lo de un sentido.
@@ -790,14 +701,6 @@ export default function MonitorLPR() {
         getAnalyticsGeometryBatch([fichaDet.deviceId]).then((g) => setGeomDet(g?.[fichaDet.deviceId!])).catch(() => { });
     }, [fichaDet?.deviceId]);
     const pendingRef = useRef<any[]>([]);
-    // Lecturas anómalas fijadas (sin lectura / lista negra / lista blanca / vigilancia):
-    // quedan como mini-ventanas apiladas abajo hasta que el guardia las cierra.
-    const [pinned, setPinned] = useState<any[]>([]);
-    const dismissedRef = useRef<Set<string>>(new Set()); // ids que el guardia cerró: no reaparecen
-    const dismissPin = useCallback((id: string) => { dismissedRef.current.add(id); setPinned(p => p.filter(x => x.id !== id)); }, []);
-    // Toggle del popup automático de lecturas anómalas — DESHABILITADO por defecto.
-    const [pinEnabled, setPinEnabled] = useState(false);
-    useEffect(() => { if (!pinEnabled) { setPinned([]); dismissedRef.current.clear(); } }, [pinEnabled]);
 
     const lastEntry = events.find(e => e.direction === 'ENTRY');
     const lastExit = events.find(e => e.direction === 'EXIT');
@@ -1012,23 +915,6 @@ export default function MonitorLPR() {
         const role = String(e.user?.role || "").toUpperCase();
         return cat === "negra" || cat === "blacklisted" || role === "BLACKLISTED";
     }, [watchMap]);
-    const esAnomala = useCallback((e: any) => {
-        const plate = (e.plateDetected || "").toUpperCase();
-        if (plate === "DOOR_OPEN" || plate === "DOOR_CLOSE") return false;
-        if (esNegra(e)) return false; // la lista negra va al stack CRÍTICO, no al de anomalías
-        const anomalous = !e.plateDetected || ["NO_LEIDA", "UNKNOWN", "S/P"].includes(plate);
-        const role = (e.user?.role || "").toUpperCase();
-        return anomalous || !!e.watch || role === "WHITELISTED" || !!e.user?.vip;
-    }, [esNegra]);
-    useEffect(() => {
-        if (!pinEnabled) return;
-        setPinned((prev) => {
-            const seen = new Set(prev.map((x) => x.id));
-            const nuevos = events.filter((e) => esAnomala(e) && !seen.has(e.id) && !dismissedRef.current.has(e.id));
-            if (!nuevos.length) return prev;
-            return [...nuevos, ...prev].slice(0, 24);
-        });
-    }, [pinEnabled, events, esAnomala]);
 
     const vehFacets = useMemo(() => collectVehicleFacets(events as any[]), [events]);
     const filteredEvents = useMemo(() => {
@@ -1156,11 +1042,6 @@ export default function MonitorLPR() {
                                 <ShieldAlert size={15} /><span className="hidden 2xl:inline">Lista negra</span>
                                 {Object.keys(watchMap).length > 0 && <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full pleno-mal text-[9px] font-bold flex items-center justify-center tabular-nums">{Object.keys(watchMap).length}</span>}
                             </button>
-                            <button onClick={() => setPinEnabled(v => !v)} title={pinEnabled ? "Lecturas para revisar (sin lectura, desconocidas): se cuentan abajo a la derecha" : "Lecturas para revisar: apagadas"} aria-pressed={pinEnabled}
-                                aria-label="Ventanitas de anomalías"
-                                className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", pinEnabled ? "bg-background tono-aviso" : "text-muted-foreground hover:text-foreground hover:bg-background")}>
-                                <AlertTriangle size={15} />
-                            </button>
                             {/* Qué avisos saltan y la lectura en voz alta (la pila de avisos, components/avisos). */}
                             <IconosAvisosMonitor />
                             <button onClick={() => setSilencioAvisos(!silencioAvisos)} title={soundOn ? "Silenciar alertas" : "Activar sonido"} aria-pressed={!soundOn}
@@ -1196,7 +1077,6 @@ export default function MonitorLPR() {
                 {plazasOn && <CajonPlaza plate={plazaDe} onClose={() => setPlazaDe(null)}
                     onRegistrar={(p) => { setPlazaDe(null); openRegister(p); }}
                     alCambiar={() => getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => { })} />}
-                <PinnedAnomalies items={pinned} onDismiss={dismissPin} onClear={() => setPinned([])} onRegister={openRegister} />
                 {/* Registrar pregunta primero qué es la matrícula (persona del barrio o seguimiento)
                     y recién ahí abre el cajón que corresponde. Antes abría el alta vieja de persona. */}
                 <RegistrarMatricula plate={registerOpen ? registerInit?.plate || null : null}
