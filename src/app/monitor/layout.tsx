@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { MarcoMonitor } from "@/components/monitor/MarcoMonitor";
 import AlertaIntrusionGlobal from "@/components/intrusion/AlertaIntrusionGlobal";
+import { PilaAvisos } from "@/components/avisos/PilaAvisos";
+import { AvisosLpr } from "@/components/avisos/AvisosLpr";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion, puedeAbrir } from "@/lib/permisos";
 
@@ -24,6 +26,9 @@ export default async function MonitorLayout({ children }: { children: React.Reac
         <MarcoMonitor puedeDecidir={puedeDecidir}>
             {children}
             <AlertaIntrusionGlobal soloLectura decide={puedeDecidir} />
+            {/* En la pared, sólo lo crítico (lista negra) y sin botones: no hay sesión para decidir. */}
+            <AvisosLpr soloLectura />
+            <PilaAvisos soloCriticos />
         </MarcoMonitor>
     );
 }

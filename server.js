@@ -2911,6 +2911,8 @@ async function checkMerodeo(plate, device, event, logPrefix) {
     if (global.io) {
         global.io.emit('merodeo_alert', {
             plate: clean, count, windowMin: cfg.windowMin, distinctDevices,
+            // La lectura que lo disparó: con ella el aviso abre su ficha y se modera (l:<evento>) como cualquier alarma LPR.
+            accessEventId: event.id,
             deviceName: (device && device.name) || null,
             snapshotPath: event.snapshotPath || null,
             direction: event.direction, timestamp: new Date().toISOString(),

@@ -54,6 +54,8 @@ import { hasAcuSeekNvr } from "@/app/actions/acuseek";
 import { logout } from "@/app/actions/auth";
 import AforoAlertOverlay from "@/components/AforoAlertOverlay";
 import AlertaIntrusionGlobal from "@/components/intrusion/AlertaIntrusionGlobal";
+import { PilaAvisos } from "@/components/avisos/PilaAvisos";
+import { AvisosLpr } from "@/components/avisos/AvisosLpr";
 import { CargarMarcasCamara } from "@/components/CargarMarcasCamara";
 import { VivoProvider } from "@/components/vivo/PanelVivo";
 
@@ -380,6 +382,9 @@ export default function AdminLayout({
             {modulosListos && modules.MODULE_QUEUE && <AforoAlertOverlay />}
             {/* Intrusión confirmada por una cámara: respira en rojo en TODA la aplicación hasta que alguien decida real / falsa. */}
             <AlertaIntrusionGlobal />
+            {/* Los avisos de toda la app, en una sola pila abajo al centro (20/10): intrusión, lista negra, merodeo, patrones y OmniVision. */}
+            <AvisosLpr />
+            <PilaAvisos />
             <CargarMarcasCamara />
             <LiveEdgeKeeper />
 

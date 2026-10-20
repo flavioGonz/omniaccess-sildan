@@ -33,6 +33,7 @@ import { getAnalyticsGeometryBatch, marcarDeteccion } from "@/app/actions/detect
 import type { Geom } from "@/components/intrusion/comun";
 import type { Presencia, AutoAdentro, ResidenteAdentro, VisitaAdentro, ClasePresencia, Atipico } from "@/lib/presencia";
 import { ComportamientoDeChapa } from "@/components/visor/PanelComportamiento";
+import { BotonAjustesAvisos } from "@/components/avisos/PilaAvisos";
 
 /**
  * Gestión de alarmas (16/10, Nico): «un panel de gestión centralizado de todos los tipos de
@@ -109,6 +110,9 @@ function GestionAlarmas() {
     useTiempoReal("visita", latir);
 
     const [sel, setSel] = useState<string | null>(null);
+    // ?id=a:<aviso> | l:<lectura> | d:<detección>: la alarma que se abrió desde la pila de avisos.
+    const pedidaId = sp.get("id");
+    useEffect(() => { if (pedidaId) setSel(pedidaId); }, [pedidaId]);
     const [hecho, setHecho] = useState<{ texto: string; deshacer?: () => void } | null>(null);
     const [fallo, setFallo] = useState<string | null>(null);
     const [ocupado, setOcupado] = useState<string | null>(null);
@@ -340,6 +344,7 @@ function GestionAlarmas() {
                         </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                        <BotonAjustesAvisos />
                         <span className={cn("inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg bg-muted/60 text-[12px] font-semibold", conectado ? "tono-bien" : "text-muted-foreground")} title={conectado ? "Las alarmas llegan en tiempo real" : "Sin tiempo real: se actualiza cada 20 s"}>
                             <Circle size={7} className={cn("fill-current", conectado && "animate-pulse")} /> {conectado ? "En vivo" : "Cada 20 s"}
                         </span>
