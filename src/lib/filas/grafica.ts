@@ -9,7 +9,8 @@ import { marcaDeAgua } from "@/lib/filas/presentacion";
  * «Gráfica»). Mismo cálculo que el Pronóstico (aforo ponderado por tiempo cada 15 min) y los
  * colores del isotipo: sharp no lee variables CSS, por eso van escritos.
  */
-const W = 1200, H = 620, IZQ = 70, DER = 30, ARR = 110, ABA = 60;
+// ABA deja lugar abajo para la marca de agua (lib/filas/presentacion): con 60 tapaba las horas.
+const W = 1200, H = 720, IZQ = 70, DER = 30, ARR = 110, ABA = 160;
 const C = { fondo: "#0b1220", linea: "#1e293b", tenue: "#94a3b8", tinta: "#f8fafc", acc: "#3b82f6", acc2: "#22d3ee", mal: "#ef4444" };
 const FUENTE = "Outfit, 'DejaVu Sans', sans-serif";
 
@@ -40,7 +41,7 @@ ${[0, 0.5, 1].map((g) => `<line x1="${IZQ}" x2="${W - DER}" y1="${y(max * g)}" y
 <text x="${W - DER}" y="${y(limite) - 8}" text-anchor="end" font-family="${FUENTE}" font-size="15" font-weight="700" fill="${C.mal}">límite ${limite}</text>
 ${area ? `<path d="${area}" fill="url(#ar)"/><path d="${linea("max")}" fill="none" stroke="${C.acc}" stroke-width="3" stroke-linejoin="round"/><path d="${linea("prom")}" fill="none" stroke="${C.acc2}" stroke-width="2" stroke-dasharray="6 5"/>` : `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-family="${FUENTE}" font-size="22" fill="${C.tenue}">Todavía no hay datos hoy</text>`}
 <line x1="${x(kAhora)}" x2="${x(kAhora)}" y1="${ARR}" y2="${y(0)}" stroke="${C.tenue}" stroke-dasharray="3 4"/>
-${etiquetas.map((k) => `<text x="${x(k)}" y="${H - 26}" text-anchor="middle" font-family="${FUENTE}" font-size="15" fill="${C.tenue}">${hhmmDeTramo(k)}</text>`).join("")}
+${etiquetas.map((k) => `<text x="${x(k)}" y="${y(0) + 28}" text-anchor="middle" font-family="${FUENTE}" font-size="15" fill="${C.tenue}">${hhmmDeTramo(k)}</text>`).join("")}
 <g font-family="${FUENTE}" font-size="15" fill="${C.tenue}"><rect x="${W - 330}" y="40" width="18" height="4" fill="${C.acc}"/><text x="${W - 304}" y="47">pico de cada 15 min</text><rect x="${W - 150}" y="40" width="18" height="4" fill="${C.acc2}"/><text x="${W - 124}" y="47">promedio</text></g>
 </svg>`;
     // La misma marca de agua que las fotos y los videos: todo lo que sale por Telegram lleva el sello.
