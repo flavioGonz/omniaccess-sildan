@@ -50,13 +50,19 @@ import { cn } from "@/lib/utils";
  * campos y dos columnas cómodas hay un caso intermedio: campos más algo para MIRAR, como
  * un plano o una foto, que en 448 px queda apretado y en 672 sobra.
  */
+/*
+ * HB, 19/10: Nico pidió los cajones «no tan anchos, más estilizados». Con 576/672 px un
+ * formulario de una columna dejaba una banda de aire muerto a la derecha (lo que el comentario
+ * de arriba ya advertía) y los chips se desparramaban en renglones largos que costaba barrer.
+ * Se bajó un escalón cada ancho; `ancho` queda igual porque ahí adentro va una tabla.
+ */
 const ANCHOS = {
     /** Una sola columna de campos. */
-    angosto: "sm:max-w-md",
+    angosto: "sm:max-w-[400px]",
     /** Campos y algo para mirar: un plano, una foto. */
-    intermedio: "sm:max-w-xl",
+    intermedio: "sm:max-w-[460px]",
     /** Dos columnas de campos. */
-    medio: "sm:max-w-2xl",
+    medio: "sm:max-w-[540px]",
     /** Una tabla o una grilla adentro. */
     ancho: "sm:max-w-5xl",
 } as const;
@@ -108,8 +114,11 @@ function CajonContenido({
             <DialogPrimitive.Content
                 data-slot="cajon-content"
                 className={cn(
-                    "fixed inset-y-0 right-0 z-[calc(var(--capa-panel)+1)] w-full flex flex-col bg-background border-l border-border",
-                    "shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.45)]",
+                    "fixed inset-y-0 right-0 z-[calc(var(--capa-panel)+1)] w-full flex flex-col bg-background border-l border-border overflow-hidden",
+                    /* Despegado del borde y con radio de lo que flota: así se lee como una hoja
+                       apoyada sobre la pantalla y no como otra columna de la página. Al flotar de
+                       verdad, lleva la sombra flotante — la única que corresponde. */
+                    "sm:inset-y-2 sm:right-2 sm:rounded-[14px] sm:border shadow-[var(--sombra-flotante)]",
                     "data-[state=open]:animate-in data-[state=closed]:animate-out",
                     "data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right",
                     "duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
@@ -123,14 +132,14 @@ function CajonContenido({
                         {descripcion && <DialogPrimitive.Description className="sr-only">{descripcion}</DialogPrimitive.Description>}
                     </>
                 ) : (
-                <div className="shrink-0 flex items-start gap-3 px-6 pt-5 pb-4 border-b border-border">
+                <div className="shrink-0 flex items-start gap-3 px-5 pt-4 pb-3.5 border-b border-border">
                     <div className="min-w-0 flex-1">
-                        <DialogPrimitive.Title className={cn("text-[17px] font-bold text-foreground truncate",
+                        <DialogPrimitive.Title className={cn("text-[16px] font-bold tracking-[-0.01em] text-foreground truncate",
                             tituloOculto && "sr-only")}>
                             {titulo}
                         </DialogPrimitive.Title>
                         {descripcion && (
-                            <DialogPrimitive.Description className={cn("text-[12.5px] text-muted-foreground mt-0.5",
+                            <DialogPrimitive.Description className={cn("text-[12px] text-muted-foreground mt-0.5",
                                 tituloOculto && "sr-only")}>
                                 {descripcion}
                             </DialogPrimitive.Description>
@@ -151,7 +160,7 @@ function CajonContenido({
                 <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
 
                 {pie && (
-                    <div className="shrink-0 flex items-center justify-end gap-2 px-6 py-4 border-t border-border bg-card/40">
+                    <div className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card/40">
                         {pie}
                     </div>
                 )}
@@ -202,7 +211,7 @@ function CajonSeccion({ titulo, ayuda, pista, icono: Icono, children, className,
     const [abierta, setAbierta] = React.useState(!plegable || abiertaAlInicio);
     if (plegable && titulo) {
         return (
-            <section className={cn("px-6 border-b border-border last:border-0", compacta ? "py-5" : abierta ? "py-8" : "py-5", className)}>
+            <section className={cn("px-5 border-b border-border last:border-0", compacta ? "py-4" : abierta ? "py-6" : "py-4", className)}>
                 <button type="button" onClick={() => setAbierta((v) => !v)} aria-expanded={abierta}
                     className="w-full flex items-center gap-2 text-left group">
                     <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground group-hover:text-foreground">
@@ -220,7 +229,7 @@ function CajonSeccion({ titulo, ayuda, pista, icono: Icono, children, className,
         );
     }
     return (
-        <section className={cn("px-6 border-b border-border last:border-0", compacta ? "py-5" : "py-8", className)}>
+        <section className={cn("px-5 border-b border-border last:border-0", compacta ? "py-4" : "py-6", className)}>
             {/* Título vacío = no hay rótulo. Pasa cuando el encabezado del cajón ya dice de
                 qué es la hoja: repetirlo abajo con otras palabras hace leer dos veces lo
                 mismo antes de llegar a lo único que hay para hacer. */}
