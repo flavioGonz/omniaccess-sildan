@@ -46,6 +46,7 @@ import {
     MonitorPlay,
     Ban,
     FileSearch,
+    Images,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -219,7 +220,11 @@ export default function AdminLayout({
                         ve("intrusion") && (<SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />)
                     )}
                     {modules.MODULE_QUEUE ? (
-                        ve("filas") && (<SidebarItem icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />)
+                        ve("filas") && (<>
+                            <SidebarItem icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />
+                            {/* El historial de capturas (HB, 19/10): las fotos de las filas, día por día. */}
+                            <SidebarItem icon={<Images size={18} />} label="Capturas" href="/admin/capturas-filas" active={pathname === "/admin/capturas-filas"} collapsed={collapsed} />
+                        </>)
                     ) : (
                         ve("historial") && (<SidebarItem icon={<History size={18} />} label="Historial de Acceso" href="/admin/history" active={pathname === "/admin/history"} collapsed={collapsed} />)
                     )}

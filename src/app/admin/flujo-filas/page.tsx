@@ -1,761 +1,403 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import {
-    TrendingUp, Users, Activity, RefreshCw, Filter,
-    BarChart3, Eye, Calendar, ChevronLeft, ChevronRight,
-    Image as ImageIcon, X, Wifi, MonitorSmartphone, Cpu, Camera, ArrowLeftRight,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { Activity, RefreshCw, Images, TriangleAlert, Camera, Users, ArrowDownToLine, ArrowUpFromLine, Gauge, Timer, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-import { getQueueEvents, getQueueStatsToday, getQueueHourlyBreakdown, getQueueDevices, getCameraOutages, getQueueFlowHourly, getQueueAforoSeries, getQueueFlowSeries } from "@/app/actions/queue";
-import Image from "next/image";
-import { fecha, fechaCorta, horaSeg } from "@/lib/fechas";
+import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
+import { Miniatura, Momento, Estado } from "@/components/ui/celdas";
 import { VivoConPlay } from "@/components/queue/VivoConPlay";
+import { tonoFila, ROTULO_TONO } from "@/components/queue/CajonFila";
+import { CajonCaptura as CajonDetalle, type Captura as Detalle } from "@/components/queue/CajonCaptura";
+import { getFlujoFilas, getLecturasFilas, type Rango, type PuntoFlujo, type Episodio, type Lectura } from "@/app/actions/flujo-filas";
+import { hora, horaSeg, fechaCorta, duracion } from "@/lib/fechas";
+import { nombreStreamFila } from "@/lib/stream-fila";
+import { cn } from "@/lib/utils";
 
-// ─── Brand Config (logos) ────────────────────────────
-const BRAND_CONFIG: Record<string, { label: string; color: string; logoUrl: string }> = {
-    HIKVISION: { label: "Hikvision", color: "#E4002B", logoUrl: "/logos/hikvision.png" },
-    BOSCH: { label: "Bosch", color: "#E20015", logoUrl: "/bosch.png" },
-    DAHUA: { label: "Dahua", color: "#ED1C24", logoUrl: "https://upload.wikimedia.org/wikipedia/commons/b/b3/Dahua_Technology_logo.svg" },
-    INTELBRAS: { label: "Intelbras", color: "#009639", logoUrl: "https://upload.wikimedia.org/wikipedia/commons/f/ff/Intelbras_logo.svg" },
-    AKUVOX: { label: "Akuvox", color: "#005BA4", logoUrl: "/logos/akuvox.png" },
-    ZKTECO: { label: "ZKTeco", color: "#0191D2", logoUrl: "https://www.zkteco.com/upload/201908/5d4d3c3f3f0f7.png" },
-    UNIFI: { label: "UniFi", color: "#0559C9", logoUrl: "https://upload.wikimedia.org/wikipedia/commons/e/e0/Ubiquiti_Networks_logo.svg" },
-    UNIVIEW: { label: "Uniview", color: "#005EB8", logoUrl: "https://www.uniview.com/etc/designs/uniview/logo.png" },
-    MILESIGHT: { label: "Milesight", color: "#00AEEF", logoUrl: "" },
-};
+/**
+ * Flujo de filas (HB, 19/10). Lo que se pidió:
+ *  · el detalle de una lectura en un cajón, no en un modal centrado;
+ *  · pararse en un punto de la gráfica y ver en el cuadro del video la foto de ese momento;
+ *  · una fila de tabla por cada vez que se superó el límite, con un contador bien visible.
+ *
+ * Y lo que estaba mal y se arregló al pasar: la gráfica mezclaba el aforo con los contadores de
+ * Entrada/Salida (acumulados de la cámara) y por eso decía «pico 93» en una fila que nunca pasó
+ * de 7; el encabezado mostraba «31 dic. 1969 eventos» (el total pasado por el formato de fecha);
+ * y se dibujaban como cortes cientos de demoras de segundos del sondeo (ahora sólo ≥ 2 min).
+ */
 
-// ─── Types ───────────────────────────────────────────
-interface CrowdEvent {
-    id: string;
-    timestamp: Date;
-    channelName: string;
-    channelId: number;
-    peopleCount: number;
-    snapshotPath: string | null;
-    device: { id: string; name: string; location: string | null; ip: string; brand: string };
-}
+const RANGOS: { k: Rango; rotulo: string }[] = [{ k: "24h", rotulo: "24 h" }, { k: "7d", rotulo: "7 días" }, { k: "30d", rotulo: "30 días" }];
+/** Cada cuánto se refresca sola la gráfica (y la tabla de veces sobre el límite). */
+const REFRESCO_MS = 30_000;
+const POR_PAGINA = 50;
 
-interface HourlyData {
-    hour: number;
-    avg: number;
-    max: number;
-    count: number;
-}
+type Flujo = Awaited<ReturnType<typeof getFlujoFilas>>;
 
-// ─── Helpers ─────────────────────────────────────────
-function snapUrl(path: string | null): string | null {
-    if (!path) return null;
-    return path.startsWith("/") ? path : `/api/files/lpr-prod/${path}`;
-}
+export default function FlujoFilasPage() {
+    const [rango, setRango] = useState<Rango>("24h");
+    const [deviceId, setDeviceId] = useState<string>("");
+    const [flujo, setFlujo] = useState<Flujo | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [cargando, setCargando] = useState(true);
+    const [punto, setPunto] = useState<PuntoFlujo | null>(null);
+    const [detalle, setDetalle] = useState<Detalle | null>(null);
 
-// ─── Live video (MP4-over-HTTP) + offline state ─────
-function getStreamName(ip: string): string { return `bosch_${ip.replace(/\./g, "_")}`; }
+    const cargar = useCallback(async () => {
+        try { setFlujo(await getFlujoFilas({ deviceId: deviceId || null, rango })); setError(null); }
+        catch (e: any) { setError(e?.message || "No se pudo leer el flujo"); }
+        finally { setCargando(false); }
+    }, [deviceId, rango]);
+    useEffect(() => { setCargando(true); cargar(); const t = setInterval(cargar, REFRESCO_MS); return () => clearInterval(t); }, [cargar]);
 
-function FallbackSnapshot({ deviceId, className }: { deviceId: string; className?: string }) {
-    const [src, setSrc] = useState(`/api/snapshot/${deviceId}?t=${Date.now()}`);
-    const [hasError, setHasError] = useState(false);
-    useEffect(() => {
-        const iv = setInterval(() => { setSrc(`/api/snapshot/${deviceId}?t=${Date.now()}`); setHasError(false); }, 5000);
-        return () => clearInterval(iv);
-    }, [deviceId]);
-    if (hasError) return (
-        <div className={cn("flex flex-col items-center justify-center gap-2 bg-zinc-950", className)}>
-            <div className="relative"><Camera className="w-9 h-9 text-muted-foreground" /><span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" /></div>
-            <span className="text-xs font-semibold text-foreground/70">Cámara offline</span>
-            <span className="text-[10px] text-muted-foreground">Sin señal · reintentando…</span>
+    const filas = flujo?.filas || [];
+    const filaVisor = filas.find((f) => f.id === deviceId) || filas[0] || null;
+    const r = flujo?.resumen;
+
+    return (
+        <div className="p-6 space-y-5 max-w-[1680px] mx-auto">
+            {/* Encabezado: título y, en la misma línea, los filtros. */}
+            <div className="flex flex-wrap items-end gap-3">
+                <div className="mr-auto">
+                    <h1 className="text-[28px] font-bold tracking-[-0.02em] leading-tight">Flujo de filas</h1>
+                    <p className="text-[13px] text-muted-foreground">Aforo, entradas y salidas en el tiempo. Pasá por la gráfica para ver la foto de cada momento.</p>
+                </div>
+                {filas.length > 1 && (
+                    <Pastillas valor={deviceId} alCambiar={setDeviceId} opciones={[{ k: "", rotulo: "Todas" }, ...filas.map((f) => ({ k: f.id, rotulo: f.name }))]} />
+                )}
+                <Pastillas valor={rango} alCambiar={(v) => setRango(v as Rango)} opciones={RANGOS.map((x) => ({ k: x.k, rotulo: x.rotulo }))} />
+                <Button variant="ghost" size="sm" onClick={cargar} title="Actualizar"><RefreshCw size={14} /></Button>
+            </div>
+
+            {error && (
+                <div className="rounded-[10px] border border-border bg-card px-4 py-3 flex items-center gap-3 text-[13px]">
+                    <TriangleAlert size={16} className="tono-mal" /> <span className="flex-1">{error}</span>
+                    <Button size="sm" variant="outline" onClick={cargar}>Reintentar</Button>
+                </div>
+            )}
+
+            {/* Contadores del rango. «Superó el límite» va primero y con tono: es lo que se vino a mirar. */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-3">
+                <Cifra icono={TriangleAlert} rotulo="Superó el límite" valor={r?.vecesSobre ?? "—"} pie={r ? (r.vecesSobre === 1 ? "vez" : "veces") : ""} tono={r && r.vecesSobre > 0 ? "mal" : undefined} cargando={cargando && !flujo} />
+                <Cifra icono={Timer} rotulo="Tiempo sobre el límite" valor={r ? duracion(r.sobreSeg) || "0 s" : "—"} cargando={cargando && !flujo} />
+                <Cifra icono={TrendingUp} rotulo="Pico" valor={r?.pico ?? "—"} pie={r?.picoA ? `a las ${hora(r.picoA)}` : ""} cargando={cargando && !flujo} />
+                <Cifra icono={Gauge} rotulo="Promedio" valor={r?.prom ?? "—"} pie="personas" cargando={cargando && !flujo} />
+                <Cifra icono={ArrowDownToLine} rotulo="Entradas" valor={r?.entradas ?? "—"} cargando={cargando && !flujo} />
+                <Cifra icono={ArrowUpFromLine} rotulo="Atendidos" valor={r?.salidas ?? "—"} pie="salidas" cargando={cargando && !flujo} />
+                <Cifra icono={Activity} rotulo="Lecturas de aforo" valor={r?.lecturas ?? "—"} cargando={cargando && !flujo} />
+            </div>
+
+            {/* Gráfica + visor. El visor muestra el vivo, o la foto del punto donde está el mouse. */}
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_420px] gap-4">
+                <GraficaFlujo flujo={flujo} cargando={cargando && !flujo} alPasar={setPunto}
+                    alElegir={(p) => p.foto && setDetalle({ foto: p.foto.ruta, t: p.foto.t, fila: filaVisor?.name || "", personas: p.foto.personas, limite: flujo?.limite ?? 0, titulo: "Foto del momento" })} />
+                <Visor fila={filaVisor} punto={punto} limite={flujo?.limite ?? 0} tramoMs={flujo?.tramoMs ?? 0} />
+            </div>
+
+            <TablaEpisodios episodios={flujo?.episodios || []} cargando={cargando && !flujo} error={error} alReintentar={cargar}
+                alAbrir={(e) => setDetalle({
+                    foto: e.foto, t: e.picoA || e.desde, fila: e.fila, personas: e.pico, limite: e.limite, titulo: `Vez nº ${e.numero} sobre el límite`,
+                    extra: <span>Desde {horaSeg(e.desde)} {e.hasta ? `hasta ${horaSeg(e.hasta)}` : "· sigue sobre el límite"} · {duracion(e.segundos) || "menos de 1 s"}</span>,
+                })} />
+
+            <TablaLecturas deviceId={deviceId} alAbrir={(l) => setDetalle({ foto: l.foto, t: l.t, fila: l.fila, personas: l.personas, limite: l.limite, canal: l.canal, titulo: "Lectura" })} />
+
+            <CajonDetalle detalle={detalle} alCerrar={() => setDetalle(null)} />
         </div>
     );
-    return <img src={src} alt="Live" className={cn("object-cover", className)} onError={() => setHasError(true)} draggable={false} />;
 }
 
-function LiveVideo({ streamName, fallbackDeviceId, className }: { streamName: string; fallbackDeviceId: string; className?: string }) {
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const [failed, setFailed] = useState(false);
-    const retryRef = useRef(0);
-    useEffect(() => {
-        if (!streamName) { setFailed(true); return; }
-        setFailed(false); retryRef.current = 0;
-        const video = videoRef.current; if (!video) return;
-        let destroyed = false; let retryTimer: ReturnType<typeof setTimeout> | null = null;
-        const src = `/go2rtc/api/stream.mp4?src=${encodeURIComponent(streamName)}`;
-        function load() { if (destroyed || !video) return; video.src = src; video.play().catch(() => {}); }
-        function onError() { if (destroyed) return; retryRef.current++; if (retryRef.current > 6) { setFailed(true); return; } retryTimer = setTimeout(load, Math.min(1000 * retryRef.current, 5000)); }
-        function onProgress() { if (!video || video.buffered.length === 0) return; const end = video.buffered.end(video.buffered.length - 1); if (end - video.currentTime > 3) video.currentTime = end - 0.4; }
-        video.addEventListener("error", onError); video.addEventListener("progress", onProgress); load();
-        return () => { destroyed = true; if (retryTimer) clearTimeout(retryTimer); video.removeEventListener("error", onError); video.removeEventListener("progress", onProgress); video.pause(); video.removeAttribute("src"); video.load(); };
-    }, [streamName]);
-    if (failed) return <FallbackSnapshot deviceId={fallbackDeviceId} className={className} />;
-    return <video ref={videoRef} className={cn("object-cover", className)} autoPlay muted playsInline />;
-}
+/* ── Piezas ─────────────────────────────────────────────────────────────────── */
 
-// ─── Spectacular Flow Area Chart (SVG) ──────────────
-function RangeToggle({ range, onRange }: { range: string; onRange: (r: string) => void }) {
+function Pastillas({ valor, alCambiar, opciones }: { valor: string; alCambiar: (v: string) => void; opciones: { k: string; rotulo: string }[] }) {
     return (
-        <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-muted/60 border border-border">
-            {[{ k: "24h", l: "24h" }, { k: "7d", l: "7d" }, { k: "30d", l: "30d" }].map(o => (
-                <button key={o.k} onClick={() => onRange(o.k)} className={cn("px-2 py-0.5 rounded-md text-[10px] font-bold transition", range === o.k ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground")}>{o.l}</button>
+        <div className="inline-flex items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
+            {opciones.map((o) => (
+                <button key={o.k || "todas"} type="button" onClick={() => alCambiar(o.k)}
+                    className={cn("rounded-full px-3 py-1 text-[12px] font-semibold transition-colors",
+                        valor === o.k ? "bg-[var(--accion)] text-[var(--accion-texto)]" : "text-muted-foreground hover:text-foreground")}>
+                    {o.rotulo}
+                </button>
             ))}
         </div>
     );
 }
 
-function HourlyChart({ buckets = [], unit = "hour", range, onRange, outages = [], flow, className }: { buckets?: any[]; unit?: string; range: string; onRange: (r: string) => void; outages?: any[]; flow?: any; className?: string }) {
-    const [animated, setAnimated] = useState(false);
-    const [mode, setMode] = useState<"aforo" | "flujo">("aforo");
-    const isFlow = mode === "flujo";
-    useEffect(() => {
-        const t = setTimeout(() => setAnimated(true), 80);
-        return () => clearTimeout(t);
-    }, [buckets]);
+function Cifra({ icono: I, rotulo, valor, pie, tono, cargando }: { icono: any; rotulo: string; valor: React.ReactNode; pie?: string; tono?: "mal"; cargando?: boolean }) {
+    return (
+        <div className={cn("rounded-[10px] border bg-card px-4 py-3", tono ? "border-[var(--mal)]/40 bg-[var(--mal-suave)]" : "border-border")}>
+            <div className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground"><I size={13} className={tono ? "tono-mal" : ""} /> {rotulo}</div>
+            <div className="mt-1 flex items-baseline gap-1.5">
+                {cargando ? <span className="h-7 w-12 rounded bg-muted animate-pulse" />
+                    : <span className={cn("text-[24px] font-bold tabular-nums leading-none", tono && "tono-mal")}>{valor}</span>}
+                {pie && !cargando && <span className="text-[11.5px] text-muted-foreground">{pie}</span>}
+            </div>
+        </div>
+    );
+}
 
-    const hours = (buckets && buckets.length ? buckets : Array.from({ length: 24 }, () => ({}))).map((b: any, i: number) => ({ hour: i, label: b.label ?? (String(i).padStart(2, "0") + "h"), avg: b.avg ?? 0, max: b.max ?? 0, count: b.count ?? 0 }));
-    const N = hours.length || 24;
-    const _flowSrc = flow?.buckets || flow?.hours || [];
-    const fhours = hours.map((_h: any, i: number) => ({ entradas: _flowSrc[i]?.entradas ?? 0, salidas: _flowSrc[i]?.salidas ?? 0 }));
+/* ── La gráfica ─────────────────────────────────────────────────────────────── */
 
-    const W = 1000, H = 240, PAD_L = 28, PAD_B = 26, PAD_T = 18;
-    const maxVal = isFlow ? Math.max(...fhours.map((h: any) => Math.max(h.entradas, h.salidas)), 4) : Math.max(...hours.map(h => h.max), 4);
-    const currentHour = unit === "hour" ? new Date().getHours() : N - 1;
-    const totalEvents = hours.reduce((s, h) => s + h.count, 0);
-    const peak = hours.reduce((m, h) => h.max > m.max ? h : m, hours[0]);
+const W = 1000, H = 260, IZQ = 34, DER = 10, ARR = 14, ABA = 26;
 
-    const x = (h: number) => PAD_L + (N > 1 ? h / (N - 1) : 0) * (W - PAD_L - 10);
-    const y = (v: number) => PAD_T + (1 - v / maxVal) * (H - PAD_T - PAD_B);
+function GraficaFlujo({ flujo, cargando, alPasar, alElegir }: {
+    flujo: Flujo | null; cargando: boolean; alPasar: (p: PuntoFlujo | null) => void; alElegir: (p: PuntoFlujo) => void;
+}) {
+    const [modo, setModo] = useState<"aforo" | "flujo">("aforo");
+    const [sobre, setSobre] = useState<number | null>(null);
+    const [listo, setListo] = useState(false);
+    const svg = useRef<SVGSVGElement>(null);
+    useEffect(() => { setListo(false); const t = setTimeout(() => setListo(true), 60); return () => clearTimeout(t); }, [flujo?.rango, modo]);
 
-    // Smooth path (Catmull-Rom → bezier) for a series
-    const smooth = (vals: number[]) => {
-        const pts = vals.map((v, i) => [x(i), y(v)] as [number, number]);
-        if (pts.length < 2) return "";
+    const puntos = flujo?.puntos || [];
+    const N = Math.max(1, puntos.length);
+    const limite = flujo?.limite ?? 0;
+    const max = modo === "aforo"
+        ? Math.max(4, limite + 1, ...puntos.map((p) => p.max))
+        : Math.max(4, ...puntos.map((p) => Math.max(p.entradas, p.salidas)));
+    const x = (i: number) => IZQ + (N > 1 ? i / (N - 1) : 0) * (W - IZQ - DER);
+    const y = (v: number) => ARR + (1 - v / max) * (H - ARR - ABA);
+    const base = y(0);
+
+    const curva = (vals: number[]) => {
+        if (vals.length < 2) return "";
+        const pts = vals.map((v, i) => [x(i), y(v)]);
         let d = `M ${pts[0][0]} ${pts[0][1]}`;
         for (let i = 0; i < pts.length - 1; i++) {
-            const p0 = pts[i - 1] || pts[i];
-            const p1 = pts[i];
-            const p2 = pts[i + 1];
-            const p3 = pts[i + 2] || p2;
-            const c1x = p1[0] + (p2[0] - p0[0]) / 6;
-            const c1y = p1[1] + (p2[1] - p0[1]) / 6;
-            const c2x = p2[0] - (p3[0] - p1[0]) / 6;
-            const c2y = p2[1] - (p3[1] - p1[1]) / 6;
-            d += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2[0]} ${p2[1]}`;
+            const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+            // Catmull-Rom acotado: sin pasar por debajo de cero entre dos puntos en cero.
+            const c1y = Math.min(base, p1[1] + (p2[1] - p0[1]) / 6), c2y = Math.min(base, p2[1] - (p3[1] - p1[1]) / 6);
+            d += ` C ${p1[0] + (p2[0] - p0[0]) / 6} ${c1y}, ${p2[0] - (p3[0] - p1[0]) / 6} ${c2y}, ${p2[0]} ${p2[1]}`;
         }
         return d;
     };
+    const lPico = curva(puntos.map((p) => p.max));
+    const lProm = curva(puntos.map((p) => p.prom));
+    const area = lPico ? `${lPico} L ${x(N - 1)} ${base} L ${x(0)} ${base} Z` : "";
 
-    const baseY = y(0);
-    const ser1 = isFlow ? smooth(fhours.map((h: any) => h.entradas)) : smooth(hours.map(h => h.avg));
-    const ser2 = isFlow ? smooth(fhours.map((h: any) => h.salidas)) : smooth(hours.map(h => h.max));
-    const area1 = ser1 ? `${ser1} L ${x(N - 1)} ${baseY} L ${x(0)} ${baseY} Z` : "";
-    const area2 = ser2 ? `${ser2} L ${x(N - 1)} ${baseY} L ${x(0)} ${baseY} Z` : "";
-    const col1 = isFlow ? "#10b981" : "#a855f7";
-    const col2 = isFlow ? "#f59e0b" : "#d946ef";
-    const fill1 = isFlow ? "url(#flowInFill)" : "url(#avgFill)";
-    const fill2 = isFlow ? "url(#flowOutFill)" : "url(#maxFill)";
+    const desde = puntos[0] ? new Date(puntos[0].t).getTime() : 0;
+    const paso = flujo?.tramoMs || 1;
+    const xT = (t: string | null) => x(Math.min(N - 1, Math.max(0, ((t ? new Date(t).getTime() : Date.now()) - desde) / paso)));
+    const cadaEtiqueta = Math.max(1, Math.ceil(N / 8));
+    const etiqueta = (t: string) => (flujo?.rango === "24h" ? hora(t) : fechaCorta(t));
+
+    const mover = (ev: React.PointerEvent) => {
+        if (!svg.current || !puntos.length) return;
+        const rect = svg.current.getBoundingClientRect();
+        const fx = ((ev.clientX - rect.left) / rect.width) * W;
+        const i = Math.round(((fx - IZQ) / (W - IZQ - DER)) * (N - 1));
+        const j = Math.min(N - 1, Math.max(0, i));
+        setSobre(j); alPasar(puntos[j]);
+    };
+    const salir = () => { setSobre(null); alPasar(null); };
+    const p = sobre != null ? puntos[sobre] : null;
 
     return (
-        <div className={cn("rounded-xl border border-border bg-gradient-to-b from-foreground/[0.04] to-transparent p-5", className)}>
-            <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2 flex-wrap">
-                    {isFlow ? <ArrowLeftRight size={14} className="text-cyan-400" /> : <BarChart3 size={14} className="text-violet-400" />}
-                    <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-muted/60 border border-border">
-                        <button onClick={() => setMode("aforo")} className={cn("px-2.5 py-1 rounded-md text-[11px] font-semibold transition", !isFlow ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground")}>Aforo</button>
-                        <button onClick={() => setMode("flujo")} className={cn("px-2.5 py-1 rounded-md text-[11px] font-semibold transition", isFlow ? "bg-cyan-600 text-white" : "text-muted-foreground hover:text-foreground")}>Entradas/Salidas</button>
-                    </div>
-                    <RangeToggle range={range} onRange={onRange} />
-                </div>
-                <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
-                    {isFlow ? (<>
-                        <span className="flex items-center gap-1.5"><span className="w-3 h-[3px] rounded bg-emerald-500 inline-block" /> Entradas <b className="tabular-nums text-emerald-400">{flow?.totalIn ?? 0}</b></span>
-                        <span className="flex items-center gap-1.5"><span className="w-3 h-[3px] rounded bg-amber-500 inline-block" /> Salidas <b className="tabular-nums text-amber-400">{flow?.totalOut ?? 0}</b></span>
-                        <span className="text-foreground/70">Neto <b className={cn("tabular-nums", (flow?.net ?? 0) >= 0 ? "text-emerald-400" : "text-amber-400")}>{(flow?.net ?? 0) >= 0 ? "+" : ""}{flow?.net ?? 0}</b></span>
+        <div className="rounded-[14px] border border-border bg-card p-5 min-w-0">
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+                <Pastillas valor={modo} alCambiar={(v) => setModo(v as any)} opciones={[{ k: "aforo", rotulo: "Aforo" }, { k: "flujo", rotulo: "Entradas y salidas" }]} />
+                <div className="ml-auto flex items-center gap-4 text-[11.5px] text-muted-foreground">
+                    {modo === "aforo" ? (<>
+                        <Leyenda clase="bg-[var(--accion)]">Pico</Leyenda>
+                        <Leyenda clase="bg-foreground/50">Promedio</Leyenda>
+                        <Leyenda clase="bg-[var(--mal)]" punteada>Límite {limite}</Leyenda>
+                        {!!flujo?.cortes.length && <Leyenda clase="bg-[var(--mal-suave)]">Cámara sin datos</Leyenda>}
                     </>) : (<>
-                        <span className="flex items-center gap-1.5"><span className="w-3 h-[3px] rounded bg-violet-400 inline-block" /> Promedio</span>
-                        <span className="flex items-center gap-1.5"><span className="w-3 h-[3px] rounded bg-fuchsia-500/40 inline-block" /> Pico</span>
-                        <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm inline-block" style={{ background: "rgba(244,63,94,0.4)" }} /> Corte</span>
-                        <span className="text-muted-foreground font-mono">{totalEvents} eventos · pico {peak.max} @ {peak.label}</span>
+                        <Leyenda clase="bg-[var(--info)]">Entradas</Leyenda>
+                        <Leyenda clase="bg-[var(--bien)]">Atendidos</Leyenda>
                     </>)}
                 </div>
             </div>
-            <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: "auto" }} preserveAspectRatio="none">
-                <defs>
-                    <linearGradient id="avgFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#a855f7" stopOpacity="0.45" />
-                        <stop offset="100%" stopColor="#a855f7" stopOpacity="0" />
-                    </linearGradient>
-                    <linearGradient id="maxFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#d946ef" stopOpacity="0.18" />
-                        <stop offset="100%" stopColor="#d946ef" stopOpacity="0" />
-                    </linearGradient>
-                    <linearGradient id="flowInFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#10b981" stopOpacity="0.4" />
-                        <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
-                    </linearGradient>
-                    <linearGradient id="flowOutFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.22" />
-                        <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
-                    </linearGradient>
-                    <filter id="lineGlow" x="-20%" y="-20%" width="140%" height="140%">
-                        <feGaussianBlur stdDeviation="3" result="b" />
-                        <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-                    </filter>
-                </defs>
-
-                {/* gridlines */}
-                {[0, 0.25, 0.5, 0.75, 1].map((g, i) => (
-                    <g key={i}>
-                        <line x1={PAD_L} y1={PAD_T + g * (H - PAD_T - PAD_B)} x2={W - 10} y2={PAD_T + g * (H - PAD_T - PAD_B)} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                        <text x={PAD_L - 6} y={PAD_T + g * (H - PAD_T - PAD_B) + 3} fill="rgba(255,255,255,0.25)" fontSize="9" textAnchor="end" fontFamily="var(--font-sans)">{Math.round(maxVal * (1 - g))}</text>
-                    </g>
-                ))}
-
-                {/* current hour marker */}
-                <line x1={x(currentHour)} y1={PAD_T} x2={x(currentHour)} y2={baseY} stroke="rgba(168,85,247,0.35)" strokeWidth="1" strokeDasharray="3 3" />
-
-                {/* camera outage bands (today) */}
-                {(() => {
-                    const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
-                    const nowMs = Date.now();
-                    const frac = (ms: number) => {
-                        const d = new Date(ms);
-                        if (d < startOfDay) return 0;
-                        return Math.min(d.getHours() + d.getMinutes()/60, 23.999);
-                    };
-                    return (outages || []).map((o: any, i: number) => {
-                        const sMs = new Date(o.startedAt).getTime();
-                        const eMs = o.endedAt ? new Date(o.endedAt).getTime() : nowMs;
-                        if (eMs < startOfDay.getTime()) return null;
-                        const xs = x(frac(sMs)); const xe = x(frac(eMs));
-                        const w = Math.max(xe - xs, 2);
-                        return (
-                            <g key={o.id || i}>
-                                <rect x={xs} y={PAD_T} width={w} height={baseY - PAD_T} fill="rgba(244,63,94,0.14)" />
-                                <line x1={xs} y1={PAD_T} x2={xs} y2={baseY} stroke="rgba(244,63,94,0.7)" strokeWidth="1" strokeDasharray="2 2" />
-                                {o.endedAt && <line x1={xe} y1={PAD_T} x2={xe} y2={baseY} stroke="rgba(244,63,94,0.5)" strokeWidth="1" strokeDasharray="2 2" />}
-                            </g>
-                        );
-                    });
-                })()}
-
-                {/* serie 2 (Pico / Salidas) */}
-                {area2 && <path d={area2} fill={fill2} style={{ opacity: animated ? 1 : 0, transition: "opacity 1s ease" }} />}
-                {ser2 && <path d={ser2} fill="none" stroke={col2} strokeOpacity={isFlow ? 0.9 : 0.4} strokeWidth={isFlow ? 2 : 1.5} style={{ opacity: animated ? 1 : 0, transition: "opacity 1s ease 0.1s" }} />}
-
-                {/* serie 1 (Promedio / Entradas) */}
-                {area1 && <path d={area1} fill={fill1} style={{ opacity: animated ? 1 : 0, transition: "opacity 1.1s ease" }} />}
-                {ser1 && <path d={ser1} fill="none" stroke={col1} strokeWidth="2.5" strokeLinecap="round" filter="url(#lineGlow)" style={{ opacity: animated ? 1 : 0, transition: "opacity 1.1s ease 0.2s" }} />}
-
-                {/* dots on hours with data */}
-                {hours.map((h, i) => {
-                    const val = isFlow ? fhours[i].entradas : h.avg;
-                    const show = isFlow ? (fhours[i].entradas > 0 || fhours[i].salidas > 0) : h.count > 0;
-                    return show ? (
-                        <g key={h.hour} className="group">
-                            <circle cx={x(h.hour)} cy={y(val)} r="9" fill="transparent" />
-                            <circle cx={x(h.hour)} cy={y(val)} r={h.hour === currentHour ? 4 : 2.5} fill={h.hour === currentHour ? (isFlow ? "#34d399" : "#c084fc") : col1} stroke="#0b0b0f" strokeWidth="1.5">
-                                {h.hour === currentHour && <animate attributeName="r" values="4;6;4" dur="1.6s" repeatCount="indefinite" />}
-                            </circle>
+            <div className="relative">
+                {cargando && <div className="absolute inset-0 grid place-items-center text-[12px] text-muted-foreground">Cargando…</div>}
+                <svg ref={svg} viewBox={`0 0 ${W} ${H}`} className="w-full h-auto touch-none select-none" onPointerMove={mover} onPointerLeave={salir}
+                    onClick={() => p && alElegir(p)} style={{ cursor: p?.foto ? "pointer" : "default" }}>
+                    <defs>
+                        <linearGradient id="flujo-pico" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="var(--accion)" stopOpacity="0.32" />
+                            <stop offset="100%" stopColor="var(--accion)" stopOpacity="0" />
+                        </linearGradient>
+                    </defs>
+                    {[0, 0.25, 0.5, 0.75, 1].map((g) => (
+                        <g key={g}>
+                            <line x1={IZQ} x2={W - DER} y1={ARR + g * (H - ARR - ABA)} y2={ARR + g * (H - ARR - ABA)} className="stroke-border" strokeDasharray={g === 1 ? undefined : "3 5"} />
+                            <text x={IZQ - 6} y={ARR + g * (H - ARR - ABA) + 3} textAnchor="end" className="fill-muted-foreground text-[10px] tabular-nums">{Math.round(max * (1 - g))}</text>
                         </g>
-                    ) : null;
-                })}
-
-                {/* hour axis labels (every 3h) */}
-                {hours.filter((h: any, i: number) => i % Math.max(1, Math.ceil(N / 8)) === 0).map((h: any) => (
-                    <text key={h.hour} x={x(h.hour)} y={H - 8} fill={h.hour === currentHour ? "#c084fc" : "rgba(255,255,255,0.25)"} fontSize="9" textAnchor="middle" fontFamily="var(--font-sans)" fontWeight={h.hour === currentHour ? "bold" : "normal"}>{h.label}</text>
-                ))}
-            </svg>
+                    ))}
+                    {modo === "aforo" && (flujo?.cortes || []).map((c, i) => {
+                        const a = xT(c.desde), b = xT(c.hasta);
+                        return <rect key={i} x={a} y={ARR} width={Math.max(2, b - a)} height={base - ARR} fill="var(--mal-suave)" />;
+                    })}
+                    {modo === "aforo" ? (<>
+                        {area && <path d={area} fill="url(#flujo-pico)" style={{ opacity: listo ? 1 : 0, transition: "opacity 900ms ease" }} />}
+                        {lPico && <path d={lPico} fill="none" stroke="var(--accion)" strokeWidth={2.2} strokeLinejoin="round"
+                            pathLength={1} strokeDasharray={1} strokeDashoffset={listo ? 0 : 1} style={{ transition: "stroke-dashoffset 1100ms ease" }} />}
+                        {lProm && <path d={lProm} fill="none" className="stroke-foreground/50" strokeWidth={1.4} style={{ opacity: listo ? 1 : 0, transition: "opacity 900ms ease 200ms" }} />}
+                        {limite > 0 && limite <= max && <line x1={IZQ} x2={W - DER} y1={y(limite)} y2={y(limite)} stroke="var(--mal)" strokeWidth={1.2} strokeDasharray="6 4" />}
+                        {/* Dónde hay foto: una marca chica en el piso de la gráfica. */}
+                        {puntos.map((q, i) => q.foto ? <rect key={i} x={x(i) - 1} y={base + 3} width={2} height={4} rx={1} className="fill-muted-foreground/60" /> : null)}
+                    </>) : (
+                        puntos.map((q, i) => {
+                            const ancho = Math.max(1.5, ((W - IZQ - DER) / N) * 0.36);
+                            const he = listo ? base - y(q.entradas) : 0, hs = listo ? base - y(q.salidas) : 0;
+                            return (
+                                <g key={i}>
+                                    <rect x={x(i) - ancho} y={base - he} width={ancho} height={he} rx={1.5} fill="var(--info)" style={{ transition: "all 600ms ease" }} />
+                                    <rect x={x(i)} y={base - hs} width={ancho} height={hs} rx={1.5} fill="var(--bien)" style={{ transition: "all 600ms ease" }} />
+                                </g>
+                            );
+                        })
+                    )}
+                    {puntos.map((q, i) => i % cadaEtiqueta === 0 ? (
+                        <text key={i} x={x(i)} y={H - 8} textAnchor="middle" className="fill-muted-foreground text-[10px] tabular-nums">{etiqueta(q.t)}</text>
+                    ) : null)}
+                    {p && sobre != null && (
+                        <g pointerEvents="none">
+                            <line x1={x(sobre)} x2={x(sobre)} y1={ARR} y2={base} className="stroke-foreground/30" />
+                            {modo === "aforo" && <circle cx={x(sobre)} cy={y(p.max)} r={4.5} fill="var(--accion)" className="stroke-card" strokeWidth={2} />}
+                        </g>
+                    )}
+                </svg>
+            </div>
+            <div className="mt-1 min-h-[18px] text-[12px] text-muted-foreground tabular-nums">
+                {p ? (
+                    <span><b className="text-foreground">{etiqueta(p.t)}{flujo?.rango === "24h" ? "" : ` ${hora(p.t)}`}</b>
+                        {modo === "aforo" ? ` · pico ${p.max} · promedio ${p.prom} · ${p.lecturas} lecturas` : ` · ${p.entradas} entradas · ${p.salidas} atendidos`}
+                        {p.foto ? " · clic para abrir la foto" : " · sin foto en este tramo"}</span>
+                ) : <span>Pasá el mouse por la gráfica: la foto de cada momento aparece al lado.</span>}
+            </div>
         </div>
     );
 }
 
-// ─── Severity helper ─────────────────────────────────
-function getSeverity(count: number) {
-    if (count >= 10) return { key: "critical", color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/20", label: "Crítico" };
-    if (count >= 7) return { key: "high", color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", label: "Alto" };
-    if (count >= 4) return { key: "medium", color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", label: "Medio" };
-    return { key: "low", color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", label: "Bajo" };
+function Leyenda({ clase, punteada, children }: { clase: string; punteada?: boolean; children: React.ReactNode }) {
+    return <span className="inline-flex items-center gap-1.5"><span className={cn("inline-block h-[3px] w-3.5 rounded-full", clase, punteada && "opacity-80")} />{children}</span>;
 }
 
-// ─── Event Row ───────────────────────────────────────
-function EventRow({ event, onExpand }: { event: CrowdEvent; onExpand: () => void }) {
-    const sev = getSeverity(event.peopleCount);
-    const time = new Date(event.timestamp);
-    const timeStr = horaSeg(time);
-    const dateStr = fechaCorta(time);
-    const brand = BRAND_CONFIG[event.device.brand] || null;
-    const imgSrc = snapUrl(event.snapshotPath);
+/* ── El visor: vivo, o la foto del punto ─────────────────────────────────────── */
 
+function Visor({ fila, punto, limite, tramoMs }: { fila: { id: string; name: string; ip: string | null } | null; punto: PuntoFlujo | null; limite: number; tramoMs: number }) {
+    const foto = punto?.foto || null;
+    const t = foto ? tonoFila(foto.personas, limite) : null;
     return (
-        <tr className="border-b border-border hover:bg-foreground/[0.04] transition-colors group cursor-pointer" onClick={onExpand}>
-            {/* Thumbnail */}
-            <td className="px-3 py-2">
-                {imgSrc ? (
-                    <div className="w-14 h-10 rounded-md overflow-hidden bg-black/50 relative ring-1 ring-white/5">
-                        <img src={imgSrc} alt="" className="w-full h-full object-cover" loading="lazy" />
-                    </div>
-                ) : (
-                    <div className="w-14 h-10 rounded-md bg-foreground/[0.04] flex items-center justify-center ring-1 ring-border">
-                        <ImageIcon size={14} className="text-muted-foreground" />
-                    </div>
-                )}
-            </td>
-            {/* Time */}
-            <td className="px-3 py-2">
-                <div className="text-xs text-foreground/70 font-mono">{timeStr}</div>
-                <div className="text-[9px] text-muted-foreground font-mono">{dateStr}</div>
-            </td>
-            {/* Regla VCA */}
-            <td className="px-3 py-2">
-                <span className="text-xs text-foreground/70">{event.channelName || `Regla ${event.channelId}`}</span>
-            </td>
-            {/* Dispositivo */}
-            <td className="px-3 py-2">
-                <div className="flex items-center gap-2">
-                    <MonitorSmartphone size={12} className="text-muted-foreground shrink-0" />
-                    <span className="text-xs text-foreground/70 font-medium">{event.device.name}</span>
-                </div>
-            </td>
-            {/* IP */}
-            <td className="px-3 py-2">
-                <span className="text-[11px] text-muted-foreground font-mono">{event.device.ip}</span>
-            </td>
-            {/* Driver */}
-            <td className="px-3 py-2">
-                {brand ? (
-                    <div className="flex items-center gap-1.5" title={brand.label}>
-                        {brand.logoUrl ? (
-                            <img src={brand.logoUrl} alt={brand.label} className="h-4 w-auto max-w-[60px] object-contain opacity-60" />
-                        ) : (
-                            <span className="text-[10px] font-mono text-muted-foreground">{brand.label}</span>
-                        )}
-                    </div>
-                ) : (
-                    <span className="text-[10px] font-mono text-muted-foreground">{event.device.brand || "—"}</span>
-                )}
-            </td>
-            {/* Count */}
-            <td className="px-3 py-2 text-center">
-                <span className={cn("text-lg font-bold tabular-nums", sev.color)}>{event.peopleCount}</span>
-            </td>
-            {/* Severity */}
-            <td className="px-3 py-2">
-                <Badge className={cn("text-[9px] py-0 px-2 border", sev.color, sev.bg, sev.border)}>
-                    {sev.label}
-                </Badge>
-            </td>
-            {/* Action */}
-            <td className="px-3 py-2">
-                <Eye size={13} className="text-muted-foreground group-hover:text-foreground/40 transition-colors" />
-            </td>
-        </tr>
-    );
-}
-
-// ─── Event Detail Panel ──────────────────────────────
-function EventDetail({ event, onClose }: { event: CrowdEvent; onClose: () => void }) {
-    const time = new Date(event.timestamp);
-    const sev = getSeverity(event.peopleCount);
-    const brand = BRAND_CONFIG[event.device.brand] || null;
-    const imgSrc = snapUrl(event.snapshotPath);
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
-            <div className="bg-card border border-border rounded-2xl w-full max-w-3xl overflow-hidden shadow-lg" onClick={e => e.stopPropagation()}>
-                {/* Image */}
-                {imgSrc ? (
-                    <div className="relative aspect-video vid-surface">
-                        <img src={imgSrc} alt="" className="w-full h-full object-contain" />
-                        <div className="absolute top-3 right-3">
-                            <button onClick={onClose} className="p-2 rounded-xl bg-black/60 text-white/60 hover:text-white hover:bg-black/80 transition-colors backdrop-blur-sm">
-                                <X size={16} />
-                            </button>
-                        </div>
-                        {/* Overlay bottom */}
-                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-6 py-5">
-                            <div className="flex items-end justify-between">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className={cn("text-2xl font-bold", sev.color)}>{event.peopleCount}</span>
-                                        <span className="text-foreground/70 text-sm font-medium">personas detectadas</span>
+        <div className="rounded-[14px] border border-border bg-card overflow-hidden flex flex-col">
+            <div className="relative aspect-video bg-black">
+                {fila ? (
+                    <>
+                        <VivoConPlay deviceId={fila.id}>
+                            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                            <video className="absolute inset-0 w-full h-full object-cover" autoPlay muted playsInline
+                                src={fila.ip ? `/go2rtc/api/stream.mp4?src=${encodeURIComponent(nombreStreamFila(fila.ip))}` : undefined} />
+                        </VivoConPlay>
+                        {punto && (
+                            <div className="absolute inset-0 z-30 bg-black">
+                                {foto ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={foto.ruta} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                                ) : (
+                                    <div className="absolute inset-0 grid place-items-center text-white/70 text-[12.5px] text-center px-6">
+                                        <span className="flex flex-col items-center gap-2"><Camera size={20} /> Sin foto en este tramo</span>
                                     </div>
-                                    <span className="text-muted-foreground text-xs">{event.channelName}</span>
-                                </div>
-                                <Badge className={cn("text-xs py-0.5 px-3 border", sev.color, sev.bg, sev.border)}>
-                                    {sev.label}
-                                </Badge>
-                            </div>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="px-6 py-5 border-b border-border flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <span className={cn("text-2xl font-bold", sev.color)}>{event.peopleCount}</span>
-                            <span className="text-foreground/70 font-medium">personas — {event.channelName}</span>
-                        </div>
-                        <button onClick={onClose} className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent"><X size={16} /></button>
-                    </div>
-                )}
-                {/* Details grid */}
-                <div className="p-6">
-                    <div className="grid grid-cols-3 gap-4">
-                        {[
-                            { label: "Fecha / Hora", value: fecha(time), icon: Calendar },
-                            { label: "Dispositivo", value: event.device.name, icon: MonitorSmartphone },
-                            { label: "Dirección IP", value: event.device.ip, icon: Wifi },
-                            { label: "Regla VCA", value: event.channelName || `Regla ${event.channelId}`, icon: Cpu },
-                            { label: "Ubicación", value: event.device.location || "—", icon: Eye },
-                            { label: "Driver", value: brand?.label || event.device.brand || "—", icon: Activity },
-                        ].map(({ label, value, icon: Icon }) => (
-                            <div key={label} className="flex items-start gap-2.5 p-3 rounded-lg bg-foreground/[0.04] border border-border">
-                                <Icon size={14} className="text-muted-foreground mt-0.5 shrink-0" />
-                                <div>
-                                    <span className="text-[9px] text-muted-foreground font-mono uppercase block mb-0.5">{label}</span>
-                                    <span className="text-xs text-foreground/70 font-medium">{value}</span>
+                                )}
+                                <div className="absolute inset-x-0 bottom-0 px-3 py-2.5 bg-gradient-to-t from-black/85 to-transparent flex items-end justify-between text-white">
+                                    <div className="leading-tight">
+                                        <div className="text-[12px] font-semibold tabular-nums">{foto ? horaSeg(foto.t) : hora(punto.t)} · {fechaCorta(foto?.t || punto.t)}</div>
+                                        <div className="text-[10.5px] text-white/70">{foto ? "la foto con más gente del tramo" : `tramo de ${Math.round(tramoMs / 60_000)} min`}</div>
+                                    </div>
+                                    {foto && <span className={cn("text-[12px] font-bold px-2 py-0.5 rounded-full border tabular-nums", `chip-${t}`)}>{foto.personas} {foto.personas === 1 ? "persona" : "personas"}</span>}
                                 </div>
                             </div>
-                        ))}
-                    </div>
-                    {/* Driver logo */}
-                    {brand?.logoUrl && (
-                        <div className="mt-4 pt-4 border-t border-border flex items-center gap-2">
-                            <span className="text-[9px] text-muted-foreground font-mono uppercase">Procesado por</span>
-                            <img src={brand.logoUrl} alt={brand.label} className="h-5 w-auto max-w-[80px] object-contain opacity-50" />
-                        </div>
-                    )}
-                </div>
+                        )}
+                    </>
+                ) : <div className="absolute inset-0 grid place-items-center text-white/60 text-[12.5px]">Sin cámaras de fila</div>}
+            </div>
+            <div className="px-4 py-3 flex items-center gap-2 text-[12.5px]">
+                <Users size={14} className="text-muted-foreground" />
+                <span className="font-semibold truncate">{fila?.name || "—"}</span>
+                <span className="ml-auto text-muted-foreground">{punto ? "Foto del momento" : "Vivo (pausado)"}</span>
             </div>
         </div>
     );
 }
 
-// ─── Flujo: entradas vs salidas por hora ─────────────
-function FlowSection({ flow, range, onRange, className }: { flow: any; range: string; onRange: (r: string) => void; className?: string }) {
-    const [animated, setAnimated] = useState(false);
-    useEffect(() => { const t = setTimeout(() => setAnimated(true), 80); return () => clearTimeout(t); }, [flow]);
-    const _src = flow?.buckets || flow?.hours || [];
-    const hours = (_src.length ? _src : Array.from({ length: 24 }, () => ({}))).map((b: any, i: number) => ({ hour: i, label: b.label ?? (String(i).padStart(2, "0") + "h"), entradas: b.entradas ?? 0, salidas: b.salidas ?? 0 }));
-    const N = hours.length || 24;
-    const maxV = Math.max(...hours.map(h => Math.max(h.entradas, h.salidas)), 4);
-    const W = 1000, H = 240, PAD_L = 34, PAD_R = 14, PAD_T = 14, PAD_B = 30;
-    const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
-    const gw = plotW / N;
-    const bw = Math.max(gw / 2 - 1.5, 2);
-    const y = (v: number) => PAD_T + (1 - v / maxV) * plotH;
-    const nowH = (!flow?.unit || flow?.unit === "hour") ? new Date().getHours() : N - 1;
+/* ── Veces sobre el límite ──────────────────────────────────────────────────── */
+
+function TablaEpisodios({ episodios, cargando, error, alReintentar, alAbrir }: {
+    episodios: Episodio[]; cargando: boolean; error: string | null; alReintentar: () => void; alAbrir: (e: Episodio) => void;
+}) {
+    const columnas: ColumnaTabla<Episodio>[] = [
+        { clave: "n", titulo: "#", ancho: 60, alinear: "der", valor: (e) => e.numero, celda: (e) => <span className="tabular-nums font-semibold text-muted-foreground">{e.numero}</span> },
+        { clave: "foto", titulo: "Foto", ancho: 100, auxiliar: true, celda: (e) => <Miniatura src={e.foto} alAbrir={() => alAbrir(e)} /> },
+        { clave: "fila", titulo: "Fila", valor: (e) => e.fila, celda: (e) => <span className="font-semibold">{e.fila}</span> },
+        { clave: "desde", titulo: "Llegó al límite", ancho: 140, valor: (e) => e.desde, celda: (e) => <Momento t={e.desde} /> },
+        { clave: "hasta", titulo: "Bajó", ancho: 120, valor: (e) => e.hasta || "", celda: (e) => e.hasta ? <span className="tabular-nums">{horaSeg(e.hasta)}</span> : <Estado tono="mal">Sigue llena</Estado> },
+        { clave: "dur", titulo: "Duración", ancho: 110, alinear: "der", valor: (e) => e.segundos, celda: (e) => <span className="tabular-nums">{duracion(e.segundos) || "< 1 s"}</span> },
+        { clave: "pico", titulo: "Pico", ancho: 120, alinear: "der", valor: (e) => e.pico,
+            celda: (e) => <span className="tabular-nums"><b className="tono-mal">{e.pico}</b><span className="text-muted-foreground"> / {e.limite}</span>{e.picoA && <span className="text-[11px] text-muted-foreground"> · {hora(e.picoA)}</span>}</span> },
+    ];
     return (
-        <div className={cn("rounded-xl border border-border bg-gradient-to-b from-foreground/[0.03] to-transparent p-5", className)}>
-            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                    <ArrowLeftRight size={14} className="text-cyan-400" />
-                    <span className="text-xs font-semibold text-foreground/70">Flujo · entradas y salidas</span>
-                    <RangeToggle range={range} onRange={onRange} />
-                </div>
-                <div className="flex items-center gap-3 text-[11px]">
-                    <span className="flex items-center gap-1.5 text-emerald-400"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" /> Entradas <b className="tabular-nums">{flow?.totalIn ?? 0}</b></span>
-                    <span className="flex items-center gap-1.5 text-amber-400"><span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block" /> Salidas <b className="tabular-nums">{flow?.totalOut ?? 0}</b></span>
-                    <span className="flex items-center gap-1.5 text-foreground/70">Neto <b className={cn("tabular-nums", (flow?.net ?? 0) >= 0 ? "text-emerald-400" : "text-amber-400")}>{(flow?.net ?? 0) >= 0 ? "+" : ""}{flow?.net ?? 0}</b></span>
-                </div>
+        <section className="space-y-2">
+            <div className="flex items-baseline gap-3">
+                <h2 className="text-[17px] font-bold tracking-[-0.01em]">Veces que se superó el límite</h2>
+                <span className={cn("text-[12px] font-bold px-2 py-0.5 rounded-full border tabular-nums", episodios.length ? "chip-mal" : "chip-bien")}>{episodios.length}</span>
+                <span className="text-[12px] text-muted-foreground">Desde que la fila llega a su límite hasta que baja (bajadas de menos de un minuto no cortan).</span>
             </div>
-            <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: "auto", maxHeight: 240 }} preserveAspectRatio="none">
-                {[0, 0.5, 1].map((g, i) => (
-                    <g key={i}>
-                        <line x1={PAD_L} y1={PAD_T + g * plotH} x2={W - PAD_R} y2={PAD_T + g * plotH} stroke="var(--border)" strokeWidth="1" strokeDasharray={g === 1 ? "0" : "4 6"} opacity={g === 1 ? 0.8 : 0.4} />
-                        <text x={PAD_L - 6} y={PAD_T + g * plotH + 3} textAnchor="end" fontSize="10" fontFamily="var(--font-sans)" style={{ fill: "var(--muted-foreground)" }}>{Math.round(maxV * (1 - g))}</text>
-                    </g>
-                ))}
-                {hours.map((h: any, i: number) => {
-                    const gx = PAD_L + gw * h.hour;
-                    const he = (h.entradas / maxV) * plotH * (animated ? 1 : 0);
-                    const hs = (h.salidas / maxV) * plotH * (animated ? 1 : 0);
-                    return (
-                        <g key={i}>
-                            <rect x={gx + 1} y={PAD_T + plotH - he} width={bw} height={he} rx="2" fill="#10b981" opacity={h.hour === nowH ? 1 : 0.85} style={{ transition: "all .6s ease" }}>
-                                <title>{`${String(h.hour).padStart(2,"0")}:00 — Entradas: ${h.entradas}`}</title>
-                            </rect>
-                            <rect x={gx + 1 + bw + 1} y={PAD_T + plotH - hs} width={bw} height={hs} rx="2" fill="#f59e0b" opacity={h.hour === nowH ? 1 : 0.85} style={{ transition: "all .6s ease" }}>
-                                <title>{`${String(h.hour).padStart(2,"0")}:00 — Salidas: ${h.salidas}`}</title>
-                            </rect>
-                            {i % Math.max(1, Math.ceil(N / 8)) === 0 && (
-                                <text x={gx + gw / 2} y={H - 8} textAnchor="middle" fontSize="10" fontFamily="var(--font-sans)" style={{ fill: h.hour === nowH ? "var(--foreground)" : "var(--muted-foreground)" }}>{h.label}</text>
-                            )}
-                        </g>
-                    );
-                })}
-            </svg>
-        </div>
+            <Tabla<Episodio> id="flujo-episodios" filas={episodios} clave={(e) => `${e.deviceId}-${e.desde}`} columnas={columnas}
+                cargando={cargando} error={error} alReintentar={alReintentar} alClickFila={alAbrir} filasFantasma={2} nombreArchivo="veces-sobre-el-limite"
+                vacio={{ icono: TriangleAlert, titulo: "Ninguna fila llegó a su límite en este período", ayuda: "Cuando pase, cada vez queda acá con su foto." }} />
+        </section>
     );
 }
 
-// ═══════════════════════════════════════════════════════
-// ═══ MAIN PAGE ════════════════════════════════════════
-// ═══════════════════════════════════════════════════════
-export default function FlujoFilasPage() {
-    const [events, setEvents] = useState<CrowdEvent[]>([]);
+/* ── Lecturas ───────────────────────────────────────────────────────────────── */
+
+function TablaLecturas({ deviceId, alAbrir }: { deviceId: string; alAbrir: (l: Lectura) => void }) {
+    const [lecturas, setLecturas] = useState<Lectura[]>([]);
     const [total, setTotal] = useState(0);
-    const [page, setPage] = useState(0);
-    const [hourly, setHourly] = useState<any>(null);
-    const [range, setRange] = useState("24h");
-    const [outages, setOutages] = useState<any[]>([]);
-    const [flow, setFlow] = useState<any>(null);
-    const [devices, setDevices] = useState<any[]>([]);
-    const [stats, setStats] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
-    const [selectedEvent, setSelectedEvent] = useState<CrowdEvent | null>(null);
+    const [pagina, setPagina] = useState(0);
+    const [cargando, setCargando] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [soloFoto, setSoloFoto] = useState(false);
+    const [soloAforo, setSoloAforo] = useState(true);
 
-    // Filters
-    const [filterDevice, setFilterDevice] = useState("");
-    const [filterMinCount, setFilterMinCount] = useState("");
-    const [filterFrom, setFilterFrom] = useState("");
-    const [filterTo, setFilterTo] = useState("");
-    const [showFilters, setShowFilters] = useState(false);
-
-    const PAGE_SIZE = 25;
-
-    const loadData = useCallback(async () => {
+    const traer = useCallback(async (pag: number) => {
+        setCargando(true);
         try {
-            const options: any = { take: PAGE_SIZE, skip: page * PAGE_SIZE };
-            if (filterDevice) options.deviceId = filterDevice;
-            if (filterMinCount) options.minCount = parseInt(filterMinCount);
-            if (filterFrom) options.from = new Date(filterFrom);
-            if (filterTo) options.to = new Date(filterTo);
+            const r = await getLecturasFilas({ deviceId: deviceId || null, soloConFoto: soloFoto, soloAforo, pagina: pag, porPagina: POR_PAGINA });
+            setLecturas((prev) => (pag === 0 ? r.lecturas : [...prev, ...r.lecturas])); setTotal(r.total); setPagina(pag); setError(null);
+        } catch (e: any) { setError(e?.message || "No se pudieron leer las lecturas"); }
+        finally { setCargando(false); }
+    }, [deviceId, soloFoto, soloAforo]);
+    useEffect(() => { traer(0); }, [traer]);
 
-            const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
-            const [eventsData, hourlyData, devicesData, statsData, outagesData, flowData] = await Promise.all([
-                getQueueEvents(options),
-                getQueueAforoSeries(filterDevice || undefined, range),
-                getQueueDevices(),
-                getQueueStatsToday(),
-                getCameraOutages({ from: startOfDay, deviceId: filterDevice || undefined, includeOpen: true }),
-                getQueueFlowSeries(filterDevice || undefined, range),
-            ]);
-
-            setEvents(eventsData.events);
-            setTotal(eventsData.total);
-            setHourly(hourlyData);
-            setOutages(outagesData || []);
-            setFlow(flowData || null);
-            setDevices(devicesData);
-            setStats(statsData);
-            setLoading(false);
-        } catch (err) {
-            console.error("Error loading flujo-filas:", err);
-        }
-    }, [page, filterDevice, filterMinCount, filterFrom, filterTo, range]);
-
-    useEffect(() => {
-        loadData();
-    }, [loadData]);
-
-    const totalPages = Math.ceil(total / PAGE_SIZE);
-
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center h-[80vh]">
-                <div className="flex flex-col items-center gap-3">
-                    <Activity className="w-8 h-8 text-violet-500 animate-pulse" />
-                    <span className="text-sm text-muted-foreground font-mono">Cargando historial...</span>
-                </div>
-            </div>
-        );
-    }
+    const columnas: ColumnaTabla<Lectura>[] = useMemo(() => [
+        { clave: "foto", titulo: "Foto", ancho: 100, auxiliar: true, celda: (l) => <Miniatura src={l.foto} alAbrir={l.foto ? () => alAbrir(l) : undefined} /> },
+        { clave: "t", titulo: "Hora", ancho: 130, valor: (l) => l.t, celda: (l) => <Momento t={l.t} /> },
+        { clave: "fila", titulo: "Fila", valor: (l) => l.fila },
+        { clave: "canal", titulo: "Contador", ancho: 130, valor: (l) => l.canal },
+        { clave: "p", titulo: "Personas", ancho: 110, alinear: "der", valor: (l) => l.personas,
+            celda: (l) => <span className={cn("text-[16px] font-bold tabular-nums", esAforo(l) && `tono-${tonoFila(l.personas, l.limite)}`)}>{l.personas}</span> },
+        { clave: "estado", titulo: "Estado", ancho: 110, valor: (l) => (esAforo(l) ? ROTULO_TONO[tonoFila(l.personas, l.limite)] : "Acumulado"),
+            celda: (l) => esAforo(l) ? <Estado tono={tonoFila(l.personas, l.limite) as any}>{ROTULO_TONO[tonoFila(l.personas, l.limite)]}</Estado> : <span className="text-[11.5px] text-muted-foreground">acumulado</span> },
+    ], [alAbrir]);
 
     return (
-        <div className="space-y-4 p-6">
-            {/* ═══ HEADER ═══ */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
-                        <Activity size={18} className="text-violet-400" />
-                    </div>
-                    <div>
-                        <h1 className="text-lg font-bold text-foreground tracking-tight">Flujo de Filas</h1>
-                        <p className="text-[11px] text-muted-foreground font-mono">{fecha(total)} eventos registrados</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                    <Button
-                        variant="ghost" size="sm"
-                        onClick={() => setShowFilters(f => !f)}
-                        className={cn("h-8 gap-1.5 text-xs", showFilters ? "text-violet-400" : "text-muted-foreground hover:text-foreground")}
-                    >
-                        <Filter size={12} /> Filtros
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={loadData} className="h-8 text-muted-foreground hover:text-foreground">
-                        <RefreshCw size={12} />
-                    </Button>
+        <section className="space-y-2">
+            <div className="flex flex-wrap items-baseline gap-3">
+                <h2 className="text-[17px] font-bold tracking-[-0.01em]">Lecturas</h2>
+                <span className="text-[12px] text-muted-foreground tabular-nums">{total.toLocaleString("es-UY")} en total</span>
+                <div className="ml-auto flex items-center gap-2">
+                    <Pastillas valor={soloAforo ? "aforo" : "todo"} alCambiar={(v) => setSoloAforo(v === "aforo")} opciones={[{ k: "aforo", rotulo: "Sólo aforo" }, { k: "todo", rotulo: "Con entradas y salidas" }]} />
+                    <Pastillas valor={soloFoto ? "si" : "no"} alCambiar={(v) => setSoloFoto(v === "si")} opciones={[{ k: "no", rotulo: "Todas" }, { k: "si", rotulo: "Con foto" }]} />
+                    <Button variant="outline" size="sm" asChild className="gap-1.5"><Link href="/admin/capturas-filas"><Images size={14} /> Historial de capturas</Link></Button>
                 </div>
             </div>
-
-            {/* ═══ CHART + KPIs ═══ */}
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
-                <HourlyChart buckets={hourly?.buckets || []} unit={hourly?.unit} range={range} onRange={setRange} outages={outages} flow={flow} className="lg:col-span-3" />
-                {(() => {
-                    const vd = devices.find((d: any) => d.id === filterDevice) || devices[0] || null;
-                    if (!vd) return (
-                        <div className="flex flex-col gap-3">
-                            <div className="rounded-xl border border-border bg-foreground/[0.04] p-4 flex-1 flex flex-col justify-center"><div className="text-[9px] text-muted-foreground font-mono uppercase mb-1">Eventos Hoy</div><div className="text-2xl font-bold text-foreground/70 tabular-nums">{stats?.totalEvents ?? 0}</div></div>
-                            <div className="rounded-xl border border-amber-500/10 bg-amber-500/[0.03] p-4 flex-1 flex flex-col justify-center"><div className="text-[9px] text-amber-400/50 font-mono uppercase mb-1">Pico Máximo</div><div className="text-2xl font-bold text-amber-400 tabular-nums">{stats?.maxCount ?? 0}</div></div>
-                            <div className="rounded-xl border border-blue-500/10 bg-blue-500/[0.03] p-4 flex-1 flex flex-col justify-center"><div className="text-[9px] text-blue-400/50 font-mono uppercase mb-1">Promedio</div><div className="text-2xl font-bold text-blue-400 tabular-nums">{stats?.avgCount ?? 0}</div></div>
-                        </div>
-                    );
-                    return (
-                        <div className="relative rounded-xl border border-border bg-black overflow-hidden min-h-[200px]">
-                            <VivoConPlay deviceId={vd.id}><LiveVideo streamName={getStreamName(vd.ip)} fallbackDeviceId={vd.id} className="absolute inset-0 w-full h-full" /></VivoConPlay>
-                            {/* Top: EN VIVO + device */}
-                            <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 py-2 bg-gradient-to-b from-black/70 to-transparent pointer-events-none z-10">
-                                <span className="flex items-center gap-1.5 text-[10px] font-bold text-white/90" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9)" }}><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> EN VIVO</span>
-                                <span className="text-[9px] text-foreground/70 truncate max-w-[120px]">{vd.name}</span>
-                            </div>
-                            {/* Bottom: stats overlay */}
-                            <div className="absolute bottom-0 left-0 right-0 px-3 py-2.5 bg-gradient-to-t from-black/90 via-black/55 to-transparent pointer-events-none z-10 flex items-end justify-between gap-2">
-                                <div><div className="text-[8px] text-white/45 font-mono uppercase tracking-wider">Eventos hoy</div><div className="text-lg font-bold text-white tabular-nums leading-none" style={{ textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>{stats?.totalEvents ?? 0}</div></div>
-                                <div className="text-center"><div className="text-[8px] text-amber-300/70 font-mono uppercase tracking-wider">Pico</div><div className="text-lg font-bold text-amber-400 tabular-nums leading-none" style={{ textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>{stats?.maxCount ?? 0}</div></div>
-                                <div className="text-right"><div className="text-[8px] text-blue-300/70 font-mono uppercase tracking-wider">Prom.</div><div className="text-lg font-bold text-blue-400 tabular-nums leading-none" style={{ textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}>{stats?.avgCount ?? 0}</div></div>
-                            </div>
-                        </div>
-                    );
-                })()}
-            </div>
-
-            {/* ═══ FLOW ═══ */}
-
-            {/* ═══ FILTERS ═══ */}
-            {showFilters && (
-                <div className="rounded-xl border border-violet-500/10 bg-violet-500/[0.02] p-4 space-y-3">
-                    <div className="flex items-center gap-2 mb-2">
-                        <Filter size={12} className="text-violet-400" />
-                        <span className="text-[10px] text-violet-400/70 font-mono uppercase tracking-wider">Filtros Activos</span>
-                    </div>
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                        <div>
-                            <label className="text-[9px] text-muted-foreground font-mono uppercase block mb-1">Dispositivo</label>
-                            <select
-                                value={filterDevice}
-                                onChange={e => { setFilterDevice(e.target.value); setPage(0); }}
-                                className="w-full h-8 text-xs bg-foreground/10 border border-border rounded-md px-2 text-foreground"
-                            >
-                                <option value="">Todos</option>
-                                {devices.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="text-[9px] text-muted-foreground font-mono uppercase block mb-1">Mín. Personas</label>
-                            <Input
-                                type="number"
-                                value={filterMinCount}
-                                onChange={e => { setFilterMinCount(e.target.value); setPage(0); }}
-                                placeholder="0"
-                                className="h-8 text-xs bg-foreground/10 border-border"
-                            />
-                        </div>
-                        <div>
-                            <label className="text-[9px] text-muted-foreground font-mono uppercase block mb-1">Desde</label>
-                            <Input
-                                type="datetime-local"
-                                value={filterFrom}
-                                onChange={e => { setFilterFrom(e.target.value); setPage(0); }}
-                                className="h-8 text-xs bg-foreground/10 border-border"
-                            />
-                        </div>
-                        <div>
-                            <label className="text-[9px] text-muted-foreground font-mono uppercase block mb-1">Hasta</label>
-                            <Input
-                                type="datetime-local"
-                                value={filterTo}
-                                onChange={e => { setFilterTo(e.target.value); setPage(0); }}
-                                className="h-8 text-xs bg-foreground/10 border-border"
-                            />
-                        </div>
-                    </div>
-                    {(filterDevice || filterMinCount || filterFrom || filterTo) && (
-                        <Button
-                            variant="ghost" size="sm"
-                            onClick={() => { setFilterDevice(""); setFilterMinCount(""); setFilterFrom(""); setFilterTo(""); setPage(0); }}
-                            className="text-[10px] text-muted-foreground hover:text-foreground h-6"
-                        >
-                            <X size={10} className="mr-1" /> Limpiar filtros
-                        </Button>
-                    )}
-                </div>
-            )}
-
-            {/* ═══ EVENT TABLE ═══ */}
-            <div className="rounded-xl border border-border bg-foreground/[0.04] overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full">
-                        <thead>
-                            <tr className="border-b border-border bg-foreground/[0.04]">
-                                <th className="text-left text-[9px] text-muted-foreground font-mono uppercase tracking-wider px-3 py-2.5 w-[70px]">Foto</th>
-                                <th className="text-left text-[9px] text-muted-foreground font-mono uppercase tracking-wider px-3 py-2.5">Hora</th>
-                                <th className="text-left text-[9px] text-muted-foreground font-mono uppercase tracking-wider px-3 py-2.5">Regla VCA</th>
-                                <th className="text-left text-[9px] text-muted-foreground font-mono uppercase tracking-wider px-3 py-2.5">Dispositivo</th>
-                                <th className="text-left text-[9px] text-muted-foreground font-mono uppercase tracking-wider px-3 py-2.5">IP</th>
-                                <th className="text-left text-[9px] text-muted-foreground font-mono uppercase tracking-wider px-3 py-2.5">Driver</th>
-                                <th className="text-center text-[9px] text-muted-foreground font-mono uppercase tracking-wider px-3 py-2.5">Personas</th>
-                                <th className="text-left text-[9px] text-muted-foreground font-mono uppercase tracking-wider px-3 py-2.5">Nivel</th>
-                                <th className="w-8"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {events.length === 0 ? (
-                                <tr>
-                                    <td colSpan={9} className="px-4 py-12 text-center">
-                                        <div className="flex flex-col items-center gap-2">
-                                            <Activity className="w-8 h-8 text-muted-foreground" />
-                                            <span className="text-sm text-muted-foreground">No hay eventos{filterDevice || filterMinCount ? " con esos filtros" : ""}</span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ) : (
-                                events.map((event) => (
-                                    <EventRow
-                                        key={event.id}
-                                        event={event}
-                                        onExpand={() => setSelectedEvent(event)}
-                                    />
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-
-                {/* Pagination */}
-                {totalPages > 1 && (
-                    <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-                        <span className="text-[10px] text-muted-foreground font-mono">
-                            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} de {total}
-                        </span>
-                        <div className="flex items-center gap-1">
-                            <Button
-                                variant="ghost" size="sm"
-                                disabled={page === 0}
-                                onClick={() => setPage(p => p - 1)}
-                                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground disabled:opacity-20"
-                            >
-                                <ChevronLeft size={14} />
-                            </Button>
-                            <span className="text-[10px] text-muted-foreground font-mono px-2">
-                                {page + 1}/{totalPages}
-                            </span>
-                            <Button
-                                variant="ghost" size="sm"
-                                disabled={page >= totalPages - 1}
-                                onClick={() => setPage(p => p + 1)}
-                                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground disabled:opacity-20"
-                            >
-                                <ChevronRight size={14} />
-                            </Button>
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {/* Event Detail Modal */}
-            {selectedEvent && (
-                <EventDetail event={selectedEvent} onClose={() => setSelectedEvent(null)} />
-            )}
-        </div>
+            <Tabla<Lectura> id="flujo-lecturas" filas={lecturas} clave={(l) => l.id} columnas={columnas} cargando={cargando && !lecturas.length}
+                error={error} alReintentar={() => traer(0)} alClickFila={(l) => l.foto && alAbrir(l)} filasFantasma={4} nombreArchivo="lecturas-filas"
+                masFilas={{ hay: lecturas.length < total, cargando, traer: () => traer(pagina + 1), modo: "boton" }}
+                vacio={{ icono: Activity, titulo: "No hay lecturas", ayuda: soloFoto ? "Ninguna lectura con foto con estos filtros." : "La cámara todavía no mandó datos." }} />
+        </section>
     );
 }
+
+const esAforo = (l: Lectura) => l.canal !== "Entrada" && l.canal !== "Salida";
+
