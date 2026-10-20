@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import {
-    Plus, Trash2, Save, Clock, Bell, Zap, Tag, Send, Timer, Video, CalendarDays, PanelRightOpen,
+    Plus, Trash2, Save, Clock, Bell, Zap, Tag, Send, Timer, Video, CalendarDays, PanelRightOpen, Users,
     MessageCircle, Mail, Smartphone, Loader2, HelpCircle,
     ShieldCheck,
 } from "lucide-react";
@@ -104,6 +104,18 @@ const vacia = (modulo: string) => ({
     channels: "whatsapp", minSeverity: "", cooldownSec: 60, dedupe: true, verificacion: "avisar", tiposChapa: "",
 });
 
+/**
+ * Una regla nueva en una instalación que es SÓLO control de filas (HB). Distinta de la general
+ * en tres cosas, cada una por lo que pasa con una fila de verdad:
+ *  - sale por Telegram: es el canal del grupo de supervisores;
+ *  - umbral 8 personas: con 5 avisa con una fila normal de media mañana;
+ *  - pausa de 5 minutos: una fila llena sigue llena un buen rato, y con 60 s el grupo recibe un
+ *    aviso por minuto de la misma fila hasta que se vacía.
+ */
+const UMBRAL_FILA_POR_DEFECTO = 8;
+const PAUSA_FILA_POR_DEFECTO_SEG = 300;
+const vaciaFilas = () => ({ ...vacia("QUEUE"), channels: "telegram", threshold: UMBRAL_FILA_POR_DEFECTO, cooldownSec: PAUSA_FILA_POR_DEFECTO_SEG });
+
 function listaCsv(csv: string | null | undefined) { return String(csv || "").split(",").map((x) => x.trim()).filter(Boolean); }
 function diasLegibles(csv: string) {
     const d = listaCsv(csv);
@@ -174,22 +186,47 @@ export default function RulesManager() {
     }, []);
     useEffect(() => { cargar(); }, [cargar]);
 
-    /* Sólo los módulos prendidos en este barrio, más el de la regla abierta: ofrecer "Filas"
+    /**
+     * Instalación sólo de control de filas (HB, 19/10). El modo Filas excluye a Matrículas y a
+     * Rostros (module-definitions: `exclusive`), pero Intrusión no tiene interruptor propio y
+     * aparecía igual, con sus eventos de cámara perimetral. Acá no hay nada de eso: el cajón es
+     * de filas y nada más — sin módulo para elegir, sin eventos de LPR, sin tipos de chapa.
+     */
+    const soloFilas = !!modulos.MODULE_QUEUE && !modulos.MODULE_LPR;
+
+    /* Sólo los módulos prendidos en este barrio, más los que ya tienen reglas: ofrecer "Filas"
        donde no hay contadores es ofrecer una regla que nunca va a disparar. */
-    const modulosVisibles = useMemo(() => MODULOS.filter((m) => !m.modulo || modulos[m.modulo] || form.modulo === m.v || reglas.some((r) => (r.modulo || "QUEUE") === m.v)), [modulos, form.modulo, reglas]);
-    const moduloInicial = modulosVisibles[0]?.v || MODULO_POR_DEFECTO;
+    const modulosBase = useMemo(() => soloFilas ? MODULOS.filter((m) => m.v === "QUEUE")
+        : MODULOS.filter((m) => !m.modulo || modulos[m.modulo] || reglas.some((r) => (r.modulo || "QUEUE") === m.v)), [soloFilas, modulos, reglas]);
+    // El módulo de la regla abierta se suma para poder mostrarla, pero NO decide el de una regla
+    // nueva. Antes sí: el formulario arrancaba en Matrículas, Matrículas quedaba «visible» por
+    // estar abierta, y la regla nueva nacía en Matrículas aunque no hubiera una sola cámara LPR.
+    const modulosVisibles = useMemo(() => soloFilas ? modulosBase
+        : MODULOS.filter((m) => modulosBase.some((b) => b.v === m.v) || form.modulo === m.v), [soloFilas, modulosBase, form.modulo]);
+    const moduloInicial = modulosBase[0]?.v || MODULO_POR_DEFECTO;
+
+    function nombreEquipo(id: string | null) {
+        if (!id) return soloFilas ? "Todas las filas" : "Todas";
+        return equipos.find((d) => d.id === id)?.name || (soloFilas ? "Fila borrada" : "Cámara borrada");
+    }
 
     const visibles = useMemo(() => {
         const q = busqueda.trim().toLowerCase();
-        return reglas.filter((r) => (filtroModulo === "todos" || (r.modulo || "QUEUE") === filtroModulo) &&
-            (!q || r.name.toLowerCase().includes(q) || queDispara(r).toLowerCase().includes(q) || r.channels.includes(q)));
-    }, [reglas, busqueda, filtroModulo]);
-
-    const nombreEquipo = (id: string | null) => id ? (equipos.find((d) => d.id === id)?.name || "Cámara borrada") : "Todas";
+        return reglas.filter((r) => {
+            const mod = r.modulo || "QUEUE";
+            // En una instalación de filas, una regla de Matrículas o Intrusión que quedó de otra
+            // época no puede disparar (no llegan eventos de esos módulos): mostrarla sólo confunde.
+            if (soloFilas && mod !== "QUEUE") return false;
+            // En filas el filtro es por medida (aforo, entradas, salidas); en el resto, por módulo.
+            if (filtroModulo !== "todos" && (soloFilas ? r.metric : mod) !== filtroModulo) return false;
+            return !q || r.name.toLowerCase().includes(q) || queDispara(r).toLowerCase().includes(q) || r.channels.includes(q) || nombreEquipo(r.deviceId).toLowerCase().includes(q);
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [reglas, busqueda, filtroModulo, soloFilas, equipos]);
 
     const abrir = (r: Rule | null) => {
         if (r) setForm({ ...r, modulo: r.modulo || "QUEUE", eventos: r.eventos || "", deviceId: r.deviceId || "", channelName: r.channelName || "", minSeverity: r.minSeverity || "", verificacion: r.verificacion || "avisar", tiposChapa: r.tiposChapa || "" });
-        else setForm(vacia(moduloInicial));
+        else setForm(soloFilas ? vaciaFilas() : vacia(moduloInicial));
         setAbierta(r ? r.id : "nueva");
     };
     const alternar = (campo: "daysOfWeek" | "channels" | "eventos" | "tiposChapa", v: string, orden: string[]) => {
@@ -229,11 +266,12 @@ export default function RulesManager() {
             clave: "name", titulo: "Regla", valor: (r) => r.name,
             celda: (r) => <div className={cn("min-w-0", !r.enabled && "opacity-55")}>
                 <div className="text-[13px] font-semibold text-foreground truncate">{r.name}</div>
-                <div className="text-[11px] text-muted-foreground">{nombreModulo(r.modulo)}</div>
+                {/* Con un solo módulo, repetir «Filas» en cada renglón no dice nada; la medida sí. */}
+                <div className="text-[11px] text-muted-foreground">{soloFilas ? (METRICAS.find((m) => m.v === r.metric)?.l || r.metric) : nombreModulo(r.modulo)}</div>
             </div>,
         },
         { clave: "dispara", titulo: "Qué la dispara", valor: (r) => queDispara(r), celda: (r) => <span className="text-[12px]">{queDispara(r)}</span> },
-        { clave: "camara", titulo: "Cámara", ancho: 150, valor: (r) => nombreEquipo(r.deviceId), celda: (r) => <span className={cn("text-[12px]", !r.deviceId && "text-muted-foreground")}>{nombreEquipo(r.deviceId)}</span> },
+        { clave: "camara", titulo: soloFilas ? "Fila" : "Cámara", ancho: 150, valor: (r) => nombreEquipo(r.deviceId), celda: (r) => <span className={cn("text-[12px]", !r.deviceId && "text-muted-foreground")}>{nombreEquipo(r.deviceId)}</span> },
         {
             clave: "cuando", titulo: "Cuándo", ancho: 150, valor: (r) => `${r.startTime}-${r.endTime}`,
             celda: (r) => <div className="text-[12px] leading-tight"><div className="tabular-nums">{r.startTime === "00:00" && r.endTime === "23:59" ? "Todo el día" : `${r.startTime} a ${r.endTime}`}</div><div className="text-[11px] text-muted-foreground">{diasLegibles(r.daysOfWeek)}</div></div>,
@@ -269,11 +307,17 @@ export default function RulesManager() {
                 alReintentar={cargar}
                 alClickFila={(r) => abrir(r)}
                 alto="62vh"
-                vacio={{ icono: Bell, titulo: busqueda || filtroModulo !== "todos" ? "Ninguna coincide" : "Sin reglas", ayuda: "Una regla dice qué evento, de qué cámara y en qué horario sale por WhatsApp, Telegram o correo." }}
+                vacio={{
+                    icono: Bell, titulo: busqueda || filtroModulo !== "todos" ? "Ninguna coincide" : "Sin reglas",
+                    ayuda: soloFilas ? "Una regla dice cuándo avisa una fila (por ejemplo, 8 o más personas en la Caja 1), en qué horario y por dónde: Telegram, WhatsApp o correo."
+                        : "Una regla dice qué evento, de qué cámara y en qué horario sale por WhatsApp, Telegram o correo.",
+                }}
                 barra={
                     <Filtros
-                        busqueda={busqueda} alBuscar={setBusqueda} placeholder="Nombre, evento o canal"
-                        grupos={[{ clave: "modulo", titulo: "Módulo", valor: filtroModulo, alElegir: setFiltroModulo, opciones: [{ valor: "todos", rotulo: "Todos" }, ...modulosVisibles.map((m) => ({ valor: m.v, rotulo: m.l }))] }]}
+                        busqueda={busqueda} alBuscar={setBusqueda} placeholder={soloFilas ? "Nombre, fila o canal" : "Nombre, evento o canal"}
+                        grupos={soloFilas
+                            ? [{ clave: "medida", titulo: "Qué mide", valor: filtroModulo, alElegir: setFiltroModulo, opciones: [{ valor: "todos", rotulo: "Todas" }, ...METRICAS.map((m) => ({ valor: m.v, rotulo: m.l }))] }]
+                            : [{ clave: "modulo", titulo: "Módulo", valor: filtroModulo, alElegir: setFiltroModulo, opciones: [{ valor: "todos", rotulo: "Todos" }, ...modulosVisibles.map((m) => ({ valor: m.v, rotulo: m.l }))] }]}
                         acciones={<div className="flex items-center gap-3">
                             <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">{activas} activa{activas === 1 ? "" : "s"} de {reglas.length}</span>
                             <Button size="sm" onClick={() => abrir(null)}><Plus size={14} /> Nueva regla</Button>
@@ -287,7 +331,7 @@ export default function RulesManager() {
                     <CajonContenido
                         ancho="intermedio"
                         titulo={abierta === "nueva" ? "Nueva regla" : form.name || "Regla"}
-                        descripcion="Qué evento, de qué cámara y en qué horario sale por qué canal."
+                        descripcion={soloFilas ? "Cuándo avisa una fila, en qué horario y por qué canal." : "Qué evento, de qué cámara y en qué horario sale por qué canal."}
                         pie={<>
                             {abierta !== "nueva" && (
                                 <Button type="button" variant="outline" className="mr-auto text-[var(--mal)]" onClick={() => setBorrar(reglas.find((r) => r.id === abierta) || null)}>
@@ -301,8 +345,8 @@ export default function RulesManager() {
                         </>}>
 
                         <CajonSeccion titulo="La regla" icono={Tag}>
-                            <CajonCampo etiqueta="Nombre" pista={<Ayuda que="Cómo se la reconoce en esta tabla y en Despachos. Va en el aviso como título de la alerta." ejemplo="«Lista negra en la entrada», «Cruce perimetral de noche»." />}>
-                                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ej. Lista negra en la entrada" />
+                            <CajonCampo etiqueta="Nombre" pista={<Ayuda que="Cómo se la reconoce en esta tabla y en Despachos. Va en el aviso como título de la alerta." ejemplo={soloFilas ? "«Caja 1 con más de 8», «Fila de admisión llena»." : "«Lista negra en la entrada», «Cruce perimetral de noche»."} />}>
+                                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={soloFilas ? "Ej. Caja 1 con más de 8" : "Ej. Lista negra en la entrada"} />
                             </CajonCampo>
                             <div className="flex items-center justify-between gap-3 rounded-[10px] border border-border px-3 py-2.5">
                                 <div className="text-[12px]">
@@ -314,11 +358,11 @@ export default function RulesManager() {
                         </CajonSeccion>
 
                         <CajonSeccion titulo="Qué la dispara" icono={Zap}>
-                            <Rotulo texto="Módulo" pista={<Ayuda que="De qué parte del sistema salen los eventos que mira esta regla. Cambiarlo borra los eventos elegidos, porque cada módulo tiene los suyos." ejemplo="Matrículas para la barrera y las cámaras de calle; Intrusión para las perimetrales." />}>
+                            {!soloFilas && <Rotulo texto="Módulo" pista={<Ayuda que="De qué parte del sistema salen los eventos que mira esta regla. Cambiarlo borra los eventos elegidos, porque cada módulo tiene los suyos." ejemplo="Matrículas para la barrera y las cámaras de calle; Intrusión para las perimetrales." />}>
                                 <div className="flex flex-wrap gap-1.5">
                                     {modulosVisibles.map((m) => <button key={m.v} type="button" onClick={() => setForm({ ...form, modulo: m.v, eventos: "", deviceId: "", tiposChapa: "" })} className={pastilla(form.modulo === m.v)}>{m.l}</button>)}
                                 </div>
-                            </Rotulo>
+                            </Rotulo>}
 
                             {!esFilas ? (
                                 <Rotulo texto="Eventos" pista={<Ayuda que="Qué tiene que pasar para que salga el aviso. Sin ninguno marcado, sale con cualquier evento del módulo (puede ser mucho)." ejemplo="Sólo «En lista de vigilancia»: avisa cuando entra una matrícula vigilada y no con cada auto." />}>
@@ -344,18 +388,20 @@ export default function RulesManager() {
                             ) : null}
                             {!esFilas ? null : (
                                 <div className="grid grid-cols-2 gap-3">
-                                    <Rotulo texto="Qué se mide" pista={<Ayuda que="El número del contador de la fila que se compara contra el umbral." ejemplo="Aforo: cuántas personas hay ahora en la fila." />}>
+                                    <Rotulo texto="Qué se mide" pista={<Ayuda que="El número del contador de la fila que se compara contra el umbral. Aforo es cuánta gente hay ahora; Entradas y Salidas son los acumulados de la cámara desde que se puso en cero." ejemplo="Aforo: cuántas personas hay ahora en la fila." />}>
                                         <Select value={form.metric} onValueChange={(v) => setForm({ ...form, metric: v })}>
                                             <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                                             <SelectContent>{METRICAS.map((m) => <SelectItem key={m.v} value={m.v}>{m.l}</SelectItem>)}</SelectContent>
                                         </Select>
                                     </Rotulo>
-                                    <Rotulo texto="Zona" pista={<Ayuda que="La zona del contador. Vacío: cualquiera." ejemplo="Entrada: sólo la línea de entrada de la fila." />}>
+                                    {/* En filas la medida ya dice qué contador mira (aforo, entrada o salida): la zona
+                                        repetía lo mismo con otras palabras. Queda sólo si la regla ya traía una. */}
+                                    {(!soloFilas || form.channelName) && <Rotulo texto="Zona" pista={<Ayuda que="La zona del contador. Vacío: cualquiera." ejemplo="Entrada: sólo la línea de entrada de la fila." />}>
                                         <Select value={form.channelName || "cualquiera"} onValueChange={(v) => setForm({ ...form, channelName: v === "cualquiera" ? "" : v })}>
                                             <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                                             <SelectContent><SelectItem value="cualquiera">Cualquiera</SelectItem>{ZONAS.map((z) => <SelectItem key={z} value={z}>{z}</SelectItem>)}</SelectContent>
                                         </Select>
-                                    </Rotulo>
+                                    </Rotulo>}
                                     <Rotulo texto="Condición" pista={<Ayuda que="Cómo se compara la medida con el umbral." ejemplo="«≥ igual o más» con umbral 8: avisa cuando hay 8 o más." />}>
                                         <Select value={form.operator} onValueChange={(v) => setForm({ ...form, operator: v })}>
                                             <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -368,11 +414,13 @@ export default function RulesManager() {
                                 </div>
                             )}
 
-                            <Rotulo texto="Cámara" pista={<Ayuda que="De qué equipo tienen que venir los eventos. «Todas» toma cualquier cámara del módulo." ejemplo="Sólo «LPR Entrada»: no avisa lo que lee la de Salida." />}>
+                            <Rotulo texto={soloFilas ? "Fila" : "Cámara"} pista={soloFilas
+                                ? <Ayuda que="Qué fila mira la regla. «Todas las filas» evalúa cada una por separado: avisa la que cumpla, con su nombre." ejemplo="Sólo «Caja 1»: la fila de admisión no dispara esta regla." />
+                                : <Ayuda que="De qué equipo tienen que venir los eventos. «Todas» toma cualquier cámara del módulo." ejemplo="Sólo «LPR Entrada»: no avisa lo que lee la de Salida." />}>
                                 <Select value={form.deviceId || "todas"} onValueChange={(v) => setForm({ ...form, deviceId: v === "todas" ? "" : v })}>
-                                    <SelectTrigger className="h-9"><Video size={14} className="text-muted-foreground" /><SelectValue /></SelectTrigger>
+                                    <SelectTrigger className="h-9">{soloFilas ? <Users size={14} className="text-muted-foreground" /> : <Video size={14} className="text-muted-foreground" />}<SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="todas">Todas las cámaras</SelectItem>
+                                        <SelectItem value="todas">{soloFilas ? "Todas las filas" : "Todas las cámaras"}</SelectItem>
                                         {equiposDelModulo.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
                                         {form.deviceId && !equiposDelModulo.some((d) => d.id === form.deviceId) && <SelectItem value={form.deviceId}>{nombreEquipo(form.deviceId)}</SelectItem>}
                                     </SelectContent>
@@ -381,13 +429,13 @@ export default function RulesManager() {
                         </CajonSeccion>
 
                         <CajonSeccion titulo="Cuándo" icono={CalendarDays}>
-                            <Rotulo texto="Días" pista={<Ayuda que="Los días en que la regla avisa. Fuera de ellos el evento pasa igual, pero no sale ningún aviso." ejemplo="Sólo S y D para avisar intrusiones el fin de semana." />}>
+                            <Rotulo texto="Días" pista={<Ayuda que="Los días en que la regla avisa. Fuera de ellos el evento pasa igual, pero no sale ningún aviso." ejemplo={soloFilas ? "L a V: la fila de admisión no avisa el fin de semana, cuando no atiende." : "Sólo S y D para avisar intrusiones el fin de semana."} />}>
                                 <div className="flex gap-1">
                                     {DIAS.map((d) => <button key={d.v} type="button" onClick={() => alternar("daysOfWeek", d.v, DIAS.map((x) => x.v))} className={cn("w-9 h-9 rounded-full border text-[12px] font-bold", listaCsv(form.daysOfWeek).includes(d.v) ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_14%,transparent)] text-foreground" : "border-border text-muted-foreground hover:text-foreground")}>{d.l}</button>)}
                                 </div>
                             </Rotulo>
                             <div className="grid grid-cols-2 gap-3">
-                                <CajonCampo etiqueta="Desde" pista={<Ayuda que="Hora de inicio, en la hora del barrio. Si «Hasta» es menor, la ventana cruza la medianoche." ejemplo="22:00 a 06:00 = toda la noche." />}>
+                                <CajonCampo etiqueta="Desde" pista={<Ayuda que="Hora de inicio, en la hora local. Si «Hasta» es menor, la ventana cruza la medianoche." ejemplo={soloFilas ? "07:30 a 19:00: el horario de atención de las cajas." : "22:00 a 06:00 = toda la noche."} />}>
                                     <Input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} className="tabular-nums" />
                                 </CajonCampo>
                                 <CajonCampo etiqueta="Hasta" pista={<Ayuda que="Hora de fin, incluida." ejemplo="23:59 para que llegue hasta el final del día." />}>
