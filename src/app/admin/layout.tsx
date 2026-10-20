@@ -47,6 +47,8 @@ import {
     Ban,
     FileSearch,
     Images,
+    CalendarClock,
+    CheckCheck,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -224,6 +226,9 @@ export default function AdminLayout({
                             <SidebarItem icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />
                             {/* El historial de capturas (HB, 19/10): las fotos de las filas, día por día. */}
                             <SidebarItem icon={<Images size={18} />} label="Capturas" href="/admin/capturas-filas" active={pathname === "/admin/capturas-filas"} collapsed={collapsed} />
+                            {/* Pronóstico y calidad del dato, y la validación contra un conteo a mano (HB, 20/10). */}
+                            <SidebarItem icon={<CalendarClock size={18} />} label="Pronóstico" href="/admin/pronostico-filas" active={pathname === "/admin/pronostico-filas"} collapsed={collapsed} />
+                            <SidebarItem icon={<CheckCheck size={18} />} label="Validar conteo" href="/admin/validar-conteo" active={pathname === "/admin/validar-conteo"} collapsed={collapsed} />
                         </>)
                     ) : (
                         ve("historial") && (<SidebarItem icon={<History size={18} />} label="Historial de Acceso" href="/admin/history" active={pathname === "/admin/history"} collapsed={collapsed} />)

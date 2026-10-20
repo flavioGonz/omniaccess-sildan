@@ -47,7 +47,7 @@ export const PERMISOS: Permiso[] = [
     { clave: "dispositivos", rotulo: "Dispositivos", grupo: "Equipos", descripcion: "Cámaras, grabadores, lectoras: alta, salud, sincronización de matrículas, hora.", rutas: ["/admin/devices"] },
 
     // ── Filas (módulo de colas) ──
-    { clave: "filas", rotulo: "Control de filas", grupo: "Filas", descripcion: "Filas, flujo, despachos, horarios, kiosko, calibración de aforo y reportes de filas.", rutas: ["/admin/filas", "/admin/flujo-filas", "/admin/capturas-filas", "/admin/despachos", "/admin/horarios-filas", "/admin/kiosko", "/admin/calibracion-aforo", "/admin/reportes-queue"] },
+    { clave: "filas", rotulo: "Control de filas", grupo: "Filas", descripcion: "Filas, flujo, despachos, horarios, kiosko, calibración de aforo y reportes de filas.", rutas: ["/admin/filas", "/admin/flujo-filas", "/admin/capturas-filas", "/admin/pronostico-filas", "/admin/validar-conteo", "/admin/despachos", "/admin/horarios-filas", "/admin/kiosko", "/admin/calibracion-aforo", "/admin/reportes-queue"] },
 
     // ── Administración ──
     { clave: "notificaciones", rotulo: "Notificaciones", grupo: "Administración", descripcion: "Reglas de aviso: WhatsApp, Telegram, correo, destinatarios y plantillas. Viven en Configuración → Notificaciones, así que también hace falta Ajustes para abrirlas.", rutas: ["/admin/notificaciones"] },
