@@ -328,7 +328,8 @@ export default function AdminLayout({
                         linea: son las dos cosas que se miran de reojo sin entrar a ningun lado. */}
                     <div className={cn("flex items-center gap-2", collapsed && "flex-col gap-1.5")}>
                         <div className="flex-1 min-w-0"><OnlineUsersWidget collapsed={collapsed} /></div>
-                        <GpuPulso collapsed={collapsed} />
+                        {/* En modo Filas nada usa la GPU (la Bosch cuenta sola): «GPU no hay» se leía como una falla. */}
+                        {!(modules.MODULE_QUEUE && !modules.MODULE_LPR) && <GpuPulso collapsed={collapsed} />}
                     </div>
                     <div className={cn("flex items-center gap-3 group p-2 rounded-2xl hover:bg-accent/50 transition-colors", collapsed && "justify-center p-0 hover:bg-transparent")}>
                         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-lg shadow-blue-500/20 shrink-0">

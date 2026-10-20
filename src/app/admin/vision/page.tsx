@@ -107,6 +107,7 @@ const horaCorta = (iso: string) => new Date(iso).toLocaleTimeString("es-UY", { h
 
 export default function VisionLab() {
     const [estado, setEstado] = useState<Estado | null>(null);
+    const soloFilas = !!useSoloFilas();
     const [errorCarga, setErrorCarga] = useState<string | null>(null);
     const [camara, setCamara] = useState<string>("");
     const [umbral, setUmbral] = useState(0.4);
@@ -399,7 +400,11 @@ export default function VisionLab() {
                             <span className="text-[12px] text-muted-foreground">{s.modelo} · {s.licencia} · COCO {s.coco_ap} AP</span>
                         </>
                     ) : (
-                        <Chip tono="mal">{estado.error || "No contesta"}</Chip>
+                        soloFilas
+                            // En una instalación de filas omni-vision no es una falla: no se instaló (no hay GPU)
+                            // y la cuenta la hace la Bosch. Un chip rojo ahí decía que algo estaba roto.
+                            ? <><Chip tono="quieto">No instalado en esta instalación</Chip><span className="text-[12px] text-muted-foreground">Las cámaras Bosch cuentan la fila solas. OmniVision necesita GPU para correr en vivo.</span></>
+                            : <Chip tono="mal">{estado.error || "No contesta"}</Chip>
                     )}
                 </div>
                 {s && (
@@ -475,7 +480,7 @@ export default function VisionLab() {
                     ayuda="Las tareas que existen en la familia YOLO26 y, para cada una, con qué pieza libre se hace acá. YOLO26 es AGPL y servirlo pide licencia paga: no se usa." />
                 {s && <LoPrendido s={s} medidas={estado.medidas || {}} apagadas={apagadas} />}
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {CAPACIDADES.map((c) => <TarjetaCapacidad key={c.id} c={c} peso={pesoDe(c.id)} alProbar={s && TAREA_DE_CAPACIDAD[c.id] && c.estado === "corre" ? () => probarCapacidad(c.id) : undefined} />)}
+                    {CAPACIDADES.map((c) => <TarjetaCapacidad key={c.id} c={c} sinServicio={!s} peso={pesoDe(c.id)} alProbar={s && TAREA_DE_CAPACIDAD[c.id] && c.estado === "corre" ? () => probarCapacidad(c.id) : undefined} />)}
                 </div>
             </section>
 
@@ -753,12 +758,16 @@ function LoPrendido({ s, medidas, apagadas }: { s: SaludVision; medidas: Record<
     );
 }
 
-function TarjetaCapacidad({ c, alProbar, peso }: { c: Capacidad; alProbar?: () => void; peso?: PesoTarjeta | null }) {
-    const t = TONO_CAPACIDAD[c.estado];
+function TarjetaCapacidad({ c, alProbar, peso, sinServicio }: { c: Capacidad; alProbar?: () => void; peso?: PesoTarjeta | null; sinServicio?: boolean }) {
+    /* «Corre hoy» es lo que corre en una instalación con omni-vision andando (San Nicolás). En HB
+       (20/10, Nico: «no sé si esto está mal o anda realmente») omni-vision no está instalado —no
+       hay GPU— y la tarjeta decía «corre hoy» igual. Sin servicio que conteste, se dice eso. */
+    const noAca = sinServicio && c.estado === "corre";
+    const t = noAca ? { tono: "quieto" as const, texto: "No corre en esta instalación" } : TONO_CAPACIDAD[c.estado];
     return (
         <div className={cn("rounded-[10px] border border-border bg-card p-4 flex flex-col gap-2", c.estado === "no-aplica" && "opacity-70")}>
             <div className="flex items-start gap-3">
-                <span className={cn("grid h-10 w-10 place-items-center rounded-full shrink-0", c.estado === "corre" ? "bg-[var(--bien-suave)] text-[var(--bien-texto)]" : "bg-muted")}><Ic n={c.icono} size={19} /></span>
+                <span className={cn("grid h-10 w-10 place-items-center rounded-full shrink-0", c.estado === "corre" && !noAca ? "bg-[var(--bien-suave)] text-[var(--bien-texto)]" : "bg-muted")}><Ic n={c.icono} size={19} /></span>
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap"><h3 className="text-[14px] font-bold">{c.nombre}</h3><Chip tono={t.tono}>{t.texto}</Chip></div>
                     <p className="text-[12.5px] mt-1 leading-snug">{c.queEs}</p>
