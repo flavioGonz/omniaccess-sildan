@@ -12,6 +12,7 @@
  */
 
 import https from "https";
+import { parseWWWAuthenticate, buildDigestHeader } from "@/lib/digest-auth";
 import { prisma } from "@/lib/prisma";
 import { sendQueueAlertToTelegram, sendTelegramMessage } from "@/lib/telegram";
 import { uploadToS3 } from "@/lib/s3";
@@ -148,7 +149,70 @@ function emitSocket(event: string, data: Record<string, any>) {
     } catch {}
 }
 
-// ─── HTTPS Request Helper ──────────────────────────
+// ─── Pedidos a la cámara ──────────────────────────
+/*
+ * HTTP o HTTPS según la cámara (20/10, Nico, la Bosch del Hospital Británico en el lab: «usá HTTP,
+ * porque el HTTPS de la cámara se cuelga cada tanto»). Todo iba por https://, fijo. Las IPs en el
+ * ajuste BOSCH_SOLO_HTTP (separadas por coma) van por http://; el resto, como siempre. Sin el
+ * ajuste nada cambia: es lo que tienen las instalaciones que ya cuentan filas.
+ */
+let soloHttp: { ips: Set<string>; leido: number } = { ips: new Set(), leido: 0 };
+async function ipsSoloHttp(): Promise<Set<string>> {
+    if (Date.now() - soloHttp.leido < 60_000) return soloHttp.ips;
+    try {
+        const r = await prisma.setting.findUnique({ where: { key: "BOSCH_SOLO_HTTP" } });
+        soloHttp = { ips: new Set(String(r?.value || "").split(/[\s,]+/).map((x) => x.trim()).filter(Boolean)), leido: Date.now() };
+    } catch { soloHttp.leido = Date.now(); }
+    return soloHttp.ips;
+}
+/** La base de los pedidos a una cámara: http:// si está en BOSCH_SOLO_HTTP, https:// si no. */
+async function baseCamara(ip: string): Promise<string> {
+    return (await ipsSoloHttp()).has(ip) ? `http://${ip}` : `https://${ip}`;
+}
+/** Una dirección que devuelve la cámara (la del PullPoint) va por el mismo esquema que se eligió para ella. */
+function mismoEsquema(url: string, base: string): string {
+    return base.startsWith("http://") ? url.replace(/^https:\/\//i, "http://") : url;
+}
+
+const agenteSinVerificar = new https.Agent({ rejectUnauthorized: false });
+
+/**
+ * Un pedido a la cámara, por http o https según la URL, con Basic y, si la cámara contesta 401 con un
+ * desafío Digest, una segunda vuelta con Digest. Por HTTP las Bosch no aceptan Basic: piden Digest.
+ * Antes un 401 era un error y la cámara quedaba sin leer.
+ */
+function pedirCamara(url: string, metodo: "GET" | "POST", cuerpo: string | null, username: string, password: string, timeoutMs: number, autorizacion?: string): Promise<{ status: number; datos: Buffer; desafio: string | null }> {
+    return new Promise((resolve, reject) => {
+        const u = new URL(url);
+        const seguro = u.protocol === "https:";
+        const lib = seguro ? https : require("http");
+        const headers: Record<string, string | number> = {
+            Authorization: autorizacion || `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`,
+        };
+        if (cuerpo !== null) { headers["Content-Type"] = "application/soap+xml; charset=utf-8"; headers["Content-Length"] = Buffer.byteLength(cuerpo); }
+        const req = lib.request({
+            hostname: u.hostname, port: u.port || (seguro ? 443 : 80), path: u.pathname + u.search, method: metodo, headers, timeout: timeoutMs,
+            ...(seguro ? { agent: agenteSinVerificar } : {}),
+        }, (res: any) => {
+            const trozos: Buffer[] = [];
+            res.on("data", (c: Buffer) => trozos.push(c));
+            res.on("end", () => resolve({ status: res.statusCode || 0, datos: Buffer.concat(trozos), desafio: String(res.headers?.["www-authenticate"] || "") || null }));
+        });
+        req.on("error", reject);
+        req.on("timeout", () => { req.destroy(); reject(new Error(`Timeout after ${timeoutMs}ms`)); });
+        if (cuerpo !== null) req.write(cuerpo);
+        req.end();
+    });
+}
+async function pedirCamaraConDigest(url: string, metodo: "GET" | "POST", cuerpo: string | null, username: string, password: string, timeoutMs: number) {
+    const r = await pedirCamara(url, metodo, cuerpo, username, password, timeoutMs);
+    if (r.status !== 401 || !r.desafio || !/digest/i.test(r.desafio)) return r;
+    const d = parseWWWAuthenticate(r.desafio);
+    if (!d) return r;
+    const u = new URL(url);
+    return pedirCamara(url, metodo, cuerpo, username, password, timeoutMs, buildDigestHeader(metodo, u.pathname + u.search, username, password, d));
+}
+
 function httpsRequest(
     url: string,
     body: string,
@@ -156,48 +220,10 @@ function httpsRequest(
     password: string,
     timeoutMs = 15000
 ): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const parsed = new URL(url);
-        const auth = Buffer.from(`${username}:${password}`).toString("base64");
-
-        const options: https.RequestOptions = {
-            hostname: parsed.hostname,
-            port: parsed.port || 443,
-            path: parsed.pathname + parsed.search,
-            method: "POST",
-            headers: {
-                "Content-Type": "application/soap+xml; charset=utf-8",
-                "Authorization": `Basic ${auth}`,
-                "Content-Length": Buffer.byteLength(body),
-            },
-            rejectAuthorized: false,
-            timeout: timeoutMs,
-        } as any;
-
-        // Force skip TLS verification for self-signed camera certs
-        const agent = new https.Agent({ rejectUnauthorized: false });
-        (options as any).agent = agent;
-
-        const req = https.request(options, (res) => {
-            let data = "";
-            res.on("data", (chunk: Buffer) => { data += chunk.toString(); });
-            res.on("end", () => {
-                if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-                    resolve(data);
-                } else {
-                    reject(new Error(`HTTPS ${res.statusCode}: ${data.substring(0, 200)}`));
-                }
-            });
-        });
-
-        req.on("error", reject);
-        req.on("timeout", () => {
-            req.destroy();
-            reject(new Error(`Timeout after ${timeoutMs}ms`));
-        });
-
-        req.write(body);
-        req.end();
+    return pedirCamaraConDigest(url, "POST", body, username, password, timeoutMs).then((r) => {
+        const data = r.datos.toString();
+        if (r.status >= 200 && r.status < 300) return data;
+        throw new Error(`HTTP ${r.status}: ${data.substring(0, 200)}`);
     });
 }
 
@@ -401,7 +427,8 @@ async function ensureSubscription(
 
     // Create new subscription
     try {
-        const eventServiceUrl = `https://${ip}/onvif/events_service`;
+        const base = await baseCamara(ip);
+        const eventServiceUrl = `${base}/onvif/events_service`;
         const resp = await httpsRequest(
             eventServiceUrl,
             createPullPointEnvelope(300),
@@ -421,7 +448,7 @@ async function ensureSubscription(
 
         const sub: ONVIFSubscription = {
             deviceId,
-            pullPointUrl: addrMatch[1],
+            pullPointUrl: mismoEsquema(addrMatch[1], base),
             terminationTime: termMatch ? new Date(termMatch[1]) : new Date(Date.now() + 300000),
             lastPull: Date.now(),
         };
@@ -442,50 +469,13 @@ async function grabSnapshot(
     password: string,
     deviceId: string
 ): Promise<string | null> {
-    return new Promise((resolve) => {
-        try {
-            const auth = Buffer.from(`${username}:${password}`).toString("base64");
-            const agent = new https.Agent({ rejectUnauthorized: false });
-
-            const parsed = new URL(`https://${ip}/snap.jpg?JpegSize=L`);
-            const req = https.request(
-                {
-                    hostname: parsed.hostname,
-                    port: parsed.port || 443,
-                    path: parsed.pathname + parsed.search,
-                    method: "GET",
-                    headers: { Authorization: `Basic ${auth}` },
-                    agent,
-                    timeout: 5000,
-                },
-                (res) => {
-                    if (res.statusCode !== 200) {
-                        res.resume();
-                        resolve(null);
-                        return;
-                    }
-                    const chunks: Buffer[] = [];
-                    res.on("data", (c: Buffer) => chunks.push(c));
-                    res.on("end", async () => {
-                        const buf = Buffer.concat(chunks);
-                        if (buf.length < 100) { resolve(null); return; }
-                        try {
-                            const filename = `queue/${deviceId}/${Date.now()}.jpg`;
-                            const path = await uploadToS3(buf, filename, "image/jpeg", "queue");
-                            resolve(path);
-                        } catch {
-                            resolve(null);
-                        }
-                    });
-                }
-            );
-            req.on("error", () => resolve(null));
-            req.on("timeout", () => { req.destroy(); resolve(null); });
-            req.end();
-        } catch {
-            resolve(null);
-        }
-    });
+    try {
+        const r = await pedirCamaraConDigest(`${await baseCamara(ip)}/snap.jpg?JpegSize=L`, "GET", null, username, password, 5000);
+        if (r.status !== 200 || r.datos.length < 100) return null;
+        return await uploadToS3(r.datos, `queue/${deviceId}/${Date.now()}.jpg`, "image/jpeg", "queue");
+    } catch {
+        return null;
+    }
 }
 
 // ─── Main Poll Function ────────────────────────────
@@ -925,7 +915,7 @@ async function subscribePushForAll() {
         });
         for (const d of devices) {
             try {
-                await httpsRequest(`https://${d.ip}/onvif/events_service`,
+                await httpsRequest(`${await baseCamara(d.ip)}/onvif/events_service`,
                     subscribeEnvelope(ONVIF_PUSH_URL, 120),
                     d.username || "admin", d.password || "admin", 10000);
                 console.log(`[ONVIF-Push] Subscribed ${d.name} -> ${ONVIF_PUSH_URL}`);
