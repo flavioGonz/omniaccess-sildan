@@ -21,7 +21,7 @@ import { Cronometro } from "@/components/tracking/Cronometro";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { getImagePath } from "@/lib/image-path";
 import { conAncho } from "@/lib/ancho-foto";
-import type { Alarma, FuenteAlarma } from "@/lib/alarmas";
+import type { Alarma, FuenteAlarma, GestionAuto } from "@/lib/alarmas";
 import { Miniatura } from "@/components/ui/celdas";
 import { NotaGestion, usarNotaGestion } from "@/components/alarmas/NotaGestion";
 import { GestionEnVivo } from "@/components/alarmas/GestionEnVivo";
@@ -55,7 +55,9 @@ const VER: Ver[] = ["todo", "alarmas", "atipicos", "residentes", "visitas", "des
  * es algo que gestionar.
  */
 type FilaTodo = { id: string; ts: string; alarma?: Alarma; auto?: AutoAdentro };
-type Datos = { horas: number; alarmas: Alarma[]; errorAlarmas: string | null; presencia: Presencia | null; ahora: string };
+type Datos = { horas: number; alarmas: Alarma[]; errorAlarmas: string | null; presencia: Presencia | null; ahora: string;
+    /** Lo decidido de cada auto adentro, por el id de su última lectura (lib/alarmas, gestionesDeLecturas). */
+    gestionAutos?: Record<string, GestionAuto> };
 
 /** Cada cuánto se vuelve a pedir, además de con cada evento del socket. */
 const REFRESCO_MS = 20_000;
@@ -166,6 +168,7 @@ function GestionAlarmas() {
     const cuentaEstado = (e: "pendiente" | "atendida") => alarmas.filter((a) => a.estado === e && (!origenes.length || origenes.includes(a.fuente)) && deEquipo(a.deviceId, a.camara)).length;
     const cuentaEquipo = useCallback((e: Equipo) => alarmas.filter((a) => (estado === "todas" || a.estado === estado) && deEquipo(a.deviceId, a.camara, e)).length, [alarmas, estado]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    const gestionDe = (a: AutoAdentro): GestionAuto | null => (a.accessEventId && datos?.gestionAutos?.[a.accessEventId]) || null;
     const autosDe = (v: Ver): AutoAdentro[] => !p ? [] : v === "atipicos" ? p.atipicos : v === "desconocidos" ? p.autosVisitas.filter((a) => a.clase === "no_registrado") : v === "visitas" ? p.autosVisitas.filter((a) => a.clase !== "no_registrado") : [];
     // Las listas de quién está adentro arrancan por la permanencia más larga (16/10, Nico: «arriba
     // del todo los que más tiempo dentro tienen»): el que entró primero es el que más lleva.
@@ -240,7 +243,9 @@ function GestionAlarmas() {
         { clave: "plate", titulo: "Matrícula", ancho: 128, valor: (a) => a.plate, celda: (a) => (
             <div className="flex flex-col items-start gap-1">
                 <Matricula p={a.plate} />
-                {a.marcaManual ? <span className="inline-flex items-center gap-1 text-[10.5px] text-muted-foreground"><Hand size={10} /> a mano</span>
+                {gestionDe(a)?.resultado ? <Estado tono={gestionDe(a)!.resultado === "real" ? "aviso" : "quieto"}>{gestionDe(a)!.resultado === "real" ? "Real" : "Falsa"}{gestionDe(a)!.nota ? " · con nota" : ""}</Estado>
+                    : gestionDe(a)?.nota ? <span className="inline-flex items-center gap-1 text-[10.5px] text-muted-foreground"><NotebookPen size={10} /> con nota</span>
+                    : a.marcaManual ? <span className="inline-flex items-center gap-1 text-[10.5px] text-muted-foreground"><Hand size={10} /> a mano</span>
                     : a.estimado ? <span className="inline-flex items-center gap-1 text-[10.5px] tono-aviso" title="La entrada es vieja y ninguna cámara la volvió a ver: puede haber salido sin que se leyera"><CircleHelp size={10} /> sin confirmar</span> : null}
             </div>) },
         { clave: "quien", titulo: ver === "atipicos" ? "Por qué" : "Quién", valor: (a) => [...a.atipico.map((x) => NOMBRE_ATIPICO[x]), a.persona, a.unidad, NOMBRE_CLASE[a.clase]].filter(Boolean).join(" · "), celda: (a) => (
@@ -252,7 +257,7 @@ function GestionAlarmas() {
         ...colIngreso<AutoAdentro>(),
         { clave: "e24", titulo: "Entradas 24 h", ancho: 96, alinear: "der", valor: (a) => a.entradas24h, celda: (a) => <span className="tabular-nums text-[13px]">{a.entradas24h}</span> },
         { clave: "visto", titulo: "Última lectura", ancho: 140, valor: (a) => a.vistoUltimo, celda: (a) => <div className="leading-tight min-w-0"><Momento t={a.vistoUltimo} />{a.camara && <div className="text-[10.5px] text-muted-foreground truncate">{a.camara}</div>}</div> },
-    ], [ver]); // eslint-disable-line react-hooks/exhaustive-deps
+    ], [ver, datos?.gestionAutos]); // eslint-disable-line react-hooks/exhaustive-deps
     const colsResidentes = useMemo<ColumnaTabla<ResidenteAdentro>[]>(() => [
         { clave: "nombre", titulo: "Residente", valor: (r) => r.nombre, celda: (r) => <div className="leading-tight min-w-0"><div className="text-[13px] font-semibold truncate">{r.nombre}</div><div className="text-[11px] text-muted-foreground truncate">{r.unidad || "Sin unidad"}{r.estimado ? " · sin confirmar" : ""}</div></div> },
         { clave: "autos", titulo: "Con", valor: (r) => r.autos.join(" "), celda: (r) => r.autos.length ? <div className="flex flex-wrap gap-1">{r.autos.map((x) => <Matricula key={x} p={x} />)}</div> : <span className="text-[12px] text-muted-foreground">A pie</span> },
@@ -395,13 +400,13 @@ function GestionAlarmas() {
                 {/* Lo seleccionado: la foto a todo el ancho y sin marco, qué es, y qué se hace con eso. */}
                 <aside className="hidden xl:flex flex-col min-h-0 overflow-y-auto">
                     {alarmaSel ? <DetalleAlarma key={alarmaSel.id} a={alarmaSel} alHecho={(texto) => { setHecho({ texto }); traer(); }} alRecargar={traer} />
-                        : autoSel ? <DetalleAuto a={autoSel} ocupado={ocupado === autoSel.plate || ocupado === autoSel.visitaId} alSalio={() => void salio(autoSel)} alCerrarVisita={() => autoSel.visitaId && void cerrarVisita(autoSel.visitaId, autoSel.plate)} />
+                        : autoSel ? <DetalleAuto key={autoSel.plate} a={autoSel} gestion={gestionDe(autoSel)} alHecho={(texto) => { setHecho({ texto }); traer(); }} ocupado={ocupado === autoSel.plate || ocupado === autoSel.visitaId} alSalio={() => void salio(autoSel)} alCerrarVisita={() => autoSel.visitaId && void cerrarVisita(autoSel.visitaId, autoSel.plate)} />
                         : (
                             <div className="flex-1 grid place-items-center p-8 text-center">
                                 <div className="max-w-[260px] text-muted-foreground">
                                     <Siren size={26} className="mx-auto mb-3 opacity-40" />
                                     <div className="text-[13px] font-semibold text-foreground">Elegí una fila</div>
-                                    <div className="text-[12.5px] mt-1">{ver === "alarmas" || ver === "todo" ? "Se ve la captura y se marca como real, falsa o atendida." : ver === "residentes" ? "Los residentes no tienen acciones: se corrigen desde sus autos." : "Se ve la última captura y, si se fue sin que se leyera, se marca «salió»."}</div>
+                                    <div className="text-[12.5px] mt-1">{ver === "alarmas" || ver === "todo" ? "Se ve la captura y se marca como real, falsa o atendida." : ver === "residentes" ? "Los residentes no tienen acciones: se corrigen desde sus autos." : "Se ve la última captura, se marca real o falsa con un comentario y, si se fue sin que se leyera, «salió»."}</div>
                                 </div>
                             </div>
                         )}
@@ -478,7 +483,9 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
     const I = ICONO_FUENTE[a.fuente];
     const foto = fotoChica(a.foto, 960);
     const clip = { id: a.id, deviceId: a.deviceId, instante: a.ts };
-    const conVeredicto = a.fuente === "intrusion" || a.fuente === "lpr";
+    // Real o falsa en todas (20/10, Nico: «no sé cómo moderar las alarmas LPR»): los patrones salen
+    // de lecturas LPR y OmniVision está en prueba; «atendida» sola no decía si había que corregir algo.
+    const conVeredicto = true;
     const t = new Date(a.ts);
     const nota = usarNotaGestion(a.id, { nota: a.nota, por: a.notaPor, ts: a.notaAt });
     const decidir = async (resultado: "real" | "falsa" | null) => {
@@ -582,7 +589,18 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
     );
 }
 
-function DetalleAuto({ a, ocupado, alSalio, alCerrarVisita }: { a: AutoAdentro; ocupado: boolean; alSalio: () => void; alCerrarVisita: () => void }) {
+/**
+ * Un auto adentro (Atípicos, Desconocidos, Visitas). Además de «salió», se modera como una alarma
+ * (20/10, Nico: «marcar falsa o alarma real y poner el comentario»): la decisión y la nota van sobre
+ * su última lectura (`l:<evento>`, ver lib/alarmas gestionesDeLecturas), con la misma bitácora.
+ */
+function DetalleAuto({ a, gestion, alHecho, ocupado, alSalio, alCerrarVisita }: { a: AutoAdentro; gestion: GestionAuto | null; alHecho: (texto: string) => void; ocupado: boolean; alSalio: () => void; alCerrarVisita: () => void }) {
+    const clave = a.accessEventId ? `l:${a.accessEventId}` : null;
+    const nota = usarNotaGestion(clave, gestion ? { nota: gestion.nota, por: gestion.por, ts: gestion.ts } : null);
+    const decidir = async (resultado: "real" | "falsa") => {
+        if (await nota.guardar({ atender: true, resultado })) alHecho(`${a.plate}: ${resultado === "falsa" ? "falsa alarma" : "real"}`);
+    };
+    const motivo = a.atipico.length ? a.atipico.map((x) => NOMBRE_ATIPICO[x]).join(" · ") : `${NOMBRE_CLASE[a.clase]} adentro`;
     return (
         <>
             <Foto src={getImagePath(a.foto)} clip={{ id: a.accessEventId, deviceId: a.deviceId, instante: a.vistoUltimo }} />
@@ -611,6 +629,30 @@ function DetalleAuto({ a, ocupado, alSalio, alCerrarVisita }: { a: AutoAdentro; 
                         : <Button size="sm" disabled={ocupado} onClick={alSalio} title="La salida no se leyó: marcarlo afuera hasta su próxima lectura"><LogOut size={14} /> Salió</Button>}
                     <Button size="sm" variant="outline" asChild><a href={`/admin/history?search=${encodeURIComponent(a.plate)}`}><Car size={14} /> Historial de la matrícula</a></Button>
                 </div>
+
+                {clave ? (<>
+                    <NotaGestion n={nota} sinBoton />
+                    <div className="border-t border-border pt-3">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Gestión</div>
+                        <GestionEnVivo clave={clave} deviceId={a.deviceId} inicio={[
+                            { id: `origen-${clave}`, ts: a.vistoUltimo, por: a.camara || "LPR", texto: `leyó ${a.plate}: ${motivo}`, tipo: "origen" },
+                            ...(gestion?.resultado ? [{ id: `decision-${clave}`, ts: gestion.ts, por: gestion.por, texto: gestion.resultado === "real" ? "la marcó real" : "la marcó falsa alarma", tipo: (gestion.resultado === "real" ? "mal" : "bien") as "mal" | "bien", legado: "decision" as const }] : []),
+                            ...(gestion?.nota ? [{ id: `nota-${clave}`, ts: gestion.ts, por: gestion.por, texto: "escribió una nota", detalle: `«${gestion.nota}»`, tipo: "info" as const, legado: "nota" as const }] : []),
+                        ]} />
+                    </div>
+                    {/* Como en la alarma: la nota se guarda o se decide desde la barra fija de abajo. */}
+                    <div className="sticky bottom-0 z-10 -mx-5 -mb-5 mt-auto px-5 py-3 bg-background/95 backdrop-blur border-t border-border flex flex-wrap items-center gap-2">
+                        <Button size="sm" variant="outline" disabled={!nota.sucia || nota.guardando} onClick={() => void nota.guardar()}>
+                            {nota.guardando ? <Loader2 size={14} className="animate-spin" /> : <NotebookPen size={14} />} Guardar nota
+                        </Button>
+                        <span className="ml-auto flex items-center gap-2">
+                            {gestion?.resultado !== "falsa" && <Button size="sm" variant="outline" disabled={nota.guardando} onClick={() => void decidir("falsa")}><X size={14} /> {gestion?.resultado ? "Era falsa" : "Falsa alarma"}</Button>}
+                            {gestion?.resultado !== "real" && <Button size="sm" disabled={nota.guardando} onClick={() => void decidir("real")} className="pleno-mal hover:brightness-110"><Check size={14} /> {gestion?.resultado ? "Era real" : "Es real"}</Button>}
+                        </span>
+                    </div>
+                </>) : (
+                    <div className="text-[12px] text-muted-foreground">Sin lectura registrada: no se puede moderar desde acá.</div>
+                )}
             </div>
         </>
     );

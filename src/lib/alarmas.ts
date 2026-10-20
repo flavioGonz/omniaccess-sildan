@@ -164,6 +164,26 @@ function notaDe(g: FilaGestion, previa?: { nota: string; por: string | null; ts:
     return { nota: null, notaPor: null, notaAt: null };
 }
 
+/** Lo que se decidió de un auto adentro (Atípicos, Desconocidos…): se guarda sobre su última lectura, `l:<evento>`. */
+export type GestionAuto = { resultado: "real" | "falsa" | null; atendida: boolean; nota: string | null; por: string | null; ts: string };
+
+/**
+ * La gestión de las lecturas que muestran las listas de quién está adentro (20/10, Nico: «no sé
+ * cómo moderar las alarmas LPR… las de intrusión sí»). Un atípico no es una fila de alarma: es un
+ * auto adentro con su última lectura. La decisión (real / falsa) y la nota se guardan sobre esa
+ * lectura con la misma clave que una alarma LPR (`l:<id del evento>`), así una lectura de lista
+ * negra marcada en Alarmas aparece marcada también en Atípicos, y al revés.
+ */
+export async function gestionesDeLecturas(eventos: (string | null | undefined)[]): Promise<Record<string, GestionAuto>> {
+    const claves = [...new Set(eventos.filter(Boolean))].map((id) => `l:${id}`);
+    if (!claves.length) return {};
+    const filas = await prisma.alarmaAtendida.findMany({ where: { clave: { in: claves } } }).catch(() => []);
+    return Object.fromEntries(filas.map((g) => [g.clave.slice(2), {
+        resultado: g.resultado === "real" || g.resultado === "falsa" ? g.resultado : null,
+        atendida: !!g.atendida, nota: g.nota || null, por: g.por || null, ts: g.ts.toISOString(),
+    }]));
+}
+
 /** La gestión guardada de una alarma (la ficha de intrusión la pide al abrirse). */
 export async function leerGestion(id: string) {
     const g = await prisma.alarmaAtendida.findUnique({ where: { clave: id } }).catch(() => null);

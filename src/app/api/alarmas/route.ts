@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
-import { listarAlarmas, gestionarAlarma, leerGestion, RANGOS_ALARMAS_H } from "@/lib/alarmas";
+import { listarAlarmas, gestionarAlarma, leerGestion, gestionesDeLecturas, RANGOS_ALARMAS_H } from "@/lib/alarmas";
 import { calcularPresencia } from "@/lib/presencia";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,9 @@ export async function GET(req: NextRequest) {
         calcularPresencia().catch((e) => { console.error("[alarmas] presencia", e?.message || e); return null; }),
     ]);
     if (!alarmas && !presencia) return NextResponse.json({ error: "No se pudieron leer las alarmas." }, { status: 500, headers: SIN_CACHE });
-    return NextResponse.json({ horas: h, alarmas: alarmas || [], errorAlarmas: alarmas ? null : "No se pudieron leer las alarmas.", presencia, ahora: new Date().toISOString() }, { headers: SIN_CACHE });
+    // Lo que se decidió de cada auto adentro (por su última lectura): la tabla lo marca y el panel lo muestra.
+    const gestionAutos = presencia ? await gestionesDeLecturas([...presencia.atipicos, ...presencia.autosVisitas, ...presencia.autosResidentes].map((a) => a.accessEventId)).catch(() => ({})) : {};
+    return NextResponse.json({ horas: h, alarmas: alarmas || [], errorAlarmas: alarmas ? null : "No se pudieron leer las alarmas.", presencia, gestionAutos, ahora: new Date().toISOString() }, { headers: SIN_CACHE });
 }
 
 /**
