@@ -13,6 +13,11 @@ import { MotorCamaras } from "@/components/vision/MotorCamaras";
 import { cn } from "@/lib/utils";
 import { ANALITICAS, type Analitica } from "@/lib/vision-catalogo";
 import { TIPOS_REGLA, type TipoRegla, type ReglaVision } from "@/lib/vision-reglas";
+import { analiticaAplica } from "@/lib/vision-por-modo";
+import { useSoloFilas } from "@/components/vision/useSoloFilas";
+
+/** Sin noticias del vision-worker por más de esto, se dice que no da señal (= pantalla de Reglas). */
+const WORKER_SIN_SENAL_MS = 60_000;
 
 /**
  * OmniVision › Analíticas: qué analíticas corren, y desde acá crearles la regla.
@@ -66,6 +71,9 @@ export default function AnaliticasVision() {
     const [error, setError] = useState<string | null>(null);
     const [abierta, setAbierta] = useState<Analitica | null>(null);
     const [modo, setModo] = useState<string>("");
+    const soloFilas = useSoloFilas();
+    /** Última señal del vision-worker (la misma que muestra Reglas). */
+    const [senalWorker, setSenalWorker] = useState<number | null>(null);
 
     const cargar = useCallback(async () => {
         try {
@@ -76,6 +84,7 @@ export default function AnaliticasVision() {
             setEstado({ analiticas: je.analiticas || {}, clases: je.clases || {} });
             // Sin reglas no es un error de la pantalla: se cuenta cero y se sigue.
             setReglas(r.ok && Array.isArray(jr.reglas) ? jr.reglas : []);
+            setSenalWorker(jr?.estado?.t ? new Date(jr.estado.t).getTime() : null);
             setError(null);
         } catch (x: any) { setError(x?.message || "No se pudo leer"); }
     }, []);
@@ -126,17 +135,21 @@ export default function AnaliticasVision() {
     }
 
     if (!estado && error) return <div className="p-6 lg:p-8 max-w-[1500px] mx-auto"><ErrorEstado mensaje={error} alReintentar={cargar} /></div>;
-    if (!estado) return <div className="p-6 lg:p-8 max-w-[1500px] mx-auto"><Cargando texto="Trayendo las analíticas…" /></div>;
+    if (!estado || soloFilas === null) return <div className="p-6 lg:p-8 max-w-[1500px] mx-auto"><Cargando texto="Trayendo las analíticas…" /></div>;
 
-    const visibles = ANALITICAS.filter((a) => !modo || a.modo === modo);
+    // Lo que aplica al modo de la instalación (en modo Filas: la fila y las pruebas). Todo lo de
+    // abajo —las píldoras, las cifras, las grillas— cuenta sobre esto y no sobre el catálogo entero.
+    const catalogo = ANALITICAS.filter((a) => analiticaAplica(a, soloFilas));
+    const workerSinSenal = !senalWorker || Date.now() - senalWorker > WORKER_SIN_SENAL_MS;
+    const visibles = catalogo.filter((a) => !modo || a.modo === modo);
     const corren = visibles.filter((a) => a.estado === "corre");
     const resto = visibles.filter((a) => a.estado !== "corre");
     // Los números de arriba son de todas, no del filtro: dicen cómo está el sistema.
-    const todas = ANALITICAS.filter((a) => a.estado === "corre");
+    const todas = catalogo.filter((a) => a.estado === "corre");
     const prendidas = todas.filter((a) => estado.analiticas[a.id]).length;
     const sinRegla = todas.filter((a) => estado.analiticas[a.id] && TIPO_DE_ANALITICA[a.id] && !porTipo[TIPO_DE_ANALITICA[a.id]]?.total).length;
     const reglasActivas = reglas.filter((r) => r.activa).length;
-    const modosConAlgo = MODOS.filter((m) => !m.v || ANALITICAS.some((a) => a.modo === m.v));
+    const modosConAlgo = MODOS.filter((m) => !m.v || catalogo.some((a) => a.modo === m.v));
 
     const tarjeta = (a: Analitica) => {
         const on = !!estado.analiticas[a.id];
@@ -156,6 +169,15 @@ export default function AnaliticasVision() {
                         </span>
                         <span className="block text-[11px] text-muted-foreground mt-0.5">{a.modo}{a.fase ? ` · fase ${a.fase}` : ""}</span>
                         <span className="text-[12px] text-muted-foreground leading-snug mt-1.5 line-clamp-2">{a.queHace}</span>
+                        {/* En una instalación de filas la Bosch ya cuenta sola (su analítica, en
+                            Calibración). Esto es contar con OmniVision, sobre el video, y sin el
+                            proceso que analiza no cuenta nada: se dice antes de crear la regla. */}
+                        {soloFilas && a.modo === "Filas" && (
+                            <span className="block text-[11.5px] leading-snug mt-2 text-muted-foreground">
+                                Las cámaras Bosch ya cuentan la fila solas. Esto es contarla con OmniVision en el servidor: necesita el vision-worker andando.
+                                {workerSinSenal && <span className="ml-1 inline-flex align-middle"><Chip tono="aviso">vision-worker no da señal</Chip></span>}
+                            </span>
+                        )}
                     </span>
                 </button>
                 <div className="flex items-center gap-2 px-3.5 pb-3 pt-1 flex-wrap">

@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { SECCIONES_OMNIVISION } from "@/components/vision/NavOmniVision";
+import { esSoloFilas, seccionAplica } from "@/lib/vision-por-modo";
 import nextDynamic from "next/dynamic";
 const _SLoad = () => <div className="p-8 text-sm text-muted-foreground animate-pulse">Cargando…</div>;
 const BrandingSection = nextDynamic(() => import("./BrandingSection"), { ssr: false, loading: _SLoad });
@@ -322,7 +323,9 @@ export default function SettingsPage() {
                         .map((g) => ({
                             ...g,
                             // Empresas y Visitas son conceptos de LPR: en modo Filas no aplican.
-                            items: g.items.filter((it) => !(SECCIONES_SOLO_LPR.includes(it.sec) && !enabledModules.MODULE_LPR)),
+                            items: g.items.filter((it: any) => !(SECCIONES_SOLO_LPR.includes(it.sec) && !enabledModules.MODULE_LPR)
+                                // OmniVision: sólo sus pantallas que aplican al modo (lib/vision-por-modo).
+                                && !(it.href && !seccionAplica(it.href, esSoloFilas(enabledModules)))),
                         }))
                         .map((g) => {
                         const GIcon = g.icon;

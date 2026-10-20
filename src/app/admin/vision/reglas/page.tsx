@@ -18,6 +18,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { EditorGeometria } from "@/components/vision/EditorGeometria";
+import { tipoReglaAplica } from "@/lib/vision-por-modo";
+import { useSoloFilas } from "@/components/vision/useSoloFilas";
 import {
     TIPOS_REGLA, CLASES_OBJETO, CON_HORARIO, TIPOS_EVENTO, duracionCorta, FILA,
     type ReglaVision, type TipoRegla, type Punto,
@@ -111,6 +113,7 @@ export default function ReglasVision() {
     const [guardando, setGuardando] = useState(false);
     const [ampliado, setAmpliado] = useState<Evento | null>(null);
     const [eligiendo, setEligiendo] = useState(false);
+    const soloFilas = useSoloFilas();
     // El panel de eventos: abierto por defecto, y se recuerda en este navegador.
     const [panel, setPanel] = useState(true);
     useEffect(() => { try { const v = localStorage.getItem(CLAVE_PANEL); if (v != null) setPanel(v === "1"); } catch { } }, []);
@@ -143,6 +146,19 @@ export default function ReglasVision() {
         setEditando({ base: reglaNueva(tipo, cam), deviceIds: cam ? [cam] : [], originales: [], nueva: true });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [datos]);
+
+    /**
+     * «Nueva regla». En modo Filas no hay nada que elegir en el asistente (qué vigilar, qué
+     * situación): la única regla es la fila. Se abre el cajón directo, con la plantilla de la
+     * fila de una caja puesta; en las demás instalaciones, el asistente como siempre.
+     */
+    const nuevaRegla = () => {
+        if (!soloFilas || !datos) { setEligiendo(true); return; }
+        const cam = datos.camaras.find((c) => c.analiza)?.id || datos.camaras[0]?.id || "";
+        const fila = PLANTILLAS.find((p) => p.tipo === "fila");
+        const base = { ...reglaNueva("fila", cam), ...(fila?.aplicar || {}) };
+        setEditando({ base, deviceIds: cam ? [cam] : [], originales: [], nueva: true });
+    };
 
     /** Abrir una regla guardada: si es de un grupo, se abre el grupo entero parado en su cámara. */
     const abrir = (r: ReglaVision) => {
@@ -216,18 +232,20 @@ export default function ReglasVision() {
                         <PanelRight size={14} /> Eventos <span className="tabular-nums text-muted-foreground">{datos.eventos.length}</span>
                     </Button>
                 )}
-                <Button onClick={() => setEligiendo(true)}><Plus size={14} /> Nueva regla</Button>
+                <Button onClick={nuevaRegla}><Plus size={14} /> Nueva regla</Button>
             </div>
 
             {/* Sin reglas: lo que se puede vigilar y un botón. El asistente (cajón) pregunta el resto. */}
             {datos.reglas.length === 0 && (
                 <section className="rounded-[10px] border border-dashed border-border p-6 flex flex-col items-center text-center gap-3">
-                    <div className="flex items-center gap-2 text-muted-foreground">{(Object.keys(TIPOS_REGLA) as TipoRegla[]).slice(0, 6).map((t) => { const Ic = ICONO[t]; return <Ic key={t} size={18} />; })}</div>
+                    <div className="flex items-center gap-2 text-muted-foreground">{(Object.keys(TIPOS_REGLA) as TipoRegla[]).filter((t) => tipoReglaAplica(t, !!soloFilas)).slice(0, 6).map((t) => { const Ic = ICONO[t]; return <Ic key={t} size={18} />; })}</div>
                     <div>
                         <div className="text-[14px] font-bold">Todavía no hay reglas</div>
-                        <p className="text-[12.5px] text-muted-foreground max-w-lg">Una persona en el jardín de noche, un auto en contramano, alguien dando vueltas, un contenedor que se mueve: elegí qué y qué pasa, y la regla sale sola.</p>
+                        <p className="text-[12.5px] text-muted-foreground max-w-lg">{soloFilas
+                            ? "Una zona sobre el piso de la fila: OmniVision cuenta las personas adentro, las que entran y las que salen, y avisa al llegar al límite. Las cámaras Bosch ya cuentan solas; esto es para contar con OmniVision, y necesita el vision-worker andando."
+                            : "Una persona en el jardín de noche, un auto en contramano, alguien dando vueltas, un contenedor que se mueve: elegí qué y qué pasa, y la regla sale sola."}</p>
                     </div>
-                    <Button onClick={() => setEligiendo(true)}><Plus size={14} /> Crear la primera regla</Button>
+                    <Button onClick={nuevaRegla}><Plus size={14} /> Crear la primera regla</Button>
                 </section>
             )}
 
@@ -710,6 +728,11 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
     alCerrar: () => void; alGuardar: (reglas: ReglaVision[]) => void; alBorrar: () => void;
 }) {
     const nueva = edicion.nueva;
+    // En modo Filas el desplegable de analíticas y las plantillas sólo ofrecen lo que aplica.
+    // Una regla guardada de otro tipo (de antes del cambio de modo) se sigue mostrando entre las opciones.
+    const soloFilas = !!useSoloFilas();
+    const tiposOfrecidos = (Object.keys(TIPOS_REGLA) as TipoRegla[]).filter((k) => k === edicion.base.tipo || tipoReglaAplica(k, soloFilas));
+    const plantillasOfrecidas = PLANTILLAS.filter((p) => tipoReglaAplica(p.tipo, soloFilas));
     // En un grupo, el nombre que se edita es el del grupo; cada regla sale «<grupo> · <cámara>».
     const [r, setR] = useState<ReglaVision>(() => ({ ...edicion.base, nombre: edicion.base.grupo?.nombre ?? edicion.base.nombre }));
     const [ids, setIds] = useState<string[]>(edicion.deviceIds);
@@ -844,7 +867,7 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                         <CajonCampo etiqueta="Analítica">
                             <Desplegable valor={r.tipo} vacio="Elegí la analítica" ancho={440}
                                 alElegir={(v) => { setPlantilla(null); conTipo(v as TipoRegla); }}
-                                opciones={(Object.keys(TIPOS_REGLA) as TipoRegla[]).map((k) => {
+                                opciones={tiposOfrecidos.map((k) => {
                                     const Ic = ICONO[k];
                                     return { valor: k, titulo: TIPOS_REGLA[k].nombre, detalle: FORMA[k], extra: TIPOS_REGLA[k].queHace,
                                         icono: <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-muted"><Ic size={15} /></span> };
@@ -852,7 +875,7 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                         </CajonCampo>
                         <CajonCampo etiqueta="Plantilla" ayuda="Una configuración de uso común: pone las clases, los tiempos, el horario y el aviso. Después se ajusta lo que haga falta.">
                             <Desplegable valor={plantilla} vacio="Empezar desde una plantilla" ancho={440} alElegir={usarPlantilla}
-                                opciones={PLANTILLAS.map((p) => {
+                                opciones={plantillasOfrecidas.map((p) => {
                                     const Ic = ICONO[p.tipo];
                                     return { valor: p.id, titulo: p.nombre, detalle: p.que, extra: `Ej.: ${p.ejemplo}`,
                                         icono: <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-[color-mix(in_oklab,var(--accion)_12%,transparent)] text-[var(--accion)]"><Ic size={15} /></span> };

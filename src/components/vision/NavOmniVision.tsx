@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { DoorOpen, Flame, ListOrdered, SquareParking, FlaskConical, GraduationCap, ListVideo, ScanEye, ScanLine, ScanSearch, ShieldCheck, Sparkles, Spline, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { seccionAplica } from "@/lib/vision-por-modo";
+import { useSoloFilas } from "@/components/vision/useSoloFilas";
 
 /**
  * Las pantallas de OmniVision, en un solo lugar: la barra de arriba de /admin/vision/* y el
@@ -30,10 +32,13 @@ export const SECCIONES_OMNIVISION: { href: string; rotulo: string; menu: string;
 
 export function NavOmniVision() {
     const ruta = usePathname() || "";
+    // Mientras se averigua el modo se muestran sólo las que valen en todos: así una instalación
+    // de filas no ve aparecer y desaparecer las de matrículas.
+    const soloFilas = useSoloFilas();
     return (
         <nav className="flex items-center gap-1 border-b border-border overflow-x-auto" aria-label="OmniVision">
             <span className="inline-flex items-center gap-1.5 pr-3 mr-1 text-[13px] font-bold shrink-0"><ScanEye size={16} /> OmniVision</span>
-            {SECCIONES_OMNIVISION.map((s) => {
+            {SECCIONES_OMNIVISION.filter((s) => seccionAplica(s.href, soloFilas !== false)).map((s) => {
                 const activa = s.exacta ? ruta === s.href : ruta.startsWith(s.href);
                 const I = s.icono;
                 return (

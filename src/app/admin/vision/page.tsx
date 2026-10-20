@@ -8,6 +8,8 @@ import {
 import { SUGERENCIAS_VOCABULARIO } from "@/lib/vocabulario";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
+import { analiticaAplica } from "@/lib/vision-por-modo";
+import { useSoloFilas } from "@/components/vision/useSoloFilas";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
@@ -1025,7 +1027,9 @@ function Recorte({ imagen, caja, alto = 96 }: { imagen: string; caja: [number, n
 function FichaClase({ c, prendida, vistos, alCambiar, alAbrirAnalitica }: {
     c: Clase; prendida: boolean; vistos: Visto[]; alCambiar: (v: boolean) => void; alAbrirAnalitica: (a: Analitica) => void;
 }) {
-    const usan = ANALITICAS.filter((a) => a.clases.includes(c.clase));
+    // «Qué analíticas la usan»: sólo las del modo de la instalación (lib/vision-por-modo).
+    const soloFilas = !!useSoloFilas();
+    const usan = ANALITICAS.filter((a) => a.clases.includes(c.clase) && analiticaAplica(a, soloFilas));
     return (
         <>
             <CajonSeccion titulo="" compacta>
