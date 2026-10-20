@@ -169,6 +169,9 @@ export async function middleware(request: NextRequest) {
         pathname === '/api/vigilancia/bot' ||   // bot de WhatsApp → lista de vigilancia (token propio)
         pathname.startsWith('/api/invitado/') ||   // el QR del pase: lo baja el bot y el invitado
         pathname.startsWith('/api/branding/') ||   // logos subidos (login, QR): los ve quien no inició sesión
+        // Las pantallas de fila (/k/<slug>) las abre un monitor sin sesión. La ruta compara el
+        // token de cada pantalla contra la base y sólo devuelve lo que se ve en la sala.
+        pathname.startsWith('/api/pantalla/') ||
 
         pathname.startsWith('/api/min-interior') ||
         pathname.startsWith('/facepad/')

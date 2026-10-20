@@ -1537,3 +1537,23 @@ model AlarmaGestion {
   @@index([clave, ts])
   @@index([ts])
 }
+
+/// Una pantalla de fila (kiosco): lo que se pone en un monitor de la sala de espera. Cada una
+/// tiene su dirección propia (/k/<slug>?t=<token>) que abre sin sesión: el monitor no tiene quien
+/// inicie sesión, y el token es lo que impide recorrer las pantallas adivinando nombres. HB, 20/10.
+model PantallaFila {
+  id        String   @id @default(cuid())
+  nombre    String
+  slug      String   @unique
+  token     String
+  /// Qué filas muestra (ids de QUEUE_COUNTER). Vacío = todas.
+  deviceIds String[] @default([])
+  /// "oscuro" | "claro"
+  tema      String   @default("oscuro")
+  verEspera Boolean  @default(true)
+  verHora   Boolean  @default(true)
+  mensaje   String?
+  activa    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
