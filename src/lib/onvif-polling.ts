@@ -204,7 +204,14 @@ function pedirCamara(url: string, metodo: "GET" | "POST", cuerpo: string | null,
         req.end();
     });
 }
+/**
+ * Lo que se le espera a una cámara de BOSCH_SOLO_HTTP. La del Hospital Británico va por una VPN
+ * donde conectar tarda hasta 4 s y la primera respuesta hasta 8 s (medido el 20/10): con los 10 s
+ * de siempre, crear la suscripción no llegaba nunca. Las demás, como siempre.
+ */
+const ESPERA_LENTA_MS = 30_000;
 async function pedirCamaraConDigest(url: string, metodo: "GET" | "POST", cuerpo: string | null, username: string, password: string, timeoutMs: number) {
+    if ((await ipsSoloHttp()).has(new URL(url).hostname)) timeoutMs = Math.max(timeoutMs, ESPERA_LENTA_MS);
     const r = await pedirCamara(url, metodo, cuerpo, username, password, timeoutMs);
     if (r.status !== 401 || !r.desafio || !/digest/i.test(r.desafio)) return r;
     const d = parseWWWAuthenticate(r.desafio);
