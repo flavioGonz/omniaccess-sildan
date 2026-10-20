@@ -8,6 +8,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { getQueueNotifications, getDispatchHistory } from "@/app/actions/queue";
 import { toast } from "@/lib/avisos";
 import io from "socket.io-client";
@@ -49,8 +50,8 @@ function DispatchDetail({ d, onClose }: { d: any; onClose: () => void }) {
     const t = new Date(d.sentAt || d.createdAt);
     const st = d.status === "SENT" ? { c: "#10b981", l: "Enviada" } : d.status === "FAILED" ? { c: "#ef4444", l: "Fallida" } : d.status === "PROCESSING" ? { c: "#0ea5e9", l: "Procesando" } : { c: "#f59e0b", l: "En cola" };
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={onClose}>
-            <div className="bg-card border border-border rounded-2xl w-full max-w-lg overflow-hidden shadow-lg animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+        <Cajon open onOpenChange={(v) => !v && onClose()}>
+            <CajonContenido ancho="intermedio" titulo={d.ruleName || "Despacho"} sinCabecera>
                 <div className="px-5 py-4 border-b border-border flex items-center justify-between">
                     <div className="flex items-center gap-3 min-w-0">
                         <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${chC}1a`, color: chC }}><Bell size={16} /></div>
@@ -89,8 +90,8 @@ function DispatchDetail({ d, onClose }: { d: any; onClose: () => void }) {
                         {d.attempts != null && <span className="text-[10px] text-muted-foreground font-mono">Intentos {d.attempts}/{d.maxAttempts}</span>}
                     </div>
                 </div>
-            </div>
-        </div>
+            </CajonContenido>
+        </Cajon>
     );
 }
 
@@ -101,8 +102,8 @@ function NotifDetail({ n, onClose }: { n: Notif; onClose: () => void }) {
     const imgSrc = snapUrl(n.snapshotPath);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
-            <div className="bg-card border border-border rounded-2xl w-full max-w-3xl overflow-hidden shadow-lg" onClick={e => e.stopPropagation()}>
+        <Cajon open onOpenChange={(v) => !v && onClose()}>
+            <CajonContenido ancho="medio" titulo={n.alertName || "Aviso"} sinCabecera>
                 {imgSrc ? (
                     <div className="relative aspect-video bg-black">
                         <img src={imgSrc} alt="" className="w-full h-full object-contain" />
@@ -169,8 +170,8 @@ function NotifDetail({ n, onClose }: { n: Notif; onClose: () => void }) {
                         )}
                     </div>
                 </div>
-            </div>
-        </div>
+            </CajonContenido>
+        </Cajon>
     );
 }
 

@@ -40,7 +40,7 @@ const PANTALLA_POST_DE_LECTURA = ['/api/monitor/camaras/siluetas']
 const MEDIOS = ['/api/files/', '/api/snapshot/', '/api/nvr/', '/api/clip/']
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 /** Rutas de Filas que sólo llaman el cron del equipo o una sesión del panel (ver más abajo). */
-const FILAS_INTERNAS = ['/api/queue/poll', '/api/queue/reset', '/api/queue/report/send', '/api/queue/schedule/tick', '/api/queue/report/tick']
+const FILAS_INTERNAS = ['/api/queue/poll', '/api/queue/reset', '/api/queue/report/send', '/api/queue/schedule/tick', '/api/queue/report/tick', '/api/filas/aviso-prueba']
 
 const secretKey = process.env.JWT_SECRET
 const key = secretKey ? new TextEncoder().encode(secretKey) : null

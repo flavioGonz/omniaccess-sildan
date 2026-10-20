@@ -27,6 +27,7 @@ import io from "socket.io-client";
 import { OnvifDiscoveryPanel } from "@/components/OnvifDiscoveryPanel";
 import { hora } from "@/lib/fechas";
 import { VivoConPlay } from "@/components/queue/VivoConPlay";
+import { getFilasConLimite } from "@/app/actions/flujo-filas";
 
 interface Alert {
     id: string;
@@ -560,6 +561,8 @@ function OnvifTopicsPanel({ deviceId }: { deviceId: string }) {
 
 export default function FilasPage() {
     const [alerts, setAlerts] = useState<Alert[]>([]);
+    const [limitesFila, setLimitesFila] = useState<Record<string, number>>({});
+    useEffect(() => { getFilasConLimite().then((f) => setLimitesFila(Object.fromEntries(f.map((x) => [x.id, x.limite])))).catch(() => {}); }, [alerts]);
     const [devices, setDevices] = useState<Device[]>([]);
     const [liveCounts, setLiveCounts] = useState<DeviceLive[]>([]);
     const [stats, setStats] = useState<DayStats | null>(null);
@@ -722,8 +725,9 @@ export default function FilasPage() {
         const isAforo = /aforo|occupancy|ocupaci|personas/i.test(cn0);
         const isFlow = /entrada|salida/i.test(cn0);
         const tipo = isAforo ? { label: "Aforo", cls: "bg-violet-500/15 text-violet-400" } : isFlow ? { label: "Flujo", cls: "bg-cyan-500/15 text-cyan-400" } : { label: "Contador", cls: "bg-amber-500/15 text-amber-400" };
-        const al = enabledAlerts.find(a => a.deviceId === d.device.id && a.channelName === cn0) || enabledAlerts.find(a => a.deviceId === d.device.id && !a.channelName);
-        const threshold = al ? al.threshold : globalThreshold;
+        // El límite de la fila: el mismo que usan el servidor, la tabla de Filas y la PWA
+        // (getFilasConLimite). Antes cada pantalla lo calculaba a su manera.
+        const threshold = limitesFila[d.device.id] ?? globalThreshold;
         const ratio = isAforo && threshold > 0 ? c.peopleCount / threshold : 0;
         const estado = ratio >= 1 ? { label: "Lleno", cls: "bg-red-500/15 text-red-400" } : ratio >= 0.7 ? { label: "Alto", cls: "bg-amber-500/15 text-amber-400" } : { label: "OK", cls: "bg-emerald-500/15 text-emerald-400" };
         const valueColor = isAforo ? (ratio >= 1 ? "text-red-400" : ratio >= 0.7 ? "text-amber-400" : "text-emerald-400") : "text-foreground/80";

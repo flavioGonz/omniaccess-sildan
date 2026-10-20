@@ -8,7 +8,8 @@ import {
     Camera, Video, Users, RefreshCw, Maximize2, X, Check, Rows3, Grid2x2, Download, WifiOff, Sun, Activity, MessageCircle, Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getQueueDevices, getLatestQueueCounts, getQueueAlerts } from "@/app/actions/queue";
+import { getQueueDevices, getLatestQueueCounts } from "@/app/actions/queue";
+import { getFilasConLimite } from "@/app/actions/flujo-filas";
 import io from "socket.io-client";
 import { fechaHoraSeg, hora, horaSeg } from "@/lib/fechas";
 import { VivoConPlay } from "@/components/queue/VivoConPlay";
@@ -180,7 +181,12 @@ export default function FilasPWA() {
         catch { setChatMsgs(m => [...m, { role: "bot", text: "Error de conexión." }]); }
         finally { setChatBusy(false); }
     };
-    const [limit, setLimit] = useState(8);
+    /* El límite de CADA fila, el mismo que usan el servidor y el panel (la menor de sus alertas de
+       aforo). Antes era uno solo para todas, el MAYOR de todas las alertas: con una alerta de 10 y
+       otra de 6, una fila de 6 se veía «verde» con 8 personas. */
+    const [limites, setLimites] = useState<Record<string, number>>({});
+    const limiteDe = (id: string) => limites[id] ?? 0;
+    const limit = Object.values(limites).reduce((s, x) => s + x, 0);
     const [connected, setConnected] = useState(false);
     const [now, setNow] = useState(new Date());
     const [pushState, setPushState] = useState<"idle" | "on" | "denied" | "loading">("idle");
@@ -214,13 +220,12 @@ export default function FilasPWA() {
 
     const load = useCallback(async () => {
         try {
-            const [devs, counts, alerts] = await Promise.all([getQueueDevices(), getLatestQueueCounts(), getQueueAlerts()]);
+            const [devs, counts, filas] = await Promise.all([getQueueDevices(), getLatestQueueCounts(), getFilasConLimite()]);
             setDevices((devs as any[]).map((d) => ({ id: d.id, name: d.name, ip: d.ip })));
             const map: Record<string, number> = {};
             for (const c of counts as any[]) { const ch = (c.channels || []).find((x: any) => OCC.includes(x.channelName)); map[c.device.id] = ch ? ch.peopleCount : 0; }
             setAforo(map);
-            const ths = (alerts as any[]).map((a) => a.threshold).filter((n: number) => n > 0);
-            if (ths.length) setLimit(Math.max(...ths));
+            setLimites(Object.fromEntries(filas.map((f) => [f.id, f.limite])));
         } catch (e) { console.error(e); }
     }, []);
     useEffect(() => { load(); const t = setInterval(() => setNow(new Date()), 1000); const r = setInterval(load, 15000); return () => { clearInterval(t); clearInterval(r); }; }, [load]);
@@ -346,7 +351,7 @@ export default function FilasPWA() {
                             <button key={d.id} onClick={() => focusDevice(d.id)} className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-white/5 text-sm">
                                 <span className="flex items-center gap-2 min-w-0"><Camera size={15} className="text-white/60 shrink-0" /><span className="truncate">{d.name}</span></span>
                                 <span className="flex items-center gap-1.5 shrink-0">
-                                    <span className="text-xs font-bold tabular-nums" style={{ color: statusColor(aforo[d.id] ?? 0, limit) }}>{aforo[d.id] ?? 0}</span>
+                                    <span className="text-xs font-bold tabular-nums" style={{ color: statusColor(aforo[d.id] ?? 0, limiteDe(d.id)) }}>{aforo[d.id] ?? 0}</span>
                                     {focusId === d.id && <Check size={15} className="text-blue-400" />}
                                 </span>
                             </button>
@@ -381,7 +386,7 @@ export default function FilasPWA() {
                         <button key={d.id} onClick={() => focusDevice(focusId === d.id ? null : d.id)} className="shrink-0 w-[88px]">
                             <div className={cn("relative w-[88px] h-[60px] rounded-xl overflow-hidden border bg-black transition", focusId === d.id ? "border-blue-500 ring-2 ring-blue-500/40" : "border-border")}>
                                 <SnapshotImg deviceId={d.id} className="absolute inset-0 w-full h-full" />
-                                <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/70 text-[10px] font-bold tabular-nums" style={{ color: statusColor(aforo[d.id] ?? 0, limit) }}>{aforo[d.id] ?? 0}</span>
+                                <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/70 text-[10px] font-bold tabular-nums" style={{ color: statusColor(aforo[d.id] ?? 0, limiteDe(d.id)) }}>{aforo[d.id] ?? 0}</span>
                             </div>
                             <div className="text-center text-[11px] text-white/45 font-mono mt-1">{hora(now)}</div>
                         </button>
@@ -408,7 +413,7 @@ export default function FilasPWA() {
                 ) : (
                     <div className={cn(view === "grid" ? "grid grid-cols-2 gap-px bg-white/10" : "")}>
                         {shown.map((d) => {
-                            const a = aforo[d.id] ?? 0; const col = statusColor(a, limit);
+                            const a = aforo[d.id] ?? 0; const col = statusColor(a, limiteDe(d.id));
                             return (
                                 <div key={d.id} ref={(el) => { feedRefs.current[d.id] = el; }} className="relative w-full aspect-video border-b border-border bg-black">
                                     <VivoConPlay deviceId={d.id}><LiveVideo streamName={getStreamName(d.ip)} deviceId={d.id} className="absolute inset-0 w-full h-full" /></VivoConPlay>
