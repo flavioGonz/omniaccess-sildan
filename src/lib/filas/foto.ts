@@ -1,4 +1,5 @@
 import https from "https";
+import http from "http";
 import { uploadToS3 } from "@/lib/s3";
 import { esCanalAforo, FOTO_DESDE_PERSONAS, FOTO_INTERVALO_MS } from "@/lib/filas/constantes";
 
@@ -30,17 +31,31 @@ export function correspondeFoto(deviceId: string, canal: string | null | undefin
     return true;
 }
 
-/** El cuadro actual de la cámara (snap.jpg de la Bosch), o null. */
-export function cuadroBosch(cam: CamaraFila): Promise<Buffer | null> {
+/**
+ * El cuadro actual de la cámara (snap.jpg de la Bosch), o null.
+ *
+ * Primero por HTTP y después por HTTPS. HB, 20/10: el HTTPS de la Bosch se cuelga por rachas
+ * (snap.jpg por HTTPS: 3 de 3 sin respuesta en 20 s; por HTTP: 0,09 s), y con él se perdían las
+ * fotos. Es la red local de la cámara, la misma por la que ya viaja el video.
+ */
+export async function cuadroBosch(cam: CamaraFila): Promise<Buffer | null> {
+    return (await pedirCuadro(cam, false)) || (await pedirCuadro(cam, true));
+}
+
+/** Tope por HTTP: si no contesta rápido, se prueba HTTPS sin hacer esperar a la lectura de más. */
+const TOPE_HTTP_MS = 3_000;
+
+function pedirCuadro(cam: CamaraFila, seguro: boolean): Promise<Buffer | null> {
     if (!cam.ip) return Promise.resolve(null);
     return new Promise((resolve) => {
         try {
             const auth = Buffer.from(`${cam.username || "admin"}:${cam.password || ""}`).toString("base64");
-            const req = https.request({
-                hostname: cam.ip!, port: 443, path: "/snap.jpg?JpegSize=L", method: "GET",
-                headers: { Authorization: `Basic ${auth}` },
-                agent: new https.Agent({ rejectUnauthorized: false }), timeout: TOPE_CUADRO_MS,
-            }, (res) => {
+            const opciones: any = {
+                hostname: cam.ip!, port: seguro ? 443 : 80, path: "/snap.jpg?JpegSize=L", method: "GET",
+                headers: { Authorization: `Basic ${auth}` }, timeout: seguro ? TOPE_CUADRO_MS : TOPE_HTTP_MS,
+            };
+            if (seguro) opciones.agent = new https.Agent({ rejectUnauthorized: false });
+            const req = (seguro ? https : http).request(opciones, (res) => {
                 if (res.statusCode !== 200) { res.resume(); resolve(null); return; }
                 const partes: Buffer[] = [];
                 res.on("data", (c: Buffer) => partes.push(c));
