@@ -1,6 +1,7 @@
 
 "use client";
 
+import { useFuncion } from "@/lib/funciones-cliente";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { sileo as toast } from "sileo";
@@ -98,6 +99,9 @@ export default function UsersPage() {
 
     // Lista negra
     const [fichas, setFichas] = useState<FichaListaNegra[]>([]);
+    // Sin «En búsqueda» (función de LPR, apagada en San Nicolás): la pestaña es sólo lista negra.
+    const busquedaOn = useFuncion("LPR_BUSQUEDA");
+    const fichasLN = useMemo(() => (busquedaOn ? fichas : fichas.filter((f) => f.nivel !== "SEARCH")), [fichas, busquedaOn]);
     const [cargandoFichas, setCargandoFichas] = useState(true);
     const [errorFichas, setErrorFichas] = useState<string | null>(null);
     const [fichaAbierta, setFichaAbierta] = useState<FichaListaNegra | null>(null);
@@ -199,9 +203,9 @@ export default function UsersPage() {
     const cuentas = useMemo(() => {
         const c: Record<ClavePestania, number> = { residentes: 0, personal: 0, proveedores: 0, visitas: 0, listanegra: 0 };
         for (const u of users) { const k = pestaniaDeRol(u.role); if (k !== "listanegra") c[k]++; }
-        c.listanegra = fichas.filter((f) => f.activa).length;
+        c.listanegra = fichasLN.filter((f) => f.activa).length;
         return c;
-    }, [users, fichas]);
+    }, [users, fichasLN]);
 
     /** Las personas de la pestaña, filtradas por la búsqueda, y recién después recortadas. */
     const filtrados = useMemo(() => {
@@ -217,12 +221,12 @@ export default function UsersPage() {
 
     const fichasVisibles = useMemo(() => {
         const q = searchQuery.trim().toUpperCase();
-        return fichas.filter((f) =>
+        return fichasLN.filter((f) =>
             (filtroEstado === "todas" || (filtroEstado === "activas" ? f.activa : !f.activa)) &&
             (filtroNivel === "todos" || f.nivel === filtroNivel) &&
             (!q || (f.nombre || SIN_IDENTIFICAR).toUpperCase().includes(q) || (f.motivo || "").toUpperCase().includes(q)
                 || f.matriculas.some((m) => m.includes(q.replace(/[^A-Z0-9]/g, ""))) || (f.cargo || "").toUpperCase().includes(q)));
-    }, [fichas, searchQuery, filtroEstado, filtroNivel]);
+    }, [fichasLN, searchQuery, filtroEstado, filtroNivel]);
 
     const elegirPestania = (k: ClavePestania) => {
         setPestania(k);
@@ -240,7 +244,7 @@ export default function UsersPage() {
         setFichaAbierta(null); setSelectedUser(u); setIsFormOpen(true);
     };
 
-    const comportaEnBarra = <ComportamientoPestania pestania={pestania} comportamiento={comportamiento} alCambiar={cambiarComportamiento}
+    const comportaEnBarra = <ComportamientoPestania conBusqueda={!!busquedaOn} pestania={pestania} comportamiento={comportamiento} alCambiar={cambiarComportamiento}
         guardando={guardandoComp} avisos={avisos} />;
 
     return (
@@ -308,6 +312,7 @@ export default function UsersPage() {
                     {pestania === "listanegra" ? (
                         <TablaListaNegra
                             fichas={fichasVisibles}
+                            conBusqueda={!!busquedaOn}
                             cargando={cargandoFichas}
                             error={errorFichas}
                             alReintentar={cargarFichas}
@@ -317,7 +322,7 @@ export default function UsersPage() {
                                     busqueda={searchQuery} alBuscar={setSearchQuery}
                                     placeholder="Nombre, matrícula, motivo o quién cargó"
                                     grupos={[
-                                        { clave: "nivel", titulo: "Nivel", valor: filtroNivel, alElegir: setFiltroNivel, opciones: [{ valor: "todos", rotulo: "Todos" }, { valor: "BLACKLISTED", rotulo: "Alerta máxima" }, { valor: "SEARCH", rotulo: "En búsqueda" }] },
+                                        ...(busquedaOn ? [{ clave: "nivel", titulo: "Nivel", valor: filtroNivel, alElegir: setFiltroNivel, opciones: [{ valor: "todos", rotulo: "Todos" }, { valor: "BLACKLISTED", rotulo: "Alerta máxima" }, { valor: "SEARCH", rotulo: "En búsqueda" }] }] : []),
                                         { clave: "estado", titulo: "Estado", valor: filtroEstado, alElegir: setFiltroEstado, opciones: [{ valor: "activas", rotulo: "Activas" }, { valor: "baja", rotulo: "Dadas de baja" }, { valor: "todas", rotulo: "Todas" }] },
                                     ]}
                                     acciones={comportaEnBarra}

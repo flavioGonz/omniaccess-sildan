@@ -24,15 +24,18 @@ const ORIGEN: Record<FichaListaNegra["origen"], string> = {
     rol: "Tiene el rol «Lista negra» del módulo facial",
 };
 
-export function TablaListaNegra({ fichas, cargando, error, alReintentar, alAbrir, barra }: {
+export function TablaListaNegra({ fichas, cargando, error, alReintentar, alAbrir, barra, conBusqueda = true }: {
     fichas: FichaListaNegra[];
+    /** Sin «En búsqueda» (función de LPR) todas son alerta máxima: la columna «Si aparece» no dice nada. */
+    conBusqueda?: boolean;
     cargando?: boolean;
     error?: string | null;
     alReintentar?: () => void;
     alAbrir: (f: FichaListaNegra) => void;
     barra?: React.ReactNode;
 }) {
-    const columnas = useMemo<ColumnaTabla<FichaListaNegra>[]>(() => [
+    const columnas = useMemo<ColumnaTabla<FichaListaNegra>[]>(() => {
+        const todas: ColumnaTabla<FichaListaNegra>[] = [
         {
             clave: "ficha", titulo: "Quién", ancho: 300, ordenable: true,
             valor: (f) => f.nombre || SIN_IDENTIFICAR,
@@ -82,7 +85,9 @@ export function TablaListaNegra({ fichas, cargando, error, alReintentar, alAbrir
                 ? <Estado tono="mal">activa</Estado>
                 : <Pista titulo="Dada de baja" texto={f.bajaEn ? `El ${new Date(f.bajaEn).toLocaleString("es-UY", { timeZone: "America/Montevideo" })}. Desde su ficha se la vuelve a activar.` : "Desde su ficha se la vuelve a activar."}><span><Estado tono="quieto">baja</Estado></span></Pista>,
         },
-    ], []);
+    ];
+        return todas.filter((c) => conBusqueda || c.clave !== "nivel");
+    }, [conBusqueda]);
 
     return (
         <Tabla<FichaListaNegra>

@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Ban, Bell, BellOff, ChevronRight, ExternalLink, Loader2, Plus, RotateCcw, Search, ShieldAlert, Star } from "lucide-react";
+import { Ban, Bell, BellOff, ChevronRight, Loader2, Plus, RotateCcw, Search, ShieldAlert, ShieldX, Siren, Cctv, Star, X } from "lucide-react";
+import { Tooltip } from "react-tooltip";
+import "react-tooltip/dist/react-tooltip.css";
+import { useFuncion } from "@/lib/funciones-cliente";
 import Link from "next/link";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { getWatchlist, addWatch, deactivateWatch, reactivateWatch, type FilaVigilancia } from "@/app/actions/watchlist";
 import { WATCH_CATEGORY_LIST, WATCH_EFECTOS, watchCatMeta, type WatchCategory } from "@/lib/watch-categories";
 import { Pista } from "@/components/ui/pista";
-import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
+import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { FichaVigilancia } from "@/components/users/FichaVigilancia";
 import { resumirCamaras } from "@/lib/lista-negra";
 import { NIVELES } from "@/lib/padron";
@@ -119,150 +122,189 @@ export function WatchlistDialog({ onClose, plateInicial }: {
         } finally { setSaving(false); }
     }
 
+    // Sin «En búsqueda» (función de LPR, apagada en San Nicolás) queda sólo la lista negra.
+    const busquedaOn = useFuncion("LPR_BUSQUEDA");
+    const categorias = WATCH_CATEGORY_LIST.filter((c) => busquedaOn || c.value !== "SEARCH");
+    useEffect(() => { if (!busquedaOn && category === "SEARCH") setCategory("BLACKLISTED"); }, [busquedaOn, category]);
     const visibles = useMemo(() => {
         const q = query.trim().toUpperCase();
-        return rows.filter((r) => (verInactivas || r.active) && (!q ||
+        return rows.filter((r) => (busquedaOn || r.category !== "SEARCH") && (verInactivas || r.active) && (!q ||
             r.plate.toUpperCase().includes(q) || (r.motivo || r.label || "").toUpperCase().includes(q) ||
             (r.userName || "").toUpperCase().includes(q) || watchCatMeta(r.category).label.toUpperCase().includes(q)));
-    }, [rows, query, verInactivas]);
-    const activas = rows.filter((r) => r.active).length;
+    }, [rows, query, verInactivas, busquedaOn]);
+    const activas = rows.filter((r) => r.active && (busquedaOn || r.category !== "SEARCH")).length;
     const meta = watchCatMeta(category);
+    const negra = category === "BLACKLISTED";
+
+    /*
+     * El cajón entero en rojo, con letra blanca (20/10, Nico: «fondo rojo, letras estilizadas
+     * blancas, iconografía, react-tooltip; debe indicar en texto qué hace exactamente»). Es la
+     * única pantalla que existe para negarle el paso a alguien: tiene que verse como lo que es.
+     * Lo que dice arriba es lo que el sistema HACE (WATCH_EFECTOS), no lo que uno desearía.
+     */
+    const TT = "tt-lista-negra";
+    const efectos = [
+        { Ic: ShieldX, t: "Barrera", d: WATCH_EFECTOS.BLACKLISTED.barrera },
+        { Ic: Cctv, t: "Lectoras LPR", d: WATCH_EFECTOS.BLACKLISTED.camaras },
+        { Ic: Siren, t: "Monitor", d: "Cada vez que una cámara la lee salta como alerta crítica, en rojo y con sonido, hasta que alguien decida si es real." },
+        { Ic: Bell, t: "Avisos", d: "Con «Avisa» prendido, además se manda a la guardia por Telegram y dispara las reglas de Notificaciones (WATCHLIST)." },
+    ];
+    const campo = "w-full h-10 rounded-[8px] bg-white/12 border border-white/20 text-white placeholder:text-white/55 px-3 text-[13px] outline-none focus:border-white focus:bg-white/18";
 
     return (
         <>
             <Cajon open={!abierta} onOpenChange={(o) => { if (!o && !abierta) onClose(); }}>
-                <CajonContenido ancho="intermedio" titulo="Lista negra"
-                    descripcion="Carga rápida. Las fichas completas (nombre, foto, varias matrículas) están en Usuarios → Lista negra."
-                    encabezado={
-                        <div className="flex items-center justify-between px-6 py-2">
-                            <span className="text-[11.5px] text-muted-foreground tabular-nums">{activas} activa{activas === 1 ? "" : "s"}</span>
-                            <Pista titulo="Administrar" texto="La misma lista, como fichas: nombre (o sin identificar), foto, varias matrículas, dónde se la vio, y las dadas de baja." lado="abajo">
-                                <Link href="/admin/users?tab=listanegra" className="h-8 px-2 rounded-md hover:bg-accent text-[12px] font-semibold tono-accion flex items-center gap-1"><ExternalLink size={13} /> Abrir la pestaña Lista negra</Link>
-                            </Pista>
+                <CajonContenido ancho="intermedio" titulo="Lista negra" sinCabecera
+                    descripcion="Cargar una matrícula para que la barrera la deniegue siempre y salte como alerta."
+                    className="!bg-[var(--mal)] text-white !border-l-0">
+                    <Tooltip id={TT} place="bottom" positionStrategy="fixed" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[9999]" />
+
+                    {/* ── Qué es esto ── */}
+                    <header className="px-6 pt-6 pb-5 border-b border-white/15">
+                        <div className="flex items-start gap-3">
+                            <span className="grid h-11 w-11 place-items-center rounded-full bg-white/15 shrink-0"><Ban size={22} /></span>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/75">Alerta máxima</div>
+                                <h2 className="text-[24px] font-extrabold leading-none tracking-[-0.02em] mt-1">Lista negra</h2>
+                            </div>
+                            <span className="h-7 px-2.5 rounded-full bg-white/15 text-[12px] font-bold tabular-nums inline-flex items-center shrink-0"
+                                data-tooltip-id={TT} data-tooltip-content="Matrículas activas en la lista negra">{activas} activa{activas === 1 ? "" : "s"}</span>
+                            <button type="button" onClick={onClose} aria-label="Cerrar" className="h-8 w-8 rounded-full grid place-items-center hover:bg-white/15 shrink-0"><X size={17} /></button>
                         </div>
-                    }>
-                    <CajonSeccion titulo="Agregar" icono={ShieldAlert}>
-                        {/* La matrícula como placa, editable */}
+                        <p className="mt-4 text-[13.5px] leading-relaxed text-white/95">
+                            Acá se carga una matrícula para <b>negarle el paso</b>. Desde que se agrega, en cada lectura:
+                        </p>
+                        <ul className="mt-3 space-y-2">
+                            {efectos.map(({ Ic, t, d }) => (
+                                <li key={t} className="flex items-start gap-2.5 text-[12.5px] leading-snug">
+                                    <span className="grid h-6 w-6 place-items-center rounded-full bg-white/15 shrink-0 mt-px"><Ic size={13} /></span>
+                                    <span><b className="font-bold">{t}.</b> <span className="text-white/90">{d}</span></span>
+                                </li>
+                            ))}
+                        </ul>
+                        <p className="mt-3 text-[11.5px] text-white/75 leading-snug">
+                            Es la carga rápida del monitor. La ficha completa (nombre, foto, varias matrículas, dónde se la vio) está en{" "}
+                            <Link href="/admin/users?tab=listanegra" className="font-bold underline underline-offset-2 hover:text-white">Usuarios → Lista negra</Link>.
+                        </p>
+                    </header>
+
+                    {/* ── Agregar ── */}
+                    <section className="px-6 py-5 space-y-3 border-b border-white/15">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/75 inline-flex items-center gap-1.5"><Plus size={12} /> Agregar una matrícula</div>
                         <div className="flex items-center gap-3">
                             <label className="relative">
                                 <span className="sr-only">Matrícula</span>
                                 <input value={plate} onChange={(e) => { setPlate(e.target.value.toUpperCase()); setConflicto(null); }}
                                     onKeyDown={(e) => { if (e.key === "Enter") onAdd(); }} placeholder="ABC1234" maxLength={10}
-                                    className="w-40 h-11 rounded-[6px] border-2 border-neutral-800 bg-white text-neutral-900 text-center text-[17px] font-bold tracking-[0.16em] uppercase tabular-nums outline-none placeholder:text-neutral-300 focus:ring-2 focus:ring-[var(--accion)]" />
+                                    className="w-40 h-12 rounded-[8px] border-2 border-neutral-900 bg-white text-neutral-900 text-center text-[19px] font-extrabold tracking-[0.16em] uppercase tabular-nums outline-none placeholder:text-neutral-300 focus:ring-4 focus:ring-white/40" />
                             </label>
-                            <p className="text-[12px] text-muted-foreground leading-snug">Como la lee la cámara: sin espacios ni guiones.</p>
+                            <p className="text-[12px] text-white/85 leading-snug">Como la lee la cámara: sin espacios ni guiones.</p>
                         </div>
 
-                        {/* El nivel: dos tarjetas con ícono, tono y qué hacen (VIP ya no es una lista: es una marca de la persona) */}
-                        <div className="grid grid-cols-2 gap-2">
-                            {WATCH_CATEGORY_LIST.map((cat) => {
-                                const Ic = ICONO_CATEGORIA[cat.value];
-                                const sel = category === cat.value;
-                                const m = watchCatMeta(cat.value);
-                                return (
-                                    <Pista key={cat.value} titulo={cat.label} texto={<ExplicacionCategoria cat={cat.value} />} ancho={340} lado="abajo">
-                                        <button type="button" onClick={() => { setCategory(cat.value); setConflicto(null); }} aria-pressed={sel}
-                                            className={cn("w-full rounded-[10px] border p-2.5 text-left transition-colors",
-                                                sel ? m.badge : "border-border hover:bg-accent")}>
-                                            <span className="flex items-center gap-1.5 text-[12.5px] font-bold"><Ic size={14} className={sel ? "" : m.text} /> {NIVELES[cat.value as "BLACKLISTED" | "SEARCH"]?.titulo || cat.label}</span>
-                                            <span className={cn("block text-[11px] mt-0.5 leading-snug", sel ? "opacity-90" : "text-muted-foreground")}>
-                                                {NIVELES[cat.value as "BLACKLISTED" | "SEARCH"]?.resumen}
-                                            </span>
+                        {categorias.length > 1 && (
+                            <div className="grid grid-cols-2 gap-2">
+                                {categorias.map((cat) => {
+                                    const Ic = ICONO_CATEGORIA[cat.value];
+                                    const sel = category === cat.value;
+                                    return (
+                                        <button key={cat.value} type="button" onClick={() => { setCategory(cat.value); setConflicto(null); }} aria-pressed={sel}
+                                            data-tooltip-id={TT} data-tooltip-content={WATCH_EFECTOS[cat.value].barrera}
+                                            className={cn("w-full rounded-[10px] border p-2.5 text-left transition-colors", sel ? "bg-white text-[var(--mal)] border-white" : "border-white/25 hover:bg-white/10")}>
+                                            <span className="flex items-center gap-1.5 text-[12.5px] font-bold"><Ic size={14} /> {NIVELES[cat.value as "BLACKLISTED" | "SEARCH"]?.titulo || cat.label}</span>
+                                            <span className={cn("block text-[11px] mt-0.5 leading-snug", sel ? "opacity-80" : "text-white/75")}>{NIVELES[cat.value as "BLACKLISTED" | "SEARCH"]?.resumen}</span>
                                         </button>
-                                    </Pista>
-                                );
-                            })}
-                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
 
                         <input value={motivo} onChange={(e) => setMotivo(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onAdd(); }}
-                            autoFocus={!!plateInicial} placeholder={MOTIVO_PISTA[category]}
-                            className="w-full bg-background border border-border rounded-[6px] px-3 h-10 text-[13px] outline-none focus:ring-2 focus:ring-[var(--accion)]" />
-
-                        <p className="text-[11.5px] leading-snug text-muted-foreground">
-                            <span className={cn("font-bold", meta.text)}>{meta.label}:</span> {WATCH_EFECTOS[category].barrera}
-                        </p>
+                            autoFocus={!!plateInicial} placeholder={MOTIVO_PISTA[category]} className={campo} />
 
                         {conflicto && (
-                            <div className="rounded-[10px] border chip-aviso p-3 text-[12px] space-y-2">
+                            <div className="rounded-[10px] bg-black/25 p-3 text-[12px] space-y-2">
                                 <p><b>{plate}</b> ya está activa como <b>{watchCatMeta(conflicto.category).label}</b>{conflicto.motivo || conflicto.label ? ` (${conflicto.motivo || conflicto.label})` : ""}. ¿Pasarla a {meta.label}?</p>
                                 <div className="flex gap-2">
-                                    <button onClick={() => onAdd(true)} disabled={saving} className="accion h-8 px-3 rounded-[6px] text-[12px] font-bold">Sí, cambiarla</button>
-                                    <button onClick={() => setConflicto(null)} className="h-8 px-3 rounded-[6px] border border-border text-[12px] font-bold">No</button>
+                                    <button onClick={() => onAdd(true)} disabled={saving} className="h-8 px-3 rounded-[6px] bg-white text-[var(--mal)] text-[12px] font-bold">Sí, cambiarla</button>
+                                    <button onClick={() => setConflicto(null)} className="h-8 px-3 rounded-[6px] border border-white/40 text-[12px] font-bold">No</button>
                                 </div>
                             </div>
                         )}
 
                         <div className="flex items-center gap-2">
-                            <Pista titulo={notify ? "Avisa" : "En silencio"} texto="Con aviso, al detectarla manda Telegram y dispara la regla WATCHLIST de las notificaciones. En silencio sólo se ve en el monitor." lado="abajo">
-                                <button onClick={() => setNotify((n) => !n)} aria-pressed={notify}
-                                    className={cn("h-10 px-3 rounded-full text-[12px] font-bold flex items-center gap-1.5 border whitespace-nowrap", notify ? "chip-info" : "bg-background text-muted-foreground border-border")}>
-                                    {notify ? <Bell size={13} /> : <BellOff size={13} />} {notify ? "Avisa" : "Silencio"}
-                                </button>
-                            </Pista>
+                            <button onClick={() => setNotify((n) => !n)} aria-pressed={notify}
+                                data-tooltip-id={TT} data-tooltip-content={notify ? "Avisa: al leerla manda Telegram a la guardia y dispara las reglas de Notificaciones. Tocá para que sólo se vea en el monitor." : "En silencio: sólo se ve en el monitor. Tocá para que también avise por Telegram y Notificaciones."}
+                                className={cn("h-11 px-3.5 rounded-full text-[12.5px] font-bold flex items-center gap-1.5 whitespace-nowrap border transition-colors", notify ? "bg-white/20 border-white/40" : "border-white/25 text-white/70")}>
+                                {notify ? <Bell size={14} /> : <BellOff size={14} />} {notify ? "Avisa" : "Silencio"}
+                            </button>
                             <button onClick={() => onAdd()} disabled={saving || !plate.trim()}
-                                className="accion flex-1 h-10 rounded-[6px] text-[13px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-50">
-                                {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Agregar
+                                className="flex-1 h-11 rounded-[8px] bg-white text-[var(--mal)] text-[14px] font-extrabold flex items-center justify-center gap-1.5 disabled:opacity-50 hover:bg-white/90">
+                                {saving ? <Loader2 size={15} className="animate-spin" /> : <Ban size={15} />} {negra ? "Cargar en la lista negra" : "Cargar en búsqueda"}
                             </button>
                         </div>
-                    </CajonSeccion>
+                    </section>
 
-                    <CajonSeccion titulo="En la lista" icono={Search} ayuda="Tocá una para abrir su expediente: desde cuándo, quién la cargó, dónde se la vio y qué decidió la barrera.">
-                        <div className="flex items-center gap-2">
+                    {/* ── En la lista ── */}
+                    <section className="pt-5 pb-6">
+                        <div className="px-6 flex items-center justify-between gap-2">
+                            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/75 inline-flex items-center gap-1.5"><ShieldAlert size={12} /> En la lista</div>
+                            <span className="text-[11px] text-white/70">Tocá una para abrir su expediente</span>
+                        </div>
+                        <div className="px-6 mt-3 flex items-center gap-2">
                             <div className="relative flex-1 min-w-0">
-                                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar matrícula, motivo o persona…"
-                                    className="w-full bg-background border border-border rounded-[6px] pl-8 pr-3 h-9 text-[12.5px] outline-none focus:ring-2 focus:ring-[var(--accion)]" />
+                                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60" />
+                                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar matrícula, motivo o persona…" className={cn(campo, "pl-8 h-9")} />
                             </div>
                             <button onClick={() => setVerInactivas((v) => !v)} aria-pressed={verInactivas}
-                                className={cn("h-9 px-3 rounded-full border text-[11.5px] font-semibold whitespace-nowrap transition-colors", verInactivas ? "border-[var(--accion)] tono-accion" : "border-border text-muted-foreground hover:bg-accent")}>
+                                data-tooltip-id={TT} data-tooltip-content="Mostrar también las dadas de baja (siguen en el expediente)"
+                                className={cn("h-9 px-3 rounded-full border text-[11.5px] font-semibold whitespace-nowrap transition-colors", verInactivas ? "bg-white text-[var(--mal)] border-white" : "border-white/30 text-white/80 hover:bg-white/10")}>
                                 Con inactivas
                             </button>
                         </div>
 
-                        <div className="-mx-6">
+                        <div className="mt-3">
                             {loading ? (
-                                <div className="flex items-center justify-center py-8 text-muted-foreground gap-2 text-[12.5px]"><Loader2 size={15} className="animate-spin" /> Cargando…</div>
+                                <div className="flex items-center justify-center py-8 text-white/80 gap-2 text-[12.5px]"><Loader2 size={15} className="animate-spin" /> Cargando…</div>
                             ) : error ? (
-                                <div className="text-center py-8 text-[12.5px] space-y-2"><p>No se pudo leer la lista: {error}</p><button onClick={load} className="tono-accion font-semibold">Reintentar</button></div>
+                                <div className="text-center py-8 text-[12.5px] space-y-2"><p>No se pudo leer la lista: {error}</p><button onClick={load} className="font-bold underline">Reintentar</button></div>
                             ) : visibles.length === 0 ? (
-                                <div className="text-center py-10 text-muted-foreground text-[12.5px]">{rows.length === 0 ? "Sin matrículas en vigilancia" : query ? `Ninguna coincide con «${query}»` : "Ninguna activa"}</div>
+                                <div className="text-center py-10 text-white/75 text-[12.5px]">{rows.length === 0 ? "Todavía no hay matrículas en la lista negra" : query ? `Ninguna coincide con «${query}»` : "Ninguna activa"}</div>
                             ) : (
-                                <div className="divide-y divide-border border-y border-border">
+                                <div className="divide-y divide-white/10 border-y border-white/10">
                                     {visibles.map((r) => {
-                                        const m = watchCatMeta(r.category);
-                                        const Ic = ICONO_CATEGORIA[(r.category as WatchCategory)] || Search;
                                         const busqueda = r.category === "SEARCH";
                                         return (
                                             <div key={r.id} role="button" tabIndex={0} onClick={() => setAbierta(r)} onKeyDown={(e) => { if (e.key === "Enter") setAbierta(r); }}
-                                                className={cn("group flex items-center gap-3 px-6 py-3 cursor-pointer hover:bg-accent transition-colors", !r.active && "opacity-50")}>
+                                                className={cn("group flex items-center gap-3 px-6 py-3 cursor-pointer bg-black/0 hover:bg-black/15 transition-colors", !r.active && "opacity-55")}>
                                                 <Placa p={r.plate} />
                                                 <div className="min-w-0 flex-1">
-                                                    <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10.5px] font-bold", m.badge)}><Ic size={11} /> {m.label}</span>
-                                                    <p className={cn("text-[12.5px] mt-1 truncate", busqueda ? "text-foreground font-semibold" : "text-muted-foreground")}>
-                                                        {r.motivo || r.label || <span className="italic">Sin motivo</span>}
-                                                        {r.userName ? <span className="text-muted-foreground font-normal"> · {r.userName}</span> : null}
+                                                    {busqueda && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/15 text-[10.5px] font-bold mb-1"><Search size={11} /> En búsqueda</span>}
+                                                    <p className="text-[13px] font-semibold truncate">
+                                                        {r.motivo || r.label || <span className="italic font-normal text-white/70">Sin motivo</span>}
+                                                        {r.userName ? <span className="text-white/70 font-normal"> · {r.userName}</span> : null}
                                                     </p>
+                                                    {!r.active && <p className="text-[11px] text-white/70">Dada de baja</p>}
                                                 </div>
-                                                {r.notify && r.active && <Pista texto="Avisa al detectarla"><Bell size={13} className="tono-info shrink-0" /></Pista>}
+                                                {r.notify && r.active && <span data-tooltip-id={TT} data-tooltip-content="Avisa al detectarla (Telegram y Notificaciones)"><Bell size={14} className="text-white/85 shrink-0" /></span>}
                                                 <span onClick={(e) => e.stopPropagation()} className="shrink-0">
                                                     {r.active ? (
-                                                        <Pista titulo="Dar de baja" texto={r.category === "BLACKLISTED" ? "Deja de denegar; si tiene credencial vuelve a la lista blanca de las lectoras. Queda en el expediente como inactiva." : "Deja de destacarse. Queda en el expediente como inactiva."} lado="izquierda">
-                                                            <button onClick={async () => { const x = await deactivateWatch(r.id); if (!x.ok) toast.error({ title: "No se pudo dar de baja", description: x.error }); avisarCamaras(x.camaras); load(); }} className="p-1.5 rounded-md hover:bg-[var(--mal-suave)] tono-mal"><Ban size={14} /></button>
-                                                        </Pista>
+                                                        <button onClick={async () => { const x = await deactivateWatch(r.id); if (!x.ok) toast.error({ title: "No se pudo dar de baja", description: x.error }); avisarCamaras(x.camaras); load(); }}
+                                                            data-tooltip-id={TT} data-tooltip-content={r.category === "BLACKLISTED" ? "Dar de baja: deja de denegar; si tiene credencial vuelve a la lista blanca de las lectoras. Queda en el expediente." : "Dar de baja: deja de avisar. Queda en el expediente."}
+                                                            aria-label="Dar de baja" className="h-8 w-8 rounded-full grid place-items-center hover:bg-white/15"><Ban size={15} /></button>
                                                     ) : (
-                                                        <Pista titulo="Volver a activar" texto="Misma categoría y motivo; si es lista negra vuelve a las lectoras." lado="izquierda">
-                                                            <button onClick={async () => { const x = await reactivateWatch(r.id); if (!x.ok) toast.error({ title: "No se pudo activar", description: x.error }); avisarCamaras(x.camaras); load(); }} className="p-1.5 rounded-md hover:bg-accent text-muted-foreground"><RotateCcw size={14} /></button>
-                                                        </Pista>
+                                                        <button onClick={async () => { const x = await reactivateWatch(r.id); if (!x.ok) toast.error({ title: "No se pudo activar", description: x.error }); avisarCamaras(x.camaras); load(); }}
+                                                            data-tooltip-id={TT} data-tooltip-content="Volver a activar: mismo motivo; vuelve a la lista negra de las lectoras."
+                                                            aria-label="Volver a activar" className="h-8 w-8 rounded-full grid place-items-center hover:bg-white/15"><RotateCcw size={15} /></button>
                                                     )}
                                                 </span>
-                                                <ChevronRight size={15} className="text-muted-foreground group-hover:text-foreground shrink-0" />
+                                                <ChevronRight size={16} className="text-white/70 group-hover:text-white shrink-0" />
                                             </div>
                                         );
                                     })}
                                 </div>
                             )}
                         </div>
-                    </CajonSeccion>
+                    </section>
                 </CajonContenido>
             </Cajon>
             {/* El expediente reemplaza al cajón de la lista y al cerrarlo se vuelve a la lista. */}

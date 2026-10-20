@@ -91,13 +91,15 @@ const Grupo = ({ children }: { children: React.ReactNode }) => (
 
 const estado = (v: boolean) => <span className={cn("font-semibold", v ? "tono-accion" : "")}>{v ? "Prendido" : "Apagado"}</span>;
 
-export function ComportamientoPestania({ pestania, comportamiento, alCambiar, guardando, avisos }: {
+export function ComportamientoPestania({ pestania, comportamiento, alCambiar, guardando, avisos, conBusqueda = true }: {
     pestania: ClavePestania;
     comportamiento: Comportamiento;
     alCambiar: (clave: ClaveComportamiento, cambio: Partial<Interruptores>) => void;
     guardando?: boolean;
     /** Lista negra: las reglas de Notificaciones que escuchan WATCHLIST. */
     avisos?: { activas: number; total: number; canales: string[] } | null;
+    /** Sin «En búsqueda» (función de LPR, apagada en San Nicolás) no se muestra ni su sonido. */
+    conBusqueda?: boolean;
 }) {
     if (pestania === "listanegra") {
         const b = comportamiento.busqueda;
@@ -118,9 +120,9 @@ export function ComportamientoPestania({ pestania, comportamiento, alCambiar, gu
             <div className="flex items-center gap-1.5">
                 <Grupo>
                     <Dato clave="alerta" icono={Ban} rotulo="Alerta máxima" className="tono-mal hover:text-[inherit]" />
-                    <Dato clave="busqueda" icono={Search} rotulo="En búsqueda" className="tono-aviso hover:text-[inherit]" />
-                    <Llave clave="sonido" icono={Volume2} iconoApagado={VolumeX} rotulo="Sonido al pasar" valor={b.sonido} deshabilitado={guardando}
-                        alCambiar={(v) => alCambiar("busqueda", { sonido: v })} />
+                    {conBusqueda && <Dato clave="busqueda" icono={Search} rotulo="En búsqueda" className="tono-aviso hover:text-[inherit]" />}
+                    {conBusqueda && <Llave clave="sonido" icono={Volume2} iconoApagado={VolumeX} rotulo="Sonido al pasar" valor={b.sonido} deshabilitado={guardando}
+                        alCambiar={(v) => alCambiar("busqueda", { sonido: v })} />}
                 </Grupo>
                 <Grupo>
                     <Dato clave="telegram" icono={Send} rotulo="Telegram a la guardia" />
