@@ -4,6 +4,13 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/app/actions/auth";
 import { limitesPorFila, EPISODIO_UNION_SEG } from "@/lib/filas/demora";
 import { configRetencion } from "@/lib/filas/retencion";
+
+/** Las personas que la cámara veía en la foto (guardadas en metadata por lib/filas/foto), o null. */
+type PersonaGuardada = { c: [number, number, number, number]; p: number; g?: [number, number][] };
+function personasDe(metadata: string | null | undefined): PersonaGuardada[] | null {
+    if (!metadata) return null;
+    try { const m = JSON.parse(metadata); return Array.isArray(m?.personas) ? m.personas : null; } catch { return null; }
+}
 import {
     CANAL_ENTRADA, CANAL_SALIDA, LIMITE_FILA_POR_DEFECTO, AJUSTE_FOTOS_DIAS, AJUSTE_FOTOS_COMPLETAS_DIAS, FOTOS_DIAS_MAX,
 } from "@/lib/filas/constantes";
@@ -37,12 +44,12 @@ const ORIGEN = "timestamp '2000-01-01 00:00:00'";
 
 export type PuntoFlujo = {
     t: string; prom: number; max: number; lecturas: number; entradas: number; salidas: number;
-    foto: { ruta: string; personas: number; t: string } | null;
+    foto: { ruta: string; personas: number; t: string; siluetas: PersonaGuardada[] | null } | null;
 };
 export type Episodio = {
     deviceId: string; fila: string; limite: number;
     desde: string; hasta: string | null; segundos: number; pico: number; picoA: string | null;
-    foto: string | null; numero: number;
+    foto: string | null; siluetas: PersonaGuardada[] | null; numero: number;
 };
 
 export async function getFlujoFilas(p: { deviceId?: string | null; rango: Rango }) {
@@ -72,7 +79,7 @@ export async function getFlujoFilas(p: { deviceId?: string | null; rango: Rango 
             group by 1 order by 1`, r.tramo, CANAL_ENTRADA, CANAL_SALIDA, desde, dev),
         prisma.$queryRawUnsafe<any[]>(`
             select distinct on (date_bin($1::interval, "timestamp", ${ORIGEN}))
-                date_bin($1::interval, "timestamp", ${ORIGEN}) as t, "snapshotPath" as ruta, "peopleCount" as personas, "timestamp" as ts
+                date_bin($1::interval, "timestamp", ${ORIGEN}) as t, "snapshotPath" as ruta, "peopleCount" as personas, "timestamp" as ts, metadata
             from "QueueEvent"
             where "timestamp" >= $2 and "snapshotPath" is not null and "channelName" not in ($3, $4)
               and ($5::text is null or "deviceId" = $5)
@@ -95,7 +102,7 @@ export async function getFlujoFilas(p: { deviceId?: string | null; rango: Rango 
             t: new Date(t).toISOString(),
             prom: x ? Math.round(x.prom * 10) / 10 : 0, max: x?.max ?? 0, lecturas: x?.lecturas ?? 0,
             entradas: x?.entradas ?? 0, salidas: x?.salidas ?? 0,
-            foto: f ? { ruta: f.ruta, personas: f.personas, t: new Date(f.ts).toISOString() } : null,
+            foto: f ? { ruta: f.ruta, personas: f.personas, t: new Date(f.ts).toISOString(), siluetas: personasDe(f.metadata) } : null,
         });
     }
 
@@ -162,7 +169,7 @@ async function episodiosSobreLimite(p: { desde: Date; deviceId: string | null; l
             }),
             prisma.queueEvent.findFirst({
                 where: { deviceId: e.deviceId, timestamp: { gte: e.desde, lte: hasta }, snapshotPath: { not: null }, NOT: { channelName: { in: [CANAL_ENTRADA, CANAL_SALIDA] } } },
-                orderBy: [{ peopleCount: "desc" }, { timestamp: "asc" }], select: { snapshotPath: true },
+                orderBy: [{ peopleCount: "desc" }, { timestamp: "asc" }], select: { snapshotPath: true, metadata: true },
             }),
         ]);
         return {
@@ -170,7 +177,7 @@ async function episodiosSobreLimite(p: { desde: Date; deviceId: string | null; l
             desde: e.desde.toISOString(), hasta: e.hasta?.toISOString() || null,
             segundos: Math.max(0, Math.round((hasta.getTime() - e.desde.getTime()) / 1000)),
             pico: picoEv?.peopleCount ?? 0, picoA: picoEv?.timestamp.toISOString() || null,
-            foto: fotoEv?.snapshotPath || null, numero: numeroBase + i + 1,
+            foto: fotoEv?.snapshotPath || null, siluetas: personasDe(fotoEv?.metadata), numero: numeroBase + i + 1,
         } satisfies Episodio;
     }));
     return out.reverse(); // la más reciente arriba
@@ -188,7 +195,7 @@ export async function getFilasConLimite() {
 
 /* ── Lecturas y capturas ─────────────────────────────────────────────────────── */
 
-export type Lectura = { id: string; t: string; fila: string; deviceId: string; canal: string; personas: number; foto: string | null; limite: number };
+export type Lectura = { id: string; t: string; fila: string; deviceId: string; canal: string; personas: number; foto: string | null; limite: number; siluetas: PersonaGuardada[] | null };
 
 export async function getLecturasFilas(p: {
     deviceId?: string | null; desde?: string | null; hasta?: string | null; minPersonas?: number | null;
@@ -209,7 +216,7 @@ export async function getLecturasFilas(p: {
         prisma.queueEvent.count({ where }),
         prisma.queueEvent.findMany({
             where, orderBy: { timestamp: "desc" }, skip: pagina * porPagina, take: porPagina,
-            select: { id: true, timestamp: true, channelName: true, peopleCount: true, snapshotPath: true, deviceId: true, device: { select: { name: true } } },
+            select: { id: true, timestamp: true, channelName: true, peopleCount: true, snapshotPath: true, deviceId: true, metadata: true, device: { select: { name: true } } },
         }),
         limitesPorFila(),
     ]);
@@ -219,6 +226,7 @@ export async function getLecturasFilas(p: {
             id: e.id, t: e.timestamp.toISOString(), fila: e.device?.name || "Fila", deviceId: e.deviceId,
             canal: e.channelName || "Aforo", personas: e.peopleCount, foto: e.snapshotPath,
             limite: limites[e.deviceId] ?? LIMITE_FILA_POR_DEFECTO,
+            siluetas: e.snapshotPath ? personasDe(e.metadata) : null,
         })) as Lectura[],
     };
 }

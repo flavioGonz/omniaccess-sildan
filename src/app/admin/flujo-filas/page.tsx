@@ -12,6 +12,7 @@ import { CajonCaptura as CajonDetalle, type Captura as Detalle } from "@/compone
 import { getFlujoFilas, getLecturasFilas, type Rango, type PuntoFlujo, type Episodio, type Lectura } from "@/app/actions/flujo-filas";
 import { hora, horaSeg, fechaCorta, duracion } from "@/lib/fechas";
 import { nombreStreamFila } from "@/lib/stream-fila";
+import { DibujoPersonas, desdeGuardadas } from "@/components/queue/SiluetasBosch";
 import { cn } from "@/lib/utils";
 
 /**
@@ -89,17 +90,17 @@ export default function FlujoFilasPage() {
             {/* Gráfica + visor. El visor muestra el vivo, o la foto del punto donde está el mouse. */}
             <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_420px] gap-4">
                 <GraficaFlujo flujo={flujo} cargando={cargando && !flujo} alPasar={setPunto}
-                    alElegir={(p) => p.foto && setDetalle({ foto: p.foto.ruta, t: p.foto.t, fila: filaVisor?.name || "", personas: p.foto.personas, limite: flujo?.limite ?? 0, titulo: "Foto del momento" })} />
+                    alElegir={(p) => p.foto && setDetalle({ foto: p.foto.ruta, t: p.foto.t, fila: filaVisor?.name || "", personas: p.foto.personas, limite: flujo?.limite ?? 0, titulo: "Foto del momento", siluetas: p.foto.siluetas })} />
                 <Visor fila={filaVisor} punto={punto} limite={flujo?.limite ?? 0} tramoMs={flujo?.tramoMs ?? 0} />
             </div>
 
             <TablaEpisodios episodios={flujo?.episodios || []} cargando={cargando && !flujo} error={error} alReintentar={cargar}
                 alAbrir={(e) => setDetalle({
-                    foto: e.foto, t: e.picoA || e.desde, fila: e.fila, personas: e.pico, limite: e.limite, titulo: `Vez nº ${e.numero} sobre el límite`,
+                    foto: e.foto, t: e.picoA || e.desde, fila: e.fila, personas: e.pico, limite: e.limite, titulo: `Vez nº ${e.numero} sobre el límite`, siluetas: e.siluetas,
                     extra: <span>Desde {horaSeg(e.desde)} {e.hasta ? `hasta ${horaSeg(e.hasta)}` : "· sigue sobre el límite"} · {duracion(e.segundos) || "menos de 1 s"}</span>,
                 })} />
 
-            <TablaLecturas deviceId={deviceId} alAbrir={(l) => setDetalle({ foto: l.foto, t: l.t, fila: l.fila, personas: l.personas, limite: l.limite, canal: l.canal, titulo: "Lectura" })} />
+            <TablaLecturas deviceId={deviceId} alAbrir={(l) => setDetalle({ foto: l.foto, t: l.t, fila: l.fila, personas: l.personas, limite: l.limite, canal: l.canal, titulo: "Lectura", siluetas: l.siluetas })} />
 
             <CajonDetalle detalle={detalle} alCerrar={() => setDetalle(null)} />
         </div>
@@ -292,7 +293,10 @@ function Visor({ fila, punto, limite, tramoMs }: { fila: { id: string; name: str
                             <div className="absolute inset-0 z-30 bg-black">
                                 {foto ? (
                                     // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={foto.ruta} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                                    <>
+                                        <img src={foto.ruta} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                                        {!!foto.siluetas?.length && <DibujoPersonas personas={desdeGuardadas(foto.siluetas)} etiquetas={false} />}
+                                    </>
                                 ) : (
                                     <div className="absolute inset-0 grid place-items-center text-white/70 text-[12.5px] text-center px-6">
                                         <span className="flex flex-col items-center gap-2"><Camera size={20} /> Sin foto en este tramo</span>

@@ -1,6 +1,7 @@
 import https from "https";
 import http from "http";
 import { uploadToS3 } from "@/lib/s3";
+import { cuadroActual, personasParaGuardar } from "@/lib/filas/metadatos";
 import { esCanalAforo, FOTO_DESDE_PERSONAS, FOTO_INTERVALO_MS } from "@/lib/filas/constantes";
 
 /**
@@ -73,13 +74,18 @@ function pedirCuadro(cam: CamaraFila, seguro: boolean): Promise<Buffer | null> {
  * Saca y guarda la foto si corresponde. Devuelve la ruta servible (/api/files/queue/…) o null.
  * Nunca lanza: una lectura sin foto se guarda igual.
  */
-export async function fotoDeLectura(cam: CamaraFila, canal: string | null | undefined, personas: number): Promise<string | null> {
+export type FotoLectura = { ruta: string; personas: ReturnType<typeof personasParaGuardar> };
+
+export async function fotoDeLectura(cam: CamaraFila, canal: string | null | undefined, personas: number): Promise<FotoLectura | null> {
     const ahora = Date.now();
     if (!correspondeFoto(cam.id, canal, personas, ahora)) return null;
     // Se anota ANTES de pedir el cuadro: dos lecturas que llegan juntas no piden dos fotos.
     ultimas.set(cam.id, { t: ahora, personas });
     const buf = await cuadroBosch(cam);
     if (!buf) return null;
-    try { return await uploadToS3(buf, `queue/${cam.id}/${ahora}.jpg`, "image/jpeg", "queue"); }
+    // Las personas que la cámara veía al sacar la foto (lib/filas/metadatos): se dibujan después
+    // sobre la captura. Sin dato vigente (la sesión recién arranca), la foto va sin siluetas.
+    const vistas = personasParaGuardar(cuadroActual(cam.id));
+    try { return { ruta: await uploadToS3(buf, `queue/${cam.id}/${ahora}.jpg`, "image/jpeg", "queue"), personas: vistas }; }
     catch (e: any) { console.error(`[foto-fila] no se pudo guardar: ${e?.message || e}`); return null; }
 }

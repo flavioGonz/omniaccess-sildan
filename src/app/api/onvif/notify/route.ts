@@ -151,7 +151,8 @@ export async function POST(req: NextRequest) {
             const isOccupancy = topic.includes("Occupancy");
             const channelName = ruleName || (isOccupancy ? "Occupancy" : "Counter");
 
-            const snapshotPath = await fotoDeLectura(device, channelName, count);
+            const foto = await fotoDeLectura(device, channelName, count);
+            const snapshotPath = foto?.ruta || null;
 
             const queueEvent = await prisma.queueEvent.create({
                 data: {
@@ -164,6 +165,8 @@ export async function POST(req: NextRequest) {
                     snapshotPath,
                     metadata: JSON.stringify({
                         source: "onvif_push",
+                        // Las personas que la cámara veía en la foto (para dibujarlas sobre la captura).
+                        ...(foto?.personas ? { personas: foto.personas } : {}),
                         topic,
                         operation,
                         ruleName,

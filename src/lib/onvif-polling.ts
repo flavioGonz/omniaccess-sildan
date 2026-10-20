@@ -537,7 +537,8 @@ export async function pollBoschDevices(): Promise<{
                 // Real-time: record exactly what the camera sends (incl. 0). Stability via camera rebote.
 
                 // La foto, con el mismo criterio que el push (lib/filas/foto).
-                const snapshotPath = await fotoDeLectura(device, channelName, evt.count);
+                const foto = await fotoDeLectura(device, channelName, evt.count);
+                const snapshotPath = foto?.ruta || null;
 
                 // Create QueueEvent
                 const queueEvent = await prisma.queueEvent.create({
@@ -551,6 +552,8 @@ export async function pollBoschDevices(): Promise<{
                         snapshotPath,
                         metadata: JSON.stringify({
                             source: "onvif_pullpoint",
+                        // Las personas que la cámara veía en la foto (para dibujarlas sobre la captura).
+                        ...(foto?.personas ? { personas: foto.personas } : {}),
                             topic: evt.topic,
                             operation: evt.operation,
                             ruleName: evt.ruleName,

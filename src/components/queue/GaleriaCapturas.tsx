@@ -11,6 +11,7 @@ import { getLecturasFilas, getRetencionFotos, guardarRetencionFotos, getFilasCon
 import { horaSeg, fecha, diaSemana } from "@/lib/fechas";
 import { enMontevideo } from "@/lib/filas/horario";
 import { cn } from "@/lib/utils";
+import { DibujoPersonas, desdeGuardadas } from "@/components/queue/SiluetasBosch";
 
 /**
  * Historial de capturas de las filas (HB, 19/10: «tenemos que tener un historial de capturas»).
@@ -48,7 +49,7 @@ export function GaleriaCapturas({ titulo = "Historial de capturas", descripcion 
     const [vista, setVista] = useState<Vista>("bento");
     useEffect(() => { try { const v = localStorage.getItem(CLAVE_VISTA); if (v === "bento" || v === "grilla") setVista(v); } catch { } }, []);
     const cambiarVista = (v: Vista) => { setVista(v); try { localStorage.setItem(CLAVE_VISTA, v); } catch { } };
-    const abrir = useCallback((c: Lectura) => setAbierta({ foto: c.foto, t: c.t, fila: c.fila, personas: c.personas, limite: c.limite, canal: c.canal, titulo: "Captura" }), []);
+    const abrir = useCallback((c: Lectura) => setAbierta({ foto: c.foto, t: c.t, fila: c.fila, personas: c.personas, limite: c.limite, canal: c.canal, titulo: "Captura", siluetas: c.siluetas }), []);
 
     useEffect(() => { getFilasConLimite().then(setFilas).catch(() => {}); }, []);
 
@@ -165,7 +166,10 @@ function Tesela({ c, grande, conFila, alAbrir }: { c: Lectura; grande?: boolean;
             className={cn("group relative aspect-video rounded-[10px] overflow-hidden bg-black text-left focus-visible:ring-2 ring-ring",
                 grande && "col-span-2 row-span-2")}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={c.foto!} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+            <div className="absolute inset-0 transition-transform duration-300 group-hover:scale-[1.03]">
+                <img src={c.foto!} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+                {!!c.siluetas?.length && <DibujoPersonas personas={desdeGuardadas(c.siluetas)} etiquetas={false} chico={!grande} />}
+            </div>
             <div className={cn("absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-between text-white", grande ? "px-3 py-2.5" : "px-2 py-1.5")}>
                 <span className={cn("font-semibold tabular-nums", grande ? "text-[13px]" : "text-[11px]")}>{horaSeg(c.t)}{conFila && <span className="text-white/70 font-normal"> · {c.fila}</span>}</span>
                 <span className={cn("font-bold rounded-full border tabular-nums", `chip-${t}`, grande ? "text-[13px] px-2 py-0.5" : "text-[11px] px-1.5")}>

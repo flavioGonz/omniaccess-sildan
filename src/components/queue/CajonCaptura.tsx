@@ -4,13 +4,14 @@ import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { tonoFila, ROTULO_TONO } from "@/components/queue/CajonFila";
 import { horaSeg, fechaCorta } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
+import { DibujoPersonas, desdeGuardadas, type PersonaGuardada } from "@/components/queue/SiluetasBosch";
 
 /**
  * Una captura de fila, abierta: la foto grande y sus datos. La usan el Flujo de filas (lecturas,
  * veces sobre el límite, la gráfica) y el Historial de capturas. Era un modal centrado de 3xl
  * que tapaba la tabla; en un cajón la tabla queda a la vista y se pasa de una a otra.
  */
-export type Captura = { foto: string | null; t: string; fila: string; personas: number; limite: number; canal?: string; titulo: string; extra?: React.ReactNode };
+export type Captura = { foto: string | null; t: string; fila: string; personas: number; limite: number; canal?: string; titulo: string; extra?: React.ReactNode; siluetas?: PersonaGuardada[] | null };
 
 export function CajonCaptura({ detalle, alCerrar }: { detalle: Captura | null; alCerrar: () => void }) {
     const t = detalle ? tonoFila(detalle.personas, detalle.limite) : "quieto";
@@ -22,7 +23,9 @@ export function CajonCaptura({ detalle, alCerrar }: { detalle: Captura | null; a
                         <div className="relative aspect-video rounded-[10px] overflow-hidden bg-black shadow-[var(--sombra-captura,none)]">
                             {detalle.foto
                                 // eslint-disable-next-line @next/next/no-img-element
-                                ? <a href={detalle.foto} target="_blank" rel="noreferrer"><img src={detalle.foto} alt="" className="absolute inset-0 w-full h-full object-contain" /></a>
+                                ? <a href={detalle.foto} target="_blank" rel="noreferrer"><img src={detalle.foto} alt="" className="absolute inset-0 w-full h-full object-contain" />
+                                    {/* Las personas que la cámara veía en ese momento, dibujadas por nosotros. */}
+                                    {!!detalle.siluetas?.length && <DibujoPersonas personas={desdeGuardadas(detalle.siluetas)} />}</a>
                                 : <div className="absolute inset-0 grid place-items-center text-white/60 text-[12.5px]">Esta lectura no tiene foto</div>}
                         </div>
                         <div className="grid grid-cols-2 gap-3">
