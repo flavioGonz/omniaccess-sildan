@@ -17,7 +17,7 @@ import type { ModuleId } from "@/lib/module-definitions";
  * haya una segunda función no haya que inventar un segundo mecanismo.
  */
 
-export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS" | "LPR_PLAZAS";
+export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS" | "LPR_PLAZAS" | "LPR_BUSQUEDA";
 
 export interface Funcion {
     id: FuncionId;
@@ -75,6 +75,14 @@ export const FUNCIONES: Funcion[] = [
         nombre: "Plazas de parking (cocheras)",
         que: "Las cocheras del barrio: la pantalla Plazas de Parking, la cochera asignada a cada residente, el botón de plaza en el Monitor LPR y en la consola de la guardia, y la cochera en la ficha del evento.",
         siSeApaga: "Desaparecen del menú y de las pantallas todo lo de plazas y cocheras (20/10: San Nicolás no las usa). Las cocheras ya cargadas no se borran: prenderla otra vez las muestra como estaban. Los lotes del mapa siguen vinculados.",
+        porDefecto: true,
+    },
+    {
+        id: "LPR_BUSQUEDA",
+        modulo: "MODULE_LPR",
+        nombre: "Matrículas «En búsqueda»",
+        que: "Un segundo nivel de la lista negra: la matrícula pasa, pero al leerla se avisa con el motivo (ámbar en el monitor y en los avisos).",
+        siSeApaga: "Queda sólo la lista negra (alerta máxima): se deja de ofrecer «En búsqueda» al cargar, desaparece de las listas y de los filtros, y no salta ningún aviso de búsqueda (20/10: San Nicolás no la usa). Las cargadas no se borran.",
         porDefecto: true,
     },
 ];

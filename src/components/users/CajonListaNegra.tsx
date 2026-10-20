@@ -1,5 +1,6 @@
 "use client";
 
+import { useFuncion } from "@/lib/funciones-cliente";
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { Ban, Car, History, Images, Loader2, Plus, RotateCcw, Save, Search, ShieldAlert, User as UserIco, X, ExternalLink } from "lucide-react";
@@ -65,6 +66,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
     const editable = esAlta || ficha!.origen === "ficha" || ficha!.origen === "suelta";
     const [nombre, setNombre] = useState("");
     const [nivel, setNivel] = useState<NivelListaNegra>("BLACKLISTED");
+    const busquedaOn = useFuncion("LPR_BUSQUEDA");
     const [motivo, setMotivo] = useState("");
     const [chapas, setChapas] = useState<string[]>([]);
     const [chapaNueva, setChapaNueva] = useState("");
@@ -215,8 +217,15 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
 
                 {/* ── Nivel y motivo ── */}
                 <CajonSeccion titulo="Qué pasa cuando se la lee" icono={ShieldAlert}>
+                    {/* Sin «En búsqueda» (función de LPR) hay un solo nivel: se dice qué hace, sin elegir. */}
+                    {!busquedaOn && nivel === "BLACKLISTED" ? (
+                        <div className="rounded-[10px] chip-mal p-3 space-y-1.5">
+                            <span className="flex items-center gap-1.5 text-[13px] font-bold"><Ban size={14} /> {NIVELES.BLACKLISTED.titulo}: {NIVELES.BLACKLISTED.resumen}</span>
+                            <ExplicacionCategoria cat="BLACKLISTED" />
+                        </div>
+                    ) : (
                     <div className="grid grid-cols-2 gap-2">
-                        {(Object.keys(NIVELES) as NivelListaNegra[]).map((n) => {
+                        {(Object.keys(NIVELES) as NivelListaNegra[]).filter((n) => busquedaOn || n !== "SEARCH" || nivel === "SEARCH").map((n) => {
                             const sel = nivel === n;
                             const Ic = n === "BLACKLISTED" ? Ban : Search;
                             return (
@@ -231,6 +240,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
                             );
                         })}
                     </div>
+                    )}
                     <CajonCampo etiqueta={nivel === "SEARCH" ? "Qué se busca y por qué" : "Motivo"}
                         ayuda={nivel === "SEARCH" ? "Obligatorio: es lo que el guardia lee en la captura cuando pasa." : "Queda en el registro y lo ven el monitor y Control LPR."}>
                         <Input value={motivo} disabled={!editable} onChange={(e) => setMotivo(e.target.value)}
