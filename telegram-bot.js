@@ -75,7 +75,7 @@ let cfg = null;
 let bot = null; // getMe
 async function ajuste(key) { try { return ((await prisma.setting.findUnique({ where: { key } }))?.value || "").trim(); } catch { return ""; } }
 async function leerCfg() {
-    const [token, chat, activo, base, cmds, logo] = await Promise.all(["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_BOT", "BASE_URL", "WAHA_COMMANDS", "MARCA_AGUA_WHATSAPP"].map(ajuste));
+    const [token, chat, activo, base, cmds, logo, pruebas] = await Promise.all(["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_BOT", "BASE_URL", "WAHA_COMMANDS", "MARCA_AGUA_WHATSAPP", "TELEGRAM_GRUPOS_PRUEBA"].map(ajuste));
     // Los interruptores del cajón «Comandos del bot» valen para los dos bots: los comandos son los mismos.
     const comandos = {};
     try { for (const c of JSON.parse(cmds || "[]")) if (c && c.id) comandos[c.id] = c.active !== false; } catch { }
@@ -87,8 +87,18 @@ async function leerCfg() {
         comandos,
         // El mismo interruptor que el logo de WhatsApp (Ajustes → Video del evento): prendido salvo que digan que no.
         logo: logo !== "false",
+        pruebas: listaDeIds(pruebas),
     };
 }
+/**
+ * Los grupos de PRUEBA (20/10, Nico: el lab manda por este mismo bot): ahí llegan los envíos del
+ * lab (Exportar clip, Compartir, alertas). El bot se queda —no se va como de un grupo ajeno— pero
+ * no contesta nada: los comandos y los botones de esos mensajes hablarían de San Nicolás, no del
+ * lab. Setting TELEGRAM_GRUPOS_PRUEBA = ["-100…"]. Un grupo se suma solo si lo agregan mientras
+ * está abierta la ventana TELEGRAM_GRUPO_PRUEBA_HASTA (una hora en ms; se cierra al usarla).
+ */
+function listaDeIds(t) { try { const v = JSON.parse(t || "[]"); return Array.isArray(v) ? v.map(String) : []; } catch { return []; } }
+const esPrueba = (chatId) => !!cfg && cfg.pruebas.includes(String(chatId));
 const cmdActivo = (id) => cfg?.comandos?.[id] !== false;
 
 // ───────────────────────── API de Telegram ─────────────────────────
@@ -373,6 +383,7 @@ async function armarCtx(chat, from) {
     if (!chat || !from || from.is_bot) return null;
     const base = { chatId: chat.id, fromId: from.id, usuario: from.username || null, nombre: [from.first_name, from.last_name].filter(Boolean).join(" ") || from.username || "" };
     if (chat.type === "group" || chat.type === "supergroup") {
+        if (esPrueba(chat.id)) return null;
         if (String(chat.id) !== String(cfg.chat)) {
             log(`grupo no configurado (${chat.id} «${chat.title || ""}»): el bot se va`);
             await tg("leaveChat", { chat_id: chat.id }).catch(() => { });
@@ -977,6 +988,7 @@ async function alMensaje(m) {
 async function alBoton(q) {
     const responder = (t, alerta = false) => tg("answerCallbackQuery", { callback_query_id: q.id, text: t || undefined, show_alert: alerta }).catch(() => { });
     const msg = q.message;
+    if (msg && esPrueba(msg.chat.id)) return responder("Este mensaje salió del lab: sus botones no funcionan acá.", true);
     const ctx = msg ? await armarCtx(msg.chat, q.from) : null;
     if (!ctx || !cfg.activo) return responder();
     const d = String(q.data || "");
@@ -1032,7 +1044,18 @@ async function alMiembro(u) {
     const chat = u.chat, nuevo = u.new_chat_member && u.new_chat_member.status;
     if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return;
     if (nuevo !== "member" && nuevo !== "administrator") return;
-    if (String(chat.id) !== String(cfg.chat)) { log(`me agregaron a un grupo que no es el configurado (${chat.id}): me voy`); return tg("leaveChat", { chat_id: chat.id }).catch(() => { }); }
+    if (String(chat.id) !== String(cfg.chat)) {
+        if (!esPrueba(chat.id)) {
+            const hasta = Number(await ajuste("TELEGRAM_GRUPO_PRUEBA_HASTA")) || 0;
+            if (Date.now() > hasta) { log(`me agregaron a un grupo que no es el configurado (${chat.id}): me voy`); return tg("leaveChat", { chat_id: chat.id }).catch(() => { }); }
+            // La ventana abierta: este es el grupo de pruebas del lab. Se anota y se cierra la ventana.
+            cfg.pruebas = [...new Set([...cfg.pruebas, String(chat.id)])];
+            await prisma.setting.upsert({ where: { key: "TELEGRAM_GRUPOS_PRUEBA" }, update: { value: JSON.stringify(cfg.pruebas) }, create: { key: "TELEGRAM_GRUPOS_PRUEBA", value: JSON.stringify(cfg.pruebas) } });
+            await prisma.setting.upsert({ where: { key: "TELEGRAM_GRUPO_PRUEBA_HASTA" }, update: { value: "0" }, create: { key: "TELEGRAM_GRUPO_PRUEBA_HASTA", value: "0" } });
+            log(`grupo de pruebas anotado: ${chat.id} «${chat.title || ""}»`);
+        }
+        return texto(chat.id, `🧪 Grupo de pruebas del lab de OmniAccess.\nAcá llegan los envíos del lab. No contesto comandos ni botones en este grupo.\nId del grupo: <code>${chat.id}</code>`);
+    }
     return texto(chat.id, `👋 Hola. Soy el asistente de OmniAccess.${nuevo === "administrator" ? "" : "\nPara que también lea matrículas sueltas (sin /), haceme <b>administrador</b> del grupo."}\nEscribí /ayuda para ver lo que hago.`);
 }
 
