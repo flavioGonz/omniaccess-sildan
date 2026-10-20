@@ -299,6 +299,20 @@ function postInternal(path, bodyObj) {
     });
 }
 
+// Reglas de Telegram (/admin/notificaciones › Telegram): la categoría "reglas" cubre los despachos
+// de las reglas de alerta. Si está apagada, el despacho por Telegram se cancela y queda registrado.
+async function telegramReglasActiva() {
+    try {
+        const st = await prisma.setting.findUnique({ where: { key: "TELEGRAM_REGLAS" } });
+        const v = st && st.value ? JSON.parse(st.value) : null;
+        const c = v && v.categorias && v.categorias.reglas;
+        return c ? c.activo !== false : true;
+    } catch (e) { return true; }
+}
+async function registrarTelegram(d) {
+    try { await prisma.telegramEnvio.create({ data: { categoria: "reglas", subtipo: d.subtipo || null, deviceId: d.deviceId || null, refId: d.refId || null, titulo: d.titulo ? String(d.titulo).slice(0, 200) : null, decision: d.decision, motivo: d.motivo ? String(d.motivo).slice(0, 300) : null } }); } catch (e) { }
+}
+
 async function handle(job) {
     const { dispatchJobId } = job.data || {};
     const dj = await prisma.dispatchJob.findUnique({ where: { id: dispatchJobId } });
@@ -320,6 +334,12 @@ async function handle(job) {
             let clip = null;
             if (animated && dj.deviceId) clip = await buildClip(dj.deviceId, p.alertTs || (p.timestamp ? Date.parse(p.timestamp) : Date.now()));
             if (dj.channel === "telegram") {
+                const reg = { refId: dj.id, deviceId: dj.deviceId, titulo: p.ruleName || "Alerta", subtipo: dj.type };
+                if (!(await telegramReglasActiva())) {
+                    await registrarTelegram({ ...reg, decision: "FILTRADO", motivo: "categoría apagada en las reglas" });
+                    await prisma.dispatchJob.update({ where: { id: dj.id }, data: { status: "CANCELLED", lastError: "Filtrado por las reglas de Telegram" } });
+                    return;
+                }
                 const token = await getSetting("TELEGRAM_BOT_TOKEN", process.env.TELEGRAM_BOT_TOKEN);
                 const chat = p.chatId || await getSetting("TELEGRAM_CHAT_ID", process.env.TELEGRAM_CHAT_ID);
                 if (!token || !chat) throw new Error("Faltan credenciales de Telegram");
@@ -339,7 +359,8 @@ async function handle(job) {
                     const img = imageUrlFor(base, p.snapshotPath, dj.deviceId);
                     r = img ? await telegramSendPhoto(token, chat, img, htmlText) : await telegramSend(token, chat, htmlText);
                 }
-                if (!r.ok) throw new Error("Telegram: " + r.body);
+                if (!r.ok) { await registrarTelegram({ ...reg, decision: "ERROR", motivo: String(r.body || "").slice(0, 200) }); throw new Error("Telegram: " + r.body); }
+                await registrarTelegram({ ...reg, decision: "ENVIADO" });
             } else if (dj.channel === "whatsapp") {
                 const url = await getSetting("OPENWA_URL", await getSetting("WAHA_URL", "http://192.168.99.22:2785"));
                 const key = await getSetting("OPENWA_API_KEY", await getSetting("WAHA_API_KEY", ""));

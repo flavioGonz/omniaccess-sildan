@@ -6,13 +6,15 @@
 import https from "https";
 
 // Bot configuration — can be overridden via env vars
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "8923590022:AAEas5wccmXq8zhE4tT1BZkehOgAcpmgPDc";
-const CHAT_ID = process.env.TELEGRAM_CHAT_ID || "-5200291969";
+// Sin valores de respaldo: si la instancia no tiene bot configurado, no se envía nada a otro grupo.
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+const CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
 
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 // ─── Send Text Message ─────────────────────────────
 export async function sendTelegramMessage(text: string): Promise<boolean> {
+    if (!BOT_TOKEN || !CHAT_ID) return false;
     try {
         const url = `${TELEGRAM_API}/sendMessage`;
         const body = JSON.stringify({

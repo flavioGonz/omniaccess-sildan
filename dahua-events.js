@@ -97,8 +97,18 @@ async function onEvent(nvr, code, gtype, idx) {
         const det = await prisma.detection.create({ data: { deviceId: camId || nvr.id, type: gtype, eventType: code, timestamp: new Date() } });
         if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: camName || nvr.name, type: gtype, eventType: code, timestamp: det.timestamp, source: "dahua", nvr: nvr.name, channel: ch });
         console.log(`[dahua-events] ${gtype} ${code} nvr=${nvr.name} ch=${ch} cam=${camName || "?"}`);
-        if (camDev) { captureForDevice(camDev, det.id).then((p) => { if (p && global.io) global.io.emit("detection_snapshot", { id: det.id, snapshotPath: p }); }).catch(() => {}); }
+        if (camDev) { captureForDevice(camDev, det.id).then((p) => { if (p && global.io) global.io.emit("detection_snapshot", { id: det.id, snapshotPath: p }); }).catch(() => {}).then(() => avisarTelegram(det.id)); }
+        else avisarTelegram(det.id);
     } catch (e) { console.error("[dahua-events] create:", e.message); }
+}
+
+// Pasarela del bot de Telegram: decide según las reglas de intrusión si se avisa.
+function avisarTelegram(detectionId) {
+    try {
+        const cuerpo = JSON.stringify({ categoria: "intrusion", detectionId });
+        const r = require("http").request({ host: "127.0.0.1", port: 10010, path: "/evento", method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(cuerpo) }, timeout: 4000 }, (res) => res.resume());
+        r.on("error", () => {}); r.on("timeout", () => r.destroy()); r.end(cuerpo);
+    } catch (e) {}
 }
 
 const retryTimers = {};

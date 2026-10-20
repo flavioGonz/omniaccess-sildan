@@ -1082,7 +1082,10 @@ const handleWebhook = async (req, res, logPrefix) => {
                     if (dev) { await prisma.device.update({ where: { id: dev.id }, data: { lastOnlinePush: new Date() } }).catch(() => {}); }
                     if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: dev ? dev.name : null, type: genType, eventType: eventType || null, label: targetClass, timestamp: det.timestamp });
                     console.log(logPrefix + " 🟣 [ANALYTIC] " + genType + " (" + eventType + ") dev=" + (dev ? dev.name : "?"));
-                    if (dev && dev.ip && genType !== "MOTION") { captureIntrusion(dev, det.id).then((p) => { if (p && global.io) global.io.emit("detection_snapshot", { id: det.id, snapshotPath: p }); }).catch(() => {}); }
+                    // Telegram: después de la captura, para que el aviso salga con la foto del momento.
+                    const avisarIntrusion = () => avisarBotTelegram({ categoria: "intrusion", detectionId: det.id }).catch(() => {});
+                    if (dev && dev.ip && genType !== "MOTION") { captureIntrusion(dev, det.id).then((p) => { if (p && global.io) global.io.emit("detection_snapshot", { id: det.id, snapshotPath: p }); }).catch(() => {}).then(avisarIntrusion); }
+                    else if (genType !== "MOTION") avisarIntrusion();
                     res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "analytic", kind: genType })); return;
                 }
             } catch (e) { console.error(logPrefix + " [ANALYTIC] err: " + (e && e.message)); }
@@ -1516,6 +1519,12 @@ const handleWebhook = async (req, res, logPrefix) => {
                 }
             }
         } catch (e) { console.error(`${logPrefix} Invitados check error:`, (e && e.message) || e); }
+
+        // ---- Telegram: invitados y accesos no autorizados (la pasarela decide si se envía) ----
+        try {
+            if (guestHit) avisarBotTelegram({ categoria: "invitados", eventId: event.id, texto: `${guestHit.name || "visita"}${guestHit.hostLabel ? " · " + guestHit.hostLabel : ""}` }).catch(() => {});
+            else if (!watchHit && event.decision !== 'GRANT') avisarBotTelegram({ categoria: "acceso", eventId: event.id }).catch(() => {});
+        } catch (e) {}
 
         // Notify UI
         if (global.io) {
@@ -2828,7 +2837,7 @@ async function checkMerodeo(plate, device, event, logPrefix) {
             accessEventId: event.id,
         }});
     } catch (e) { /* accessEventId unique or bitacora issue - ignore */ }
-    avisarBotTelegram({ tipo: "merodeo", eventId: event.id, texto: `${clean} · ${count} pasadas en ${cfg.windowMin} min` }).catch(() => {});
+    avisarBotTelegram({ categoria: "merodeo", eventId: event.id, texto: `${clean} · ${count} pasadas en ${cfg.windowMin} min` }).catch(() => {});
     if (global.io) {
         global.io.emit('merodeo_alert', {
             plate: clean, count, windowMin: cfg.windowMin, distinctDevices,
@@ -2854,19 +2863,30 @@ function watchCatLabel(cat) {
 }
 // El bot de Telegram (proceso telegram-bot) escucha solo en local y manda la alerta con la
 // foto del evento y botones (clip, en vivo, historial). Si no responde, va el texto de siempre.
-function avisarBotTelegram(datos) {
+// Todo pasa por la pasarela del bot (POST /evento), que clasifica y filtra según las reglas de
+// /admin/notificaciones › Telegram. Devuelve true si el bot respondió (lo haya enviado o filtrado).
+function avisarBotTelegram(datos, ruta = "/evento") {
     return new Promise((resolve) => {
         try {
             const cuerpo = JSON.stringify(datos);
-            const r = require("http").request({ host: "127.0.0.1", port: 10010, path: "/alerta", method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(cuerpo) }, timeout: 4000 }, (res) => { res.resume(); resolve(res.statusCode === 200); });
+            const r = require("http").request({ host: "127.0.0.1", port: 10010, path: ruta, method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(cuerpo) }, timeout: 4000 }, (res) => { res.resume(); resolve(res.statusCode === 200); });
             r.on("error", () => resolve(false)); r.on("timeout", () => { r.destroy(); resolve(false); });
             r.end(cuerpo);
         } catch (e) { resolve(false); }
     });
 }
+function reglaTelegramActiva(cat) {
+    return prisma.setting.findUnique({ where: { key: "TELEGRAM_REGLAS" } }).then((st) => {
+        let v = null; try { v = st && st.value ? JSON.parse(st.value) : null; } catch (e) {}
+        const c = v && v.categorias && v.categorias[cat];
+        return c ? c.activo !== false : true;
+    }).catch(() => true);
+}
 async function notifyWatchTelegram(event, text) {
     try {
-        if (event && event.id && await avisarBotTelegram({ tipo: "watchlist", eventId: event.id, titulo: String(text).split("\n")[0].replace(/<[^>]+>/g, "").replace(/^\W+/, "").trim() })) return;
+        if (event && event.id && await avisarBotTelegram({ categoria: "vigilancia", eventId: event.id, titulo: String(text).split("\n")[0].replace(/<[^>]+>/g, "").replace(/^\W+/, "").trim() })) return;
+        // El bot no responde: texto directo, solo si la categoría sigue encendida en las reglas.
+        if (!(await reglaTelegramActiva("vigilancia"))) return;
         const token = process.env.TELEGRAM_BOT_TOKEN;
         const chat = process.env.TELEGRAM_CHAT_ID;
         if (!token || !chat) return;

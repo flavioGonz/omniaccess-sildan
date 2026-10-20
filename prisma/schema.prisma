@@ -890,3 +890,21 @@ model AnalisisFoto {
   @@index([createdAt])
 }
 
+
+// Registro de cada aviso que pasa por la pasarela de Telegram (telegram-bot.js): lo que salió,
+// lo que se filtró por las reglas y lo que falló, con el motivo. Se poda a los 15 días.
+model TelegramEnvio {
+  id        String   @id @default(cuid())
+  categoria String   // vigilancia | merodeo | denegado | no_leida | invitados | intrusion | equipos | reglas
+  subtipo   String?
+  deviceId  String?
+  refId     String?  // AccessEvent.id o Detection.id
+  titulo    String?
+  decision  String   // ENVIADO | FILTRADO | ERROR
+  motivo    String?
+  messageId Int?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([categoria, createdAt])
+}

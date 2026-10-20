@@ -6,7 +6,13 @@
 import { prisma } from "@/lib/prisma";
 import { authenticatedRequest } from "@/lib/digest-auth";
 import { xmlField } from "@/lib/isapi-camera";
-import { sendTelegramMessage } from "@/lib/telegram";
+// Los avisos de equipos van por la pasarela del bot de Telegram (categoría "equipos", apagada
+// por defecto): ahí se decide si se envían. Si el bot no está, no sale nada.
+async function avisarEquipos(titulo: string, texto: string) {
+    try {
+        await fetch("http://127.0.0.1:10010/evento", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ categoria: "equipos", titulo, texto }), signal: AbortSignal.timeout(4000) });
+    } catch { }
+}
 import net from "net";
 import { getChannelMap } from "@/lib/nvr-resolve";
 import { rpc2Sesion } from "@/lib/dahua-rpc2";
@@ -181,15 +187,14 @@ async function ensureAlert(deviceId: string, name: string, type: string, severit
     if (existing) return;
     await prisma.deviceAlert.create({ data: { deviceId, type, severity, message, active: true } });
     if (!avisar) return;
-    const icon = severity === "critical" ? "🔴" : "🟠";
-    await sendTelegramMessage(`${icon} <b>ALERTA · ${name}</b>\n${message}`).catch(() => { });
+    await avisarEquipos(`${severity === "critical" ? "ALERTA CRÍTICA" : "ALERTA"} · ${name}`, message);
 }
 async function resolveAlert(deviceId: string, name: string, type: string, avisar = true) {
     const existing = await prisma.deviceAlert.findFirst({ where: { deviceId, type, active: true } });
     if (!existing) return;
     await prisma.deviceAlert.update({ where: { id: existing.id }, data: { active: false, resolvedAt: new Date() } });
     if (!avisar) return;
-    await sendTelegramMessage(`🟢 <b>NORMALIZADO · ${name}</b>\n${type === "offline" ? "Volvió a responder" : "Condición resuelta (" + type + ")"}`).catch(() => { });
+    await avisarEquipos(`NORMALIZADO · ${name}`, type === "offline" ? "Volvió a responder" : "Condición resuelta (" + type + ")");
 }
 
 export async function persistAndAlert(results: HealthResult[]) {

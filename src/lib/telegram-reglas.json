@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "categorias": {
+    "vigilancia": { "activo": true, "foto": true },
+    "merodeo": { "activo": true, "foto": true },
+    "denegado": { "activo": false, "foto": true },
+    "no_leida": { "activo": false, "foto": true },
+    "invitados": { "activo": false, "foto": true },
+    "intrusion": {
+      "activo": false,
+      "foto": true,
+      "tipos": ["LINECROSS", "INTRUSION", "REGION_ENTER"],
+      "objetivos": ["human", "vehicle", "otro"],
+      "camaras": [],
+      "soloArmadas": true,
+      "antirrafagaMin": 5,
+      "horario": { "activo": false, "desde": "22:00", "hasta": "06:00" }
+    },
+    "equipos": { "activo": false },
+    "reglas": { "activo": true }
+  }
+}

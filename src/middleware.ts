@@ -55,6 +55,7 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/api/snapshot/') ||
         pathname.startsWith('/api/nvr/') ||
         pathname.startsWith('/api/clip/') ||
+        pathname.startsWith('/api/telegram/armado') ||
         pathname.startsWith('/api/min-interior') ||
         pathname.startsWith('/facepad/')
     ) {

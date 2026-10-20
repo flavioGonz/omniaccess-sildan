@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { getSetting, updateSetting } from "@/app/actions/settings";
 import { toast } from "@/lib/avisos";
+import TelegramReglas from "./TelegramReglas";
 
 interface DispatchChannel {
     key: string;
@@ -89,6 +90,7 @@ import SubscribersManager from "./SubscribersManager";
 
 const TABS = [
     { k: "canales", l: "Canales", icon: Radio },
+    { k: "telegram", l: "Qué se envía a Telegram", icon: Send },
     { k: "destinatarios", l: "Destinatarios", icon: Users },
     { k: "reglas", l: "Reglas", icon: Activity },
     { k: "horarios", l: "Horarios", icon: Calendar },
@@ -341,6 +343,7 @@ export default function NotificacionesPage() {
                 })}
             </div>
                 )}
+                {tab === "telegram" && <TelegramReglas />}
                 {tab === "destinatarios" && (<div className="space-y-5 max-w-3xl"><AnimatedAlertToggle /><RecipientsManager /></div>)}
                 {tab === "reglas" && (<div className="max-w-4xl"><RulesManager /></div>)}
                 {tab === "horarios" && (<div className="max-w-4xl"><SchedulesManager /></div>)}

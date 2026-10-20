@@ -128,9 +128,9 @@ function botonesEvento(e) {
     if (placa && placa !== "NOLEIDA") filas.push([{ text: "Historial", callback_data: `hist:${placa}` }, { text: "Vigilar", callback_data: `vig:${placa}` }]);
     return filas;
 }
-async function mandarEvento(chat, e, titulo) {
+async function mandarEvento(chat, e, titulo, conFoto = true) {
     const cap = await leyendaEvento(e, titulo);
-    const ruta = e.snapshotPath || e.imagePath;
+    const ruta = conFoto ? e.snapshotPath || e.imagePath : null;
     const buf = ruta ? await local(ruta.startsWith("/") ? ruta : `/api/files/lpr-prod/${ruta.split("/").pop()}`) : null;
     if (buf) return foto(chat, buf, cap, botonesEvento(e));
     return texto(chat, cap, { reply_markup: { inline_keyboard: botonesEvento(e) } });
@@ -421,7 +421,7 @@ async function boton(cb) {
     const chat = msg.chat.id;
     if (!(await permitido({ chat: msg.chat, from: cb.from }))) return tg("answerCallbackQuery", { callback_query_id: cb.id, text: "Sin permiso" }).catch(() => { });
     const [tipo, valor] = String(cb.data || "").split(":");
-    const respuestas = { clip: "Buscando la grabación…", vid: "Grabando 10 s…", vivo: "Tomando foto…", hist: "Buscando historial…" };
+    const respuestas = { iclip: "Buscando la grabación…", iok: "Confirmando…", ifa: "Marcando falsa alarma…", clip: "Buscando la grabación…", vid: "Grabando 10 s…", vivo: "Tomando foto…", hist: "Buscando historial…" };
     tg("answerCallbackQuery", { callback_query_id: cb.id, text: respuestas[tipo] || "" }).catch(() => { });
     const quien = cb.from ? (cb.from.username || cb.from.first_name) : "?";
     console.log(`[tg] ${quien} en ${chat}: botón ${cb.data}`);
@@ -433,27 +433,254 @@ async function boton(cb) {
         case "vig": return cmdVigilar(chat, valor, quien);
         case "unvig": return cmdQuitar(chat, valor);
         case "cams": return cmdCamaras(chat, parseInt(valor, 10) || 0, msg.message_id);
+        case "iclip": return cmdClipDeteccion(chat, valor);
+        case "iok": return marcarDesdeTelegram(msg, valor, "real", quien);
+        case "ifa": return marcarDesdeTelegram(msg, valor, "false", quien);
     }
 }
 
-// ─── alertas desde server.js (solo local) ────────────────────────────────────
-async function alerta(a) {
-    const { grupo } = await config();
-    if (!grupo) return false;
-    const e = a.eventId ? await prisma.accessEvent.findUnique({ where: { id: a.eventId }, include: { user: true, device: true } }) : null;
-    if (!e) { await texto(grupo, `<b>${esc(a.titulo || "Alerta")}</b>\n${esc(a.texto || "")}`); return true; }
-    const titulo = a.tipo === "merodeo" ? `MERODEO · ${a.texto || ""}` : (a.titulo || "ALERTA");
-    await mandarEvento(grupo, e, titulo);
-    return true;
+// ─── pasarela de avisos: clasificar → filtrar por reglas → cola → enviar → registrar ─────
+// Todo lo que OmniAccess manda al grupo pasa por acá (POST 127.0.0.1:10010/evento). Las reglas
+// están en Setting TELEGRAM_REGLAS (las edita /admin/notificaciones › Telegram) sobre los
+// valores por defecto de src/lib/telegram-reglas.json. Cada decisión queda en TelegramEnvio.
+const REGLAS_DEFECTO = (() => {
+    try { return JSON.parse(fs.readFileSync(path.join(__dirname, "src", "lib", "telegram-reglas.json"), "utf8")); }
+    catch (e) { console.error("[tg] sin telegram-reglas.json:", e.message); return { categorias: {} }; }
+})();
+function fusionar(a, b) {
+    if (b === undefined) return a;
+    if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) || Array.isArray(b)) return b;
+    const o = { ...a };
+    for (const k of Object.keys(b)) o[k] = fusionar(a[k], b[k]);
+    return o;
 }
+let REGLAS = { t: 0, v: null };
+async function reglas(forzar = false) {
+    if (!forzar && REGLAS.v && Date.now() - REGLAS.t < 30_000) return REGLAS.v;
+    let guardadas = {};
+    const s = await setting("TELEGRAM_REGLAS");
+    if (s) { try { guardadas = JSON.parse(s); } catch (e) { console.error("[tg] TELEGRAM_REGLAS ilegible, uso los valores por defecto:", e.message); } }
+    REGLAS = { t: Date.now(), v: fusionar(REGLAS_DEFECTO, guardadas) };
+    return REGLAS.v;
+}
+
+const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+async function registrar(d) {
+    try {
+        await prisma.telegramEnvio.create({
+            data: {
+                categoria: String(d.categoria || "?").slice(0, 40), subtipo: d.subtipo ? String(d.subtipo).slice(0, 80) : null,
+                deviceId: d.deviceId || null, refId: d.refId || null, titulo: d.titulo ? String(d.titulo).slice(0, 200) : null,
+                decision: d.decision, motivo: d.motivo ? String(d.motivo).slice(0, 300) : null, messageId: d.messageId || null,
+            },
+        });
+    } catch (e) { console.error("[tg] registro:", e.message); }
+}
+async function fin(base, decision, motivo) { await registrar({ ...base, decision, motivo }); return { estado: 200, decision, motivo }; }
+
+// Telegram limita ~20 mensajes por minuto a un grupo: si responde 429, espero lo que pide y reintento una vez.
+async function conReintento(fn) {
+    try { return await fn(); }
+    catch (e) {
+        const m = String(e.message || "").match(/retry after (\d+)/i);
+        if (!m) throw e;
+        await espera((Number(m[1]) + 1) * 1000);
+        return fn();
+    }
+}
+
+// Una sola cola: los avisos salen de a uno, separados 1,2 s, para no chocar con el límite de Telegram.
+const COLA = []; const MAX_COLA = 40; let enviando = false;
+function encolar(tarea) {
+    if (COLA.length >= MAX_COLA) return false;
+    COLA.push(tarea); bombear(); return true;
+}
+async function bombear() {
+    if (enviando) return; enviando = true;
+    try { while (COLA.length) { const t = COLA.shift(); try { await t(); } catch (e) { console.error("[tg] cola:", e.message); } await espera(1200); } }
+    finally { enviando = false; }
+}
+
+// Ventana horaria en hora de Montevideo; admite cruzar la medianoche (22:00 → 06:00).
+const hm = (s) => { const m = String(s || "").match(/^(\d{1,2}):(\d{2})$/); return m ? (+m[1] % 24) * 60 + +m[2] : null; };
+function minutosAhora() {
+    const p = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+    return (+p.find((x) => x.type === "hour").value % 24) * 60 + +p.find((x) => x.type === "minute").value;
+}
+function enVentana(h) {
+    const a = hm(h.desde), b = hm(h.hasta), x = minutosAhora();
+    if (a == null || b == null || a === b) return true;
+    return a < b ? x >= a && x < b : x >= a || x < b;
+}
+
+// Armado de las reglas de cada cámara (lo lee el panel de las cámaras por ISAPI, caché 1 min).
+let ARMADO = { t: 0, v: null, p: null };
+async function armado() {
+    if (ARMADO.v && Date.now() - ARMADO.t < 60_000) return ARMADO.v;
+    if (ARMADO.p) return ARMADO.p;
+    ARMADO.p = (async () => {
+        try {
+            const { trackingToken } = await config();
+            const r = await fetch(`${WEB}/api/telegram/armado`, { headers: { "x-tracking-token": trackingToken }, signal: AbortSignal.timeout(25_000) });
+            if (r.ok) ARMADO = { t: Date.now(), v: await r.json(), p: null };
+        } catch (e) { console.error("[tg] armado:", e.message); }
+        ARMADO.p = null;
+        return ARMADO.v;
+    })();
+    return ARMADO.p;
+}
+
+const TITULOS = { vigilancia: "LISTA DE VIGILANCIA", merodeo: "MERODEO", denegado: "ACCESO DENEGADO", no_leida: "MATRÍCULA NO LEÍDA", invitados: "INVITADO", equipos: "EQUIPOS", reglas: "ALERTA" };
+const TIPOS_INTRUSION = { LINECROSS: "Cruce de línea", INTRUSION: "Intrusión en zona", REGION_ENTER: "Entrada a zona", REGION_EXIT: "Salida de zona" };
+const OBJETIVOS = { human: "Persona", vehicle: "Vehículo", otro: "Sin clasificar" };
+
+async function evento(a) {
+    const { token, grupo } = await config();
+    const r = await reglas();
+    let cat = String(a.categoria || "").toLowerCase();
+    const base = { categoria: cat, refId: a.eventId || a.detectionId || null, deviceId: a.deviceId || null, titulo: a.titulo || null, subtipo: a.subtipo || null };
+    if (!token || !grupo) { await registrar({ ...base, decision: "ERROR", motivo: "Telegram sin token o sin grupo configurado" }); return { estado: 503, decision: "ERROR", motivo: "sin configuración" }; }
+    if (cat === "intrusion") return intrusion(a, r, base, grupo);
+
+    const e = a.eventId ? await prisma.accessEvent.findUnique({ where: { id: a.eventId }, include: { user: true, device: true } }).catch(() => null) : null;
+    const placa = e ? e.plateNumber || e.plateDetected : null;
+    if (cat === "acceso") {
+        // Un paso sin lista ni invitado: se clasifica por el resultado.
+        if (!e) return { estado: 200, decision: "FILTRADO", motivo: "evento no encontrado" };
+        if (!placa || placa === "NO_LEIDA") cat = "no_leida";
+        else if (e.decision !== "GRANT") cat = "denegado";
+        else return { estado: 200, decision: "FILTRADO", motivo: "acceso autorizado: no se avisa" };
+        base.categoria = cat;
+    }
+    if (e) { base.deviceId = e.deviceId; base.refId = e.id; if (!base.titulo) base.titulo = `${placa && placa !== "NO_LEIDA" ? placa : "sin matrícula"} · ${e.device?.name || ""}`; }
+    const c = (r.categorias || {})[cat];
+    if (!c) return fin(base, "FILTRADO", "categoría desconocida");
+    if (!a.prueba) {
+        if (!c.activo) return fin(base, "FILTRADO", "categoría apagada en las reglas");
+        if (Array.isArray(c.camaras) && c.camaras.length && base.deviceId && !c.camaras.includes(base.deviceId)) return fin(base, "FILTRADO", "cámara no seleccionada");
+        if (c.horario && c.horario.activo && !enVentana(c.horario)) return fin(base, "FILTRADO", `fuera del horario de aviso (${c.horario.desde} a ${c.horario.hasta})`);
+    }
+    let titulo = TITULOS[cat] || "AVISO";
+    if (cat === "vigilancia" && a.titulo) titulo = a.titulo;
+    if ((cat === "merodeo" || cat === "invitados") && a.texto) titulo = `${titulo} · ${a.texto}`;
+    if (a.prueba) titulo = `PRUEBA · ${titulo}`;
+    const ok = encolar(async () => {
+        try {
+            let m;
+            if (e) m = await conReintento(() => mandarEvento(grupo, e, titulo, c.foto !== false));
+            else m = await conReintento(() => texto(grupo, `<b>${esc(cat === "equipos" || cat === "reglas" ? (a.prueba ? "PRUEBA · " : "") + (a.titulo || titulo) : titulo)}</b>${a.texto && cat !== "merodeo" && cat !== "invitados" ? "\n" + esc(a.texto) : ""}`));
+            await registrar({ ...base, decision: "ENVIADO", messageId: m && m.message_id, motivo: a.prueba ? "prueba desde el panel" : null });
+        } catch (err) { await registrar({ ...base, decision: "ERROR", motivo: err.message }); }
+    });
+    if (!ok) return fin(base, "ERROR", "cola llena: demasiados avisos juntos");
+    return { estado: 200, decision: "EN_COLA" };
+}
+
+// Antirráfaga por cámara: la primera detección avisa; las siguientes dentro de N minutos se
+// cuentan y se informan en el próximo aviso de esa cámara.
+const RAFAGA = new Map();
+async function intrusion(a, r, base, grupo) {
+    const c = (r.categorias || {}).intrusion || {};
+    let d = a.detectionId ? await prisma.detection.findUnique({ where: { id: a.detectionId } }).catch(() => null) : null;
+    if (!d && a.prueba) d = await prisma.detection.findFirst({ where: { snapshotPath: { not: null }, type: { not: "MOTION" } }, orderBy: { timestamp: "desc" } }).catch(() => null);
+    if (!d) return fin(base, "FILTRADO", "detección no encontrada");
+    const obj = d.label === "human" || d.label === "vehicle" ? d.label : "otro";
+    const dev = d.deviceId ? await prisma.device.findUnique({ where: { id: d.deviceId }, select: { id: true, name: true } }).catch(() => null) : null;
+    Object.assign(base, { refId: d.id, deviceId: d.deviceId, subtipo: `${d.type}/${obj}`, titulo: `${TIPOS_INTRUSION[d.type] || d.type} · ${dev?.name || "cámara"}` });
+    if (!a.prueba) {
+        if (!c.activo) return fin(base, "FILTRADO", "intrusión apagada en las reglas");
+        if (Array.isArray(c.tipos) && !c.tipos.includes(d.type)) return fin(base, "FILTRADO", `tipo no seleccionado (${TIPOS_INTRUSION[d.type] || d.type})`);
+        if (Array.isArray(c.objetivos) && !c.objetivos.includes(obj)) return fin(base, "FILTRADO", `objetivo no seleccionado (${OBJETIVOS[obj]})`);
+        if (Array.isArray(c.camaras) && c.camaras.length && !c.camaras.includes(d.deviceId)) return fin(base, "FILTRADO", "cámara no seleccionada");
+        if (c.horario && c.horario.activo && !enVentana(c.horario)) return fin(base, "FILTRADO", `fuera del horario de aviso (${c.horario.desde} a ${c.horario.hasta})`);
+        if (c.soloArmadas && d.deviceId) {
+            const ar = await armado();
+            const h = ar && ar[d.deviceId];
+            const regla = d.type === "LINECROSS" ? "linea" : "zona";
+            // Si no se pudo leer el horario de la cámara, se avisa igual: mejor de más que perder una alarma.
+            if (h && h[regla] === false) return fin(base, "FILTRADO", "la cámara tiene la regla desarmada a esta hora");
+        }
+        const min = Number(c.antirrafagaMin) || 0;
+        const ra = d.deviceId && RAFAGA.get(d.deviceId);
+        if (min > 0 && ra && Date.now() - ra.ultimo < min * 60_000) { ra.omitidas++; return fin(base, "FILTRADO", `antirráfaga: ya se avisó de esta cámara hace menos de ${min} min`); }
+    }
+    let agrupadas = 0;
+    if (!a.prueba && d.deviceId) { const ra = RAFAGA.get(d.deviceId); agrupadas = ra ? ra.omitidas : 0; RAFAGA.set(d.deviceId, { ultimo: Date.now(), omitidas: 0 }); }
+    const ok = encolar(async () => {
+        try {
+            let buf = null;
+            if (c.foto !== false) {
+                let ruta = d.snapshotPath;
+                for (let i = 0; !ruta && i < 5; i++) { await espera(1000); const x = await prisma.detection.findUnique({ where: { id: d.id }, select: { snapshotPath: true } }).catch(() => null); ruta = x && x.snapshotPath; }
+                if (ruta) buf = await local(ruta);
+                if (!buf && d.deviceId) buf = await cuadro(d.deviceId);
+            }
+            const l = [`<b>${a.prueba ? "PRUEBA · " : ""}INTRUSIÓN · ${esc(TIPOS_INTRUSION[d.type] || d.type)}</b>`, `Cámara: ${esc(dev?.name || "sin identificar")}`, `Objetivo: ${OBJETIVOS[obj]}`, fecha(d.timestamp)];
+            if (agrupadas) l.push(`<i>+${agrupadas} detecciones más en esta cámara desde el aviso anterior</i>`);
+            if (d.acknowledged) l.push(d.ackKind === "false" ? "Marcada como falsa alarma" : "Confirmada como real");
+            const kb = botonesIntrusion(d);
+            const m = buf ? await conReintento(() => foto(grupo, buf, l.join("\n"), kb)) : await conReintento(() => texto(grupo, l.join("\n"), { reply_markup: { inline_keyboard: kb } }));
+            await registrar({ ...base, decision: "ENVIADO", messageId: m && m.message_id, motivo: a.prueba ? "prueba desde el panel" : agrupadas ? `incluye ${agrupadas} detecciones agrupadas` : null });
+        } catch (err) { await registrar({ ...base, decision: "ERROR", motivo: err.message }); }
+    });
+    if (!ok) return fin(base, "ERROR", "cola llena: demasiados avisos juntos");
+    return { estado: 200, decision: "EN_COLA" };
+}
+function botonesIntrusion(d) {
+    const f1 = [{ text: "Clip grabado", callback_data: `iclip:${d.id}` }];
+    if (d.deviceId) f1.push({ text: "En vivo", callback_data: `vivo:${d.deviceId}` });
+    const filas = [f1];
+    if (!d.acknowledged) filas.push([{ text: "Confirmar", callback_data: `iok:${d.id}` }, { text: "Falsa alarma", callback_data: `ifa:${d.id}` }]);
+    return filas;
+}
+async function cmdClipDeteccion(chat, detId) {
+    const d = await prisma.detection.findUnique({ where: { id: detId } }).catch(() => null);
+    if (!d || !d.deviceId) return texto(chat, "No encontré la detección.");
+    const dev = await prisma.device.findUnique({ where: { id: d.deviceId }, select: { name: true } }).catch(() => null);
+    const aviso = await texto(chat, `Buscando la grabación de ${esc(dev?.name || "la cámara")} (${fecha(d.timestamp)})…`);
+    await accion(chat, "upload_video");
+    const r = await clipGrabado({ deviceId: d.deviceId, timestamp: d.timestamp, plateNumber: null });
+    tg("deleteMessage", { chat_id: chat, message_id: aviso.message_id }).catch(() => { });
+    if (!r.buf) return texto(chat, `No pude armar el clip: ${esc(r.motivo)}.`, { reply_markup: { inline_keyboard: [[{ text: "Reintentar", callback_data: `iclip:${d.id}` }]] } });
+    if (r.buf.length > 49 * 1024 * 1024) return texto(chat, "El clip supera el límite de Telegram (50 MB).");
+    return video(chat, r.buf, `<b>${esc(TIPOS_INTRUSION[d.type] || d.type)}</b> · ${esc(dev?.name || "")}\n${fecha(d.timestamp)}`);
+}
+// Confirmar / falsa alarma desde el grupo: queda en la detección igual que si se marcara en el panel.
+async function marcarDesdeTelegram(msg, detId, kind, quien) {
+    const d = await prisma.detection.findUnique({ where: { id: detId } }).catch(() => null);
+    if (!d) return texto(msg.chat.id, "No encontré la detección.");
+    if (d.acknowledged) return texto(msg.chat.id, `Esa detección ya estaba ${d.ackKind === "false" ? "marcada como falsa alarma" : "confirmada como real"}.`, { reply_to_message_id: msg.message_id });
+    await prisma.detection.update({ where: { id: detId }, data: { acknowledged: true, ackKind: kind, ackAt: new Date() } });
+    tg("editMessageReplyMarkup", { chat_id: msg.chat.id, message_id: msg.message_id, reply_markup: { inline_keyboard: botonesIntrusion({ ...d, acknowledged: true }) } }).catch(() => { });
+    avisarPanel({ __event: "detection_ack", id: detId, ackKind: kind, por: quien });
+    return texto(msg.chat.id, `${kind === "false" ? "Marcada como <b>falsa alarma</b>" : "<b>Confirmada</b> como alarma real"} por ${esc(quien)}.`, { reply_to_message_id: msg.message_id });
+}
+function avisarPanel(datos) {
+    try {
+        const cuerpo = JSON.stringify(datos);
+        const q = http.request({ host: "127.0.0.1", port: 10000, path: "/internal/emit", method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(cuerpo) }, timeout: 3000 }, (res) => res.resume());
+        q.on("error", () => { }); q.on("timeout", () => q.destroy()); q.end(cuerpo);
+    } catch { }
+}
+// El registro se poda solo: 15 días alcanzan para revisar qué salió y qué no.
+async function podar() { try { const r = await prisma.telegramEnvio.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 15 * 86_400_000) } } }); if (r.count) console.log(`[tg] registro: ${r.count} filas viejas borradas`); } catch (e) { console.error("[tg] poda:", e.message); } }
+setTimeout(podar, 60_000); setInterval(podar, 6 * 3600_000);
+
 http.createServer((req, res) => {
-    if (req.method !== "POST" || req.url !== "/alerta") { res.writeHead(404); return res.end(); }
+    const responder = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    if (req.method !== "POST" || !["/alerta", "/evento", "/recargar"].includes(req.url)) { res.writeHead(404); return res.end(); }
     let b = ""; req.on("data", (c) => { b += c; if (b.length > 1e5) req.destroy(); });
     req.on("end", async () => {
-        try { const ok = await alerta(JSON.parse(b || "{}")); res.writeHead(ok ? 200 : 503); res.end(ok ? "ok" : "sin grupo"); }
-        catch (err) { console.error("[tg] alerta:", err.message); res.writeHead(500); res.end(err.message); }
+        try {
+            const a = JSON.parse(b || "{}");
+            if (req.url === "/recargar") { await reglas(true); ARMADO.t = 0; return responder(200, { ok: true }); }
+            // /alerta es el formato anterior de server.js: lista de vigilancia o merodeo.
+            if (req.url === "/alerta") a.categoria = a.tipo === "merodeo" ? "merodeo" : "vigilancia";
+            const r = await evento(a);
+            responder(r.estado || 200, r);
+        } catch (err) { console.error("[tg] evento:", err.message); responder(500, { decision: "ERROR", motivo: err.message }); }
     });
-}).listen(PUERTO_ALERTAS, "127.0.0.1", () => console.log(`[tg] alertas locales en 127.0.0.1:${PUERTO_ALERTAS}`));
+}).listen(PUERTO_ALERTAS, "127.0.0.1", () => console.log(`[tg] pasarela de avisos en 127.0.0.1:${PUERTO_ALERTAS}`));
 
 // ─── bucle principal ─────────────────────────────────────────────────────────
 async function registrarComandos() {
