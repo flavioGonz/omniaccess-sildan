@@ -1557,3 +1557,24 @@ model PantallaFila {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+/// Validación del conteo (HB, 20/10): una persona cuenta a ciegas la gente de una captura y se
+/// compara con lo que dijo la cámara. Es la precisión documentada del contador.
+model ValidacionConteo {
+  id        String   @id @default(cuid())
+  /// La lectura (QueueEvent) validada. Sin FK: la retención puede borrar la foto, no la validación.
+  eventId   String?
+  deviceId  String
+  momento   DateTime
+  fotoPath  String?
+  /// Lo que dijo la cámara.
+  camara    Int
+  /// Lo que contó la persona.
+  humano    Int
+  usuario   String?
+  nota      String?
+  createdAt DateTime @default(now())
+
+  @@index([deviceId, momento])
+  @@index([eventId])
+}
