@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Download, Send, X, Check, Plus, Loader2, AlertTriangle, MessageCircle, Search, Film, Clock, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { buscarDestinatariosClip, enviarClipPorWhatsApp, estadoWhatsApp, type DestinatarioClip, type ResultadoEnvioClip } from "@/app/actions/clips";
+import { enviarClipPorTelegram, estadoTelegram, type EstadoTelegram, type ResultadoEnvioTelegram } from "@/app/actions/clips-telegram";
 import type { EstadoWhatsApp } from "@/lib/whatsapp";
 import { ENVIO_MAX_SEG } from "@/lib/clips";
 
@@ -23,9 +24,11 @@ import { ENVIO_MAX_SEG } from "@/lib/clips";
  *   - Dice exactamente qué trae (de qué hora a qué hora) y que el cambio vale sólo para este clip.
  *   - Los destinatarios son sólo gente que el sistema ya conoce; el estado del envío es el real.
  *
- * Telegram aparece, y aparece apagado: el pedido lo nombra y el operador lo va a buscar acá, pero
- * el envío de VIDEO por Telegram no existe (por Telegram salen fotos de los avisos). Un botón
- * que se aprieta y no manda nada sería un control que miente; uno apagado que dice por qué, no.
+ * Telegram manda el clip desde el 20/10 (Nico: «poder seleccionar telegram, al igual que
+ * compartir»): al grupo de la guardia, a los destinatarios de Telegram del Centro de
+ * Notificaciones y al personal vinculado al bot. Lo que sale por WhatsApp o Telegram lleva la
+ * intro y el logo de OmniAccess (lib/clip-editado); lo que se descarga, no (es evidencia). Sin bot
+ * configurado la opción queda apagada y dice por qué.
  *
  * Se dibuja adentro del contenedor que lo monta (todos lo montan a pantalla completa o sobre el
  * reproductor), así que sirve igual en el visor, en el vivo, en la ficha y en la máquina del tiempo.
@@ -37,7 +40,9 @@ const horaSeg = (ms: number) => new Date(ms).toLocaleTimeString("es-UY", { hour:
 const fechaCorta = (ms: number) => new Date(ms).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric" });
 const acotar = (v: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(Number.isFinite(v) ? v : min)));
 /** Lo que tarda en salir un clip: el NVR lo entrega a tiempo real, más la espera del tramo y el envío. */
-const estimadoSeg = (seg: number) => seg + 6;
+const estimadoSeg = (seg: number) => seg + EDICION_SEG + 6;
+/** Lo que tarda en ponerle la intro y el logo (lib/clip-editado): ~10 s para un minuto de video. */
+const EDICION_SEG = 8;
 /** «20 s», «1 min 30 s». */
 const duracion = (s: number) => { const m = Math.floor(s / 60), r = s % 60; return m ? `${m} min${r ? ` ${r} s` : ""}` : `${r} s`; };
 
@@ -49,8 +54,12 @@ const ATAJOS: { antes: number; despues: number }[] = [
     { antes: 5, despues: 5 }, { antes: 10, despues: 10 }, { antes: 15, despues: 30 }, { antes: 30, despues: 60 },
 ];
 
-type Destino = "bajar" | "whatsapp";
-type Fase = { tipo: "eligiendo" } | { tipo: "armando"; desde: number } | { tipo: "listo"; r: ResultadoEnvioClip };
+type Destino = "bajar" | "whatsapp" | "telegram";
+/** El resultado de un envío, igual para los dos canales: el cajón no necesita saber cuál fue para mostrarlo. */
+type ResultadoVista =
+    | { ok: true; canal: "WhatsApp" | "Telegram"; enviados: { clave: string; nombre: string; ok: boolean; error?: string }[]; segundos: number; fuente: string; editado?: boolean }
+    | { ok: false; error: string };
+type Fase = { tipo: "eligiendo" } | { tipo: "armando"; desde: number } | { tipo: "listo"; r: ResultadoVista };
 
 export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose, deviceId, camara, matricula, poster }: {
     instante: number;
@@ -77,6 +86,21 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
     const ocupado = fase.tipo === "armando";
     const [telefonos, setTelefonos] = useState<string[]>([]);
     /*
+     * ¿Hay bot de Telegram, y a quién se le puede mandar? Se pregunta al abrir, como WhatsApp: sin
+     * bot la opción queda apagada y dice por qué, en vez de dejar elegir y fallar al final.
+     */
+    const [tg, setTg] = useState<EstadoTelegram | null>(null);
+    const [chats, setChats] = useState<string[]>([]);
+    const [nota, setNota] = useState("");
+    useEffect(() => {
+        if (!deviceId) return;
+        let vivo = true;
+        estadoTelegram().then((e) => { if (vivo) { setTg(e); setChats(e.destinos.filter((x) => x.marcado).map((x) => x.destino)); } })
+            .catch(() => { if (vivo) setTg({ ok: false, motivo: "No se pudo consultar Telegram.", destinos: [] }); });
+        return () => { vivo = false; };
+    }, [deviceId]);
+    const tgListo = !!tg?.ok;
+    /*
      * ¿WhatsApp anda? Se pregunta al abrir (18/10, Nico: «darse cuenta si está cargado y funcional;
      * si no está activo, bloquear el envío»). Con la sesión caída la opción queda apagada y dice
      * por qué, en vez de dejar elegir destinatarios y esperar el clip para fallar al final.
@@ -97,17 +121,26 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
     }, [onClose, ocupado]);
 
     const largoEnvio = Math.min(a + d, ENVIO_MAX_SEG);
-    const recortado = destino === "whatsapp" && a + d > ENVIO_MAX_SEG;
+    const recortado = destino !== "bajar" && a + d > ENVIO_MAX_SEG;
+    const cuantos = destino === "telegram" ? chats.length : telefonos.length;
     const atajos = useMemo(() => ATAJOS.filter((x) => x.antes <= antesMax && x.despues <= despuesMax && x.despues >= despuesMin), [antesMax, despuesMax, despuesMin]);
 
     const enviar = async () => {
-        if (!deviceId || telefonos.length === 0) return;
+        if (!deviceId || cuantos === 0) return;
         setFase({ tipo: "armando", desde: Date.now() });
-        // Por WhatsApp va un máximo de ENVIO_MAX_SEG: se recorta parejo de los dos lados para que el instante quede donde estaba.
+        // Se manda un máximo de ENVIO_MAX_SEG: se recorta parejo de los dos lados para que el instante quede donde estaba.
         const proporcion = a + d > ENVIO_MAX_SEG ? ENVIO_MAX_SEG / (a + d) : 1;
         const antesEnvio = Math.floor(a * proporcion);
-        const r = await enviarClipPorWhatsApp({ deviceId, instante, antes: antesEnvio, despues: largoEnvio - antesEnvio, telefonos, matricula })
-            .catch((e) => ({ ok: false as const, error: String(e?.message || e) }));
+        const tramo = { deviceId, instante, antes: antesEnvio, despues: largoEnvio - antesEnvio, matricula };
+        const fallo = (e: any) => ({ ok: false as const, error: String(e?.message || e) });
+        let r: ResultadoVista;
+        if (destino === "telegram") {
+            const x: ResultadoEnvioTelegram = await enviarClipPorTelegram({ ...tramo, destinos: chats, nota }).catch(fallo);
+            r = x.ok ? { ...x, canal: "Telegram", enviados: x.enviados.map((e) => ({ ...e, clave: e.destino })) } : x;
+        } else {
+            const x: ResultadoEnvioClip = await enviarClipPorWhatsApp({ ...tramo, telefonos }).catch(fallo);
+            r = x.ok ? { ...x, canal: "WhatsApp", enviados: x.enviados.map((e) => ({ ...e, clave: e.telefono })) } : x;
+        }
         setFase({ tipo: "listo", r });
     };
 
@@ -183,8 +216,9 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                                     <OpcionDestino activo={destino === "whatsapp"} onClick={() => setDestino("whatsapp")} Icon={MessageCircle} titulo="WhatsApp"
                                         detalle={!deviceId ? "Sin cámara asociada" : !wa ? "Verificando…" : wa.ok ? `Hasta ${ENVIO_MAX_SEG} s` : "No está conectado"}
                                         apagado={!deviceId || !waListo} motivo={wa && !wa.ok ? wa.motivo : undefined} />
-                                    <OpcionDestino activo={false} Icon={Send} titulo="Telegram" detalle="Todavía no envía video" apagado
-                                        motivo="Por Telegram salen las fotos de los avisos; el envío de video todavía no existe. Para mandar el clip, usá WhatsApp o descargalo." />
+                                    <OpcionDestino activo={destino === "telegram"} onClick={() => setDestino("telegram")} Icon={IconoTelegram} titulo="Telegram"
+                                        detalle={!deviceId ? "Sin cámara asociada" : !tg ? "Verificando…" : tg.ok ? `Hasta ${ENVIO_MAX_SEG} s` : "No está configurado"}
+                                        apagado={!deviceId || !tgListo} motivo={tg && !tg.ok ? tg.motivo : undefined} />
                                 </div>
 
                                 {deviceId && wa && !wa.ok && (
@@ -204,6 +238,17 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                                         <PanelDestinatarios instante={instante} camara={camara} matricula={matricula} segundos={largoEnvio} onCambio={setTelefonos} />
                                     </div>
                                 )}
+                                {destino === "telegram" && deviceId && tgListo && tg && (
+                                    <div className="mt-4">
+                                        {recortado && (
+                                            <div className="mb-3 rounded-[10px] px-3 py-2.5 text-[11.5px] leading-snug chip-aviso flex items-start gap-2">
+                                                <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                                                <span>Se manda un máximo de {ENVIO_MAX_SEG} s (el grabador entrega el video a tiempo real): van {largoEnvio} s alrededor del instante.</span>
+                                            </div>
+                                        )}
+                                        <PanelTelegram estado={tg} elegidos={chats} onElegidos={setChats} nota={nota} onNota={setNota} segundos={largoEnvio} matricula={matricula} />
+                                    </div>
+                                )}
                             </section>
                         </div>
 
@@ -217,16 +262,16 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                                     <Download size={15} /> Descargar {duracion(a + d)}
                                 </a>
                             ) : (
-                                <button type="button" disabled={telefonos.length === 0 || !waListo} onClick={enviar}
+                                <button type="button" disabled={cuantos === 0 || (destino === "telegram" ? !tgListo : !waListo)} onClick={enviar}
                                     className="h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] disabled:opacity-40 disabled:pointer-events-none text-white text-[13px] font-bold">
-                                    <Send size={14} /> {telefonos.length ? `Enviar a ${telefonos.length}` : "Elegí a quién"}
+                                    {destino === "telegram" ? <IconoTelegram size={14} /> : <Send size={14} />} {cuantos ? `Enviar a ${cuantos}` : "Elegí a quién"}
                                 </button>
                             )}
                         </div>
                     </>
                 )}
 
-                {fase.tipo === "armando" && <EnCurso desde={fase.desde} segundos={largoEnvio} />}
+                {fase.tipo === "armando" && <EnCurso desde={fase.desde} segundos={largoEnvio} canal={destino === "telegram" ? "Telegram" : "WhatsApp"} />}
                 {fase.tipo === "listo" && <Resultado r={fase.r} onOtro={() => setFase({ tipo: "eligiendo" })} onCerrar={onClose} />}
             </motion.aside>
         </div>
@@ -362,7 +407,7 @@ function PanelDestinatarios({ instante, camara, matricula, segundos, onCambio }:
 }
 
 /** Mientras se arma y se manda. La barra se basa en el tiempo esperado (el NVR va a tiempo real); el texto no inventa avances. */
-function EnCurso({ desde, segundos }: { desde: number; segundos: number }) {
+function EnCurso({ desde, segundos, canal }: { desde: number; segundos: number; canal: "WhatsApp" | "Telegram" }) {
     const [ahora, setAhora] = useState(Date.now());
     useEffect(() => { const i = setInterval(() => setAhora(Date.now()), 250); return () => clearInterval(i); }, []);
     const pasaron = (ahora - desde) / 1000;
@@ -372,7 +417,7 @@ function EnCurso({ desde, segundos }: { desde: number; segundos: number }) {
         <div className="flex-1 grid place-items-center px-8">
             <div className="w-full">
                 <Loader2 size={28} className="animate-spin text-[var(--accion)] mx-auto" />
-                <div className="mt-4 text-center text-[16px] font-bold">{pasaron < segundos ? "Armando el clip desde la grabación…" : "Enviando por WhatsApp…"}</div>
+                <div className="mt-4 text-center text-[16px] font-bold">{pasaron < segundos ? "Armando el clip desde la grabación…" : pasaron < segundos + EDICION_SEG ? "Sumando la intro de OmniAccess…" : `Enviando por ${canal}…`}</div>
                 <div className="mt-1 text-center text-[12px] text-muted-foreground tabular-nums">{Math.floor(pasaron)} s de ~{total} s</div>
                 <div className="mt-5 h-1.5 rounded-full bg-muted overflow-hidden"><motion.div className="h-full bg-[var(--accion)]" animate={{ width: `${p * 100}%` }} transition={{ ease: "linear", duration: 0.25 }} /></div>
                 <p className="mt-4 text-center text-[11.5px] text-muted-foreground">El grabador entrega el video a tiempo real: {segundos} s de clip tardan algo más que eso. No cierres este panel.</p>
@@ -381,7 +426,7 @@ function EnCurso({ desde, segundos }: { desde: number; segundos: number }) {
     );
 }
 
-function Resultado({ r, onOtro, onCerrar }: { r: ResultadoEnvioClip; onOtro: () => void; onCerrar: () => void }) {
+function Resultado({ r, onOtro, onCerrar }: { r: ResultadoVista; onOtro: () => void; onCerrar: () => void }) {
     const hora = horaSeg(Date.now());
     const todosOk = r.ok && r.enviados.every((e) => e.ok);
     return (
@@ -391,13 +436,13 @@ function Resultado({ r, onOtro, onCerrar }: { r: ResultadoEnvioClip; onOtro: () 
                     {todosOk ? <Check size={18} className="shrink-0 mt-0.5" /> : <AlertTriangle size={18} className="shrink-0 mt-0.5" />}
                     <div className="min-w-0">
                         <div className="text-[14px] font-bold">{!r.ok ? "No se envió" : todosOk ? `Enviado a ${r.enviados.map((e) => e.nombre).join(", ")}` : "Se envió en parte"}</div>
-                        <div className="text-[12px] opacity-80">{!r.ok ? r.error : `${r.segundos} s desde ${r.fuente === "nvr" ? "la grabación del NVR" : "la grabación local"} · ${hora}`}</div>
+                        <div className="text-[12px] opacity-80">{!r.ok ? r.error : `Por ${r.canal} · ${r.segundos} s desde ${r.fuente === "nvr" ? "la grabación del NVR" : "la grabación local"}${r.editado ? " · con la intro de OmniAccess" : ""} · ${hora}`}</div>
                     </div>
                 </div>
                 {r.ok && !todosOk && (
                     <div className="rounded-[10px] border border-border divide-y divide-border">
                         {r.enviados.map((e) => (
-                            <div key={e.telefono} className="px-3 py-2 flex items-center gap-2 text-[12.5px]">
+                            <div key={e.clave} className="px-3 py-2 flex items-center gap-2 text-[12.5px]">
                                 {e.ok ? <Check size={13} className="tono-bien" /> : <X size={13} className="tono-mal" />}
                                 <span className="font-semibold">{e.nombre}</span>
                                 {!e.ok && <span className="text-muted-foreground truncate">· {e.error}</span>}
@@ -411,5 +456,50 @@ function Resultado({ r, onOtro, onCerrar }: { r: ResultadoEnvioClip; onOtro: () 
                 <button type="button" onClick={onCerrar} className="h-9 px-4 rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] text-white text-[13px] font-bold">Listo</button>
             </div>
         </>
+    );
+}
+
+/** El avión de papel de Telegram, dibujado: lucide no tiene la marca y un ícono genérico confunde con «enviar». Igual que en Compartir evento. */
+function IconoTelegram({ size = 15, className }: { size?: number; className?: string }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden className={className}>
+            <path d="M21.9 4.3 18.7 19.4c-.2 1-.9 1.3-1.7.8l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.5-.6-.2L6.5 13.2 1.8 11.7c-1-.3-1-1 .2-1.5L20.6 3c.9-.3 1.6.2 1.3 1.3Z" />
+        </svg>
+    );
+}
+
+/**
+ * A qué chats de Telegram va el clip. Sólo los que el sistema conoce (ver actions/clips-telegram):
+ * el grupo de la guardia viene marcado, el resto se suma tocando. No hay campo para tipear un chat.
+ */
+function PanelTelegram({ estado, elegidos, onElegidos, nota, onNota, segundos, matricula }: {
+    estado: EstadoTelegram; elegidos: string[]; onElegidos: (x: string[]) => void; nota: string; onNota: (t: string) => void; segundos: number; matricula?: string | null;
+}) {
+    const alternar = (id: string) => onElegidos(elegidos.includes(id) ? elegidos.filter((x) => x !== id) : [...elegidos, id]);
+    return (
+        <div className="space-y-3">
+            <div className="rounded-[10px] border border-border bg-muted/50 divide-y divide-border max-h-[240px] overflow-y-auto">
+                {estado.destinos.map((x) => {
+                    const si = elegidos.includes(x.destino);
+                    return (
+                        <button key={x.destino} type="button" onClick={() => alternar(x.destino)} aria-pressed={si} className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-muted">
+                            <span className={cn("w-[18px] h-[18px] rounded-[5px] grid place-items-center border shrink-0", si ? "bg-[var(--accion)] border-[var(--accion)]" : "border-border")}>{si && <Check size={12} className="text-white" />}</span>
+                            <span className="min-w-0 flex-1">
+                                <span className="block text-[13px] font-semibold truncate">{x.nombre}</span>
+                                <span className="block text-[11px] text-muted-foreground truncate">{x.detalle}</span>
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+            <input value={nota} onChange={(e) => onNota(e.target.value.slice(0, 300))} placeholder="Una nota para la guardia (opcional)"
+                className="w-full h-9 rounded-[6px] bg-muted border border-border focus:border-[var(--accion)] px-3 text-[13px] text-foreground placeholder:text-muted-foreground outline-none" />
+            <div className="rounded-[10px] bg-muted/50 border border-border px-3 py-2.5 text-[11.5px] text-muted-foreground flex items-start gap-2">
+                <Info size={13} className="shrink-0 mt-0.5 text-muted-foreground" />
+                <span>
+                    {segundos} s{estado.conMarca ? <>, con la intro y el logo de <span className="text-foreground/80">OmniAccess</span></> : null}. Va con botones para ver la cámara ahora{matricula ? <> y el historial de <span className="text-foreground/80">{matricula}</span></> : null}. Queda registrado en Despachos.
+                </span>
+            </div>
+        </div>
     );
 }
