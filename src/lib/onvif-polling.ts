@@ -210,6 +210,17 @@ function pedirCamara(url: string, metodo: "GET" | "POST", cuerpo: string | null,
  * de siempre, crear la suscripción no llegaba nunca. Las demás, como siempre.
  */
 const ESPERA_LENTA_MS = 30_000;
+/*
+ * Tras una suscripción fallida, una cámara de BOSCH_SOLO_HTTP no se vuelve a intentar en el segundo
+ * siguiente. Con la del Hospital Británico, el ciclo de 1 s le pedía un PullPoint nuevo cada vez que
+ * el anterior vencía por la VPN; cada pedido que la cámara sí recibía le dejaba una suscripción viva
+ * 5 min, y al rato contestaba «ter:Action · Action Failed» (sin lugar para más). Espera 15 s, y el
+ * doble en cada fallo seguido, hasta 5 min. Tampoco se le pide la suscripción push (ver más abajo).
+ */
+const ESPERA_REINTENTO_MS = 15_000;
+const ESPERA_REINTENTO_MAX_MS = 5 * 60_000;
+const reintentoDesde = new Map<string, number>();
+const fallosLenta = new Map<string, number>();
 async function pedirCamaraConDigest(url: string, metodo: "GET" | "POST", cuerpo: string | null, username: string, password: string, timeoutMs: number) {
     if ((await ipsSoloHttp()).has(new URL(url).hostname)) timeoutMs = Math.max(timeoutMs, ESPERA_LENTA_MS);
     const r = await pedirCamara(url, metodo, cuerpo, username, password, timeoutMs);
@@ -519,9 +530,22 @@ export async function pollBoschDevices(): Promise<{
 
         result.devicesPolled++;
 
+        // Una cámara lenta que no aceptó la suscripción espera antes de volver a pedirla (ver ESPERA_REINTENTO).
+        const lenta = (await ipsSoloHttp()).has(device.ip);
+        if (lenta && (reintentoDesde.get(device.id) || 0) > Date.now()) continue;
+
         try {
             // Ensure we have an active subscription
             const sub = await ensureSubscription(device.id, device.ip, device.username, device.password);
+            if (lenta) {
+                if (sub) reintentoDesde.delete(device.id);
+                else {
+                    const n = (fallosLenta.get(device.id) || 0) + 1;
+                    fallosLenta.set(device.id, n);
+                    reintentoDesde.set(device.id, Date.now() + Math.min(ESPERA_REINTENTO_MAX_MS, ESPERA_REINTENTO_MS * 2 ** (n - 1)));
+                }
+                if (sub) fallosLenta.delete(device.id);
+            }
             if (!sub) {
                 result.errors.push(`Failed to subscribe to ${device.name} (${device.ip})`);
                 // Connectivity: subscription failure counts toward an outage
@@ -923,7 +947,10 @@ async function subscribePushForAll() {
             where: { deviceType: "QUEUE_COUNTER", brand: "BOSCH" },
             select: { id: true, name: true, ip: true, username: true, password: true },
         });
+        const lentas = await ipsSoloHttp();
         for (const d of devices) {
+            // Las de BOSCH_SOLO_HTTP no: van por una VPN y cada pedido le ocupa otra suscripción a la cámara.
+            if (lentas.has(d.ip)) continue;
             try {
                 await httpsRequest(`${await baseCamara(d.ip)}/onvif/events_service`,
                     subscribeEnvelope(ONVIF_PUSH_URL, 120),
