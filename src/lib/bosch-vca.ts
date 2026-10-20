@@ -42,6 +42,15 @@ export interface BoschVca {
 }
 
 const RCP_CONF = "0x0a1b";
+/** Respuesta de la Bosch a una escritura sin el nivel necesario, y el nivel que pide (service). */
+const ERR_SIN_PERMISO = "0x70";
+const NIVEL_SERVICE = 3;
+export class ErrorSinPermiso extends Error {
+    constructor() {
+        super("La cámara atiende sin pedir usuario y en ese nivel no deja guardar: en la página web de la cámara, en la gestión de usuarios y contraseñas, poné clave a los niveles «user» y «live» (o desactivá el acceso sin clave). Así pide usuario y OmniAccess entra con el de la ficha, que tiene que ser de nivel «service». No se cambió nada en la cámara.");
+        this.name = "ErrorSinPermiso";
+    }
+}
 /** Relecturas para confirmar una escritura, y la espera antes de cada una (la cámara reinicia el motor). */
 const RELECTURAS = 3;
 const ESPERA_RELECTURA_MS = 2_500;
@@ -52,7 +61,16 @@ async function rcp(c: BoschConn, cmd: string, type: string, direction: "READ" | 
     const url = `/rcp.xml?${q.toString()}`;
     const txt: string = await authenticatedRequest("GET", url, { ip: c.ip, username: c.user, password: c.pass, authType: "DIGEST" }, { responseType: "text", contentType: "text/xml", timeout });
     const err = txt.match(/<err>([^<]*)<\/err>/i);
-    if (err && err[1].trim() && err[1].trim() !== "0x00") throw new Error(`La cámara rechazó el comando ${cmd} (${err[1].trim()}).`);
+    if (err && err[1].trim() && err[1].trim() !== "0x00") {
+        /* HB, 20/10: toda escritura volvía con 0x70 y la app decía «la cámara no aceptó la
+           configuración». No era la configuración: la Bosch tiene los niveles «user» y «live» sin
+           clave, así que atiende rcp.xml sin pedir usuario (auth 2 = user) y nunca llega a usar el
+           usuario y la clave que tenemos (sin desafío, el digest no se manda). Escribir pide nivel
+           «service» (3). Se dice eso, con la salida, en vez de un código. */
+        const nivel = Number((txt.match(/<auth>(\d+)<\/auth>/i) || [])[1]);
+        if (direction === "WRITE" && err[1].trim() === ERR_SIN_PERMISO && nivel < NIVEL_SERVICE) throw new ErrorSinPermiso();
+        throw new Error(`La cámara rechazó el comando ${cmd} (${err[1].trim()}).`);
+    }
     return txt;
 }
 
@@ -185,6 +203,8 @@ export async function escribirBlob(c: BoschConn, blob: Buffer, respaldo: Buffer)
         const resp = await rcp(c, RCP_CONF, "P_OCTET", "WRITE", "0x" + blob.toString("hex"), 90_000);
         try { ok = hexDe(resp).equals(blob); } catch { ok = false; }
     } catch (e: any) {
+        // Sin permiso no se escribió nada: no hay que releer ni restaurar.
+        if (e instanceof ErrorSinPermiso) throw e;
         errorEscritura = e?.message || String(e);
     }
     // Después de escribir, el motor de analíticas se reinicia: se relee unas veces con espera.
