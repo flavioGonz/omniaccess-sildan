@@ -1481,7 +1481,7 @@ const handleWebhook = async (req, res, logPrefix) => {
                     const cat = normalizeWatchCat(w.category);
                     watchHit = { label: w.label, category: cat, color: w.color, source: 'manual' };
                     if (w.notify) {
-                        notifyWatchTelegram(`🚨 <b>${watchCatLabel(cat)}</b> · ${finalPlate}\n${w.label || ''}\nCámara: ${(device && device.name) || 'N/D'} (${event.direction === 'ENTRY' ? 'Entrada' : 'Salida'})`);
+                        notifyWatchTelegram(event, `🚨 <b>${watchCatLabel(cat)}</b> · ${finalPlate}\n${w.label || ''}\nCámara: ${(device && device.name) || 'N/D'} (${event.direction === 'ENTRY' ? 'Entrada' : 'Salida'})`);
                     }
                     console.log(`${logPrefix} [WATCHLIST] hit ${finalPlate} (${cat})`);
                 }
@@ -1491,7 +1491,7 @@ const handleWebhook = async (req, res, logPrefix) => {
                 const cat = credential.user.role;
                 watchHit = { label: credential.user.name || '', category: cat, color: null, source: 'role' };
                 if (cat === 'BLACKLISTED') {
-                    notifyWatchTelegram(`🚨 <b>${watchCatLabel(cat)}</b> · ${finalPlate}\n${credential.user.name || ''}\nCámara: ${(device && device.name) || 'N/D'} (${event.direction === 'ENTRY' ? 'Entrada' : 'Salida'})`);
+                    notifyWatchTelegram(event, `🚨 <b>${watchCatLabel(cat)}</b> · ${finalPlate}\n${credential.user.name || ''}\nCámara: ${(device && device.name) || 'N/D'} (${event.direction === 'ENTRY' ? 'Entrada' : 'Salida'})`);
                 }
                 console.log(`${logPrefix} [WATCHLIST] role-derived ${finalPlate} (${cat})`);
             }
@@ -2828,6 +2828,7 @@ async function checkMerodeo(plate, device, event, logPrefix) {
             accessEventId: event.id,
         }});
     } catch (e) { /* accessEventId unique or bitacora issue - ignore */ }
+    avisarBotTelegram({ tipo: "merodeo", eventId: event.id, texto: `${clean} · ${count} pasadas en ${cfg.windowMin} min` }).catch(() => {});
     if (global.io) {
         global.io.emit('merodeo_alert', {
             plate: clean, count, windowMin: cfg.windowMin, distinctDevices,
@@ -2851,10 +2852,24 @@ function watchCatLabel(cat) {
     const c = normalizeWatchCat(cat);
     return c === 'SEARCH' ? 'EN BÚSQUEDA' : c === 'WHITELISTED' ? 'VIP / AUTORIZADO' : 'LISTA NEGRA';
 }
-async function notifyWatchTelegram(text) {
+// El bot de Telegram (proceso telegram-bot) escucha solo en local y manda la alerta con la
+// foto del evento y botones (clip, en vivo, historial). Si no responde, va el texto de siempre.
+function avisarBotTelegram(datos) {
+    return new Promise((resolve) => {
+        try {
+            const cuerpo = JSON.stringify(datos);
+            const r = require("http").request({ host: "127.0.0.1", port: 10010, path: "/alerta", method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(cuerpo) }, timeout: 4000 }, (res) => { res.resume(); resolve(res.statusCode === 200); });
+            r.on("error", () => resolve(false)); r.on("timeout", () => { r.destroy(); resolve(false); });
+            r.end(cuerpo);
+        } catch (e) { resolve(false); }
+    });
+}
+async function notifyWatchTelegram(event, text) {
     try {
-        const token = process.env.TELEGRAM_BOT_TOKEN || "8923590022:AAEas5wccmXq8zhE4tT1BZkehOgAcpmgPDc";
-        const chat = process.env.TELEGRAM_CHAT_ID || "-5200291969";
+        if (event && event.id && await avisarBotTelegram({ tipo: "watchlist", eventId: event.id, titulo: String(text).split("\n")[0].replace(/<[^>]+>/g, "").replace(/^\W+/, "").trim() })) return;
+        const token = process.env.TELEGRAM_BOT_TOKEN;
+        const chat = process.env.TELEGRAM_CHAT_ID;
+        if (!token || !chat) return;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ chat_id: chat, text, parse_mode: "HTML" }),
