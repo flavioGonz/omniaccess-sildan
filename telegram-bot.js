@@ -25,6 +25,7 @@ const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
 const { PrismaClient } = require("@prisma/client");
+const { marcaConfig, marcarFoto, argsVideo } = require("./lib-marca");
 
 const prisma = new PrismaClient();
 const WEB = "http://127.0.0.1:10001";
@@ -75,7 +76,8 @@ const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</
 const texto = (chat, t, extra = {}) => tg("sendMessage", { chat_id: chat, text: t, parse_mode: "HTML", disable_web_page_preview: true, ...extra });
 const accion = (chat, a) => tg("sendChatAction", { chat_id: chat, action: a }).catch(() => { });
 async function foto(chat, buf, caption, botones) {
-    try { const sharp = require("sharp"); buf = await sharp(buf).rotate().resize({ width: 1600, withoutEnlargement: true }).jpeg({ quality: 84 }).toBuffer(); } catch { }
+    try { const sharp = require("sharp"); buf = await sharp(buf).rotate().resize({ width: 1600, withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer(); } catch { }
+    buf = await marcarFoto(buf, prisma);
     return tgArchivo("sendPhoto", { chat_id: String(chat), caption: caption.slice(0, 1024), parse_mode: "HTML", reply_markup: botones ? { inline_keyboard: botones } : undefined }, "photo", buf, "captura.jpg", "image/jpeg");
 }
 async function video(chat, buf, caption, botones) {
@@ -150,11 +152,13 @@ async function cuadro(deviceId) {
     }
     return null;
 }
-function grabarVivo(deviceId, seg = 10) {
+async function grabarVivo(deviceId, seg = 10) {
+    const marca = await marcaConfig(prisma);
     return new Promise((resolve) => {
         const dest = path.join(os.tmpdir(), `tg_${deviceId}_${Date.now()}.mp4`);
-        const args = ["-hide_banner", "-loglevel", "error", "-y", "-i", `${GO2RTC}/api/stream.mp4?src=lpr_${deviceId}`, "-t", String(seg), "-an",
-            "-vf", "scale='min(1280,iw)':-2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p", "-movflags", "+faststart", dest];
+        // El logo entra como segunda entrada: tiene que ir pegado al -i del video, antes de -t.
+        const args = ["-hide_banner", "-loglevel", "error", "-y", "-i", `${GO2RTC}/api/stream.mp4?src=lpr_${deviceId}`, ...argsVideo(marca, "scale='min(1280,iw)':-2"),
+            "-t", String(seg), "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p", "-movflags", "+faststart", dest];
         const p = spawn("ffmpeg", args, { stdio: "ignore" });
         const k = setTimeout(() => { try { p.kill("SIGKILL"); } catch { } }, (seg + 40) * 1000);
         p.on("close", () => { clearTimeout(k); try { const b = fs.readFileSync(dest); fs.unlinkSync(dest); resolve(b.length > 10_000 ? b : null); } catch { resolve(null); } });

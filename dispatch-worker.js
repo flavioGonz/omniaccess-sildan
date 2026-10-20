@@ -44,6 +44,18 @@ function telegramSendPhoto(token, chatId, photoUrl, caption) {
     });
 }
 
+// Telegram con la foto subida como archivo (no por URL): así sale con la marca de agua.
+async function telegramSendPhotoBuf(token, chatId, buf, caption) {
+    try {
+        const fd = new FormData();
+        fd.append("chat_id", String(chatId)); fd.append("caption", String(caption || "").slice(0, 1024)); fd.append("parse_mode", "HTML");
+        fd.append("photo", new Blob([buf], { type: "image/jpeg" }), "captura.jpg");
+        const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: "POST", body: fd, signal: AbortSignal.timeout(30000) });
+        const body = await r.text();
+        return { ok: r.ok, body };
+    } catch (e) { return { ok: false, body: e.message }; }
+}
+
 // Resolve a public image URL: stored snapshot, else the live camera frame.
 function imageUrlFor(base, snapshotPath, deviceId) {
     const b = (base || "https://omniaccess.infratec.com.uy").replace(/\/+$/, "");
@@ -80,7 +92,8 @@ function fetchLocalBase64(path) {
                     if (buf.length <= 100) return resolve(null);
                     // Achicar a 1280 px / JPEG 82: una captura LPR de 2 MB llega a WhatsApp como
                     // "HD" con miniatura borrosa y botón de descarga; a ~200 KB se ve al instante.
-                    try { const sharp = require("sharp"); buf = await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(); } catch (e) { console.error("[dispatch] sharp:", e.message); }
+                    try { const sharp = require("sharp"); buf = await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer(); } catch (e) { console.error("[dispatch] sharp:", e.message); }
+                    try { buf = await require("./lib-marca").marcarFoto(buf, prisma, 82); } catch (e) { }
                     resolve(buf.toString("base64"));
                 });
             });
@@ -137,6 +150,7 @@ function ringSegments(deviceId) {
 // Clip centrado en el momento de la alerta, extraído del anillo (pre-roll + post).
 async function buildClip(deviceId, alertTsMs) {
     const T = alertTsMs && alertTsMs > 0 ? alertTsMs : Date.now();
+    const mc = await require("./lib-marca").marcaConfig(prisma).catch(() => null);
     try {
         // esperar a que el segmento posterior a la alerta esté en disco
         for (let i = 0; i < 14; i++) {
@@ -157,7 +171,7 @@ async function buildClip(deviceId, alertTsMs) {
             fs.writeFileSync(listPath, segs.map(s => `file '${s.fp}'`).join("\n"));
             await new Promise((resolve, reject) => {
                 execFile("ffmpeg", ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", listPath,
-                    "-vf", "scale=480:-2,fps=10", "-an", "-movflags", "+faststart", out],
+                    ...require("./lib-marca").argsVideo(mc, "scale=480:-2,fps=10"), "-an", "-movflags", "+faststart", out],
                     { timeout: 25000 }, (err) => err ? reject(err) : resolve());
             });
             try { fs.unlinkSync(listPath); } catch {}
@@ -179,10 +193,11 @@ async function buildClipLive(deviceId) {
         const dev = await prisma.device.findUnique({ where: { id: deviceId }, select: { ip: true } });
         if (!dev || !dev.ip) return null;
         const input = `http://127.0.0.1:1984/api/stream.mp4?src=${streamNameForIp(dev.ip)}`;
+        const mc = await require("./lib-marca").marcaConfig(prisma).catch(() => null);
         const fname = `${deviceId}_live_${Date.now()}.mp4`;
         const out = `/opt/OmniAccess/public/clips/${fname}`;
         await new Promise((resolve, reject) => {
-            execFile("ffmpeg", ["-y", "-loglevel", "error", "-i", input, "-t", "3", "-vf", "scale=480:-2,fps=10", "-an", "-movflags", "+faststart", out],
+            execFile("ffmpeg", ["-y", "-loglevel", "error", "-i", input, ...require("./lib-marca").argsVideo(mc, "scale=480:-2,fps=10"), "-t", "3", "-an", "-movflags", "+faststart", out],
                 { timeout: 18000 }, (err) => err ? reject(err) : resolve());
         });
         let st; try { st = fs.statSync(out); } catch { return null; }
@@ -315,6 +330,11 @@ async function handle(job) {
                 );
                 let r;
                 if (clip) r = await telegramSendAnimation(token, chat, base.replace(/\/+$/, "") + "/api/clip/" + ((clip.rel || "").split("/").pop()), htmlText);
+                if (!r || !r.ok) {
+                    const lp = imagePathFor(p.snapshotPath, dj.deviceId);
+                    const b64 = lp ? await fetchLocalBase64(lp) : null;
+                    if (b64) r = await telegramSendPhotoBuf(token, chat, Buffer.from(b64, "base64"), htmlText);
+                }
                 if (!r || !r.ok) {
                     const img = imageUrlFor(base, p.snapshotPath, dj.deviceId);
                     r = img ? await telegramSendPhoto(token, chat, img, htmlText) : await telegramSend(token, chat, htmlText);

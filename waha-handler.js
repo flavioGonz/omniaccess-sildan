@@ -182,7 +182,8 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                 const local = serverBaseUrl && url.startsWith(serverBaseUrl) ? url.replace(serverBaseUrl, 'http://127.0.0.1:10001') : url;
                 const r = await axios.get(local, { responseType: 'arraybuffer', timeout: 15000 });
                 let buf = Buffer.from(r.data);
-                try { const sharp = require('sharp'); buf = await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(); } catch (e) { console.error('[WAHA] sharp:', e.message); }
+                try { const sharp = require('sharp'); buf = await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer(); } catch (e) { console.error('[WAHA] sharp:', e.message); }
+                try { buf = await require('./lib-marca').marcarFoto(buf, prisma, 82); } catch (e) { }
                 await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId: chatDestino, file: { mimetype: 'image/jpeg', filename: 'captura.jpg', data: buf.toString('base64') }, caption }, { headers, timeout: 40000 });
                 registrar('OK', '[foto] ' + (caption || ''));
                 return;
