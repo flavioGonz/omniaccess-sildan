@@ -125,9 +125,10 @@ export function usePublicarAvisos(fuente: string, avisos: Aviso[]) {
  * le saltan. El silencio es el mismo para todo: antes la intrusión tenía su botón y el monitor
  * LPR otro, y se podía tener uno callado y el otro sonando sin saberlo.
  */
-export type PrefsAvisos = { silencio: boolean; apagados: TipoAviso[] };
+/** voz: leer en voz alta cada aviso nuevo (20/10, Nico: «además de sonido, la lectura con voz»). */
+export type PrefsAvisos = { silencio: boolean; apagados: TipoAviso[]; voz: boolean };
 const CLAVE_PREFS = "oa.avisos.prefs";
-let prefs: PrefsAvisos = { silencio: false, apagados: [] };
+let prefs: PrefsAvisos = { silencio: false, apagados: [], voz: false };
 let prefsLeidas = false;
 const oyentesPrefs = new Set<() => void>();
 
@@ -138,7 +139,7 @@ function leerPrefs(): PrefsAvisos {
         const j = JSON.parse(localStorage.getItem(CLAVE_PREFS) || "null");
         // El silencio de la intrusión, de antes de unificar, vale como punto de partida.
         const viejo = localStorage.getItem("oa.intrusion.silencio") === "1";
-        prefs = { silencio: typeof j?.silencio === "boolean" ? j.silencio : viejo, apagados: Array.isArray(j?.apagados) ? j.apagados.filter((t: any) => TIPOS_APAGABLES.includes(t)) : [] };
+        prefs = { silencio: typeof j?.silencio === "boolean" ? j.silencio : viejo, apagados: Array.isArray(j?.apagados) ? j.apagados.filter((t: any) => TIPOS_APAGABLES.includes(t)) : [], voz: j?.voz === true };
     } catch { /* sin almacenamiento: los valores por defecto */ }
     return prefs;
 }
@@ -162,6 +163,32 @@ export function useSilencioAvisos(): [boolean, (v: boolean) => void] {
     const p = usePrefsAvisos();
     const set = useCallback((v: boolean) => cambiarPrefs({ silencio: v }), []);
     return [p.silencio, set];
+}
+
+// ───────────────────────── voz ─────────────────────────
+
+/** Una matrícula se deletrea («A A Y, 6 1 8 7»): leída como palabra no la entiende nadie. */
+const esChapa = (t: string) => /^[A-Z]{1,4}\d{2,5}$|^[A-Z0-9]{6,8}$/.test(t) && /\d/.test(t);
+const deletrear = (t: string) => t.replace(/([A-Z]+)(\d+)/, "$1 $2").split("").join(" ").replace(/\s{3}/g, ", ");
+
+/**
+ * Leer un aviso en voz alta (speechSynthesis, sin servicios de afuera). Dice el tipo, la matrícula
+ * deletreada o la cámara, y lo primero del detalle. Si llegan varios juntos lee el más importante
+ * y cuántos más hay: leerlos todos tapa el siguiente aviso.
+ */
+export function leerAvisos(nuevos: Aviso[]) {
+    try {
+        const s = window.speechSynthesis; if (!s || !nuevos.length) return;
+        const a = nuevos[0];
+        const titulo = esChapa(a.titulo) ? `matrícula ${deletrear(a.titulo)}` : a.titulo;
+        const donde = (a.detalle || "").split(" · ")[0];
+        const texto = [a.rotulo, titulo, donde && donde !== a.titulo ? donde : null, nuevos.length > 1 ? `y ${nuevos.length - 1} avisos más` : null].filter(Boolean).join(". ");
+        const u = new SpeechSynthesisUtterance(texto);
+        const voces = s.getVoices();
+        u.voice = voces.find((v) => /^es[-_](UY|AR)/i.test(v.lang)) || voces.find((v) => /^es/i.test(v.lang)) || null;
+        u.lang = u.voice?.lang || "es-UY"; u.rate = 1.02;
+        s.cancel(); s.speak(u);
+    } catch { /* sin voz */ }
 }
 
 // ───────────────────────── sonido ─────────────────────────

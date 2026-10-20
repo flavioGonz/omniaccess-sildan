@@ -1,5 +1,6 @@
 "use client";
 
+import { useFuncion } from "@/lib/funciones-cliente";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTiempoReal } from "@/lib/tiempo-real";
@@ -54,6 +55,8 @@ export function AvisosLpr({ soloLectura = false }: {
     const [ficha, setFicha] = useState<string | null>(null);
     const [ops, setOps] = useState<Record<string, OperadorVista>>({});
     const [pulso, setPulso] = useState(0);
+    // Sin «En búsqueda» (función de LPR, apagada en San Nicolás) no salta ese aviso.
+    const busquedaOn = useFuncion("LPR_BUSQUEDA");
 
     const sumar = useCallback((n: Item) => setItems((prev) => {
         const ahora = Date.now();
@@ -75,7 +78,7 @@ export function AvisosLpr({ soloLectura = false }: {
         if (!ev?.id || ev.accessType !== "PLATE") return;
         const cat = String(ev.watch?.category || "").toUpperCase();
         const negra = cat === "BLACKLISTED" || String(ev.user?.role || "").toUpperCase() === "BLACKLISTED";
-        const busqueda = !negra && cat === "SEARCH";
+        const busqueda = !negra && cat === "SEARCH" && busquedaOn !== false;
         if (!negra && !busqueda) return;
         const plate = limpiar(ev.plateDetected) || null;
         const camara = ev.device?.name || null;

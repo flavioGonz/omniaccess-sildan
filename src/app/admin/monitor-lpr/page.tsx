@@ -1,5 +1,6 @@
 "use client";
 
+import { IconosAvisosMonitor } from "@/components/avisos/PilaAvisos";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { useSilencioAvisos } from "@/lib/avisos-pantalla";
 import { useEffect, useState, useMemo, useRef, memo, useCallback, createContext, useContext } from "react";
@@ -1160,6 +1161,8 @@ export default function MonitorLPR() {
                                 className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", pinEnabled ? "bg-background tono-aviso" : "text-muted-foreground hover:text-foreground hover:bg-background")}>
                                 <AlertTriangle size={15} />
                             </button>
+                            {/* Qué avisos saltan y la lectura en voz alta (la pila de avisos, components/avisos). */}
+                            <IconosAvisosMonitor />
                             <button onClick={() => setSilencioAvisos(!silencioAvisos)} title={soundOn ? "Silenciar alertas" : "Activar sonido"} aria-pressed={!soundOn}
                                 className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", soundOn ? "text-muted-foreground hover:text-foreground hover:bg-background" : "bg-background tono-mal")}>
                                 {soundOn ? <Volume2 size={15} /> : <VolumeX size={15} />}

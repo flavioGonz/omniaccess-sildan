@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ShieldAlert, Eye, Hand, ArrowRightLeft, Check, X, Power, History, Volume2, VolumeX, SlidersHorizontal, ChevronUp, ChevronDown, UserRound, Loader2, Radar, ScanEye, Repeat, Search } from "lucide-react";
+import { Speech, Siren, ShieldAlert, Eye, Hand, ArrowRightLeft, Check, X, Power, History, Volume2, VolumeX, SlidersHorizontal, ChevronUp, ChevronDown, UserRound, Loader2, Radar, ScanEye, Repeat, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-    useAvisos, avisoVigente, usePrefsAvisos, cambiarPrefs, pitidoAviso, useDestrabarAudio,
+    useAvisos, avisoVigente, usePrefsAvisos, cambiarPrefs, pitidoAviso, useDestrabarAudio, leerAvisos,
     FONDO_TIPO, TIPOS_APAGABLES, type Aviso, type AccionAviso, type TipoAviso,
 } from "@/lib/avisos-pantalla";
 
@@ -48,11 +48,14 @@ export function PilaAvisos({ soloCriticos = false }: {
     // Suena al llegar un aviso nuevo (alerta: una vez; crítico: también cada tanto mientras siga).
     const vistos = useRef<Set<string>>(new Set());
     useEffect(() => {
-        const nuevos = avisos.filter((a) => !a.sonidoPropio && !vistos.current.has(`${a.id}:${a.veces || 1}`));
+        const nuevos = avisos.filter((a) => !vistos.current.has(`${a.id}:${a.veces || 1}`));
         for (const a of avisos) vistos.current.add(`${a.id}:${a.veces || 1}`);
         if (!nuevos.length || prefs.silencio) return;
-        pitidoAviso(nuevos.some((a) => a.nivel === "critico"));
-    }, [avisos, prefs.silencio]);
+        const conPitido = nuevos.filter((a) => !a.sonidoPropio);
+        if (conPitido.length) pitidoAviso(conPitido.some((a) => a.nivel === "critico"));
+        // La voz, después del pitido; lo crítico primero (ya vienen ordenados así).
+        if (prefs.voz) setTimeout(() => leerAvisos(nuevos), conPitido.length ? 700 : 0);
+    }, [avisos, prefs.silencio, prefs.voz]);
     const criticosSinSonido = avisos.some((a) => a.nivel === "critico" && !a.sonidoPropio);
     useEffect(() => {
         if (!criticosSinSonido || prefs.silencio) return;
@@ -193,6 +196,37 @@ export function BotonAjustesAvisos() {
     );
 }
 
+/**
+ * Los íconos de la barra del Monitor LPR (20/10, Nico: «estos íconos deben poder activar o no
+ * estas notificaciones, además de tener sonido y la lectura con voz»): la sirena abre qué avisos
+ * saltan en esta pantalla; el parlante con voz prende la lectura en voz alta. El silencio es el
+ * botón de parlante de siempre (el mismo de la pila).
+ */
+export function IconosAvisosMonitor() {
+    const prefs = usePrefsAvisos();
+    const [abierto, setAbierto] = useState(false);
+    const apagados = prefs.apagados.length;
+    const base = "h-[30px] w-[30px] rounded-md grid place-items-center transition-colors";
+    return (
+        <>
+            <div className="relative">
+                <button type="button" onClick={() => setAbierto((v) => !v)} aria-expanded={abierto} aria-label="Avisos en esta pantalla"
+                    title={apagados ? `Avisos en esta pantalla: ${apagados} tipo${apagados === 1 ? "" : "s"} apagado${apagados === 1 ? "" : "s"}` : "Avisos en esta pantalla: todos prendidos"}
+                    className={cn(base, "relative", apagados ? "text-muted-foreground hover:text-foreground hover:bg-background" : "bg-background tono-mal")}>
+                    <Siren size={15} />
+                    {apagados > 0 && <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-muted-foreground text-background text-[9px] font-bold grid place-items-center tabular-nums">{apagados}</span>}
+                </button>
+                {abierto && <AjustesAvisos abajo alCerrar={() => setAbierto(false)} />}
+            </div>
+            <button type="button" onClick={() => cambiarPrefs({ voz: !prefs.voz })} aria-pressed={prefs.voz} aria-label="Leer los avisos en voz alta"
+                title={prefs.voz ? "Lectura en voz alta: prendida (dice el tipo, la matrícula y la cámara)" : "Lectura en voz alta: apagada"}
+                className={cn(base, prefs.voz ? "bg-background tono-info" : "text-muted-foreground hover:text-foreground hover:bg-background")}>
+                <Speech size={15} />
+            </button>
+        </>
+    );
+}
+
 /** Qué salta en esta pantalla. Lo crítico no se ofrece: lista negra e intrusión saltan siempre. */
 function AjustesAvisos({ alCerrar, abajo }: { alCerrar: () => void; abajo?: boolean }) {
     const prefs = usePrefsAvisos();
@@ -219,7 +253,11 @@ function AjustesAvisos({ alCerrar, abajo }: { alCerrar: () => void; abajo?: bool
                     );
                 })}
             </div>
-            <button type="button" onClick={() => cambiarPrefs({ silencio: !prefs.silencio })} className="mt-2 w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] hover:bg-muted text-left border-t border-border pt-2.5">
+            <button type="button" onClick={() => cambiarPrefs({ voz: !prefs.voz })} className="mt-2 w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] hover:bg-muted text-left border-t border-border pt-2.5">
+                <Speech size={14} /><span className="flex-1 text-[13px]">Leer en voz alta</span>
+                <span className={cn("text-[11px] font-semibold", prefs.voz ? "tono-bien" : "text-muted-foreground")}>{prefs.voz ? "Sí" : "No"}</span>
+            </button>
+            <button type="button" onClick={() => cambiarPrefs({ silencio: !prefs.silencio })} className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[6px] hover:bg-muted text-left">
                 {prefs.silencio ? <VolumeX size={14} /> : <Volume2 size={14} />}<span className="flex-1 text-[13px]">Sonido</span>
                 <span className={cn("text-[11px] font-semibold", prefs.silencio ? "text-muted-foreground" : "tono-bien")}>{prefs.silencio ? "Apagado" : "Prendido"}</span>
             </button>
