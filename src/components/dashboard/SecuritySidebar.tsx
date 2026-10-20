@@ -1,5 +1,6 @@
 "use client";
 
+import { useFuncion } from "@/lib/funciones-cliente";
 import React, { useState } from "react";
 import {
     LayoutDashboard, Users, Car, Settings, ShieldCheck, History,
@@ -14,6 +15,7 @@ export default function SecuritySidebar() {
     const pathname = usePathname();
     const [collapsed, setCollapsed] = useState(false);
 
+    const plazasOn = useFuncion("LPR_PLAZAS");
     const items = [
         { icon: LayoutDashboard, label: "Monitor en Vivo LPR", href: "/admin/dashboard" },
         { icon: ScanFace, label: "Monitor en Vivo Face", href: "/admin/dashboard-face" },
@@ -58,7 +60,7 @@ export default function SecuritySidebar() {
             </div>
 
             <nav className="flex-1 p-3 space-y-1 overflow-y-auto custom-scrollbar">
-                {items.map((item, id) => {
+                {items.filter((it) => plazasOn || it.href !== "/admin/plazas").map((item, id) => {
                     if (item.divider) {
                         return !collapsed ? (
                             <div key={id} className="pt-3 pb-1 px-3 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">

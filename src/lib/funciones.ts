@@ -17,7 +17,7 @@ import type { ModuleId } from "@/lib/module-definitions";
  * haya una segunda función no haya que inventar un segundo mecanismo.
  */
 
-export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS";
+export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS" | "LPR_PLAZAS";
 
 export interface Funcion {
     id: FuncionId;
@@ -68,6 +68,14 @@ export const FUNCIONES: Funcion[] = [
         que: "Muestra la marca (en texto) que reconoce la cámara en cada lectura: en el monitor LPR, en la ficha del evento y en el visor. La marca del padrón se muestra siempre.",
         siSeApaga: "Se dejan de mostrar las marcas que adivina la cámara, que fallan seguido y pueden confundir una búsqueda. Se siguen guardando con la lectura: prenderla otra vez las muestra también en lo ya leído.",
         porDefecto: false,
+    },
+    {
+        id: "LPR_PLAZAS",
+        modulo: "MODULE_LPR",
+        nombre: "Plazas de parking (cocheras)",
+        que: "Las cocheras del barrio: la pantalla Plazas de Parking, la cochera asignada a cada residente, el botón de plaza en el Monitor LPR y en la consola de la guardia, y la cochera en la ficha del evento.",
+        siSeApaga: "Desaparecen del menú y de las pantallas todo lo de plazas y cocheras (20/10: San Nicolás no las usa). Las cocheras ya cargadas no se borran: prenderla otra vez las muestra como estaban. Los lotes del mapa siguen vinculados.",
+        porDefecto: true,
     },
 ];
 
