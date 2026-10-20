@@ -14,7 +14,8 @@ import { enMontevideo } from "@/lib/filas/horario";
  *   · presentación animada de PRESENTACION_SEG: el isotipo se dibuja (los anillos y el paso), entra
  *     la marca, y después los datos del momento — fila, estado, personas contra límite, espera,
  *     fecha y hora — en escalera; cruza con fundido al video;
- *   · durante el video, una franja inferior con la fila y el momento, y el logo chico en la esquina;
+ *   · durante el video, una franja inferior con la fila, el momento y el logo (abajo: arriba están
+ *     la fecha y el logo que sobreimprime la propia cámara);
  *   · la foto: las personas que vio la cámara dibujadas, y una franja con la cuenta.
  *
  * Los cuadros se dibujan como SVG con sharp (que no lee variables CSS: los colores van escritos,
@@ -122,7 +123,7 @@ ${filaTxt(5, y0 + 214, `<text x="388" y="__Y__" font-family="${FUENTE}" font-siz
 </svg>`;
 }
 
-/** La franja de abajo durante el video, y el logo en la esquina (PNG con transparencia). */
+/** La franja de abajo durante el video, con el logo a la derecha (PNG con transparencia). */
 function franja(d: DatosMarca): string {
     const tono = tonoDe(d), col = C[tono];
     const { fecha, hora } = fechaHora(d.momento);
@@ -132,7 +133,7 @@ function franja(d: DatosMarca): string {
 <rect x="0" y="${ALTO - 70}" width="${ANCHO}" height="70" fill="url(#sombra)"/>
 <rect x="18" y="${ALTO - 40}" width="4" height="22" rx="2" fill="${col}"/>
 <text x="32" y="${ALTO - 23}" font-family="${FUENTE}" font-size="16" font-weight="700" fill="${C.tinta}">${txt}</text>
-<g opacity=".92">${isotipo(ANCHO - 152, 12, 0.5, 1)}<text x="${ANCHO - 116}" y="35" font-family="${FUENTE}" font-size="15" font-weight="700" fill="${C.tinta}">OmniAccess</text></g>
+<g opacity=".95">${isotipo(ANCHO - 140, ALTO - 46, 0.42, 1)}<text x="${ANCHO - 110}" y="${ALTO - 23}" font-family="${FUENTE}" font-size="15" font-weight="700" fill="${C.tinta}">OmniAccess</text></g>
 </svg>`;
 }
 
@@ -219,7 +220,7 @@ export async function fotoConMarca(foto: Buffer, personas: PersonaFoto[], d: Dat
     const sub = `límite ${d.limite} · ${personas.length} ${personas.length === 1 ? "marcada" : "marcadas"} en la foto`;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">${DEFS}
 ${formas}
-<rect x="0" y="0" width="${W}" height="${alto}" fill="${C.fondo1}" fill-opacity=".82"/>
+<rect x="0" y="0" width="${W}" height="${alto}" fill="${C.fondo1}" fill-opacity=".94"/>
 <rect x="0" y="${alto - 3}" width="${W}" height="3" fill="url(#barra)"/>
 ${isotipo(14, (alto - 44) / 2, 44 / 64, 1)}
 <text x="68" y="${alto * 0.46}" font-family="${FUENTE}" font-size="${Math.round(alto * 0.3)}" font-weight="700" fill="${C.tinta}">${esc(d.fila)}</text>
