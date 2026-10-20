@@ -13,11 +13,12 @@
 
 import https from "https";
 import { prisma } from "@/lib/prisma";
-import { sendQueueAlertToTelegram, sendTelegramMessage } from "@/lib/telegram";
 import { uploadToS3 } from "@/lib/s3";
 import { enqueueDispatch } from "@/lib/dispatch-queue";
 import { sendWebPushToAll } from "@/lib/webpush";
-import { isPushActive } from "@/app/api/onvif/notify/route";
+import { pushVigente } from "@/lib/filas/push";
+import { fotoDeLectura, cuadroBosch } from "@/lib/filas/foto";
+import { avisarFila } from "@/lib/filas/avisar";
 
 // ─── Types ─────────────────────────────────────────
 interface ONVIFSubscription {
@@ -82,6 +83,10 @@ async function getLastOccupancy(deviceId: string): Promise<number> {
 
 async function markDeviceOffline(deviceId: string) {
     if (deviceOffline.get(deviceId)) return; // already flagged offline
+    /* HB, 19/10: 383 «cortes» en un día, ninguno de más de dos minutos. Era el PullPoint que no
+       contestaba a tiempo (la cámara atiende también el push, el video y las fotos), mientras la
+       misma cámara seguía mandando eventos por push. Si el push está vivo, la cámara está viva. */
+    if (pushVigente(deviceId)) return;
     deviceOffline.set(deviceId, true);
     onlineSettled.delete(deviceId);
     const open = await prisma.cameraOutage.findFirst({ where: { deviceId, endedAt: null } });
@@ -93,7 +98,7 @@ async function markDeviceOffline(deviceId: string) {
     }
 }
 
-async function markDeviceOnline(deviceId: string) {
+export async function markDeviceOnline(deviceId: string) {
     consecutiveFailures.set(deviceId, 0);
     // fast path: already confirmed online and settled
     if (deviceOffline.get(deviceId) === false && onlineSettled.has(deviceId)) return;
@@ -133,7 +138,7 @@ function emitBoschEvent(deviceName: string, channelName: string, count: number) 
 }
 
 // Emit an arbitrary socket event through the server.js bridge (/internal/emit).
-function emitSocket(event: string, data: Record<string, any>) {
+export function emitSocket(event: string, data: Record<string, any>) {
     try {
         const http = require("http");
         const payload = JSON.stringify({ __event: event, ...data });
@@ -336,7 +341,10 @@ async function fireHealthAlert(deviceId: string, kind: string) {
         const dev = await prisma.device.findUnique({ where: { id: deviceId }, select: { name: true, ip: true, username: true, password: true } });
         if (!dev) return;
         let snapshotPath: string | null = null;
-        try { snapshotPath = await grabSnapshot(dev.ip, dev.username, dev.password, deviceId); } catch {}
+        try {
+            const buf = await cuadroBosch({ id: deviceId, ip: dev.ip, username: dev.username, password: dev.password });
+            if (buf) snapshotPath = await uploadToS3(buf, `queue/${deviceId}/${Date.now()}.jpg`, "image/jpeg", "queue");
+        } catch {}
         const meta: any = ({
             tamper: { title: "Cámara movida o tapada", emoji: "🚧", desc: "La escena cambió drásticamente: la cámara pudo ser movida, girada o tapada. El aforo de esta fila puede no ser confiable." },
             bright: { title: "Imagen demasiado clara", emoji: "🔆", desc: "Imagen sobreexpuesta (sol/contraluz). El conteo puede ser poco fiable." },
@@ -435,60 +443,7 @@ async function ensureSubscription(
     }
 }
 
-// ─── Grab Snapshot from Camera ─────────────────────
-async function grabSnapshot(
-    ip: string,
-    username: string,
-    password: string,
-    deviceId: string
-): Promise<string | null> {
-    return new Promise((resolve) => {
-        try {
-            const auth = Buffer.from(`${username}:${password}`).toString("base64");
-            const agent = new https.Agent({ rejectUnauthorized: false });
 
-            const parsed = new URL(`https://${ip}/snap.jpg?JpegSize=L`);
-            const req = https.request(
-                {
-                    hostname: parsed.hostname,
-                    port: parsed.port || 443,
-                    path: parsed.pathname + parsed.search,
-                    method: "GET",
-                    headers: { Authorization: `Basic ${auth}` },
-                    agent,
-                    timeout: 5000,
-                },
-                (res) => {
-                    if (res.statusCode !== 200) {
-                        res.resume();
-                        resolve(null);
-                        return;
-                    }
-                    const chunks: Buffer[] = [];
-                    res.on("data", (c: Buffer) => chunks.push(c));
-                    res.on("end", async () => {
-                        const buf = Buffer.concat(chunks);
-                        if (buf.length < 100) { resolve(null); return; }
-                        try {
-                            const filename = `queue/${deviceId}/${Date.now()}.jpg`;
-                            const path = await uploadToS3(buf, filename, "image/jpeg", "queue");
-                            resolve(path);
-                        } catch {
-                            resolve(null);
-                        }
-                    });
-                }
-            );
-            req.on("error", () => resolve(null));
-            req.on("timeout", () => { req.destroy(); resolve(null); });
-            req.end();
-        } catch {
-            resolve(null);
-        }
-    });
-}
-
-// ─── Main Poll Function ────────────────────────────
 export async function pollBoschDevices(): Promise<{
     /** Cuantos hay dados de alta. De esto sale el ritmo: sin contadores no hay nada que mirar. */
     devicesFound: number;
@@ -568,7 +523,7 @@ export async function pollBoschDevices(): Promise<{
                 // value is identical to avoid noise/flicker.
                 // Si el PUSH (WS-BaseNotification) está entregando eventos en vivo, el poll
                 // NO inserta (evita doble-conteo). El poll queda como fallback si el push cae.
-                if (isPushActive(device.id)) { lastKnownCounts.set(cacheKey, evt.count); continue; }
+                if (pushVigente(device.id)) { lastKnownCounts.set(cacheKey, evt.count); continue; }
                 if (lastCount === evt.count) {
                     continue;
                 }
@@ -581,13 +536,8 @@ export async function pollBoschDevices(): Promise<{
 
                 // Real-time: record exactly what the camera sends (incl. 0). Stability via camera rebote.
 
-                // Capturar foto SOLO cuando el aforo alcanza/supera el umbral de alerta de esta fila.
-                let snapshotPath: string | null = null;
-                const isAforoCh = isOccupancy || /aforo|occupancy|ocupaci/i.test(channelName || "");
-                const snapThreshold = await getMinAlertThreshold(device.id, channelName);
-                if (isAforoCh && snapThreshold !== null && evt.count >= snapThreshold) {
-                    snapshotPath = await grabSnapshot(device.ip, device.username, device.password, device.id);
-                }
+                // La foto, con el mismo criterio que el push (lib/filas/foto).
+                const snapshotPath = await fotoDeLectura(device, channelName, evt.count);
 
                 // Create QueueEvent
                 const queueEvent = await prisma.queueEvent.create({
@@ -628,9 +578,7 @@ export async function pollBoschDevices(): Promise<{
                     timestamp: new Date(evt.utcTime).toISOString(),
                 });
 
-                // Check alerts
-                await checkQueueAlerts(device.id, channelName, evt.count, snapshotPath);
-                await evaluateNotificationRules(device.id, channelName, evt.count, snapshotPath).catch(() => {});
+                await alLeerFila(device.id, channelName, evt.count, snapshotPath);
             }
 
             /* Antes se anotaba "no new events" en cada vuelta. Un contador leido cada
@@ -657,6 +605,16 @@ export async function pollBoschDevices(): Promise<{
     return result;
 }
 
+/**
+ * Lo que pasa con cada lectura nueva, venga del sondeo o del push: alertas de la fila y reglas de
+ * notificación. El push tenía su propia versión de las alertas (sin horario, sin destinatarios y
+ * sin reglas): con el push andando, que es casi siempre, las reglas de Filas nunca se evaluaban.
+ */
+export async function alLeerFila(deviceId: string, channelName: string | null | undefined, count: number, snapshotPath?: string | null) {
+    await checkQueueAlerts(deviceId, channelName, count, snapshotPath).catch((e) => console.error(`[QueueAlert] ${e?.message || e}`));
+    await evaluateNotificationRules(deviceId, channelName, count, snapshotPath).catch(() => {});
+}
+
 // ─── Alert Check (same logic as webhook route) ─────
 // ── Evaluate NotificationRules → enqueue dispatches (Notificaciones/Despachos) ──
 const METRIC_CHANNELS: Record<string, string[]> = {
@@ -674,6 +632,8 @@ async function evaluateNotificationRules(deviceId: string, channelName: string |
     try { rules = await prisma.notificationRule.findMany({ where: { enabled: true, modulo: "QUEUE" } }); }
     catch { return; }
     if (!rules.length) return;
+    // Fuera del horario de la fila no se avisa, igual que las alertas de aforo (lib/filas/horario).
+    if (!(await atiendeAhora(deviceId))) return;
     const now = new Date();
     const day = String(_isoDay(now));
     const hhmm = _hhmm(now);
@@ -710,30 +670,6 @@ async function evaluateNotificationRules(deviceId: string, channelName: string |
 
 async function getDispatchRecipientsRaw(): Promise<any[]> {
     try { const st = await prisma.setting.findUnique({ where: { key: "DISPATCH_RECIPIENTS" } }); return st?.value ? JSON.parse(st.value) : []; } catch { return []; }
-}
-
-// Umbral minimo de alerta habilitada para un dispositivo/canal (para gatear la captura de fotos).
-async function getMinAlertThreshold(deviceId: string, channelName: string | null | undefined): Promise<number | null> {
-    const alerts = await prisma.queueAlert.findMany({
-        where: {
-            enabled: true,
-            OR: [
-                { deviceId, channelName: channelName || undefined },
-                { deviceId, channelName: null },
-                { deviceId: null, channelName: channelName || undefined },
-                { deviceId: null, channelName: null },
-            ],
-        },
-        select: { threshold: true },
-    });
-    if (!alerts.length) {
-        // Fallback: si ninguna alerta coincide con el canal exacto, usar el umbral mínimo
-        // de cualquier alerta habilitada del dispositivo o global (tolerante a nombres de canal).
-        const any = await prisma.queueAlert.findMany({ where: { enabled: true, OR: [{ deviceId }, { deviceId: null }] }, select: { threshold: true } });
-        if (!any.length) return null;
-        return Math.min(...any.map(a => a.threshold));
-    }
-    return Math.min(...alerts.map(a => a.threshold));
 }
 
 /* Horarios de la fila (lib/filas/horario): fuera de horario no se avisa que está llena. Son
@@ -797,12 +733,7 @@ async function checkQueueAlerts(deviceId: string, channelName: string | null | u
                     threshold: alert.threshold, snapshotPath: snapshotPath || null,
                     escalated: true, sustainedMin: mins, timestamp: new Date().toISOString(),
                 });
-                sendTelegramMessage(
-                    `🔴 <b>ESCALAMIENTO — Avisar SUPERVISOR</b>\n` +
-                    `📍 ${dev?.name || "Fila"} · ${channelName || "Aforo"}\n` +
-                    `El aforo (<b>${count}</b>) supera el umbral (${alert.threshold}) desde hace <b>${mins} min</b>.\n` +
-                    `<i>Regla: ${alert.name}</i>`
-                ).catch(() => {});
+                await avisarFila({ deviceId, alerta: alert.name, personas: count, limite: alert.threshold, snapshotPath, tipo: "escalamiento", canal: channelName });
                 // Critical-event trigger: enqueue an episode report for dispatch
                 enqueueDispatch({ type: "REPORT", channel: "telegram", deviceId, payload: { period: "daily", deviceId, reason: "escalation", ruleName: alert.name } }).catch(() => {});
             } catch (e) { console.warn(`[QueueAlert] escalation dispatch failed "${alert.name}":`, e); }
@@ -820,62 +751,25 @@ async function checkQueueAlerts(deviceId: string, channelName: string | null | u
             data: { lastFiredAt: now },
         });
 
-        // Dispatch to all configured recipients via the Redis queue (pro)
-        try {
-            const dev2 = await prisma.device.findUnique({ where: { id: deviceId }, select: { name: true } });
-            const recipients = await getDispatchRecipientsRaw();
-            for (const rcp of recipients) {
-                if (!rcp || !rcp.enabled || !rcp.channel || !rcp.address) continue;
-                await enqueueDispatch({
-                    type: "ALERT", channel: rcp.channel, deviceId,
-                    payload: {
-                        ruleName: alert.name, deviceName: dev2?.name || "Fila",
-                        channelName: channelName || "Aforo", count, threshold: alert.threshold,
-                        snapshotPath: snapshotPath || null,
-                        chatId: rcp.address, to: rcp.address, email: rcp.address,
-                        recipientName: rcp.name || rcp.address, recipientChannel: rcp.channel,
-                        timestamp: now.toISOString(), alertTs: now.getTime(),
-                    },
-                });
-            }
-        } catch (e) { console.error("[QueueAlert] recipients dispatch error", e); }
+        // El aviso (grupo de Telegram + destinatarios de Despachos, con clip): lib/filas/avisar.
+        await avisarFila({ deviceId, alerta: alert.name, personas: count, limite: alert.threshold, snapshotPath, tipo: "lleno", canal: channelName })
+            .catch((e) => console.error(`[QueueAlert] aviso "${alert.name}": ${e?.message || e}`));
 
-        // Send Telegram notification with snapshot photo + push a live toast to the UI
+        // Lo que se ve en las pantallas abiertas y en la PWA, al instante.
         try {
-            const device = await prisma.device.findUnique({
-                where: { id: deviceId },
-                select: { name: true, ip: true, username: true, password: true },
+            const device = await prisma.device.findUnique({ where: { id: deviceId }, select: { name: true } });
+            emitSocket("queue_alert", {
+                alertName: alert.name, deviceName: device?.name || "Fila", channelName: channelName || "General",
+                peopleCount: count, threshold: alert.threshold, snapshotPath: snapshotPath || null,
+                timestamp: new Date().toISOString(),
             });
-            if (device) {
-                // Live toast (with photo) for all open dashboards
-                emitSocket("queue_alert", {
-                    alertName: alert.name,
-                    deviceName: device.name,
-                    channelName: channelName || "General",
-                    peopleCount: count,
-                    threshold: alert.threshold,
-                    snapshotPath: snapshotPath || null,
-                    timestamp: new Date().toISOString(),
-                });
-                sendQueueAlertToTelegram(
-                    alert.name,
-                    device.name,
-                    device.ip,
-                    device.username || "admin",
-                    device.password || "admin",
-                    channelName || "General",
-                    count,
-                    alert.threshold
-                ).catch(err => console.error(`[Telegram] Failed to send alert: ${err.message}`));
-                // Web Push to installed PWAs
-                sendWebPushToAll({
-                    title: `Aforo ${count} \u00b7 ${device.name}`,
-                    body: `Super\u00f3 el umbral (${alert.threshold}). Regla: ${alert.name}`,
-                    url: "/pwa/filas",
-                }).catch(() => {});
-            }
+            sendWebPushToAll({
+                title: `Aforo ${count} \u00b7 ${device?.name || "Fila"}`,
+                body: `Super\u00f3 el umbral (${alert.threshold}). Regla: ${alert.name}`,
+                url: "/pwa/filas",
+            }).catch(() => {});
         } catch (err: any) {
-            console.error(`[Telegram] Error preparing alert: ${err.message}`);
+            console.error(`[QueueAlert] aviso en pantalla: ${err.message}`);
         }
     }
 }

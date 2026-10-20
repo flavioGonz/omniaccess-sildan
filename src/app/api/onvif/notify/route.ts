@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendQueueAlertToTelegram } from "@/lib/telegram";
-import { uploadToS3 } from "@/lib/s3";
-import https from "https";
+import { anotarPush } from "@/lib/filas/push";
+import { fotoDeLectura } from "@/lib/filas/foto";
+import { alLeerFila, markDeviceOnline, emitSocket } from "@/lib/onvif-polling";
 
 /**
  * POST /api/onvif/notify
@@ -17,23 +17,12 @@ import https from "https";
 // Track last known counts to deduplicate
 const pushLastCounts = new Map<string, number>();
 
-// Track push activity per device to let polling know push is working
-const pushActivity = new Map<string, number>();
+// La actividad del push vive en lib/filas/push (la lee el sondeo para no duplicar lecturas).
 
 // IVA occupancy counter for push events (enter +1, leave -1) — YA NO se usa para Aforo
 const pushIvaOccupancy = new Map<string, number>();
 // Contadores cumulativos de Entrada/Salida (cruces de campo) por push
 const pushFlowCounts = new Map<string, number>();
-
-export function isPushActive(deviceId: string): boolean {
-    const last = pushActivity.get(deviceId);
-    if (!last) return false;
-    return Date.now() - last < 60000;
-}
-
-export function getPushActivity(): Map<string, number> {
-    return pushActivity;
-}
 
 function emitBoschEvent(deviceName: string, channelName: string, count: number) {
     try {
@@ -51,84 +40,6 @@ function emitBoschEvent(deviceName: string, channelName: string, count: number) 
         req.write(payload);
         req.end();
     } catch {}
-}
-
-async function grabSnapshot(
-    ip: string,
-    username: string,
-    password: string,
-    deviceId: string
-): Promise<string | null> {
-    return new Promise((resolve) => {
-        try {
-            const auth = Buffer.from(`${username}:${password}`).toString("base64");
-            const agent = new https.Agent({ rejectUnauthorized: false });
-            const parsed = new URL(`https://${ip}/snap.jpg?JpegSize=L`);
-            const req = https.request({
-                hostname: parsed.hostname,
-                port: parsed.port || 443,
-                path: parsed.pathname + parsed.search,
-                method: "GET",
-                headers: { Authorization: `Basic ${auth}` },
-                agent,
-                timeout: 5000,
-            }, (res) => {
-                if (res.statusCode !== 200) { res.resume(); resolve(null); return; }
-                const chunks: Buffer[] = [];
-                res.on("data", (c: Buffer) => chunks.push(c));
-                res.on("end", async () => {
-                    const buf = Buffer.concat(chunks);
-                    if (buf.length < 100) { resolve(null); return; }
-                    try {
-                        const filename = `queue/${deviceId}/${Date.now()}.jpg`;
-                        const path = await uploadToS3(buf, filename, "image/jpeg", "queue");
-                        resolve(path);
-                    } catch { resolve(null); }
-                });
-            });
-            req.on("error", () => resolve(null));
-            req.on("timeout", () => { req.destroy(); resolve(null); });
-            req.end();
-        } catch { resolve(null); }
-    });
-}
-
-async function checkQueueAlerts(deviceId: string, channelName: string, count: number) {
-    const alerts = await prisma.queueAlert.findMany({
-        where: {
-            enabled: true,
-            OR: [
-                { deviceId, channelName },
-                { deviceId, channelName: null },
-            ],
-        },
-    });
-
-    const now = new Date();
-    for (const alert of alerts) {
-        if (count < alert.threshold) continue;
-        if (alert.lastFiredAt) {
-            const cooldownMs = alert.cooldownMin * 60 * 1000;
-            if (now.getTime() - alert.lastFiredAt.getTime() < cooldownMs) continue;
-        }
-
-        console.log(`[ONVIF-Push] Alert "${alert.name}" fired: ${count} >= ${alert.threshold}`);
-        await prisma.queueAlert.update({ where: { id: alert.id }, data: { lastFiredAt: now } });
-
-        try {
-            const device = await prisma.device.findUnique({
-                where: { id: deviceId },
-                select: { name: true, ip: true, username: true, password: true },
-            });
-            if (device) {
-                sendQueueAlertToTelegram(
-                    alert.name, device.name, device.ip,
-                    device.username || "admin", device.password || "admin",
-                    channelName, count, alert.threshold
-                ).catch(err => console.error(`[Telegram] Push alert error: ${err.message}`));
-            }
-        } catch {}
-    }
 }
 
 export async function POST(req: NextRequest) {
@@ -231,17 +142,16 @@ export async function POST(req: NextRequest) {
             if (lastCount === count && operation !== "Initialized") continue;
             pushLastCounts.set(cacheKey, count);
 
-            pushActivity.set(device.id, Date.now());
+            anotarPush(device.id);
+            // Si mandó un evento, está en línea: cierra un corte abierto por el sondeo.
+            markDeviceOnline(device.id).catch(() => {});
 
             if (operation === "Initialized" && lastCount !== undefined) continue;
 
             const isOccupancy = topic.includes("Occupancy");
             const channelName = ruleName || (isOccupancy ? "Occupancy" : "Counter");
 
-            let snapshotPath: string | null = null;
-            if (count > 0 && device.ip && device.username && device.password) {
-                snapshotPath = await grabSnapshot(device.ip, device.username, device.password, device.id);
-            }
+            const snapshotPath = await fotoDeLectura(device, channelName, count);
 
             const queueEvent = await prisma.queueEvent.create({
                 data: {
@@ -268,7 +178,13 @@ export async function POST(req: NextRequest) {
             );
 
             emitBoschEvent(device.name, channelName, count);
-            await checkQueueAlerts(device.id, channelName, count);
+            // Las pantallas en vivo escuchan queue_update; sólo lo emitía el sondeo, así que con el
+            // push andando se actualizaban recién en la siguiente consulta.
+            emitSocket("queue_update", {
+                deviceId: device.id, deviceName: device.name, channelName, peopleCount: count,
+                isOccupancy, operation, snapshotPath, timestamp: new Date(utcTime).toISOString(),
+            });
+            await alLeerFila(device.id, channelName, count, snapshotPath);
         }
 
         if (eventsProcessed > 0) {

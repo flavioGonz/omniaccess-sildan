@@ -125,6 +125,11 @@ export async function syncLprStream(dev: Dev): Promise<void> {
             await writeStreams(base, `${base}_hd`,
                 `rtsp://${cred}${dev.ip}/rtsp_tunnel?p=1&line=1&inst=2&vcd=2`,
                 `rtsp://${cred}${dev.ip}/rtsp_tunnel?p=0&line=1&inst=1&vcd=2`);
+            /* Y también como lpr_<id>: así la nombran OmniVision (el editor de reglas pide el cuadro a
+               /api/vision/cuadro y el worker lee ese stream) y el resto de las piezas que buscan una
+               cámara por id. Sin esto, en HB el editor mostraba «No llegó el cuadro de la cámara».
+               Apuntan al restream local de go2rtc, no a la cámara: la Bosch no abre otra sesión. */
+            await writeStreams(name, nameHd, `rtsp://127.0.0.1:8554/${base}`, `rtsp://127.0.0.1:8554/${base}_hd`);
             return;
         }
 

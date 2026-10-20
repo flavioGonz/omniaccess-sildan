@@ -3,11 +3,15 @@ import { prisma } from "@/lib/prisma";
 import { resetQueueCounters } from "@/lib/onvif-polling";
 import { conRegistro } from "@/lib/tareas/ejecucion";
 import { enMontevideo, especialDe, diasDe } from "@/lib/filas/horario";
+import { retencionSiToca } from "@/lib/filas/retencion";
 
 // GET /api/queue/schedule/tick → checks schedules; at openTime (today) triggers counter reset.
 async function ejecutar(_req: NextRequest) {
     try {
         const now = new Date();
+        // La retención de fotos de las filas va colgada de este tick (corre una vez por hora): ya
+        // hay un cron que lo llama cada minuto en cada instalación de Filas. Sin esperar.
+        void retencionSiToca();
         // Hora de Montevideo calculada a mano (lib/filas/horario): no depende de la zona del servidor.
         const { fecha, dow, hhmm } = enMontevideo(now);
 

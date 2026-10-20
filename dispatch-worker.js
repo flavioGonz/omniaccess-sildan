@@ -221,9 +221,9 @@ async function trackingToken() {
     return _token;
 }
 /** → { ok:true, nombre, url, fuente } | { ok:false, motivo } — nunca lanza. */
-function pedirClip(deviceId, instante) {
+function pedirClip(deviceId, instante, antes, despues) {
     return new Promise(async (resolve) => {
-        const data = JSON.stringify({ deviceId, instante, para: "alerta" });
+        const data = JSON.stringify({ deviceId, instante, para: "alerta", antes, despues });
         const token = await trackingToken();
         const req = http.request({ hostname: "127.0.0.1", port: 10001, path: "/api/clip/instante", method: "POST",
             // Espera del tramo (≤30 s) + corte a tiempo real (≤45 s) + margen.
@@ -272,6 +272,28 @@ function openwaSendVideo(baseUrl, apiKey, session, chatId, base64, caption) {
 }
 function openwaSendVideoUrl(baseUrl, apiKey, session, chatId, videoUrl, caption) {
     return wahaPost(baseUrl, apiKey, "/api/sendVideo", { session, chatId, file: { mimetype: "video/mp4", filename: "clip.mp4", url: videoUrl }, caption }, 40000);
+}
+
+// Subir un archivo a Telegram (multipart). Por URL no sirve en una instalación detrás de una VPN
+// o un LTE (HB): Telegram tiene que poder bajar el archivo desde internet, y PUBLIC_BASE_URL
+// apuntaba al dominio del primer barrio. Subido, llega siempre.
+function telegramSubir(token, chatId, metodo, campo, buf, nombre, mime, caption, extra) {
+    return new Promise((resolve) => {
+        const limite = "----omni" + Date.now().toString(36);
+        const parte = (k, v) => Buffer.from(`--${limite}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`);
+        const partes = [parte("chat_id", chatId), parte("parse_mode", "HTML")];
+        if (caption) partes.push(parte("caption", caption));
+        for (const [k, v] of Object.entries(extra || {})) partes.push(parte(k, String(v)));
+        partes.push(Buffer.from(`--${limite}\r\nContent-Disposition: form-data; name="${campo}"; filename="${nombre}"\r\nContent-Type: ${mime}\r\n\r\n`));
+        partes.push(buf, Buffer.from(`\r\n--${limite}--\r\n`));
+        const body = Buffer.concat(partes);
+        const req = https.request(`https://api.telegram.org/bot${token}/${metodo}`,
+            { method: "POST", headers: { "Content-Type": `multipart/form-data; boundary=${limite}`, "Content-Length": body.length }, timeout: 60000 },
+            (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode === 200, body: d })); });
+        req.on("error", (e) => resolve({ ok: false, body: e.message }));
+        req.on("timeout", () => { req.destroy(); resolve({ ok: false, body: "timeout" }); });
+        req.write(body); req.end();
+    });
 }
 
 // Telegram sendAnimation (by public URL).
@@ -376,10 +398,11 @@ async function handle(job) {
             let clip = null;
             let notaVideo = null;
             // Sin cámara (una prueba de canal, un aviso de sistema) no hay video que pedir ni nada que anotar.
-            if (animated && dj.deviceId && (dj.channel === "whatsapp" || dj.channel === "telegram")) {
+            // El aviso de fila llena trae su clip siempre (p.conVideo, lib/filas/avisar), con su ventana.
+            if ((animated || p.conVideo) && dj.deviceId && (dj.channel === "whatsapp" || dj.channel === "telegram")) {
                 {
                     const inst = Date.parse(p.instante || p.timestamp || "") || Number(p.alertTs) || new Date(dj.createdAt).getTime();
-                    const r = await pedirClip(dj.deviceId, inst);
+                    const r = await pedirClip(dj.deviceId, inst, p.clipAntes, p.clipDespues);
                     if (r && r.ok && r.nombre) clip = r;
                     else notaVideo = "sin video: " + ((r && r.motivo) || "no se pudo armar el clip");
                 }
@@ -388,19 +411,31 @@ async function handle(job) {
                 const token = await getSetting("TELEGRAM_BOT_TOKEN", process.env.TELEGRAM_BOT_TOKEN);
                 const chat = p.chatId || await getSetting("TELEGRAM_CHAT_ID", process.env.TELEGRAM_CHAT_ID);
                 if (!token || !chat) throw new Error("Faltan credenciales de Telegram");
-                const htmlText = p.text || (
+                const htmlText = p.html || p.text || (
                     `🚨 <b>${p.ruleName || "Alerta de aforo"}</b>\n` +
                     `📍 ${p.deviceName || "Fila"} · ${p.channelName || "Aforo"}\n` +
                     `Valor <b>${p.count}</b> (umbral ${p.threshold})`
                 );
                 let r;
                 if (clip) {
-                    r = await telegramSendAnimation(token, chat, firmarUrl(base.replace(/\/+$/, "") + "/api/clip/" + clip.nombre), htmlText);
+                    // El clip SUBIDO (sendVideo): se reproduce en el chat sin bajarlo, y no depende de
+                    // que Telegram alcance esta instalación desde internet.
+                    let buf = null;
+                    try { buf = fs.readFileSync(path.join(DIR_CLIPS, clip.nombre)); } catch {}
+                    if (buf) r = await telegramSubir(token, chat, "sendVideo", "video", buf, clip.nombre, "video/mp4", htmlText, { supports_streaming: "true" });
+                    if (!r || !r.ok) r = await telegramSendAnimation(token, chat, firmarUrl(base.replace(/\/+$/, "") + "/api/clip/" + clip.nombre), htmlText);
                     if (!r || !r.ok) notaVideo = "sin video: Telegram rechazó el clip (" + String((r && r.body) || "").slice(0, 80) + ")";
                 }
                 if (!r || !r.ok) {
-                    const img = imageUrlFor(base, p.snapshotPath, dj.deviceId);
-                    r = img ? await telegramSendPhoto(token, chat, img, htmlText) : await telegramSend(token, chat, htmlText);
+                    // La foto, también subida (la de la lectura, o el cuadro de ahora).
+                    const imgPath = imagePathFor(p.snapshotPath, dj.deviceId);
+                    const b64 = imgPath ? await fetchLocalBase64(imgPath) : null;
+                    if (b64) r = await telegramSubir(token, chat, "sendPhoto", "photo", Buffer.from(b64, "base64"), "foto.jpg", "image/jpeg", htmlText);
+                    if (!r || !r.ok) {
+                        const img = imageUrlFor(base, p.snapshotPath, dj.deviceId);
+                        r = img ? await telegramSendPhoto(token, chat, img, htmlText) : await telegramSend(token, chat, htmlText);
+                    }
+                    if (!r.ok) r = await telegramSend(token, chat, htmlText);
                 }
                 if (!r.ok) throw new Error("Telegram: " + r.body);
             } else if (dj.channel === "whatsapp") {
