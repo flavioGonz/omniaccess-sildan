@@ -464,6 +464,32 @@ function Foto({ src, clip }: { src: string | null; clip?: { id: string | null; d
     );
 }
 
+const COMO_TERMINO: Record<string, string> = { salio: "Salió de la zona", "no-se-ve": "Dejó de verse", reinicio: "Se dejó de seguir" };
+const hhmm = (iso: string) => new Date(iso).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false });
+const minutos = (seg: number) => (seg < 60 ? `${seg} s` : seg < 3600 ? `${Math.round(seg / 60)} min` : `${Math.floor(seg / 3600)} h ${String(Math.round(seg / 60) % 60).padStart(2, "0")} min`);
+
+/**
+ * «Se quedó en la zona», explicado (20/10, Nico: «no comprendo mucho el se quedó y ese timer;
+ * debés indicar cuándo se va también»). Mientras sigue: desde qué hora está y el reloj corriendo.
+ * Cuando se va: a qué hora, cuánto estuvo en total y cómo se supo (salió, o dejó de verse, que
+ * no es lo mismo).
+ */
+function EstadiaEnZona({ e }: { e: NonNullable<Alarma["estadia"]> }) {
+    return (
+        <>
+            <Dato rotulo="Llegó"><span className="tabular-nums">{hhmm(e.desde)}</span>{e.umbral ? <span className="font-normal text-muted-foreground"> · avisa a los {minutos(e.umbral)}</span> : null}</Dato>
+            {e.hasta ? (
+                <Dato rotulo={COMO_TERMINO[e.como || ""] || "Se fue"}>
+                    <span className="tabular-nums">{hhmm(e.hasta)}</span><span className="font-normal text-muted-foreground"> · estuvo {minutos(e.segundos ?? Math.round((new Date(e.hasta).getTime() - new Date(e.desde).getTime()) / 1000))}</span>
+                </Dato>
+            ) : (
+                <Dato rotulo="Sigue en la zona"><span className="inline-flex items-center gap-1.5"><span className="font-normal text-muted-foreground">lleva</span><Cronometro desde={e.desde} tamano="chico" /></span></Dato>
+            )}
+            {e.como === "no-se-ve" && <div className="text-[11.5px] text-muted-foreground -mt-0.5 pb-1">No se lo vio salir: dejó de verse 20 s. Puede haberse ido, o algo lo tapó.</div>}
+        </>
+    );
+}
+
 function Dato({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
     return <div className="flex items-baseline justify-between gap-3 py-1.5 border-b border-border last:border-0"><span className="text-[12px] text-muted-foreground">{rotulo}</span><span className="text-[13px] font-semibold text-right min-w-0">{children}</span></div>;
 }
@@ -545,6 +571,7 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                 <div>
                     <Dato rotulo="Cuándo"><span className="tabular-nums">{t.toLocaleDateString("es-UY", { weekday: "short", day: "2-digit", month: "2-digit" })} · {t.toLocaleTimeString("es-UY", { hour12: false })}</span></Dato>
                     {a.camara && <Dato rotulo="Cámara">{a.camara}</Dato>}
+                    {a.estadia && <EstadiaEnZona e={a.estadia} />}
                     <Dato rotulo="Estado">{a.estado === "pendiente" ? <span className="tono-mal">Pendiente</span> : <span>{a.resultado === "falsa" ? "Falsa alarma" : a.resultado === "real" ? "Real" : "Atendida"}{a.atendidaPor ? ` · ${a.atendidaPor}` : ""}</span>}</Dato>
                 </div>
 

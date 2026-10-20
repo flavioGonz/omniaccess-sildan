@@ -258,6 +258,11 @@ async function marcar(jpeg, marcas) {
     if (!svg) return jpeg;
     return sharp(jpeg).composite([{ input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">${svg}</svg>`), top: 0, left: 0 }]).jpeg({ quality: 85 }).toBuffer();
 }
+/** Cómo terminó una estadía con aviso (ver cerrarAvisoEstadia). */
+const COMO_TERMINO = { salio: "salió de la zona", "no-se-ve": "dejó de verse", reinicio: "se dejó de seguir (se reinició el análisis)" };
+/** «40 s», «23 min», «1 h 05 min». */
+const duracion = (seg) => { if (seg < 60) return `${Math.round(seg)} s`; const m = Math.round(seg / 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`; };
+const hhmm = (d) => d.toLocaleTimeString("es-UY", { timeZone: process.env.NEXT_PUBLIC_TZ || "America/Montevideo", hour: "2-digit", minute: "2-digit", hour12: false });
 /** Cuánto lleva, para el rótulo de la caja: «15 min», «40 s». */
 const lleva = (seg) => (seg >= 60 ? `${Math.round(seg / 60)} min` : `${Math.round(seg)} s`);
 const nombreDe = (clase) => { const n = NOMBRE_CLASE[clase] || String(clase || "").replace(/^propio:.*/, "objeto"); return n.charAt(0).toUpperCase() + n.slice(1); };
@@ -371,10 +376,10 @@ function iniciar({ prisma, subir, log, pose }) {
         return r.avisar ? fotoMarcada(jpeg, ahora, marcas) : cruda;
     }
 
-    async function avisar(r, tipoEvento, motivo, eventoId, fotoClave, cam) {
+    async function avisar(r, tipoEvento, motivo, eventoId, fotoClave, cam, extra = {}) {
         if (!r.avisar) return null;
         try {
-            const aviso = await prisma.avisoGuardia.create({ data: { tipo: TIPO_AVISO[tipoEvento], motivo, camara: cam.name, datos: { reglaId: r.id, regla: r.nombre, eventoId, foto: fotoClave } } });
+            const aviso = await prisma.avisoGuardia.create({ data: { tipo: TIPO_AVISO[tipoEvento], motivo, camara: cam.name, datos: { reglaId: r.id, regla: r.nombre, eventoId, foto: fotoClave, ...extra } } });
             await prisma.eventoVision.update({ where: { id: eventoId }, data: { avisoId: aviso.id } }).catch(() => null);
             emitir("aviso_guardia", { accion: "nuevo", aviso });
             contadores.avisos++;
@@ -479,7 +484,7 @@ function iniciar({ prisma, subir, log, pose }) {
             const dentro = adentro(pie(o), r.zona);
             let e = estadias.get(k);
             if (!dentro) { if (e) { e.visto = t; e.fuera = true; } continue; }
-            if (!e) { e = { desde: t, visto: t, eventoId: null, clase: o.clase, deviceId: cam.id, fuera: false }; estadias.set(k, e); }
+            if (!e) { e = { desde: t, visto: t, eventoId: null, avisoId: null, clase: o.clase, deviceId: cam.id, camara: cam.name, regla: r.nombre, fuera: false }; estadias.set(k, e); }
             e.visto = t; e.fuera = false;
             const seg = (t - e.desde) / 1000;
             if (!e.eventoId && seg >= r.segundos) {
@@ -487,9 +492,13 @@ function iniciar({ prisma, subir, log, pose }) {
                 const ev = await evento({ tipo: "PERMANENCIA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: o.clase, pista: o.pista, valor: Math.round(seg), foto: f, caja: o.caja_norm, ts: new Date(e.desde) });
                 e.eventoId = ev.id;
                 contadores.permanencia++;
-                const min = Math.round(seg / 60);
-                await avisar(r, "PERMANENCIA", `${NOMBRE_CLASE[o.clase] || o.clase} hace ${min >= 1 ? `${min} min` : `${Math.round(seg)} s`} en ${r.nombre}`, ev.id,
-                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: `${nombreDe(o.clase)} · ${lleva(seg)}` }] }, f), cam);
+                // «lleva», no «hace»: «auto hace 15 min» se leía como «pasó hace 15 min» (20/10, Nico:
+                // «no comprendo mucho el se quedó y ese timer»). Con `desde`, el panel cuenta en vivo
+                // cuánto lleva; al irse, cerrarEstadias completa el aviso con cuándo y cuánto fue.
+                const aviso = await avisar(r, "PERMANENCIA", `${nombreDe(o.clase)} lleva ${duracion(seg)} en ${r.nombre}`, ev.id,
+                    await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: `${nombreDe(o.clase)} · ${lleva(seg)}` }] }, f), cam,
+                    { desde: new Date(e.desde).toISOString(), umbral: r.segundos });
+                if (aviso) e.avisoId = aviso.id;
             }
         }
     }
@@ -766,7 +775,38 @@ function iniciar({ prisma, subir, log, pose }) {
             if (!termino) continue;
             estadias.delete(k);
             if (e.eventoId) await prisma.eventoVision.update({ where: { id: e.eventoId }, data: { valor: Math.round((e.visto - e.desde) / 1000) } }).catch(() => null);
+            if (e.avisoId) await cerrarAvisoEstadia(e, todas ? "reinicio" : e.fuera ? "salio" : "no-se-ve");
         }
+    }
+
+    /**
+     * Cuando el que se quedó se va, el aviso lo dice (20/10, Nico: «debés indicar cuándo se va
+     * también»). Antes la estadía se cerraba sólo en el registro de detecciones y la alarma quedaba
+     * para siempre en «auto hace 15 min», sin saber si seguía ahí.
+     *
+     * Tres finales distintos, porque no significan lo mismo para el guardia:
+     *   - salio: se lo vio AFUERA de la zona — se fue;
+     *   - no-se-ve: dejó de verse OLVIDO_MS (20 s) sin que se lo viera salir — puede haberse ido, o
+     *     algo lo tapó o el seguimiento lo perdió;
+     *   - reinicio: se reinició el análisis (no se sabe qué pasó después).
+     * El aviso se reescribe («estuvo 23 min · salió 16:06»), `datos` guarda hasta / segundos / cómo,
+     * y la bitácora de la alarma suma el paso SE_FUE.
+     */
+    async function cerrarAvisoEstadia(e, como) {
+        const seg = Math.max(0, Math.round((e.visto - e.desde) / 1000));
+        const hasta = new Date(e.visto);
+        const que = COMO_TERMINO[como];
+        try {
+            const previo = await prisma.avisoGuardia.findUnique({ where: { id: e.avisoId }, select: { datos: true } });
+            if (!previo) return;
+            await prisma.avisoGuardia.update({ where: { id: e.avisoId }, data: {
+                motivo: `${nombreDe(e.clase)} estuvo ${duracion(seg)} en ${e.regla} · ${que} ${hhmm(hasta)}`,
+                datos: { ...(previo.datos || {}), hasta: hasta.toISOString(), segundos: seg, como },
+            } });
+            await prisma.alarmaGestion.create({ data: { clave: `a:${e.avisoId}`, accion: "SE_FUE", por: e.camara || "OmniVision", deviceId: e.deviceId, detalle: `${que} · estuvo ${duracion(seg)}` } });
+            emitir("alarma_gestion", { clave: `a:${e.avisoId}`, accion: "SE_FUE" });
+            emitir("aviso_guardia", { accion: "actualizado", id: e.avisoId });
+        } catch (err) { contadores.errores++; contadores.ultimoError = `cierre de estadía: ${err.message}`; }
     }
 
     async function aglomeracion(r, cam, valen, jpeg, ahora, t) {
