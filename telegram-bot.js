@@ -75,7 +75,7 @@ let cfg = null;
 let bot = null; // getMe
 async function ajuste(key) { try { return ((await prisma.setting.findUnique({ where: { key } }))?.value || "").trim(); } catch { return ""; } }
 async function leerCfg() {
-    const [token, chat, activo, base, cmds] = await Promise.all(["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_BOT", "BASE_URL", "WAHA_COMMANDS"].map(ajuste));
+    const [token, chat, activo, base, cmds, logo] = await Promise.all(["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_BOT", "BASE_URL", "WAHA_COMMANDS", "MARCA_AGUA_WHATSAPP"].map(ajuste));
     // Los interruptores del cajón «Comandos del bot» valen para los dos bots: los comandos son los mismos.
     const comandos = {};
     try { for (const c of JSON.parse(cmds || "[]")) if (c && c.id) comandos[c.id] = c.active !== false; } catch { }
@@ -85,6 +85,8 @@ async function leerCfg() {
         activo: activo !== "false",
         base: (base || LOCAL).replace(/\/+$/, ""),
         comandos,
+        // El mismo interruptor que el logo de WhatsApp (Ajustes → Video del evento): prendido salvo que digan que no.
+        logo: logo !== "false",
     };
 }
 const cmdActivo = (id) => cfg?.comandos?.[id] !== false;
@@ -156,10 +158,36 @@ async function bajar(url, ms = 15_000) {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return Buffer.from(await r.arrayBuffer());
 }
-/** Las capturas de una LPR pesan ~2 MB: a 1280 px suben al instante y se ven igual en el teléfono. */
+/**
+ * El logo de OmniAccess (20/10, Nico: «agregá el logo de OmniAccess»): el mismo de WhatsApp
+ * (public/marca-agua-omniaccess.png, con placa oscura, abajo a la derecha, 18 % del ancho, 2 % de
+ * margen: lib/clips.ts MARCA_AGUA_*), sobre toda foto y todo clip que manda el bot. La intro del
+ * clip usa el logo blanco (public/logo-omniaccess-white.png) sobre el fondo de la marca.
+ */
+const path = require("path"), fs = require("fs");
+const PUBLICO = process.env.OMNI_PUBLICO || path.join(__dirname, "public");
+const ARCHIVO_MARCA = path.join(PUBLICO, "marca-agua-omniaccess.png");
+const ARCHIVO_LOGO_BLANCO = path.join(PUBLICO, "logo-omniaccess-white.png");
+const MARCA_ANCHO = 0.18, MARCA_MARGEN = 0.02;
+/** El fondo de la marca (og-omniaccess.png) y el gris de su bajada. */
+const FONDO_MARCA = "#0b1220", GRIS_MARCA = "#94a3b8";
+const hayArchivo = (f) => { try { return fs.statSync(f).isFile(); } catch { return false; } };
+
+async function conLogo(buf) {
+    if (!sharp || !cfg.logo || !hayArchivo(ARCHIVO_MARCA)) return buf;
+    try {
+        const { width = 0, height = 0 } = await sharp(buf).metadata();
+        if (!width || !height) return buf;
+        const ancho = Math.max(80, Math.round(width * MARCA_ANCHO)), margen = Math.round(width * MARCA_MARGEN);
+        const marca = await sharp(ARCHIVO_MARCA).resize({ width: ancho }).toBuffer();
+        const alto = (await sharp(marca).metadata()).height || 0;
+        return await sharp(buf).composite([{ input: marca, left: width - ancho - margen, top: Math.max(0, height - alto - margen) }]).jpeg({ quality: 84 }).toBuffer();
+    } catch (e) { log("logo en la foto:", e.message); return buf; }
+}
+/** Las capturas de una LPR pesan ~2 MB: a 1280 px suben al instante y se ven igual en el teléfono. Llevan el logo. */
 async function achicar(buf) {
     if (!sharp) return buf;
-    try { return await sharp(buf).rotate().resize({ width: FOTO_ANCHO, withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(); } catch { return buf; }
+    try { return await conLogo(await sharp(buf).rotate().resize({ width: FOTO_ANCHO, withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer()); } catch { return buf; }
 }
 /** Lo mismo que getCleanS3Key de waha-handler: la clave plana dentro del bucket. */
 const claveLimpia = (p) => (!p ? p : String(p).split("/").pop());
@@ -194,19 +222,76 @@ const grabando = new Set();
  * resolución tardan un segundo) y con faststart, que es lo que deja verlo mientras baja. Sin
  * ffmpeg o si falla, va el original.
  */
-async function aH264(buf) {
-    const os = require("os"), fs = require("fs"), path = require("path");
-    const { execFile } = require("child_process");
+/** Duración de la intro del clip y de sus fundidos. */
+const INTRO_SEG = 1.8, FUNDIDO_SEG = 0.35, CLIP_FPS = 25;
+const correr = (cmd, args, ms = 60_000) => new Promise((ok, mal) => require("child_process").execFile(cmd, args, { timeout: ms, maxBuffer: 4 * 1024 * 1024 }, (e, so) => (e ? mal(e) : ok(String(so)))));
+const xml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+/**
+ * La placa de la intro: el fondo de la marca, el logo blanco y, abajo, la cámara y la hora del clip.
+ * Se dibuja con sharp (SVG para el texto) y ffmpeg sólo la funde: más simple que drawtext y con la
+ * misma letra que el resto de lo que dibuja el sistema.
+ */
+async function placaIntro(ancho, alto, camara, cuando) {
+    const fondo = sharp({ create: { width: ancho, height: alto, channels: 3, background: FONDO_MARCA } });
+    const capas = [];
+    if (hayArchivo(ARCHIVO_LOGO_BLANCO)) {
+        // El PNG tiene aire alrededor (bbox 56–982 × 153–358 de 1024×512): se recorta antes de escalar.
+        const logo = await sharp(ARCHIVO_LOGO_BLANCO).trim().resize({ width: Math.round(ancho * 0.56) }).toBuffer();
+        const m = await sharp(logo).metadata();
+        capas.push({ input: logo, left: Math.round((ancho - m.width) / 2), top: Math.round(alto * 0.40 - m.height / 2) });
+    }
+    const t1 = Math.round(alto * 0.055), t2 = Math.round(alto * 0.04);
+    capas.push({ input: Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${ancho}" height="${alto}">` +
+        `<rect x="${Math.round(ancho / 2 - ancho * 0.05)}" y="${Math.round(alto * 0.66)}" width="${Math.round(ancho * 0.1)}" height="${Math.max(2, Math.round(alto * 0.005))}" rx="2" fill="#3b82f6"/>` +
+        `<text x="50%" y="${Math.round(alto * 0.66 + t1 * 1.9)}" text-anchor="middle" font-family="Outfit, DejaVu Sans, sans-serif" font-weight="700" font-size="${t1}" fill="#ffffff">${xml(camara)}</text>` +
+        `<text x="50%" y="${Math.round(alto * 0.66 + t1 * 1.9 + t2 * 1.7)}" text-anchor="middle" font-family="Outfit, DejaVu Sans, sans-serif" font-size="${t2}" fill="${GRIS_MARCA}" letter-spacing="1">${xml(cuando)}</text></svg>`) });
+    return fondo.composite(capas).png().toBuffer();
+}
+
+/**
+ * El clip «editado»: intro con el logo (1,8 s con fundido) + el video con el logo abajo a la
+ * derecha, en H.264 con faststart.
+ *
+ * El substream de las cámaras del barrio es HEVC (medido en el lab: LPR Salida, hevc 704×576) y no
+ * todos los Telegram lo reproducen: recodificar a H.264 hacía falta igual, así que el logo y la
+ * intro no agregan una pasada más. 704×576 es D1 anamórfico de una cámara 16:9 (el principal es
+ * 1920×1080): se lleva a 1024×576 para que no se vea aplastado. Con el logo apagado en Ajustes, va
+ * sin intro ni logo, sólo recodificado. Si algo falla, va el original.
+ */
+async function aH264(buf, camara = "OmniAccess") {
+    const os = require("os");
     const base = path.join(os.tmpdir(), `tg-clip-${process.pid}-${Date.now()}`);
     try {
         fs.writeFileSync(`${base}.in.mp4`, buf);
-        await new Promise((ok, mal) => execFile("ffmpeg", ["-y", "-loglevel", "error", "-i", `${base}.in.mp4`, "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p", "-movflags", "+faststart", `${base}.mp4`], { timeout: 60_000 }, (e) => (e ? mal(e) : ok())));
+        let args;
+        if (cfg.logo && sharp && hayArchivo(ARCHIVO_MARCA)) {
+            const [w, h] = (await correr("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", `${base}.in.mp4`], 15_000)).trim().split(",").map(Number);
+            const r = w / h;
+            const alto = Math.min(720, Math.round((h || 576) / 2) * 2);
+            const ancho = r > 1.15 && r < 1.45 ? Math.round(alto * 16 / 9 / 2) * 2 : Math.round(alto * (r || 16 / 9) / 2) * 2;
+            fs.writeFileSync(`${base}.intro.png`, await placaIntro(ancho, alto, camara, fh(Date.now(), { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })));
+            const logoAncho = Math.round(ancho * MARCA_ANCHO / 2) * 2, margen = Math.round(ancho * MARCA_MARGEN);
+            args = ["-y", "-loglevel", "error",
+                "-loop", "1", "-framerate", String(CLIP_FPS), "-t", String(INTRO_SEG), "-i", `${base}.intro.png`,
+                "-i", `${base}.in.mp4`, "-i", ARCHIVO_MARCA,
+                "-filter_complex",
+                `[0:v]scale=${ancho}:${alto},setsar=1,format=yuv420p,fade=t=in:st=0:d=${FUNDIDO_SEG},fade=t=out:st=${INTRO_SEG - FUNDIDO_SEG}:d=${FUNDIDO_SEG}[intro];` +
+                `[1:v]setpts=PTS-STARTPTS,scale=${ancho}:${alto},setsar=1,fps=${CLIP_FPS},format=yuv420p,fade=t=in:st=0:d=${FUNDIDO_SEG}[cam];` +
+                `[2:v]scale=${logoAncho}:-1[marca];[cam][marca]overlay=x=W-w-${margen}:y=H-h-${margen},format=yuv420p[video];` +
+                `[intro][video]concat=n=2:v=1:a=0[salida]`,
+                "-map", "[salida]", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-movflags", "+faststart", `${base}.mp4`];
+        } else {
+            args = ["-y", "-loglevel", "error", "-i", `${base}.in.mp4`, "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p", "-movflags", "+faststart", `${base}.mp4`];
+        }
+        await correr("ffmpeg", args, 90_000);
         const salida = fs.readFileSync(`${base}.mp4`);
         return salida.length >= CLIP_MIN_BYTES / 3 ? salida : buf;
-    } catch (e) { log("clip a H.264:", e.message); return buf; }
-    finally { for (const f of [`${base}.in.mp4`, `${base}.mp4`]) try { fs.unlinkSync(f); } catch { } }
+    } catch (e) { log("clip editado:", e.message); return buf; }
+    finally { for (const f of [`${base}.in.mp4`, `${base}.intro.png`, `${base}.mp4`]) try { fs.unlinkSync(f); } catch { } }
 }
-async function clipEnVivo(deviceId) {
+async function clipEnVivo(deviceId, camara) {
     for (const src of [`lpr_${deviceId}`, `lpr_${deviceId}_hd`]) {
         const ctrl = new AbortController();
         const tope = setTimeout(() => ctrl.abort(), (CLIP_SEG + 20) * 1000);
@@ -222,7 +307,7 @@ async function clipEnVivo(deviceId) {
                 partes.push(Buffer.from(value)); total += value.length;
                 if (Date.now() - inicio > CLIP_SEG * 1000 || total > 45 * 1024 * 1024) { lector.cancel().catch(() => { }); break; }
             }
-            if (total >= CLIP_MIN_BYTES) return aH264(Buffer.concat(partes));
+            if (total >= CLIP_MIN_BYTES) return aH264(Buffer.concat(partes), camara);
         } catch (e) { log(`clip ${src}:`, e.message); }
         finally { clearTimeout(tope); }
     }
@@ -502,7 +587,7 @@ async function clip(ctx, deviceId) {
     const aviso = await texto(ctx.chatId, `🎬 Grabando ${CLIP_SEG} s de <b>${esc(d.name)}</b>…`).catch(() => null);
     accion(ctx.chatId, "record_video");
     try {
-        const buf = await clipEnVivo(d.id);
+        const buf = await clipEnVivo(d.id, d.name);
         if (!buf) { if (aviso) await editar(ctx.chatId, aviso.message_id, `⚠️ <b>${esc(d.name)}</b> no entregó video ahora.`); return; }
         accion(ctx.chatId, "upload_video");
         await conHtml("sendVideo", { chat_id: ctx.chatId, caption: `🎬 <b>${esc(d.name)}</b> · ${fh(Date.now(), { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`, supports_streaming: true,
@@ -1001,4 +1086,4 @@ if (require.main === module) (async () => {
 })().catch((e) => { log("se cayó:", e.stack || e.message); process.exit(1); });
 
 /** Para probarlo sin Telegram (un arnés que reemplaza fetch a api.telegram.org): no lo usa el proceso. */
-module.exports = { _prueba: { palabras, comando, cuando, matriculaDe, cola8, alMensaje, alBoton, ponerCfg: (c) => { cfg = c; bot = { username: "prueba_bot" }; } } };
+module.exports = { _prueba: { palabras, comando, cuando, matriculaDe, cola8, alMensaje, alBoton, aH264, achicar, placaIntro, ponerCfg: (c) => { cfg = c; bot = { username: "prueba_bot" }; } } };
