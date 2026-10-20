@@ -2729,13 +2729,16 @@ async function getMerodeoConfig() {
     if (global.__merodeoCfg && (now - (global.__merodeoCfgAt || 0)) < 30000) return global.__merodeoCfg;
     let m = {};
     try {
-        const rows = await prisma.setting.findMany({ where: { key: { in: ['MERODEO_ENABLED','MERODEO_WINDOW_MIN','MERODEO_THRESHOLD','MERODEO_COOLDOWN_MIN','MERODEO_EXCLUDE_RESIDENTS'] } } });
+        const rows = await prisma.setting.findMany({ where: { key: { in: ['MERODEO_ENABLED','MERODEO_WINDOW_MIN','MERODEO_THRESHOLD','MERODEO_COOLDOWN_MIN','MERODEO_EXCLUDE_RESIDENTS','MERODEO_GROUP_SEC'] } } });
         rows.forEach(r => { m[r.key] = r.value; });
     } catch (e) {}
     const cfg = {
         enabled: (m.MERODEO_ENABLED == null ? 'true' : m.MERODEO_ENABLED) === 'true',
         windowMin: parseInt(m.MERODEO_WINDOW_MIN || '30') || 30,
-        threshold: parseInt(m.MERODEO_THRESHOLD || '3') || 3,
+        threshold: Math.max(2, parseInt(m.MERODEO_THRESHOLD || '4') || 4),
+        // Lecturas a menos de groupSec de la anterior son la MISMA pasada (doble lectura de la
+        // cámara, o la cámara de entrada y la de matrículas del mismo portón).
+        groupSec: Math.max(0, parseInt(m.MERODEO_GROUP_SEC == null ? '120' : m.MERODEO_GROUP_SEC) || 0),
         cooldownMin: parseInt(m.MERODEO_COOLDOWN_MIN || '30') || 30,
         excludeResidents: (m.MERODEO_EXCLUDE_RESIDENTS == null ? 'true' : m.MERODEO_EXCLUDE_RESIDENTS) === 'true',
     };
@@ -2823,7 +2826,9 @@ async function checkMerodeo(plate, device, event, logPrefix) {
         select: { direction: true, timestamp: true, deviceId: true },
         orderBy: { timestamp: 'asc' }
     });
-    const count = passes.length;
+    // Cuenta PASADAS, no lecturas: una visita normal (entrada leída dos veces + salida) son 2.
+    let count = 0, ultima = 0;
+    for (const p of passes) { const t = new Date(p.timestamp).getTime(); if (!ultima || t - ultima > cfg.groupSec * 1000) count++; ultima = t; }
     if (count < cfg.threshold) return;
     const distinctDevices = new Set(passes.map(p => p.deviceId).filter(Boolean)).size;
     global.__merodeoCooldown.set(clean, now);
@@ -2833,7 +2838,7 @@ async function checkMerodeo(plate, device, event, logPrefix) {
             type: 'MERODEO',
             plate: clean,
             photoPath: event.snapshotPath || null,
-            notes: `Merodeo: ${count} pasadas en ${cfg.windowMin} min a traves de ${distinctDevices} acceso/s. Ultima camara: ${(device && device.name) || 'N/D'}.`,
+            notes: `Merodeo: ${count} pasadas (${passes.length} lecturas) en ${cfg.windowMin} min a traves de ${distinctDevices} acceso/s. Ultima camara: ${(device && device.name) || 'N/D'}.`,
             accessEventId: event.id,
         }});
     } catch (e) { /* accessEventId unique or bitacora issue - ignore */ }
