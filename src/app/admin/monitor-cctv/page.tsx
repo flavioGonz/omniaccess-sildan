@@ -16,7 +16,7 @@ import { VistaCamaras } from "@/components/monitor/vistas/VistaCamaras";
 export default function MonitorCctv() {
     return (
         <div className="h-screen">
-            <MarcoMonitor embebido>
+            <MarcoMonitor embebido tituloFijo="Monitor CCTV">
                 <VistaCamaras />
             </MarcoMonitor>
         </div>

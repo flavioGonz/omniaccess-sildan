@@ -201,7 +201,7 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
     const grande = celda.casilla.w > 1;
     if (!c) {
         return (
-            <div style={estiloCasilla(celda.casilla)} className="relative min-h-0 rounded-[10px] bg-neutral-950 ring-1 ring-white/5 grid place-items-center text-[12px] text-white/25">
+            <div style={estiloCasilla(celda.casilla)} className="relative min-h-0 rounded-[10px] bg-muted/60 ring-1 ring-border grid place-items-center text-[12px] text-muted-foreground/70">
                 {celda.claveFaltante ? "El canal de esta casilla ya no está" : ""}
             </div>
         );

@@ -78,7 +78,7 @@ export function BarraDelMarco({ children }: { children: React.ReactNode }) {
  * primer toque (en el panel se toca todo el tiempo), y el botón de pantalla completa agranda sólo
  * el marco, no la página con el menú.
  */
-export function MarcoMonitor({ children, puedeDecidir = false, embebido = false }: { children: React.ReactNode; puedeDecidir?: boolean; embebido?: boolean }) {
+export function MarcoMonitor({ children, puedeDecidir = false, embebido = false, tituloFijo }: { children: React.ReactNode; puedeDecidir?: boolean; embebido?: boolean; /** Embebido: el nombre de la entrada del menú (p. ej. «Monitor CCTV») en vez del de la vista. */ tituloFijo?: string }) {
     const raiz = useRef<HTMLDivElement>(null);
     const [titulo, setTitulo] = useState("");
     const [fondo, setFondo] = useState<string | null>(null);
@@ -162,7 +162,7 @@ export function MarcoMonitor({ children, puedeDecidir = false, embebido = false 
 
     return (
         <Ctx.Provider value={valor}>
-            <div ref={raiz} className={cn("dark overflow-hidden", embebido ? "h-full" : "h-[100dvh]", " bg-background text-foreground flex flex-col select-none overscroll-none touch-manipulation [-webkit-tap-highlight-color:transparent] transition-[background-color] duration-700", quieto && !tactil && "cursor-none")}
+            <div ref={raiz} className={cn("overflow-hidden relative", embebido ? "h-full" : "dark h-[100dvh]", " bg-background text-foreground flex flex-col select-none overscroll-none touch-manipulation [-webkit-tap-highlight-color:transparent] transition-[background-color] duration-700", quieto && !tactil && !embebido && "cursor-none")}
                 style={fondo ? ({
                     // Con una lectura en pantalla, TODA la interfaz toma su color: el fondo y también cada
                     // panel (card, muted, borde), que pasan a ser velos claros sobre ese color en vez de negro.
@@ -172,37 +172,48 @@ export function MarcoMonitor({ children, puedeDecidir = false, embebido = false 
                     "--popover": `color-mix(in oklab, ${fondo} 85%, #000)`, "--muted-foreground": "rgba(255,255,255,0.72)",
                 } as React.CSSProperties) : undefined}>
                 {/* Encabezado: barrio, vista, vitalidad y reloj. En "sin datos" se pinta ENTERO de ámbar. */}
-                <header className={cn("shrink-0 flex items-center gap-4 lg:gap-6 px-4 lg:px-8 h-[64px] border-b transition-colors",
+                {/* En el panel (embebido) el encabezado se achica: se lee a 50 cm, no a 4 m, y el panel
+                    ya tiene su menú y su marca. El tema es el del panel (claro u oscuro), no el oscuro fijo. */}
+                <header className={cn("shrink-0 flex items-center border-b transition-colors", embebido ? "gap-3 px-4 h-[52px]" : "gap-4 lg:gap-6 px-4 lg:px-8 h-[64px]",
                     sinDatos ? "bg-[var(--aviso)] text-[#16120a] border-transparent" : fondo ? "bg-black/20 border-white/15" : "bg-card/60 border-border")}>
                     <div className={cn("min-w-0 flex items-baseline gap-3", usaBarra && "md:shrink-0 md:max-w-[300px]")}>
-                        <span className="text-[22px] font-bold truncate">{valor.barrio}</span>
-                        {titulo && <span className={cn("text-[18px] font-semibold truncate", sinDatos ? "opacity-80" : "text-muted-foreground")}>· {titulo}</span>}
+                        {embebido ? (
+                            <>
+                                <span className="text-[16px] font-bold tracking-[-0.01em] truncate">{tituloFijo || titulo || "Monitor"}</span>
+                                <span className={cn("text-[12px] truncate", sinDatos ? "opacity-80" : "text-muted-foreground")}>{valor.barrio}</span>
+                            </>
+                        ) : (
+                            <>
+                                <span className="text-[22px] font-bold truncate">{valor.barrio}</span>
+                                {titulo && <span className={cn("text-[18px] font-semibold truncate", sinDatos ? "opacity-80" : "text-muted-foreground")}>· {titulo}</span>}
+                            </>
+                        )}
                     </div>
                     {/* Los controles de la vista, si los pone (BarraDelMarco). Fuera de escritorio no: en
                         un celular no entran en la fila, y la vista los lleva abajo. */}
                     <div ref={setBarra} className={cn("min-w-0 flex-1 items-center", usaBarra ? "hidden md:flex" : "hidden")} />
-                    <div className={cn("ml-auto flex items-center gap-2 text-[14px] lg:text-[16px] font-bold uppercase tracking-[0.12em] whitespace-nowrap", usaBarra && "md:ml-0", !sinDatos && (reconectando ? "text-[var(--aviso-texto)]" : "text-[var(--bien-texto)]"))}>
-                        {sinDatos ? <><AlertTriangle size={22} /> Sin datos hace {minutosSin} min</>
-                            : reconectando ? <><RefreshCw size={18} className="animate-spin" /> Reconectando</>
-                                : <><span className="h-3 w-3 rounded-full bg-[var(--bien)] animate-pulse" /> En vivo</>}
+                    <div className={cn("ml-auto flex items-center gap-2 font-bold whitespace-nowrap", embebido ? "text-[11px] uppercase tracking-[0.1em]" : "text-[14px] lg:text-[16px] uppercase tracking-[0.12em]", usaBarra && "md:ml-0", !sinDatos && (reconectando ? "text-[var(--aviso-texto)]" : "text-[var(--bien-texto)]"))}>
+                        {sinDatos ? <><AlertTriangle size={embebido ? 15 : 22} /> Sin datos hace {minutosSin} min</>
+                            : reconectando ? <><RefreshCw size={embebido ? 13 : 18} className="animate-spin" /> Reconectando</>
+                                : <><span className={cn("rounded-full bg-[var(--bien)] animate-pulse", embebido ? "h-2 w-2" : "h-3 w-3")} /> En vivo</>}
                     </div>
                     <div className="flex items-baseline gap-3 tabular-nums">
-                        <span className={cn("hidden text-[16px] capitalize whitespace-nowrap", usaBarra ? "min-[2200px]:inline" : "lg:inline", sinDatos ? "opacity-80" : "text-muted-foreground")} suppressHydrationWarning>{montado ? fecha : ""}</span>
-                        <span className="text-[26px] lg:text-[30px] font-bold leading-none" suppressHydrationWarning>{montado ? hora : "--:--:--"}</span>
+                        {!embebido && <span className={cn("hidden text-[16px] capitalize whitespace-nowrap", usaBarra ? "min-[2200px]:inline" : "lg:inline", sinDatos ? "opacity-80" : "text-muted-foreground")} suppressHydrationWarning>{montado ? fecha : ""}</span>}
+                        <span className={cn("font-bold leading-none", embebido ? "text-[17px]" : "text-[26px] lg:text-[30px]")} suppressHydrationWarning>{montado ? hora : "--:--:--"}</span>
                     </div>
-                    <div className={cn("flex items-center gap-1 transition-opacity duration-300", quieto && !tactil ? "opacity-0" : "opacity-100")}>
+                    <div className={cn("flex items-center gap-1 transition-opacity duration-300", quieto && !tactil && !embebido ? "opacity-0" : "opacity-100")}>
                         <button onClick={alternarSilencio} title={silencio ? "Activar sonido" : "Silenciar esta pantalla"} aria-label={silencio ? "Activar sonido" : "Silenciar"}
-                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : "h-10 w-10")}>{silencio ? <VolumeX size={tactil ? 24 : 20} /> : <Volume2 size={tactil ? 24 : 20} />}</button>
+                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : embebido ? "h-8 w-8 rounded-lg" : "h-10 w-10")}>{silencio ? <VolumeX size={tactil ? 24 : embebido ? 16 : 20} /> : <Volume2 size={tactil ? 24 : embebido ? 16 : 20} />}</button>
                         <button onClick={alternarLleno} title={lleno ? "Salir de pantalla completa" : "Pantalla completa"} aria-label="Pantalla completa"
-                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : "h-10 w-10")}>{lleno ? <Minimize2 size={tactil ? 24 : 20} /> : <Maximize2 size={tactil ? 24 : 20} />}</button>
+                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : embebido ? "h-8 w-8 rounded-lg" : "h-10 w-10")}>{lleno ? <Minimize2 size={tactil ? 24 : embebido ? 16 : 20} /> : <Maximize2 size={tactil ? 24 : embebido ? 16 : 20} />}</button>
                     </div>
                 </header>
                 {bloqueado && !silencio && (
-                    <div className="shrink-0 bg-[var(--info-suave)] text-[var(--info-texto)] text-[15px] font-semibold text-center py-1.5">{embebido ? "Tocá la pantalla para habilitar el sonido" : "Tocá la pantalla para habilitar el sonido y la pantalla completa"}</div>
+                    <div className={cn("shrink-0 bg-[var(--info-suave)] text-[var(--info-texto)] font-semibold text-center", embebido ? "text-[12px] py-1" : "text-[15px] py-1.5")}>{embebido ? "Tocá la pantalla para habilitar el sonido" : "Tocá la pantalla para habilitar el sonido y la pantalla completa"}</div>
                 )}
                 <main className="flex-1 min-h-0 relative overflow-y-auto overscroll-contain">{children}</main>
                 {!conectado && (
-                    <div className="fixed bottom-4 left-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-card border border-border text-[14px] text-muted-foreground"><WifiOff size={16} /> Sin conexión en vivo: se actualiza por consulta</div>
+                    <div className={cn(embebido ? "absolute" : "fixed", "bottom-4 left-4 z-30")} ><div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-card border border-border text-[14px] text-muted-foreground"><WifiOff size={16} /> Sin conexión en vivo: se actualiza por consulta</div></div>
                 )}
             </div>
         </Ctx.Provider>
