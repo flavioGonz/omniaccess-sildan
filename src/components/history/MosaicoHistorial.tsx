@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import { Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Loader2, ShieldAlert, XCircle } from "lucide-react";
+import { Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Loader2, ShieldAlert, Sparkles, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { chapaDe, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 import { getImagePath } from "@/lib/image-path";
@@ -99,6 +99,7 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
                y con casi todas denegadas era una grilla de bordes rojos. Al pasar, el anillo
                azul marca cuál se va a abrir. */
             className={cn("group relative overflow-hidden rounded-[8px] bg-black text-left transition-[box-shadow] duration-200 hover:ring-2 hover:ring-[var(--accion)] focus-visible:ring-2 focus-visible:ring-[var(--accion)] outline-none [content-visibility:auto]",
+                f.ia && "ring-1 ring-[var(--quieto)]/70",
                 bento ? (grande ? "col-span-2 row-span-2" : "") : "aspect-video")}>
             {url ? (
                 /* La foto y sus siluetas en la misma caja: crecen juntas al pasar, si no se despegan. */
@@ -115,7 +116,12 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
             <span className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent" />
 
             <span className="absolute top-1.5 left-1.5 right-1.5 flex items-start justify-between gap-1">
-                {acceso ? (
+                {f.ia ? (
+                    /* Encontrado por la IA, no un registro: el distintivo violeta (21/10). */
+                    <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] pleno-quieto" title="Encontrado por IA: OmniVision lo vio parecido a lo que buscaste. Es un posible, no un registro.">
+                        <Sparkles size={10} />{chica ? "IA" : "IA · parecido"}
+                    </span>
+                ) : acceso ? (
                     <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]", denegado ? "pleno-mal" : "pleno-bien")}>
                         {denegado ? <XCircle size={10} /> : <CheckCircle2 size={10} />}{chica ? "" : denegado ? "Denegado" : "Autorizado"}
                     </span>
@@ -190,7 +196,7 @@ export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReinten
                                     : "gap-3 grid-cols-[repeat(auto-fill,minmax(230px,1fr))]")}>
                                     {filas.map((f, i) => {
                                         const merodea = !!(f.plate && merodeando.has(f.plate));
-                                        const grande = bento && ((destacarDenegadas && f.tipo === "ACCESO" && f.decision === "DENY" && !!f.plate && !esNoLeida(f.plate)) || merodea || i % RITMO_BENTO === 0);
+                                        const grande = bento && !f.ia && ((destacarDenegadas && f.tipo === "ACCESO" && f.decision === "DENY" && !!f.plate && !esNoLeida(f.plate)) || merodea || i % RITMO_BENTO === 0);
                                         return <Tarjeta key={f.id} f={f} bento={bento} grande={grande} merodea={merodea} siluetas={siluetas} alAbrir={alAbrir} />;
                                     })}
                                 </div>

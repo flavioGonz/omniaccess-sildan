@@ -30,7 +30,7 @@ import { Sparkles } from "lucide-react";
 
 export type FilaHistorial = {
     id: string;
-    tipo: "ACCESO" | "PASO" | "ESTACIONADO" | "VISTO" | "OV_CHAPA" | "OV_OBJETO";
+    tipo: "ACCESO" | "PASO" | "ESTACIONADO" | "VISTO" | "OV_CHAPA" | "OV_OBJETO" | "IA";
     momento: string;
     plate: string | null;
     persona: string | null;
@@ -55,6 +55,11 @@ export type FilaHistorial = {
     vision?: VisionFila | null;
     /** La empresa (delivery, taxi…) de esa matrícula a esa hora, con su logo. */
     empresa?: EmpresaFila | null;
+    /**
+     * Un resultado de la búsqueda por IA (tipo «IA»): lo que OmniVision vio PARECIDO a lo escrito,
+     * con cuánto se parece (0-1) y la búsqueda, para abrirlo en OmniVision › Buscar.
+     */
+    ia?: { prob: number; buscar: string } | null;
 };
 
 const POR_PAGINA = 60;
@@ -99,6 +104,12 @@ export const RASGOS: Record<string, { Ico: any; rotulo: string; ayuda: string; c
     OV_OBJETO: {
         Ico: Sparkles, rotulo: "OmniVision", chip: "bg-muted text-muted-foreground border-border", punto: "bg-muted-foreground/50",
         ayuda: "Un objeto (vehículo, persona, animal) que OmniVision vio en una cámara que no es LPR. Sale sólo si se lo pide en el filtro de tipos: son muchos por día.",
+    },
+    /* La búsqueda por IA (21/10, Nico: «no quiero que el usuario se entere de que son dos búsquedas:
+       que caigan todas en la grilla, con algún distintivo»). Va mezclada con los registros. */
+    IA: {
+        Ico: Sparkles, rotulo: "Encontrado por IA", chip: "bg-[var(--quieto-suave)] text-[var(--quieto-texto)] border-[var(--quieto)]/30", punto: "bg-[var(--quieto)]",
+        ayuda: "No es un registro: OmniVision lo encontró comparando cómo se ve con lo que escribiste. Es un posible, puede no ser. Se abre en OmniVision › Buscar.",
     },
     VISTO: {
         Ico: Eye, rotulo: "Visto", chip: "bg-muted text-muted-foreground border-border", punto: "bg-muted-foreground/50",
@@ -316,6 +327,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     }, [pagina, tipos, identificacion, resultado, sentido, hasta, buscar, marcar, visionClave]));
 
     const alternar = useCallback((f: FilaHistorial) => {
+        if (f.ia) { window.location.href = `/admin/vision/buscar?q=${encodeURIComponent(f.ia.buscar)}`; return; }
         if (!f.plate) return;
         setAbierta((a) => (a === f.id ? null : f.id));
     }, []);
@@ -414,8 +426,26 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                 return true;
             });
         }
-        return v;
-    }, [filas, merodeo, color, tipoVeh, camaras]);
+        /*
+         * Lo que encontró la IA, en la misma lista (21/10): cada objeto parecido de OmniVision es una
+         * fila «IA» más, ordenada por su hora entre los registros. Con más páginas por traer, sólo
+         * entran los que caen dentro de lo ya cargado; los más viejos aparecen al bajar.
+         */
+        const ia = buscar && omni?.objetos?.length && !(merodeo && merodeo.size) ? omni.objetos
+            .filter((o) => !porCamara || camaras!.includes(o.camara))
+            .map((o): FilaHistorial => ({
+                id: `ia-${o.id}`, tipo: "IA", momento: o.momento, plate: null, persona: o.clase || "Objeto", camara: o.camara, deviceId: null,
+                decision: null, sentido: null, confianza: null, lecturas: null, foto: o.recorte ? `/api/vision/imagen/${o.recorte}` : null,
+                estDesde: null, estHasta: null, bbox: null, estCerrada: false, detalles: null, permanencia: null, raw: null,
+                ia: { prob: o.prob, buscar },
+            })) : [];
+        if (!ia.length) return v;
+        const tope = hay && v.length ? v[v.length - 1].momento : "";
+        return [...v, ...ia.filter((f) => !tope || f.momento >= tope)].sort((a, b) => (a.momento < b.momento ? 1 : a.momento > b.momento ? -1 : 0));
+    }, [filas, merodeo, color, tipoVeh, camaras, omni, buscar, hay]);
+    /** Una fila de la IA no es un registro: se abre donde está su búsqueda (OmniVision › Buscar). */
+    const abrirIa = (f: FilaHistorial) => { window.location.href = `/admin/vision/buscar?q=${encodeURIComponent(f.ia!.buscar)}`; };
+    const abrirCaptura = useCallback((f: FilaHistorial) => (f.ia ? abrirIa(f) : setViendo(f)), []);
 
     /**
      * La ficha del visor: padrón, OmniVision y empresa, pedidos al abrir (/api/history/ficha).
@@ -700,17 +730,23 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                 ? <><Wifi size={11} className="text-emerald-500" /> En vivo</>
                 : <><WifiOff size={11} className="text-muted-foreground/60" /> Sin conexión en vivo</>}
             <span className="opacity-50">·</span>
-            <span className="tabular-nums">{visibles.length} registros</span>
+            <span className="tabular-nums">{visibles.filter((f) => !f.ia).length} registros</span>
+            {visibles.some((f) => f.ia) && (
+                <span className="inline-flex items-center gap-1 tabular-nums" title="Lo que OmniVision vio parecido a lo que buscaste: posibles, no registros. Se abren en OmniVision › Buscar.">
+                    <span className="opacity-50">·</span><Sparkles size={11} className="text-[var(--quieto)]" /> {visibles.filter((f) => f.ia).length} encontrados por IA
+                </span>
+            )}
             {visionTruncado && <span className="tono-aviso">· el filtro OmniVision miró las 5.000 lecturas más nuevas que lo cumplen</span>}
         </span>
     );
 
     return (
         <>
-            {omni && buscar && <FranjaOmniVision datos={omni} buscar={buscar} />}
+            {/* La búsqueda por IA ya va mezclada en la lista; acá sólo se avisa si OmniVision no contestó. */}
+            {omni?.error && buscar && <FranjaOmniVision datos={omni} buscar={buscar} />}
             {vista !== "lista" ? (
                 <MosaicoHistorial vista={vista} filas={visibles} hay={hay} cargando={cargando} error={error}
-                    alReintentar={reintentar} traer={traer} merodeando={merodeando} alAbrir={setViendo}
+                    alReintentar={reintentar} traer={traer} merodeando={merodeando} alAbrir={abrirCaptura}
                     barra={barra} pie={pie} />
             ) : <Tabla<FilaHistorial>
                 filas={visibles}
