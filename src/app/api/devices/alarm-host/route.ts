@@ -11,7 +11,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { readAlarmHosts, ensureAlarmHost, testAlarmHost } from "@/lib/isapi-alarmhost";
+import { readAlarmHosts, ensureAlarmHost, testAlarmHost, getEventTarget } from "@/lib/isapi-alarmhost";
 import { getChannelMap, resolveNvrById } from "@/lib/nvr-resolve";
 import { authenticatedRequest } from "@/lib/digest-auth";
 
@@ -83,7 +83,9 @@ export async function GET(req: NextRequest) {
     }
     const r = await readAlarmHosts(d as any);
     if (r.ok) await markAlarm(d.ip, !!r.hasOmni);
-    return NextResponse.json(r, { headers: { "Cache-Control": "no-store" } });
+    // El destino real (antes la pantalla mostraba uno escrito a mano, que no era el que se usaba).
+    const t = await getEventTarget();
+    return NextResponse.json({ ...r, destino: t ? `${t.ip}:${t.port}` : null }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(req: NextRequest) {

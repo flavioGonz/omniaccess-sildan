@@ -20,6 +20,7 @@ import { META_DETECCION, GeomOverlay } from "@/components/intrusion/comun";
 import "react-tooltip/dist/react-tooltip.css";
 import { LiveModal } from "@/components/intrusion/LiveModal";
 import { FichaDeteccion as DetailDialog } from "@/components/intrusion/FichaDeteccion";
+import { CajonServidorAlarma } from "@/components/intrusion/CajonServidorAlarma";
 import { HorarioArmadoDialog, ResumenArmado, type HorariosCamara } from "@/components/intrusion/HorarioArmado";
 import { conAncho } from "@/lib/ancho-foto";
 import { FILTROS_VISION, VEREDICTOS, pasaVision, type FiltroVision, type Veredicto } from "@/lib/vision-capa";
@@ -220,149 +221,6 @@ function CamTile({ cam, alarms, last, geom, hasAnalytics, alarmActive, attending
                 {m ? <m.Icon size={13} className={cn("shrink-0 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]", tc)} /> : <Clock size={12} className="shrink-0 text-white/55 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]" />}
                 <span className={cn("text-[11px] font-extrabold truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]", tc)}>{m ? m.label : "Sin detecciones"}</span>
                 {m && <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-bold tabular-nums text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"><Clock size={9} className="opacity-70" />{ago(last!.timestamp)}</span>}
-            </div>
-        </div>
-    );
-}
-
-function AlarmDialog({ cam, onClose, onStatus }: { cam: IntrusionCam; onClose: () => void; onStatus?: (camId: string, ok: boolean) => void }) {
-    const [phase, setPhase] = useState<"loading" | "ready" | "applying" | "testing">("loading");
-    const [hosts, setHosts] = useState<any[]>([]);
-    const [hasOmni, setHasOmni] = useState(false);
-    const [msg, setMsg] = useState("");
-    const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
-    const [dahua, setDahua] = useState(false);
-    const [nvr, setNvr] = useState<{ ip: string; name: string; reachable: boolean } | null>(null);
-    const [info, setInfo] = useState("");
-
-    const load = () => {
-        setPhase("loading"); setTest(null);
-        fetch(`/api/devices/alarm-host?deviceId=${cam.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => {
-            setHosts(Array.isArray(d.hosts) ? d.hosts : []); setHasOmni(!!d.hasOmni);
-            setDahua(!!d.dahua); setNvr(d.nvr || null); setInfo(d.info || "");
-            if (!d.ok && d.error) setMsg(d.error); else setMsg("");
-            onStatus?.(cam.id, !!d.hasOmni);
-            setPhase("ready");
-        }).catch(() => { setMsg("No se pudo leer la configuración del equipo"); setPhase("ready"); });
-    };
-    useEffect(load, [cam.id]);
-
-    const apply = async () => {
-        setPhase("applying"); setMsg("");
-        try {
-            const d = await fetch(`/api/devices/alarm-host?deviceId=${cam.id}`, { method: "POST" }).then((r) => r.json());
-            setMsg(d.ok ? (d.already ? "Ya estaba configurado ✓" : "Configurado en el equipo ✓") : (d.error || "No se pudo configurar"));
-            if (d.ok) onStatus?.(cam.id, true);
-        } catch (e: any) { setMsg(e?.message || "Error"); }
-        load();
-    };
-    const doTest = async () => {
-        setPhase("testing"); setTest(null);
-        try {
-            const d = await fetch(`/api/devices/alarm-host?deviceId=${cam.id}&action=test`, { method: "POST" }).then((r) => r.json());
-            if (d.ok) setTest({ ok: !!d.reporting, text: d.reporting ? "El equipo reporta OK a OmniAccess ✓" : "Test enviado; el equipo no confirmó explícitamente (revisá que lleguen eventos)." });
-            else setTest({ ok: false, text: d.error || "El test falló" });
-        } catch (e: any) { setTest({ ok: false, text: e?.message || "Error en el test" }); }
-        setPhase("ready");
-    };
-
-    const EVENT_TARGET = "172.16.2.71:10000"; // informativo
-
-    return (
-        <div className="fixed inset-0 z-[2000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => phase === "ready" || phase === "loading" ? onClose() : null}>
-            <div className="w-full max-w-lg rounded-2xl bg-card border border-border shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center gap-2.5 px-5 py-4 border-b border-border bg-gradient-to-r from-red-500/[0.07] to-transparent">
-                    <span className="w-8 h-8 rounded-xl bg-red-500/15 grid place-items-center"><BellRing size={16} className="text-red-500" /></span>
-                    <div className="min-w-0">
-                        <div className="font-bold leading-tight truncate">Servidor de alarma</div>
-                        <div className="text-[11px] text-muted-foreground truncate">{cam.name}{cam.nvrName ? ` · ${cam.nvrName}` : ""}</div>
-                    </div>
-                    <button onClick={onClose} className="ml-auto w-8 h-8 grid place-items-center rounded-full hover:bg-accent text-muted-foreground"><X size={18} /></button>
-                </div>
-
-                <div className="p-5 space-y-4">
-                    {phase === "loading" ? (
-                        <div className="flex items-center gap-2 text-muted-foreground py-6 justify-center"><Loader2 size={16} className="animate-spin" /> Leyendo configuración del equipo…</div>
-                    ) : (
-                        <>
-                            {dahua ? (
-                                /* ── DAHUA: suscripción por eventManager (pull), no hay push por equipo ── */
-                                <>
-                                    <div className="rounded-xl border border-border bg-background/50 p-3.5">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Recepción de eventos (Dahua)</span>
-                                            {nvr?.reachable
-                                                ? <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"><Check size={11} /> Suscripción activa</span>
-                                                : <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/15 text-red-400 border border-red-500/30"><ShieldAlert size={11} /> NVR no accesible</span>}
-                                        </div>
-                                        <p className="text-[12px] text-muted-foreground">{info || "OmniAccess recibe los eventos de este NVR Dahua por suscripción directa (eventManager). No requiere configurar un servidor de alarma en el equipo."}</p>
-                                        {nvr && <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1.5"><Server size={12} /> NVR: <span className="font-mono">{nvr.name} · {nvr.ip}</span></p>}
-                                        <p className="text-[10px] text-muted-foreground mt-1">Ingesta OmniAccess: <span className="font-mono">eventManager.cgi (pull)</span></p>
-                                    </div>
-
-                                    {msg && !nvr?.reachable && <p className="text-sm font-semibold text-red-500">{msg}</p>}
-                                    {test && <p className={cn("text-sm font-semibold flex items-center gap-1.5", test.ok ? "text-emerald-500" : "text-amber-500")}><Wifi size={15} /> {test.text}</p>}
-
-                                    <div className="flex items-center gap-2">
-                                        <button onClick={doTest} disabled={phase === "testing"} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold active:scale-95 transition-all disabled:opacity-60">
-                                            {phase === "testing" ? <Loader2 size={15} className="animate-spin" /> : <Wifi size={15} />} Verificar suscripción
-                                        </button>
-                                        <button onClick={onClose} className="ml-auto px-4 py-2.5 rounded-xl text-sm font-bold text-muted-foreground hover:bg-accent">Cerrar</button>
-                                    </div>
-                                </>
-                            ) : (
-                            <>
-                            {/* Estado actual */}
-                            <div className="rounded-xl border border-border bg-background/50 p-3.5">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Servidores de alarma en el equipo</span>
-                                    {hasOmni
-                                        ? <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"><Check size={11} /> OmniAccess presente</span>
-                                        : <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30"><ShieldAlert size={11} /> OmniAccess no configurado</span>}
-                                </div>
-                                {hosts.length === 0 ? (
-                                    <p className="text-[12px] text-muted-foreground">El equipo no tiene servidores de alarma configurados.</p>
-                                ) : (
-                                    <div className="space-y-1">
-                                        {hosts.map((h, i) => (
-                                            <div key={i} className="flex items-center gap-2 text-[12px] font-mono">
-                                                <span className="text-muted-foreground w-5">#{h.id}</span>
-                                                <span className={cn("truncate", h.ip && h.ip !== "0.0.0.0" ? "text-foreground" : "text-muted-foreground/50")}>
-                                                    {h.ip && h.ip !== "0.0.0.0" ? `${h.ip}:${h.port}${h.url || ""}` : "— libre —"}
-                                                </span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                <p className="text-[10px] text-muted-foreground mt-2">Destino OmniAccess: <span className="font-mono">{EVENT_TARGET}</span></p>
-                            </div>
-
-                            {msg && <p className={cn("text-sm font-semibold", msg.includes("✓") ? "text-emerald-500" : "text-red-500")}>{msg}</p>}
-                            {test && <p className={cn("text-sm font-semibold flex items-center gap-1.5", test.ok ? "text-emerald-500" : "text-amber-500")}><Wifi size={15} /> {test.text}</p>}
-
-                            {/* Acciones */}
-                            <div className="flex items-center gap-2">
-                                {hasOmni ? (
-                                    <>
-                                        <button onClick={doTest} disabled={phase === "testing"} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold active:scale-95 transition-all disabled:opacity-60">
-                                            {phase === "testing" ? <Loader2 size={15} className="animate-spin" /> : <Wifi size={15} />} Probar reporte
-                                        </button>
-                                        <button onClick={apply} disabled={phase === "applying"} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border hover:bg-accent text-sm font-bold text-muted-foreground active:scale-95 transition-all">
-                                            {phase === "applying" ? <Loader2 size={15} className="animate-spin" /> : <RefreshCcw size={14} />} Reescribir config
-                                        </button>
-                                    </>
-                                ) : (
-                                    <button onClick={apply} disabled={phase === "applying"} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold active:scale-95 transition-all disabled:opacity-60">
-                                        {phase === "applying" ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Configurar OmniAccess como alarma
-                                    </button>
-                                )}
-                                <button onClick={onClose} className="ml-auto px-4 py-2.5 rounded-xl text-sm font-bold text-muted-foreground hover:bg-accent">Cerrar</button>
-                            </div>
-                            </>
-                            )}
-                        </>
-                    )}
-                </div>
             </div>
         </div>
     );
@@ -1176,7 +1034,8 @@ export default function MonitorIntrusion() {
             {calibrateDev && calibrateDev.tipo === "LPR_INTERIOR" && <InteriorCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
             {calibrateDev && calibrateDev.tipo !== "LPR_INTERIOR" && <LineZoneCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
             {horarioDev && <HorarioArmadoDialog cam={horarioDev.cam} todasLasCamaras={horarioDev.todas} actual={horarioDev.cam ? horarios[horarioDev.cam.id] ?? null : null} general={horarioGeneral} camaras={horarios} onClose={() => setHorarioDev(null)} onAplicado={cargarHorarios} />}
-            {alarmDev && <AlarmDialog cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />}
+            {/* El servidor de alarma de la cámara, en un cajón (21/10: era un diálogo con el destino escrito a mano). */}
+            <CajonServidorAlarma cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { if (prev.has(id) === ok) return prev; const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
                 hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); const nx = Object.keys(alarms).find((d) => d !== id && alarms[d]?.length); if (nx && camById[nx]) openAlarmFicha(camById[nx]); else setDetail(null); }}
                 enAtencion={!!(detail?.deviceId && attendingIds.has(detail.deviceId))} onCerrarAtencion={(id, como) => { cerrarAtencion(id, como); setDetail(null); }}

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { leerAreas, crearArea, type Area } from "@/app/actions/areas";
 import { guardarGrupo } from "@/app/actions/groups";
-import { leerDestinoEventos, guardarDestinoEventos } from "@/app/actions/destino-eventos";
+import { DestinoEventos } from "@/components/devices/DestinoEventos";
 import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -227,23 +227,6 @@ function ElegirOCrear({ etiqueta, ayuda, icono: I, valor, opciones, ninguna, nue
  * (la cámara no contestó), se reintenta igual.
  */
 function ArreglarAlarmas({ cuantas, faltaDestino, ocupado, onReintentar }: { cuantas: number; faltaDestino: boolean; ocupado: boolean; onReintentar: () => void }) {
-    const [ip, setIp] = useState("");
-    const [puerto, setPuerto] = useState("10000");
-    const [sugeridas, setSugeridas] = useState<string[]>([]);
-    const [guardando, setGuardando] = useState(false);
-    useEffect(() => {
-        if (!faltaDestino) return;
-        leerDestinoEventos().then((d) => { setSugeridas(d.sugeridas); setPuerto(d.puerto); setIp((v) => v || d.ip || d.sugeridas[0] || ""); }).catch(() => { });
-    }, [faltaDestino]);
-    const guardarYReintentar = async () => {
-        setGuardando(true);
-        try {
-            const r = await guardarDestinoEventos(ip, puerto);
-            if (!r.ok) { toast.error({ title: "No se pudo guardar", description: r.error }); return; }
-            onReintentar();
-        } catch (e: any) { toast.error({ title: "No se pudo guardar", description: e?.message }); }
-        finally { setGuardando(false); }
-    };
     return (
         <div className="rounded-xl border border-[color-mix(in_oklab,var(--aviso)_40%,transparent)] bg-[color-mix(in_oklab,var(--aviso)_7%,transparent)] p-4 space-y-3">
             <div className="flex items-start gap-2.5">
@@ -255,24 +238,7 @@ function ArreglarAlarmas({ cuantas, faltaDestino, ocupado, onReintentar }: { cua
                     </p>
                 </div>
             </div>
-            {faltaDestino ? (
-                <div className="flex flex-wrap items-end gap-2">
-                    <label className="block flex-1 min-w-[180px]">
-                        <Etiqueta texto="IP de OmniAccess para las cámaras" ayuda="La dirección de este servidor vista desde la red de las cámaras. Si están en otra red (VPN, otro barrio), la que enruta hasta acá." />
-                        <input value={ip} onChange={(e) => setIp(e.target.value)} list="ips-servidor" placeholder="172.26.20.200"
-                            className="h-10 w-full rounded-lg border border-border bg-background px-3 text-[13px] font-mono outline-none focus:border-[var(--accion)] focus:ring-2 focus:ring-[color-mix(in_oklab,var(--accion)_25%,transparent)]" />
-                        <datalist id="ips-servidor">{sugeridas.map((x) => <option key={x} value={x} />)}</datalist>
-                    </label>
-                    <label className="block w-[96px]">
-                        <Etiqueta texto="Puerto" ayuda="El del receptor de eventos. Por defecto 10000." />
-                        <input value={puerto} onChange={(e) => setPuerto(e.target.value.replace(/\D/g, "").slice(0, 5))}
-                            className="h-10 w-full rounded-lg border border-border bg-background px-3 text-[13px] font-mono outline-none focus:border-[var(--accion)]" />
-                    </label>
-                    <Button onClick={guardarYReintentar} disabled={!ip.trim() || guardando || ocupado} className="h-10 gap-1.5">
-                        {guardando || ocupado ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Guardar y reintentar
-                    </Button>
-                </div>
-            ) : (
+            {faltaDestino ? <DestinoEventos textoBoton="Guardar y reintentar" ocupado={ocupado} alGuardar={() => onReintentar()} /> : (
                 <Button variant="outline" size="sm" onClick={onReintentar} disabled={ocupado} className="gap-1.5">
                     {ocupado ? <Loader2 size={14} className="animate-spin" /> : <BellRing size={14} />} Reintentar el servidor de alarmas ({cuantas})
                 </Button>
