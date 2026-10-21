@@ -286,15 +286,23 @@ export async function getDetectionHistory(opts: { page?: number; pageSize?: numb
 export type ActiveAlarm = { deviceId: string; id: string; type: string; ts: string };
 
 /** Alarmas de intrusión sin aceptar (para reconstruir los overlays al recargar la página). */
+function camarasDe(details: string | null): string[] {
+    try { const c = JSON.parse(details || "{}")?.camaras; return Array.isArray(c) ? c.map(String) : []; } catch { return []; }
+}
+
 export async function getActiveAlarms(): Promise<ActiveAlarm[]> {
     const since = new Date(Date.now() - 6 * 3600 * 1000);
     try {
         const rows = await prisma.detection.findMany({
             where: { acknowledged: false, type: { not: "MOTION" }, timestamp: { gte: since }, deviceId: { not: null } },
             orderBy: { timestamp: "desc" }, take: 300,
-            select: { id: true, deviceId: true, type: true, timestamp: true },
+            select: { id: true, deviceId: true, type: true, timestamp: true, details: true },
         });
-        return rows.map((r) => ({ deviceId: r.deviceId!, id: r.id, type: r.type, ts: r.timestamp.toISOString() }));
+        // La alarma de una central (Alarm Hub) se muestra sobre las cámaras de su zona (details.camaras).
+        return rows.flatMap((r) => {
+            const camaras = r.type === "CENTRAL" ? camarasDe(r.details) : [];
+            return (camaras.length ? camaras : [r.deviceId!]).map((deviceId) => ({ deviceId, id: r.id, type: r.type, ts: r.timestamp.toISOString() }));
+        });
     } catch { return []; }
 }
 
@@ -450,8 +458,11 @@ export async function marcarDeteccion(id: string, kind: "real" | "false"): Promi
 export async function ackAlarms(deviceId: string, kind: "real" | "false" = "real"): Promise<{ ok: boolean; count: number }> {
     const since = new Date(Date.now() - 6 * 3600 * 1000);
     try {
+        // Las de la cámara y las de una central cuya zona mira esta cámara (Alarm Hub).
+        const deCentral = (await prisma.detection.findMany({ where: { type: "CENTRAL", acknowledged: false, timestamp: { gte: since } }, select: { id: true, details: true }, take: 200 }))
+            .filter((d) => camarasDe(d.details).includes(deviceId)).map((d) => d.id);
         const r = await prisma.detection.updateMany({
-            where: { deviceId, acknowledged: false, type: { not: "MOTION" }, timestamp: { gte: since } },
+            where: { OR: [{ deviceId }, ...(deCentral.length ? [{ id: { in: deCentral } }] : [])], acknowledged: false, type: { not: "MOTION" }, timestamp: { gte: since } },
             data: { acknowledged: true, ackKind: kind, ackAt: new Date() },
         });
         if (r.count) await registrarGestion(await claveDeCamara(deviceId, kind), kind === "real" ? "CONFIRMO_REAL" : "MARCO_FALSA", await quienOpera(), { deviceId, detalle: r.count > 1 ? `${r.count} detecciones de la cámara` : null });

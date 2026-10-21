@@ -1,6 +1,6 @@
 "use client";
 
-import { Radar, ShieldAlert, Activity, LogIn, LogOut } from "lucide-react";
+import { Radar, ShieldAlert, Activity, LogIn, LogOut, Siren } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,6 +16,8 @@ export const META_DETECCION: Record<string, { label: string; cls: string; ring: 
     REGION_ENTER: { label: "Entra a zona", cls: "text-amber-300 border-amber-500/40 bg-amber-500/10", ring: "ring-amber-500", dot: "bg-amber-500", Icon: LogIn },
     REGION_EXIT: { label: "Sale de zona", cls: "text-amber-300 border-amber-500/40 bg-amber-500/10", ring: "ring-amber-500", dot: "bg-amber-500", Icon: LogOut },
     MOTION: { label: "Movimiento", cls: "text-sky-300 border-sky-500/40 bg-sky-500/10", ring: "ring-sky-500", dot: "bg-sky-500", Icon: Activity },
+    // Alarm Hub (21/10): la alarma de una central (robo, pánico, incendio…), por SIA DC-09.
+    CENTRAL: { label: "Central de alarma", cls: "text-red-300 border-red-500/40 bg-red-500/10", ring: "ring-red-500", dot: "bg-red-500", Icon: Siren },
     OTHER: { label: "Evento", cls: "text-slate-300 border-slate-500/40 bg-slate-500/10", ring: "ring-slate-500", dot: "bg-slate-500", Icon: Activity },
 };
 export const metaDe = (tipo: string | null | undefined) => META_DETECCION[tipo || ""] || META_DETECCION.OTHER;

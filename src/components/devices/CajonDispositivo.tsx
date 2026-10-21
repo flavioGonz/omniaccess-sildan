@@ -8,6 +8,7 @@ import {
     LogIn, LogOut, KeyRound, User, Cpu, Fingerprint, Clock, BellRing, ScanLine, Film, Video, ListChecks, Server,
     ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users, Sparkles, Image as ImageIcon,
     FolderTree, Plus,
+    Siren,
 } from "lucide-react";
 import { leerAreas, crearArea, type Area } from "@/app/actions/areas";
 import { guardarGrupo } from "@/app/actions/groups";
@@ -345,7 +346,7 @@ function TipoDeCamara({ tipo, original, caps, leyendo, modoLpr, modoIntr, onCamb
 
 /* ── El cajón ─────────────────────────────────────────────────────────────────── */
 
-export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenChange, alCalibrar, alCalibrarImagen, alImportar }: {
+export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenChange, alCalibrar, alCalibrarImagen, alImportar, alAgregarCentral }: {
     /** Con equipo: ficha de edición. Sin equipo: alta por pasos. */
     device?: any | null;
     groups?: any[];
@@ -358,6 +359,8 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     alCalibrarImagen?: (d: any) => void;
     /** Abrir la importación de cámaras de un NVR desde su ficha. */
     alImportar?: (d: any) => void;
+    /** Alarm Hub: la central de alarma tiene su propio cajón (CajonCentral); el alta lo abre desde acá. */
+    alAgregarCentral?: () => void;
 }) {
     const esEdicion = !!device;
     const [paso, setPaso] = useState(0);
@@ -1100,6 +1103,21 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                         <ChevronRight size={18} className="self-center text-muted-foreground group-hover:text-foreground transition-colors" />
                                     </button>
                                 ))}
+                                {alAgregarCentral && (
+                                    // Alarm Hub (21/10): no es una cámara, no sigue estos pasos: abre su propio cajón.
+                                    <button type="button" onClick={() => { onOpenChange(false); alAgregarCentral(); }}
+                                        className="group text-left rounded-2xl border p-4 flex gap-4 transition-colors border-border bg-card/40 hover:bg-accent/50">
+                                        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border text-red-500 bg-red-500/10 border-red-500/30"><Siren size={22} /></span>
+                                        <span className="min-w-0 flex-1">
+                                            <span className="flex items-center gap-2 text-[14.5px] font-bold text-foreground">Central de alarma (Alarm Hub)<span {...tip("Ej.: una Hikvision AX PRO en el Club House, o cualquier central que reporte por SIA DC-09.")} className="text-muted-foreground/60 hover:text-[var(--accion)]"><Info size={13} /></span></span>
+                                            <span className="block text-[12.5px] text-muted-foreground leading-snug mt-0.5">Recibe las alarmas de una central por SIA DC-09, cifradas. Sus zonas se asocian a áreas y cámaras, y sus alarmas llegan al Monitor de Intrusión.</span>
+                                            <span className="mt-2 flex flex-wrap gap-1.5">
+                                                {["Central", "Receptor", "Zonas"].map((p, i) => <span key={p} className="px-2 py-0.5 rounded-full bg-muted/70 text-[10.5px] font-semibold text-muted-foreground">{i + 1}. {p}</span>)}
+                                            </span>
+                                        </span>
+                                        <ChevronRight size={18} className="self-center text-muted-foreground group-hover:text-foreground transition-colors" />
+                                    </button>
+                                )}
                             </div>
                         )}
 

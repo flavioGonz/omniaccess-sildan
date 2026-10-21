@@ -16,6 +16,8 @@ async function ejecutar() {
         if (new Date().getMinutes() % 10 === 0) { const { evaluarSilencio } = await import("@/lib/silencio"); await evaluarSilencio().catch((e) => console.error("[silencio]", e?.message)); }
         // Diagnóstico de imagen (tapada, borrosa, movida): unas pocas cámaras por vuelta, cada una cada ~15 min.
         { const { vueltaDiagnostico } = await import("@/lib/diagnostico-imagen"); await vueltaDiagnostico().catch((e) => console.error("[diagnostico-imagen]", e?.message)); }
+        // Centrales de alarma (Alarm Hub): supervisión y fallas abiertas.
+        { const { evaluarCentrales } = await import("@/lib/centrales/supervision"); await evaluarCentrales().catch((e) => console.error("[centrales]", e?.message)); }
         return NextResponse.json({ ok: true, n: results.length, ts: Date.now() });
     } catch (e: any) {
         return NextResponse.json({ ok: false, error: e?.message || "tick error" }, { status: 500 });

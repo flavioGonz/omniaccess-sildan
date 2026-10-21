@@ -258,6 +258,8 @@ model Device {
   accessGroups    AccessGroup[]    @relation("AccessGroupToDevice")
   franja          Franja?
   ocupaciones     Ocupacion[]
+  /// Si es un Alarm Hub: cuenta, clave y estado de la central (alarm-receiver.js).
+  central         CentralAlarma?
 }
 
 model AccessEvent {
@@ -501,6 +503,8 @@ enum DeviceType {
   ACCESS_CONTROL
   DOOR_INTERCOM
   QUEUE_COUNTER
+  /// Central de alarma que reporta por SIA DC-09 (alarm-receiver.js). Ver model CentralAlarma.
+  ALARM_HUB
 }
 
 enum DeviceBrand {
@@ -1520,4 +1524,86 @@ model AlarmaGestion {
 
   @@index([clave, ts])
   @@index([ts])
+}
+
+
+/// Alarm Hub (openspec/changes/alarm-hub-sia-dc09): una central de alarma que le reporta a
+/// alarm-receiver.js por SIA DC-09. 1:1 con su Device (deviceType ALARM_HUB).
+model CentralAlarma {
+  id              String           @id @default(cuid())
+  deviceId        String           @unique
+  device          Device           @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  /// generica | ax-pro | ax-hybrid (lib/centrales: el driver que escribe el receptor en la central)
+  modelo          String           @default("generica")
+  /// La cuenta DC-09 (3 a 16 dígitos hex). Única: es lo que identifica a la central en cada mensaje.
+  cuenta          String           @unique
+  /// SIA-DCS | ADM-CID: lo que se le pide a la central (el receptor acepta los dos igual).
+  protocolo       String           @default("SIA-DCS")
+  /// Clave AES, cifrada con OMNI_CLAVE_DATOS (lib-cifrado-datos). Nunca en claro ni en logs.
+  claveCifrada    String?
+  /// hex | texto: cómo la interpretó la central (se aprende del primer mensaje que descifra).
+  modoClave       String?
+  /// Sin cifrar sólo si está en la LAN o una VPN: por internet el cifrado es obligatorio.
+  lanVpn          Boolean          @default(false)
+  /// Central de prueba (el simulador): sus alarmas no disparan reglas ni la salud manda Telegram.
+  prueba          Boolean          @default(false)
+  /// Cada cuánto se espera algo de la central (NULL o prueba periódica). Con 2 períodos sin nada: «Sin supervisión».
+  supervisionSeg  Int              @default(600)
+  /// ESPERANDO (nunca habló) | EN_LINEA | SIN_SUPERVISION
+  estado          String           @default("ESPERANDO")
+  ultimoMensajeAt DateTime?
+  ipOrigen        String?
+  transporte      String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  zonas           ZonaCentral[]
+  mensajes        MensajeCentral[]
+}
+
+/// Una zona de la central: con nombre, área de Dispositivos y las cámaras que la miran.
+model ZonaCentral {
+  id        String        @id @default(cuid())
+  centralId String
+  central   CentralAlarma @relation(fields: [centralId], references: [id], onDelete: Cascade)
+  zona      Int
+  particion Int?
+  nombre    String?
+  areaId    String?
+  /// ids de Device (cámaras) asociadas: la alarma de la zona trae un cuadro de cada una.
+  camaras   String[]      @default([])
+  tipo      String?
+  createdAt DateTime      @default(now())
+
+  @@unique([centralId, zona])
+}
+
+/// Cada mensaje DC-09 que llegó (y los rechazados), con la respuesta y lo que se entendió.
+model MensajeCentral {
+  id          String         @id @default(cuid())
+  centralId   String?
+  central     CentralAlarma? @relation(fields: [centralId], references: [id], onDelete: Cascade)
+  cuenta      String?
+  ip          String?
+  transporte  String?
+  /// SIA-DCS | ADM-CID | NULL | … (sin el asterisco; `cifrado` dice si venía cifrado)
+  idMensaje   String?
+  cifrado     Boolean        @default(false)
+  seq         Int?
+  /// La trama como llegó (cifrada si venía cifrada: la clave nunca se guarda acá).
+  crudo       String
+  /// Los datos ya descifrados («Nri1/BA003»).
+  datos       String?
+  horaCentral DateTime?
+  /// ACK | NAK | DUH | (vacío si no se contestó)
+  respuesta   String?
+  error       String?
+  /// [{ categoria, tipo, texto, codigo, zona, particion, usuario }] (lib-dc09-codigos)
+  eventos     Json?
+  /// La Detection creada por una ALARMA (Gestión de alarmas / Monitor de Intrusión).
+  detectionId String?
+  recibido    DateTime       @default(now())
+
+  @@index([centralId, recibido])
+  @@index([cuenta, seq])
+  @@index([recibido])
 }

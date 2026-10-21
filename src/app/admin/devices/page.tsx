@@ -106,6 +106,8 @@ import {
 import { cn } from "@/lib/utils";
 import { HardDrive as HardDriveIco, ScanSearch, Calculator } from "lucide-react";
 import { CajonDispositivo } from "@/components/devices/CajonDispositivo";
+import { CajonCentral } from "@/components/centrales/CajonCentral";
+import { VistaCentrales } from "@/components/centrales/VistaCentrales";
 import { ChipModo } from "@/components/devices/ModoCamara";
 import { esLprDeAcceso, modoLprDe } from "@/lib/modo-camara";
 import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
@@ -140,6 +142,8 @@ const TYPE_META: Record<string, { label: string; color: string; activeClass: str
     NVR: { label: "NVR", color: "text-blue-400", activeClass: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
     // (SN) La LPR de seguimiento interior: la página de Olivos no tenía este tipo y el equipo no
     // aparecía en ninguna vista. Se edita con el formulario general (menú «…»).
+    // Alarm Hub (21/10): centrales de alarma que reportan por SIA DC-09.
+    ALARM_HUB: { label: "Centrales de alarma", color: "text-red-400", activeClass: "bg-red-500/15 text-red-300 border-red-500/30" },
     LPR_INTERIOR: { label: "LPR interior", color: "text-amber-400", activeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
 };
 
@@ -322,6 +326,8 @@ export default function DevicesPage() {
     // (21/10, Nico: «la cámara del Británico no la veo en dispositivos»: el lab corre en modo LPR y
     // tiene un contador Bosch para probar; existía, contaba, y no había dónde verlo ni editarlo).
     if (modules.MODULE_QUEUE || devices.some((d) => vistaDe(d) === "QUEUE_COUNTER")) allowedTypes.push("QUEUE_COUNTER");
+    // Las centrales de alarma, sólo si hay alguna (se agregan desde «Agregar»).
+    if (devices.some((d) => d.deviceType === "ALARM_HUB")) allowedTypes.push("ALARM_HUB");
     const pedido = searchParams.get('type');
     const typeFilter = pedido && allowedTypes.includes(pedido) ? pedido : (allowedTypes[0] || "LPR_CAMERA");
     // Alta: un solo botón que pregunta qué se agrega (LPR, intrusión o NVR) e importar canales de un NVR.
@@ -329,7 +335,10 @@ export default function DevicesPage() {
     const [editando, setEditando] = useState<any>(null);
     /** Un contador de filas tiene su propia ficha (CajonContadorFila), no la de las cámaras ni el formulario viejo. */
     const [contador, setContador] = useState<any>(null);
-    const abrir = (d: any) => (vistaDe(d) === "QUEUE_COUNTER" ? setContador(d) : ["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(d)) ? setEditando(d) : null);
+    /** La ficha de una central de alarma (CajonCentral): `null` cerrada, "" alta nueva. */
+    const [central, setCentral] = useState<string | null>(null);
+    const [versionCentrales, setVersionCentrales] = useState(0);
+    const abrir = (d: any) => (d.deviceType === "ALARM_HUB" ? setCentral(d.id) : vistaDe(d) === "QUEUE_COUNTER" ? setContador(d) : ["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(d)) ? setEditando(d) : null);
     const [calibIntr, setCalibIntr] = useState<any>(null);
     // Sincronizar hora: siempre se pregunta antes (lista de equipos + desfase actual).
     const [pedirHora, setPedirHora] = useState<any[] | null>(null);
@@ -590,7 +599,8 @@ export default function DevicesPage() {
                     onSalud={(d) => setHealthHistory(d)} onElegirArea={setAreaSel} />
             ) : (<>
 
-            {typeFilter !== "NVR" && typeFilter !== "CAMERA" && (
+            {typeFilter === "ALARM_HUB" && <VistaCentrales alAbrir={(id) => setCentral(id)} version={versionCentrales} busqueda={searchTerm} />}
+            {typeFilter !== "NVR" && typeFilter !== "CAMERA" && typeFilter !== "ALARM_HUB" && (
             <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
                 <Table>
                     <TableHeader className="bg-card/60">
@@ -1049,7 +1059,8 @@ export default function DevicesPage() {
 
             {/* Altas desde el botón «Agregar» */}
             <CajonDispositivo groups={groups} open={alta === "lpr"} onOpenChange={(v) => !v && setAlta(null)} onSuccess={() => { loadData(); cargarGrab(); }}
-                alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} />
+                alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} alAgregarCentral={() => { setAlta(null); setCentral(""); }} />
+            <CajonCentral abierto={central !== null} centralId={central || null} alCerrar={() => setCentral(null)} alCambiar={() => { loadData(); setVersionCentrales((v) => v + 1); }} />
             <CajonContadorFila device={contador} open={!!contador} onOpenChange={(v) => !v && setContador(null)} onSuccess={() => { loadData(); }} />
             <CajonDispositivo device={editando} groups={groups} open={!!editando} onOpenChange={(v) => !v && setEditando(null)} onSuccess={() => { loadData(); cargarGrab(); }}
                 alCalibrar={(d) => setCalibIntr(d)} alCalibrarImagen={(d) => setCalibrating(d)} alImportar={(d) => setImportandoDe(d)} />

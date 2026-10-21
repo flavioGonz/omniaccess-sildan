@@ -45,6 +45,9 @@ export const PERMISOS: Permiso[] = [
 
     // ── Equipos ──
     { clave: "dispositivos", rotulo: "Dispositivos", grupo: "Equipos", descripcion: "Cámaras, grabadores, lectoras: alta, salud, sincronización de matrículas, hora.", rutas: ["/admin/devices"] },
+    // Alarm Hub (21/10): armar y desarmar una central desde OmniAccess. Aparte de Dispositivos a
+    // propósito: quien da de alta equipos no necesariamente opera la alarma de un cliente, y al revés.
+    { clave: "centrales", rotulo: "Control de centrales", grupo: "Equipos", descripcion: "Armar y desarmar las centrales de alarma (Alarm Hub) desde OmniAccess. Cada orden queda en Auditoría.", rutas: [] },
 
     // ── Filas (módulo de colas) ──
     { clave: "filas", rotulo: "Control de filas", grupo: "Filas", descripcion: "Filas, flujo, despachos, horarios, kiosko, calibración de aforo y reportes de filas.", rutas: ["/admin/filas", "/admin/flujo-filas", "/admin/despachos", "/admin/horarios-filas", "/admin/kiosko", "/admin/calibracion-aforo", "/admin/reportes-queue"] },

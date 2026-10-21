@@ -92,7 +92,9 @@ const AVISOS_QUE_NO_SON_ALARMA = ["SIN_REGISTRAR", ...AVISOS_RETIRADOS];
 /** Cuántas trae cada fuente como mucho: la lista es para atender, no un historial. */
 const MAX_POR_FUENTE = 400;
 
-const NOMBRE_INTRUSION: Record<string, string> = { LINECROSS: "Cruce de línea", INTRUSION: "Intrusión", REGION_ENTER: "Entra a zona", REGION_EXIT: "Sale de zona", OTHER: "Evento de cámara" };
+/** Las alarmas de una central (Alarm Hub): el tipo va en eventType (alarm-receiver.js). */
+const NOMBRE_CENTRAL: Record<string, string> = { ROBO: "Robo", PANICO: "Pánico", INCENDIO: "Incendio", SABOTAJE: "Sabotaje", COACCION: "Coacción", MEDICA: "Emergencia médica", GAS: "Gas", AGUA: "Pérdida de agua", TEMPERATURA: "Temperatura", GENERAL: "Alarma" };
+const NOMBRE_INTRUSION: Record<string, string> = { CENTRAL: "Alarma de central", LINECROSS: "Cruce de línea", INTRUSION: "Intrusión", REGION_ENTER: "Entra a zona", REGION_EXIT: "Sale de zona", OTHER: "Evento de cámara" };
 
 export async function listarAlarmas(horas: number): Promise<Alarma[]> {
     const desde = new Date(Date.now() - horas * 3_600_000);
@@ -163,11 +165,11 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
     const out: Alarma[] = [];
     for (const d of dets) {
         out.push({
-            id: `d:${d.id}`, fuente: "intrusion", tipo: d.type, titulo: NOMBRE_INTRUSION[d.type] || "Evento de cámara",
+            id: `d:${d.id}`, fuente: "intrusion", tipo: d.type, titulo: d.type === "CENTRAL" ? `${NOMBRE_CENTRAL[d.eventType || ""] || "Alarma"} · central` : NOMBRE_INTRUSION[d.type] || "Evento de cámara",
             detalle: d.label === "human" ? "Persona" : d.label === "vehicle" ? "Vehículo" : d.label || null,
             ts: d.timestamp.toISOString(), camara: (d.deviceId && nombre.get(d.deviceId)) || null, deviceId: d.deviceId, plate: null,
             foto: fotoDeDeteccion(d),
-            tono: d.type === "LINECROSS" || d.type === "INTRUSION" ? "mal" : "aviso",
+            tono: d.type === "LINECROSS" || d.type === "INTRUSION" || d.type === "CENTRAL" ? "mal" : "aviso",
             estado: d.acknowledged ? "atendida" : "pendiente", atendidaPor: null, atendidaAt: d.ackAt?.toISOString() || null,
             resultado: d.ackKind === "false" ? "falsa" : d.ackKind === "real" ? "real" : null, accessEventId: null,
             ...notaDe(atendida.get(`d:${d.id}`)),

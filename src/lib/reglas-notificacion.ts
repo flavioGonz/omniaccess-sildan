@@ -60,6 +60,7 @@ const ETIQUETA: Record<string, string> = {
     INTRUSION: "Intrusión en zona",
     REGION_ENTER: "Entrada a zona",
     REGION_EXIT: "Salida de zona",
+    CENTRAL: "Alarma de central",
 };
 const CLASE: Record<string, string> = { human: "Persona", vehicle: "Vehículo" };
 

@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
  * pantalla caen en cada una. Hermana de ElegirCamara (mismo Popover + Command, mismo aspecto),
  * para elegir un grupo en vez de una cámara. Va con useFiltroArea, que hace el filtrado.
  */
-export function ElegirArea({ areas, valor, alElegir, cuenta, sinArea, className, ancho = 280, alinear = "end", compacto }: {
+export function ElegirArea({ areas, valor, alElegir, cuenta, sinArea, className, ancho = 280, alinear = "end", compacto, vacio = "Todas las áreas" }: {
     areas: AreaElegible[];
     valor: string;
     alElegir: (v: string) => void;
@@ -26,6 +26,8 @@ export function ElegirArea({ areas, valor, alElegir, cuenta, sinArea, className,
     className?: string; ancho?: number; alinear?: "start" | "end";
     /** Sólo el ícono hasta que se elige un área (barras apretadas). */
     compacto?: boolean;
+    /** Cómo se llama la opción de no elegir ninguna: «Todas las áreas» en un filtro, «Sin área» al asignar una. */
+    vacio?: string;
 }) {
     const [abierto, setAbierto] = useState(false);
     const camino = useMemo(() => {
@@ -39,7 +41,7 @@ export function ElegirArea({ areas, valor, alElegir, cuenta, sinArea, className,
         return m;
     }, [areas]);
     const filtrando = valor !== TODAS_LAS_AREAS;
-    const rotulo = !filtrando ? "Todas las áreas" : valor === SIN_AREA ? "Sin área" : areas.find((a) => a.id === valor)?.nombre || "Área";
+    const rotulo = !filtrando ? vacio : valor === SIN_AREA ? "Sin área" : areas.find((a) => a.id === valor)?.nombre || "Área";
     const elegir = (v: string) => { alElegir(v); setAbierto(false); };
 
     return (
@@ -61,7 +63,7 @@ export function ElegirArea({ areas, valor, alElegir, cuenta, sinArea, className,
                         <CommandGroup>
                             <CommandItem value="__todas todas las areas" onSelect={() => elegir(TODAS_LAS_AREAS)} className="gap-2">
                                 <FolderTree size={14} className="text-muted-foreground shrink-0" />
-                                <span className="flex-1">Todas las áreas</span>
+                                <span className="flex-1">{vacio}</span>
                                 {!filtrando && <Check size={14} className="text-[var(--accion)] shrink-0" />}
                             </CommandItem>
                         </CommandGroup>

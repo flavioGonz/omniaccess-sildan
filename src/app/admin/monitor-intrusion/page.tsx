@@ -679,7 +679,7 @@ function SeleccionDeteccion({ d, cam, alFicha, alVivo, alGrabacion, alCerrar }: 
             <div className="px-4 pt-3 pb-3.5 flex flex-col gap-2.5">
                 <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">
-                        <div className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", d.type === "MOTION" ? "tono-info" : d.type === "LINECROSS" || d.type === "INTRUSION" ? "tono-mal" : "tono-aviso")}><m.Icon size={13} /> {m.label}</div>
+                        <div className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", d.type === "MOTION" ? "tono-info" : d.type === "LINECROSS" || d.type === "INTRUSION" || d.type === "CENTRAL" ? "tono-mal" : "tono-aviso")}><m.Icon size={13} /> {m.label}</div>
                         <div className="text-[15px] font-bold tracking-tight truncate">{d.deviceName || "Cámara"}</div>
                         <div className="text-[12px] text-muted-foreground tabular-nums">
                             {t.toLocaleDateString("es-UY", { weekday: "short", day: "2-digit", month: "2-digit" })} · {t.toLocaleTimeString("es-UY", { hour12: false })} · {ago(d.timestamp)}
@@ -791,8 +791,10 @@ export default function MonitorIntrusion() {
                 const item: DetItem = { id: d.id, deviceId: d.deviceId, deviceName: d.deviceName, type: d.type, eventType: d.eventType, snapshotPath: d.snapshotPath || null, timestamp: d.timestamp };
                 setDets((prev) => [item, ...prev.filter((x) => x.id !== d.id)].slice(0, 60));
                 if (d.deviceId && d.type !== "MOTION") { // alarma que se apila sobre el canal hasta que el operador la acepte
-                    const chip: AlarmChip = { id: d.id, type: d.type, label: (META[d.type] || META.OTHER).label, ts: d.timestamp };
-                    setAlarms((a) => ({ ...a, [d.deviceId]: [chip, ...(a[d.deviceId] || []).filter((x) => x.id !== d.id)].slice(0, 5) }));
+                    const chip: AlarmChip = { id: d.id, type: d.type, label: d.type === "CENTRAL" && d.label ? d.label : (META[d.type] || META.OTHER).label, ts: d.timestamp };
+                    // La alarma de una central (Alarm Hub) se enciende en las cámaras que miran esa zona.
+                    const sobre: string[] = d.type === "CENTRAL" && Array.isArray(d.camaras) && d.camaras.length ? d.camaras : [d.deviceId];
+                    setAlarms((a) => { const n = { ...a }; for (const k of sobre) n[k] = [chip, ...(a[k] || []).filter((x) => x.id !== d.id)].slice(0, 5); return n; });
                 }
             });
             s.on("detection_snapshot", (d: any) => { setDets((prev) => prev.map((x) => x.id === d.id ? { ...x, snapshotPath: d.snapshotPath } : x)); });
@@ -901,7 +903,7 @@ export default function MonitorIntrusion() {
     }, [dets, filter, cargandoMasDets]);
     const columnasDets = useMemo<ColumnaTabla<DetItem>[]>(() => [
         { clave: "tipo", titulo: "Tipo", ancho: 128, valor: (d) => (META[d.type] || META.OTHER).label,
-            celda: (d) => { const m = META[d.type] || META.OTHER; return <span className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", d.type === "MOTION" ? "tono-info" : d.type === "LINECROSS" || d.type === "INTRUSION" ? "tono-mal" : "tono-aviso")}><m.Icon size={13} /> {m.label}</span>; } },
+            celda: (d) => { const m = META[d.type] || META.OTHER; return <span className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", d.type === "MOTION" ? "tono-info" : d.type === "LINECROSS" || d.type === "INTRUSION" || d.type === "CENTRAL" ? "tono-mal" : "tono-aviso")}><m.Icon size={13} /> {m.label}</span>; } },
         { clave: "camara", titulo: "Cámara", valor: (d) => d.deviceName || "Cámara",
             celda: (d) => <div className="min-w-0"><div className="text-[12px] font-semibold truncate">{d.deviceName || "Cámara"}</div>{d.deviceId && camById[d.deviceId]?.nvrName && <div className="text-[10.5px] text-muted-foreground truncate">{camById[d.deviceId]!.nvrName}</div>}</div> },
         { clave: "hora", titulo: "Hora", ancho: 84, alinear: "der", valor: (d) => d.timestamp,
