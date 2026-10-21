@@ -57,7 +57,7 @@ function hostBody(id: string, ip: string, port: string, path: string): string {
 /** Asegura que OmniAccess sea servidor de alarma del equipo (lo agrega si falta). */
 export async function ensureAlarmHost(d: CamDev): Promise<{ ok: boolean; already?: boolean; slot?: string; error?: string }> {
     const t = await getEventTarget();
-    if (!t) return { ok: false, error: "Falta configurar el host de eventos de OmniAccess (Settings EVENT_HOST_IP)." };
+    if (!t) return { ok: false, sinDestino: true, error: "Falta decir a qué IP le mandan los eventos las cámaras (destino de eventos)." } as any;
     const cur = await readAlarmHosts(d);
     if (!cur.ok) return { ok: false, error: cur.error };
     if (cur.hasOmni) return { ok: true, already: true };

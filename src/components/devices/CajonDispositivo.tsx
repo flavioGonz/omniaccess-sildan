@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { leerAreas, crearArea, type Area } from "@/app/actions/areas";
 import { guardarGrupo } from "@/app/actions/groups";
+import { leerDestinoEventos, guardarDestinoEventos } from "@/app/actions/destino-eventos";
 import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -47,7 +48,9 @@ type Marca = "HIKVISION" | "DAHUA";
 type Estado = "espera" | "corriendo" | "ok" | "error" | "salteado";
 type Tarea = { clave: string; titulo: string; ayuda: string; icono: any; estado: Estado; detalle?: string };
 /** Una cámara del NVR mientras se importa: el avance de cada una a la vista (21/10). */
-type FilaImport = { channel: number; name: string; rol: "lpr" | "intrusion" | "vincular"; estado: Estado; detalle?: string };
+type FilaImport = { channel: number; name: string; rol: "lpr" | "intrusion" | "vincular"; estado: Estado; detalle?: string;
+    /** El equipo creado o vinculado, y el error de su servidor de alarmas si falló (para reintentarlo). */
+    id?: string; alarma?: string | null; base?: string };
 type Ubic = { nvrId: string | null; nvrNombre: string | null; ch: number; canalNombre?: string | null };
 type Canal = { channel: number; ip: string | null; name: string; model?: string | null; marca: string; protocolo?: string | null; sensorDe?: number | null; existente: { id: string; name: string; tipo: string } | null };
 
@@ -218,6 +221,66 @@ function ElegirOCrear({ etiqueta, ayuda, icono: I, valor, opciones, ninguna, nue
     );
 }
 
+/**
+ * Las cámaras que quedaron creadas pero sin avisar a OmniAccess. Si faltaba el destino de los
+ * eventos (a qué IP le mandan las cámaras), se dice acá mismo y se reintenta; si fue otra cosa
+ * (la cámara no contestó), se reintenta igual.
+ */
+function ArreglarAlarmas({ cuantas, faltaDestino, ocupado, onReintentar }: { cuantas: number; faltaDestino: boolean; ocupado: boolean; onReintentar: () => void }) {
+    const [ip, setIp] = useState("");
+    const [puerto, setPuerto] = useState("10000");
+    const [sugeridas, setSugeridas] = useState<string[]>([]);
+    const [guardando, setGuardando] = useState(false);
+    useEffect(() => {
+        if (!faltaDestino) return;
+        leerDestinoEventos().then((d) => { setSugeridas(d.sugeridas); setPuerto(d.puerto); setIp((v) => v || d.ip || d.sugeridas[0] || ""); }).catch(() => { });
+    }, [faltaDestino]);
+    const guardarYReintentar = async () => {
+        setGuardando(true);
+        try {
+            const r = await guardarDestinoEventos(ip, puerto);
+            if (!r.ok) { toast.error({ title: "No se pudo guardar", description: r.error }); return; }
+            onReintentar();
+        } catch (e: any) { toast.error({ title: "No se pudo guardar", description: e?.message }); }
+        finally { setGuardando(false); }
+    };
+    return (
+        <div className="rounded-xl border border-[color-mix(in_oklab,var(--aviso)_40%,transparent)] bg-[color-mix(in_oklab,var(--aviso)_7%,transparent)] p-4 space-y-3">
+            <div className="flex items-start gap-2.5">
+                <BellRing size={16} className="tono-aviso shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                    <div className="text-[13px] font-semibold">{cuantas} {cuantas === 1 ? "cámara quedó creada pero no avisa" : "cámaras quedaron creadas pero no avisan"} a OmniAccess</div>
+                    <p className="text-[12px] text-muted-foreground leading-snug mt-0.5">
+                        {faltaDestino ? "Falta decir a qué IP le mandan sus eventos (cruces de línea, entradas a zona). Es la IP con la que las cámaras llegan a este servidor; se guarda una vez para todas." : "No se les pudo escribir el servidor de alarmas. El motivo está en cada renglón."}
+                    </p>
+                </div>
+            </div>
+            {faltaDestino ? (
+                <div className="flex flex-wrap items-end gap-2">
+                    <label className="block flex-1 min-w-[180px]">
+                        <Etiqueta texto="IP de OmniAccess para las cámaras" ayuda="La dirección de este servidor vista desde la red de las cámaras. Si están en otra red (VPN, otro barrio), la que enruta hasta acá." />
+                        <input value={ip} onChange={(e) => setIp(e.target.value)} list="ips-servidor" placeholder="172.26.20.200"
+                            className="h-10 w-full rounded-lg border border-border bg-background px-3 text-[13px] font-mono outline-none focus:border-[var(--accion)] focus:ring-2 focus:ring-[color-mix(in_oklab,var(--accion)_25%,transparent)]" />
+                        <datalist id="ips-servidor">{sugeridas.map((x) => <option key={x} value={x} />)}</datalist>
+                    </label>
+                    <label className="block w-[96px]">
+                        <Etiqueta texto="Puerto" ayuda="El del receptor de eventos. Por defecto 10000." />
+                        <input value={puerto} onChange={(e) => setPuerto(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                            className="h-10 w-full rounded-lg border border-border bg-background px-3 text-[13px] font-mono outline-none focus:border-[var(--accion)]" />
+                    </label>
+                    <Button onClick={guardarYReintentar} disabled={!ip.trim() || guardando || ocupado} className="h-10 gap-1.5">
+                        {guardando || ocupado ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Guardar y reintentar
+                    </Button>
+                </div>
+            ) : (
+                <Button variant="outline" size="sm" onClick={onReintentar} disabled={ocupado} className="gap-1.5">
+                    {ocupado ? <Loader2 size={14} className="animate-spin" /> : <BellRing size={14} />} Reintentar el servidor de alarmas ({cuantas})
+                </Button>
+            )}
+        </div>
+    );
+}
+
 /** El avance de la importación de un NVR: una barra y un renglón por cámara, con su estado. */
 function AvanceImportacion({ filas }: { filas: FilaImport[] }) {
     const hechas = filas.filter((x) => x.estado !== "espera" && x.estado !== "corriendo").length;
@@ -244,7 +307,7 @@ function AvanceImportacion({ filas }: { filas: FilaImport[] }) {
                             <span className="w-8 shrink-0 font-mono text-[11px] text-muted-foreground">D{x.channel}</span>
                             <div className="min-w-0 flex-1">
                                 <div className={cn("text-[12.5px] font-semibold truncate", x.estado === "espera" && "text-muted-foreground")}>{x.name}</div>
-                                {x.detalle && <div className={cn("text-[11px] truncate", x.estado === "error" ? "text-red-500" : "text-muted-foreground")} title={x.detalle}>{x.detalle}</div>}
+                                {x.detalle && <div className={cn("text-[11px] line-clamp-2 break-words", x.estado === "error" ? "text-red-500" : "text-muted-foreground")} title={x.detalle}>{x.detalle}</div>}
                             </div>
                             <span className={cn("shrink-0 inline-flex items-center gap-1 px-2 h-6 rounded-full text-[10.5px] font-bold", r.clase)}><r.icono size={11} /> {r.rotulo}</span>
                         </div>
@@ -379,6 +442,34 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     const [areaId, setAreaId] = useState("none");
     const [gruposNuevos, setGruposNuevos] = useState<{ id: string; name: string }[]>([]);
     const [importados, setImportados] = useState<FilaImport[]>([]);
+    /** El servidor de alarmas falló porque no se sabe a qué IP mandan los eventos las cámaras. */
+    const [faltaDestino, setFaltaDestino] = useState(false);
+    /** Reintentar el servidor de alarmas de las que fallaron (después de decir el destino, o si fue un corte). */
+    const reintentarAlarmas = async () => {
+        const pend = importados.filter((x) => x.alarma && x.id);
+        if (!pend.length) return;
+        setCorriendo(true); setFaltaDestino(false);
+        let fallan = 0;
+        for (const x of pend) {
+            setImportados((fs) => fs.map((y) => (y.channel === x.channel ? { ...y, estado: "corriendo", detalle: `${y.base} · configurando el servidor de alarmas…` } : y)));
+            const a = await fetch(`/api/devices/alarm-host?deviceId=${x.id}`, { method: "POST" }).then((r) => r.json()).catch(() => null);
+            if (a?.sinDestino) setFaltaDestino(true);
+            if (!a?.ok) fallan++;
+            setImportados((fs) => fs.map((y) => (y.channel === x.channel ? (a?.ok
+                ? { ...y, estado: "ok", alarma: null, detalle: `${y.base} · avisa a OmniAccess` }
+                : { ...y, estado: "error", alarma: a?.error || "sin respuesta", detalle: `${y.base} · no quedó avisando: ${a?.error || "sin respuesta"}` }) : y)));
+        }
+        setCorriendo(false);
+        if (fallan) toast.error({ title: `${fallan} siguen sin avisar`, description: "El motivo está en cada renglón." });
+        else toast.success({ title: "Todas avisan a OmniAccess" });
+    };
+    // Mientras corre la puesta a punto, salir de la página la corta a la mitad: se avisa.
+    useEffect(() => {
+        if (!corriendo) return;
+        const avisar = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+        window.addEventListener("beforeunload", avisar);
+        return () => window.removeEventListener("beforeunload", avisar);
+    }, [corriendo]);
     const [creadoId, setCreadoId] = useState<string | null>(null);
     const [opcionAlta, setOpcionAlta] = useState<string | null>(null);
     const [guardando, setGuardando] = useState(false);
@@ -391,7 +482,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         if (!open) return;
         setF(blanco()); setPaso(0); setHacia(1); setInfo(null); setDonde(null); setManual({ nvrId: "", ch: "" });
         setSinGrabar(false); setActual(null); setRetencion(null); setCanales(null); setErrorCanales(""); setEleccion({});
-        setTareas([]); setImportados([]); setAreaId("none"); setCorriendo(false); setTerminado(false); setCreadoId(null); setCargarMatriculas(true); setGuardando(false); setOpcionAlta(null);
+        setTareas([]); setImportados([]); setFaltaDestino(false); setAreaId("none"); setCorriendo(false); setTerminado(false); setCreadoId(null); setCargarMatriculas(true); setGuardando(false); setOpcionAlta(null);
         setCaps(null); setCapsCanal({});
         // Las credenciales ya no vienen en la lista de equipos (lib/equipo-publico): se piden acá,
         // con el permiso Dispositivos. Si no llegan, guardar no borra la clave (updateDevice).
@@ -693,13 +784,20 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                         const canalP = (canales || []).find((x) => x.channel === p.channel);
                         const avisa = p.rol === "intrusion" ? !!MODOS_INTRUSION[(p.modo as ModoIntrusion) || "doble"]?.avisos
                             : p.rol === "lpr" ? p.modo !== "omnivision" && (canalP?.marca || f.brand) !== "HIKVISION" : false;
+                        let alarma: string | null = null;
+                        const base = detalle;
                         if (ri.ok && d?.id && String(d.accion).startsWith("creada") && avisa) {
                             setImportados((fs) => fs.map((x) => (x.channel === p.channel ? { ...x, detalle: `${detalle} · configurando el servidor de alarmas…` } : x)));
                             const a = await fetch(`/api/devices/alarm-host?deviceId=${d.id}`, { method: "POST" }).then((x) => x.json()).catch(() => null);
                             if (a?.ok) detalle = `${detalle} · avisa a OmniAccess`;
-                            else { estado = "error"; fallidas++; detalle = `${detalle} · servidor de alarmas: ${a?.error || "sin respuesta"} (se reintenta desde el calibrador)`; }
+                            else {
+                                // La cámara quedó creada: lo que falló es sólo que avise. Se puede reintentar al final.
+                                estado = "error"; fallidas++; alarma = a?.error || "sin respuesta";
+                                if (a?.sinDestino) setFaltaDestino(true);
+                                detalle = `${detalle} · no quedó avisando: ${alarma}`;
+                            }
                         }
-                        setImportados((fs) => fs.map((x) => (x.channel === p.channel ? { ...x, estado, detalle } : x)));
+                        setImportados((fs) => fs.map((x) => (x.channel === p.channel ? { ...x, estado, detalle, id: d?.id, alarma, base } : x)));
                         actualizar("importar", { estado: "corriendo", detalle: `${i + 1} de ${pedidos.length}` });
                     }
                     actualizar("importar", fallidas
@@ -941,7 +1039,8 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
 
     return (
         <Cajon open={open} onOpenChange={(v) => { if (!corriendo) onOpenChange(v); }}>
-            <CajonContenido ancho={esEdicion ? "intermedio" : "medio"} tituloOculto={esEdicion} sinCabecera={esEdicion}
+            <CajonContenido ancho={esEdicion ? "intermedio" : "medio"} tituloOculto={esEdicion} sinCabecera={esEdicion} sinCerrar={corriendo}
+                onInteractOutside={(e) => { if (corriendo) e.preventDefault(); }} onEscapeKeyDown={(e) => { if (corriendo) e.preventDefault(); }}
                 titulo={esEdicion ? (device?.name || "Equipo") : (clave === "modo" ? TITULO_MODO[tipo] : TITULOS[clave]) || "Nuevo equipo"}
                 descripcion={esEdicion ? `${meta?.rotulo || "Equipo"} · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}` : clave === "tipo" ? "Lo primero, porque de esto dependen los pasos que siguen." : `${OPCIONES_ALTA.find((o) => o.id === opcionAlta)?.rotulo || meta?.rotulo} · alta guiada`}
                 encabezado={esEdicion ? undefined : clave === "tipo"
@@ -1215,6 +1314,9 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                             </motion.div>
                                         ))}
                                         {importados.length > 0 && <AvanceImportacion filas={importados} />}
+                                        {terminado && importados.some((x) => x.alarma && x.id) && (
+                                            <ArreglarAlarmas cuantas={importados.filter((x) => x.alarma && x.id).length} faltaDestino={faltaDestino} ocupado={corriendo} onReintentar={reintentarAlarmas} />
+                                        )}
                                         {terminado && (
                                             <div className={cn("rounded-xl p-3 text-[13px] flex items-center gap-2", fallas.length ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300")}>
                                                 {fallas.length ? <AlertTriangle size={16} /> : <Check size={16} />}

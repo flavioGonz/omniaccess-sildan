@@ -81,7 +81,7 @@ function CajonCerrar({ ...props }: React.ComponentProps<typeof DialogPrimitive.C
  * `tituloOculto` lo deja sólo para quien lo necesita.
  */
 function CajonContenido({
-    className, children, ancho = "medio", titulo, descripcion, tituloOculto, sinCabecera, pie, encabezado,
+    className, children, ancho = "medio", titulo, descripcion, tituloOculto, sinCabecera, pie, encabezado, sinCerrar,
     ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
     ancho?: keyof typeof ANCHOS;
@@ -98,6 +98,11 @@ function CajonContenido({
     pie?: React.ReactNode;
     /** Lo que queda fijo arriba, debajo del título. Filtros, pestañas, lo que sea. */
     encabezado?: React.ReactNode;
+    /**
+     * Sin la X de cerrar: mientras corre algo que no se debe cortar (la puesta a punto de un alta).
+     * Quien lo usa también tiene que ignorar el cierre por fondo y Escape (onOpenChange del Cajon).
+     */
+    sinCerrar?: boolean;
 }) {
     return (
         <DialogPrimitive.Portal>
@@ -136,11 +141,17 @@ function CajonContenido({
                             </DialogPrimitive.Description>
                         )}
                     </div>
+                    {sinCerrar ? (
+                        <span className="h-8 px-2 shrink-0 rounded-md flex items-center gap-1.5 text-[11.5px] font-semibold text-muted-foreground" title="Se está configurando: no se puede cerrar hasta que termine.">
+                            <span className="h-2 w-2 rounded-full bg-[var(--accion)] animate-pulse" /> No cierres
+                        </span>
+                    ) : (
                     <DialogPrimitive.Close
                         className="w-8 h-8 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                         aria-label="Cerrar">
                         <X size={17} />
                     </DialogPrimitive.Close>
+                    )}
                 </div>
                 )}
 

@@ -25,8 +25,10 @@ function montevideoNow(): string {
 /** A dónde deben enviar los eventos las cámaras (server webhook). Configurable por
  *  Setting; si no está, se auto-detecta de una cámara ya configurada y se cachea. */
 async function getWebhookTarget(): Promise<{ ip: string; port: string; url: string } | null> {
-    const rows = await prisma.setting.findMany({ where: { key: { in: ["LPR_WEBHOOK_HOST", "LPR_WEBHOOK_PORT", "LPR_WEBHOOK_URL"] } } });
+    const rows = await prisma.setting.findMany({ where: { key: { in: ["EVENT_HOST_IP", "EVENT_HOST_PORT", "LPR_WEBHOOK_HOST", "LPR_WEBHOOK_PORT", "LPR_WEBHOOK_URL"] } } });
     const m: any = {}; rows.forEach((r) => (m[r.key] = r.value));
+    // El destino dicho en el panel manda (actions/destino-eventos): es el mismo para alarmas y LPR.
+    if (m.EVENT_HOST_IP) return { ip: m.EVENT_HOST_IP, port: m.EVENT_HOST_PORT || "10000", url: m.LPR_WEBHOOK_URL || "/api/webhooks/hikvision" };
     if (m.LPR_WEBHOOK_HOST) return { ip: m.LPR_WEBHOOK_HOST, port: m.LPR_WEBHOOK_PORT || "10000", url: m.LPR_WEBHOOK_URL || "/api/webhooks/hikvision" };
     const cams = await prisma.device.findMany({ where: { deviceType: "LPR_CAMERA", brand: "HIKVISION" }, select: { ip: true, username: true, password: true, authType: true } });
     for (const c of cams) {
