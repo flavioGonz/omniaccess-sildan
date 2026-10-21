@@ -6,7 +6,7 @@ import { Tooltip } from "react-tooltip";
 import {
     Camera, Radar, HardDrive, Network, MapPin, Rocket, ScanSearch, Loader2, Check, X, AlertTriangle, Info,
     LogIn, LogOut, KeyRound, User, Cpu, Fingerprint, Clock, BellRing, ScanLine, Film, Video, ListChecks, Server,
-    ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users, Sparkles,
+    ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users, Sparkles, Image as ImageIcon,
     FolderTree, Plus,
 } from "lucide-react";
 import { leerAreas, crearArea, type Area } from "@/app/actions/areas";
@@ -1342,6 +1342,15 @@ function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNo
             .then((j) => { if (vivo) setUltimo(j?.equipos?.[device.id] || null); }).catch(() => { if (vivo) setUltimo(undefined); });
         return () => { vivo = false; };
     }, [device?.id, tipo]);
+    /* El diagnóstico de imagen (lib/diagnostico-imagen): tapada, borrosa o movida, contra lo habitual de esta cámara. */
+    const [imagen, setImagen] = useState<{ problema: string | null; aprendido: boolean; ultima: number | null } | null>(null);
+    useEffect(() => {
+        if (!device?.id || tipo === "NVR") return;
+        let vivo = true;
+        fetch(`/api/devices/diagnostico-imagen?deviceId=${encodeURIComponent(device.id)}`, { cache: "no-store" }).then((r) => r.json())
+            .then((j) => { if (vivo && j && !j.error) setImagen(j); }).catch(() => { });
+        return () => { vivo = false; };
+    }, [device?.id, tipo]);
     const esVideo = tipo !== "NVR";
     const chip = "inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/45 backdrop-blur-md text-white text-[10.5px] font-bold ring-1 ring-white/10";
     // Queda fijo arriba al hacer scroll en la ficha (sticky dentro del área que scrollea del cajón).
@@ -1389,6 +1398,12 @@ function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNo
                             <span title={ultimo ? `Último ${ultimo.fuente === "deteccion" ? "evento de analítica" : "lectura"}: ${new Date(ultimo.ts).toLocaleString("es-UY", { hour12: false })}` : "En 30 días no llegó ningún evento ni lectura de esta cámara."}
                                 className={cn(chip, ultimo ? (Date.now() - +new Date(ultimo.ts) > 72 * 36e5 ? "!bg-amber-500/85 !text-black" : "") : "!bg-amber-500/85 !text-black")}>
                                 <Activity size={11} /> {ultimo ? `Último evento ${haceCorto(ultimo.ts)}` : "Sin eventos en 30 días"}
+                            </span>
+                        )}
+                        {tipo !== "NVR" && imagen?.ultima && (
+                            <span title={imagen.problema ? "Diagnóstico de imagen: comparado con lo habitual de esta cámara (se revisa cada ~15 min)." : imagen.aprendido ? "La imagen se ve como siempre (nitidez y encuadre). Se revisa cada ~15 min." : "Todavía aprendiendo cómo se ve normalmente esta cámara."}
+                                className={cn(chip, imagen.problema && "!bg-amber-500/85 !text-black")}>
+                                <ImageIcon size={11} /> {imagen.problema === "tapada" ? "Imagen tapada" : imagen.problema === "borrosa" ? "Imagen borrosa" : imagen.problema === "movida" ? "Cámara movida" : imagen.aprendido ? "Imagen OK" : "Imagen: aprendiendo"}
                             </span>
                         )}
                     </div>
