@@ -1,5 +1,6 @@
 "use client";
 
+import { IndiceVocabulario } from "@/components/vision/IndiceVocabulario";
 import { ElegirCamara } from "@/components/devices/ElegirCamara";
 import { useAreas } from "@/lib/use-areas";
 import { useEffect, useRef, useState } from "react";
@@ -129,6 +130,9 @@ export default function BuscarVision() {
                     <span className="ml-1 text-[11.5px] text-muted-foreground underline decoration-dotted underline-offset-2 cursor-help">¿Cómo busca?</span>
                 </Pista>
             </div>
+
+            {/* El índice de objetos en las fotos y cómo se mantiene (volvió acá desde el panel Objetos del Historial). */}
+            <IndiceVocabulario />
 
             {/* El buscador: palabras, foto y botón en una sola pieza. La foto también se arrastra o se pega. */}
             <form onSubmit={(e) => { e.preventDefault(); buscar(texto); }}

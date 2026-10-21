@@ -75,6 +75,12 @@ export async function borrarEquipoDeTodo(id: string, quien: string | null): Prom
     if (!d) return { ok: false, resumen: [], error: "El equipo ya no existe." };
     const resumen: string[] = [];
 
+    // 0) Sus fotos en S3 (antes de borrar las filas que las nombran: después ya no se sabe cuáles eran).
+    try {
+        const n = await borrarFotos(id);
+        if (n) resumen.push(`${n} ${n === 1 ? "foto" : "fotos"} en el almacenamiento`);
+    } catch (e: any) { console.error("[borrar-equipo] fotos:", e?.message); }
+
     // 1) Las tablas con su id.
     for (const t of TABLAS) {
         try {
@@ -133,4 +139,45 @@ export async function borrarEquipoDeTodo(id: string, quien: string | null): Prom
         await prisma.accionSistema.create({ data: { quien, accion: "Borró el equipo de todos lados", objetivo: d.name, ok: true, detalle: resumen.length ? resumen.join(" · ").slice(0, 500) : "no tenía nada más guardado" } }).catch(() => { });
     }
     return { ok: true, nombre: d.name, resumen };
+}
+
+/*
+ * Las fotos del equipo en S3/MinIO (21/10: «al borrar un equipo quedaban sus fotos»). Las filas se
+ * borraban y sus imágenes quedaban huérfanas ocupando disco para siempre. Se juntan las rutas de
+ * cada tabla que guarda una (accesos, intrusión, detecciones: «/api/files/<bucket>/<clave>»; los
+ * objetos de OmniVision: clave en el bucket de visión) y se borran por tandas. Lo que no se pueda
+ * borrar no frena el borrado del equipo.
+ */
+const BUCKET_VISION = process.env.VISION_BUCKET || "objetos";
+async function borrarFotos(deviceId: string): Promise<number> {
+    const porBucket = new Map<string, Set<string>>();
+    const sumar = (bucket: string, clave: string) => { if (!bucket || !clave) return; if (!porBucket.has(bucket)) porBucket.set(bucket, new Set()); porBucket.get(bucket)!.add(clave); };
+    const deRuta = (r: string | null | undefined) => {
+        const m = String(r || "").match(/^\/api\/files\/([^/]+)\/(.+)$/);
+        if (m) sumar(m[1], decodeURIComponent(m[2]));
+    };
+    const [acc, intr, det, obj] = await Promise.all([
+        prisma.accessEvent.findMany({ where: { deviceId }, select: { imagePath: true, snapshotPath: true } }),
+        prisma.intrusionEvent.findMany({ where: { deviceId }, select: { snapshotPath: true } }),
+        prisma.detection.findMany({ where: { deviceId }, select: { snapshotPath: true } }),
+        prisma.objetoVisto.findMany({ where: { deviceId }, select: { foto: true, recorte: true } }),
+    ]);
+    acc.forEach((a) => { deRuta(a.imagePath); deRuta(a.snapshotPath); });
+    intr.forEach((a) => deRuta(a.snapshotPath));
+    det.forEach((a) => deRuta(a.snapshotPath));
+    obj.forEach((o) => { if (o.foto) sumar(BUCKET_VISION, o.foto); if (o.recorte) sumar(BUCKET_VISION, o.recorte); });
+    if (!porBucket.size) return 0;
+    const { getS3Client } = await import("@/lib/s3");
+    const { DeleteObjectsCommand } = await import("@aws-sdk/client-s3");
+    const s3 = await getS3Client();
+    let n = 0;
+    for (const [bucket, claves] of porBucket) {
+        const lista = [...claves];
+        for (let i = 0; i < lista.length; i += 1000) {
+            const tanda = lista.slice(i, i + 1000);
+            try { await s3.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: tanda.map((Key) => ({ Key })), Quiet: true } })); n += tanda.length; }
+            catch (e: any) { console.error(`[borrar-equipo] S3 ${bucket}:`, e?.message); }
+        }
+    }
+    return n;
 }

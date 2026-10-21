@@ -65,9 +65,34 @@ const isValidImage = (buffer, contentType) => {
     return false;
 };
 
+/**
+ * La dirección web de un equipo con su puerto (21/10). Se armaba siempre como http://<ip>, o sea al
+ * puerto 80, aunque la ficha dijera otro (los equipos detrás de un NAT o un NVR en el 91/92).
+ */
+const baseHttp = (device) => {
+    const ip = String(device.ip || "");
+    if (ip.startsWith("http")) return ip;
+    const p = Number(device.httpPort) || 80;
+    return p === 80 || /:\d+$/.test(ip) ? `http://${ip}` : `http://${ip}:${p}`;
+};
+
+/*
+ * Equipos apagados por área (EQUIPOS_APAGADOS, lib/apagado): OmniAccess no consume esas cámaras.
+ * El receptor igual registraba sus eventos y les sacaba foto. Se lee con un caché corto.
+ */
+let _apagados = { t: 0, ids: new Set() };
+async function estaApagado(id) {
+    if (!id) return false;
+    if (Date.now() - _apagados.t > 10000) {
+        try { const f = await prisma.setting.findUnique({ where: { key: "EQUIPOS_APAGADOS" } }); _apagados = { t: Date.now(), ids: new Set(JSON.parse((f && f.value) || "[]").map(String)) }; }
+        catch (e) { _apagados = { t: Date.now(), ids: new Set() }; }
+    }
+    return _apagados.ids.has(String(id));
+}
+
 // Helper for Camera Snapshots (Basic/Digest)
 const fetchCameraSnapshot = async (device) => {
-    let baseUrl = device.ip.startsWith('http') ? device.ip : `http://${device.ip}`;
+    let baseUrl = baseHttp(device);
     if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
 
     const isSPA = (device.name && device.name.toUpperCase().includes("SPA"));
@@ -276,7 +301,7 @@ const tryFetchWithDigest = async (url, path, device, method = "GET") => {
  * Proxy direct MJPEG stream from device to response
  */
 const proxyVideoStream = async (device, res, req) => {
-    let baseUrl = device.ip.startsWith('http') ? device.ip : `http://${device.ip}`;
+    let baseUrl = baseHttp(device);
     if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
 
     const isSPA = (device.name && device.name.toUpperCase().includes("SPA"));
@@ -483,7 +508,7 @@ const getAkuvoxFaceFilename = (date, time) => {
  * @param options - Optional: userId, eventType, path (from webhook)
  */
 const fetchAkuvoxFaceImage = async (device, options = {}) => {
-    let baseUrl = device.ip.startsWith('http') ? device.ip : `http://${device.ip}`;
+    let baseUrl = baseHttp(device);
     if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
 
     const authHeaderBasic = "Basic " + Buffer.from(`${device.username}:${device.password}`).toString("base64");
@@ -1116,6 +1141,9 @@ const handleWebhook = async (req, res, logPrefix) => {
                         const dt = entry && (entry.detectionTarget || entry.targetType || entry.objectType);
                         if (dt) { const t = String(dt).toLowerCase(); targetClass = t.includes("vehicle") || t.includes("car") ? "vehicle" : t.includes("human") || t.includes("person") || t.includes("pedestrian") ? "human" : null; }
                     } catch (e) {}
+                    if (dev && await estaApagado(dev.id)) {
+                        res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "analytic", ignored: "apagado" })); return;
+                    }
                     const det = await prisma.detection.create({ data: { deviceId: dev ? dev.id : null, type: genType, eventType: eventType || null, label: etiquetaCanal || targetClass, timestamp: new Date() } });
                     if (dev) { await prisma.device.update({ where: { id: dev.id }, data: { lastOnlinePush: new Date() } }).catch(() => {}); }
                     if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: dev ? dev.name : null, type: genType, eventType: eventType || null, label: targetClass, timestamp: det.timestamp });
@@ -1432,6 +1460,11 @@ const handleWebhook = async (req, res, logPrefix) => {
                 device = hikDevices[0];
                 console.log(`${logPrefix} [RECOVERY] Auto-matched to the only available Hikvision device: ${device.name}`);
             }
+        }
+
+        // Una LPR apagada por área no registra lecturas (lib/apagado): OmniAccess no la consume.
+        if (device && await estaApagado(device.id)) {
+            res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ status: "ok", ignored: "apagado" })); return;
         }
 
         // UPDATE: Track push connection for actual events

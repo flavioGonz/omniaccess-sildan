@@ -36,7 +36,6 @@ type Hallazgo = {
     score: number | null; camara: string; deviceId?: string | null; channel?: number; time: string; attrs?: Record<string, string>;
 };
 
-const proxyNvr = (u?: string) => (u ? `/api/acuseek/image?u=${encodeURIComponent(u)}` : "");
 const imgVision = (clave?: string | null, w?: number) => (clave ? `/api/vision/imagen/${clave}${w ? `?w=${w}` : ""}` : "");
 /** Los rangos de cada motor: OmniVision guarda 30 días de huellas; el grabador busca de a pocos días. */
 const RANGOS: Record<Motor, { valor: string; rotulo: string; ms: number }[]> = {
@@ -145,62 +144,49 @@ export function AcuSearchPanel({ image, previewUrl, engine, onEngineChange, cent
                 if (!lista.length) setAviso({ texto: modo === "texto" ? "OmniVision no encontró nada parecido a esa descripción en ese rango." : "OmniVision no encontró nada parecido en ese rango." });
                 return;
             }
-            // Grabador por texto (AcuSeek, NVR VPro): la misma idea, con la frase.
+            /*
+             * El grabador, por texto o por foto, por la búsqueda de grabadores sin fabricante
+             * (/api/grabador/buscar, lib/grabador-busqueda; 21/10). Antes esto llamaba a /api/acuseek/*:
+             * un solo NVR, sólo Hikvision, y el primer pedido de avance de un VPro (que contesta
+             * «deviceError» el primer segundo) cortaba la búsqueda. Ahora busca en todos los que
+             * pueden, junta los hallazgos con su cámara, y tolera ese primer error.
+             */
             const centro = centerTimeMs || Date.now();
             const mitad = rango.ms / 2;
+            const desde = new Date(centro - mitad).toISOString(), hasta = new Date(Math.min(Date.now(), centro + mitad)).toISOString();
+            let pedido: Promise<any>;
             if (modo === "texto") {
-                const desde = new Date(centro - mitad).toISOString(), hasta = new Date(Math.min(Date.now(), centro + mitad)).toISOString();
-                const j = await fetch("/api/acuseek/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: consulta.trim(), from: desde, to: hasta, similarity: similitud }) })
-                    .then((r) => r.json()).catch(() => ({ ok: false, error: "No se pudo pedir" }));
-                if (mia !== corrida.current) return;
-                if (!j.ok) { setBuscando(false); setAviso({ texto: j.sinAcuSeek || j.activated === false ? "Ningún grabador de esta instalación busca por texto (AcuSeek). Probá con OmniVision." : `El grabador no pudo buscar: ${j.error || "sin respuesta"}.`, sinGrabador: true }); return; }
-                setProgreso(0);
-                let vueltasT = 0;
-                poll.current = setInterval(async () => {
-                    vueltasT++;
-                    const pr = await fetch(`/api/acuseek/search?taskId=${encodeURIComponent(j.taskID)}&max=60`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
-                    if (!pr || mia !== corrida.current) return;
-                    if (!pr.ok) { clearInterval(poll.current); setBuscando(false); setAviso({ texto: `El grabador cortó la búsqueda: ${pr.error || "sin respuesta"}.`, sinGrabador: true }); return; }
-                    if (pr.progress != null) setProgreso(Number(pr.progress));
-                    if (pr.totalMatches != null) setTotal(pr.totalMatches);
-                    if (pr.status === "completed" || pr.status === "error" || vueltasT > 45) {
-                        clearInterval(poll.current); setBuscando(false);
-                        const lista: Hallazgo[] = (pr.matches || []).map((m: any) => ({
-                            clave: `nvrt-${m.id}-${m.channel}`, fuente: "grabador", foto: proxyNvr(m.imagePath), recorte: m.targetImagePath ? proxyNvr(m.targetImagePath) : null,
-                            rect: m.rect || null, score: m.score ?? null, camara: m.deviceName || `Canal ${m.channel}`, deviceId: m.deviceId, channel: m.channel, time: m.time,
-                        }));
-                        setHallazgos(lista);
-                        if (!lista.length) setAviso({ texto: "El grabador no encontró nada con esa descripción en ese rango." });
-                    }
-                }, 1200);
-                return;
+                pedido = fetch("/api/grabador/buscar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ texto: consulta.trim(), desde, hasta, similitud }) }).then((r) => r.json());
+            } else {
+                const fd = new FormData();
+                fd.append("imagen", image!, "ref.jpg");
+                fd.append("objeto", engine === "human" ? "persona" : "vehiculo");
+                fd.append("desde", desde); fd.append("hasta", hasta); fd.append("similitud", String(similitud));
+                pedido = fetch("/api/grabador/buscar", { method: "POST", body: fd }).then((r) => r.json());
             }
-            // Grabador (AcuSearch): crea la tarea y se consulta su avance.
-            const fd = new FormData();
-            fd.append("file", image!, "ref.jpg");
-            fd.append("from", new Date(centro - mitad).toISOString());
-            fd.append("to", new Date(Math.min(Date.now(), centro + mitad)).toISOString());
-            fd.append("similarity", String(similitud / 100)); fd.append("engine", engine);
-            const j = await fetch("/api/acuseek/image-search", { method: "POST", body: fd }).then((r) => r.json()).catch(() => ({ ok: false, error: "No se pudo pedir" }));
+            const j = await pedido.catch(() => ({ ok: false, error: "No se pudo pedir" }));
             if (mia !== corrida.current) return;
-            if (!j.ok) { setBuscando(false); setAviso({ texto: j.sinAcuSeek ? j.error : `El grabador no pudo buscar: ${j.error || "sin respuesta"}.`, sinGrabador: true }); return; }
+            if (!j.ok) { setBuscando(false); setAviso({ texto: j.sinGrabador ? `Ningún grabador de esta instalación busca ${modo === "texto" ? "por texto" : "por foto"}. Probá con OmniVision.` : `El grabador no pudo buscar: ${j.error || "sin respuesta"}.`, sinGrabador: true }); return; }
             setProgreso(0);
             let vueltas = 0;
             poll.current = setInterval(async () => {
                 vueltas++;
-                const pr = await fetch(`/api/acuseek/image-search?taskId=${encodeURIComponent(j.taskID)}&max=60&engine=${engine}&minScore=${similitud}`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
+                const pr = await fetch(`/api/grabador/buscar?tareas=${encodeURIComponent(j.tareas)}&max=60`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
                 if (!pr || mia !== corrida.current) return;
                 if (!pr.ok) { clearInterval(poll.current); setBuscando(false); setAviso({ texto: `El grabador cortó la búsqueda: ${pr.error || "sin respuesta"}.`, sinGrabador: true }); return; }
-                if (pr.progress != null) setProgreso(Number(pr.progress));
-                if (pr.totalMatches != null) setTotal(pr.totalMatches);
-                if (pr.status === "completed" || vueltas > 45) {
+                if (pr.progreso != null) setProgreso(Number(pr.progreso));
+                if (pr.total != null) setTotal(pr.total);
+                const soloError = (pr.errores?.length || 0) > 0 && !(pr.hallazgos || []).length;
+                const listo = (pr.terminada && !(soloError && vueltas < 6)) || vueltas > 45;
+                if (listo) {
                     clearInterval(poll.current); setBuscando(false);
-                    const lista: Hallazgo[] = (pr.matches || []).map((m: any) => ({
-                        clave: `nvr-${m.id}-${m.channel}`, fuente: "grabador", foto: proxyNvr(m.imagePath), recorte: m.targetImagePath ? proxyNvr(m.targetImagePath) : null,
-                        rect: m.rect || null, score: m.score ?? null, camara: m.deviceName || `Canal ${m.channel}`, deviceId: m.deviceId, channel: m.channel, time: m.time, attrs: m.attrs,
+                    const lista: Hallazgo[] = (pr.hallazgos || []).map((h: any) => ({
+                        clave: `nvr-${h.id}`, fuente: "grabador", foto: h.foto || h.recorte || "", recorte: h.recorte || null,
+                        rect: h.caja ? { x: h.caja.x, y: h.caja.y, width: h.caja.w, height: h.caja.h } : null,
+                        score: h.puntaje ?? null, camara: h.camara || `Canal ${h.canal}`, deviceId: h.deviceId, channel: h.canal, time: h.momento, attrs: h.atributos,
                     }));
                     setHallazgos(lista);
-                    if (!lista.length) setAviso({ texto: "El grabador no encontró coincidencias en ese rango." });
+                    if (!lista.length) setAviso({ texto: soloError ? `El grabador no contestó: ${pr.errores[0]}.` : modo === "texto" ? "El grabador no encontró nada con esa descripción en ese rango." : "El grabador no encontró coincidencias en ese rango." });
                 }
             }, 1200);
         } catch (e: any) {
