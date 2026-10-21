@@ -7,7 +7,10 @@ import {
     Camera, Radar, HardDrive, Network, MapPin, Rocket, ScanSearch, Loader2, Check, X, AlertTriangle, Info,
     LogIn, LogOut, KeyRound, User, Cpu, Fingerprint, Clock, BellRing, ScanLine, Film, Video, ListChecks, Server,
     ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users, Sparkles,
+    FolderTree, Plus,
 } from "lucide-react";
+import { leerAreas, crearArea, type Area } from "@/app/actions/areas";
+import { guardarGrupo } from "@/app/actions/groups";
 import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -43,6 +46,8 @@ type Tipo = "LPR_CAMERA" | "CAMERA" | "NVR";
 type Marca = "HIKVISION" | "DAHUA";
 type Estado = "espera" | "corriendo" | "ok" | "error" | "salteado";
 type Tarea = { clave: string; titulo: string; ayuda: string; icono: any; estado: Estado; detalle?: string };
+/** Una cámara del NVR mientras se importa: el avance de cada una a la vista (21/10). */
+type FilaImport = { channel: number; name: string; rol: "lpr" | "intrusion" | "vincular"; estado: Estado; detalle?: string };
 type Ubic = { nvrId: string | null; nvrNombre: string | null; ch: number; canalNombre?: string | null };
 type Canal = { channel: number; ip: string | null; name: string; model?: string | null; marca: string; protocolo?: string | null; sensorDe?: number | null; existente: { id: string; name: string; tipo: string } | null };
 
@@ -157,6 +162,97 @@ function IconoEstado({ e }: { e: Estado }) {
     if (e === "error") return <span className="grid h-5 w-5 place-items-center rounded-full bg-red-500 text-white"><X size={12} /></span>;
     if (e === "salteado") return <span className="grid h-5 w-5 place-items-center rounded-full bg-muted text-muted-foreground"><ChevronRight size={12} /></span>;
     return <span className="h-5 w-5 rounded-full border-2 border-dashed border-border" />;
+}
+
+/**
+ * Elegir de una lista o crear uno nuevo ahí mismo (un área, un grupo de acceso), sin salir del
+ * asistente. «Nuevo…» abre un renglón con el nombre ya sugerido; Enter lo crea y queda elegido.
+ */
+function ElegirOCrear({ etiqueta, ayuda, icono: I, valor, opciones, ninguna, nuevaRotulo, sugerencia, cargando, onElegir, onCrear }: {
+    etiqueta: string; ayuda: string; icono: any; valor: string;
+    opciones: { id: string; nombre: string; color?: string }[]; ninguna: string; nuevaRotulo: string; sugerencia: string; cargando?: boolean;
+    onElegir: (id: string) => void; onCrear: (nombre: string) => Promise<string | null>;
+}) {
+    const [creando, setCreando] = useState(false);
+    const [nombre, setNombre] = useState("");
+    const [ocupado, setOcupado] = useState(false);
+    const crear = async () => {
+        const n = nombre.trim();
+        if (!n || ocupado) return;
+        setOcupado(true);
+        try {
+            const id = await onCrear(n);
+            if (id) { onElegir(id); setCreando(false); toast.success({ title: `«${n}» creado`, description: "Quedó elegido." }); }
+        } catch (e: any) { toast.error({ title: "No se pudo crear", description: e?.message }); }
+        finally { setOcupado(false); }
+    };
+    return (
+        <div className="block min-w-0">
+            <Etiqueta texto={etiqueta} ayuda={ayuda} />
+            {creando ? (
+                <div className="flex items-center gap-1.5">
+                    <span className="relative flex-1 min-w-0">
+                        <Plus size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--accion)] pointer-events-none" />
+                        <input autoFocus value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={60}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); crear(); } if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setCreando(false); } }}
+                            className="h-10 w-full rounded-lg border border-[var(--accion)] bg-background pl-9 pr-3 text-[13px] outline-none ring-2 ring-[color-mix(in_oklab,var(--accion)_25%,transparent)]" />
+                    </span>
+                    <Button type="button" size="sm" onClick={crear} disabled={!nombre.trim() || ocupado} className="h-10 gap-1.5">{ocupado ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Crear</Button>
+                    <button type="button" onClick={() => setCreando(false)} aria-label="Cancelar" title="Cancelar  ( Esc )" className="h-10 w-9 grid place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"><X size={15} /></button>
+                </div>
+            ) : (
+                <Select value={valor} onValueChange={(v) => { if (v === "__nuevo") { setNombre(sugerencia); setCreando(true); } else onElegir(v); }}>
+                    <SelectTrigger className="h-10"><I size={15} className="text-muted-foreground mr-1 shrink-0" />{cargando ? <span className="text-muted-foreground inline-flex items-center gap-1.5"><Loader2 size={13} className="animate-spin" /> Cargando…</span> : <SelectValue />}</SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="none">{ninguna}</SelectItem>
+                        {opciones.map((o) => (
+                            <SelectItem key={o.id} value={o.id}>
+                                <span className="inline-flex items-center gap-2">{o.color && <span className="h-2 w-2 rounded-full shrink-0" style={{ background: o.color }} />}{o.nombre}</span>
+                            </SelectItem>
+                        ))}
+                        <SelectItem value="__nuevo"><span className="inline-flex items-center gap-1.5 font-semibold text-[var(--accion)]"><Plus size={13} /> {nuevaRotulo}</span></SelectItem>
+                    </SelectContent>
+                </Select>
+            )}
+        </div>
+    );
+}
+
+/** El avance de la importación de un NVR: una barra y un renglón por cámara, con su estado. */
+function AvanceImportacion({ filas }: { filas: FilaImport[] }) {
+    const hechas = filas.filter((x) => x.estado !== "espera" && x.estado !== "corriendo").length;
+    const errores = filas.filter((x) => x.estado === "error").length;
+    const ROL = { lpr: { rotulo: "LPR", icono: Car, clase: "bg-amber-500/10 text-amber-600 dark:text-amber-400" }, intrusion: { rotulo: "Intrusión", icono: Radar, clase: "bg-red-500/10 text-red-500" }, vincular: { rotulo: "Se vincula", icono: Link2, clase: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" } } as const;
+    return (
+        <div className="rounded-xl border border-border overflow-hidden">
+            <div className="px-3.5 pt-3 pb-2.5 space-y-2 bg-card/40">
+                <div className="flex items-center gap-2 text-[12.5px]">
+                    <Download size={14} className="text-muted-foreground" />
+                    <span className="font-semibold">Cámaras del NVR</span>
+                    <span className="ml-auto tabular-nums text-muted-foreground"><b className="text-foreground">{hechas}</b> de {filas.length}{errores ? <span className="text-red-500"> · {errores} con error</span> : null}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <motion.div className={cn("h-full rounded-full", errores ? "bg-amber-500" : "bg-[var(--accion)]")} initial={false} animate={{ width: `${(hechas / Math.max(1, filas.length)) * 100}%` }} transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }} />
+                </div>
+            </div>
+            <div className="max-h-[38vh] overflow-y-auto divide-y divide-border/60">
+                {filas.map((x) => {
+                    const r = ROL[x.rol];
+                    return (
+                        <div key={x.channel} className={cn("flex items-center gap-3 px-3.5 py-2 transition-colors", x.estado === "corriendo" && "bg-[color-mix(in_oklab,var(--accion)_6%,transparent)]")}>
+                            <span className="shrink-0"><IconoEstado e={x.estado} /></span>
+                            <span className="w-8 shrink-0 font-mono text-[11px] text-muted-foreground">D{x.channel}</span>
+                            <div className="min-w-0 flex-1">
+                                <div className={cn("text-[12.5px] font-semibold truncate", x.estado === "espera" && "text-muted-foreground")}>{x.name}</div>
+                                {x.detalle && <div className={cn("text-[11px] truncate", x.estado === "error" ? "text-red-500" : "text-muted-foreground")} title={x.detalle}>{x.detalle}</div>}
+                            </div>
+                            <span className={cn("shrink-0 inline-flex items-center gap-1 px-2 h-6 rounded-full text-[10.5px] font-bold", r.clase)}><r.icono size={11} /> {r.rotulo}</span>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
 }
 
 const ipOk = (ip: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(ip.trim());
@@ -274,6 +370,15 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     const [tareas, setTareas] = useState<Tarea[]>([]);
     const [corriendo, setCorriendo] = useState(false);
     const [terminado, setTerminado] = useState(false);
+    /*
+     * Dónde quedan las cámaras importadas de un NVR (21/10, Nico: «debe poder crear un grupo o área
+     * para alojar esas cámaras rápidamente, ahí mismo en el drawer»). El área vale para todas; el
+     * grupo de acceso, sólo para las LPR (decide quién pasa). Los dos se pueden crear acá mismo.
+     */
+    const [areas, setAreas] = useState<Area[] | null>(null);
+    const [areaId, setAreaId] = useState("none");
+    const [gruposNuevos, setGruposNuevos] = useState<{ id: string; name: string }[]>([]);
+    const [importados, setImportados] = useState<FilaImport[]>([]);
     const [creadoId, setCreadoId] = useState<string | null>(null);
     const [opcionAlta, setOpcionAlta] = useState<string | null>(null);
     const [guardando, setGuardando] = useState(false);
@@ -286,7 +391,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         if (!open) return;
         setF(blanco()); setPaso(0); setHacia(1); setInfo(null); setDonde(null); setManual({ nvrId: "", ch: "" });
         setSinGrabar(false); setActual(null); setRetencion(null); setCanales(null); setErrorCanales(""); setEleccion({});
-        setTareas([]); setCorriendo(false); setTerminado(false); setCreadoId(null); setCargarMatriculas(true); setGuardando(false); setOpcionAlta(null);
+        setTareas([]); setImportados([]); setAreaId("none"); setCorriendo(false); setTerminado(false); setCreadoId(null); setCargarMatriculas(true); setGuardando(false); setOpcionAlta(null);
         setCaps(null); setCapsCanal({});
         // Las credenciales ya no vienen en la lista de equipos (lib/equipo-publico): se piden acá,
         // con el permiso Dispositivos. Si no llegan, guardar no borra la clave (updateDevice).
@@ -409,6 +514,16 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         finally { setLeyendo(false); }
     }, [f.ip, ipHttp, f.username, f.password, f.authType, f.brand]);
     useEffect(() => { if (open && clave === "canales" && !canales && !leyendo && !errorCanales) leerCanales(); }, [open, clave, canales, leyendo, errorCanales, leerCanales]);
+    useEffect(() => { if (open && clave === "canales" && areas === null) leerAreas().then((e) => setAreas(e.areas)).catch(() => setAreas([])); }, [open, clave, areas]);
+    const todosLosGrupos = useMemo(() => [...groups.map((g: any) => ({ id: String(g.id), name: String(g.name) })), ...gruposNuevos.filter((n) => !groups.some((g: any) => g.id === n.id))], [groups, gruposNuevos]);
+    /** El nombre de un área con su camino («Perímetro › Norte»): hay sub-áreas con el mismo nombre. */
+    const caminoArea = useCallback((idA: string) => {
+        const lista = areas || [];
+        const partes: string[] = [];
+        let cur = lista.find((a) => a.id === idA);
+        for (let i = 0; cur && i < 10; i++) { partes.unshift(cur.nombre); cur = cur.padre ? lista.find((a) => a.id === cur!.padre) : undefined; }
+        return partes.join(" › ");
+    }, [areas]);
 
     const grabacionElegida: Ubic | null = donde?.ubicacion || (manual.nvrId && Number(manual.ch) > 0 ? { nvrId: manual.nvrId, nvrNombre: nvrs.find((n) => n.id === manual.nvrId)?.name || null, ch: Number(manual.ch) } : null);
 
@@ -484,7 +599,8 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         ] : [
             T("crear", "Dar de alta el NVR", "Se guarda con su IP, puerto RTSP y credenciales.", HardDrive),
             T("hora", "Poner la hora", "Hora del servidor: el playback busca por hora, si está corrida no encuentra nada.", Clock),
-            T("importar", "Importar cámaras clasificadas", "Se crean las cámaras elegidas (LPR o intrusión) y se vinculan las que ya existían a su canal de grabación.", Download),
+            T("importar", "Importar cámaras clasificadas", "Se crean las cámaras elegidas (LPR o intrusión), se les configura el servidor de alarmas para que avisen a OmniAccess, y se vinculan las que ya existían a su canal de grabación.", Download),
+            ...(areaId !== "none" ? [T("ubicar", `Ubicarlas en «${caminoArea(areaId)}»`, "Todas las importadas, nuevas o vinculadas, quedan en esa área del panel.", FolderTree)] : []),
         ];
         setTareas(lista); setCorriendo(true);
         let id: string | null = null;
@@ -539,11 +655,57 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                         const modo = c.existente ? undefined : rol === "lpr" ? e?.modoLpr : rol === "intrusion" ? e?.modoIntr : undefined;
                         return { channel: c.channel, rol, direction: e?.direction, groupId: f.groupId, modo };
                     });
-                if (!pedidos.length) actualizar("importar", { estado: "salteado", detalle: "no se eligió ninguna cámara (se puede hacer después desde el menú del NVR)" });
-                else {
-                    actualizar("importar", { estado: "corriendo", detalle: `${pedidos.length} canales…` });
-                    const ri = await importarCanalesClasificados(id, pedidos);
-                    actualizar("importar", ri.ok ? { estado: "ok", detalle: `${ri.creadas} nuevas · ${ri.mapeadas} ya existían y quedaron vinculadas` } : { estado: "error", detalle: ri.error });
+                if (!pedidos.length) {
+                    actualizar("importar", { estado: "salteado", detalle: "no se eligió ninguna cámara (se puede hacer después desde el menú del NVR)" });
+                    actualizar("ubicar", { estado: "salteado", detalle: "no hay cámaras para ubicar" });
+                } else {
+                    /*
+                     * De a una (21/10, Nico: «debe ser estilizado el proceso»): antes era una sola llamada
+                     * con un «19 canales…» girando un par de minutos y el resultado todo junto al final.
+                     * Ahora cada cámara tiene su renglón con su estado; el servidor guarda lo leído del
+                     * NVR un par de minutos, así que no se le vuelve a preguntar por cada una.
+                     */
+                    const area = areaId !== "none" ? areaId : null;
+                    setImportados(pedidos.map((p) => {
+                        const c = (canales || []).find((x) => x.channel === p.channel);
+                        return { channel: p.channel, name: c?.existente?.name || c?.name || `Canal ${p.channel}`, rol: c?.existente ? "vincular" : (p.rol as "lpr" | "intrusion"), estado: "espera" as Estado };
+                    }));
+                    actualizar("importar", { estado: "corriendo", detalle: `0 de ${pedidos.length}` });
+                    let creadas = 0, mapeadas = 0, fallidas = 0;
+                    for (let i = 0; i < pedidos.length; i++) {
+                        const p = pedidos[i];
+                        setImportados((fs) => fs.map((x) => (x.channel === p.channel ? { ...x, estado: "corriendo" } : x)));
+                        const ri = await importarCanalesClasificados(id, [p], { areaId: area })
+                            .catch((e: any) => ({ ok: false, error: e?.message || "sin respuesta", creadas: 0, mapeadas: 0, detalle: [] as any[] }));
+                        const d = ri.detalle?.[0];
+                        creadas += ri.creadas || 0; mapeadas += ri.mapeadas || 0;
+                        if (!ri.ok) fallidas++;
+                        let estado: Estado = !ri.ok ? "error" : !d || d.accion === "omitida" ? "salteado" : "ok";
+                        let detalle = !ri.ok ? ri.error : d ? [d.accion === "mapeada" ? "ya existía: se vinculó su grabación" : d.accion, d.accion !== "mapeada" ? d.motivo : null].filter(Boolean).join(" · ") : "sin cambios";
+                        /*
+                         * El servidor de alarmas de cada cámara nueva, como en el alta de una cámara suelta
+                         * (21/10, Nico preguntó si se configuraba al importar: no se hacía). Sin esto la cámara
+                         * se crea pero sus cruces de línea y entradas a zona no llegan al monitor. Intrusión:
+                         * si el modo avisa (en «OmniVision» la mira el detector y la cámara no manda nada).
+                         * LPR Hikvision ya lo trae de su puesta a punto (provisionLprDevice); LPR de otra marca,
+                         * acá. Dahua no escribe nada en la cámara: OmniAccess se suscribe al NVR.
+                         */
+                        const canalP = (canales || []).find((x) => x.channel === p.channel);
+                        const avisa = p.rol === "intrusion" ? !!MODOS_INTRUSION[(p.modo as ModoIntrusion) || "doble"]?.avisos
+                            : p.rol === "lpr" ? p.modo !== "omnivision" && (canalP?.marca || f.brand) !== "HIKVISION" : false;
+                        if (ri.ok && d?.id && String(d.accion).startsWith("creada") && avisa) {
+                            setImportados((fs) => fs.map((x) => (x.channel === p.channel ? { ...x, detalle: `${detalle} · configurando el servidor de alarmas…` } : x)));
+                            const a = await fetch(`/api/devices/alarm-host?deviceId=${d.id}`, { method: "POST" }).then((x) => x.json()).catch(() => null);
+                            if (a?.ok) detalle = `${detalle} · avisa a OmniAccess`;
+                            else { estado = "error"; fallidas++; detalle = `${detalle} · servidor de alarmas: ${a?.error || "sin respuesta"} (se reintenta desde el calibrador)`; }
+                        }
+                        setImportados((fs) => fs.map((x) => (x.channel === p.channel ? { ...x, estado, detalle } : x)));
+                        actualizar("importar", { estado: "corriendo", detalle: `${i + 1} de ${pedidos.length}` });
+                    }
+                    actualizar("importar", fallidas
+                        ? { estado: "error", detalle: `${creadas} nuevas · ${mapeadas} vinculadas · ${fallidas} con error (abajo, cuáles)` }
+                        : { estado: "ok", detalle: `${creadas} nuevas · ${mapeadas} ya existían y quedaron vinculadas` });
+                    if (area) actualizar("ubicar", { estado: creadas + mapeadas ? "ok" : "salteado", detalle: creadas + mapeadas ? `${creadas + mapeadas} cámaras en el área` : "no quedó ninguna para ubicar" });
                 }
             }
             setTerminado(true);
@@ -980,14 +1142,34 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                                 );
                                             })}
                                         </div>
-                                        {resumenCanales.lpr > 0 && (
-                                            <label className="block">
-                                                <Etiqueta texto="Grupo de acceso para las LPR nuevas" ayuda="Quiénes pasan por las cámaras LPR que se creen. Ej.: «Residentes + Proveedores»." />
-                                                <Select value={f.groupId} onValueChange={(v) => set("groupId", v)}>
-                                                    <SelectTrigger className="h-10"><Users size={15} className="text-muted-foreground mr-1" /><SelectValue /></SelectTrigger>
-                                                    <SelectContent><SelectItem value="none">Sin grupo</SelectItem>{groups.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
-                                                </Select>
-                                            </label>
+                                        {(resumenCanales.lpr + resumenCanales.intr + resumenCanales.ya) > 0 && (
+                                            <div className="rounded-xl border border-border bg-card/40 p-4 space-y-3">
+                                                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground"><FolderTree size={14} /> Dónde quedan</div>
+                                                <div className={cn("grid gap-3", resumenCanales.lpr > 0 ? "grid-cols-2" : "grid-cols-1")}>
+                                                    <ElegirOCrear etiqueta="Área" icono={FolderTree} valor={areaId} onElegir={setAreaId} ninguna="Sin área"
+                                                        ayuda="Dónde aparecen en el panel (Dispositivos, mapa). Vale para todas las que se importan, también las que ya existían."
+                                                        opciones={(areas || []).map((a) => ({ id: a.id, nombre: caminoArea(a.id), color: a.color }))} cargando={areas === null}
+                                                        nuevaRotulo="Nueva área…" sugerencia={f.name.trim() || "Cámaras del NVR"}
+                                                        onCrear={async (nombre) => {
+                                                            const e = await crearArea(nombre, null);
+                                                            setAreas(e.areas);
+                                                            const nueva = [...e.areas].reverse().find((a) => a.nombre === nombre);
+                                                            return nueva?.id || null;
+                                                        }} />
+                                                    {resumenCanales.lpr > 0 && (
+                                                        <ElegirOCrear etiqueta="Grupo de acceso de las LPR" icono={Users} valor={f.groupId} onElegir={(v) => set("groupId", v)} ninguna="Sin grupo"
+                                                            ayuda="Quiénes pasan por las cámaras LPR que se creen. Ej.: «Residentes + Proveedores». Un grupo nuevo nace vacío: las personas se suman desde Grupos de acceso."
+                                                            opciones={todosLosGrupos.map((g) => ({ id: g.id, nombre: g.name }))}
+                                                            nuevaRotulo="Nuevo grupo…" sugerencia={f.name.trim() ? `Accesos ${f.name.trim()}` : "Accesos"}
+                                                            onCrear={async (nombre) => {
+                                                                const r = await guardarGrupo({ name: nombre, equipos: [], personas: [] });
+                                                                if (!r.ok) throw new Error(r.error);
+                                                                setGruposNuevos((g) => [...g, { id: r.id, name: nombre }]);
+                                                                return r.id;
+                                                            }} />
+                                                    )}
+                                                </div>
+                                            </div>
                                         )}
                                     </>
                                 )}
@@ -1007,6 +1189,8 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                                 {tipo === "LPR_CAMERA" && <><span>Sentido: <b className="text-foreground">{f.direction === "ENTRY" ? "Entrada" : "Salida"}</b></span><span>Grupo: <b className="text-foreground">{groups.find((g: any) => g.id === f.groupId)?.name || "sin grupo"}</b></span></>}
                                                 {tipo !== "NVR" && <span className="col-span-2">Grabación: <b className={cn(grabacionElegida ? "text-foreground" : "text-amber-600")}>{grabacionElegida ? `${grabacionElegida.nvrNombre} · canal ${grabacionElegida.ch}` : "sin grabaciones"}</b></span>}
                                                 {tipo === "NVR" && <span className="col-span-2">Cámaras: <b className="text-foreground">{resumenCanales.lpr} LPR · {resumenCanales.intr} intrusión · {resumenCanales.ya} se vinculan</b></span>}
+                                                {tipo === "NVR" && <span>Área: <b className="text-foreground">{areaId !== "none" ? caminoArea(areaId) : "sin área"}</b></span>}
+                                                {tipo === "NVR" && resumenCanales.lpr > 0 && <span>Grupo de las LPR: <b className="text-foreground">{todosLosGrupos.find((g) => g.id === f.groupId)?.name || "sin grupo"}</b></span>}
                                             </div>
                                         </div>
                                         {tipo === "LPR_CAMERA" && f.brand === "HIKVISION" && (
@@ -1030,6 +1214,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                                 </div>
                                             </motion.div>
                                         ))}
+                                        {importados.length > 0 && <AvanceImportacion filas={importados} />}
                                         {terminado && (
                                             <div className={cn("rounded-xl p-3 text-[13px] flex items-center gap-2", fallas.length ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300")}>
                                                 {fallas.length ? <AlertTriangle size={16} /> : <Check size={16} />}

@@ -441,14 +441,30 @@ export async function canalesParaImportar(nvrDeviceId: string): Promise<{ ok: bo
     };
 }
 
-export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: { channel: number; rol: RolImport; direction?: "ENTRY" | "EXIT"; groupId?: string | null; modo?: string | null }[]): Promise<{ ok: boolean; error?: string; creadas: number; mapeadas: number; detalle: { channel: number; name: string; accion: string; motivo?: string }[] }> {
+/**
+ * Lo leído del NVR, por un rato. El asistente importa de a una cámara (para mostrar el avance de
+ * cada una, 21/10) y cada llamada volvía a preguntarle al NVR todos sus canales: con 30 canales,
+ * 30 lecturas iguales.
+ */
+const CANALES_LEIDOS_MS = 120_000;
+const canalesLeidos: Map<string, { al: number; r: any }> = (globalThis as any).__canalesNvr ?? new Map();
+(globalThis as any).__canalesNvr = canalesLeidos;
+
+export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: { channel: number; rol: RolImport; direction?: "ENTRY" | "EXIT"; groupId?: string | null; modo?: string | null }[],
+    /** `areaId`: el área (lib/areas) donde quedan todas las importadas, nuevas o vinculadas. */
+    opciones: { areaId?: string | null } = {}): Promise<{ ok: boolean; error?: string; creadas: number; mapeadas: number; detalle: { channel: number; name: string; accion: string; motivo?: string; id?: string }[] }> {
     const { getSession } = await import("@/app/actions/auth");
     if (!(await getSession())) return { ok: false, error: "Hace falta una sesión del panel.", creadas: 0, mapeadas: 0, detalle: [] };
-    const detalle: { channel: number; name: string; accion: string; motivo?: string }[] = [];
+    const detalle: { channel: number; name: string; accion: string; motivo?: string; id?: string }[] = [];
     const nvr = await prisma.device.findUnique({ where: { id: nvrDeviceId } });
     if (!nvr || String(nvr.deviceType) !== "NVR") return { ok: false, error: "El NVR no existe", creadas: 0, mapeadas: 0, detalle };
-    const r: any = await getNvrChannels({ ip: nvr.ip, username: nvr.username || undefined, password: nvr.password || undefined, authType: (nvr.authType as any) || undefined });
+    const leido = canalesLeidos.get(nvr.id);
+    const r: any = leido && Date.now() - leido.al < CANALES_LEIDOS_MS ? leido.r
+        : await getNvrChannels({ ip: nvr.ip, username: nvr.username || undefined, password: nvr.password || undefined, authType: (nvr.authType as any) || undefined });
     if (!r?.ok) return { ok: false, error: r?.error || "No se pudieron leer los canales", creadas: 0, mapeadas: 0, detalle };
+    if (!leido || leido.r !== r) canalesLeidos.set(nvr.id, { al: Date.now(), r });
+    /** Las que quedan en el área elegida: las nuevas y las que ya existían. */
+    const paraArea: string[] = [];
     const porCanal = new Map((r.channels || []).map((c: any) => [Number(c.channel), c]));
     const mapa = await getChannelMap();
     const nuevo: Record<string, { nvr: string | null; ch: number }> = {};
@@ -469,7 +485,7 @@ export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: 
         if (existente) {
             // Si la marca guardada no es la de la cámara (p.ej. una Hikvision por ONVIF cargada como Dahua), se corrige.
             if (marca && String(existente.brand) !== marca) { await prisma.device.update({ where: { id: existente.id }, data: { brand: marca } }); try { const { syncLprStream } = await import("@/lib/go2rtc-sync"); await syncLprStream({ ...existente, brand: marca } as any); } catch { } }
-            mapeadas++; detalle.push({ channel: c.channel, name: existente.name, accion: "mapeada", motivo: "ya existía: sólo se vinculó la grabación" + (marca && String(existente.brand) !== marca ? ` (marca corregida a ${marca})` : "") }); continue;
+            mapeadas++; paraArea.push(existente.id); detalle.push({ channel: c.channel, name: existente.name, id: existente.id, accion: "mapeada", motivo: "ya existía: sólo se vinculó la grabación" + (marca && String(existente.brand) !== marca ? ` (marca corregida a ${marca})` : "") }); continue;
         }
         if (c.sensorDe) { detalle.push({ channel: c.channel, name, accion: "omitida", motivo: `es otro sensor de la cámara del canal ${c.sensorDe} (misma IP)` }); continue; }
         const lpr = p.rol === "lpr";
@@ -483,7 +499,7 @@ export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: 
                 accessGroups: lpr && p.groupId && p.groupId !== "none" ? { connect: { id: p.groupId } } : undefined,
             },
         });
-        creadas++;
+        creadas++; paraArea.push(dev.id);
         try { const { syncLprStream } = await import("@/lib/go2rtc-sync"); await syncLprStream(dev as any); } catch { }
         // El modo elegido en la fila (lib/modo-camara.ts). La lectura de OmniVision no lleva la
         // puesta a punto de ANPR: la cámara no lee, sólo da el video.
@@ -495,10 +511,15 @@ export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: 
         if (modoLpr && modoLpr !== "camara") pendientes = (await aplicarModoCamara(dev.id, { lpr: { modo: modoLpr } }).catch(() => ({ pendientes: ["no se pudo aplicar el modo"] }))).pendientes;
         if (modoIntr) pendientes = (await aplicarModoCamara(dev.id, { intrusion: modoIntr }).catch(() => ({ pendientes: ["no se pudo aplicar el modo"] }))).pendientes;
         const rotulo = modoLpr ? MODOS_LPR[modoLpr].rotulo : modoIntr ? MODOS_INTRUSION[modoIntr].rotulo : null;
-        detalle.push({ channel: c.channel, name, accion: `${lpr ? "creada como LPR" : "creada como intrusión"}${rotulo ? ` · ${rotulo}` : ""}`, ...(pendientes.length ? { motivo: pendientes.join(" · ") } : {}) });
+        detalle.push({ channel: c.channel, name, id: dev.id, accion: `${lpr ? "creada como LPR" : "creada como intrusión"}${rotulo ? ` · ${rotulo}` : ""}`, ...(pendientes.length ? { motivo: pendientes.join(" · ") } : {}) });
         if (lpr && modoLpr !== "omnivision" && String(dev.brand) === "HIKVISION") { try { const { provisionLprDevice } = await import("@/app/actions/provision"); await provisionLprDevice(dev.id, false); } catch { } }
     }
     await prisma.setting.upsert({ where: { key: "NVR_CHANNEL_MAP" }, update: { value: JSON.stringify(nuevo) }, create: { key: "NVR_CHANNEL_MAP", value: JSON.stringify(nuevo) } });
+    if (opciones.areaId && paraArea.length) {
+        // El área es organización del panel: si falla, las cámaras igual quedaron importadas.
+        try { const { asignarEquipos } = await import("@/app/actions/areas"); await asignarEquipos(paraArea, opciones.areaId); }
+        catch (e: any) { detalle.forEach((d) => { if (d.id && paraArea.includes(d.id)) d.motivo = [d.motivo, `no se pudo poner en el área: ${e?.message || e}`].filter(Boolean).join(" · "); }); }
+    }
     // La retención de cada una, sin esperar (Nico, 14/10: «para no tener que hacerlo sí o sí a
     // mano»). Va de a una — es una búsqueda de grabaciones en el NVR por canal — y en segundo
     // plano: con 30 canales serían minutos de espera para el que importa. Queda guardada y la
