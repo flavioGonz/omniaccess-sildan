@@ -40,7 +40,11 @@ export default function LoginPage() {
             if (result?.error) {
                 setError(result.error);
             }
-        } catch (err) {
+        } catch (err: any) {
+            // Entrar bien termina en un redirect() de la acción, que llega acá como excepción
+            // NEXT_REDIRECT: no es un error, es la navegación. Se registraba en la consola y
+            // mostraba «Ocurrió un error inesperado» un instante antes de cambiar de pantalla.
+            if (String(err?.digest || err?.message || '').startsWith('NEXT_REDIRECT')) return;
             console.error(err);
             setError('Ocurrió un error inesperado');
         } finally {
