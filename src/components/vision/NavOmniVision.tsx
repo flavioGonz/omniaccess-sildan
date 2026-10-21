@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
  * botones a las otras, y cada una enlazaba a un subconjunto distinto.
  *
  * El orden es el del trabajo: qué analíticas se prenden, dónde se aplican (reglas), qué
- * quedó registrado, y las herramientas (relecturas, laboratorio).
+ * quedó registrado, y las herramientas (relecturas, verificación).
  */
 type Seccion = { href: string; rotulo: string; menu: string; icono: LucideIcon; exacta?: boolean; hijos?: Seccion[] };
 
@@ -30,6 +30,10 @@ export const ANALITICAS_OMNIVISION: Seccion[] = [
     { href: "/admin/vision/calor", rotulo: "Mapa de calor", menu: "Mapa de calor", icono: Flame },
     { href: "/admin/vision/estacionamiento", rotulo: "Estacionamiento", menu: "Estacionamiento", icono: SquareParking },
     { href: "/admin/vision/entrenar", rotulo: "Entrenables", menu: "Analíticas entrenables", icono: GraduationCap },
+    // El que era «Laboratorio», una pestaña propia al final de la barra (21/10, Nico: «debe estar
+    // en Analíticas»): probar el detector sobre una cámara y ver qué clases reconoce es parte de
+    // decidir qué analíticas se prenden, no una sección aparte.
+    { href: "/admin/vision/probar", rotulo: "Probar el detector", menu: "Probar el detector", icono: FlaskConical },
 ];
 
 export const SECCIONES_OMNIVISION: Seccion[] = [
@@ -39,7 +43,6 @@ export const SECCIONES_OMNIVISION: Seccion[] = [
     { href: "/admin/vision/buscar", rotulo: "Buscar", menu: "Búsqueda de objetos", icono: ScanSearch },
     { href: "/admin/vision/relecturas", rotulo: "Relecturas", menu: "Relecturas", icono: ScanLine },
     { href: "/admin/vision/verificacion", rotulo: "Verificación", menu: "Doble verificación", icono: ShieldCheck },
-    { href: "/admin/vision", rotulo: "Laboratorio", menu: "Laboratorio", icono: FlaskConical, exacta: true },
 ];
 
 const activa = (ruta: string, s: Seccion): boolean =>

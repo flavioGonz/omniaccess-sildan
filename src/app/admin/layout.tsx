@@ -18,7 +18,6 @@ import {
     Car,
     Settings,
     ShieldCheck,
-    BookOpen,
     History,
     DoorOpen,
     HelpCircle,
@@ -309,8 +308,9 @@ export default function AdminLayout({
                     )}
 
                     <div className="my-2 border-t border-border" />
-                    {ve("ajustes") && (<SidebarItem icon={<BookOpen size={18} />} label="Manuales" href="/admin/manuales" active={pathname === "/admin/manuales"} collapsed={collapsed} />)}
-                            {ve("ajustes") && (<SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings"} collapsed={collapsed} />)}
+                    {/* Manuales salió de acá (21/10, Nico): es una entrada del menú de Configuración, y
+                        mientras se está en él queda marcada Configuración. */}
+                    {ve("ajustes") && (<SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings" || pathname === "/admin/manuales"} collapsed={collapsed} />)}
                                     </>)}
                 </nav>
 

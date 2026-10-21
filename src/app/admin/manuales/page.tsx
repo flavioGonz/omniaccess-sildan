@@ -168,6 +168,8 @@ export default function ManualesPage() {
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-xl bg-gradient-to-br from-sky-500/20 to-cyan-500/10 border border-sky-500/20"><BookOpen size={20} className="text-sky-400" /></div>
                     <div>
+                        {/* Se entra desde el menú de Configuración (21/10): el rótulo dice de dónde cuelga y vuelve. */}
+                        <a href="/admin/settings" className="block text-[11px] text-muted-foreground hover:text-foreground leading-none mb-0.5">Configuración ›</a>
                         <h1 className="text-base font-bold">Manuales</h1>
                         <p className="text-[11px] text-muted-foreground">{producto ? `${producto.familia} · versión ${producto.version}` : "Constructor de documentación"}</p>
                     </div>

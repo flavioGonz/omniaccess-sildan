@@ -49,6 +49,7 @@ import {
     ScanEye,
     ScrollText,
     Send,
+    BookOpen,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { SECCIONES_OMNIVISION } from "@/components/vision/NavOmniVision";
@@ -222,6 +223,10 @@ const NAV_GROUPS = [
         // Las analíticas cuelgan de «Analíticas» (20/10): acá se entra por ella y adentro está su submenú.
         { sec: "", btab: "", href: x.href, label: x.menu, icon: x.icono }
     )) },
+    /* Manuales: una entrada directa, sin desplegable (21/10, Nico: «retiralo del sidebar y colocalo
+       como elemento del menú principal de Configuración»). Es una pantalla propia (/admin/manuales):
+       `href` lleva a ella; `items` vacío porque no hay nada que elegir adentro. */
+    { id: "manuales", label: "Manuales", icon: BookOpen, href: "/admin/manuales", items: [] },
     /* Sistema va último: es lo que se mira cuando algo anda mal, no lo primero que se configura. */
     { id: "sistema", label: "Sistema", icon: Server, items: [
         { sec: "system_status", btab: "", label: "Estado del Sistema", icon: Activity },
@@ -315,6 +320,13 @@ export default function SettingsPage() {
                         const GIcon = g.icon;
                         const groupActive = g.items.some((it: any) => it.sec === activeSection && (it.btab ? it.btab === brandingTab : true) && (it.ntab ? it.ntab === notifTab : true));
                         const isOpen = openGroup === g.id;
+                        if ("href" in g && g.href) return (
+                            <button key={g.id} type="button" onClick={() => { setOpenGroup(null); router.push(g.href!); }}
+                                className="group flex items-center gap-1.5 px-3.5 py-1.5 text-[13px] font-semibold transition-all rounded-lg border text-muted-foreground border-transparent hover:text-foreground hover:bg-accent/50">
+                                <GIcon size={15} className="shrink-0 text-muted-foreground group-hover:text-foreground" />
+                                {g.label}
+                            </button>
+                        );
                         return (
                             <div key={g.id} className="relative">
                                 <button
