@@ -268,9 +268,9 @@ async function hayContenedor(nombre) {
  */
 async function camarasDeVideo() {
     try {
-        const ds = await prisma.device.findMany({ where: { deviceType: "QUEUE_COUNTER", ip: { not: null } }, select: { id: true, name: true, ip: true, username: true, password: true } });
-        return ds.map((d) => ({ ...d, flujo: `bosch_${String(d.ip).replace(/\./g, "_")}` }));
-    } catch { return []; }
+        const ds = await prisma.device.findMany({ where: { deviceType: "QUEUE_COUNTER" }, select: { id: true, name: true, ip: true, username: true, password: true } });
+        return ds.filter((d) => d.ip).map((d) => ({ ...d, flujo: `bosch_${String(d.ip).replace(/\./g, "_")}` }));
+    } catch (e) { log(`no se pudieron leer las cámaras: ${e.message}`); return []; }
 }
 
 async function cuadroDe(url, cabeceras) {
