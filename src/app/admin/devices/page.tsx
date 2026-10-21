@@ -75,6 +75,7 @@ const toast = {
 import { io } from "socket.io-client";
 import { Badge } from "@/components/ui/badge";
 import { DeviceFormDialog } from "@/components/DeviceFormDialog";
+import { CajonContadorFila } from "@/components/devices/CajonContadorFila";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { DeviceMemoryDialog } from "@/components/DeviceMemoryDialog";
 import { DevicePlateListDialog } from "@/components/DevicePlateListDialog";
@@ -318,6 +319,9 @@ export default function DevicesPage() {
     // Alta: un solo botón que pregunta qué se agrega (LPR, intrusión o NVR) e importar canales de un NVR.
     const [alta, setAlta] = useState<null | "lpr" | "intrusion" | "nvr" | "otro">(null);
     const [editando, setEditando] = useState<any>(null);
+    /** Un contador de filas tiene su propia ficha (CajonContadorFila), no la de las cámaras ni el formulario viejo. */
+    const [contador, setContador] = useState<any>(null);
+    const abrir = (d: any) => (vistaDe(d) === "QUEUE_COUNTER" ? setContador(d) : ["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(d)) ? setEditando(d) : null);
     const [calibIntr, setCalibIntr] = useState<any>(null);
     // Sincronizar hora: siempre se pregunta antes (lista de equipos + desfase actual).
     const [pedirHora, setPedirHora] = useState<any[] | null>(null);
@@ -566,14 +570,14 @@ export default function DevicesPage() {
 
             <div className="flex gap-4 items-start">
                 <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={typeFilter}
-                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(d)) ? setEditando(d) : null)} health={health} alertasDe={alertasDe}
+                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={abrir} health={health} alertasDe={alertasDe}
                     colapsado={panelCerrado} onColapsar={colapsarPanel} onTipo={(t) => { setAreaSel(TODAS); setFilter(t); }}
                     tipos={allowedTypes.map((t) => ({ tipo: t, rotulo: TYPE_META[t]?.label || t, cuenta: devices.filter((d) => vistaDe(d) === t).length, alertas: devices.filter((d) => vistaDe(d) === t && alertasDe[d.id]?.length).length }))} />
                 <div className="flex-1 min-w-0 space-y-4">
             {areaSel !== TODAS ? (
                 <VistaArea estado={areas} areaId={areaSel} devices={devices.filter((d) => allowedTypes.includes(d.deviceType))} busqueda={searchTerm}
                     health={health} alertasDe={alertasDe} grab={grab} detectando={detectando} calculando={calculando}
-                    onDetectar={(ids) => detectar(ids)} onRetencion={retencion} onEditar={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(d.deviceType) ? setEditando(d) : null)}
+                    onDetectar={(ids) => detectar(ids)} onRetencion={retencion} onEditar={abrir}
                     onCalibrar={(d) => (d.deviceType === "CAMERA" ? setCalibIntr(d) : setCalibrating(d))}
                     onSalud={(d) => setHealthHistory(d)} onElegirArea={setAreaSel} />
             ) : (<>
@@ -613,7 +617,7 @@ export default function DevicesPage() {
                             const h = health[dev.id];
 
                             return (
-                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; if (["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(dev))) setEditando(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
+                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; abrir(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
                                     <TableCell className="py-2 pl-4">
                                         <div className="flex items-center gap-3 min-w-0">
                                             <div className="relative shrink-0">
@@ -806,8 +810,8 @@ export default function DevicesPage() {
 
                                                     <DropdownMenuSeparator className="bg-foreground/10" />
 
-                                                    {dev.deviceType === "LPR_CAMERA" ? (
-                                                        <DropdownMenuItem onClick={() => setEditando(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-blue-400 focus:bg-foreground/10 focus:text-blue-400">
+                                                    {dev.deviceType === "LPR_CAMERA" || dev.deviceType === "QUEUE_COUNTER" ? (
+                                                        <DropdownMenuItem onClick={() => abrir(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-blue-400 focus:bg-foreground/10 focus:text-blue-400">
                                                             <Settings2 size={14} /> Editar configuración
                                                         </DropdownMenuItem>
                                                     ) : (
@@ -1037,6 +1041,7 @@ export default function DevicesPage() {
             {/* Altas desde el botón «Agregar» */}
             <CajonDispositivo groups={groups} open={alta === "lpr"} onOpenChange={(v) => !v && setAlta(null)} onSuccess={() => { loadData(); cargarGrab(); }}
                 alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} />
+            <CajonContadorFila device={contador} open={!!contador} onOpenChange={(v) => !v && setContador(null)} onSuccess={() => { loadData(); }} />
             <CajonDispositivo device={editando} groups={groups} open={!!editando} onOpenChange={(v) => !v && setEditando(null)} onSuccess={() => { loadData(); cargarGrab(); }}
                 alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} />
             <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "otro"} alCambiarAbierto={(v) => !v && setAlta(null)} />

@@ -65,6 +65,23 @@ function transcode(n: string): string {
     return `ffmpeg:${n}#video=h264${_gpu ? "#hardware=vaapi" : ""}`;
 }
 
+/** Un stream con un solo origen y sin transcode (el anillo de dispatch-worker copia lo que llega). */
+async function writeStreamSolo(name: string, src: string): Promise<void> {
+    try {
+        let doc: any = {};
+        if (fs.existsSync(CONFIG)) doc = (yaml.load(fs.readFileSync(CONFIG, "utf8")) as any) || {};
+        if (!doc.streams || typeof doc.streams !== "object") doc.streams = {};
+        doc.streams[name] = [src];
+        try { fs.copyFileSync(CONFIG, `${CONFIG}.bak.auto.${Date.now()}`); } catch { }
+        fs.writeFileSync(CONFIG, yaml.dump(doc, { lineWidth: 400 }), "utf8");
+    } catch (e) { console.error("[go2rtc-sync] yaml:", (e as any)?.message); }
+    try {
+        const c = new AbortController(); const t = setTimeout(() => c.abort(), 5000);
+        await fetch(`${GO2RTC}/api/streams?name=${enc(name)}&src=${enc(src)}`, { method: "PUT", signal: c.signal });
+        clearTimeout(t);
+    } catch { }
+}
+
 async function writeStreams(name: string, nameHd: string, sd: string, hd: string): Promise<void> {
     // 1) Persistir en go2rtc.yaml
     try {
@@ -114,6 +131,20 @@ export async function syncLprStream(dev: Dev): Promise<void> {
         }
 
         if (!dev.ip) return;
+
+        /*
+         * Bosch (20/10, contador de filas del Hospital Británico en el lab): `?inst=1` es el primer
+         * flujo y `?inst=2` el segundo; `h26x=4` le pide H.264. Antes una Bosch no tenía receta y
+         * guardarla desde la ficha no registraba su vivo. Un contador de filas además tiene
+         * `bosch_<ip>`, el stream que graba el anillo de clips de las alertas de fila (dispatch-worker).
+         */
+        if (String(dev.brand || "").toUpperCase() === "BOSCH") {
+            const cred = dev.password ? `${enc(dev.username || "service")}:${enc(dev.password)}@` : dev.username ? `${enc(dev.username)}@` : "";
+            const sd = `rtsp://${cred}${dev.ip}:554/?inst=2&h26x=4`, hd = `rtsp://${cred}${dev.ip}:554/?inst=1&h26x=4`;
+            await writeStreams(name, nameHd, sd, hd);
+            if (dev.deviceType === "QUEUE_COUNTER") await writeStreamSolo(`bosch_${dev.ip.replace(/\./g, "_")}`, sd);
+            return;
+        }
 
         if (dev.deviceType === "CAMERA") {
             // resolver NVR + canal por el mapa
