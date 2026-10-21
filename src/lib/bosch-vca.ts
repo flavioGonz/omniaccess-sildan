@@ -59,7 +59,7 @@ async function rcp(c: BoschConn, cmd: string, type: string, direction: "READ" | 
     const q = new URLSearchParams({ command: cmd, type, direction, num: "1" });
     if (payload) q.set("payload", payload);
     const url = `/rcp.xml?${q.toString()}`;
-    const txt: string = await authenticatedRequest("GET", url, { ip: c.ip, username: c.user, password: c.pass, authType: "DIGEST" }, { responseType: "text", contentType: "text/xml", timeout });
+    const txt: string = await authenticatedRequest("GET", url, { ip: c.ip, username: c.user, password: c.pass, authType: "DIGEST", secure: true }, { responseType: "text", contentType: "text/xml", timeout });
     const err = txt.match(/<err>([^<]*)<\/err>/i);
     if (err && err[1].trim() && err[1].trim() !== "0x00") {
         /* HB, 20/10: toda escritura volvía con 0x70 y la app decía «la cámara no aceptó la

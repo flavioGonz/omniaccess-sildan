@@ -13,6 +13,11 @@ export interface DigestAuthDevice {
     username?: string | null;
     password?: string | null;
     authType?: string | null;
+    /**
+     * Pedir por HTTPS. HB, 21/10: con claves puestas, la Bosch pide Digest también por HTTP pero ahí
+     * el desafío se cuelga (20 s sin respuesta, también con curl); por HTTPS contesta en 1 s.
+     */
+    secure?: boolean;
 }
 
 interface DigestChallenge {
@@ -37,7 +42,8 @@ function parseWWWAuthenticate(header: string): DigestChallenge | null {
         realm,
         nonce,
         qop: getVal("qop"),
-        opaque: getVal("opaque"),
+        // opaque="" (la Bosch lo manda vacío) también se devuelve: el RFC pide repetirlo tal cual.
+        opaque: getVal("opaque") ?? (/opaque=""/.test(header) ? "" : null),
         algorithm: getVal("algorithm") || "MD5",
     };
 }
@@ -69,7 +75,7 @@ function buildDigestHeader(
     }
 
     let authString = `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", algorithm="${algorithm}", response="${response}"`;
-    if (opaque) authString += `, opaque="${opaque}"`;
+    if (opaque != null) authString += `, opaque="${opaque}"`;
     if (qop) authString += `, qop=${qop}, nc=${nc}, cnonce="${cnonce}"`;
 
     return authString;
@@ -94,7 +100,7 @@ export async function authenticatedRequest(
     const username = device.username || "admin";
     const password = device.password || "";
     const host = (device.ip || "").replace(/^https?:\/\//, "");
-    const baseURL = `http://${host}`;
+    const baseURL = `${device.secure ? "https" : "http"}://${host}`;
 
     const contentType = options.contentType || "application/json";
     const accept = options.accept || contentType;
