@@ -25,8 +25,6 @@ import { META_DETECCION, GeomOverlay, type Geom } from "@/components/intrusion/c
 import { NotaGestion, usarNotaGestion } from "@/components/alarmas/NotaGestion";
 import { GestionEnVivo } from "@/components/alarmas/GestionEnVivo";
 import { CapaComportamiento, type MarcasComportamiento } from "@/components/vision/CapaComportamiento";
-import { ComoFunciona } from "@/components/vision/ComoFunciona";
-import { Cronometro } from "@/components/tracking/Cronometro";
 import type { ClaveComportamiento, ParamsComportamiento } from "@/lib/comportamientos";
 
 /**
@@ -240,7 +238,6 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     ) : null;
     const { clipOn, cambiarClip, clip, clipVisible, setClipVisible, ventana: ventanaFicha } = useClipEvento({
         id: cur.id, deviceId: cur.deviceId, instante: cur.timestamp, nvrId: cam?.nvrId ?? null, ch: cur.ch ?? cam?.ch ?? null, activo: real,
-        propia: cur.id === det.id ? vision?.clipPropio || null : null,
     });
     const enVideo = clipOn && clip.estado === "listo" && clipVisible && !enPropio;
     /** Con la grabación o el vivo en la ventana, lo de encima se oculta como en la imagen limpia. */
@@ -403,7 +400,6 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                 <div className={cn("visor-zona absolute left-5 md:left-8 top-[88px] bottom-[96px] z-20 w-[min(420px,42vw)] overflow-y-auto overscroll-contain [scrollbar-width:none] flex flex-col transition-opacity",
                     oculto && "opacity-0 pointer-events-none")}>
                     <div className="my-auto flex flex-col gap-3 py-2 visor-sombra-texto">
-                        {vision && cur.id === det.id && <BloqueVision v={vision} estado={estado} momento={momento} />}
                         {/* El veredicto de OmniVision, en grande: es lo primero que se quiere saber. */}
                         {!vision && <div className="flex items-start gap-3">
                             <span className="mt-1.5 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: ver ? TONO_VEREDICTO[ver.tono] : "rgba(255,255,255,0.3)" }} />
@@ -605,44 +601,3 @@ function BotonRiel({ children, onClick, title }: { children: React.ReactNode; on
     );
 }
 
-/**
- * La cabecera de un aviso de OmniVision en la ficha: qué comportamiento, la estadía con su reloj
- * (permanencia) y «Cómo lo detectó», con la escena animada y los números de la regla.
- */
-function BloqueVision({ v, estado, momento }: { v: FichaVision; estado: string; momento: Date }) {
-    const e = v.estadia;
-    const hora = (iso: string) => horaSeg(new Date(iso));
-    const COMO: Record<string, string> = { salio: "Salió de la zona", "no-se-ve": "Dejó de verse", reinicio: "Se dejó de seguir" };
-    return (
-        <>
-            <div className="flex items-start gap-3">
-                <span className="mt-1.5 w-2.5 h-2.5 rounded-full shrink-0 bg-[var(--accion-en-oscuro)]" />
-                <div className="min-w-0">
-                    <div className="text-[22px] font-bold leading-tight text-white">Lo detectó OmniVision</div>
-                    <p className="text-[12.5px] text-white/65 leading-snug mt-0.5">Una regla propia, no la cámara. {estado}. <span className="text-white/45">Real o falsa la decide una persona.</span></p>
-                </div>
-            </div>
-            {e && (
-                <Seccion titulo={e.hasta ? "La estadía" : "Sigue en la zona"} icono={Clock}>
-                    <dl>
-                        <Dato rotulo={e.llegada === false ? "Lo tomó" : "Llegó"} valor={hora(e.desde)} sufijo={e.llegada === false ? "ya estaba" : undefined} />
-                        {e.quieto && <Dato rotulo="Quedó quieto" valor={hora(e.quieto)} />}
-                        {e.hasta ? <Dato rotulo={COMO[e.como || ""] || "Se fue"} valor={hora(e.hasta)} /> : null}
-                        {e.reabierta > 0 && <Dato rotulo="Lo perdió" valor={`${e.reabierta} ${e.reabierta === 1 ? "vez" : "veces"}`} sufijo="y lo volvió a ver ahí" />}
-                    </dl>
-                    <div className="mt-2 flex items-center gap-2 text-[12px] text-white/60">
-                        <Cronometro desde={e.desde} hasta={e.hasta} tamano="normal" etiqueta={e.hasta ? "estuvo" : "lleva"} />
-                        {e.llegada === false && <span className="leading-snug">No se lo vio llegar: ya estaba cuando OmniVision lo empezó a seguir.</span>}
-                    </div>
-                    {v.clipPropio && <p className="text-[11.5px] text-white/50 mt-2 leading-snug">El video: {v.clipPropio.motivo}.</p>}
-                </Seccion>
-            )}
-            {v.clave && (
-                <Seccion titulo="Cómo lo detectó" icono={Sparkles}>
-                    <ComoFunciona clave={v.clave} params={v.params} oscuro />
-                    <p className="text-[10.5px] text-white/40 mt-2 tabular-nums">Foto del aviso · {fechaCorta(momento)} {horaSeg(momento)}</p>
-                </Seccion>
-            )}
-        </>
-    );
-}

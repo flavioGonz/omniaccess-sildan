@@ -43,7 +43,6 @@ export const COMPORTAMIENTOS: Record<ClaveComportamiento, Def> = {
         como: (p) => [
             `Sigue el pie de cada vehículo o persona: cuando cae adentro de la zona, arranca su reloj.`,
             `Si sigue adentro ${dur(p.segundos, "el tiempo de la regla")}, avisa con la foto marcada. El reloj sigue corriendo en pantalla.`,
-            `El clip muestra la llegada hasta que quedó quieto. Si ya estaba cuando OmniVision empezó a mirarlo, lo dice: no inventa la hora de llegada.`,
             `Si el detector lo pierde un rato y lo vuelve a ver en el mismo lugar, es el mismo: el reloj no vuelve a cero. Se da por ido al salir de la zona, o tras 10 min sin verlo.`,
         ],
     },
@@ -167,29 +166,3 @@ export function comportamientoDe(tipo: string | null | undefined, reglaTipo?: st
     return (tipo && POR_EVENTO[tipo]) || null;
 }
 
-/**
- * El clip de una estadía («Se quedó en la zona»): la maniobra de estacionar, no «N s antes de la
- * foto» (21/10, Nico: «el clip no funciona bien: [tiene que traer] el momento que estaciona el auto
- * exacto»). La foto del aviso es de cuando se cumplió el tiempo —15 min después de llegar—, y los
- * segundos de antes de ESA foto muestran un auto quieto. El tope es el del clip de una alerta
- * (15 s antes y 15 después, lib/clips ALERTA_*_MAX).
- */
-export function clipDeEstadia(e: { desde: string; quieto: string | null; llegada: boolean | null } | null | undefined): { instante: number; antes: number; despues: number; motivo: string } | null {
-    if (!e) return null;
-    const desde = new Date(e.desde).getTime();
-    if (!Number.isFinite(desde)) return null;
-    if (e.llegada === true && e.quieto) {
-        const q = new Date(e.quieto).getTime();
-        const maniobra = Math.max(0, Math.round((q - desde) / 1000));
-        return {
-            instante: q, antes: Math.min(15, Math.max(4, maniobra + 4)), despues: 3,
-            motivo: maniobra + 4 > 15 ? "los últimos 15 s de la llegada, hasta que quedó quieto" : "la llegada a la zona, hasta que quedó quieto",
-        };
-    }
-    if (e.llegada === true) return { instante: desde, antes: 4, despues: 10, motivo: "la llegada a la zona" };
-    return {
-        instante: desde, antes: 3, despues: 3,
-        motivo: e.llegada === false ? "el momento en que OmniVision lo tomó: ya estaba ahí, no se lo vio llegar"
-            : "el momento en que OmniVision lo empezó a seguir (este aviso es de antes de que se registrara la llegada)",
-    };
-}

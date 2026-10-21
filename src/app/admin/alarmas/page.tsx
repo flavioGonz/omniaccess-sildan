@@ -31,7 +31,7 @@ import { FichaDeteccion, type FichaVision } from "@/components/intrusion/FichaDe
 import { CapaComportamiento, type MarcasComportamiento } from "@/components/vision/CapaComportamiento";
 import { ComoFunciona } from "@/components/vision/ComoFunciona";
 import { AjusteVideoFicha } from "@/components/video/AjusteVideoFicha";
-import { comportamientoDe, clipDeEstadia, COMPORTAMIENTOS } from "@/lib/comportamientos";
+import { comportamientoDe, COMPORTAMIENTOS } from "@/lib/comportamientos";
 import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { getAccessEvent } from "@/app/actions/history";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
@@ -514,7 +514,9 @@ function fichaVisionDe(a: Alarma): FichaVision | null {
             zona: v.zona, linea: v.linea, caja: v.caja, tono: clave ? COMPORTAMIENTOS[clave].tono : "aviso", rotulo: nombreClase,
             estadia: e ? { avisoId: a.id.startsWith("a:") ? a.id.slice(2) : null, desde: e.desde, hasta: e.hasta } : null,
         },
-        clipPropio: e ? clipDeEstadia(e) : null,
+        // Sin clip propio de la llegada (21/10, Nico: «el evento de llegada… retiremos esta función de
+        // momento»): el video es el de siempre, los segundos de Ajustes alrededor de la foto del aviso.
+        clipPropio: null,
         estadia: e ? { desde: e.desde, hasta: e.hasta, quieto: e.quieto, llegada: e.llegada, como: e.como, reabierta: e.reabierta } : null,
     };
 }
@@ -532,9 +534,7 @@ const minutos = (seg: number) => (seg < 60 ? `${seg} s` : seg < 3600 ? `${Math.r
 function EstadiaEnZona({ e }: { e: NonNullable<Alarma["estadia"]> }) {
     return (
         <>
-            <Dato rotulo={e.llegada === false ? "Lo tomó OmniVision" : "Llegó"}><span className="tabular-nums">{hhmm(e.desde)}</span>{e.umbral ? <span className="font-normal text-muted-foreground"> · avisa a los {minutos(e.umbral)}</span> : null}</Dato>
-            {e.llegada === false && <div className="text-[11.5px] text-muted-foreground -mt-0.5 pb-1">No se lo vio llegar: ya estaba en la zona cuando OmniVision lo empezó a seguir.</div>}
-            {e.quieto && <Dato rotulo="Quedó quieto"><span className="tabular-nums">{hhmm(e.quieto)}</span></Dato>}
+            <Dato rotulo="Llegó"><span className="tabular-nums">{hhmm(e.desde)}</span>{e.umbral ? <span className="font-normal text-muted-foreground"> · avisa a los {minutos(e.umbral)}</span> : null}</Dato>
             {e.reabierta > 0 && <Dato rotulo="Lo perdió y volvió a verlo"><span className="tabular-nums">{e.reabierta} {e.reabierta === 1 ? "vez" : "veces"}</span><span className="font-normal text-muted-foreground"> · el mismo lugar</span></Dato>}
             {e.hasta ? (
                 <Dato rotulo={COMO_TERMINO[e.como || ""] || "Se fue"}>
@@ -601,7 +601,7 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
          * una detección de intrusión que no existe (sin onMarcar).
          */
         // La hora de la foto (la del aviso), no la de `vision.ts`: en la permanencia esa es la llegada, y
-        // la ficha decía 09:31 con una foto de las 09:46. La llegada va en la estadía y en el clip propio.
+        // la ficha decía 09:31 con una foto de las 09:46. La llegada va en la estadía del panel.
         id: `vision-${a.vision.eventoId}`, deviceId: a.deviceId, deviceName: a.camara, type: "OTHER", eventType: a.detalle, timestamp: a.ts,
         snapshotPath: a.foto, acknowledged: a.estado === "atendida", ackKind: a.resultado === "falsa" ? "false" : a.resultado === "real" ? "real" : null,
         label: a.vision.clase === "person" ? "human" : a.vision.clase && ["car", "truck", "bus", "motorcycle"].includes(a.vision.clase) ? "vehicle" : null,

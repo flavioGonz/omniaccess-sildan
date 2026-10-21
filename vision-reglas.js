@@ -43,8 +43,9 @@ const OLVIDO_MS = 20_000;
  *    tomarse ahí, se reabre su aviso en vez de abrir otro (era el mismo auto, no una llegada).
  *  · `llegada`: si se lo VIO llegar (la pista venía de afuera de la zona o moviéndose). Si no, la
  *    pantalla dice que ya estaba y no inventa una hora de llegada.
- *  · `quieto`: cuándo dejó de moverse (el pie no se corre más de QUIETO_DESPLAZ en QUIETO_MS). El
- *    clip va de la llegada a ese momento: la maniobra de estacionar.
+ *  · `quieto`: cuándo dejó de moverse (el pie no se corre más de QUIETO_DESPLAZ en QUIETO_MS).
+ *    `llegada` y `quieto` se guardan en el aviso pero hoy la pantalla no los usa: el clip «de la
+ *    llegada a estacionar» se retiró a pedido de Nico (21/10, «retiremos esta función de momento»).
  */
 const REENGANCHE_MS = 10 * 60_000;
 const MEMORIA_LUGAR_MS = 2 * 3_600_000;
