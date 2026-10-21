@@ -53,7 +53,7 @@ export function PulsoActividad({ dias = 60 }: { dias?: number }) {
     return (
         <Pista
             titulo="Pulso del registro"
-            texto={`Lecturas por día de los últimos ${dias} días, contando accesos y avistamientos. La altura de cada barra es relativa al día más movido del período.`}
+            texto={`${total.toLocaleString(IDIOMA)} lecturas en los últimos ${dias} días, por día, contando accesos y avistamientos. La altura de cada barra es relativa al día más movido del período.`}
         >
             <div className="flex items-center gap-2.5">
                 <div className="flex items-end gap-px h-[18px]">
@@ -73,11 +73,8 @@ export function PulsoActividad({ dias = 60 }: { dias?: number }) {
                         />
                     ))}
                 </div>
-                <span className="text-[11px] text-muted-foreground whitespace-nowrap tabular-nums">
-                    {/* `total` es una cantidad. Pasaba por `fecha()`, que lo tomaba como
-                        milisegundos desde 1970: 31 lecturas se leían "31 dic. 1969". */}
-                    <span className="font-bold text-foreground">{total.toLocaleString(IDIOMA)}</span> lecturas en {dias} días
-                </span>
+                {/* Sin el rótulo «N lecturas en 60 días» (21/10, Nico: «retíralo»): el total queda en la
+                    ayuda al pasar el mouse, y cada barra dice su día y su cantidad. */}
             </div>
         </Pista>
     );
