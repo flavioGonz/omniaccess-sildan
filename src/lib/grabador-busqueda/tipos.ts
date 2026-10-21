@@ -39,7 +39,15 @@ export type AvanceBusqueda = { terminada: boolean; progreso: number; total: numb
  * sólo los canales que tiene encendidos para eso, y lo que no analizó no lo encuentra. null = el
  * grabador no dice (ese tipo de búsqueda no lo tiene, o no expone la lista).
  */
-export type CanalesBusqueda = { texto: number[] | null; imagen: number[] | null };
+export type CanalesBusqueda = {
+    texto: number[] | null; imagen: number[] | null;
+    /**
+     * Los canales que PUEDEN buscar, prendidos o no (null = el grabador no lo dice). En los VPro
+     * son las cámaras que le dan su análisis al grabador (Dual-VCA); una 180° o una cámara vieja
+     * no, y el grabador rechaza prenderlas.
+     */
+    posibles?: number[] | null;
+};
 /** Resultado de cambiar los canales. `reinician`: las cámaras que el grabador reinicia para aplicarlo. */
 export type CambioCanales = { ok: boolean; reinician: number[]; error?: string };
 

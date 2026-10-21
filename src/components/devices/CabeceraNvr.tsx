@@ -80,7 +80,7 @@ const COLOR: Record<ReturnType<typeof estadoDe>, string> = {
  * 21 en el NVR 02), y lo que no analizó no lo encuentra aunque se le pida. Cada puerto lleva una
  * raya celeste si busca, y «Elegir canales» deja prender y apagar puerto por puerto.
  */
-type Busqueda = { motor: string; texto: number[] | null; imagen: number[] | null };
+type Busqueda = { motor: string; texto: number[] | null; imagen: number[] | null; /** Los que pueden buscar (null = no se sabe: se deja elegir cualquiera). */ posibles: number[] | null };
 /** El celeste de lo que busca el grabador: el mismo distintivo de sus resultados en el Historial. */
 const COLOR_BUSQUEDA = "bg-sky-400";
 const enAlguna = (b: Busqueda | null, ch: number) => !!b && ((b.texto || []).includes(ch) || (b.imagen || []).includes(ch));
@@ -121,7 +121,7 @@ export function CabeceraNvr({ device, titulo, subtitulo, ip, mac, detectando, pu
             const r = await fetch(`/api/grabador/canales?nvr=${encodeURIComponent(device.id)}`, { cache: "no-store" });
             const j = await r.json().catch(() => null);
             // 404: el grabador no busca con IA. Ahí no se muestra nada (no es un error).
-            setBusq(r.ok && j?.ok && (j.texto || j.imagen) ? { motor: j.motor, texto: j.texto, imagen: j.imagen } : null);
+            setBusq(r.ok && j?.ok && (j.texto || j.imagen) ? { motor: j.motor, texto: j.texto, imagen: j.imagen, posibles: Array.isArray(j.posibles) ? j.posibles : null } : null);
         } catch { setBusq(null); }
     }, [device?.id]);
     useEffect(() => { leerBusq(); }, [leerBusq]);
@@ -151,7 +151,10 @@ export function CabeceraNvr({ device, titulo, subtitulo, ip, mac, detectando, pu
         setErrorBusq(null); setAviso(null); setVivo(null); setSobre(null);
         setEligiendo(new Set([...(busq?.texto || []), ...(busq?.imagen || [])]));
     };
-    const alternarCanal = (ch: number) => { setAviso(null); setEligiendo((s) => { if (!s) return s; const n = new Set(s); if (n.has(ch)) n.delete(ch); else n.add(ch); return n; }); };
+    /** Un canal que el grabador no deja prender (la cámara no le da su análisis): no se elige. */
+    const puedeBuscar = (ch: number) => !busq?.posibles || busq.posibles.includes(ch) || enAlguna(busq, ch);
+    const noPueden = busq?.posibles ? conCamara.filter((c) => !puedeBuscar(c.ch)) : [];
+    const alternarCanal = (ch: number) => { if (!puedeBuscar(ch)) return; setAviso(null); setEligiendo((s) => { if (!s) return s; const n = new Set(s); if (n.has(ch)) n.delete(ch); else n.add(ch); return n; }); };
     const guardarBusq = async (confirmado: boolean) => {
         if (!eligiendo || !device?.id) return;
         const canales = [...eligiendo].sort((a, b) => a - b);
@@ -286,10 +289,10 @@ export function CabeceraNvr({ device, titulo, subtitulo, ip, mac, detectando, pu
                                         onClick={() => (eligiendo ? alternarCanal(ch) : abrirVivo(ch))}
                                         aria-pressed={eligiendo ? eligiendo.has(ch) : undefined}
                                         aria-label={`Canal ${ch}: ${ROTULO[e]}${c?.nombre ? ` · ${c.nombre}` : ""}${enAlguna(busq, ch) ? " · busca con IA" : ""}`}
-                                        title={`D${ch} · ${ROTULO[e]}${c?.nombre ? ` · ${c.nombre}` : ""}${c?.ip ? ` · ${c.ip}` : ""}${c?.equipo ? ` · en OmniAccess: ${c.equipo.nombre}` : ""}${busq ? (enAlguna(busq, ch) ? " · busca con IA" : " · no busca con IA") : ""}`}
+                                        title={`D${ch} · ${ROTULO[e]}${c?.nombre ? ` · ${c.nombre}` : ""}${c?.ip ? ` · ${c.ip}` : ""}${c?.equipo ? ` · en OmniAccess: ${c.equipo.nombre}` : ""}${busq ? (enAlguna(busq, ch) ? " · busca con IA" : puedeBuscar(ch) ? " · no busca con IA" : " · no puede buscar con IA: la cámara no le da su análisis al grabador") : ""}`}
                                         className={cn("relative h-[26px] rounded-[3px] text-[10px] font-bold tabular-nums grid place-items-center transition-shadow", COLOR[e],
                                             sobre === ch && !eligiendo && "ring-2 ring-white ring-offset-1 ring-offset-[#0b0d11]",
-                                            eligiendo && (eligiendo.has(ch) ? "ring-2 ring-sky-400 ring-offset-1 ring-offset-[#0b0d11]" : "opacity-45"))}>
+                                            eligiendo && (eligiendo.has(ch) ? "ring-2 ring-sky-400 ring-offset-1 ring-offset-[#0b0d11]" : puedeBuscar(ch) ? "opacity-45" : "opacity-20 cursor-not-allowed"))}>
                                         {ch}
                                         {/* El grabador analiza este canal para su búsqueda con IA. */}
                                         {!eligiendo && enAlguna(busq, ch) && <span className={cn("absolute left-[3px] right-[3px] bottom-[2px] h-[2px] rounded-full", COLOR_BUSQUEDA)} />}
@@ -327,6 +330,7 @@ export function CabeceraNvr({ device, titulo, subtitulo, ip, mac, detectando, pu
                                 {!eligiendo && conCamara.length > buscables && (
                                     <p className="mt-1 text-[11.5px] text-white/50 leading-snug">
                                         En los otros no encuentra nada: {conCamara.filter((c) => !enAlguna(busq, c.ch)).map((c) => `D${c.ch}`).join(", ")}.
+                                        {noPueden.length > 0 && <> {noPueden.length === 1 ? "La" : "Las"} {noPueden.map((c) => `D${c.ch}`).join(", ")} no {noPueden.length === 1 ? "puede" : "pueden"}: la cámara no le da su análisis al grabador.</>}
                                     </p>
                                 )}
                                 {eligiendo && (
@@ -342,7 +346,7 @@ export function CabeceraNvr({ device, titulo, subtitulo, ip, mac, detectando, pu
                                         )}
                                         {errorBusq && <div className="mt-2 text-[11.5px] text-[var(--mal)] flex items-start gap-1.5"><AlertTriangle size={13} className="shrink-0 mt-px" /> {errorBusq}</div>}
                                         <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                                            <button type="button" disabled={!!guardandoBusq} onClick={() => { setAviso(null); setEligiendo(new Set(conCamara.map((c) => c.ch))); }} className="h-7 px-2.5 rounded-full bg-white/10 hover:bg-white/20 text-[11.5px] font-semibold disabled:opacity-50">Todos los con cámara</button>
+                                            <button type="button" disabled={!!guardandoBusq} onClick={() => { setAviso(null); setEligiendo(new Set(conCamara.filter((c) => puedeBuscar(c.ch)).map((c) => c.ch))); }} className="h-7 px-2.5 rounded-full bg-white/10 hover:bg-white/20 text-[11.5px] font-semibold disabled:opacity-50">{noPueden.length ? "Todos los que pueden" : "Todos los con cámara"}</button>
                                             <button type="button" disabled={!!guardandoBusq} onClick={() => { setAviso(null); setEligiendo(new Set()); }} className="h-7 px-2.5 rounded-full bg-white/10 hover:bg-white/20 text-[11.5px] font-semibold disabled:opacity-50">Ninguno</button>
                                             <button type="button" disabled={!!guardandoBusq} onClick={() => { setEligiendo(null); setAviso(null); setErrorBusq(null); }} className="ml-auto h-7 px-2.5 rounded-full text-[11.5px] font-semibold text-white/70 hover:text-white disabled:opacity-50">Cancelar</button>
                                             <button type="button" disabled={!!guardandoBusq} onClick={() => guardarBusq(!!aviso)}

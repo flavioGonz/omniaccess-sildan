@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     if (!d.canales) return NextResponse.json({ ok: true, motor: d.motor, texto: null, imagen: null }, sinCache);
     try {
         const c = await d.canales(gr.c);
-        return NextResponse.json({ ok: true, motor: d.motor, texto: gr.cap.texto ? c.texto : null, imagen: gr.cap.imagen ? c.imagen : null }, sinCache);
+        return NextResponse.json({ ok: true, motor: d.motor, texto: gr.cap.texto ? c.texto : null, imagen: gr.cap.imagen ? c.imagen : null, posibles: c.posibles ?? null }, sinCache);
     } catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || "El grabador no contestó." }, { status: 502, ...sinCache }); }
 }
 
@@ -45,7 +45,8 @@ export async function POST(req: NextRequest) {
     const d = gr ? driverDe(gr.marca) : null;
     if (!gr || !d?.ponerCanales) return NextResponse.json({ ok: false, error: "Este grabador no deja elegir los canales desde acá." }, { status: 404 });
     const canales: number[] = Array.isArray(b?.canales) ? b.canales.map(Number).filter((n: number) => Number.isInteger(n) && n > 0 && n <= 256) : [];
-    const tipos = (b?.tipo === "ambos" ? ["texto", "imagen"] : [b?.tipo]).filter((t): t is "texto" | "imagen" => (t === "texto" && gr.cap.texto) || (t === "imagen" && gr.cap.imagen));
+    // Primero imagen y después texto: el texto vive encima de la imagen (ver ORDEN_TIPOS).
+    const tipos = (b?.tipo === "ambos" ? ["imagen", "texto"] : [b?.tipo]).filter((t): t is "texto" | "imagen" => (t === "texto" && gr.cap.texto) || (t === "imagen" && gr.cap.imagen));
     if (!tipos.length) return NextResponse.json({ ok: false, error: "Ese tipo de búsqueda no lo tiene este grabador." }, { status: 400 });
 
     const probar = !!b?.probar;

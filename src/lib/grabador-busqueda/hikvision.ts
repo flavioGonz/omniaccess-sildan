@@ -25,6 +25,14 @@ const caja = (r: any): HallazgoGrabador["caja"] => {
  *   imagen (AcuSearch): /ISAPI/ContentMgmt/PicSearchByCoordinate    { searchPicEnabled, channelList }
  * Antes de cambiarla, la web prueba con TestPicSearchBy…Channel, que contesta qué cámaras se
  * reinician para aplicarlo (channelNeedReboot): eso se avisa antes de guardar.
+ *
+ * El ORDEN importa (medido el 21/10 en el NVR 02): la búsqueda por texto vive encima de la de
+ * imagen. Sacar un canal del texto antes que de la imagen da «deviceError», y al revés anda; para
+ * sumar uno, la web del NVR pide lo mismo («enableAcusearchForTheCorrespondingChannelsFirst»).
+ * Así que siempre primero imagen, después texto (lo ordena /api/grabador/canales).
+ *
+ * Qué canales pueden: /ISAPI/Streaming/channels/dualVCA lista las cámaras que le dan su análisis
+ * al grabador (dualVCAType «remote»), prendidas o no. Las que no están ahí no se pueden prender.
  */
 const RUTA_CANALES = {
     texto: { ruta: "/ISAPI/ContentMgmt/PicSearchByText?format=json", prueba: "/ISAPI/Intelligent/AcuSeek/TestPicSearchByTextChannel?format=json", prendido: "enabled" },
@@ -37,6 +45,7 @@ const errorDe = (e: any, porDefecto: string): string => {
     const b = e?.response?.data;
     const t = typeof b === "string" ? b : b ? JSON.stringify(b) : "";
     if (/notSupport|Invalid Operation/i.test(t)) return "El grabador no acepta ese cambio (no lo soporta, o supera los canales que puede analizar).";
+    if (/deviceError/i.test(t)) return "El grabador rechazó la lista (deviceError): puede que algún canal no ofrezca análisis, o que supere los que puede analizar.";
     const sub = t.match(/"subStatusCode"\s*:\s*"([^"]+)"/)?.[1] || t.match(/<subStatusCode>([^<]+)/)?.[1];
     return sub ? `${porDefecto} (${sub})` : e?.message || porDefecto;
 };
@@ -47,6 +56,14 @@ async function leerCanales(c: ConexionGrabador, tipo: "texto" | "imagen"): Promi
         const d = await authenticatedRequest("GET", r.ruta, conexion(c), json);
         if (!d || typeof d !== "object") return null;
         return d[r.prendido] === false ? [] : lista(d.channelList);
+    } catch { return null; }
+}
+
+async function leerPosibles(c: ConexionGrabador): Promise<number[] | null> {
+    try {
+        const d = await authenticatedRequest("GET", "/ISAPI/Streaming/channels/dualVCA?format=json", conexion(c), json);
+        if (!Array.isArray(d?.dualVCAList)) return null;
+        return lista(d.dualVCAList.filter((x: any) => !x?.dualVCAType || x.dualVCAType === "remote").map((x: any) => x?.channelID));
     } catch { return null; }
 }
 
@@ -106,8 +123,8 @@ export const hikvision: DriverBusqueda = {
         };
     },
     async canales(c) {
-        const [texto, imagen] = await Promise.all([leerCanales(c, "texto"), leerCanales(c, "imagen")]);
-        return { texto, imagen };
+        const [texto, imagen, posibles] = await Promise.all([leerCanales(c, "texto"), leerCanales(c, "imagen"), leerPosibles(c)]);
+        return { texto, imagen, posibles };
     },
     ponerCanales,
     async imagen(c, url) { const r = await fetchAcuSeekImage(c, url); return { buf: r.buf, tipo: r.contentType }; },
