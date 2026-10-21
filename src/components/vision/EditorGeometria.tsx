@@ -19,10 +19,17 @@ import type { Punto, Sentido } from "@/lib/vision-reglas";
  * Se mira el PIE de cada objeto: la línea y la zona se dibujan en el piso, no a la altura de
  * la cabeza.
  */
-export function EditorGeometria({ deviceId, modo, linea, zona, permitido, alCambiarLinea, alCambiarZona, aSangre }: {
+export function EditorGeometria({ deviceId, modo, linea, zona, permitido, alCambiarLinea, alCambiarZona, aSangre, soloCuadro }: {
     deviceId: string;
-    /** A todo el ancho y sin marco, pegado arriba de un cajón (Reglas, 16/10): la cámara es lo primero que se ve. */
+    /**
+     * Arriba de un cajón (Reglas). 21/10, Nico: «el drawer de nueva regla está raro: el cuadro arriba
+     * sin marcos, más chico». Era a todo el ancho del cajón (≈430 px de alto) con una franja gris
+     * debajo; ahora es un cuadro de hasta 260 px de alto, centrado, con esquinas redondeadas, y la
+     * ayuda y los botones en una línea liviana debajo.
+     */
     aSangre?: boolean;
+    /** Sólo el cuadro, llenando la caja que lo contiene (la ventana de escena pone la ayuda). */
+    soloCuadro?: boolean;
     modo: "linea" | "zona";
     linea: { a: Punto; b: Punto } | null;
     zona: Punto[];
@@ -82,12 +89,12 @@ export function EditorGeometria({ deviceId, modo, linea, zona, permitido, alCamb
     };
 
     return (
-        <div className={aSangre ? "" : "space-y-2"}>
-            <div className={cn("relative overflow-hidden bg-black select-none", !aSangre && "rounded-[10px]")}>
+        <div className={soloCuadro ? "absolute inset-0" : aSangre ? "px-6 pt-5 pb-2 space-y-2" : "space-y-2"}>
+            <div className={cn("relative overflow-hidden bg-black select-none", soloCuadro ? "absolute inset-0" : aSangre ? "mx-auto w-fit max-w-full rounded-[10px] shadow-[0_3px_22px_rgba(0,0,0,0.22)]" : "rounded-[10px]")}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={`/api/vision/cuadro?camara=${encodeURIComponent(deviceId)}&v=${vuelta}`} alt="Cuadro de la cámara" draggable={false}
                     onLoad={() => { setCargando(false); setError(false); }} onError={() => { setCargando(false); setError(true); }}
-                    className="w-full h-auto block pointer-events-none" />
+                    className={cn("block pointer-events-none", soloCuadro ? "absolute inset-0 w-full h-full object-fill" : aSangre ? "h-auto w-auto max-w-full max-h-[260px] min-h-[160px] min-w-[280px]" : "w-full h-auto")} />
                 {cargando && <div className="absolute inset-0 grid place-items-center text-white/70 text-[12px]"><span className="inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Trayendo el cuadro…</span></div>}
                 {error && <div className="absolute inset-0 grid place-items-center text-white/70 text-[12px]">No llegó el cuadro de la cámara.</div>}
                 <svg ref={svg} viewBox="0 0 1 1" preserveAspectRatio="none" className="absolute inset-0 w-full h-full cursor-crosshair touch-none"
@@ -121,7 +128,7 @@ export function EditorGeometria({ deviceId, modo, linea, zona, permitido, alCamb
                         style={{ left: `${lados![k][0] * 100}%`, top: `${lados![k][1] * 100}%` }}>{k}</span>
                 ))}
             </div>
-            <div className={cn("flex items-center gap-2 text-[11.5px] text-muted-foreground", aSangre && "px-6 py-2 bg-muted/40")}>
+            {!soloCuadro && <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
                 <span className="flex-1">
                     {modo === "linea"
                         ? (primero ? "Tocá el otro extremo." : linea ? "Arrastrá los extremos para ajustar. Tocá en otro lado para dibujarla de nuevo." : "Tocá los dos extremos de la línea, sobre el piso.")
@@ -130,7 +137,7 @@ export function EditorGeometria({ deviceId, modo, linea, zona, permitido, alCamb
                 <button type="button" onClick={() => { setCargando(true); setVuelta((v) => v + 1); }} className="inline-flex items-center gap-1 hover:text-foreground"><RefreshCw size={12} /> Otro cuadro</button>
                 <button type="button" onClick={() => { setPrimero(null); modo === "linea" ? alCambiarLinea(null) : alCambiarZona([]); }}
                     className={cn("inline-flex items-center gap-1 hover:text-foreground")}><Trash2 size={12} /> Borrar</button>
-            </div>
+            </div>}
         </div>
     );
 }

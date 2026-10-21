@@ -832,14 +832,6 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                     </>
                 }>
                 <div className="px-6 py-5 space-y-5">
-                    {/* Cómo decide, con los números que se están editando (21/10: «indicar cómo funcionan claramente»). */}
-                    <details className="group rounded-[10px] border border-border open:bg-muted/30">
-                        <summary className="cursor-pointer list-none px-3 py-2 flex items-center gap-2 text-[12.5px] font-semibold">
-                            <ScanEye size={14} className="text-[var(--accion)]" /> Cómo funciona «{t.nombre}»
-                            <span className="ml-auto text-[11px] font-normal text-muted-foreground group-open:hidden">ver la animación</span>
-                        </summary>
-                        <div className="px-3 pb-3"><ComoFunciona clave={r.tipo as ClaveComportamiento} params={{ segundos: r.segundos, maximo: r.maximo, horario: r.horario }} sinTitulo /></div>
-                    </details>
                     {/* Cámaras y nombre: lo primero. */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <CajonCampo etiqueta={varias ? `Cámaras · ${ids.length}` : "Cámara"} ayuda={varias ? "La misma regla en cada una, con su propio dibujo. Se prenden, editan y borran juntas." : "Sumá más para vigilar lo mismo en varias cámaras."}>

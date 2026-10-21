@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ListOrdered, Activity, Info, Plus, ArrowDownToLine, ArrowUpFromLine, Hourglass, Timer, Settings2, BellRing, ShieldAlert, Camera, X, Radio } from "lucide-react";
+import { ListOrdered, Activity, Info, Plus, ArrowDownToLine, ArrowUpFromLine, Hourglass, Timer, Settings2, BellRing, ShieldAlert, Camera, Radio, Pencil, Check, Loader2, Trash2 } from "lucide-react";
+import { sileo as toast } from "sileo";
+import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
+import { ModalEscena, BloquePanel, CifraPanel, BotonPanel } from "@/components/vision/ModalEscena";
+import { EditorGeometria } from "@/components/vision/EditorGeometria";
 import { cn } from "@/lib/utils";
 import { Chip, ErrorEstado, Cargando, Vacio } from "@/components/ui/estados";
 import { Pista } from "@/components/ui/pista";
-import { Cajon, CajonCerrar, CajonContenido } from "@/components/ui/cajon";
 import { useTiempoReal, useDestello } from "@/lib/tiempo-real";
 import { bandaFila, type Punto } from "@/lib/vision-reglas";
 
@@ -79,14 +82,14 @@ function Cifra({ n, rotulo, pista, tono }: { n: number | string; rotulo: string;
  * La escena: el cuadro de ahora, con la forma de la cámara, la zona del color de su banda y un
  * punto por persona. La foto nueva se carga aparte y reemplaza a la anterior ya decodificada.
  */
-function Escena({ f, w, tic, vivo, children, className }: { f: Fila; w: number; tic: number; vivo?: Vivo; children?: React.ReactNode; className?: string }) {
+function Escena({ f, w, tic, vivo, children, className, alAspecto }: { f: Fila; w: number; tic: number; vivo?: Vivo; children?: React.ReactNode; className?: string; alAspecto?: (a: number) => void }) {
     const [src, setSrc] = useState<string | null>(null);
     const [aspecto, setAspecto] = useState(16 / 9);
     const [falla, setFalla] = useState(false);
     useEffect(() => {
         const url = fotoCamara(f.deviceId, w, tic);
         const im = new Image();
-        im.onload = () => { setSrc(url); setFalla(false); if (im.naturalWidth && im.naturalHeight) setAspecto(im.naturalWidth / im.naturalHeight); };
+        im.onload = () => { setSrc(url); setFalla(false); if (im.naturalWidth && im.naturalHeight) { setAspecto(im.naturalWidth / im.naturalHeight); alAspecto?.(im.naturalWidth / im.naturalHeight); } };
         im.onerror = () => setFalla(true);
         im.src = url;
         return () => { im.onload = null; im.onerror = null; };
@@ -165,42 +168,6 @@ function Curva({ f, alto = 44, tocable = false }: { f: Fila; alto?: number; toca
     );
 }
 
-function Tarjeta({ f, aforo, tic, vivo, destello, alAbrir }: { f: Fila; aforo: number; tic: number; vivo?: Vivo; destello: boolean; alAbrir: () => void }) {
-    return (
-        <button type="button" onClick={alAbrir}
-            className={cn("group text-left rounded-[10px] border border-border bg-card overflow-hidden outline-none hover:border-[var(--accion)] focus-visible:ring-2 focus-visible:ring-[var(--accion)] transition-[border-color,box-shadow]",
-                (!f.activa || !f.analiza) && "opacity-60", f.banda === "mal" && f.abierta && "ring-2 ring-[var(--mal)]", destello && "ring-2 ring-[var(--accion)]")}>
-            <Escena f={f} w={480} tic={tic} vivo={vivo}>
-                <span className="absolute left-2 top-2 inline-flex items-center gap-1 h-6 px-2 rounded-full bg-black/60 backdrop-blur-sm text-white text-[11px] font-semibold max-w-[62%]"><ListOrdered size={12} className="shrink-0" /> <span className="truncate">{f.nombre}</span></span>
-                <span className={cn("absolute right-2 top-2 inline-flex items-center h-6 px-2 rounded-full text-[11px] font-semibold", f.abierta ? "bg-black/60 text-white backdrop-blur-sm" : "bg-white/85 text-black")}>
-                    {f.horario ? (f.abierta ? `abierta · hasta ${f.horario.hasta}` : `cerrada · abre ${f.horario.desde}`) : "siempre"}
-                </span>
-                <span className="absolute inset-x-0 bottom-0 px-3 pb-2.5 pt-8 bg-gradient-to-t from-black/90 to-transparent flex flex-col gap-1.5">
-                    <span className="flex items-baseline gap-1.5 text-white">
-                        <b className="text-[26px] leading-none tabular-nums">{aforo}</b>
-                        {f.limite && <span className="text-[13px] text-white/70 tabular-nums">/ {f.limite}</span>}
-                        <span className="ml-auto text-[11.5px] font-semibold" style={{ color: COLOR[f.banda] }}>{ROTULO_BANDA[f.banda]}{f.llenaDesde ? ` · ${hace(f.llenaDesde)}` : ""}</span>
-                    </span>
-                    <Medidor f={f} aforo={aforo} />
-                </span>
-            </Escena>
-            <span className="grid grid-cols-4 divide-x divide-border border-b border-border text-center">
-                <Mini icono={ArrowDownToLine} n={f.entradas} r="entraron" />
-                <Mini icono={ArrowUpFromLine} n={f.salidas} r="salieron" />
-                <Mini icono={Hourglass} n={f.esperaMedidaMin != null ? minutos(f.esperaMedidaMin) : f.esperaMin != null ? `~${f.esperaMin} min` : "—"} r={f.esperaMedidaMin != null ? "espera" : "espera est."} />
-                <Mini icono={Activity} n={f.maximo} r="máximo" />
-            </span>
-            <span className="block px-2.5 pt-2 pb-1"><Curva f={f} /></span>
-            <span className="flex items-center gap-1.5 px-2.5 pb-2 text-[11px] text-muted-foreground min-w-0">
-                <span className="truncate">{f.camara}</span>
-                {!f.analiza && <span className="shrink-0 tono-aviso font-semibold">· OmniVision no la mira</span>}
-                {!f.activa && <span className="shrink-0 font-semibold">· apagada</span>}
-                <span className="ml-auto shrink-0 tabular-nums">{f.desde ? `cambió ${hora(f.desde)}` : "sin datos"}</span>
-            </span>
-        </button>
-    );
-}
-
 function Mini({ icono: I, n, r }: { icono: typeof Timer; n: number | string; r: string }) {
     return (
         <span className="py-2 px-1 min-w-0">
@@ -239,113 +206,166 @@ function PorHora({ horas, series, vacio }: {
     );
 }
 
-function CajonFila({ f, aforo, tic, vivo, datos, alCerrar }: { f: Fila | null; aforo: number; tic: number; vivo?: Vivo; datos: Respuesta; alCerrar: () => void }) {
-    if (!f) return null;
+/**
+ * La ventana de una fila (21/10, Nico: «más profesional, premium; la cámara muy grande; deben ser
+ * tablas… al presionarlas, un modal estilizado para dibujar»): la escena en vivo a la izquierda,
+ * con un punto por persona, y a la derecha el aforo, los números, la curva y los avisos. «Dibujar
+ * la zona» cambia la escena por el editor sobre el cuadro del mismo stream que mira el worker, y
+ * guarda la zona en la regla sin ir a Reglas.
+ */
+function ModalFila({ f, aforo, tic, vivo, datos, alCerrar, alGuardado }: { f: Fila; aforo: number; tic: number; vivo?: Vivo; datos: Respuesta; alCerrar: () => void; alGuardado: () => void }) {
+    const [aspecto, setAspecto] = useState(16 / 9);
+    const [dibujando, setDibujando] = useState(false);
+    const [zona, setZona] = useState<Punto[]>(f.zona || []);
+    const [guardando, setGuardando] = useState(false);
     const enVivo = !!vivo && Date.now() - vivo.t < VIVO_VIEJO_MS;
     const horasFlujo = f.porHora.map((x, h) => ({ h, a: x.entran, b: x.salen, titulo: `${String(h).padStart(2, "0")} h: ${x.entran} entraron · ${x.salen} salieron` }));
     const horasAforo = f.aforoPorHora.map((x, h) => ({ h, a: x?.prom ?? 0, b: x?.max ?? 0, titulo: x ? `${String(h).padStart(2, "0")} h: ${x.prom.toLocaleString("es-UY")} en promedio · máximo ${x.max}` : "" }));
+    const cambioZona = JSON.stringify(zona) !== JSON.stringify(f.zona || []);
+
+    /** La zona se guarda en la regla: la lista entera, con esta regla cambiada (como Reglas). */
+    const guardarZona = async () => {
+        if (zona.length < 3) { toast.warning({ title: "Faltan vértices", description: "La zona necesita al menos 3." }); return; }
+        setGuardando(true);
+        try {
+            const r = await fetch("/api/vision/reglas", { cache: "no-store" });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || !Array.isArray(j?.reglas)) throw new Error(j?.error || `El servidor respondió ${r.status}`);
+            const reglas = j.reglas.map((x: any) => (x.id === f.id ? { ...x, zona } : x));
+            const p = await fetch("/api/vision/reglas", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ reglas }) });
+            const k = await p.json().catch(() => ({}));
+            if (!p.ok) throw new Error(k?.error || `El servidor respondió ${p.status}`);
+            toast.success({ title: "Zona guardada", description: "vision-worker la toma en menos de 30 s." });
+            setDibujando(false); alGuardado();
+        } catch (e: any) { toast.error({ title: "No se guardó la zona", description: e?.message }); }
+        finally { setGuardando(false); }
+    };
+
     return (
-        <Cajon open onOpenChange={(o) => { if (!o) alCerrar(); }}>
-            <CajonContenido ancho="medio" sinCabecera titulo={f.nombre} descripcion={`${f.camara} · ${aforo} personas`}
-                pie={<Link href="/admin/vision/reglas" className="h-9 px-3.5 rounded-[8px] border border-border text-[12.5px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent"><Settings2 size={14} /> Cambiar en Reglas</Link>}>
-                {/* La escena a sangre, arriba de todo: el título y el cerrar van sobre ella. */}
-                <Escena f={f} w={1280} tic={tic} vivo={vivo}>
-                    <span className="absolute inset-x-0 top-0 px-4 pt-3 pb-8 bg-gradient-to-b from-black/70 to-transparent flex items-start gap-3">
-                        <span className="min-w-0 flex-1 text-white">
-                            <span className="block text-[16px] font-bold leading-tight truncate">{f.nombre}</span>
-                            <span className="block text-[12px] text-white/75 truncate">{f.camara} · {f.horario ? `atiende de ${f.horario.desde} a ${f.horario.hasta}` : "sin horario"} · cuenta desde {hora(f.inicio)}{dia(f.inicio) !== dia(new Date().toISOString()) ? ` del ${dia(f.inicio)}` : ""}</span>
-                        </span>
-                        <CajonCerrar className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-black/55 backdrop-blur-sm text-white hover:bg-black/75" aria-label="Cerrar"><X size={16} /></CajonCerrar>
-                    </span>
-                    <span className="absolute inset-x-0 bottom-0 px-4 pb-3 pt-10 bg-gradient-to-t from-black/90 to-transparent flex flex-col gap-2">
-                        <span className="flex items-end gap-2 text-white">
-                            <b className="text-[44px] leading-[0.9] tabular-nums">{aforo}</b>
-                            {f.limite && <span className="text-[15px] text-white/70 tabular-nums mb-0.5">/ {f.limite}</span>}
-                            <span className="ml-auto flex flex-col items-end gap-1">
-                                <span className="inline-flex items-center h-6 px-2.5 rounded-full text-[12px] font-bold text-black" style={{ background: COLOR[f.banda] }}>
-                                    {ROTULO_BANDA[f.banda]}{!f.abierta ? " · fuera de horario" : ""}
-                                </span>
-                                <span className="text-[11.5px] text-white/75 tabular-nums">
-                                    {f.llenaDesde ? `llena desde las ${hora(f.llenaDesde)} (${hace(f.llenaDesde)})` : f.desde ? `cambió a las ${hora(f.desde)}` : "sin datos"}
-                                </span>
-                            </span>
-                        </span>
-                        <Medidor f={f} aforo={aforo} alto={7} />
-                    </span>
-                    {enVivo && (
-                        <span className="absolute right-4 top-14 inline-flex items-center gap-1.5 h-6 px-2 rounded-full bg-black/55 backdrop-blur-sm text-white text-[11px] font-semibold">
-                            <Radio size={12} className="text-[var(--bien)]" /> en vivo{vivo!.candidato != null && vivo!.candidato !== aforo ? ` · ve ${vivo!.candidato}` : ""}
-                        </span>
-                    )}
-                </Escena>
-                <div className="px-6 py-5 space-y-5">
-                    <div className="grid grid-cols-5 rounded-[10px] border border-border divide-x divide-border text-center">
-                        <Mini icono={ArrowDownToLine} n={f.entradas} r="entraron" />
-                        <Mini icono={ArrowUpFromLine} n={f.salidas} r="salieron" />
-                        <Mini icono={Timer} n={f.esperaMedidaMin != null ? minutos(f.esperaMedidaMin) : "—"} r="espera medida" />
-                        <Mini icono={Hourglass} n={f.esperaMin != null ? `~${f.esperaMin} min` : "—"} r="espera estimada" />
-                        <Mini icono={Activity} n={f.maximo} r="máximo" />
-                    </div>
-                    <p className="text-[11.5px] text-muted-foreground leading-snug -mt-2">
-                        <b className="font-semibold">Medida:</b> la mediana de cuánto estuvieron en la zona los que salieron en los últimos {datos.ventanaMedidaMin} min{f.esperaMedidaN ? ` (${f.esperaMedidaN})` : ""}. <b className="font-semibold">Estimada:</b> la del kiosco de Filas, las {aforo} de la fila al ritmo de salidas de los últimos {datos.ventanaEsperaMin} min.
-                    </p>
-
-                    <section className="space-y-2">
-                        <Titulo texto="El aforo desde que abrió" pista={`La línea punteada es el límite (${f.limite ?? "—"}). Cada escalón es un cambio que se sostuvo el tiempo de rebote (${f.rebote} s). Pasá el mouse para ver el valor y la hora.`} />
-                        <div className="rounded-[10px] border border-border p-2.5 pt-3">
-                            <Curva f={f} alto={120} tocable />
-                            <div className="flex justify-between text-[10px] text-muted-foreground tabular-nums mt-1"><span>{hora(f.inicio)}</span><span>ahora</span></div>
-                        </div>
-                    </section>
-
-                    <section className="space-y-2">
-                        <Titulo texto="Aforo por hora" pista="Como los reportes de Filas: el promedio (pesado por el tiempo) y el máximo de cada hora, desde la apertura." />
-                        <PorHora horas={horasAforo} series={[{ rotulo: "promedio", clase: "bg-[var(--accion)]" }, { rotulo: "máximo", clase: "bg-muted-foreground/45" }]} vacio="Todavía no hay horas con aforo." />
-                    </section>
-
-                    <section className="space-y-2">
-                        <Titulo texto="Entradas y salidas por hora" pista="Las personas que cruzaron el borde de la zona hacia adentro (entraron) o hacia afuera (salieron), desde la apertura." />
-                        <PorHora horas={horasFlujo} series={[{ rotulo: "entraron", clase: "bg-[var(--accion)]" }, { rotulo: "salieron", clase: "bg-muted-foreground/45" }]} vacio="Nadie cruzó el borde de la zona desde que abrió." />
-                    </section>
-
-                    <section className="space-y-2">
-                        <Titulo texto="Avisos" pista="Fila llena (a la guardia) y supervisor (si siguió llena), de los últimos 7 días." />
-                        {!f.avisos.length ? <p className="text-[12.5px] text-muted-foreground">{f.avisar ? "No llegó al límite en los últimos 7 días." : "La regla no avisa: prendé «Avisar» en Reglas."}</p> : (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                {f.avisos.map((a) => (
-                                    <a key={a.id} href={a.foto || undefined} target="_blank" rel="noreferrer" className="relative block aspect-video rounded-[8px] overflow-hidden bg-black">
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        {a.foto && <img src={`${a.foto}?w=320`} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
-                                        <span className="absolute inset-x-0 bottom-0 px-2 pb-1.5 pt-5 bg-gradient-to-t from-black/90 to-transparent text-white text-[11px] font-semibold flex items-center gap-1">
-                                            {a.tipo === "FILA_ESCALADA" ? <ShieldAlert size={11} /> : <BellRing size={11} />}
-                                            <span className="truncate">{a.tipo === "FILA_ESCALADA" ? "Supervisor" : "Llena"} · {a.valor}</span>
-                                            <span className="ml-auto tabular-nums text-white/75">{dia(a.ts) !== dia(new Date().toISOString()) ? `${dia(a.ts)} ` : ""}{hora(a.ts)}</span>
-                                        </span>
-                                    </a>
-                                ))}
-                            </div>
-                        )}
-                    </section>
-
-                    <dl className="grid grid-cols-[150px_1fr] gap-x-3 gap-y-1.5 text-[12.5px]">
-                        <dt className="text-muted-foreground">Límite</dt><dd className="tabular-nums">{f.limite ?? "—"} personas (aviso desde el 70 %)</dd>
-                        <dt className="text-muted-foreground">Rebote</dt><dd className="tabular-nums">{f.rebote} s</dd>
-                        <dt className="text-muted-foreground">Cuenta desde</dt><dd className="tabular-nums">{f.permanencia ? `${f.permanencia} s adentro de la zona` : "que entra a la zona"}</dd>
-                        <dt className="text-muted-foreground">Avisa</dt><dd>{f.avisar ? `a la guardia al llegar · al supervisor a los ${f.escalarMin} min llena · cada ${f.enfrioMin} min como mucho` : "no"}</dd>
-                        <dt className="text-muted-foreground">Horario</dt><dd>{f.horario ? `${f.horario.desde} a ${f.horario.hasta}; al abrir empiezan de cero las entradas y salidas` : "siempre; las entradas y salidas son del día"}</dd>
-                    </dl>
+        <ModalEscena abierto alCerrar={alCerrar} titulo={f.nombre} aspecto={aspecto}
+            subtitulo={`${f.camara} · ${f.horario ? `atiende de ${f.horario.desde} a ${f.horario.hasta}` : "sin horario"} · cuenta desde ${hora(f.inicio)}${dia(f.inicio) !== dia(new Date().toISOString()) ? ` del ${dia(f.inicio)}` : ""}`}
+            chips={<>
+                <span className="inline-flex items-center h-6 px-2.5 rounded-full text-[11.5px] font-bold text-black" style={{ background: COLOR[f.banda] }}>{ROTULO_BANDA[f.banda]}{!f.abierta ? " · fuera de horario" : ""}</span>
+                {enVivo && !dibujando && <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-full bg-white/10 text-white text-[11px] font-semibold"><Radio size={12} className="text-[var(--bien)]" /> en vivo{vivo!.candidato != null && vivo!.candidato !== aforo ? ` · ve ${vivo!.candidato}` : ""}</span>}
+                {dibujando && <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-full bg-[var(--accion)] text-white text-[11px] font-semibold"><Pencil size={11} /> Dibujando la zona</span>}
+            </>}
+            escena={dibujando
+                ? <div className="absolute inset-0"><EditorGeometria deviceId={f.deviceId} modo="zona" linea={null} zona={zona} alCambiarLinea={() => { }} alCambiarZona={setZona} soloCuadro /></div>
+                : <Escena f={f} w={1280} tic={tic} vivo={vivo} className="absolute inset-0" alAspecto={setAspecto} />}
+            sobreEscena={dibujando
+                ? <div className="flex items-center gap-3 text-[12px] text-white/75">
+                    <span>{zona.length < 3 ? `Tocá los vértices de la fila, sobre el piso (${zona.length} de al menos 3).` : "Arrastrá los vértices; doble clic en uno lo borra."}</span>
+                    <button type="button" onClick={() => setZona([])} className="ml-auto shrink-0 inline-flex items-center gap-1 text-white/80 hover:text-white"><Trash2 size={12} /> Empezar de nuevo</button>
                 </div>
-            </CajonContenido>
-        </Cajon>
+                : <div className="flex items-end gap-3">
+                    <span className="flex items-end gap-2">
+                        <b className="text-[40px] leading-[0.9] tabular-nums">{aforo}</b>
+                        {f.limite && <span className="text-[15px] text-white/65 tabular-nums mb-0.5">/ {f.limite}</span>}
+                    </span>
+                    <span className="flex-1 pb-1.5"><Medidor f={f} aforo={aforo} alto={6} /></span>
+                    <span className="text-[11.5px] text-white/70 tabular-nums pb-1">{f.llenaDesde ? `llena desde las ${hora(f.llenaDesde)}` : f.desde ? `cambió ${hora(f.desde)}` : "sin datos"}</span>
+                </div>}
+            panel={<>
+                <BloquePanel rotulo="Desde que abrió">
+                    <div className="grid grid-cols-3 gap-2">
+                        <CifraPanel n={f.entradas} rotulo="entraron" />
+                        <CifraPanel n={f.salidas} rotulo="salieron" />
+                        <CifraPanel n={f.maximo} rotulo="máximo" />
+                        <CifraPanel n={f.esperaMedidaMin != null ? minutos(f.esperaMedidaMin) : "—"} rotulo="espera medida" />
+                        <CifraPanel n={f.esperaMin != null ? `~${f.esperaMin} min` : "—"} rotulo="espera estimada" />
+                        <CifraPanel n={f.limite ?? "—"} rotulo="límite" />
+                    </div>
+                    <p className="mt-2 text-[11px] text-white/50 leading-snug">Medida: la mediana de cuánto estuvieron los que salieron en los últimos {datos.ventanaMedidaMin} min{f.esperaMedidaN ? ` (${f.esperaMedidaN})` : ""}. Estimada: la del kiosco, al ritmo de salidas de los últimos {datos.ventanaEsperaMin} min.</p>
+                </BloquePanel>
+                <BloquePanel rotulo="El aforo desde que abrió">
+                    <div className="rounded-[10px] bg-white/[0.04] p-2.5 pt-3"><Curva f={f} alto={96} tocable /></div>
+                    <div className="flex justify-between text-[10px] text-white/45 tabular-nums mt-1"><span>{hora(f.inicio)}</span><span>ahora</span></div>
+                </BloquePanel>
+                <BloquePanel rotulo="Aforo por hora">
+                    <PorHora horas={horasAforo} series={[{ rotulo: "promedio", clase: "bg-[var(--accion-en-oscuro)]" }, { rotulo: "máximo", clase: "bg-white/30" }]} vacio="Todavía no hay horas con aforo." />
+                </BloquePanel>
+                <BloquePanel rotulo="Entradas y salidas por hora">
+                    <PorHora horas={horasFlujo} series={[{ rotulo: "entraron", clase: "bg-[var(--accion-en-oscuro)]" }, { rotulo: "salieron", clase: "bg-white/30" }]} vacio="Nadie cruzó el borde de la zona desde que abrió." />
+                </BloquePanel>
+                <BloquePanel rotulo="Avisos · 7 días">
+                    {!f.avisos.length ? <p className="text-[12px] text-white/55">{f.avisar ? "No llegó al límite en los últimos 7 días." : "La regla no avisa: prendé «Avisar» en Reglas."}</p> : (
+                        <div className="grid grid-cols-2 gap-2">
+                            {f.avisos.map((a) => (
+                                <a key={a.id} href={a.foto || undefined} target="_blank" rel="noreferrer" className="relative block aspect-video rounded-[8px] overflow-hidden bg-black">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    {a.foto && <img src={`${a.foto}?w=320`} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
+                                    <span className="absolute inset-x-0 bottom-0 px-2 pb-1.5 pt-5 bg-gradient-to-t from-black/90 to-transparent text-white text-[10.5px] font-semibold flex items-center gap-1">
+                                        {a.tipo === "FILA_ESCALADA" ? <ShieldAlert size={11} /> : <BellRing size={11} />}
+                                        <span className="truncate">{a.tipo === "FILA_ESCALADA" ? "Supervisor" : "Llena"} · {a.valor}</span>
+                                        <span className="ml-auto tabular-nums text-white/75">{hora(a.ts)}</span>
+                                    </span>
+                                </a>
+                            ))}
+                        </div>
+                    )}
+                </BloquePanel>
+                <BloquePanel rotulo="Cómo cuenta">
+                    <dl className="grid grid-cols-[96px_1fr] gap-x-3 gap-y-1.5 text-[12px]">
+                        <dt className="text-white/50">Rebote</dt><dd className="tabular-nums">{f.rebote} s</dd>
+                        <dt className="text-white/50">Cuenta desde</dt><dd>{f.permanencia ? `${f.permanencia} s en la zona` : "que entra a la zona"}</dd>
+                        <dt className="text-white/50">Avisa</dt><dd>{f.avisar ? `al llegar al límite · al supervisor a los ${f.escalarMin} min llena` : "no"}</dd>
+                        <dt className="text-white/50">Horario</dt><dd>{f.horario ? `${f.horario.desde} a ${f.horario.hasta}` : "siempre"}</dd>
+                    </dl>
+                </BloquePanel>
+            </>}
+            pie={dibujando ? <>
+                <BotonPanel onClick={() => { setZona(f.zona || []); setDibujando(false); }} disabled={guardando}>Cancelar</BotonPanel>
+                <span className="ml-auto" />
+                <BotonPanel primario onClick={guardarZona} disabled={guardando || !cambioZona || zona.length < 3}>{guardando ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Guardar zona</BotonPanel>
+            </> : <>
+                <Link href="/admin/vision/reglas" className="h-9 px-3.5 rounded-[6px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 text-white/80 hover:text-white bg-white/[0.06] hover:bg-white/[0.12]"><Settings2 size={14} /> Reglas</Link>
+                <span className="ml-auto" />
+                <BotonPanel primario onClick={() => setDibujando(true)}><Pencil size={14} /> Dibujar la zona</BotonPanel>
+            </>} />
     );
 }
 
-function Titulo({ texto, pista }: { texto: string; pista: string }) {
+/**
+ * Las columnas de la tabla de filas: la escena chica con la zona y los puntos, el aforo contra el
+ * límite, el estado, y lo del día. Destella la fila que cambió por socket.
+ */
+function columnas(tic: number, vivo: Record<string, Vivo>, cambiaron: Set<string>): ColumnaTabla<Fila>[] {
+    return [
+        { clave: "vista", titulo: "", ancho: 132, auxiliar: true, celda: (f) => (
+            <span className={cn("block w-[116px] rounded-[6px] overflow-hidden shadow-[0_3px_22px_rgba(0,0,0,0.22)]", cambiaron.has(f.id) && "ring-2 ring-[var(--accion)]")}>
+                <Escena f={f} w={320} tic={tic} vivo={vivo[f.id]} />
+            </span>) },
+        { clave: "fila", titulo: "Fila", valor: (f) => f.nombre, celda: (f) => (
+            <div className={cn("min-w-0 leading-tight", (!f.activa || !f.analiza) && "opacity-60")}>
+                <div className="text-[13px] font-semibold truncate">{f.nombre}</div>
+                <div className="text-[11.5px] text-muted-foreground truncate">{f.camara}{!f.analiza ? " · OmniVision no la mira" : !f.activa ? " · apagada" : ""}</div>
+            </div>) },
+        { clave: "aforo", titulo: "Aforo", ancho: 200, ordenable: true, valor: (f) => f.aforo, celda: (f) => (
+            <div className="flex items-center gap-3">
+                <span className="tabular-nums leading-none w-14"><b className="text-[18px]">{f.aforo}</b>{f.limite ? <span className="text-[12px] text-muted-foreground"> /{f.limite}</span> : null}</span>
+                <span className="flex-1"><MedidorClaro f={f} /></span>
+            </div>) },
+        { clave: "estado", titulo: "Estado", ancho: 170, valor: (f) => ROTULO_BANDA[f.banda], celda: (f) => (
+            <div className="leading-tight">
+                <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold"><span className="w-2 h-2 rounded-full" style={{ background: COLOR[f.banda] }} />{f.abierta ? ROTULO_BANDA[f.banda] : "Fuera de horario"}</span>
+                <div className="text-[11px] text-muted-foreground tabular-nums">{f.llenaDesde ? `llena ${hace(f.llenaDesde)}` : f.horario ? `${f.horario.desde} a ${f.horario.hasta}` : "siempre"}</div>
+            </div>) },
+        { clave: "entradas", titulo: "Entraron", ancho: 90, alinear: "der", ordenable: true, valor: (f) => f.entradas, celda: (f) => <span className="tabular-nums text-[13px]">{f.entradas}</span> },
+        { clave: "salidas", titulo: "Salieron", ancho: 90, alinear: "der", ordenable: true, valor: (f) => f.salidas, celda: (f) => <span className="tabular-nums text-[13px]">{f.salidas}</span> },
+        { clave: "espera", titulo: "Espera", ancho: 100, alinear: "der", valor: (f) => f.esperaMedidaMin ?? f.esperaMin ?? -1, celda: (f) => <span className="tabular-nums text-[13px]">{f.esperaMedidaMin != null ? minutos(f.esperaMedidaMin) : f.esperaMin != null ? `~${f.esperaMin} min` : "—"}</span> },
+        { clave: "abrir", titulo: "", ancho: 92, auxiliar: true, alinear: "der", celda: () => (
+            <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-[6px] whitespace-nowrap text-[12px] font-semibold text-[var(--accion)] group-hover:bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]">Abrir</span>) },
+    ];
+}
+
+/** El medidor sobre fondo claro (el de la escena va sobre foto oscura). */
+function MedidorClaro({ f }: { f: Fila }) {
+    const lim = f.limite || Math.max(1, f.maximo);
     return (
-        <div className="flex items-center gap-1.5">
-            <span className="text-[12px] font-semibold text-muted-foreground">{texto}</span>
-            <Pista titulo={texto} texto={pista} ancho={300}><Info size={12} className="text-muted-foreground/60 cursor-help" /></Pista>
-        </div>
+        <span className="relative block w-full h-1.5 rounded-full bg-muted overflow-hidden">
+            <span className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-500" style={{ width: `${Math.min(1, f.aforo / lim) * 100}%`, background: COLOR[f.banda] }} />
+            {f.limite && <span className="absolute inset-y-0 w-px bg-foreground/30" style={{ left: "70%" }} />}
+        </span>
     );
 }
 
@@ -402,10 +422,10 @@ export default function FilasVision() {
     const fila = filas.find((f) => f.id === abierta) || null;
 
     return (
-        <div className="p-6 lg:p-8 space-y-4 max-w-[1500px] mx-auto">
-            <div className="flex items-center gap-2.5 flex-wrap">
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-muted shrink-0"><ListOrdered size={16} /></span>
-                <h1 className="text-[17px] font-bold leading-tight">Filas</h1>
+        <div className="px-6 lg:px-8 py-5 space-y-5 max-w-[1500px] mx-auto">
+            <div className="flex items-center gap-3 flex-wrap">
+                <span className="w-11 h-11 rounded-[10px] grid place-items-center bg-muted shrink-0"><ListOrdered size={20} className="text-[var(--accion)]" /></span>
+                <h1 className="text-[20px] font-bold tracking-[-0.015em] leading-tight">Filas</h1>
                 <Pista titulo="Qué es esto" ancho={340} texto="El aforo de las filas que cuenta OmniVision, como la analítica de aforo de las cámaras Bosch del modo Filas pero con cualquier cámara: cuántas personas hay en la zona, cuántas entraron y salieron, cuánto esperaron y los avisos al llegar al límite. Sobre la escena, un punto por persona: lleno si cuenta, hueco si no. Cada fila es una regla «Conteo de fila» de Visión → Reglas.">
                     <Info size={15} className="text-muted-foreground cursor-help" />
                 </Pista>
@@ -414,7 +434,7 @@ export default function FilasVision() {
             </div>
 
             {filas.length > 0 && (
-                <section className="rounded-[10px] border border-border bg-card flex flex-wrap items-center divide-x divide-border">
+                <section className="rounded-[10px] bg-muted/50 flex flex-wrap items-center divide-x divide-border">
                     <Cifra n={`${abiertas.length}/${vivas.length}`} rotulo="abiertas" pista="Filas prendidas y dentro de su horario de atención." />
                     <Cifra n={ahora} rotulo="personas ahora" pista="La suma del aforo de las filas abiertas." />
                     <Cifra n={llenas} rotulo="llenas" tono={llenas ? "mal" : undefined} pista="En el límite o más." />
@@ -428,12 +448,11 @@ export default function FilasVision() {
             {filas.length === 0 ? (
                 <Vacio icono={ListOrdered} titulo="Todavía no hay filas" ayuda="Creá una regla «Conteo de fila» en Visión → Reglas: elegís la cámara, dibujás la zona de la fila y le ponés el límite." />
             ) : (
-                <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(340px,1fr))]">
-                    {filas.map((f) => <Tarjeta key={f.id} f={f} aforo={aforoDe(f)} tic={tic} vivo={vivo[f.id]} destello={cambiaron.has(f.id)} alAbrir={() => setAbierta(f.id)} />)}
-                </div>
+                <Tabla<Fila> id="filas-vision" filas={filas} clave={(f) => f.id} columnas={columnas(tic, vivo, cambiaron)} controles={false}
+                    alClickFila={(f) => setAbierta(f.id)} filaActiva={(f) => f.id === abierta} />
             )}
 
-            <CajonFila f={fila} aforo={fila ? aforoDe(fila) : 0} tic={tic} vivo={fila ? vivo[fila.id] : undefined} datos={datos} alCerrar={() => setAbierta(null)} />
+            {fila && <ModalFila key={fila.id} f={fila} aforo={aforoDe(fila)} tic={tic} vivo={vivo[fila.id]} datos={datos} alCerrar={() => setAbierta(null)} alGuardado={cargar} />}
         </div>
     );
 }
