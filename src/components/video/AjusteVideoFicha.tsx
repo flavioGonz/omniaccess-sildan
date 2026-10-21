@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Settings2, Minus, Plus, Loader2, Check, Camera } from "lucide-react";
+import { Settings, Minus, Plus, Loader2, Check, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { guardarVentanaFicha, useVentanaFicha, type VentanaFicha } from "@/lib/clip-evento";
 import { ALERTA_ANTES_MAX, ALERTA_DESPUES_MAX } from "@/lib/clips";
@@ -28,7 +28,7 @@ const PRESETS: { nombre: string; v: VentanaFicha }[] = [
 
 export function AjusteVideoFicha({ lado = "izquierda", className, chico }: {
     /** Hacia dónde se abre: a la izquierda de la píldora vertical, o abajo de un chip sobre la foto. */
-    lado?: "izquierda" | "abajo";
+    lado?: "izquierda" | "abajo" | "abajo-izq";
     className?: string;
     /** El botón de 28 px (chips sobre la foto) en vez del de 36 (la píldora). */
     chico?: boolean;
@@ -72,13 +72,13 @@ export function AjusteVideoFicha({ lado = "izquierda", className, chico }: {
                 className={cn("rounded-full flex items-center justify-center transition-colors",
                     chico ? "w-7 h-7 bg-black/55 hover:bg-black/75 text-white/90" : "visor-vidrio w-9 h-9 text-white/85 hover:text-white",
                     abierto && "!bg-[var(--accion)] !text-white")}>
-                <Settings2 size={chico ? 13 : 15} className={cn("transition-transform duration-300", abierto && "rotate-90")} />
+                <Settings size={chico ? 13 : 15} className={cn("transition-transform duration-300", abierto && "rotate-90")} />
             </button>
 
             {abierto && (
                 <div role="dialog" aria-label="Video de la ficha"
-                    className={cn("absolute z-[60] w-[292px] rounded-[14px] bg-[#0d1117]/95 backdrop-blur-xl border border-white/12 text-white p-3.5 shadow-[0_18px_40px_rgba(0,0,0,0.55)] oa-ajuste-entra",
-                        lado === "izquierda" ? "right-[calc(100%+14px)] top-1/2 -translate-y-1/2" : "right-0 top-[calc(100%+8px)] oa-ajuste-abajo")}>
+                    className={cn("absolute z-[60] w-[292px] rounded-[14px] oa-ajuste-pop backdrop-blur-xl border text-white p-3.5 shadow-[0_18px_40px_rgba(0,0,0,0.35)] oa-ajuste-entra",
+                        lado === "izquierda" ? "right-[calc(100%+14px)] top-1/2 -translate-y-1/2" : lado === "abajo-izq" ? "left-0 top-[calc(100%+8px)] oa-ajuste-abajo" : "right-0 top-[calc(100%+8px)] oa-ajuste-abajo")}>
                     <div className="text-[13px] font-bold">Video al abrir la ficha</div>
                     <div className="text-[11px] text-white/55 leading-snug mt-0.5">El que arranca solo, en loop sobre la foto. Vale para todas las fichas: LPR, intrusión, OmniVision y alarmas.</div>
 
@@ -87,7 +87,7 @@ export function AjusteVideoFicha({ lado = "izquierda", className, chico }: {
                         <div className="relative h-7 flex items-center">
                             <div className="h-2 rounded-l-full bg-[var(--accion-en-oscuro)]/70 transition-[width] duration-300" style={{ width: `${(v.antes / total) * 100}%` }} />
                             <div className="h-2 rounded-r-full bg-white/35 transition-[width] duration-300" style={{ width: `${(v.despues / total) * 100}%` }} />
-                            <span className="absolute -translate-x-1/2 grid place-items-center w-6 h-6 rounded-full bg-white text-black ring-4 ring-[#0d1117] transition-[left] duration-300" style={{ left: `${(v.antes / total) * 100}%` }}>
+                            <span className="absolute -translate-x-1/2 grid place-items-center w-6 h-6 rounded-full bg-white text-black ring-2 ring-black/25 transition-[left] duration-300" style={{ left: `${(v.antes / total) * 100}%` }}>
                                 <Camera size={12} />
                             </span>
                             {/* Un cabezal que recorre el clip: se ve cuánto dura de verdad el loop. */}

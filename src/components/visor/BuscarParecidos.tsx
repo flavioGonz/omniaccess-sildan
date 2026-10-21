@@ -600,6 +600,8 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
                                 {clipOn && clip.estado === "cargando" ? <Loader2 size={12} className="animate-spin" /> : <Film size={12} />}
                                 {clipOn && clip.estado === "sin" ? "Sin video" : clipOn && clip.estado === "cargando" ? "Video…" : "Video"}
                             </button>
+                            {/* Cuánto trae el video, al lado del video (21/10). */}
+                            <AjusteVideoFicha chico lado="abajo" className="ml-0.5" />
                         </div>
                     )}
 
@@ -608,7 +610,6 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
                         {r.deviceId && <button type="button" onClick={() => setModo("grabacion")} title="La grabación de ese momento, acá: regla, ±10 s, velocidades" className={riel}><PlayCircle size={17} /></button>}
                         {r.deviceId && <button type="button" onClick={() => { setModo("grabacion"); setClipGrab(true); }} title="Exportar un clip: bajarlo o mandarlo por WhatsApp" className={riel}><Download size={16} /></button>}
                         {r.foto && <button type="button" onClick={() => setCompartir(true)} title="Compartir por WhatsApp o Telegram" className={riel}><Share2 size={16} /></button>}
-                        {r.deviceId && <AjusteVideoFicha />}
                         <span className="w-4 h-px bg-white/15" />
                         <a href="/admin/vision/buscar" title="OmniVision › Buscar" className={riel}><Search size={16} /></a>
                     </div>

@@ -369,7 +369,10 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                     {clipOn && clip.estado === "sin" && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--aviso)] ring-2 ring-black/60" />}
                                 </BotonArriba>
                             )}
-                            {enVideo && <span className="text-[11px] font-semibold text-white/70 visor-sombra-texto tabular-nums">En loop · {ventanaFicha.antes} s antes</span>}
+                            {/* Al lado del video en loop, el ajuste de cuánto trae (21/10, Nico: «debe tener acá el ícono
+                                para cambiar el tiempo de pre y post del video de fondo»): en la píldora vertical no se encontraba. */}
+                            {real && cur.deviceId && <AjusteVideoFicha lado="abajo-izq" />}
+                            {enVideo && <span className="text-[11px] font-semibold text-white/70 visor-sombra-texto tabular-nums">En loop · {ventanaFicha.antes} s antes · {ventanaFicha.despues} s después</span>}
                             {clipOn && clip.estado === "sin" && <span className="text-[11px] text-white/50 visor-sombra-texto max-w-[220px] truncate" title={clip.motivo}>Sin clip: {clip.motivo}</span>}
                         </div>
                     </div>
@@ -548,8 +551,6 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     {cur.deviceId && <BotonRiel onClick={() => setModo("vivo")} title="Ver la cámara en vivo, acá"><Cctv size={15} /></BotonRiel>}
                     {real && cur.deviceId && canalClip && ventanaClip && <BotonRiel onClick={() => setDescarga(true)} title={`Exportar un clip: bajarlo o mandarlo por WhatsApp (${ventanaClip.antes} s antes y ${ventanaClip.despues} s después)`}><Download size={15} /></BotonRiel>}
                     {real && cur.snapshotPath && <BotonRiel onClick={() => setCompartir(true)} title="Compartir por WhatsApp o Telegram"><Share2 size={15} /></BotonRiel>}
-                    {/* Cuántos segundos antes y después trae el video que arranca solo (21/10). */}
-                    {real && cur.deviceId && <AjusteVideoFicha />}
                     <span className="w-4 h-px bg-white/15" />
                     <BotonRiel onClick={() => setLimpio(true)} title="Ver la imagen limpia, sin nada encima  ( H )"><EyeOff size={15} /></BotonRiel>
                 </div>

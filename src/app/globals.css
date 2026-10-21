@@ -2343,3 +2343,9 @@ html:not(.dark) .regla-tema .tms-tramo[data-tono="lectura"] { background: var(--
 @keyframes oa-caja-late { 0% { opacity: 0.9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.35); } }
 .oa-caja-late { animation: oa-caja-late 1.8s ease-out infinite; }
 @media (prefers-reduced-motion: reduce) { .oa-zona-camina, .oa-caja-entra, .oa-caja-late { animation: none; } .oa-caja-late { display: none; } }
+
+/* El popover del ajuste del video (AjusteVideoFicha): oscuro sobre la foto, y en la ventana del
+   evento en tema claro, la tarjeta clara como el resto de los paneles del visor. El texto blanco ya
+   se pasa a --foreground por las reglas de .visor-zona de arriba. */
+.oa-ajuste-pop { background: rgba(13, 17, 23, 0.95); border-color: rgba(255, 255, 255, 0.12); }
+html:not(.dark) .visor-raiz .visor-zona .oa-ajuste-pop { background: var(--card); border-color: var(--border); }
