@@ -118,7 +118,7 @@ import { grabacionesDe, detectarGrabaciones, calcularRetencion, type FilaGrabaci
 import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
 import { SyncToDevicesDialog } from "@/components/SyncToDevicesDialog";
 import { VistaArea } from "@/components/devices/VistaArea";
-import { ArbolAreas, arrastrarEquipos, enArea, IconoTipo, TODAS } from "@/components/devices/ArbolAreas";
+import { ArbolAreas, arrastrarEquipos, enArea, IconoTipo, TODAS, TODOS_LOS_TIPOS } from "@/components/devices/ArbolAreas";
 import { leerAreas, type EstadoAreas } from "@/app/actions/areas";
 
 // Inline SVG data URIs for fallback images (avoid 404s for missing placeholder files)
@@ -264,6 +264,14 @@ export default function DevicesPage() {
     // Áreas (árbol para agrupar equipos) y el nodo elegido, que filtra la tabla.
     const [areas, setAreas] = useState<EstadoAreas>({ areas: [], equipos: {} });
     const [areaSel, setAreaSelState] = useState<string>(TODAS);
+    /*
+     * ¿Se eligió un tipo a propósito? (21/10, Nico: «cuando me paro en un tipo de equipo, NVR por
+     * ejemplo, y a la vez en un área, debe mostrarme con ese filtro»). Antes elegir un tipo volvía a
+     * «Todas» y elegir un área mostraba todos los tipos de esa área. Ahora los dos filtros se suman:
+     * con un tipo elegido, el área filtra la tabla de ese tipo; tocar de nuevo el tipo lo suelta y el
+     * área muestra todos sus equipos.
+     */
+    const [tipoFijo, setTipoFijo] = useState<boolean>(() => !!searchParams.get("type"));
     const setAreaSel = (v: string) => { setAreaSelState(v); try { localStorage.setItem("devices.area", v); } catch { } };
     useEffect(() => { leerAreas().then(setAreas).catch(() => { }); try { const v = localStorage.getItem("devices.area"); if (v) setAreaSelState(v); } catch { } }, []);
     const buscador = useRef<HTMLInputElement>(null);
@@ -569,12 +577,12 @@ export default function DevicesPage() {
             </header>
 
             <div className="flex gap-4 items-start">
-                <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={typeFilter}
+                <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={tipoFijo || areaSel === TODAS ? typeFilter : TODOS_LOS_TIPOS}
                     seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={abrir} health={health} alertasDe={alertasDe}
-                    colapsado={panelCerrado} onColapsar={colapsarPanel} onTipo={(t) => { setAreaSel(TODAS); setFilter(t); }}
+                    colapsado={panelCerrado} onColapsar={colapsarPanel} onTipo={(t) => { if (t === typeFilter && tipoFijo && areaSel !== TODAS) { setTipoFijo(false); return; } setTipoFijo(true); setFilter(t); }}
                     tipos={allowedTypes.map((t) => ({ tipo: t, rotulo: TYPE_META[t]?.label || t, cuenta: devices.filter((d) => vistaDe(d) === t).length, alertas: devices.filter((d) => vistaDe(d) === t && alertasDe[d.id]?.length).length }))} />
                 <div className="flex-1 min-w-0 space-y-4">
-            {areaSel !== TODAS ? (
+            {areaSel !== TODAS && !tipoFijo ? (
                 <VistaArea estado={areas} areaId={areaSel} devices={devices.filter((d) => allowedTypes.includes(d.deviceType))} busqueda={searchTerm}
                     health={health} alertasDe={alertasDe} grab={grab} detectando={detectando} calculando={calculando}
                     onDetectar={(ids) => detectar(ids)} onRetencion={retencion} onEditar={abrir}

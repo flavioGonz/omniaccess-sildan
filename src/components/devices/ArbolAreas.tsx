@@ -36,6 +36,9 @@ export const ICONO_TIPO: Record<string, { I: any; c: string; t: string }> = {
     CAMERA: { I: Radar, c: "text-red-500", t: "Cámara de intrusión" },
     NVR: { I: HardDrive, c: "text-sky-500", t: "NVR" },
 };
+/** `tipoActual` cuando no hay un tipo elegido: el árbol cuenta todos los equipos. */
+export const TODOS_LOS_TIPOS = "*";
+
 export function IconoTipo({ tipo, size = 13, className }: { tipo: string; size?: number; className?: string }) {
     const m = ICONO_TIPO[tipo] || { I: Cpu, c: "text-muted-foreground", t: tipo };
     return <m.I size={size} className={cn(m.c, className)} />;
@@ -115,7 +118,9 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
     const hijas = (padre: string | null) => estado.areas.filter((a) => a.padre === padre).sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre));
     const equiposDe = (areaId: string) => visibles.filter((d) => estado.equipos[d.id] === areaId).sort((a, b) => a.name.localeCompare(b.name));
     const sinArea = visibles.filter((d) => enArea(estado, d.id, SIN_AREA));
-    const contar = (areaId: string) => visibles.filter((d) => d.deviceType === tipoActual && enArea(estado, d.id, areaId)).length;
+    /** ¿El equipo entra en el tipo elegido? Sin tipo elegido (TODOS_LOS_TIPOS), todos. */
+    const deTipo = (d: any) => tipoActual === TODOS_LOS_TIPOS || d.deviceType === tipoActual;
+    const contar = (areaId: string) => visibles.filter((d) => deTipo(d) && enArea(estado, d.id, areaId)).length;
 
     const ejecutar = async (p: Promise<EstadoAreas>, ok?: string) => {
         try { const e = await p; setEstado(e); if (ok) toast.success({ title: ok }); }
@@ -251,7 +256,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
             <div draggable onDragStart={(ev) => { ev.stopPropagation(); arrastrarEquipos(ev, [d.id], d.name); }}
                 onClick={() => onAbrirEquipo?.(d)}
                 data-tooltip-id="tt-areas" data-tooltip-content={`${ICONO_TIPO[d.deviceType]?.t || d.deviceType} · ${d.ip}. Arrastralo a otra área; clic para editar.`}
-                className={cn("group flex items-center gap-1.5 h-7 pr-2 rounded-md cursor-grab active:cursor-grabbing hover:bg-accent/60", (d.deviceType !== tipoActual || h?.apagado) && "opacity-60")}
+                className={cn("group flex items-center gap-1.5 h-7 pr-2 rounded-md cursor-grab active:cursor-grabbing hover:bg-accent/60", (!deTipo(d) || h?.apagado) && "opacity-60")}
                 style={{ paddingLeft: 26 + nivel * 14 }}>
                 <GripVertical size={11} className="text-muted-foreground/40 group-hover:text-muted-foreground shrink-0 -ml-3.5" />
                 <IconoTipo tipo={d.deviceType} size={12.5} className="shrink-0" />
@@ -342,7 +347,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                     className="h-7 px-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold inline-flex items-center gap-1"><FolderPlus size={13} /> Nueva</button>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-0.5">
-                {raiz(TODAS, Layers, "Todas", visibles.filter((d) => d.deviceType === tipoActual).length, "Todos los equipos. Soltá un área acá para llevarla a la raíz.")}
+                {raiz(TODAS, Layers, "Todas", visibles.filter(deTipo).length, "Todos los equipos. Soltá un área acá para llevarla a la raíz.")}
                 {raices.map((a) => <Fragment key={a.id}>{fila(a, 0)}</Fragment>)}
                 {estado.areas.length === 0 && (
                     <div className="mx-1 my-2 rounded-lg border border-dashed border-border p-3 text-center space-y-1.5">
@@ -351,7 +356,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                     </div>
                 )}
                 <div className="pt-1 mt-1 border-t border-border/50">
-                    {raiz(SIN_AREA, Inbox, "Sin área", sinArea.filter((d) => d.deviceType === tipoActual).length, "Equipos que todavía no están en ningún área. Soltá un equipo acá para sacarlo de su área.", APAGADO_SIN_AREA)}
+                    {raiz(SIN_AREA, Inbox, "Sin área", sinArea.filter(deTipo).length, "Equipos que todavía no están en ningún área. Soltá un equipo acá para sacarlo de su área.", APAGADO_SIN_AREA)}
                     {verEquipos && seleccion === SIN_AREA && sinArea.slice(0, 200).map((d) => <Fragment key={d.id}>{hoja(d, 0)}</Fragment>)}
                 </div>
             </div>
