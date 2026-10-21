@@ -168,6 +168,9 @@ async function comparar(consulta: Float32Array, escala: number | null, sesgo: nu
 async function responder(lista: { f: any; coseno: number; prob: number | null }[],
     m: { comparados: number; sinHuella: number; h: number; t0: number; modo: "texto" | "parecido" | "foto" | "chapa"; pasos?: PasoChapa[] }) {
     const filas = lista.map((x) => x.f);
+    // El tipo de cámara: decide si el resultado se abre en la ficha de intrusión o en el visor (Historial, 21/10).
+    const idsCam = [...new Set(filas.map((f) => f.deviceId).filter(Boolean))] as string[];
+    const tipoCam = new Map(idsCam.length ? (await prisma.device.findMany({ where: { id: { in: idsCam } }, select: { id: true, deviceType: true } })).map((d) => [d.id, String(d.deviceType)]) : []);
     const [catalogo, historial] = await Promise.all([
         filas.some((f) => Array.isArray(f.textos) && (f.textos as any[]).length) ? leerCatalogo().catch(() => []) : Promise.resolve([]),
         historialDePistas(filas).catch(() => new Map()),
@@ -179,6 +182,7 @@ async function responder(lista: { f: any; coseno: number; prob: number | null }[
             ...f, textos: marcados && marcados.length ? marcados : null, empresa: (marcados?.find((t: any) => t.empresa) as any)?.empresa || null,
             coseno: Math.round(coseno * 1000) / 1000, prob: prob != null ? Math.round(prob * 1000) / 1000 : null,
             historial: historial.get(f.id) || null,
+            tipoCamara: f.deviceId ? tipoCam.get(f.deviceId) || null : null,
         };
     });
     return NextResponse.json({

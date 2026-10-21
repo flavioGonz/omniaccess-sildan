@@ -74,6 +74,10 @@ export type FilaHistorial = {
 const POR_PAGINA = 60;
 /** Sin fecha elegida, la búsqueda en el grabador mira estos días hacia atrás (todo lo grabado sería lento). */
 const DIAS_GRABADOR = 3;
+/** Los rangos (horas) que acepta la búsqueda por foto de OmniVision (api/vision/buscar). */
+const HORAS_FOTO = [24, 168, 720];
+/** Una descripción y no una matrícula: la misma idea que el servidor usa para la búsqueda semántica. */
+const pareceObjeto = (q: string) => q.length >= 3 && /[a-záéíóúñ]{3,}/i.test(q) && !/^[A-Z]{2,4}\s?-?\d{3,5}$/i.test(q);
 /** Cuántas veces se consulta el avance del grabador (cada 1,5 s) antes de mostrar lo que haya. */
 const VUELTAS_GRABADOR = 80;
 /** Las clases que nombra el grabador, en castellano. */
@@ -203,7 +207,7 @@ function HaceCuanto({ desde }: { desde: string }) {
     return <span className="text-[11.5px] text-muted-foreground tabular-nums">hace {leerDuracion(ms)}</span>;
 }
 
-export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, vision = [], chapa = [], barra, vista = "lista", onMerodeo, onResumen, onCargado, omnivision = true, grabador = false }: {
+export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, vision = [], chapa = [], barra, vista = "lista", onMerodeo, onResumen, onCargado, omnivision = true, grabador = false, foto = null }: {
     buscar: string; desde: string; hasta: string; tipos: string[];
     /**
      * Los motores de la búsqueda, además de los registros (21/10: un solo buscador con botones). Con
@@ -211,6 +215,11 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
      * la búsqueda inteligente de los grabadores (lib/grabador-busqueda). Todo cae en la misma lista.
      */
     omnivision?: boolean; grabador?: boolean;
+    /**
+     * Buscar con una FOTO en vez de con texto (21/10): lo parecido en OmniVision y en los grabadores
+     * que buscan por imagen. Con foto la lista muestra sólo lo encontrado, del más parecido al menos.
+     */
+    foto?: { blob: Blob; objeto: "vehiculo" | "persona" } | null;
     /** Los filtros de acceso: con qué se identificó, si abrió, en qué sentido. Viajan al servidor. */
     identificacion?: string; resultado?: string; sentido?: string;
     /** Subirlo fuerza una recarga desde la primera página (el botón de refrescar, una importación). */
@@ -326,13 +335,19 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     const [nvr, setNvr] = useState<{ estado: "buscando" | "listo" | "error"; progreso: number; hallazgos: any[]; error?: string | null } | null>(null);
     useEffect(() => {
         const texto = buscar.trim();
-        if (!grabador || texto.length < 3) { setNvr(null); return; }
+        if (!grabador || (!foto && texto.length < 3)) { setNvr(null); return; }
         let vivo = true; let siguiente: any;
         const arranque = setTimeout(async () => {
             setNvr({ estado: "buscando", progreso: 0, hallazgos: [] });
             const iso = (x: string, fin = false) => { if (!x) return undefined; const d = new Date(x.length <= 10 ? `${x}T${fin ? "23:59:59" : "00:00:00"}` : x); return isNaN(+d) ? undefined : d.toISOString(); };
-            const r = await fetch("/api/grabador/buscar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ texto, desde: iso(desde) || new Date(Date.now() - DIAS_GRABADOR * 864e5).toISOString(), hasta: iso(hasta, true) }) })
-                .then((x) => x.json()).catch(() => null);
+            const d0 = iso(desde) || new Date(Date.now() - DIAS_GRABADOR * 864e5).toISOString(), d1 = iso(hasta, true);
+            let cuerpo: BodyInit, cabeceras: Record<string, string> = {};
+            if (foto) {
+                const fd = new FormData();
+                fd.append("imagen", foto.blob, "foto.jpg"); fd.append("objeto", foto.objeto); fd.append("desde", d0); if (d1) fd.append("hasta", d1);
+                cuerpo = fd;
+            } else { cuerpo = JSON.stringify({ texto, desde: d0, hasta: d1 }); cabeceras = { "content-type": "application/json" }; }
+            const r = await fetch("/api/grabador/buscar", { method: "POST", headers: cabeceras, body: cuerpo }).then((x) => x.json()).catch(() => null);
             if (!vivo) return;
             if (!r?.ok) { setNvr({ estado: "error", progreso: 0, hallazgos: [], error: r?.error || "sin respuesta" }); return; }
             let vueltas = 0;
@@ -347,7 +362,41 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             paso();
         }, 900);
         return () => { vivo = false; clearTimeout(arranque); clearTimeout(siguiente); };
-    }, [grabador, buscar, desde, hasta]);
+    }, [grabador, buscar, desde, hasta, foto]);
+
+    /*
+     * «Objetos» dentro de OmniVision (21/10, Nico: «el botón Objetos debe estar integrado al buscador
+     * de OmniVision, no ser algo aparte»): con OmniVision prendido, una descripción también se busca
+     * en el índice de vocabulario abierto (las fotos de los accesos, mirando el objeto por su nombre:
+     * «carretilla», «escalera»). Sólo el índice, que contesta en un segundo; si este servidor no lo
+     * tiene o está apagado, no se dice nada: las otras búsquedas siguen.
+     */
+    const [vocab, setVocab] = useState<any[]>([]);
+    useEffect(() => {
+        const q = buscar.trim();
+        if (!omnivision || foto || !pareceObjeto(q)) { setVocab([]); return; }
+        let vivo = true;
+        const t = setTimeout(() => {
+            fetch("/api/vision/vocabulario/historial", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q, desde: desde || undefined, hasta: hasta || undefined, camaras: camaras || [] }) })
+                .then((r) => (r.ok ? r.json() : null)).then((j) => { if (vivo) setVocab(j?.hallazgos || []); }).catch(() => { if (vivo) setVocab([]); });
+        }, 900);
+        return () => { vivo = false; clearTimeout(t); };
+    }, [omnivision, foto, buscar, desde, hasta, camarasClave]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    /* La foto en OmniVision: lo que registró parecido (por imagen, no hay probabilidad: va el coseno). */
+    const [porFoto, setPorFoto] = useState<{ estado: "buscando" | "listo" | "error"; resultados: any[]; error?: string } | null>(null);
+    useEffect(() => {
+        if (!foto || !omnivision) { setPorFoto(null); return; }
+        let vivo = true;
+        setPorFoto({ estado: "buscando", resultados: [] });
+        const horas = desde ? (Date.now() - +new Date(desde.length <= 10 ? `${desde}T00:00:00` : desde)) / 36e5 : 168;
+        const h = HORAS_FOTO.find((x) => x >= horas) || HORAS_FOTO[HORAS_FOTO.length - 1];
+        fetch(`/api/vision/buscar?${new URLSearchParams({ h: String(h), grupo: foto.objeto })}`, { method: "POST", headers: { "content-type": foto.blob.type || "image/jpeg" }, body: foto.blob })
+            .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j?.error || `OmniVision respondió ${r.status}`); return j; })
+            .then((j) => { if (vivo) setPorFoto({ estado: "listo", resultados: j.resultados || [] }); })
+            .catch((e) => { if (vivo) setPorFoto({ estado: "error", resultados: [], error: e?.message || "sin respuesta" }); });
+        return () => { vivo = false; };
+    }, [foto, omnivision, desde]);
 
     /**
      * En vivo.
@@ -499,6 +548,30 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
          * entran los que caen dentro de lo ya cargado; los más viejos aparecen al bajar.
          */
         const sinFiltrarIa = !(merodeo && merodeo.size);
+        if (foto) {
+            // Con foto: sólo lo encontrado (OmniVision y grabadores), del más parecido al menos.
+            const deFoto: FilaHistorial[] = (omnivision ? porFoto?.resultados || [] : [])
+                .filter((o: any) => !porCamara || camaras!.includes(o.camara))
+                .map((o: any): FilaHistorial => ({
+                    id: `ia-${o.id}`, tipo: "IA", momento: o.ultimaVez || o.primeraVez, plate: null, persona: o.clase || "Objeto", camara: o.camara, deviceId: o.deviceId || null,
+                    decision: null, sentido: null, confianza: null, lecturas: null, foto: o.recorte ? `/api/vision/imagen/${o.recorte}` : null,
+                    estDesde: null, estHasta: null, bbox: null, estCerrada: false, detalles: null, permanencia: null, raw: null,
+                    ia: {
+                        prob: o.coseno ?? 0, buscar: "la foto", fuente: "omnivision", clase: o.clase, tipoCamara: o.tipoCamara || null,
+                        fotoCompleta: o.foto ? `/api/vision/imagen/${o.foto}` : null,
+                        caja: Array.isArray(o.caja) && o.caja.length === 4 ? { x: o.caja[0], y: o.caja[1], w: o.caja[2] - o.caja[0], h: o.caja[3] - o.caja[1] } : null,
+                    },
+                }));
+            const delGrabador: FilaHistorial[] = grabador ? (nvr?.hallazgos || [])
+                .filter((h: any) => !porCamara || camaras!.includes(h.camara))
+                .map((h: any): FilaHistorial => ({
+                    id: `nvr-${h.id}`, tipo: "NVR", momento: h.momento, plate: null, persona: CLASE_GRABADOR[h.clase] || (foto.objeto === "persona" ? "Persona" : "Vehículo"), camara: h.camara, deviceId: h.deviceId || null,
+                    decision: null, sentido: null, confianza: null, lecturas: null, foto: h.recorte || h.foto,
+                    estDesde: null, estHasta: null, bbox: null, estCerrada: false, detalles: null, permanencia: null, raw: null,
+                    ia: { prob: h.puntaje != null ? h.puntaje / 100 : 0, buscar: "la foto", fuente: "grabador", fotoCompleta: h.foto, caja: h.caja, tipoCamara: h.tipoCamara, grabador: h.grabador, clase: h.clase },
+                })) : [];
+            return [...deFoto, ...delGrabador].sort((a, b) => (b.ia?.prob || 0) - (a.ia?.prob || 0));
+        }
         const ia = buscar && omnivision && omni?.objetos?.length && sinFiltrarIa ? omni.objetos
             .filter((o) => !porCamara || camaras!.includes(o.camara))
             .map((o): FilaHistorial => ({
@@ -511,6 +584,20 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                     caja: Array.isArray(o.caja) && o.caja.length === 4 ? { x: o.caja[0], y: o.caja[1], w: o.caja[2] - o.caja[0], h: o.caja[3] - o.caja[1] } : null,
                 },
             })) : [];
+        // Lo que el vocabulario abierto vio en las fotos de los accesos (salvo los que ya están en la lista).
+        const yaEstan = new Set(v.map((f) => f.raw?.id).filter(Boolean));
+        if (buscar && omnivision && vocab.length && sinFiltrarIa) ia.push(...vocab
+            .filter((h: any) => !yaEstan.has(h.eventId) && (!porCamara || camaras!.includes(h.camara)))
+            .map((h: any): FilaHistorial => {
+                const o = h.objetos?.[0];
+                return {
+                    id: `vo-${h.eventId}`, tipo: "IA", momento: h.ts, plate: h.plate || null, persona: o?.nombre ? `${o.nombre} en la foto` : "En la foto", camara: h.camara, deviceId: null,
+                    decision: null, sentido: null, confianza: null, lecturas: null, foto: h.foto,
+                    estDesde: null, estHasta: null, bbox: null, estCerrada: false, detalles: null, permanencia: null, raw: { id: h.eventId },
+                    ia: { prob: o?.confianza ?? 0, buscar, fuente: "omnivision", fotoCompleta: h.foto, clase: o?.nombre || null,
+                        caja: o?.caja_norm ? { x: o.caja_norm[0], y: o.caja_norm[1], w: o.caja_norm[2] - o.caja_norm[0], h: o.caja_norm[3] - o.caja_norm[1] } : null },
+                };
+            }));
         if (buscar && grabador && nvr?.hallazgos.length && sinFiltrarIa) ia.push(...nvr.hallazgos
             .filter((h: any) => !porCamara || camaras!.includes(h.camara))
             .map((h: any): FilaHistorial => ({
@@ -522,7 +609,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         if (!ia.length) return v;
         const tope = hay && v.length ? v[v.length - 1].momento : "";
         return [...v, ...ia.filter((f) => !tope || f.momento >= tope)].sort((a, b) => (a.momento < b.momento ? 1 : a.momento > b.momento ? -1 : 0));
-    }, [filas, merodeo, color, tipoVeh, camaras, omni, buscar, hay, omnivision, grabador, nvr]);
+    }, [filas, merodeo, color, tipoVeh, camaras, omni, buscar, hay, omnivision, grabador, nvr, foto, porFoto, vocab]);
     const abrirCaptura = useCallback((f: FilaHistorial) => (f.ia ? abrirHallazgo(f) : setViendo(f)), [abrirHallazgo]);
 
     /**
@@ -814,6 +901,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                     <span className="opacity-50">·</span><Sparkles size={11} className="text-[var(--quieto)]" /> {visibles.filter((f) => f.ia).length} encontrados por IA
                 </span>
             )}
+            {foto && porFoto?.estado === "buscando" && <span className="inline-flex items-center gap-1"><span className="opacity-50">·</span><Sparkles size={11} className="text-[var(--quieto)] animate-pulse" /> buscando la foto en OmniVision…</span>}
+            {foto && porFoto?.estado === "error" && <span className="tono-aviso">· OmniVision: {porFoto.error}</span>}
             {grabador && nvr?.estado === "buscando" && <span className="inline-flex items-center gap-1 tabular-nums"><span className="opacity-50">·</span><Server size={11} className="text-sky-500 animate-pulse" /> buscando en el grabador… {nvr.progreso} %</span>}
             {grabador && nvr?.estado !== "buscando" && nvr?.error && <span className="tono-aviso">· el grabador: {nvr.error}</span>}
             {visionTruncado && <span className="tono-aviso">· el filtro OmniVision miró las 5.000 lecturas más nuevas que lo cumplen</span>}
