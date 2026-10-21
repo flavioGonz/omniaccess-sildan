@@ -59,8 +59,11 @@ export function NavOmniVision() {
     }, [abierto]);
     const pestana = (on: boolean) => cn("inline-flex items-center gap-1.5 h-10 px-3 -mb-px border-b-2 text-[13px] font-semibold shrink-0 transition-colors",
         on ? "border-[var(--accion)] text-foreground" : "border-transparent text-muted-foreground hover:text-foreground");
-    // La sección con hijos que está abierta en pantalla: sus hijos van en una segunda fila, para saber dónde se está.
-    const madre = SECCIONES_OMNIVISION.find((s) => s.hijos && activa(ruta, s));
+    /*
+     * Sin segunda fila de submenú (21/10, Nico: «ese menú no debe estar ahí fijo, ya tenemos
+     * submenús en Analíticas»): los hijos se eligen en el desplegable de «Analíticas», que queda
+     * marcada mientras se está en uno de ellos, y cada pantalla dice en su título cuál es.
+     */
     return (
         <div ref={caja}>
             <nav className="relative flex items-center gap-1 border-b border-border" aria-label="OmniVision">
@@ -92,20 +95,6 @@ export function NavOmniVision() {
                     </div>
                 ))}
             </nav>
-            {madre && (
-                <nav className="flex items-center gap-1 pt-2 overflow-x-auto" aria-label={madre.rotulo}>
-                    {madre.hijos!.map((h) => {
-                        const I = h.icono, on = activa(ruta, h);
-                        return (
-                            <Link key={h.href} href={h.href} aria-current={on ? "page" : undefined}
-                                className={cn("inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[12.5px] font-semibold shrink-0 transition-colors",
-                                    on ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground hover:bg-muted")}>
-                                <I size={14} /> {h.rotulo}
-                            </Link>
-                        );
-                    })}
-                </nav>
-            )}
         </div>
     );
 }
