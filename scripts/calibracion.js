@@ -26,7 +26,8 @@
 require("dotenv").config({ quiet: true });
 const fs = require("fs");
 const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("../lib-cifrado-datos").enPrisma(new PrismaClient());
 
 const arg = (n, d) => {
     const i = process.argv.indexOf(n);

@@ -40,7 +40,8 @@ const QRLIB = opcional("qrcode");
 const firmarUrl = opcional("./firma-medios")?.firmarUrl || ((u) => u);
 const listaNegra = opcional("./lib-lista-negra");
 
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 
 const LOCAL = process.env.OMNI_LOCAL_URL || "http://127.0.0.1:10001";
 const GO2RTC = (process.env.GO2RTC_API || "http://127.0.0.1:1984").replace(/\/+$/, "");

@@ -12,7 +12,23 @@
 "use strict";
 const crypto = require("crypto");
 const PREFIJO = "enc:v1:";
-const clave = () => { const s = process.env.OMNI_CLAVE_DATOS || ""; return s ? crypto.createHash("sha256").update(s, "utf8").digest() : null; };
+/**
+ * La clave del servidor. Algunos procesos de PM2 no cargan el .env (Prisma lee su DATABASE_URL por
+ * su cuenta): si no está en el entorno se busca en el .env de al lado, una sola vez.
+ */
+let delArchivo;
+function claveTexto() {
+    if (process.env.OMNI_CLAVE_DATOS) return process.env.OMNI_CLAVE_DATOS;
+    if (delArchivo === undefined) {
+        delArchivo = "";
+        try {
+            const linea = require("fs").readFileSync(require("path").join(__dirname, ".env"), "utf8").split(/\r?\n/).find((l) => /^\s*OMNI_CLAVE_DATOS\s*=/.test(l));
+            if (linea) delArchivo = linea.slice(linea.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "");
+        } catch { /* sin .env: sin clave */ }
+    }
+    return delArchivo;
+}
+const clave = () => { const s = claveTexto(); return s ? crypto.createHash("sha256").update(s, "utf8").digest() : null; };
 const estaCifrado = (v) => typeof v === "string" && v.startsWith(PREFIJO);
 function cifrar(texto) {
     if (texto == null || texto === "") return texto;
@@ -31,4 +47,51 @@ function descifrar(valor) {
     d.setAuthTag(b.subarray(12, 28));
     return Buffer.concat([d.update(b.subarray(28)), d.final()]).toString("utf8");
 }
-module.exports = { cifrar, descifrar, estaCifrado, PREFIJO };
+/**
+ * Las credenciales de los equipos cifradas en la base (punto 5, 21/10): Device.password y
+ * Device.rtspUrl (que lleva usuario y clave adentro). Se engancha al cliente de Prisma de cada
+ * proceso con enPrisma(prisma):
+ *  · al LEER, cualquier campo password / rtspUrl con el prefijo enc:v1: sale descifrado, a
+ *    cualquier profundidad (un include de otro modelo, un $queryRaw) — el resto del código no se
+ *    entera;
+ *  · al ESCRIBIR un Device, se cifran antes de guardar. Sin OMNI_CLAVE_DATOS en el .env no se cifra
+ *    nada (la instalación sigue como antes, en claro).
+ * Compatible hacia atrás: lo que ya estaba en claro se lee igual. Gemelo de src/lib/cifrado-datos.ts.
+ */
+const CAMPOS = new Set(["password", "rtspUrl"]);
+function descifrarProfundo(x, n = 0) {
+    if (!x || typeof x !== "object" || n > 6) return x;
+    if (Array.isArray(x)) { for (const y of x) descifrarProfundo(y, n + 1); return x; }
+    if (x instanceof Date || Buffer.isBuffer(x)) return x;
+    for (const k of Object.keys(x)) {
+        const v = x[k];
+        if (typeof v === "string") { if (CAMPOS.has(k) && estaCifrado(v)) { try { x[k] = descifrar(v); } catch { /* clave del servidor distinta: queda cifrado */ } } }
+        else if (v && typeof v === "object") descifrarProfundo(v, n + 1);
+    }
+    return x;
+}
+function cifrarDatos(d) {
+    // Una copia: el objeto del que llama no se toca (puede seguir usando la clave en claro después).
+    if (!d || typeof d !== "object" || !clave()) return d;
+    const c = { ...d };
+    for (const k of CAMPOS) {
+        if (typeof c[k] === "string" && c[k] && !estaCifrado(c[k])) c[k] = cifrar(c[k]);
+        else if (c[k] && typeof c[k] === "object" && typeof c[k].set === "string" && c[k].set && !estaCifrado(c[k].set)) c[k] = { ...c[k], set: cifrar(c[k].set) };
+    }
+    return c;
+}
+function enPrisma(prisma) {
+    if (!prisma || prisma.__conCifrado) return prisma;
+    prisma.$use(async (params, next) => {
+        if (params.model === "Device") {
+            const a = params.args || {};
+            if (["create", "update", "updateMany"].includes(params.action)) params.args = { ...a, data: cifrarDatos(a.data) };
+            else if (params.action === "createMany") params.args = { ...a, data: Array.isArray(a.data) ? a.data.map(cifrarDatos) : cifrarDatos(a.data) };
+            else if (params.action === "upsert") params.args = { ...a, create: cifrarDatos(a.create), update: cifrarDatos(a.update) };
+        }
+        return descifrarProfundo(await next(params));
+    });
+    Object.defineProperty(prisma, "__conCifrado", { value: true });
+    return prisma;
+}
+module.exports = { cifrar, descifrar, estaCifrado, PREFIJO, enPrisma, descifrarProfundo };

@@ -26,7 +26,8 @@ const http = require("http");
 const crypto = require("crypto");
 const { PrismaClient } = require("@prisma/client");
 
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 const RECEPTOR = { host: "127.0.0.1", port: Number(process.env.WEBHOOK_PORT || 10000), path: process.env.EVENT_HOST_PATH || "/api/webhooks/hikvision" };
 const CLAVE_LISTA = "ESCUCHA_EVENTOS";
 const RELEER_MS = 60_000;

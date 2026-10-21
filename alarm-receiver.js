@@ -34,7 +34,8 @@ const dc = require("./lib-dc09");
 const cod = require("./lib-dc09-codigos");
 const { descifrar } = require("./lib-cifrado-datos");
 
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 const PUERTO = Number(process.env.ALARMAS_PUERTO || 10010);
 const VENTANA_SEG = Number(process.env.ALARMAS_VENTANA_SEG || 40);
 const RELEER_MS = 30_000;

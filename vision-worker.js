@@ -31,7 +31,8 @@ const { spawn } = require("child_process");
 const { PrismaClient, Prisma } = require("@prisma/client");
 const { S3Client, PutObjectCommand, CreateBucketCommand, HeadBucketCommand, DeleteObjectsCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 const relecturas = require("./vision-relectura");
 const reglasVision = require("./vision-reglas");
 const zonasEntrenables = require("./vision-zonas");

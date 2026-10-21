@@ -4,7 +4,8 @@ const http = require("http");
 const crypto = require("crypto");
 const { PrismaClient } = require("@prisma/client");
 const { uploadToS3 } = require("./lib-s3");
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 
 const md5 = (s) => crypto.createHash("md5").update(s).digest("hex");
 function parseWWW(h) { const o = {}; (h || "").replace(/(\w+)=(?:"([^"]*)"|([^,]*))/g, (m, k, q, v) => { o[k] = q !== undefined ? q : (v || "").trim(); return m; }); return o; }

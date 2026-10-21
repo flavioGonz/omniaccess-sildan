@@ -62,7 +62,8 @@ const IORedis = require("ioredis");
 const { PrismaClient } = require("@prisma/client");
 
 const correr = promisify(exec);
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 const conexion = new IORedis(process.env.REDIS_URL || "redis://127.0.0.1:6379", {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,

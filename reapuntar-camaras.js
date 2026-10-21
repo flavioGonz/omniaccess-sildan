@@ -63,7 +63,7 @@ async function main() {
     let camaras = [];
     try {
         const { PrismaClient } = require("@prisma/client");
-        const prisma = new PrismaClient();
+        const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
         const devs = await prisma.device.findMany({
             where: { deviceType: "LPR_CAMERA" },
             select: { name: true, ip: true, username: true, password: true },

@@ -49,6 +49,8 @@ const prisma = new PrismaClient({
         },
     },
 });
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+require("./lib-cifrado-datos").enPrisma(prisma);
 const hostname = process.env.HOST || "0.0.0.0";
 const port = parseInt(process.env.WEBHOOK_PORT || "10000", 10);
 

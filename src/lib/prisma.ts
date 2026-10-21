@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { middlewareAuditoria } from "@/lib/auditoria";
+import { middlewareCifrado } from "@/lib/cifrado-datos";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
@@ -12,7 +13,12 @@ function crear() {
     // sustituto que se puede construir pero que revienta al tocarle cualquier propiedad: el `$use`
     // a secas tiró abajo todo /admin en el lab (21/10). Antes no se notaba porque nadie usaba el
     // cliente al cargar el módulo.
-    if (typeof window === "undefined") c.$use(middlewareAuditoria(c));
+    if (typeof window === "undefined") {
+        // Las claves de los equipos cifradas en la base (lib/cifrado-datos): se registra ANTES que la
+        // auditoría para que ésta vea los datos ya cifrados y no copie una clave en claro a su registro.
+        c.$use(middlewareCifrado());
+        c.$use(middlewareAuditoria(c));
+    }
     return c;
 }
 
