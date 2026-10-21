@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { hostHttp } from "@/lib/host-http";
 
 /**
  * API RPC2 (JSON) de Dahua: la que usa su propia web. El CGI viejo no expone CPU, memoria,
@@ -10,7 +11,7 @@ const md5 = (s: string) => crypto.createHash("md5").update(s).digest("hex").toUp
 export type Rpc2 = { call: (method: string, params?: any) => Promise<any>; close: () => Promise<void> };
 
 export async function rpc2Sesion(dev: { ip: string; username?: string | null; password?: string | null; port?: number | null }, timeoutMs = 6000): Promise<Rpc2> {
-    const base = `http://${dev.ip}`;
+    const base = `http://${await hostHttp(dev.ip)}`;
     const user = dev.username || "admin";
     let id = 1;
     const post = async (path: string, body: any) => {

@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
 import { uploadToS3 } from "@/lib/s3";
 import { sinClaves } from "@/lib/equipo-publico";
+import { olvidarPuertosHttp } from "@/lib/host-http";
 
 async function saveFile(file: any, folder: string): Promise<string | null> {
     if (!file || typeof file === 'string' || !file.size) return null;
@@ -88,6 +89,16 @@ function camposSeguimiento(formData: FormData) {
     return datos;
 }
 
+/**
+ * El puerto HTTP/ISAPI que vino en el formulario (lib/host-http). `undefined` = el formulario no lo
+ * trae (otras pantallas llaman a updateDevice): no se toca. Vacío u 80 = el de siempre (null).
+ */
+function puertoHttpDe(formData: FormData): number | null | undefined {
+    if (!formData.has("httpPort")) return undefined;
+    const n = parseInt(String(formData.get("httpPort") || ""));
+    return n > 0 && n < 65536 && n !== 80 ? n : null;
+}
+
 export async function createDevice(formData: FormData) {
     const name = formData.get("name") as string;
     const ip = formData.get("ip") as string;
@@ -124,6 +135,7 @@ export async function createDevice(formData: FormData) {
             authType,
             mac,
             port: portNum,
+            httpPort: puertoHttpDe(formData) ?? null,
             modelPhoto,
             brandLogo,
             deviceModel: formData.get("deviceModel") as string,
@@ -133,6 +145,7 @@ export async function createDevice(formData: FormData) {
             } : undefined
         },
     });
+    olvidarPuertosHttp();
 
     // Automatic sync on add
     try {
@@ -217,12 +230,14 @@ export async function updateDevice(id: string, formData: FormData) {
             authType,
             mac,
             port: portNum,
+            ...(puertoHttpDe(formData) !== undefined ? { httpPort: puertoHttpDe(formData) } : {}),
             deviceModel,
             ...seguimiento,
             ...(modelPhoto && { modelPhoto }),
             ...(brandLogo && { brandLogo }),
         },
     });
+    olvidarPuertosHttp();
 
     // Auto-registrar/actualizar el stream en go2rtc (LPR Hikvision)
     try {

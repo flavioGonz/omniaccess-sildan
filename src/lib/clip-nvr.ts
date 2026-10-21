@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { hostHttp } from "@/lib/host-http";
 import type { NvrConn } from "@/lib/nvr-resolve";
 import { pasamanosSdpH264, sdpCambiado, marcarSdpCambiado, esSdpCambiado } from "@/lib/rtsp-sdp";
 import { configClips, filtroEscala, CRF_POR_CALIDAD, MARCA_AGUA_ANCHO, MARCA_AGUA_MARGEN, type ConfigClip } from "@/lib/clips";
@@ -76,7 +77,7 @@ export async function getCodec(conn: any, ch: string): Promise<string | null> {
     if (String(conn.brand || "").toUpperCase().includes("DAHUA")) {
         c = "h264"; // los NVR Dahua de este sitio graban H.264
     } else {
-        const raw = ((await isapiCodecHik(conn, ch)) || "").toUpperCase();
+        const raw = ((await isapiCodecHik({ ...conn, ip: await hostHttp(conn.ip) }, ch)) || "").toUpperCase();
         c = raw.includes("265") || raw.includes("HEVC") ? "hevc" : raw.includes("264") ? "h264" : null;
     }
     if (c) codecCache.set(key, { c, ts: Date.now() });

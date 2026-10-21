@@ -5,11 +5,14 @@
 import crypto from "crypto";
 import axios, { AxiosRequestConfig, Method } from "axios";
 import * as https from "https";
+import { hostHttp } from "@/lib/host-http";
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 export interface DigestAuthDevice {
     ip: string;
+    /** Puerto HTTP del equipo; si no viene, el guardado para esa IP (lib/host-http). */
+    httpPort?: number | string | null;
     username?: string | null;
     password?: string | null;
     authType?: string | null;
@@ -93,7 +96,7 @@ export async function authenticatedRequest(
 ): Promise<any> {
     const username = device.username || "admin";
     const password = device.password || "";
-    const host = (device.ip || "").replace(/^https?:\/\//, "");
+    const host = await hostHttp(device.ip || "", device.httpPort);
     const baseURL = `http://${host}`;
 
     const contentType = options.contentType || "application/json";

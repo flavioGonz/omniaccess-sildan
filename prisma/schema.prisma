@@ -194,6 +194,7 @@ model Device {
   ip              String
   mac             String?
   port            Int?             // NVR: puerto RTSP (554 por defecto)
+  httpPort        Int?             // Puerto HTTP/ISAPI del equipo (vacío = 80). Ver lib/host-http
   location        String?
   direction       DeviceDirection  @default(ENTRY)
   doorStatus      DoorStatus       @default(UNKNOWN)

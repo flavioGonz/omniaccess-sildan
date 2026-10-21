@@ -240,6 +240,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         deviceType: (device?.deviceType || "") as Tipo | "",
         brand: (device?.brand === "DAHUA" ? "DAHUA" : "HIKVISION") as Marca,
         name: device?.name || "", ip: device?.ip || "", port: device?.port ? String(device.port) : "",
+        httpPort: device?.httpPort ? String(device.httpPort) : "",
         username: device?.username || "admin", password: device?.password || "", authType: device?.authType || "DIGEST",
         mac: device?.mac || "", deviceModel: device?.deviceModel || "", location: device?.location || "",
         direction: device?.direction || "ENTRY", groupId: "none",
@@ -339,13 +340,18 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     const ultimo = paso >= pasos.length - 1;
     const ir = (i: number) => { setHacia(i > paso ? 1 : -1); setPaso(i); };
     const ipValida = ipOk(f.ip);
+    /**
+     * A qué se le habla por HTTP mientras el equipo no está guardado: la IP con su puerto web si no
+     * es el 80 (lib/host-http lo respeta tal cual). Una vez guardado, el puerto sale de la base.
+     */
+    const ipHttp = f.httpPort && f.httpPort !== "80" ? `${f.ip.trim()}:${f.httpPort}` : f.ip.trim();
 
     /* ── Acciones ── */
     const detectar = async () => {
         if (!ipValida) return;
         setDetectando(true); setInfo(null);
         try {
-            const r: any = await probeDeviceInfo({ ip: f.ip.trim(), username: f.username, password: f.password, authType: f.authType, brand: f.brand });
+            const r: any = await probeDeviceInfo({ ip: ipHttp, username: f.username, password: f.password, authType: f.authType, brand: f.brand });
             setInfo(r);
             if (r?.ok) setF((p) => ({ ...p, mac: r.macAddress || p.mac, deviceModel: r.model || p.deviceModel, authType: r.authType || p.authType, name: p.name || r.deviceName || "",
                 ...(r.credenciales ? { username: r.credenciales.username, password: r.credenciales.password } : {}) }));
@@ -353,7 +359,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
             // Respondió: se le pregunta qué sabe hacer, para sugerir el tipo y el modo antes de seguir.
             if (r?.ok && tipo !== "NVR") {
                 setLeyendoCaps(true);
-                const cr = await detectarCapacidades(esEdicion && device?.id ? { deviceId: device.id } : { ip: f.ip.trim(), username: r.credenciales?.username || f.username, password: r.credenciales?.password || f.password, authType: r.authType || f.authType, brand: f.brand, deviceModel: r.model || f.deviceModel }).catch(() => null);
+                const cr = await detectarCapacidades(esEdicion && device?.id ? { deviceId: device.id } : { ip: ipHttp, username: r.credenciales?.username || f.username, password: r.credenciales?.password || f.password, authType: r.authType || f.authType, brand: f.brand, deviceModel: r.model || f.deviceModel }).catch(() => null);
                 const c = cr && cr.ok ? cr.capacidades : null;
                 setCaps(c); setLeyendoCaps(false);
                 // En el alta, el modo arranca en el que conviene (si el tipo coincide); el tipo no se cambia solo.
@@ -376,7 +382,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         if (!ipOk(f.ip)) return;
         setLeyendo(true); setErrorCanales(""); setCanales(null);
         try {
-            const [r, devs]: any = await Promise.all([getNvrChannels({ ip: f.ip.trim(), username: f.username, password: f.password, authType: f.authType }), getDevices()]);
+            const [r, devs]: any = await Promise.all([getNvrChannels({ ip: ipHttp, username: f.username, password: f.password, authType: f.authType }), getDevices()]);
             if (!r?.ok) { setErrorCanales(r?.error || "El NVR no devolvió canales"); return; }
             const porIp = new Map((devs || []).map((d: any) => [d.ip, d]));
             const lista: Canal[] = (r.channels || []).map((c: any) => {
@@ -401,7 +407,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
             }).catch(() => { });
         } catch (e: any) { setErrorCanales(e?.message || "No se pudo leer el NVR"); }
         finally { setLeyendo(false); }
-    }, [f.ip, f.username, f.password, f.authType, f.brand]);
+    }, [f.ip, ipHttp, f.username, f.password, f.authType, f.brand]);
     useEffect(() => { if (open && clave === "canales" && !canales && !leyendo && !errorCanales) leerCanales(); }, [open, clave, canales, leyendo, errorCanales, leerCanales]);
 
     const grabacionElegida: Ubic | null = donde?.ubicacion || (manual.nvrId && Number(manual.ch) > 0 ? { nvrId: manual.nvrId, nvrNombre: nvrs.find((n) => n.id === manual.nvrId)?.name || null, ch: Number(manual.ch) } : null);
@@ -604,8 +610,20 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     const bloqueConexion = (
         <>
             <div className="grid grid-cols-2 gap-4">
-                <Campo etiqueta="Dirección IP" icono={Network} value={f.ip} onChange={(v) => { set("ip", v); setInfo(null); setDonde(null); setCanales(null); setErrorCanales(""); }} placeholder="172.16.2.210" mono
-                    ayuda="La IP fija del equipo en la red del barrio. Ejemplos: 172.16.2.210 (cámara LPR), 172.16.2.59 (NVR). Con esta IP también se busca en qué NVR graba." />
+                {/* La IP y, al lado, el puerto web (21/10, Nico: un NVR con la web en otro puerto daba
+                    «ECONNREFUSED …:80» al leer los canales). Si se tipea «ip:puerto» en la IP, se separa solo. */}
+                <div className="grid grid-cols-[minmax(0,1fr)_92px] gap-2">
+                    <Campo etiqueta="Dirección IP" icono={Network} value={f.ip}
+                        onChange={(v) => {
+                            const m = /^\s*(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})\s*$/.exec(v);
+                            setF((p) => ({ ...p, ip: m ? m[1] : v, ...(m ? { httpPort: m[2] } : {}) }));
+                            setInfo(null); setDonde(null); setCanales(null); setErrorCanales("");
+                        }} placeholder="172.16.2.210" mono
+                        ayuda="La IP fija del equipo en la red del barrio. Ejemplos: 172.16.2.210 (cámara LPR), 172.16.2.59 (NVR). Con esta IP también se busca en qué NVR graba. Si escribís «IP:puerto», el puerto pasa al campo de al lado." />
+                    <Campo etiqueta="Puerto web" icono={Plug} value={f.httpPort}
+                        onChange={(v) => { set("httpPort", v.replace(/\D/g, "").slice(0, 5)); setInfo(null); setCanales(null); setErrorCanales(""); }} placeholder="80" mono
+                        ayuda="El puerto HTTP de la web del equipo, por donde se lo configura y se leen sus canales (ISAPI). Vacío = 80. Cambialo si el equipo tiene la web en otro puerto, ej. 8080, o si está publicado con NAT." />
+                </div>
                 {tipo === "NVR" ? (
                     <Campo etiqueta="Puerto RTSP" icono={Plug} value={f.port} onChange={(v) => set("port", v.replace(/\D/g, ""))} placeholder="554" mono
                         ayuda="Puerto RTSP del NVR para reproducir grabaciones y clips. Por defecto 554; si está publicado con NAT puede ser otro, ej. 10554." />
@@ -985,7 +1003,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                             <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 text-[12.5px] text-muted-foreground">
                                                 <span>Tipo: <b className="text-foreground">{OPCIONES_ALTA.find((o) => o.id === opcionAlta)?.rotulo || meta?.rotulo}</b></span><span>Fabricante: <b className="text-foreground">{f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}</b></span>
                                                 {tipo !== "NVR" && <span className="col-span-2">Modo: <b className="text-foreground">{tipo === "LPR_CAMERA" ? `${MODOS_LPR[modoLpr].rotulo}${modoLpr === "omnivision" ? (abre ? " · abre la barrera" : " · sólo registra") : ""}` : MODOS_INTRUSION[modoIntr].rotulo}</b></span>}
-                                                <span>Nombre: <b className="text-foreground">{f.name}</b></span><span>IP: <b className="text-foreground font-mono">{f.ip}{tipo === "NVR" && f.port ? `:${f.port}` : ""}</b></span>
+                                                <span>Nombre: <b className="text-foreground">{f.name}</b></span><span>IP: <b className="text-foreground font-mono">{f.ip}{f.httpPort && f.httpPort !== "80" ? `:${f.httpPort}` : ""}</b>{tipo === "NVR" && f.port ? <> · RTSP <b className="text-foreground font-mono">{f.port}</b></> : null}</span>
                                                 {tipo === "LPR_CAMERA" && <><span>Sentido: <b className="text-foreground">{f.direction === "ENTRY" ? "Entrada" : "Salida"}</b></span><span>Grupo: <b className="text-foreground">{groups.find((g: any) => g.id === f.groupId)?.name || "sin grupo"}</b></span></>}
                                                 {tipo !== "NVR" && <span className="col-span-2">Grabación: <b className={cn(grabacionElegida ? "text-foreground" : "text-amber-600")}>{grabacionElegida ? `${grabacionElegida.nvrNombre} · canal ${grabacionElegida.ch}` : "sin grabaciones"}</b></span>}
                                                 {tipo === "NVR" && <span className="col-span-2">Cámaras: <b className="text-foreground">{resumenCanales.lpr} LPR · {resumenCanales.intr} intrusión · {resumenCanales.ya} se vinculan</b></span>}
