@@ -97,7 +97,9 @@ export async function probeAllDevices(): Promise<HealthResult[]> {
         select: { id: true, name: true, ip: true, username: true, password: true, authType: true, deviceType: true },
     });
     const viewers = await go2rtcViewers();
-    return Promise.all(devices.map((d) => probe(d, viewers).catch((): HealthResult => ({
+    const { equiposApagados } = await import("@/lib/apagado");
+    const apagados = await equiposApagados();
+    return Promise.all(devices.filter((d) => !apagados.has(d.id)).map((d) => probe(d, viewers).catch((): HealthResult => ({
         id: d.id, name: d.name, deviceType: d.deviceType, ip: d.ip, reachable: false,
         latencyMs: null, memPct: null, uptimeSec: null, driftSec: null, disksOk: null, viewers: 0, vcaMode: null,
     }))));

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronRight, Folder, FolderOpen, Eye, Settings2, Crosshair, Wand2, Inbox, Layers, GripVertical, Activity } from "lucide-react";
+import { ChevronRight, Folder, FolderOpen, Eye, Settings2, Crosshair, Wand2, Inbox, Layers, GripVertical, Activity, PowerOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IconoTipo, ICONO_TIPO, arrastrarEquipos, SIN_AREA } from "@/components/devices/ArbolAreas";
 import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
@@ -76,10 +76,10 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
                     {d.deviceType === "NVR" ? <span className="text-[11px] text-muted-foreground">—</span> :
                         <CeldaGrabacion g={grab[d.id]} detectando={detectando === d.id || detectando === "__todas__"} calculando={calculando === d.id} onDetectar={() => onDetectar([d.id])} onRetencion={() => onRetencion(d.id)} />}
                 </div>
-                <span className={cn("h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit",
+                {h?.apagado ? <span className="h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit text-muted-foreground border-border bg-muted/40" data-tooltip-id="tt-grab" data-tooltip-content="Su área está apagada: OmniAccess no la consume (sin vivo, análisis ni consultas). Se reactiva desde el árbol de áreas."><PowerOff size={10} /> Apagado</span> : <span className={cn("h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit",
                     on === null ? "text-muted-foreground border-border" : on ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/25" : "bg-red-500/10 text-red-500 border-red-500/25")}>
                     <span className={cn("w-1.5 h-1.5 rounded-full", on === null ? "bg-muted-foreground/40" : on ? "bg-emerald-500" : "bg-red-500")} />{on === null ? "…" : on ? "On" : "Off"}
-                </span>
+                </span>}
                 <div className="flex items-center justify-end gap-0.5">
                     {(d.deviceType === "CAMERA" || (d.deviceType === "LPR_CAMERA" && d.brand === "HIKVISION")) && (
                         <button onClick={() => onCalibrar(d)} data-tooltip-id="tt-grab" data-tooltip-content={d.deviceType === "CAMERA" ? "Calibrar intrusión" : "Calibrar ANPR"} className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10">{d.deviceType === "CAMERA" ? <Crosshair size={14} /> : <Wand2 size={14} />}</button>

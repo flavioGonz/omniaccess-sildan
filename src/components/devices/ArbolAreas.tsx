@@ -7,10 +7,14 @@ import { Tooltip } from "react-tooltip";
 import {
     ChevronRight, Folder, FolderOpen, FolderPlus, Pencil, Trash2, Layers, Inbox, Car, Radar, HardDrive, Cpu,
     Eye, EyeOff, ChevronsDownUp, ChevronsUpDown, GripVertical, Check, X, Palette, MousePointerClick, PanelLeftClose, PanelLeftOpen,
+    Power, PowerOff, Loader2,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+/** Igual que en lib/apagado (no se importa de ahí: ese archivo usa la base y esto corre en el navegador). */
+const APAGADO_SIN_AREA = "__sin_area";
 import { sileo as toast } from "sileo";
-import { crearArea, editarArea, borrarArea, moverArea, asignarEquipos, type Area, type EstadoAreas } from "@/app/actions/areas";
+import { crearArea, editarArea, borrarArea, moverArea, asignarEquipos, apagarGrupo, type Area, type EstadoAreas } from "@/app/actions/areas";
 
 /**
  * Árbol de áreas para agrupar equipos. Todo por arrastrar y soltar:
@@ -78,6 +82,30 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
     const [paleta, setPaleta] = useState<string | null>(null);
     const [sobre, setSobre] = useState<{ id: string; zona: Zona } | null>(null);
     const arrastrandoArea = useRef<string | null>(null);
+    /** Lo que se está por apagar o prender (área, «Sin área» o tipo), esperando la confirmación. */
+    const [pidiendo, setPidiendo] = useState<{ clave: string; titulo: string; apagar: boolean } | null>(null);
+    const [aplicando, setAplicando] = useState(false);
+    const apagadas = useMemo(() => new Set(estado.apagadas || []), [estado.apagadas]);
+    /** El área de arriba que está apagada (si la hay): las de abajo quedan apagadas con ella. */
+    const apagadaPorArriba = (areaId: string): Area | null => {
+        let cur = estado.areas.find((x) => x.id === areaId)?.padre;
+        for (let i = 0; cur && i < 100; i++) { if (apagadas.has(cur)) return estado.areas.find((x) => x.id === cur) || null; cur = estado.areas.find((x) => x.id === cur)?.padre; }
+        return null;
+    };
+    const esVista = (d: any, t: string) => d.deviceType === t || (t === "LPR_CAMERA" && d.deviceType === "LPR_INTERIOR" && !!d.trackAcceso);
+    const afectados = (clave: string): any[] => clave.startsWith("tipo:") ? devices.filter((d) => esVista(d, clave.slice(5))) : devices.filter((d) => enArea(estado, d.id, clave === APAGADO_SIN_AREA ? SIN_AREA : clave));
+    const confirmar = async () => {
+        if (!pidiendo) return;
+        setAplicando(true);
+        try {
+            const r = await apagarGrupo(pidiendo.clave, pidiendo.apagar);
+            const { resumen, ...e } = r;
+            setEstado(e);
+            toast.success({ title: pidiendo.apagar ? `«${pidiendo.titulo}» apagada` : `«${pidiendo.titulo}» activa de nuevo`, description: `${resumen.cambiaron} ${resumen.cambiaron === 1 ? "equipo" : "equipos"} ${pidiendo.apagar ? "dejaron de consumirse" : "vuelven a consumirse"}` });
+            setPidiendo(null);
+        } catch (er: any) { toast.error({ title: "No se pudo", description: er?.message }); }
+        finally { setAplicando(false); }
+    };
 
     useEffect(() => { try { const v = JSON.parse(localStorage.getItem("areas.abiertas") || "[]"); setAbiertas(new Set(v)); setVerEquipos(localStorage.getItem("areas.verEquipos") !== "0"); } catch { } }, []);
     const guardarAbiertas = (s: Set<string>) => { setAbiertas(s); try { localStorage.setItem("areas.abiertas", JSON.stringify([...s])); } catch { } };
@@ -152,6 +180,8 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
         const tieneHijos = sub.length > 0 || eqs.length > 0;
         const sel = seleccion === a.id;
         const z = sobre?.id === a.id ? sobre.zona : null;
+        const arriba = apagadaPorArriba(a.id);
+        const apagada = apagadas.has(a.id) || !!arriba;
         return (
             <div>
                 <div {...props(a.id, true)}
@@ -168,11 +198,11 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                     <button type="button" onClick={(e) => { e.stopPropagation(); alternar(a.id); }} className={cn("h-5 w-5 grid place-items-center rounded text-muted-foreground hover:text-foreground", !tieneHijos && "invisible")}>
                         <ChevronRight size={13} className={cn("transition-transform duration-200", abierta && "rotate-90")} />
                     </button>
-                    {abierta ? <FolderOpen size={15} style={{ color: a.color }} className="shrink-0" /> : <Folder size={15} style={{ color: a.color }} className="shrink-0" fill={a.color} fillOpacity={0.18} />}
+                    {abierta ? <FolderOpen size={15} style={{ color: apagada ? undefined : a.color }} className={cn("shrink-0", apagada && "text-muted-foreground/60")} /> : <Folder size={15} style={{ color: apagada ? undefined : a.color }} className={cn("shrink-0", apagada && "text-muted-foreground/60")} fill={apagada ? "none" : a.color} fillOpacity={0.18} />}
                     {editando === a.id ? (
                         <NombreEditable inicial={a.nombre} onListo={(n) => { setEditando(null); if (n && n !== a.nombre) ejecutar(editarArea(a.id, { nombre: n })); }} />
                     ) : (
-                        <span className="flex-1 min-w-0 truncate text-[12.5px] font-semibold" onDoubleClick={(e) => { e.stopPropagation(); setEditando(a.id); }}>{a.nombre}</span>
+                        <span className={cn("flex-1 min-w-0 truncate text-[12.5px] font-semibold", apagada && "text-muted-foreground")} onDoubleClick={(e) => { e.stopPropagation(); setEditando(a.id); }}>{a.nombre}</span>
                     )}
                     {borrando === a.id ? (
                         <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -189,6 +219,9 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                                 <button type="button" onClick={() => setBorrando(a.id)} data-tooltip-id="tt-areas" data-tooltip-content="Borrar el área (los equipos no se borran: suben al área de arriba)" className="h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-red-500 hover:bg-background"><Trash2 size={12} /></button>
                             </span>
                             <span className="min-w-[22px] h-[18px] px-1.5 rounded-full bg-muted text-[10px] font-bold text-muted-foreground grid place-items-center tabular-nums group-hover:hidden">{contar(a.id)}</span>
+                            <MiniInterruptor prendido={!apagada} bloqueado={!!arriba}
+                                titulo={arriba ? `Apagada con «${arriba.nombre}»: se reactiva desde ahí` : apagada ? `Apagada: OmniAccess no consume sus equipos. Tocá para reactivarla.` : `Apagar «${a.nombre}»: OmniAccess deja de consumir sus equipos`}
+                                onClick={() => setPidiendo({ clave: a.id, titulo: a.nombre, apagar: !apagadas.has(a.id) })} />
                         </>
                     )}
                 </div>
@@ -213,31 +246,34 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
     };
 
     const hoja = (d: any, nivel: number): React.ReactNode => {
-        const h = health[d.id]; const mal = !!alertasDe[d.id]?.length || h?.reachable === false;
+        const h = health[d.id]; const mal = !h?.apagado && (!!alertasDe[d.id]?.length || h?.reachable === false);
         return (
             <div draggable onDragStart={(ev) => { ev.stopPropagation(); arrastrarEquipos(ev, [d.id], d.name); }}
                 onClick={() => onAbrirEquipo?.(d)}
                 data-tooltip-id="tt-areas" data-tooltip-content={`${ICONO_TIPO[d.deviceType]?.t || d.deviceType} · ${d.ip}. Arrastralo a otra área; clic para editar.`}
-                className={cn("group flex items-center gap-1.5 h-7 pr-2 rounded-md cursor-grab active:cursor-grabbing hover:bg-accent/60", d.deviceType !== tipoActual && "opacity-60")}
+                className={cn("group flex items-center gap-1.5 h-7 pr-2 rounded-md cursor-grab active:cursor-grabbing hover:bg-accent/60", (d.deviceType !== tipoActual || h?.apagado) && "opacity-60")}
                 style={{ paddingLeft: 26 + nivel * 14 }}>
                 <GripVertical size={11} className="text-muted-foreground/40 group-hover:text-muted-foreground shrink-0 -ml-3.5" />
                 <IconoTipo tipo={d.deviceType} size={12.5} className="shrink-0" />
                 <span className={cn("flex-1 min-w-0 truncate text-[12px]", mal ? "text-red-500 font-semibold" : "text-foreground/85")}>{d.name}</span>
-                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", h ? (h.reachable ? "bg-emerald-500" : "bg-red-500") : "bg-muted-foreground/30")} />
+                {h?.apagado ? <PowerOff size={10} className="text-muted-foreground shrink-0" /> : <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", h ? (h.reachable ? "bg-emerald-500" : "bg-red-500") : "bg-muted-foreground/30")} />}
             </div>
         );
     };
 
-    const raiz = (id: string, I: any, titulo: string, cuenta: number, ayuda: string): React.ReactNode => {
+    const raiz = (id: string, I: any, titulo: string, cuenta: number, ayuda: string, claveApagado?: string): React.ReactNode => {
         const z = sobre?.id === id;
+        const apagada = !!claveApagado && apagadas.has(claveApagado);
         return (
             <div {...props(id, false)} onClick={() => onSeleccion(id)} data-tooltip-id="tt-areas" data-tooltip-content={ayuda}
                 className={cn("flex items-center gap-2 h-8 px-2.5 rounded-lg cursor-pointer select-none transition-colors",
                     seleccion === id ? "bg-[color-mix(in_oklab,var(--accion)_14%,transparent)]" : "hover:bg-accent/70",
                     z && "ring-2 ring-[var(--accion)]")}>
                 <I size={15} className="text-muted-foreground shrink-0" />
-                <span className="flex-1 text-[12.5px] font-semibold">{titulo}</span>
+                <span className={cn("flex-1 text-[12.5px] font-semibold", apagada && "text-muted-foreground")}>{titulo}</span>
                 <span className="min-w-[22px] h-[18px] px-1.5 rounded-full bg-muted text-[10px] font-bold text-muted-foreground grid place-items-center tabular-nums">{cuenta}</span>
+                {claveApagado && <MiniInterruptor prendido={!apagada} titulo={apagada ? `Apagado: OmniAccess no consume estos equipos. Tocá para reactivar.` : `Apagar «${titulo}»: OmniAccess deja de consumir estos equipos`}
+                    onClick={() => setPidiendo({ clave: claveApagado, titulo, apagar: !apagada })} />}
             </div>
         );
     };
@@ -250,14 +286,17 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
             {tipos.map((t) => {
                 const activo = t.tipo === tipoActual; const m = ICONO_TIPO[t.tipo];
                 return (
-                    <button key={t.tipo} type="button" onClick={() => onTipo?.(t.tipo)}
-                        className={cn("w-full flex items-center gap-2.5 h-10 px-2.5 rounded-lg border transition-all text-left",
+                    <div key={t.tipo} role="button" tabIndex={0} onClick={() => onTipo?.(t.tipo)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTipo?.(t.tipo); } }}
+                        className={cn("w-full flex items-center gap-2.5 h-10 px-2.5 rounded-lg border transition-all text-left cursor-pointer", apagadas.has(`tipo:${t.tipo}`) && "opacity-70",
                             activo ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)] shadow-sm" : "border-transparent hover:bg-accent/70")}>
                         <span className={cn("h-7 w-7 rounded-md grid place-items-center", activo ? "bg-background shadow-sm" : "bg-muted/60")}><IconoTipo tipo={t.tipo} size={15} /></span>
                         <span className={cn("flex-1 text-[12.5px]", activo ? "font-bold" : "font-semibold text-foreground/85")}>{t.rotulo}</span>
                         {!!t.alertas && <span className="h-[18px] px-1.5 rounded-full bg-red-500/15 text-red-500 text-[10px] font-bold grid place-items-center tabular-nums" data-tooltip-id="tt-areas" data-tooltip-content={`${t.alertas} con alertas`}>{t.alertas}</span>}
                         <span className={cn("min-w-[24px] h-[20px] px-1.5 rounded-full text-[10.5px] font-bold grid place-items-center tabular-nums", activo ? "bg-[var(--accion)] text-white" : "bg-muted text-muted-foreground")}>{t.cuenta}</span>
-                    </button>
+                        <MiniInterruptor prendido={!apagadas.has(`tipo:${t.tipo}`)}
+                            titulo={apagadas.has(`tipo:${t.tipo}`) ? `Apagadas: OmniAccess no consume las ${t.rotulo.toLowerCase()}. Tocá para reactivar.` : `Apagar todas las ${t.rotulo.toLowerCase()}`}
+                            onClick={() => setPidiendo({ clave: `tipo:${t.tipo}`, titulo: t.rotulo, apagar: !apagadas.has(`tipo:${t.tipo}`) })} />
+                    </div>
                 );
             })}
         </div>
@@ -312,12 +351,13 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                     </div>
                 )}
                 <div className="pt-1 mt-1 border-t border-border/50">
-                    {raiz(SIN_AREA, Inbox, "Sin área", sinArea.filter((d) => d.deviceType === tipoActual).length, "Equipos que todavía no están en ningún área. Soltá un equipo acá para sacarlo de su área.")}
+                    {raiz(SIN_AREA, Inbox, "Sin área", sinArea.filter((d) => d.deviceType === tipoActual).length, "Equipos que todavía no están en ningún área. Soltá un equipo acá para sacarlo de su área.", APAGADO_SIN_AREA)}
                     {verEquipos && seleccion === SIN_AREA && sinArea.slice(0, 200).map((d) => <Fragment key={d.id}>{hoja(d, 0)}</Fragment>)}
                 </div>
             </div>
             {filtros}
             <div className="px-3 py-2 border-t border-border/60 text-[10.5px] text-muted-foreground flex items-center gap-1.5"><GripVertical size={12} /> Arrastrá equipos y áreas para reorganizar</div>
+            <ModalApagado pedido={pidiendo} equipos={pidiendo ? afectados(pidiendo.clave) : []} aplicando={aplicando} onConfirmar={confirmar} onCancelar={() => !aplicando && setPidiendo(null)} />
             <TooltipAreas />
         </aside>
     );
@@ -345,4 +385,92 @@ function TooltipAreas() {
     useEffect(() => setListo(true), []);
     if (!listo) return null;
     return createPortal(<Tooltip id="tt-areas" place="right" positionStrategy="fixed" className="!max-w-[260px] !text-[12px] !rounded-lg !z-[9999]" />, document.body);
+}
+
+/**
+ * El interruptor chico de un área (o «Sin área», o un tipo): prendida = OmniAccess consume sus
+ * equipos. No cambia nada al tocarlo: abre la confirmación (ModalApagado).
+ */
+function MiniInterruptor({ prendido, onClick, titulo, bloqueado }: { prendido: boolean; onClick: () => void; titulo: string; bloqueado?: boolean }) {
+    return (
+        <button type="button" role="switch" aria-checked={prendido} aria-label={titulo} disabled={bloqueado}
+            onClick={(e) => { e.stopPropagation(); if (!bloqueado) onClick(); }}
+            data-tooltip-id="tt-areas" data-tooltip-content={titulo}
+            className={cn("relative h-4 w-7 shrink-0 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
+                prendido ? "bg-[var(--bien)]" : "bg-muted-foreground/35")}>
+            <span className={cn("absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-all", prendido ? "left-[14px]" : "left-0.5")} />
+        </button>
+    );
+}
+
+const PLURAL_TIPO: Record<string, [string, string]> = { CAMERA: ["cámara de intrusión", "cámaras de intrusión"], LPR_CAMERA: ["cámara LPR", "cámaras LPR"], NVR: ["NVR", "NVR"] };
+
+/** Lo que pasa al apagar o reactivar, dicho antes de hacerlo, con cuántos equipos y de qué tipo. */
+function ModalApagado({ pedido, equipos, aplicando, onConfirmar, onCancelar }: {
+    pedido: { clave: string; titulo: string; apagar: boolean } | null; equipos: any[]; aplicando: boolean; onConfirmar: () => void; onCancelar: () => void;
+}) {
+    const porTipo = new Map<string, number>();
+    for (const d of equipos) { const t = d.deviceType === "LPR_INTERIOR" ? "LPR_CAMERA" : d.deviceType; porTipo.set(t, (porTipo.get(t) || 0) + 1); }
+    const apagar = !!pedido?.apagar;
+    const hayNvr = (porTipo.get("NVR") || 0) > 0;
+    const PARA = apagar ? [
+        "Su video en vivo: se cierran sus streams y go2rtc deja de conectarse a las cámaras.",
+        "OmniVision no las analiza: ni detecciones, ni reglas, ni búsqueda.",
+        "omni-lpr no lee sus matrículas.",
+        "No se les consulta la salud ni se sondean sus eventos.",
+    ] : [
+        "Se vuelve a registrar su video en vivo.",
+        "OmniVision y omni-lpr las vuelven a mirar (si estaban elegidas).",
+        "Vuelve la consulta de salud y el sondeo de eventos.",
+    ];
+    const QUEDA = [
+        "No se borra nada: equipos, reglas, calibraciones y áreas quedan como están.",
+        "Las cámaras y el NVR siguen grabando como siempre: los clips de la grabación siguen disponibles.",
+        "Las alarmas que una cámara mande por su cuenta pueden seguir llegando al receptor.",
+        ...(hayNvr ? ["Un NVR apagado no se consulta (salud, canales); sus grabaciones siguen sirviendo para los clips."] : []),
+    ];
+    return (
+        <Dialog open={!!pedido} onOpenChange={(o) => { if (!o) onCancelar(); }}>
+            <DialogContent showCloseButton={false} className="sm:max-w-[460px] p-0 gap-0 overflow-hidden rounded-[14px]">
+                <div className="px-6 pt-6 pb-4 flex items-start gap-3.5">
+                    <span className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-full", apagar ? "bg-[color-mix(in_oklab,var(--mal)_14%,transparent)] tono-mal" : "bg-[color-mix(in_oklab,var(--bien)_14%,transparent)] tono-bien")}>
+                        {apagar ? <PowerOff size={20} /> : <Power size={20} />}
+                    </span>
+                    <div className="min-w-0">
+                        <DialogTitle className="text-[17px] font-bold leading-tight">{apagar ? "Apagar" : "Reactivar"} «{pedido?.titulo}»</DialogTitle>
+                        <DialogDescription className="text-[12.5px] text-muted-foreground mt-1">
+                            {equipos.length ? <>{equipos.length} {equipos.length === 1 ? "equipo" : "equipos"}: {[...porTipo.entries()].map(([t, n]) => `${n} ${(PLURAL_TIPO[t] || [t, t])[n === 1 ? 0 : 1]}`).join(" · ")}</> : "Hoy no tiene equipos; los que se agreguen quedan " + (apagar ? "apagados." : "activos.")}
+                        </DialogDescription>
+                    </div>
+                </div>
+                {equipos.length > 0 && (
+                    <div className="px-6 pb-3 flex flex-wrap gap-1.5">
+                        {equipos.slice(0, 8).map((d) => <span key={d.id} className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-muted text-[11px] font-semibold max-w-[200px]"><IconoTipo tipo={d.deviceType === "LPR_INTERIOR" ? "LPR_CAMERA" : d.deviceType} size={11} /><span className="truncate">{d.name}</span></span>)}
+                        {equipos.length > 8 && <span className="inline-flex items-center h-6 px-2 rounded-full bg-muted text-[11px] text-muted-foreground">y {equipos.length - 8} más</span>}
+                    </div>
+                )}
+                <div className="px-6 py-4 space-y-4 border-t border-border bg-card/40">
+                    <div>
+                        <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1.5">{apagar ? "OmniAccess deja de" : "OmniAccess vuelve a"}</div>
+                        <ul className="space-y-1.5">{PARA.map((t) => <li key={t} className="flex gap-2 text-[12.5px] leading-snug"><span className={cn("mt-[0.45em] h-1.5 w-1.5 rounded-full shrink-0", apagar ? "bg-[var(--mal)]" : "bg-[var(--bien)]")} />{t}</li>)}</ul>
+                    </div>
+                    {apagar && (
+                        <div>
+                            <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Lo que no cambia</div>
+                            <ul className="space-y-1.5">{QUEDA.map((t) => <li key={t} className="flex gap-2 text-[12.5px] leading-snug text-muted-foreground"><Check size={13} className="mt-0.5 shrink-0" />{t}</li>)}</ul>
+                        </div>
+                    )}
+                    {apagar && <p className="text-[12px] text-muted-foreground">Se reactiva cuando quieras con el mismo interruptor.</p>}
+                </div>
+                <div className="px-6 py-4 border-t border-border flex items-center justify-end gap-2">
+                    <button type="button" onClick={onCancelar} disabled={aplicando} className="h-9 px-3.5 rounded-[6px] text-[12.5px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50">Cancelar</button>
+                    <button type="button" onClick={onConfirmar} disabled={aplicando}
+                        className={cn("h-9 px-4 rounded-[6px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-60", apagar ? "pleno-mal hover:brightness-110" : "bg-[var(--accion)] text-white hover:brightness-110")}>
+                        {aplicando ? <Loader2 size={14} className="animate-spin" /> : apagar ? <PowerOff size={14} /> : <Power size={14} />}
+                        {apagar ? `Apagar ${equipos.length || ""} ${equipos.length === 1 ? "equipo" : "equipos"}`.replace("  ", " ") : `Reactivar ${equipos.length || ""} ${equipos.length === 1 ? "equipo" : "equipos"}`.replace("  ", " ")}
+                    </button>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
 }

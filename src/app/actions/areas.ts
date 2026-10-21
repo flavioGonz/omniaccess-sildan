@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/app/actions/auth";
+import { APAGADO_SIN_AREA, CLAVE_APAGADOS, recalcularApagados } from "@/lib/apagado";
 
 /**
  * Áreas: un árbol para agrupar equipos (Portería › Garita P1, Perímetro › Norte, …).
@@ -14,7 +15,8 @@ import { getSession } from "@/app/actions/auth";
 const CLAVE = "DEVICE_AREAS";
 
 export type Area = { id: string; nombre: string; padre: string | null; orden: number; color: string };
-export type EstadoAreas = { areas: Area[]; equipos: Record<string, string> };
+/** `apagadas`: áreas, «Sin área» o tipos apagados (lib/apagado). */
+export type EstadoAreas = { areas: Area[]; equipos: Record<string, string>; apagadas?: string[] };
 
 const COLORES = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#0ea5e9", "#8b5cf6", "#ec4899", "#14b8a6"];
 
@@ -24,13 +26,42 @@ async function leer(): Promise<EstadoAreas> {
     try {
         const v = (await prisma.setting.findUnique({ where: { key: CLAVE } }))?.value;
         const j = v ? JSON.parse(v) : {};
-        return { areas: Array.isArray(j.areas) ? j.areas : [], equipos: j.equipos && typeof j.equipos === "object" ? j.equipos : {} };
-    } catch { return { areas: [], equipos: {} }; }
+        return { areas: Array.isArray(j.areas) ? j.areas : [], equipos: j.equipos && typeof j.equipos === "object" ? j.equipos : {}, apagadas: Array.isArray(j.apagadas) ? j.apagadas.map(String) : [] };
+    } catch { return { areas: [], equipos: {}, apagadas: [] }; }
 }
 async function escribir(e: EstadoAreas) {
+    // Un área borrada no queda apagada (su id ya no existe): limpiar para que no quede basura.
+    const vivas = new Set(e.areas.map((a) => a.id));
+    e.apagadas = (e.apagadas || []).filter((x) => vivas.has(x) || x === APAGADO_SIN_AREA || x.startsWith("tipo:"));
     const value = JSON.stringify(e);
     await prisma.setting.upsert({ where: { key: CLAVE }, update: { value }, create: { key: CLAVE, value } });
+    // Mover equipos o áreas puede meter un equipo en un área apagada (o sacarlo): se recalcula.
+    if (e.apagadas.length || (await hayApagadosGuardados())) await recalcularApagados(e).catch((er) => console.error("[areas] apagado:", er?.message));
     return e;
+}
+async function hayApagadosGuardados() {
+    try { const v = (await prisma.setting.findUnique({ where: { key: CLAVE_APAGADOS } }))?.value; return JSON.parse(v || "[]").length > 0; } catch { return false; }
+}
+
+/**
+ * Apaga o prende un área (id), «Sin área» (APAGADO_SIN_AREA) o un tipo («tipo:<vista>»). Pide el
+ * permiso Ajustes: deja sin vivo ni análisis a cámaras enteras.
+ */
+export async function apagarGrupo(clave: string, apagar: boolean): Promise<EstadoAreas & { resumen: { apagados: number; cambiaron: number } }> {
+    const s: any = await getSession();
+    if (!s) throw new Error("Hace falta una sesión del panel.");
+    const { permisosDeSesion } = await import("@/lib/permisos");
+    if (!permisosDeSesion(s).includes("ajustes")) throw new Error("Sólo quien tiene Ajustes puede apagar un área.");
+    const e = await leer();
+    const valida = clave === APAGADO_SIN_AREA || clave.startsWith("tipo:") || e.areas.some((a) => a.id === clave);
+    if (!valida) throw new Error("No existe eso para apagar.");
+    const set = new Set(e.apagadas || []);
+    if (apagar) set.add(clave); else set.delete(clave);
+    e.apagadas = [...set];
+    const value = JSON.stringify(e);
+    await prisma.setting.upsert({ where: { key: CLAVE }, update: { value }, create: { key: CLAVE, value } });
+    const r = await recalcularApagados(e);
+    return { ...e, resumen: { apagados: r.apagados, cambiaron: apagar ? r.apagadosAhora.length : r.prendidosAhora.length } };
 }
 const id = () => "ar_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 /** ¿`posible` está dentro del subárbol de `raiz`? (para no colgar un área de su propia rama) */

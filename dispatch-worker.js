@@ -165,9 +165,12 @@ function stopRecorder(deviceId, borrar) {
 /** El conjunto { deviceId → stream RTSP } que tiene que estar grabando ahora. */
 async function conjuntoAGrabar() {
     const quiero = new Map();
+    // Los de un área apagada (Dispositivos, lib/apagado.ts) no se graban.
+    let apagados = new Set();
+    try { apagados = new Set(JSON.parse(await getSetting("EQUIPOS_APAGADOS", "[]") || "[]").map(String)); } catch {}
     // Cámaras de fila (el primer barrio): como siempre.
     const filas = await prisma.device.findMany({ where: { deviceType: "QUEUE_COUNTER" }, select: { id: true, ip: true } });
-    for (const d of filas) if (d.ip) quiero.set(d.id, `rtsp://127.0.0.1:8554/bosch_${String(d.ip).replace(/\./g, "_")}`);
+    for (const d of filas) if (d.ip && !apagados.has(d.id)) quiero.set(d.id, `rtsp://127.0.0.1:8554/bosch_${String(d.ip).replace(/\./g, "_")}`);
     // Cámaras sin NVR alcanzadas por una regla activa, sólo si el clip en alertas está prendido:
     // con el interruptor apagado ningún clip se va a pedir y grabar sería CPU y disco tirados.
     if ((await getSetting("DISPATCH_ANIMATED", "false")) !== "true") return quiero;
@@ -188,6 +191,7 @@ async function conjuntoAGrabar() {
         select: { id: true, ip: true },
     });
     for (const d of devs) {
+        if (apagados.has(d.id)) continue;
         if (d.ip && mapa[d.ip]) continue; // tiene NVR: el clip sale de la grabación
         quiero.set(d.id, `rtsp://127.0.0.1:8554/lpr_${d.id}`);
     }

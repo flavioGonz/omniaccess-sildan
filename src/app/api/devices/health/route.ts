@@ -116,7 +116,10 @@ export async function GET() {
             select: { id: true, ip: true, username: true, password: true, authType: true, deviceType: true },
         });
         const streams = await go2rtcStreams();
-        const results = await Promise.all(devices.map((d) => probe(d, streams).catch(() => ({ id: d.id, reachable: false }))));
+        // Un equipo de un área apagada no se consulta: se informa como apagado (lib/apagado).
+        const { equiposApagados } = await import("@/lib/apagado");
+        const apagados = await equiposApagados();
+        const results = await Promise.all(devices.map((d) => apagados.has(d.id) ? Promise.resolve({ id: d.id, reachable: null, apagado: true } as any) : probe(d, streams).catch(() => ({ id: d.id, reachable: false }))));
         const map: Record<string, any> = {};
         for (const r of results) map[r.id] = r;
         return NextResponse.json({ ok: true, ts: Date.now(), devices: map });

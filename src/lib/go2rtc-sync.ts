@@ -119,6 +119,34 @@ async function writeStreamSolo(name: string, src: string): Promise<void> {
     } catch { }
 }
 
+/**
+ * Quita streams de go2rtc (del yaml y en caliente). Lo usa el apagado de un área (lib/apagado):
+ * un equipo apagado no tiene vivo, y go2rtc no le abre conexiones a la cámara.
+ */
+export async function quitarStreams(nombres: string[]): Promise<void> {
+    if (!nombres.length) return;
+    try {
+        if (fs.existsSync(CONFIG)) {
+            const doc: any = (yaml.load(fs.readFileSync(CONFIG, "utf8")) as any) || {};
+            if (doc.streams && typeof doc.streams === "object") {
+                let cambio = false;
+                for (const n of nombres) if (n in doc.streams) { delete doc.streams[n]; cambio = true; }
+                if (cambio) {
+                    try { fs.copyFileSync(CONFIG, `${CONFIG}.bak.auto.${Date.now()}`); } catch { }
+                    fs.writeFileSync(CONFIG, yaml.dump(doc, { lineWidth: 400 }), "utf8");
+                }
+            }
+        }
+    } catch (e) { console.error("[go2rtc-sync] yaml:", (e as any)?.message); }
+    for (const n of nombres) {
+        try {
+            const c = new AbortController(); const t = setTimeout(() => c.abort(), 5000);
+            await fetch(`${GO2RTC}/api/streams?src=${enc(n)}`, { method: "DELETE", signal: c.signal });
+            clearTimeout(t);
+        } catch { }
+    }
+}
+
 async function writeStreams(name: string, nameHd: string, sd: string, hd: string): Promise<void> {
     // 1) Persistir en go2rtc.yaml
     try {
@@ -157,6 +185,10 @@ export async function syncLprStream(dev: Dev): Promise<void> {
 
         const name = `lpr_${dev.id}`;
         const nameHd = `${name}_hd`;
+
+        // Un equipo de un área apagada no tiene vivo (lib/apagado): guardarlo no se lo vuelve a abrir.
+        const { equiposApagados } = await import("@/lib/apagado");
+        if ((await equiposApagados()).has(dev.id)) { await quitarStreams([name, nameHd]); return; }
 
         // Cámaras interiores (intrusión de San Nicolás): traen su RTSP escrito a mano
         // (cualquier marca/canal), se usa tal cual y no se arma desde la IP. El mismo

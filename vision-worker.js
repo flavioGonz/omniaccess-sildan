@@ -234,7 +234,9 @@ async function leerAjustes() {
     await mandarTareas(apagadas);
     const analiticas = json(a, {});
     const elegidas = json(cams, []);
-    const equiposDb = await prisma.device.findMany({ where: { deviceType: { not: "NVR" } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+    // Los equipos de un área apagada (Dispositivos, lib/apagado.ts) no se miran: ni registro ni reglas.
+    const apagados = new Set(json(await ajuste("EQUIPOS_APAGADOS"), []).map(String));
+    const equiposDb = (await prisma.device.findMany({ where: { deviceType: { not: "NVR" } }, select: { id: true, name: true }, orderBy: { name: "asc" } })).filter((d) => !apagados.has(d.id));
     // Los canales de NVR elegidos se suman como «dispositivos» con su nombre guardado por la pantalla.
     const nombresCanal = json(nombres, {});
     const canalesNvr = (Array.isArray(elegidasCrudas(cams)) ? elegidasCrudas(cams) : []).filter((id) => CANAL_NVR.test(id)).map((id) => ({ id, name: nombresCanal[id] || id }));
@@ -273,7 +275,7 @@ async function leerAjustes() {
         // «Todo de esa cámara» (15/10): la lista de VISION_CAMARAS decide también reglas, carril
         // rápido, verificación de intrusión, lecturas, relectura y zonas. Vacía = todos los equipos.
         todas: !(Array.isArray(elegidas) && elegidas.length),
-        permitidas: new Set(Array.isArray(elegidas) && elegidas.length ? elegidas.map(String) : equiposDb.map((d) => d.id)),
+        permitidas: new Set((Array.isArray(elegidas) && elegidas.length ? elegidas.map(String) : equiposDb.map((d) => d.id)).filter((id) => !apagados.has(id))),
         leidos: Date.now(),
     };
     reglero?.cargar(json(reglas, []), analiticas);

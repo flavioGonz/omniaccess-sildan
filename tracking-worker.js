@@ -421,8 +421,12 @@ async function camaras() {
                 trackLine: true, trackAcceso: true, direction: true,
             },
         });
+        // Los de un área apagada (Dispositivos, lib/apagado.ts) no se leen.
+        let apagados = new Set();
+        try { apagados = new Set(JSON.parse(await ajuste("EQUIPOS_APAGADOS", "[]") || "[]").map(String)); } catch { }
         for (const d of devs) {
             if (!d.rtspUrl || !d.rtspUrl.trim()) continue;
+            if (apagados.has(d.id)) continue;
             let roi = null;
             try { roi = d.trackRoi ? JSON.parse(d.trackRoi) : null; } catch { }
             let linea = null;

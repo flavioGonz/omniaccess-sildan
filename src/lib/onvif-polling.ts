@@ -519,12 +519,15 @@ export async function pollBoschDevices(): Promise<{
     const result = { devicesFound: 0, devicesPolled: 0, eventsCreated: 0, errors: [] as string[] };
 
     // Get all Bosch QUEUE_COUNTER devices
-    const devices = await prisma.device.findMany({
+    const { equiposApagados } = await import("@/lib/apagado");
+    const apagados = await equiposApagados();
+    // Los de un área apagada (Dispositivos) no se sondean.
+    const devices = (await prisma.device.findMany({
         where: {
             brand: "BOSCH",
             deviceType: "QUEUE_COUNTER",
         },
-    });
+    })).filter((d) => !apagados.has(d.id));
 
     result.devicesFound = devices.length;
     if (devices.length === 0) return result;
@@ -950,10 +953,12 @@ function subscribeEnvelope(consumerUrl: string, terminationSeconds = 120): strin
 
 async function subscribePushForAll() {
     try {
-        const devices = await prisma.device.findMany({
+        const { equiposApagados } = await import("@/lib/apagado");
+        const apagados = await equiposApagados();
+        const devices = (await prisma.device.findMany({
             where: { deviceType: "QUEUE_COUNTER", brand: "BOSCH" },
             select: { id: true, name: true, ip: true, username: true, password: true },
-        });
+        })).filter((d) => !apagados.has(d.id));
         const lentas = await ipsSoloHttp();
         for (const d of devices) {
             // Las de BOSCH_SOLO_HTTP no: van por una VPN y cada pedido le ocupa otra suscripción a la cámara.

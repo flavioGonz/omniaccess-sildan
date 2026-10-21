@@ -4,7 +4,7 @@ import { ChipModo } from "@/components/devices/ModoCamara";
 import { modoIntrusionDe } from "@/lib/modo-camara";
 
 import { useEffect, useMemo, useState } from "react";
-import { Radar, Server, BellRing, BellOff, Crosshair, Settings2, Trash2, Search, Loader2, Camera, Activity } from "lucide-react";
+import { Radar, Server, BellRing, BellOff, Crosshair, Settings2, Trash2, Search, Loader2, Camera, Activity, PowerOff } from "lucide-react";
 import { Tooltip } from "react-tooltip";
 import { cn } from "@/lib/utils";
 import { getIntrusionCameras, type IntrusionCam } from "@/app/actions/detections";
@@ -111,7 +111,8 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                                             : <span className="inline-flex items-center gap-1 text-[10px] font-bold text-muted-foreground" data-tooltip-id="tt-intr" data-tooltip-content="Todavía no se confirmó que le avise a OmniAccess. Se configura en el calibrador (control «Servidor»)."><BellOff size={12} /> Sin confirmar</span>}
                                     </td>
                                     <td className="text-center">
-                                        {h ? <span className={cn("inline-flex items-center gap-1.5 text-[10px] font-bold uppercase", h.reachable ? "text-emerald-500" : "text-red-500")}><span className={cn("w-1.5 h-1.5 rounded-full", h.reachable ? "bg-emerald-500" : "bg-red-500")} />{h.reachable ? "En línea" : "Sin respuesta"}</span>
+                                        {h?.apagado ? <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase text-muted-foreground"><PowerOff size={11} /> Apagado</span>
+                                            : h ? <span className={cn("inline-flex items-center gap-1.5 text-[10px] font-bold uppercase", h.reachable ? "text-emerald-500" : "text-red-500")}><span className={cn("w-1.5 h-1.5 rounded-full", h.reachable ? "bg-emerald-500" : "bg-red-500")} />{h.reachable ? "En línea" : "Sin respuesta"}</span>
                                             : <span className="text-[10px] text-muted-foreground">—</span>}
                                     </td>
                                     <td className="text-right pr-5">

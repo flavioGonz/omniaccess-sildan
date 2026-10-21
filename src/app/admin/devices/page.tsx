@@ -94,7 +94,7 @@ import {
     DropdownMenuLabel,
     DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, DownloadCloud, UploadCloud, Info } from "lucide-react";
+import { MoreHorizontal, DownloadCloud, UploadCloud, Info, PowerOff } from "lucide-react";
 import { Radar } from "lucide-react";
 import { getDevicesWithAnalytics } from "@/app/actions/detections";
 import {
@@ -695,6 +695,7 @@ export default function DevicesPage() {
                                             const probed = h && typeof h.reachable === "boolean";
                                             const on = probed ? h.reachable : ((lastPull > 0 && now - lastPull < 600000) || (lastPush > 0 && now - lastPush < 600000));
                                             const msg = probed ? (h.reachable ? `Responde · ${h.latencyMs ?? "?"} ms` : "Sin respuesta") : "Sin sondeo todavía";
+                                            if (h?.apagado) return <span className="h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit text-muted-foreground border-border bg-muted/40" data-tooltip-id="tt-grab" data-tooltip-content="Su área está apagada: OmniAccess no la consume (sin vivo, análisis ni consultas). Se reactiva desde el árbol de áreas."><PowerOff size={10} /> Apagado</span>;
                                             return (
                                                 <div className="inline-flex items-center gap-1">
                                                     <span className={cn("h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border", on ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/25" : "bg-red-500/10 text-red-500 border-red-500/25")}
