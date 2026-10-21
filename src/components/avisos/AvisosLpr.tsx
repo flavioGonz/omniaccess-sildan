@@ -1,5 +1,6 @@
 "use client";
 
+import { AVISOS_RETIRADOS } from "@/lib/vision-reglas";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -32,7 +33,8 @@ import { FichaDeEvento } from "@/components/eventos/FichaDeEvento";
 const AGRUPAR_MS = 5 * 60_000;
 /** Lo que no se decide queda como mucho este tiempo en pantalla (alerta). Lo crítico, hasta decidir. */
 const VIDA_ALERTA_MS = 30 * 60_000;
-const AVISOS_QUE_NO_SALTAN = new Set(["SIN_REGISTRAR"]);
+// Más los de las analíticas retiradas (lib/vision-reglas AVISOS_RETIRADOS): un aviso viejo no vuelve a saltar.
+const AVISOS_QUE_NO_SALTAN = new Set(["SIN_REGISTRAR", ...AVISOS_RETIRADOS]);
 const SENTIDO: Record<string, string> = { ENTRY: "entrada", EXIT: "salida" };
 /** La foto de una alarma de la lista: las rutas de la app tal cual; los archivos, por su ruta de imágenes. */
 const fotoDeAlarma = (f: string) => (f.startsWith("/") ? f : getImagePath(f) || null);

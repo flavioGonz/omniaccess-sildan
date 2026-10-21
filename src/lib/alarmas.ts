@@ -4,6 +4,7 @@ import { atenderAviso } from "@/lib/visitas/registro";
 import { ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
 import { avisarPorSocket } from "@/lib/avisar";
 import { registrarGestion } from "@/lib/gestion-alarma";
+import { AVISOS_RETIRADOS } from "@/lib/vision-reglas";
 
 /**
  * Gestión de alarmas (16/10, Nico: «un panel de gestión centralizado de todos los tipos de
@@ -87,7 +88,7 @@ export const RANGOS_ALARMAS_H = [24, 72, 168] as const;
  * barrio abierto (274 de 286 avisos pendientes en San Nicolás el 16/10) y tapaba todo lo demás.
  * Esos autos ya están en «Desconocidos dentro».
  */
-const AVISOS_QUE_NO_SON_ALARMA = ["SIN_REGISTRAR"];
+const AVISOS_QUE_NO_SON_ALARMA = ["SIN_REGISTRAR", ...AVISOS_RETIRADOS];
 /** Cuántas trae cada fuente como mucho: la lista es para atender, no un historial. */
 const MAX_POR_FUENTE = 400;
 

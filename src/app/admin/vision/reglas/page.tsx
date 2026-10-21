@@ -21,7 +21,7 @@ import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { EditorGeometria } from "@/components/vision/EditorGeometria";
 import {
-    TIPOS_REGLA, CLASES_OBJETO, CON_HORARIO, TIPOS_EVENTO, duracionCorta, FILA,
+    TIPOS_REGLA, CLASES_OBJETO, CON_HORARIO, TIPOS_EVENTO, duracionCorta, FILA, TIPOS_RETIRADOS,
     type ReglaVision, type TipoRegla, type Punto,
 } from "@/lib/vision-reglas";
 import { listaPropias, useNombresPropios } from "@/lib/nombres-propios";
@@ -431,8 +431,9 @@ function fotoCamara(id: string, w: number) {
 function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar, enGrupo }: { r: ReglaVision; camara: string; s?: Resumen; apagadaLab: boolean; alAbrir: () => void; alActivar: (v: boolean) => void; enGrupo?: boolean }) {
     const Ic = ICONO[r.tipo];
     const max = Math.max(1, ...(s?.porHora || [0]));
+    const retirada = TIPOS_RETIRADOS.includes(r.tipo);
     return (
-        <div className={cn("rounded-[10px] border border-border bg-card overflow-hidden flex flex-col", (!r.activa || apagadaLab) && "opacity-60")}>
+        <div className={cn("rounded-[10px] border border-border bg-card overflow-hidden flex flex-col", (!r.activa || apagadaLab || retirada) && "opacity-60")}>
             <button type="button" onClick={alAbrir} className="relative aspect-video bg-black overflow-hidden" aria-label={`Editar ${r.nombre}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={fotoCamara(r.deviceId, 320)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" />
@@ -441,6 +442,7 @@ function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar, enGrupo }:
                     {r.linea && <line x1={r.linea.a[0]} y1={r.linea.a[1]} x2={r.linea.b[0]} y2={r.linea.b[1]} stroke="var(--accion-en-oscuro)" strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinecap="round" />}
                 </svg>
                 <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 h-6 px-2 rounded-full bg-black/65 text-white text-[10.5px] font-semibold"><Ic size={11} /> {TIPOS_REGLA[r.tipo].nombre}</span>
+                {retirada && <span className="absolute right-1.5 top-1.5 h-6 px-2 rounded-full bg-black/65 text-white text-[10.5px] font-semibold inline-flex items-center" title="Esta analítica se retiró: la regla queda guardada pero no corre.">Retirada · no corre</span>}
                 {!r.linea && !(r.zona && r.zona.length >= 3) && <span className="absolute left-1.5 bottom-1.5 px-1.5 py-0.5 rounded-[5px] bg-black/65 text-white text-[10px]">Todo el cuadro</span>}
             </button>
             <div className="p-2.5 flex flex-col gap-1.5">
@@ -854,7 +856,7 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                         <CajonCampo etiqueta="Analítica">
                             <Desplegable valor={r.tipo} vacio="Elegí la analítica" ancho={440}
                                 alElegir={(v) => { setPlantilla(null); conTipo(v as TipoRegla); }}
-                                opciones={(Object.keys(TIPOS_REGLA) as TipoRegla[]).map((k) => {
+                                opciones={(Object.keys(TIPOS_REGLA) as TipoRegla[]).filter((k) => !TIPOS_RETIRADOS.includes(k) || k === r.tipo).map((k) => {
                                     const Ic = ICONO[k];
                                     return { valor: k, titulo: TIPOS_REGLA[k].nombre, detalle: FORMA[k], extra: TIPOS_REGLA[k].queHace,
                                         icono: <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-muted"><Ic size={15} /></span> };
@@ -862,7 +864,7 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                         </CajonCampo>
                         <CajonCampo etiqueta="Plantilla" ayuda="Una configuración de uso común: pone las clases, los tiempos, el horario y el aviso. Después se ajusta lo que haga falta.">
                             <Desplegable valor={plantilla} vacio="Empezar desde una plantilla" ancho={440} alElegir={usarPlantilla}
-                                opciones={PLANTILLAS.map((p) => {
+                                opciones={PLANTILLAS.filter((p) => !TIPOS_RETIRADOS.includes(p.tipo)).map((p) => {
                                     const Ic = ICONO[p.tipo];
                                     return { valor: p.id, titulo: p.nombre, detalle: p.que, extra: `Ej.: ${p.ejemplo}`,
                                         icono: <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-[color-mix(in_oklab,var(--accion)_12%,transparent)] text-[var(--accion)]"><Ic size={15} /></span> };
@@ -1121,7 +1123,7 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
                         <div>
                             <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Atajos</div>
                             <div className="flex flex-wrap gap-1.5">
-                                {PLANTILLAS.map((p) => {
+                                {PLANTILLAS.filter((p) => !TIPOS_RETIRADOS.includes(p.tipo)).map((p) => {
                                     const Ic = ICONO[p.tipo];
                                     return (
                                         <Pista key={p.id} titulo={p.nombre} texto={`${p.que} Ej.: ${p.ejemplo}`} ancho={280}>
@@ -1164,7 +1166,7 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
                                 <span className="text-[11.5px] text-muted-foreground">lo que dispara la regla</span>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {SITUACIONES.map((s) => {
+                                {SITUACIONES.filter((s) => !TIPOS_RETIRADOS.includes(s.tipo)).map((s) => {
                                     const no = porQueNo(s, grupos);
                                     const on = situacion === s.id;
                                     const apagada = !analiticas[s.tipo];
