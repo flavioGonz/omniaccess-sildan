@@ -2,6 +2,7 @@
 /* eslint-disable */
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useConfirmar } from "@/components/ui/use-confirmar";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     Activity, History as HistoryIcon, Map as MapIcon,
@@ -61,6 +62,8 @@ export default function GuardIphoneConsole({
     guards = []
 }: GuardIphoneConsoleProps) {
     const [activeTab, setActiveTab] = useState<TabType>("control");
+    // Confirmar en el cajón del panel, no con el confirm() del navegador (punto 6, 21/10).
+    const { confirmar, elemento: confirmacion } = useConfirmar();
     const [guardName, setGuardName] = useState("");
     const [guardPhoto, setGuardPhoto] = useState<string | null>(null);
     const [showIdentityOverlay, setShowIdentityOverlay] = useState(true);
@@ -715,6 +718,7 @@ export default function GuardIphoneConsole({
 
     return (
         <div className="fixed inset-0 bg-slate-50 text-slate-900 flex flex-col overflow-hidden font-sans">
+            {confirmacion}
             {/* Header - Hidden in Faces tab for full screen effect */}
             {activeTab !== "faces" && (
                 <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between shrink-0 z-50">
@@ -837,7 +841,8 @@ export default function GuardIphoneConsole({
                                                         <button
                                                             key={user.id}
                                                             onClick={() => {
-                                                                if (confirm(`¿Autocompletar con ${user.name}?`)) {
+                                                                // Tocar la sugerencia ya es elegirla: el confirm() de antes sólo agregaba un paso.
+                                                                {
                                                                     setName(user.name || "");
                                                                     setDni(user.dni || "");
                                                                     setDestination(user.unit || "");
@@ -2109,8 +2114,8 @@ export default function GuardIphoneConsole({
                                 </button>
 
                                 <button
-                                    onClick={() => {
-                                        if (confirm("¿Estás seguro que deseas cerrar sesión?")) {
+                                    onClick={async () => {
+                                        if (await confirmar({ titulo: "Cerrar la sesión de esta tablet", descripcion: "Para seguir hay que volver a elegir el guardia.", accion: "Cerrar la sesión" })) {
                                             localStorage.removeItem("bitacora_guard_name");
                                             localStorage.removeItem("bitacora_guard_photo");
                                             window.location.reload();

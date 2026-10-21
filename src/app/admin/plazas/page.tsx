@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { ConfirmarEnCajon } from "@/components/ui/cajon-confirmar";
 import { cn } from "@/lib/utils";
 import { IconBar } from "@/components/ui/icon-bar";
 import { getParkingSlots, saveParkingSlots, getParkingMap, uploadParkingMap, getParkingElements, saveParkingElements, getParkingOccupancy } from "@/app/actions/plazas";
@@ -83,6 +84,8 @@ export default function PlazasPage() {
 
 function PlazasContenido() {
     const [mapImage, setMapImage] = useState<string | null>(null);
+    /** «Resetear plano» se confirma en el cajón de confirmar (era un window.confirm). */
+    const [resetear, setResetear] = useState(false);
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [slots, setSlots] = useState<ParkingSlot[]>([]);
     const [units, setUnits] = useState<Unit[]>([]);
@@ -475,6 +478,16 @@ function PlazasContenido() {
     return (
         <TooltipProvider delayDuration={150}>
         <div className="w-full h-full relative bg-background overflow-hidden animate-in fade-in duration-700 flex items-center justify-center">
+            {resetear && (
+                <ConfirmarEnCajon id="plano" open onOpenChange={(v) => !v && setResetear(false)} title="Quitar el plano y lo dibujado"
+                    description="Se sacan de la vista el plano, las plazas, las calles y las entradas dibujadas. No se guarda nada hasta que uses Guardar." etiquetaAccion="Quitar"
+                    onDelete={async () => {
+                        setMapImage(null); setSlots([]); setImageDimensions({ width: 0, height: 0 });
+                        setElements({ entradas: [], salidas: [], calles: [] });
+                        setCurrentLine([]); setCurrentPoints([]);
+                        return { success: true };
+                    }} onSuccess={() => setResetear(false)} />
+            )}
             {/* ── LA BARRA ──────────────────────────────────────────────────────────
                 El mismo bloque "Icon bar" de Bencho que usa /admin/mapa, y por el mismo
                 motivo: las herramientas de dibujo son UNA SOLA selección, que es
@@ -503,13 +516,7 @@ function PlazasContenido() {
                             { key: "acercar", label: "Acercar", Icon: ZoomIn, onClick: () => setZoom((z) => Math.min(6, +(z + 0.3).toFixed(2))) },
                             {
                                 key: "resetear", label: "Resetear plano", Icon: Trash2,
-                                onClick: () => {
-                                    if (window.confirm("¿Quitar el plano y borrar plazas/calles/entradas dibujadas de la vista? (No se guarda hasta que uses Guardar)")) {
-                                        setMapImage(null); setSlots([]); setImageDimensions({ width: 0, height: 0 });
-                                        setElements({ entradas: [], salidas: [], calles: [] });
-                                        setCurrentLine([]); setCurrentPoints([]);
-                                    }
-                                },
+                                onClick: () => setResetear(true),
                             },
                         ]}
                         antes={

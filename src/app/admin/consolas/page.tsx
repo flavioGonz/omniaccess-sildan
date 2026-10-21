@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { sileo } from "sileo";
+import { ConfirmarEnCajon } from "@/components/ui/cajon-confirmar";
 import {
     Siren,
     MapPin,
@@ -172,9 +173,10 @@ export default function ConsolasAdminPage() {
     }, [socketRef.current]);
 
     // #200 Cerrar sesión de un guardia en su tablet (persistente + empujón por socket)
-    const cerrarSesionGuardia = async (guardName: string) => {
-        if (!guardName) return;
-        if (typeof window !== "undefined" && !window.confirm(`¿Cerrar la sesión del guardia "${guardName}" en su tablet?`)) return;
+    // Se confirma en el cajón de confirmar (era un window.confirm).
+    const [porCerrar, setPorCerrar] = useState<string | null>(null);
+    const cerrarSesionGuardia = (guardName: string) => { if (guardName) setPorCerrar(guardName); };
+    const cerrarSesionConfirmada = async (guardName: string) => {
         try { await forceGuardLogout(guardName); } catch { }
         try { socketRef.current?.emit("admin_force_logout", { guardName }); } catch { }
         try { sileo.info({ title: `Cerrando sesión de ${guardName}…` }); } catch { }
@@ -182,6 +184,11 @@ export default function ConsolasAdminPage() {
 
     return (
         <div className="p-6 space-y-4 animate-in fade-in duration-500">
+            {porCerrar && (
+                <ConfirmarEnCajon id={porCerrar} open onOpenChange={(v) => !v && setPorCerrar(null)} title={`Cerrar la sesión de ${porCerrar} en su tablet`}
+                    description="La consola del guardia vuelve a pedir usuario y clave." etiquetaAccion="Cerrar la sesión"
+                    onDelete={async (g) => { await cerrarSesionConfirmada(g); return { success: true }; }} onSuccess={() => setPorCerrar(null)} />
+            )}
             {/* Header uniforme (estilo Dispositivos) */}
             <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                 <div className="flex items-center gap-3">

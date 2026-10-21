@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Camera, CheckCircle2, CircleOff, FileSearch, ScanLine, TriangleAlert, Video, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Filtros } from "@/components/ui/filtros";
+import { ElegirCamara } from "@/components/devices/ElegirCamara";
+import { useAreas } from "@/lib/use-areas";
 import { Pista } from "@/components/ui/pista";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { getImagePath } from "@/lib/image-path";
@@ -66,6 +68,7 @@ export default function LecturasCamara() {
     const [error, setError] = useState<string | null>(null);
     const [h, setH] = useState("6");
     const [camara, setCamara] = useState("");
+    const areasDisp = useAreas();
     const [filtro, setFiltro] = useState<"" | Fila["estado"]>("");
     const [abierto, setAbierto] = useState<Fila | null>(null);
     /** Buscar en vivo por chapa (16/10): lo que leyó la cámara, sus variantes, lo que llegó y lo que releyó OmniVision. */
@@ -176,15 +179,9 @@ export default function LecturasCamara() {
                                 <Cifra n={r.desfasajeMs != null ? `${(r.desfasajeMs / 1000).toLocaleString("es-UY", { maximumFractionDigits: 1, signDisplay: "always" })} s` : "—"} rotulo="demora" ayuda="Evento − primera captura de la cámara (mediana)" />
                             </div>
                         ) : undefined}>
-                        <label className={cn("relative inline-flex items-center h-[34px] rounded-lg pl-2.5 pr-2 gap-1.5 text-[12px] font-semibold cursor-pointer", camara ? "bg-[var(--accion)] text-white" : "bg-muted/60 text-foreground")}>
-                            <Video size={14} strokeWidth={2.2} />
-                            <select value={camara} onChange={(e) => setCamara(e.target.value)} aria-label="Cámara"
-                                className="appearance-none bg-transparent outline-none pr-4 cursor-pointer max-w-[200px] truncate [&>option]:text-foreground [&>option]:bg-background">
-                                <option value="">Todas las cámaras</option>
-                                {(d?.camaras || []).map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.copia?.error ? " · sin copiar" : ""}</option>)}
-                            </select>
-                            <span className="pointer-events-none absolute right-2 text-[9px] opacity-70">▼</span>
-                        </label>
+                        {/* Con buscador y por área, como el resto (punto 6, 21/10): era un <select> nativo. */}
+                        <ElegirCamara variante="filtro" icono={Video} alinear="start" titulo="Cámara" valor={camara || null} alElegir={setCamara} todas="Todas las cámaras"
+                            areas={areasDisp.areas} camaras={(d?.camaras || []).map((c) => ({ id: c.id, nombre: c.nombre, areaId: areasDisp.equipoArea[c.id] || null, nota: c.copia?.error ? "sin copiar" : null, cuenta: c.total }))} />
                     </Filtros>
                 }
                 vacio={sinDatos

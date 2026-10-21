@@ -1,6 +1,7 @@
 "use client";
 
 import { MatriculaEnBase } from "@/components/registro/MatriculaEnBase";
+import { ConfirmarEnCajon } from "@/components/ui/cajon-confirmar";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
@@ -75,14 +76,23 @@ export default function InvitadosPage() {
         setBusy(c.guestId);
         try { await markEntry({ guestId: c.guestId, direction, method: "SEARCH", validatedBy: "Guardia" }); await refresh(); } finally { setBusy(null); }
     };
-    const doRevoke = async (c: GuestCard) => {
-        if (!confirm(`¿Revocar el pase de ${c.name || "este invitado"}? Dejará de validar en las garitas.`)) return;
+    // Revocar pide confirmación en el cajón de confirmar (era un confirm() del navegador).
+    const [porRevocar, setPorRevocar] = useState<GuestCard | null>(null);
+    const doRevoke = async (c: GuestCard) => setPorRevocar(c);
+    const revocar = async (c: GuestCard) => {
         setBusy(c.guestId);
-        try { await revokeInvitation(c.invitationId); await refresh(); } finally { setBusy(null); }
+        try { await revokeInvitation(c.invitationId); await refresh(); return { success: true }; }
+        catch (e: any) { return { success: false, error: e?.message || "No se pudo revocar" }; }
+        finally { setBusy(null); }
     };
 
     return (
         <div className="min-h-full p-4 sm:p-6 max-w-6xl mx-auto">
+            {porRevocar && (
+                <ConfirmarEnCajon id={porRevocar.guestId} open onOpenChange={(v) => !v && setPorRevocar(null)}
+                    title={`Revocar el pase de ${porRevocar.name || "este invitado"}`} description="El pase deja de validar en las garitas." etiquetaAccion="Revocar el pase"
+                    onDelete={() => revocar(porRevocar)} onSuccess={() => setPorRevocar(null)} />
+            )}
             <div className="flex flex-wrap items-center gap-3 mb-5">
                 <div className="flex items-center gap-2.5">
                     <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 grid place-items-center text-white shadow-lg"><Ticket size={20} /></div>

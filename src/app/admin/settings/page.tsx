@@ -2190,6 +2190,8 @@ function WhatsAppLink() {
     useEffect(() => { poll(); pollRef.current = setInterval(poll, 4000); return () => clearInterval(pollRef.current); }, []);
     useEffect(() => { if (st?.status !== "SCAN_QR_CODE") return; const iv = setInterval(() => setQrNonce(Date.now()), 15000); return () => clearInterval(iv); }, [st?.status]);
 
+    // Desvincular se confirma en el cajón de confirmar (era un confirm() del navegador).
+    const [desvincular, setDesvincular] = useState(false);
     const act = async (action: "restart" | "logout") => { setBusy(action); try { await fetch(`/api/wa/session?action=${action}`, { method: "POST" }); } finally { setTimeout(() => { setQrNonce(Date.now()); poll(); setBusy(null); }, 1500); } };
 
     const status = st?.status || "…";
@@ -2201,6 +2203,11 @@ function WhatsAppLink() {
     return (
         <div className={cn("rounded-2xl border p-6 h-full flex flex-col transition-colors",
             working ? "bg-emerald-500/5 border-emerald-500/30" : problem ? "bg-red-500/5 border-red-500/30" : "bg-card/50 border-border")}>
+            {desvincular && (
+                <ConfirmarAccion id="whatsapp" open onOpenChange={(v) => !v && setDesvincular(false)} title="Desvincular el WhatsApp"
+                    description="Los avisos y las invitaciones por WhatsApp dejan de salir hasta escanear el QR de nuevo." etiquetaAccion="Desvincular"
+                    onDelete={async () => { await act("logout"); return { success: true }; }} onSuccess={() => setDesvincular(false)} />
+            )}
             <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
                     <Smartphone className={cn(working ? "text-emerald-400" : "text-muted-foreground")} size={18} />
@@ -2220,7 +2227,7 @@ function WhatsAppLink() {
                         <p className="text-base font-extrabold text-foreground">WhatsApp activo{st?.me ? `: +${st.me.id}` : ""}</p>
                         {st?.me?.pushName && <p className="text-sm text-muted-foreground">{st.me.pushName}</p>}
                         <p className="text-[11px] text-muted-foreground mt-1.5">Los residentes ya pueden escribir <b>“invitar”</b> y los avisos salen solos.</p>
-                        <Button onClick={() => { if (confirm("¿Desvincular el WhatsApp? Vas a tener que escanear el QR de nuevo.")) act("logout"); }} disabled={busy === "logout"} variant="outline" className="mt-4 h-9 text-xs font-bold border-red-500/30 text-red-400 hover:bg-red-500/10">
+                        <Button onClick={() => setDesvincular(true)} disabled={busy === "logout"} variant="outline" className="mt-4 h-9 text-xs font-bold border-red-500/30 text-red-400 hover:bg-red-500/10">
                             {busy === "logout" ? <Loader2 size={14} className="animate-spin mr-1" /> : <LogOut size={14} className="mr-1" />} Desvincular
                         </Button>
                     </div>
