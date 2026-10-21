@@ -11,6 +11,8 @@
     "start:webhooks": "node server.js",
     "lint": "eslint .",
     "test": "npx playwright test",
+    "test:libs": "node scripts/probar.js",
+    "typecheck": "tsc --noEmit -p .",
     "test:ui": "npx playwright test --ui",
     "test:report": "npx playwright show-report"
   },
