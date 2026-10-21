@@ -82,6 +82,8 @@ const HORAS_FOTO = [24, 168, 720];
 const pareceObjeto = (q: string) => q.length >= 3 && /[a-záéíóúñ]{3,}/i.test(q) && !/^[A-Z]{2,4}\s?-?\d{3,5}$/i.test(q);
 /** Cuántas veces se consulta el avance del grabador (cada 1,5 s) antes de mostrar lo que haya. */
 const VUELTAS_GRABADOR = 80;
+/** Cuántas vueltas se insiste si el grabador sólo devuelve error (ver la búsqueda en el grabador). */
+const VUELTAS_ERROR_GRABADOR = 6;
 /** Las clases que nombra el grabador, en castellano. */
 const CLASE_GRABADOR: Record<string, string> = { vehicle: "Vehículo", human: "Persona", nonmotorVehicle: "Moto o bicicleta", twoWheelVehicle: "Moto o bicicleta" };
 
@@ -367,10 +369,19 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                 const a = await fetch(`/api/grabador/buscar?tareas=${encodeURIComponent(r.tareas)}&max=80`, { cache: "no-store" }).then((x) => x.json()).catch(() => null);
                 if (!vivo) return;
                 if (!a?.ok) { setNvr((v) => ({ estado: "error", progreso: v?.progreso || 0, hallazgos: v?.hallazgos || [], error: a?.error || "sin respuesta" })); return; }
-                setNvr({ estado: a.terminada ? "listo" : "buscando", progreso: a.progreso, hallazgos: a.hallazgos || [], error: a.errores?.[0] || null });
-                if (!a.terminada && vueltas < VUELTAS_GRABADOR) siguiente = setTimeout(paso, 1500);
+                /*
+                 * El grabador contesta «deviceError» si se le pregunta por la tarea apenas creada (medido
+                 * en los VPro de Otto Villa, 21/10: el primer pedido falla y el siguiente, un segundo
+                 * después, trae 200 resultados). Antes eso cortaba la búsqueda en «nada». Un error sin
+                 * resultados se reintenta unas vueltas; recién si persiste se muestra.
+                 */
+                const soloError = (a.errores?.length || 0) > 0 && !(a.hallazgos || []).length;
+                const seguir = (!a.terminada || (soloError && vueltas < VUELTAS_ERROR_GRABADOR)) && vueltas < VUELTAS_GRABADOR;
+                setNvr({ estado: seguir ? "buscando" : soloError ? "error" : "listo", progreso: a.progreso, hallazgos: a.hallazgos || [], error: a.errores?.[0] || null });
+                if (seguir) siguiente = setTimeout(paso, 1500);
             };
-            paso();
+            // La primera consulta, con un respiro: la tarea recién creada todavía no contesta.
+            siguiente = setTimeout(paso, 1500);
         }, 900);
         return () => { vivo = false; clearTimeout(arranque); clearTimeout(siguiente); };
     }, [grabador, buscar, desde, hasta, foto]);

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BellRing, Check, Loader2, RefreshCcw, Server, ShieldAlert, Wifi } from "lucide-react";
+import { BellRing, Check, Ear, Loader2, RefreshCcw, Server, ShieldAlert, Wifi } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
@@ -31,6 +32,23 @@ export function CajonServidorAlarma({ cam, onClose, onStatus }: { cam: Cam | nul
     const [dahua, setDahua] = useState(false);
     const [nvr, setNvr] = useState<{ ip: string; name: string; reachable: boolean } | null>(null);
     const [info, setInfo] = useState("");
+    /** OmniAccess va a buscar los eventos (escucha-eventos): para cuando la cámara no puede llamar. */
+    const [escucha, setEscucha] = useState<boolean | null>(null);
+    const [cambiandoEscucha, setCambiandoEscucha] = useState(false);
+    useEffect(() => {
+        if (!cam) return;
+        setEscucha(null);
+        fetch(`/api/devices/escucha?deviceId=${cam.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setEscucha(!!d.escucha)).catch(() => setEscucha(false));
+    }, [cam?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    const alternarEscucha = async (v: boolean) => {
+        if (!cam) return;
+        setCambiandoEscucha(true);
+        try {
+            const d = await fetch("/api/devices/escucha", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: cam.id, escuchar: v }) }).then((r) => r.json());
+            if (d.ok) setEscucha(v); else setAviso({ ok: false, texto: d.error || "No se pudo cambiar." });
+        } catch (e: any) { setAviso({ ok: false, texto: e?.message || "No se pudo cambiar." }); }
+        finally { setCambiandoEscucha(false); }
+    };
 
     const leer = useCallback(async () => {
         if (!cam) return;
@@ -126,6 +144,17 @@ export function CajonServidorAlarma({ cam, onClose, onStatus }: { cam: Cam | nul
                                         })}
                                     </div>
                                 )}
+                            </section>
+
+                            {/* 21/10, Otto Villa: la cámara ve a OmniAccess pero no puede llamarlo (la red no tiene ruta
+                                de vuelta; la prueba da «deviceError»). Entonces OmniAccess va a buscar los eventos. */}
+                            <section className="rounded-[10px] border border-border p-3.5 space-y-1.5">
+                                <label className="flex items-center gap-3 cursor-pointer">
+                                    <Ear size={16} className="text-muted-foreground shrink-0" />
+                                    <span className="flex-1 text-[13px] font-semibold">Escuchar los eventos desde OmniAccess</span>
+                                    {escucha === null || cambiandoEscucha ? <Loader2 size={14} className="animate-spin text-muted-foreground" /> : <Switch checked={escucha} onCheckedChange={alternarEscucha} />}
+                                </label>
+                                <p className="text-[12px] text-muted-foreground leading-snug">Para cuando la cámara no puede llamar a OmniAccess (la prueba falla porque la red no tiene ruta de vuelta): OmniAccess se conecta a la cámara y trae sus cruces y zonas. Si la cámara sí llega, dejalo apagado para no recibir cada evento dos veces.</p>
                             </section>
 
                             <section>

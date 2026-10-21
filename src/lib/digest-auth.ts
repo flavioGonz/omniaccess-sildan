@@ -6,6 +6,7 @@ import crypto from "crypto";
 import axios, { AxiosRequestConfig, Method } from "axios";
 import * as https from "https";
 import { hostHttp } from "@/lib/host-http";
+import { exigirEscritura } from "@/lib/solo-lectura";
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
@@ -94,6 +95,8 @@ export async function authenticatedRequest(
         timeout?: number;
     } = {}
 ): Promise<any> {
+    // Equipos de sólo lectura para este servidor (lib/solo-lectura): un pedido que cambie algo no sale.
+    exigirEscritura(device.ip || "", String(method), url);
     const username = device.username || "admin";
     const password = device.password || "";
     const host = await hostHttp(device.ip || "", device.httpPort);

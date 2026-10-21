@@ -71,7 +71,12 @@ export async function GET(req: NextRequest) {
                     return { ...h, id: `${gr.id}-${h.id}`, foto: px(h.foto), recorte: px(h.recorte), nvrId: gr.id, grabador: gr.nombre, deviceId: cam?.id || null, camara: cam?.nombre || `${gr.nombre} · canal ${h.canal}`, tipoCamara: cam?.tipo || null };
                 }),
             };
-        } catch (e: any) { return { terminada: true, progreso: 100, total: 0, hallazgos: [], error: `${gr.nombre}: ${e?.message || e}` }; }
+        } catch (e: any) {
+            // No se da por terminada: un VPro contesta «deviceError» el primer segundo de una tarea
+            // nueva. Quien consulta decide cuántas vueltas insiste (TablaUnificada).
+            console.error("[grabador/buscar]", gr.nombre, e?.message || e);
+            return { terminada: false, progreso: 0, total: 0, hallazgos: [], error: `${gr.nombre}: ${e?.message || e}` };
+        }
     }));
     return NextResponse.json({
         ok: true,
