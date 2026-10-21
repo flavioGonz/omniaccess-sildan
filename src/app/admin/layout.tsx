@@ -50,7 +50,6 @@ import {
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
-import { hasAcuSeekNvr } from "@/app/actions/acuseek";
 import { logout } from "@/app/actions/auth";
 import AforoAlertOverlay from "@/components/AforoAlertOverlay";
 import AlertaIntrusionGlobal from "@/components/intrusion/AlertaIntrusionGlobal";
@@ -118,7 +117,6 @@ export default function AdminLayout({
     // cada ítem pregunta por la clave de su pantalla. `ve` es sólo azúcar para leerlo.
     const ve = tiene;
     const [loggingOut, setLoggingOut] = useState(false);
-    const [acuseekOk, setAcuseekOk] = useState(false);
     const [modules, setModules] = useState<Record<ModuleId, boolean>>({
         MODULE_LPR: true,
         MODULE_FACE: false,
@@ -143,7 +141,6 @@ export default function AdminLayout({
     }, [pathname]);
     useEffect(() => {
         getEnabledModules().then(setModules).catch(() => { }).finally(() => setModulosListos(true));
-        hasAcuSeekNvr().then(setAcuseekOk).catch(() => {});
     }, []);
 
     const handleLogout = async () => {
@@ -263,7 +260,8 @@ export default function AdminLayout({
                             {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-amber-500/60 uppercase tracking-widest">LPR</div>}
                             {ve("vehiculos") && (<SidebarItem icon={<Car size={18} />} label="Vehículos / Matrículas" href="/admin/vehicles" active={pathname === "/admin/vehicles" || pathname === "/admin/credentials"} collapsed={collapsed} />)}
                             {ve("historial") && (<SidebarItem icon={<FileSearch size={18} />} label="Lecturas de cámara" href="/admin/lecturas-camara" active={pathname === "/admin/lecturas-camara"} collapsed={collapsed} />)}
-                            {acuseekOk && ve("acuseek") && (<SidebarItem icon={<Sparkles size={18} />} label="Búsqueda inteligente" href="/admin/acuseek" active={pathname === "/admin/acuseek"} collapsed={collapsed} />)}
+                            {/* «Búsqueda inteligente» salió del menú (21/10): mezclaba la búsqueda propia con la del grabador.
+                                Ahora vive en el buscador del Historial, con un botón por motor (OmniVision, Grabador IA). */}
                         </>
                     )}
 

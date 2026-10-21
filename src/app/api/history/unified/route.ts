@@ -373,7 +373,9 @@ export async function GET(req: NextRequest) {
      * se describe, y mandarla a SigLIP sólo trae ruido. Si omni-vision no contesta, se busca igual
      * con lo demás y se dice.
      */
-    const pareceDescripcion = buscar.length >= 3 && /[a-záéíóúñ]{3,}/i.test(buscar) && !/^[A-Z]{2,4}\s?-?\d{3,5}$/i.test(buscar);
+    // `omni=0`: el botón OmniVision del buscador apagado (21/10): sólo registros (y grabador, si lo pidió).
+    const conOmni = req.nextUrl.searchParams.get("omni") !== "0";
+    const pareceDescripcion = conOmni && buscar.length >= 3 && /[a-záéíóúñ]{3,}/i.test(buscar) && !/^[A-Z]{2,4}\s?-?\d{3,5}$/i.test(buscar);
     const [porBusquedaVision, semantica] = await Promise.all([
         buscar && pedirAccesos ? idsBusquedaVision(buscar, desde, hasta) : Promise.resolve([] as string[]),
         pareceDescripcion
@@ -614,6 +616,9 @@ export async function GET(req: NextRequest) {
     // `hay` dice si conviene pedir otra página: sobró al menos una de las que se pidieron
     // de más. Un total exacto exigiría contar las dos tablas con los mismos filtros y no
     // cambia nada de lo que se puede hacer con el resultado.
+    // El tipo de cámara de cada objeto parecido: decide en qué ficha se abre (intrusión o visor).
+    const idsObj = semantica && skip === 0 ? [...new Set(semantica.objetos.slice(0, OBJETOS_EN_FRANJA).map((o) => o.deviceId).filter(Boolean) as string[])] : [];
+    const tiposObjetos = new Map(idsObj.length ? (await prisma.device.findMany({ where: { id: { in: idsObj } }, select: { id: true, deviceType: true } })).map((d) => [d.id, String(d.deviceType)]) : []);
     return NextResponse.json({
         filas: pagina,
         hay: filas.length > skip + take,
@@ -630,6 +635,7 @@ export async function GET(req: NextRequest) {
             accesos: porSemantica.length,
             objetos: semantica.objetos.slice(0, OBJETOS_EN_FRANJA).map((o) => ({
                 id: o.id, camara: o.camara, clase: o.clase, grupo: o.grupo, momento: o.primeraVez.toISOString(), recorte: o.recorte, prob: Math.round(o.prob * 1000) / 1000,
+                deviceId: o.deviceId, foto: o.foto ?? null, caja: Array.isArray(o.caja) ? o.caja : null, tipoCamara: o.deviceId ? tiposObjetos.get(o.deviceId) || null : null,
             })),
         } : null,
     });

@@ -47,7 +47,7 @@ export async function vectorDeTexto(q: string): Promise<{ v: Float32Array; escal
     return { v: normalizar(v), escala: j.escala, sesgo: j.sesgo };
 }
 
-export type ObjetoParecido = { id: string; deviceId: string | null; camara: string; clase: string; grupo: string; primeraVez: Date; ultimaVez: Date; recorte: string | null; coseno: number; prob: number };
+export type ObjetoParecido = { id: string; deviceId: string | null; camara: string; clase: string; grupo: string; primeraVez: Date; ultimaVez: Date; recorte: string | null; foto?: string | null; caja?: any; coseno: number; prob: number };
 
 /**
  * Las pistas de OmniVision que se parecen a una frase, de la más parecida a la menos, con su
@@ -69,7 +69,7 @@ export async function objetosPorTexto(q: string, { desde, hasta, limite = 200 }:
     if (!puntos.length) return [];
     const filas = await prisma.objetoVisto.findMany({
         where: { id: { in: puntos.map((p) => p.id) } },
-        select: { id: true, deviceId: true, camara: true, clase: true, grupo: true, primeraVez: true, ultimaVez: true, recorte: true },
+        select: { id: true, deviceId: true, camara: true, clase: true, grupo: true, primeraVez: true, ultimaVez: true, recorte: true, foto: true, caja: true },
     });
     const porId = new Map(filas.map((f) => [f.id, f]));
     return puntos.map((p) => { const f = porId.get(p.id); return f ? { ...f, coseno: p.coseno, prob: p.prob } : null; }).filter(Boolean) as ObjetoParecido[];

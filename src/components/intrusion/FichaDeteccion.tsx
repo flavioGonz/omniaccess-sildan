@@ -79,7 +79,7 @@ const TEXTO_VEREDICTO: Record<string, string> = { mal: "visor-mal", aviso: "viso
 
 // El clip en loop vive en lib/clip-evento (lo comparte el panel del Monitor de Intrusión).
 
-export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion, onMarcar, zCapa, extraArriba, claveGestion, titulo, vision }: {
+export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion, onMarcar, zCapa, extraArriba, claveGestion, titulo, vision, hallazgo }: {
     det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void;
     onResolveAlarm?: (deviceId: string, kind: "real" | "false") => void; hasAlarm?: boolean;
     /** La cámara tiene una intrusión confirmada como real y sin resolver. */
@@ -102,6 +102,13 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     titulo?: string;
     /** Un aviso de OmniVision: ver FichaVision. */
     vision?: FichaVision | null;
+    /**
+     * Un resultado de búsqueda (21/10: lo que encontró OmniVision o el grabador desde el Historial),
+     * no una detección: se mira y se usa (grabación, vivo, parecidos, compartir), pero no se verifica,
+     * no se gestiona ni se marca, y no se recorren las detecciones de la cámara. `caja`: dónde está lo
+     * encontrado en la foto (0–1).
+     */
+    hallazgo?: { etiqueta: string; detalle?: string | null; caja?: { x: number; y: number; w: number; h: number } | null } | null;
 }) {
     const [cur, setCur] = useState<any>(det);
     /*
@@ -148,7 +155,8 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     }, [cur.deviceId, cur.ch, cam?.ch, cam?.nvrId]);
     const [sibs, setSibs] = useState<DetHistItem[]>([]);
     useEffect(() => { setCur(det); }, [det]);
-    useEffect(() => { if (!det.deviceId) { setSibs([]); return; } getDetectionHistory({ deviceId: det.deviceId, pageSize: 60 }).then((r) => setSibs(r.items)).catch(() => setSibs([])); }, [det.deviceId]);
+    const soloVer = !!hallazgo;
+    useEffect(() => { if (!det.deviceId || soloVer) { setSibs([]); return; } getDetectionHistory({ deviceId: det.deviceId, pageSize: 60 }).then((r) => setSibs(r.items)).catch(() => setSibs([])); }, [det.deviceId, soloVer]);
     useEffect(() => { setFoto("captura"); setProporcion(AR_VENTANA); setModo("foto"); setClipGrab(false); }, [cur.id]);
     useEffect(() => {
         if (modo !== "vivo" || !cur.deviceId) return;
@@ -169,13 +177,13 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
        vision-worker avisa que la terminó (una detección recién llegada todavía se está mirando). */
     const [verif, setVerif] = useState<Verificacion | null>(null);
     const pedirVerif = useCallback(() => {
-        if (!real || claveGestion) return;
+        if (!real || claveGestion || soloVer) return;
         fetch(`/api/monitor/intrusion/verificacion?ids=${encodeURIComponent(cur.id)}`, { cache: "no-store" })
             .then((r) => (r.ok ? r.json() : {})).then((j: Record<string, Verificacion>) => setVerif(j?.[cur.id] || null)).catch(() => { });
-    }, [cur.id, real, claveGestion]);
+    }, [cur.id, real, claveGestion, soloVer]);
     useEffect(() => { setVerif(null); pedirVerif(); }, [pedirVerif]);
     useTiempoReal("detection_verified", (x: any) => { if (x?.id && x.id === cur.id) pedirVerif(); });
-    const { analisis: alrededor, error: errorAlrededor } = useAnalisisDeteccion(real && !claveGestion ? cur.id : null);
+    const { analisis: alrededor, error: errorAlrededor } = useAnalisisDeteccion(real && !claveGestion && !soloVer ? cur.id : null);
 
     const m0 = META_DETECCION[cur.type] || META_DETECCION.OTHER;
     const m = titulo ? { ...m0, label: titulo } : m0;
@@ -191,7 +199,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     const capa = enPropio ? propio : verif?.analisis || null;
     const g = useMemo(() => geomDeIntrusion(geom as any), [geom]);
     const ver = verif?.veredicto ? VEREDICTOS[verif.veredicto] : null;
-    const verificando = !verif?.estado && real && !claveGestion && Date.now() - new Date(cur.timestamp).getTime() < VERIFICANDO_MS;
+    const verificando = !verif?.estado && real && !claveGestion && !soloVer && Date.now() - new Date(cur.timestamp).getTime() < VERIFICANDO_MS;
     const momento = new Date(cur.timestamp);
 
     const alarmaPendiente = !!(hasAlarm && cur.deviceId && onResolveAlarm);
@@ -232,7 +240,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
 
     /* La nota de gestión de esta detección (la misma que en Gestión de alarmas). Lo escrito se
        guarda también al decidir, para que la decisión no quede sin su porqué. */
-    const nota = usarNotaGestion(real ? claveGestion || `d:${cur.id}` : null);
+    const nota = usarNotaGestion(real && !soloVer ? claveGestion || `d:${cur.id}` : null);
     const conNota = (f: () => unknown) => () => { f(); if (nota.sucia) void nota.guardar(); };
     /* La nota se abre a pedido (16/10, Nico: «sólo debe abrirse al presionar el botón»): siempre a
        la vista tapaba las detecciones de la columna izquierda. Flota abajo al centro, sobre la foto. */
@@ -295,7 +303,12 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                 className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-500", clipVisible ? "opacity-100" : "opacity-0")} />
                         )}
                         {/* Las reglas de la CÁMARA no van sobre un aviso de OmniVision: dibujaban líneas que no tenían nada que ver. */}
-                        {!oculto && !vision && <GeomOverlay geom={geom} alert={alarmaPendiente || atencionAbierta} />}
+                        {!oculto && !vision && !hallazgo && <GeomOverlay geom={geom} alert={alarmaPendiente || atencionAbierta} />}
+                        {/* Dónde está lo encontrado. */}
+                        {!oculto && hallazgo?.caja && !enVideo && (
+                            <span className="absolute z-[7] rounded-[4px] ring-2 ring-[var(--quieto)] shadow-[0_0_0_9999px_rgba(0,0,0,0.25)] pointer-events-none"
+                                style={{ left: `${hallazgo.caja.x * 100}%`, top: `${hallazgo.caja.y * 100}%`, width: `${hallazgo.caja.w * 100}%`, height: `${hallazgo.caja.h * 100}%` }} />
+                        )}
                         {!oculto && conCapa && <CapaComportamiento m={enVideo ? { zona: vision!.marcas.zona, linea: vision!.marcas.linea } : vision!.marcas} className="z-[6]" />}
                         {/* Las siluetas son de la foto: sobre el video no coinciden. */}
                         {!oculto && verSiluetas && capa && !enVideo && <CapaAnalisis analisis={capa} geom={g} className="z-[6]" />}
@@ -394,7 +407,17 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     oculto && "opacity-0 pointer-events-none")}>
                     <div className="my-auto flex flex-col gap-3 py-2 visor-sombra-texto">
                         {/* El veredicto de OmniVision, en grande: es lo primero que se quiere saber. */}
-                        {!vision && <div className="flex items-start gap-3">
+                        {/* Un resultado de búsqueda: qué es y de dónde salió, en lugar del veredicto. */}
+                        {hallazgo && (
+                            <div className="flex items-start gap-3">
+                                <span className="mt-1.5 w-2.5 h-2.5 rounded-full shrink-0 bg-[var(--quieto)]" />
+                                <div className="min-w-0">
+                                    <div className="text-[22px] font-bold leading-tight">{hallazgo.etiqueta}</div>
+                                    {hallazgo.detalle && <p className="text-[12.5px] text-white/65 leading-snug mt-0.5">{hallazgo.detalle}</p>}
+                                </div>
+                            </div>
+                        )}
+                        {!vision && !hallazgo && <div className="flex items-start gap-3">
                             <span className="mt-1.5 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: ver ? TONO_VEREDICTO[ver.tono] : "rgba(255,255,255,0.3)" }} />
                             <div className="min-w-0">
                                 <div className={cn("text-[22px] font-bold leading-tight", ver ? TEXTO_VEREDICTO[ver.tono] : "text-white/70")}>
@@ -444,7 +467,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                         </Seccion>
 
                         {/* Quién la opera y lo que se hizo (16/10): tomarla, pasarla a un compañero, la bitácora. */}
-                        {real && (
+                        {real && !soloVer && (
                             <Seccion titulo="Gestión" icono={UserRound}>
                                 <GestionEnVivo clave={claveGestion || `d:${cur.id}`} deviceId={cur.deviceId} oscuro inicio={[
                                     { id: `origen-${cur.id}`, ts: cur.timestamp, por: cur.deviceName || cam?.name || "La cámara", texto: `detectó ${m.label.toLowerCase()}${clase ? ` · ${clase.toLowerCase()}` : ""}`, tipo: "origen" },
@@ -453,7 +476,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                             </Seccion>
                         )}
 
-                        {real && !claveGestion && (
+                        {real && !claveGestion && !soloVer && (
                             <Seccion titulo="Alrededor" icono={Clock}>
                                 {errorAlrededor ? <p className="text-[12.5px] text-white/55">No se pudo analizar: {errorAlrededor}</p>
                                     : !alrededor ? <p className="text-[12.5px] text-white/55 flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Mirando alrededor de esta detección…</p>

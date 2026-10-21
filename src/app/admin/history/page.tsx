@@ -13,7 +13,7 @@ import { TablaUnificada } from "@/components/history/TablaUnificada";
 import { BarraFiltros, SIN_FILTROS, type FiltrosHistorial, type CambiarFiltros } from "@/components/history/BarraFiltros";
 import { SelectorVista, useVista } from "@/components/history/MosaicoHistorial";
 import { useSiluetas } from "@/lib/use-siluetas";
-import { Sparkles, ScanSearch } from "lucide-react";
+import { Sparkles, ScanSearch, Server } from "lucide-react";
 import { BuscarObjetos } from "@/components/history/BuscarObjetos";
 import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
@@ -55,6 +55,23 @@ export default function HistoryPage() {
     const [chapasMerodeo, setChapasMerodeo] = useState<Set<string>>(new Set());
     /** Buscar un objeto por nombre en las fotos (vocabulario abierto, 17/10). */
     const [objetos, setObjetos] = useState(false);
+    /*
+     * Un solo buscador, con botones para los motores (21/10, Nico: «debe ser un solo buscador, con
+     * botones accionables a la derecha, para OmniVision y la búsqueda IA del NVR; el resultado, la
+     * misma tabla, grilla o bento»). Lo que se escribe siempre busca en los registros; OmniVision suma
+     * lo que vio parecido, y el grabador su búsqueda inteligente, si hay alguno que la tenga
+     * (/api/grabador/capacidades: no importa el fabricante). Se recuerda qué motores estaban prendidos.
+     */
+    const [conOmni, setConOmni] = useState(true);
+    const [conGrabador, setConGrabador] = useState(false);
+    const [grabadorPuede, setGrabadorPuede] = useState<{ texto: boolean; nombres: string } | null>(null);
+    useEffect(() => {
+        try { setConOmni(localStorage.getItem("historial.omni") !== "0"); setConGrabador(localStorage.getItem("historial.grabador") === "1"); } catch { }
+        fetch("/api/grabador/capacidades", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+            .then((j) => { if (j) setGrabadorPuede({ texto: !!j.texto, nombres: (j.grabadores || []).filter((x: any) => x.texto && x.activa).map((x: any) => x.nombre).join(", ") }); }).catch(() => { });
+    }, []);
+    const alternarOmni = () => setConOmni((v) => { try { localStorage.setItem("historial.omni", v ? "0" : "1"); } catch { } return !v; });
+    const alternarGrabador = () => setConGrabador((v) => { try { localStorage.setItem("historial.grabador", v ? "0" : "1"); } catch { } return !v; });
 
     useEffect(() => {
         getEnabledModules().then(modules => {
@@ -149,7 +166,7 @@ export default function HistoryPage() {
     return (
         <div className="p-6 lg:p-8 space-y-4 max-w-[1600px] mx-auto">
             {/* Renglón 1: qué es · buscador al centro · cómo se mira y acciones */}
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,440px)_minmax(0,1fr)] items-center gap-3">
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,640px)_minmax(0,1fr)] items-center gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                     <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-foreground text-background shrink-0"><History size={18} strokeWidth={2.3} /></span>
                     <div className="min-w-0">
@@ -168,7 +185,24 @@ export default function HistoryPage() {
                 </div>
 
                 <div ref={cajaBuscar} className="flex justify-center items-center gap-2 min-w-0">
-                    <Seek value={searchTerm} onChange={setSearchTerm} placeholder="Matrícula, persona, cámara o lo que vio OmniVision (moto blanca, chaleco)…  ( / )" startOpen width={380} alto={38} />
+                    <Seek value={searchTerm} onChange={setSearchTerm} placeholder="Matrícula, persona, cámara o qué se ve (moto blanca, chaleco)…  ( / )" startOpen width={340} alto={38} />
+                    {/* Los motores: además de los registros, quién más busca lo escrito. */}
+                    <span className="inline-flex items-center rounded-full border border-border p-0.5 h-[38px] shrink-0">
+                        <Pista titulo="OmniVision" texto="Suma a la lista lo que OmniVision vio parecido a lo que escribís (por cómo se ve, no por lo anotado). Va con distintivo violeta.">
+                            <button type="button" onClick={alternarOmni} aria-pressed={conOmni}
+                                className={cn("h-[32px] px-2.5 rounded-full inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors", conOmni ? "pleno-quieto" : "text-muted-foreground hover:text-foreground")}>
+                                <Sparkles size={14} /> OmniVision
+                            </button>
+                        </Pista>
+                        {grabadorPuede?.texto && (
+                            <Pista titulo="Búsqueda en el grabador" texto={`Le pide al grabador${grabadorPuede.nombres ? ` (${grabadorPuede.nombres})` : ""} que busque lo escrito en lo grabado, con su IA. Tarda unos segundos; lo que encuentra entra a la lista con distintivo celeste. Sin fecha elegida, mira los últimos días.`}>
+                                <button type="button" onClick={alternarGrabador} aria-pressed={conGrabador}
+                                    className={cn("h-[32px] px-2.5 rounded-full inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors", conGrabador ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground")}>
+                                    <Server size={14} /> Grabador IA
+                                </button>
+                            </Pista>
+                        )}
+                    </span>
                     {/* El otro buscador: no en lo anotado sino en las fotos, por nombre de objeto (vocabulario abierto). */}
                     <Pista titulo="Buscar objetos en las fotos" texto="Vocabulario abierto: vuelve a mirar las fotos buscando lo que escribas (carretilla, escalera, bolsa de basura), aunque no esté anotado. Usa el rango y las cámaras de los filtros.">
                         <button type="button" onClick={() => setObjetos((v) => !v)} aria-pressed={objetos} aria-label="Buscar objetos en las fotos"
@@ -233,6 +267,8 @@ export default function HistoryPage() {
                 onMerodeo={setChapasMerodeo}
                 onResumen={setResumen}
                 onCargado={alCargar}
+                omnivision={conOmni}
+                grabador={conGrabador && !!grabadorPuede?.texto}
             />
 
             <ExportHistoryDialog

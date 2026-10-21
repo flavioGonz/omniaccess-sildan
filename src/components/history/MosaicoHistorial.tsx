@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import { Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Loader2, ShieldAlert, Sparkles, XCircle } from "lucide-react";
+import { Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Loader2, Server, ShieldAlert, Sparkles, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { chapaDe, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 import { getImagePath } from "@/lib/image-path";
@@ -99,7 +99,7 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
                y con casi todas denegadas era una grilla de bordes rojos. Al pasar, el anillo
                azul marca cuál se va a abrir. */
             className={cn("group relative overflow-hidden rounded-[8px] bg-black text-left transition-[box-shadow] duration-200 hover:ring-2 hover:ring-[var(--accion)] focus-visible:ring-2 focus-visible:ring-[var(--accion)] outline-none [content-visibility:auto]",
-                f.ia && "ring-1 ring-[var(--quieto)]/70",
+                f.ia && (f.ia.fuente === "grabador" ? "ring-1 ring-sky-500/70" : "ring-1 ring-[var(--quieto)]/70"),
                 bento ? (grande ? "col-span-2 row-span-2" : "") : "aspect-video")}>
             {url ? (
                 /* La foto y sus siluetas en la misma caja: crecen juntas al pasar, si no se despegan. */
@@ -116,10 +116,15 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
             <span className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent" />
 
             <span className="absolute top-1.5 left-1.5 right-1.5 flex items-start justify-between gap-1">
-                {f.ia ? (
+                {f.ia?.fuente === "grabador" ? (
+                    /* Lo encontró el grabador (su búsqueda inteligente): celeste, para distinguirlo del de OmniVision. */
+                    <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] bg-sky-600 text-white" title={`Lo encontró el grabador${f.ia.grabador ? ` (${f.ia.grabador})` : ""} en lo grabado. Es un posible, no un registro.`}>
+                        <Server size={10} />{chica ? "NVR" : "Grabador · IA"}
+                    </span>
+                ) : f.ia ? (
                     /* Encontrado por la IA, no un registro: el distintivo violeta (21/10). */
                     <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] pleno-quieto" title="Encontrado por IA: OmniVision lo vio parecido a lo que buscaste. Es un posible, no un registro.">
-                        <Sparkles size={10} />{chica ? "IA" : "IA · parecido"}
+                        <Sparkles size={10} />{chica ? "IA" : "IA · OmniVision"}
                     </span>
                 ) : acceso ? (
                     <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]", denegado ? "pleno-mal" : "pleno-bien")}>
