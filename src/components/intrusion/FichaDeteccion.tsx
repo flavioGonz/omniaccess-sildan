@@ -5,8 +5,11 @@ import { useClipEvento } from "@/lib/clip-evento";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Check, ChevronLeft, ChevronRight, Clock, Cctv, Eye, EyeOff, ImageOff, Loader2, PlayCircle, Radar,
-    ScanEye, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen, Repeat, UserRound, Download, Image as IconoFoto, Radio,
+    ScanEye, ScanSearch, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen, Repeat, UserRound, Download, Image as IconoFoto, Radio,
 } from "lucide-react";
+import { AnimatePresence } from "framer-motion";
+import { BuscarParecidos } from "@/components/visor/BuscarParecidos";
+import { VerGrabacion } from "@/components/video/VerGrabacion";
 import { useAnalisisDeteccion } from "@/components/intrusion/AnalisisDeteccion";
 import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
 import { montarVivo } from "@/lib/vivo";
@@ -121,6 +124,10 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
      * la detección o de la cámara; si no viene, se pregunta (como el video de la alerta).
      */
     const [descarga, setDescarga] = useState(false);
+    /** Buscar parecidos, como en la ficha LPR (21/10, Nico: «también debe figurar en el modal de intrusión»). */
+    const [parecidos, setParecidos] = useState(false);
+    /** La grabación de OTRA cámara, abierta desde un resultado de «Buscar parecidos». */
+    const [grabacionDe, setGrabacionDe] = useState<{ deviceId: string; ms: number; camara: string } | null>(null);
     const [ventanaClip, setVentanaClip] = useState<VentanaClip | null>(null);
     const [canalClip, setCanalClip] = useState<{ ch: number; nvr: string | null } | null>(null);
     useEffect(() => { fetch("/api/playback/ventana", { cache: "no-store" }).then((r) => r.json()).then((d) => { if (d?.topes) setVentanaClip(d); }).catch(() => { }); }, []);
@@ -198,7 +205,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (compartir || descarga) return;
+            if (compartir || descarga || parecidos || grabacionDe) return;
             const t = e.target as HTMLElement | null;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
             // En la grabación las flechas, el espacio y la E son del reproductor; Esc vuelve a la foto.
@@ -351,27 +358,10 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                 <span className="text-white/30">·</span><span>{horaSeg(momento)}</span>
                             </p>
                         </div>
-                        {/* Acciones sobre la imagen, sólo íconos (16/10): lo que se ve encima y el clip en loop. */}
+                        {/* Las acciones sobre la imagen (OmniVision, el clip en loop y su ajuste) ya no van acá: todas
+                            en la píldora vertical de la derecha (21/10, Nico: «todos los íconos de acción de este modal
+                            deben estar en el pill vertical»). Al lado del título queda sólo el estado del loop. */}
                         <div className="flex items-center gap-1.5 shrink-0">
-                            {capa && (
-                                <BotonArriba activo={verSiluetas && !enVideo} onClick={() => setVerSiluetas(!verSiluetas)}
-                                    title={verSiluetas ? `Ocultar lo que detectó OmniVision (${capa.objetos.length})  ( O )` : `Mostrar lo que detectó OmniVision (${capa.objetos.length})  ( O )`}>
-                                    <Sparkles size={15} />
-                                    {capa.objetos.length > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-white text-black text-[9.5px] font-bold tabular-nums grid place-items-center">{capa.objetos.length}</span>}
-                                </BotonArriba>
-                            )}
-                            {real && cur.deviceId && (
-                                <BotonArriba activo={clipOn} onClick={() => cambiarClip(!clipOn)}
-                                    title={!clipOn ? `Ver en loop los ${ventanaFicha.antes} s antes de la foto  ( C )`
-                                        : clip.estado === "sin" ? `Sin clip: ${clip.motivo}. Tocá para ver sólo la foto  ( C )`
-                                            : clip.estado === "cargando" ? "Trayendo el clip del grabador…  ( C )" : `Clip en loop: ${ventanaFicha.antes} s antes de la foto. Tocá para ver sólo la foto  ( C )`}>
-                                    {clipOn && clip.estado === "cargando" ? <Loader2 size={15} className="animate-spin" /> : <Repeat size={15} />}
-                                    {clipOn && clip.estado === "sin" && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--aviso)] ring-2 ring-black/60" />}
-                                </BotonArriba>
-                            )}
-                            {/* Al lado del video en loop, el ajuste de cuánto trae (21/10, Nico: «debe tener acá el ícono
-                                para cambiar el tiempo de pre y post del video de fondo»): en la píldora vertical no se encontraba. */}
-                            {real && cur.deviceId && <AjusteVideoFicha lado="abajo-izq" />}
                             {enVideo && <span className="text-[11px] font-semibold text-white/70 visor-sombra-texto tabular-nums">En loop · {ventanaFicha.antes} s antes · {ventanaFicha.despues} s después</span>}
                             {clipOn && clip.estado === "sin" && <span className="text-[11px] text-white/50 visor-sombra-texto max-w-[220px] truncate" title={clip.motivo}>Sin clip: {clip.motivo}</span>}
                         </div>
@@ -544,16 +534,55 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     </div>
                 )}
 
-                {/* ── DERECHA · lo que se hace con la cámara ── */}
+                {/* ── DERECHA · todas las acciones, en la píldora vertical ──
+                    21/10, Nico: «todos los íconos de acción de este modal deben estar en el pill vertical a la
+                    derecha; controles de zoom etc. no deben estar ahí». El orden, como en la ficha LPR: ver
+                    (vivo, grabación), el video del evento y su ajuste, buscar y sacar (parecidos, clip,
+                    compartir), y lo que cambia lo que se ve encima (OmniVision, imagen limpia). Sin zoom. */}
                 <div className={cn("visor-zona absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5 transition-opacity",
                     oculto && "opacity-0 pointer-events-none")}>
-                    {cur.deviceId && real && <BotonRiel onClick={() => setModo("grabacion")} title="Ver la grabación de este momento, acá (con su regla y los eventos de la cámara)"><PlayCircle size={15} /></BotonRiel>}
                     {cur.deviceId && <BotonRiel onClick={() => setModo("vivo")} title="Ver la cámara en vivo, acá"><Cctv size={15} /></BotonRiel>}
+                    {cur.deviceId && real && <BotonRiel onClick={() => setModo("grabacion")} title="Ver la grabación de este momento, acá (con su regla y los eventos de la cámara)"><PlayCircle size={15} /></BotonRiel>}
+                    {real && cur.deviceId && (
+                        <>
+                            <span className="w-4 h-px bg-white/15" />
+                            <span className="relative">
+                                <BotonRiel activo={clipOn} onClick={() => cambiarClip(!clipOn)}
+                                    title={!clipOn ? `Ver en loop el video del evento (${ventanaFicha.antes} s antes, ${ventanaFicha.despues} s después)  ( C )`
+                                        : clip.estado === "sin" ? `Sin clip: ${clip.motivo}. Tocá para ver sólo la foto  ( C )`
+                                            : clip.estado === "cargando" ? "Trayendo el clip del grabador…  ( C )" : "Video del evento en loop. Tocá para ver sólo la foto  ( C )"}>
+                                    {clipOn && clip.estado === "cargando" ? <Loader2 size={15} className="animate-spin" /> : <Repeat size={15} />}
+                                </BotonRiel>
+                                {clipOn && clip.estado === "sin" && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--aviso)] ring-2 ring-black/60 pointer-events-none" />}
+                            </span>
+                            {/* Cuánto trae el video del evento, al lado del loop (sale hacia la izquierda). */}
+                            <AjusteVideoFicha />
+                        </>
+                    )}
+                    <span className="w-4 h-px bg-white/15" />
+                    {real && cur.snapshotPath && <BotonRiel onClick={() => setParecidos(true)} title="Buscar parecidos: recortar algo de la foto y buscarlo en todas las cámaras"><ScanSearch size={15} /></BotonRiel>}
                     {real && cur.deviceId && canalClip && ventanaClip && <BotonRiel onClick={() => setDescarga(true)} title={`Exportar un clip: bajarlo o mandarlo por WhatsApp (${ventanaClip.antes} s antes y ${ventanaClip.despues} s después)`}><Download size={15} /></BotonRiel>}
                     {real && cur.snapshotPath && <BotonRiel onClick={() => setCompartir(true)} title="Compartir por WhatsApp o Telegram"><Share2 size={15} /></BotonRiel>}
                     <span className="w-4 h-px bg-white/15" />
+                    {capa && (
+                        <span className="relative">
+                            <BotonRiel activo={verSiluetas && !enVideo} onClick={() => setVerSiluetas(!verSiluetas)}
+                                title={verSiluetas ? `Ocultar lo que detectó OmniVision (${capa.objetos.length})  ( O )` : `Mostrar lo que detectó OmniVision (${capa.objetos.length})  ( O )`}>
+                                <Sparkles size={15} />
+                            </BotonRiel>
+                            {capa.objetos.length > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accion)] text-white text-[9.5px] font-bold tabular-nums grid place-items-center pointer-events-none">{capa.objetos.length}</span>}
+                        </span>
+                    )}
                     <BotonRiel onClick={() => setLimpio(true)} title="Ver la imagen limpia, sin nada encima  ( H )"><EyeOff size={15} /></BotonRiel>
                 </div>
+
+                {/* Buscar parecidos baja como persiana dentro de esta ventana, como en la ficha LPR. */}
+                <AnimatePresence>
+                    {parecidos && cur.snapshotPath && (
+                        <BuscarParecidos key="parecidos" foto={cur.snapshotPath} instanteMs={momento.getTime()} onCerrar={() => setParecidos(false)}
+                            onVerGrabacion={(deviceId, ms, camara) => setGrabacionDe({ deviceId, ms, camara })} />
+                    )}
+                </AnimatePresence>
 
                 {/* Compartir: un cajón dentro de la ventana, como «Exportar clip». */}
                 {compartir && <CompartirEvento foto={cur.snapshotPath || null} deviceId={cur.deviceId || null} deviceName={cur.deviceName || cam?.name || null}
@@ -566,6 +595,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                 )}
             </div>
 
+            {grabacionDe && <VerGrabacion deviceId={grabacionDe.deviceId} nombre={grabacionDe.camara} instanteMs={grabacionDe.ms} onClose={() => setGrabacionDe(null)} />}
         </div>
     );
 }
@@ -582,21 +612,12 @@ function BotonDecision({ children, onClick, icono: Ico, tecla, grave, activo }: 
     );
 }
 
-/** Un botón de ícono arriba, sobre la foto. Prendido = azul: es una elección que se mantiene. */
-function BotonArriba({ children, onClick, title, activo }: { children: React.ReactNode; onClick: () => void; title: string; activo?: boolean }) {
+/** Un botón de la píldora de la derecha. Prendido (el loop, OmniVision) = el vidrio activo, como en la ficha LPR. */
+function BotonRiel({ children, onClick, title, activo }: { children: React.ReactNode; onClick: () => void; title: string; activo?: boolean }) {
     return (
         <button type="button" onClick={onClick} title={title} aria-label={title} aria-pressed={activo}
-            className={cn("relative w-9 h-9 rounded-full flex items-center justify-center transition-colors",
-                activo ? "bg-[var(--accion)] text-white" : "visor-vidrio text-white/80 hover:text-white")}>
-            {children}
-        </button>
-    );
-}
-
-function BotonRiel({ children, onClick, title }: { children: React.ReactNode; onClick: () => void; title: string }) {
-    return (
-        <button type="button" onClick={onClick} title={title} aria-label={title}
-            className="visor-vidrio w-9 h-9 rounded-full flex items-center justify-center text-white/85 hover:text-white">
+            className={cn("visor-vidrio w-9 h-9 rounded-full flex items-center justify-center",
+                activo ? "visor-vidrio-activo text-white" : "text-white/85 hover:text-white")}>
             {children}
         </button>
     );
