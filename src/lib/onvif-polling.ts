@@ -475,6 +475,18 @@ export async function pollBoschDevices(): Promise<{
 
         result.devicesPolled++;
 
+        // Con el push entregando, el PullPoint no se usa: no se crea ni se lee. HB, 21/10: el
+        // sondeo seguía pidiendo suscripciones cada 15 s aunque el push andaba; cada fallo dejaba
+        // una suscripción colgada en la cámara (Idx 0…6), y con más suscripciones el servicio de
+        // eventos de la Bosch se pone más lento (de 0,005 s a más de 12 s por pedido) y falla
+        // más — también la renovación del push, que es la que trae los datos. El sondeo queda
+        // sólo de respaldo: si el push calla más de PUSH_VIGENTE_MS, vuelve.
+        if (pushVigente(device.id)) {
+            consecutiveFailures.set(device.id, 0);
+            subscriptions.delete(device.id); // la vence la cámara sola; al volver se crea una nueva
+            continue;
+        }
+
         try {
             // Ensure we have an active subscription
             const sub = await ensureSubscription(device.id, device.ip, device.username, device.password);
@@ -835,7 +847,6 @@ let ritmoAnunciado: number | null = null;
 
 // ── ONVIF push (WS-BaseNotification): la cámara empuja eventos a /api/onvif/notify en vivo ──
 const ONVIF_PUSH_URL = process.env.ONVIF_PUSH_URL || "http://192.168.99.99:10001/api/onvif/notify";
-let pushRenewInterval: ReturnType<typeof setInterval> | null = null;
 
 function subscribeEnvelope(consumerUrl: string, terminationSeconds = 120): string {
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -846,6 +857,22 @@ function subscribeEnvelope(consumerUrl: string, terminationSeconds = 120): strin
  </wsnt:Subscribe></s:Body></s:Envelope>`;
 }
 
+/*
+ * La suscripción push se RENUEVA, no se pide una nueva cada vez. Antes cada 90 s salía un
+ * Subscribe nuevo de 120 s: dos suscripciones vivas a la vez (eventos repetidos en esos 30 s) y
+ * una más ocupando la cámara en cada vuelta. Ahora: una sola, de PUSH_DURACION_S, renovada cada
+ * PUSH_RENOVAR_MS — aguanta dos renovaciones falladas seguidas antes de vencer. Si la renovación
+ * falla o la cámara no dio dirección, recién ahí se pide una nueva.
+ */
+const PUSH_DURACION_S = 180;
+const PUSH_RENOVAR_MS = 60_000;
+/** La Bosch tarda en el servicio de eventos por rachas (HB: más de 12 s): 10 s cortaba de más. */
+const PUSH_TOPE_MS = 20_000;
+type RefPush = { direccion: string; ip: string };
+// En globalThis: Next carga este módulo más de una vez y cada copia renovaría la suya.
+const gPush = globalThis as unknown as { __refPush?: Map<string, RefPush>; __renuevaPush?: ReturnType<typeof setInterval> };
+const refsPush: Map<string, RefPush> = (gPush.__refPush ||= new Map());
+
 async function subscribePushForAll() {
     try {
         const devices = await prisma.device.findMany({
@@ -853,11 +880,24 @@ async function subscribePushForAll() {
             select: { id: true, name: true, ip: true, username: true, password: true },
         });
         for (const d of devices) {
+            if (!d.ip) continue;
+            const user = d.username || "admin", pass = d.password || "admin";
+            const ref = refsPush.get(d.id);
+            if (ref && ref.ip === d.ip) {
+                try {
+                    await httpsRequest(ref.direccion, renewSubscriptionEnvelope(PUSH_DURACION_S), user, pass, PUSH_TOPE_MS);
+                    continue; // renovada: nada más que hacer
+                } catch (e: any) {
+                    console.warn(`[ONVIF-Push] Renovación falló ${d.name}: ${e?.message || e} — pido una nueva`);
+                    refsPush.delete(d.id);
+                }
+            }
             try {
-                await httpsRequest(`https://${d.ip}/onvif/events_service`,
-                    subscribeEnvelope(ONVIF_PUSH_URL, 120),
-                    d.username || "admin", d.password || "admin", 10000);
-                console.log(`[ONVIF-Push] Subscribed ${d.name} -> ${ONVIF_PUSH_URL}`);
+                const resp = await httpsRequest(`https://${d.ip}/onvif/events_service`,
+                    subscribeEnvelope(ONVIF_PUSH_URL, PUSH_DURACION_S), user, pass, PUSH_TOPE_MS);
+                const dir = resp.match(/SubscriptionReference>\s*<[^>]*Address[^>]*>(https?:\/\/[^<]+)</);
+                if (dir) refsPush.set(d.id, { direccion: dir[1].trim(), ip: d.ip });
+                console.log(`[ONVIF-Push] Subscribed ${d.name} -> ${ONVIF_PUSH_URL}${dir ? ` (renovable en ${dir[1].trim()})` : " (sin dirección: se pedirá otra)"}`);
             } catch (e: any) {
                 console.warn(`[ONVIF-Push] Subscribe failed ${d.name}: ${e?.message || e}`);
             }
@@ -866,8 +906,9 @@ async function subscribePushForAll() {
 }
 
 export async function startPushSubscriptions() {
+    if (gPush.__renuevaPush) return; // ya hay una copia renovando
+    gPush.__renuevaPush = setInterval(() => { subscribePushForAll().catch(() => {}); }, PUSH_RENOVAR_MS);
     await subscribePushForAll();
-    if (!pushRenewInterval) pushRenewInterval = setInterval(() => { subscribePushForAll().catch(() => {}); }, 90000);
 }
 
 export function startAutoPolling(intervalMs = RITMO_ACTIVO_MS) {
