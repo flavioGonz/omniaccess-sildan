@@ -14,7 +14,7 @@ export async function getMapConfig() {
     return { ...DEFAULT, bgUrl: m.MAP_BG_URL || "", photo };
 }
 
-export async function saveMapConfig(cfg: { mode?: string; bgUrl?: string; photo?: any[]; geo?: any[]; center?: any }) {
+export async function saveMapConfig(cfg: { mode?: string; bgUrl?: string; photo?: any[]; geo?: any[]; center?: any; tiles?: string; bright?: number }) {
     const current = await getMapConfig();
     const merged = { ...current, ...cfg };
     await prisma.setting.upsert({ where: { key: "MAP_CONFIG" }, update: { value: JSON.stringify(merged) }, create: { key: "MAP_CONFIG", value: JSON.stringify(merged) } });

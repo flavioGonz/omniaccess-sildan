@@ -390,7 +390,7 @@ async function fireHealthAlert(deviceId: string, kind: string) {
         const dev = await prisma.device.findUnique({ where: { id: deviceId }, select: { name: true, ip: true, username: true, password: true } });
         if (!dev) return;
         let snapshotPath: string | null = null;
-        try { snapshotPath = await grabSnapshot(dev.ip, dev.username, dev.password, deviceId); } catch {}
+        try { snapshotPath = await grabSnapshot(dev.ip, dev.username || "admin", dev.password || "", deviceId); } catch {}
         const meta: any = ({
             tamper: { title: "Cámara movida o tapada", emoji: "🚧", desc: "La escena cambió drásticamente: la cámara pudo ser movida, girada o tapada. El aforo de esta fila puede no ser confiable." },
             bright: { title: "Imagen demasiado clara", emoji: "🔆", desc: "Imagen sobreexpuesta (sol/contraluz). El conteo puede ser poco fiable." },

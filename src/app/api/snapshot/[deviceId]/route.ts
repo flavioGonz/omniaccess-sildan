@@ -143,7 +143,7 @@ export async function GET(
         if (!imageBuffer) imageBuffer = await nvrSnapshot(deviceId);
         if (!imageBuffer) imageBuffer = await go2rtcFrameRetry(deviceId);
         if (!imageBuffer) return new NextResponse("No snapshot available", { status: 502 });
-        return new NextResponse(imageBuffer, {
+        return new NextResponse(new Uint8Array(imageBuffer), {
             status: 200,
             headers: {
                 "Content-Type": "image/jpeg",

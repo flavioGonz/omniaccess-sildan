@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
         if (!nvr?.ip) return new NextResponse("forbidden host", { status: 403 });
 
         const { buf, contentType } = await fetchAcuSeekImage(nvr, u);
-        return new NextResponse(buf, { status: 200, headers: { "Content-Type": contentType, "Cache-Control": "private, max-age=3600" } });
+        return new NextResponse(new Uint8Array(buf), { status: 200, headers: { "Content-Type": contentType, "Cache-Control": "private, max-age=3600" } });
     } catch (e: any) {
         return new NextResponse("image error", { status: 502 });
     }

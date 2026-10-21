@@ -609,7 +609,7 @@ function MovablePip({ children, defaultW = 208, ring = "ring-white/15" }: { chil
         }
     };
     const end = (e: React.PointerEvent) => { d.current = null; try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { } };
-    const style: React.CSSProperties = st.x == null ? { right: 16, top: 64, width: st.w } : { left: st.x, top: st.y, width: st.w };
+    const style: React.CSSProperties = st.x == null ? { right: 16, top: 64, width: st.w } : { left: st.x, top: st.y ?? 64, width: st.w };
     return (
         <div ref={el} style={style} onPointerMove={onMove} onPointerUp={end} onPointerCancel={end}
             className={cn("absolute z-30 aspect-video rounded-xl overflow-hidden shadow-2xl ring-1 bg-black/60 select-none touch-none", ring)}>

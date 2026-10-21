@@ -124,7 +124,7 @@ function MovablePip({ children, defaultW = 208, ring = "ring-white/15" }: { chil
         }
     };
     const end = (e: React.PointerEvent) => { d.current = null; try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { } };
-    const style: React.CSSProperties = st.x == null ? { right: 16, top: 64, width: st.w } : { left: st.x, top: st.y, width: st.w };
+    const style: React.CSSProperties = st.x == null ? { right: 16, top: 64, width: st.w } : { left: st.x, top: st.y ?? 64, width: st.w };
     return (
         <div ref={el} style={style} onPointerMove={onMove} onPointerUp={end} onPointerCancel={end}
             className={cn("absolute z-30 aspect-video rounded-xl overflow-hidden shadow-2xl ring-1 bg-black/60 select-none touch-none", ring)}>
@@ -197,7 +197,7 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
         try {
             if (!v.videoWidth || v.readyState < 2) return true;
             let c = sampleCanvas.current; if (!c) { c = document.createElement("canvas"); c.width = 8; c.height = 8; sampleCanvas.current = c; }
-            const ctx = c.getContext("2d", { willReadFrequently: true } as any); if (!ctx) return false;
+            const ctx = c.getContext("2d", { willReadFrequently: true }); if (!ctx) return false;
             ctx.drawImage(v, 0, 0, 8, 8);
             const d = ctx.getImageData(0, 0, 8, 8).data; let r = 0, g = 0, b = 0, n = 0;
             for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }

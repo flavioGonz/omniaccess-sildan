@@ -13,7 +13,7 @@ import { hora } from "@/lib/fechas";
 type WebhookLog = {
     id: string;
     timestamp: Date;
-    source: 'hikvision' | 'akuvox' | 'raw';
+    source: 'hikvision' | 'akuvox' | 'bosch' | 'raw';
     method: string;
     url: string;
     params: Record<string, any>;

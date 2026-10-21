@@ -268,7 +268,7 @@ const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", ico
 // Manija (vértice) para editar los puntos de una división guardada.
 const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab"></span>`, iconSize: [14, 14], iconAnchor: [7, 7] });
 // Ficha del evento de intrusión: imagen a sangre (sin borde) con datos y botones como overlay, borde rojo animado.
-function IntrAlertCard({ card, clip, onAck, onClose, onViewRec, soloLectura }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; clip: string | null; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void; soloLectura?: boolean }) {
+function IntrAlertCard({ card, clip, onAck, onClose, onViewRec, soloLectura }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; clip: string | null; onAck: (id: string, k: "real" | "false") => void; onClose: () => void; onViewRec?: () => void; soloLectura?: boolean }) {
     return (
         <div className="intr-alert-card">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -294,7 +294,7 @@ function IntrAlertCard({ card, clip, onAck, onClose, onViewRec, soloLectura }: {
     );
 }
 // Burbuja HTML anclada por proyección sobre la cámara (no usa Popup de Leaflet -> no parpadea).
-function IntrAlertBubble({ card, camList, cam, onAck, onClose, onViewRec, soloLectura }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; cam: { lat: number; lng: number }; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void; soloLectura?: boolean }) {
+function IntrAlertBubble({ card, camList, cam, onAck, onClose, onViewRec, soloLectura }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; cam: { lat: number; lng: number }; onAck: (id: string, k: "real" | "false") => void; onClose: () => void; onViewRec?: () => void; soloLectura?: boolean }) {
     const map = useMap();
     const ref = useRef<HTMLDivElement | null>(null);
     const posRef = useRef({ lat: cam.lat, lng: cam.lng });
