@@ -903,8 +903,12 @@ async function subscribePushForAll() {
                 } catch (e: any) {
                     // Mientras no venza, se reintenta renovar la misma: pedir otra apila suscripciones
                     // en la cámara, que es lo que la vuelve lenta. Sólo vencida se pide una nueva.
-                    if (ref.hasta - Date.now() > PUSH_RENOVAR_MS) { console.warn(`[ONVIF-Push] Renovación falló ${d.name}: ${e?.message || e} — reintento en ${PUSH_RENOVAR_MS / 1000} s`); continue; }
-                    console.warn(`[ONVIF-Push] Renovación falló ${d.name}: ${e?.message || e} — está por vencer, pido una nueva`);
+                    // Un 4xx/SOAP Fault es la cámara diciendo que esa suscripción no existe (se
+                    // reinició o la venció): reintentar la misma es perder minutos sin datos. Sólo
+                    // un timeout (la cámara lenta) justifica volver a probar con la misma.
+                    const noExiste = /^HTTPS 4\d\d/.test(String(e?.message || ""));
+                    if (!noExiste && ref.hasta - Date.now() > PUSH_RENOVAR_MS) { console.warn(`[ONVIF-Push] Renovación falló ${d.name}: ${e?.message || e} — reintento en ${PUSH_RENOVAR_MS / 1000} s`); continue; }
+                    console.warn(`[ONVIF-Push] Renovación falló ${d.name}: ${e?.message || e} — ${noExiste ? "la cámara no la conoce" : "está por vencer"}, pido una nueva`);
                     refsPush.delete(d.id);
                 }
             }
