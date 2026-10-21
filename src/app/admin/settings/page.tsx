@@ -193,12 +193,27 @@ const SETTINGS_SECTIONS = [
 ];
 
 const NAV_GROUPS = [
-    { id: "branding", label: "Branding", icon: Palette, items: [
-        { sec: "branding", btab: "identidad", label: "Identidad Corporativa", icon: Palette },
-        { sec: "branding", btab: "testimonios", label: "Testimonios Login", icon: MessageSquare },
-        { sec: "branding", btab: "reportes", label: "Reportes Exportables", icon: FileText },
-        { sec: "branding", btab: "pwa", label: "PWA e Iconos", icon: Smartphone },
-        { sec: "branding", btab: "splash", label: "PWA SplashScreen", icon: Smartphone },
+    /* Sistema va primero (21/10, Nico: «sistema que esté ordenado, sea el primer ítem de
+       Configuración»): es lo que se abre al entrar (Estado del sistema es la sección por defecto).
+       Ordenado por grupos con rótulo —el estado arriba, después lo que corre, los datos y el
+       panel—, y alfabético dentro de cada grupo. Branding dejó de ser un menú propio y es un
+       submenú del grupo Panel (`hijos`): es la cara del panel, no una familia de ajustes aparte. */
+    { id: "sistema", label: "Sistema", icon: Server, items: [
+        { sec: "system_status", btab: "", label: "Estado del sistema", icon: Activity },
+        { grupo: "Operación", sec: "auditoria", btab: "", label: "Auditoría", icon: ScrollText },
+        { grupo: "Operación", sec: "colas", btab: "", label: "Colas y envíos", icon: Send },
+        { grupo: "Operación", sec: "procesos", btab: "", label: "Procesos y tareas", icon: Server },
+        { grupo: "Operación", sec: "webhooks", btab: "", label: "Webhooks", icon: Activity },
+        { grupo: "Datos", sec: "storage", btab: "", label: "Almacenamiento", icon: Cloud },
+        { grupo: "Datos", sec: "database", btab: "", label: "Base de datos", icon: Database },
+        { grupo: "Panel", sec: "users", btab: "", label: "Accesos al panel", icon: Users },
+        { grupo: "Panel", sec: "", btab: "", label: "Branding", icon: Palette, hijos: [
+            { sec: "branding", btab: "identidad", label: "Identidad corporativa", icon: Palette },
+            { sec: "branding", btab: "pwa", label: "PWA e íconos", icon: Smartphone },
+            { sec: "branding", btab: "splash", label: "PWA splash screen", icon: Smartphone },
+            { sec: "branding", btab: "reportes", label: "Reportes exportables", icon: FileText },
+            { sec: "branding", btab: "testimonios", label: "Testimonios del login", icon: MessageSquare },
+        ] },
     ]},
     /* El centro de notificaciones, mudado desde su pantalla propia: una entrada por parte,
        como Branding. `ntab` elige la parte. */
@@ -227,17 +242,6 @@ const NAV_GROUPS = [
        como elemento del menú principal de Configuración»). Es una pantalla propia (/admin/manuales):
        `href` lleva a ella; `items` vacío porque no hay nada que elegir adentro. */
     { id: "manuales", label: "Manuales", icon: BookOpen, href: "/admin/manuales", items: [] },
-    /* Sistema va último: es lo que se mira cuando algo anda mal, no lo primero que se configura. */
-    { id: "sistema", label: "Sistema", icon: Server, items: [
-        { sec: "system_status", btab: "", label: "Estado del Sistema", icon: Activity },
-        { sec: "procesos", btab: "", label: "Procesos y tareas", icon: Server },
-        { sec: "colas", btab: "", label: "Colas y envíos", icon: Send },
-        { sec: "auditoria", btab: "", label: "Auditoría", icon: ScrollText },
-        { sec: "webhooks", btab: "", label: "Webhooks", icon: Activity },
-        { sec: "storage", btab: "", label: "Almacenamiento", icon: Cloud },
-        { sec: "database", btab: "", label: "Database", icon: Database },
-        { sec: "users", btab: "", label: "Accesos al panel", icon: Users },
-    ]},
 ];
 
 const DRIVERS = [
@@ -257,6 +261,8 @@ export default function SettingsPage() {
     const router = useRouter();
     const [activeSection, setActiveSection] = useState("system_status");
     const [openGroup, setOpenGroup] = useState<string | null>(null);
+    /** El submenú abierto dentro de un menú (hoy sólo Branding, dentro de Sistema). */
+    const [subAbierto, setSubAbierto] = useState<string | null>(null);
     const [brandingTab, setBrandingTab] = useState("identidad");
     const [notifTab, setNotifTab] = useState("canales");
     /* Se puede entrar directo a una sección: /admin/settings?seccion=notificaciones&tab=reglas
@@ -269,6 +275,13 @@ export default function SettingsPage() {
             if (sec === "notificaciones" && q.get("tab")) setNotifTab(q.get("tab")!);
         } catch { /* sin URL legible, queda la sección por defecto */ }
     }, []);
+    // Una entrada del menú está activa si es la sección que se ve (y, si la nombra, su pestaña).
+    const esActivo = (it: any) => !!it.sec && it.sec === activeSection && (it.btab ? it.btab === brandingTab : true) && (it.ntab ? it.ntab === notifTab : true);
+    const elegir = (it: any) => {
+        setOpenGroup(null); setSubAbierto(null);
+        if (it.href) { router.push(it.href); return; }
+        setActiveSection(it.sec); if (it.btab) setBrandingTab(it.btab); if (it.ntab) setNotifTab(it.ntab);
+    };
     const [storageTab, setStorageTab] = useState("explorador");
     const [selectedBrand, setSelectedBrand] = useState<string | null>(null);
     const [modelSearch, setModelSearch] = useState("");
@@ -314,11 +327,11 @@ export default function SettingsPage() {
 
             {/* Tabs Navigation (agrupado por familias) */}
             <div className="sticky top-0 z-50 bg-card/95 backdrop-blur-xl border-b border-border mb-6 -mx-6 px-4 py-3 shadow-md shadow-black/20">
-                {openGroup && <div className="fixed inset-0 z-40" onClick={() => setOpenGroup(null)} />}
+                {openGroup && <div className="fixed inset-0 z-40" onClick={() => { setOpenGroup(null); setSubAbierto(null); }} />}
                 <div className="relative z-50 flex items-center gap-1.5 flex-wrap">
                     {NAV_GROUPS.map((g) => {
                         const GIcon = g.icon;
-                        const groupActive = g.items.some((it: any) => it.sec === activeSection && (it.btab ? it.btab === brandingTab : true) && (it.ntab ? it.ntab === notifTab : true));
+                        const groupActive = g.items.some((it: any) => esActivo(it) || (it.hijos ?? []).some(esActivo));
                         const isOpen = openGroup === g.id;
                         if ("href" in g && g.href) return (
                             <button key={g.id} type="button" onClick={() => { setOpenGroup(null); router.push(g.href!); }}
@@ -330,7 +343,7 @@ export default function SettingsPage() {
                         return (
                             <div key={g.id} className="relative">
                                 <button
-                                    onClick={() => setOpenGroup(isOpen ? null : g.id)}
+                                    onClick={() => { setOpenGroup(isOpen ? null : g.id); setSubAbierto(null); }}
                                     className={cn(
                                         "group flex items-center gap-1.5 px-3.5 py-1.5 text-[13px] font-semibold transition-all rounded-lg border",
                                         groupActive ? "bg-accent text-foreground border-border shadow-sm" : "text-muted-foreground border-transparent hover:text-foreground hover:bg-accent/50"
@@ -344,20 +357,65 @@ export default function SettingsPage() {
                                 {isOpen && (
                                     <movimientoMenu.div {...MENU_SUAVE} style={{ transformOrigin: "top left" }} className="absolute left-0 top-full mt-1.5 min-w-[240px] rounded-xl border border-border bg-card shadow-xl shadow-black/30 p-1.5 z-50">
                                         {g.items.map((it: any, idx) => {
+                                            // El rótulo del grupo se pone al empezar cada grupo (Sistema: Operación, Datos, Panel).
+                                            const rotulo = it.grupo && it.grupo !== (g.items[idx - 1] as any)?.grupo ? it.grupo : null;
+                                            const separa = rotulo && idx > 0;
+                                            if (it.hijos) {
+                                                const abierto = subAbierto === it.label;
+                                                const on = it.hijos.some(esActivo);
+                                                return (
+                                                    <div key={idx}>
+                                                        {separa && <div className="my-1 border-t border-border" />}
+                                                        {rotulo && <div className="px-3 pt-1.5 pb-1 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">{rotulo}</div>}
+                                                        {/* El submenú se abre al pasar o al tocar (en pantalla táctil no hay «pasar»), a la derecha. */}
+                                                        <div className="relative" onMouseEnter={() => setSubAbierto(it.label)} onMouseLeave={() => setSubAbierto(null)}>
+                                                            <button type="button" onClick={() => setSubAbierto(abierto ? null : it.label)} aria-haspopup="menu" aria-expanded={abierto}
+                                                                className={cn("w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium rounded-lg transition-colors text-left",
+                                                                    on || abierto ? "bg-accent/60 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent/60")}>
+                                                                <it.icon size={15} className={cn("shrink-0", on ? "text-indigo-400" : "")} />
+                                                                <span className="flex-1">{it.label}</span>
+                                                                <ChevronRight size={14} className="shrink-0 opacity-70" />
+                                                            </button>
+                                                            {abierto && (
+                                                                <div role="menu" className="absolute left-full top-0 pl-1.5 z-50">
+                                                                    <div className="min-w-[220px] rounded-xl border border-border bg-card shadow-xl shadow-black/30 p-1.5">
+                                                                        {it.hijos.map((h: any, k: number) => {
+                                                                            const hOn = esActivo(h);
+                                                                            return (
+                                                                                <button key={k} type="button" role="menuitem" onClick={() => elegir(h)}
+                                                                                    className={cn("w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium rounded-lg transition-colors text-left",
+                                                                                        hOn ? "bg-indigo-500/15 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent/60")}>
+                                                                                    <h.icon size={15} className={cn("shrink-0", hOn ? "text-indigo-400" : "")} />
+                                                                                    {h.label}
+                                                                                </button>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
                                             const IIcon = it.icon;
-                                            const itemActive = it.sec === activeSection && (it.btab ? it.btab === brandingTab : true) && (it.ntab ? it.ntab === notifTab : true);
+                                            const itemActive = esActivo(it);
                                             return (
-                                                <button
-                                                    key={idx}
-                                                    onClick={() => { if (it.href) { setOpenGroup(null); router.push(it.href); return; } setActiveSection(it.sec); if (it.btab) setBrandingTab(it.btab); if (it.ntab) setNotifTab(it.ntab); setOpenGroup(null); }}
-                                                    className={cn(
-                                                        "w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium rounded-lg transition-colors text-left",
-                                                        itemActive ? "bg-indigo-500/15 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
-                                                    )}
-                                                >
-                                                    <IIcon size={15} className={cn("shrink-0", itemActive ? "text-indigo-400" : "")} />
-                                                    {it.label}
-                                                </button>
+                                                <div key={idx}>
+                                                    {separa && <div className="my-1 border-t border-border" />}
+                                                    {rotulo && <div className="px-3 pt-1.5 pb-1 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">{rotulo}</div>}
+                                                    <button
+                                                        type="button"
+                                                        onMouseEnter={() => setSubAbierto(null)}
+                                                        onClick={() => elegir(it)}
+                                                        className={cn(
+                                                            "w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium rounded-lg transition-colors text-left",
+                                                            itemActive ? "bg-indigo-500/15 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                                                        )}
+                                                    >
+                                                        <IIcon size={15} className={cn("shrink-0", itemActive ? "text-indigo-400" : "")} />
+                                                        {it.label}
+                                                    </button>
+                                                </div>
                                             );
                                         })}
                                     </movimientoMenu.div>
