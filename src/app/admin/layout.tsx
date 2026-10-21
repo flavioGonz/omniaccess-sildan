@@ -13,7 +13,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
     LayoutDashboard,
     Radar,
-    Siren,
+    Siren, Cctv,
     Users,
     Car,
     Settings,
@@ -213,11 +213,15 @@ export default function AdminLayout({
                     ) : (
                         ve("monitor") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor LPR" href="/admin/monitor-lpr" active={pathname === "/admin/monitor-lpr"} collapsed={collapsed} />)
                     )}
-                    {!modules.MODULE_QUEUE && (
-                        ve("monitor") && (<SidebarItem icon={<Siren size={18} />} label="Gestión de alarmas" href="/admin/alarmas" active={pathname === "/admin/alarmas"} collapsed={collapsed} />)
-                    )}
+                    {/* Los monitores juntos y en este orden (21/10, Nico): LPR, Intrusión, CCTV. */}
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
                         ve("intrusion") && (<SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />)
+                    )}
+                    {!modules.MODULE_QUEUE && (
+                        ve("monitor") && (<SidebarItem icon={<Cctv size={18} />} label="Monitor CCTV" href="/admin/monitor-cctv" active={pathname === "/admin/monitor-cctv"} collapsed={collapsed} />)
+                    )}
+                    {!modules.MODULE_QUEUE && (
+                        ve("monitor") && (<SidebarItem icon={<Siren size={18} />} label="Gestión de alarmas" href="/admin/alarmas" active={pathname === "/admin/alarmas"} collapsed={collapsed} />)
                     )}
                     {modules.MODULE_QUEUE ? (
                         ve("filas") && (<SidebarItem icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />)
@@ -227,16 +231,17 @@ export default function AdminLayout({
                     {modules.MODULE_QUEUE && (
                         ve("mapa") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapas" href="/admin/mapas" active={pathname === "/admin/mapas"} collapsed={collapsed} />)
                     )}
-                    {!modules.MODULE_QUEUE && (
-                        ve("mapa") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapa" href="/admin/mapa" active={pathname === "/admin/mapa"} collapsed={collapsed} />)
-                    )}
-                    {ve("monitores") && (<SidebarItem icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />)}
+                    {/* Con Filas, Monitores sigue arriba (ese barrio no tiene sección Gestión); si no, va en Gestión. */}
+                    {modules.MODULE_QUEUE && ve("monitores") && (<SidebarItem icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />)}
 
                     {!modules.MODULE_QUEUE && (
                         <>
                             {!collapsed && <div className="pt-3 pb-1 px-3 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider transition-opacity">Gestión</div>}
                             {collapsed && <div className="my-2 border-t border-border" />}
                             {ve("usuarios") && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users" && !enListaNegra} collapsed={collapsed} />)}
+                            {/* Monitores y Mapa pasaron a Gestión (21/10, Nico): arriba quedan sólo los monitores en vivo. */}
+                            {ve("monitores") && (<SidebarItem icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />)}
+                            {ve("mapa") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapa" href="/admin/mapa" active={pathname === "/admin/mapa"} collapsed={collapsed} />)}
                             {/* Entrada propia (San Nicolás, 15/10): desde que la «Lista de vigilancia» pasó a ser una pestaña
                                 de Usuarios, la guardia no la encontraba. Es lo que más se busca con apuro. */}
                             {ve("usuarios") && (<SidebarItem icon={<Ban size={18} />} label="Lista negra" href="/admin/users?tab=listanegra" active={enListaNegra} collapsed={collapsed} insignia={enListaNegraN} />)}

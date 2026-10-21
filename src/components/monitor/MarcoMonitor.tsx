@@ -72,7 +72,14 @@ export function BarraDelMarco({ children }: { children: React.ReactNode }) {
     return barra ? createPortal(children, barra) : null;
 }
 
-export function MarcoMonitor({ children, puedeDecidir = false }: { children: React.ReactNode; puedeDecidir?: boolean }) {
+/**
+ * `embebido` (21/10, Monitor CCTV en el menú del panel): la misma vista de pared, pero dentro del
+ * panel. Ocupa el alto de su lugar en vez de la pantalla entera, no pide pantalla completa al
+ * primer toque (en el panel se toca todo el tiempo), y el botón de pantalla completa agranda sólo
+ * el marco, no la página con el menú.
+ */
+export function MarcoMonitor({ children, puedeDecidir = false, embebido = false }: { children: React.ReactNode; puedeDecidir?: boolean; embebido?: boolean }) {
+    const raiz = useRef<HTMLDivElement>(null);
     const [titulo, setTitulo] = useState("");
     const [fondo, setFondo] = useState<string | null>(null);
     const [ultimoDato, setUltimoDato] = useState<number>(() => Date.now());
@@ -113,7 +120,7 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
         let reloj: any = null;
         const despertar = () => { setQuieto(false); clearTimeout(reloj); reloj = setTimeout(() => setQuieto(true), OCULTAR_CURSOR_MS); };
         const primerGesto = async () => {
-            if (!document.fullscreenElement) { try { await document.documentElement.requestFullscreen(); } catch { } }
+            if (!embebido && !document.fullscreenElement) { try { await document.documentElement.requestFullscreen(); } catch { } }
             if (await habilitarAudio()) setBloqueado(false);
         };
         const cambioLleno = () => setLleno(!!document.fullscreenElement);
@@ -123,7 +130,7 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
         document.addEventListener("fullscreenchange", cambioLleno);
         despertar(); setBloqueado(audioBloqueado());
         return () => { clearTimeout(reloj); window.removeEventListener("pointermove", despertar); window.removeEventListener("pointerdown", despertar); window.removeEventListener("keydown", despertar); window.removeEventListener("pointerdown", primerGesto); window.removeEventListener("keydown", primerGesto); document.removeEventListener("fullscreenchange", cambioLleno); };
-    }, []);
+    }, [embebido]);
 
     const sinDatos = ahora - ultimoDato > SIN_DATOS_MS && (!conectado || ahora - ultimoDato > SIN_DATOS_MS * 2);
     const reconectando = !conectado && !sinDatos;
@@ -137,7 +144,7 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
     const hora = new Date(ahora).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: ZONA });
     const fecha = new Date(ahora).toLocaleDateString("es-UY", { weekday: "long", day: "numeric", month: "long", timeZone: ZONA });
 
-    const alternarLleno = async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch { } };
+    const alternarLleno = async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await (embebido && raiz.current ? raiz.current : document.documentElement).requestFullscreen(); } catch { } };
     const alternarSilencio = () => { const v = !silencio; setSilencio(v); try { localStorage.setItem("oa.monitor.silencio", v ? "1" : "0"); } catch { } };
 
     if (revocado) {
@@ -155,7 +162,7 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
 
     return (
         <Ctx.Provider value={valor}>
-            <div className={cn("dark h-[100dvh] overflow-hidden bg-background text-foreground flex flex-col select-none overscroll-none touch-manipulation [-webkit-tap-highlight-color:transparent] transition-[background-color] duration-700", quieto && !tactil && "cursor-none")}
+            <div ref={raiz} className={cn("dark overflow-hidden", embebido ? "h-full" : "h-[100dvh]", " bg-background text-foreground flex flex-col select-none overscroll-none touch-manipulation [-webkit-tap-highlight-color:transparent] transition-[background-color] duration-700", quieto && !tactil && "cursor-none")}
                 style={fondo ? ({
                     // Con una lectura en pantalla, TODA la interfaz toma su color: el fondo y también cada
                     // panel (card, muted, borde), que pasan a ser velos claros sobre ese color en vez de negro.
@@ -191,7 +198,7 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
                     </div>
                 </header>
                 {bloqueado && !silencio && (
-                    <div className="shrink-0 bg-[var(--info-suave)] text-[var(--info-texto)] text-[15px] font-semibold text-center py-1.5">Tocá la pantalla para habilitar el sonido y la pantalla completa</div>
+                    <div className="shrink-0 bg-[var(--info-suave)] text-[var(--info-texto)] text-[15px] font-semibold text-center py-1.5">{embebido ? "Tocá la pantalla para habilitar el sonido" : "Tocá la pantalla para habilitar el sonido y la pantalla completa"}</div>
                 )}
                 <main className="flex-1 min-h-0 relative overflow-y-auto overscroll-contain">{children}</main>
                 {!conectado && (
