@@ -2323,3 +2323,23 @@ html:not(.dark) .regla-tema .tms-tramo[data-tono="lectura"] { background: var(--
   from { transform: translateX(0) skewX(-14deg); }
   to { transform: translateX(400%) skewX(-14deg); }
 }
+
+/* El ajuste del video de la ficha (components/video/AjusteVideoFicha): entra con un pequeño
+   desplazamiento, y un cabezal recorre la línea de tiempo con la duración real del clip. */
+@keyframes oa-ajuste-entra { from { opacity: 0; transform: translateX(6px) scale(0.98); } }
+.oa-ajuste-entra { animation: oa-ajuste-entra 160ms cubic-bezier(.22,1,.36,1); }
+.oa-ajuste-entra.oa-ajuste-abajo { animation-name: oa-ajuste-entra-abajo; }
+@keyframes oa-ajuste-entra-abajo { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+@keyframes oa-ajuste-cabezal { from { left: 0%; } to { left: 100%; } }
+.oa-ajuste-cabezal { animation: oa-ajuste-cabezal linear infinite; }
+@media (prefers-reduced-motion: reduce) { .oa-ajuste-cabezal { animation: none; display: none; } .oa-ajuste-entra { animation: none; } }
+
+/* La capa de un aviso de OmniVision sobre la foto (components/vision/CapaComportamiento): la zona
+   con el borde caminando, la caja que entra, y la que late mientras la estadía sigue abierta. */
+@keyframes oa-zona-camina { to { stroke-dashoffset: -32; } }
+.oa-zona-camina { animation: oa-zona-camina 1.4s linear infinite; }
+@keyframes oa-caja-entra { from { opacity: 0; transform: scale(1.25); } }
+.oa-caja-entra { animation: oa-caja-entra 420ms cubic-bezier(.22,1,.36,1); }
+@keyframes oa-caja-late { 0% { opacity: 0.9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.35); } }
+.oa-caja-late { animation: oa-caja-late 1.8s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) { .oa-zona-camina, .oa-caja-entra, .oa-caja-late { animation: none; } .oa-caja-late { display: none; } }

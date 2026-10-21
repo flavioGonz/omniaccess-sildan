@@ -1,5 +1,6 @@
 "use client";
 
+import { AjusteVideoFicha } from "@/components/video/AjusteVideoFicha";
 import { useClipEvento } from "@/lib/clip-evento";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -23,6 +24,25 @@ import { getDetectionHistory, type DetHistItem, type IntrusionCam } from "@/app/
 import { META_DETECCION, GeomOverlay, type Geom } from "@/components/intrusion/comun";
 import { NotaGestion, usarNotaGestion } from "@/components/alarmas/NotaGestion";
 import { GestionEnVivo } from "@/components/alarmas/GestionEnVivo";
+import { CapaComportamiento, type MarcasComportamiento } from "@/components/vision/CapaComportamiento";
+import { ComoFunciona } from "@/components/vision/ComoFunciona";
+import { Cronometro } from "@/components/tracking/Cronometro";
+import type { ClaveComportamiento, ParamsComportamiento } from "@/lib/comportamientos";
+
+/**
+ * Una detección de OmniVision (un aviso de sus reglas) abierta en esta ventana (21/10): con qué se
+ * dibuja en vivo sobre la foto, cómo funciona el comportamiento, su clip propio (la permanencia trae
+ * la llegada, no «N s antes de la foto») y la estadía si es «Se quedó en la zona».
+ */
+export type FichaVision = {
+    clave: ClaveComportamiento | null;
+    params: ParamsComportamiento;
+    marcas: MarcasComportamiento;
+    /** El cuadro sin marcas: la capa dibuja encima. Sin él, la foto marcada del aviso y sin capa. */
+    fotoCruda: string | null;
+    clipPropio?: { instante: number; antes: number; despues: number; motivo: string } | null;
+    estadia?: { desde: string; hasta: string | null; quieto: string | null; llegada: boolean | null; como: string | null; reabierta: number } | null;
+};
 
 /**
  * La ficha de una detección (cruce de línea, intrusión, zona), con la forma del visor de los
@@ -58,7 +78,7 @@ const TEXTO_VEREDICTO: Record<string, string> = { mal: "visor-mal", aviso: "viso
 
 // El clip en loop vive en lib/clip-evento (lo comparte el panel del Monitor de Intrusión).
 
-export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion, onMarcar, zCapa, extraArriba, claveGestion, titulo }: {
+export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion, onMarcar, zCapa, extraArriba, claveGestion, titulo, vision }: {
     det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void;
     onResolveAlarm?: (deviceId: string, kind: "real" | "false") => void; hasAlarm?: boolean;
     /** La cámara tiene una intrusión confirmada como real y sin resolver. */
@@ -79,6 +99,8 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     claveGestion?: string;
     /** El nombre de lo detectado cuando no es un tipo de intrusión («Se quedó en la zona»…). */
     titulo?: string;
+    /** Un aviso de OmniVision: ver FichaVision. */
+    vision?: FichaVision | null;
 }) {
     const [cur, setCur] = useState<any>(det);
     /*
@@ -155,7 +177,9 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     const clase = cur.label && CLASE[cur.label] ? CLASE[cur.label] : null;
     const nvr = cur.nvrName || cam?.nvrName; const ch = cur.ch ?? cam?.ch;
     const [rk] = useState(Date.now());
-    const captura = cur.snapshotPath ? cur.snapshotPath : (cur.deviceId ? `/api/snapshot/${cur.deviceId}?t=${rk}_${cur.id}` : null);
+    // Un aviso de OmniVision se mira sobre su cuadro crudo, con la capa en vivo encima (ver FichaVision).
+    const conCapa = !!vision?.fotoCruda && cur.id === det.id;
+    const captura = conCapa ? vision!.fotoCruda : cur.snapshotPath ? cur.snapshotPath : (cur.deviceId ? `/api/snapshot/${cur.deviceId}?t=${rk}_${cur.id}` : null);
     const propio = verif?.analisis?.propio ? verif.analisis.propio : null;
     const enPropio = foto === "propio" && !!propio;
     const src = enPropio ? `/api/monitor/intrusion/verificacion/${cur.id}` : captura;
@@ -216,6 +240,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     ) : null;
     const { clipOn, cambiarClip, clip, clipVisible, setClipVisible, ventana: ventanaFicha } = useClipEvento({
         id: cur.id, deviceId: cur.deviceId, instante: cur.timestamp, nvrId: cam?.nvrId ?? null, ch: cur.ch ?? cam?.ch ?? null, activo: real,
+        propia: cur.id === det.id ? vision?.clipPropio || null : null,
     });
     const enVideo = clipOn && clip.estado === "listo" && clipVisible && !enPropio;
     /** Con la grabación o el vivo en la ventana, lo de encima se oculta como en la imagen limpia. */
@@ -265,7 +290,9 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                             <video key={clip.url} src={clip.url} autoPlay muted loop playsInline onPlaying={() => setClipVisible(true)} onError={() => setClipVisible(false)}
                                 className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-500", clipVisible ? "opacity-100" : "opacity-0")} />
                         )}
-                        {!oculto && <GeomOverlay geom={geom} alert={alarmaPendiente || atencionAbierta} />}
+                        {/* Las reglas de la CÁMARA no van sobre un aviso de OmniVision: dibujaban líneas que no tenían nada que ver. */}
+                        {!oculto && !vision && <GeomOverlay geom={geom} alert={alarmaPendiente || atencionAbierta} />}
+                        {!oculto && conCapa && <CapaComportamiento m={enVideo ? { zona: vision!.marcas.zona, linea: vision!.marcas.linea } : vision!.marcas} className="z-[6]" />}
                         {/* Las siluetas son de la foto: sobre el video no coinciden. */}
                         {!oculto && verSiluetas && capa && !enVideo && <CapaAnalisis analisis={capa} geom={g} className="z-[6]" />}
                     </div>
@@ -376,8 +403,9 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                 <div className={cn("visor-zona absolute left-5 md:left-8 top-[88px] bottom-[96px] z-20 w-[min(420px,42vw)] overflow-y-auto overscroll-contain [scrollbar-width:none] flex flex-col transition-opacity",
                     oculto && "opacity-0 pointer-events-none")}>
                     <div className="my-auto flex flex-col gap-3 py-2 visor-sombra-texto">
+                        {vision && cur.id === det.id && <BloqueVision v={vision} estado={estado} momento={momento} />}
                         {/* El veredicto de OmniVision, en grande: es lo primero que se quiere saber. */}
-                        <div className="flex items-start gap-3">
+                        {!vision && <div className="flex items-start gap-3">
                             <span className="mt-1.5 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: ver ? TONO_VEREDICTO[ver.tono] : "rgba(255,255,255,0.3)" }} />
                             <div className="min-w-0">
                                 <div className={cn("text-[22px] font-bold leading-tight", ver ? TEXTO_VEREDICTO[ver.tono] : "text-white/70")}>
@@ -393,7 +421,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                 </p>
                                 {verif?.aviso === "RETENIDO" && <p className="text-[12px] visor-aviso mt-1">El aviso por WhatsApp/Telegram no salió: sólo se vio {verif.veredicto === "ANIMAL" ? "un animal" : "la escena vacía"}.</p>}
                             </div>
-                        </div>
+                        </div>}
 
                         {verif?.analisis && (
                             <Seccion titulo="Lo que vio OmniVision" icono={Sparkles}
@@ -418,7 +446,8 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                         <Seccion titulo="La detección" icono={Radar}>
                             <dl>
                                 <Dato rotulo="Cuándo" valor={`${fechaCorta(momento)} · ${horaSeg(momento)}`} sufijo={hace(cur.timestamp)} />
-                                <Dato rotulo="Grabador" valor={nvr ? `${nvr}${ch != null ? ` · CH ${ch}` : ""}` : null} falta="sin NVR" />
+                                {/* Sin nombre de NVR en la detección (los avisos de OmniVision no lo traen), el canal que se averiguó para el clip. */}
+                                <Dato rotulo="Grabador" valor={nvr ? `${nvr}${ch != null ? ` · CH ${ch}` : ""}` : canalClip ? `CH ${canalClip.ch}` : null} falta="sin NVR" />
                                 {cur.eventType && <Dato rotulo="Evento" valor={cur.eventType} />}
                                 <Dato rotulo="Estado" valor={estado}
                                     tono={cn("font-semibold", alarmaPendiente || atencionAbierta || (cur.acknowledged && cur.ackKind !== "false") ? "visor-mal" : !cur.acknowledged ? "visor-aviso" : "text-white/80")} />
@@ -435,7 +464,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                             </Seccion>
                         )}
 
-                        {real && (
+                        {real && !claveGestion && (
                             <Seccion titulo="Alrededor" icono={Clock}>
                                 {errorAlrededor ? <p className="text-[12.5px] text-white/55">No se pudo analizar: {errorAlrededor}</p>
                                     : !alrededor ? <p className="text-[12.5px] text-white/55 flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Mirando alrededor de esta detección…</p>
@@ -523,6 +552,8 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     {cur.deviceId && <BotonRiel onClick={() => setModo("vivo")} title="Ver la cámara en vivo, acá"><Cctv size={15} /></BotonRiel>}
                     {real && cur.deviceId && canalClip && ventanaClip && <BotonRiel onClick={() => setDescarga(true)} title={`Exportar un clip: bajarlo o mandarlo por WhatsApp (${ventanaClip.antes} s antes y ${ventanaClip.despues} s después)`}><Download size={15} /></BotonRiel>}
                     {real && cur.snapshotPath && <BotonRiel onClick={() => setCompartir(true)} title="Compartir por WhatsApp o Telegram"><Share2 size={15} /></BotonRiel>}
+                    {/* Cuántos segundos antes y después trae el video que arranca solo (21/10). */}
+                    {real && cur.deviceId && <AjusteVideoFicha />}
                     <span className="w-4 h-px bg-white/15" />
                     <BotonRiel onClick={() => setLimpio(true)} title="Ver la imagen limpia, sin nada encima  ( H )"><EyeOff size={15} /></BotonRiel>
                 </div>
@@ -571,5 +602,47 @@ function BotonRiel({ children, onClick, title }: { children: React.ReactNode; on
             className="visor-vidrio w-9 h-9 rounded-full flex items-center justify-center text-white/85 hover:text-white">
             {children}
         </button>
+    );
+}
+
+/**
+ * La cabecera de un aviso de OmniVision en la ficha: qué comportamiento, la estadía con su reloj
+ * (permanencia) y «Cómo lo detectó», con la escena animada y los números de la regla.
+ */
+function BloqueVision({ v, estado, momento }: { v: FichaVision; estado: string; momento: Date }) {
+    const e = v.estadia;
+    const hora = (iso: string) => horaSeg(new Date(iso));
+    const COMO: Record<string, string> = { salio: "Salió de la zona", "no-se-ve": "Dejó de verse", reinicio: "Se dejó de seguir" };
+    return (
+        <>
+            <div className="flex items-start gap-3">
+                <span className="mt-1.5 w-2.5 h-2.5 rounded-full shrink-0 bg-[var(--accion-en-oscuro)]" />
+                <div className="min-w-0">
+                    <div className="text-[22px] font-bold leading-tight text-white">Lo detectó OmniVision</div>
+                    <p className="text-[12.5px] text-white/65 leading-snug mt-0.5">Una regla propia, no la cámara. {estado}. <span className="text-white/45">Real o falsa la decide una persona.</span></p>
+                </div>
+            </div>
+            {e && (
+                <Seccion titulo={e.hasta ? "La estadía" : "Sigue en la zona"} icono={Clock}>
+                    <dl>
+                        <Dato rotulo={e.llegada === false ? "Lo tomó" : "Llegó"} valor={hora(e.desde)} sufijo={e.llegada === false ? "ya estaba" : undefined} />
+                        {e.quieto && <Dato rotulo="Quedó quieto" valor={hora(e.quieto)} />}
+                        {e.hasta ? <Dato rotulo={COMO[e.como || ""] || "Se fue"} valor={hora(e.hasta)} /> : null}
+                        {e.reabierta > 0 && <Dato rotulo="Lo perdió" valor={`${e.reabierta} ${e.reabierta === 1 ? "vez" : "veces"}`} sufijo="y lo volvió a ver ahí" />}
+                    </dl>
+                    <div className="mt-2 flex items-center gap-2 text-[12px] text-white/60">
+                        <Cronometro desde={e.desde} hasta={e.hasta} tamano="normal" etiqueta={e.hasta ? "estuvo" : "lleva"} />
+                        {e.llegada === false && <span className="leading-snug">No se lo vio llegar: ya estaba cuando OmniVision lo empezó a seguir.</span>}
+                    </div>
+                    {v.clipPropio && <p className="text-[11.5px] text-white/50 mt-2 leading-snug">El video: {v.clipPropio.motivo}.</p>}
+                </Seccion>
+            )}
+            {v.clave && (
+                <Seccion titulo="Cómo lo detectó" icono={Sparkles}>
+                    <ComoFunciona clave={v.clave} params={v.params} oscuro />
+                    <p className="text-[10.5px] text-white/40 mt-2 tabular-nums">Foto del aviso · {fechaCorta(momento)} {horaSeg(momento)}</p>
+                </Seccion>
+            )}
+        </>
     );
 }

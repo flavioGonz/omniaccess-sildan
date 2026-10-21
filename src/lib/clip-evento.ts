@@ -35,14 +35,45 @@ function leerVentanaFicha(): Promise<VentanaFicha> {
         .catch(() => ventanaFicha);
     return pedidaVentana;
 }
+/*
+ * Cambiar la ventana desde la ficha (21/10, ver components/video/AjusteVideoFicha): se guarda en el
+ * servidor y se avisa a todas las fichas abiertas en la pestaña, que vuelven a pedir su clip con
+ * la ventana nueva (la clave del caché la lleva).
+ */
+const oyentes = new Set<(v: VentanaFicha) => void>();
+export function ventanaFichaActual(): VentanaFicha { return ventanaFicha; }
+export function useVentanaFicha(): VentanaFicha {
+    const [v, setV] = useState<VentanaFicha>(ventanaFicha);
+    useEffect(() => {
+        let vivo = true;
+        leerVentanaFicha().then((x) => { if (vivo) setV(x); });
+        oyentes.add(setV);
+        return () => { vivo = false; oyentes.delete(setV); };
+    }, []);
+    return v;
+}
+export async function guardarVentanaFicha(v: VentanaFicha): Promise<VentanaFicha> {
+    const r = await fetch("/api/playback/ventana", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ficha: v }) });
+    const j = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    ventanaFicha = { antes: j.ficha.antes, despues: j.ficha.despues };
+    pedidaVentana = Promise.resolve(ventanaFicha);
+    for (const f of oyentes) f(ventanaFicha);
+    return ventanaFicha;
+}
 const CLAVE_CLIP = "ficha-deteccion:clip";
 const clipsHechos = new Map<string, string>();
 
 export type EstadoClip = { estado: "nada" | "cargando" | "listo" | "sin"; url?: string; motivo?: string };
 
-export function useClipEvento({ id, deviceId, instante, nvrId, ch, activo = true }: {
+export function useClipEvento({ id, deviceId, instante, nvrId, ch, activo = true, propia }: {
     id: string | null | undefined; deviceId: string | null | undefined; instante: string | number | Date | null | undefined;
     nvrId?: string | null; ch?: number | null;
+    /**
+     * Una ventana propia del evento, en vez de la de Ajustes: la permanencia trae la maniobra de
+     * estacionar (de la llegada a cuando quedó quieto), que no es «N s antes de la foto».
+     */
+    propia?: { instante: number; antes: number; despues: number; motivo: string } | null;
     /** Falso cuando no corresponde pedirlo (un evento en vivo sin id real, una vista sin video). */
     activo?: boolean;
 }) {
@@ -51,15 +82,15 @@ export function useClipEvento({ id, deviceId, instante, nvrId, ch, activo = true
     const cambiarClip = (v: boolean) => { setClipOn(v); try { localStorage.setItem(CLAVE_CLIP, v ? "1" : "0"); } catch { } };
     const [clip, setClip] = useState<EstadoClip>({ estado: "nada" });
     const [clipVisible, setClipVisible] = useState(false);
-    const ms = instante == null ? NaN : new Date(instante).getTime();
-    const [ventana, setVentana] = useState<VentanaFicha>(ventanaFicha);
-    useEffect(() => { let vivo = true; leerVentanaFicha().then((v) => { if (vivo) setVentana(v); }); return () => { vivo = false; }; }, []);
+    const general = useVentanaFicha();
+    const ventana: VentanaFicha = propia ? { antes: propia.antes, despues: propia.despues } : general;
+    const ms = propia ? propia.instante : instante == null ? NaN : new Date(instante).getTime();
 
     useEffect(() => {
         setClip({ estado: "nada" }); setClipVisible(false);
         if (!clipOn || !activo || !id || !deviceId || !Number.isFinite(ms)) return;
         // La clave lleva la ventana: si se cambió en Ajustes, no se reusa el corte viejo.
-        const clave = `${id}:${ventana.antes}:${ventana.despues}`;
+        const clave = `${id}:${ms}:${ventana.antes}:${ventana.despues}`;
         const hecho = clipsHechos.get(clave);
         if (hecho) { setClip({ estado: "listo", url: hecho }); return; }
         let vigente = true;
@@ -77,7 +108,7 @@ export function useClipEvento({ id, deviceId, instante, nvrId, ch, activo = true
         }, CLIP_ESPERA_MS);
         return () => { vigente = false; clearTimeout(t); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [id, clipOn, activo, ventana.antes, ventana.despues]);
+    }, [id, clipOn, activo, ventana.antes, ventana.despues, ms]);
 
-    return { clipOn, cambiarClip, clip, clipVisible, setClipVisible, ventana };
+    return { clipOn, cambiarClip, clip, clipVisible, setClipVisible, ventana, propia: propia || null };
 }

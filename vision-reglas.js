@@ -29,6 +29,30 @@ const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, agl
 const MOVIMIENTO_MIN = 0.01;
 /** Una pista que no se ve hace esto deja de existir para las reglas. */
 const OLVIDO_MS = 20_000;
+/*
+ * «Se quedó en la zona» (permanencia), 21/10, Nico: «el clip no funciona bien: [tiene que traer] el
+ * momento que estaciona el auto exacto». Medido en el lab: los seis avisos de «Prueba puesto 7» de
+ * la mañana empezaban con el auto YA estacionado — el clip del 12:31:28 muestra la calle quieta.
+ * El auto del fondo es chico y el detector lo pierde de a ratos: con OLVIDO_MS (20 s) cada pérdida
+ * cerraba la estadía y la próxima vez que se lo veía abría otra, con `desde` = cuando se lo volvió
+ * a tomar, no cuando llegó. La estadía es del LUGAR (como el estacionamiento, ver franja.ts), no de
+ * la pista:
+ *  · REENGANCHE_MS: una estadía que dejó de verse queda en suspenso; si en ese lugar (PERM_IOU)
+ *    reaparece algo quieto, es la misma y sigue con su `desde`.
+ *  · MEMORIA_LUGAR_MS: una ya cerrada por «dejó de verse» se recuerda; si el mismo auto vuelve a
+ *    tomarse ahí, se reabre su aviso en vez de abrir otro (era el mismo auto, no una llegada).
+ *  · `llegada`: si se lo VIO llegar (la pista venía de afuera de la zona o moviéndose). Si no, la
+ *    pantalla dice que ya estaba y no inventa una hora de llegada.
+ *  · `quieto`: cuándo dejó de moverse (el pie no se corre más de QUIETO_DESPLAZ en QUIETO_MS). El
+ *    clip va de la llegada a ese momento: la maniobra de estacionar.
+ */
+const REENGANCHE_MS = 10 * 60_000;
+const MEMORIA_LUGAR_MS = 2 * 3_600_000;
+const PERM_IOU = 0.4;
+const QUIETO_DESPLAZ = 0.015;
+const QUIETO_MS = 6_000;
+/** Cada cuánto se manda la caja y el reloj de una estadía con aviso, para dibujarla en vivo. */
+const PERM_VIVO_MS = 2_000;
 /** Dos cruces de la misma pista en la misma línea dentro de esto son el mismo (el pie tiembla sobre la línea). */
 const REBOTE_MS = 5_000;
 /** Entre dos avisos de sentido contrario de la misma regla. */
@@ -167,6 +191,9 @@ function corta(p, q, a, b) {
     return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 }
 /** Punto dentro de un polígono (ray casting). */
+/** Un auto que el detector llama «camioneta» al rato sigue siendo el mismo: se compara por grupo. */
+const VEHICULOS = new Set(["car", "truck", "bus", "motorcycle"]);
+function grupoDe(clase) { return VEHICULOS.has(clase) ? "vehiculo" : String(clase || ""); }
 function adentro(p, zona) {
     let dentro = false;
     for (let i = 0, j = zona.length - 1; i < zona.length; j = i++) {
@@ -284,8 +311,12 @@ function iniciar({ prisma, subir, log, pose }) {
     const pies = new Map();
     /** Por regla y pista: último cruce { t, sentido }. */
     const cruces = new Map();
-    /** Permanencia: `${regla}:${pista}` → { desde, visto, eventoId, clase }. */
+    /** Permanencia: `${regla}:${pista}` → { desde, visto, eventoId, avisoId, clase, caja, llegada, quieto, ref, refT, … }. */
     const estadias = new Map();
+    /** Permanencia que dejó de verse, en suspenso hasta REENGANCHE_MS: regla → [estadía]. */
+    const perdidas = new Map();
+    /** Permanencia cerrada por «dejó de verse», recordada MEMORIA_LUGAR_MS: regla → [estadía]. */
+    const idas = new Map();
     /** Aglomeración: regla → { desde, ultimoAviso }. */
     const grupos = new Map();
     const ultimoAvisoSentido = new Map();
@@ -346,7 +377,7 @@ function iniciar({ prisma, subir, log, pose }) {
             // Un número de la fila esperando su rebote: si la imagen queda quieta y no se mira
             // más, el cambio no se confirma nunca. Y con gente en la fila, se sigue mirando.
             if (r.tipo === "fila") { const f = filas.get(r.id); if (f && (f.candidato !== f.aceptado || f.aceptado > 0)) return true; }
-            if (r.tipo === "permanencia") for (const k of estadias.keys()) if (k.startsWith(r.id + ":")) return true;
+            if (r.tipo === "permanencia") { for (const k of estadias.keys()) if (k.startsWith(r.id + ":")) return true; if ((perdidas.get(r.id) || []).length) return true; }
             if (r.tipo === "intrusion") for (const k of intrusos.keys()) if (k.startsWith(r.id + ":")) return true;
             if (r.tipo === "merodeo") for (const k of merodeos.keys()) if (k.startsWith(r.id + ":")) return true;
             if (r.tipo === "animal") for (const [k, v] of animales) if (k.startsWith(r.id + ":") && !v.avisado) return true;
@@ -478,14 +509,48 @@ function iniciar({ prisma, subir, log, pose }) {
         }
     }
 
+    /** La estadía en suspenso o recordada que ocupa ese lugar, si hay; la saca de su lista. */
+    function reenganchar(lista, regla, caja, clase, t, ventana) {
+        const xs = lista.get(regla) || [];
+        let mejor = -1, val = PERM_IOU;
+        xs.forEach((e, i) => {
+            if (t - e.visto > ventana || !e.caja) return;
+            if (grupoDe(e.clase) !== grupoDe(clase)) return;
+            const v = iou(e.caja, caja);
+            if (v >= val) { val = v; mejor = i; }
+        });
+        if (mejor < 0) return null;
+        const [e] = xs.splice(mejor, 1);
+        return e;
+    }
+
     async function permanencia(r, cam, valen, jpeg, ahora, t) {
         for (const o of valen) {
             const k = `${r.id}:${o.pista}`;
-            const dentro = adentro(pie(o), r.zona);
+            const p = pie(o);
+            const dentro = adentro(p, r.zona);
             let e = estadias.get(k);
             if (!dentro) { if (e) { e.visto = t; e.fuera = true; } continue; }
-            if (!e) { e = { desde: t, visto: t, eventoId: null, avisoId: null, clase: o.clase, deviceId: cam.id, camara: cam.name, regla: r.nombre, fuera: false }; estadias.set(k, e); }
-            e.visto = t; e.fuera = false;
+            if (!e) {
+                // ¿Se lo vio llegar? La pista se vio antes afuera de la zona, o venía moviéndose.
+                const ant = pies.get(`${cam.id}:${o.pista}`);
+                const llego = !!ant && t - ant.t < OLVIDO_MS && (!adentro(ant.p, r.zona) || t - (ant.mov || 0) < OLVIDO_MS);
+                // Algo quieto que aparece donde había una estadía: es la misma, que se había perdido.
+                e = llego ? null : reenganchar(perdidas, r.id, o.caja_norm, o.clase, t, REENGANCHE_MS);
+                if (!e && !llego) {
+                    e = reenganchar(idas, r.id, o.caja_norm, o.clase, t, MEMORIA_LUGAR_MS);
+                    if (e) await reabrirAvisoEstadia(e, r);
+                }
+                if (!e) e = { desde: t, visto: t, eventoId: null, avisoId: null, clase: o.clase, deviceId: cam.id, camara: cam.name, regla: r.nombre, reglaId: r.id, fuera: false, llegada: llego, quieto: null, ref: p, refT: t, caja: o.caja_norm, vivo: 0 };
+                estadias.set(k, e);
+            }
+            e.visto = t; e.fuera = false; e.caja = o.caja_norm;
+            // Cuándo dejó de moverse: el pie se queda (QUIETO_DESPLAZ) QUIETO_MS seguidos.
+            if (Math.hypot(p[0] - e.ref[0], p[1] - e.ref[1]) > QUIETO_DESPLAZ) { e.ref = p; e.refT = t; if (e.quieto) e.quieto = null; }
+            else if (!e.quieto && t - e.refT >= QUIETO_MS) {
+                e.quieto = e.refT;
+                if (e.avisoId) await completarDatosAviso(e.avisoId, { quieto: new Date(e.quieto).toISOString() });
+            }
             const seg = (t - e.desde) / 1000;
             if (!e.eventoId && seg >= r.segundos) {
                 const f = await foto(jpeg, ahora);
@@ -495,12 +560,46 @@ function iniciar({ prisma, subir, log, pose }) {
                 // «lleva», no «hace»: «auto hace 15 min» se leía como «pasó hace 15 min» (20/10, Nico:
                 // «no comprendo mucho el se quedó y ese timer»). Con `desde`, el panel cuenta en vivo
                 // cuánto lleva; al irse, cerrarEstadias completa el aviso con cuándo y cuánto fue.
+                // `llegada`, `quieto`, la caja y la zona: para el clip de la maniobra y el dibujo en vivo.
                 const aviso = await avisar(r, "PERMANENCIA", `${nombreDe(o.clase)} lleva ${duracion(seg)} en ${r.nombre}`, ev.id,
                     await fotoDelAviso(r, jpeg, ahora, { zona: r.zona, cajas: [{ caja: o.caja_norm, tono: "aviso", texto: `${nombreDe(o.clase)} · ${lleva(seg)}` }] }, f), cam,
-                    { desde: new Date(e.desde).toISOString(), umbral: r.segundos });
+                    { desde: new Date(e.desde).toISOString(), umbral: r.segundos, llegada: e.llegada, quieto: e.quieto ? new Date(e.quieto).toISOString() : null, caja: o.caja_norm, zona: r.zona, clase: o.clase, fotoCruda: f });
                 if (aviso) e.avisoId = aviso.id;
             }
+            // En vivo: dónde está y desde cuándo, para dibujar la caja con su reloj sobre la cámara.
+            if (e.avisoId && t - e.vivo >= PERM_VIVO_MS) {
+                e.vivo = t;
+                emitir("vision_estadia", { avisoId: e.avisoId, deviceId: cam.id, caja: e.caja, desde: new Date(e.desde).toISOString(), visto: new Date(t).toISOString(), quieto: e.quieto ? new Date(e.quieto).toISOString() : null });
+            }
         }
+    }
+
+    async function completarDatosAviso(avisoId, mas) {
+        try {
+            const previo = await prisma.avisoGuardia.findUnique({ where: { id: avisoId }, select: { datos: true } });
+            if (previo) await prisma.avisoGuardia.update({ where: { id: avisoId }, data: { datos: { ...(previo.datos || {}), ...mas } } });
+        } catch { }
+    }
+
+    /**
+     * El mismo auto que se había dado por ido («dejó de verse») vuelve a tomarse en el mismo lugar:
+     * no se fue, lo perdió el detector. Se reabre su aviso (sin hasta, con la bitácora diciéndolo)
+     * en vez de abrir otro que diría «llegó ahora» de un auto que lleva horas ahí.
+     */
+    async function reabrirAvisoEstadia(e, r) {
+        if (!e.avisoId) return;
+        try {
+            const previo = await prisma.avisoGuardia.findUnique({ where: { id: e.avisoId }, select: { datos: true } });
+            if (!previo) return;
+            const { hasta: _h, segundos: _s, como: _c, ...resto } = previo.datos || {};
+            await prisma.avisoGuardia.update({ where: { id: e.avisoId }, data: {
+                motivo: `${nombreDe(e.clase)} lleva ${duracion((Date.now() - e.desde) / 1000)} en ${r.nombre}`,
+                datos: { ...resto, reabierta: (resto.reabierta || 0) + 1 },
+            } });
+            await prisma.alarmaGestion.create({ data: { clave: `a:${e.avisoId}`, accion: "VOLVIO", por: e.camara || "OmniVision", deviceId: e.deviceId, detalle: "volvió a verse en el mismo lugar: no se había ido" } });
+            emitir("alarma_gestion", { clave: `a:${e.avisoId}`, accion: "VOLVIO" });
+            emitir("aviso_guardia", { accion: "actualizado", id: e.avisoId });
+        } catch (err) { contadores.errores++; contadores.ultimoError = `reabrir estadía: ${err.message}`; }
     }
 
     /** Intrusión: un objeto con el pie adentro de la zona `segundos` seguidos, en horario. Una vez por pista. */
@@ -767,16 +866,39 @@ function iniciar({ prisma, subir, log, pose }) {
         }
     }
 
-    /** Las estadías que terminaron (salió de la zona o dejó de verse): se guarda cuánto duraron. */
+    /**
+     * Las estadías que terminaron. Salió de la zona: se cierra ya. Dejó de verse: queda en suspenso
+     * REENGANCHE_MS (ver arriba) y recién entonces se cierra, y se recuerda por si vuelve a tomarse.
+     */
     async function cerrarEstadias(cam, t, todas) {
         for (const [k, e] of estadias) {
             if (cam && e.deviceId !== cam.id && !todas) continue;
             const termino = todas || e.fuera || t - e.visto > OLVIDO_MS;
             if (!termino) continue;
             estadias.delete(k);
-            if (e.eventoId) await prisma.eventoVision.update({ where: { id: e.eventoId }, data: { valor: Math.round((e.visto - e.desde) / 1000) } }).catch(() => null);
-            if (e.avisoId) await cerrarAvisoEstadia(e, todas ? "reinicio" : e.fuera ? "salio" : "no-se-ve");
+            if (!todas && !e.fuera) {
+                const xs = perdidas.get(e.reglaId) || [];
+                xs.push(e); perdidas.set(e.reglaId, xs);
+                if (e.avisoId) emitir("vision_estadia", { avisoId: e.avisoId, deviceId: e.deviceId, perdida: true, visto: new Date(e.visto).toISOString() });
+                continue;
+            }
+            await cerrarUna(e, todas ? "reinicio" : "salio");
         }
+        for (const [regla, xs] of perdidas) {
+            for (let i = xs.length - 1; i >= 0; i--) {
+                const e = xs[i];
+                if (cam && e.deviceId !== cam.id && !todas) continue;
+                if (!todas && t - e.visto <= REENGANCHE_MS) continue;
+                xs.splice(i, 1);
+                await cerrarUna(e, todas ? "reinicio" : "no-se-ve");
+                if (!todas) { const ys = idas.get(regla) || []; ys.push(e); idas.set(regla, ys); }
+            }
+        }
+        for (const [regla, ys] of idas) idas.set(regla, ys.filter((e) => t - e.visto <= MEMORIA_LUGAR_MS));
+    }
+    async function cerrarUna(e, como) {
+        if (e.eventoId) await prisma.eventoVision.update({ where: { id: e.eventoId }, data: { valor: Math.round((e.visto - e.desde) / 1000) } }).catch(() => null);
+        if (e.avisoId) await cerrarAvisoEstadia(e, como);
     }
 
     /**
@@ -786,7 +908,7 @@ function iniciar({ prisma, subir, log, pose }) {
      *
      * Tres finales distintos, porque no significan lo mismo para el guardia:
      *   - salio: se lo vio AFUERA de la zona — se fue;
-     *   - no-se-ve: dejó de verse OLVIDO_MS (20 s) sin que se lo viera salir — puede haberse ido, o
+     *   - no-se-ve: dejó de verse REENGANCHE_MS (10 min) sin que se lo viera salir — puede haberse ido, o
      *     algo lo tapó o el seguimiento lo perdió;
      *   - reinicio: se reinició el análisis (no se sabe qué pasó después).
      * El aviso se reescribe («estuvo 23 min · salió 16:06»), `datos` guarda hasta / segundos / cómo,

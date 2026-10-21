@@ -5,8 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
     Siren, Home, Ticket, CircleDashed, AlertTriangle, RefreshCw, Radar, ShieldAlert, ScanEye, Repeat, Car, Check, X, LogOut, Undo2,
     Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers, Loader2, NotebookPen, Image as ImageIcon,
-    Activity,
+    Activity, Truck, Infinity as SinTiempo,
 } from "lucide-react";
+import { esDeProveedores } from "@/lib/presencia-grupos";
+import { esPaseLibre } from "@/lib/visitas/ajustes-base";
 import { useClipEvento } from "@/lib/clip-evento";
 import { Pestanias, type Pestania } from "@/components/ui/pestanias";
 import { Tooltip } from "react-tooltip";
@@ -25,7 +27,11 @@ import type { Alarma, FuenteAlarma, GestionAuto } from "@/lib/alarmas";
 import { Miniatura } from "@/components/ui/celdas";
 import { NotaGestion, usarNotaGestion } from "@/components/alarmas/NotaGestion";
 import { GestionEnVivo } from "@/components/alarmas/GestionEnVivo";
-import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
+import { FichaDeteccion, type FichaVision } from "@/components/intrusion/FichaDeteccion";
+import { CapaComportamiento, type MarcasComportamiento } from "@/components/vision/CapaComportamiento";
+import { ComoFunciona } from "@/components/vision/ComoFunciona";
+import { AjusteVideoFicha } from "@/components/video/AjusteVideoFicha";
+import { comportamientoDe, clipDeEstadia, COMPORTAMIENTOS } from "@/lib/comportamientos";
 import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { getAccessEvent } from "@/app/actions/history";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
@@ -47,8 +53,10 @@ import { BotonAjustesAvisos } from "@/components/avisos/PilaAvisos";
  * El cálculo vive en el servidor (lib/alarmas.ts y lib/presencia.ts), con el porqué de cada criterio.
  */
 
-type Ver = "todo" | "alarmas" | "atipicos" | "residentes" | "visitas" | "desconocidos";
-const VER: Ver[] = ["todo", "alarmas", "atipicos", "residentes", "visitas", "desconocidos"];
+type Ver = "todo" | "alarmas" | "atipicos" | "residentes" | "visitas" | "proveedores" | "desconocidos";
+const VER: Ver[] = ["todo", "alarmas", "atipicos", "residentes", "visitas", "proveedores", "desconocidos"];
+/** Las dos pestañas de lo registrado que no es del barrio: tienen la misma forma, cambia qué entra. */
+const esDeRegistrados = (v: Ver) => v === "visitas" || v === "proveedores";
 /**
  * Una fila de «Todo» (16/10, Nico: «falta uno que sea todos, y que sea por defecto»): las
  * alarmas y los autos que están adentro sin ser del barrio (visitas, proveedores, desconocidos,
@@ -145,7 +153,10 @@ function GestionAlarmas() {
         { valor: "alarmas", rotulo: "Alarmas", icono: Siren, cuenta: datos ? pendientes.length : undefined, tono: "mal", ayuda: "Alarmas sin atender" },
         { valor: "atipicos", rotulo: "Atípicos dentro", icono: AlertTriangle, cuenta: p?.resumen.atipicos, tono: "aviso" },
         { valor: "residentes", rotulo: "Residentes dentro", icono: Home, cuenta: p?.resumen.residentes },
-        { valor: "visitas", rotulo: "Visitas y proveedores", icono: Ticket, cuenta: p?.resumen.visitasProveedores },
+        // Visitas y Proveedores en dos pestañas (21/10, Nico): un delivery que vence y la cuadrilla con
+        // pase libre que está todo el día no se miran igual, y juntos se tapaban.
+        { valor: "visitas", rotulo: "Visitas", icono: Ticket, cuenta: p?.resumen.visitas, ayuda: "Visitas, invitados y lista blanca adentro" },
+        { valor: "proveedores", rotulo: "Proveedores", icono: Truck, cuenta: p?.resumen.proveedores, ayuda: "Proveedores, personal y pases libres adentro" },
         { valor: "desconocidos", rotulo: "Desconocidos dentro", icono: CircleDashed, cuenta: p?.resumen.desconocidos },
     ];
 
@@ -173,13 +184,15 @@ function GestionAlarmas() {
     const cuentaEquipo = useCallback((e: Equipo) => alarmas.filter((a) => (estado === "todas" || a.estado === estado) && deEquipo(a.deviceId, a.camara, e)).length, [alarmas, estado]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const gestionDe = (a: AutoAdentro): GestionAuto | null => (a.accessEventId && datos?.gestionAutos?.[a.accessEventId]) || null;
-    const autosDe = (v: Ver): AutoAdentro[] => !p ? [] : v === "atipicos" ? p.atipicos : v === "desconocidos" ? p.autosVisitas.filter((a) => a.clase === "no_registrado") : v === "visitas" ? p.autosVisitas.filter((a) => a.clase !== "no_registrado") : [];
+    const autosDe = (v: Ver): AutoAdentro[] => !p ? [] : v === "atipicos" ? p.atipicos : v === "desconocidos" ? p.autosVisitas.filter((a) => a.clase === "no_registrado") : v === "visitas" ? p.autosVisitas.filter((a) => a.clase !== "no_registrado" && !esDeProveedores(a))
+        : v === "proveedores" ? p.autosVisitas.filter((a) => esDeProveedores(a)) : [];
     // Las listas de quién está adentro arrancan por la permanencia más larga (16/10, Nico: «arriba
     // del todo los que más tiempo dentro tienen»): el que entró primero es el que más lleva.
     const porPermanencia = <T extends { entrada: string }>(xs: T[]) => [...xs].sort((a, b) => (a.entrada < b.entrada ? -1 : a.entrada > b.entrada ? 1 : 0));
     const filasAutos = useMemo(() => porPermanencia(autosDe(ver).filter((a) => pasa(a.plate, a.persona, a.unidad, NOMBRE_CLASE[a.clase], ...a.atipico.map((x) => NOMBRE_ATIPICO[x])))), [p, ver, t]); // eslint-disable-line react-hooks/exhaustive-deps
     const filasResidentes = useMemo(() => porPermanencia((p?.residentes || []).filter((r) => pasa(r.nombre, r.unidad, ...r.autos))), [p, t]); // eslint-disable-line react-hooks/exhaustive-deps
-    const filasVisitas = useMemo(() => porPermanencia((p?.visitas || []).filter((v) => pasa(v.plate, v.nombre, v.empresa, v.lote, v.tipoNombre))), [p, t]); // eslint-disable-line react-hooks/exhaustive-deps
+    const visitasDe = (v: Ver) => (p?.visitas || []).filter((x) => (v === "proveedores" ? x.proveedor : !x.proveedor));
+    const filasVisitas = useMemo(() => porPermanencia(visitasDe(ver).filter((v) => pasa(v.plate, v.nombre, v.empresa, v.lote, v.tipoNombre))), [p, t, ver]); // eslint-disable-line react-hooks/exhaustive-deps
     const filasTodo = useMemo<FilaTodo[]>(() => {
         const out: FilaTodo[] = filasAlarmas.map((a) => ({ id: a.id, ts: a.ts, alarma: a }));
         // Los autos adentro no son alarmas atendibles: entran sólo mirando lo pendiente o todo, y sin acotar por origen.
@@ -255,6 +268,7 @@ function GestionAlarmas() {
         { clave: "quien", titulo: ver === "atipicos" ? "Por qué" : "Quién", valor: (a) => [...a.atipico.map((x) => NOMBRE_ATIPICO[x]), a.persona, a.unidad, NOMBRE_CLASE[a.clase]].filter(Boolean).join(" · "), celda: (a) => (
             <div className="min-w-0 leading-tight">
                 {a.atipico.length > 0 && <div className="flex flex-wrap gap-1 mb-1">{a.atipico.map((x) => <Estado key={x} tono={TONO_ATIPICO[x]}>{NOMBRE_ATIPICO[x]}</Estado>)}</div>}
+                {esPaseLibre(a.tipoVisita) && <div className="mb-1"><Estado tono="info">Pase libre</Estado></div>}
                 <div className="text-[13px] font-semibold truncate">{a.persona || <span className="text-muted-foreground font-normal">{NOMBRE_CLASE[a.clase]}</span>}</div>
                 {(a.persona || a.unidad) && <div className="text-[11px] text-muted-foreground truncate">{[a.persona ? NOMBRE_CLASE[a.clase] : null, a.unidad].filter(Boolean).join(" · ")}</div>}
             </div>) },
@@ -275,8 +289,18 @@ function GestionAlarmas() {
                 <div className="flex items-center gap-1.5 mt-0.5"><Estado tono="aviso">{v.tipoNombre}</Estado>{v.lote && <span className="text-[11px] text-muted-foreground truncate">{v.lote}</span>}</div>
             </div>) },
         ...colIngreso<VisitaAdentro>(),
-        { clave: "vence", titulo: "Vence", ancho: 92, valor: (v) => v.vence, celda: (v) => <div className={cn(v.excedida && "tono-mal")}><Momento t={v.vence} />{v.excedida && <div className="text-[10.5px] font-semibold">excedida</div>}</div> },
-        { clave: "accion", titulo: "", ancho: 124, auxiliar: true, alinear: "der", celda: (v) => (
+        // El pase libre no vence (su `vence` es técnico, ver PASE_LIBRE_HORAS): «sin tiempo», no una hora.
+        { clave: "vence", titulo: "Vence", ancho: 92, valor: (v) => (v.paseLibre ? "~" : v.vence), celda: (v) => v.paseLibre
+            ? <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground"><SinTiempo size={13} /> Sin tiempo</span>
+            : <div className={cn(v.excedida && "tono-mal")}><Momento t={v.vence} />{v.excedida && <div className="text-[10.5px] font-semibold">excedida</div>}</div> },
+        /*
+         * Un pase libre no se cierra desde acá (21/10, Nico: «tenemos proveedores con pase libre, que
+         * no debe cerrar su visita»): la cuadrilla entra y sale todo el día y su visita la cierra la
+         * lectura de Salida. Cerrarla a mano la sacaba de adentro con el proveedor todavía en el barrio.
+         */
+        { clave: "accion", titulo: "", ancho: 124, auxiliar: true, alinear: "der", celda: (v) => v.paseLibre ? (
+            <span className="text-[11px] text-muted-foreground" title="La visita de un pase libre la cierra la lectura de Salida">La cierra la Salida</span>
+        ) : (
             <button type="button" disabled={ocupado === v.id} onClick={(e) => { e.stopPropagation(); void cerrarVisita(v.id, v.plate); }}
                 className="h-7 px-2.5 rounded-md text-[12px] font-semibold inline-flex items-center gap-1 text-[var(--accion)] hover:bg-accent disabled:opacity-50"><LogOut size={13} /> Cerrar visita</button>) },
     ], [ocupado, cerrarVisita]);
@@ -384,20 +408,20 @@ function GestionAlarmas() {
                             vacio={vacio("No hay residentes adentro")}
                             pie={<span>Un residente está adentro si un auto suyo entró y no se lo vio salir en {p?.ventanas.residentesDias ?? 7} días, o si entró a pie.</span>}
                             barra={<Filtros busqueda={busqueda} alBuscar={setBusqueda} placeholder="Nombre, lote o matrícula" />} />
-                    ) : ver === "visitas" && subVisitas === "registradas" ? (
+                    ) : esDeRegistrados(ver) && subVisitas === "registradas" ? (
                         <Tabla<VisitaAdentro> {...comun} id="alarmas-visitas-registradas" filas={filasVisitas} clave={(v) => v.id} columnas={colsVisitas}
-                            vacio={vacio("No hay visitas registradas abiertas")}
+                            vacio={vacio(ver === "proveedores" ? "No hay proveedores registrados adentro" : "No hay visitas registradas abiertas")}
                             barra={<Filtros busqueda={busqueda} alBuscar={setBusqueda} placeholder="Matrícula, nombre o lote"
                                 grupos={[{ clave: "sub", titulo: "Qué lista", valor: subVisitas, alElegir: (v) => setSubVisitas(v as any), opciones: [
-                                    { valor: "vehiculos", rotulo: "Vehículos", cuenta: autosDe("visitas").length }, { valor: "registradas", rotulo: "Visitas registradas", cuenta: p?.visitas.length ?? 0 }] }]} />} />
+                                    { valor: "vehiculos", rotulo: "Vehículos", cuenta: autosDe(ver).length }, { valor: "registradas", rotulo: ver === "proveedores" ? "Registrados" : "Visitas registradas", cuenta: visitasDe(ver).length }] }]} />} />
                     ) : (
                         <Tabla<AutoAdentro> {...comun} id={`alarmas-${ver}`} filas={filasAutos} clave={(a) => a.plate} columnas={colsAutos}
                             alClickFila={(a) => setSel((x) => (x === a.plate ? null : a.plate))} filaActiva={(a) => a.plate === sel}
-                            vacio={vacio(ver === "atipicos" ? "Nada fuera de lo común adentro" : ver === "desconocidos" ? "No hay desconocidos adentro" : "No hay visitas ni proveedores adentro")}
+                            vacio={vacio(ver === "atipicos" ? "Nada fuera de lo común adentro" : ver === "desconocidos" ? "No hay desconocidos adentro" : ver === "proveedores" ? "No hay proveedores adentro" : "No hay visitas adentro")}
                             pie={<span>{p?.modo === "ABIERTO" ? `Barrio abierto: la salida no siempre se lee. Lo que no es del barrio se da por ido a las ${p.ventanas.visitasHoras} h; «sin confirmar» es una entrada vieja sin otra lectura.` : "Por la última lectura permitida de cada matrícula."}</span>}
                             barra={<Filtros busqueda={busqueda} alBuscar={setBusqueda} placeholder="Matrícula, nombre o motivo"
-                                grupos={ver === "visitas" ? [{ clave: "sub", titulo: "Qué lista", valor: subVisitas, alElegir: (v) => setSubVisitas(v as any), opciones: [
-                                    { valor: "vehiculos", rotulo: "Vehículos", cuenta: autosDe("visitas").length }, { valor: "registradas", rotulo: "Visitas registradas", cuenta: p?.visitas.length ?? 0 }] }] : undefined} />} />
+                                grupos={esDeRegistrados(ver) ? [{ clave: "sub", titulo: "Qué lista", valor: subVisitas, alElegir: (v) => setSubVisitas(v as any), opciones: [
+                                    { valor: "vehiculos", rotulo: "Vehículos", cuenta: autosDe(ver).length }, { valor: "registradas", rotulo: ver === "proveedores" ? "Registrados" : "Visitas registradas", cuenta: visitasDe(ver).length }] }] : undefined} />} />
                     )}
                     </div>
                 </div>
@@ -437,10 +461,15 @@ function VerFichaEncima() {
  * mira y entra encima cuando ya corre, sin cuadro negro. La píldora de arriba dice qué se ve y
  * alterna (la misma preferencia que el Monitor de Intrusión y la ficha).
  */
-function Foto({ src, clip }: { src: string | null; clip?: { id: string | null; deviceId: string | null; instante: string } }) {
+function Foto({ src, clip, capa }: {
+    src: string | null;
+    clip?: { id: string | null; deviceId: string | null; instante: string; propia?: { instante: number; antes: number; despues: number; motivo: string } | null };
+    /** Un aviso de OmniVision: lo que se dibuja en vivo sobre el cuadro crudo (ver CapaComportamiento). */
+    capa?: MarcasComportamiento | null;
+}) {
     const [ok, setOk] = useState(true);
     useEffect(() => { setOk(true); }, [src]);
-    const c = useClipEvento({ id: clip?.id, deviceId: clip?.deviceId, instante: clip?.instante, activo: !!clip?.deviceId && !!clip?.id });
+    const c = useClipEvento({ id: clip?.id, deviceId: clip?.deviceId, instante: clip?.instante, activo: !!clip?.deviceId && !!clip?.id, propia: clip?.propia || null });
     const enVideo = c.clipOn && c.clip.estado === "listo" && c.clipVisible;
     const conClip = !!clip?.deviceId && !!clip?.id;
     return (
@@ -452,21 +481,42 @@ function Foto({ src, clip }: { src: string | null; clip?: { id: string | null; d
                 <video key={c.clip.url} src={c.clip.url} autoPlay muted loop playsInline onPlaying={() => c.setClipVisible(true)} onError={() => c.setClipVisible(false)}
                     className={cn("absolute inset-0 w-full h-full object-contain transition-opacity duration-500", c.clipVisible ? "opacity-100" : "opacity-0")} />
             )}
+            {/* La capa va sobre la foto entera (object-contain en 16:9 = la misma caja cuando la cámara es 16:9). */}
+            {capa && src && ok && <CapaComportamiento m={enVideo ? { zona: capa.zona, linea: capa.linea } : capa} className="z-[1]" />}
             {conClip && (
                 // span y no button: la foto suele estar adentro del botón que abre la ficha.
                 <span role="button" tabIndex={0} aria-pressed={c.clipOn}
                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); c.cambiarClip(!c.clipOn); }}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); c.cambiarClip(!c.clipOn); } }}
-                    title={!c.clipOn ? `Ver en loop los ${c.ventana.antes} s antes de la foto` : c.clip.estado === "sin" ? `Sin video: ${c.clip.motivo}. Tocá para ver sólo la foto` : c.clip.estado === "listo" ? "Video del evento en loop. Tocá para ver sólo la foto" : "Trayendo el video del grabador…"}
+                    title={c.propia ? `Video: ${c.propia.motivo}` : !c.clipOn ? `Ver en loop los ${c.ventana.antes} s antes de la foto` : c.clip.estado === "sin" ? `Sin video: ${c.clip.motivo}. Tocá para ver sólo la foto` : c.clip.estado === "listo" ? "Video del evento en loop. Tocá para ver sólo la foto" : "Trayendo el video del grabador…"}
                     className="absolute top-2.5 left-2.5 z-[2] h-7 pl-2 pr-2.5 rounded-full bg-black/55 hover:bg-black/75 text-white/90 inline-flex items-center gap-1.5 text-[11px] font-semibold tabular-nums cursor-pointer">
                     {!c.clipOn ? <><ImageIcon size={13} /> Foto</>
-                        : enVideo ? <><span className="w-1.5 h-1.5 rounded-full bg-[var(--accion-en-oscuro)]" /><Repeat size={13} /> {c.ventana.antes} s antes</>
+                        : enVideo ? <><span className="w-1.5 h-1.5 rounded-full bg-[var(--accion-en-oscuro)]" /><Repeat size={13} /> {c.propia ? "La llegada" : `${c.ventana.antes} s antes`}</>
                             : c.clip.estado === "sin" ? <><ImageIcon size={13} /> Sin video</>
                                 : <><Loader2 size={13} className="animate-spin" /> Video…</>}
                 </span>
             )}
         </div>
     );
+}
+
+/** Lo de un aviso de OmniVision que necesita la ficha y el panel: la capa, el clip propio, cómo funciona. */
+function fichaVisionDe(a: Alarma): FichaVision | null {
+    if (a.fuente !== "vision" || !a.vision) return null;
+    const v = a.vision;
+    const clave = comportamientoDe(v.tipo, v.reglaTipo);
+    const nombreClase = v.clase === "person" ? "Persona" : v.clase && ["car", "truck", "bus", "motorcycle"].includes(v.clase) ? "Vehículo" : null;
+    const e = a.estadia;
+    return {
+        clave, params: { segundos: v.segundos, maximo: v.maximo, horario: v.horario, clase: v.clase },
+        fotoCruda: v.fotoCruda,
+        marcas: {
+            zona: v.zona, linea: v.linea, caja: v.caja, tono: clave ? COMPORTAMIENTOS[clave].tono : "aviso", rotulo: nombreClase,
+            estadia: e ? { avisoId: a.id.startsWith("a:") ? a.id.slice(2) : null, desde: e.desde, hasta: e.hasta } : null,
+        },
+        clipPropio: e ? clipDeEstadia(e) : null,
+        estadia: e ? { desde: e.desde, hasta: e.hasta, quieto: e.quieto, llegada: e.llegada, como: e.como, reabierta: e.reabierta } : null,
+    };
 }
 
 const COMO_TERMINO: Record<string, string> = { salio: "Salió de la zona", "no-se-ve": "Dejó de verse", reinicio: "Se dejó de seguir" };
@@ -482,7 +532,10 @@ const minutos = (seg: number) => (seg < 60 ? `${seg} s` : seg < 3600 ? `${Math.r
 function EstadiaEnZona({ e }: { e: NonNullable<Alarma["estadia"]> }) {
     return (
         <>
-            <Dato rotulo="Llegó"><span className="tabular-nums">{hhmm(e.desde)}</span>{e.umbral ? <span className="font-normal text-muted-foreground"> · avisa a los {minutos(e.umbral)}</span> : null}</Dato>
+            <Dato rotulo={e.llegada === false ? "Lo tomó OmniVision" : "Llegó"}><span className="tabular-nums">{hhmm(e.desde)}</span>{e.umbral ? <span className="font-normal text-muted-foreground"> · avisa a los {minutos(e.umbral)}</span> : null}</Dato>
+            {e.llegada === false && <div className="text-[11.5px] text-muted-foreground -mt-0.5 pb-1">No se lo vio llegar: ya estaba en la zona cuando OmniVision lo empezó a seguir.</div>}
+            {e.quieto && <Dato rotulo="Quedó quieto"><span className="tabular-nums">{hhmm(e.quieto)}</span></Dato>}
+            {e.reabierta > 0 && <Dato rotulo="Lo perdió y volvió a verlo"><span className="tabular-nums">{e.reabierta} {e.reabierta === 1 ? "vez" : "veces"}</span><span className="font-normal text-muted-foreground"> · el mismo lugar</span></Dato>}
             {e.hasta ? (
                 <Dato rotulo={COMO_TERMINO[e.como || ""] || "Se fue"}>
                     <span className="tabular-nums">{hhmm(e.hasta)}</span><span className="font-normal text-muted-foreground"> · estuvo {minutos(e.segundos ?? Math.round((new Date(e.hasta).getTime() - new Date(e.desde).getTime()) / 1000))}</span>
@@ -490,7 +543,7 @@ function EstadiaEnZona({ e }: { e: NonNullable<Alarma["estadia"]> }) {
             ) : (
                 <Dato rotulo="Sigue en la zona"><span className="inline-flex items-center gap-1.5"><span className="font-normal text-muted-foreground">lleva</span><Cronometro desde={e.desde} tamano="chico" /></span></Dato>
             )}
-            {e.como === "no-se-ve" && <div className="text-[11.5px] text-muted-foreground -mt-0.5 pb-1">No se lo vio salir: dejó de verse 20 s. Puede haberse ido, o algo lo tapó.</div>}
+            {e.como === "no-se-ve" && <div className="text-[11.5px] text-muted-foreground -mt-0.5 pb-1">No se lo vio salir: dejó de verse{e.llegada == null ? "" : " 10 min"}. Puede haberse ido, o algo lo tapó.</div>}
         </>
     );
 }
@@ -512,8 +565,9 @@ function fotoChica(f: string | null, ancho: number) {
  */
 function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto: string) => void; alRecargar: () => void }) {
     const I = ICONO_FUENTE[a.fuente];
-    const foto = fotoChica(a.foto, 960);
-    const clip = { id: a.id, deviceId: a.deviceId, instante: a.ts };
+    const fv = useMemo(() => fichaVisionDe(a), [a]);
+    const foto = fotoChica(fv?.fotoCruda || a.foto, 960);
+    const clip = { id: a.id, deviceId: a.deviceId, instante: a.ts, propia: fv?.clipPropio || null };
     // Real o falsa en todas (20/10, Nico: «no sé cómo moderar las alarmas LPR»): los patrones salen
     // de lecturas LPR y OmniVision está en prueba; «atendida» sola no decía si había que corregir algo.
     const conVeredicto = true;
@@ -546,21 +600,27 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
          * cada uno según corresponda»). Real / falsa se decide acá, en la alarma: la ventana no corrige
          * una detección de intrusión que no existe (sin onMarcar).
          */
-        id: `vision-${a.vision.eventoId}`, deviceId: a.deviceId, deviceName: a.camara, type: "OTHER", eventType: a.detalle, timestamp: a.vision.ts,
+        // La hora de la foto (la del aviso), no la de `vision.ts`: en la permanencia esa es la llegada, y
+        // la ficha decía 09:31 con una foto de las 09:46. La llegada va en la estadía y en el clip propio.
+        id: `vision-${a.vision.eventoId}`, deviceId: a.deviceId, deviceName: a.camara, type: "OTHER", eventType: a.detalle, timestamp: a.ts,
         snapshotPath: a.foto, acknowledged: a.estado === "atendida", ackKind: a.resultado === "falsa" ? "false" : a.resultado === "real" ? "real" : null,
         label: a.vision.clase === "person" ? "human" : a.vision.clase && ["car", "truck", "bus", "motorcycle"].includes(a.vision.clase) ? "vehicle" : null,
     } : null;
 
     return (
         <>
+            {/* El ajuste del video va AFUERA del botón que abre la ficha: un botón adentro de otro no vale. */}
+            <div className="relative">
             {/* Tocar la foto abre la ficha del evento (17/10, Nico): la misma de «Ver ficha». */}
             {eventoId && evento ? (
                 <VisorEventoAcceso event={evento} timeStatus={null}>
-                    <button type="button" className="group relative block w-full text-left" aria-label="Abrir la ficha del evento"><Foto src={foto} clip={clip} /><VerFichaEncima /></button>
+                    <button type="button" className="group relative block w-full text-left" aria-label="Abrir la ficha del evento"><Foto src={foto} clip={clip} capa={fv?.marcas} /><VerFichaEncima /></button>
                 </VisorEventoAcceso>
             ) : det ? (
-                <button type="button" onClick={() => setFichaIntrusion(true)} className="group relative block w-full text-left" aria-label="Abrir la ficha de la detección"><Foto src={foto} clip={clip} /><VerFichaEncima /></button>
-            ) : <Foto src={foto} clip={clip} />}
+                <button type="button" onClick={() => setFichaIntrusion(true)} className="group relative block w-full text-left" aria-label="Abrir la ficha de la detección"><Foto src={foto} clip={clip} capa={fv?.marcas} /><VerFichaEncima /></button>
+            ) : <Foto src={foto} clip={clip} capa={fv?.marcas} />}
+            {a.deviceId && <AjusteVideoFicha chico lado="abajo" className="absolute top-2.5 right-2.5 z-[3]" />}
+            </div>
             <div className="px-5 pt-4 pb-5 flex flex-col gap-4">
                 {/* El comportamiento de la chapa, ENSEGUIDA debajo de la foto/video (18/10, Nico: «debe estar
                     enseguida, debajo de la foto/video del evento, así queda más claro»). Antes iba después de
@@ -576,6 +636,16 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                     <div className="text-[17px] font-bold tracking-tight">{a.titulo}{a.plate ? <span className="ml-2 align-middle"><Matricula p={a.plate} /></span> : null}</div>
                     {a.detalle && <div className="text-[13px] text-muted-foreground mt-0.5">{a.detalle}</div>}
                 </div>
+                {/* Cómo funciona lo que la disparó (21/10, Nico: «indicar cómo funcionan claramente»). */}
+                {fv?.clave && (
+                    <details className="group rounded-[10px] border border-border open:bg-muted/30">
+                        <summary className="cursor-pointer list-none px-3 py-2 flex items-center gap-2 text-[12.5px] font-semibold">
+                            <ScanEye size={14} className="text-[var(--accion)]" /> Cómo lo detectó OmniVision
+                            <span className="ml-auto text-[11px] font-normal text-muted-foreground group-open:hidden">ver la animación</span>
+                        </summary>
+                        <div className="px-3 pb-3"><ComoFunciona clave={fv.clave} params={fv.params} /></div>
+                    </details>
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                     {det && <Button size="sm" variant="outline" onClick={() => setFichaIntrusion(true)}><FileText size={14} /> Ver ficha</Button>}
                     {eventoId && (evento
@@ -627,7 +697,7 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
             {fichaIntrusion && det && (
                 <FichaDeteccion det={det} geom={geom} onClose={() => { setFichaIntrusion(false); alRecargar(); }}
                     onMarcar={a.fuente === "intrusion" ? async (id, k) => marcarDeteccion(id, k) : undefined}
-                    claveGestion={a.fuente === "intrusion" ? undefined : a.id} titulo={a.fuente === "intrusion" ? undefined : a.titulo} />
+                    claveGestion={a.fuente === "intrusion" ? undefined : a.id} titulo={a.fuente === "intrusion" ? undefined : a.titulo} vision={fv} />
             )}
         </>
     );
@@ -668,7 +738,9 @@ function DetalleAuto({ a, gestion, alHecho, ocupado, alSalio, alCerrarVisita }: 
                     {a.estimado && <Dato rotulo="Confirmado"><span className="tono-aviso">No: entrada vieja sin otra lectura</span></Dato>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    {a.visitaId
+                    {a.visitaId && esPaseLibre(a.tipoVisita)
+                        ? <span className="text-[12px] text-muted-foreground inline-flex items-center gap-1.5"><SinTiempo size={14} /> Pase libre: su visita la cierra la lectura de Salida</span>
+                        : a.visitaId
                         ? <Button size="sm" disabled={ocupado} onClick={alCerrarVisita}><LogOut size={14} /> Cerrar visita</Button>
                         : <Button size="sm" disabled={ocupado} onClick={alSalio} title="La salida no se leyó: marcarlo afuera hasta su próxima lectura"><LogOut size={14} /> Salió</Button>}
                     <Button size="sm" variant="outline" asChild><a href={`/admin/history?search=${encodeURIComponent(a.plate)}`}><Car size={14} /> Historial de la matrícula</a></Button>

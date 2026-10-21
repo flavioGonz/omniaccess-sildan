@@ -1,5 +1,6 @@
 "use client";
 
+import { AjusteVideoFicha } from "@/components/video/AjusteVideoFicha";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
@@ -811,6 +812,7 @@ function SeleccionDeteccion({ d, cam, alFicha, alVivo, alGrabacion, alCerrar }: 
                                     : <><Loader2 size={13} className="animate-spin" /> Video…</>}
                     </button>
                 )}
+                {d.deviceId && !String(d.id).startsWith("live-") && <AjusteVideoFicha chico lado="abajo" className="absolute top-2 right-11 z-[3]" />}
                 <button type="button" onClick={alCerrar} aria-label="Cerrar" data-tooltip-id="mi-tip" data-tooltip-content="Quitar la selección"
                     className="absolute top-2 right-2 w-7 h-7 grid place-items-center rounded-full bg-black/55 text-white/85 hover:bg-black/75 hover:text-white"><X size={14} /></button>
             </div>

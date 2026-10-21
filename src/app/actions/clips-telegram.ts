@@ -135,11 +135,13 @@ export async function enviarClipPorTelegram(p: { deviceId: string; instante: num
             `<i>${segundos} s de grabación · enviado por ${htmlTg(enviadoPor)} desde OmniAccess</i>`,
         ].filter(Boolean).join("\n");
         // Los botones los atiende el bot: la cámara ahora, un clip en vivo y, si hay chapa, su historial.
+        // Sin botones donde no hay bot que los atienda (TELEGRAM_BOTONES = 0; ver dispatch-worker).
+        const conBotones = (await prisma.setting.findUnique({ where: { key: "TELEGRAM_BOTONES" } }).catch(() => null))?.value?.trim() !== "0";
         const chapa = String(p.matricula || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-        const botones: BotonTg[][] = [
+        const botones: BotonTg[][] = !conBotones ? [] : [
             [{ text: "📷 La cámara ahora", callback_data: `cam:${p.deviceId}` }, { text: "🎬 Clip en vivo", callback_data: `clip:${p.deviceId}` }],
             chapa ? [{ text: `🚘 Historial de ${chapa}`, callback_data: `m:h:${chapa}` }] : [],
-        ].filter((f) => f.every((b) => Buffer.byteLength(b.callback_data) <= 64));
+        ].filter((f) => f.length && f.every((b) => Buffer.byteLength(b.callback_data) <= 64));
         const enviados = [];
         for (const dst of destinatarios) {
             const r = await enviarVideoTelegram({ token: cfg.token, chatId: dst.destino, archivo: clip.archivo, nombre: clip.nombre, pie, botones, ancho: clip.ancho, alto: clip.alto, segundos: clip.segundos });

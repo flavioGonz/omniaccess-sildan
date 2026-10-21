@@ -449,9 +449,16 @@ async function handle(job) {
                 );
                 // Los botones de la alerta (20/10, bot de Telegram): «la cámara ahora», «clip 10 s» e «historial» de la
                 // matrícula. Los atiende el proceso telegram-bot; si no está corriendo, la alerta llega igual.
+                /*
+                 * Sin botones donde no hay bot que los atienda (21/10, Nico: «Esa cámara ya no existe» al
+                 * tocar «La cámara ahora» de un evento compartido desde el lab). El lab manda con el mismo
+                 * token y al mismo grupo que San Nicolás y no corre telegram-bot: el toque lo contestaba
+                 * el bot de San Nicolás, que busca la cámara del lab en SU base. TELEGRAM_BOTONES = 0.
+                 */
+                const conBotones = String(await getSetting("TELEGRAM_BOTONES", "1")).trim() !== "0";
                 const filaBotones = [];
-                if (dj.deviceId) filaBotones.push({ text: "📷 La cámara ahora", callback_data: ("cam:" + dj.deviceId).slice(0, 64) }, { text: "🎬 Clip 10 s", callback_data: ("clip:" + dj.deviceId).slice(0, 64) });
-                const chapa = String(p.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                if (dj.deviceId && conBotones) filaBotones.push({ text: "📷 La cámara ahora", callback_data: ("cam:" + dj.deviceId).slice(0, 64) }, { text: "🎬 Clip 10 s", callback_data: ("clip:" + dj.deviceId).slice(0, 64) });
+                const chapa = conBotones ? String(p.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "") : "";
                 const extraTg = filaBotones.length || chapa ? { reply_markup: { inline_keyboard: [filaBotones, chapa ? [{ text: "🚘 Historial de " + chapa, callback_data: "m:h:" + chapa }] : []].filter((f) => f.length) } } : undefined;
                 let r;
                 // Subidos, no por URL (ver telegramSubir). La URL queda sólo de último recurso.

@@ -1,5 +1,6 @@
 "use client";
 
+import { AjusteVideoFicha } from "@/components/video/AjusteVideoFicha";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Activity, Camera, Check, ChevronLeft, ChevronRight, Crop, Download, Film, Image as ImageIcon, Loader2, Maximize2, PlayCircle, Scan, ScanSearch, Search, Server, Share2, Sparkles, X } from "lucide-react";
@@ -400,14 +401,14 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                             ) : error ? (
                                 <div className="h-full grid place-items-center px-6"><div className="rounded-[10px] border border-[var(--mal)]/30 bg-[var(--mal)]/10 tono-mal px-4 py-3 text-[12.5px] max-w-md">{error}</div></div>
                             ) : buscando || !res ? (
-                                /* Mientras busca: los lugares de la grilla ya reservados, cada uno con su marco trabajando. */
-                                <div className="relative">
+                                /* Mientras busca: la grilla entera ya reservada, cada lugar con su marco trabajando.
+                                   Sin cartel (21/10, Nico: «queda feo ese "Buscando en lo que vieron las cámaras",
+                                   retiralo y llená el espacio con el resto de capturas loading»): los marcos llenan
+                                   todo el lado derecho, y lo que sobra se corta abajo en vez de dejar un hueco. */
+                                <div className="h-full overflow-hidden" aria-busy="true" aria-label="Buscando parecidos">
                                     <div className={GRILLA}>
-                                        {Array.from({ length: 12 }, (_, k) => <MarcoRefinado key={k} etapa={k < 4 ? "cargando" : "cola"} retardo={k} conEtapa={false} className="aspect-[4/3] rounded-[10px]" />)}
+                                        {Array.from({ length: 40 }, (_, k) => <MarcoRefinado key={k} etapa={k % 7 < 3 ? "cargando" : "cola"} retardo={k % 12} conEtapa={false} className="aspect-[4/3] rounded-[10px]" />)}
                                     </div>
-                                    <span className="sticky bottom-3 mt-3 mx-auto w-max flex items-center gap-2 h-8 px-3 rounded-full bg-black/60 backdrop-blur-md text-white/90 text-[12px] font-semibold">
-                                        <Loader2 size={13} className="animate-spin" /> Buscando en lo que vieron las cámaras…
-                                    </span>
                                 </div>
                             ) : !res.resultados.length ? (
                                 <div className="h-full grid place-items-center text-center text-muted-foreground text-[13px] px-6">Nada parecido en {RANGOS.find((r) => r.h === h)?.r}. Probá un rango más largo o un recorte más ajustado.</div>
@@ -607,6 +608,7 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
                         {r.deviceId && <button type="button" onClick={() => setModo("grabacion")} title="La grabación de ese momento, acá: regla, ±10 s, velocidades" className={riel}><PlayCircle size={17} /></button>}
                         {r.deviceId && <button type="button" onClick={() => { setModo("grabacion"); setClipGrab(true); }} title="Exportar un clip: bajarlo o mandarlo por WhatsApp" className={riel}><Download size={16} /></button>}
                         {r.foto && <button type="button" onClick={() => setCompartir(true)} title="Compartir por WhatsApp o Telegram" className={riel}><Share2 size={16} /></button>}
+                        {r.deviceId && <AjusteVideoFicha />}
                         <span className="w-4 h-px bg-white/15" />
                         <a href="/admin/vision/buscar" title="OmniVision › Buscar" className={riel}><Search size={16} /></a>
                     </div>
