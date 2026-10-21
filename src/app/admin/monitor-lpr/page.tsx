@@ -85,6 +85,8 @@ import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
 import { RegistrarMatricula } from "@/components/registro/RegistrarMatricula";
 import { Filtros } from "@/components/ui/filtros";
+import { ElegirArea } from "@/components/devices/ElegirArea";
+import { useFiltroArea } from "@/lib/use-filtro-area";
 import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 
 /** Matrícula → logo de su empresa (ver logosPorMatricula). */
@@ -678,6 +680,9 @@ export default function MonitorLPR() {
     const [lastCapByDev, setLastCapByDev] = useState<Record<string, any>>({});
     const [isConnected, setIsConnected] = useState(false);
     const [devices, setDevices] = useState<Device[]>([]);
+    // Áreas de Dispositivos (21/10, Nico): las columnas muestran sólo las cámaras del área elegida y
+    // sus lecturas. Los números de «Hoy» siguen siendo del día entero (salen del servidor).
+    const fa = useFiltroArea("monitor-lpr");
     const [streams, setStreams] = useState<string[]>([]);
     const router = useRouter();
     const [units, setUnits] = useState<any[]>([]);
@@ -922,6 +927,7 @@ export default function MonitorLPR() {
             const plate = (e.plateDetected || '').toUpperCase();
             if (plate === 'DOOR_OPEN' || plate === 'DOOR_CLOSE') return false;
             if (activeFilter !== "ALL" && e.decision !== activeFilter) return false;
+            if (fa.filtrando && !fa.enArea((e as any).device?.id || (e as any).deviceId)) return false;
             if (filterColor !== "ALL" || filterVehType !== "ALL") {
                 const m = parseVehicleMeta(e.details);
                 if (filterColor !== "ALL" && m.color !== filterColor) return false;
@@ -929,11 +935,11 @@ export default function MonitorLPR() {
             }
             return true;
         });
-    }, [events, activeFilter, filterColor, filterVehType]);
+    }, [events, activeFilter, filterColor, filterVehType, fa.filtrando, fa.enArea]);
 
     const entryEvents = useMemo(() => filteredEvents.filter(e => e.direction === 'ENTRY'), [filteredEvents]);
     const exitEvents = useMemo(() => filteredEvents.filter(e => e.direction === 'EXIT'), [filteredEvents]);
-    const lprDevs = useMemo(() => devices, [devices]);
+    const lprDevs = useMemo(() => devices.filter((x: any) => fa.enArea(x.id)), [devices, fa.enArea]);
     const entryCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'ENTRY'), [lprDevs]);
     const exitCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'EXIT'), [lprDevs]);
     /*
@@ -1006,6 +1012,11 @@ export default function MonitorLPR() {
                                 { valor: "DENY", rotulo: "", titulo: "Denegadas", icono: Ban, cuenta: stats.denies, tono: "mal" },
                             ],
                         }]}>
+                        {fa.hayAreas && (
+                            <ElegirArea areas={fa.areas} valor={fa.area} alElegir={fa.setArea} compacto
+                                cuenta={(a) => devices.filter((x: any) => fa.enAreaDe(a, x.id)).length}
+                                sinArea={devices.some((x: any) => !fa.areaDe(x.id))} />
+                        )}
                         {vehFacets.colors.length > 0 && (
                             <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)} title="Color del vehículo"
                                 className={cn("h-[34px] rounded-lg bg-muted/60 border-0 px-3 text-[12px] font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--accion)]/40", filterColor === "ALL" ? "text-muted-foreground" : "text-foreground")}>

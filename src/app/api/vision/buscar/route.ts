@@ -5,13 +5,16 @@ import { VISION_URL, empresasEnTextos } from "@/lib/vision";
 import { leerCatalogo } from "@/lib/empresas-servidor";
 import { normalizarNombre } from "@/lib/empresas";
 import { Prisma } from "@prisma/client";
+import { equiposDeArea } from "@/lib/areas-historial";
 import { historialDePistas, pareceChapa, pasosDeChapa, pistasDePasos, type PasoChapa } from "@/lib/vision-historial";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/vision/buscar?q=camioneta blanca con escalera  ·  ?parecido=<objetoId>
- *   &h=24|168|720  &camara=<deviceId>  &grupo=persona|vehiculo|animal|objeto
+ *   &h=24|168|720  &camara=<deviceId>  &grupo=persona|vehiculo|animal|objeto  &area=<id>|__sin_area
+ *   (area: sólo lo de las cámaras de esa área de Dispositivos y las de adentro — 21/10, Nico:
+ *   «la búsqueda de parecidos debe poder indicarse en qué área se desea buscar»)
  *
  * Busca en el registro de detecciones por CÓMO SE VE: la frase (o el recorte de otra pista) se
  * convierte en un vector de SigLIP 2 y se compara por coseno con la huella del recorte de cada
@@ -64,7 +67,7 @@ const deInt8 = (b: Uint8Array | Buffer, escala: number) => { const q = new Int8A
 
 function rango(sp: URLSearchParams) {
     const hq = Number(sp.get("h"));
-    return { h: RANGOS_H.has(hq) ? hq : 168, camara: sp.get("camara") || null, grupo: sp.get("grupo") || null };
+    return { h: RANGOS_H.has(hq) ? hq : 168, camara: sp.get("camara") || null, grupo: sp.get("grupo") || null, area: sp.get("area") || null };
 }
 
 export async function GET(req: NextRequest) {
@@ -132,12 +135,17 @@ export async function POST(req: NextRequest) {
     }
 }
 
-async function comparar(consulta: Float32Array, escala: number | null, sesgo: number | null, { h, camara, grupo }: { h: number; camara: string | null; grupo: string | null },
+async function comparar(consulta: Float32Array, escala: number | null, sesgo: number | null, { h, camara, grupo, area }: { h: number; camara: string | null; grupo: string | null; area?: string | null },
     parecido: string | null, modo: "texto" | "parecido" | "foto", t0: number) {
     // Texto UTC sin zona: la columna es `timestamp` y la sesión está en hora local; un Date
     // corría el rango 3 h (ver sinZona en vision-analisis.js).
     const desde = new Date(Date.now() - h * 3600_000).toISOString().replace("T", " ").replace("Z", "");
-    const filtros = Prisma.sql`o."primeraVez" >= ${desde}::timestamp${camara ? Prisma.sql` AND o."deviceId" = ${camara}` : Prisma.empty}${grupo ? Prisma.sql` AND o.grupo = ${grupo}` : Prisma.empty}`;
+    const enArea = await equiposDeArea(area);
+    // «Sin área» incluye las cámaras RTSP de OmniVision que no son un equipo (deviceId vacío).
+    const filtroArea = !enArea ? Prisma.empty
+        : "en" in enArea ? (enArea.en.length ? Prisma.sql` AND o."deviceId" IN (${Prisma.join(enArea.en)})` : Prisma.sql` AND false`)
+        : enArea.fuera.length ? Prisma.sql` AND (o."deviceId" IS NULL OR o."deviceId" NOT IN (${Prisma.join(enArea.fuera)}))` : Prisma.empty;
+    const filtros = Prisma.sql`o."primeraVez" >= ${desde}::timestamp${camara ? Prisma.sql` AND o."deviceId" = ${camara}` : Prisma.empty}${grupo ? Prisma.sql` AND o.grupo = ${grupo}` : Prisma.empty}${filtroArea}`;
     const [huellas, sinHuella] = await Promise.all([
         prisma.$queryRaw<{ id: string; vector: Buffer; escala: number }[]>`
             SELECT h."objetoId" AS id, h.vector, h.escala FROM "HuellaObjeto" h JOIN "ObjetoVisto" o ON o.id = h."objetoId"

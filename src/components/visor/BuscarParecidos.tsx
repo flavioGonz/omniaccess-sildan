@@ -2,6 +2,8 @@
 
 import { AjusteVideoFicha } from "@/components/video/AjusteVideoFicha";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ElegirArea } from "@/components/devices/ElegirArea";
+import { useFiltroArea } from "@/lib/use-filtro-area";
 import { AnimatePresence, motion } from "framer-motion";
 import { Activity, Camera, Check, ChevronLeft, ChevronRight, Crop, Download, Film, Image as ImageIcon, Loader2, Maximize2, PlayCircle, Scan, ScanSearch, Search, Server, Share2, Sparkles, X } from "lucide-react";
 import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
@@ -97,6 +99,8 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
     const [etiqueta, setEtiqueta] = useState("");
     const [arrastre, setArrastre] = useState<{ x0: number; y0: number; x: number; y: number } | null>(null);
     const [h, setH] = useState(168);
+    // En qué área buscar (21/10, Nico): las cámaras de esa área de Dispositivos y las de adentro.
+    const fa = useFiltroArea("parecidos");
     const [motor, setMotor] = useState<"omni" | "nvr">("omni");
     const [conNvr, setConNvr] = useState(false);
     const [recorte, setRecorte] = useState<{ blob: Blob; miniatura: string } | null>(null);
@@ -223,13 +227,13 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
         if (!recorte || motor !== "omni" || objetos === null) return;
         let vivo = true;
         setBuscando(true); setError(null);
-        fetch(`/api/vision/buscar?h=${h}`, { method: "POST", body: recorte.blob, headers: { "content-type": "image/jpeg" }, cache: "no-store" })
+        fetch(`/api/vision/buscar?h=${h}${fa.filtrando ? `&area=${encodeURIComponent(fa.area)}` : ""}`, { method: "POST", body: recorte.blob, headers: { "content-type": "image/jpeg" }, cache: "no-store" })
             .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`); return j; })
             .then((j) => { if (vivo) setRes(j); })
             .catch((e) => { if (vivo) setError(e?.message || "No se pudo buscar"); })
             .finally(() => { if (vivo) setBuscando(false); });
         return () => { vivo = false; };
-    }, [recorte, h, motor, objetos === null]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [recorte, h, motor, objetos === null, fa.area]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const fraccion = (e: React.PointerEvent) => {
         const r = lienzo.current!.getBoundingClientRect();
@@ -379,9 +383,12 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                                     ))}
                                 </span>
                             )}
+                            {motor === "omni" && fa.hayAreas && (
+                                <ElegirArea areas={fa.areas} valor={fa.area} alElegir={fa.setArea} sinArea alinear="start" className="w-full h-8 rounded-full" />
+                            )}
                             {motor === "omni" && (
                                 <p className="text-[11.5px] text-muted-foreground tabular-nums min-h-[17px]">
-                                    {buscando ? "Buscando…" : res ? <>{res.resultados.length} más parecidos de {res.comparados.toLocaleString("es-UY")} · {res.ms} ms</> : null}
+                                    {buscando ? "Buscando…" : res ? <>{res.resultados.length} más parecidos de {res.comparados.toLocaleString("es-UY")}{fa.nombre ? ` en ${fa.nombre}` : ""} · {res.ms} ms</> : null}
                                 </p>
                             )}
                         </div>

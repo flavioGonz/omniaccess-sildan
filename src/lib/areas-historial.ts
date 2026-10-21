@@ -54,3 +54,23 @@ export async function leerAreasHistorial(): Promise<DatosAreasHistorial> {
     recorrer(null, 0);
     return { areas: out, asignadas: [...asignadas] };
 }
+
+/**
+ * Los equipos de un ÁREA (con las de adentro), para filtrar una consulta por deviceId. Un canal de
+ * NVR sin área propia cuenta en la de su grabador (NVR_CHANNEL_MAP), como en los monitores.
+ * Devuelve { en } (sólo estos), { fuera } (todos menos estos: «Sin área») o null (sin filtro).
+ */
+export async function equiposDeArea(area: string | null | undefined): Promise<{ en: string[] } | { fuera: string[] } | null> {
+    if (!area || area === "todas") return null;
+    const { areas, equipoArea } = await leerArbolAreas();
+    const { getChannelMap } = await import("@/lib/nvr-resolve");
+    const mapa = await getChannelMap().catch(() => ({} as Record<string, { nvrId: string | null; ch: number }>));
+    const areaDe = (id: string) => equipoArea[id] || (mapa[id]?.nvrId ? equipoArea[mapa[id].nvrId!] : undefined);
+    const ids = new Set<string>([...Object.keys(equipoArea), ...Object.keys(mapa)]);
+    const conArea = [...ids].filter((id) => areaDe(id));
+    if (area === "__sin_area") return { fuera: conArea };
+    if (!areas.some((a) => a.id === area)) return null;
+    const bajo = new Set([area]);
+    for (let cambio = true; cambio;) { cambio = false; for (const a of areas) if (a.padre && bajo.has(a.padre) && !bajo.has(a.id)) { bajo.add(a.id); cambio = true; } }
+    return { en: conArea.filter((id) => bajo.has(areaDe(id)!)) };
+}

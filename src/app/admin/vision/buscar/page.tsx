@@ -2,6 +2,8 @@
 
 import { IndiceVocabulario } from "@/components/vision/IndiceVocabulario";
 import { ElegirCamara } from "@/components/devices/ElegirCamara";
+import { ElegirArea } from "@/components/devices/ElegirArea";
+import { useFiltroArea } from "@/lib/use-filtro-area";
 import { useAreas } from "@/lib/use-areas";
 import { useEffect, useRef, useState } from "react";
 import { Backpack, Bike, Camera, Car, Clock, Dog, HardHat, Layers, Loader2, PawPrint, ScanSearch, Search, Sparkles, Truck, User, Video, X, Boxes } from "lucide-react";
@@ -70,6 +72,8 @@ export default function BuscarVision() {
     const [grupo, setGrupo] = useState("");
     const [camara, setCamara] = useState("");
     const areasDisp = useAreas();
+    // En qué área buscar (21/10, Nico): texto, foto y parecidos, en las cámaras de esa área y las de adentro.
+    const fa = useFiltroArea("vision-buscar");
     const [camaras, setCamaras] = useState<{ id: string; name: string }[]>([]);
     const [datos, setDatos] = useState<Respuesta | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -93,7 +97,7 @@ export default function BuscarVision() {
         if (!pedido) return;
         let vivo = true;
         setBuscando(true); setError(null);
-        const base = { h, ...(grupo ? { grupo } : {}), ...(camara ? { camara } : {}) };
+        const base = { h, ...(grupo ? { grupo } : {}), ...(camara ? { camara } : {}), ...(fa.filtrando ? { area: fa.area } : {}) };
         const p = new URLSearchParams({ ...base, ...(pedido.foto ? {} : pedido.parecido ? { parecido: pedido.parecido.id } : { q: pedido.q || "" }) });
         (pedido.foto
             ? fetch(`/api/vision/buscar?${p}`, { method: "POST", body: pedido.foto.blob, headers: { "content-type": "image/jpeg" }, cache: "no-store" })
@@ -103,7 +107,7 @@ export default function BuscarVision() {
             .catch((e) => { if (vivo) setError(e?.message || "No se pudo buscar"); })
             .finally(() => { if (vivo) setBuscando(false); });
         return () => { vivo = false; };
-    }, [pedido, h, grupo, camara]);
+    }, [pedido, h, grupo, camara, fa.area]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const buscar = (q: string) => { const t = q.trim(); if (t) { setTexto(t); setArchivo(null); setPedido({ q: t }); } };
     const tomarFoto = (f: File | null | undefined) => { if (f && f.type.startsWith("image/")) { setArchivo(f); setDatos(null); } };
@@ -175,10 +179,14 @@ export default function BuscarVision() {
                     { clave: "h", titulo: "Rango", valor: h, alElegir: setH, opciones: RANGOS.map((x) => ({ valor: x.v, rotulo: x.r })) },
                     { clave: "g", titulo: "Qué", valor: grupo, alElegir: setGrupo, opciones: GRUPOS.filter((x) => x.v !== "propio" || hayPropias).map((x) => ({ valor: x.v, rotulo: x.r, icono: x.i })) },
                 ]} />
+                {fa.hayAreas && (
+                    <ElegirArea areas={fa.areas} valor={fa.area} alElegir={(v) => { fa.setArea(v); if (camara && v !== "todas" && !fa.enAreaDe(v, camara)) setCamara(""); }} sinArea alinear="start"
+                        cuenta={(a) => camaras.filter((c) => fa.enAreaDe(a, c.id)).length} />
+                )}
                 {/* Con buscador y por área (21/10): era un <select> con todas las cámaras de corrido. */}
                 <ElegirCamara variante="filtro" icono={Video} alinear="start" ancho={360} titulo="Cámara" valor={camara || null} alElegir={setCamara}
                     todas="Todas las cámaras" areas={areasDisp.areas}
-                    camaras={camaras.map((c) => ({ id: c.id, nombre: c.name, areaId: areasDisp.equipoArea[c.id] || null }))} />
+                    camaras={camaras.filter((c) => fa.enArea(c.id)).map((c) => ({ id: c.id, nombre: c.name, areaId: areasDisp.equipoArea[c.id] || null }))} />
                 <Pista titulo="Siluetas de OmniVision" texto="Dibuja sobre cada resultado la silueta del objeto. Se calcula al mirarlo (la primera vez tarda un instante). Es la misma opción que en el historial y el visor.">
                     <button type="button" onClick={() => setSiluetas(!siluetas)} aria-pressed={siluetas} aria-label="Siluetas de OmniVision"
                         className={cn("h-[34px] px-2.5 rounded-lg border inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors",

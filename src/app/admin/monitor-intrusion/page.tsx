@@ -28,6 +28,8 @@ import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Filtros } from "@/components/ui/filtros";
 import { Seek } from "@/components/ui/search";
 import { Button } from "@/components/ui/button";
+import { ElegirArea } from "@/components/devices/ElegirArea";
+import { useFiltroArea } from "@/lib/use-filtro-area";
 
 /** El ícono de cada filtro de OmniVision, para la barra de sólo íconos de la lista. */
 const ICONO_VISION: Record<FiltroVision, typeof ScanEye> = { todas: ScanEye, alguien: User, nadie: UserX, sin: CircleDashed };
@@ -698,6 +700,9 @@ function SeleccionDeteccion({ d, cam, alFicha, alVivo, alGrabacion, alCerrar }: 
 
 export default function MonitorIntrusion() {
     const [cams, setCams] = useState<IntrusionCam[]>([]);
+    // Áreas de Dispositivos (21/10, Nico): la pared y la columna de detecciones muestran sólo lo del
+    // área elegida. Un canal sin área propia toma la de su NVR.
+    const fa = useFiltroArea("monitor-intrusion");
     const [loading, setLoading] = useState(true);
     const [analyticsIds, setAnalyticsIds] = useState<Set<string>>(new Set());
     const [alarmIds, setAlarmIds] = useState<Set<string>>(new Set());
@@ -862,10 +867,10 @@ export default function MonitorIntrusion() {
             if (analyticsIds.has(d.id)) return 1_000;
             return 0;
         };
-        let list = [...cams];
+        let list = cams.filter((c) => fa.enArea(c.id, c.nvrId));
         if (term) list = list.filter((c) => c.name.toLowerCase().includes(term) || (c.nvrName || "").toLowerCase().includes(term));
         return list.sort((a, b) => score(b) - score(a) || String(a.name).localeCompare(String(b.name)));
-    }, [cams, analyticsIds, lastByDev, q, alarms]);
+    }, [cams, analyticsIds, lastByDev, q, alarms, fa.enArea]);
 
     const [vision, setVision] = useState<FiltroVision>("todas");
     const [busDets, setBusDets] = useState("");
@@ -874,8 +879,9 @@ export default function MonitorIntrusion() {
         const t = busDets.trim().toLowerCase();
         return (filter === "MOTION" ? dets.filter((d) => d.type === "MOTION") : filter === "ANALYTIC" ? dets.filter((d) => d.type !== "MOTION") : dets)
             .filter((d) => pasaVision(d.veredicto, vision))
+            .filter((d) => !fa.filtrando || fa.enArea(d.deviceId, d.deviceId ? camById[d.deviceId]?.nvrId : null))
             .filter((d) => !t || `${d.deviceName || ""} ${(d.deviceId && camById[d.deviceId]?.nvrName) || ""} ${(META[d.type] || META.OTHER).label}`.toLowerCase().includes(t));
-    }, [dets, filter, vision, busDets, camById]);
+    }, [dets, filter, vision, busDets, camById, fa.filtrando, fa.enArea]);
     // Lo histórico: la columna arranca con las 60 últimas y trae de a 60 más al llegar al final.
     const [hayMasDets, setHayMasDets] = useState(true);
     const [cargandoMasDets, setCargandoMasDets] = useState(false);
@@ -923,7 +929,7 @@ export default function MonitorIntrusion() {
                     <span className="relative grid h-10 w-10 place-items-center rounded-xl bg-red-500/15 shrink-0"><Radar size={20} className="text-red-500" /></span>
                     <div className="min-w-0">
                         <h1 className="text-lg font-bold tracking-tight">Monitor de Intrusión</h1>
-                        <p className="text-xs text-muted-foreground truncate">Cruce de línea, intrusión, zonas y movimiento · {cams.length} canales</p>
+                        <p className="text-xs text-muted-foreground truncate">Cruce de línea, intrusión, zonas y movimiento · {fa.filtrando ? `${cams.filter((c) => fa.enArea(c.id, c.nvrId)).length} de ${cams.length} canales · ${fa.nombre || "área"}` : `${cams.length} canales`}</p>
                     </div>
                 </div>
                 {/* La barra de la pared: buscar canal, y las tres puertas (historial, evidencia, horario).
@@ -932,6 +938,11 @@ export default function MonitorIntrusion() {
                     derecha. Ahora: piezas compartidas, un alto, y el filtro de tipo junto a lo que filtra. */}
                 <div className="flex items-center gap-2 shrink-0">
                     <div className="hidden md:block"><Seek value={q} onChange={setQ} placeholder="Buscar canal" startOpen width={220} alto={34} /></div>
+                    {fa.hayAreas && (
+                        <ElegirArea areas={fa.areas} valor={fa.area} alElegir={fa.setArea}
+                            cuenta={(a) => cams.filter((c) => fa.enAreaDe(a, c.id, c.nvrId)).length}
+                            sinArea={cams.some((c) => !fa.areaDe(c.id, c.nvrId))} />
+                    )}
                     <span className="inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg bg-muted/60 text-[12px] font-semibold tono-bien" data-tooltip-id="mi-tip" data-tooltip-content="Las detecciones llegan en tiempo real">
                         <Circle size={7} className="fill-current animate-pulse" /> En vivo
                     </span>
@@ -957,7 +968,8 @@ export default function MonitorIntrusion() {
                         </div>
                     ) : shown.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-                            <Camera size={28} className="opacity-30" /><span className="text-sm">Sin canales</span>
+                            <Camera size={28} className="opacity-30" /><span className="text-sm">{fa.filtrando && cams.length ? `Ningún canal en ${fa.nombre || "esta área"}` : q.trim() ? "Ningún canal se llama así" : "Sin canales"}</span>
+                            {fa.filtrando && cams.length > 0 && <button type="button" onClick={() => fa.setArea("todas")} className="text-[12px] font-semibold text-[var(--accion)] hover:underline">Ver todas las áreas</button>}
                         </div>
                     ) : (
                         <>
@@ -1005,7 +1017,7 @@ export default function MonitorIntrusion() {
                         alClickFila={(d) => setSel((x) => (x?.id === d.id ? null : d))}
                         filaActiva={(d) => d.id === sel?.id}
                         filaDestacada={(d) => Date.now() - new Date(d.timestamp).getTime() < 20_000}
-                        vacio={{ icono: ShieldAlert, titulo: busDets || vision !== "todas" ? "Ninguna detección con este filtro" : "Sin detecciones recientes", ayuda: busDets ? "La búsqueda mira cámara, NVR y tipo." : undefined }}
+                        vacio={{ icono: ShieldAlert, titulo: busDets || vision !== "todas" || fa.filtrando ? "Ninguna detección con este filtro" : "Sin detecciones recientes", ayuda: busDets ? "La búsqueda mira cámara, NVR y tipo." : undefined }}
                         masFilas={{ hay: hayMasDets, cargando: cargandoMasDets, traer: traerMasDets, modo: "scroll" }}
                         pie={<span className="tabular-nums">{filasDets.length} de {dets.length} cargadas</span>}
                         barra={
