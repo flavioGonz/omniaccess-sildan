@@ -28,6 +28,7 @@ import type { DatosVisor } from "@/components/VisorCuadro";
 import { getImagePath } from "@/lib/image-path";
 import { Sparkles, Server } from "lucide-react";
 import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
+import { MotoresBusqueda, type EstadoMotor } from "@/components/history/MotoresBusqueda";
 
 export type FilaHistorial = {
     id: string;
@@ -207,7 +208,7 @@ function HaceCuanto({ desde }: { desde: string }) {
     return <span className="text-[11.5px] text-muted-foreground tabular-nums">hace {leerDuracion(ms)}</span>;
 }
 
-export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, vision = [], chapa = [], barra, vista = "lista", onMerodeo, onResumen, onCargado, omnivision = true, grabador = false, foto = null }: {
+export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, vision = [], chapa = [], barra, vista = "lista", onMerodeo, onResumen, onCargado, onMotores, omnivision = true, grabador = false, foto = null }: {
     buscar: string; desde: string; hasta: string; tipos: string[];
     /**
      * Los motores de la búsqueda, además de los registros (21/10: un solo buscador con botones). Con
@@ -253,6 +254,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     onResumen?: (r: { grant: number; deny: number; colores: string[]; tipos: string[]; camaras: string[] }) => void;
     /** Cada vez que llegó una respuesta del servidor: para el reloj de "última actualización". */
     onCargado?: () => void;
+    /** Cómo va cada búsqueda: para que los botones de los motores giren mientras buscan. */
+    onMotores?: (m: EstadoMotor[]) => void;
 }) {
     const [filas, setFilas] = useState<FilaHistorial[]>([]);
     const [hay, setHay] = useState(false);
@@ -337,8 +340,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         const texto = buscar.trim();
         if (!grabador || (!foto && texto.length < 3)) { setNvr(null); return; }
         let vivo = true; let siguiente: any;
+        setNvr({ estado: "buscando", progreso: 0, hallazgos: [] });
         const arranque = setTimeout(async () => {
-            setNvr({ estado: "buscando", progreso: 0, hallazgos: [] });
             const iso = (x: string, fin = false) => { if (!x) return undefined; const d = new Date(x.length <= 10 ? `${x}T${fin ? "23:59:59" : "00:00:00"}` : x); return isNaN(+d) ? undefined : d.toISOString(); };
             const d0 = iso(desde) || new Date(Date.now() - DIAS_GRABADOR * 864e5).toISOString(), d1 = iso(hasta, true);
             let cuerpo: BodyInit, cabeceras: Record<string, string> = {};
@@ -372,13 +375,17 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
      * tiene o está apagado, no se dice nada: las otras búsquedas siguen.
      */
     const [vocab, setVocab] = useState<any[]>([]);
+    const [vocabEstado, setVocabEstado] = useState<"buscando" | "listo" | "sin-indice" | null>(null);
     useEffect(() => {
         const q = buscar.trim();
-        if (!omnivision || foto || !pareceObjeto(q)) { setVocab([]); return; }
+        if (!omnivision || foto || !pareceObjeto(q)) { setVocab([]); setVocabEstado(null); return; }
         let vivo = true;
+        setVocabEstado("buscando");
         const t = setTimeout(() => {
             fetch("/api/vision/vocabulario/historial", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q, desde: desde || undefined, hasta: hasta || undefined, camaras: camaras || [] }) })
-                .then((r) => (r.ok ? r.json() : null)).then((j) => { if (vivo) setVocab(j?.hallazgos || []); }).catch(() => { if (vivo) setVocab([]); });
+                .then((r) => (r.ok ? r.json() : null))
+                .then((j) => { if (!vivo) return; setVocab(j?.hallazgos || []); setVocabEstado(j ? "listo" : "sin-indice"); })
+                .catch(() => { if (vivo) { setVocab([]); setVocabEstado("sin-indice"); } });
         }, 900);
         return () => { vivo = false; clearTimeout(t); };
     }, [omnivision, foto, buscar, desde, hasta, camarasClave]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -611,6 +618,24 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         return [...v, ...ia.filter((f) => !tope || f.momento >= tope)].sort((a, b) => (a.momento < b.momento ? 1 : a.momento > b.momento ? -1 : 0));
     }, [filas, merodeo, color, tipoVeh, camaras, omni, buscar, hay, omnivision, grabador, nvr, foto, porFoto, vocab]);
     const abrirCaptura = useCallback((f: FilaHistorial) => (f.ia ? abrirHallazgo(f) : setViendo(f)), [abrirHallazgo]);
+
+    /* Cómo va cada búsqueda, para su indicador propio (MotoresBusqueda). Sólo las que están corriendo para esta consulta. */
+    const hayTexto = !!buscar.trim();
+    const motores = useMemo((): EstadoMotor[] => {
+        const m: EstadoMotor[] = [];
+        const primera = cargando && pagina === 0;
+        if (hayTexto && !foto) {
+            m.push({ clave: "registros", estado: primera ? "buscando" : error ? "error" : "listo", n: visibles.filter((f) => !f.ia).length, mas: hay, error });
+            if (omnivision) m.push({ clave: "omni", estado: primera ? "buscando" : omni?.error ? "error" : "listo", n: omni?.objetos?.length || 0, error: omni?.error || null });
+            // Si este servidor no tiene el índice de objetos, no se muestra: no es una falla de la búsqueda.
+            if (omnivision && vocabEstado && vocabEstado !== "sin-indice") m.push({ clave: "objetos", estado: vocabEstado, n: vocab.length });
+        }
+        if (foto && omnivision && porFoto) m.push({ clave: "foto", estado: porFoto.estado, n: porFoto.resultados.length, error: porFoto.error });
+        if (grabador && nvr) m.push({ clave: "grabador", estado: nvr.estado === "buscando" ? "buscando" : nvr.estado === "error" ? "error" : "listo", n: nvr.hallazgos.length, progreso: nvr.progreso, error: nvr.error });
+        return m;
+    }, [hayTexto, foto, cargando, pagina, error, visibles, hay, omnivision, omni, vocabEstado, vocab, porFoto, grabador, nvr]);
+    const firmaMotores = motores.map((x) => `${x.clave}:${x.estado}:${x.progreso ?? ""}`).join("|");
+    useEffect(() => { onMotores?.(motores); }, [firmaMotores]); // eslint-disable-line react-hooks/exhaustive-deps
 
     /**
      * La ficha del visor: padrón, OmniVision y empresa, pedidos al abrir (/api/history/ficha).
@@ -901,10 +926,6 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                     <span className="opacity-50">·</span><Sparkles size={11} className="text-[var(--quieto)]" /> {visibles.filter((f) => f.ia).length} encontrados por IA
                 </span>
             )}
-            {foto && porFoto?.estado === "buscando" && <span className="inline-flex items-center gap-1"><span className="opacity-50">·</span><Sparkles size={11} className="text-[var(--quieto)] animate-pulse" /> buscando la foto en OmniVision…</span>}
-            {foto && porFoto?.estado === "error" && <span className="tono-aviso">· OmniVision: {porFoto.error}</span>}
-            {grabador && nvr?.estado === "buscando" && <span className="inline-flex items-center gap-1 tabular-nums"><span className="opacity-50">·</span><Server size={11} className="text-sky-500 animate-pulse" /> buscando en el grabador… {nvr.progreso} %</span>}
-            {grabador && nvr?.estado !== "buscando" && nvr?.error && <span className="tono-aviso">· el grabador: {nvr.error}</span>}
             {visionTruncado && <span className="tono-aviso">· el filtro OmniVision miró las 5.000 lecturas más nuevas que lo cumplen</span>}
         </span>
     );
@@ -913,6 +934,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         <>
             {/* La búsqueda por IA ya va mezclada en la lista; acá sólo se avisa si OmniVision no contestó. */}
             {omni?.error && buscar && <FranjaOmniVision datos={omni} buscar={buscar} />}
+            {/* Cada búsqueda con su indicador: gira mientras busca, y dice cuántos encontró. */}
+            <MotoresBusqueda motores={motores} />
             {vista !== "lista" ? (
                 <MosaicoHistorial vista={vista} filas={visibles} hay={hay} cargando={cargando} error={error}
                     alReintentar={reintentar} traer={traer} merodeando={merodeando} alAbrir={abrirCaptura}

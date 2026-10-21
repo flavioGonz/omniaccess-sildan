@@ -33,6 +33,16 @@ export type HallazgoGrabador = {
 
 export type AvanceBusqueda = { terminada: boolean; progreso: number; total: number; hallazgos: HallazgoGrabador[]; error?: string };
 
+/**
+ * En qué canales sabe buscar el grabador (21/10, Nico: «tengo que saber en qué canales se puede
+ * buscar, poder activarlo o no; no sé si busca en todos»). No busca en todos: el grabador analiza
+ * sólo los canales que tiene encendidos para eso, y lo que no analizó no lo encuentra. null = el
+ * grabador no dice (ese tipo de búsqueda no lo tiene, o no expone la lista).
+ */
+export type CanalesBusqueda = { texto: number[] | null; imagen: number[] | null };
+/** Resultado de cambiar los canales. `reinician`: las cámaras que el grabador reinicia para aplicarlo. */
+export type CambioCanales = { ok: boolean; reinician: number[]; error?: string };
+
 export type ParamsBusqueda = { desde: string; hasta: string; similitud?: number; canales?: number[] };
 
 export interface DriverBusqueda {
@@ -45,5 +55,12 @@ export interface DriverBusqueda {
     avanceImagen?(c: ConexionGrabador, tarea: string, max: number, objeto: "persona" | "vehiculo"): Promise<AvanceBusqueda>;
     /** Una imagen de un resultado (las URLs piden la autenticación del grabador). */
     imagen(c: ConexionGrabador, url: string): Promise<{ buf: Buffer; tipo: string }>;
+    /** Los canales que analiza para cada búsqueda. */
+    canales?(c: ConexionGrabador): Promise<CanalesBusqueda>;
+    /**
+     * Fija la lista de canales que analiza para un tipo de búsqueda. Con `soloProbar` no cambia
+     * nada: dice qué cámaras habría que reiniciar, para avisarlo antes.
+     */
+    ponerCanales?(c: ConexionGrabador, tipo: "texto" | "imagen", canales: number[], soloProbar?: boolean): Promise<CambioCanales>;
     cerrar?(c: ConexionGrabador, tarea: string, tipo: "texto" | "imagen", objeto?: "persona" | "vehiculo"): Promise<void>;
 }

@@ -2,7 +2,8 @@ import {
     getAcuSeekStatus, createTextSearch, getTextSearchStatus, deleteTextSearch,
     createImageSearch, getImageSearchProgress, getImageSearchResults, deleteImageSearch, fetchAcuSeekImage,
 } from "@/lib/acuseek";
-import type { DriverBusqueda, HallazgoGrabador } from "./tipos";
+import { authenticatedRequest } from "@/lib/digest-auth";
+import type { CambioCanales, ConexionGrabador, DriverBusqueda, HallazgoGrabador } from "./tipos";
 
 /**
  * Hikvision: AcuSeek (texto, NVR VPro) y AcuSearch (imagen, también los AcuSense como el K2).
@@ -16,6 +17,63 @@ const caja = (r: any): HallazgoGrabador["caja"] => {
     const k = Math.max(x, y, w, h) > 1.5 ? 1000 : 1;
     return { x: x / k, y: y / k, w: w / k, h: h / k };
 };
+
+/*
+ * Qué canales analiza el NVR para cada búsqueda. Medido en los dos VPro de Otto Villa (21/10): es
+ * lo que la web del NVR muestra en «AcuSeek › canales» y se lee y escribe así:
+ *   texto  (AcuSeek):   /ISAPI/ContentMgmt/PicSearchByText          { enabled, channelList }
+ *   imagen (AcuSearch): /ISAPI/ContentMgmt/PicSearchByCoordinate    { searchPicEnabled, channelList }
+ * Antes de cambiarla, la web prueba con TestPicSearchBy…Channel, que contesta qué cámaras se
+ * reinician para aplicarlo (channelNeedReboot): eso se avisa antes de guardar.
+ */
+const RUTA_CANALES = {
+    texto: { ruta: "/ISAPI/ContentMgmt/PicSearchByText?format=json", prueba: "/ISAPI/Intelligent/AcuSeek/TestPicSearchByTextChannel?format=json", prendido: "enabled" },
+    imagen: { ruta: "/ISAPI/ContentMgmt/PicSearchByCoordinate?format=json", prueba: "/ISAPI/ContentMgmt/TestPicSearchByCoordinateChannel?format=json", prendido: "searchPicEnabled" },
+} as const;
+const conexion = (c: ConexionGrabador): any => ({ ip: c.ip, username: c.username, password: c.password, authType: (c.authType || "DIGEST").toUpperCase() });
+const json = { responseType: "json", accept: "application/json", contentType: "application/json", timeout: 12000 } as const;
+const lista = (x: any): number[] => (Array.isArray(x) ? x.map(Number).filter((n) => Number.isInteger(n) && n > 0).sort((a, b) => a - b) : []);
+const errorDe = (e: any, porDefecto: string): string => {
+    const b = e?.response?.data;
+    const t = typeof b === "string" ? b : b ? JSON.stringify(b) : "";
+    if (/notSupport|Invalid Operation/i.test(t)) return "El grabador no acepta ese cambio (no lo soporta, o supera los canales que puede analizar).";
+    const sub = t.match(/"subStatusCode"\s*:\s*"([^"]+)"/)?.[1] || t.match(/<subStatusCode>([^<]+)/)?.[1];
+    return sub ? `${porDefecto} (${sub})` : e?.message || porDefecto;
+};
+
+async function leerCanales(c: ConexionGrabador, tipo: "texto" | "imagen"): Promise<number[] | null> {
+    const r = RUTA_CANALES[tipo];
+    try {
+        const d = await authenticatedRequest("GET", r.ruta, conexion(c), json);
+        if (!d || typeof d !== "object") return null;
+        return d[r.prendido] === false ? [] : lista(d.channelList);
+    } catch { return null; }
+}
+
+async function ponerCanales(c: ConexionGrabador, tipo: "texto" | "imagen", canales: number[], soloProbar?: boolean): Promise<CambioCanales> {
+    const r = RUTA_CANALES[tipo];
+    const channelList = lista(canales);
+    let reinician: number[] = [];
+    // La prueba sólo tiene sentido con los que se prenden: es lo que hace la web del NVR.
+    const antes = (await leerCanales(c, tipo)) || [];
+    const nuevos = channelList.filter((n) => !antes.includes(n));
+    if (nuevos.length) {
+        try {
+            const p = await authenticatedRequest("POST", r.prueba, conexion(c), { ...json, data: { channelList: nuevos, [r.prendido]: true } });
+            reinician = lista(p?.channelNeedReboot);
+        } catch (e: any) {
+            // Hay firmwares sin la prueba: no impide guardar, sólo no se sabe de antemano.
+            if (e?.response?.status !== 403 && e?.response?.status !== 404) return { ok: false, reinician: [], error: errorDe(e, "El grabador rechazó la prueba") };
+        }
+    }
+    if (soloProbar) return { ok: true, reinician };
+    try {
+        const d = await authenticatedRequest("PUT", r.ruta, conexion(c), { ...json, data: { [r.prendido]: channelList.length > 0, channelList } });
+        // Hay respuestas 200 que dicen que no: statusCode distinto de 1 (OK).
+        if (d && typeof d === "object" && d.statusCode != null && Number(d.statusCode) !== 1) return { ok: false, reinician, error: errorDe({ response: { data: d } }, "El grabador no aceptó el cambio") };
+        return { ok: true, reinician };
+    } catch (e: any) { return { ok: false, reinician, error: errorDe(e, "El grabador no aceptó el cambio") }; }
+}
 
 export const hikvision: DriverBusqueda = {
     motor: "AcuSeek",
@@ -47,6 +105,11 @@ export const hikvision: DriverBusqueda = {
             hallazgos: r.matches.map((m) => ({ id: `i${m.id}-${m.channel}`, canal: Number(m.channel), momento: m.time, puntaje: m.score ?? null, foto: m.imagePath || null, recorte: m.targetImagePath || null, caja: caja(m.rect), atributos: m.attrs })),
         };
     },
+    async canales(c) {
+        const [texto, imagen] = await Promise.all([leerCanales(c, "texto"), leerCanales(c, "imagen")]);
+        return { texto, imagen };
+    },
+    ponerCanales,
     async imagen(c, url) { const r = await fetchAcuSeekImage(c, url); return { buf: r.buf, tipo: r.contentType }; },
     async cerrar(c, tarea, tipo, objeto) {
         if (tipo === "texto") await deleteTextSearch(c, tarea).catch(() => { });

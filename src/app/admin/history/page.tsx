@@ -10,6 +10,7 @@ import { Seek } from "@/components/ui/search";
 import { ExportHistoryDialog } from "@/components/history/ExportHistoryDialog";
 import { ImportHistoryDialog } from "@/components/history/ImportHistoryDialog";
 import { TablaUnificada } from "@/components/history/TablaUnificada";
+import type { EstadoMotor } from "@/components/history/MotoresBusqueda";
 import { BarraFiltros, SIN_FILTROS, type FiltrosHistorial, type CambiarFiltros } from "@/components/history/BarraFiltros";
 import { SelectorVista, useVista } from "@/components/history/MosaicoHistorial";
 import { useSiluetas } from "@/lib/use-siluetas";
@@ -82,6 +83,10 @@ export default function HistoryPage() {
      */
     const [conOmni, setConOmni] = useState(true);
     const [conGrabador, setConGrabador] = useState(false);
+    /** Cómo va cada búsqueda (lo dice la tabla): los botones de los motores giran mientras buscan. */
+    const [motores, setMotores] = useState<EstadoMotor[]>([]);
+    const omniBuscando = motores.some((m) => (m.clave === "omni" || m.clave === "objetos" || m.clave === "foto") && m.estado === "buscando");
+    const grabMotor = motores.find((m) => m.clave === "grabador");
     const [grabadorPuede, setGrabadorPuede] = useState<{ texto: boolean; imagen: boolean; nombres: string } | null>(null);
     useEffect(() => {
         try { setConOmni(localStorage.getItem("historial.omni") !== "0"); setConGrabador(localStorage.getItem("historial.grabador") === "1"); } catch { }
@@ -236,14 +241,15 @@ export default function HistoryPage() {
                         <Pista titulo="OmniVision" texto="Suma a la lista lo que OmniVision vio parecido a lo que escribís (por cómo se ve, no por lo anotado), y los objetos que nombres en las fotos de los accesos («carretilla», «escalera»). Va con distintivo violeta.">
                             <button type="button" onClick={alternarOmni} aria-pressed={conOmni}
                                 className={cn("h-[32px] px-2.5 rounded-full inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors", conOmni ? "pleno-quieto" : "text-muted-foreground hover:text-foreground")}>
-                                <Sparkles size={14} /> OmniVision
+                                {conOmni && omniBuscando ? <Sparkles size={14} className="animate-spin [animation-duration:1.6s]" /> : <Sparkles size={14} />} OmniVision
                             </button>
                         </Pista>
                         {(grabadorPuede?.texto || grabadorPuede?.imagen) && (
-                            <Pista titulo="Búsqueda en el grabador" texto={`Le pide al grabador${grabadorPuede.nombres ? ` (${grabadorPuede.nombres})` : ""} que busque lo escrito en lo grabado, con su IA. Tarda unos segundos; lo que encuentra entra a la lista con distintivo celeste. Sin fecha elegida, mira los últimos días.`}>
+                            <Pista titulo="Búsqueda en el grabador" texto={`Le pide al grabador${grabadorPuede.nombres ? ` (${grabadorPuede.nombres})` : ""} que busque lo escrito en lo grabado, con su IA, en los canales que analiza (se eligen en la ficha del NVR). Tarda unos segundos; lo que encuentra entra a la lista con distintivo celeste. Sin fecha elegida, mira los últimos días.`}>
                                 <button type="button" onClick={alternarGrabador} aria-pressed={conGrabador}
                                     className={cn("h-[32px] px-2.5 rounded-full inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors", conGrabador ? "bg-sky-600 text-white" : "text-muted-foreground hover:text-foreground")}>
-                                    <Server size={14} /> Grabador IA
+                                    <Server size={14} className={cn(conGrabador && grabMotor?.estado === "buscando" && "animate-pulse")} /> Grabador IA
+                                    {conGrabador && grabMotor?.estado === "buscando" && <span className="tabular-nums text-[11px] opacity-85">{grabMotor.progreso ? `${Math.round(grabMotor.progreso)} %` : "…"}</span>}
                                 </button>
                             </Pista>
                         )}
@@ -280,6 +286,7 @@ export default function HistoryPage() {
 
             {/* Renglón 2 (barra de la tabla): los filtros a la vista */}
             <TablaUnificada
+                onMotores={setMotores}
                 barra={
                     <BarraFiltros f={f} cambiar={cambiar} limpiar={limpiarFiltros} puestos={puestos}
                         camarasDisponibles={resumen.camaras} camarasServidor={camarasServidor} colores={resumen.colores} tiposVeh={resumen.tipos}

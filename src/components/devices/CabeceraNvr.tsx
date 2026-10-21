@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Activity, AlertTriangle, Check, ExternalLink, HardDrive, Loader2, MemoryStick, Network, Plus, RefreshCw, SlidersHorizontal, Sparkles, Timer, Wifi, X } from "lucide-react";
+import { Activity, AlertTriangle, Check, ExternalLink, HardDrive, Loader2, MemoryStick, Network, Plus, RefreshCw, ScanSearch, SlidersHorizontal, Sparkles, Timer, Wifi, X } from "lucide-react";
 import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
 import { TIPOS_REGLA, TIPOS_RETIRADOS, type ReglaVision } from "@/lib/vision-reglas";
 import { CajonCerrar } from "@/components/ui/cajon";
@@ -73,6 +73,18 @@ const COLOR: Record<ReturnType<typeof estadoDe>, string> = {
     nosabe: "bg-white/25 text-white",
 };
 
+/*
+ * La búsqueda con IA del grabador, por canal (21/10, Nico: «tengo que saber en qué canales se puede
+ * realizar la búsqueda, poder activarlo o no; no sé si busca en todos»). No busca en todos: analiza
+ * sólo los canales que tiene encendidos para eso (medido: 15 de 19 en el NVR01 de Otto Villa, 15 de
+ * 21 en el NVR 02), y lo que no analizó no lo encuentra aunque se le pida. Cada puerto lleva una
+ * raya celeste si busca, y «Elegir canales» deja prender y apagar puerto por puerto.
+ */
+type Busqueda = { motor: string; texto: number[] | null; imagen: number[] | null };
+/** El celeste de lo que busca el grabador: el mismo distintivo de sus resultados en el Historial. */
+const COLOR_BUSQUEDA = "bg-sky-400";
+const enAlguna = (b: Busqueda | null, ch: number) => !!b && ((b.texto || []).includes(ch) || (b.imagen || []).includes(ch));
+
 function hace(seg: number): string {
     const d = Math.floor(seg / 86400), h = Math.floor((seg % 86400) / 3600);
     return d ? `${d} d ${h} h` : h ? `${h} h` : `${Math.max(1, Math.floor(seg / 60))} min`;
@@ -96,6 +108,24 @@ export function CabeceraNvr({ device, titulo, subtitulo, ip, mac, detectando, pu
     /** La cámara que se está calibrando (línea y zona), en su ventana, sin salir de la ficha del NVR. */
     const [calibrando, setCalibrando] = useState<{ id: string; name: string } | null>(null);
 
+    const [busq, setBusq] = useState<Busqueda | null>(null);
+    /** Los canales elegidos mientras se edita (null = no se está editando). */
+    const [eligiendo, setEligiendo] = useState<Set<number> | null>(null);
+    const [guardandoBusq, setGuardandoBusq] = useState<"probando" | "guardando" | null>(null);
+    /** Antes de guardar, si el grabador reinicia cámaras para aplicarlo: cuáles, para confirmarlo. */
+    const [aviso, setAviso] = useState<{ reinician: number[] } | null>(null);
+    const [errorBusq, setErrorBusq] = useState<string | null>(null);
+    const leerBusq = useCallback(async () => {
+        if (!device?.id) return;
+        try {
+            const r = await fetch(`/api/grabador/canales?nvr=${encodeURIComponent(device.id)}`, { cache: "no-store" });
+            const j = await r.json().catch(() => null);
+            // 404: el grabador no busca con IA. Ahí no se muestra nada (no es un error).
+            setBusq(r.ok && j?.ok && (j.texto || j.imagen) ? { motor: j.motor, texto: j.texto, imagen: j.imagen } : null);
+        } catch { setBusq(null); }
+    }, [device?.id]);
+    useEffect(() => { leerBusq(); }, [leerBusq]);
+
     const cargar = useCallback(async () => {
         if (!device?.id) return;
         setCargando(true); setError(null);
@@ -114,6 +144,35 @@ export function CabeceraNvr({ device, titulo, subtitulo, ip, mac, detectando, pu
     const puertos = Array.from({ length: capacidad }, (_, i) => i + 1);
     const conCamara = (panel?.canales || []).filter((c) => estadoDe(c) !== "vacio");
     const conectadas = conCamara.filter((c) => c.online === true).length;
+    const buscables = busq ? conCamara.filter((c) => enAlguna(busq, c.ch)).length : 0;
+    const distintas = !!busq?.texto && !!busq?.imagen && busq.texto.join() !== busq.imagen.join();
+
+    const empezarEleccion = () => {
+        setErrorBusq(null); setAviso(null); setVivo(null); setSobre(null);
+        setEligiendo(new Set([...(busq?.texto || []), ...(busq?.imagen || [])]));
+    };
+    const alternarCanal = (ch: number) => { setAviso(null); setEligiendo((s) => { if (!s) return s; const n = new Set(s); if (n.has(ch)) n.delete(ch); else n.add(ch); return n; }); };
+    const guardarBusq = async (confirmado: boolean) => {
+        if (!eligiendo || !device?.id) return;
+        const canales = [...eligiendo].sort((a, b) => a - b);
+        const tipo = busq?.texto && busq?.imagen ? "ambos" : busq?.texto ? "texto" : "imagen";
+        setErrorBusq(null);
+        try {
+            // Primero se prueba: si el grabador va a reiniciar cámaras para aplicarlo, se avisa antes.
+            if (!confirmado) {
+                setGuardandoBusq("probando");
+                const p = await fetch("/api/grabador/canales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nvr: device.id, tipo, canales, probar: true }) }).then((r) => r.json());
+                if (!p?.ok) { setErrorBusq(p?.error || "El grabador rechazó el cambio."); return; }
+                if (p.reinician?.length) { setAviso({ reinician: p.reinician }); return; }
+            }
+            setGuardandoBusq("guardando"); setAviso(null);
+            const r = await fetch("/api/grabador/canales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nvr: device.id, tipo, canales }) }).then((x) => x.json());
+            if (!r?.ok) { setErrorBusq(r?.error || "El grabador no aceptó el cambio."); return; }
+            setEligiendo(null);
+            await leerBusq();
+        } catch (e: any) { setErrorBusq(e?.message || "No se pudo hablar con el grabador."); }
+        finally { setGuardandoBusq(null); }
+    };
     const caidas = conCamara.filter((c) => c.online === false).length;
 
     // El vivo del puerto: el del equipo si la cámara está dada de alta; si no, uno temporal del canal.
@@ -129,6 +188,7 @@ export function CabeceraNvr({ device, titulo, subtitulo, ip, mac, detectando, pu
     }, [porCanal, device?.id]);
 
     const entrar = (ch: number) => {
+        if (eligiendo) return; // eligiendo canales, el puerto se prende y apaga: no abre el vivo
         clearTimeout(timers.current.salir); clearTimeout(timers.current.entrar);
         setSobre(ch);
         timers.current.entrar = setTimeout(() => { if (vivo?.ch !== ch) abrirVivo(ch); }, ESPERA_HOVER_MS);
@@ -222,12 +282,17 @@ export function CabeceraNvr({ device, titulo, subtitulo, ip, mac, detectando, pu
                                 const c = porCanal.get(ch);
                                 const e = estadoDe(c);
                                 return (
-                                    <button key={ch} type="button" onMouseEnter={() => entrar(ch)} onFocus={() => entrar(ch)} onClick={() => abrirVivo(ch)}
-                                        aria-label={`Canal ${ch}: ${ROTULO[e]}${c?.nombre ? ` · ${c.nombre}` : ""}`}
-                                        title={`D${ch} · ${ROTULO[e]}${c?.nombre ? ` · ${c.nombre}` : ""}${c?.ip ? ` · ${c.ip}` : ""}${c?.equipo ? ` · en OmniAccess: ${c.equipo.nombre}` : ""}`}
+                                    <button key={ch} type="button" onMouseEnter={() => entrar(ch)} onFocus={() => entrar(ch)}
+                                        onClick={() => (eligiendo ? alternarCanal(ch) : abrirVivo(ch))}
+                                        aria-pressed={eligiendo ? eligiendo.has(ch) : undefined}
+                                        aria-label={`Canal ${ch}: ${ROTULO[e]}${c?.nombre ? ` · ${c.nombre}` : ""}${enAlguna(busq, ch) ? " · busca con IA" : ""}`}
+                                        title={`D${ch} · ${ROTULO[e]}${c?.nombre ? ` · ${c.nombre}` : ""}${c?.ip ? ` · ${c.ip}` : ""}${c?.equipo ? ` · en OmniAccess: ${c.equipo.nombre}` : ""}${busq ? (enAlguna(busq, ch) ? " · busca con IA" : " · no busca con IA") : ""}`}
                                         className={cn("relative h-[26px] rounded-[3px] text-[10px] font-bold tabular-nums grid place-items-center transition-shadow", COLOR[e],
-                                            sobre === ch && "ring-2 ring-white ring-offset-1 ring-offset-[#0b0d11]")}>
+                                            sobre === ch && !eligiendo && "ring-2 ring-white ring-offset-1 ring-offset-[#0b0d11]",
+                                            eligiendo && (eligiendo.has(ch) ? "ring-2 ring-sky-400 ring-offset-1 ring-offset-[#0b0d11]" : "opacity-45"))}>
                                         {ch}
+                                        {/* El grabador analiza este canal para su búsqueda con IA. */}
+                                        {!eligiendo && enAlguna(busq, ch) && <span className={cn("absolute left-[3px] right-[3px] bottom-[2px] h-[2px] rounded-full", COLOR_BUSQUEDA)} />}
                                         {/* La cámara ya es un equipo de OmniAccess. */}
                                         {c?.equipo && <span className="absolute right-[2px] top-[2px] h-[5px] w-[5px] rounded-full bg-[var(--accion-en-oscuro)]" />}
                                     </button>
@@ -237,7 +302,59 @@ export function CabeceraNvr({ device, titulo, subtitulo, ip, mac, detectando, pu
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[10.5px] text-white/50">
                             {(["conectada", "caida", "vacio"] as const).map((k) => <span key={k} className="inline-flex items-center gap-1.5"><span className={cn("h-2.5 w-2.5 rounded-[2px]", COLOR[k])} /> {ROTULO[k]}</span>)}
                             <span className="inline-flex items-center gap-1.5"><span className="h-[5px] w-[5px] rounded-full bg-[var(--accion-en-oscuro)]" /> Dada de alta en OmniAccess</span>
+                            {busq && <span className="inline-flex items-center gap-1.5"><span className={cn("h-[2px] w-2.5 rounded-full", COLOR_BUSQUEDA)} /> Busca con IA</span>}
                         </div>
+
+                        {/* La búsqueda con IA del grabador: en qué canales, y elegirlos. */}
+                        {busq && (
+                            <div className={cn("mt-3 rounded-[10px] px-3 py-2.5 text-[12px]", eligiendo ? "bg-sky-400/[0.10] ring-1 ring-sky-400/30" : "bg-white/[0.05]")}>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <ScanSearch size={14} className="text-sky-300 shrink-0" />
+                                    <span className="font-semibold">Búsqueda con IA del grabador</span>
+                                    <span className="text-white/45">{busq.motor}</span>
+                                    {!eligiendo && (
+                                        <span className="text-white/65 tabular-nums">
+                                            · {buscables} de {conCamara.length} canales con cámara
+                                            {distintas ? ` (por texto ${busq.texto!.length}, por foto ${busq.imagen!.length})` : ""}
+                                        </span>
+                                    )}
+                                    {eligiendo ? (
+                                        <span className="text-white/70 tabular-nums">{eligiendo.size} elegidos — tocá los puertos para prender o apagar</span>
+                                    ) : (
+                                        <button type="button" onClick={empezarEleccion} className="ml-auto h-7 px-2.5 rounded-full bg-white/10 hover:bg-white/20 text-[11.5px] font-semibold">Elegir canales</button>
+                                    )}
+                                </div>
+                                {!eligiendo && conCamara.length > buscables && (
+                                    <p className="mt-1 text-[11.5px] text-white/50 leading-snug">
+                                        En los otros no encuentra nada: {conCamara.filter((c) => !enAlguna(busq, c.ch)).map((c) => `D${c.ch}`).join(", ")}.
+                                    </p>
+                                )}
+                                {eligiendo && (
+                                    <>
+                                        <p className="mt-1.5 text-[11.5px] text-white/55 leading-snug">
+                                            El grabador analiza lo que graba en los canales elegidos{distintas ? "; se guarda la misma lista para buscar por texto y por foto" : ""}. En un canal recién prendido, lo grabado antes puede no estar analizado. Cada grabador puede analizar una cantidad de canales: si se pasa, lo rechaza.
+                                        </p>
+                                        {aviso && (
+                                            <div className="mt-2 rounded-[8px] bg-[color-mix(in_oklab,var(--aviso)_14%,transparent)] px-2.5 py-2 text-[11.5px] leading-snug flex items-start gap-2">
+                                                <AlertTriangle size={13} className="text-[var(--aviso)] shrink-0 mt-px" />
+                                                <span>Para aplicarlo el grabador reinicia {aviso.reinician.length === 1 ? "la cámara" : "las cámaras"} {aviso.reinician.map((n) => `D${n}`).join(", ")}: unos segundos sin video ni grabación. ¿Seguir?</span>
+                                            </div>
+                                        )}
+                                        {errorBusq && <div className="mt-2 text-[11.5px] text-[var(--mal)] flex items-start gap-1.5"><AlertTriangle size={13} className="shrink-0 mt-px" /> {errorBusq}</div>}
+                                        <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                                            <button type="button" disabled={!!guardandoBusq} onClick={() => { setAviso(null); setEligiendo(new Set(conCamara.map((c) => c.ch))); }} className="h-7 px-2.5 rounded-full bg-white/10 hover:bg-white/20 text-[11.5px] font-semibold disabled:opacity-50">Todos los con cámara</button>
+                                            <button type="button" disabled={!!guardandoBusq} onClick={() => { setAviso(null); setEligiendo(new Set()); }} className="h-7 px-2.5 rounded-full bg-white/10 hover:bg-white/20 text-[11.5px] font-semibold disabled:opacity-50">Ninguno</button>
+                                            <button type="button" disabled={!!guardandoBusq} onClick={() => { setEligiendo(null); setAviso(null); setErrorBusq(null); }} className="ml-auto h-7 px-2.5 rounded-full text-[11.5px] font-semibold text-white/70 hover:text-white disabled:opacity-50">Cancelar</button>
+                                            <button type="button" disabled={!!guardandoBusq} onClick={() => guardarBusq(!!aviso)}
+                                                className="h-7 px-3 rounded-full bg-white text-black text-[11.5px] font-bold inline-flex items-center gap-1.5 disabled:opacity-60">
+                                                {guardandoBusq ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                                                {guardandoBusq === "probando" ? "Consultando al grabador…" : guardandoBusq === "guardando" ? "Guardando…" : aviso ? "Sí, guardar" : "Guardar en el grabador"}
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
 
                         {/* El vivo del puerto, desplegado abajo */}
                         <AnimatePresence initial={false}>
