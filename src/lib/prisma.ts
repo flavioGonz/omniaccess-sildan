@@ -6,7 +6,13 @@ const globalForPrisma = global as unknown as { prisma: PrismaClient };
 function crear() {
     const c = new PrismaClient({});
     // Quién cambió qué desde el panel queda en AccionSistema (ver lib/auditoria). Una sola vez por cliente.
-    c.$use(middlewareAuditoria(c));
+    //
+    // Sólo en el servidor. Este archivo llega al paquete del navegador por cadenas de imports
+    // (layout → AvisosLpr → … → lib/lista-negra o lib/clips → acá), y allí @prisma/client es un
+    // sustituto que se puede construir pero que revienta al tocarle cualquier propiedad: el `$use`
+    // a secas tiró abajo todo /admin en el lab (21/10). Antes no se notaba porque nadie usaba el
+    // cliente al cargar el módulo.
+    if (typeof window === "undefined") c.$use(middlewareAuditoria(c));
     return c;
 }
 
