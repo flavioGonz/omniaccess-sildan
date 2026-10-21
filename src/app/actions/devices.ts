@@ -251,9 +251,19 @@ export async function updateDevice(id: string, formData: FormData) {
     revalidatePath("/admin/devices");
 }
 
-export async function deleteDevice(id: string) {
-    await prisma.device.delete({ where: { id } });
+/**
+ * Borrar un equipo: de todos lados, no sólo su fila (lib/borrar-equipo). Pide el permiso
+ * Dispositivos: antes no pedía nada.
+ */
+export async function deleteDevice(id: string): Promise<{ success: boolean; error?: string }> {
+    const { getSession } = await import("@/app/actions/auth");
+    const { permisosDeSesion } = await import("@/lib/permisos");
+    const s: any = await getSession().catch(() => null);
+    if (!s || !permisosDeSesion(s).includes("dispositivos")) return { success: false, error: "Sólo quien tiene Dispositivos puede borrar equipos." };
+    const { borrarEquipoDeTodo } = await import("@/lib/borrar-equipo");
+    const r = await borrarEquipoDeTodo(id, String(s.name || s.sub || "panel"));
     revalidatePath("/admin/devices");
+    return r.ok ? { success: true } : { success: false, error: r.error };
 }
 
 export async function getDevices() {

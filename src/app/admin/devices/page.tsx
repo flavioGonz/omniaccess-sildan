@@ -836,7 +836,7 @@ export default function DevicesPage() {
                                                     <DeleteConfirmDialog
                                                         id={dev.id}
                                                         title={dev.name}
-                                                        description="Se eliminará este dispositivo."
+                                                        description="Se borra de todo OmniAccess: su historial (accesos, detecciones, alarmas, lecturas), sus reglas, su área, su video en vivo y su lugar en OmniVision. Queda sólo el registro en Auditoría. La cámara y su grabación en el NVR no se tocan."
                                                         onDelete={deleteDevice}
                                                         onSuccess={loadData}
                                                     >
@@ -1021,7 +1021,7 @@ export default function DevicesPage() {
                                                             <Settings2 size={14} /> Editar configuración
                                                         </DropdownMenuItem>
                                                         <DropdownMenuSeparator className="bg-foreground/10" />
-                                                        <DeleteConfirmDialog id={dev.id} title={dev.name} description="Se eliminará este NVR." onDelete={deleteDevice} onSuccess={loadData}>
+                                                        <DeleteConfirmDialog id={dev.id} title={dev.name} description="Se borra de todo OmniAccess: su salud, sus canales en el mapa, sus streams y lo que tenga guardado. Las cámaras que graban en él quedan, sin su grabación vinculada. Queda sólo el registro en Auditoría. El NVR en sí no se toca." onDelete={deleteDevice} onSuccess={loadData}>
                                                             <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-red-500/10 hover:text-red-500 gap-2 text-red-400">
                                                                 <Trash2 size={14} /> Eliminar
                                                             </div>
