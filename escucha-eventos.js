@@ -63,10 +63,25 @@ const cuentas = { recibidos: 0, enviados: 0, dobles: 0, errores: 0 };
 
 const campo = (xml, t) => (xml.match(new RegExp(`<${t}>([^<]*)</${t}>`)) || [])[1] || "";
 
-function reenviar(xml) {
+/**
+ * Al receptor, como lo habría mandado la cámara: sólo el XML, o (una lectura de matrícula, que
+ * trae sus fotos) un multipart con el XML como campo y cada imagen como archivo, que es lo que
+ * server.js lee de un push ANPR.
+ */
+function reenviar(xml, imagenes = []) {
     return new Promise((resolve) => {
-        const cuerpo = Buffer.from(xml, "utf8");
-        const req = http.request({ ...RECEPTOR, method: "POST", headers: { "Content-Type": "application/xml", "Content-Length": cuerpo.length, "X-Omni-Escucha": "1" }, timeout: 15000 }, (res) => {
+        let cuerpo, tipo;
+        if (!imagenes.length) { cuerpo = Buffer.from(xml, "utf8"); tipo = "application/xml"; }
+        else {
+            const b = "----omniescucha" + crypto.randomBytes(8).toString("hex");
+            const partes = [Buffer.from(`--${b}\r\nContent-Disposition: form-data; name="anpr.xml"\r\nContent-Type: application/xml\r\n\r\n${xml}\r\n`, "utf8")];
+            imagenes.forEach((im, i) => partes.push(
+                Buffer.from(`--${b}\r\nContent-Disposition: form-data; name="${im.nombre || `imagen${i}`}"; filename="${im.nombre || `imagen${i}.jpg`}"\r\nContent-Type: ${im.tipo || "image/jpeg"}\r\n\r\n`, "utf8"),
+                im.buf, Buffer.from("\r\n", "utf8")));
+            partes.push(Buffer.from(`--${b}--\r\n`, "utf8"));
+            cuerpo = Buffer.concat(partes); tipo = `multipart/form-data; boundary=${b}`;
+        }
+        const req = http.request({ ...RECEPTOR, method: "POST", headers: { "Content-Type": tipo, "Content-Length": cuerpo.length, "X-Omni-Escucha": "1" }, timeout: 15000 }, (res) => {
             res.resume();
             res.on("end", () => resolve(res.statusCode));
         });
@@ -76,10 +91,24 @@ function reenviar(xml) {
     });
 }
 
-async function procesar(est, xml) {
+/** Una lectura de matrícula: eventType ANPR (o vehicleDetection con bloque ANPR) y una chapa. */
+const esAnpr = (xml, tipo) => (tipo === "anpr" || tipo === "vehicledetection" || /<ANPR>/i.test(xml)) && !!campo(xml, "licensePlate");
+
+async function procesar(est, xml, imagenes = []) {
     const tipo = campo(xml, "eventType").toLowerCase();
     const estado = campo(xml, "eventState").toLowerCase();
-    if (!TIPOS.has(tipo) || estado !== "active") return;
+    const anpr = esAnpr(xml, tipo);
+    if (!anpr && (!TIPOS.has(tipo) || estado !== "active")) return;
+    if (anpr) {
+        // Cada lectura cuenta (la deduplicación de chapas ya la hace el receptor).
+        cuentas.recibidos++;
+        let x = xml;
+        if (!campo(x, "ipAddress")) x = x.replace(/<EventNotificationAlert([^>]*)>/, `<EventNotificationAlert$1><ipAddress>${est.cam.ip}</ipAddress>`);
+        const st = await reenviar(x, imagenes);
+        if (st >= 200 && st < 300) { cuentas.enviados++; log(`${est.cam.name}: matrícula ${campo(xml, "licensePlate")} → receptor (${imagenes.length} fotos)`); }
+        else { cuentas.errores++; log(`${est.cam.name}: el receptor no tomó la lectura (${st || "sin respuesta"})`); }
+        return;
+    }
     cuentas.recibidos++;
     const region = campo(xml, "regionID");
     const clave = `${tipo}|${region}`;
@@ -109,20 +138,56 @@ function abrir(est, autorizacion) {
         }
         if (res.statusCode !== 200) { res.resume(); return reintentar(est, `HTTP ${res.statusCode}`); }
         if (est.fallos) log(`${est.cam.name}: escuchando otra vez (después de ${est.fallos} intentos)`); else log(`${est.cam.name}: escuchando`);
-        est.fallos = 0; est.espera = ESPERA_MIN_MS; est.req = req; est.desde = Date.now();
+        // La espera vuelve al mínimo recién si el flujo aguanta: una cámara que acepta y corta al
+        // instante (IPCamera 18, 21/10) si no quedaba reconectando cada 5 s para siempre.
+        est.fallos = 0; est.req = req; est.desde = Date.now();
+        setTimeout(() => { if (gen === est.gen) est.espera = ESPERA_MIN_MS; }, 30_000);
+        /*
+         * El flujo es multipart: un XML por evento, y detrás las fotos de ese evento (una lectura de
+         * matrícula trae la chapa y el cuadro). Se arma cada evento con sus fotos y se manda cuando
+         * llega el siguiente XML o pasan 800 ms. Sin boundary en la cabecera, se buscan los XML a mano.
+         */
+        const m = String(res.headers["content-type"] || "").match(/boundary="?([^";]+)"?/i);
+        const sep = m ? Buffer.from("--" + m[1]) : null;
         let cola = Buffer.alloc(0);
+        let pendiente = null;
+        const soltar = () => { if (!pendiente) return; const p = pendiente; pendiente = null; clearTimeout(p.t); procesar(est, p.xml, p.imgs).catch(() => { }); };
+        const parte = (crudo) => {
+            const fin = crudo.indexOf("\r\n\r\n");
+            if (fin < 0) return;
+            const cab = crudo.subarray(0, fin).toString("latin1");
+            let cuerpo = crudo.subarray(fin + 4);
+            if (cuerpo.length >= 2 && cuerpo[cuerpo.length - 2] === 13 && cuerpo[cuerpo.length - 1] === 10) cuerpo = cuerpo.subarray(0, cuerpo.length - 2);
+            const ct = (cab.match(/content-type:\s*([^\r\n;]+)/i) || [])[1] || "";
+            if (/xml/i.test(ct) || cuerpo.subarray(0, 64).toString("latin1").includes("<EventNotificationAlert")) {
+                soltar();
+                pendiente = { xml: cuerpo.toString("utf8"), imgs: [], t: setTimeout(soltar, 800) };
+            } else if (/image/i.test(ct) && pendiente && pendiente.imgs.length < 4) {
+                const nombre = (cab.match(/filename="?([^"\r\n;]+)"?/i) || [])[1] || null;
+                pendiente.imgs.push({ nombre, tipo: ct.trim(), buf: Buffer.from(cuerpo) });
+            }
+        };
         res.on("data", (t) => {
             if (gen !== est.gen) return;
             cola = Buffer.concat([cola, t]);
-            for (;;) {
-                const i = cola.indexOf(INICIO); if (i < 0) break;
-                const f = cola.indexOf(FIN, i); if (f < 0) break;
-                const bloque = cola.subarray(i, f + FIN.length).toString("utf8");
-                cola = cola.subarray(f + FIN.length);
-                procesar(est, bloque).catch(() => { });
+            if (sep) {
+                for (;;) {
+                    const i = cola.indexOf(sep); if (i < 0) break;
+                    const j = cola.indexOf(sep, i + sep.length); if (j < 0) break;
+                    parte(cola.subarray(i + sep.length, j));
+                    cola = cola.subarray(j);
+                }
+            } else {
+                for (;;) {
+                    const i = cola.indexOf(INICIO); if (i < 0) break;
+                    const f = cola.indexOf(FIN, i); if (f < 0) break;
+                    const bloque = cola.subarray(i, f + FIN.length).toString("utf8");
+                    cola = cola.subarray(f + FIN.length);
+                    procesar(est, bloque).catch(() => { });
+                }
             }
-            // Las imágenes adjuntas no interesan (el receptor saca su propia captura).
-            if (cola.length > 2 * 1024 * 1024) cola = cola.subarray(cola.length - 64 * 1024);
+            // Una parte que nunca cierra (una foto enorme cortada) no puede crecer sin fin.
+            if (cola.length > 8 * 1024 * 1024) cola = cola.subarray(cola.length - 64 * 1024);
         });
         res.on("end", () => reintentar(est, "el flujo se cerró"));
         res.on("close", () => reintentar(est, "el flujo se cerró"));
