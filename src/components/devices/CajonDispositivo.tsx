@@ -497,7 +497,10 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         else setModoIntr(caps?.fuente === "camara" ? caps.sugerido.modoIntr : "doble");
         if (!esEdicion) setOpcionAlta(t === "CAMERA" ? "intrusion" : caps?.anpr === false ? "omnilpr" : "lpr");
     };
-    const pasos = useMemo(() => esEdicion ? [{ clave: "ficha", rotulo: "Ficha" }] : [{ clave: "tipo", rotulo: "Tipo" }, ...(tipo ? PASOS_POR_TIPO[tipo] : [])], [esEdicion, tipo]);
+    // `tipo` puede ser uno que el alta guiada no tiene (LPR_INTERIOR, un lector facial…): pasa al
+    // cerrar el cajón de edición de uno de esos, cuando `device` ya es null y el formulario todavía
+    // tiene su tipo. Se rompía la pantalla entera («… is not iterable»): sin pasos propios, sólo «Tipo».
+    const pasos = useMemo(() => esEdicion ? [{ clave: "ficha", rotulo: "Ficha" }] : [{ clave: "tipo", rotulo: "Tipo" }, ...((tipo && PASOS_POR_TIPO[tipo as Tipo]) || [])], [esEdicion, tipo]);
     const clave = pasos[Math.min(paso, pasos.length - 1)]?.clave || "tipo";
     const ultimo = paso >= pasos.length - 1;
     const ir = (i: number) => { setHacia(i > paso ? 1 : -1); setPaso(i); };
