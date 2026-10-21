@@ -47,4 +47,7 @@ until contesta; do
   sleep 3
 done
 echo BUILD_OK >> "$LOG"
-git push -q origin "$(git rev-parse --abbrev-ref HEAD)" && echo PUSH_OK >> "$LOG"
+# Subir a git es aparte: si falla (en el lab el remoto pide una clave SSH que el CT no tiene), el
+# build igual quedó bien puesto, y la salida del script tiene que decir eso (desplegar.sh la mira).
+if git push -q origin "$(git rev-parse --abbrev-ref HEAD)" > /dev/null 2>&1; then echo PUSH_OK >> "$LOG"; else echo PUSH_FALLO >> "$LOG"; fi
+exit 0
