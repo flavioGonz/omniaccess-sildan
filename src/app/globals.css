@@ -2349,3 +2349,32 @@ html:not(.dark) .regla-tema .tms-tramo[data-tono="lectura"] { background: var(--
    se pasa a --foreground por las reglas de .visor-zona de arriba. */
 .oa-ajuste-pop { background: rgba(13, 17, 23, 0.95); border-color: rgba(255, 255, 255, 0.12); }
 html:not(.dark) .visor-raiz .visor-zona .oa-ajuste-pop { background: var(--card); border-color: var(--border); }
+
+/* El tema del cajón de la lista negra (WatchlistDialog y CajonListaNegra): todo rojo, letra
+   blanca (20/10 y 21/10, Nico: «el drawer de lista negra debe ser igual al que tenemos con fondo
+   rojo»). Se remapean los tokens adentro del cajón, así las piezas compartidas (CajonSeccion,
+   CajonCampo, Input, Button, Tabla) se ven bien sin reescribirlas. El primario pasa a blanco
+   con letra roja: sobre rojo, el azul de acción no se lee. */
+.tema-rojo {
+  --background: var(--mal);
+  --foreground: #fff;
+  --card: rgba(255, 255, 255, 0.08);
+  --card-foreground: #fff;
+  --muted: rgba(255, 255, 255, 0.12);
+  --muted-foreground: rgba(255, 255, 255, 0.78);
+  --border: rgba(255, 255, 255, 0.22);
+  --input: rgba(255, 255, 255, 0.3);
+  --ring: rgba(255, 255, 255, 0.7);
+  --accent: rgba(255, 255, 255, 0.14);
+  --accent-foreground: #fff;
+  --primary: #fff;
+  --primary-foreground: var(--mal);
+  --accion: #fff;
+  background: var(--mal);
+  color: #fff;
+}
+.tema-rojo .tono-mal, .tema-rojo .tono-aviso, .tema-rojo .tono-accion { color: #fff; }
+.tema-rojo .chip-mal, .tema-rojo .chip-aviso, .tema-rojo .chip-info, .tema-rojo .chip-bien {
+  background: rgba(0, 0, 0, 0.2); color: #fff; border-color: rgba(255, 255, 255, 0.28);
+}
+.tema-rojo input:not(.bg-white)::placeholder { color: rgba(255, 255, 255, 0.55); }

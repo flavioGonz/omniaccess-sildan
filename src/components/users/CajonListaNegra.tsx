@@ -7,7 +7,7 @@ import dynamic from "next/dynamic";
 import { Ban, Car, History, Images, Loader2, Plus, RotateCcw, Save, Search, ShieldAlert, User as UserIco, X, ExternalLink } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
-import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
+import { Cajon, CajonContenido, CajonSeccion, CajonCampo, CajonCerrar } from "@/components/ui/cajon";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Estado, Matricula, Momento, Nada } from "@/components/ui/celdas";
 import { Button } from "@/components/ui/button";
@@ -162,7 +162,14 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
     return (
         <>
         <Cajon open={abierta && !evento} onOpenChange={(o) => { if (!o) alCerrar(); }}>
-            <CajonContenido ancho="intermedio" titulo={titulo} descripcion={descripcion}
+            {/*
+              * En rojo, como el cajón de la lista negra del monitor (21/10, Nico: «el drawer de
+              * ?tab=listanegra debe ser igual al que tenemos con fondo rojo»). El tema (.tema-rojo)
+              * remapea los tokens: las secciones, los campos y la tabla de abajo se ven en blanco
+              * sobre rojo sin reescribirlas.
+              */}
+            <CajonContenido ancho="intermedio" titulo={titulo} descripcion={descripcion} sinCabecera
+                className="tema-rojo !bg-[var(--mal)] text-white !border-l-0"
                 pie={
                     <>
                         {ficha && ficha.origen !== "rol" && (
@@ -179,9 +186,22 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
                     </>
                 }>
 
+                <header className="px-6 pt-6 pb-5 border-b border-white/15">
+                    <div className="flex items-start gap-3">
+                        <span className="grid h-11 w-11 place-items-center rounded-full bg-white/15 shrink-0">{nivel === "SEARCH" ? <Search size={21} /> : <Ban size={22} />}</span>
+                        <div className="min-w-0 flex-1">
+                            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/75">{nivel === "SEARCH" ? "En búsqueda" : "Alerta máxima · lista negra"}</div>
+                            <h2 className="text-[22px] font-extrabold leading-tight tracking-[-0.02em] mt-1 truncate">{titulo}</h2>
+                            <p className="text-[12.5px] text-white/80 mt-0.5">{descripcion}</p>
+                        </div>
+                        {ficha && <span className="h-7 px-2.5 rounded-full bg-white/15 text-[12px] font-bold inline-flex items-center shrink-0">{ficha.activa ? "Activa" : "Dada de baja"}</span>}
+                        <CajonCerrar className="h-8 w-8 rounded-full grid place-items-center hover:bg-white/15 shrink-0" aria-label="Cerrar"><X size={17} /></CajonCerrar>
+                    </div>
+                </header>
+
                 {/* Lo que hay que confirmar antes de guardar: va arriba, que es donde se mira. */}
                 {avisos && (
-                    <div className="mx-6 mt-5 rounded-[10px] border chip-aviso p-3 text-[12px] space-y-2">
+                    <div className="mx-6 mt-5 rounded-[10px] bg-black/25 p-3 text-[12px] space-y-2">
                         <ul className="space-y-1">{avisos.lista.map((a) => <li key={a}>{a}</li>)}</ul>
                         <div className="flex gap-2">
                             <Button size="sm" onClick={() => (avisos.accion === "reactivar" ? bajaOAlta(true) : guardar(true))} disabled={guardando}>Sí, seguir</Button>
@@ -233,7 +253,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
                                 <Pista key={n} titulo={NIVELES[n].titulo} texto={<ExplicacionCategoria cat={n} />} ancho={340} lado="abajo">
                                     <button type="button" disabled={!editable} aria-pressed={sel} onClick={() => { setNivel(n); setAvisos(null); }}
                                         className={cn("w-full rounded-[10px] border p-3 text-left transition-colors disabled:cursor-default",
-                                            sel ? `chip-${NIVELES[n].tono}` : "border-border hover:bg-accent", !editable && !sel && "opacity-50")}>
+                                            sel ? "bg-white text-[var(--mal)] border-white" : "border-white/25 hover:bg-white/10", !editable && !sel && "opacity-50")}>
                                         <span className="flex items-center gap-1.5 text-[13px] font-bold"><Ic size={14} /> {NIVELES[n].titulo}</span>
                                         <span className={cn("block text-[11.5px] mt-0.5 leading-snug", sel ? "opacity-90" : "text-muted-foreground")}>{NIVELES[n].resumen}</span>
                                     </button>
@@ -268,13 +288,13 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
                                 <input value={chapaNueva} onChange={(e) => setChapaNueva(e.target.value.toUpperCase())} maxLength={10}
                                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); agregarChapa(); } }}
                                     placeholder="ABC1234" aria-label="Matrícula nueva"
-                                    className="w-32 h-9 rounded-[6px] border border-border bg-background text-center text-[14px] font-bold tracking-[0.14em] uppercase tabular-nums outline-none focus:ring-2 focus:ring-[var(--accion)]" />
+                                    className="w-32 h-9 rounded-[6px] border-2 border-neutral-900 bg-white text-neutral-900 text-center text-[14px] font-bold tracking-[0.14em] uppercase tabular-nums outline-none placeholder:text-neutral-300 focus:ring-4 focus:ring-white/40" />
                                 <Button type="button" variant="outline" size="sm" onClick={agregarChapa} disabled={!limpiar(chapaNueva)}><Plus size={13} /> Agregar</Button>
                             </span>
                         )}
                     </div>
                     {/* Las que se agregan ahora (las de la ficha ya estaban): qué hay con ellas en la base (21/10). */}
-                    {editable && <MatriculaEnBase className="mt-2" plates={chapasFinales.filter((p) => !(ficha?.matriculas || []).includes(p))} />}
+                    {editable && <MatriculaEnBase className="mt-2" variante="rojo" plates={chapasFinales.filter((p) => !(ficha?.matriculas || []).includes(p))} />}
                 </CajonSeccion>
 
                 {/* ── Dónde se la vio ── (sólo una ficha que ya existe) */}

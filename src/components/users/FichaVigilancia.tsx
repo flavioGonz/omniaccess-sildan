@@ -1,5 +1,6 @@
 "use client";
 
+import { Switch } from "@/components/ui/switch";
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ShieldAlert, Loader2, Bell, BellOff, Ban, RotateCcw, Save, User as UserIco, History, Images, ImagePlus, ScanFace } from "lucide-react";
@@ -231,7 +232,12 @@ export function FichaVigilancia({ fila, alCerrar, alCambiar }: { fila: Fila | nu
                                         </Pista>
                                     ))}
                                     <Pista titulo={notify ? "Avisa" : "En silencio"} texto="Con aviso, al detectarse dispara la regla WATCHLIST del motor de notificaciones. En silencio sólo se ve en las pantallas." lado="abajo">
-                                        <button type="button" onClick={() => setNotify((n) => !n)} className={cn("h-8 px-3 rounded-full border text-[11px] font-bold flex items-center gap-1.5", notify ? "bg-[var(--info-suave)] text-[var(--info)] border-border" : "bg-background text-muted-foreground border-border")}>{notify ? <Bell size={13} /> : <BellOff size={13} />} {notify ? "Avisa" : "Silencio"}</button>
+                                        {/* Interruptor y no chip (21/10, Nico): prendido o apagado se lee de un vistazo. */}
+                                        <label className="h-8 pl-2.5 pr-1.5 rounded-[6px] border border-border flex items-center gap-2 cursor-pointer">
+                                            {notify ? <Bell size={13} /> : <BellOff size={13} className="text-muted-foreground" />}
+                                            <span className={cn("text-[11.5px] font-semibold", !notify && "text-muted-foreground")}>Avisar</span>
+                                            <Switch checked={notify} onCheckedChange={setNotify} aria-label="Avisar" />
+                                        </label>
                                     </Pista>
                                 </div>
                             </div>
