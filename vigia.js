@@ -98,6 +98,11 @@ const LECTOR = process.env.OMNI_LPR_URL || "http://127.0.0.1:8000";
 const VISION = process.env.VISION_URL || "http://127.0.0.1:8010";
 const WEB = process.env.INTERNAL_BASE_URL || "http://127.0.0.1:10001";
 const WEBHOOKS = process.env.WEBHOOK_URL || "http://127.0.0.1:10000";
+const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
+/** Tope para sacar un cuadro: go2rtc trabado no contesta nunca; uno sano, en menos de un segundo. */
+const CUADRO_TOPE_MS = 15_000;
+/** Un JPEG de menos de esto es una página de error, no un cuadro. */
+const CUADRO_BYTES_MINIMOS = 1_000;
 
 const log = (...a) => console.log(new Date().toISOString(), "[vigia]", ...a);
 
@@ -138,7 +143,9 @@ async function porPm2(nombre) {
     try {
         const { stdout } = await correr("pm2 jlist", { timeout: 15_000, maxBuffer: 16 * 1024 * 1024 });
         const app = JSON.parse(stdout).find((a) => a.name === nombre);
-        if (!app) return { ok: false, detalle: "no figura en pm2" };
+        // No está en pm2: esta instalación no lo usa (HB no tiene lector ni seguimiento). Antes
+        // figuraba caído y se intentaba levantar algo que no existe, cuatro veces por hora.
+        if (!app) return { ok: true, detalle: "no instalado aquí" };
         const st = app.pm2_env && app.pm2_env.status;
         return { ok: st === "online", detalle: `pm2 dice ${st}` };
     } catch (e) {
@@ -241,9 +248,56 @@ async function visionEnPausa() {
  * ¿Está instalado omni-vision? Una instalación sin el detector no tiene por qué figurar
  * caída ni recibir intentos de levantarlo: se mira sólo si el contenedor existe.
  */
-async function hayVision() {
-    try { await correr("docker inspect omni-vision --format '{{.Id}}'", { timeout: 15_000 }); return true; }
+async function hayVision() { return hayContenedor("omni-vision"); }
+async function hayContenedor(nombre) {
+    try { await correr(`docker inspect ${nombre} --format '{{.Id}}'`, { timeout: 15_000 }); return true; }
     catch { return false; }
+}
+
+// ── Video (go2rtc) ──────────────────────────────────────────────────────────────
+
+/**
+ * go2rtc trabado con la cámara sana. HB, 21/10: la Bosch se reinició a las 09:22; cuando volvió,
+ * go2rtc siguió con la sesión vieja colgada («i/o timeout») y no se recuperó solo. Sin video no hay
+ * anillo, y sin anillo los avisos salen sin clip y /video no contesta. La cámara entregaba bien
+ * pedida directo; reiniciar go2rtc lo arregló.
+ *
+ * Se revisa el flujo de cada cámara de fila (bosch_<ip>, el que graba el anillo) y, si no da un
+ * cuadro, se le pregunta a la cámara directo: si ella tampoco contesta, el problema es la cámara
+ * (se avisa aparte) y reiniciar go2rtc no arreglaría nada.
+ */
+async function camarasDeVideo() {
+    try {
+        const ds = await prisma.device.findMany({ where: { deviceType: "QUEUE_COUNTER", ip: { not: null } }, select: { id: true, name: true, ip: true, username: true, password: true } });
+        return ds.map((d) => ({ ...d, flujo: `bosch_${String(d.ip).replace(/\./g, "_")}` }));
+    } catch { return []; }
+}
+
+async function cuadroDe(url, cabeceras) {
+    try {
+        const r = await fetch(url, { headers: cabeceras || {}, signal: AbortSignal.timeout(CUADRO_TOPE_MS) });
+        if (!r.ok) return { ok: false, detalle: `HTTP ${r.status}` };
+        const b = Buffer.from(await r.arrayBuffer());
+        return b.length >= CUADRO_BYTES_MINIMOS ? { ok: true, detalle: `cuadro de ${Math.round(b.length / 1024)} KB` } : { ok: false, detalle: "respuesta sin imagen" };
+    } catch (e) { return { ok: false, detalle: (e && e.name === "TimeoutError") ? `sin respuesta en ${CUADRO_TOPE_MS / 1000} s` : ((e && e.message) || "no contestó") }; }
+}
+
+/** La cámara directo (snap.jpg por HTTP, el mismo pedido que lib/filas/foto). */
+const porCamara = (c) => cuadroDe(`http://${c.ip}/snap.jpg?JpegSize=S`, { Authorization: "Basic " + Buffer.from(`${c.username || "admin"}:${c.password || ""}`).toString("base64") });
+
+/** El flujo en go2rtc. Con la cámara caída no se juzga a go2rtc: no tendría de dónde sacar video. */
+const porGo2rtc = (c) => async () => {
+    const r = await cuadroDe(`${GO2RTC}/api/frame.jpeg?src=${encodeURIComponent(c.flujo)}`);
+    if (r.ok) return r;
+    const cam = await porCamara(c);
+    if (!cam.ok) return { ok: true, detalle: "sin revisar: la cámara tampoco contesta" };
+    return { ok: false, detalle: `go2rtc no entrega video de ${c.name} (${r.detalle}); la cámara sí contesta` };
+};
+
+async function reiniciarGo2rtc() {
+    const orden = await ajuste("VIGIA_GO2RTC_REINICIO", process.env.VIGIA_GO2RTC_REINICIO || "systemctl restart go2rtc");
+    await correr(orden, { timeout: 60_000 });
+    return `go2rtc reiniciado (${orden})`;
 }
 
 // ── El aviso ────────────────────────────────────────────────────────────────────
@@ -358,8 +412,16 @@ async function vuelta() {
 
     await atender("web", "el sitio", () => porHttp(`${WEB}/api/health`), levantarPm2("omniaccess-web"));
     await atender("webhooks", "los webhooks", () => porHttp(`${WEBHOOKS}/health`), levantarPm2("omniaccess-webhooks"));
-    await atender("lector:contenedor", "el contenedor del lector", () => porDocker("omni-lpr"), levantarLector);
-    await atender("lector:api", "la API del lector", () => porHttp(`${LECTOR}/api/health`), levantarLector);
+    // Sólo donde hay lector (HB no tiene: cuenta personas, no lee matrículas).
+    if (await hayContenedor("omni-lpr")) {
+        await atender("lector:contenedor", "el contenedor del lector", () => porDocker("omni-lpr"), levantarLector);
+        await atender("lector:api", "la API del lector", () => porHttp(`${LECTOR}/api/health`), levantarLector);
+    }
+
+    for (const c of await camarasDeVideo()) {
+        await atender(`camara:${c.id}`, `la cámara ${c.name}`, () => porCamara(c), null);
+        await atender(`video:${c.id}`, `el video de ${c.name}`, porGo2rtc(c), reiniciarGo2rtc);
+    }
     const pausa = await visionEnPausa();
     if (pausa) {
         // Parado a propósito (un entrenamiento usa la GPU): no se levanta ni se avisa. Se dice
