@@ -7,14 +7,14 @@ import { sileo as toast } from "sileo";
 import { AlertTriangle, Car, Check, Clock, Loader2, Minus, Pencil, Plus, RefreshCw, ScanEye, SquareParking, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ElegirCamara } from "@/components/devices/ElegirCamara";
 import { ModalEscena, BloquePanel, CifraPanel, BotonPanel } from "@/components/vision/ModalEscena";
 import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
 import { horaSeg } from "@/lib/fechas";
 import {
-    listarEstacionamiento, guardarEstacionamiento, borrarEstacionamiento, probarAhora,
+    listarEstacionamiento, guardarEstacionamiento, borrarEstacionamiento, probarAhora, mirarConOmniVision,
     type CamaraEstacionamiento,
 } from "@/app/actions/estacionamiento";
 
@@ -162,12 +162,10 @@ function Estacionamiento() {
                     <span className="text-[12px] text-muted-foreground">Tocá una para ver la cámara y dibujar sus lugares.</span>
                     {sinFranja.length > 0 && (
                         <div className="ml-auto">
-                            <Select value="" onValueChange={(v) => v && setAbierta(v)}>
-                                <SelectTrigger className="h-9 w-[230px] text-[12.5px]"><Plus size={14} className="mr-1 text-[var(--accion)]" /><SelectValue placeholder="Nueva franja en…" /></SelectTrigger>
-                                <SelectContent>
-                                    {sinFranja.map((c) => <SelectItem key={c.id} value={c.id}>{c.nombre}{c.mirada ? "" : " · no la mira OmniVision"}</SelectItem>)}
-                                </SelectContent>
-                            </Select>
+                            {/* Con buscador y por área (21/10): era un Select sin buscar, y sólo con las cámaras que ya miraba OmniVision. */}
+                            <ElegirCamara icono={Plus} placeholder="Nueva franja en…" titulo="Nueva franja en una cámara" className="w-[240px]" ancho={360}
+                                camaras={sinFranja.map((c) => ({ id: c.id, nombre: c.nombre, tipo: c.tipo, areaId: c.areaId, nota: c.mirada ? null : "sin OmniVision" }))}
+                                areas={datos.areas || []} alElegir={(id) => setAbierta(id)} />
                         </div>
                     )}
                 </div>
@@ -304,6 +302,16 @@ function ModalFranja({ c, prendida, alCerrar, alCambiar }: { c: CamaraEstacionam
         finally { setProbando(false); }
     };
     const e = estadoDe(c, prendida);
+    const [sumando, setSumando] = useState(false);
+    const sumarAOmniVision = async () => {
+        setSumando(true);
+        try {
+            const r = await mirarConOmniVision(c.id);
+            if (!r.ok) { toast.error({ title: r.error || "No se pudo" }); return; }
+            toast.success({ title: "OmniVision la mira desde la próxima vuelta" }); alCambiar();
+        } catch (er: any) { toast.error({ title: er?.message || "No se pudo" }); }
+        finally { setSumando(false); }
+    };
 
     return (
         <>
@@ -321,6 +329,15 @@ function ModalFranja({ c, prendida, alCerrar, alCambiar }: { c: CamaraEstacionam
                     <button type="button" onClick={() => { setPrueba(null); setVuelta((v) => v + 1); }} className="ml-auto shrink-0 inline-flex items-center gap-1 text-white/80 hover:text-white"><RefreshCw size={12} /> Otro cuadro</button>
                 </div>}
                 panel={<>
+                    {/* Ahora se puede dibujar en cualquier cámara: si OmniVision no la mira, la franja no se mide. */}
+                    {!c.mirada && (
+                        <div className="rounded-[10px] bg-[color-mix(in_oklab,var(--aviso)_14%,transparent)] px-3 py-2.5 text-[12px] leading-snug text-white/85 space-y-2">
+                            <div className="flex items-start gap-2"><AlertTriangle size={14} className="text-[var(--aviso)] shrink-0 mt-px" /> OmniVision no mira esta cámara: la franja se guarda, pero nadie mide sus lugares.</div>
+                            <BotonPanel onClick={sumarAOmniVision} disabled={sumando} className="w-full justify-center">
+                                {sumando ? <Loader2 size={14} className="animate-spin" /> : <ScanEye size={14} />} Que OmniVision la mire
+                            </BotonPanel>
+                        </div>
+                    )}
                     <BloquePanel rotulo="Ahora">
                         <div className="grid grid-cols-3 gap-2">
                             <CifraPanel n={c.franja ? c.abiertas.length : "—"} rotulo="ocupados" tono={c.abiertas.length ? "var(--accion-en-oscuro)" : undefined} />
