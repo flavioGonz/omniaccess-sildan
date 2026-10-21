@@ -9,7 +9,7 @@ import { createImageSearch, getImageSearchProgress, getImageSearchResults, fetch
 import { nvrConAcuSeek, camarasDelNvr, conSesion, SIN_ACUSEEK } from "@/lib/acuseek-nvr";
 
 /** El grabador que SÍ tiene AcuSearch (lib/acuseek-nvr), no el primero de la tabla. */
-async function getNvr() { return (await nvrConAcuSeek())?.dev ?? null; }
+async function getNvr() { return (await nvrConAcuSeek("imagen"))?.dev ?? null; }
 
 export async function POST(req: NextRequest) {
     const no = await conSesion(); if (no) return no;
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
     const no = await conSesion(); if (no) return no;
-    const acu = await nvrConAcuSeek();
+    const acu = await nvrConAcuSeek("imagen");
     const nvr = acu?.dev ?? null;
     if (!acu || !nvr) return NextResponse.json({ ok: false, sinAcuSeek: true, error: SIN_ACUSEEK }, { status: 404 });
     const taskID = req.nextUrl.searchParams.get("taskId") || req.nextUrl.searchParams.get("taskID");

@@ -10,7 +10,8 @@ import { nvrConAcuSeek, camarasDelNvr, conSesion, SIN_ACUSEEK } from "@/lib/acus
 export async function GET() {
     const no = await conSesion(); if (no) return no;
     try {
-        const acu = await nvrConAcuSeek();
+        // El de texto; si no hay, el que sólo busca por imagen (así la pantalla dice qué le falta).
+        const acu = (await nvrConAcuSeek("texto")) || (await nvrConAcuSeek("imagen"));
         if (!acu) return NextResponse.json({ ok: false, sinAcuSeek: true, error: SIN_ACUSEEK }, { status: 404 });
         const nvr = (await prisma.device.findUnique({ where: { id: acu.id }, select: { id: true, name: true, ip: true, deviceModel: true } }))!;
         const device = acu.dev;
