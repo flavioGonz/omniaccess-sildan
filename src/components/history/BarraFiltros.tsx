@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
-    Bike, Bus, CalendarRange, Camera, Car, Check, ChevronDown, CreditCard, Eraser, Layers, LogIn, LogOut,
+    Bike, Bus, CalendarRange, FolderTree, Camera, Car, Check, ChevronDown, CreditCard, Eraser, Layers, LogIn, LogOut,
     IdCard, Motorbike, Palette, PawPrint, PersonStanding, ScanEye, ScanFace, ShieldAlert, ShieldCheck, ShieldX, Sparkles, Truck,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -14,6 +14,7 @@ import { RASGOS } from "@/components/history/TablaUnificada";
 import { OPCIONES_VISION, OPCION_RELEIDA } from "@/lib/historial-vision";
 import type { CamaraHistorial } from "@/app/api/history/camaras/route";
 import { TIPOS_CHAPA } from "@/lib/categoria-chapa";
+import { SIN_AREA, filtroDeAreas, pasaAreas, type DatosAreasHistorial } from "@/lib/filtro-areas";
 
 /**
  * Los filtros del historial, en una barra a la vista.
@@ -40,6 +41,8 @@ export type FiltrosHistorial = {
     resultado: "ALL" | "GRANT" | "DENY";
     sentido: "ALL" | "ENTRY" | "EXIT";
     camaras: string[];
+    /** Áreas de Dispositivos (ids, o SIN_AREA): las cámaras que están en ellas (lib/filtro-areas). */
+    areas: string[];
     color: string;
     tipoVeh: string;
     merodeo: boolean;
@@ -53,7 +56,7 @@ export type CambiarFiltros = <K extends keyof FiltrosHistorial>(clave: K, valor:
 
 export const SIN_FILTROS: FiltrosHistorial = {
     desde: "", hasta: "", tipos: [], identificacion: "ALL", resultado: "ALL", sentido: "ALL",
-    camaras: [], color: "ALL", tipoVeh: "ALL", merodeo: false, vision: [], chapa: [],
+    camaras: [], areas: [], color: "ALL", tipoVeh: "ALL", merodeo: false, vision: [], chapa: [],
 };
 
 /** Los atajos de período. Se calculan al apretar: la medianoche puede pasar con la pantalla abierta. */
@@ -123,18 +126,20 @@ const Titulo = ({ children }: { children: React.ReactNode }) => (
     <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{children}</div>
 );
 
-export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles, camarasServidor, colores, tiposVeh, soloSeguimiento, modo, merodeando }: {
+export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles, camarasServidor, areasDatos, colores, tiposVeh, soloSeguimiento, modo, merodeando }: {
     f: FiltrosHistorial; cambiar: CambiarFiltros; limpiar: () => void;
     /** Cuántos filtros hay puestos (más la búsqueda): con alguno aparece «Limpiar». */
     puestos: number;
     camarasDisponibles: string[]; colores: string[]; tiposVeh: string[];
     /** Las cámaras del período según el servidor, con su origen. Si llegaron, mandan sobre las de lo cargado. */
     camarasServidor?: CamaraHistorial[] | null;
+    /** Las áreas de Dispositivos con sus cámaras (api/history/areas). Sin áreas creadas, no hay filtro. */
+    areasDatos?: DatosAreasHistorial | null;
     soloSeguimiento: boolean;
     modo: "LPR" | "FACE" | "QUEUE" | null;
     merodeando: number;
 }) {
-    const alternar = (clave: "tipos" | "camaras" | "vision" | "chapa", v: string) => {
+    const alternar = (clave: "tipos" | "camaras" | "areas" | "vision" | "chapa", v: string) => {
         const actual = f[clave];
         cambiar(clave, actual.includes(v) ? actual.filter((x) => x !== v) : [...actual, v]);
     };
@@ -177,6 +182,7 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
     ];
 
     const visionPuesta = f.vision.length;
+    const filtroArea = useMemo(() => filtroDeAreas(f.areas, areasDatos || null), [f.areas, areasDatos]);
     const [verTodasCamaras, setVerTodasCamaras] = useState(false);
     const CAMARAS_A_LA_VISTA = 12;
 
@@ -214,6 +220,28 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
                 </div>
             </Desplegable>
 
+            {/* Áreas (21/10, Nico: «filtrar búsquedas por áreas; los dispositivos los agrupamos en áreas»). */}
+            {!!areasDatos?.areas.length && (
+                <Desplegable Ico={FolderTree} titulo="Áreas" ancho={300} puesto={f.areas.length > 0}
+                    rotulo={f.areas.length === 0 ? "Áreas" : f.areas.length === 1 ? (f.areas[0] === SIN_AREA ? "Sin área" : areasDatos.areas.find((a) => a.id === f.areas[0])?.nombre || "1 área") : `${f.areas.length} áreas`}>
+                    <Titulo>Las áreas de Dispositivos</Titulo>
+                    <div className="space-y-0.5 max-h-[380px] overflow-auto custom-scrollbar">
+                        <Casilla activa={f.areas.length === 0} onClick={() => cambiar("areas", [])} rotulo="Todas" />
+                        {areasDatos.areas.map((a) => (
+                            <div key={a.id} style={{ paddingLeft: a.nivel * 14 }}>
+                                <Casilla activa={f.areas.includes(a.id)} onClick={() => alternar("areas", a.id)}
+                                    Ico={({ size }: { size: number }) => <span className="inline-block rounded-[3px] shrink-0" style={{ width: size - 3, height: size - 3, background: a.color }} />}
+                                    rotulo={a.nombre}
+                                    ayuda={a.camaras.length ? `${a.camaras.length} ${a.camaras.length === 1 ? "equipo" : "equipos"}${a.nivel === 0 && areasDatos.areas.some((x) => x.padre === a.id) ? ", con los de sus áreas" : ""}` : "sin equipos"} />
+                            </div>
+                        ))}
+                        <Casilla activa={f.areas.includes(SIN_AREA)} onClick={() => alternar("areas", SIN_AREA)} Ico={Camera} rotulo="Sin área"
+                            ayuda="Las cámaras que no están en ningún área, y las de OmniVision que no son un equipo." />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-snug">Un área incluye las de adentro. Con una cámara elegida además, cuentan las dos cosas.</p>
+                </Desplegable>
+            )}
+
             {(camarasServidor ? camarasServidor.length >= 1 : camarasDisponibles.length >= 2) && (
                 <Desplegable Ico={Camera} rotulo={f.camaras.length ? (f.camaras.length === 1 ? f.camaras[0] : `${f.camaras.length} cámaras`) : "Cámaras"}
                     puesto={f.camaras.length > 0} titulo="Cámaras" ancho={300}>
@@ -222,7 +250,8 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
                         {camarasServidor ? (
                             /* Agrupadas por de dónde sale lo que registran (18/10): las RTSP de OmniVision tienen que estar. */
                             GRUPOS_CAMARA.map((g) => {
-                                const lista = camarasServidor.filter((c) => c.origen === g.origen);
+                                // Con un área elegida, sólo las cámaras de esa área.
+                                const lista = camarasServidor.filter((c) => c.origen === g.origen && pasaAreas(filtroArea, c.nombre));
                                 if (!lista.length) return null;
                                 return (
                                     <div key={g.origen} className="pt-1.5">

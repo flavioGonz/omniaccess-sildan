@@ -29,6 +29,7 @@ import { getImagePath } from "@/lib/image-path";
 import { Sparkles, Server } from "lucide-react";
 import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
 import { MotoresBusqueda, type EstadoMotor } from "@/components/history/MotoresBusqueda";
+import { pasaAreas, type FiltroAreas } from "@/lib/filtro-areas";
 
 export type FilaHistorial = {
     id: string;
@@ -208,7 +209,7 @@ function HaceCuanto({ desde }: { desde: string }) {
     return <span className="text-[11.5px] text-muted-foreground tabular-nums">hace {leerDuracion(ms)}</span>;
 }
 
-export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, vision = [], chapa = [], barra, vista = "lista", onMerodeo, onResumen, onCargado, onMotores, omnivision = true, grabador = false, foto = null }: {
+export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, areas = [], filtroArea = null, vision = [], chapa = [], barra, vista = "lista", onMerodeo, onResumen, onCargado, onMotores, omnivision = true, grabador = false, foto = null }: {
     buscar: string; desde: string; hasta: string; tipos: string[];
     /**
      * Los motores de la búsqueda, además de los registros (21/10: un solo buscador con botones). Con
@@ -233,6 +234,11 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     /** Cámaras elegidas (por nombre); vacío = todas. Traído del historial del primer barrio (355749f),
      *  pero resuelto como los otros dos: sobre lo cargado, con las opciones que hay en pantalla. */
     camaras?: string[];
+    /**
+     * Áreas de Dispositivos elegidas (ids, lib/filtro-areas): viajan al servidor, que las resuelve.
+     * `filtroArea` es lo mismo ya resuelto en nombres: para lo que llega aparte (IA, grabador, en vivo).
+     */
+    areas?: string[]; filtroArea?: FiltroAreas;
     /** Los controles de esta tabla, dentro de su mismo marco. */
     barra?: React.ReactNode;
     /** Lista (la tabla), o las mismas filas como capturas: grilla o bento. */
@@ -284,7 +290,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     const [visionTruncado, setVisionTruncado] = useState(false);
     const [omni, setOmni] = useState<FranjaOmni | null>(null);
     const camarasClave = (camaras || []).join("\u0001");
-    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave, camarasClave, chapaClave]);
+    const areasClave = areas.join(",");
+    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave, camarasClave, chapaClave, areasClave]);
 
     useEffect(() => {
         let vivo = true;
@@ -301,6 +308,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         if (chapaClave) q.set("chapa", chapaClave);
         if (!omnivision) q.set("omni", "0");
         for (const c of camaras || []) q.append("cam", c);
+        for (const a of areas) q.append("area", a);
         const esta = q.toString();
         clave.current = esta;
 
@@ -329,7 +337,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             .finally(() => { if (vivo) setCargando(false); });
         return () => { vivo = false; };
     // `version` entra por el reset de página; si ya estaba en 0 hace falta igual volver a pedir.
-    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version, visionClave, camarasClave, chapaClave, omnivision]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version, visionClave, camarasClave, chapaClave, areasClave, omnivision]); // eslint-disable-line react-hooks/exhaustive-deps
 
     /*
      * La búsqueda en los grabadores: se pide al dejar de escribir y se sigue su avance (cada grabador
@@ -540,9 +548,11 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         const porColor = color && color !== "ALL";
         const porTipo = tipoVeh && tipoVeh !== "ALL";
         const porCamara = camaras && camaras.length > 0;
-        if (porColor || porTipo || porCamara) {
+        // Cámara elegida Y área elegida: las dos. Lo que llega aparte (IA, grabador) pasa por acá también.
+        const enFiltro = (cam: string | null | undefined) => (!porCamara || (!!cam && camaras!.includes(cam))) && pasaAreas(filtroArea, cam);
+        if (porColor || porTipo || porCamara || filtroArea) {
             v = v.filter((f) => {
-                if (porCamara && !(f.camara && camaras!.includes(f.camara))) return false;
+                if (!enFiltro(f.camara)) return false;
                 const m = parseVehicleMeta(f.detalles);
                 if (porColor && m.color !== color) return false;
                 if (porTipo && m.typeLabel !== tipoVeh) return false;
@@ -558,7 +568,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         if (foto) {
             // Con foto: sólo lo encontrado (OmniVision y grabadores), del más parecido al menos.
             const deFoto: FilaHistorial[] = (omnivision ? porFoto?.resultados || [] : [])
-                .filter((o: any) => !porCamara || camaras!.includes(o.camara))
+                .filter((o: any) => enFiltro(o.camara))
                 .map((o: any): FilaHistorial => ({
                     id: `ia-${o.id}`, tipo: "IA", momento: o.ultimaVez || o.primeraVez, plate: null, persona: o.clase || "Objeto", camara: o.camara, deviceId: o.deviceId || null,
                     decision: null, sentido: null, confianza: null, lecturas: null, foto: o.recorte ? `/api/vision/imagen/${o.recorte}` : null,
@@ -570,7 +580,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                     },
                 }));
             const delGrabador: FilaHistorial[] = grabador ? (nvr?.hallazgos || [])
-                .filter((h: any) => !porCamara || camaras!.includes(h.camara))
+                .filter((h: any) => enFiltro(h.camara))
                 .map((h: any): FilaHistorial => ({
                     id: `nvr-${h.id}`, tipo: "NVR", momento: h.momento, plate: null, persona: CLASE_GRABADOR[h.clase] || (foto.objeto === "persona" ? "Persona" : "Vehículo"), camara: h.camara, deviceId: h.deviceId || null,
                     decision: null, sentido: null, confianza: null, lecturas: null, foto: h.recorte || h.foto,
@@ -580,7 +590,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             return [...deFoto, ...delGrabador].sort((a, b) => (b.ia?.prob || 0) - (a.ia?.prob || 0));
         }
         const ia = buscar && omnivision && omni?.objetos?.length && sinFiltrarIa ? omni.objetos
-            .filter((o) => !porCamara || camaras!.includes(o.camara))
+            .filter((o) => enFiltro(o.camara))
             .map((o): FilaHistorial => ({
                 id: `ia-${o.id}`, tipo: "IA", momento: o.momento, plate: null, persona: o.clase || "Objeto", camara: o.camara, deviceId: o.deviceId || null,
                 decision: null, sentido: null, confianza: null, lecturas: null, foto: o.recorte ? `/api/vision/imagen/${o.recorte}` : null,
@@ -594,7 +604,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         // Lo que el vocabulario abierto vio en las fotos de los accesos (salvo los que ya están en la lista).
         const yaEstan = new Set(v.map((f) => f.raw?.id).filter(Boolean));
         if (buscar && omnivision && vocab.length && sinFiltrarIa) ia.push(...vocab
-            .filter((h: any) => !yaEstan.has(h.eventId) && (!porCamara || camaras!.includes(h.camara)))
+            .filter((h: any) => !yaEstan.has(h.eventId) && enFiltro(h.camara))
             .map((h: any): FilaHistorial => {
                 const o = h.objetos?.[0];
                 return {
@@ -606,7 +616,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                 };
             }));
         if (buscar && grabador && nvr?.hallazgos.length && sinFiltrarIa) ia.push(...nvr.hallazgos
-            .filter((h: any) => !porCamara || camaras!.includes(h.camara))
+            .filter((h: any) => enFiltro(h.camara))
             .map((h: any): FilaHistorial => ({
                 id: `nvr-${h.id}`, tipo: "NVR", momento: h.momento, plate: null, persona: CLASE_GRABADOR[h.clase] || "Encontrado en el grabador", camara: h.camara, deviceId: h.deviceId || null,
                 decision: null, sentido: null, confianza: null, lecturas: null, foto: h.recorte || h.foto,
@@ -616,7 +626,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         if (!ia.length) return v;
         const tope = hay && v.length ? v[v.length - 1].momento : "";
         return [...v, ...ia.filter((f) => !tope || f.momento >= tope)].sort((a, b) => (a.momento < b.momento ? 1 : a.momento > b.momento ? -1 : 0));
-    }, [filas, merodeo, color, tipoVeh, camaras, omni, buscar, hay, omnivision, grabador, nvr, foto, porFoto, vocab]);
+    }, [filas, merodeo, color, tipoVeh, camaras, filtroArea, omni, buscar, hay, omnivision, grabador, nvr, foto, porFoto, vocab]);
     const abrirCaptura = useCallback((f: FilaHistorial) => (f.ia ? abrirHallazgo(f) : setViendo(f)), [abrirHallazgo]);
 
     /* Cómo va cada búsqueda, para su indicador propio (MotoresBusqueda). Sólo las que están corriendo para esta consulta. */

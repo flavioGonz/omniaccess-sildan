@@ -11,6 +11,7 @@ import { ExportHistoryDialog } from "@/components/history/ExportHistoryDialog";
 import { ImportHistoryDialog } from "@/components/history/ImportHistoryDialog";
 import { TablaUnificada } from "@/components/history/TablaUnificada";
 import type { EstadoMotor } from "@/components/history/MotoresBusqueda";
+import { filtroDeAreas, type DatosAreasHistorial } from "@/lib/filtro-areas";
 import { BarraFiltros, SIN_FILTROS, type FiltrosHistorial, type CambiarFiltros } from "@/components/history/BarraFiltros";
 import { SelectorVista, useVista } from "@/components/history/MosaicoHistorial";
 import { useSiluetas } from "@/lib/use-siluetas";
@@ -160,6 +161,14 @@ export default function HistoryPage() {
         return () => { vivo = false; };
     }, [f.desde, f.hasta]);
 
+    /* Las áreas de Dispositivos con sus cámaras, para el filtro «Áreas» (lib/filtro-areas). */
+    const [areasDatos, setAreasDatos] = useState<DatosAreasHistorial | null>(null);
+    useEffect(() => {
+        fetch("/api/history/areas", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+            .then((j) => { if (j?.areas) setAreasDatos({ areas: j.areas, asignadas: j.asignadas || [] }); }).catch(() => { });
+    }, []);
+    const filtroArea = useMemo(() => filtroDeAreas(f.areas, areasDatos), [f.areas, areasDatos]);
+
     /** Cuántos filtros hay puestos (para «Limpiar»). La identificación fija por módulo no cuenta: no la puso nadie. */
     const puestos = useMemo(() => {
         let n = searchTerm.trim() ? 1 : 0;
@@ -169,6 +178,7 @@ export default function HistoryPage() {
         if (f.resultado !== "ALL") n++;
         if (f.sentido !== "ALL") n++;
         if (f.camaras.length) n++;
+        if (f.areas.length) n++;
         if (f.color !== "ALL" || f.tipoVeh !== "ALL") n++;
         if (f.merodeo) n++;
         if (f.vision.length) n++;
@@ -289,7 +299,7 @@ export default function HistoryPage() {
                 onMotores={setMotores}
                 barra={
                     <BarraFiltros f={f} cambiar={cambiar} limpiar={limpiarFiltros} puestos={puestos}
-                        camarasDisponibles={resumen.camaras} camarasServidor={camarasServidor} colores={resumen.colores} tiposVeh={resumen.tipos}
+                        camarasDisponibles={resumen.camaras} camarasServidor={camarasServidor} areasDatos={areasDatos} colores={resumen.colores} tiposVeh={resumen.tipos}
                         soloSeguimiento={soloSeguimiento} modo={modosListos ? activeMode : "LPR"} merodeando={chapasMerodeo.size} />
                 }
                 buscar={searchTerm}
@@ -307,6 +317,7 @@ export default function HistoryPage() {
                 color={soloSeguimiento ? "ALL" : f.color}
                 tipoVeh={soloSeguimiento ? "ALL" : f.tipoVeh}
                 camaras={f.camaras}
+                areas={f.areas} filtroArea={filtroArea}
                 onMerodeo={setChapasMerodeo}
                 onResumen={setResumen}
                 onCargado={alCargar}

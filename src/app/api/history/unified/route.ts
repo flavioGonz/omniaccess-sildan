@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { filtroDeAreas } from "@/lib/filtro-areas";
+import { leerAreasHistorial } from "@/lib/areas-historial";
 import { TIPOS_CHAPA, prefijosDeTipo } from "@/lib/categoria-chapa";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
@@ -128,7 +130,7 @@ async function tamanoDeFoto(camara: string, clave: string): Promise<{ w: number;
         return v;
     } catch { return ya || null; }
 }
-async function objetosOmniVision(p: { soloChapas: boolean; desde: Date | null; hasta: Date | null; buscar: string; clases: string[]; grupos: string[]; camaras: string[]; limite: number; tipoChapa?: { prefijos: string[]; taxiAspecto: boolean } | null }): Promise<FilaOV[]> {
+async function objetosOmniVision(p: { soloChapas: boolean; desde: Date | null; hasta: Date | null; buscar: string; clases: string[]; grupos: string[]; camaras: string[]; areaEn?: string[] | null; areaFuera?: string[] | null; limite: number; tipoChapa?: { prefijos: string[]; taxiAspecto: boolean } | null }): Promise<FilaOV[]> {
     const q = p.buscar ? `%${p.buscar}%` : null;
     const tc = p.tipoChapa;
     const likes = tc ? tc.prefijos.map((x) => `${x}%`) : [];
@@ -149,6 +151,8 @@ async function objetosOmniVision(p: { soloChapas: boolean; desde: Date | null; h
            ${p.hasta ? Prisma.sql`AND o."primeraVez" <= ${sinZona(p.hasta)}::timestamp` : Prisma.empty}
            ${p.clases.length || p.grupos.length ? Prisma.sql`AND (o.clase = ANY(${p.clases}::text[]) OR o.grupo = ANY(${p.grupos}::text[]))` : Prisma.empty}
            ${p.camaras.length ? Prisma.sql`AND o.camara = ANY(${p.camaras}::text[])` : Prisma.empty}
+           ${p.areaEn ? Prisma.sql`AND o.camara = ANY(${p.areaEn}::text[])` : Prisma.empty}
+           ${p.areaFuera ? Prisma.sql`AND NOT (o.camara = ANY(${p.areaFuera}::text[]))` : Prisma.empty}
            ${q ? Prisma.sql`AND (o.camara ILIKE ${q} OR o.clase ILIKE ${q} OR m.texto LIKE ${qChapa})` : Prisma.empty}
            ${tc ? Prisma.sql`AND (m.texto LIKE ANY(${likes}::text[])${tc.taxiAspecto ? Prisma.sql` OR o.atributos @> '[{"id":"servicio","valor":"taxi"}]'::jsonb` : Prisma.empty})` : Prisma.empty}
          ORDER BY o."primeraVez" DESC
@@ -331,6 +335,16 @@ export async function GET(req: NextRequest) {
      * mostraba lo que hubiera entre las primeras 60 filas: casi siempre nada.
      */
     const camaras = sp.getAll("cam").map((c) => c.trim()).filter(Boolean).slice(0, 50);
+    /*
+     * Las áreas de Dispositivos (area=… repetido; lib/filtro-areas). Van aparte de las cámaras a
+     * propósito: elegir una cámara suma sus objetos de OmniVision a la lista, y elegir un área de
+     * cuarenta cámaras haría lo mismo con miles. Un área sin cámaras no muestra nada.
+     */
+    const areasPedidas = sp.getAll("area").map((a) => a.trim()).filter(Boolean).slice(0, 50);
+    const porArea = areasPedidas.length ? filtroDeAreas(areasPedidas, await leerAreasHistorial().catch(() => null)) : null;
+    const NINGUNA = "·ninguna cámara en el área·";
+    const areaEn = porArea && "en" in porArea ? (porArea.en.length ? porArea.en : [NINGUNA]) : null;
+    const areaFuera = porArea && "fuera" in porArea && porArea.fuera.length ? porArea.fuera : null;
     /**
      * El tipo de chapa (lib/categoria-chapa: taxi, policía, ambulancia, diplomático…), por cómo
      * empieza la matrícula. Taxi suma además lo que OmniVision reconoce como taxi por su aspecto.
@@ -410,8 +424,10 @@ export async function GET(req: NextRequest) {
                 where: {
                     ...porFecha,
                     ...(porVision ? { id: { in: porVision.ids } } : {}),
-                    ...(camaras.length || tipoChapa ? { AND: [
+                    ...(camaras.length || tipoChapa || areaEn || areaFuera ? { AND: [
                         ...(camaras.length ? [{ OR: [{ device: { name: { in: camaras } } }, { location: { in: camaras } }] }] : []),
+                        ...(areaEn ? [{ OR: [{ device: { name: { in: areaEn } } }, { location: { in: areaEn } }] }] : []),
+                        ...(areaFuera ? [{ NOT: { OR: [{ device: { name: { in: areaFuera } } }, { location: { in: areaFuera } }] } }] : []),
                         ...(tipoChapa ? [{ OR: [...porChapa("plateDetected")!.OR, ...porChapa("plateNumber")!.OR] }] : []),
                     ] } : {}),
                     // Son enums de Prisma; un valor inventado en la URL no rompe la consulta, se ignora.
@@ -443,7 +459,10 @@ export async function GET(req: NextRequest) {
                 where: {
                     source: "TRACK",
                     ...porFecha,
-                    ...(camaras.length ? { cameraName: { in: camaras } } : {}),
+                    // Cámaras y área sobre el mismo campo: se cruzan en una sola condición (un segundo
+                    // `AND` en este objeto lo pisaría el del tipo de chapa).
+                    ...(camaras.length || areaEn ? { cameraName: { in: camaras.length ? (areaEn ? (camaras.filter((c) => areaEn.includes(c)).length ? camaras.filter((c) => areaEn.includes(c)) : [NINGUNA]) : camaras) : areaEn! } } : {}),
+                    ...(areaFuera ? { NOT: { cameraName: { in: areaFuera } } } : {}),
                     ...(tipos.length ? { estado: { in: estadosPedidos } } : {}),
                     ...(tipoChapa ? { AND: [porChapa("plate")!] } : {}),
                     ...(buscar
@@ -460,7 +479,7 @@ export async function GET(req: NextRequest) {
             })
             : Promise.resolve([] as any[]),
         pedirOV
-            ? objetosOmniVision({ soloChapas: !quiereOVObjetos, desde, hasta, buscar, clases: clasesOV, grupos: gruposOV, camaras, limite: cuantas, tipoChapa }).catch((e) => { console.error("[historial] OmniVision RTSP:", e?.message); return [] as FilaOV[]; })
+            ? objetosOmniVision({ soloChapas: !quiereOVObjetos, desde, hasta, buscar, clases: clasesOV, grupos: gruposOV, camaras, areaEn, areaFuera, limite: cuantas, tipoChapa }).catch((e) => { console.error("[historial] OmniVision RTSP:", e?.message); return [] as FilaOV[]; })
             : Promise.resolve([] as FilaOV[]),
     ]);
 
