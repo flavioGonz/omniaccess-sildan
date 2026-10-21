@@ -12,6 +12,8 @@ async function ejecutar() {
     try {
         const results = await probeAllDevices();
         await persistAndAlert(results);
+        // ¿Siguen llegando sus eventos? (lib/silencio). Cada 10 minutos alcanza.
+        if (new Date().getMinutes() % 10 === 0) { const { evaluarSilencio } = await import("@/lib/silencio"); await evaluarSilencio().catch((e) => console.error("[silencio]", e?.message)); }
         return NextResponse.json({ ok: true, n: results.length, ts: Date.now() });
     } catch (e: any) {
         return NextResponse.json({ ok: false, error: e?.message || "tick error" }, { status: 500 });

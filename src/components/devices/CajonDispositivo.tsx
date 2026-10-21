@@ -1318,9 +1318,30 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
  * datos encima (tipo, sentido, IP, grabación, estado) y «Comprobar» como botón flotante.
  * Para un NVR (sin video propio) una banda con su ícono y los mismos datos.
  */
+/** «hace 3 min», «hace 5 h», «hace 2 días». */
+function haceCorto(iso: string): string {
+    const m = Math.max(0, Math.round((Date.now() - +new Date(iso)) / 60000));
+    if (m < 1) return "recién";
+    if (m < 60) return `hace ${m} min`;
+    const h = Math.round(m / 60);
+    return h < 48 ? `hace ${h} h` : `hace ${Math.round(h / 24)} días`;
+}
+
 function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNombre, detectando, puedeDetectar, onComprobar, info }: any) {
     const [listo, setListo] = useState(false);
     const [falla, setFalla] = useState(false);
+    /*
+     * El último evento REAL de la cámara (lib/silencio; 21/10): «responde» no quiere decir que sus
+     * eventos lleguen. Una cámara en verde y muda era invisible hasta que alguien preguntaba.
+     */
+    const [ultimo, setUltimo] = useState<{ ts: string; fuente: string } | null | undefined>(undefined);
+    useEffect(() => {
+        if (!device?.id || tipo === "NVR") return;
+        let vivo = true;
+        fetch(`/api/devices/ultimo-evento?ids=${encodeURIComponent(device.id)}`, { cache: "no-store" }).then((r) => r.json())
+            .then((j) => { if (vivo) setUltimo(j?.equipos?.[device.id] || null); }).catch(() => { if (vivo) setUltimo(undefined); });
+        return () => { vivo = false; };
+    }, [device?.id, tipo]);
     const esVideo = tipo !== "NVR";
     const chip = "inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/45 backdrop-blur-md text-white text-[10.5px] font-bold ring-1 ring-white/10";
     // Queda fijo arriba al hacer scroll en la ficha (sticky dentro del área que scrollea del cajón).
@@ -1364,6 +1385,12 @@ function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNo
                         <span className={cn(chip, "font-mono")}><Network size={11} /> {f.ip}</span>
                         {f.mac && <span className={cn(chip, "font-mono font-semibold")}>{f.mac}</span>}
                         {tipo !== "NVR" && <span className={chip}><HardDrive size={11} /> {actual ? `${nvrNombre || "NVR"} · CH ${actual.ch}` : "Sin grabación"}</span>}
+                        {tipo !== "NVR" && ultimo !== undefined && (
+                            <span title={ultimo ? `Último ${ultimo.fuente === "deteccion" ? "evento de analítica" : "lectura"}: ${new Date(ultimo.ts).toLocaleString("es-UY", { hour12: false })}` : "En 30 días no llegó ningún evento ni lectura de esta cámara."}
+                                className={cn(chip, ultimo ? (Date.now() - +new Date(ultimo.ts) > 72 * 36e5 ? "!bg-amber-500/85 !text-black" : "") : "!bg-amber-500/85 !text-black")}>
+                                <Activity size={11} /> {ultimo ? `Último evento ${haceCorto(ultimo.ts)}` : "Sin eventos en 30 días"}
+                            </span>
+                        )}
                     </div>
                     {info && <div title={info.nota || undefined} className={cn(chip, "max-w-full truncate", info.viaNvr ? "!bg-amber-500/85 !text-black" : info.ok ? "!bg-emerald-600/80" : "!bg-red-600/80")}>{info.ok ? <Check size={11} /> : <AlertTriangle size={11} />} {info.ok ? `${info.viaNvr ? "Según el NVR: " : ""}${info.model || "Responde"}${info.firmwareVersion ? ` · ${info.firmwareVersion}` : ""}` : (info.error || "No respondió")}</div>}
                 </div>
