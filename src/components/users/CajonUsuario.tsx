@@ -1,5 +1,6 @@
 "use client";
 
+import { MatriculaEnBase } from "@/components/registro/MatriculaEnBase";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
@@ -804,6 +805,10 @@ export function CajonUsuario({
                                         }}
                                         className="flex-1 min-w-[108px] bg-transparent outline-none px-1.5 py-1 text-[12.5px] font-bold tracking-[0.1em] tabular-nums uppercase placeholder:font-normal placeholder:tracking-normal placeholder:text-muted-foreground" />
                                 </div>
+                                {/* Las nuevas (y la que se está escribiendo), contra toda la base: si ya es de otro,
+                                    está en una lista o es de un invitado, se ve antes de guardar (21/10). */}
+                                <MatriculaEnBase className="mt-2" excluirUserId={user?.id}
+                                    plates={[...chapas.filter((c) => !(user?.vehicles || []).some((v: any) => limpiarChapa(v.plate) === c)), chapaNueva]} />
                             </CajonCampo>
                             <CajonCampo etiqueta="Qué vehículo es"
                                 pista="No cambia si abre o no: sirve para reconocerlo en el historial cuando la foto no se ve bien. Se le pone a los vehículos que se den de alta acá; los que ya estaban conservan el suyo, que se cambia en la pantalla de Vehículos. Hasta hoy este desplegable no se leía en ninguna parte y todo vehículo nacía Sedán.">

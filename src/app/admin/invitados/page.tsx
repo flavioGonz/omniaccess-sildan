@@ -1,5 +1,6 @@
 "use client";
 
+import { MatriculaEnBase } from "@/components/registro/MatriculaEnBase";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
@@ -352,6 +353,8 @@ function NewPassModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
                     <div className="space-y-3">
                         <Field label="Nombre del invitado"><input autoFocus value={guestName} onChange={(e) => setGuestName(e.target.value)} className="inp" placeholder="Juan Pérez" /></Field>
                         <Field label="Patente (dejar vacío si viene a pie)"><input value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} className="inp tracking-wide" placeholder="SAB1234" /></Field>
+                        {/* Si ya está en la base (residente, lista negra, otro pase), se ve antes de crear el pase (21/10). */}
+                        <MatriculaEnBase plates={[plate]} />
                         <Field label="Lote / quién invita"><input value={hostLabel} onChange={(e) => setHostLabel(e.target.value)} className="inp" placeholder="Flia. García · Lote 12" /></Field>
                         <div className="grid grid-cols-2 gap-3">
                             <Field label="Desde"><input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} className="inp" /></Field>

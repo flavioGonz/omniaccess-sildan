@@ -1,5 +1,6 @@
 "use client";
 
+import { MatriculaEnBase } from "@/components/registro/MatriculaEnBase";
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import type { User } from "@prisma/client";
@@ -277,6 +278,8 @@ export function CajonVehiculo({ users, devices = [], vehicle, trigger, onSuccess
                                 <Input value={f.plate} placeholder="ABC1234" autoFocus
                                     onChange={(e) => setF({ ...f, plate: e.target.value.toUpperCase().replace(/\s/g, "") })}
                                     className="font-bold tracking-[0.12em] tabular-nums uppercase" />
+                                {/* Qué hay ya con esta chapa (21/10). Editando, la del propio vehículo no es aviso. */}
+                                {(!esEdicion || f.plate !== vehicle?.plate) && <MatriculaEnBase className="mt-2" plates={[f.plate]} />}
                             </CajonCampo>
                             <CajonCampo etiqueta="Qué clase de vehículo"
                                 pista="No cambia si abre o no la barrera. Sirve para reconocerlo en el historial cuando la foto no ayuda, y para los informes por tipo.">

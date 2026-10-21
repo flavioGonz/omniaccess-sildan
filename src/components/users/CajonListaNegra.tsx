@@ -1,5 +1,6 @@
 "use client";
 
+import { MatriculaEnBase } from "@/components/registro/MatriculaEnBase";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
@@ -272,6 +273,8 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
                             </span>
                         )}
                     </div>
+                    {/* Las que se agregan ahora (las de la ficha ya estaban): qué hay con ellas en la base (21/10). */}
+                    {editable && <MatriculaEnBase className="mt-2" plates={chapasFinales.filter((p) => !(ficha?.matriculas || []).includes(p))} />}
                 </CajonSeccion>
 
                 {/* ── Dónde se la vio ── (sólo una ficha que ya existe) */}
