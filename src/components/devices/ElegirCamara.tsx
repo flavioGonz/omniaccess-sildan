@@ -21,18 +21,25 @@ export type CamaraElegible = {
     id: string; nombre: string; tipo?: string; areaId: string | null;
     /** Un aviso corto que va a la derecha (p. ej. «no la mira OmniVision»). */
     nota?: string | null;
+    /** Un número neutro a la derecha (p. ej. cuántas detecciones tiene). */
+    cuenta?: number | null;
 };
 export type AreaElegible = { id: string; nombre: string; color: string; nivel: number; padre?: string | null };
 
 const ROTULO_TIPO: Record<string, string> = { LPR_CAMERA: "LPR", LPR_INTERIOR: "LPR interior", CAMERA: "Intrusión", QUEUE_COUNTER: "Fila" };
 const ICONO_TIPO: Record<string, typeof Camera> = { LPR_CAMERA: ScanLine, LPR_INTERIOR: ScanLine, CAMERA: Camera, QUEUE_COUNTER: Sparkles };
 
-export function ElegirCamara({ camaras, areas, alElegir, valor, placeholder = "Elegir cámara…", titulo, className, ancho = 340, icono: IconoBoton = Camera }: {
+export function ElegirCamara({ camaras, areas, alElegir, valor, placeholder = "Elegir cámara…", titulo, className, ancho = 340, icono: IconoBoton = Camera, todas, variante = "boton", alinear = "end" }: {
     camaras: CamaraElegible[]; areas: AreaElegible[];
     alElegir: (id: string) => void;
     /** La elegida, si el botón tiene que mostrarla. Sin valor el botón muestra el placeholder. */
     valor?: string | null;
     placeholder?: string; titulo?: string; className?: string; ancho?: number; icono?: typeof Camera;
+    /** Con este rótulo aparece arriba la opción «todas» (elegirla manda ""). Para filtros. */
+    todas?: string;
+    /** «filtro»: la píldora de las barras de filtros (azul cuando filtra). «boton»: un botón con borde. */
+    variante?: "boton" | "filtro";
+    alinear?: "start" | "end";
 }) {
     const [abierto, setAbierto] = useState(false);
     const elegida = camaras.find((c) => c.id === valor) || null;
@@ -61,17 +68,28 @@ export function ElegirCamara({ camaras, areas, alElegir, valor, placeholder = "E
         <Popover open={abierto} onOpenChange={setAbierto}>
             <PopoverTrigger asChild>
                 <button type="button" aria-label={titulo || placeholder}
-                    className={cn("inline-flex items-center gap-2 h-9 pl-2.5 pr-2 rounded-lg border border-border bg-background text-[12.5px] font-medium hover:bg-accent transition-colors min-w-0", className)}>
-                    <IconoBoton size={14} className="text-[var(--accion)] shrink-0" />
-                    <span className={cn("truncate", !elegida && "text-muted-foreground")}>{elegida ? elegida.nombre : placeholder}</span>
+                    className={cn("inline-flex items-center gap-2 min-w-0 transition-colors", variante === "filtro"
+                        ? cn("h-[34px] pl-2.5 pr-2 rounded-lg text-[12px] font-semibold", elegida ? "bg-[var(--accion)] text-white" : "bg-muted/60 text-foreground hover:bg-muted")
+                        : "h-9 pl-2.5 pr-2 rounded-lg border border-border bg-background text-[12.5px] font-medium hover:bg-accent", className)}>
+                    <IconoBoton size={14} className={cn("shrink-0", variante === "filtro" ? "" : "text-[var(--accion)]")} />
+                    <span className={cn("truncate", !elegida && variante !== "filtro" && "text-muted-foreground")}>{elegida ? elegida.nombre : (todas || placeholder)}</span>
                     <ChevronDown size={13} className="ml-auto opacity-60 shrink-0" />
                 </button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="p-0" style={{ width: ancho }}>
+            <PopoverContent align={alinear} className="p-0" style={{ width: ancho }}>
                 <Command filter={(valorItem, busqueda) => (valorItem.toLowerCase().includes(busqueda.trim().toLowerCase()) ? 1 : 0)}>
                     <CommandInput placeholder="Buscar cámara o área…" />
                     <CommandList className="max-h-[360px]">
                         <CommandEmpty>Ninguna cámara ni área se llama así.</CommandEmpty>
+                        {todas && (
+                            <CommandGroup>
+                                <CommandItem value={`__todas ${todas}`} onSelect={() => { alElegir(""); setAbierto(false); }} className="gap-2">
+                                    <FolderTree size={14} className="text-muted-foreground shrink-0" />
+                                    <span className="flex-1">{todas}</span>
+                                    {!valor && <Check size={14} className="text-[var(--accion)] shrink-0" />}
+                                </CommandItem>
+                            </CommandGroup>
+                        )}
                         {grupos.map((g) => (
                             <CommandGroup key={g.area?.id || "_sin"} heading={
                                 <span className="flex items-center gap-1.5" style={{ paddingLeft: (g.area?.nivel || 0) * 10 }}>
@@ -90,6 +108,7 @@ export function ElegirCamara({ camaras, areas, alElegir, valor, placeholder = "E
                                             <span className="min-w-0 flex-1 truncate">{c.nombre}</span>
                                             {c.tipo && ROTULO_TIPO[c.tipo] && <span className="text-[10.5px] text-muted-foreground shrink-0">{ROTULO_TIPO[c.tipo]}</span>}
                                             {c.nota && <span className="text-[10.5px] tono-aviso shrink-0">{c.nota}</span>}
+                                            {c.cuenta != null && <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">{c.cuenta.toLocaleString("es-UY")}</span>}
                                             {valor === c.id && <Check size={14} className="text-[var(--accion)] shrink-0" />}
                                         </CommandItem>
                                     );
