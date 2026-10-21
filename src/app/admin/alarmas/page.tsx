@@ -509,7 +509,12 @@ function fichaVisionDe(a: Alarma): FichaVision | null {
     const e = a.estadia;
     return {
         clave, params: { segundos: v.segundos, maximo: v.maximo, horario: v.horario, clase: v.clase },
-        fotoCruda: v.fotoCruda,
+        /*
+         * Sin el cuadro crudo, no hay capa animada (zona que camina, caja que late, reloj sobre la foto):
+         * se ve la foto del aviso como antes, con su marca (21/10, Nico, con la ficha abierta: «el modal
+         * nuevo animado no me gusta… sigo viéndolo»). El reloj de la estadía sigue en el panel.
+         */
+        fotoCruda: null,
         marcas: {
             zona: v.zona, linea: v.linea, caja: v.caja, tono: clave ? COMPORTAMIENTOS[clave].tono : "aviso", rotulo: nombreClase,
             estadia: e ? { avisoId: a.id.startsWith("a:") ? a.id.slice(2) : null, desde: e.desde, hasta: e.hasta } : null,
@@ -614,11 +619,11 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
             {/* Tocar la foto abre la ficha del evento (17/10, Nico): la misma de «Ver ficha». */}
             {eventoId && evento ? (
                 <VisorEventoAcceso event={evento} timeStatus={null}>
-                    <button type="button" className="group relative block w-full text-left" aria-label="Abrir la ficha del evento"><Foto src={foto} clip={clip} capa={fv?.marcas} /><VerFichaEncima /></button>
+                    <button type="button" className="group relative block w-full text-left" aria-label="Abrir la ficha del evento"><Foto src={foto} clip={clip} capa={fv?.fotoCruda ? fv.marcas : null} /><VerFichaEncima /></button>
                 </VisorEventoAcceso>
             ) : det ? (
-                <button type="button" onClick={() => setFichaIntrusion(true)} className="group relative block w-full text-left" aria-label="Abrir la ficha de la detección"><Foto src={foto} clip={clip} capa={fv?.marcas} /><VerFichaEncima /></button>
-            ) : <Foto src={foto} clip={clip} capa={fv?.marcas} />}
+                <button type="button" onClick={() => setFichaIntrusion(true)} className="group relative block w-full text-left" aria-label="Abrir la ficha de la detección"><Foto src={foto} clip={clip} capa={fv?.fotoCruda ? fv.marcas : null} /><VerFichaEncima /></button>
+            ) : <Foto src={foto} clip={clip} capa={fv?.fotoCruda ? fv.marcas : null} />}
             {a.deviceId && <AjusteVideoFicha chico lado="abajo" className="absolute top-2.5 right-2.5 z-[3]" />}
             </div>
             <div className="px-5 pt-4 pb-5 flex flex-col gap-4">
