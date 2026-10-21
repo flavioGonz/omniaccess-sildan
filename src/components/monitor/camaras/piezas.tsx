@@ -14,6 +14,8 @@ export type Punto = { x: number; y: number };
 export type Canal = {
     clave: string; nombre: string; nvrId: string | null; nvr: string | null; ch: number | null; online: boolean | null;
     stream: string; equipoId: string | null; alerta: Alerta | null;
+    /** Área de Dispositivos (la del equipo o la de su NVR). */
+    areaId?: string | null;
     funcion: "intrusion" | "lpr" | null; geom: { line: Punto[]; field: Punto[] } | null; ultima: Alerta | null; lecturas: Lectura[];
     /** Si OmniVision la analiza (todo: registro, reglas, verificación, lecturas) y lo que cuesta, medido. */
     vision?: { analiza: boolean; porSeg: number | null };

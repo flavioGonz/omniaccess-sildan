@@ -14,6 +14,7 @@ import { verificacionesDe } from "@/lib/verificacion";
 import { camarasVision, cargaVision } from "@/lib/vision-camaras";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
+import { leerArbolAreas } from "@/lib/areas-historial";
 
 /**
  * GET /api/monitor/camaras → los canales que dibuja la pared de video (vista Cámaras).
@@ -87,6 +88,8 @@ export type CanalPared = {
     stream: string;
     /** Si es un equipo de OmniAccess: sus detecciones llegan con este id. */
     equipoId: string | null;
+    /** El área de Dispositivos (la del equipo; un canal sin equipo toma la de su NVR). Para filtrar la pared. */
+    areaId?: string | null;
     /**
      * La detección en curso (de los últimos VENTANA_ALERTA_MS). `foto` es su captura y `verif` lo
      * que OmniVision vio en ella (siluetas y veredicto): la baldosa la muestra un rato con las
@@ -205,14 +208,18 @@ export async function GET() {
     }
 
     // OmniVision: qué cámaras analiza y cuánto cuesta cada una (lo mide vision-worker).
-    const [enVision, carga, sesion] = await Promise.all([camarasVision().catch(() => ({ todas: false, ids: new Set<string>() })), cargaVision(), p.auth.pantalla ? null : getSession().catch(() => null)]);
+    const [enVision, carga, sesion, arbol] = await Promise.all([camarasVision().catch(() => ({ todas: false, ids: new Set<string>() })), cargaVision(), p.auth.pantalla ? null : getSession().catch(() => null),
+        leerArbolAreas().catch(() => ({ areas: [], equipoArea: {} as Record<string, string> }))]);
     for (const c of canales) {
         const id = c.equipoId || `nvrch-${c.nvrId}-${c.ch}`;
         c.vision = { analiza: enVision.ids.has(id), porSeg: carga.porCamara[id] ?? null };
+        c.areaId = (c.equipoId && arbol.equipoArea[c.equipoId]) || (c.nvrId && arbol.equipoArea[c.nvrId]) || null;
     }
 
     return NextResponse.json({
         canales,
+        // Las áreas de Dispositivos (21/10, Nico: «filtrar las cámaras por áreas también acá»).
+        areas: arbol.areas,
         vision: { ...carga, cuantas: enVision.ids.size, puedeCambiar: !!sesion && permisosDeSesion(sesion as any).includes("ajustes") },
         errores,
         vistas: leerVistas(filasAjustes.find((f) => f.key === AJUSTE_VISTAS_CAMARAS)?.value),
