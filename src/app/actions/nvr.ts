@@ -488,6 +488,9 @@ export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: 
             mapeadas++; paraArea.push(existente.id); detalle.push({ channel: c.channel, name: existente.name, id: existente.id, accion: "mapeada", motivo: "ya existía: sólo se vinculó la grabación" + (marca && String(existente.brand) !== marca ? ` (marca corregida a ${marca})` : "") }); continue;
         }
         if (c.sensorDe) { detalle.push({ channel: c.channel, name, accion: "omitida", motivo: `es otro sensor de la cámara del canal ${c.sensorDe} (misma IP)` }); continue; }
+        // El canal queda en el mapa ANTES de crear la cámara: su video (go2rtc, y el RTSP del modo
+        // «Lectura OmniVision») cae al NVR si el directo no entrega, y para eso tiene que saber su canal.
+        await prisma.setting.upsert({ where: { key: "NVR_CHANNEL_MAP" }, update: { value: JSON.stringify(nuevo) }, create: { key: "NVR_CHANNEL_MAP", value: JSON.stringify(nuevo) } });
         const lpr = p.rol === "lpr";
         const dev = await prisma.device.create({
             data: {
