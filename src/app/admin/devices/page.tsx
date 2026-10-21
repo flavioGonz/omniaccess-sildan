@@ -1052,7 +1052,7 @@ export default function DevicesPage() {
                 alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} />
             <CajonContadorFila device={contador} open={!!contador} onOpenChange={(v) => !v && setContador(null)} onSuccess={() => { loadData(); }} />
             <CajonDispositivo device={editando} groups={groups} open={!!editando} onOpenChange={(v) => !v && setEditando(null)} onSuccess={() => { loadData(); cargarGrab(); }}
-                alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} />
+                alCalibrar={(d) => setCalibIntr(d)} alCalibrarImagen={(d) => setCalibrating(d)} alImportar={(d) => setImportandoDe(d)} />
             <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "otro"} alCambiarAbierto={(v) => !v && setAlta(null)} />
             <ConfirmarHora equipos={pedirHora || []} health={health} open={!!pedirHora} onOpenChange={(v) => !v && setPedirHora(null)} onListo={() => setTimeout(refreshHealth, 1500)} />
             <ReactTooltip id="tt-alertas" place="top" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[60]" />

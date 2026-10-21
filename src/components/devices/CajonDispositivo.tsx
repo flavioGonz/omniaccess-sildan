@@ -345,7 +345,7 @@ function TipoDeCamara({ tipo, original, caps, leyendo, modoLpr, modoIntr, onCamb
 
 /* ── El cajón ─────────────────────────────────────────────────────────────────── */
 
-export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenChange, alCalibrar, alImportar }: {
+export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenChange, alCalibrar, alCalibrarImagen, alImportar }: {
     /** Con equipo: ficha de edición. Sin equipo: alta por pasos. */
     device?: any | null;
     groups?: any[];
@@ -354,6 +354,8 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     onOpenChange: (v: boolean) => void;
     /** Abrir el calibrador de intrusión de una cámara recién creada (o de la ficha). */
     alCalibrar?: (d: { id: string; name: string; ip: string; brand: string; deviceType: string }) => void;
+    /** El calibrador de imagen de la LPR (obturador, ganancia, foco, zoom, línea de captura). */
+    alCalibrarImagen?: (d: any) => void;
     /** Abrir la importación de cámaras de un NVR desde su ficha. */
     alImportar?: (d: any) => void;
 }) {
@@ -1064,6 +1066,12 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                         {tipo === "CAMERA" && alCalibrar && (
                             <Bloque titulo="Analítica de intrusión" icono={Crosshair} ayuda="Línea de cruce, zona, sentido, sensibilidad, objetivo y aviso a OmniAccess, sobre el video en vivo.">
                                 <Button variant="outline" onClick={() => { onOpenChange(false); alCalibrar(device); }} className="gap-1.5 text-red-500 border-red-500/30"><Crosshair size={15} /> Abrir el calibrador</Button>
+                            </Bloque>
+                        )}
+                        {/* 21/10, Nico: «debés poder abrir el calibrador desde el drawer». Era sólo desde la tabla. */}
+                        {tipo === "LPR_CAMERA" && alCalibrarImagen && device?.id && (
+                            <Bloque titulo="Calibración de imagen" icono={Crosshair} ayuda="Obturador, ganancia, anti-brillo, WDR, filtro IR, foco, zoom y la línea de captura ANPR, sobre el video en vivo. Cada cambio pide confirmación y es reversible.">
+                                <Button variant="outline" onClick={() => { onOpenChange(false); alCalibrarImagen(device); }} className="gap-1.5"><Crosshair size={15} /> Abrir el calibrador</Button>
                             </Bloque>
                         )}
                         {tipo === "NVR" && alImportar && (

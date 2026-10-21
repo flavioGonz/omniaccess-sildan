@@ -1,5 +1,6 @@
 "use client";
 
+import { ControlesLente } from "@/components/devices/LenteYLecturas";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { sileo } from "sileo";
@@ -313,6 +314,9 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
                 {/* Video */}
                 <div className="relative flex-1 bg-black group">
                     <LiveVideo key={`${streamName}-${videoNonce}`} streamName={streamName} deviceId={device.id} />
+                    {/* Zoom y foco del lente (21/10, Nico: «agregar el zoom también acá, para acercar o alejar
+                        el lente»): los mismos controles que la ficha del equipo, sobre el video que se calibra. */}
+                    {!regionMode && <ControlesLente deviceId={device.id} className="z-20" />}
 
                     {/* ── Editor de región ANPR (línea de captura) ── */}
                     {regionMode && (
