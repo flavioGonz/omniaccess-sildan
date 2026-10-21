@@ -16,7 +16,7 @@ import { prisma } from "@/lib/prisma";
 import { uploadToS3 } from "@/lib/s3";
 import { enqueueDispatch } from "@/lib/dispatch-queue";
 import { sendWebPushToAll } from "@/lib/webpush";
-import { pushVigente } from "@/lib/filas/push";
+import { pushVigente, ultimoPush } from "@/lib/filas/push";
 import { fotoDeLectura, cuadroBosch } from "@/lib/filas/foto";
 import { avisarFila } from "@/lib/filas/avisar";
 import { acuseDesde } from "@/lib/filas/acuses";
@@ -481,7 +481,7 @@ export async function pollBoschDevices(): Promise<{
         // eventos de la Bosch se pone más lento (de 0,005 s a más de 12 s por pedido) y falla
         // más — también la renovación del push, que es la que trae los datos. El sondeo queda
         // sólo de respaldo: si el push calla más de PUSH_VIGENTE_MS, vuelve.
-        if (pushVigente(device.id)) {
+        if (pushVigente(device.id) || pushSuscripta(device.id)) {
             consecutiveFailures.set(device.id, 0);
             subscriptions.delete(device.id); // la vence la cámara sola; al volver se crea una nueva
             continue;
@@ -864,14 +864,26 @@ function subscribeEnvelope(consumerUrl: string, terminationSeconds = 120): strin
  * PUSH_RENOVAR_MS — aguanta dos renovaciones falladas seguidas antes de vencer. Si la renovación
  * falla o la cámara no dio dirección, recién ahí se pide una nueva.
  */
-const PUSH_DURACION_S = 180;
+const PUSH_DURACION_S = 300;
 const PUSH_RENOVAR_MS = 60_000;
 /** La Bosch tarda en el servicio de eventos por rachas (HB: más de 12 s): 10 s cortaba de más. */
-const PUSH_TOPE_MS = 20_000;
-type RefPush = { direccion: string; ip: string };
+const PUSH_TOPE_MS = 25_000;
+/**
+ * Una fila tranquila no manda eventos: un minuto sin push no es un push caído. Con la suscripción
+ * al día y algún evento en este rato, el sondeo no se enciende. HB, 21/10: cada minuto quieto el
+ * respaldo creaba otra suscripción PullPoint y cargaba la cámara justo cuando había que renovar.
+ */
+const PUSH_CONFIABLE_MS = 15 * 60_000;
+type RefPush = { direccion: string; ip: string; hasta: number };
 // En globalThis: Next carga este módulo más de una vez y cada copia renovaría la suya.
 const gPush = globalThis as unknown as { __refPush?: Map<string, RefPush>; __renuevaPush?: ReturnType<typeof setInterval> };
 const refsPush: Map<string, RefPush> = (gPush.__refPush ||= new Map());
+
+/** ¿Suscripción push al día y que viene entregando? Ver PUSH_CONFIABLE_MS. */
+function pushSuscripta(deviceId: string, ahora = Date.now()): boolean {
+    const r = refsPush.get(deviceId), u = ultimoPush(deviceId);
+    return !!r && r.hasta > ahora && u != null && ahora - u < PUSH_CONFIABLE_MS;
+}
 
 async function subscribePushForAll() {
     try {
@@ -886,9 +898,13 @@ async function subscribePushForAll() {
             if (ref && ref.ip === d.ip) {
                 try {
                     await httpsRequest(ref.direccion, renewSubscriptionEnvelope(PUSH_DURACION_S), user, pass, PUSH_TOPE_MS);
+                    ref.hasta = Date.now() + PUSH_DURACION_S * 1000;
                     continue; // renovada: nada más que hacer
                 } catch (e: any) {
-                    console.warn(`[ONVIF-Push] Renovación falló ${d.name}: ${e?.message || e} — pido una nueva`);
+                    // Mientras no venza, se reintenta renovar la misma: pedir otra apila suscripciones
+                    // en la cámara, que es lo que la vuelve lenta. Sólo vencida se pide una nueva.
+                    if (ref.hasta - Date.now() > PUSH_RENOVAR_MS) { console.warn(`[ONVIF-Push] Renovación falló ${d.name}: ${e?.message || e} — reintento en ${PUSH_RENOVAR_MS / 1000} s`); continue; }
+                    console.warn(`[ONVIF-Push] Renovación falló ${d.name}: ${e?.message || e} — está por vencer, pido una nueva`);
                     refsPush.delete(d.id);
                 }
             }
@@ -896,7 +912,7 @@ async function subscribePushForAll() {
                 const resp = await httpsRequest(`https://${d.ip}/onvif/events_service`,
                     subscribeEnvelope(ONVIF_PUSH_URL, PUSH_DURACION_S), user, pass, PUSH_TOPE_MS);
                 const dir = resp.match(/SubscriptionReference>\s*<[^>]*Address[^>]*>(https?:\/\/[^<]+)</);
-                if (dir) refsPush.set(d.id, { direccion: dir[1].trim(), ip: d.ip });
+                if (dir) refsPush.set(d.id, { direccion: dir[1].trim(), ip: d.ip, hasta: Date.now() + PUSH_DURACION_S * 1000 });
                 console.log(`[ONVIF-Push] Subscribed ${d.name} -> ${ONVIF_PUSH_URL}${dir ? ` (renovable en ${dir[1].trim()})` : " (sin dirección: se pedirá otra)"}`);
             } catch (e: any) {
                 console.warn(`[ONVIF-Push] Subscribe failed ${d.name}: ${e?.message || e}`);
