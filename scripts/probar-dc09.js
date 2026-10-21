@@ -127,6 +127,8 @@ prueba("Contact ID 1301 corte de corriente = falla, 3301 = fin de falla", () => 
     assert.strictEqual(cod.traducirCid("1301 00 000")[0].categoria, "FALLA");
     assert.strictEqual(cod.traducirCid("3301 00 000")[0].categoria, "FALLA_FIN");
 });
+prueba("Contact ID: zona 000 no es una zona (pánico de teclado)", () => assert.strictEqual(cod.traducirCid("1120 01 000")[0].zona, null));
+prueba("Contact ID: en una falla el campo no es zona", () => assert.strictEqual(cod.traducirCid("1301 00 004")[0].zona, null));
 prueba("Contact ID 1602 prueba periódica", () => assert.strictEqual(cod.traducirCid("1602 00 000")[0].categoria, "PRUEBA"));
 prueba("NULL no tiene eventos", () => assert.deepStrictEqual(cod.traducir({ id: "NULL", datos: "" }), []));
 

@@ -36,7 +36,7 @@ export async function evaluarCentrales(): Promise<number> {
             const callada = ahora - c.ultimoMensajeAt.getTime() > (2 * c.supervisionSeg + MARGEN_SEG) * 1000;
             if (callada && c.estado !== "SIN_SUPERVISION") {
                 await prisma.centralAlarma.update({ where: { id: c.id }, data: { estado: "SIN_SUPERVISION" } });
-                await alertar(c.prueba, c.deviceId, nombre, "central", "critical", `Sin supervisión: la central no reporta desde ${c.ultimoMensajeAt.toLocaleString("es-UY", { timeZone: "America/Montevideo" })} (espera algo cada ${Math.round(c.supervisionSeg / 60)} min).`);
+                await alertar(c.prueba, c.deviceId, nombre, "central", "critical", `Sin supervisión: la central no reporta desde ${c.ultimoMensajeAt.toLocaleString("es-UY", { timeZone: "America/Montevideo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })} (espera algo cada ${Math.round(c.supervisionSeg / 60)} min).`);
             } else if (!callada) {
                 await cerrar(c.prueba, c.deviceId, nombre, "central");
             }

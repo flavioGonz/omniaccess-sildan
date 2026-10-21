@@ -25,7 +25,7 @@
  * habló cada central.
  */
 "use strict";
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 const net = require("net");
 const dgram = require("dgram");
 const http = require("http");
@@ -174,7 +174,7 @@ async function procesar(trama, ip, transporte) {
 async function despues(central, msg, eventos, mensajeId) {
     for (const e of eventos) {
         let zona = null;
-        if (e.zona != null && e.zona >= 0 && e.zona < 100000) {
+        if (e.zona != null && e.zona > 0 && e.zona < 100000) {
             // Una zona que la central no tenía cargada se crea sola (sin nombre: «Zona 7»).
             zona = await prisma.zonaCentral.upsert({ where: { centralId_zona: { centralId: central.id, zona: e.zona } }, update: {}, create: { centralId: central.id, zona: e.zona, particion: e.particion ?? null } }).catch(() => null);
         }

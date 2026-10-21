@@ -79,8 +79,10 @@ function traducirCid(datos) {
         if (categoria === "ALARMA") { categoria = "RESTAURACION"; texto = `${texto} restaurado`; }
         else if (categoria === "FALLA") { categoria = "FALLA_FIN"; texto = `${texto}: normal`; }
     }
-    // En los 3xx/6xx el último campo no siempre es una zona (puede ser un módulo): se guarda igual.
-    return [{ categoria, tipo, texto, codigo, cid: ev, particion: part, zona: zz, usuario: null }];
+    // El último campo es la zona sólo en alarmas y restauraciones; en 3xx/6xx suele ser un módulo
+    // o nada, y «000» quiere decir «la central» (no una zona 0): no se crea una zona de mentira.
+    const esZona = (categoria === "ALARMA" || categoria === "RESTAURACION") && zz > 0;
+    return [{ categoria, tipo, texto, codigo, cid: ev, particion: part, zona: esZona ? zz : null, modulo: esZona ? null : zz || null, usuario: null }];
 }
 
 /**
