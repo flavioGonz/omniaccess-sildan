@@ -282,8 +282,30 @@ async function cuadroDe(url, cabeceras) {
     } catch (e) { return { ok: false, detalle: (e && e.name === "TimeoutError") ? `sin respuesta en ${CUADRO_TOPE_MS / 1000} s` : ((e && e.message) || "no contestó") }; }
 }
 
-/** La cámara directo (snap.jpg por HTTP, el mismo pedido que lib/filas/foto). */
-const porCamara = (c) => cuadroDe(`http://${c.ip}/snap.jpg?JpegSize=S`, { Authorization: "Basic " + Buffer.from(`${c.username || "admin"}:${c.password || ""}`).toString("base64") });
+/**
+ * ¿Contesta la cámara? Se pregunta si está viva, no si nos deja entrar: cualquier respuesta HTTP
+ * (también un 401) es una cámara prendida. HB, 21/10: al ponerle claves, la Bosch empezó a pedir
+ * Digest por HTTP y el vigía leía el 401 como «cámara caída» — y con la cámara «caída» no
+ * reinicia go2rtc, que es justo lo que tiene que hacer. Por HTTPS (la Bosch contesta por los dos)
+ * y por HTTP; con que conteste uno alcanza.
+ */
+const https = require("https");
+const http = require("http");
+const CAMARA_TOPE_MS = 10_000;
+function contesta(mod, ip) {
+    return new Promise((res) => {
+        const r = mod.request({ host: ip, path: "/snap.jpg?JpegSize=S", method: "GET", rejectUnauthorized: false, timeout: CAMARA_TOPE_MS }, (rs) => {
+            rs.resume(); res({ ok: true, detalle: `contesta (HTTP ${rs.statusCode})` });
+        });
+        r.on("error", (e) => res({ ok: false, detalle: e.message }));
+        r.on("timeout", () => { r.destroy(); res({ ok: false, detalle: `sin respuesta en ${CAMARA_TOPE_MS / 1000} s` }); });
+        r.end();
+    });
+}
+const porCamara = async (c) => {
+    const [a, b] = await Promise.all([contesta(https, c.ip), contesta(http, c.ip)]);
+    return a.ok ? a : b.ok ? b : { ok: false, detalle: `no contesta: ${a.detalle}` };
+};
 
 /** El flujo en go2rtc. Con la cámara caída no se juzga a go2rtc: no tendría de dónde sacar video. */
 const porGo2rtc = (c) => async () => {
