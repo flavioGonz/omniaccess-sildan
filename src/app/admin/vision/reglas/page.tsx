@@ -141,7 +141,9 @@ export default function ReglasVision() {
         const tipo = sp.get("nueva") as TipoRegla | null;
         if (!tipo || !(tipo in TIPOS_REGLA)) return;
         window.history.replaceState(null, "", window.location.pathname);
-        const cam = datos.camaras[0]?.id || "";
+        // Desde el vivo de un canal en la ficha del NVR llega también ?camara=<id> (21/10).
+        const pedida = sp.get("camara");
+        const cam = (pedida && datos.camaras.some((c) => c.id === pedida) ? pedida : null) || datos.camaras[0]?.id || "";
         setEditando({ base: reglaNueva(tipo, cam), deviceIds: cam ? [cam] : [], originales: [], nueva: true });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [datos]);
