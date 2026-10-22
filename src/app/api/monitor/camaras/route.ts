@@ -159,6 +159,9 @@ export async function GET() {
     };
 
     const porIp = new Map(equipos.filter((e) => e.ip).map((e) => [e.ip as string, e]));
+    // Lo apagado por área (lib/apagado) no va a la pared: ni como equipo ni como canal de su NVR.
+    const { lectorCanalesApagados } = await import("@/lib/apagado");
+    const off = await lectorCanalesApagados().catch(() => null);
     const usados = new Set<string>();
     const canales: CanalPared[] = [];
     const errores: { nvr: string; error: string }[] = [];
@@ -166,12 +169,14 @@ export async function GET() {
 
     const lecturas = await Promise.all(nvrs.map((n) => canalesDe(n as any).then((r) => ({ n, r }))));
     for (const { n, r } of lecturas) {
+        if (off?.equipos.has(n.id)) continue;
         if (!r.ok) { errores.push({ nvr: n.name, error: r.error || "No se pudieron leer los canales" }); continue; }
         for (const c of [...r.channels].sort((a, b) => a.channel - b.channel)) {
             // El segundo sensor de una cámara bi-espectral es la misma cámara: va una vez.
             if (c.sensorDe) continue;
             const ch = Number(c.channel);
             const eq = c.ip ? porIp.get(c.ip) : undefined;
+            if (off?.apagado(n.id, ch, c.ip || null) || (eq && off?.equipos.has(eq.id))) { if (eq) usados.add(eq.id); continue; }
             if (eq && streams?.has(`lpr_${eq.id}`)) {
                 usados.add(eq.id);
                 canales.push({ clave: `dev:${eq.id}`, nombre: eq.name, nvrId: n.id, nvr: n.name, ch, online: c.online ?? null, stream: `lpr_${eq.id}`, equipoId: eq.id, alerta: alertaPorEquipo.get(eq.id) || alertaPorCanal.get(`${n.id}:${ch}`) || null, ...extrasDe(eq.id) });
@@ -189,7 +194,7 @@ export async function GET() {
     const mapa = await getChannelMap().catch(() => ({} as Record<string, { nvrId: string | null; ch: number }>));
     const nombreNvr = new Map(nvrs.map((n) => [n.id, n.name]));
     for (const e of equipos) {
-        if (usados.has(e.id) || !streams?.has(`lpr_${e.id}`)) continue;
+        if (usados.has(e.id) || off?.equipos.has(e.id) || !streams?.has(`lpr_${e.id}`)) continue;
         const m = e.ip ? mapa[e.ip] : undefined;
         const nvrId = m?.nvrId && nombreNvr.has(m.nvrId) ? m.nvrId : null;
         canales.push({ clave: `dev:${e.id}`, nombre: e.name, nvrId, nvr: nvrId ? nombreNvr.get(nvrId)! : null, ch: nvrId && m ? m.ch : null, online: null, stream: `lpr_${e.id}`, equipoId: e.id, alerta: alertaPorEquipo.get(e.id) || null, ...extrasDe(e.id) });

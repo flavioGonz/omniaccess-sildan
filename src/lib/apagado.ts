@@ -56,6 +56,30 @@ export async function equiposApagados(): Promise<Set<string>> {
 }
 
 /**
+ * Lo apagado visto desde los canales de los NVR (22/10, Nico: «desactivé un área con dispositivos y
+ * los sigo viendo en el Monitor CCTV»). Un equipo apagado perdía su stream propio, pero la pared lo
+ * seguía mostrando como CANAL DEL NVR (lpr_nvrch-…), que se registraba solo. Un canal está apagado si
+ * su NVR lo está, o si la cámara que graba (por IP, o por el mapa de canales) es un equipo apagado.
+ */
+export async function lectorCanalesApagados(): Promise<{ equipos: Set<string>; ips: Set<string>; canales: Set<string>; apagado: (nvrId: string | null | undefined, ch?: number | null, ip?: string | null) => boolean }> {
+    const equipos = await equiposApagados();
+    const ips = new Set<string>();
+    const canales = new Set<string>();
+    if (equipos.size) {
+        const devs = await prisma.device.findMany({ where: { id: { in: [...equipos] } }, select: { ip: true } }).catch(() => []);
+        for (const d of devs) if (d.ip) ips.add(d.ip);
+        try {
+            const { getChannelMap } = await import("@/lib/nvr-resolve");
+            const mapa = await getChannelMap();
+            for (const ip of ips) { const m = mapa[ip]; if (m?.nvrId && m.ch) canales.add(`${m.nvrId}:${m.ch}`); }
+        } catch { }
+    }
+    const apagado = (nvrId: string | null | undefined, ch?: number | null, ip?: string | null) =>
+        (!!nvrId && equipos.has(nvrId)) || (!!ip && ips.has(ip)) || (!!nvrId && ch != null && canales.has(`${nvrId}:${ch}`));
+    return { equipos, ips, canales, apagado };
+}
+
+/**
  * Recalcula la lista de apagados desde las áreas y aplica la diferencia: a los que se apagan se les
  * quitan los streams; a los que vuelven se les registran de nuevo. Devuelve cuántos quedaron apagados.
  */
@@ -71,7 +95,26 @@ export async function recalcularApagados(estado: EstadoMin): Promise<{ apagados:
     const prendidosAhora = [...antes].filter((x) => !nuevos.has(x));
     try {
         const { quitarStreams, syncLprStream } = await import("@/lib/go2rtc-sync");
-        if (apagadosAhora.length) await quitarStreams(apagadosAhora.flatMap((x) => [`lpr_${x}`, `lpr_${x}_hd`]));
+        if (apagadosAhora.length) {
+            // También los canales de NVR que muestran a esas cámaras (o todos los de un NVR apagado):
+            // los registra la pared al mirarlos y, si no, seguían en go2rtc.
+            const extra: string[] = [];
+            try {
+                const { getChannelMap } = await import("@/lib/nvr-resolve");
+                const [mapa, devs, lista] = await Promise.all([
+                    getChannelMap(),
+                    prisma.device.findMany({ where: { id: { in: apagadosAhora } }, select: { id: true, ip: true, deviceType: true } }),
+                    fetch(`${process.env.GO2RTC_API || "http://127.0.0.1:1984"}/api/streams`, { cache: "no-store", signal: AbortSignal.timeout(4000) }).then((r) => r.json()).catch(() => ({})),
+                ]);
+                const nombres = Object.keys(lista || {});
+                for (const d of devs) {
+                    if (d.deviceType === "NVR") extra.push(...nombres.filter((n) => n.startsWith(`lpr_nvrch-${d.id}-`)));
+                    const m = d.ip ? mapa[d.ip] : undefined;
+                    if (m?.nvrId && m.ch) extra.push(`lpr_nvrch-${m.nvrId}-${m.ch}`, `lpr_nvrch-${m.nvrId}-${m.ch}_hd`);
+                }
+            } catch { }
+            await quitarStreams([...new Set([...apagadosAhora.flatMap((x) => [`lpr_${x}`, `lpr_${x}_hd`]), ...extra])]);
+        }
         if (prendidosAhora.length) {
             const devs = await prisma.device.findMany({ where: { id: { in: prendidosAhora } } });
             for (const d of devs) await syncLprStream(d as any).catch(() => { });

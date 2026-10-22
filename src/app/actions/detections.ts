@@ -150,7 +150,10 @@ export async function getIntrusionCameras(): Promise<IntrusionCam[]> {
     let alarmSet = new Set<string>(); try { alarmSet = new Set(JSON.parse(alarmRow?.value || "[]")); } catch { }
     const nvrName: Record<string, string> = {}; nvrs.forEach((n) => (nvrName[n.id] = n.name));
     let map: any = {}; try { map = mapRow ? JSON.parse(mapRow.value) : {}; } catch { }
-    return devices.map((d) => {
+    // Las cámaras de un área apagada (Dispositivos) no van al monitor: OmniAccess no las consume.
+    const { equiposApagados } = await import("@/lib/apagado");
+    const apagados = await equiposApagados().catch(() => new Set<string>());
+    return devices.filter((d) => !apagados.has(d.id)).map((d) => {
         const e = map[d.ip]; const nid = e ? (e.nvr || e.nvrId || null) : null;
         return { id: d.id, name: d.name, brand: String(d.brand), ip: d.ip, nvrName: nid ? (nvrName[nid] || null) : null, nvrId: nid, ch: e ? Number(e.ch) : null, alarmOk: alarmSet.has(d.ip), tipo: String(d.deviceType), tieneRtsp: !!d.rtspUrl };
     });
