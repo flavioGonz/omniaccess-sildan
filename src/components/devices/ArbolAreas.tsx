@@ -264,7 +264,8 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
         return (
             <div draggable onDragStart={(ev) => { ev.stopPropagation(); arrastrarEquipos(ev, [d.id], d.name); }}
                 onClick={() => onAbrirEquipo?.(d)}
-                data-tooltip-id="tt-areas" data-tooltip-content={`${ICONO_TIPO[d.deviceType]?.t || d.deviceType} · ${d.ip}. Arrastralo a otra área; clic para editar.`}
+                data-tooltip-id="tt-equipo" data-equipo-id={d.id} data-equipo-nombre={d.name} data-equipo-tipo={ICONO_TIPO[d.deviceType]?.t || d.deviceType}
+                data-equipo-ip={d.ip || ""} data-equipo-foto={SIN_FOTO.has(d.deviceType) ? undefined : "1"}
                 className={cn("group flex items-center gap-1.5 h-7 pr-2 rounded-md cursor-grab active:cursor-grabbing hover:bg-accent/60", (!deTipo(d) || h?.apagado) && "opacity-60")}
                 style={{ paddingLeft: 26 + nivel * 14 }}>
                 <GripVertical size={11} className="text-muted-foreground/40 group-hover:text-muted-foreground shrink-0 -ml-3.5" />
@@ -398,7 +399,50 @@ function TooltipAreas() {
     const [listo, setListo] = useState(false);
     useEffect(() => setListo(true), []);
     if (!listo) return null;
-    return createPortal(<Tooltip id="tt-areas" place="right" positionStrategy="fixed" className="!max-w-[260px] !text-[12px] !rounded-lg !z-[9999]" />, document.body);
+    return createPortal(<>
+        <Tooltip id="tt-areas" place="right" positionStrategy="fixed" className="!max-w-[260px] !text-[12px] !rounded-lg !z-[9999]" />
+        {/*
+          * Un equipo del árbol, con su mini foto (22/10, Nico: «al pasar el mouse encima de un canal, debe
+          * mostrar una mini foto»). Es la del momento (go2rtc, cada minuto como mucho: la URL cambia con
+          * el minuto); un NVR o una central no tienen imagen y muestran sólo el texto. Si la cámara no
+          * contesta, la foto no aparece y se dice.
+          */}
+        <Tooltip id="tt-equipo" place="right" positionStrategy="fixed" delayShow={180} className="!p-0 !rounded-lg !z-[9999] !opacity-100 overflow-hidden"
+            render={({ activeAnchor }) => {
+                const a = activeAnchor as HTMLElement | null;
+                if (!a) return null;
+                const id = a.dataset.equipoId, conFoto = a.dataset.equipoFoto === "1";
+                return (
+                    <div className="w-[260px] text-[12px]">
+                        {conFoto && id && <FotoTooltip key={id} id={id} />}
+                        <div className="px-3 py-2 leading-snug">
+                            <div className="font-semibold truncate">{a.dataset.equipoNombre}</div>
+                            <div className="opacity-75 tabular-nums">{a.dataset.equipoTipo}{a.dataset.equipoIp ? ` · ${a.dataset.equipoIp}` : ""}</div>
+                            <div className="opacity-60 text-[11px] mt-0.5">Arrastralo a otra área; clic para editar.</div>
+                        </div>
+                    </div>
+                );
+            }} />
+    </>, document.body);
+}
+
+/** Los tipos que no tienen una imagen que mostrar. */
+const SIN_FOTO = new Set(["NVR", "ALARM_HUB", "QUEUE_COUNTER"]);
+
+function FotoTooltip({ id }: { id: string }) {
+    const [estado, setEstado] = useState<"cargando" | "ok" | "sin">("cargando");
+    const minuto = Math.floor(Date.now() / 60_000);
+    return (
+        <div className="relative w-full aspect-video bg-black/80 grid place-items-center">
+            {estado !== "sin" && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={id} src={`/api/snapshot/${id}?w=320&t=${minuto}`} alt="" onLoad={() => setEstado("ok")} onError={() => setEstado("sin")}
+                    className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-200", estado === "ok" ? "opacity-100" : "opacity-0")} />
+            )}
+            {estado === "cargando" && <span className="text-[11px] text-white/60">Trayendo la imagen…</span>}
+            {estado === "sin" && <span className="text-[11px] text-white/60">La cámara no devolvió imagen</span>}
+        </div>
+    );
 }
 
 /**
