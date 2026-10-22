@@ -10,6 +10,7 @@
  * Los tres son de la misma familia: una línea de texto por evento, con el Contact ID adentro, y
  * el CMS contesta ACK (0x06) a cada una. El receptor no manda la siguiente hasta recibirlo.
  *
+ *   IPC10, MLR2-DG (real): RG AAAA 18 QXYZ GG xCCC                ej. «15 2989 18 E130 01 U020»
  *   Sur-Gard, Contact ID:  5 RR L s 18 AAAA Q XYZ GG CCC [DC4]     ej. «5011 181234E12101001»
  *   Sur-Gard, «sigo vivo»: 1 RR … @ … [DC4]
  *   Ademco 685:            [LF] … 18 AAAA Q XYZ GG CCC [CR]           (con o sin espacios)
@@ -50,6 +51,12 @@ function separar(buf) {
 /** El bloque Contact ID dentro de una trama: { cuenta, datos: «1401 01 005» } o null. */
 function contactId(t) {
     const s = String(t).toUpperCase();
+    // MLR2-DG del IPC10 de Paradox, tal como llegó la primera trama real (22/10, 172.26.20.19):
+    //   «15 2989 18 E130 01 U020» = receptor+grupo · cuenta · 18 (Contact ID) · Q+evento · partición · zona
+    // La cuenta va ANTES del 18 y la zona o usuario trae una letra adelante (U020). El propio
+    // receptor manda sus eventos con «98» en vez de «18» («15 0076c4250f 98 R314 00 U000»).
+    const dg = /^[0-9A-F]{1,4}\s+([0-9A-F]{3,16})\s+(?:18|98)\s+([ERP136])\s?(\d{3})\s+([0-9A-F]{2})\s+[A-Z]?([0-9A-F]{3})\b/.exec(s);
+    if (dg) return { cuenta: dg[1], datos: `${Q_DIGITO[dg[2]]}${dg[3]} ${dg[4]} ${dg[5]}` };
     // Con espacios entre campos (Ademco 685 suele venir así): no hay ambigüedad.
     let m = /\b18\s+([0-9A-F]{3,10})\s+([ERP136])\s?(\d{3})\s+([0-9A-F]{2})\s+([0-9A-F]{3})\b/.exec(s);
     // Sur-Gard: el bloque empieza una palabra («5011 181234E…»). Buscarlo ahí primero evita

@@ -19,6 +19,13 @@ prueba("Ademco 685 con espacios", () => assert.deepStrictEqual(cms.leer("01010 1
 prueba("Ademco con el dígito original del Contact ID", () => assert.strictEqual(cms.leer("0101 18 2989 3130 01 003").datos, "3130 01 003"));
 prueba("con un campo agregado al final (número de serie)", () => assert.strictEqual(cms.leer("5011 182989E40101005 08202A78").datos, "1401 01 005"));
 prueba("receptor 18 en el encabezado no se confunde", () => assert.strictEqual(cms.leer("5181 182989E40101005").cuenta, "2989"));
+prueba("IPC10 real: robo zona 20 y su restauración", () => {
+    assert.deepStrictEqual(cms.leer("15 2989 18 E130 01 U020"), { tipo: "evento", cuenta: "2989", datos: "1130 01 020" });
+    const [e] = cod.traducirCid(cms.leer("15 2989 18 E130 01 U020").datos); assert.strictEqual(e.categoria, "ALARMA"); assert.strictEqual(e.zona, 20);
+    assert.strictEqual(cod.traducirCid(cms.leer("15 2989 18 R130 01 U020").datos)[0].categoria, "RESTAURACION");
+});
+prueba("IPC10 real: evento del propio receptor (98)", () => assert.deepStrictEqual(cms.leer("15 0076c4250f 98 R314 00 U000"), { tipo: "evento", cuenta: "0076C4250F", datos: "3314 00 000" }));
+prueba("IPC10: desarmado por el usuario 5", () => { const [e] = cod.traducirCid(cms.leer("15 2989 18 E401 01 U005").datos); assert.strictEqual(e.categoria, "DESARMADO"); assert.strictEqual(e.usuario, 5); });
 prueba("latido Sur-Gard", () => assert.strictEqual(cms.leer("1011           @    ").tipo, "vivo"));
 prueba("separar por DC4, CR y LF; lo incompleto queda", () => {
     const r = cms.separar("5011 182989E40101005\x14\n01010 18 2989 E130 01 003\r5011 18");
