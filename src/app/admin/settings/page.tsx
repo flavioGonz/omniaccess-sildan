@@ -227,7 +227,7 @@ const NAV_GROUPS = [
         { sec: "visitas", btab: "", label: "Visitas y patrones", icon: Clock },
         { sec: "empresas", btab: "", label: "Empresas (delivery, taxis)", icon: Building2 },
         // Prioridad de los eventos de las centrales de alarma (22/10, Nico): la edita un administrador.
-        { sec: "centrales_prioridades", btab: "", label: "Centrales de alarma: prioridades", icon: Siren },
+        { sec: "centrales_prioridades", btab: "", label: "Centrales de alarma", icon: Siren },
     ]},
     { id: "avanzado", label: "Avanzado", icon: SlidersHorizontal, items: [
         { sec: "drivers", btab: "", label: "Drivers & Protocolos", icon: Camera },

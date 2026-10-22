@@ -61,6 +61,8 @@ const ETIQUETA: Record<string, string> = {
     REGION_ENTER: "Entrada a zona",
     REGION_EXIT: "Salida de zona",
     CENTRAL: "Alarma de central",
+    // Un evento de central que nadie tomó, o que se tomó y no se trató, a tiempo (lib/centrales/tratamiento).
+    CENTRAL_ESCALADO: "Alarma de central sin atender",
 };
 const TIPO_CENTRAL: Record<string, string> = { ROBO: "Robo", PANICO: "Pánico", INCENDIO: "Incendio", SABOTAJE: "Sabotaje", COACCION: "Coacción", MEDICA: "Emergencia médica", GAS: "Gas", AGUA: "Pérdida de agua", TEMPERATURA: "Temperatura", GENERAL: "Alarma" };
 const CLASE: Record<string, string> = { human: "Persona", vehicle: "Vehículo" };
@@ -86,12 +88,16 @@ function armarTexto(plantilla: string | null, ev: EventoNotificable, ahora: Date
         "{wait}": String(ev.extra?.wait ?? ""),
         // Lo que dice la chapa (lib/categoria-chapa): «Ambulancia de Montevideo», «Particular de Canelones».
         "{tipo}": leerChapa(ev.plate)?.frase || "—",
+        // Por qué se escaló un evento de central: «Nadie lo tomó en 2 min».
+        "{motivo}": String(ev.extra?.motivo ?? ""),
     };
     const base = plantilla || (ev.modulo === "FACE"
         ? "👤 {evento}\n{persona}\n{device} · {channel}\n{date} {time}"
         // Una central no tiene «clase» (persona, vehículo): sin el «· —» que quedaba colgando.
         : ev.modulo === "INTRUSION" && ev.evento === "CENTRAL"
             ? "🚨 {evento}\n{device}\n{date} {time}"
+        : ev.modulo === "INTRUSION" && ev.evento === "CENTRAL_ESCALADO"
+            ? "⏰ {evento}\n{device}\n{motivo}\n{date} {time}"
         : ev.modulo === "INTRUSION"
             ? "🚨 {evento}\n{device} · {clase}\n{date} {time}"
             // Una chapa especial dice qué es al lado («SAM1234 · Ambulancia de Montevideo»).

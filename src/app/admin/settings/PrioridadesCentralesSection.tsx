@@ -6,6 +6,7 @@ import { toast } from "@/lib/avisos";
 import { Button } from "@/components/ui/button";
 import { ChipPrioridad } from "@/components/alarmas/MensajesCentrales";
 import { CLASES, NIVELES, PRIORIDADES_DEFECTO, type ClaseEvento, type Prioridades } from "@/lib/centrales/prioridades";
+import type { Cierre, Escalado, Procedimiento } from "@/lib/centrales/tratamiento-tipos";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,7 +17,27 @@ import { cn } from "@/lib/utils";
  * La prioridad se ve en Gestión de alarmas (pestaña Centrales y las alarmas de central). Cambiarla
  * no toca lo ya recibido: se recalcula al mostrar, así que vale también para lo de antes.
  */
-export default function PrioridadesCentralesSection() {
+/**
+ * Ajustes › Centrales de alarma: cuatro partes, cada una con su guardar (22/10): las prioridades, cómo
+ * se cierra un evento (el catálogo que se elige al TRATAR), el procedimiento de cada prioridad y cuándo
+ * salta la ventana y cuándo se escala.
+ */
+export default function CentralesSection() {
+    const [parte, setParte] = useState<"prioridades" | "cierres" | "procedimiento" | "escalado">("prioridades");
+    return (
+        <div className="space-y-5">
+            <div className="flex items-center rounded-full border border-border p-0.5 w-fit" role="tablist">
+                {([["prioridades", "Prioridades"], ["cierres", "Cierres"], ["procedimiento", "Procedimiento"], ["escalado", "Ventana y escalado"]] as const).map(([k, l]) => (
+                    <button key={k} type="button" role="tab" aria-selected={parte === k} onClick={() => setParte(k)}
+                        className={cn("h-8 px-4 rounded-full text-[12.5px] font-semibold", parte === k ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{l}</button>
+                ))}
+            </div>
+            {parte === "prioridades" ? <PrioridadesCentralesSection /> : <AjustesTratamiento parte={parte} />}
+        </div>
+    );
+}
+
+function PrioridadesCentralesSection() {
     const [guardadas, setGuardadas] = useState<Prioridades | null>(null);
     const [p, setP] = useState<Prioridades>(PRIORIDADES_DEFECTO);
     const [error, setError] = useState<string | null>(null);
@@ -90,6 +111,93 @@ export default function PrioridadesCentralesSection() {
                     </div>
                 </>
             )}
+        </div>
+    );
+}
+
+/* ── Cierres, procedimiento y escalado (lib/centrales/tratamiento-tipos) ── */
+
+type Ajustes = { cierres: Cierre[]; procedimiento: Procedimiento; escalado: Escalado };
+
+function AjustesTratamiento({ parte }: { parte: "cierres" | "procedimiento" | "escalado" }) {
+    const [guardado, setGuardado] = useState<Ajustes | null>(null);
+    const [a, setA] = useState<Ajustes | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [guardando, setGuardando] = useState(false);
+    const cargar = () => fetch("/api/centrales/ajustes", { cache: "no-store" })
+        .then(async (r) => { const j = await r.json().catch(() => null); if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`); return j as Ajustes; })
+        .then((x) => { setGuardado(x); setA(x); setError(null); }).catch((e) => setError(e?.message || "No se pudo leer."));
+    useEffect(() => { cargar(); }, []);
+    const cambiado = !!a && !!guardado && JSON.stringify(a[parte]) !== JSON.stringify(guardado[parte]);
+    const guardar = async (restaurar = false) => {
+        if (!a) return;
+        setGuardando(true);
+        try {
+            const r = await fetch("/api/centrales/ajustes", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(restaurar ? { restaurar: parte } : { [parte]: a[parte] }) });
+            const j = await r.json().catch(() => null);
+            if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+            setGuardado(j); setA(j); toast.success(restaurar ? "Restaurado lo de fábrica" : "Guardado");
+        } catch (e: any) { toast.error(e?.message || "No se pudo guardar."); }
+        finally { setGuardando(false); }
+    };
+    if (error) return <div className="rounded-[10px] chip-mal px-3 py-2.5 text-[12.5px] flex items-center gap-3 max-w-3xl"><span className="flex-1">{error}</span><Button size="sm" variant="outline" onClick={cargar}>Reintentar</Button></div>;
+    if (!a) return <div className="py-10 grid place-items-center max-w-3xl"><Loader2 size={18} className="animate-spin text-muted-foreground" /></div>;
+    const entrada = "h-9 rounded-[8px] px-3 text-[12.5px] bg-background border border-border outline-none focus:ring-2 focus:ring-[var(--accion)]/40";
+    return (
+        <div className="max-w-3xl space-y-4">
+            {parte === "cierres" && (<>
+                <p className="text-[12.5px] text-muted-foreground max-w-prose">Lo que se elige al <b>tratar</b> un evento de central, además del texto obligatorio. El resultado (falsa, real u otro) es el que cuenta en los informes. Uno desactivado deja de ofrecerse pero no se borra de lo ya tratado.</p>
+                <div className="rounded-[10px] border border-border divide-y divide-border">
+                    {a.cierres.map((c, i) => (
+                        <div key={c.id} className="flex items-center gap-2 px-3 py-2">
+                            <input value={c.texto} onChange={(e) => setA({ ...a, cierres: a.cierres.map((x, j) => (j === i ? { ...x, texto: e.target.value } : x)) })} className={cn(entrada, "flex-1 min-w-0", !c.activo && "opacity-50")} maxLength={120} />
+                            <select value={c.resultado} onChange={(e) => setA({ ...a, cierres: a.cierres.map((x, j) => (j === i ? { ...x, resultado: e.target.value as Cierre["resultado"] } : x)) })} className={cn(entrada, "w-[110px]")}>
+                                <option value="falsa">Falsa</option><option value="real">Real</option><option value="otro">Otro</option>
+                            </select>
+                            <label className="flex items-center gap-1.5 text-[12px] text-muted-foreground w-[86px]"><input type="checkbox" checked={c.activo} onChange={(e) => setA({ ...a, cierres: a.cierres.map((x, j) => (j === i ? { ...x, activo: e.target.checked } : x)) })} /> Activo</label>
+                        </div>
+                    ))}
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setA({ ...a, cierres: [...a.cierres, { id: `nuevo-${Date.now().toString(36)}`, texto: "", resultado: "otro", activo: true }] })}>Agregar cierre</Button>
+            </>)}
+            {parte === "procedimiento" && (<>
+                <p className="text-[12.5px] text-muted-foreground max-w-prose">Los pasos que el operador va tildando en la ficha del evento, según su prioridad. Cada tilde queda con su nombre y la hora. Un paso por renglón.</p>
+                {(["1", "2", "3", "4", "5"] as const).map((n) => (
+                    <div key={n} className="rounded-[10px] border border-border p-3">
+                        <div className="flex items-center gap-2 mb-2"><ChipPrioridad n={Number(n)} /></div>
+                        <textarea value={a.procedimiento[n].join("\n")} rows={Math.max(2, a.procedimiento[n].length + 1)}
+                            onChange={(e) => setA({ ...a, procedimiento: { ...a.procedimiento, [n]: e.target.value.split("\n").map((x) => x.slice(0, 100)) } })}
+                            placeholder="Sin pasos" className="w-full rounded-[8px] px-3 py-2 text-[12.5px] bg-background border border-border outline-none focus:ring-2 focus:ring-[var(--accion)]/40 resize-y" />
+                    </div>
+                ))}
+            </>)}
+            {parte === "escalado" && (
+                <div className="rounded-[10px] border border-border divide-y divide-border">
+                    {([
+                        ["ventanaHasta", "Abre la ventana con sonido hasta", "prioridad", "En todas las pantallas del panel, hasta que alguien lo trate. 0 = nunca."],
+                        ["avisoHasta", "Aparece en los avisos de abajo hasta", "prioridad", "Sin abrir ventana. No puede ser menos que la de la ventana."],
+                        ["escalarHasta", "Se escala hasta", "prioridad", "0 = no se escala nunca."],
+                        ["tomarMin", "Se escala si nadie lo toma en", "min", "Desde que llegó el evento."],
+                        ["tratarMin", "Se escala si quien lo tomó no lo trata en", "min", "Desde que lo tomó."],
+                    ] as const).map(([k, rotulo, unidad, ayuda]) => (
+                        <div key={k} className="flex items-center gap-4 px-4 py-3">
+                            <div className="min-w-0 flex-1"><div className="text-[13px] font-semibold">{rotulo}</div><div className="text-[12px] text-muted-foreground">{ayuda}</div></div>
+                            {unidad === "prioridad" ? (
+                                <select value={a.escalado[k]} onChange={(e) => setA({ ...a, escalado: { ...a.escalado, [k]: Number(e.target.value) } })} className={cn(entrada, "w-[120px]")}>
+                                    {[0, 1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n ? `P${n}` : "Nunca"}</option>)}
+                                </select>
+                            ) : (
+                                <span className="flex items-center gap-1.5"><input type="number" min={0} max={240} value={a.escalado[k]} onChange={(e) => setA({ ...a, escalado: { ...a.escalado, [k]: Number(e.target.value) } })} className={cn(entrada, "w-[80px] tabular-nums")} /><span className="text-[12px] text-muted-foreground">min</span></span>
+                            )}
+                        </div>
+                    ))}
+                    <p className="px-4 py-3 text-[12px] text-muted-foreground">Escalar vuelve a abrir la ventana en todas las pantallas y dispara el evento <b>«Alarma de central sin atender»</b> de las reglas de notificación: para que le llegue a un supervisor, armá una regla con ese evento (Notificaciones › Reglas).</p>
+                </div>
+            )}
+            <div className="flex items-center gap-2 justify-end">
+                <Button variant="outline" onClick={() => guardar(true)} disabled={guardando} className="gap-1.5"><RotateCcw size={14} /> Volver a lo de fábrica</Button>
+                <Button onClick={() => guardar(false)} disabled={guardando || !cambiado} className="gap-1.5">{guardando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar</Button>
+            </div>
         </div>
     );
 }

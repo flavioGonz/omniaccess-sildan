@@ -458,11 +458,11 @@ export async function marcarDeteccion(id: string, kind: "real" | "false"): Promi
 export async function ackAlarms(deviceId: string, kind: "real" | "false" = "real"): Promise<{ ok: boolean; count: number }> {
     const since = new Date(Date.now() - 6 * 3600 * 1000);
     try {
-        // Las de la cámara y las de una central cuya zona mira esta cámara (Alarm Hub).
-        const deCentral = (await prisma.detection.findMany({ where: { type: "CENTRAL", acknowledged: false, timestamp: { gte: since } }, select: { id: true, details: true }, take: 200 }))
-            .filter((d) => camarasDe(d.details).includes(deviceId)).map((d) => d.id);
+        // Las de la cámara. Las de una central de alarma NO (22/10, Nico: «tratar evento obligando a
+        // anotar algo»): un evento de central se termina sólo tratándolo, con su cierre y su texto
+        // (lib/centrales/tratamiento). Aceptar la cámara de la zona dejaba el robo atendido sin una palabra.
         const r = await prisma.detection.updateMany({
-            where: { OR: [{ deviceId }, ...(deCentral.length ? [{ id: { in: deCentral } }] : [])], acknowledged: false, type: { not: "MOTION" }, timestamp: { gte: since } },
+            where: { deviceId, acknowledged: false, type: { notIn: ["MOTION", "CENTRAL"] }, timestamp: { gte: since } },
             data: { acknowledged: true, ackKind: kind, ackAt: new Date() },
         });
         if (r.count) await registrarGestion(await claveDeCamara(deviceId, kind), kind === "real" ? "CONFIRMO_REAL" : "MARCO_FALSA", await quienOpera(), { deviceId, detalle: r.count > 1 ? `${r.count} detecciones de la cámara` : null });

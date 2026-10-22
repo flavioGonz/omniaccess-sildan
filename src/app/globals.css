@@ -2378,3 +2378,16 @@ html:not(.dark) .visor-raiz .visor-zona .oa-ajuste-pop { background: var(--card)
   background: rgba(0, 0, 0, 0.2); color: #fff; border-color: rgba(255, 255, 255, 0.28);
 }
 .tema-rojo input:not(.bg-white)::placeholder { color: rgba(255, 255, 255, 0.55); }
+
+/*
+ * Un evento P1 de una central de alarma (22/10, Nico: «cuando son P1 la fila entera se pinta de rojo,
+ * texto en blanco, animado parpadeando»). La fila en el rojo del sistema (--mal) y el texto en blanco;
+ * mientras el evento siga SIN TRATAR, el texto late. Tratado, queda roja y quieta: el registro sigue
+ * diciendo que fue una emergencia, pero no pide nada. Sin movimiento si el usuario lo pidió.
+ */
+tr.omni-fila-p1, tr.omni-fila-p1:hover { background: var(--mal) !important; }
+tr.omni-fila-p1 > td, tr.omni-fila-p1 > td * { color: #fff !important; }
+tr.omni-fila-p1 > td [class*="chip-"] { background: rgba(255, 255, 255, .18) !important; border-color: rgba(255, 255, 255, .35) !important; }
+@keyframes omni-p1-late { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+tr.omni-fila-p1-viva > td { animation: omni-p1-late 1.1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { tr.omni-fila-p1-viva > td { animation: none; } }

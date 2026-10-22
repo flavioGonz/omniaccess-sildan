@@ -154,7 +154,8 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
         const juntar = (rows: ActiveAlarm[]) => setAlarmas((prev) => {
             // Conservar lo que ya se sabía de cada alarma (nombre, foto) y quedarse con las vigentes.
             const previas = new Map(prev.map((a) => [a.id, a]));
-            return rows.map((r) => ({ ...r, ...(previas.get(r.id) || {}) }));
+            // Las de una central de alarma tienen su propia ventana (AlertaCentralGlobal): se tratan, no se aceptan.
+            return rows.filter((r) => r.type !== "CENTRAL").map((r) => ({ ...r, ...(previas.get(r.id) || {}) }));
         });
         if (soloLectura) {
             fetch("/api/monitor/alarmas", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
@@ -184,7 +185,7 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
         try {
             s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false });
             s.on("general_detection", (d: any) => {
-                if (!d?.id || !d.deviceId || d.type === "MOTION") return;
+                if (!d?.id || !d.deviceId || d.type === "MOTION" || d.type === "CENTRAL") return;
                 setAlarmas((prev) => prev.some((a) => a.id === d.id) ? prev : [{ id: d.id, deviceId: d.deviceId, type: d.type, ts: d.timestamp || new Date().toISOString(), deviceName: d.deviceName, label: d.label }, ...prev]);
             });
             s.on("detection_snapshot", (d: any) => { if (d?.id && d.snapshotPath) setSnapshots((p) => ({ ...p, [d.id]: d.snapshotPath })); });

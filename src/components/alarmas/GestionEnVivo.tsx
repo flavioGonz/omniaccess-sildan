@@ -79,11 +79,12 @@ export type EventoActividad = {
     /** De antes de la bitácora: se muestra sólo si la bitácora no tiene ya una decisión (o una nota). */
     legado?: "decision" | "nota";
 };
-const DECISIONES = new Set(["CONFIRMO_REAL", "MARCO_FALSA", "MARCO_REAL", "DESACTIVO", "ERA_FALSA", "ATENDIO"]);
+const DECISIONES = new Set(["CONFIRMO_REAL", "MARCO_FALSA", "MARCO_REAL", "DESACTIVO", "ERA_FALSA", "ATENDIO", "TRATO"]);
 
 const COLOR_NODO: Record<string, string> = {
     TOMO: "var(--accion)", PASO: "var(--info)", CONFIRMO_REAL: "var(--mal)", MARCO_REAL: "var(--mal)", MARCO_FALSA: "var(--muted-foreground)",
     ERA_FALSA: "var(--muted-foreground)", DESACTIVO: "var(--bien)", ATENDIO: "var(--bien)", NOTA: "var(--aviso)", SE_FUE: "var(--info)", VOLVIO: "var(--info)",
+    PASO_PROC: "var(--info)", PASO_PROC_NO: "var(--muted-foreground)", TRATO: "var(--bien)", ESCALO: "var(--mal)",
     origen: "var(--mal)", bien: "var(--bien)", mal: "var(--mal)", info: "var(--info)",
 };
 const diaLargo = (iso: string) => new Date(iso).toLocaleDateString("es-UY", { weekday: "short", day: "numeric", month: "short", timeZone: "America/Montevideo" });
@@ -91,7 +92,7 @@ const iniciales = (n: string | null) => (n || "S").split(/\s+/).filter(Boolean).
 /** Un tono estable por persona: la misma persona, el mismo color en toda la historia. */
 const tonoPersona = (n: string | null) => { let h = 0; for (const c of n || "") h = (h * 31 + c.charCodeAt(0)) % 360; return `oklch(0.62 0.13 ${h})`; };
 
-function Actividad({ pasos, inicio = [], oscuro }: { pasos: PasoGestion[]; inicio?: EventoActividad[]; oscuro?: boolean }) {
+export function Actividad({ pasos, inicio = [], oscuro }: { pasos: PasoGestion[]; inicio?: EventoActividad[]; oscuro?: boolean }) {
     const todos = [
         ...pasos.map((p) => ({ id: p.id, ts: p.ts, por: p.por, texto: TEXTO_ACCION[p.accion]?.toLowerCase() || p.accion, detalle: p.detalle ? (p.accion === "NOTA" || p.accion === "PASO" ? `«${p.detalle}»` : p.detalle) : null, color: COLOR_NODO[p.accion] || "var(--muted-foreground)", origen: false })),
         ...inicio.filter((e) => !e.legado || (e.legado === "decision" ? !pasos.some((p) => DECISIONES.has(p.accion)) : !pasos.some((p) => p.accion === "NOTA"))).map((e) => ({ id: e.id, ts: e.ts, por: e.por, texto: e.texto, detalle: e.detalle || null, color: COLOR_NODO[e.tipo || "info"], origen: e.tipo === "origen" })),

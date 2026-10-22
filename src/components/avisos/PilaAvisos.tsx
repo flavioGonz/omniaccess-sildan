@@ -26,7 +26,7 @@ const VISIBLES = 3;
 const INTERVALO_CRITICO_MS = 6000;
 
 const ICONO: Record<NonNullable<AccionAviso["icono"]>, typeof Eye> = { ver: Eye, tomar: Hand, pasar: ArrowRightLeft, real: Check, falsa: X, desactivar: Power, historial: History };
-const ICONO_TIPO: Record<TipoAviso, typeof Eye> = { "lista-negra": ShieldAlert, "intrusion-real": ShieldAlert, intrusion: Radar, busqueda: Search, merodeo: Repeat, vision: ScanEye, patron: Repeat };
+const ICONO_TIPO: Record<TipoAviso, typeof Eye> = { "lista-negra": ShieldAlert, "intrusion-real": ShieldAlert, intrusion: Radar, busqueda: Search, merodeo: Repeat, vision: ScanEye, patron: Repeat, central: Siren };
 
 const hace = (ts: string) => { const s = Math.max(0, Math.round((Date.now() - new Date(ts).getTime()) / 1000)); return s < 60 ? `hace ${s} s` : s < 3600 ? `hace ${Math.round(s / 60)} min` : `hace ${Math.round(s / 3600)} h`; };
 

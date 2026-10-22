@@ -8,6 +8,7 @@ import {
     Activity, Truck, Infinity as SinTiempo, RadioTower,
 } from "lucide-react";
 import { VistaCentrales, ChipPrioridad } from "@/components/alarmas/MensajesCentrales";
+import { abrirEventoCentral } from "@/lib/centrales/abrir-evento";
 import { ElegirArea } from "@/components/devices/ElegirArea";
 import { useFiltroArea } from "@/lib/use-filtro-area";
 import { esDeProveedores } from "@/lib/presencia-grupos";
@@ -598,7 +599,9 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
     const clip = { id: a.id, deviceId: a.deviceId, instante: a.ts, propia: fv?.clipPropio || null };
     // Real o falsa en todas (20/10, Nico: «no sé cómo moderar las alarmas LPR»): los patrones salen
     // de lecturas LPR y OmniVision está en prueba; «atendida» sola no decía si había que corregir algo.
-    const conVeredicto = true;
+    /** Un evento de central de alarma se TRATA en su ficha, con cierre y texto (22/10): acá no se decide real/falsa. */
+    const esCentral = a.tipo === "CENTRAL";
+    const conVeredicto = !esCentral;
     const t = new Date(a.ts);
     const nota = usarNotaGestion(a.id, { nota: a.nota, por: a.notaPor, ts: a.notaAt });
     const decidir = async (resultado: "real" | "falsa" | null) => {
@@ -675,7 +678,8 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                     </details>
                 )}
                 <div className="flex flex-wrap items-center gap-2">
-                    {det && <Button size="sm" variant="outline" onClick={() => setFichaIntrusion(true)}><FileText size={14} /> Ver ficha</Button>}
+                    {det && !esCentral && <Button size="sm" variant="outline" onClick={() => setFichaIntrusion(true)}><FileText size={14} /> Ver ficha</Button>}
+                    {esCentral && <Button size="sm" variant="outline" onClick={() => abrirEventoCentral(a.id.slice(2))}><FileText size={14} /> Ver evento</Button>}
                     {eventoId && (evento
                         ? <VisorEventoAcceso event={evento} timeStatus={null}><Button size="sm" variant="outline"><FileText size={14} /> Ver ficha</Button></VisorEventoAcceso>
                         : <Button size="sm" variant="outline" disabled><FileText size={14} /> Ver ficha</Button>)}
@@ -713,7 +717,9 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                     {conVeredicto ? (<span className="ml-auto flex items-center gap-2">
                         {(a.estado === "pendiente" || a.resultado !== "falsa") && <Button size="sm" variant="outline" disabled={nota.guardando} onClick={() => void decidir("falsa")}><X size={14} /> {a.estado === "pendiente" ? "Falsa alarma" : "Era falsa"}</Button>}
                         {(a.estado === "pendiente" || a.resultado !== "real") && <Button size="sm" disabled={nota.guardando} onClick={() => void decidir("real")} className="pleno-mal hover:brightness-110"><Check size={14} /> {a.estado === "pendiente" ? "Es real" : "Era real"}</Button>}
-                    </span>) : a.estado === "pendiente" ? (
+                    </span>) : esCentral ? (
+                        a.estado === "pendiente" && <Button size="sm" onClick={() => abrirEventoCentral(a.id.slice(2))} className="ml-auto pleno-mal hover:brightness-110"><Check size={14} /> Tratar evento</Button>
+                    ) : a.estado === "pendiente" ? (
                         <Button size="sm" disabled={nota.guardando} onClick={() => void decidir(null)} className="ml-auto pleno-bien hover:brightness-110"><Check size={14} /> Atendida</Button>
                     ) : null}
                 </div>

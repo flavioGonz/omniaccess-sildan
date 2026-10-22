@@ -53,6 +53,7 @@ import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
 import { logout } from "@/app/actions/auth";
 import AforoAlertOverlay from "@/components/AforoAlertOverlay";
 import AlertaIntrusionGlobal from "@/components/intrusion/AlertaIntrusionGlobal";
+import AlertaCentralGlobal from "@/components/centrales/AlertaCentralGlobal";
 import { PilaAvisos } from "@/components/avisos/PilaAvisos";
 import { AvisosLpr } from "@/components/avisos/AvisosLpr";
 import { CargarMarcasCamara } from "@/components/CargarMarcasCamara";
@@ -388,6 +389,8 @@ export default function AdminLayout({
             {modulosListos && modules.MODULE_QUEUE && <AforoAlertOverlay />}
             {/* Intrusión confirmada por una cámara: respira en rojo en TODA la aplicación hasta que alguien decida real / falsa. */}
             <AlertaIntrusionGlobal />
+            {/* Los eventos de las centrales de alarma: su propia ficha, que se trata (22/10). */}
+            <AlertaCentralGlobal />
             {/* Los avisos de toda la app, en una sola pila abajo al centro (20/10): intrusión, lista negra, merodeo, patrones y OmniVision. */}
             <AvisosLpr />
             <PilaAvisos />

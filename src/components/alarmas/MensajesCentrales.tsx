@@ -10,6 +10,10 @@ import { useAreas } from "@/lib/use-areas";
 import { PRIORIDADES_DEFECTO, prioridadDe, nivel, type Prioridades } from "@/lib/centrales/prioridades";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
+import { abrirEventoCentral } from "@/lib/centrales/abrir-evento";
+import { Cajon, CajonContenido } from "@/components/ui/cajon";
+import { segATexto } from "@/lib/centrales/tratamiento-tipos";
+import { Timer } from "lucide-react";
 
 /**
  * La pestaña «Centrales» de Gestión de alarmas (22/10, Nico: «¿no debe tener un módulo para mostrar
@@ -28,7 +32,7 @@ export type Mensaje = {
     cifrado: boolean; crudo: string | null; datos: string | null; horaCentral: string | null; respuesta: string; error: string | null; eventos: Evento[] | null; detectionId: string | null;
 };
 export type CentralCorta = { id: string; cuenta: string; deviceId: string; nombre: string; estado: string; prueba: boolean; zonas: { zona: number; nombre: string | null; areaId: string | null }[] };
-type Datos = { horas: number; tope: boolean; centrales: CentralCorta[]; mensajes: Mensaje[]; prioridades?: Prioridades };
+type Datos = { horas: number; tope: boolean; centrales: CentralCorta[]; mensajes: Mensaje[]; prioridades?: Prioridades; sinTratar?: string[] };
 
 /** Qué se mira: los grupos de categorías del traductor (lib-dc09-codigos). */
 export type QueCentral = "eventos" | "alarmas" | "armado" | "fallas" | "pruebas" | "sin-usar";
@@ -54,6 +58,7 @@ const primero = (m: Mensaje): Evento | null => (Array.isArray(m.eventos) && m.ev
 /** La supervisión («sigo vivo», NULL en DC-09): cuenta como vida de la central, no como evento. */
 const esVida = (m: Mensaje) => m.idMensaje === "NULL" && !m.error;
 const sinUsar = (m: Mensaje) => !!m.error || m.respuesta !== "ACK";
+const sinTratarDe = (d: Datos | null, detId: string) => !!d?.sinTratar?.includes(detId);
 /** La prioridad del mensaje: la de su evento más urgente (un mensaje SIA puede traer varios). Sin evento, ninguna. */
 const prioridadMensaje = (m: Mensaje, p: Prioridades): number | null => {
     const evs = Array.isArray(m.eventos) ? m.eventos : [];
@@ -128,6 +133,7 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
 }) {
     const { porId, zona, areaDe } = useCentrales(datos);
     const prio = datos?.prioridades || PRIORIDADES_DEFECTO;
+    const sinTratarSet = useMemo(() => new Set(datos?.sinTratar || []), [datos]);
     const [busqueda, setBusqueda] = useState("");
     /** Prioridades elegidas; ninguna = todas. */
     const [niveles, setNiveles] = useState<string[]>([]);
@@ -201,6 +207,8 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
             id="alarmas-centrales" filas={filas} clave={(m) => m.id} columnas={columnas}
             alClickFila={(m) => alElegir(sel === m.id ? null : m.id)} filaActiva={(m) => m.id === sel}
             filaDestacada={(m) => primero(m)?.categoria === "ALARMA" && Date.now() - new Date(m.recibido).getTime() < 60_000}
+            // P1 (22/10, Nico): la fila entera en rojo con el texto en blanco, latiendo mientras el evento siga sin tratar.
+            claseFila={(m) => !sinUsar(m) && prioridadMensaje(m, prio) === 1 ? cn("omni-fila-p1", m.detectionId && sinTratarSet.has(m.detectionId) && "omni-fila-p1-viva") : undefined}
             vacio={{ titulo: t ? "Nada con esa búsqueda" : !datos?.centrales.length ? "Todavía no hay centrales dadas de alta" : "Las centrales no mandaron nada en este rango", ayuda: t ? undefined : "Se actualiza sola con cada mensaje que llega." }}
             pie={<span className="tabular-nums">{filas.length} mensajes · últimas {horas} h{datos?.tope ? " · se muestran los 3000 más nuevos" : ""}</span>}
             barra={
@@ -218,6 +226,7 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
                         alElegir: (v) => setNiveles((xs) => (v === "todas" ? [] : xs.includes(v) ? xs.filter((x) => x !== v) : [...xs, v])),
                         opciones: [{ valor: "todas", rotulo: "Toda prioridad" }, ...[1, 2, 3, 4, 5].map((n) => ({ valor: String(n), rotulo: `P${n}`, cuenta: cuentaNivel(n), tono: n === 1 && cuentaNivel(1) ? "mal" as const : n <= 3 && cuentaNivel(n) ? "aviso" as const : undefined }))] }]} />
                     <div className="ml-auto flex items-center gap-2">
+                        <InformeTiempos />
                         <button type="button" onClick={() => setConVida((v) => !v)} aria-pressed={conVida}
                             title="La supervisión («sigo vivo») de cada central: llega cada pocos minutos y tapa los eventos, por eso va apagada."
                             className={cn("h-[34px] px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors", conVida ? "bg-[var(--accion)] text-white" : "bg-muted/60 text-muted-foreground hover:text-foreground")}>
@@ -273,7 +282,7 @@ export function DetalleMensajeCentral({ m, datos }: { m: Mensaje; datos: Datos |
                 }) : <div className="text-[12.5px] text-muted-foreground">{esVida(m) ? "Supervisión: la central avisa que sigue en línea." : "Sin eventos traducidos."}</div>}
             </div>
 
-            {m.detectionId && <a href={`/admin/alarmas?ver=alarmas&id=d:${m.detectionId}`} className="inline-flex text-[12.5px] font-semibold text-[var(--accion)] hover:underline">Ver la alarma que generó</a>}
+            {m.detectionId && <button type="button" onClick={() => abrirEventoCentral(m.detectionId!)} className="inline-flex text-[12.5px] font-semibold text-[var(--accion)] hover:underline">{sinTratarDe(datos, m.detectionId) ? "Tratar el evento" : "Ver el evento y cómo se trató"}</button>}
 
             <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 text-[12.5px]">
                 <dt className="text-muted-foreground">Recibido</dt><dd><Momento t={m.recibido} /></dd>
@@ -318,4 +327,42 @@ export function VistaCentrales({ horas, setHoras, enArea }: { horas: number; set
             </aside>
         </div>
     );
+}
+
+/**
+ * Cuánto se tarda en tomar y en tratar los eventos de central, por operador (22/10, Nico: «tiempos
+ * medidos»). Medianas, no promedios: un evento olvidado una noche no tiene que tapar cómo se trabaja.
+ */
+function InformeTiempos() {
+    const [abierto, setAbierto] = useState(false);
+    const [h, setH] = useState(168);
+    const [d, setD] = useState<{ total: number; sinTratar: number; operadores: { nombre: string; tratados: number; reales: number; falsas: number; tomarSeg: number | null; tratarSeg: number | null }[] } | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    useEffect(() => {
+        if (!abierto) return;
+        setD(null); setError(null);
+        fetch(`/api/centrales/eventos/informe?h=${h}`, { cache: "no-store" }).then(async (r) => { const j = await r.json().catch(() => null); if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`); setD(j); }).catch((e) => setError(e?.message || "No se pudo leer."));
+    }, [abierto, h]);
+    const columnas: ColumnaTabla<NonNullable<typeof d>["operadores"][number]>[] = [
+        { clave: "nombre", titulo: "Operador", valor: (o) => o.nombre, celda: (o) => <span className="text-[13px] font-semibold">{o.nombre}</span> },
+        { clave: "tratados", titulo: "Tratados", ancho: 90, alinear: "der", ordenable: true, valor: (o) => o.tratados, celda: (o) => <span className="tabular-nums">{o.tratados}</span> },
+        { clave: "reales", titulo: "Reales", ancho: 80, alinear: "der", valor: (o) => o.reales, celda: (o) => <span className="tabular-nums">{o.reales}</span> },
+        { clave: "falsas", titulo: "Falsas", ancho: 80, alinear: "der", valor: (o) => o.falsas, celda: (o) => <span className="tabular-nums">{o.falsas}</span> },
+        { clave: "tomar", titulo: "Lo toma en", ancho: 110, alinear: "der", ordenable: true, valor: (o) => o.tomarSeg ?? 1e9, celda: (o) => <span className="tabular-nums">{segATexto(o.tomarSeg)}</span> },
+        { clave: "tratar", titulo: "Lo cierra en", ancho: 110, alinear: "der", ordenable: true, valor: (o) => o.tratarSeg ?? 1e9, celda: (o) => <span className="tabular-nums">{segATexto(o.tratarSeg)}</span> },
+    ];
+    return (<>
+        <button type="button" onClick={() => setAbierto(true)} title="Cuánto se tarda en tomar y en tratar los eventos, por operador"
+            className="h-[34px] px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 bg-muted/60 text-muted-foreground hover:text-foreground"><Timer size={13} /> Tiempos</button>
+        <Cajon open={abierto} onOpenChange={setAbierto}>
+            <CajonContenido titulo="Tiempos de atención" descripcion="Desde que llega el evento hasta que se toma y hasta que se trata. Medianas por operador.">
+                <div className="px-6 py-5 space-y-4">
+                    <Filtros grupos={[{ clave: "h", titulo: "Período", valor: String(h), alElegir: (v) => setH(Number(v)), opciones: [{ valor: "24", rotulo: "24 h" }, { valor: "168", rotulo: "7 días" }, { valor: "720", rotulo: "30 días" }] }]} />
+                    {d && <p className="text-[12.5px] text-muted-foreground tabular-nums">{d.total} eventos de central · {d.sinTratar} sin tratar</p>}
+                    <Tabla id="centrales-tiempos" filas={d?.operadores || []} clave={(o) => o.nombre} columnas={columnas} cargando={!d && !error} error={error} seleccionCeldas={false}
+                        vacio={{ titulo: "Nadie trató eventos en este período" }} />
+                </div>
+            </CajonContenido>
+        </Cajon>
+    </>);
 }

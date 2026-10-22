@@ -82,6 +82,9 @@ const EVENTOS: Record<string, { v: string; l: string; ayuda: string }[]> = {
         { v: "INTRUSION", l: "Intrusión en zona", ayuda: "Algo entró y se quedó en una zona vigilada." },
         { v: "REGION_ENTER", l: "Entrada a zona", ayuda: "Algo entró a la zona." },
         { v: "REGION_EXIT", l: "Salida de zona", ayuda: "Algo salió de la zona." },
+        // Las centrales de alarma (Alarm Hub): no tenían cómo elegirse acá.
+        { v: "CENTRAL", l: "Alarma de central", ayuda: "Una central de alarma reportó robo, pánico, incendio, sabotaje…" },
+        { v: "CENTRAL_ESCALADO", l: "Alarma de central sin atender", ayuda: "Un evento de central que nadie tomó, o que se tomó y no se trató, en el tiempo de Ajustes › Centrales de alarma. Para avisarle a un supervisor." },
     ],
 };
 const METRICAS = [{ v: "aforo", l: "Aforo" }, { v: "entrada", l: "Entradas" }, { v: "salida", l: "Salidas" }];

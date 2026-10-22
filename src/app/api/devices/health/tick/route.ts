@@ -18,6 +18,8 @@ async function ejecutar() {
         { const { vueltaDiagnostico } = await import("@/lib/diagnostico-imagen"); await vueltaDiagnostico().catch((e) => console.error("[diagnostico-imagen]", e?.message)); }
         // Centrales de alarma (Alarm Hub): supervisión y fallas abiertas.
         { const { evaluarCentrales } = await import("@/lib/centrales/supervision"); await evaluarCentrales().catch((e) => console.error("[centrales]", e?.message)); }
+        // Eventos de central que nadie tomó o nadie trató a tiempo: se escalan (lib/centrales/tratamiento).
+        { const { evaluarEscalado } = await import("@/lib/centrales/tratamiento"); await evaluarEscalado().catch((e) => console.error("[centrales] escalado", e?.message)); }
         return NextResponse.json({ ok: true, n: results.length, ts: Date.now() });
     } catch (e: any) {
         return NextResponse.json({ ok: false, error: e?.message || "tick error" }, { status: 500 });

@@ -22,7 +22,7 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
  * botón nunca corre con datos viejos de quien lo publicó.
  */
 
-export type TipoAviso = "lista-negra" | "intrusion-real" | "intrusion" | "busqueda" | "merodeo" | "vision" | "patron";
+export type TipoAviso = "lista-negra" | "intrusion-real" | "intrusion" | "busqueda" | "merodeo" | "vision" | "patron" | "central";
 export type NivelAviso = "critico" | "alerta";
 
 export type AccionAviso = {
@@ -75,6 +75,8 @@ export const FONDO_TIPO: Record<TipoAviso, { fondo: string; texto: string; nombr
     merodeo: { fondo: "var(--aviso)", texto: "#16120a", nombre: "Merodeo" },
     vision: { fondo: "var(--quieto)", texto: "#fff", nombre: "OmniVision" },
     patron: { fondo: "var(--info)", texto: "#fff", nombre: "Patrones" },
+    // Un evento de central de alarma sin tratar (components/centrales/AlertaCentralGlobal).
+    central: { fondo: "var(--mal)", texto: "#fff", nombre: "Central de alarma" },
 };
 /** Los que se pueden apagar por pantalla. Lo crítico (lista negra, intrusión) no. */
 export const TIPOS_APAGABLES: TipoAviso[] = ["busqueda", "merodeo", "vision", "patron"];

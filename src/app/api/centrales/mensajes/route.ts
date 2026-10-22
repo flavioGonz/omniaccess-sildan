@@ -36,8 +36,12 @@ export async function GET(req: NextRequest) {
             prisma.centralAlarma.findMany({ select: { id: true, cuenta: true, deviceId: true, estado: true, prueba: true, device: { select: { name: true } }, zonas: { select: { zona: true, nombre: true, areaId: true } } } }),
             leerPrioridadesGuardadas(),
         ]);
+        // Qué alarmas siguen sin tratar: la fila P1 late mientras tanto (22/10).
+        const detIds = [...new Set(mensajes.map((m) => m.detectionId).filter(Boolean))] as string[];
+        const sinTratar = new Set(detIds.length ? (await prisma.detection.findMany({ where: { id: { in: detIds }, acknowledged: false }, select: { id: true } })).map((d) => d.id) : []);
         return NextResponse.json({
             ok: true, horas: h, tope: mensajes.length >= TOPE, prioridades,
+            sinTratar: [...sinTratar],
             centrales: centrales.map((c) => ({ id: c.id, cuenta: c.cuenta, deviceId: c.deviceId, nombre: c.device?.name || `Central ${c.cuenta}`, estado: c.estado, prueba: c.prueba, zonas: c.zonas })),
             mensajes,
         }, { headers: { "Cache-Control": "no-store" } });

@@ -301,6 +301,8 @@ export async function gestionarAlarma(id: string, g: { atender: boolean; resulta
     if (!rid || rid.length > 64 || !["d:", "a:", "l:"].includes(pref)) return false;
     const existe = pref === "d:" ? await prisma.detection.count({ where: { id: rid } }) : pref === "a:" ? await prisma.avisoGuardia.count({ where: { id: rid } }) : await prisma.accessEvent.count({ where: { id: rid } });
     if (!existe) return false;
+    // Un evento de central se trata en su ficha, con cierre y texto (lib/centrales/tratamiento): acá no.
+    if (g.atender && pref === "d:" && (await prisma.detection.count({ where: { id: rid, type: "CENTRAL" } }))) return false;
     if (g.atender && pref === "d:") {
         // Corrige también una ya atendida: «era falsa» después de haberla confirmado.
         await prisma.detection.update({ where: { id: rid }, data: { acknowledged: true, ackKind: g.resultado === "falsa" ? "false" : "real", ackAt: new Date() } });
