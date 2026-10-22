@@ -356,6 +356,8 @@ function Zonas({ d, recargar }: { d: Ficha; recargar: () => void }) {
         getDevices().then((ds: any[]) => setCamaras((ds || []).filter((x) => ["CAMERA", "LPR_CAMERA", "LPR_INTERIOR", "QUEUE_COUNTER"].includes(String(x.deviceType))).map((x) => ({ id: x.id, nombre: x.name, tipo: String(x.deviceType), areaId: equipoArea[x.id] || null })))).catch(() => { });
     }, [equipoArea]);
     const nombreCam = useMemo(() => new Map(camaras.map((x) => [x.id, x.nombre])), [camaras]);
+    /** El área de la central en Dispositivos: sus cámaras se sugieren primero al elegir las de una zona. */
+    const areaCentral = equipoArea[d.central.deviceId] || null;
     const cambiar = (zona: number, p: Partial<Zona>) => { setZonas((zs) => zs.map((z) => (z.zona === zona ? { ...z, ...p } : z))); setSucias(true); };
 
     const guardar = async () => {
@@ -397,7 +399,9 @@ function Zonas({ d, recargar }: { d: Ficha; recargar: () => void }) {
                             ))}
                             {z.camaras.length < 4 && (
                                 <ElegirCamara camaras={camaras.filter((x) => !z.camaras.includes(x.id))} areas={areas} alElegir={(cid) => cid && cambiar(z.zona, { camaras: [...z.camaras, cid] })}
-                                    placeholder="Cámara que la mira" alinear="start" className="h-7 text-[11.5px]" />
+                                    placeholder="Cámara que la mira" alinear="start" className="h-7 text-[11.5px]"
+                                    // Primero las cámaras del área de la zona; si la zona no tiene, las del área de la central (22/10).
+                                    sugerida={z.areaId ? { areaId: z.areaId, rotulo: "área de la zona" } : areaCentral ? { areaId: areaCentral, rotulo: "área de la central" } : null} />
                             )}
                         </div>
                     </div>

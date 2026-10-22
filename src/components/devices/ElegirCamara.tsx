@@ -29,7 +29,7 @@ export type AreaElegible = { id: string; nombre: string; color: string; nivel: n
 const ROTULO_TIPO: Record<string, string> = { LPR_CAMERA: "LPR", LPR_INTERIOR: "LPR interior", CAMERA: "Intrusión", QUEUE_COUNTER: "Fila" };
 const ICONO_TIPO: Record<string, typeof Camera> = { LPR_CAMERA: ScanLine, LPR_INTERIOR: ScanLine, CAMERA: Camera, QUEUE_COUNTER: Sparkles };
 
-export function ElegirCamara({ camaras, areas, alElegir, valor, placeholder = "Elegir cámara…", titulo, className, ancho = 340, icono: IconoBoton = Camera, todas, variante = "boton", alinear = "end" }: {
+export function ElegirCamara({ camaras, areas, alElegir, valor, placeholder = "Elegir cámara…", titulo, className, ancho = 340, icono: IconoBoton = Camera, todas, variante = "boton", alinear = "end", sugerida }: {
     camaras: CamaraElegible[]; areas: AreaElegible[];
     alElegir: (id: string) => void;
     /** La elegida, si el botón tiene que mostrarla. Sin valor el botón muestra el placeholder. */
@@ -40,6 +40,12 @@ export function ElegirCamara({ camaras, areas, alElegir, valor, placeholder = "E
     /** «filtro»: la píldora de las barras de filtros (azul cuando filtra). «boton»: un botón con borde. */
     variante?: "boton" | "filtro";
     alinear?: "start" | "end";
+    /**
+     * Un área cuyas cámaras van primero, como sugeridas (22/10, Nico: «si la central de alarma está en
+     * un área, debe sugerir los dispositivos del área donde se encuentra»). Entran también las de sus
+     * sub-áreas. `rotulo` dice por qué se sugieren («Área de la central», «Área de la zona»).
+     */
+    sugerida?: { areaId: string; rotulo: string } | null;
 }) {
     const [abierto, setAbierto] = useState(false);
     const elegida = camaras.find((c) => c.id === valor) || null;
@@ -58,11 +64,21 @@ export function ElegirCamara({ camaras, areas, alElegir, valor, placeholder = "E
 
     const grupos = useMemo(() => {
         const existe = new Set(areas.map((a) => a.id));
-        const out = areas.map((a) => ({ area: a as AreaElegible | null, camaras: camaras.filter((c) => c.areaId === a.id) })).filter((g) => g.camaras.length);
+        const out: { area: AreaElegible | null; camaras: CamaraElegible[]; sugeridas?: boolean }[] = areas.map((a) => ({ area: a as AreaElegible | null, camaras: camaras.filter((c) => c.areaId === a.id) })).filter((g) => g.camaras.length);
         const sueltas = camaras.filter((c) => !c.areaId || !existe.has(c.areaId));
         if (sueltas.length) out.push({ area: null, camaras: sueltas });
+        // Las del área sugerida (y sus sub-áreas), primero y en un grupo propio; no se repiten abajo.
+        if (sugerida?.areaId && existe.has(sugerida.areaId)) {
+            const bajo = new Set([sugerida.areaId]);
+            for (let cambio = true; cambio;) { cambio = false; for (const a of areas) if (a.padre && bajo.has(a.padre) && !bajo.has(a.id)) { bajo.add(a.id); cambio = true; } }
+            const sug = camaras.filter((c) => c.areaId && bajo.has(c.areaId));
+            if (sug.length) {
+                const resto = out.map((g) => ({ ...g, camaras: g.camaras.filter((c) => !(c.areaId && bajo.has(c.areaId))) })).filter((g) => g.camaras.length);
+                return [{ area: areas.find((a) => a.id === sugerida.areaId) || null, camaras: sug, sugeridas: true }, ...resto];
+            }
+        }
         return out;
-    }, [camaras, areas]);
+    }, [camaras, areas, sugerida?.areaId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <Popover open={abierto} onOpenChange={setAbierto}>
@@ -91,10 +107,10 @@ export function ElegirCamara({ camaras, areas, alElegir, valor, placeholder = "E
                             </CommandGroup>
                         )}
                         {grupos.map((g) => (
-                            <CommandGroup key={g.area?.id || "_sin"} heading={
-                                <span className="flex items-center gap-1.5" style={{ paddingLeft: (g.area?.nivel || 0) * 10 }}>
-                                    {g.area ? <span className="h-2.5 w-2.5 rounded-[3px] shrink-0" style={{ background: g.area.color }} /> : <FolderTree size={11} />}
-                                    <span className="truncate">{g.area ? camino.get(g.area.id) : "Sin área"}</span>
+                            <CommandGroup key={g.sugeridas ? "_sugeridas" : g.area?.id || "_sin"} heading={
+                                <span className={cn("flex items-center gap-1.5", g.sugeridas && "text-[var(--accion)]")} style={{ paddingLeft: g.sugeridas ? 0 : (g.area?.nivel || 0) * 10 }}>
+                                    {g.sugeridas ? <Sparkles size={11} className="shrink-0" /> : g.area ? <span className="h-2.5 w-2.5 rounded-[3px] shrink-0" style={{ background: g.area.color }} /> : <FolderTree size={11} />}
+                                    <span className="truncate">{g.sugeridas ? `Sugeridas · ${sugerida?.rotulo}: ${g.area ? camino.get(g.area.id) : ""}` : g.area ? camino.get(g.area.id) : "Sin área"}</span>
                                     <span className="ml-auto tabular-nums opacity-70">{g.camaras.length}</span>
                                 </span>
                             }>
