@@ -904,7 +904,9 @@ export default function DevicesPage() {
                                     const h = health[dev.id];
                                     const disks: any[] = h?.disks || [];
                                     const disksOk = disks.length > 0 && disks.every((d) => d.status === 'ok');
-                                    const healthy = h?.reachable && (disks.length === 0 || disksOk) && (h?.memPct == null || h.memPct < 95);
+                                    // La memoria no entra en «Saludable»: un NVR usa casi toda la RAM como caché y vive
+                                    // al 95-98 %; contarla dejaba a los grabadores sanos en «Atención» para siempre.
+                                    const healthy = h?.reachable && (disks.length === 0 || disksOk);
                                     return (
                                         <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; setEditando(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
                                             <TableCell className="py-3 pl-5">
@@ -979,13 +981,13 @@ export default function DevicesPage() {
                                                         </div>
                                                     ) : <span className="text-[9px] text-muted-foreground" data-tooltip-id="tt-grab" data-tooltip-content="Este equipo no informa uso de CPU.">CPU: N/D</span>}
                                                     {h?.memPct != null ? (
-                                                        <div className="w-16">
+                                                        <div className="w-16" data-tooltip-id="tt-grab" data-tooltip-content={`Memoria ${h.memPct} %. En un grabador es normal que esté casi llena: la usa como caché. No es una falla.`}>
                                                             <div className="flex items-center gap-1">
-                                                                <MemoryStick size={11} className={h.memPct >= 90 ? "text-amber-400" : "text-cyan-400"} />
+                                                                <MemoryStick size={11} className="text-cyan-400" />
                                                                 <span className="text-[11px] font-mono text-foreground">{h.memPct}%</span>
                                                             </div>
                                                             <div className="h-1 rounded-full bg-border/60 overflow-hidden mt-0.5">
-                                                                <div className={cn("h-full rounded-full", h.memPct >= 90 ? "bg-amber-400" : "bg-cyan-400")} style={{ width: `${h.memPct}%` }} />
+                                                                <div className="h-full rounded-full bg-cyan-400" style={{ width: `${h.memPct}%` }} />
                                                             </div>
                                                         </div>
                                                     ) : <span className="text-muted-foreground text-xs">—</span>}
