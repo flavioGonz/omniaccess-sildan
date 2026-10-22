@@ -829,7 +829,11 @@ export default function DevicesPage() {
 
                                                     <DropdownMenuSeparator className="bg-foreground/10" />
 
-                                                    {dev.deviceType === "LPR_CAMERA" || dev.deviceType === "QUEUE_COUNTER" ? (
+                                                    {/* Toda la que tiene ficha nueva va a la ficha (22/10, Nico: «Editar configuración sigue
+                                                        llamando a un modal viejo»): la lectura de OmniVision es una LPR_INTERIOR y caía en el
+                                                        modal viejo. El modal viejo queda sólo para los tipos que la ficha no cubre (lector
+                                                        facial, intercomunicador…). */}
+                                                    {["LPR_CAMERA", "CAMERA", "NVR", "QUEUE_COUNTER"].includes(vistaDe(dev)) || dev.deviceType === "QUEUE_COUNTER" ? (
                                                         <DropdownMenuItem onClick={() => abrir(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-blue-400 focus:bg-foreground/10 focus:text-blue-400">
                                                             <Settings2 size={14} /> Editar configuración
                                                         </DropdownMenuItem>
