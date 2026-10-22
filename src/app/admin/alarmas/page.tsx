@@ -679,7 +679,7 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                 )}
                 <div className="flex flex-wrap items-center gap-2">
                     {det && !esCentral && <Button size="sm" variant="outline" onClick={() => setFichaIntrusion(true)}><FileText size={14} /> Ver ficha</Button>}
-                    {esCentral && <Button size="sm" variant="outline" onClick={() => abrirEventoCentral(a.id.slice(2))}><FileText size={14} /> Ver evento</Button>}
+                    {esCentral && <Button size="sm" onClick={() => abrirEventoCentral(a.id.slice(2))}><FileText size={14} /> Abrir ficha</Button>}
                     {eventoId && (evento
                         ? <VisorEventoAcceso event={evento} timeStatus={null}><Button size="sm" variant="outline"><FileText size={14} /> Ver ficha</Button></VisorEventoAcceso>
                         : <Button size="sm" variant="outline" disabled><FileText size={14} /> Ver ficha</Button>)}

@@ -13,7 +13,9 @@ import { cn } from "@/lib/utils";
 import { abrirEventoCentral } from "@/lib/centrales/abrir-evento";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { segATexto } from "@/lib/centrales/tratamiento-tipos";
-import { Timer } from "lucide-react";
+import { Timer, ExternalLink, Layers, X } from "lucide-react";
+import { Tooltip } from "react-tooltip";
+import { partesTrama, type TonoParte } from "@/lib/centrales/trama-partes";
 
 /**
  * La pestaña «Centrales» de Gestión de alarmas (22/10, Nico: «¿no debe tener un módulo para mostrar
@@ -40,6 +42,12 @@ const CATEGORIAS: Record<Exclude<QueCentral, "eventos" | "sin-usar">, string[]> 
     alarmas: ["ALARMA", "RESTAURACION"], armado: ["ARMADO", "DESARMADO"], fallas: ["FALLA", "FALLA_FIN"], pruebas: ["PRUEBA"],
 };
 
+/** Los botones de «qué mensajes», iconográficos (22/10): el ícono es el mismo de la fila. */
+const QUE_ICONOS: { q: QueCentral; I: typeof Siren; rotulo: string; tono?: string }[] = [
+    { q: "eventos", I: Layers, rotulo: "Todos los mensajes" }, { q: "alarmas", I: Siren, rotulo: "Alarmas y restauraciones", tono: "pleno-mal" },
+    { q: "armado", I: ShieldCheck, rotulo: "Armado y desarmado" }, { q: "fallas", I: Wrench, rotulo: "Fallas", tono: "pleno-aviso" },
+    { q: "pruebas", I: FlaskConical, rotulo: "Pruebas" }, { q: "sin-usar", I: CircleHelp, rotulo: "Sin usar: cuenta no dada de alta, trama ilegible, rechazos" },
+];
 const ESTILO: Record<string, { icono: typeof Siren; tono: Tono }> = {
     ALARMA: { icono: Siren, tono: "mal" }, RESTAURACION: { icono: RotateCcw, tono: "quieto" },
     ARMADO: { icono: ShieldCheck, tono: "info" }, DESARMADO: { icono: ShieldOff, tono: "neutro" },
@@ -212,93 +220,178 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
             vacio={{ titulo: t ? "Nada con esa búsqueda" : !datos?.centrales.length ? "Todavía no hay centrales dadas de alta" : "Las centrales no mandaron nada en este rango", ayuda: t ? undefined : "Se actualiza sola con cada mensaje que llega." }}
             pie={<span className="tabular-nums">{filas.length} mensajes · últimas {horas} h{datos?.tope ? " · se muestran los 3000 más nuevos" : ""}</span>}
             barra={
-                <div className="flex items-center gap-2 flex-wrap">
-                    <Filtros busqueda={busqueda} alBuscar={setBusqueda} placeholder="Central, cuenta, zona o evento"
-                        grupos={[{ clave: "que", titulo: "Qué mensajes", valor: que, alElegir: (v) => setQue(v as QueCentral), opciones: [
-                            { valor: "eventos", rotulo: "Todos", cuenta: cuenta("eventos") },
-                            { valor: "alarmas", rotulo: "Alarmas", cuenta: cuenta("alarmas"), tono: cuenta("alarmas") ? "mal" : undefined },
-                            { valor: "armado", rotulo: "Armado", cuenta: cuenta("armado") },
-                            { valor: "fallas", rotulo: "Fallas", cuenta: cuenta("fallas"), tono: cuenta("fallas") ? "aviso" : undefined },
-                            { valor: "pruebas", rotulo: "Pruebas", cuenta: cuenta("pruebas") },
-                            { valor: "sin-usar", rotulo: "Sin usar", cuenta: cuenta("sin-usar") },
-                        ] }]} />
-                    <Filtros grupos={[{ clave: "prio", titulo: "Prioridad: se pueden elegir varias", multiple: true, valor: niveles.length ? niveles : ["todas"],
-                        alElegir: (v) => setNiveles((xs) => (v === "todas" ? [] : xs.includes(v) ? xs.filter((x) => x !== v) : [...xs, v])),
-                        opciones: [{ valor: "todas", rotulo: "Toda prioridad" }, ...[1, 2, 3, 4, 5].map((n) => ({ valor: String(n), rotulo: `P${n}`, cuenta: cuentaNivel(n), tono: n === 1 && cuentaNivel(1) ? "mal" as const : n <= 3 && cuentaNivel(n) ? "aviso" as const : undefined }))] }]} />
-                    <div className="ml-auto flex items-center gap-2">
+                /*
+                 * Los filtros en UN renglón (22/10, Nico: «acomodá los controles de filtros, ocupan mucho
+                 * espacio»), como el origen de la pestaña Alarmas: íconos con su cuenta y la explicación al
+                 * pasar el mouse, en vez de seis palabras y cinco «P» con texto.
+                 */
+                <div className="flex items-center gap-2">
+                    <Filtros busqueda={busqueda} alBuscar={setBusqueda} placeholder="Central, cuenta, zona…" anchoBusqueda={220} />
+                    <div className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5 gap-0.5" role="group" aria-label="Qué mensajes">
+                        {QUE_ICONOS.map(({ q, I, rotulo, tono }) => {
+                            const on = que === q, k = cuenta(q);
+                            return (
+                                <button key={q} type="button" onClick={() => setQue(q)} aria-pressed={on} aria-label={rotulo}
+                                    data-tooltip-id="tt-alarmas" data-tooltip-content={`${rotulo} · ${k}`}
+                                    className={cn("relative h-[30px] w-[34px] rounded-md grid place-items-center transition-colors",
+                                        on ? "bg-[var(--accion)] text-white" : "text-muted-foreground hover:text-foreground hover:bg-background", !k && !on && "opacity-40")}>
+                                    <I size={15} />
+                                    {k > 0 && q !== "eventos" && <span className={cn("absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9.5px] font-bold tabular-nums grid place-items-center", on ? "bg-white text-[var(--accion)]" : tono || "bg-foreground text-background")}>{k > 99 ? "99+" : k}</span>}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <div className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5 gap-0.5" role="group" aria-label="Prioridad">
+                        {[1, 2, 3, 4, 5].map((n) => {
+                            const on = niveles.includes(String(n)), k = cuentaNivel(n);
+                            return (
+                                <button key={n} type="button" onClick={() => setNiveles((xs) => (xs.includes(String(n)) ? xs.filter((x) => x !== String(n)) : [...xs, String(n)]))} aria-pressed={on}
+                                    data-tooltip-id="tt-alarmas" data-tooltip-content={`P${n} · ${nivel(n).nombre} · ${k}. ${on ? "Tocá para quitarla." : "Tocá para ver sólo esta (se pueden sumar varias)."}`}
+                                    className={cn("relative h-[30px] w-[32px] rounded-md text-[11.5px] font-bold tabular-nums transition-colors",
+                                        on ? "bg-[var(--accion)] text-white" : "text-muted-foreground hover:text-foreground hover:bg-background", !k && !on && "opacity-40")}>
+                                    P{n}
+                                    {k > 0 && <span className={cn("absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9.5px] font-bold grid place-items-center", on ? "bg-white text-[var(--accion)]" : n === 1 ? "pleno-mal" : n <= 3 ? "pleno-aviso" : "bg-foreground text-background")}>{k > 99 ? "99+" : k}</span>}
+                                </button>
+                            );
+                        })}
+                        {niveles.length > 0 && <button type="button" onClick={() => setNiveles([])} aria-label="Toda prioridad" data-tooltip-id="tt-alarmas" data-tooltip-content="Ver toda prioridad" className="h-[30px] w-[24px] rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-background"><X size={13} /></button>}
+                    </div>
+                    <div className="ml-auto flex items-center gap-1.5">
                         <InformeTiempos />
-                        <button type="button" onClick={() => setConVida((v) => !v)} aria-pressed={conVida}
-                            title="La supervisión («sigo vivo») de cada central: llega cada pocos minutos y tapa los eventos, por eso va apagada."
-                            className={cn("h-[34px] px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors", conVida ? "bg-[var(--accion)] text-white" : "bg-muted/60 text-muted-foreground hover:text-foreground")}>
-                            <HeartPulse size={13} /> Supervisión
+                        <button type="button" onClick={() => setConVida((v) => !v)} aria-pressed={conVida} aria-label="Supervisión"
+                            data-tooltip-id="tt-alarmas" data-tooltip-content={`Supervisión («sigo vivo») de las centrales: ${conVida ? "se ve. Tocá para ocultarla." : "oculta, porque llega cada pocos minutos y tapa los eventos. Tocá para verla."}`}
+                            className={cn("h-[34px] w-[34px] rounded-lg grid place-items-center transition-colors", conVida ? "bg-[var(--accion)] text-white" : "bg-muted/60 text-muted-foreground hover:text-foreground")}>
+                            <HeartPulse size={15} />
                         </button>
-                        <span className="w-px h-5 bg-border" />
+                        <span className="w-px h-5 bg-border mx-0.5" />
                         <Filtros grupos={[{ clave: "rango", titulo: "Hasta cuándo para atrás", valor: String(horas), alElegir: (v) => setHoras(Number(v)),
-                            opciones: [{ valor: "24", rotulo: "24 h" }, { valor: "72", rotulo: "3 días" }, { valor: "168", rotulo: "7 días" }] }]} />
+                            opciones: [{ valor: "24", rotulo: "24 h" }, { valor: "72", rotulo: "3 d" }, { valor: "168", rotulo: "7 d" }] }]} />
                     </div>
                 </div>
             } />
     );
 }
 
-/** El panel de la derecha: el mensaje en palabras, cada evento que traía, y la trama tal cual llegó. */
+const NOMBRE_CAT: Record<string, string> = { ALARMA: "Alarma", RESTAURACION: "Restauración", ARMADO: "Armado", DESARMADO: "Desarmado", FALLA: "Falla", FALLA_FIN: "Normal", PRUEBA: "Prueba", OTRO: "Otro" };
+/** El color de cada pieza de la trama: el significado, no el adorno (control gris, cuenta en el azul de acción…). */
+const COLOR_PARTE: Record<TonoParte, string> = {
+    control: "text-muted-foreground", protocolo: "tono-info font-semibold", cuenta: "text-[var(--accion)] font-bold", evento: "tono-mal font-bold",
+    lugar: "tono-aviso font-semibold", hora: "tono-bien", cifrado: "text-muted-foreground/70 italic", neutro: "text-muted-foreground",
+};
+
+/**
+ * El panel de la derecha (22/10, Nico: «estilizalo más»; «falta abrir la ficha desde el evento»).
+ *
+ * Arriba, la franja del evento en el color de su prioridad: qué pasó en grande, dónde y cuándo, y
+ * el botón que abre su ficha (para tratarlo o ver cómo se trató). Después, cada evento que traía el
+ * mensaje como una tarjeta; la central y por dónde llegó; y la trama, pieza por pieza, con su color y
+ * su explicación al pasar el mouse.
+ */
 export function DetalleMensajeCentral({ m, datos }: { m: Mensaje; datos: Datos | null }) {
     const { porId, zona, areaDe } = useCentrales(datos);
     const prio = datos?.prioridades || PRIORIDADES_DEFECTO;
     const c = m.centralId ? porId.get(m.centralId) : null;
     const eventos = Array.isArray(m.eventos) ? m.eventos : [];
-    const copiar = (s: string) => { navigator.clipboard?.writeText(s).then(() => toast.success({ title: "Trama copiada" })).catch(() => { }); };
+    const e0 = eventos[0] || null;
+    const n = sinUsar(m) ? null : prioridadMensaje(m, prio);
+    const st = e0 ? ESTILO[e0.categoria] || ESTILO.OTRO : null;
+    const I = sinUsar(m) ? CircleHelp : st?.icono || HeartPulse;
+    const sinTratar = !!m.detectionId && sinTratarDe(datos, m.detectionId);
+    const partes = useMemo(() => partesTrama(m.crudo), [m.crudo]);
+    const copiar = (x: string) => { navigator.clipboard?.writeText(x).then(() => toast.success({ title: "Trama copiada" })).catch(() => { }); };
+    // La franja: P1 rojo lleno, P2 ámbar lleno; el resto, la superficie con un filo del tono.
+    const lleno = n === 1 ? { background: "var(--mal)", color: "#fff" } : n === 2 ? { background: "var(--aviso)", color: "#16120a" } : undefined;
+    const titulo = sinUsar(m) ? ERROR_TXT[m.error || ""] || m.error || "Rechazado" : e0 ? e0.texto : esVida(m) ? "Supervisión" : "Sin eventos";
+    const donde = e0 ? dondeDe(m, e0, zona) : null;
     return (
-        <div className="p-5 space-y-5">
-            <div className="flex items-start gap-3">
-                <span className="grid place-items-center w-10 h-10 rounded-[10px] bg-muted/60 shrink-0"><Radio size={18} className="text-muted-foreground" /></span>
-                <div className="min-w-0">
-                    <div className="text-[15px] font-semibold truncate">{c ? c.nombre : m.cuenta ? `Cuenta ${m.cuenta}` : "Sin cuenta"}</div>
-                    <div className="text-[12px] text-muted-foreground tabular-nums">{[m.cuenta ? `Cuenta ${m.cuenta}` : null, areaDe(m)].filter(Boolean).join(" · ") || "—"}</div>
+        <div className="flex flex-col min-h-full">
+            <div className={cn("px-5 pt-5 pb-4", !lleno && "border-b border-border")} style={lleno}>
+                <div className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.14em] opacity-80">
+                    {n != null ? <span>P{n} · {nivel(n).nombre}</span> : <span>{sinUsar(m) ? "Sin usar" : "Mensaje"}</span>}
+                    {e0 && <><span>·</span><span>{NOMBRE_CAT[e0.categoria] || e0.categoria}</span></>}
                 </div>
+                <div className="mt-2 flex items-start gap-3">
+                    <span className={cn("grid place-items-center w-12 h-12 rounded-[12px] shrink-0", lleno ? "bg-black/15" : "bg-muted/60", !lleno && st && TONO_TEXTO[st.tono], n === 1 && sinTratar && "animate-pulse")}><I size={24} /></span>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[20px] font-bold tracking-tight leading-tight">{titulo}</div>
+                        <div className={cn("text-[12.5px] mt-0.5", lleno ? "opacity-85" : "text-muted-foreground")}>{donde || (e0 ? "La central" : m.cuenta ? `Cuenta ${m.cuenta}` : "—")}</div>
+                    </div>
+                </div>
+                <div className={cn("mt-3 text-[12px] tabular-nums flex items-center gap-1.5", lleno ? "opacity-85" : "text-muted-foreground")}><Momento t={m.recibido} /></div>
+                {m.detectionId && (
+                    <button type="button" onClick={() => abrirEventoCentral(m.detectionId!)}
+                        className={cn("mt-3 w-full h-10 rounded-[10px] text-[13px] font-bold inline-flex items-center justify-center gap-2 transition-[filter] hover:brightness-110",
+                            lleno ? "bg-white text-[var(--mal)]" : "bg-[var(--accion)] text-white")}
+                        style={lleno && n === 2 ? { color: "#16120a" } : undefined}>
+                        <ExternalLink size={15} /> {sinTratar ? "Abrir ficha y tratar" : "Abrir ficha"}
+                    </button>
+                )}
             </div>
 
-            {sinUsar(m) && (
-                <div className="rounded-[10px] chip-aviso px-3 py-2.5 text-[12.5px] leading-snug">
-                    {m.error === "cuenta-desconocida"
-                        ? <>La cuenta <b className="tabular-nums">{m.cuenta}</b> no está dada de alta: se le confirmó al receptor para que no se trabe, pero no generó alarma. Para usarla: Dispositivos › Agregar › Central de alarma{m.transporte === "cms" ? " › «Por un receptor»" : ""}, con esta cuenta.</>
-                        : <>{ERROR_TXT[m.error || ""] || m.error || "Rechazado"}. Se contestó <b>{m.respuesta}</b>{m.respuesta === "ACK" ? " para que el receptor no se trabe, pero no se usó" : ""}.</>}
-                </div>
-            )}
+            <div className="p-5 space-y-5">
+                {sinUsar(m) && (
+                    <div className="rounded-[10px] chip-aviso px-3 py-2.5 text-[12.5px] leading-snug">
+                        {m.error === "cuenta-desconocida"
+                            ? <>La cuenta <b className="tabular-nums">{m.cuenta}</b> no está dada de alta: se le confirmó al receptor para que no se trabe, pero no generó alarma. Para usarla: Dispositivos › Agregar › Central de alarma{m.transporte === "cms" ? " › «Por un receptor»" : ""}, con esta cuenta.</>
+                            : <>{ERROR_TXT[m.error || ""] || m.error || "Rechazado"}. Se contestó <b>{m.respuesta}</b>{m.respuesta === "ACK" ? " para que el receptor no se trabe, pero no se usó" : ""}.</>}
+                    </div>
+                )}
 
-            <div className="space-y-2">
-                {eventos.length ? eventos.map((e, i) => {
-                    const st = ESTILO[e.categoria] || ESTILO.OTRO; const I = st.icono;
-                    return (
-                        <div key={i} className="rounded-[10px] border border-border p-3 flex items-start gap-3">
-                            <I size={16} className={cn("mt-0.5 shrink-0", TONO_TEXTO[st.tono])} />
-                            <div className="min-w-0 flex-1 leading-snug">
-                                <div className="text-[13.5px] font-semibold">{e.texto}</div>
-                                <div className="text-[12px] text-muted-foreground">{dondeDe(m, e, zona) || "La central"}{e.codigo ? ` · ${e.codigo}` : ""}</div>
-                            </div>
-                            <span className="flex flex-col items-end gap-1"><ChipPrioridad n={prioridadDe(prio, e)} corto />
-                            <Estado tono={st.tono}>{e.categoria === "ALARMA" ? "Alarma" : e.categoria === "RESTAURACION" ? "Restauración" : e.categoria === "ARMADO" ? "Armado" : e.categoria === "DESARMADO" ? "Desarmado" : e.categoria === "FALLA" ? "Falla" : e.categoria === "FALLA_FIN" ? "Normal" : e.categoria === "PRUEBA" ? "Prueba" : "Otro"}</Estado></span>
-                        </div>);
-                }) : <div className="text-[12.5px] text-muted-foreground">{esVida(m) ? "Supervisión: la central avisa que sigue en línea." : "Sin eventos traducidos."}</div>}
+                {eventos.length > 1 && (
+                    <section>
+                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Los {eventos.length} eventos del mensaje</div>
+                        <div className="space-y-1.5">
+                            {eventos.map((e, i) => {
+                                const s2 = ESTILO[e.categoria] || ESTILO.OTRO; const I2 = s2.icono;
+                                return (
+                                    <div key={i} className="rounded-[10px] bg-muted/40 px-3 py-2 flex items-center gap-2.5">
+                                        <I2 size={15} className={cn("shrink-0", TONO_TEXTO[s2.tono])} />
+                                        <div className="min-w-0 flex-1 leading-tight"><div className="text-[13px] font-semibold truncate">{e.texto}</div><div className="text-[11.5px] text-muted-foreground truncate">{dondeDe(m, e, zona) || "La central"}</div></div>
+                                        <ChipPrioridad n={prioridadDe(prio, e)} corto />
+                                    </div>);
+                            })}
+                        </div>
+                    </section>
+                )}
+
+                {/* La central y por dónde llegó: dos tarjetas lado a lado. */}
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-[10px] bg-muted/40 px-3 py-2.5 min-w-0">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Central</div>
+                        <div className="text-[13.5px] font-semibold truncate mt-1">{c ? c.nombre : "Sin dar de alta"}</div>
+                        <div className="text-[12px] text-muted-foreground tabular-nums truncate">{m.cuenta ? `Cuenta ${m.cuenta}` : "—"}{areaDe(m) ? ` · ${areaDe(m)}` : ""}</div>
+                        {c?.prueba && <div className="mt-1"><Estado tono="info">De prueba</Estado></div>}
+                    </div>
+                    <div className="rounded-[10px] bg-muted/40 px-3 py-2.5 min-w-0">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Llegó por</div>
+                        <div className="text-[13.5px] font-semibold truncate mt-1">{VIA[m.transporte || ""] || m.transporte || "—"}{m.idMensaje ? ` · ${m.idMensaje === "ADM-CID" ? "Contact ID" : m.idMensaje === "SIA-DCS" ? "SIA" : m.idMensaje}` : ""}</div>
+                        <div className="text-[12px] text-muted-foreground tabular-nums truncate">{m.ip || "—"}{m.cifrado ? " · cifrado AES" : ""}</div>
+                        <div className="mt-1 flex items-center gap-1.5"><Estado tono={m.respuesta === "ACK" ? (m.error ? "aviso" : "bien") : "mal"}>{m.respuesta}</Estado>{m.horaCentral && <span className="text-[11px] text-muted-foreground">hora central <Momento t={m.horaCentral} /></span>}</div>
+                    </div>
+                </div>
+
+                {m.crudo && (
+                    <section>
+                        <div className="flex items-center gap-2 mb-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground flex-1">Trama</span>
+                            <span className="text-[11px] text-muted-foreground">pasá el mouse por cada parte</span>
+                            <button type="button" onClick={() => copiar(m.crudo!)} className="text-muted-foreground hover:text-foreground" aria-label="Copiar la trama"><Copy size={13} /></button>
+                        </div>
+                        <div className="rounded-[10px] bg-muted/60 p-3 font-mono text-[12.5px] leading-relaxed break-all">
+                            {partes.map((x, i) => x.rotulo
+                                ? <span key={i} data-tooltip-id="tt-trama" data-tooltip-html={`<b>${x.rotulo}</b><br/>${x.ayuda.replace(/</g, "&lt;")}`}
+                                    className={cn("rounded-[3px] px-[1px] cursor-help hover:bg-foreground/10 hover:outline hover:outline-1 hover:outline-foreground/20", COLOR_PARTE[x.tono])}>{x.texto}</span>
+                                : <span key={i} className="whitespace-pre">{x.texto}</span>)}
+                        </div>
+                        {/* La leyenda: qué color es qué, sin tener que pasar por cada pieza. */}
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+                            {([["cuenta", "Cuenta"], ["evento", "Evento"], ["lugar", "Partición / zona"], ["protocolo", "Protocolo"], ["hora", "Hora"], ["control", "Control"]] as const)
+                                .filter(([k]) => partes.some((x) => x.tono === k)).map(([k, l]) => <span key={k} className={cn("font-mono", COLOR_PARTE[k])}>■ <span className="font-sans">{l}</span></span>)}
+                        </div>
+                        <Tooltip id="tt-trama" place="top" positionStrategy="fixed" className="!max-w-[300px] !text-[12px] !leading-snug !rounded-lg !z-[9999]" />
+                    </section>
+                )}
             </div>
-
-            {m.detectionId && <button type="button" onClick={() => abrirEventoCentral(m.detectionId!)} className="inline-flex text-[12.5px] font-semibold text-[var(--accion)] hover:underline">{sinTratarDe(datos, m.detectionId) ? "Tratar el evento" : "Ver el evento y cómo se trató"}</button>}
-
-            <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 text-[12.5px]">
-                <dt className="text-muted-foreground">Recibido</dt><dd><Momento t={m.recibido} /></dd>
-                <dt className="text-muted-foreground">Llegó por</dt><dd>{VIA[m.transporte || ""] || m.transporte || "—"}{m.ip ? ` · ${m.ip}` : ""}</dd>
-                <dt className="text-muted-foreground">Protocolo</dt><dd>{m.idMensaje === "ADM-CID" ? "Contact ID" : m.idMensaje === "SIA-DCS" ? "SIA" : m.idMensaje || "—"}{m.cifrado ? " · cifrado AES" : ""}</dd>
-                <dt className="text-muted-foreground">Respuesta</dt><dd>{m.respuesta}</dd>
-                {m.horaCentral && <><dt className="text-muted-foreground">Hora de la central</dt><dd><Momento t={m.horaCentral} /></dd></>}
-            </dl>
-
-            {m.crudo && (
-                <div>
-                    <div className="flex items-center gap-2 mb-1.5"><span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground flex-1">Trama</span>
-                        <button type="button" onClick={() => copiar(m.crudo!)} className="text-muted-foreground hover:text-foreground" aria-label="Copiar la trama"><Copy size={13} /></button></div>
-                    <pre className="rounded-[10px] bg-muted/60 p-3 text-[11.5px] whitespace-pre-wrap break-all tabular-nums">{m.crudo}</pre>
-                </div>
-            )}
         </div>
     );
 }
@@ -352,8 +445,8 @@ function InformeTiempos() {
         { clave: "tratar", titulo: "Lo cierra en", ancho: 110, alinear: "der", ordenable: true, valor: (o) => o.tratarSeg ?? 1e9, celda: (o) => <span className="tabular-nums">{segATexto(o.tratarSeg)}</span> },
     ];
     return (<>
-        <button type="button" onClick={() => setAbierto(true)} title="Cuánto se tarda en tomar y en tratar los eventos, por operador"
-            className="h-[34px] px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 bg-muted/60 text-muted-foreground hover:text-foreground"><Timer size={13} /> Tiempos</button>
+        <button type="button" onClick={() => setAbierto(true)} aria-label="Tiempos de atención" data-tooltip-id="tt-alarmas" data-tooltip-content="Tiempos: cuánto se tarda en tomar y en tratar los eventos, por operador"
+            className="h-[34px] w-[34px] rounded-lg grid place-items-center bg-muted/60 text-muted-foreground hover:text-foreground"><Timer size={15} /></button>
         <Cajon open={abierto} onOpenChange={setAbierto}>
             <CajonContenido titulo="Tiempos de atención" descripcion="Desde que llega el evento hasta que se toma y hasta que se trata. Medianas por operador.">
                 <div className="px-6 py-5 space-y-4">
