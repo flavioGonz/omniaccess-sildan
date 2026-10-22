@@ -13,13 +13,13 @@
 ## 3. Receptor
 
 - [x] 3.1 `alarm-receiver.js` (PM2): TCP y UDP en `ALARMAS_PUERTO` (10010), validación, seguridad de D3 (cifrado obligatorio, cuenta desconocida → NAK, ventana de hora, anti-repetición, límites por IP), registro en `MensajeCentral`, estado de la central. Verificar: simulador → ACK; CRC roto → NAK; sin cifrar → NAK; repetido → un solo evento.
-- [ ] 3.2 Al flujo de alarmas: ALARMA → `Detection` `type=CENTRAL` con zona, área, cámaras y captura de cada cámara asociada; emitir por el socket como una detección de intrusión. Verificar: la alarma del simulador aparece en `/admin/alarmas` y en `/admin/monitor-intrusion`, y dispara una regla de aviso de prueba (sin mandar al grupo de la guardia).
+- [x] 3.2 Al flujo de alarmas: ALARMA → `Detection` `type=CENTRAL` con zona, área, cámaras y captura de cada cámara asociada; emitir por el socket como una detección de intrusión. Verificar: la alarma del simulador aparece en `/admin/alarmas` y en `/admin/monitor-intrusion`, y dispara una regla de aviso de prueba (sin mandar al grupo de la guardia).
 - [x] 3.3 Supervisión: tarea que pasa a «Sin supervisión» y crea `DeviceAlert`; vuelve con el próximo mensaje. Verificar: con supervisión de 30 s y el simulador detenido, la ficha cambia en ≤ 2 períodos.
 
 ## 4. Drivers
 
 - [x] 4.1 `src/lib/centrales/` con la interfaz (`vincular`, `zonas`, `estado`, `armar`, `desarmar`, opcionales) y `generica-dc09`. Verificar: tipos y registro por marca/modelo.
-- [ ] 4.2 `hikvision-ax`: login con cuenta de administrador, capacidades de `ReportCenterCfg`, escribir el centro receptor, leer zonas y particiones, armar / desarmar. Verificar: sin equipo, con respuestas grabadas; marcado «sin probar con equipo» hasta la primera AX.
+- [x] 4.2 `hikvision-ax`: login con cuenta de administrador, capacidades de `ReportCenterCfg`, escribir el centro receptor, leer zonas y particiones, armar / desarmar. Verificar: sin equipo, con respuestas grabadas; marcado «sin probar con equipo» hasta la primera AX.
 
 ## 5. Pantallas
 
@@ -32,7 +32,10 @@
 - [ ] 6.1 Lab: build DONE_0, `pm2 list` con `alarm-receiver` online, simulador de punta a punta (ACK, alarma en Gestión de alarmas y Monitor Intrusión, supervisión), HTTP 200 de `/admin/devices`, `/admin/alarmas` y `/admin/monitor-intrusion`.
 - [ ] 6.2 Con la primera AX real: vincular, alarma de prueba, armar / desarmar; corregir campos del driver y sacar la marca «sin probar».
 
-## Estado (21/10, lab57)
+## Estado (22/10, lab62)
 
-- Probado en el lab con el simulador: ACK cifrado con la misma secuencia (TCP y UDP, SIA y Contact ID), NAK por cuenta desconocida, sin cifrar, hora fuera de ventana y clave equivocada; reintento = ACK sin segundo evento; ALARMA → Detection CENTRAL; falla de corriente → alerta y cierre con la restauración; supervisión → «Sin supervisión» con alerta y vuelta a «En línea» con el próximo NULL. La central de prueba no mandó Telegram.
-- Falta: 3.2 la regla de aviso de prueba (la central de prueba no dispara reglas a propósito) y mirar la alarma en las pantallas; 4.2 respuestas grabadas de una AX; 6.1 la revisión de las pantallas.
+- 21/10 (lab57), con el simulador: ACK cifrado con la misma secuencia (TCP y UDP, SIA y Contact ID), NAK por cuenta desconocida, sin cifrar, hora fuera de ventana y clave equivocada; reintento = ACK sin segundo evento; ALARMA → Detection CENTRAL; falla de corriente → alerta y cierre; supervisión → «Sin supervisión» y vuelta a «En línea». La central de prueba no mandó Telegram.
+- 22/10 (lab61): 3.2 — con la central sin marca de prueba, un robo en la zona 5 disparó una regla INTRUSION/CENTRAL de la central (canal webhook sin URL, así no salió nada) y armó el aviso «Alarma de central · Central de prueba (simulador) · Zona 5»; después se borraron la regla, el despacho y la detección. El texto del aviso ahora dice el tipo («Robo · central de alarma») sin el «· —» de la clase.
+- 22/10: 4.2 — la AX entra con sesión (sessionLogin + WebSession, X-Userlevel administrador), como la integración de Home Assistant que se usa con equipos reales; rutas de armado y campos de estado de ahí. Pruebas con una AX simulada en tests/centrales-ax.test.ts. El centro receptor (ReportCenterCfg) sigue sin una respuesta de equipo real: se lee antes de escribir.
+- 5.2: «Probar recepción» en la ficha. Retención: NULL confirmados 7 días, el resto 90.
+- Falta: 6.1 mirar las pantallas con sesión (Nico); 6.2 la primera AX real.

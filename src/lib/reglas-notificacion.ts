@@ -62,13 +62,15 @@ const ETIQUETA: Record<string, string> = {
     REGION_EXIT: "Salida de zona",
     CENTRAL: "Alarma de central",
 };
+const TIPO_CENTRAL: Record<string, string> = { ROBO: "Robo", PANICO: "Pánico", INCENDIO: "Incendio", SABOTAJE: "Sabotaje", COACCION: "Coacción", MEDICA: "Emergencia médica", GAS: "Gas", AGUA: "Pérdida de agua", TEMPERATURA: "Temperatura", GENERAL: "Alarma" };
 const CLASE: Record<string, string> = { human: "Persona", vehicle: "Vehículo" };
 
 /** Reemplaza las variables de la plantilla con lo que trae el evento. */
 function armarTexto(plantilla: string | null, ev: EventoNotificable, ahora: Date) {
     const quien = ev.plate || ev.personName || "—";
     const vars: Record<string, string> = {
-        "{evento}": ETIQUETA[ev.evento] || ev.evento,
+        // La alarma de una central dice qué fue (robo, pánico, incendio…): viene en extra.eventType.
+        "{evento}": ev.evento === "CENTRAL" ? `${TIPO_CENTRAL[String(ev.extra?.eventType || "")] || "Alarma"} · central de alarma` : ETIQUETA[ev.evento] || ev.evento,
         "{modulo}": ev.modulo,
         "{device}": ev.deviceName || "—",
         "{zone}": ev.deviceName || "—",
@@ -87,6 +89,9 @@ function armarTexto(plantilla: string | null, ev: EventoNotificable, ahora: Date
     };
     const base = plantilla || (ev.modulo === "FACE"
         ? "👤 {evento}\n{persona}\n{device} · {channel}\n{date} {time}"
+        // Una central no tiene «clase» (persona, vehículo): sin el «· —» que quedaba colgando.
+        : ev.modulo === "INTRUSION" && ev.evento === "CENTRAL"
+            ? "🚨 {evento}\n{device}\n{date} {time}"
         : ev.modulo === "INTRUSION"
             ? "🚨 {evento}\n{device} · {clase}\n{date} {time}"
             // Una chapa especial dice qué es al lado («SAM1234 · Ambulancia de Montevideo»).
