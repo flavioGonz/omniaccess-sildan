@@ -61,8 +61,9 @@ function contactId(t) {
     let m = /\b18\s+([0-9A-F]{3,10})\s+([ERP136])\s?(\d{3})\s+([0-9A-F]{2})\s+([0-9A-F]{3})\b/.exec(s);
     // Sur-Gard: el bloque empieza una palabra («5011 181234E…»). Buscarlo ahí primero evita
     // confundirse con un «18» del encabezado (receptor 18, línea 18).
-    if (!m) m = /(?:^|\s)18([0-9A-F]{3,10}?)([ERP136])(\d{3})([0-9A-F]{2})([0-9A-F]{3})(?![0-9A-F])/.exec(s)
-        || /(?:^|\s)18([0-9A-F]{3,10}?)([ERP136])(\d{3})([0-9A-F]{2})([0-9A-F]{3})/.exec(s);
+    // El IPC10 manda algunos eventos propios así: «Q015 580076c4250fE30600001» (58 + cuenta pegada).
+    if (!m) m = /(?:^|\s)(?:18|58|98)([0-9A-F]{3,10}?)([ERP136])(\d{3})([0-9A-F]{2})([0-9A-F]{3})(?![0-9A-F])/.exec(s)
+        || /(?:^|\s)(?:18|58|98)([0-9A-F]{3,10}?)([ERP136])(\d{3})([0-9A-F]{2})([0-9A-F]{3})/.exec(s);
     if (!m) {
         // Pegado (Sur-Gard: «181234E12101001»). Se prueba cada «18» y la cuenta más corta que
         // deje atrás calificador + 3 + 2 + 3: una cuenta no puede llevar E/R/P salvo en hexa, y

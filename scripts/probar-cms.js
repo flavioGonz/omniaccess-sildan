@@ -26,6 +26,7 @@ prueba("IPC10 real: robo zona 20 y su restauración", () => {
 });
 prueba("IPC10 real: evento del propio receptor (98)", () => assert.deepStrictEqual(cms.leer("15 0076c4250f 98 R314 00 U000"), { tipo: "evento", cuenta: "0076C4250F", datos: "3314 00 000" }));
 prueba("IPC10: desarmado por el usuario 5", () => { const [e] = cod.traducirCid(cms.leer("15 2989 18 E401 01 U005").datos); assert.strictEqual(e.categoria, "DESARMADO"); assert.strictEqual(e.usuario, 5); });
+prueba("IPC10 real: evento propio con 58 y la cuenta pegada", () => assert.deepStrictEqual(cms.leer("Q015 580076c4250fE30600001"), { tipo: "evento", cuenta: "0076C4250F", datos: "1306 00 001" }));
 prueba("latido Sur-Gard", () => assert.strictEqual(cms.leer("1011           @    ").tipo, "vivo"));
 prueba("separar por DC4, CR y LF; lo incompleto queda", () => {
     const r = cms.separar("5011 182989E40101005\x14\n01010 18 2989 E130 01 003\r5011 18");
