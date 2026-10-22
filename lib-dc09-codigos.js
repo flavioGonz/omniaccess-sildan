@@ -72,7 +72,10 @@ function traducirCid(datos) {
         const arma = q === 3;
         const extra = CID_APERTURA[ev];
         const presente = ev === 441 || ev === 442 || ev === 456;
-        return [{ categoria: arma ? "ARMADO" : "DESARMADO", tipo: arma ? (presente ? "PRESENTE" : "ARMADO") : "DESARMADO", texto: `${arma ? "Armado" : "Desarmado"}${extra ? ` ${extra}` : ""}`, codigo, cid: ev, particion: part, usuario: zz, zona: null }];
+        // 406 no es un desarmado «cancelado»: es el usuario cancelando la alarma en curso (con su código),
+        // y en Paradox llega junto al 401 del desarmado (prueba real del IPC10, 22/10).
+        const texto = ev === 406 ? "Alarma cancelada por el usuario" : `${arma ? "Armado" : "Desarmado"}${extra ? ` ${extra}` : ""}`;
+        return [{ categoria: arma ? "ARMADO" : "DESARMADO", tipo: arma ? (presente ? "PRESENTE" : "ARMADO") : "DESARMADO", texto, codigo, cid: ev, particion: part, usuario: zz, zona: null }];
     }
     const def = CID[ev] || (ev >= 100 && ev < 200 ? ["ALARMA", "GENERAL", `Alarma ${ev}`] : ev >= 300 && ev < 400 ? ["FALLA", "SISTEMA", `Falla ${ev}`] : ["OTRO", "DESCONOCIDO", `Evento ${ev}`]);
     let [categoria, tipo, texto] = def;
