@@ -619,6 +619,8 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
     const entrada = dir === "ENTRY";
     const Icono = entrada ? LogIn : LogOut;
     const sinLeer = eventos.filter((e) => !e.plateDetected || ["NO_LEIDA", "unknown", "S/P"].includes(e.plateDetected)).length;
+    const ultimaDeCamaras = camaras.map((d: any) => ultimaPorCamara(d.id)).filter((e: any) => e?.timestamp)
+        .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
     return (
         <section className="flex flex-col min-h-0 overflow-hidden">
             {/* Encabezado del sentido */}
@@ -638,7 +640,8 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
                 cámaras son 16:9; si el recuadro no lo es, se mira un pedazo. */}
             <div className="shrink-0 p-4 border-b border-border">
                 <div className="grid gap-3 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 31%)" }}>
-                    <CenterShot ev={eventos[0]} onRegister={onRegister} dir={dir} className="aspect-video" watchMap={watchMap} logos={logos} />
+                    {/* La última de la columna; si la lista todavía no la trae, la más nueva de sus cámaras. */}
+                    <CenterShot ev={eventos[0] || ultimaDeCamaras} onRegister={onRegister} dir={dir} className="aspect-video" watchMap={watchMap} logos={logos} />
                     <div className={cn("grid gap-2", camaras.length > 2 ? "grid-cols-2" : "grid-cols-1")}>
                         {camaras.map((d: any) => <CamTile key={d.id} dev={d} accent={entrada ? "emerald" : "orange"} ev={ultimaPorCamara(d.id)} onRegister={onRegister} className="aspect-video" />)}
                         {/* Con una sola cámara sobra la mitad del costado: ahí va el resumen del sentido. */}
@@ -683,6 +686,8 @@ export default function MonitorLPR() {
     // Áreas de Dispositivos (21/10, Nico): las columnas muestran sólo las cámaras del área elegida y
     // sus lecturas. Los números de «Hoy» siguen siendo del día entero (salen del servidor).
     const fa = useFiltroArea("monitor-lpr");
+    /** Los equipos del área elegida (null = todas), en un ref: el refresco cada 5 s lo lee al momento. */
+    const idsAreaRef = useRef<string[] | null>(null);
     const [streams, setStreams] = useState<string[]>([]);
     const router = useRouter();
     const [units, setUnits] = useState<any[]>([]);
@@ -713,7 +718,10 @@ export default function MonitorLPR() {
     const loadInitialData = async () => {
         try {
             const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-            const data = await getAccessEvents({ take: 50, from: twentyFourHoursAgo, type: "PLATE" });
+            // Con un área elegida, las 50 lecturas se piden de SUS cámaras (22/10, Nico: «cuando cambio el
+            // área no muestra bien las últimas capturas»): eran las 50 últimas de todo el servidor y
+            // se filtraban acá; las de un área tranquila quedaban afuera y la columna salía vacía.
+            const data = await getAccessEvents({ take: 50, from: twentyFourHoursAgo, type: "PLATE", ...(idsAreaRef.current ? { deviceIds: idsAreaRef.current } : {}) });
             setEvents(data.events as FullAccessEvent[]);
             setEventsLoading(false);
             const todayStats = await getEventsCountToday("PLATE");
@@ -940,6 +948,12 @@ export default function MonitorLPR() {
     const entryEvents = useMemo(() => filteredEvents.filter(e => e.direction === 'ENTRY'), [filteredEvents]);
     const exitEvents = useMemo(() => filteredEvents.filter(e => e.direction === 'EXIT'), [filteredEvents]);
     const lprDevs = useMemo(() => devices.filter((x: any) => fa.enArea(x.id)), [devices, fa.enArea]);
+    // Al cambiar el área: los ids nuevos y se vuelve a pedir enseguida (no al próximo refresco).
+    const claveIds = fa.filtrando ? lprDevs.map((x: any) => x.id).sort().join(",") : "";
+    useEffect(() => {
+        idsAreaRef.current = fa.filtrando ? (claveIds ? claveIds.split(",") : []) : null;
+        if (devices.length) { setEventsLoading(true); loadInitialData(); }
+    }, [claveIds, fa.filtrando, devices.length]); // eslint-disable-line react-hooks/exhaustive-deps
     const entryCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'ENTRY'), [lprDevs]);
     const exitCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'EXIT'), [lprDevs]);
     /*

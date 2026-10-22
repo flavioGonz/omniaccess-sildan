@@ -72,9 +72,12 @@ export async function getAccessEvents(options?: {
     name?: string,
     from?: Date,
     to?: Date,
-    omitEnrichment?: boolean
+    omitEnrichment?: boolean,
+    /** Sólo las lecturas de estos equipos (el filtro de área del Monitor LPR). */
+    deviceIds?: string[]
 }) {
     const whereClause: any = {};
+    if (options?.deviceIds) whereClause.deviceId = { in: options.deviceIds };
 
     if (options?.userId) {
         whereClause.userId = options.userId;
