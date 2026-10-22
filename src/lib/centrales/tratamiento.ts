@@ -50,13 +50,22 @@ async function armar(dets: Det[], yo: string | null): Promise<EventoCentral[]> {
     if (!dets.length) return [];
     const claves = dets.map((d) => `d:${d.id}`);
     const devIds = [...new Set(dets.map((d) => d.deviceId).filter(Boolean))] as string[];
-    const [centrales, atendidas, gestion, arbol, prioridades] = await Promise.all([
+    const [centrales, atendidas, gestion, arbol, prioridades, cfg] = await Promise.all([
         prisma.centralAlarma.findMany({ where: { deviceId: { in: devIds } }, select: { id: true, deviceId: true, cuenta: true, prueba: true, device: { select: { name: true } }, zonas: { select: { zona: true, nombre: true, camaras: true, areaId: true } } } }),
         prisma.alarmaAtendida.findMany({ where: { clave: { in: claves } } }),
         prisma.alarmaGestion.findMany({ where: { clave: { in: claves } }, orderBy: { ts: "asc" } }),
         leerArbolAreas().catch(() => ({ areas: [], equipoArea: {} as Record<string, string> })),
         leerPrioridadesGuardadas(),
+        leerConfigTratamiento(),
     ]);
+    // «Cierre — texto»: el cierre puede llevar su propio « — » («Usuario probando — Falsa alarma»), así
+    // que se reconoce por el catálogo (el más largo que calce) y no cortando en el primer guion.
+    const separar = (detalle: string): [string, string | null] => {
+        const c = [...cfg.cierres].sort((a, b) => b.texto.length - a.texto.length).find((x) => detalle === x.texto || detalle.startsWith(`${x.texto} — `));
+        if (c) return [c.texto, detalle.slice(c.texto.length + 3) || null];
+        const i = detalle.lastIndexOf(" — ");
+        return i > 0 ? [detalle.slice(0, i), detalle.slice(i + 3)] : [detalle, null];
+    };
     const porDev = new Map(centrales.map((c) => [c.deviceId, c]));
     const nombreArea = new Map(arbol.areas.map((a) => [a.id, a.nombre]));
     return dets.map((d) => {
@@ -76,7 +85,7 @@ async function armar(dets: Det[], yo: string | null): Promise<EventoCentral[]> {
         const escalo = [...pasosG].reverse().find((g) => g.accion === ACCION_ESCALO);
         const t0 = d.timestamp.getTime();
         const areaId = (z?.areaId as string | null) || x.areaId || (d.deviceId ? arbol.equipoArea[d.deviceId] : null) || null;
-        const [cierre, ...resto] = (trato?.detalle || "").split(" — ");
+        const [cierre, textoTrato] = separar(trato?.detalle || "");
         return {
             id: d.id, clave, ts: d.timestamp.toISOString(), tipo: d.eventType || "GENERAL",
             titulo: `${TITULO[d.eventType || ""] || "Alarma"}${x.zona ? ` · Zona ${x.zona}${z?.nombre ? ` · ${z.nombre}` : ""}` : ""}`,
@@ -85,7 +94,7 @@ async function armar(dets: Det[], yo: string | null): Promise<EventoCentral[]> {
             zona: x.zona != null ? { zona: Number(x.zona), nombre: z?.nombre || null, camaras: ((z?.camaras as string[] | undefined) || x.camaras || []).map(String) } : null,
             particion: x.particion ?? null, area: areaId ? nombreArea.get(areaId) || null : null,
             operador: { nombre: at?.operador || null, desde: at?.operadorDesde?.toISOString() || null, soyYo: !!yo && at?.operador === yo },
-            tratado: d.acknowledged ? { por: trato?.por || at?.por || null, ts: (trato?.ts || at?.ts || d.timestamp).toISOString(), cierre: trato ? cierre : at?.nota || (d.ackKind === "false" ? "Falsa alarma" : "Atendida"), resultado: at?.resultado || (d.ackKind === "false" ? "falsa" : d.ackKind ? "real" : null), texto: trato ? resto.join(" — ") || null : null } : null,
+            tratado: d.acknowledged ? { por: trato?.por || at?.por || null, ts: (trato?.ts || at?.ts || d.timestamp).toISOString(), cierre: trato ? cierre : at?.nota || (d.ackKind === "false" ? "Falsa alarma" : "Aceptada sin tratar"), resultado: at?.resultado || (d.ackKind === "false" ? "falsa" : d.ackKind ? "real" : null), texto: trato ? textoTrato : null } : null,
             pasos, escalado: escalo && !d.acknowledged ? escalo.detalle : null,
             tiempos: {
                 tomarSeg: primeraToma ? Math.max(0, Math.round((primeraToma.ts.getTime() - t0) / 1000)) : null,
@@ -228,7 +237,8 @@ export async function informeTiempos(horas = 168) {
     const porOp = new Map<string, { tratados: number; reales: number; falsas: number; tomar: number[]; tratar: number[] }>();
     for (const x of evs) {
         if (!x.tratado) continue;
-        const k = x.tratado.por || "Sin nombre";
+        // Las aceptadas antes del 22/10 desde la ventana de intrusión no tienen tratamiento ni nombre.
+        const k = x.tratado.por || "Aceptadas sin tratar (antes del 22/10)";
         const o = porOp.get(k) || { tratados: 0, reales: 0, falsas: 0, tomar: [], tratar: [] };
         o.tratados++; if (x.tratado.resultado === "real") o.reales++; if (x.tratado.resultado === "falsa") o.falsas++;
         if (x.tiempos.tomarSeg != null) o.tomar.push(x.tiempos.tomarSeg);
