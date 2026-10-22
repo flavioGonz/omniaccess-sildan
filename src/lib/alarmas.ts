@@ -34,6 +34,8 @@ export type Alarma = {
     ts: string;
     camara: string | null;
     deviceId: string | null;
+    /** El área de la zona, en una alarma de central que la tiene (si no, vale la del equipo). */
+    areaId?: string | null;
     plate: string | null;
     foto: string | null;
     tono: TonoAlarma;
@@ -111,10 +113,17 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
     }).catch(() => []) : [];
     const ids = [...new Set(dets.map((d) => d.deviceId).filter(Boolean))] as string[];
     const [devs, atendidas] = await Promise.all([
-        ids.length ? prisma.device.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }).catch(() => []) : Promise.resolve([]),
+        // Todos los equipos (son decenas): los de las detecciones por id y los de los avisos por nombre.
+        ids.length || avisos.length ? prisma.device.findMany({ select: { id: true, name: true } }).catch(() => []) : Promise.resolve([]),
         prisma.alarmaAtendida.findMany({ where: { clave: { in: [...dets.map((d) => `d:${d.id}`), ...avisos.map((a) => `a:${a.id}`), ...lecturas.map((l) => `l:${l.id}`)] } } }).catch(() => []),
     ]);
     const nombre = new Map(devs.map((d) => [d.id, d.name]));
+    /** Al revés: un aviso de patrones trae sólo el nombre de la cámara, y el filtro de área necesita el equipo. */
+    const idPorNombre = new Map(devs.map((d) => [d.name, d.id]));
+    const areaZona = (d: { type: string; details: string | null }): string | null => {
+        if (d.type !== "CENTRAL" || !d.details) return null;
+        try { return JSON.parse(d.details)?.areaId || null; } catch { return null; }
+    };
     const atendida = new Map(atendidas.map((a) => [a.clave, a]));
     /*
      * La foto de los avisos de patrones (16/10, Nico: «hay fotos que no llegan»). Sólo los de
@@ -167,7 +176,7 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
         out.push({
             id: `d:${d.id}`, fuente: "intrusion", tipo: d.type, titulo: d.type === "CENTRAL" ? `${NOMBRE_CENTRAL[d.eventType || ""] || "Alarma"} · central` : NOMBRE_INTRUSION[d.type] || "Evento de cámara",
             detalle: d.label === "human" ? "Persona" : d.label === "vehicle" ? "Vehículo" : d.label || null,
-            ts: d.timestamp.toISOString(), camara: (d.deviceId && nombre.get(d.deviceId)) || null, deviceId: d.deviceId, plate: null,
+            ts: d.timestamp.toISOString(), camara: (d.deviceId && nombre.get(d.deviceId)) || null, deviceId: d.deviceId, plate: null, areaId: areaZona(d as any),
             foto: fotoDeDeteccion(d),
             tono: d.type === "LINECROSS" || d.type === "INTRUSION" || d.type === "CENTRAL" ? "mal" : "aviso",
             estado: d.acknowledged ? "atendida" : "pendiente", atendidaPor: null, atendidaAt: d.ackAt?.toISOString() || null,
@@ -180,7 +189,7 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
         const ev = visionDe(a);
         out.push({
             id: `a:${a.id}`, fuente: a.tipo.startsWith("VISION_") ? "vision" : "patron", tipo: a.tipo, titulo: et?.titulo || a.tipo,
-            detalle: a.motivo, ts: a.creado.toISOString(), camara: a.camara, deviceId: ev?.deviceId || null, plate: a.plate,
+            detalle: a.motivo, ts: a.creado.toISOString(), camara: a.camara, deviceId: ev?.deviceId || (a.camara && idPorNombre.get(a.camara)) || null, plate: a.plate,
             vision: ev ? visionDeEvento(ev, reglaPorId.get(ev.reglaId || (a.datos as any)?.reglaId), a.datos) : null,
             foto: fotoDeAviso(a),
             tono: (et?.tono as TonoAlarma) || "aviso",

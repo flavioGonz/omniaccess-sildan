@@ -5,8 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
     Siren, Home, Ticket, CircleDashed, AlertTriangle, RefreshCw, Radar, ShieldAlert, ScanEye, Repeat, Car, Check, X, LogOut, Undo2,
     Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers, Loader2, NotebookPen, Image as ImageIcon,
-    Activity, Truck, Infinity as SinTiempo,
+    Activity, Truck, Infinity as SinTiempo, RadioTower,
 } from "lucide-react";
+import { VistaCentrales } from "@/components/alarmas/MensajesCentrales";
+import { ElegirArea } from "@/components/devices/ElegirArea";
+import { useFiltroArea } from "@/lib/use-filtro-area";
 import { esDeProveedores } from "@/lib/presencia-grupos";
 import { esPaseLibre } from "@/lib/visitas/ajustes-base";
 import { useClipEvento } from "@/lib/clip-evento";
@@ -53,8 +56,8 @@ import { BotonAjustesAvisos } from "@/components/avisos/PilaAvisos";
  * El cálculo vive en el servidor (lib/alarmas.ts y lib/presencia.ts), con el porqué de cada criterio.
  */
 
-type Ver = "todo" | "alarmas" | "atipicos" | "residentes" | "visitas" | "proveedores" | "desconocidos";
-const VER: Ver[] = ["todo", "alarmas", "atipicos", "residentes", "visitas", "proveedores", "desconocidos"];
+type Ver = "todo" | "alarmas" | "centrales" | "atipicos" | "residentes" | "visitas" | "proveedores" | "desconocidos";
+const VER: Ver[] = ["todo", "alarmas", "centrales", "atipicos", "residentes", "visitas", "proveedores", "desconocidos"];
 /** Las dos pestañas de lo registrado que no es del barrio: tienen la misma forma, cambia qué entra. */
 const esDeRegistrados = (v: Ver) => v === "visitas" || v === "proveedores";
 /**
@@ -143,21 +146,33 @@ function GestionAlarmas() {
         if (await mandar("/api/presencia", { visitaId: id }, id)) setHecho({ texto: `Visita${plate ? ` de ${plate}` : ""} cerrada` });
     }, [mandar]);
 
+    /*
+     * Por área (22/10, Nico: «¿podemos filtrar también por área?»), como Monitor LPR e Intrusión: por
+     * el área del equipo de cada alarma —la cámara, la lectora o la central—, y en una alarma de
+     * central con zona, por el área de la zona. Los autos adentro, por la cámara de su última lectura.
+     * Los residentes y las visitas registradas no tienen cámara: no se filtran.
+     */
+    const fa = useFiltroArea("alarmas");
+    const enAlarma = useCallback((a: Alarma) => (a.areaId ? fa.contieneArea(a.areaId) : fa.enArea(a.deviceId)), [fa.contieneArea, fa.enArea]); // eslint-disable-line react-hooks/exhaustive-deps
+    const enAreaCentral = useCallback((deviceId: string | null, areaZona?: string | null) => (areaZona ? fa.contieneArea(areaZona) : fa.enArea(deviceId)), [fa.contieneArea, fa.enArea]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const p = datos?.presencia || null;
-    const alarmas = datos?.alarmas || [];
+    const alarmas = useMemo(() => (datos?.alarmas || []).filter(enAlarma), [datos, enAlarma]);
     const pendientes = alarmas.filter((a) => a.estado === "pendiente");
 
     // ── Qué se mira ──
     const vistas: Pestania<Ver>[] = [
         { valor: "todo", rotulo: "Todo", icono: Layers, ayuda: "Las alarmas y los autos que están adentro sin ser del barrio, por hora" },
         { valor: "alarmas", rotulo: "Alarmas", icono: Siren, cuenta: datos ? pendientes.length : undefined, tono: "mal", ayuda: "Alarmas sin atender" },
-        { valor: "atipicos", rotulo: "Atípicos dentro", icono: AlertTriangle, cuenta: p?.resumen.atipicos, tono: "aviso" },
+        // Lo que mandan las centrales de alarma (Alarm Hub), en palabras: armado, fallas, pruebas, alarmas.
+        { valor: "centrales", rotulo: "Centrales", icono: RadioTower, ayuda: "Lo que mandan las centrales de alarma: armado y desarmado, alarmas, fallas y pruebas" },
+        { valor: "atipicos", rotulo: "Atípicos dentro", icono: AlertTriangle, cuenta: fa.filtrando ? autosDe("atipicos").length : p?.resumen.atipicos, tono: "aviso" },
         { valor: "residentes", rotulo: "Residentes dentro", icono: Home, cuenta: p?.resumen.residentes },
         // Visitas y Proveedores en dos pestañas (21/10, Nico): un delivery que vence y la cuadrilla con
         // pase libre que está todo el día no se miran igual, y juntos se tapaban.
-        { valor: "visitas", rotulo: "Visitas", icono: Ticket, cuenta: p?.resumen.visitas, ayuda: "Visitas, invitados y lista blanca adentro" },
-        { valor: "proveedores", rotulo: "Proveedores", icono: Truck, cuenta: p?.resumen.proveedores, ayuda: "Proveedores, personal y pases libres adentro" },
-        { valor: "desconocidos", rotulo: "Desconocidos dentro", icono: CircleDashed, cuenta: p?.resumen.desconocidos },
+        { valor: "visitas", rotulo: "Visitas", icono: Ticket, cuenta: fa.filtrando ? autosDe("visitas").length : p?.resumen.visitas, ayuda: "Visitas, invitados y lista blanca adentro" },
+        { valor: "proveedores", rotulo: "Proveedores", icono: Truck, cuenta: fa.filtrando ? autosDe("proveedores").length : p?.resumen.proveedores, ayuda: "Proveedores, personal y pases libres adentro" },
+        { valor: "desconocidos", rotulo: "Desconocidos dentro", icono: CircleDashed, cuenta: fa.filtrando ? autosDe("desconocidos").length : p?.resumen.desconocidos },
     ];
 
     // ── Filtros de la tabla ──
@@ -184,12 +199,13 @@ function GestionAlarmas() {
     const cuentaEquipo = useCallback((e: Equipo) => alarmas.filter((a) => (estado === "todas" || a.estado === estado) && deEquipo(a.deviceId, a.camara, e)).length, [alarmas, estado]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const gestionDe = (a: AutoAdentro): GestionAuto | null => (a.accessEventId && datos?.gestionAutos?.[a.accessEventId]) || null;
-    const autosDe = (v: Ver): AutoAdentro[] => !p ? [] : v === "atipicos" ? p.atipicos : v === "desconocidos" ? p.autosVisitas.filter((a) => a.clase === "no_registrado") : v === "visitas" ? p.autosVisitas.filter((a) => a.clase !== "no_registrado" && !esDeProveedores(a))
-        : v === "proveedores" ? p.autosVisitas.filter((a) => esDeProveedores(a)) : [];
+    // Declarada como función (se iza): las pestañas de arriba la usan para contar con el área elegida.
+    function autosDe(v: Ver): AutoAdentro[] { return (!p ? [] : v === "atipicos" ? p.atipicos : v === "desconocidos" ? p.autosVisitas.filter((a) => a.clase === "no_registrado") : v === "visitas" ? p.autosVisitas.filter((a) => a.clase !== "no_registrado" && !esDeProveedores(a))
+        : v === "proveedores" ? p.autosVisitas.filter((a) => esDeProveedores(a)) : []).filter((a) => fa.enArea(a.deviceId)); }
     // Las listas de quién está adentro arrancan por la permanencia más larga (16/10, Nico: «arriba
     // del todo los que más tiempo dentro tienen»): el que entró primero es el que más lleva.
     const porPermanencia = <T extends { entrada: string }>(xs: T[]) => [...xs].sort((a, b) => (a.entrada < b.entrada ? -1 : a.entrada > b.entrada ? 1 : 0));
-    const filasAutos = useMemo(() => porPermanencia(autosDe(ver).filter((a) => pasa(a.plate, a.persona, a.unidad, NOMBRE_CLASE[a.clase], ...a.atipico.map((x) => NOMBRE_ATIPICO[x])))), [p, ver, t]); // eslint-disable-line react-hooks/exhaustive-deps
+    const filasAutos = useMemo(() => porPermanencia(autosDe(ver).filter((a) => pasa(a.plate, a.persona, a.unidad, NOMBRE_CLASE[a.clase], ...a.atipico.map((x) => NOMBRE_ATIPICO[x])))), [p, ver, t, fa.enArea]); // eslint-disable-line react-hooks/exhaustive-deps
     const filasResidentes = useMemo(() => porPermanencia((p?.residentes || []).filter((r) => pasa(r.nombre, r.unidad, ...r.autos))), [p, t]); // eslint-disable-line react-hooks/exhaustive-deps
     const visitasDe = (v: Ver) => (p?.visitas || []).filter((x) => (v === "proveedores" ? x.proveedor : !x.proveedor));
     const filasVisitas = useMemo(() => porPermanencia(visitasDe(ver).filter((v) => pasa(v.plate, v.nombre, v.empresa, v.lote, v.tipoNombre))), [p, t, ver]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -201,12 +217,12 @@ function GestionAlarmas() {
             for (const a of [...p.atipicos, ...p.autosVisitas]) {
                 if (vistos.has(a.plate)) continue;
                 vistos.add(a.plate);
-                if (!deEquipo(null, a.camara) || !pasa(a.plate, a.persona, a.unidad, NOMBRE_CLASE[a.clase], ...a.atipico.map((x) => NOMBRE_ATIPICO[x]))) continue;
+                if (!deEquipo(null, a.camara) || !fa.enArea(a.deviceId) || !pasa(a.plate, a.persona, a.unidad, NOMBRE_CLASE[a.clase], ...a.atipico.map((x) => NOMBRE_ATIPICO[x]))) continue;
                 out.push({ id: `p:${a.plate}`, ts: a.entrada, auto: a });
             }
         }
         return out.sort((x, y) => (x.ts < y.ts ? 1 : x.ts > y.ts ? -1 : 0));
-    }, [filasAlarmas, p, estado, origenes, t, equipo]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [filasAlarmas, p, estado, origenes, t, equipo, fa.enArea]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── Columnas ──
     const colsAlarmas = useMemo<ColumnaTabla<Alarma>[]>(() => [
@@ -368,6 +384,11 @@ function GestionAlarmas() {
                         </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                        {fa.hayAreas && (
+                            <span data-tooltip-id="tt-alarmas" data-tooltip-content="Por el área de la cámara, la lectora o la central de cada alarma. Los residentes y las visitas registradas no tienen cámara: no se filtran.">
+                                <ElegirArea areas={fa.areas} valor={fa.area} alElegir={fa.setArea} alinear="end" className="h-[34px]" />
+                            </span>
+                        )}
                         <BotonAjustesAvisos />
                         <span className={cn("inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg bg-muted/60 text-[12px] font-semibold", conectado ? "tono-bien" : "text-muted-foreground")} title={conectado ? "Las alarmas llegan en tiempo real" : "Sin tiempo real: se actualiza cada 20 s"}>
                             <Circle size={7} className={cn("fill-current", conectado && "animate-pulse")} /> {conectado ? "En vivo" : "Cada 20 s"}
@@ -379,6 +400,7 @@ function GestionAlarmas() {
             </div>
 
             {/* Cuerpo: la tabla de lo elegido y lo seleccionado a la derecha. */}
+            {ver === "centrales" ? <VistaCentrales key="centrales" horas={horas} setHoras={setHoras} enArea={enAreaCentral} /> : (
             <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[1fr_400px] xl:divide-x divide-border">
                 <div className="min-h-0 flex flex-col gap-3 p-4">
                     {(hecho || fallo) && (
@@ -441,6 +463,7 @@ function GestionAlarmas() {
                         )}
                 </aside>
             </div>
+            )}
         </div>
     );
 }

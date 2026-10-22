@@ -135,7 +135,10 @@ async function fotoDe(camaraId, nombre) {
 const TIPO_ROTULO = { ROBO: "Robo", PANICO: "Pánico", INCENDIO: "Incendio", SABOTAJE: "Sabotaje", COACCION: "Coacción", MEDICA: "Emergencia médica", GAS: "Gas", AGUA: "Agua", TEMPERATURA: "Temperatura", GENERAL: "Alarma" };
 
 async function registrar(datos) {
-    return prisma.mensajeCentral.create({ data: datos }).catch((e) => { log("no se pudo guardar el mensaje:", e.message); return null; });
+    const fila = await prisma.mensajeCentral.create({ data: datos }).catch((e) => { log("no se pudo guardar el mensaje:", e.message); return null; });
+    // La pestaña «Centrales» de Gestión de alarmas se actualiza con esto (sólo el aviso: los datos los pide ella).
+    if (fila) emitir("central_mensaje", { id: fila.id, centralId: fila.centralId, cuenta: fila.cuenta });
+    return fila;
 }
 
 /** Procesa una trama y devuelve la respuesta (o null si no hay que contestar). */

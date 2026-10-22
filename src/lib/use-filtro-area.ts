@@ -55,6 +55,13 @@ export function useFiltroArea(clave: string) {
     /** ¿Este equipo (o, si no tiene área, su grabador) está en el área elegida? */
     const enArea = useCallback((id?: string | null, respaldo?: string | null) => enAreaDe(elegida, id, respaldo), [enAreaDe, elegida]);
 
+    /** ¿Esta área (de una zona de central, p. ej.) está dentro de la elegida? Sin área = «Sin área». */
+    const contieneArea = useCallback((areaId?: string | null) => {
+        if (elegida === TODAS_LAS_AREAS) return true;
+        if (elegida === SIN_AREA) return !areaId;
+        return !!areaId && !!bajo.get(elegida)?.has(areaId);
+    }, [elegida, bajo]);
+
     const nombre = elegida === TODAS_LAS_AREAS ? null : elegida === SIN_AREA ? "Sin área" : areas.find((a) => a.id === elegida)?.nombre || null;
-    return { areas, area: elegida, setArea, enArea, enAreaDe, areaDe, nombre, hayAreas: areas.length > 0, filtrando: elegida !== TODAS_LAS_AREAS };
+    return { areas, area: elegida, setArea, enArea, enAreaDe, areaDe, contieneArea, nombre, hayAreas: areas.length > 0, filtrando: elegida !== TODAS_LAS_AREAS };
 }
