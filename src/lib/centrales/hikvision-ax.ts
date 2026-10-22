@@ -1,4 +1,4 @@
-import { authenticatedRequest } from "@/lib/digest-auth";
+import { pedirAx } from "./isapi-ax";
 import type { DestinoReceptor, DriverCentral, EquipoCentral, EstadoCentral, EstadoParticion, ModeloCentral, Resultado, ZonaLeida } from "./tipos";
 
 /**
@@ -11,11 +11,13 @@ import type { DestinoReceptor, DriverCentral, EquipoCentral, EstadoCentral, Esta
  *  · «probar» devuelve lo que se escribiría sin escribirlo;
  *  · la pantalla dice «sin probar con equipo» hasta la primera AX (probado: false).
  *
- * La central exige una cuenta de rol ADMINISTRADOR (no Instalador) para ISAPI.
+ * La central exige una cuenta de rol ADMINISTRADOR (no Instalador) para ISAPI. Se entra con sesión
+ * (isapi-ax), como el panel web; las rutas de armado y de estado son las que usa la integración de
+ * Home Assistant con equipos reales. El centro receptor (ReportCenterCfg) es lo único sin una
+ * fuente así: por eso se lee primero y se cambian sólo los campos que la central ya tiene.
  */
-const JSON_ = { responseType: "json" as const, contentType: "application/json", timeout: 12000 };
-const pedir = (e: EquipoCentral, metodo: "GET" | "PUT" | "POST", url: string, data?: unknown) =>
-    authenticatedRequest(metodo, url, { ip: e.ip, httpPort: e.httpPort, username: e.username, password: e.password, authType: e.authType || "DIGEST" }, { ...JSON_, data });
+// La sesión, la clave encadenada y el digest de respaldo viven en isapi-ax (tarea 4.2).
+const pedir = (e: EquipoCentral, metodo: "GET" | "PUT" | "POST", url: string, data?: unknown) => pedirAx(e, metodo, url, data);
 
 function errorDe(x: any): string {
     const d = x?.response?.data;
@@ -64,7 +66,10 @@ function armarCentro(cfg: Record<string, any>, d: DestinoReceptor): { nuevo: Rec
     const kTipoDir = campo(n, "addressType", "addressingFormatType");
     if (kTipoDir) n[kTipoDir] = esIp ? "ipaddress" : "domain";
     poner(true, "habilitado", "enabled");
-    poner(d.direccion, "dirección", esIp ? "ipAddress" : "domain", "ipAddress", "address", "serverAddress");
+    // Con un dominio y una central que distingue el tipo de dirección (addressType), el dominio va
+    // en su propio campo aunque la central no lo haya devuelto vacío; la IP vieja no se toca.
+    if (!esIp && kTipoDir) n[campo(n, "domain", "domainName") || "domain"] = d.direccion;
+    else poner(d.direccion, "dirección", esIp ? "ipAddress" : "domain", "ipAddress", "address", "serverAddress");
     poner(d.puerto, "puerto", "port", "portNo");
     poner(`${d.clave ? "*" : ""}${d.protocolo}`, "protocolo", "protocolType", "protocol");
     poner(d.cuenta, "cuenta", "accountCode", "account", "userAccount");
@@ -77,7 +82,8 @@ function armarCentro(cfg: Record<string, any>, d: DestinoReceptor): { nuevo: Rec
     return { nuevo: n };
 }
 
-const ESTADO_PART: Record<string, EstadoParticion["estado"]> = { away: "ausente", arm: "ausente", stay: "presente", home: "presente", disarm: "desarmada", disarmed: "desarmada" };
+// Los valores de `arming` de /status/subSystems (los mismos que lee hikaxpro): away, stay, vacation, disarm, arming.
+const ESTADO_PART: Record<string, EstadoParticion["estado"]> = { away: "ausente", arm: "ausente", vacation: "ausente", stay: "presente", home: "presente", disarm: "desarmada", disarmed: "desarmada" };
 
 function crear(modelo: ModeloCentral, nombre: string): DriverCentral {
     return {
@@ -104,7 +110,8 @@ function crear(modelo: ModeloCentral, nombre: string): DriverCentral {
             const lista: any[] = (r?.ZoneList || []).map((z: any) => z?.Zone || z);
             return lista.map((z): ZonaLeida => ({
                 zona: Number(z.id), particion: z.subSystemNo != null ? Number(z.subSystemNo) : Array.isArray(z.linkageSubSystem) ? Number(z.linkageSubSystem[0]) : null,
-                nombre: z.name || z.zoneName || null, tipo: z.zoneType || z.detectorType || null, estado: z.status || z.zoneStatus || null,
+                nombre: z.name || z.zoneName || null, tipo: z.zoneType || z.detectorType || null,
+                estado: z.alarm ? "alarma" : z.bypassed ? "anulada" : z.tamperEvident ? "sabotaje" : z.sensorStatus || z.status || z.zoneStatus || null,
             })).filter((z) => Number.isFinite(z.zona));
         },
 

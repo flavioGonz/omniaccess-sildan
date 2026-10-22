@@ -26,7 +26,25 @@ async function cerrar(prueba: boolean, deviceId: string, nombre: string, tipo: s
     if (ya) await prisma.deviceAlert.update({ where: { id: ya.id }, data: { active: false, resolvedAt: new Date() } });
 }
 
+/**
+ * Lo que se guarda de los mensajes: una central manda un NULL cada pocos minutos y el registro crecía
+ * sin fin. Los NULL confirmados se guardan 7 días (alcanza para ver si una central falló de noche);
+ * todo lo demás, 90. Una vez por hora.
+ */
+const NULL_DIAS = 7, MENSAJES_DIAS = 90;
+let ultimaLimpieza = 0;
+async function limpiarMensajes() {
+    if (Date.now() - ultimaLimpieza < 3600_000) return;
+    ultimaLimpieza = Date.now();
+    const dia = 24 * 3600_000;
+    await prisma.mensajeCentral.deleteMany({ where: { OR: [
+        { idMensaje: "NULL", respuesta: "ACK", recibido: { lt: new Date(Date.now() - NULL_DIAS * dia) } },
+        { recibido: { lt: new Date(Date.now() - MENSAJES_DIAS * dia) } },
+    ] } }).catch(() => { });
+}
+
 export async function evaluarCentrales(): Promise<number> {
+    await limpiarMensajes();
     const centrales = await prisma.centralAlarma.findMany({ include: { device: { select: { name: true } } } });
     const ahora = Date.now();
     for (const c of centrales) {

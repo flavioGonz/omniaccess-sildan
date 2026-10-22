@@ -227,6 +227,15 @@ function Receptor({ d, recargar }: { d: Ficha; recargar: () => void }) {
     const [dest, setDest] = useState({ direccion: "", puerto: "10010", transporte: "udp" });
     const [guardandoDest, setGuardandoDest] = useState(false);
     const [vinculo, setVinculo] = useState<{ corriendo: boolean; probado?: any; error?: string | null }>({ corriendo: false });
+    // «Probar recepción» (tarea 5.2): se anota el momento y se espera el próximo mensaje de la central.
+    const [prueba, setPrueba] = useState<number | null>(null);
+    const llegado = prueba ? d.mensajes.find((m) => new Date(m.recibido).getTime() >= prueba) || null : null;
+    useEffect(() => {
+        if (!prueba || llegado) return;
+        const iv = setInterval(recargar, 3000);
+        const fin = setTimeout(() => setPrueba(null), 3 * 60_000);
+        return () => { clearInterval(iv); clearTimeout(fin); };
+    }, [prueba, llegado, recargar]);
 
     const verClave = async () => {
         if (clave) { setClave(null); return; }
@@ -287,9 +296,22 @@ function Receptor({ d, recargar }: { d: Ficha; recargar: () => void }) {
                     {vinculo.probado && <pre className="rounded-[10px] bg-muted/60 p-3 text-[11px] overflow-x-auto max-h-48">{JSON.stringify(vinculo.probado, null, 2)}</pre>}
                 </div>
             )}
-            {c.estado === "ESPERANDO" && (
-                <p className="mt-3 text-[12px] text-muted-foreground">Cuando la central mande su primer mensaje (una prueba o un NULL) la ficha pasa a «En línea» sola. {c.prueba ? <>En el servidor: <code className="text-[11px]">SIM_CLAVE=… node scripts/simular-central.js --cuenta {c.cuenta} --udp</code></> : null}</p>
-            )}
+            <div className="mt-3 rounded-[10px] border border-border p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                    <span className="text-[13px] font-semibold flex-1">Probar recepción</span>
+                    <Button size="sm" variant="outline" onClick={() => setPrueba(prueba && !llegado ? null : Date.now())}>{prueba && !llegado ? <><X size={14} /> Dejar de esperar</> : <><Radio size={14} /> Probar</>}</Button>
+                </div>
+                {!prueba && (
+                    <p className="text-[12px] text-muted-foreground">
+                        Desde la central, mandá una prueba de comunicación al centro receptor ({c.modelo === "generica" ? "«prueba manual» o «test report» en el menú de comunicaciones" : "en Hik-Partner Pro: la central › Centro receptor › Prueba"}). La ficha avisa cuando llega.
+                        {c.prueba ? <> En el servidor: <code className="text-[11px]">SIM_CLAVE=… node scripts/simular-central.js --cuenta {c.cuenta} --udp</code></> : null}
+                    </p>
+                )}
+                {prueba && !llegado && <p className="text-[12px] text-muted-foreground inline-flex items-center gap-1.5"><Loader2 size={13} className="animate-spin" /> Esperando el próximo mensaje de la central (hasta 3 minutos)…</p>}
+                {llegado && (llegado.respuesta === "ACK"
+                    ? <div className="rounded-[10px] chip-bien px-3 py-2 text-[12.5px]">Llegó y se confirmó: {llegado.idMensaje}{llegado.cifrado ? " cifrado" : ""} por {(llegado.transporte || "").toUpperCase()} desde {llegado.ip}. La central está bien configurada.</div>
+                    : <div className="rounded-[10px] chip-mal px-3 py-2 text-[12.5px]">Llegó pero se rechazó ({llegado.respuesta}): {ERROR_TXT[llegado.error || ""] || llegado.error || "sin motivo"}. Revisá {llegado.error === "descifrado" ? "la clave" : llegado.error === "hora-fuera-de-ventana" ? "la hora de la central (NTP)" : llegado.error === "sin-cifrar" ? "que la central mande cifrado (*SIA-DCS)" : "la cuenta y el protocolo"} en la central.</div>)}
+            </div>
         </CajonSeccion>
     );
 }
