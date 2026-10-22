@@ -24,7 +24,8 @@ const CID = {
     300: ["FALLA", "SISTEMA", "Falla del sistema"], 301: ["FALLA", "CORRIENTE", "Corte de corriente"], 302: ["FALLA", "BATERIA", "Batería baja"], 305: ["OTRO", "SISTEMA", "Reinicio del sistema"], 309: ["FALLA", "BATERIA", "Prueba de batería fallida"], 311: ["FALLA", "BATERIA", "Sin batería"], 321: ["FALLA", "SIRENA", "Falla de sirena"],
     350: ["FALLA", "COMUNICACION", "Falla de comunicación"], 351: ["FALLA", "COMUNICACION", "Falla de línea 1"], 354: ["FALLA", "COMUNICACION", "Falla al comunicar un evento"],
     380: ["FALLA", "SENSOR", "Falla de sensor"], 381: ["FALLA", "SENSOR", "Sensor inalámbrico sin supervisión"], 383: ["ALARMA", "SABOTAJE", "Sabotaje de sensor"], 384: ["FALLA", "BATERIA", "Batería baja de sensor inalámbrico"],
-    570: ["OTRO", "ANULADA", "Zona anulada"], 601: ["PRUEBA", "PRUEBA", "Prueba manual"], 602: ["PRUEBA", "PRUEBA", "Prueba periódica"], 627: ["OTRO", "PROGRAMACION", "Entró en programación"], 628: ["OTRO", "PROGRAMACION", "Salió de programación"],
+    306: ["OTRO", "PROGRAMACION", "Programación cambiada"], 412: ["OTRO", "PROGRAMACION", "Acceso remoto a la central"], 413: ["FALLA", "PROGRAMACION", "Acceso remoto fallido"],
+    570: ["OTRO", "ANULADA", "Zona anulada"], 625: ["OTRO", "PROGRAMACION", "Cambio de fecha y hora"], 626: ["FALLA", "SISTEMA", "Hora de la central inexacta"], 601: ["PRUEBA", "PRUEBA", "Prueba manual"], 602: ["PRUEBA", "PRUEBA", "Prueba periódica"], 627: ["OTRO", "PROGRAMACION", "Entró en programación"], 628: ["OTRO", "PROGRAMACION", "Salió de programación"],
 };
 const CID_APERTURA = { 400: "", 401: "", 402: "de grupo", 403: "automático", 406: "cancelado", 407: "remoto", 408: "rápido", 409: "con llave", 441: "presente", 442: "presente con llave", 456: "parcial" };
 
