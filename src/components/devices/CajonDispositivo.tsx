@@ -8,7 +8,7 @@ import {
     LogIn, LogOut, KeyRound, User, Cpu, Fingerprint, Clock, BellRing, ScanLine, Film, Video, ListChecks, Server,
     ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users, Sparkles, Image as ImageIcon,
     FolderTree, Plus,
-    Siren,
+    Siren, Trash2,
 } from "lucide-react";
 import { leerAreas, crearArea, type Area } from "@/app/actions/areas";
 import { guardarGrupo } from "@/app/actions/groups";
@@ -17,7 +17,8 @@ import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarraDePasos, PasoAnimado } from "@/components/devices/Pasos";
-import { createDevice, updateDevice, probeDeviceInfo, getDevices, detectarCapacidades, detectarCapacidadesCanales, getCredencialesDispositivo } from "@/app/actions/devices";
+import { createDevice, updateDevice, probeDeviceInfo, getDevices, detectarCapacidades, detectarCapacidadesCanales, getCredencialesDispositivo, deleteDevice } from "@/app/actions/devices";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ChipsCapacidades } from "@/components/devices/Capacidades";
 import type { Capacidades } from "@/lib/capacidades-camara";
 import { consecuencias as consecuenciasTipo } from "@/lib/rol-camara";
@@ -994,6 +995,22 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     /* ── Pie ── */
     const pie = esEdicion ? (
         <div className="flex items-center gap-2 w-full">
+            {/*
+              * Eliminar desde la ficha (22/10, Nico: «no permite eliminar dispositivos de forma
+              * individual»). Sólo estaba en el menú de la tabla general, en la de intrusión y en la de
+              * NVR: desde un área, desde el árbol o con el cajón abierto no había cómo. La ficha se abre
+              * desde todas las vistas, así que acá queda a mano en cualquiera. Mismo borrado de todos
+              * lados (lib/borrar-equipo) y misma confirmación.
+              */}
+            {device?.id && (
+                <DeleteConfirmDialog id={device.id} title={device.name || "el equipo"}
+                    description={tipo === "NVR"
+                        ? "Se borra de todo OmniAccess: su salud, sus canales en el mapa, sus streams y lo que tenga guardado. Las cámaras que graban en él quedan, sin su grabación vinculada. Queda sólo el registro en Auditoría. El NVR en sí no se toca."
+                        : "Se borra de todo OmniAccess: su historial (accesos, detecciones, alarmas, lecturas), sus reglas, su área, su video en vivo y su lugar en OmniVision. Queda sólo el registro en Auditoría. El equipo en sí no se toca."}
+                    onDelete={deleteDevice} onSuccess={() => { onOpenChange(false); onSuccess(); }}>
+                    <Button variant="outline" disabled={guardando} className="gap-1.5 text-[var(--mal)] border-[color-mix(in_oklab,var(--mal)_35%,transparent)] hover:bg-[color-mix(in_oklab,var(--mal)_8%,transparent)]"><Trash2 size={15} /> Eliminar</Button>
+                </DeleteConfirmDialog>
+            )}
             <span className="flex-1 text-[12px] text-muted-foreground truncate">{meta?.rotulo} · {device?.ip}</span>
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={guardando}>Cancelar</Button>
             <Button onClick={guardarCambios} disabled={guardando} className="gap-1.5">{guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Guardar cambios</Button>

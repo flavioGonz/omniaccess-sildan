@@ -14,7 +14,7 @@ import { ElegirArea } from "@/components/devices/ElegirArea";
 import { ElegirCamara } from "@/components/devices/ElegirCamara";
 import { useAreas } from "@/lib/use-areas";
 import { TODAS_LAS_AREAS } from "@/lib/use-filtro-area";
-import { getDevices } from "@/app/actions/devices";
+import { getDevices, deleteDevice } from "@/app/actions/devices";
 import { cn } from "@/lib/utils";
 
 /**
@@ -72,7 +72,7 @@ export function CajonCentral({ abierto, alCerrar, centralId, alCambiar }: { abie
     return (
         <Cajon open={abierto} onOpenChange={(v) => !v && alCerrar()}>
             <CajonContenido ancho="medio" titulo={id ? "Central de alarma" : "Agregar una central de alarma"} descripcion={id ? undefined : "Alarm Hub: la central le manda sus eventos a OmniAccess por SIA DC-09, cifrados."}>
-                {abierto && (id ? <FichaCentral id={id} alCambiar={alCambiar} /> : <AltaCentral alCreada={(nuevo) => { setId(nuevo); alCambiar?.(); }} />)}
+                {abierto && (id ? <FichaCentral id={id} alCambiar={alCambiar} alBorrada={() => { alCambiar?.(); alCerrar(); }} /> : <AltaCentral alCreada={(nuevo) => { setId(nuevo); alCambiar?.(); }} />)}
             </CajonContenido>
         </Cajon>
     );
@@ -199,7 +199,7 @@ function Opcion({ activa, alCambiar, icono: I, titulo, texto }: { activa: boolea
 
 /* ── Ficha ──────────────────────────────────────────────────────────────────────────────── */
 
-function FichaCentral({ id, alCambiar }: { id: string; alCambiar?: () => void }) {
+function FichaCentral({ id, alCambiar, alBorrada }: { id: string; alCambiar?: () => void; alBorrada?: () => void }) {
     const [d, setD] = useState<Ficha | null>(null);
     const [error, setError] = useState<string | null>(null);
     const cargar = useCallback(() => pedir(`/api/centrales/${id}`).then((j) => { setD(j); setError(null); }).catch((e) => setError(e?.message || "No se pudo leer la central")), [id]);
@@ -232,7 +232,7 @@ function FichaCentral({ id, alCambiar }: { id: string; alCambiar?: () => void })
             <Zonas d={d} recargar={cargar} />
             {d.modelo.controla && <Control d={d} />}
             <Mensajes mensajes={d.mensajes} />
-            <Ajustes d={d} recargar={() => { cargar(); alCambiar?.(); }} />
+            <Ajustes d={d} recargar={() => { cargar(); alCambiar?.(); }} alBorrada={alBorrada} />
         </div>
     );
 }
@@ -483,10 +483,11 @@ function Mensajes({ mensajes }: { mensajes: Mensaje[] }) {
     );
 }
 
-function Ajustes({ d, recargar }: { d: Ficha; recargar: () => void }) {
+function Ajustes({ d, recargar, alBorrada }: { d: Ficha; recargar: () => void; alBorrada?: () => void }) {
     const c = d.central;
     const [min, setMin] = useState(String(Math.round(c.supervisionSeg / 60)));
     const [nuevaClave, setNuevaClave] = useState(false);
+    const [borrar, setBorrar] = useState(false);
     const patch = async (cuerpo: any, ok: string) => {
         try { const j = await pedir(`/api/centrales/${c.id}`, { method: "PATCH", body: JSON.stringify(cuerpo) }); toast.success({ title: ok }); recargar(); return j; }
         catch (e: any) { toast.error({ title: "No se pudo guardar", description: e?.message }); return null; }
@@ -500,8 +501,17 @@ function Ajustes({ d, recargar }: { d: Ficha; recargar: () => void }) {
                 </div>
                 <Opcion activa={c.lanVpn} alCambiar={(v) => patch({ lanVpn: v }, v ? "Acepta mensajes sin cifrar" : "Exige cifrado")} icono={ShieldOff} titulo="Está en la LAN o en una VPN" texto="Acepta mensajes sin cifrar. Por internet, apagado." />
                 <Opcion activa={c.prueba} alCambiar={(v) => patch({ prueba: v }, v ? "Marcada de prueba" : "Ya no es de prueba: sus alarmas avisan")} icono={FlaskConical} titulo="Central de prueba" texto="Sus alarmas no disparan avisos ni la salud manda Telegram." />
-                <Button variant="outline" size="sm" onClick={() => setNuevaClave(true)}><KeyRound size={14} /> Cambiar la clave AES</Button>
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setNuevaClave(true)}><KeyRound size={14} /> Cambiar la clave AES</Button>
+                    {/* Eliminar la central (22/10): la ficha de una central no tenía cómo. */}
+                    <Button variant="outline" size="sm" onClick={() => setBorrar(true)} className="ml-auto text-[var(--mal)] border-[color-mix(in_oklab,var(--mal)_35%,transparent)]"><Trash2 size={14} /> Eliminar la central</Button>
+                </div>
             </div>
+            {borrar && (
+                <ConfirmarEnCajon id={c.deviceId} open onOpenChange={(v) => !v && setBorrar(false)} title={`Eliminar ${c.device.name}`}
+                    description={`Se borra de todo OmniAccess: sus zonas, sus mensajes, sus alarmas y su historial. La cuenta ${c.cuenta} queda libre: si la central sigue reportando, sus mensajes se confirman y se anotan como «cuenta no dada de alta». Queda en Auditoría.`}
+                    etiquetaAccion="Eliminar" onDelete={deleteDevice} onSuccess={() => { setBorrar(false); alBorrada?.(); }} />
+            )}
             {nuevaClave && (
                 <ConfirmarEnCajon id={c.id} open onOpenChange={(v) => !v && setNuevaClave(false)} title={`Cambiar la clave de ${c.device.name}`}
                     description="La central deja de poder reportar hasta que se le cargue la clave nueva (en una AX, con «Escribir en la central»)." etiquetaAccion="Cambiar la clave"
