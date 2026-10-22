@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDevice, relecturasDeEventos } from "@/app/actions/history";
 import { chapaDe, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
 import type { RelecturaEvento } from "@/lib/relectura";
-import { getDevices, getAvailableStreams } from "@/app/actions/devices";
+import { getDevices, getAvailableStreams, getEquiposApagados } from "@/app/actions/devices";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
 import { SugerenciaRelectura } from "@/components/monitor/SugerenciaRelectura";
@@ -736,7 +736,9 @@ export default function MonitorLPR() {
     // últimas las lee el contenedor, no la cámara, y sus lecturas no llegan por el socket
     // de access_event, así que su última captura se vuelve a pedir cada tanto.
     const esCamaraDeAcceso = (x: any) => x.deviceType === "LPR_CAMERA" || (x.deviceType === "LPR_INTERIOR" && !!x.trackAcceso);
-    useEffect(() => { getDevices().then((d: any) => setDevices((d || []).filter(esCamaraDeAcceso))).catch(() => {}); getLastEventPerDevice().then(setLastCapByDev).catch(() => {}); getAvailableStreams().then((s: any) => setStreams(s || [])).catch(() => {}); }, []);
+    // Sólo las que leen matrículas de un acceso —ANPR de la cámara (LPR_CAMERA) o lectura de OmniVision
+    // (LPR_INTERIOR que mira un acceso)— y que no estén apagadas por su área (22/10).
+    useEffect(() => { Promise.all([getDevices(), getEquiposApagados().catch(() => [] as string[])]).then(([d, off]: any) => { const ap = new Set<string>(off || []); setDevices((d || []).filter((x: any) => esCamaraDeAcceso(x) && !ap.has(x.id))); }).catch(() => {}); getLastEventPerDevice().then(setLastCapByDev).catch(() => {}); getAvailableStreams().then((s: any) => setStreams(s || [])).catch(() => {}); }, []);
     const hayInterioresDeAcceso = useMemo(() => devices.some((x: any) => x.deviceType === "LPR_INTERIOR"), [devices]);
     useEffect(() => {
         if (!hayInterioresDeAcceso) return;

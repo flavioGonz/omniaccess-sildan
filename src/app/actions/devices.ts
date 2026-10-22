@@ -290,6 +290,12 @@ export async function getCredencialesDispositivo(id: string): Promise<{ username
     return prisma.device.findUnique({ where: { id }, select: { username: true, password: true, rtspUrl: true } });
 }
 
+/** Los equipos apagados por su área (lib/apagado): las pantallas que listan cámaras los dejan afuera. */
+export async function getEquiposApagados(): Promise<string[]> {
+    const { equiposApagados } = await import("@/lib/apagado");
+    return [...(await equiposApagados().catch(() => new Set<string>()))];
+}
+
 export async function getDevicesCount() {
     return await prisma.device.count();
 }
