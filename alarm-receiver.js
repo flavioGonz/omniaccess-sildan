@@ -32,6 +32,7 @@ const http = require("http");
 const { PrismaClient } = require("@prisma/client");
 const dc = require("./lib-dc09");
 const cod = require("./lib-dc09-codigos");
+const cms = require("./lib-cms-salida");
 const { descifrar } = require("./lib-cifrado-datos");
 
 // Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
@@ -47,6 +48,16 @@ const ANOTAR_POR_MIN = 20;
 const REPETIDO_MS = 15 * 60_000;
 const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
 const WEBHOOKS = Number(process.env.WEBHOOK_PORT || 10000);
+/**
+ * La salida a CMS de un receptor (IPC10 de Paradox, Sur-Gard): otro puerto, sólo TCP, y sólo desde
+ * la red local. No lleva cifrado ni hora (el formato no los tiene), por eso no se abre a internet:
+ * lo que entra por acá se cree porque viene de un receptor de la red, y la lista de direcciones es
+ * el único control. 0 la apaga.
+ */
+const PUERTO_CMS = Number(process.env.ALARMAS_PUERTO_CMS ?? 10011);
+const CMS_DESDE = String(process.env.ALARMAS_CMS_DESDE || "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32").split(",").map((x) => x.trim()).filter(Boolean);
+/** El receptor reintenta si no le llegó el ACK: la misma trama dentro de este tiempo es la misma. */
+const CMS_REPETIDO_MS = 20_000;
 
 const log = (...a) => console.log(new Date().toISOString(), "[centrales]", ...a);
 
@@ -205,6 +216,70 @@ async function despues(central, msg, eventos, mensajeId) {
     }
 }
 
+// ── Salida a CMS (IPC10 de Paradox, Sur-Gard) ─────────────────────────────────────────────────
+function ipEn(ip, cidr) {
+    const [red, bits = "32"] = cidr.split("/");
+    const n = (x) => x.split(".").reduce((a, o) => (a << 8) + (Number(o) & 255), 0) >>> 0;
+    if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip) || !/^\d+\.\d+\.\d+\.\d+$/.test(red)) return false;
+    const b = Number(bits); const mascara = b === 0 ? 0 : (~0 << (32 - b)) >>> 0;
+    return (n(ip) & mascara) === (n(red) & mascara);
+}
+const cmsPermitida = (ip) => CMS_DESDE.some((c) => ipEn(ip, c));
+
+/**
+ * Una trama del receptor. Siempre se contesta ACK — también a una cuenta que no está dada de alta
+ * o a una trama ilegible —, porque el receptor no manda el evento siguiente hasta que se le confirma
+ * el anterior: un NAK lo dejaría reintentando el mismo para siempre y trabaría a todas las demás
+ * centrales detrás. Lo que no se pudo usar queda anotado con su error y la trama cruda.
+ */
+async function procesarCms(trama, ip) {
+    const crudo = String(trama).replace(/[\x00-\x1f]/g, " ").trim().slice(0, 500);
+    const m = cms.leer(trama);
+    if (m.tipo === "vacia" || m.tipo === "vivo") return cms.ACK;
+    if (m.tipo === "ilegible") {
+        if (puedoAnotar(ip)) await registrar({ centralId: null, cuenta: null, ip, transporte: "cms", idMensaje: "CMS", cifrado: false, crudo, respuesta: "ACK", error: m.error || "forma" });
+        log(`${ip}/cms: trama ilegible, se confirma igual: ${JSON.stringify(crudo)}`);
+        return cms.ACK;
+    }
+    const central = await centralDe(m.cuenta);
+    if (!central) {
+        if (puedoAnotar(ip)) await registrar({ centralId: null, cuenta: m.cuenta, ip, transporte: "cms", idMensaje: "ADM-CID", cifrado: false, crudo, datos: m.datos, respuesta: "ACK", error: "cuenta-desconocida" });
+        log(`${ip}/cms: cuenta ${m.cuenta} no dada de alta (${m.datos}) → ACK sin evento`);
+        return cms.ACK;
+    }
+    const clave = `cms:${m.cuenta}:${crudo}`;
+    if (Date.now() - (repetidos.get(clave) || 0) < CMS_REPETIDO_MS) { log(`${ip}/cms: repetido cuenta ${m.cuenta} → ACK sin evento`); return cms.ACK; }
+    repetidos.set(clave, Date.now());
+
+    prisma.centralAlarma.update({ where: { id: central.id }, data: { estado: "EN_LINEA", ultimoMensajeAt: new Date(), ipOrigen: ip, transporte: "cms" } }).catch(() => { });
+    const msg = { id: "ADM-CID", cuenta: m.cuenta, datos: m.datos, cifrado: false, seq: null, hora: null };
+    const eventos = cod.traducir(msg);
+    const guardado = await registrar({ centralId: central.id, cuenta: m.cuenta, ip, transporte: "cms", idMensaje: "ADM-CID", cifrado: false, crudo, datos: m.datos, respuesta: "ACK", eventos: eventos.length ? eventos : undefined });
+    if (eventos.length) log(`${central.nombre} (cms): ${eventos.map((e) => `${e.codigo} ${e.texto}${e.zona != null ? ` z${e.zona}` : ""}`).join(" · ")}`);
+    setImmediate(() => despues(central, msg, eventos, guardado?.id || null).catch((e) => log("después del ACK:", e.message)));
+    return cms.ACK;
+}
+
+const tcpCms = net.createServer((s) => {
+    const ip = String(s.remoteAddress || "").replace(/^::ffff:/, "");
+    if (!cmsPermitida(ip)) { log(`cms: conexión de ${ip} rechazada (no está en ALARMAS_CMS_DESDE)`); s.destroy(); return; }
+    const n = (porIp.get(`cms:${ip}`) || 0) + 1;
+    if (n > CONEXIONES_POR_IP) { s.destroy(); return; }
+    porIp.set(`cms:${ip}`, n);
+    log(`cms: se conectó ${ip}`);
+    s.setTimeout(INACTIVO_MS, () => s.destroy());
+    let resto = "";
+    let cola = Promise.resolve();
+    s.on("data", (b) => {
+        const { tramas, resto: r } = cms.separar(resto + b.toString("latin1"));
+        resto = r;
+        for (const t of tramas) cola = cola.then(() => procesarCms(t, ip)).then((resp) => { if (resp && !s.destroyed) s.write(resp, "latin1"); }).catch((e) => log("cms:", e.message));
+    });
+    s.once("close", () => { const k = (porIp.get(`cms:${ip}`) || 1) - 1; if (k <= 0) porIp.delete(`cms:${ip}`); else porIp.set(`cms:${ip}`, k); log(`cms: se desconectó ${ip}`); });
+    s.on("error", () => { });
+});
+tcpCms.on("error", (e) => { log("TCP CMS:", e.message); process.exit(1); });
+
 // ── Red ──────────────────────────────────────────────────────────────────────────────────────
 const porIp = new Map();
 const tcp = net.createServer((s) => {
@@ -239,9 +314,10 @@ udp.on("error", (e) => { log("UDP:", e.message); process.exit(1); });
 releer().then(() => {
     tcp.listen(PUERTO, "0.0.0.0", () => log(`escuchando TCP ${PUERTO}`));
     udp.bind(PUERTO, "0.0.0.0", () => log(`escuchando UDP ${PUERTO} · ${centrales.size} centrales dadas de alta`));
+    if (PUERTO_CMS) tcpCms.listen(PUERTO_CMS, "0.0.0.0", () => log(`escuchando TCP ${PUERTO_CMS} (salida a CMS de receptores: IPC10, Sur-Gard) desde ${CMS_DESDE.join(", ")}`));
     setInterval(releer, RELEER_MS).unref();
 });
 
-const cerrar = () => { try { tcp.close(); udp.close(); } catch { } prisma.$disconnect().finally(() => process.exit(0)); };
+const cerrar = () => { try { tcp.close(); udp.close(); tcpCms.close(); } catch { } prisma.$disconnect().finally(() => process.exit(0)); };
 process.on("SIGINT", cerrar); process.on("SIGTERM", cerrar);
-module.exports = { procesar };
+module.exports = { procesar, procesarCms };

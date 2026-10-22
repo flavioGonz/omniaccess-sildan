@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Siren, Server, KeyRound, Copy, Eye, EyeOff, Loader2, Plus, Trash2, RefreshCw, ShieldCheck, ShieldOff, Home, Lock, Unlock, Radio, FlaskConical, Wifi, Globe, Check, Camera, X, Info } from "lucide-react";
+import { Siren, Server, KeyRound, Copy, Eye, EyeOff, Loader2, Plus, Trash2, RefreshCw, ShieldCheck, ShieldOff, Home, Lock, Unlock, Radio, FlaskConical, Wifi, Globe, Check, Camera, X, Info, Network } from "lucide-react";
+import { POR_RECEPTOR, PUERTO_CMS } from "@/lib/centrales/limites";
 import { sileo as toast } from "sileo";
 import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
 import { ConfirmarEnCajon } from "@/components/ui/cajon-confirmar";
@@ -28,7 +29,7 @@ type Modelo = { modelo: string; nombre: string; probado: boolean; ayuda: string;
 type Zona = { id?: string; zona: number; particion: number | null; nombre: string | null; areaId: string | null; camaras: string[]; tipo?: string | null };
 type Mensaje = { id: string; recibido: string; ip: string | null; transporte: string | null; idMensaje: string | null; cifrado: boolean; seq: number | null; datos: string | null; respuesta: string | null; error: string | null; eventos: any[] | null };
 type Ficha = {
-    central: { id: string; deviceId: string; modelo: string; cuenta: string; protocolo: string; cifrado: boolean; lanVpn: boolean; prueba: boolean; supervisionSeg: number; estado: string; ultimoMensajeAt: string | null; ipOrigen: string | null; transporte: string | null; device: { id: string; name: string; ip: string; httpPort: number | null; username: string | null }; zonas: Zona[] };
+    central: { id: string; deviceId: string; modelo: string; cuenta: string; protocolo: string; cifrado: boolean; lanVpn: boolean; prueba: boolean; supervisionSeg: number; estado: string; ultimoMensajeAt: string | null; ipOrigen: string | null; transporte: string | null; device: { id: string; name: string; ip: string; httpPort: number | null; username: string | null; deviceModel?: string | null }; zonas: Zona[] };
     mensajes: Mensaje[]; alertas: { type: string; severity: string; message: string }[]; destino: { direccion: string; puerto: number; transporte: string } | null; modelo: Modelo;
 };
 
@@ -36,6 +37,7 @@ const MODELOS_ALTA = [
     { modelo: "ax-pro", nombre: "Hikvision AX PRO", que: "Inalámbrica. OmniAccess le escribe el receptor, lee sus zonas y la arma o desarma.", icono: Radio },
     { modelo: "ax-hybrid", nombre: "Hikvision AX Hybrid PRO", que: "Cableada e inalámbrica. Lo mismo que la AX PRO.", icono: Server },
     { modelo: "generica", nombre: "Otra central (DC-09)", que: "Cualquier central que reporte por SIA DC-09 (DSC, Ajax, Paradox…). Los datos se cargan en la central a mano.", icono: Siren },
+    { modelo: "por-receptor", nombre: "Por un receptor (IPC10 de Paradox, Sur-Gard)", que: "La central reporta a su receptor y el receptor le pasa los eventos a OmniAccess en Contact ID. Se carga la cuenta que la central tiene en el receptor.", icono: Network },
 ];
 const ESTADO: Record<string, { rotulo: string; tono: "bien" | "info" | "mal" }> = {
     EN_LINEA: { rotulo: "En línea", tono: "bien" }, ESPERANDO: { rotulo: "Esperando a la central", tono: "info" }, SIN_SUPERVISION: { rotulo: "Sin supervisión", tono: "mal" },
@@ -81,18 +83,25 @@ export function CajonCentral({ abierto, alCerrar, centralId, alCambiar }: { abie
 function AltaCentral({ alCreada }: { alCreada: (id: string) => void }) {
     const { areas } = useAreas();
     const [modelo, setModelo] = useState<string | null>(null);
-    const [f, setF] = useState({ nombre: "", ip: "", httpPort: "", usuario: "", clave: "", areaId: TODAS_LAS_AREAS, protocolo: "SIA-DCS", lanVpn: false, prueba: false, supervisionMin: "10" });
+    const [f, setF] = useState({ nombre: "", ip: "", httpPort: "", usuario: "", clave: "", areaId: TODAS_LAS_AREAS, protocolo: "SIA-DCS", lanVpn: false, prueba: false, supervisionMin: "10", cuenta: "" });
     const set = (k: keyof typeof f, v: any) => setF((p) => ({ ...p, [k]: v }));
     const [guardando, setGuardando] = useState(false);
     const esAx = modelo === "ax-pro" || modelo === "ax-hybrid";
-    const listo = !!modelo && f.nombre.trim() && (!esAx || f.ip.trim());
+    const porReceptor = modelo === "por-receptor";
+    const listo = !!modelo && f.nombre.trim() && (!esAx || f.ip.trim()) && (!porReceptor || /^[0-9A-Fa-f]{3,16}$/.test(f.cuenta.trim()));
+    const elegirModelo = (m: string) => {
+        setModelo(m);
+        // Por un receptor la única señal de vida es la prueba periódica del panel, una por día (Paradox
+        // la manda a las 23:00): 25 h deja un margen para que no alerte cada noche.
+        setF((p) => ({ ...p, supervisionMin: m === "por-receptor" ? "1500" : p.supervisionMin === "1500" ? "10" : p.supervisionMin }));
+    };
 
     const crear = async () => {
         if (!listo) return;
         setGuardando(true);
         try {
             const j = await pedir("/api/centrales", { method: "POST", body: JSON.stringify({
-                nombre: f.nombre, modelo, ip: esAx ? f.ip : "", httpPort: esAx && f.httpPort ? Number(f.httpPort) : null, usuario: esAx ? f.usuario : null, clave: esAx ? f.clave : null,
+                nombre: f.nombre, modelo: porReceptor ? "generica" : modelo, porReceptor, cuenta: porReceptor ? f.cuenta.trim() : null, ip: esAx ? f.ip : "", httpPort: esAx && f.httpPort ? Number(f.httpPort) : null, usuario: esAx ? f.usuario : null, clave: esAx ? f.clave : null,
                 areaId: f.areaId !== TODAS_LAS_AREAS ? f.areaId : null, protocolo: f.protocolo, lanVpn: f.lanVpn, prueba: f.prueba, supervisionSeg: Math.round(Number(f.supervisionMin || 10) * 60),
             }) });
             toast.success({ title: `«${f.nombre}» dada de alta`, description: `Cuenta ${j.cuenta}. Falta que la central reporte.` });
@@ -106,7 +115,7 @@ function AltaCentral({ alCreada }: { alCreada: (id: string) => void }) {
             <CajonSeccion titulo="¿Qué central es?" icono={Siren}>
                 <div className="grid gap-2">
                     {MODELOS_ALTA.map((m) => (
-                        <button key={m.modelo} type="button" onClick={() => setModelo(m.modelo)} aria-pressed={modelo === m.modelo}
+                        <button key={m.modelo} type="button" onClick={() => elegirModelo(m.modelo)} aria-pressed={modelo === m.modelo}
                             className={cn("text-left rounded-[10px] border p-3 flex gap-3 transition-colors", modelo === m.modelo ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_6%,transparent)]" : "border-border hover:bg-accent/50")}>
                             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-muted/60 tono-mal"><m.icono size={18} /></span>
                             <span className="min-w-0">
@@ -138,7 +147,19 @@ function AltaCentral({ alCreada }: { alCreada: (id: string) => void }) {
                             </div>
                         </CajonSeccion>
                     )}
-                    <CajonSeccion titulo="Cómo reporta" icono={Globe} pista="OmniAccess le asigna una cuenta y una clave AES. Por internet la central tiene que mandar cifrado; sin cifrar sólo si está en la misma red o en una VPN.">
+                    {porReceptor && (
+                        <CajonSeccion titulo="Cómo llega" icono={Network} ayuda={<>La central ya reporta a su receptor. En el receptor (IPC10: Configuration › CMS Configuration) se pone como CMS la IP de este servidor en la red local, puerto <b>{PUERTO_CMS}</b>, protocolo <b>MLR2-DG</b>. OmniAccess confirma cada evento y lo traduce.</>}>
+                            <div className="grid sm:grid-cols-2 gap-3">
+                                <CajonCampo etiqueta="Cuenta en el receptor" ayuda="La columna Account# de los eventos del receptor (p. ej. 2989).">
+                                    <Input value={f.cuenta} onChange={(e) => set("cuenta", e.target.value.replace(/[^0-9a-fA-F]/g, "").toUpperCase())} placeholder="2989" className="tabular-nums" />
+                                </CajonCampo>
+                                <CajonCampo etiqueta="Supervisión (minutos)" ayuda="La prueba periódica del panel es una por día: 1500 min = 25 h.">
+                                    <Input value={f.supervisionMin} onChange={(e) => set("supervisionMin", e.target.value.replace(/[^\d.]/g, ""))} className="tabular-nums" />
+                                </CajonCampo>
+                            </div>
+                        </CajonSeccion>
+                    )}
+                    {!porReceptor && <CajonSeccion titulo="Cómo reporta" icono={Globe} pista="OmniAccess le asigna una cuenta y una clave AES. Por internet la central tiene que mandar cifrado; sin cifrar sólo si está en la misma red o en una VPN.">
                         <div className="grid sm:grid-cols-2 gap-3">
                             <CajonCampo etiqueta="Protocolo">
                                 <span className="flex w-full items-center rounded-full border border-border p-0.5">
@@ -156,7 +177,7 @@ function AltaCentral({ alCreada }: { alCreada: (id: string) => void }) {
                             <Opcion activa={f.lanVpn} alCambiar={(v) => set("lanVpn", v)} icono={ShieldOff} titulo="Está en la LAN o en una VPN" texto="Permite que mande sin cifrar. Por internet, no." />
                             <Opcion activa={f.prueba} alCambiar={(v) => set("prueba", v)} icono={FlaskConical} titulo="Central de prueba" texto="Sus alarmas no disparan avisos ni la salud manda Telegram. Para el simulador." />
                         </div>
-                    </CajonSeccion>
+                    </CajonSeccion>}
                     <div className="flex justify-end">
                         <Button onClick={crear} disabled={!listo || guardando} className="gap-1.5">{guardando ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Dar de alta</Button>
                     </div>
@@ -222,6 +243,7 @@ function Fila({ rotulo, children }: { rotulo: string; children: React.ReactNode 
 
 function Receptor({ d, recargar }: { d: Ficha; recargar: () => void }) {
     const c = d.central;
+    const porReceptor = c.device.deviceModel === POR_RECEPTOR;
     const [clave, setClave] = useState<string | null>(null);
     const [viendo, setViendo] = useState(false);
     const [dest, setDest] = useState({ direccion: "", puerto: "10010", transporte: "udp" });
@@ -261,7 +283,11 @@ function Receptor({ d, recargar }: { d: Ficha; recargar: () => void }) {
 
     return (
         <CajonSeccion titulo="Receptor" icono={Globe} pista="Lo que la central tiene que tener cargado para reportar a OmniAccess. En una AX lo escribe OmniAccess; en otra central se carga a mano, en «centro receptor» / ARC.">
-            {d.destino ? (
+            {porReceptor ? (
+                <div className="rounded-[10px] chip-info px-3 py-2.5 text-[12.5px] mb-2">
+                    Llega por la <b>salida a CMS</b> de su receptor, no directo. En el receptor (IPC10: Configuration › CMS Configuration): IP de este servidor en la red local, puerto <b className="tabular-nums">{PUERTO_CMS}</b>, protocolo <b>MLR2-DG</b>. Sólo se aceptan receptores de la red local.
+                </div>
+            ) : d.destino ? (
                 <Fila rotulo="Dirección y puerto"><span className="font-semibold tabular-nums">{d.destino.direccion}:{d.destino.puerto}</span> <span className="text-muted-foreground">· {d.destino.transporte.toUpperCase()}</span></Fila>
             ) : (
                 <div className="rounded-[10px] chip-aviso p-3 mb-2 space-y-2">
@@ -274,7 +300,7 @@ function Receptor({ d, recargar }: { d: Ficha; recargar: () => void }) {
                 </div>
             )}
             <Fila rotulo="Cuenta"><span className="font-semibold tabular-nums">{c.cuenta}</span> <button type="button" onClick={() => copiar(c.cuenta, "Cuenta")} className="ml-1 text-muted-foreground hover:text-foreground align-middle" aria-label="Copiar la cuenta"><Copy size={13} /></button></Fila>
-            <Fila rotulo="Protocolo">{c.cifrado ? `*${c.protocolo}` : c.protocolo} <span className="text-muted-foreground">· {c.cifrado ? "cifrado AES" : "sin cifrar (LAN/VPN)"}</span></Fila>
+            <Fila rotulo="Protocolo">{porReceptor ? "Contact ID" : c.cifrado ? `*${c.protocolo}` : c.protocolo} <span className="text-muted-foreground">· {porReceptor ? "por el receptor, sin cifrar (red local)" : c.cifrado ? "cifrado AES" : "sin cifrar (LAN/VPN)"}</span></Fila>
             {c.cifrado && (
                 <Fila rotulo="Clave AES">
                     <span className="inline-flex items-center gap-2">
@@ -303,7 +329,7 @@ function Receptor({ d, recargar }: { d: Ficha; recargar: () => void }) {
                 </div>
                 {!prueba && (
                     <p className="text-[12px] text-muted-foreground">
-                        Desde la central, mandá una prueba de comunicación al centro receptor ({c.modelo === "generica" ? "«prueba manual» o «test report» en el menú de comunicaciones" : "en Hik-Partner Pro: la central › Centro receptor › Prueba"}). La ficha avisa cuando llega.
+                        {porReceptor ? <>Desde la central, una prueba manual de comunicación (o esperá su prueba periódica); el receptor la pasa. «Test network» del IPC10 sólo prueba la conexión: no manda un evento. </> : <>Desde la central, mandá una prueba de comunicación al centro receptor ({c.modelo === "generica" ? "«prueba manual» o «test report» en el menú de comunicaciones" : "en Hik-Partner Pro: la central › Centro receptor › Prueba"}). </>}La ficha avisa cuando llega.
                         {c.prueba ? <> En el servidor: <code className="text-[11px]">SIM_CLAVE=… node scripts/simular-central.js --cuenta {c.cuenta} --udp</code></> : null}
                     </p>
                 )}

@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { MODELOS, claveNueva, guardarClave, leerClave, leerDestino } from "@/lib/centrales";
 import { auditar, sesionCon } from "@/lib/centrales/sesion";
+import { SUPERVISION_MAX } from "@/lib/centrales/limites";
 
 const sinCache = { headers: { "Cache-Control": "no-store" } };
 
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id } = await params;
     const conClave = req.nextUrl.searchParams.get("clave") === "1";
     const { s, no } = await sesionCon(conClave ? "dispositivos" : undefined); if (no) return no;
-    const c = await prisma.centralAlarma.findFirst({ where: { OR: [{ id }, { deviceId: id }] }, include: { device: { select: { id: true, name: true, ip: true, httpPort: true, username: true } }, zonas: { orderBy: { zona: "asc" } } } });
+    const c = await prisma.centralAlarma.findFirst({ where: { OR: [{ id }, { deviceId: id }] }, include: { device: { select: { id: true, name: true, ip: true, httpPort: true, username: true, deviceModel: true } }, zonas: { orderBy: { zona: "asc" } } } });
     if (!c) return NextResponse.json({ ok: false, error: "No existe esa central" }, { status: 404 });
     const [mensajes, alertas, destino] = await Promise.all([
         prisma.mensajeCentral.findMany({ where: { centralId: c.id }, orderBy: { recibido: "desc" }, take: 60, select: { id: true, recibido: true, ip: true, transporte: true, idMensaje: true, cifrado: true, seq: true, datos: true, respuesta: true, error: true, eventos: true, detectionId: true } }),
@@ -37,7 +38,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!c) return NextResponse.json({ ok: false, error: "No existe esa central" }, { status: 404 });
     const b = await req.json().catch(() => ({}));
     const data: any = {};
-    if (b.supervisionSeg != null) data.supervisionSeg = Math.min(86_400, Math.max(30, Number(b.supervisionSeg) || 600));
+    if (b.supervisionSeg != null) data.supervisionSeg = Math.min(SUPERVISION_MAX, Math.max(30, Number(b.supervisionSeg) || 600));
     if (b.lanVpn != null) data.lanVpn = !!b.lanVpn;
     if (b.prueba != null) data.prueba = !!b.prueba;
     if (b.protocolo) data.protocolo = b.protocolo === "ADM-CID" ? "ADM-CID" : "SIA-DCS";

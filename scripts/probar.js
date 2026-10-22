@@ -33,5 +33,8 @@ process.env.OMNI_CLAVE_DATOS ||= "clave-de-prueba";
 // El protocolo de centrales tiene sus propias pruebas en JS; se corren primero.
 const dc = require("child_process").spawnSync(process.execPath, [path.join(__dirname, "probar-dc09.js")], { stdio: "inherit" });
 if (dc.status) process.exitCode = 1;
+// Y las de la salida a CMS de un receptor (IPC10 de Paradox, Sur-Gard).
+const cms = require("child_process").spawnSync(process.execPath, [path.join(__dirname, "probar-cms.js")], { stdio: "inherit" });
+if (cms.status) process.exitCode = 1;
 const archivos = fs.readdirSync(path.join(RAIZ, "tests")).filter((f) => f.endsWith(".test.ts")).sort();
 for (const f of archivos) require(path.join(RAIZ, "tests", f));

@@ -10,6 +10,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
+import { POR_RECEPTOR, SUPERVISION_MAX } from "@/lib/centrales/limites";
 import { prisma } from "@/lib/prisma";
 import { MODELOS, PUERTO_RECEPTOR, claveNueva, cuentaLibre, guardarClave, guardarDestino, leerDestino } from "@/lib/centrales";
 import { auditar, sesionCon } from "@/lib/centrales/sesion";
@@ -40,18 +41,23 @@ export async function POST(req: NextRequest) {
     const ip = String(b?.ip || "").trim();
     if (modelo !== "generica" && !ip) return NextResponse.json({ ok: false, error: "Una AX necesita su IP para que OmniAccess le escriba el receptor." }, { status: 400 });
     try {
+        // Por un receptor (IPC10 de Paradox, Sur-Gard): la cuenta es la que la central ya tiene en el
+        // receptor —no se inventa una—, llega en Contact ID sin cifrar por la salida a CMS (TCP 10011,
+        // sólo red local), y la única señal de vida es la prueba periódica del panel (una por día).
+        const porReceptor = !!b?.porReceptor;
+        if (porReceptor && !b?.cuenta) return NextResponse.json({ ok: false, error: "Poné la cuenta con la que la central figura en el receptor (columna Account#)." }, { status: 400 });
         const cuenta = await cuentaLibre(b?.cuenta || null);
-        const lanVpn = !!b?.lanVpn;
+        const lanVpn = porReceptor || !!b?.lanVpn;
         // Por internet el cifrado es obligatorio; en LAN/VPN se puede elegir sin clave.
-        const clave = lanVpn && b?.sinCifrar ? null : claveNueva();
+        const clave = porReceptor || (lanVpn && b?.sinCifrar) ? null : claveNueva();
         const claveCifrada = guardarClave(clave);
-        const sup = Math.min(86_400, Math.max(30, Number(b?.supervisionSeg) || 600));
+        const sup = Math.min(SUPERVISION_MAX, Math.max(30, Number(b?.supervisionSeg) || 600));
         const creada = await prisma.$transaction(async (tx) => {
             const dev = await tx.device.create({ data: {
-                name: nombre, deviceType: "ALARM_HUB" as any, brand: modelo === "generica" ? "GENERICA" : "HIKVISION", deviceModel: modelo === "ax-pro" ? "AX PRO" : modelo === "ax-hybrid" ? "AX Hybrid PRO" : "DC-09",
+                name: nombre, deviceType: "ALARM_HUB" as any, brand: modelo === "generica" ? "GENERICA" : "HIKVISION", deviceModel: modelo === "ax-pro" ? "AX PRO" : modelo === "ax-hybrid" ? "AX Hybrid PRO" : porReceptor ? POR_RECEPTOR : "DC-09",
                 ip, httpPort: b?.httpPort ? Number(b.httpPort) : null, username: b?.usuario || null, password: b?.clave || null, authType: "DIGEST",
             } });
-            return tx.centralAlarma.create({ data: { deviceId: dev.id, modelo, cuenta, protocolo: b?.protocolo === "ADM-CID" ? "ADM-CID" : "SIA-DCS", claveCifrada, lanVpn, prueba: !!b?.prueba, supervisionSeg: sup } });
+            return tx.centralAlarma.create({ data: { deviceId: dev.id, modelo, cuenta, protocolo: porReceptor || b?.protocolo === "ADM-CID" ? "ADM-CID" : "SIA-DCS", claveCifrada, lanVpn, prueba: !!b?.prueba, supervisionSeg: sup } });
         });
         // El área de Dispositivos, si se eligió (DEVICE_AREAS: { equipos: { deviceId: areaId } }).
         if (b?.areaId) {
