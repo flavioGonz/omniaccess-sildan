@@ -7,6 +7,7 @@ import { Filtros } from "@/components/ui/filtros";
 import { Estado, Momento, type Tono } from "@/components/ui/celdas";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { useAreas } from "@/lib/use-areas";
+import { PRIORIDADES_DEFECTO, prioridadDe, nivel, type Prioridades } from "@/lib/centrales/prioridades";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 
@@ -27,7 +28,7 @@ export type Mensaje = {
     cifrado: boolean; crudo: string | null; datos: string | null; horaCentral: string | null; respuesta: string; error: string | null; eventos: Evento[] | null; detectionId: string | null;
 };
 export type CentralCorta = { id: string; cuenta: string; deviceId: string; nombre: string; estado: string; prueba: boolean; zonas: { zona: number; nombre: string | null; areaId: string | null }[] };
-type Datos = { horas: number; tope: boolean; centrales: CentralCorta[]; mensajes: Mensaje[] };
+type Datos = { horas: number; tope: boolean; centrales: CentralCorta[]; mensajes: Mensaje[]; prioridades?: Prioridades };
 
 /** Qué se mira: los grupos de categorías del traductor (lib-dc09-codigos). */
 export type QueCentral = "eventos" | "alarmas" | "armado" | "fallas" | "pruebas" | "sin-usar";
@@ -53,6 +54,17 @@ const primero = (m: Mensaje): Evento | null => (Array.isArray(m.eventos) && m.ev
 /** La supervisión («sigo vivo», NULL en DC-09): cuenta como vida de la central, no como evento. */
 const esVida = (m: Mensaje) => m.idMensaje === "NULL" && !m.error;
 const sinUsar = (m: Mensaje) => !!m.error || m.respuesta !== "ACK";
+/** La prioridad del mensaje: la de su evento más urgente (un mensaje SIA puede traer varios). Sin evento, ninguna. */
+const prioridadMensaje = (m: Mensaje, p: Prioridades): number | null => {
+    const evs = Array.isArray(m.eventos) ? m.eventos : [];
+    return evs.length ? Math.min(...evs.map((e) => prioridadDe(p, e))) : null;
+};
+/** «P1 Crítica»: el chip de la prioridad, en el tono de su nivel. */
+export function ChipPrioridad({ n, corto }: { n: number | null | undefined; corto?: boolean }) {
+    if (n == null) return <span className="text-muted-foreground/50 text-[12px]">—</span>;
+    const v = nivel(n);
+    return <Estado tono={v.tono}>{corto ? `P${n}` : `P${n} · ${v.nombre}`}</Estado>;
+}
 
 export function useMensajesCentrales(horas: number) {
     const [datos, setDatos] = useState<Datos | null>(null);
@@ -115,7 +127,10 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
     que: QueCentral; setQue: (q: QueCentral) => void;
 }) {
     const { porId, zona, areaDe } = useCentrales(datos);
+    const prio = datos?.prioridades || PRIORIDADES_DEFECTO;
     const [busqueda, setBusqueda] = useState("");
+    /** Prioridades elegidas; ninguna = todas. */
+    const [niveles, setNiveles] = useState<string[]>([]);
     const [conVida, setConVida] = useState(false);
     const t = busqueda.trim().toUpperCase();
 
@@ -136,16 +151,19 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
         const e = primero(m);
         return !!e && CATEGORIAS[q].includes(e.categoria);
     }, [conVida]);
-    const filas = useMemo(() => base.filter((m) => encaja(m, que)).filter((m) => {
+    const filas = useMemo(() => base.filter((m) => encaja(m, que)).filter((m) => !niveles.length || niveles.includes(String(prioridadMensaje(m, prio)))).filter((m) => {
         if (!t) return true;
         const c = m.centralId ? porId.get(m.centralId) : null;
         const e = primero(m);
         return [c?.nombre, m.cuenta, areaDe(m), e?.texto, e?.codigo, dondeDe(m, e, zona), m.crudo].some((x) => (x || "").toUpperCase().includes(t));
-    }), [base, que, t, encaja, porId, zona, areaDe]);
+    }), [base, que, t, encaja, porId, zona, areaDe, niveles, prio]);
+    const cuentaNivel = (n: number) => base.filter((m) => encaja(m, que) && prioridadMensaje(m, prio) === n).length;
     const cuenta = (q: QueCentral) => base.filter((m) => encaja(m, q)).length;
 
     const columnas = useMemo<ColumnaTabla<Mensaje>[]>(() => [
         { clave: "hora", titulo: "Hora", ancho: 92, ordenable: true, valor: (m) => m.recibido, celda: (m) => <Momento t={m.recibido} /> },
+        // La prioridad que eligió el administrador para la clase del evento (Ajustes › Centrales de alarma).
+        { clave: "prio", titulo: "Prioridad", ancho: 128, ordenable: true, valor: (m) => prioridadMensaje(m, prio) ?? 9, celda: (m) => sinUsar(m) ? <span className="text-muted-foreground/50 text-[12px]">—</span> : <ChipPrioridad n={prioridadMensaje(m, prio)} /> },
         { clave: "evento", titulo: "Evento", valor: (m) => primero(m)?.texto || (esVida(m) ? "Supervisión" : ERROR_TXT[m.error || ""] || m.error || "—"), celda: (m) => {
             const e = primero(m);
             if (sinUsar(m)) return (
@@ -176,7 +194,7 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
         { clave: "via", titulo: "Llegó por", ancho: 150, valor: (m) => `${VIA[m.transporte || ""] || m.transporte || ""} ${m.ip || ""}`, celda: (m) => (
             <div className="leading-tight min-w-0"><div className="text-[12px]">{VIA[m.transporte || ""] || (m.transporte || "—").toUpperCase()}{m.cifrado ? " · cifrado" : ""}</div><div className="text-[11px] text-muted-foreground tabular-nums truncate">{m.ip || ""}</div></div>) },
         { clave: "resp", titulo: "", ancho: 70, auxiliar: true, alinear: "der", valor: (m) => m.respuesta, celda: (m) => <Estado tono={m.respuesta === "ACK" ? (m.error ? "aviso" : "bien") : "mal"}>{m.respuesta}</Estado> },
-    ], [porId, zona, areaDe]);
+    ], [porId, zona, areaDe, prio]);
 
     return (
         <Tabla<Mensaje> alto="100%" className="flex-1 min-h-0" seleccionCeldas={false} cargando={cargando && !datos} error={!datos ? error : null} alReintentar={traer}
@@ -196,6 +214,9 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
                             { valor: "pruebas", rotulo: "Pruebas", cuenta: cuenta("pruebas") },
                             { valor: "sin-usar", rotulo: "Sin usar", cuenta: cuenta("sin-usar") },
                         ] }]} />
+                    <Filtros grupos={[{ clave: "prio", titulo: "Prioridad: se pueden elegir varias", multiple: true, valor: niveles.length ? niveles : ["todas"],
+                        alElegir: (v) => setNiveles((xs) => (v === "todas" ? [] : xs.includes(v) ? xs.filter((x) => x !== v) : [...xs, v])),
+                        opciones: [{ valor: "todas", rotulo: "Toda prioridad" }, ...[1, 2, 3, 4, 5].map((n) => ({ valor: String(n), rotulo: `P${n}`, cuenta: cuentaNivel(n), tono: n === 1 && cuentaNivel(1) ? "mal" as const : n <= 3 && cuentaNivel(n) ? "aviso" as const : undefined }))] }]} />
                     <div className="ml-auto flex items-center gap-2">
                         <button type="button" onClick={() => setConVida((v) => !v)} aria-pressed={conVida}
                             title="La supervisión («sigo vivo») de cada central: llega cada pocos minutos y tapa los eventos, por eso va apagada."
@@ -214,6 +235,7 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
 /** El panel de la derecha: el mensaje en palabras, cada evento que traía, y la trama tal cual llegó. */
 export function DetalleMensajeCentral({ m, datos }: { m: Mensaje; datos: Datos | null }) {
     const { porId, zona, areaDe } = useCentrales(datos);
+    const prio = datos?.prioridades || PRIORIDADES_DEFECTO;
     const c = m.centralId ? porId.get(m.centralId) : null;
     const eventos = Array.isArray(m.eventos) ? m.eventos : [];
     const copiar = (s: string) => { navigator.clipboard?.writeText(s).then(() => toast.success({ title: "Trama copiada" })).catch(() => { }); };
@@ -245,7 +267,8 @@ export function DetalleMensajeCentral({ m, datos }: { m: Mensaje; datos: Datos |
                                 <div className="text-[13.5px] font-semibold">{e.texto}</div>
                                 <div className="text-[12px] text-muted-foreground">{dondeDe(m, e, zona) || "La central"}{e.codigo ? ` · ${e.codigo}` : ""}</div>
                             </div>
-                            <Estado tono={st.tono}>{e.categoria === "ALARMA" ? "Alarma" : e.categoria === "RESTAURACION" ? "Restauración" : e.categoria === "ARMADO" ? "Armado" : e.categoria === "DESARMADO" ? "Desarmado" : e.categoria === "FALLA" ? "Falla" : e.categoria === "FALLA_FIN" ? "Normal" : e.categoria === "PRUEBA" ? "Prueba" : "Otro"}</Estado>
+                            <span className="flex flex-col items-end gap-1"><ChipPrioridad n={prioridadDe(prio, e)} corto />
+                            <Estado tono={st.tono}>{e.categoria === "ALARMA" ? "Alarma" : e.categoria === "RESTAURACION" ? "Restauración" : e.categoria === "ARMADO" ? "Armado" : e.categoria === "DESARMADO" ? "Desarmado" : e.categoria === "FALLA" ? "Falla" : e.categoria === "FALLA_FIN" ? "Normal" : e.categoria === "PRUEBA" ? "Prueba" : "Otro"}</Estado></span>
                         </div>);
                 }) : <div className="text-[12.5px] text-muted-foreground">{esVida(m) ? "Supervisión: la central avisa que sigue en línea." : "Sin eventos traducidos."}</div>}
             </div>

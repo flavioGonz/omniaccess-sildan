@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import {
+    Siren,
     Settings,
     Users,
     Bell, Clock,
@@ -81,6 +82,7 @@ import axios from "axios";
 import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
 import ModosSection from "./ModosSection";
 import VisitasSection from "./VisitasSection";
+import PrioridadesCentralesSection from "./PrioridadesCentralesSection";
 import EmpresasSection from "./EmpresasSection";
 import { HistorialBot } from "@/components/settings/HistorialBot";
 import ProcesosSection from "./procesos/ProcesosSection";
@@ -224,6 +226,8 @@ const NAV_GROUPS = [
         { sec: "modo", btab: "", label: "Modos (LPR / Face / Cola)", icon: Layers },
         { sec: "visitas", btab: "", label: "Visitas y patrones", icon: Clock },
         { sec: "empresas", btab: "", label: "Empresas (delivery, taxis)", icon: Building2 },
+        // Prioridad de los eventos de las centrales de alarma (22/10, Nico): la edita un administrador.
+        { sec: "centrales_prioridades", btab: "", label: "Centrales de alarma: prioridades", icon: Siren },
     ]},
     { id: "avanzado", label: "Avanzado", icon: SlidersHorizontal, items: [
         { sec: "drivers", btab: "", label: "Drivers & Protocolos", icon: Camera },
@@ -693,6 +697,7 @@ export default function SettingsPage() {
                     {activeSection === "notificaciones" && <CentroNotificaciones tab={notifTab} />}
                     {activeSection === "visitas" && <VisitasSection />}
                     {activeSection === "empresas" && <EmpresasSection />}
+                    {activeSection === "centrales_prioridades" && <PrioridadesCentralesSection />}
                     {activeSection === "procesos" && <ProcesosSection />}
                     {activeSection === "colas" && <ColasSection />}
                     {activeSection === "auditoria" && <AuditoriaSection />}

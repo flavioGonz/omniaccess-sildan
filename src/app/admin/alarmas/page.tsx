@@ -7,7 +7,7 @@ import {
     Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers, Loader2, NotebookPen, Image as ImageIcon,
     Activity, Truck, Infinity as SinTiempo, RadioTower,
 } from "lucide-react";
-import { VistaCentrales } from "@/components/alarmas/MensajesCentrales";
+import { VistaCentrales, ChipPrioridad } from "@/components/alarmas/MensajesCentrales";
 import { ElegirArea } from "@/components/devices/ElegirArea";
 import { useFiltroArea } from "@/lib/use-filtro-area";
 import { esDeProveedores } from "@/lib/presencia-grupos";
@@ -231,7 +231,7 @@ function GestionAlarmas() {
         { clave: "tipo", titulo: "Alarma", valor: (a) => `${a.titulo} · ${NOMBRE_FUENTE[a.fuente]}`, celda: (a) => { const I = ICONO_FUENTE[a.fuente]; return (
             <div className="flex items-center gap-2.5 min-w-0">
                 <I size={15} className={cn("shrink-0", tonoTexto(a.tono))} />
-                <div className="min-w-0 leading-tight"><div className="text-[13px] font-semibold truncate">{a.titulo}</div><div className="text-[11px] text-muted-foreground">{NOMBRE_FUENTE[a.fuente]}</div></div>
+                <div className="min-w-0 leading-tight"><div className="text-[13px] font-semibold truncate">{a.titulo}</div><div className="text-[11px] text-muted-foreground flex items-center gap-1.5">{NOMBRE_FUENTE[a.fuente]}{a.prioridad != null && <ChipPrioridad n={a.prioridad} corto />}</div></div>
             </div>); } },
         { clave: "donde", titulo: "Matrícula · cámara", ancho: 190, valor: (a) => [a.plate, a.camara].filter(Boolean).join(" · "), celda: (a) => (
             <div className="min-w-0 flex flex-col items-start gap-0.5">{a.plate && <Matricula p={a.plate} />}<span className="text-[11.5px] text-muted-foreground truncate max-w-full">{a.camara || (a.plate ? "" : "—")}</span></div>) },
@@ -247,7 +247,7 @@ function GestionAlarmas() {
         { clave: "que", titulo: "Qué", valor: (f) => f.alarma ? f.alarma.titulo : NOMBRE_CLASE[f.auto!.clase], celda: (f) => {
             if (f.alarma) { const a = f.alarma; const I = ICONO_FUENTE[a.fuente]; return (
                 <div className="flex items-center gap-2.5 min-w-0"><I size={15} className={cn("shrink-0", tonoTexto(a.tono))} />
-                    <div className="min-w-0 leading-tight"><div className="text-[13px] font-semibold truncate">{a.titulo}</div><div className="text-[11px] text-muted-foreground">{NOMBRE_FUENTE[a.fuente]}</div></div></div>); }
+                    <div className="min-w-0 leading-tight"><div className="text-[13px] font-semibold truncate">{a.titulo}</div><div className="text-[11px] text-muted-foreground flex items-center gap-1.5">{NOMBRE_FUENTE[a.fuente]}{a.prioridad != null && <ChipPrioridad n={a.prioridad} corto />}</div></div></div>); }
             const a = f.auto!; const at = a.atipico[0];
             return (
                 <div className="flex items-center gap-2.5 min-w-0">{at ? <AlertTriangle size={15} className={cn("shrink-0", tonoTexto(TONO_ATIPICO[at]))} /> : <Car size={15} className="shrink-0 text-muted-foreground" />}

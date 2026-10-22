@@ -16,6 +16,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sesionCon } from "@/lib/centrales/sesion";
+import { leerPrioridadesGuardadas } from "@/lib/centrales/prioridades-servidor";
 
 const RANGOS_H = [24, 72, 168];
 /** Tope de filas: 7 días de supervisión de varias centrales son miles; la pantalla no necesita más. */
@@ -27,15 +28,16 @@ export async function GET(req: NextRequest) {
     const h = RANGOS_H.includes(pedido) ? pedido : 24;
     const desde = new Date(Date.now() - h * 3600_000);
     try {
-        const [mensajes, centrales] = await Promise.all([
+        const [mensajes, centrales, prioridades] = await Promise.all([
             prisma.mensajeCentral.findMany({
                 where: { recibido: { gte: desde } }, orderBy: { recibido: "desc" }, take: TOPE,
                 select: { id: true, recibido: true, centralId: true, cuenta: true, ip: true, transporte: true, idMensaje: true, cifrado: true, crudo: true, datos: true, horaCentral: true, respuesta: true, error: true, eventos: true, detectionId: true },
             }),
             prisma.centralAlarma.findMany({ select: { id: true, cuenta: true, deviceId: true, estado: true, prueba: true, device: { select: { name: true } }, zonas: { select: { zona: true, nombre: true, areaId: true } } } }),
+            leerPrioridadesGuardadas(),
         ]);
         return NextResponse.json({
-            ok: true, horas: h, tope: mensajes.length >= TOPE,
+            ok: true, horas: h, tope: mensajes.length >= TOPE, prioridades,
             centrales: centrales.map((c) => ({ id: c.id, cuenta: c.cuenta, deviceId: c.deviceId, nombre: c.device?.name || `Central ${c.cuenta}`, estado: c.estado, prueba: c.prueba, zonas: c.zonas })),
             mensajes,
         }, { headers: { "Cache-Control": "no-store" } });

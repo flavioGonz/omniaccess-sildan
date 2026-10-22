@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { leerPrioridadesGuardadas } from "@/lib/centrales/prioridades-servidor";
+import { claseDeAlarma } from "@/lib/centrales/prioridades";
 import { normalizarMatricula } from "@/lib/lista-negra";
 import { atenderAviso } from "@/lib/visitas/registro";
 import { ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
@@ -36,6 +38,8 @@ export type Alarma = {
     deviceId: string | null;
     /** El área de la zona, en una alarma de central que la tiene (si no, vale la del equipo). */
     areaId?: string | null;
+    /** Prioridad de 1 (crítica) a 5 en una alarma de central (lib/centrales/prioridades, editable por el administrador). */
+    prioridad?: number | null;
     plate: string | null;
     foto: string | null;
     tono: TonoAlarma;
@@ -117,6 +121,7 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
         ids.length || avisos.length ? prisma.device.findMany({ select: { id: true, name: true } }).catch(() => []) : Promise.resolve([]),
         prisma.alarmaAtendida.findMany({ where: { clave: { in: [...dets.map((d) => `d:${d.id}`), ...avisos.map((a) => `a:${a.id}`), ...lecturas.map((l) => `l:${l.id}`)] } } }).catch(() => []),
     ]);
+    const prioridades = dets.some((d) => d.type === "CENTRAL") ? await leerPrioridadesGuardadas() : null;
     const nombre = new Map(devs.map((d) => [d.id, d.name]));
     /** Al revés: un aviso de patrones trae sólo el nombre de la cámara, y el filtro de área necesita el equipo. */
     const idPorNombre = new Map(devs.map((d) => [d.name, d.id]));
@@ -177,6 +182,7 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
             id: `d:${d.id}`, fuente: "intrusion", tipo: d.type, titulo: d.type === "CENTRAL" ? `${NOMBRE_CENTRAL[d.eventType || ""] || "Alarma"} · central` : NOMBRE_INTRUSION[d.type] || "Evento de cámara",
             detalle: d.label === "human" ? "Persona" : d.label === "vehicle" ? "Vehículo" : d.label || null,
             ts: d.timestamp.toISOString(), camara: (d.deviceId && nombre.get(d.deviceId)) || null, deviceId: d.deviceId, plate: null, areaId: areaZona(d as any),
+            prioridad: d.type === "CENTRAL" && prioridades ? prioridades[claseDeAlarma(d.eventType)] : null,
             foto: fotoDeDeteccion(d),
             tono: d.type === "LINECROSS" || d.type === "INTRUSION" || d.type === "CENTRAL" ? "mal" : "aviso",
             estado: d.acknowledged ? "atendida" : "pendiente", atendidaPor: null, atendidaAt: d.ackAt?.toISOString() || null,
