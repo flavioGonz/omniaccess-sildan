@@ -6,6 +6,7 @@ import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Filtros } from "@/components/ui/filtros";
 import { Estado, Momento, type Tono } from "@/components/ui/celdas";
 import { useTiempoReal } from "@/lib/tiempo-real";
+import { useAreas } from "@/lib/use-areas";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 
@@ -75,15 +76,27 @@ export function useMensajesCentrales(horas: number) {
 
 /** Qué central es un mensaje, y cómo se llama su zona. */
 function useCentrales(datos: Datos | null) {
+    const { areas, equipoArea } = useAreas();
     return useMemo(() => {
         const porId = new Map((datos?.centrales || []).map((c) => [c.id, c]));
+        const nombreArea = new Map(areas.map((a) => [a.id, a.nombre]));
+        /** El área del mensaje: la de su zona si la tiene, si no la del equipo de la central. */
+        const areaDe = (m: Mensaje): string | null => {
+            const c = m.centralId ? porId.get(m.centralId) : null;
+            if (!c) return null;
+            const n = primero(m)?.zona;
+            const z = n != null && n > 0 ? c.zonas.find((x) => x.zona === n) : null;
+            const id = z?.areaId || equipoArea[c.deviceId] || null;
+            return id ? nombreArea.get(id) || null : null;
+        };
         const zona = (m: Mensaje, n: number | null | undefined) => {
-            if (n == null) return null;
+            // «000» / 0 es «la central», no una zona: los mensajes guardados antes del arreglo del 21/10 la traen.
+            if (n == null || n <= 0) return null;
             const z = m.centralId ? porId.get(m.centralId)?.zonas.find((x) => x.zona === n) : null;
             return z?.nombre ? `Zona ${n} · ${z.nombre}` : `Zona ${n}`;
         };
-        return { porId, zona };
-    }, [datos]);
+        return { porId, zona, areaDe };
+    }, [datos, areas, equipoArea]);
 }
 
 /** «Zona 20 · Portón», «Partición 1 · usuario 5», …: dónde pasó, en palabras. */
@@ -101,7 +114,7 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
     enArea: (deviceId: string | null, areaZona?: string | null) => boolean;
     que: QueCentral; setQue: (q: QueCentral) => void;
 }) {
-    const { porId, zona } = useCentrales(datos);
+    const { porId, zona, areaDe } = useCentrales(datos);
     const [busqueda, setBusqueda] = useState("");
     const [conVida, setConVida] = useState(false);
     const t = busqueda.trim().toUpperCase();
@@ -127,8 +140,8 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
         if (!t) return true;
         const c = m.centralId ? porId.get(m.centralId) : null;
         const e = primero(m);
-        return [c?.nombre, m.cuenta, e?.texto, e?.codigo, dondeDe(m, e, zona), m.crudo].some((x) => (x || "").toUpperCase().includes(t));
-    }), [base, que, t, encaja, porId, zona]);
+        return [c?.nombre, m.cuenta, areaDe(m), e?.texto, e?.codigo, dondeDe(m, e, zona), m.crudo].some((x) => (x || "").toUpperCase().includes(t));
+    }), [base, que, t, encaja, porId, zona, areaDe]);
     const cuenta = (q: QueCentral) => base.filter((m) => encaja(m, q)).length;
 
     const columnas = useMemo<ColumnaTabla<Mensaje>[]>(() => [
@@ -147,19 +160,23 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
                     <div className="min-w-0 leading-tight"><div className={cn("text-[13px] font-semibold truncate", e.categoria === "ALARMA" && "tono-mal")}>{e.texto}{mas > 0 ? <span className="text-muted-foreground font-normal"> · y {mas} más</span> : null}</div>
                         {e.codigo && <div className="text-[11px] text-muted-foreground tabular-nums">{e.codigo}</div>}</div></div>);
         } },
-        { clave: "donde", titulo: "Dónde", ancho: 220, valor: (m) => dondeDe(m, primero(m), zona) || "", celda: (m) => <span className="text-[12px] text-muted-foreground line-clamp-2">{dondeDe(m, primero(m), zona) || "—"}</span> },
-        { clave: "central", titulo: "Central", ancho: 210, valor: (m) => (m.centralId && porId.get(m.centralId)?.nombre) || `Cuenta ${m.cuenta || "?"}`, celda: (m) => {
+        { clave: "donde", titulo: "Dónde", ancho: 180, valor: (m) => dondeDe(m, primero(m), zona) || "", celda: (m) => <span className="text-[12px] text-muted-foreground line-clamp-2">{dondeDe(m, primero(m), zona) || "—"}</span> },
+        { clave: "central", titulo: "Central", ancho: 200, valor: (m) => (m.centralId && porId.get(m.centralId)?.nombre) || `Cuenta ${m.cuenta || "?"}`, celda: (m) => {
             const c = m.centralId ? porId.get(m.centralId) : null;
             return (
                 <div className="min-w-0 leading-tight">
                     <div className={cn("text-[13px] truncate", c ? "font-semibold" : "text-muted-foreground")}>{c ? c.nombre : m.cuenta ? `Cuenta ${m.cuenta}` : "Sin cuenta"}</div>
-                    <div className="text-[11px] text-muted-foreground truncate tabular-nums">{c ? `cuenta ${c.cuenta}${c.prueba ? " · de prueba" : ""}` : m.cuenta ? "sin dar de alta" : m.ip || ""}</div>
+                    {(c?.prueba || !c) && <div className="text-[11px] text-muted-foreground truncate">{c ? "de prueba" : m.cuenta ? "sin dar de alta" : m.ip || ""}</div>}
                 </div>);
         } },
+        // La cuenta en su columna (22/10, Nico): es lo que se lee en el receptor y en la central, y con
+        // varias centrales detrás de un mismo IPC10 es como se las distingue.
+        { clave: "cuenta", titulo: "Cuenta", ancho: 104, ordenable: true, valor: (m) => m.cuenta || "", celda: (m) => <span className={cn("text-[12.5px] font-semibold tabular-nums", !m.centralId && "text-muted-foreground font-normal")}>{m.cuenta || "—"}</span> },
+        { clave: "area", titulo: "Área", ancho: 140, ordenable: true, valor: (m) => areaDe(m) || "", celda: (m) => <span className="text-[12px] text-muted-foreground truncate">{areaDe(m) || "—"}</span> },
         { clave: "via", titulo: "Llegó por", ancho: 150, valor: (m) => `${VIA[m.transporte || ""] || m.transporte || ""} ${m.ip || ""}`, celda: (m) => (
             <div className="leading-tight min-w-0"><div className="text-[12px]">{VIA[m.transporte || ""] || (m.transporte || "—").toUpperCase()}{m.cifrado ? " · cifrado" : ""}</div><div className="text-[11px] text-muted-foreground tabular-nums truncate">{m.ip || ""}</div></div>) },
         { clave: "resp", titulo: "", ancho: 70, auxiliar: true, alinear: "der", valor: (m) => m.respuesta, celda: (m) => <Estado tono={m.respuesta === "ACK" ? (m.error ? "aviso" : "bien") : "mal"}>{m.respuesta}</Estado> },
-    ], [porId, zona]);
+    ], [porId, zona, areaDe]);
 
     return (
         <Tabla<Mensaje> alto="100%" className="flex-1 min-h-0" seleccionCeldas={false} cargando={cargando && !datos} error={!datos ? error : null} alReintentar={traer}
@@ -196,7 +213,7 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
 
 /** El panel de la derecha: el mensaje en palabras, cada evento que traía, y la trama tal cual llegó. */
 export function DetalleMensajeCentral({ m, datos }: { m: Mensaje; datos: Datos | null }) {
-    const { porId, zona } = useCentrales(datos);
+    const { porId, zona, areaDe } = useCentrales(datos);
     const c = m.centralId ? porId.get(m.centralId) : null;
     const eventos = Array.isArray(m.eventos) ? m.eventos : [];
     const copiar = (s: string) => { navigator.clipboard?.writeText(s).then(() => toast.success({ title: "Trama copiada" })).catch(() => { }); };
@@ -206,7 +223,7 @@ export function DetalleMensajeCentral({ m, datos }: { m: Mensaje; datos: Datos |
                 <span className="grid place-items-center w-10 h-10 rounded-[10px] bg-muted/60 shrink-0"><Radio size={18} className="text-muted-foreground" /></span>
                 <div className="min-w-0">
                     <div className="text-[15px] font-semibold truncate">{c ? c.nombre : m.cuenta ? `Cuenta ${m.cuenta}` : "Sin cuenta"}</div>
-                    <div className="text-[12px] text-muted-foreground"><Momento t={m.recibido} />{c ? ` · cuenta ${c.cuenta}` : ""}</div>
+                    <div className="text-[12px] text-muted-foreground tabular-nums">{[m.cuenta ? `Cuenta ${m.cuenta}` : null, areaDe(m)].filter(Boolean).join(" · ") || "—"}</div>
                 </div>
             </div>
 
@@ -236,6 +253,7 @@ export function DetalleMensajeCentral({ m, datos }: { m: Mensaje; datos: Datos |
             {m.detectionId && <a href={`/admin/alarmas?ver=alarmas&id=d:${m.detectionId}`} className="inline-flex text-[12.5px] font-semibold text-[var(--accion)] hover:underline">Ver la alarma que generó</a>}
 
             <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 text-[12.5px]">
+                <dt className="text-muted-foreground">Recibido</dt><dd><Momento t={m.recibido} /></dd>
                 <dt className="text-muted-foreground">Llegó por</dt><dd>{VIA[m.transporte || ""] || m.transporte || "—"}{m.ip ? ` · ${m.ip}` : ""}</dd>
                 <dt className="text-muted-foreground">Protocolo</dt><dd>{m.idMensaje === "ADM-CID" ? "Contact ID" : m.idMensaje === "SIA-DCS" ? "SIA" : m.idMensaje || "—"}{m.cifrado ? " · cifrado AES" : ""}</dd>
                 <dt className="text-muted-foreground">Respuesta</dt><dd>{m.respuesta}</dd>
