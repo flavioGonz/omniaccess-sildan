@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Siren, FlaskConical } from "lucide-react";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
+import { arrastrarEquipos } from "@/components/devices/ArbolAreas";
 import { Chip } from "@/components/ui/estados";
 
 /** La lista de centrales de alarma en Dispositivos (vista «Centrales de alarma»). */
@@ -39,6 +40,8 @@ export function VistaCentrales({ alAbrir, version, busqueda = "" }: { alAbrir: (
     return (
         <Tabla<Fila> filas={(filas || []).filter((f) => !t || `${f.nombre} ${f.cuenta}`.toLowerCase().includes(t))} clave={(f) => f.id} columnas={columnas} cargando={filas === null && !error} error={error} alReintentar={cargar}
             alClickFila={(f) => alAbrir(f.id)} controles={false}
+            // Una central también se arrastra a un área del árbol, como cualquier equipo.
+            alArrastrarFila={(f, e) => arrastrarEquipos(e, [f.deviceId], f.nombre)}
             vacio={{ icono: Siren, titulo: "Sin centrales de alarma", ayuda: "Agregá una con «Agregar» → Central de alarma." }} />
     );
 }

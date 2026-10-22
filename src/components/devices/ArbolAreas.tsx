@@ -124,7 +124,16 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
 
     const ejecutar = async (p: Promise<EstadoAreas>, ok?: string) => {
         try { const e = await p; setEstado(e); if (ok) toast.success({ title: ok }); }
-        catch (e: any) { toast.error({ title: "No se pudo", description: e?.message }); }
+        catch (e: any) {
+            // Pantalla abierta desde antes de un despliegue: la acción ya no existe en el servidor.
+            // Decirlo y recargar, en vez de un «No se pudo» que no explica nada (22/10).
+            if (/Failed to find Server Action|older or newer deployment|was not found on the server/i.test(String(e?.message))) {
+                toast.error({ title: "Hay una versión nueva del panel", description: "Recargando la página: volvé a arrastrarlo." });
+                setTimeout(() => window.location.reload(), 1200);
+                return;
+            }
+            toast.error({ title: "No se pudo", description: e?.message });
+        }
     };
     const nueva = async (padre: string | null) => {
         try {

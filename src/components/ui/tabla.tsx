@@ -149,6 +149,7 @@ export function Tabla<T>({
     filaActiva,
     filaDestacada,
     claseFila,
+    alArrastrarFila,
     expandir,
     masFilas,
     alto,
@@ -179,6 +180,8 @@ export function Tabla<T>({
      * Manda sobre el fondo de «activa» y del hover: es un estado, no una selección.
      */
     claseFila?: (fila: T) => string | undefined;
+    /** Si viene, la fila se puede arrastrar (p. ej. a un área del árbol de Dispositivos). */
+    alArrastrarFila?: (fila: T, e: React.DragEvent) => void;
     /** Devuelve el contenido desplegado de la fila, o null si está cerrada. */
     expandir?: (fila: T) => React.ReactNode | null;
     masFilas?: MasFilas;
@@ -515,6 +518,8 @@ export function Tabla<T>({
                             return (
                                 <React.Fragment key={k}>
                                     <tr
+                                        draggable={alArrastrarFila ? true : undefined}
+                                        onDragStart={alArrastrarFila ? (e) => alArrastrarFila(fila, e) : undefined}
                                         onClick={() => alClickFila?.(fila)}
                                         className={cn(
                                             "border-b border-border/60 transition-colors group",

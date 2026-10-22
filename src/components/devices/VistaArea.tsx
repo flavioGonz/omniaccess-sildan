@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
 import { ChevronRight, Folder, FolderOpen, Eye, Settings2, Crosshair, Wand2, Inbox, Layers, GripVertical, Activity, PowerOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IconoTipo, ICONO_TIPO, arrastrarEquipos, SIN_AREA } from "@/components/devices/ArbolAreas";
@@ -49,7 +48,12 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
         const h = health[d.id];
         const on = h ? h.reachable : null;
         return (
-            <motion.div key={d.id} layout draggable onDragStart={(e: any) => arrastrarEquipos(e, [d.id], d.name)} onClick={(e: any) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; onEditar(d); }}
+            /* Un div común y no motion.div (22/10, Nico: «el drag and drop no funciona más para colocar
+               dispositivos en áreas»): framer-motion se queda con onDragStart para su propio gesto de
+               arrastre y no se lo pasa al elemento, así que el arrastre nativo salía sin el equipo
+               adentro y el árbol de áreas no lo aceptaba. Lo único que se pierde es la animación de
+               reacomodo de la fila. */
+            <div key={d.id} draggable onDragStart={(e) => arrastrarEquipos(e, [d.id], d.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; onEditar(d); }}
                 className={cn("group grid grid-cols-[minmax(0,1.6fr)_110px_minmax(0,1.3fr)_78px_auto] items-center gap-3 px-3 py-2 border-t border-border/50 hover:bg-foreground/[0.03] cursor-pointer", alertasDe[d.id] && "bg-red-500/[0.035]")}>
                 <div className="flex items-center gap-2.5 min-w-0">
                     <GripVertical size={12} className="text-muted-foreground/30 group-hover:text-muted-foreground shrink-0 -ml-1" />
@@ -87,7 +91,7 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
                     <button onClick={() => onSalud(d)} data-tooltip-id="tt-grab" data-tooltip-content="Historial de salud" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><Activity size={14} /></button>
                     <button onClick={() => onEditar(d)} data-tooltip-id="tt-grab" data-tooltip-content="Editar" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><Settings2 size={14} /></button>
                 </div>
-            </motion.div>
+            </div>
         );
     };
 
