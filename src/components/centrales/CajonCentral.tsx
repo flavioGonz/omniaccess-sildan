@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Siren, Server, KeyRound, Copy, Eye, EyeOff, Loader2, Plus, Trash2, RefreshCw, ShieldCheck, ShieldOff, Home, Lock, Unlock, Radio, FlaskConical, Wifi, Globe, Check, Camera, X, Info, Network } from "lucide-react";
+import { Siren, Server, KeyRound, Copy, Eye, EyeOff, Loader2, Plus, Trash2, RefreshCw, ShieldCheck, ShieldOff, Home, Lock, Unlock, Radio, FlaskConical, Wifi, Globe, Check, Camera, X, Info, Network, CircleCheck, Wrench, Activity, Ban, CircleSlash, Flame, WifiOff, AlertTriangle, HeartPulse, MapPin, UserRound, Layers, LockKeyhole, CheckCheck } from "lucide-react";
+import { Pista } from "@/components/ui/pista";
 import { POR_RECEPTOR, PUERTO_CMS } from "@/lib/centrales/limites";
 import { sileo as toast } from "sileo";
 import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
@@ -234,7 +235,7 @@ function FichaCentral({ id, alCambiar, alBorrada }: { id: string; alCambiar?: ()
             <CamarasAbonado d={d} recargar={cargar} />
             <Zonas d={d} recargar={cargar} />
             {d.modelo.controla && <Control d={d} />}
-            <Mensajes mensajes={d.mensajes} />
+            <Mensajes mensajes={d.mensajes} zonas={d.central.zonas} />
             <Ajustes d={d} recargar={() => { cargar(); alCambiar?.(); }} alBorrada={alBorrada} />
         </div>
     );
@@ -541,23 +542,168 @@ function Control({ d }: { d: Ficha }) {
     );
 }
 
-function Mensajes({ mensajes }: { mensajes: Mensaje[] }) {
+// ── Últimos mensajes ─────────────────────────────────────────────────────────────────────────
+//
+// 23/10, Nico: «estilizá mucho más esto, iconografía clara, tooltips». Era una tabla de cuatro
+// columnas en texto plano: la hora con la fecha repetida en cada fila, el protocolo (ADM-CID, igual
+// en todas) en negrita, el evento sin distinguir un robo de un armado, y un ACK verde en cada fila
+// que, en una central sana, dice siempre lo mismo. Ahora cada evento lleva el ícono y el tono de lo
+// que es; los mensajes se agrupan por día; lo técnico (protocolo, secuencia, transporte, origen,
+// cifrado, respuesta) pasa a la ayuda del ícono de la derecha, que sólo se pinta cuando la central
+// NO recibió confirmación; y se puede filtrar por tipo de evento.
+
+type TonoEvento = "mal" | "aviso" | "bien" | "info" | "quieto";
+type ClaseMsg = "alarma" | "restaura" | "armado" | "falla" | "prueba" | "otro";
+const CLASES_MSG: { id: ClaseMsg | "todo"; rotulo: string; icono: React.ComponentType<{ size?: number; className?: string }> }[] = [
+    { id: "todo", rotulo: "Todo", icono: Radio },
+    { id: "alarma", rotulo: "Alarmas", icono: Siren },
+    { id: "restaura", rotulo: "Restauraciones", icono: CircleCheck },
+    { id: "armado", rotulo: "Armado", icono: ShieldCheck },
+    { id: "falla", rotulo: "Fallas", icono: Wrench },
+    { id: "prueba", rotulo: "Pruebas y supervisión", icono: Activity },
+];
+
+/** Qué es un evento, para el ícono, el tono y el filtro. */
+function claseDeEvento(e: any): { clase: ClaseMsg; icono: React.ComponentType<{ size?: number; className?: string }>; tono: TonoEvento } {
+    const cat = String(e?.categoria || ""), tipo = String(e?.tipo || "").toUpperCase(), texto = String(e?.texto || "").toLowerCase();
+    if (/cancel/.test(texto) || /CANCEL/.test(tipo)) return { clase: "otro", icono: Ban, tono: "quieto" };
+    if (/anulad|bypass/.test(texto) || /ANULA|BYPASS/.test(tipo)) return { clase: "otro", icono: CircleSlash, tono: "quieto" };
+    if (cat === "ALARMA" && (e?.restaura || /restaurad/.test(texto))) return { clase: "restaura", icono: CircleCheck, tono: "bien" };
+    if (cat === "ALARMA") return { clase: "alarma", icono: tipo === "INCENDIO" ? Flame : tipo === "PANICO" ? Siren : Siren, tono: "mal" };
+    if (cat === "RESTAURACION") return { clase: "restaura", icono: CircleCheck, tono: "bien" };
+    if (cat === "ARMADO") return { clase: "armado", icono: ShieldCheck, tono: "info" };
+    if (cat === "DESARMADO") return { clase: "armado", icono: ShieldOff, tono: "quieto" };
+    if (cat === "FALLA") return { clase: "falla", icono: Wrench, tono: "aviso" };
+    if (cat === "FALLA_FIN") return { clase: "falla", icono: CircleCheck, tono: "bien" };
+    if (cat === "PRUEBA" || cat === "SUPERVISION") return { clase: "prueba", icono: Activity, tono: "quieto" };
+    if (cat === "COMUNICACION") return { clase: "falla", icono: WifiOff, tono: "aviso" };
+    return { clase: "otro", icono: Info, tono: "quieto" };
+}
+
+const diaDe = (iso: string) => {
+    const d = new Date(iso), hoy = new Date(); const ayer = new Date(); ayer.setDate(hoy.getDate() - 1);
+    const igual = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+    return igual(d, hoy) ? "Hoy" : igual(d, ayer) ? "Ayer" : d.toLocaleDateString("es-UY", { weekday: "long", day: "numeric", month: "long" });
+};
+const horaSeg = (iso: string) => new Date(iso).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+
+/** El detalle técnico de un mensaje, para la ayuda: lo que hace falta para diagnosticar una central. */
+function DetalleTecnico({ m }: { m: Mensaje }) {
+    const filas: [string, React.ReactNode][] = [
+        ["Protocolo", m.idMensaje === "ADM-CID" ? "Contact ID (ADM-CID)" : m.idMensaje === "SIA-DCS" ? "SIA (SIA-DCS)" : m.idMensaje === "NULL" ? "Supervisión (NULL)" : m.idMensaje || "—"],
+        ["Secuencia", m.seq != null ? <span className="tabular-nums">{m.seq}</span> : "—"],
+        ["Llegó por", [m.transporte, m.ip].filter(Boolean).join(" desde ") || "—"],
+        ["Cifrado", m.cifrado ? "Sí (AES)" : "No"],
+        ["Respuesta", m.respuesta ? `${m.respuesta}${m.respuesta === "ACK" ? " · la central sabe que llegó" : m.respuesta === "NAK" ? " · se rechazó: la central reintenta" : ""}` : "ninguna"],
+    ];
     return (
-        <CajonSeccion titulo="Últimos mensajes" icono={Radio} plegable abiertaAlInicio={mensajes.length > 0 && mensajes.length < 20} resumen={mensajes.length ? `${mensajes.length} · el último ${hace(mensajes[0].recibido)}` : "ninguno"}>
-            {mensajes.length === 0 ? <p className="text-[12.5px] text-muted-foreground">Todavía no llegó nada de esta central.</p> : (
-                <div className="divide-y divide-border/60">
-                    {mensajes.map((m) => (
-                        <div key={m.id} className="flex items-start gap-2 py-1.5 text-[12px]">
-                            <span className="w-[108px] shrink-0 tabular-nums text-muted-foreground">{horaCorta(m.recibido)}</span>
-                            <span className="w-[74px] shrink-0 font-semibold">{m.idMensaje || "?"}{m.cifrado ? " 🔒" : ""}</span>
-                            <span className="min-w-0 flex-1">
-                                {m.error ? <span className="tono-mal">{ERROR_TXT[m.error] || m.error}</span>
-                                    : m.eventos?.length ? m.eventos.map((e: any) => `${e.texto}${e.zona != null ? ` · zona ${e.zona}` : ""}${e.usuario != null ? ` · usuario ${e.usuario}` : ""}`).join(" · ")
-                                    : m.idMensaje === "NULL" ? <span className="text-muted-foreground">Supervisión</span> : <span className="text-muted-foreground">{m.datos || "—"}</span>}
-                            </span>
-                            {m.respuesta && <Chip tono={RESP_TONO[m.respuesta] || "quieto"}>{m.respuesta}</Chip>}
+        <span className="block space-y-0.5">
+            {filas.map(([k, v]) => <span key={k} className="flex gap-2"><span className="w-[72px] shrink-0 text-muted-foreground">{k}</span><span className="min-w-0">{v}</span></span>)}
+            {m.datos && <span className="block pt-1 text-muted-foreground break-all">{m.datos}</span>}
+        </span>
+    );
+}
+
+function Mensajes({ mensajes, zonas }: { mensajes: Mensaje[]; zonas: Zona[] }) {
+    const [filtro, setFiltro] = useState<ClaseMsg | "todo">("todo");
+    const [conSupervision, setConSupervision] = useState(false);
+    const nombreZona = useMemo(() => new Map(zonas.map((z) => [z.zona, z.nombre])), [zonas]);
+    // Cada mensaje con la clase de su primer evento (un mensaje SIA puede traer varios).
+    const filas = useMemo(() => mensajes.map((m) => {
+        const evs = Array.isArray(m.eventos) ? m.eventos : [];
+        const c = m.error ? { clase: "falla" as ClaseMsg, icono: AlertTriangle, tono: "mal" as TonoEvento } : evs.length ? claseDeEvento(evs[0]) : m.idMensaje === "NULL" ? { clase: "prueba" as ClaseMsg, icono: HeartPulse, tono: "quieto" as TonoEvento } : { clase: "otro" as ClaseMsg, icono: Info, tono: "quieto" as TonoEvento };
+        return { m, evs, ...c, supervision: m.idMensaje === "NULL" && !evs.length };
+    }), [mensajes]);
+    const cuenta = (c: ClaseMsg | "todo") => filas.filter((f) => (conSupervision || !f.supervision) && (c === "todo" || f.clase === c)).length;
+    const visibles = filas.filter((f) => (conSupervision || !f.supervision) && (filtro === "todo" || f.clase === filtro));
+    const supervisiones = filas.filter((f) => f.supervision).length;
+    const sinConfirmar = filas.filter((f) => f.m.respuesta && f.m.respuesta !== "ACK").length;
+
+    let diaAnterior = "";
+    return (
+        <CajonSeccion titulo="Últimos mensajes" icono={Radio} plegable abiertaAlInicio={mensajes.length > 0 && mensajes.length < 20}
+            resumen={mensajes.length ? `${mensajes.length} · el último ${hace(mensajes[0].recibido)}${sinConfirmar ? ` · ${sinConfirmar} sin confirmar` : ""}` : "ninguno"}>
+            {mensajes.length === 0 ? (
+                <div className="rounded-[10px] border border-dashed border-border px-4 py-5 text-center">
+                    <Radio size={20} className="mx-auto mb-1.5 text-muted-foreground" />
+                    <p className="text-[12.5px] text-muted-foreground">Todavía no llegó nada de esta central.</p>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    {/* Qué se mira: por tipo de evento, con su cuenta. La supervisión aparte: es un latido cada pocos minutos y taparía todo. */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center rounded-[10px] bg-muted/60 p-[3px] gap-0.5 flex-wrap" role="tablist">
+                            {CLASES_MSG.map((c) => {
+                                const n = cuenta(c.id); const on = filtro === c.id; const I = c.icono;
+                                if (c.id !== "todo" && !n && !on) return null;
+                                return (
+                                    <Pista key={c.id} titulo={c.rotulo} texto={`${n} ${n === 1 ? "mensaje" : "mensajes"}`} lado="arriba">
+                                        <button type="button" role="tab" aria-selected={on} onClick={() => setFiltro(c.id)}
+                                            className={cn("h-7 px-2.5 rounded-[8px] inline-flex items-center gap-1.5 text-[11.5px] font-semibold transition-colors", on ? "bg-background ring-1 ring-border text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                                            <I size={12} className={cn(on && c.id === "alarma" && "tono-mal")} />{c.id === "todo" ? c.rotulo : null}<span className="tabular-nums opacity-70">{n}</span>
+                                        </button>
+                                    </Pista>
+                                );
+                            })}
                         </div>
-                    ))}
+                        {supervisiones > 0 && (
+                            <Pista titulo="Supervisión" texto="El latido con que la central avisa que sigue viva. Se esconde porque es uno cada pocos minutos." lado="arriba">
+                                <button type="button" onClick={() => setConSupervision((v) => !v)} aria-pressed={conSupervision}
+                                    className={cn("ml-auto h-7 px-2.5 rounded-[8px] inline-flex items-center gap-1.5 text-[11.5px] font-semibold border", conSupervision ? "border-[var(--accion)] text-[var(--accion)]" : "border-border text-muted-foreground hover:text-foreground")}>
+                                    <HeartPulse size={12} /> {conSupervision ? "Ocultar" : "Mostrar"} supervisión <span className="tabular-nums opacity-70">{supervisiones}</span>
+                                </button>
+                            </Pista>
+                        )}
+                    </div>
+
+                    {visibles.length === 0 ? <p className="text-[12.5px] text-muted-foreground px-1">Nada de este tipo en los últimos mensajes.</p> : (
+                        <div className="rounded-[10px] border border-border overflow-hidden">
+                            {visibles.map(({ m, evs, icono: I, tono }) => {
+                                const dia = diaDe(m.recibido);
+                                const cabecera = dia !== diaAnterior; diaAnterior = dia;
+                                const e0 = evs[0] || null;
+                                const zona = e0?.zona != null ? Number(e0.zona) : null;
+                                const titulo = m.error ? (ERROR_TXT[m.error] || m.error) : e0 ? String(e0.texto || "Evento") : m.idMensaje === "NULL" ? "Supervisión" : (m.datos || "Mensaje");
+                                const confirmado = !m.respuesta || m.respuesta === "ACK";
+                                return (
+                                    <div key={m.id}>
+                                        {cabecera && <div className="px-3 py-1.5 bg-muted/50 border-b border-border text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground first-letter:uppercase">{dia}</div>}
+                                        <div className="flex items-center gap-3 px-3 py-2 border-b border-border/60 last:border-0 hover:bg-muted/30">
+                                            <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-[9px] border", `chip-${tono}`)}><I size={15} /></span>
+                                            <div className="min-w-0 flex-1 leading-tight">
+                                                <div className={cn("text-[13px] font-semibold truncate", tono === "mal" && "tono-mal")}>{titulo}</div>
+                                                <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-muted-foreground min-w-0">
+                                                    {zona != null && (
+                                                        <Pista titulo={`Zona ${zona}`} texto={nombreZona.get(zona) || "Sin nombre: se le pone en Zonas, arriba."} lado="arriba">
+                                                            <span className="inline-flex items-center gap-1 min-w-0"><MapPin size={11} className="shrink-0" /><span className="truncate">Zona {zona}{nombreZona.get(zona) ? ` · ${nombreZona.get(zona)}` : ""}</span></span>
+                                                        </Pista>
+                                                    )}
+                                                    {e0?.usuario != null && (
+                                                        <Pista titulo={`Usuario ${e0.usuario}`} texto={e0.nombre ? String(e0.nombre) : "El número de usuario del teclado o la app de la central."} lado="arriba">
+                                                            <span className="inline-flex items-center gap-1 shrink-0"><UserRound size={11} /> {e0.nombre || `Usuario ${e0.usuario}`}</span>
+                                                        </Pista>
+                                                    )}
+                                                    {e0?.particion != null && zona == null && <span className="inline-flex items-center gap-1 shrink-0"><Layers size={11} /> Partición {e0.particion}</span>}
+                                                    {evs.length > 1 && (
+                                                        <Pista titulo={`${evs.length} eventos en este mensaje`} texto={evs.map((x: any) => `${x.texto}${x.zona != null ? ` · zona ${x.zona}` : ""}`).join(" · ")} lado="arriba">
+                                                            <span className="shrink-0 rounded-full border border-border px-1.5 text-[10.5px] font-semibold">+{evs.length - 1}</span>
+                                                        </Pista>
+                                                    )}
+                                                    {e0?.codigo && <span className="shrink-0 tabular-nums opacity-70">{e0.codigo}</span>}
+                                                </div>
+                                            </div>
+                                            <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">{horaSeg(m.recibido)}</span>
+                                            <Pista titulo={confirmado ? (m.respuesta ? "Confirmado a la central" : "Recibido") : m.respuesta === "NAK" ? "Rechazado" : `Respuesta ${m.respuesta}`} texto={<DetalleTecnico m={m} />} lado="izquierda" ancho={300}>
+                                                <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full", confirmado ? "text-[var(--bien)] hover:bg-muted" : m.respuesta === "NAK" ? "pleno-mal" : "pleno-aviso")}>
+                                                    {confirmado ? (m.cifrado ? <LockKeyhole size={14} /> : <CheckCheck size={15} />) : <AlertTriangle size={14} />}
+                                                </span>
+                                            </Pista>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
             )}
         </CajonSeccion>
