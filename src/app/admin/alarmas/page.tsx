@@ -10,7 +10,7 @@ import {
 import { VistaCentrales, ChipPrioridad } from "@/components/alarmas/MensajesCentrales";
 import { abrirEventoCentral } from "@/lib/centrales/abrir-evento";
 import { ElegirArea } from "@/components/devices/ElegirArea";
-import { useFiltroArea } from "@/lib/use-filtro-area";
+import { useFiltroArea, TODAS_LAS_AREAS } from "@/lib/use-filtro-area";
 import { esDeProveedores } from "@/lib/presencia-grupos";
 import { esPaseLibre } from "@/lib/visitas/ajustes-base";
 import { useClipEvento } from "@/lib/clip-evento";
@@ -401,7 +401,7 @@ function GestionAlarmas() {
             </div>
 
             {/* Cuerpo: la tabla de lo elegido y lo seleccionado a la derecha. */}
-            {ver === "centrales" ? <VistaCentrales key="centrales" horas={horas} setHoras={setHoras} enArea={enAreaCentral} /> : (
+            {ver === "centrales" ? <VistaCentrales key="centrales" horas={horas} setHoras={setHoras} enArea={enAreaCentral} area={{ nombre: fa.nombre, filtrando: fa.filtrando, verTodas: () => fa.setArea(TODAS_LAS_AREAS) }} /> : (
             <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[1fr_400px] xl:divide-x divide-border">
                 <div className="min-h-0 flex flex-col gap-3 p-4">
                     {(hecho || fallo) && (

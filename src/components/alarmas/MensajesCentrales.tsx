@@ -131,12 +131,14 @@ function dondeDe(m: Mensaje, e: Evento | null, zona: (m: Mensaje, n: number | nu
     return partes.length ? partes.join(" · ") : null;
 }
 
-export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando, traer, sel, alElegir, enArea, que, setQue }: {
+export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando, traer, sel, alElegir, enArea, que, setQue, area }: {
     horas: number; setHoras: (h: number) => void;
     datos: Datos | null; error: string | null; cargando: boolean; traer: () => void;
     sel: string | null; alElegir: (id: string | null) => void;
     /** El filtro de área de la página, por el equipo de la central (y el área de la zona, si la tiene). */
     enArea: (deviceId: string | null, areaZona?: string | null) => boolean;
+    /** El área elegida arriba (Gestión de alarmas): para decir cuántos mensajes deja afuera y ofrecer verlos. */
+    area?: { nombre: string | null; filtrando: boolean; verTodas: () => void };
     que: QueCentral; setQue: (q: QueCentral) => void;
 }) {
     const { porId, zona, areaDe } = useCentrales(datos);
@@ -157,6 +159,12 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
     }, [porId, enArea]);
 
     const base = useMemo(() => (datos?.mensajes || []).filter(delArea), [datos, delArea]);
+    /*
+     * Los que deja afuera el área elegida. 23/10, Nico: «¿no tengo alarmas?» — con el área de San
+     * Nicolás elegida, la central de IES (de otra área) no mostraba nada y la pantalla decía «las
+     * centrales no mandaron nada», que era falso: habían llegado 125 mensajes.
+     */
+    const fueraDeArea = area?.filtrando ? (datos?.mensajes.length || 0) - base.length : 0;
     const encaja = useCallback((m: Mensaje, q: QueCentral) => {
         if (q === "sin-usar") return sinUsar(m);
         if (sinUsar(m)) return false;
@@ -217,8 +225,14 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
             filaDestacada={(m) => primero(m)?.categoria === "ALARMA" && Date.now() - new Date(m.recibido).getTime() < 60_000}
             // P1 (22/10, Nico): la fila entera en rojo con el texto en blanco, latiendo mientras el evento siga sin tratar.
             claseFila={(m) => !sinUsar(m) && prioridadMensaje(m, prio) === 1 ? cn("omni-fila-p1", m.detectionId && sinTratarSet.has(m.detectionId) && "omni-fila-p1-viva") : undefined}
-            vacio={{ titulo: t ? "Nada con esa búsqueda" : !datos?.centrales.length ? "Todavía no hay centrales dadas de alta" : "Las centrales no mandaron nada en este rango", ayuda: t ? undefined : "Se actualiza sola con cada mensaje que llega." }}
-            pie={<span className="tabular-nums">{filas.length} mensajes · últimas {horas} h{datos?.tope ? " · se muestran los 3000 más nuevos" : ""}</span>}
+            vacio={{
+                titulo: t ? "Nada con esa búsqueda" : !datos?.centrales.length ? "Todavía no hay centrales dadas de alta"
+                    : !base.length && fueraDeArea > 0 ? `${fueraDeArea.toLocaleString("es-UY")} mensajes, de centrales fuera del área «${area?.nombre || "elegida"}»` : "Las centrales no mandaron nada en este rango",
+                ayuda: t ? undefined : !base.length && fueraDeArea > 0 ? "Elegí «Todas las áreas» arriba, o tocá «ver todas» abajo." : "Se actualiza sola con cada mensaje que llega.",
+            }}
+            pie={<span className="tabular-nums">{filas.length} mensajes · últimas {horas} h{datos?.tope ? " · se muestran los 3000 más nuevos" : ""}
+                {fueraDeArea > 0 && <> · {fueraDeArea.toLocaleString("es-UY")} fuera del área «{area?.nombre || "elegida"}» <button type="button" onClick={area?.verTodas} className="font-semibold text-[var(--accion)] hover:underline">ver todas</button></>}
+            </span>}
             barra={
                 /*
                  * Los filtros en UN renglón (22/10, Nico: «acomodá los controles de filtros, ocupan mucho
@@ -397,7 +411,7 @@ export function DetalleMensajeCentral({ m, datos }: { m: Mensaje; datos: Datos |
 }
 
 /** La pestaña entera: la tabla y, a la derecha, el mensaje elegido. Pide sus datos sólo mientras está a la vista. */
-export function VistaCentrales({ horas, setHoras, enArea }: { horas: number; setHoras: (h: number) => void; enArea: (deviceId: string | null, areaZona?: string | null) => boolean }) {
+export function VistaCentrales({ horas, setHoras, enArea, area }: { horas: number; setHoras: (h: number) => void; enArea: (deviceId: string | null, areaZona?: string | null) => boolean; area?: { nombre: string | null; filtrando: boolean; verTodas: () => void } }) {
     const { datos, error, cargando, traer } = useMensajesCentrales(horas);
     const [sel, setSel] = useState<string | null>(null);
     const [que, setQue] = useState<QueCentral>("eventos");
@@ -405,7 +419,7 @@ export function VistaCentrales({ horas, setHoras, enArea }: { horas: number; set
     return (
         <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[1fr_400px] xl:divide-x divide-border">
             <div className="min-h-0 flex flex-col p-4">
-                <TablaMensajesCentrales horas={horas} setHoras={setHoras} datos={datos} error={error} cargando={cargando} traer={traer} sel={sel} alElegir={setSel} enArea={enArea} que={que} setQue={setQue} />
+                <TablaMensajesCentrales horas={horas} setHoras={setHoras} datos={datos} error={error} cargando={cargando} traer={traer} sel={sel} alElegir={setSel} enArea={enArea} que={que} setQue={setQue} area={area} />
             </div>
             <aside className="hidden xl:flex flex-col min-h-0 overflow-y-auto">
                 {elegido ? <DetalleMensajeCentral key={elegido.id} m={elegido} datos={datos} /> : (
