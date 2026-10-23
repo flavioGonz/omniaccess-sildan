@@ -4,7 +4,7 @@ import { leerAreasHistorial } from "@/lib/areas-historial";
 import { TIPOS_CHAPA, prefijosDeTipo } from "@/lib/categoria-chapa";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
-import { limitesDelDia } from "@/lib/fechas";
+import { limiteDeFiltro } from "@/lib/fechas";
 import { Prisma } from "@prisma/client";
 import { clasesDe, RELECTURA_CON_CHAPA, VISION_IDS_MAX, type EmpresaFila, type VisionFila } from "@/lib/historial-vision";
 import { empresasDeLecturas } from "@/lib/empresas-servidor";
@@ -294,13 +294,8 @@ const OBJETOS_EN_FRANJA = 12;
 const VENTANA_PERMANENCIA_MS = 36 * 3600 * 1000;
 
 /** Una fecha de `<input type="date">` (día entero del barrio) o un instante completo. */
-const leerLimite = (v: string | null, extremo: "inicio" | "fin"): Date | null => {
-    if (!v) return null;
-    const dia = limitesDelDia(v);
-    if (dia) return dia[extremo];
-    const d = new Date(v);
-    return isNaN(+d) ? null : d;
-};
+/** Un día de `<input type="date">`, ese día con hora («AAAA-MM-DDTHH:MM», hora del barrio) o un instante (lib/fechas). */
+const leerLimite = (v: string | null, extremo: "inicio" | "fin"): Date | null => limiteDeFiltro(v, extremo);
 
 export async function GET(req: NextRequest) {
     const auth = await verifyApiAuth();

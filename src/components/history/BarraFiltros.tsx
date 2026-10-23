@@ -9,7 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Filtros, type GrupoFiltro } from "@/components/ui/filtros";
 import { Pista } from "@/components/ui/pista";
 import { cn } from "@/lib/utils";
-import { fechaCorta, paraInput } from "@/lib/fechas";
+import { fechaCorta, paraInput, periodoConHora } from "@/lib/fechas";
 import { RASGOS } from "@/components/history/TablaUnificada";
 import { OPCIONES_VISION, OPCION_RELEIDA } from "@/lib/historial-vision";
 import type { CamaraHistorial } from "@/app/api/history/camaras/route";
@@ -36,6 +36,8 @@ import { SIN_AREA, filtroDeAreas, pasaAreas, type DatosAreasHistorial } from "@/
 
 export type FiltrosHistorial = {
     desde: string; hasta: string;
+    /** Hora opcional de cada extremo ("HH:MM", hora del barrio); vacío = el día entero (lib/fechas periodoConHora). */
+    horaDesde: string; horaHasta: string;
     tipos: string[];
     identificacion: "ALL" | "PLATE" | "FACE" | "TAG";
     resultado: "ALL" | "GRANT" | "DENY";
@@ -55,7 +57,7 @@ export type FiltrosHistorial = {
 export type CambiarFiltros = <K extends keyof FiltrosHistorial>(clave: K, valor: FiltrosHistorial[K]) => void;
 
 export const SIN_FILTROS: FiltrosHistorial = {
-    desde: "", hasta: "", tipos: [], identificacion: "ALL", resultado: "ALL", sentido: "ALL",
+    desde: "", hasta: "", horaDesde: "", horaHasta: "", tipos: [], identificacion: "ALL", resultado: "ALL", sentido: "ALL",
     camaras: [], areas: [], color: "ALL", tipoVeh: "ALL", merodeo: false, vision: [], chapa: [],
 };
 
@@ -146,21 +148,28 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
 
     // Período: el rótulo del botón dice lo que está puesto.
     const periodoActivo = (dias: number) => dias === 1
-        ? f.desde === diasAtras(1) && f.hasta === diasAtras(1)
-        : f.desde === diasAtras(dias) && (!f.hasta || f.hasta === paraInput(new Date()));
+        ? !f.horaDesde && !f.horaHasta && f.desde === diasAtras(1) && f.hasta === diasAtras(1)
+        : !f.horaDesde && !f.horaHasta && f.desde === diasAtras(dias) && (!f.hasta || f.hasta === paraInput(new Date()));
     const ponerPeriodo = (dias: number) => {
+        cambiar("horaDesde", ""); cambiar("horaHasta", "");
         if (dias === 1) { cambiar("desde", diasAtras(1)); cambiar("hasta", diasAtras(1)); return; }
         cambiar("desde", diasAtras(dias)); cambiar("hasta", "");
     };
     const rotuloPeriodo = useMemo(() => {
-        if (!f.desde && !f.hasta) return "Cualquier fecha";
+        if (!f.desde && !f.hasta && !f.horaDesde && !f.horaHasta) return "Cualquier fecha";
         const atajo = ATAJOS.find((a) => periodoActivo(a.dias));
         if (atajo) return atajo.dias > 1 ? `Últimos ${atajo.rotulo}` : atajo.rotulo;
-        const dia = (s: string) => fechaCorta(new Date(`${s}T12:00:00`));
-        if (f.desde && f.hasta) return f.desde === f.hasta ? dia(f.desde) : `${dia(f.desde)} – ${dia(f.hasta)}`;
-        return f.desde ? `Desde ${dia(f.desde)}` : `Hasta ${dia(f.hasta)}`;
+        // Con hora: el mismo período que se le manda al servidor (una hora sin día es de hoy).
+        const p = periodoConHora(f.desde, f.hasta, f.horaDesde, f.horaHasta);
+        const dia = (s: string) => fechaCorta(new Date(`${s.slice(0, 10)}T12:00:00`));
+        const con = (s: string) => (s.length > 10 ? `${dia(s)} ${s.slice(11)}` : dia(s));
+        if (p.desde && p.hasta) {
+            if (p.desde.slice(0, 10) === p.hasta.slice(0, 10)) return p.desde.length > 10 || p.hasta.length > 10 ? `${dia(p.desde)} ${p.desde.slice(11) || "00:00"}–${p.hasta.slice(11) || "23:59"}` : dia(p.desde);
+            return `${con(p.desde)} – ${con(p.hasta)}`;
+        }
+        return p.desde ? `Desde ${con(p.desde)}` : `Hasta ${con(p.hasta)}`;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [f.desde, f.hasta]);
+    }, [f.desde, f.hasta, f.horaDesde, f.horaHasta]);
 
     const rotuloTipos = f.tipos.length === 0 ? "Todos los registros"
         : f.tipos.length === 1 ? CLASES.find((c) => c.valor === f.tipos[0])?.rotulo || f.tipos[0] : `${f.tipos.length} clases`;
@@ -198,11 +207,11 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
 
             <Filtros grupos={grupos} />
 
-            <Desplegable Ico={CalendarRange} rotulo={rotuloPeriodo} puesto={!!(f.desde || f.hasta)} titulo="Período" ancho={300}>
+            <Desplegable Ico={CalendarRange} rotulo={rotuloPeriodo} puesto={!!(f.desde || f.hasta || f.horaDesde || f.horaHasta)} titulo="Período" ancho={300}>
                 <Titulo>Período</Titulo>
                 <div className="flex flex-wrap gap-1.5">
-                    <button type="button" onClick={() => { cambiar("desde", ""); cambiar("hasta", ""); }}
-                        className={cn("h-7 px-2.5 rounded-full border text-[12px] font-semibold", !f.desde && !f.hasta ? "accion border-transparent" : "border-border hover:bg-accent")}>Todo</button>
+                    <button type="button" onClick={() => { cambiar("desde", ""); cambiar("hasta", ""); cambiar("horaDesde", ""); cambiar("horaHasta", ""); }}
+                        className={cn("h-7 px-2.5 rounded-full border text-[12px] font-semibold", !f.desde && !f.hasta && !f.horaDesde && !f.horaHasta ? "accion border-transparent" : "border-border hover:bg-accent")}>Todo</button>
                     {ATAJOS.map((a) => (
                         <button key={a.rotulo} type="button" onClick={() => ponerPeriodo(a.dias)}
                             className={cn("h-7 px-2.5 rounded-full border text-[12px] font-semibold", periodoActivo(a.dias) ? "accion border-transparent" : "border-border hover:bg-accent")}>{a.rotulo}</button>
@@ -215,9 +224,14 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
                             <input type="date" value={f[k]} min={k === "hasta" ? f.desde || undefined : undefined} max={k === "desde" ? f.hasta || undefined : undefined}
                                 onChange={(e) => cambiar(k, e.target.value)}
                                 className="w-full h-9 rounded-md border border-border bg-muted/40 px-2 text-[12.5px] tabular-nums outline-none focus:border-[var(--accion)]" />
+                            {/* La hora es opcional: vacía, el día entero. */}
+                            <input type="time" value={k === "desde" ? f.horaDesde : f.horaHasta} aria-label={k === "desde" ? "Hora desde" : "Hora hasta"}
+                                onChange={(e) => cambiar(k === "desde" ? "horaDesde" : "horaHasta", e.target.value)}
+                                className={cn("mt-1.5 w-full h-9 rounded-md border border-border bg-muted/40 px-2 text-[12.5px] tabular-nums outline-none focus:border-[var(--accion)]", !(k === "desde" ? f.horaDesde : f.horaHasta) && "text-muted-foreground")} />
                         </label>
                     ))}
                 </div>
+                <p className="text-[11px] text-muted-foreground leading-snug">La hora es opcional: sin hora va el día entero. Con hora y sin día, es de hoy; «hasta» sin día usa el día de «desde».</p>
             </Desplegable>
 
             {/* Áreas (21/10, Nico: «filtrar búsquedas por áreas; los dispositivos los agrupamos en áreas»). */}

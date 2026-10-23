@@ -18,7 +18,7 @@ import { useSiluetas } from "@/lib/use-siluetas";
 import { Sparkles, Server, ImagePlus, Car, User, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
-import { horaSeg } from "@/lib/fechas";
+import { horaSeg, limiteDeFiltro, periodoConHora } from "@/lib/fechas";
 import type { CamaraHistorial } from "@/app/api/history/camaras/route";
 
 /**
@@ -124,9 +124,12 @@ export default function HistoryPage() {
         return () => window.removeEventListener("keydown", alTeclear);
     }, []);
 
+    /** El período con sus horas, tal cual se le pide al servidor (lib/fechas: limiteDeFiltro). */
+    const periodo = useMemo(() => periodoConHora(f.desde, f.hasta, f.horaDesde, f.horaHasta), [f.desde, f.hasta, f.horaDesde, f.horaHasta]);
+
     const exportJson = async () => {
         try {
-            const resp: any = await getAccessEvents({ take: 100000, skip: 0, search: searchTerm, decision: f.resultado, type: f.identificacion, direction: f.sentido, from: f.desde ? new Date(f.desde) : undefined, to: f.hasta ? new Date(f.hasta) : undefined });
+            const resp: any = await getAccessEvents({ take: 100000, skip: 0, search: searchTerm, decision: f.resultado, type: f.identificacion, direction: f.sentido, from: limiteDeFiltro(periodo.desde, "inicio") || undefined, to: limiteDeFiltro(periodo.hasta, "fin") || undefined });
             const evs = (resp.events || []).map((e: any) => ({ id: e.id, timestamp: e.timestamp, createdAt: e.createdAt, accessType: e.accessType, credentialId: e.credentialId, decision: e.decision, direction: e.direction, plateDetected: e.plateDetected, plateNumber: e.plateNumber, location: e.location, snapshotPath: e.snapshotPath, imagePath: e.imagePath, details: e.details, deviceName: e.device?.name || null }));
             const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), count: evs.length, events: evs }, null, 2)], { type: "application/json" });
             const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `omniaccess-historial-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url);
@@ -154,12 +157,12 @@ export default function HistoryPage() {
     useEffect(() => {
         let vivo = true;
         const q = new URLSearchParams();
-        if (f.desde) q.set("from", f.desde);
-        if (f.hasta) q.set("to", f.hasta);
+        if (periodo.desde) q.set("from", periodo.desde);
+        if (periodo.hasta) q.set("to", periodo.hasta);
         fetch(`/api/history/camaras?${q}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
             .then((j) => { if (vivo && j?.camaras) setCamarasServidor(j.camaras); }).catch(() => { });
         return () => { vivo = false; };
-    }, [f.desde, f.hasta]);
+    }, [periodo.desde, periodo.hasta]);
 
     /* Las áreas de Dispositivos con sus cámaras, para el filtro «Áreas» (lib/filtro-areas). */
     const [areasDatos, setAreasDatos] = useState<DatosAreasHistorial | null>(null);
@@ -172,7 +175,7 @@ export default function HistoryPage() {
     /** Cuántos filtros hay puestos (para «Limpiar»). La identificación fija por módulo no cuenta: no la puso nadie. */
     const puestos = useMemo(() => {
         let n = searchTerm.trim() ? 1 : 0;
-        if (f.desde || f.hasta) n++;
+        if (f.desde || f.hasta || f.horaDesde || f.horaHasta) n++;
         if (f.tipos.length) n++;
         if (f.identificacion !== "ALL" && activeMode === null) n++;
         if (f.resultado !== "ALL") n++;
@@ -303,8 +306,8 @@ export default function HistoryPage() {
                         soloSeguimiento={soloSeguimiento} modo={modosListos ? activeMode : "LPR"} merodeando={chapasMerodeo.size} />
                 }
                 buscar={searchTerm}
-                desde={f.desde}
-                hasta={f.hasta}
+                desde={periodo.desde}
+                hasta={periodo.hasta}
                 tipos={f.tipos}
                 identificacion={soloSeguimiento ? "ALL" : f.identificacion}
                 resultado={soloSeguimiento ? "ALL" : f.resultado}

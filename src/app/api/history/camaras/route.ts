@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
-import { limitesDelDia } from "@/lib/fechas";
+import { limiteDeFiltro } from "@/lib/fechas";
 
 export const dynamic = "force-dynamic";
 
@@ -19,13 +19,7 @@ export const dynamic = "force-dynamic";
  */
 const DIAS_SIN_RANGO = 30;
 const sinZona = (d: Date) => d.toISOString().replace("T", " ").replace("Z", "");
-const limite = (v: string | null, extremo: "inicio" | "fin") => {
-    if (!v) return null;
-    const dia = limitesDelDia(v);
-    if (dia) return dia[extremo];
-    const d = new Date(v);
-    return isNaN(+d) ? null : d;
-};
+const limite = (v: string | null, extremo: "inicio" | "fin") => limiteDeFiltro(v, extremo);
 
 export type CamaraHistorial = { nombre: string; origen: "lpr" | "seguimiento" | "omnivision"; n: number; chapas?: number };
 
