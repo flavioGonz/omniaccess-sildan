@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Loader2, Plus, RotateCcw, Save, Siren, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Database, HardDrive, Loader2, Plus, RotateCcw, Save, Siren, Trash2 } from "lucide-react";
 import { toast } from "@/lib/avisos";
 import { Button } from "@/components/ui/button";
 import { ChipPrioridad } from "@/components/alarmas/MensajesCentrales";
@@ -24,7 +24,7 @@ import { useFuncion } from "@/lib/funciones-cliente";
  * salta la ventana y cuándo se escala.
  */
 export default function CentralesSection() {
-    const [parte, setParte] = useState<"prioridades" | "cierres" | "procedimiento" | "escalado">("prioridades");
+    const [parte, setParte] = useState<"prioridades" | "cierres" | "procedimiento" | "escalado" | "fotos">("prioridades");
     // Sin la Recepción de alarmas estos ajustes no existen (sus rutas contestan 404): se dice dónde prenderla.
     const recepcion = useFuncion("FUNC_ALARMAS_RECEPCION");
     if (recepcion === false) {
@@ -41,12 +41,12 @@ export default function CentralesSection() {
     return (
         <div className="space-y-5">
             <div className="flex items-center rounded-full border border-border p-0.5 w-fit" role="tablist">
-                {([["prioridades", "Prioridades"], ["cierres", "Cierres"], ["procedimiento", "Procedimiento"], ["escalado", "Ventana y escalado"]] as const).map(([k, l]) => (
+                {([["prioridades", "Prioridades"], ["cierres", "Cierres"], ["procedimiento", "Procedimiento"], ["escalado", "Ventana y escalado"], ["fotos", "Fotos y retención"]] as const).map(([k, l]) => (
                     <button key={k} type="button" role="tab" aria-selected={parte === k} onClick={() => setParte(k)}
                         className={cn("h-8 px-4 rounded-full text-[12.5px] font-semibold", parte === k ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{l}</button>
                 ))}
             </div>
-            {parte === "prioridades" ? <PrioridadesCentralesSection /> : <AjustesTratamiento parte={parte} />}
+            {parte === "prioridades" ? <PrioridadesCentralesSection /> : parte === "fotos" ? <FotosAlarmas /> : <AjustesTratamiento parte={parte} />}
         </div>
     );
 }
@@ -267,6 +267,91 @@ function AjustesTratamiento({ parte }: { parte: "cierres" | "procedimiento" | "e
                 <Button variant="outline" onClick={() => guardar(true)} disabled={guardando} className="gap-1.5"><RotateCcw size={14} /> Volver a lo de fábrica</Button>
                 <Button onClick={() => guardar(false)} disabled={guardando || !cambiado} className="gap-1.5">{guardando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar</Button>
             </div>
+        </div>
+    );
+}
+
+// ── Fotos y retención ───────────────────────────────────────────────────────────────────────
+
+type DatosFotos = {
+    bucket: string; dias: number; topeGb: number; regla: number; existe: boolean; n: number; bytes: number; desde: string | null; truncado: boolean;
+    limites: { diasMin: number; diasMax: number; topeMin: number; topeMax: number };
+};
+const tamano = (b: number) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(0)} MB` : `${Math.round(b / 1e3)} KB`);
+
+/**
+ * Dónde quedan los cuadros que se guardan con cada alarma y cuánto se guardan (23/10, Nico: «su
+ * bucket para separar las fotos de confirmaciones de robo; cuidar muy bien las retenciones para que
+ * no se nos llene el disco»). Dos topes: los días (los aplica el almacenamiento solo) y el tamaño
+ * (lo revisa el receptor cada 6 h: una central en bucle llena el disco antes de que venzan los días).
+ */
+function FotosAlarmas() {
+    const [d, setD] = useState<DatosFotos | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [dias, setDias] = useState("");
+    const [tope, setTope] = useState("");
+    const [guardando, setGuardando] = useState(false);
+    const cargar = () => fetch("/api/centrales/fotos", { cache: "no-store" }).then((r) => r.json()).then((j) => {
+        if (!j?.ok) throw new Error(j?.error || "No se pudo leer");
+        setD(j); setDias(String(j.dias)); setTope(String(j.topeGb)); setError(null);
+    }).catch((e) => setError(e?.message || "No se pudo leer"));
+    useEffect(() => { cargar(); }, []);
+    const guardar = async () => {
+        setGuardando(true);
+        try {
+            const r = await fetch("/api/centrales/fotos", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ dias: Number(dias), topeGb: Number(tope) }) });
+            const j = await r.json().catch(() => null);
+            if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+            if (j.aviso) toast.error(j.aviso); else toast.success(`Las fotos se guardan ${j.dias} días, con un tope de ${j.topeGb} GB`);
+            cargar();
+        } catch (e: any) { toast.error(e?.message || "No se pudo guardar"); }
+        finally { setGuardando(false); }
+    };
+    if (error && !d) return <div className="rounded-[10px] chip-mal border px-4 py-3 text-[13px] flex items-center gap-3">{error}<Button size="sm" variant="outline" onClick={cargar} className="ml-auto">Reintentar</Button></div>;
+    if (!d) return <div className="py-10 grid place-items-center text-muted-foreground"><Loader2 size={20} className="animate-spin" /></div>;
+    const uso = d.topeGb ? Math.min(1, d.bytes / (d.topeGb * 1e9)) : 0;
+    const cambiado = String(d.dias) !== dias || String(d.topeGb) !== tope;
+    const reglaDistinta = d.existe && d.regla !== d.dias;
+    return (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+            <section className="rounded-[10px] border border-border bg-card p-5">
+                <div className="flex items-center gap-2 text-[14px] font-semibold"><Database size={16} className="text-muted-foreground" /> Dónde quedan</div>
+                <p className="mt-1 text-[12.5px] text-muted-foreground leading-relaxed">Los cuadros de las cámaras que se guardan con cada alarma de central van a un bucket propio, separado de las capturas de intrusión y de matrículas. Así cada cosa tiene su retención y se ve cuánto ocupa.</p>
+                <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 text-[13px]">
+                    <div><dt className="text-[11.5px] text-muted-foreground">Bucket</dt><dd className="font-semibold">{d.bucket}{!d.existe && <span className="ml-1.5 font-normal text-muted-foreground">(se crea con la primera foto)</span>}</dd></div>
+                    <div><dt className="text-[11.5px] text-muted-foreground">Fotos</dt><dd className="font-semibold tabular-nums">{d.n.toLocaleString("es-UY")}{d.truncado ? "+" : ""}</dd></div>
+                    <div><dt className="text-[11.5px] text-muted-foreground">Ocupa</dt><dd className="font-semibold tabular-nums">{tamano(d.bytes)} <span className="font-normal text-muted-foreground">de {d.topeGb} GB</span></dd></div>
+                    <div><dt className="text-[11.5px] text-muted-foreground">La más vieja</dt><dd className="font-semibold tabular-nums">{d.desde ? new Date(d.desde).toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</dd></div>
+                </dl>
+                <div className="mt-4 h-2 rounded-full bg-muted overflow-hidden" title={`${Math.round(uso * 100)} % del tope`}>
+                    <div className={cn("h-full rounded-full", uso > 0.9 ? "bg-[var(--mal)]" : uso > 0.7 ? "bg-[var(--aviso)]" : "bg-[var(--bien)]")} style={{ width: `${Math.max(uso * 100, d.bytes ? 1 : 0)}%` }} />
+                </div>
+                <div className="mt-3 flex items-center gap-2 text-[12.5px]">
+                    <HardDrive size={14} className="text-muted-foreground" />
+                    {!d.existe ? <span className="text-muted-foreground">Sin fotos todavía.</span>
+                        : d.regla ? <span>El almacenamiento borra solo lo de más de <b>{d.regla} días</b>.</span>
+                            : <span className="tono-aviso font-semibold">El bucket no tiene regla de días: crece hasta el tope de tamaño.</span>}
+                </div>
+                {reglaDistinta && d.regla > 0 && <p className="mt-1.5 text-[12px] tono-aviso">La regla del bucket ({d.regla} días) no coincide con lo guardado ({d.dias}): se corrige al guardar o en la próxima revisión del receptor.</p>}
+            </section>
+            <section className="rounded-[10px] border border-border bg-card p-5">
+                <div className="text-[14px] font-semibold">Cuánto se guardan</div>
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <label className="block">
+                        <span className="text-[12.5px] font-semibold">Días</span>
+                        <input type="number" min={d.limites.diasMin} max={d.limites.diasMax} value={dias} onChange={(e) => setDias(e.target.value)} className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-[13px] tabular-nums" />
+                        <span className="mt-1 block text-[11.5px] text-muted-foreground leading-snug">Lo más viejo se borra solo. Entre {d.limites.diasMin} y {d.limites.diasMax}. Un robo se reclama semanas después: lo que haga falta guardar más se exporta desde la ficha.</span>
+                    </label>
+                    <label className="block">
+                        <span className="text-[12.5px] font-semibold">Tope de tamaño (GB)</span>
+                        <input type="number" min={d.limites.topeMin} max={d.limites.topeMax} value={tope} onChange={(e) => setTope(e.target.value)} className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-[13px] tabular-nums" />
+                        <span className="mt-1 block text-[11.5px] text-muted-foreground leading-snug">Si una central se dispara de más y se pasa, se borran las más viejas hasta quedar en el 90 %. Lo revisa el receptor cada 6 horas.</span>
+                    </label>
+                </div>
+                <div className="mt-4 flex justify-end">
+                    <Button onClick={guardar} disabled={!cambiado || guardando}>{guardando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar</Button>
+                </div>
+            </section>
         </div>
     );
 }

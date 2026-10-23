@@ -120,7 +120,7 @@ async function avisarPorReglas(ev) {
         if (!r.ok) log(`reglas: /api/notifications/event respondió ${r.status}`);
     } catch (e) { log("reglas: no se pudo avisar:", e.message); }
 }
-/** Un cuadro de una cámara (por go2rtc, como el diagnóstico de imagen) subido a S3 bucket intrusion. */
+/** Un cuadro de una cámara (por go2rtc, como el diagnóstico de imagen) subido al bucket de las alarmas (lib-s3, «alarmas»). */
 async function fotoDe(camaraId, nombre) {
     try {
         const r = await fetch(`${GO2RTC}/api/frame.jpeg?src=${encodeURIComponent(`lpr_${camaraId}`)}`, { signal: AbortSignal.timeout(6000) });
@@ -128,7 +128,7 @@ async function fotoDe(camaraId, nombre) {
         const b = Buffer.from(await r.arrayBuffer());
         if (b.length < 2000) return null;
         const { uploadToS3 } = require("./lib-s3");
-        return await uploadToS3(b, nombre, "image/jpeg", "intrusion");
+        return await uploadToS3(b, nombre, "image/jpeg", "alarmas");
     } catch { return null; }
 }
 
@@ -392,8 +392,29 @@ async function aplicarFunciones() {
     }
 }
 
+// ── La retención de las fotos ──────────────────────────────────────────────────────────────
+// El bucket propio lleva la regla de días (la aplica MinIO) y, además, este proceso lo poda por
+// tamaño cada RETENCION_MS: una central en bucle llena el disco antes de que venzan los días.
+// Sólo con la recepción prendida: sin recepción no entran fotos nuevas.
+const RETENCION_MS = 6 * 3600_000;
+const retencion = require("./lib-retencion-alarmas");
+async function cuidarFotos() {
+    if (!escuchando) return;
+    try {
+        const s3 = require("./lib-s3");
+        const r = await retencion.leerRetencion(prisma);
+        const d = await s3.asegurarRetencion("alarmas", r.dias);
+        if (d.creado) log(`fotos: bucket «${d.bucket}» creado`);
+        if (d.cambio) log(`fotos: el bucket «${d.bucket}» borra lo de más de ${d.dias} días${d.antes ? ` (antes ${d.antes})` : ""}`);
+        const p = await s3.podarPorTamano("alarmas", r.topeGb * 1e9);
+        if (p.borrados) log(`fotos: el bucket «${p.bucket}» pasó el tope de ${r.topeGb} GB: se borraron las ${p.borrados} fotos más viejas (${(p.liberados / 1e6).toFixed(0)} MB)`);
+    } catch (e) { log("fotos: no se pudo revisar la retención:", e.message); }
+}
+
 releer().then(async () => {
     await aplicarFunciones();
+    setTimeout(cuidarFotos, 60_000).unref();
+    setInterval(cuidarFotos, RETENCION_MS).unref();
     if (!escuchando) log("recepción de alarmas apagada en Ajustes → Modos: no se abren los puertos");
     setInterval(releer, RELEER_MS).unref();
     setInterval(aplicarFunciones, SONDEO_FUNCIONES_MS).unref();
