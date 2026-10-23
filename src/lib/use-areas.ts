@@ -16,11 +16,22 @@ const VIGENCIA_MS = 60_000;
 function pedir(): Promise<Areas> {
     if (ultimo && Date.now() - ultimo.t < VIGENCIA_MS) return Promise.resolve(ultimo.datos);
     pedido ??= fetch("/api/areas", { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : VACIO))
-        .then((j): Areas => { const d = { areas: Array.isArray(j?.areas) ? j.areas : [], equipoArea: j?.equipoArea || {} }; ultimo = { t: Date.now(), datos: d }; return d; })
+        .then((r) => (r.ok ? r.json() : null))
+        // Sin permiso (una pantalla) no se pisa lo que ya se sabía (sembrarAreas).
+        .then((j): Areas => { if (!j) return ultimo?.datos || VACIO; const d = { areas: Array.isArray(j?.areas) ? j.areas : [], equipoArea: j?.equipoArea || {} }; ultimo = { t: Date.now(), datos: d }; return d; })
         .catch(() => VACIO)
         .finally(() => { pedido = null; });
     return pedido;
+}
+
+/**
+ * Las áreas ya conocidas por otro camino. La pared de Cámaras con un enlace de pantalla no puede
+ * pedir /api/areas (es del panel), pero /api/monitor/camaras ya trae el árbol: con esto los
+ * elegidores de área de «Buscar parecidos» las tienen igual (openspec pared-vms).
+ */
+export function sembrarAreas(areas: AreaElegible[]) {
+    if (ultimo && ultimo.datos.areas.length) return;
+    ultimo = { t: Date.now(), datos: { areas, equipoArea: {} } };
 }
 
 export function useAreas(): Areas {

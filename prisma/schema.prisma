@@ -117,6 +117,25 @@ model EnlacePantalla {
   @@index([vista])
 }
 
+/// Una foto que un celular le manda a una pared por QR, para buscar parecidos (openspec pared-vms).
+/// El celular no tiene usuario: lo único que autoriza la subida es el token del QR, de un solo uso
+/// y de 10 minutos. Se guarda el hash, como el de los enlaces de pantalla. La foto vive acá hasta
+/// que la pared la retira, y la fila se borra a los 10 minutos de vencida.
+model SubidaFoto {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  creada    DateTime  @default(now())
+  vence     DateTime
+  /// Quién abrió el QR: el enlace de pantalla o el usuario (para auditar).
+  abrio     String?
+  foto      Bytes?
+  tipo      String?
+  llego     DateTime?
+  retirada  DateTime?
+
+  @@index([vence])
+}
+
 model AppRole {
   id          String   @id @default(cuid())
   nombre      String   @unique

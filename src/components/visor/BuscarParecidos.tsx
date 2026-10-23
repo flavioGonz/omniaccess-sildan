@@ -1,7 +1,7 @@
 "use client";
 
 import { AjusteVideoFicha } from "@/components/video/AjusteVideoFicha";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ElegirArea } from "@/components/devices/ElegirArea";
 import { useFiltroArea } from "@/lib/use-filtro-area";
 import { AnimatePresence, motion } from "framer-motion";
@@ -79,11 +79,33 @@ const ROTULO = "text-[9px] font-bold uppercase tracking-[0.14em] text-muted-fore
 /** La grilla de resultados: llena el ancho que haya, con tarjetas de al menos 200 px. */
 const GRILLA = "grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2";
 
-const img = (k: string | null, w?: number) => (k ? `/api/vision/imagen/${k}${w ? `?w=${w}` : ""}` : "");
+/**
+ * Por dónde busca y qué ofrece (23/10, openspec pared-vms). En el panel, lo de siempre: las rutas de
+ * OmniVision y todo lo del resultado (grabación, clip, compartir, la chapa). En la pared de Cámaras
+ * la búsqueda va por /api/monitor/camaras (la puede pedir un enlace de pantalla) y, con enlace de
+ * pantalla, el resultado se queda en la foto: la grabación, compartir y el historial de la chapa
+ * piden una persona con sesión.
+ */
+export type RutasParecidos = { buscar: string; imagen: string; chapas: string | null; limitado: boolean };
+export const RUTAS_PANEL: RutasParecidos = { buscar: "/api/vision/buscar", imagen: "/api/vision/imagen", chapas: "/api/vision/parecidos/chapas", limitado: false };
+const CtxRutas = createContext<RutasParecidos>(RUTAS_PANEL);
+/** La foto de un resultado, por la ruta que corresponde. */
+function useImg() {
+    const { imagen } = useContext(CtxRutas);
+    return (k: string | null, w?: number) => (k ? `${imagen}/${k}${w ? `?w=${w}` : ""}` : "");
+}
 
-export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar, onVerGrabacion }: {
+export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar, onVerGrabacion, rutas = RUTAS_PANEL, grupo = null, titulo, subtitulo, textoCerrar = "Volver al evento" }: {
     foto: string;
     instanteMs: number;
+    /** Por dónde busca y qué ofrece (ver RutasParecidos). */
+    rutas?: RutasParecidos;
+    /** Sólo esta clase (persona, vehiculo, animal, objeto): lo que se marca en la foto y lo que se busca. */
+    grupo?: string | null;
+    /** El título y la línea de abajo sobre la foto; por defecto, «Buscar parecidos» y el evento. */
+    titulo?: string; subtitulo?: string;
+    /** Lo que dice el botón de cerrar. */
+    textoCerrar?: string;
     /** La chapa del evento desde el que se busca, si tiene: para decir qué resultado es EL MISMO vehículo. */
     chapa?: string | null;
     onCerrar: () => void;
@@ -121,7 +143,8 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
     const detalleOcupado = useRef(false);
     const lienzo = useRef<HTMLDivElement>(null);
 
-    useEffect(() => { hasAcuSeekNvr().then(setConNvr).catch(() => { }); }, []);
+    // El NVR (AcuSearch) es una acción de servidor: una pantalla no puede llamarla.
+    useEffect(() => { if (!rutas.limitado) hasAcuSeekNvr().then(setConNvr).catch(() => { }); }, [rutas.limitado]);
     useEffect(() => {
         const n = res?.resultados.length || 0;
         const k = (e: KeyboardEvent) => {
@@ -154,14 +177,15 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
      */
     useEffect(() => {
         const ids = (res?.resultados || []).filter((r) => r.grupo === "vehiculo").map((r) => r.id);
-        if (!ids.length) { setLeyendoChapas(false); return; }
+        const rutaChapas = rutas.chapas;
+        if (!ids.length || !rutaChapas) { setLeyendoChapas(false); return; }
         let vivo = true;
         setLeyendoChapas(true);
         (async () => {
             for (let i = 0; i < ids.length && vivo; i += LOTE_CHAPAS) {
                 const lote = ids.slice(i, i + LOTE_CHAPAS);
                 try {
-                    const r = await fetch("/api/vision/parecidos/chapas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: lote }), cache: "no-store" });
+                    const r = await fetch(rutaChapas, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: lote }), cache: "no-store" });
                     const j = r.ok ? await r.json() : null;
                     // Se guarda siempre, aunque la búsqueda haya cambiado: los ids son únicos.
                     if (j?.chapas) setChapas((c) => ({ ...c, ...j.chapas }));
@@ -170,7 +194,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
             if (vivo) setLeyendoChapas(false);
         })();
         return () => { vivo = false; };
-    }, [res]);
+    }, [res, rutas.chapas]);
 
     /** Los resultados agrupados por chapa (con la tolerancia del OCR: ver lib/matriculas). */
     const grupos = useMemo(() => agruparPorChapa(res?.resultados || [], chapas, chapaEvento || null), [res, chapas, chapaEvento]);
@@ -196,11 +220,12 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                 if (!vivo) return;
                 setBase(c); setUrl(c.toDataURL("image/jpeg", 0.88));
                 const b = await aBlob(c);
-                const d = await fetch("/api/vision/buscar?objetos=1", { method: "POST", body: b, headers: { "content-type": "image/jpeg" } });
+                const d = await fetch(`${rutas.buscar}?objetos=1`, { method: "POST", body: b, headers: { "content-type": "image/jpeg" } });
                 const j = await d.json().catch(() => ({}));
                 if (!d.ok) throw new Error(j?.error || `OmniVision respondió ${d.status}`);
                 if (!vivo) return;
-                const obs: Objeto[] = j.objetos || [];
+                // Con una clase elegida (la pared pregunta antes qué se busca), sólo esa.
+                const obs: Objeto[] = (j.objetos || []).filter((o: Objeto) => !grupo || o.grupo === grupo);
                 setObjetos(obs);
                 // De entrada, lo más grande: casi siempre es lo que se quiere buscar.
                 if (obs.length) {
@@ -210,7 +235,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
             } catch (e: any) { if (vivo) { setErrorFoto(e?.message || "No se pudo mirar la foto"); setObjetos([]); } }
         })();
         return () => { vivo = false; };
-    }, [foto]);
+    }, [foto, grupo]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // El recorte elegido, como imagen: lo que se manda a buscar.
     useEffect(() => {
@@ -227,13 +252,13 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
         if (!recorte || motor !== "omni" || objetos === null) return;
         let vivo = true;
         setBuscando(true); setError(null);
-        fetch(`/api/vision/buscar?h=${h}${fa.filtrando ? `&area=${encodeURIComponent(fa.area)}` : ""}`, { method: "POST", body: recorte.blob, headers: { "content-type": "image/jpeg" }, cache: "no-store" })
+        fetch(`${rutas.buscar}?h=${h}${grupo ? `&grupo=${encodeURIComponent(grupo)}` : ""}${fa.filtrando ? `&area=${encodeURIComponent(fa.area)}` : ""}`, { method: "POST", body: recorte.blob, headers: { "content-type": "image/jpeg" }, cache: "no-store" })
             .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`); return j; })
             .then((j) => { if (vivo) setRes(j); })
             .catch((e) => { if (vivo) setError(e?.message || "No se pudo buscar"); })
             .finally(() => { if (vivo) setBuscando(false); });
         return () => { vivo = false; };
-    }, [recorte, h, motor, objetos === null, fa.area]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [recorte, h, motor, objetos === null, fa.area, grupo]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const fraccion = (e: React.PointerEvent) => {
         const r = lienzo.current!.getBoundingClientRect();
@@ -257,6 +282,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
             initial={{ opacity: 0, scale: 0.965, y: 14, filter: "blur(6px)" }} animate={{ opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
             exit={{ opacity: 0, scale: 0.975, y: 10, filter: "blur(4px)" }} transition={ENTRADA}
             className="absolute inset-0 z-[60] overflow-hidden cajon-vidrio cajon-denso text-foreground">
+            <CtxRutas.Provider value={rutas}>
             <AnimatePresence initial={false} mode="popLayout">
             {abierto && res ? (
                 <motion.div key="detalle" className="absolute inset-0 flex flex-col" {...PASO_ADELANTE}>
@@ -314,8 +340,8 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                             <div className="absolute inset-x-0 top-0 px-2.5 pt-2.5 pb-6 pointer-events-none bg-[linear-gradient(to_bottom,rgba(0,0,0,.72),transparent)] flex items-center gap-2 text-white">
                                 <span className="w-7 h-7 rounded-[8px] grid place-items-center bg-white/15 backdrop-blur-md border border-white/15 shrink-0"><ScanSearch size={14} /></span>
                                 <div className="min-w-0 leading-tight [text-shadow:0_1px_6px_rgba(0,0,0,.6)]">
-                                    <div className="text-[13px] font-bold">Buscar parecidos</div>
-                                    <div className="text-[10.5px] text-white/75 tabular-nums truncate">Evento del {fechaCorta(instanteMs)} · {horaSeg(instanteMs)}</div>
+                                    <div className="text-[13px] font-bold">{titulo || "Buscar parecidos"}</div>
+                                    <div className="text-[10.5px] text-white/75 tabular-nums truncate">{subtitulo || `Evento del ${fechaCorta(instanteMs)} · ${horaSeg(instanteMs)}`}</div>
                                 </div>
                             </div>
                             {url && !objetos && (
@@ -364,7 +390,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                         {/* Dónde y cuándo: estaba en la barra de los resultados (boceto del 20/10). */}
                         <div className="space-y-2">
                             <div className={ROTULO}>Dónde y cuándo</div>
-                            <span className="flex w-full items-center rounded-full border border-border p-0.5">
+                            {!rutas.limitado && <span className="flex w-full items-center rounded-full border border-border p-0.5">
                                 <button type="button" onClick={() => setMotor("omni")} aria-pressed={motor === "omni"}
                                     className={cn("flex-1 h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center justify-center gap-1.5", motor === "omni" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
                                     <Sparkles size={13} /> OmniVision
@@ -374,7 +400,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                                     className={cn("flex-1 h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center justify-center gap-1.5", motor === "nvr" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground", !conNvr && "opacity-40 cursor-not-allowed hover:text-muted-foreground")}>
                                     <Server size={13} /> NVR (AcuSearch)
                                 </button>
-                            </span>
+                            </span>}
                             {motor === "omni" && (
                                 <span className="flex w-full items-center rounded-full border border-border p-0.5">
                                     {RANGOS.map((x) => (
@@ -398,7 +424,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
 
                     {/* ── Derecha: sólo los resultados, a todo el alto ── */}
                     <div className="relative min-h-0 min-w-0">
-                        <button type="button" onClick={onCerrar} aria-label="Volver al evento" title="Volver al evento  ( Esc )"
+                        <button type="button" onClick={onCerrar} aria-label={textoCerrar} title={`${textoCerrar}  ( Esc )`}
                             className="absolute right-3 top-3 z-20 w-9 h-9 rounded-full grid place-items-center bg-black/55 backdrop-blur-md border border-white/20 text-white/90 hover:text-white hover:bg-black/75 transition-colors">
                             <X size={17} />
                         </button>
@@ -436,6 +462,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
             </motion.div>
             )}
             </AnimatePresence>
+            </CtxRutas.Provider>
         </motion.section>
     );
 }
@@ -466,6 +493,8 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
     chapas: Record<string, Chapa | null>; chapaEvento: string | null;
     alElegir: (i: number) => void; alVolver: () => void; alCerrar: () => void;
 }) {
+    const img = useImg();
+    const { limitado } = useContext(CtxRutas);
     const chapa = chapas[r.id] || null;
     const coincide = chapa && chapaEvento ? mismaChapa(chapa.texto, chapaEvento) : null;
     const [historial, setHistorial] = useState(false);
@@ -491,13 +520,13 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
     }, [historial]);
     // La silueta de verdad (segmentación a pedido, guardada al lado de la foto).
     useEffect(() => {
-        if (!r.foto) return;
+        if (!r.foto || limitado) return;
         let vivo = true;
         fetch("/api/history/ov-siluetas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [r.id] }) })
             .then((x) => (x.ok ? x.json() : null)).then((j) => { if (vivo && j?.siluetas?.[r.id]) setSilueta(j.siluetas[r.id]); }).catch(() => { });
         return () => { vivo = false; };
-    }, [r.id, r.foto]);
-    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible, ventana: ventanaFicha } = useClipEvento({ id: `parecido-${r.id}`, deviceId: r.deviceId, instante: r.primeraVez, activo: !!r.deviceId && modo === "foto" });
+    }, [r.id, r.foto, limitado]);
+    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible, ventana: ventanaFicha } = useClipEvento({ id: `parecido-${r.id}`, deviceId: r.deviceId, instante: r.primeraVez, activo: !!r.deviceId && modo === "foto" && !limitado });
     const enVideo = clipOn && clip.estado === "listo" && clipVisible && modo === "foto";
     const rel = max > min ? (r.coseno - min) / (max - min) : 1;
     const p = parecido(rel);
@@ -517,7 +546,7 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
                 <span className="w-px h-5 bg-border" />
                 <span className="flex items-center gap-1.5 text-[13px] font-semibold min-w-0"><I size={14} className="text-muted-foreground shrink-0" /><span className="truncate">{nombreClase(r.clase)} · {r.camara}</span></span>
                 <span className="text-[12px] text-muted-foreground tabular-nums">{i + 1} de {total}</span>
-                <button type="button" onClick={alCerrar} aria-label="Volver al evento" title="Volver al evento"
+                <button type="button" onClick={alCerrar} aria-label="Cerrar la búsqueda" title="Cerrar la búsqueda"
                     className="ml-auto h-8 px-3 rounded-[8px] text-[12.5px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted inline-flex items-center gap-1.5"><X size={14} /> Cerrar búsqueda</button>
             </div>
 
@@ -575,8 +604,8 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
                                         {coincide ? <><Check size={12} strokeWidth={3} /> Mismo vehículo</> : "Otra chapa"}
                                     </span>
                                 )}
-                                <button type="button" onClick={() => setHistorial(true)} title="Por dónde anduvo esta chapa"
-                                    className="h-7 px-2.5 rounded-full visor-vidrio text-white/85 hover:text-white text-[11.5px] font-semibold inline-flex items-center gap-1.5"><Activity size={13} /> Comportamiento</button>
+                                {!limitado && <button type="button" onClick={() => setHistorial(true)} title="Por dónde anduvo esta chapa"
+                                    className="h-7 px-2.5 rounded-full visor-vidrio text-white/85 hover:text-white text-[11.5px] font-semibold inline-flex items-center gap-1.5"><Activity size={13} /> Comportamiento</button>}
                                 {chapa.fuente === "foto" && <span className="w-full text-[10.5px] text-white/50">Leída de esta foto · {Math.round(chapa.confianza * 100)} %</span>}
                             </div>
                         )}
@@ -597,7 +626,7 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
                     </div>
 
                     {/* Arriba a la derecha: la píldora Foto / Video. */}
-                    {r.deviceId && (
+                    {r.deviceId && !limitado && (
                         <div className="absolute top-4 right-4 flex items-center rounded-full bg-black/50 backdrop-blur-xl border border-white/15 p-0.5 text-[11.5px] font-semibold">
                             <button type="button" onClick={() => cambiarClip(false)} aria-pressed={!clipOn}
                                 className={cn("h-7 px-3 rounded-full inline-flex items-center gap-1.5", !clipOn ? "bg-white text-black" : "text-white/75 hover:text-white")}><ImageIcon size={12} /> Foto</button>
@@ -613,13 +642,13 @@ function DetalleResultado({ r, i, total, resultados, tira, min, max, buscado, et
                     )}
 
                     {/* ── DERECHA · el riel: grabación, clip, compartir ── */}
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5">
+                    {!limitado && <div className="absolute right-4 top-1/2 -translate-y-1/2 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5">
                         {r.deviceId && <button type="button" onClick={() => setModo("grabacion")} title="La grabación de ese momento, acá: regla, ±10 s, velocidades" className={riel}><PlayCircle size={17} /></button>}
                         {r.deviceId && <button type="button" onClick={() => { setModo("grabacion"); setClipGrab(true); }} title="Exportar un clip: bajarlo o mandarlo por WhatsApp" className={riel}><Download size={16} /></button>}
                         {r.foto && <button type="button" onClick={() => setCompartir(true)} title="Compartir por WhatsApp o Telegram" className={riel}><Share2 size={16} /></button>}
                         <span className="w-4 h-px bg-white/15" />
                         <a href="/admin/vision/buscar" title="OmniVision › Buscar" className={riel}><Search size={16} /></a>
-                    </div>
+                    </div>}
 
                     <button type="button" aria-label="Anterior" disabled={i === 0} onClick={() => alElegir(i - 1)} className={cn(flecha, "absolute left-[calc(min(340px,40%)+40px)] bottom-6")}><ChevronLeft size={22} /></button>
                     <button type="button" aria-label="Siguiente" disabled={i >= total - 1} onClick={() => alElegir(i + 1)} className={cn(flecha, "absolute right-20 bottom-6")}><ChevronRight size={22} /></button>
@@ -767,6 +796,8 @@ function FranjaChapas({ grupos, leyendo, filtro, onFiltro, chapaEvento }: {
 function Miniatura({ r, i, rel, chapa, leyendo, chapaEvento, onAbrir }: {
     r: Resultado; i: number; rel: number; chapa: Chapa | null | undefined; leyendo: boolean; chapaEvento: string | null; onAbrir: (m: Apertura) => void;
 }) {
+    const img = useImg();
+    const { limitado } = useContext(CtxRutas);
     const I = ICONO_GRUPO[r.grupo] || Scan;
     const p = parecido(rel);
     const coincide = chapa && chapaEvento ? mismaChapa(chapa.texto, chapaEvento) : false;
@@ -789,8 +820,8 @@ function Miniatura({ r, i, rel, chapa, leyendo, chapaEvento, onAbrir }: {
             </div>
             {/* Los controles, abajo a la derecha al pasar el mouse: arriba a la derecha de la grilla va la cruz. */}
             <span className="absolute right-2 bottom-3 z-[2] flex items-center gap-1 opacity-0 translate-y-[2px] group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 transition-[opacity,transform] duration-150">
-                {r.deviceId && <button type="button" onClick={parar("grabacion")} title="Ver la grabación de ese momento" aria-label="Ver la grabación" className={control}><PlayCircle size={14} /></button>}
-                {r.foto && <button type="button" onClick={parar("compartir")} title="Compartir por WhatsApp o Telegram" aria-label="Compartir" className={control}><Share2 size={13} /></button>}
+                {r.deviceId && !limitado && <button type="button" onClick={parar("grabacion")} title="Ver la grabación de ese momento" aria-label="Ver la grabación" className={control}><PlayCircle size={14} /></button>}
+                {r.foto && !limitado && <button type="button" onClick={parar("compartir")} title="Compartir por WhatsApp o Telegram" aria-label="Compartir" className={control}><Share2 size={13} /></button>}
                 <button type="button" onClick={parar("foto")} title="Abrir la ficha" aria-label="Abrir" className={control}><Maximize2 size={13} /></button>
             </span>
 

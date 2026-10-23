@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye, Joystick } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye, Joystick, ScanSearch } from "lucide-react";
 import { JoystickPtz } from "./Joystick";
 import { metaDe } from "@/components/intrusion/comun";
 import { horaCorta, hace } from "@/lib/monitor/cliente";
@@ -58,7 +58,7 @@ function ChapaChica({ l }: { l: Lectura }) {
     );
 }
 
-export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision, pasoVision = null, alCerrarPaso, alGuardarSeguimiento }: {
+export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision, pasoVision = null, alCerrarPaso, alGuardarSeguimiento, alBuscar }: {
     c: Canal | null; h265: boolean; hls?: boolean; alerta: Alerta | null; lecturas: Lectura[];
     /** Todas las cámaras de la pared y los enlaces del seguimiento visual (por idCanal). */
     canales?: Canal[]; seguimiento?: Record<string, TrackLink[]>; puedeEditar?: boolean;
@@ -78,6 +78,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     alMover?: ((paso: 1 | -1) => void) | null;
     /** Abrir este canal solo en otra ventana (para otro monitor). */
     alVentana?: () => void;
+    /** «Buscar parecidos» desde este canal: congela su cuadro y busca (openspec pared-vms). */
+    alBuscar?: () => void;
 }) {
     // La grabación se ve en el mismo cuadro (Grabacion): `desde` es dónde arranca; null = en vivo.
     const [grabacion, setGrabacionDesde] = useState<number | null>(null);
@@ -247,6 +249,9 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                         titulo={verSiluetas ? `Siluetas de OmniVision en vivo${sil.estado === "vivo" && sil.ms != null ? ` · ${sil.ms} ms por cuadro` : sil.estado === "ocupado" ? " · ocupado: ya hay dos canales con siluetas" : ""} · tocar para apagar` : "Mostrar las siluetas de OmniVision en vivo"}>
                                         <Sparkles size={18} />
                                     </Icono>
+                                )}
+                                {alBuscar && grabacion == null && c.online !== false && (
+                                    <Icono onClick={alBuscar} titulo="Buscar parecidos: congelar este cuadro y buscar a esa persona, vehículo u objeto en lo que registraron las cámaras"><ScanSearch size={18} /></Icono>
                                 )}
                                 {alVision && (
                                     <Icono onClick={alVision} activo={!!c.vision?.analiza}

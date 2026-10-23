@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FolderTree, Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera, ScanEye, Crosshair } from "lucide-react";
+import { FolderTree, Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera, ScanEye, Crosshair, ScanSearch } from "lucide-react";
 import { useMarco, BarraDelMarco } from "@/components/monitor/MarcoMonitor";
 import { fondoDe, type TonoFondo } from "@/lib/monitor/fondos";
+import { BuscarEnPared, canalesParaBuscar } from "@/components/monitor/camaras/BuscarEnPared";
+import type { RutasParecidos } from "@/components/visor/BuscarParecidos";
+import { sembrarAreas } from "@/lib/use-areas";
 import { usarDatos, horaCorta, hace, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { metaDe } from "@/components/intrusion/comun";
@@ -316,7 +319,7 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
 const VEREDICTO_CONFIRMADO = "PRESENTE";
 
 export function VistaCamaras() {
-    const { latir, setTitulo, setFondo } = useMarco();
+    const { latir, setTitulo, setFondo, pantalla } = useMarco();
     usarReloj(5000);
     const { datos, error, recargar } = usarDatos<Datos>("/api/monitor/camaras", INTERVALO_MS, latir);
 
@@ -422,6 +425,8 @@ export function VistaCamaras() {
     const pausada = !!prefs?.pausa;
     /** Editando el seguimiento visual (arrastrar cámaras unas sobre otras): la página no pasa sola. */
     const [editandoSeg, setEditandoSeg] = useState(false);
+    /** «Buscar parecidos» abierto (y desde qué canal): mientras tanto la página no pasa sola. Ver más abajo. */
+    const [buscar, setBuscar] = useState<{ canal: Canal | null } | null>(null);
     useEffect(() => { if (hayAlerta) setPagina(0); }, [hayAlerta]);
     // Mismo criterio de fondo que las demás paredes (lib/monitor/fondos): una detección en pantalla es
     // ámbar (hay que mirarla); si OmniVision confirmó que hay alguien, roja (hay que atenderla).
@@ -430,10 +435,10 @@ export function VistaCamaras() {
     useEffect(() => { setFondo(fondoDe(tonoPared)); }, [tonoPared, setFondo]);
     useEffect(() => () => setFondo(null), [setFondo]);
     useEffect(() => {
-        if (modoVista !== "auto" || paginas <= 1 || pausada || hayAlerta || editandoSeg) return;
+        if (modoVista !== "auto" || paginas <= 1 || pausada || hayAlerta || editandoSeg || buscar) return;
         const iv = setInterval(() => setPagina((p) => (p + 1) % paginas), (prefs?.pagSeg || 20) * 1000);
         return () => clearInterval(iv);
-    }, [modoVista, paginas, pausada, hayAlerta, prefs?.pagSeg, editandoSeg]);
+    }, [modoVista, paginas, pausada, hayAlerta, prefs?.pagSeg, editandoSeg, buscar]);
     const pag = Math.min(pagina, paginas - 1);
 
     const celdas: Celda[] = useMemo(() => {
@@ -487,6 +492,16 @@ export function VistaCamaras() {
     const cerrarMenu = useCallback(() => setMenu(null), []);
     const alternar = (m: NonNullable<typeof menu>) => setMenu((x) => (x === m ? null : m));
     const [editando, setEditando] = useState<VistaGuardada | null>(null);
+    /**
+     * «Buscar parecidos» (openspec pared-vms): abierto, y desde qué canal si se abrió desde su ficha.
+     * Va por /api/monitor/camaras, que también abre a un enlace de pantalla (decisión de Nico, 23/10);
+     * con enlace, el resultado se queda en la foto (la grabación y compartir piden una persona).
+     */
+    const rutasBuscar = useMemo<RutasParecidos>(() => ({
+        buscar: "/api/monitor/camaras/buscar", imagen: "/api/monitor/camaras/imagen",
+        chapas: pantalla ? null : "/api/vision/parecidos/chapas", limitado: !!pantalla,
+    }), [pantalla]);
+    useEffect(() => { if (datos?.areas?.length) sembrarAreas(datos.areas); }, [datos?.areas]);
     const [pantallas, setPantallas] = useState<Pantalla[] | null>(null);
     const [aviso, setAviso] = useState<string | null>(null);
     /** Por canal: en qué paso está su entrada o salida de OmniVision (se dibuja en el canal mismo). */
@@ -748,6 +763,9 @@ export function VistaCamaras() {
                             </>)}
                         </>)}
                         <div className="ml-auto flex items-center gap-1.5 min-w-0">
+                            <BotonBarra onClick={() => setBuscar({ canal: null })} activo={!!buscar} titulo="Buscar parecidos: una persona, un vehículo, un objeto o un animal, desde un canal o una foto del celular">
+                                <ScanSearch size={15} className="text-[var(--accion-en-oscuro)]" /> <span className="hidden xl:inline">Buscar parecidos</span>
+                            </BotonBarra>
                             <Recursos h265={h265} directosOk={directosOk} directosMal={directosMal} />
                             {datos?.puedeEditar && modoVista !== "solo" && (
                                 <BotonBarra onClick={() => setEditandoSeg((x) => !x)} activo={editandoSeg} className="px-2.5"
@@ -822,6 +840,7 @@ export function VistaCamaras() {
                         { k: "col", Icono: prefs?.colMovil === 2 ? Columns2 : Rows3, rotulo: prefs?.colMovil === 2 ? "2 columnas" : "1 columna", onClick: () => setPrefs({ colMovil: prefs?.colMovil === 2 ? 1 : 2 }) },
                         ...(modoVista === "auto" && hayAreas ? [{ k: "area", Icono: FolderTree, rotulo: nombreArea || "Áreas", activo: menu === "area", onClick: () => alternar("area") }] : []),
                         ...(modoVista === "auto" && hayNvrs ? [{ k: "nvr", Icono: Server, rotulo: filtro === "todos" ? "NVR" : filtro, activo: menu === "nvr", onClick: () => alternar("nvr"), punto: nvrsCaidos.length > 0 }] : []),
+                        { k: "buscar", Icono: ScanSearch, rotulo: "Buscar", activo: !!buscar, onClick: () => setBuscar({ canal: null }) },
                         { k: "recursos", Icono: Gauge, rotulo: "Servidor", activo: menu === "recursos", onClick: () => alternar("recursos") },
                     ]} />
             )}
@@ -844,7 +863,11 @@ export function VistaCamaras() {
                 alSoltarOrigen={() => setOrigenClave(null)}
                 alVision={datos?.vision?.puedeCambiar && abierta ? () => ponerEnVision(abierta) : undefined}
                 pasoVision={abierta ? pasosVision[abierta.clave] || null : null} alCerrarPaso={abierta ? () => ponerPaso(abierta.clave, null) : undefined}
+                alBuscar={abierta ? () => setBuscar({ canal: abierta }) : undefined}
                 alVentana={!movil && abierta ? () => { if (!abrirVentana({ canal: abierta.clave }, `canal-${abierta.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined} />
+
+            <BuscarEnPared abierto={!!buscar} canalInicial={buscar?.canal || null} rutas={rutasBuscar} alCerrar={() => setBuscar(null)}
+                canales={canalesParaBuscar(enPantalla.length ? [...enPantalla, ...todos] : todos)} />
         </div>
     );
 }

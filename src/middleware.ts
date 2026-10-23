@@ -35,8 +35,11 @@ const GO2RTC_NOMBRE_STREAM = /^[A-Za-z0-9_-]{1,120}$/
  * Lo único que una pantalla puede pedir con POST: rutas que no guardan ni cambian nada y usan
  * POST porque mandan una imagen. Hoy, las siluetas de la grabación: la pantalla le pasa al
  * servidor el cuadro que está mostrando y recibe lo que vio OmniVision (15/10, pared de cámaras).
+ * Y buscar parecidos desde la pared (23/10, openspec pared-vms): la búsqueda manda un recorte y
+ * sólo lee; abrir un QR para recibir una foto del celular crea un código de 10 minutos, que no
+ * cambia nada de la instalación (lib/monitor/subida).
  */
-const PANTALLA_POST_DE_LECTURA = ['/api/monitor/camaras/siluetas']
+const PANTALLA_POST_DE_LECTURA = ['/api/monitor/camaras/siluetas', '/api/monitor/camaras/buscar', '/api/monitor/camaras/subida']
 
 /** Los caminos de medios: pasan con credencial, pedido interno o firma (ver más abajo). */
 const MEDIOS = ['/api/files/', '/api/snapshot/', '/api/nvr/', '/api/clip/']
@@ -155,7 +158,10 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/guard-iphone') ||
         pathname.startsWith('/pwa') ||
         pathname.startsWith('/invitado') ||
-        pathname.startsWith('/residente')
+        pathname.startsWith('/residente') ||
+        // La foto del celular para la pared (openspec pared-vms): sin usuario; la autoriza el token del QR.
+        pathname.startsWith('/subir/') ||
+        pathname.startsWith('/api/subida/')
     ) {
         return NextResponse.next()
     }
