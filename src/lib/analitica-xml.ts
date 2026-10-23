@@ -11,10 +11,16 @@
  *
  *  1. Sólo se veía y se editaba el primer elemento: las otras tres líneas y zonas no existían para
  *     OmniAccess.
- *  2. Se prendía el `<enabled>` de la RAÍZ y nunca el del elemento. En «Ext. -> Cairoli» y en
- *     «06 - CERCO» la raíz decía `true` y la línea 1 `false`: la pantalla la mostraba «dibujada» y
- *     la cámara no la estaba usando.
- *  3. No había cómo borrar: «Limpiar» + «Guardar» chocaba con «la línea necesita 2 puntos».
+ *  2. No había cómo borrar: «Limpiar» + «Guardar» chocaba con «la línea necesita 2 puntos».
+ *
+ * ## Qué prende una regla
+ *
+ * Cada elemento trae su propio `<enabled>`, pero estas cámaras lo IGNORAN: probado el 23/10 en
+ * «DEPO EXTERIOR», se escribe `true`, la cámara contesta OK y al releer vuelve a decir `false` (y
+ * en «Ext. -> Cairoli» y «06 - CERCO» la línea dibujada dice `false` y la cámara la usa). Lo que
+ * manda es el `<enabled>` de la RAÍZ: prende o apaga todas las líneas (o todas las zonas) juntas.
+ * Por eso acá una regla está activa si está dibujada y su raíz está prendida, y no se ofrece
+ * apagar una sola: eso sería un botón que la cámara no obedece.
  *
  * ## Cómo luce un elemento vacío en la cámara
  *
@@ -33,7 +39,7 @@ export type ReglaCam = {
     /** El id del elemento en la cámara (1..4). */
     id: number;
     tipo: TipoRegla;
-    /** Prendida en la cámara: el elemento Y su raíz. */
+    /** Activa: dibujada y con la raíz prendida (el `<enabled>` propio lo ignoran las cámaras). */
     enabled: boolean;
     /** Sin geometría: el lugar está libre. */
     vacia: boolean;
@@ -58,7 +64,6 @@ export type CambioRegla = {
     id: number;
     /** Deja el lugar vacío y apagado, como viene de fábrica. */
     borrar?: boolean;
-    enabled?: boolean;
     points?: Pt[];
     direction?: Dir;
     sensibilidad?: number;
@@ -115,12 +120,9 @@ export function leerReglas(xml: string, tipo: TipoRegla): LecturaReglas {
         const coords = b.texto.match(new RegExp(`<${ETIQUETA[tipo].coords}\\b[\\s\\S]*?</${ETIQUETA[tipo].coords}>`, "i"))?.[0] || "";
         const p = puntos(coords);
         const vacia = esVacia(tipo, p);
-        const en = tag(b.texto, "enabled");
-        // Firmware sin `<enabled>` por elemento: lo que manda es la raíz.
-        const propio = en == null ? true : /true/i.test(en);
         const sens = tag(b.texto, "sensitivityLevel");
         const r: ReglaCam = {
-            id, tipo, enabled: raiz && propio && !vacia, vacia, points: vacia ? [] : p,
+            id, tipo, enabled: raiz && !vacia, vacia, points: vacia ? [] : p,
             sensibilidad: sens != null && sens !== "" ? Number(sens) : null,
             objetivo: tag(b.texto, "detectionTarget"),
         };
@@ -147,13 +149,13 @@ const coordsXml = (tipo: TipoRegla, p: Pt[]) => {
 
 /**
  * Aplica los cambios elemento por elemento sobre el XML que devolvió la cámara (lo demás queda
- * igual: horarios, confianza, campos que no conocemos). Al final la raíz queda prendida si hay al
- * menos un elemento prendido con geometría, y apagada si no.
+ * igual: horarios, confianza, campos que no conocemos). La raíz: `activa` si se pide; si no, queda
+ * prendida mientras haya algo dibujado y se apaga cuando no queda nada.
  *
  * `conservarZona`: al borrar una zona deja sus coordenadas y sólo la apaga. Es el segundo intento
  * si una cámara rechaza la zona sin `RegionCoordinatesList`.
  */
-export function aplicarCambios(xml: string, tipo: TipoRegla, cambios: CambioRegla[], opciones: { conservarZona?: boolean } = {}): string {
+export function aplicarCambios(xml: string, tipo: TipoRegla, cambios: CambioRegla[], opciones: { conservarZona?: boolean; activa?: boolean } = {}): string {
     const e = ETIQUETA[tipo];
     const vacio = tipo === "linea" ? puntoVacio(xml) : null;
     // De atrás para adelante: así los índices de los bloques que faltan no se corren.
@@ -177,9 +179,8 @@ export function aplicarCambios(xml: string, tipo: TipoRegla, cambios: CambioRegl
             if (/<enabled>/i.test(t)) t = conTag(t, "enabled", "false");
         } else {
             if (c.points) ponerCoords(c.points);
-            // Una regla nueva (o que se redibuja) queda prendida salvo que se pida lo contrario.
-            const prender = c.enabled ?? (c.points ? true : undefined);
-            if (prender !== undefined && /<enabled>/i.test(t)) t = conTag(t, "enabled", prender ? "true" : "false");
+            // El `<enabled>` propio se pone en true al dibujar, por si algún firmware sí lo usa.
+            if (c.points && /<enabled>/i.test(t)) t = conTag(t, "enabled", "true");
             if (c.direction && /<directionSensitivity>/i.test(t)) t = conTag(t, "directionSensitivity", uiDirAHik(c.direction));
             if (c.sensibilidad != null && /<sensitivityLevel>/i.test(t)) t = conTag(t, "sensitivityLevel", String(Math.max(1, Math.min(100, Math.round(c.sensibilidad)))));
             if (c.objetivo && /<detectionTarget>/i.test(t)) t = conTag(t, "detectionTarget", c.objetivo);
@@ -187,12 +188,14 @@ export function aplicarCambios(xml: string, tipo: TipoRegla, cambios: CambioRegl
         }
         xml = xml.slice(0, b.inicio) + t + xml.slice(b.fin);
     }
-    // La raíz: prendida sólo si algo quedó prendido y dibujado.
-    const prendidas = leerReglasConRaiz(xml, tipo, true).some((r) => r.enabled);
+    const dibujadas = leerReglasConRaiz(xml, tipo, true).some((r) => !r.vacia);
+    const prendidas = dibujadas && (opciones.activa ?? (cabezaPrendida(xml, tipo) || cambios.some((c) => c.points)));
     const cab = cabeza(xml, tipo);
     const nuevaCab = cab.texto.replace(/<enabled>\s*(true|false)\s*<\/enabled>/i, `<enabled>${prendidas ? "true" : "false"}</enabled>`);
     return nuevaCab + xml.slice(cab.fin);
 }
+
+const cabezaPrendida = (xml: string, tipo: TipoRegla) => /<enabled>\s*true\s*<\/enabled>/i.test(cabeza(xml, tipo).texto);
 
 /** Como leerReglas pero suponiendo la raíz prendida (para decidir cómo dejarla). */
 function leerReglasConRaiz(xml: string, tipo: TipoRegla, raiz: boolean): ReglaCam[] {
@@ -211,13 +214,11 @@ export function diferencias(pedido: CambioRegla[], leido: ReglaCam[]): string[] 
         const r = leido.find((x) => x.id === c.id);
         const nombre = `${r?.tipo === "zona" ? "Zona" : "Línea"} ${c.id}`;
         if (!r) { out.push(`${nombre}: la cámara no la devolvió`); continue; }
-        if (c.borrar) { if (!r.vacia || r.enabled) out.push(`${nombre}: sigue en la cámara`); continue; }
+        if (c.borrar) { if (!r.vacia) out.push(`${nombre}: sigue en la cámara`); continue; }
         if (c.points) {
             if (r.vacia) out.push(`${nombre}: la cámara no guardó la geometría`);
             else if (r.points.length !== c.points.length || r.points.some((p, i) => Math.abs(p.x - fija(c.points![i].x)) > 2 || Math.abs(p.y - fija(c.points![i].y)) > 2)) out.push(`${nombre}: la geometría quedó distinta`);
         }
-        const prender = c.enabled ?? (c.points ? true : undefined);
-        if (prender !== undefined && r.enabled !== prender && !r.vacia) out.push(`${nombre}: quedó ${r.enabled ? "prendida" : "apagada"}`);
         if (c.direction && r.direction && r.direction !== c.direction) out.push(`${nombre}: el sentido no cambió`);
         if (c.sensibilidad != null && r.sensibilidad != null && r.sensibilidad !== Math.round(c.sensibilidad)) out.push(`${nombre}: la sensibilidad quedó en ${r.sensibilidad}`);
         if (c.objetivo && r.objetivo && r.objetivo.split(",").sort().join(",") !== c.objetivo.split(",").sort().join(",")) out.push(`${nombre}: el objetivo quedó en ${r.objetivo}`);

@@ -6,9 +6,10 @@
  *         con su id, si está prendida, su geometría y sus ajustes (lib/analitica-xml.ts).
  *         `line` / `field`: la primera regla prendida, para las pantallas que dibujan una sola.
  *
- *  POST → { lineas?: CambioRegla[], zonas?: CambioRegla[] }
- *         Cada cambio nombra su id y dice qué cambia (geometría, prendida, sentido, sensibilidad,
- *         objetivo, tiempo) o `borrar`. Se escribe todo un tipo en un solo PUT, se vuelve a leer la
+ *  POST → { lineas?: CambioRegla[], zonas?: CambioRegla[], lineasActivas?: boolean, zonasActivas?: boolean }
+ *         Cada cambio nombra su id y dice qué cambia (geometría, sentido, sensibilidad, objetivo,
+ *         tiempo) o `borrar`. `…Activas` prende o apaga todas las de un tipo (la cámara no deja
+ *         apagar una sola: ver lib/analitica-xml.ts). Se escribe todo un tipo en un solo PUT, se vuelve a leer la
  *         cámara y se devuelven las `diferencias` entre lo pedido y lo guardado: vacío = quedó así.
  *       → { kind:"line"|"field", enabled, points, direction }  (forma vieja: la primera regla)
  *
@@ -29,7 +30,7 @@ export const dynamic = "force-dynamic";
 const SIN_CACHE = { "Cache-Control": "no-store" };
 
 async function load(id: string) {
-    const d = await prisma.device.findUnique({ where: { id }, select: { id: true, ip: true, username: true, password: true, authType: true } });
+    const d = await prisma.device.findUnique({ where: { id }, select: { id: true, ip: true, username: true, password: true, authType: true, httpPort: true } });
     return d ? { ...d, authType: d.authType || "DIGEST" } : null;
 }
 
@@ -94,7 +95,8 @@ export async function POST(req: NextRequest) {
     const esDahua = !!camP && String((camP.nvr as any).brand).toUpperCase() === "DAHUA";
 
     // ── Forma nueva: listas de cambios por tipo ──
-    if (Array.isArray(body.lineas) || Array.isArray(body.zonas)) {
+    if (Array.isArray(body.lineas) || Array.isArray(body.zonas) || typeof body.lineasActivas === "boolean" || typeof body.zonasActivas === "boolean") {
+        const activa = (v: unknown) => (typeof v === "boolean" ? v : undefined);
         const lineas: CambioRegla[] = Array.isArray(body.lineas) ? body.lineas : [];
         const zonas: CambioRegla[] = Array.isArray(body.zonas) ? body.zonas : [];
         if (esDahua) {
@@ -108,8 +110,8 @@ export async function POST(req: NextRequest) {
         }
         try {
             // De a un tipo: si la línea falla, la zona no se toca (y se dice cuál falló).
-            const rl = await escribirTodas(d as any, "linea", lineas, ch).catch((e) => { throw new Error(`Líneas: ${e?.message || e}`); });
-            const rz = await escribirTodas(d as any, "zona", zonas, ch).catch((e) => { throw new Error(`Zonas: ${e?.message || e}`); });
+            const rl = await escribirTodas(d as any, "linea", lineas, ch, activa(body.lineasActivas)).catch((e) => { throw new Error(`Líneas: ${e?.message || e}`); });
+            const rz = await escribirTodas(d as any, "zona", zonas, ch, activa(body.zonasActivas)).catch((e) => { throw new Error(`Zonas: ${e?.message || e}`); });
             return NextResponse.json({ ok: true, diferencias: [...rl.diferencias, ...rz.diferencias] });
         } catch (e: any) {
             return NextResponse.json({ ok: false, error: e?.message || "ISAPI PUT error" }, { status: 502 });

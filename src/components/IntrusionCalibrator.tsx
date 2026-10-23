@@ -1,34 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { sileo } from "sileo";
 import {
     Wand2, X, Check, Loader2, RefreshCw, AlertTriangle, Minus, Hexagon, ArrowLeftRight, ArrowRight, ArrowLeft,
-    BellRing, Send, Save, RotateCcw, Trash2, Radar, Plus, PencilLine, Eye, EyeOff, ShieldCheck, Undo2,
+    Gauge, PersonStanding, Car, BellRing, Send, Save, RotateCcw, Trash2, Radar, MousePointer2, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PtzControls } from "@/components/PtzControls";
 
 /**
- * Calibrador de INTRUSIÓN: el video en vivo con TODAS las líneas y zonas de la cámara encima, y al
- * costado la lista para agregarlas, editarlas, apagarlas y borrarlas.
+ * Calibrador de INTRUSIÓN, calcado del calibrador LPR (CameraCalibrator): el video en vivo arriba,
+ * la línea y la zona dibujadas encima, y abajo un riel de controles donde cada uno explica qué
+ * hace al pasar el mouse, pide confirmación y se ve el efecto en el video.
  *
  * Lo que se calibra es la analítica de la cámara (AcuSense / Smart Event Hikvision, IVS Dahua):
- * cada LÍNEA de cruce con su sentido y cada ZONA de intrusión con su tiempo de permanencia, las
- * dos con su SENSIBILIDAD y su OBJETIVO (persona, vehículo o ambos); y que la cámara le AVISE a
- * OmniAccess (servidor de alarmas).
+ * la LÍNEA de cruce con su sentido, la ZONA de intrusión, la SENSIBILIDAD y el OBJETIVO (persona,
+ * vehículo o ambos), y que la cámara le AVISE a OmniAccess (servidor de alarmas).
  *
- * ## Por qué se rehízo (23/10, Nico)
- *
- * «No puedo eliminar analíticas creadas… los dispositivos siempre tienen varias… que se guarde
- * perfecto». La versión anterior veía una línea y una zona (la cámara tiene hasta 4 de cada una),
- * «Limpiar» + «Guardar» chocaba con «la línea necesita 2 puntos», la sensibilidad y el objetivo
- * mandaban un pedido que la API no entendía, y prendía la analítica entera pero no la línea: en
- * dos cámaras del lab la línea se veía «dibujada» y la cámara no la usaba.
- *
- * Ahora se edita un BORRADOR y «Guardar en la cámara» manda todo junto, vuelve a leer la cámara y
- * compara: si algo no quedó como se pidió, se dice qué. Sin eso no hay forma de saber si se guardó.
+ * Varias líneas y zonas (23/10, Nico: «no puedo eliminar analíticas creadas… los dispositivos
+ * siempre tienen varias… que se guarde perfecto»). La cámara tiene hasta 4 de cada una y esto veía
+ * la primera. Ahora el editor elige cuál (1–4), «Eliminar» la quita (también «Limpiar» + «Guardar»),
+ * y cada guardado vuelve a leer la cámara y compara: si algo no quedó como se pidió, se dice qué.
+ * El aspecto es el mismo de siempre: sólo se agregó lo necesario para elegir y borrar.
  */
 
 const toast = {
@@ -42,70 +37,17 @@ const screenToCam = (p: P) => ({ x: Math.round(p.x * 10), y: Math.round(1000 - p
 const SNAP = 1.5;
 const snap = (v: number) => (v < SNAP ? 0 : v > 100 - SNAP ? 100 : v);
 type Dir = "both" | "ab" | "ba";
-type Tipo = "linea" | "zona";
-
-/** Una regla tal como la edita la pantalla. `clave` = l1, z3…: el tipo y su lugar en la cámara. */
-type Regla = {
-    clave: string; tipo: Tipo; id: number;
-    enabled: boolean; points: P[];
-    direction: Dir; sensibilidad: number | null; objetivo: string | null; tiempo: number | null;
-    /** Recién agregada: en la cámara ese lugar está vacío. */
-    nueva?: boolean;
-    /** Marcada para borrar al guardar. */
-    borrar?: boolean;
-};
-type Datos = {
-    marca: "hikvision" | "dahua";
-    lineas: { max: number; reglas: any[] } | null;
-    zonas: { max: number; reglas: any[] } | null;
-    limites: { zonaMin: number; zonaMax: number };
+/** Un lugar de la cámara (1–4) para una línea o una zona; `vacia` = no hay nada dibujado. */
+type Regla = { id: number; vacia: boolean; enabled: boolean; points: P[]; direction: Dir; sensibilidad: number | null; objetivo: string | null };
+type Cfg = {
+    support: { line: boolean; field: boolean };
+    lineas: Regla[];
+    zonas: Regla[];
     edita: { varias: boolean; borrar: boolean; ajustes: boolean; motivo?: string };
 };
-
-const OBJETIVOS: { v: string; t: string }[] = [{ v: "human", t: "Persona" }, { v: "vehicle", t: "Vehículo" }, { v: "human,vehicle", t: "Ambos" }];
-const DIR_TXT: Record<Dir, string> = { ab: "A→B", both: "Ambos", ba: "B→A" };
-const nombre = (r: { tipo: Tipo; id: number }) => `${r.tipo === "linea" ? "Línea" : "Zona"} ${r.id}`;
-const COLOR: Record<Tipo, string> = { linea: "#38bdf8", zona: "#f43f5e" };
-const mismoObjetivo = (a: string | null, b: string | null) => (a || "").split(",").sort().join(",") === (b || "").split(",").sort().join(",");
-const mismosPuntos = (a: P[], b: P[]) => a.length === b.length && a.every((p, i) => Math.abs(p.x - b[i].x) < 0.15 && Math.abs(p.y - b[i].y) < 0.15);
-
-function desdeApi(tipo: Tipo, r: any): Regla {
-    return {
-        clave: `${tipo === "linea" ? "l" : "z"}${r.id}`, tipo, id: r.id, enabled: !!r.enabled,
-        points: (r.points || []).map(camToScreen), direction: (r.direction || "both") as Dir,
-        sensibilidad: r.sensibilidad ?? null, objetivo: r.objetivo ?? null, tiempo: r.tiempo ?? null,
-    };
-}
-
-/** Lo que falta para que la regla se pueda guardar, o null. */
-function falta(r: Regla, lim: Datos["limites"]): string | null {
-    if (r.borrar) return null;
-    if (r.tipo === "linea" && (r.points.length !== 2 || mismosPuntos([r.points[0]], [r.points[1]]))) return "marcá los 2 extremos";
-    if (r.tipo === "zona" && r.points.length < lim.zonaMin) return `marcá al menos ${lim.zonaMin} vértices`;
-    if (r.tipo === "zona" && r.points.length > lim.zonaMax) return `hasta ${lim.zonaMax} vértices`;
-    return null;
-}
-
-/** El cambio de una regla respecto de lo que hay en la cámara (sólo lo que cambió), o null. */
-function cambioDe(r: Regla, o: Regla | undefined): any | null {
-    if (r.borrar) return o ? { id: r.id, borrar: true } : null;
-    const c: any = { id: r.id };
-    if (!o || r.nueva) {
-        Object.assign(c, { points: r.points.map(screenToCam), enabled: r.enabled });
-        if (r.tipo === "linea") c.direction = r.direction;
-        if (r.sensibilidad != null) c.sensibilidad = r.sensibilidad;
-        if (r.objetivo) c.objetivo = r.objetivo;
-        if (r.tipo === "zona" && r.tiempo != null) c.tiempo = r.tiempo;
-        return c;
-    }
-    if (!mismosPuntos(r.points, o.points)) c.points = r.points.map(screenToCam);
-    if (r.enabled !== o.enabled) c.enabled = r.enabled;
-    if (r.tipo === "linea" && r.direction !== o.direction) c.direction = r.direction;
-    if (r.sensibilidad != null && r.sensibilidad !== o.sensibilidad) c.sensibilidad = r.sensibilidad;
-    if (r.objetivo && !mismoObjetivo(r.objetivo, o.objetivo)) c.objetivo = r.objetivo;
-    if (r.tipo === "zona" && r.tiempo != null && r.tiempo !== o.tiempo) c.tiempo = r.tiempo;
-    return Object.keys(c).length > 1 ? c : null;
-}
+const dibujadas = (l: Regla[] | undefined) => (l || []).filter((r) => !r.vacia);
+const todas = (c: Cfg | null) => (c ? [...dibujadas(c.lineas), ...dibujadas(c.zonas)] : []);
+const cuantas = (n: number, uno: string, varios: string) => (n === 0 ? "sin dibujar" : n === 1 ? `1 ${uno}` : `${n} ${varios}`);
 
 /* ─────────────────────────── Video en vivo (go2rtc) ─────────────────────────── */
 function LiveVideo({ streamName, deviceId }: { streamName: string; deviceId: string }) {
@@ -187,24 +129,50 @@ function CalSvg({ kind }: { kind: string }) {
     return <Wand2 className="w-16 h-16 text-orange-300" />;
 }
 
+type Ctl = { key: string; label: string; icon: any; svg: string; detail: string; valueText: (c: Cfg | null, extra: Extra) => string; disabled?: (c: Cfg | null) => boolean };
+type Extra = { alarma: boolean | null };
+
+const SENS = [40, 60, 80];
+const OBJETIVOS: { v: string; t: string }[] = [{ v: "human", t: "Persona" }, { v: "vehicle", t: "Vehículo" }, { v: "human,vehicle", t: "Ambos" }];
+const DIR_TXT: Record<Dir, string> = { both: "Ambos", ab: "A→B", ba: "B→A" };
+/** Los ajustes que muestra el riel: los de la primera regla dibujada (se aplican a todas). */
+const ajustesActivos = (c: Cfg | null) => { const r = todas(c).find((x) => x.sensibilidad != null || x.objetivo != null); return r ? { sensibilidad: r.sensibilidad, objetivo: r.objetivo } : null; };
+
+const CONTROLS: Ctl[] = [
+    { key: "line", label: "Línea", icon: Minus, svg: "line", detail: "La línea virtual de cruce. Cuando alguien la atraviesa (en el sentido elegido) la cámara dispara la alarma. Ideal para el borde del cerco o el muro: se dibuja sobre un cuadro real de esta cámara.",
+        valueText: (c) => cuantas(dibujadas(c?.lineas).length, "línea", "líneas"), disabled: (c) => !c?.support.line },
+    { key: "zone", label: "Zona", icon: Hexagon, svg: "zone", detail: "La zona de intrusión: un polígono. Si alguien entra y permanece dentro, la cámara avisa. Sirve para patios o sectores donde no se puede reducir el perímetro a una raya.",
+        valueText: (c) => cuantas(dibujadas(c?.zonas).length, "zona", "zonas"), disabled: (c) => !c?.support.field },
+    { key: "dir", label: "Sentido", icon: ArrowLeftRight, svg: "dir", detail: "En qué sentido se considera cruce: A→B (sólo de afuera hacia adentro, por ejemplo), B→A o ambos. Con un solo sentido se descartan las salidas legítimas y baja el ruido.",
+        valueText: (c) => { const d = [...new Set(dibujadas(c?.lineas).map((r) => r.direction))]; return d.length === 1 ? DIR_TXT[d[0]] : d.length ? "varios" : "—"; }, disabled: (c) => !dibujadas(c?.lineas).length },
+    { key: "sens", label: "Sensibilidad", icon: Gauge, svg: "sens", detail: "Qué tan fácil dispara. Alta detecta todo (y también hojas, sombras y bichos de noche); baja sólo lo evidente. En perímetro con vegetación, 40–60 suele ser el equilibrio.",
+        valueText: (c) => { const a = ajustesActivos(c); return a?.sensibilidad != null ? String(a.sensibilidad) : "—"; }, disabled: (c) => !c?.edita.ajustes || ajustesActivos(c)?.sensibilidad == null },
+    { key: "target", label: "Objetivo", icon: PersonStanding, svg: "target", detail: "Qué dispara la alarma (cámaras AcuSense): sólo personas, sólo vehículos o ambos. Filtrar a personas elimina casi todas las falsas alarmas por animales, luces o lluvia.",
+        valueText: (c) => { const a = ajustesActivos(c); return OBJETIVOS.find((o) => o.v === a?.objetivo)?.t || (a?.objetivo || "—"); }, disabled: (c) => !c?.edita.ajustes || ajustesActivos(c)?.objetivo == null },
+    { key: "alarm", label: "Servidor", icon: BellRing, svg: "alarm", detail: "Que la cámara le avise a OmniAccess cada detección (servidor de alarmas / HTTP host). Sin esto la cámara detecta pero el monitor de intrusión nunca se entera.",
+        valueText: (_c, e) => (e.alarma == null ? "—" : e.alarma ? "OK" : "FALTA") },
+    { key: "test", label: "Probar", icon: Send, svg: "test", detail: "Manda un aviso de prueba desde la cámara hacia OmniAccess para confirmar que el camino completo anda (cámara → red → servidor).",
+        valueText: () => "envío" },
+];
+
 export function IntrusionCalibrator({ device, onClose }: { device: any; onClose: () => void }) {
     const isPtz = /ptz/i.test(device?.name || "");
-    const [datos, setDatos] = useState<Datos | null>(null);
-    /** Lo que hay en la cámara (para saber qué cambió) y el borrador que se edita. */
-    const [original, setOriginal] = useState<Regla[]>([]);
-    const [reglas, setReglas] = useState<Regla[]>([]);
-    const [sel, setSel] = useState<string | null>(null);
-    const [dibujando, setDibujando] = useState(false);
+    const [cfg, setCfg] = useState<Cfg | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [alarma, setAlarma] = useState<boolean | null>(null);
+    const [hover, setHover] = useState<string | null>(null);
     const [busy, setBusy] = useState<string | null>(null);
-    const [guardando, setGuardando] = useState(false);
-    /** Resultado de la última escritura: la cámara releída comparada con lo pedido. */
-    const [verificado, setVerificado] = useState<null | { ok: boolean; diferencias: string[] }>(null);
-    const [confirm, setConfirm] = useState<null | { titulo: string; detalle: string; lista?: string[]; svg: string; boton?: string; hacer: () => Promise<void> | void }>(null);
+    const [confirm, setConfirm] = useState<null | { titulo: string; detalle: string; svg: string; hacer: () => Promise<void> }>(null);
     const [autoSteps, setAutoSteps] = useState<{ key: string; label: string; status: "pending" | "ok" | "fail"; error?: string }[]>([]);
     const [videoNonce, setVideoNonce] = useState(0);
+    // editor
+    const [edit, setEdit] = useState<null | "line" | "zone">(null);
+    /** Qué lugar de la cámara (1–4) se está editando. */
+    const [editId, setEditId] = useState(1);
+    const [pts, setPts] = useState<P[]>([]);
+    const [dir, setDir] = useState<Dir>("both");
+    const [guardando, setGuardando] = useState(false);
     const svgRef = useRef<SVGSVGElement>(null);
     const drag = useRef<number | null>(null);
 
@@ -212,400 +180,353 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
         setLoading(true); setError("");
         try {
             const d = await fetch(`/api/devices/analytics?deviceId=${device.id}`, { cache: "no-store" }).then((r) => r.json());
-            if (!d.ok) { setError(d.error || "No se pudo leer la cámara"); setDatos(null); setOriginal([]); setReglas([]); }
+            if (!d.ok) { setError(d.error || "No se pudo leer la cámara"); setCfg(null); }
             else {
-                const lista = [
-                    ...(d.lineas?.reglas || []).filter((r: any) => !r.vacia).map((r: any) => desdeApi("linea", r)),
-                    ...(d.zonas?.reglas || []).filter((r: any) => !r.vacia).map((r: any) => desdeApi("zona", r)),
-                ];
-                setDatos({ marca: d.marca || "hikvision", lineas: d.lineas || null, zonas: d.zonas || null, limites: d.limites || { zonaMin: 3, zonaMax: 10 }, edita: d.edita || { varias: false, borrar: false, ajustes: false } });
-                setOriginal(lista); setReglas(lista); setDibujando(false);
-                setSel((s) => (s && lista.some((r) => r.clave === s) ? s : null));
+                const regla = (r: any): Regla => ({ id: r.id, vacia: !!r.vacia, enabled: !!r.enabled, points: (r.points || []).map(camToScreen), direction: (r.direction || "both") as Dir, sensibilidad: r.sensibilidad ?? null, objetivo: r.objetivo ?? null });
+                setCfg({
+                    support: d.support || { line: false, field: false },
+                    lineas: (d.lineas?.reglas || []).map(regla),
+                    zonas: (d.zonas?.reglas || []).map(regla),
+                    edita: d.edita || { varias: false, borrar: false, ajustes: false },
+                });
             }
         } catch { setError("Error de conexión con la cámara"); }
         finally { setLoading(false); }
         fetch(`/api/devices/alarm-host?deviceId=${device.id}`, { cache: "no-store" }).then((r) => r.json()).then((a) => setAlarma(!!(a?.hasOmni || (a?.dahua && a?.ok)))).catch(() => setAlarma(null));
     }, [device.id]);
     useEffect(() => { cargar(); }, [cargar]);
+    useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === "Escape") { if (edit) setEdit(null); else onClose(); } }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose, edit]);
 
-    const porClave = useMemo(() => new Map(original.map((r) => [r.clave, r])), [original]);
-    const cambios = useMemo(() => {
-        const lineas: any[] = [], zonas: any[] = [];
-        for (const r of reglas) { const c = cambioDe(r, porClave.get(r.clave)); if (c) (r.tipo === "linea" ? lineas : zonas).push(c); }
-        return { lineas, zonas, n: lineas.length + zonas.length };
-    }, [reglas, porClave]);
-    const actual = reglas.find((r) => r.clave === sel) || null;
-    const lim = datos?.limites || { zonaMin: 3, zonaMax: 10 };
-
-    const cerrar = useCallback(() => {
-        if (cambios.n) setConfirm({ titulo: "Hay cambios sin guardar", detalle: `${cambios.n} cambio${cambios.n === 1 ? "" : "s"} no se escribieron en la cámara.`, svg: "alarm", boton: "Salir sin guardar", hacer: () => onClose() });
-        else onClose();
-    }, [cambios.n, onClose]);
-    useEffect(() => {
-        const k = (e: KeyboardEvent) => { if (e.key !== "Escape") return; if (confirm) setConfirm(null); else if (dibujando) setDibujando(false); else cerrar(); };
-        window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
-    }, [cerrar, dibujando, confirm]);
-
-    const cambiar = (clave: string, f: (r: Regla) => Regla) => { setVerificado(null); setReglas((l) => l.map((r) => (r.clave === clave ? f(r) : r))); };
-
-    /** El primer lugar libre de la cámara para ese tipo (vacío allá y no usado en el borrador). */
-    const libre = (tipo: Tipo): number | null => {
-        const max = (tipo === "linea" ? datos?.lineas?.max : datos?.zonas?.max) || 0;
-        for (let id = 1; id <= max; id++) if (!reglas.some((r) => r.tipo === tipo && r.id === id)) return id;
-        return null;
+    const post = async (body: any) => {
+        const r = await fetch(`/api/devices/analytics?deviceId=${device.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const j = await r.json().catch(() => ({}));
+        if (!j.ok) throw new Error(j.error || "La cámara no aceptó el cambio");
+        // Se releyó la cámara: si algo no quedó como se pidió, es un error y se dice qué.
+        if (Array.isArray(j.diferencias) && j.diferencias.length) throw new Error(`La cámara no quedó igual: ${j.diferencias.join(" · ")}`);
     };
-    const agregar = (tipo: Tipo) => {
-        const id = libre(tipo); if (!id) return;
-        // De base, los ajustes de otra regla del mismo tipo: lo habitual es que todas vigilen lo mismo.
-        const modelo = reglas.find((r) => r.tipo === tipo && !r.borrar);
-        const r: Regla = { clave: `${tipo === "linea" ? "l" : "z"}${id}`, tipo, id, enabled: true, points: [], direction: "both", sensibilidad: modelo?.sensibilidad ?? 50, objetivo: modelo?.objetivo ?? "human", tiempo: tipo === "zona" ? (modelo?.tiempo ?? 0) : null, nueva: true };
-        setVerificado(null); setReglas((l) => [...l, r]); setSel(r.clave); setDibujando(true);
+    /** Un ajuste para todas las reglas dibujadas, en una sola escritura por tipo. */
+    const ajusteATodas = (campo: "sensibilidad" | "objetivo", v: any) => post({
+        lineas: dibujadas(cfg?.lineas).map((r) => ({ id: r.id, [campo]: v })),
+        zonas: dibujadas(cfg?.zonas).map((r) => ({ id: r.id, [campo]: v })),
+    });
+    const abrirEditor = (kind: "line" | "zone", id?: number) => {
+        const lista = kind === "line" ? cfg!.lineas : cfg!.zonas;
+        const r = (id != null ? lista.find((x) => x.id === id) : null) || lista.find((x) => !x.vacia) || lista[0];
+        setEdit(kind); setEditId(r?.id || 1); setPts(r && !r.vacia ? r.points : []); setDir(r?.direction || "both");
     };
-    const quitar = (r: Regla) => {
-        // Una nueva todavía no está en la cámara: se saca del borrador. Una existente se marca y se borra al guardar.
-        if (r.nueva || !porClave.has(r.clave)) { setReglas((l) => l.filter((x) => x.clave !== r.clave)); setSel(null); setDibujando(false); }
-        else cambiar(r.clave, (x) => ({ ...x, borrar: !x.borrar }));
-    };
-    const deshacer = (r: Regla) => { const o = porClave.get(r.clave); if (o) cambiar(r.clave, () => o); else quitar(r); };
-
-    const guardar = async () => {
-        const mal = reglas.map((r) => ({ r, f: falta(r, lim) })).find((x) => x.f);
-        if (mal) { setSel(mal.r.clave); setDibujando(true); toast.error(`${nombre(mal.r)}: ${mal.f}`); return; }
-        setGuardando(true); setConfirm(null);
-        try {
-            const r = await fetch(`/api/devices/analytics?deviceId=${device.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lineas: cambios.lineas, zonas: cambios.zonas }) });
-            const j = await r.json().catch(() => ({}));
-            if (!j.ok) throw new Error(j.error || "La cámara no aceptó el cambio");
-            const dif: string[] = j.diferencias || [];
-            setVerificado({ ok: !dif.length, diferencias: dif });
-            if (dif.length) toast.error("La cámara no quedó igual a lo pedido", { description: dif.join(" · ") });
-            else toast.success("Guardado y verificado", { description: "Se volvió a leer la cámara: quedó exactamente así" });
-            setTimeout(() => setVideoNonce((n) => n + 1), 600);
-            await cargar();
-        } catch (e: any) { toast.error("No se pudo guardar", { description: e?.message }); }
-        finally { setGuardando(false); }
-    };
-    const pedirGuardar = () => {
-        const lista = reglas.map((r) => {
-            const c = cambioDe(r, porClave.get(r.clave)); if (!c) return null;
-            if (c.borrar) return `${nombre(r)}: se borra`;
-            if (r.nueva) return `${nombre(r)}: nueva${r.enabled ? "" : " (apagada)"}`;
-            const que = [c.points && "geometría", c.enabled !== undefined && (c.enabled ? "se prende" : "se apaga"), c.direction && `sentido ${DIR_TXT[c.direction as Dir]}`, c.sensibilidad != null && `sensibilidad ${c.sensibilidad}`, c.objetivo && `objetivo ${OBJETIVOS.find((o) => o.v === c.objetivo)?.t || c.objetivo}`, c.tiempo != null && `tiempo ${c.tiempo} s`].filter(Boolean);
-            return `${nombre(r)}: ${que.join(", ")}`;
-        }).filter(Boolean) as string[];
-        setConfirm({ titulo: `Guardar ${lista.length} cambio${lista.length === 1 ? "" : "s"} en la cámara`, detalle: "Se escribe todo junto y después se vuelve a leer la cámara para comprobar que quedó igual.", lista, svg: "test", boton: "Guardar", hacer: guardar });
-    };
-
-    const aplicarAccion = async (key: string, titulo: string, fn: () => Promise<void>) => {
+    const aplicar = async (key: string, titulo: string, fn: () => Promise<void>) => {
         setBusy(key); setConfirm(null);
-        try { await fn(); toast.success(titulo, { description: "Aplicado en la cámara" }); await cargar(); }
+        try { await fn(); toast.success(titulo, { description: "Aplicado en la cámara" }); setTimeout(() => setVideoNonce((n) => n + 1), 600); await cargar(); }
         catch (e: any) { toast.error("No se pudo aplicar", { description: e?.message }); }
         finally { setBusy(null); }
     };
-    const servidor = () => setConfirm({ titulo: "Configurar el servidor de alarmas", detalle: "Que la cámara le avise a OmniAccess cada detección. Se agrega OmniAccess sin borrar los otros servidores que ya tenga la cámara.", svg: "alarm", hacer: () => aplicarAccion("alarm", "Servidor de alarmas configurado", async () => {
-        const a = await fetch(`/api/devices/alarm-host?deviceId=${device.id}`, { method: "POST" }).then((r) => r.json());
-        if (!a?.ok) throw new Error(a?.error || "La cámara no aceptó el servidor");
-    }) });
-    const probar = () => setConfirm({ titulo: "Mandar un aviso de prueba", detalle: "La cámara manda un aviso a OmniAccess para confirmar que el camino completo anda (cámara → red → servidor).", svg: "test", hacer: () => aplicarAccion("test", "La cámara llegó a OmniAccess", async () => {
-        const a = await fetch(`/api/devices/alarm-host?deviceId=${device.id}&action=test`, { method: "POST" }).then((r) => r.json());
-        if (!a?.ok) throw new Error(a?.error || "No llegó el aviso de prueba");
-    }) });
 
-    /* Auto-perfil perímetro: en el BORRADOR, sensibilidad 60 y personas+vehículos en todas; y el aviso a OmniAccess. */
+    const clic = (ctl: Ctl) => {
+        if (!cfg && ctl.key !== "alarm" && ctl.key !== "test") return;
+        if (ctl.key === "line" || ctl.key === "zone") { abrirEditor(ctl.key); return; }
+        // El sentido es de cada línea: se elige en el editor, arriba, con la línea elegida.
+        if (ctl.key === "dir") { abrirEditor("line"); return; }
+        if (ctl.key === "sens") {
+            const a = ajustesActivos(cfg); const i = SENS.findIndex((x) => x >= (a?.sensibilidad ?? 0)); const v = SENS[(i + 1) % SENS.length] ?? 60;
+            setConfirm({ titulo: `Sensibilidad → ${v}`, detalle: `${ctl.detail} Se aplica a las ${todas(cfg).length} líneas y zonas dibujadas.`, svg: "sens", hacer: () => aplicar("sens", `Sensibilidad → ${v}`, () => ajusteATodas("sensibilidad", v)) });
+            return;
+        }
+        if (ctl.key === "target") {
+            const a = ajustesActivos(cfg); const i = OBJETIVOS.findIndex((o) => o.v === a?.objetivo); const v = OBJETIVOS[(i + 1) % OBJETIVOS.length];
+            setConfirm({ titulo: `Objetivo → ${v.t}`, detalle: `${ctl.detail} Se aplica a las ${todas(cfg).length} líneas y zonas dibujadas.`, svg: "target", hacer: () => aplicar("target", `Objetivo → ${v.t}`, () => ajusteATodas("objetivo", v.v)) });
+            return;
+        }
+        if (ctl.key === "alarm") {
+            setConfirm({ titulo: "Configurar el servidor de alarmas", detalle: ctl.detail + " Se agrega OmniAccess sin borrar los otros servidores que ya tenga la cámara.", svg: "alarm", hacer: () => aplicar("alarm", "Servidor de alarmas configurado", async () => {
+                const a = await fetch(`/api/devices/alarm-host?deviceId=${device.id}`, { method: "POST" }).then((r) => r.json());
+                if (!a?.ok) throw new Error(a?.error || "La cámara no aceptó el servidor");
+            }) });
+            return;
+        }
+        if (ctl.key === "test") {
+            setConfirm({ titulo: "Mandar un aviso de prueba", detalle: ctl.detail, svg: "test", hacer: () => aplicar("test", "La cámara llegó a OmniAccess", async () => {
+                const a = await fetch(`/api/devices/alarm-host?deviceId=${device.id}&action=test`, { method: "POST" }).then((r) => r.json());
+                if (!a?.ok) throw new Error(a?.error || "No llegó el aviso de prueba");
+            }) });
+        }
+    };
+
+    /* Auto-perfil perímetro: sensibilidad 60, objetivo personas+vehículos, reglas activas y el aviso a OmniAccess. */
     const auto = async () => {
         setConfirm(null);
-        const pasos = [{ key: "reglas", label: "Sensibilidad 60 y objetivo personas y vehículos en todas las reglas (queda en el borrador)" }, { key: "alarm", label: "Servidor de alarmas → OmniAccess" }];
+        const pasos = [
+            { key: "sens", label: "Sensibilidad 60 (equilibrio perímetro con vegetación)" },
+            { key: "target", label: "Objetivo: personas y vehículos" },
+            { key: "alarm", label: "Servidor de alarmas → OmniAccess" },
+        ];
         setAutoSteps(pasos.map((p) => ({ ...p, status: "pending" })));
         const marcar = (k: string, ok: boolean, error?: string) => setAutoSteps((xs) => xs.map((x) => (x.key === k ? { ...x, status: ok ? "ok" : "fail", error } : x)));
-        if (!reglas.length) marcar("reglas", false, "no hay líneas ni zonas: dibujá una primero");
-        else { setVerificado(null); setReglas((l) => l.map((r) => (r.borrar ? r : { ...r, sensibilidad: r.sensibilidad != null ? 60 : r.sensibilidad, objetivo: r.objetivo != null ? "human,vehicle" : r.objetivo }))); marcar("reglas", true); }
+        // Sensibilidad y objetivo van en la misma escritura: la cámara tarda en aplicar cada una.
+        const hay = todas(cfg);
+        if (!hay.length) { marcar("sens", false, "no hay líneas ni zonas dibujadas"); marcar("target", false, "no hay líneas ni zonas dibujadas"); }
+        else if (!cfg?.edita.ajustes) { marcar("sens", false, "este equipo no deja cambiarla desde acá"); marcar("target", false, "este equipo no deja cambiarlo desde acá"); }
+        else {
+            const objetivo = hay.some((r) => r.objetivo != null);
+            const cambio = (r: Regla) => ({ id: r.id, sensibilidad: 60, ...(r.objetivo != null ? { objetivo: "human,vehicle" } : {}) });
+            try { await post({ lineas: dibujadas(cfg.lineas).map(cambio), zonas: dibujadas(cfg.zonas).map(cambio) }); marcar("sens", true); if (objetivo) marcar("target", true); else marcar("target", false, "esta cámara no filtra por objetivo"); }
+            catch (e: any) { marcar("sens", false, e?.message); marcar("target", false, e?.message); }
+        }
         try { const a = await fetch(`/api/devices/alarm-host?deviceId=${device.id}`, { method: "POST" }).then((r) => r.json()); marcar("alarm", !!a?.ok, a?.ok ? undefined : a?.error); } catch (e: any) { marcar("alarm", false, e?.message); }
-        fetch(`/api/devices/alarm-host?deviceId=${device.id}`, { cache: "no-store" }).then((r) => r.json()).then((a) => setAlarma(!!(a?.hasOmni || (a?.dahua && a?.ok)))).catch(() => { });
+        cargar();
     };
 
-    // ── dibujo sobre el vivo ──
+    // ── editor ──
     const evtPct = (e: React.PointerEvent): P => { const r = svgRef.current!.getBoundingClientRect(); return { x: snap(Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100))), y: snap(Math.max(0, Math.min(100, ((e.clientY - r.top) / r.height) * 100))) }; };
-    const onDown = (e: React.PointerEvent) => {
-        if (!dibujando || !actual || drag.current != null) return;
-        const p = evtPct(e);
-        cambiar(actual.clave, (r) => ({ ...r, points: r.tipo === "linea" ? (r.points.length >= 2 ? [r.points[1], p] : [...r.points, p]) : r.points.length >= lim.zonaMax ? r.points : [...r.points, p] }));
+    const onDown = (e: React.PointerEvent) => { if (drag.current != null) return; const p = evtPct(e); setPts((l) => (edit === "line" ? (l.length >= 2 ? [l[1], p] : [...l, p]) : [...l, p])); };
+    const onMove = (e: React.PointerEvent) => { if (drag.current == null) return; const p = evtPct(e); setPts((l) => l.map((q, k) => (k === drag.current ? p : q))); };
+    const listaEdit = edit === "line" ? cfg?.lineas || [] : cfg?.zonas || [];
+    const reglaEdit = listaEdit.find((r) => r.id === editId) || null;
+    const nombreEdit = `${edit === "line" ? "Línea" : "Zona"} ${editId}`;
+    const sinGuardar = !!edit && (JSON.stringify(pts) !== JSON.stringify(reglaEdit && !reglaEdit.vacia ? reglaEdit.points : []) || (edit === "line" && !!reglaEdit && !reglaEdit.vacia && dir !== reglaEdit.direction));
+    const eliminar = () => setConfirm({
+        titulo: `Eliminar ${nombreEdit}`, detalle: `Se quita de la cámara (queda vacía, como de fábrica). Las demás ${edit === "line" ? "líneas" : "zonas"} no se tocan.`, svg: edit === "line" ? "line" : "zone",
+        hacer: async () => {
+            setConfirm(null); setGuardando(true);
+            try { await post(edit === "line" ? { lineas: [{ id: editId, borrar: true }] } : { zonas: [{ id: editId, borrar: true }] }); toast.success(`${nombreEdit} eliminada`, { description: "Se volvió a leer la cámara: ya no está" }); setEdit(null); await cargar(); }
+            catch (e: any) { toast.error("No se pudo eliminar", { description: e?.message }); }
+            finally { setGuardando(false); }
+        },
+    });
+    const guardarEdicion = async () => {
+        // «Limpiar» + «Guardar» sobre una que existe es borrarla: era lo que Nico intentó y chocaba.
+        if (!pts.length && reglaEdit && !reglaEdit.vacia) { if (cfg?.edita.borrar) eliminar(); else toast.error("No se puede eliminar desde acá", { description: cfg?.edita.motivo }); return; }
+        if (edit === "line" && pts.length !== 2) { toast.error("La línea necesita 2 puntos"); return; }
+        if (edit === "zone" && pts.length < 3) { toast.error("La zona necesita al menos 3 puntos"); return; }
+        if (edit === "zone" && pts.length > 10) { toast.error("La zona admite hasta 10 vértices"); return; }
+        setGuardando(true);
+        try {
+            const p = pts.map(screenToCam);
+            await post(edit === "line" ? { lineas: [{ id: editId, points: p, direction: dir }] } : { zonas: [{ id: editId, points: p }] });
+            toast.success(edit === "line" ? `${nombreEdit} guardada en la cámara` : `${nombreEdit} guardada en la cámara`, { description: "Se volvió a leer la cámara y quedó igual" });
+            setEdit(null); await cargar();
+        } catch (e: any) { toast.error("No se pudo guardar", { description: e?.message }); }
+        finally { setGuardando(false); }
     };
-    const onMove = (e: React.PointerEvent) => { if (drag.current == null || !actual) return; const p = evtPct(e); const i = drag.current; cambiar(actual.clave, (r) => ({ ...r, points: r.points.map((q, k) => (k === i ? p : q)) })); };
-    const flechas = (l: P[], d: Dir, color: string) => {
-        if (l.length !== 2) return null;
-        const m = { x: (l[0].x + l[1].x) / 2, y: (l[0].y + l[1].y) / 2 };
+    /** Cambiar de lugar en el editor: si hay cambios sin guardar, se pregunta. */
+    const elegirLugar = (id: number) => {
+        if (id === editId) return;
+        const ir = () => { setConfirm(null); abrirEditor(edit!, id); };
+        if (sinGuardar) setConfirm({ titulo: `${nombreEdit} tiene cambios sin guardar`, detalle: "Si cambiás de lugar se pierden.", svg: edit === "line" ? "line" : "zone", hacer: async () => ir() });
+        else ir();
+    };
+
+    const active = hover ? CONTROLS.find((c) => c.key === hover) : null;
+    const extra: Extra = { alarma };
+    const lineasDib = dibujadas(cfg?.lineas);
+    const zonasDib = dibujadas(cfg?.zonas);
+    const color = edit === "zone" ? "#f43f5e" : "#38bdf8";
+    const mid = (l: P[]) => (l.length === 2 ? { x: (l[0].x + l[1].x) / 2, y: (l[0].y + l[1].y) / 2 } : null);
+    const flechas = (l: P[], d: Dir) => {
+        const m = mid(l); if (!m) return null;
         const dx = l[1].x - l[0].x, dy = l[1].y - l[0].y, len = Math.hypot(dx, dy) || 1; const nx = -dy / len, ny = dx / len;
-        const una = (sg: 1 | -1) => <line key={sg} x1={m.x} y1={m.y} x2={m.x + nx * sg * 6} y2={m.y + ny * sg * 6} stroke={color} strokeWidth={2.2} strokeLinecap="round" vectorEffect="non-scaling-stroke" markerEnd="url(#punta-intr)" />;
+        const una = (sg: 1 | -1) => { const t = { x: m.x + nx * sg * 7, y: m.y + ny * sg * 7 }; return <line key={sg} x1={m.x} y1={m.y} x2={t.x} y2={t.y} stroke="#fbbf24" strokeWidth={2.4} strokeLinecap="round" vectorEffect="non-scaling-stroke" markerEnd="url(#punta)" />; };
         return <>{(d === "both" || d === "ab") && una(1)}{(d === "both" || d === "ba") && una(-1)}</>;
     };
-    const rotulo = (r: Regla) => {
-        const p = r.tipo === "linea" ? (r.points.length === 2 ? { x: (r.points[0].x + r.points[1].x) / 2, y: (r.points[0].y + r.points[1].y) / 2 } : r.points[0]) : r.points.length ? { x: r.points.reduce((s, q) => s + q.x, 0) / r.points.length, y: r.points.reduce((s, q) => s + q.y, 0) / r.points.length } : null;
-        return p ? <text x={p.x} y={p.y - 1.8} textAnchor="middle" fontSize="2.1" fontWeight="800" fill="#fff" stroke="#000" strokeWidth={0.35} paintOrder="stroke" style={{ pointerEvents: "none" }}>{r.tipo === "linea" ? "L" : "Z"}{r.id}</text> : null;
-    };
-
-    const lineas = reglas.filter((r) => r.tipo === "linea");
-    const zonas = reglas.filter((r) => r.tipo === "zona");
-    const sinAnalitica = !!datos && !datos.lineas && !datos.zonas;
-
-    // Funciones y no componentes: un componente definido acá adentro se vuelve a montar en cada
-    // render, y el deslizador de sensibilidad se soltaba a mitad del arrastre.
-    const tarjeta = (r: Regla) => {
-        const o = porClave.get(r.clave);
-        const cambiada = !!cambioDe(r, o);
-        const abierta = sel === r.clave;
-        const f = falta(r, lim);
-        const color = COLOR[r.tipo];
-        return (
-            <div key={r.clave} className={cn("rounded-[10px] border transition", abierta ? "border-white/25 bg-white/[0.07]" : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]", r.borrar && "opacity-60")}>
-                <div className="flex items-center gap-2 px-2.5 py-2 cursor-pointer" onClick={() => { setSel(abierta ? null : r.clave); setDibujando(false); }}>
-                    <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: color }} />
-                    <span className={cn("text-[12.5px] font-semibold text-white flex-1 truncate", r.borrar && "line-through")}>{nombre(r)}</span>
-                    {r.nueva && <span className="text-[9.5px] font-bold uppercase tracking-wide text-sky-300">nueva</span>}
-                    {!r.nueva && r.borrar && <span className="text-[9.5px] font-bold uppercase tracking-wide text-red-300">se borra</span>}
-                    {!r.nueva && !r.borrar && cambiada && <span className="text-[9.5px] font-bold uppercase tracking-wide text-amber-300">cambiada</span>}
-                    {f && !r.borrar && <span title={f}><AlertTriangle size={13} className="text-amber-300" /></span>}
-                    <button onClick={(e) => { e.stopPropagation(); if (!r.borrar) cambiar(r.clave, (x) => ({ ...x, enabled: !x.enabled })); }} disabled={r.borrar}
-                        title={r.enabled ? "Prendida: la cámara la vigila. Tocá para apagarla sin borrarla." : "Apagada: queda dibujada pero la cámara no la usa. Tocá para prenderla."}
-                        className={cn("h-6 px-2 rounded-full text-[10px] font-bold inline-flex items-center gap-1", r.enabled ? "bg-emerald-500/20 text-emerald-300" : "bg-white/[0.08] text-white/50")}>
-                        {r.enabled ? <Eye size={11} /> : <EyeOff size={11} />}{r.enabled ? "Prendida" : "Apagada"}
-                    </button>
-                </div>
-                {abierta && !r.borrar && (
-                    <div className="px-2.5 pb-2.5 space-y-2.5 border-t border-white/10 pt-2.5">
-                        <div className="flex gap-1.5">
-                            <button onClick={() => setDibujando((v) => !v)} className={cn("flex-1 h-8 rounded-lg text-[11px] font-bold inline-flex items-center justify-center gap-1.5", dibujando ? "bg-amber-400 text-black" : "bg-white/[0.08] text-white hover:bg-white/[0.14]")}>
-                                <PencilLine size={13} /> {dibujando ? "Listo" : r.points.length ? "Redibujar" : "Dibujar"}
-                            </button>
-                            {dibujando && <button onClick={() => cambiar(r.clave, (x) => ({ ...x, points: [] }))} className="h-8 px-2.5 rounded-lg bg-white/[0.08] text-white/80 hover:bg-white/[0.14] text-[11px] font-semibold inline-flex items-center gap-1"><Trash2 size={12} /> Limpiar</button>}
-                        </div>
-                        {dibujando && <p className="text-[10.5px] text-white/55 leading-snug">{r.tipo === "linea" ? "Tocá los 2 extremos sobre el video; arrastrá un punto para ajustarlo." : `Tocá para agregar vértices (${lim.zonaMin} a ${lim.zonaMax}); arrastrá para mover; doble clic borra un vértice.`}</p>}
-                        {r.tipo === "linea" && (
-                            <Campo t="Sentido del cruce">
-                                <div className="inline-flex rounded-lg bg-white/[0.06] p-0.5 w-full">
-                                    {(["ab", "both", "ba"] as Dir[]).map((v) => {
-                                        const I = v === "ab" ? ArrowRight : v === "ba" ? ArrowLeft : ArrowLeftRight;
-                                        return <button key={v} onClick={() => cambiar(r.clave, (x) => ({ ...x, direction: v }))} className={cn("flex-1 h-7 rounded-md text-[11px] font-bold inline-flex items-center justify-center gap-1", r.direction === v ? "bg-amber-400 text-black" : "text-white/70 hover:text-white")}><I size={12} /> {DIR_TXT[v]}</button>;
-                                    })}
-                                </div>
-                            </Campo>
-                        )}
-                        {datos?.edita.ajustes && r.objetivo != null && (
-                            <Campo t="Qué la dispara">
-                                <div className="inline-flex rounded-lg bg-white/[0.06] p-0.5 w-full">
-                                    {OBJETIVOS.map((ob) => <button key={ob.v} onClick={() => cambiar(r.clave, (x) => ({ ...x, objetivo: ob.v }))} className={cn("flex-1 h-7 rounded-md text-[11px] font-bold", mismoObjetivo(r.objetivo, ob.v) ? "bg-white text-black" : "text-white/70 hover:text-white")}>{ob.t}</button>)}
-                                </div>
-                            </Campo>
-                        )}
-                        {datos?.edita.ajustes && r.sensibilidad != null && (
-                            <Campo t={`Sensibilidad · ${r.sensibilidad}`} ayuda="Alta detecta todo (también hojas y sombras); baja sólo lo evidente. En perímetro con vegetación, 40–60.">
-                                <input type="range" min={1} max={100} value={r.sensibilidad} onChange={(e) => cambiar(r.clave, (x) => ({ ...x, sensibilidad: Number(e.target.value) }))} className="w-full accent-amber-400" />
-                            </Campo>
-                        )}
-                        {datos?.edita.ajustes && r.tipo === "zona" && r.tiempo != null && (
-                            <Campo t={`Permanencia · ${r.tiempo} s`} ayuda="Cuánto tiene que quedarse adentro para avisar. 0 = apenas entra.">
-                                <input type="range" min={0} max={10} value={r.tiempo} onChange={(e) => cambiar(r.clave, (x) => ({ ...x, tiempo: Number(e.target.value) }))} className="w-full accent-rose-400" />
-                            </Campo>
-                        )}
-                        <div className="flex gap-1.5 pt-0.5">
-                            {cambiada && !r.nueva && <button onClick={() => deshacer(r)} className="h-7 px-2.5 rounded-lg bg-white/[0.06] text-white/75 hover:bg-white/[0.12] text-[11px] font-semibold inline-flex items-center gap-1"><Undo2 size={12} /> Deshacer</button>}
-                            <div className="flex-1" />
-                            {(r.nueva || datos?.edita.borrar) && <button onClick={() => quitar(r)} className="h-7 px-2.5 rounded-lg bg-red-500/15 text-red-300 hover:bg-red-500/25 text-[11px] font-bold inline-flex items-center gap-1"><Trash2 size={12} /> {r.nueva ? "Descartar" : "Borrar"}</button>}
-                        </div>
-                    </div>
-                )}
-                {abierta && r.borrar && (
-                    <div className="px-2.5 pb-2.5 flex items-center gap-2 text-[11px] text-white/60 border-t border-white/10 pt-2">
-                        Se borra de la cámara al guardar.
-                        <button onClick={() => quitar(r)} className="ml-auto h-7 px-2.5 rounded-lg bg-white/[0.08] text-white hover:bg-white/[0.14] font-semibold inline-flex items-center gap-1"><Undo2 size={12} /> No borrar</button>
-                    </div>
-                )}
-            </div>
-        );
-    };
-
-    const seccion = (tipo: Tipo, lista: Regla[]) => {
-        const lado = tipo === "linea" ? datos?.lineas : datos?.zonas;
-        if (!lado) return null;
-        const usadas = reglas.filter((r) => r.tipo === tipo).length;
-        const puede = !!libre(tipo) && (datos!.edita.varias || usadas === 0);
-        return (
-            <div className="space-y-1.5">
-                <div className="flex items-center gap-2 px-0.5">
-                    {tipo === "linea" ? <Minus size={14} className="text-sky-300" /> : <Hexagon size={14} className="text-rose-300" />}
-                    <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-white/60 flex-1">{tipo === "linea" ? "Líneas de cruce" : "Zonas de intrusión"} · {usadas}/{lado.max}</span>
-                    <button onClick={() => agregar(tipo)} disabled={!puede || loading} title={puede ? `Agregar una ${tipo === "linea" ? "línea" : "zona"}` : `La cámara no tiene más lugares`}
-                        className="h-7 px-2.5 rounded-lg bg-white/[0.08] text-white hover:bg-white/[0.14] text-[11px] font-bold inline-flex items-center gap-1 disabled:opacity-35"><Plus size={13} /> {tipo === "linea" ? "Línea" : "Zona"}</button>
-                </div>
-                {lista.length ? lista.map((r) => tarjeta(r)) : <p className="text-[11px] text-white/40 px-1 py-1.5">Ninguna.</p>}
-            </div>
-        );
+    /** El nombre corto (L1, Z2) junto a su dibujo: con varias, hay que saber cuál es cuál. */
+    const rotulo = (l: P[], t: string) => {
+        if (!l.length) return null;
+        const c = { x: l.reduce((s, p) => s + p.x, 0) / l.length, y: l.reduce((s, p) => s + p.y, 0) / l.length };
+        return <text x={c.x} y={c.y - 2.4} textAnchor="middle" fontSize="2" fontWeight="800" fill="#fff" stroke="#000" strokeWidth={0.35} paintOrder="stroke" style={{ pointerEvents: "none" }}>{t}</text>;
     };
 
     return (
         <div className="fixed inset-0 z-[3300] flex items-center justify-center bg-black/95 backdrop-blur-sm p-3 md:p-6 animate-in fade-in duration-200">
-            <div className="relative w-full max-w-7xl h-[90vh] rounded-[14px] overflow-hidden bg-black border border-white/10 flex flex-col">
-                <div className="relative flex-1 min-h-0 flex">
-                    {/* ── El video, con todo dibujado encima ── */}
-                    <div className="relative flex-1 min-w-0 bg-black">
-                        <div className="absolute inset-0 flex items-center justify-center p-2">
-                            <div className="relative w-full max-h-full aspect-video">
-                                <LiveVideo key={`lpr_${device.id}-${videoNonce}`} streamName={`lpr_${device.id}`} deviceId={device.id} />
-                                {isPtz && <div className="absolute bottom-3 right-3 z-20"><PtzControls deviceId={device.id} config /></div>}
-                                <svg ref={svgRef} viewBox="0 0 100 100" preserveAspectRatio="none" className={cn("absolute inset-0 w-full h-full touch-none", dibujando ? "cursor-crosshair" : "pointer-events-none")}
-                                    onPointerDown={onDown} onPointerMove={onMove} onPointerUp={() => (drag.current = null)} onPointerLeave={() => (drag.current = null)}>
-                                    <defs><marker id="punta-intr" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#fbbf24" /></marker></defs>
-                                    {[...zonas, ...lineas].filter((r) => !r.borrar).map((r) => {
-                                        const elegida = r.clave === sel;
-                                        const c = COLOR[r.tipo];
-                                        const op = r.enabled ? 1 : 0.45;
-                                        return (
-                                            <g key={r.clave} opacity={sel && !elegida ? op * 0.55 : op} style={{ pointerEvents: "none" }}>
-                                                {r.tipo === "zona" && r.points.length >= 2 && <polygon points={r.points.map((p) => `${p.x},${p.y}`).join(" ")} fill={elegida ? "rgba(244,63,94,0.22)" : "rgba(244,63,94,0.12)"} stroke={c} strokeWidth={elegida ? 2.6 : 1.6} strokeDasharray={r.enabled ? undefined : "4 3"} vectorEffect="non-scaling-stroke" />}
-                                                {r.tipo === "linea" && r.points.length === 2 && <>
-                                                    <line x1={r.points[0].x} y1={r.points[0].y} x2={r.points[1].x} y2={r.points[1].y} stroke={c} strokeWidth={elegida ? 3.4 : 2.4} strokeDasharray={r.enabled ? undefined : "4 3"} vectorEffect="non-scaling-stroke" />
-                                                    {flechas(r.points, r.direction, "#fbbf24")}
-                                                </>}
-                                                {rotulo(r)}
-                                            </g>
-                                        );
-                                    })}
-                                    {dibujando && actual && actual.points.map((p, i) => (
-                                        <g key={i}>
-                                            <circle cx={p.x} cy={p.y} r={1.4} fill={COLOR[actual.tipo]} stroke="#fff" strokeWidth={1.4} vectorEffect="non-scaling-stroke" style={{ cursor: "grab" }}
-                                                onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture?.(e.pointerId); drag.current = i; }}
-                                                onDoubleClick={(e) => { e.stopPropagation(); cambiar(actual.clave, (r) => ({ ...r, points: r.tipo === "zona" && r.points.length <= lim.zonaMin ? r.points : r.points.filter((_, k) => k !== i) })); }} />
-                                            <text x={p.x} y={p.y - 2.4} textAnchor="middle" fontSize="1.9" fontWeight="800" fill="#fff" stroke="#000" strokeWidth={0.3} paintOrder="stroke" style={{ pointerEvents: "none" }}>{actual.tipo === "linea" ? (i === 0 ? "A" : "B") : i + 1}</text>
-                                        </g>
-                                    ))}
-                                </svg>
-                            </div>
-                        </div>
+            <div className="relative w-full max-w-6xl h-[88vh] rounded-2xl overflow-hidden shadow-2xl bg-black border border-white/10 flex flex-col">
+                <div className="relative flex-1 bg-black">
+                    <LiveVideo key={`lpr_${device.id}-${videoNonce}`} streamName={`lpr_${device.id}`} deviceId={device.id} />
+                    {/* Analítica actual sobre el vivo */}
+                    {!edit && cfg && (
+                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
+                            <defs><marker id="punta" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#fbbf24" /></marker></defs>
+                            {zonasDib.map((z) => <g key={`z${z.id}`}>
+                                <polygon points={z.points.map((p) => `${p.x},${p.y}`).join(" ")} fill="rgba(244,63,94,0.16)" stroke="#f43f5e" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                                {rotulo(z.points, `Z${z.id}`)}
+                            </g>)}
+                            {lineasDib.map((l) => <g key={`l${l.id}`}>
+                                <line x1={l.points[0].x} y1={l.points[0].y} x2={l.points[1].x} y2={l.points[1].y} stroke="#38bdf8" strokeWidth={3} vectorEffect="non-scaling-stroke" />
+                                <line x1={l.points[0].x} y1={l.points[0].y} x2={l.points[1].x} y2={l.points[1].y} stroke="#fff" strokeWidth={1} strokeDasharray="3 6" vectorEffect="non-scaling-stroke" opacity={0.6}><animate attributeName="stroke-dashoffset" from="9" to="0" dur="0.6s" repeatCount="indefinite" /></line>
+                                {flechas(l.points, l.direction)}
+                                {lineasDib.length + zonasDib.length > 1 && rotulo(l.points, `L${l.id}`)}
+                            </g>)}
+                        </svg>
+                    )}
 
-                        {/* Barra superior */}
-                        <div className="absolute top-3 left-3 right-14 flex items-center gap-2 flex-wrap">
-                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md">
-                                <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" /></span>
-                                <span className="text-[10px] font-bold text-white uppercase tracking-wide">Calibración de intrusión</span>
-                                <span className="text-[10px] text-white/70">· {device.name}</span>
-                            </div>
-                            {dibujando && actual && <span className="px-3 py-1.5 rounded-full bg-amber-400 text-black text-[10.5px] font-bold">Dibujando {nombre(actual)} · {actual.points.length} punto{actual.points.length === 1 ? "" : "s"} · Esc termina</span>}
-                            {/* La cámara tiene UNA lista de líneas y zonas: si la lectura de matrículas se dispara con ellas, tocarlas acá cambia también el disparo. */}
-                            {(device.deviceType === "LPR_INTERIOR" || device.tipo === "LPR_INTERIOR") && ["linea", "zona", "camara"].includes(String(device.trackTrigger || "")) && (
-                                <span className="px-3 py-1.5 rounded-full bg-black/60 text-[10px] font-semibold text-amber-300">Ojo: la lectura de matrículas se dispara con la {device.trackTrigger === "linea" ? "línea" : "zona"} 1 de esta cámara</span>
-                            )}
-                        </div>
-                        <button onClick={cerrar} className="absolute top-3 right-3 h-9 w-9 rounded-full bg-black/60 backdrop-blur-md text-white/90 hover:bg-black/80 flex items-center justify-center z-10"><X size={18} /></button>
-
-                        {loading && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="flex items-center gap-2 px-3 py-2 rounded-full bg-black/60 text-white/80 text-xs"><Loader2 size={14} className="animate-spin" /> Leyendo la analítica de la cámara…</div></div>}
-                        {!loading && error && <div className="absolute inset-x-0 top-14 flex justify-center"><div className="px-4 py-2 rounded-full bg-red-500/25 text-red-100 text-xs ring-1 ring-red-400/40 inline-flex items-center gap-2"><AlertTriangle size={14} /> {error}<button onClick={cargar} className="underline font-semibold">Reintentar</button></div></div>}
-
-                        {/* Auto-perfil: pasos */}
-                        <AnimatePresence>
-                            {autoSteps.length > 0 && (
-                                <motion.div initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 30 }}
-                                    className="absolute right-3 top-16 w-[300px] rounded-[14px] bg-neutral-900/90 backdrop-blur-2xl border border-white/10 p-3 z-20">
-                                    <div className="flex items-center gap-2 mb-2 text-orange-300"><Wand2 size={15} /><span className="text-xs font-bold uppercase tracking-wide">Perfil perímetro</span></div>
-                                    <div className="space-y-1.5">
-                                        {autoSteps.map((s) => (
-                                            <div key={s.key} className="flex items-start gap-2 rounded-lg px-2 py-1.5 bg-white/[0.03]">
-                                                <div className="mt-0.5">{s.status === "ok" ? <Check size={14} className="text-emerald-400" /> : s.status === "fail" ? <AlertTriangle size={14} className="text-red-400" /> : <Loader2 size={14} className="text-white/40 animate-spin" />}</div>
-                                                <div><p className="text-[11px] font-semibold text-white/90">{s.label}</p>{s.error && <p className="text-[10px] text-red-400">{s.error}</p>}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    {autoSteps.every((s) => s.status !== "pending") && <button onClick={() => setAutoSteps([])} className="mt-2 w-full text-[11px] text-white/60 hover:text-white py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08]">Cerrar resumen</button>}
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
-
-                    {/* ── La lista de analíticas ── */}
-                    <aside className="w-[310px] shrink-0 border-l border-white/10 bg-neutral-950 flex flex-col min-h-0">
-                        <div className="flex-1 overflow-y-auto p-3 space-y-4">
-                            {sinAnalitica && <div className="rounded-[10px] bg-amber-500/15 text-amber-100 text-[11.5px] p-3 inline-flex gap-2"><Radar size={14} className="shrink-0 mt-0.5" /> Esta cámara no tiene cruce de línea ni zona de intrusión: sólo se puede configurar el aviso a OmniAccess.</div>}
-                            {datos?.edita.motivo && <p className="text-[11px] text-white/50 px-0.5">{datos.edita.motivo}</p>}
-                            {seccion("linea", lineas)}
-                            {seccion("zona", zonas)}
-                            {verificado && (
-                                <div className={cn("rounded-[10px] p-3 text-[11.5px]", verificado.ok ? "bg-emerald-500/15 text-emerald-100" : "bg-red-500/15 text-red-100")}>
-                                    <p className="font-bold inline-flex items-center gap-1.5">{verificado.ok ? <ShieldCheck size={14} /> : <AlertTriangle size={14} />} {verificado.ok ? "Guardado y verificado" : "La cámara no quedó igual"}</p>
-                                    {verificado.ok ? <p className="opacity-80 mt-0.5">Se volvió a leer la cámara y quedó exactamente como se pidió.</p> : <ul className="mt-1 space-y-0.5 list-disc pl-4">{verificado.diferencias.map((d, i) => <li key={i}>{d}</li>)}</ul>}
+                    {/* Editor de línea / zona */}
+                    {edit && (
+                        <div className="absolute inset-0 z-30 bg-black/92 backdrop-blur-[2px] flex flex-col">
+                            <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-white/10">
+                                <div className={cn("flex items-center gap-2", edit === "line" ? "text-sky-300" : "text-rose-300")}>
+                                    {edit === "line" ? <Minus size={16} /> : <Hexagon size={16} />}
+                                    <span className="text-xs font-bold uppercase tracking-wide">{edit === "line" ? "Línea de cruce" : "Zona de intrusión"}</span>
+                                    {/* Cuál de los lugares de la cámara: lleno = dibujado, punteado = libre. */}
+                                    {listaEdit.length > 1 && (
+                                        <div className="inline-flex rounded-lg bg-white/[0.06] p-0.5 ml-1">
+                                            {listaEdit.map((r) => (
+                                                <button key={r.id} onClick={() => elegirLugar(r.id)} title={r.vacia ? `${edit === "line" ? "Línea" : "Zona"} ${r.id}: libre` : `${edit === "line" ? "Línea" : "Zona"} ${r.id}: dibujada`}
+                                                    className={cn("h-6 min-w-[24px] px-1.5 rounded-md text-[11px] font-bold", r.id === editId ? (edit === "line" ? "bg-sky-400 text-black" : "bg-rose-500 text-white") : r.vacia ? "text-white/40 border border-dashed border-white/20" : "text-white/85 hover:text-white")}>
+                                                    {r.vacia && r.id !== editId ? "+" : r.id}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <span className="text-[10px] text-white/50">· {edit === "line" ? "tocá los 2 extremos, arrastrá para ajustar" : "tocá para agregar vértices, doble clic borra"}</span>
                                 </div>
-                            )}
-                        </div>
-                        <div className="shrink-0 border-t border-white/10 p-3 space-y-2">
-                            <button onClick={pedirGuardar} disabled={!cambios.n || guardando || loading}
-                                className="w-full h-10 rounded-[10px] bg-[var(--accion-en-oscuro,#38bdf8)] text-black font-bold text-[13px] inline-flex items-center justify-center gap-2 disabled:opacity-40">
-                                {guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Guardar en la cámara{cambios.n ? ` (${cambios.n})` : ""}
-                            </button>
-                            <div className="flex gap-2">
-                                <button onClick={() => { setReglas(original); setSel(null); setDibujando(false); setVerificado(null); }} disabled={!cambios.n || guardando}
-                                    className="flex-1 h-8 rounded-lg bg-white/[0.06] text-white/80 hover:bg-white/[0.12] text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-40"><RotateCcw size={12} /> Descartar cambios</button>
-                                <button onClick={cargar} disabled={loading || guardando} title="Volver a leer la cámara"
-                                    className="h-8 w-10 rounded-lg bg-white/[0.06] text-white/80 hover:bg-white/[0.12] inline-flex items-center justify-center disabled:opacity-40"><RefreshCw size={13} className={loading ? "animate-spin" : ""} /></button>
+                                <div className="flex items-center gap-2">
+                                    {edit === "line" && (
+                                        <div className="inline-flex rounded-lg bg-white/[0.06] p-0.5">
+                                            {(["ab", "both", "ba"] as Dir[]).map((v) => {
+                                                const I = v === "ab" ? ArrowRight : v === "ba" ? ArrowLeft : ArrowLeftRight;
+                                                return <button key={v} onClick={() => setDir(v)} className={cn("h-7 px-2.5 rounded-md text-[11px] font-bold inline-flex items-center gap-1", dir === v ? "bg-amber-400 text-black" : "text-white/70 hover:text-white")}><I size={13} /> {DIR_TXT[v]}</button>;
+                                            })}
+                                        </div>
+                                    )}
+                                    <button onClick={() => setPts([])} className="h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[11px] font-semibold flex items-center gap-1.5"><Trash2 size={13} /> Limpiar</button>
+                                    <button onClick={() => { setPts(reglaEdit && !reglaEdit.vacia ? reglaEdit.points : []); if (reglaEdit) setDir(reglaEdit.direction); }} className="h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[11px] font-semibold flex items-center gap-1.5"><RotateCcw size={13} /> Revertir</button>
+                                    {reglaEdit && !reglaEdit.vacia && cfg?.edita.borrar && <button onClick={eliminar} disabled={guardando} className="h-8 px-3 rounded-lg bg-red-500/15 hover:bg-red-500/25 text-red-300 text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-50"><Trash2 size={13} /> Eliminar</button>}
+                                    <button onClick={() => setEdit(null)} className="h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[11px] font-semibold flex items-center gap-1.5"><X size={13} /> Cerrar</button>
+                                    <button onClick={guardarEdicion} disabled={guardando} className={cn("h-8 px-4 rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50", edit === "line" ? "bg-sky-500 hover:bg-sky-400 text-black" : "bg-rose-500 hover:bg-rose-400 text-white")}>
+                                        {guardando ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Guardar
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="flex-1 flex items-center justify-center p-3 overflow-hidden">
+                                <div className="relative w-full max-h-full aspect-video">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={`/api/snapshot/${device.id}?t=${videoNonce}`} alt="" className="absolute inset-0 w-full h-full object-fill select-none pointer-events-none rounded-lg" draggable={false} />
+                                    {isPtz && <div className="absolute bottom-3 right-3 z-20"><PtzControls deviceId={device.id} config /></div>}
+                                    <svg ref={svgRef} viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full touch-none cursor-crosshair"
+                                        onPointerDown={onDown} onPointerMove={onMove} onPointerUp={() => (drag.current = null)} onPointerLeave={() => (drag.current = null)}>
+                                        <defs><marker id="punta" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#fbbf24" /></marker></defs>
+                                        {/* Las demás, tenues: para dibujar ésta sabiendo dónde están. */}
+                                        <g opacity={0.35} style={{ pointerEvents: "none" }}>
+                                            {zonasDib.filter((z) => !(edit === "zone" && z.id === editId)).map((z) => <polygon key={`oz${z.id}`} points={z.points.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#f43f5e" strokeWidth={1.4} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />)}
+                                            {lineasDib.filter((l) => !(edit === "line" && l.id === editId)).map((l) => <line key={`ol${l.id}`} x1={l.points[0].x} y1={l.points[0].y} x2={l.points[1].x} y2={l.points[1].y} stroke="#38bdf8" strokeWidth={1.6} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />)}
+                                        </g>
+                                        {edit === "zone" && pts.length >= 2 && <polygon points={pts.map((p) => `${p.x},${p.y}`).join(" ")} fill="rgba(244,63,94,0.18)" stroke={color} strokeWidth={2.4} vectorEffect="non-scaling-stroke" />}
+                                        {edit === "line" && pts.length === 2 && <><line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={color} strokeWidth={3} vectorEffect="non-scaling-stroke" />{flechas(pts, dir)}</>}
+                                        {pts.map((p, i) => (
+                                            <g key={i}>
+                                                <circle cx={p.x} cy={p.y} r={1.5} fill={color} stroke="#fff" strokeWidth={1.4} vectorEffect="non-scaling-stroke" style={{ cursor: "grab" }}
+                                                    onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture?.(e.pointerId); drag.current = i; }}
+                                                    onDoubleClick={(e) => { e.stopPropagation(); setPts((l) => (edit === "zone" && l.length <= 3 ? l : l.filter((_, k) => k !== i))); }} />
+                                                <text x={p.x} y={p.y - 2.6} textAnchor="middle" fontSize="2" fontWeight="800" fill="#fff" style={{ pointerEvents: "none" }}>{edit === "line" ? (i === 0 ? "A" : "B") : i + 1}</text>
+                                            </g>
+                                        ))}
+                                    </svg>
+                                    <span className="absolute top-2 right-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 text-[11px] text-white/80"><MousePointer2 size={12} /> {pts.length} punto{pts.length !== 1 ? "s" : ""}</span>
+                                </div>
                             </div>
                         </div>
-                    </aside>
+                    )}
+
+                    {/* Barra superior */}
+                    <div className="absolute top-3 left-3 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur-md">
+                        <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" /></span>
+                        <span className="text-[10px] font-bold text-white uppercase tracking-wide">Calibración de intrusión</span>
+                        <span className="text-[10px] text-white/70">· {device.name}</span>
+                        {/* El disparo de la lectura de matrículas usa la línea 1 / zona 1 de la cámara (camera-rule):
+                            si se dispara con ellas, tocarlas acá cambia también el disparo. */}
+                        {device.deviceType === "LPR_INTERIOR" && ["linea", "zona", "camara"].includes(String(device.trackTrigger || "")) && (
+                            <span className="text-[10px] font-semibold text-amber-300">· Ojo: la lectura de matrículas se dispara con la {device.trackTrigger === "linea" ? "línea" : "zona"} 1 de esta cámara</span>
+                        )}
+                    </div>
+                    <button onClick={onClose} className="absolute top-3 right-3 h-9 w-9 rounded-full bg-black/50 backdrop-blur-md text-white/90 hover:bg-black/70 flex items-center justify-center z-10"><X size={18} /></button>
+
+                    {/* Panel explicativo */}
+                    <AnimatePresence>
+                        {active && !edit && (
+                            <motion.div initial={{ opacity: 0, y: 16, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.96 }} transition={{ type: "spring", stiffness: 320, damping: 26 }}
+                                className="absolute left-3 bottom-24 md:bottom-28 w-[300px] rounded-xl bg-white/[0.07] backdrop-blur-2xl border border-white/10 p-4 shadow-2xl">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div className="shrink-0"><CalSvg kind={active.svg} /></div>
+                                    <div><p className="text-white font-bold text-sm">{active.label}</p><p className="text-[11px] text-white/60 font-mono">actual: {active.valueText(cfg, extra)}</p></div>
+                                </div>
+                                <p className="text-[12px] text-white/80 leading-relaxed">{active.detail}</p>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
+                    {/* Auto-perfil: pasos */}
+                    <AnimatePresence>
+                        {autoSteps.length > 0 && (
+                            <motion.div initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 30 }}
+                                className="absolute right-3 top-16 w-[300px] rounded-xl bg-white/[0.07] backdrop-blur-2xl border border-white/10 p-3 shadow-2xl">
+                                <div className="flex items-center gap-2 mb-2 text-orange-300"><Wand2 size={15} /><span className="text-xs font-bold uppercase tracking-wide">Perfil perímetro</span></div>
+                                <div className="space-y-1.5">
+                                    {autoSteps.map((s) => (
+                                        <div key={s.key} className="flex items-start gap-2 rounded-lg px-2 py-1.5 bg-white/[0.03]">
+                                            <div className="mt-0.5">{s.status === "ok" ? <Check size={14} className="text-emerald-400" /> : s.status === "fail" ? <AlertTriangle size={14} className="text-red-400" /> : <Loader2 size={14} className="text-white/40 animate-spin" />}</div>
+                                            <div><p className="text-[11px] font-semibold text-white/90">{s.label}</p>{s.error && <p className="text-[10px] text-red-400">{s.error}</p>}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                                {autoSteps.every((s) => s.status !== "pending") && <button onClick={() => setAutoSteps([])} className="mt-2 w-full text-[11px] text-white/60 hover:text-white py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08]">Cerrar resumen</button>}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
 
                     {/* Confirmación */}
                     <AnimatePresence>
                         {confirm && (
                             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                                <motion.div initial={{ scale: 0.92, y: 12 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 12 }} className="w-[420px] rounded-[14px] bg-neutral-900/95 border border-white/10 p-5 text-center">
+                                <motion.div initial={{ scale: 0.92, y: 12 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 12 }} className="w-[380px] rounded-2xl bg-neutral-900/90 border border-white/10 p-5 shadow-2xl text-center">
                                     <div className="mx-auto mb-3 flex justify-center"><CalSvg kind={confirm.svg} /></div>
                                     <p className="text-white font-bold text-base mb-1">{confirm.titulo}</p>
-                                    <p className="text-[12px] text-white/70 mb-3">{confirm.detalle}</p>
-                                    {confirm.lista && <ul className="text-left text-[12px] text-white/85 space-y-1 mb-4 max-h-48 overflow-y-auto rounded-lg bg-white/[0.04] p-3">{confirm.lista.map((x, i) => <li key={i} className="flex gap-2"><span className="text-white/40">•</span>{x}</li>)}</ul>}
+                                    <p className="text-[12px] text-white/70 mb-4">{confirm.detalle} ¿Aplico en <b>{device.name}</b>?</p>
                                     <div className="flex gap-2">
-                                        <button onClick={() => setConfirm(null)} className="flex-1 py-2.5 rounded-[10px] bg-white/[0.06] hover:bg-white/[0.12] text-white text-sm font-semibold">Cancelar</button>
-                                        <button onClick={() => confirm.hacer()} className="flex-1 py-2.5 rounded-[10px] bg-red-500 hover:bg-red-400 text-white text-sm font-bold flex items-center justify-center gap-1.5"><Check size={15} /> {confirm.boton || "Sí, aplicar"}</button>
+                                        <button onClick={() => setConfirm(null)} className="flex-1 py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-white text-sm font-semibold">Cancelar</button>
+                                        <button onClick={() => confirm.hacer()} className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-400 text-white text-sm font-bold flex items-center justify-center gap-1.5"><Check size={15} /> Sí, aplicar</button>
                                     </div>
                                 </motion.div>
                             </motion.div>
                         )}
                     </AnimatePresence>
+
+                    {loading && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="flex items-center gap-2 px-3 py-2 rounded-full bg-black/60 text-white/80 text-xs"><Loader2 size={14} className="animate-spin" /> Leyendo la analítica de la cámara…</div></div>}
+                    {!loading && error && <div className="absolute inset-x-0 top-14 flex justify-center"><div className="px-4 py-2 rounded-full bg-red-500/25 text-red-100 text-xs ring-1 ring-red-400/40 inline-flex items-center gap-2"><AlertTriangle size={14} /> {error}</div></div>}
+                    {!loading && cfg && !cfg.support.line && !cfg.support.field && (
+                        <div className="absolute inset-x-0 top-14 flex justify-center"><div className="px-4 py-2 rounded-full bg-amber-500/25 text-amber-100 text-xs ring-1 ring-amber-400/40 inline-flex items-center gap-2"><Radar size={14} /> Esta cámara no tiene cruce de línea ni zona de intrusión: sólo se puede configurar el aviso a OmniAccess.</div></div>
+                    )}
                 </div>
 
-                {/* Riel: lo que no es una regla */}
-                <div className="shrink-0 bg-neutral-950/95 border-t border-white/10 px-3 py-2.5">
+                {/* Riel de controles */}
+                <div className="shrink-0 bg-neutral-950/95 border-t border-white/10 px-3 py-3">
                     <div className="flex items-center gap-2 overflow-x-auto">
-                        <button onClick={() => setConfirm({ titulo: "Perfil perímetro", detalle: "Pone sensibilidad 60 y objetivo personas y vehículos en todas las reglas (queda en el borrador, se escribe al guardar) y configura el aviso a OmniAccess.", svg: "auto", hacer: auto })}
+                        <button onClick={() => setConfirm({ titulo: "Perfil perímetro", detalle: "Sensibilidad 60, objetivo personas y vehículos y el aviso a OmniAccess. Es reversible.", svg: "auto", hacer: auto })}
                             disabled={loading || !!busy}
-                            className="shrink-0 flex items-center gap-2 px-4 h-12 rounded-[10px] bg-gradient-to-br from-red-500 to-orange-600 text-white font-bold hover:brightness-110 active:scale-95 transition disabled:opacity-50">
-                            <Wand2 size={18} />
-                            <div className="text-left leading-tight"><div className="text-[13px]">Auto-perfil</div><div className="text-[10px] font-semibold opacity-80">Perímetro recomendado</div></div>
+                            className="shrink-0 flex items-center gap-2 px-4 h-14 rounded-xl bg-gradient-to-br from-red-500 to-orange-600 text-white font-bold shadow-lg shadow-red-500/20 hover:brightness-110 active:scale-95 transition disabled:opacity-50">
+                            <Wand2 size={20} />
+                            <div className="text-left leading-tight"><div className="text-sm">Auto-perfil</div><div className="text-[10px] font-semibold opacity-80">Perímetro recomendado</div></div>
                         </button>
-                        <div className="w-px h-9 bg-white/10 mx-1 shrink-0" />
-                        <BotonRiel icono={BellRing} t="Servidor" v={alarma == null ? "—" : alarma ? "OK" : "FALTA"} ok={alarma} busy={busy === "alarm"} onClick={servidor} disabled={loading || !!busy}
-                            ayuda="Que la cámara le avise a OmniAccess cada detección (servidor de alarmas / HTTP host). Sin esto la cámara detecta pero el monitor de intrusión nunca se entera." />
-                        <BotonRiel icono={Send} t="Probar" v="envío" busy={busy === "test"} onClick={probar} disabled={loading || !!busy}
-                            ayuda="Manda un aviso de prueba desde la cámara hacia OmniAccess para confirmar que el camino completo anda." />
-                        <p className="text-[10.5px] text-white/40 ml-2 leading-snug max-w-[520px]">Las líneas y zonas se editan en la lista de la derecha y se escriben juntas con «Guardar en la cámara»; después se vuelve a leer la cámara para comprobar que quedaron igual.</p>
+                        <div className="w-px h-10 bg-white/10 mx-1 shrink-0" />
+                        {CONTROLS.map((ctl) => {
+                            const Icon = ctl.key === "target" && ajustesActivos(cfg)?.objetivo === "vehicle" ? Car : ctl.key === "target" && ajustesActivos(cfg)?.objetivo === "human,vehicle" ? Users : ctl.icon;
+                            const dis = loading || !!busy || (ctl.disabled ? ctl.disabled(cfg) : false);
+                            const ok = ctl.key === "alarm" ? alarma : ctl.key === "line" ? lineasDib.length > 0 : ctl.key === "zone" ? zonasDib.length > 0 : undefined;
+                            return (
+                                <button key={ctl.key} onMouseEnter={() => setHover(ctl.key)} onMouseLeave={() => setHover((h) => (h === ctl.key ? null : h))}
+                                    onClick={() => clic(ctl)} disabled={dis}
+                                    className={cn("shrink-0 relative flex flex-col items-center justify-center gap-0.5 w-[80px] h-14 rounded-xl border transition active:scale-95",
+                                        ok === true ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300" : ok === false ? "bg-red-500/10 border-red-500/30 text-red-300" : "bg-white/[0.05] border-white/10 text-white/80 hover:bg-white/[0.1]",
+                                        dis && "opacity-40")}>
+                                    {busy === ctl.key ? <Loader2 size={18} className="animate-spin" /> : <Icon size={18} />}
+                                    <span className="text-[9px] font-bold uppercase tracking-wide">{ctl.label}</span>
+                                    <span className="text-[8px] font-mono text-white/50 leading-none">{ctl.valueText(cfg, extra)}</span>
+                                </button>
+                            );
+                        })}
+                        <div className="flex-1" />
+                        <button onClick={cargar} className="shrink-0 h-14 w-12 rounded-xl bg-white/[0.05] border border-white/10 text-white/70 hover:bg-white/[0.1] flex items-center justify-center" title="Releer cámara"><RefreshCw size={16} className={loading ? "animate-spin" : ""} /></button>
                     </div>
+                    <p className="text-[10px] text-white/40 mt-2 px-1">Pasá el mouse por cada control para ver qué hace. Todo cambio pide confirmación y se escribe en la cámara; la línea y la zona se ven sobre el video en vivo.</p>
                 </div>
             </div>
         </div>
-    );
-}
-
-function Campo({ t, ayuda, children }: { t: string; ayuda?: string; children: React.ReactNode }) {
-    return (
-        <div className="space-y-1">
-            <p className="text-[10.5px] font-semibold text-white/60" title={ayuda}>{t}</p>
-            {children}
-        </div>
-    );
-}
-
-function BotonRiel({ icono: I, t, v, ok, busy, onClick, disabled, ayuda }: { icono: any; t: string; v: string; ok?: boolean | null; busy?: boolean; onClick: () => void; disabled?: boolean; ayuda: string }) {
-    return (
-        <button onClick={onClick} disabled={disabled} title={ayuda}
-            className={cn("shrink-0 flex flex-col items-center justify-center gap-0.5 w-[78px] h-12 rounded-[10px] border transition active:scale-95 disabled:opacity-40",
-                ok === true ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300" : ok === false ? "bg-red-500/10 border-red-500/30 text-red-300" : "bg-white/[0.05] border-white/10 text-white/80 hover:bg-white/[0.1]")}>
-            {busy ? <Loader2 size={16} className="animate-spin" /> : <I size={16} />}
-            <span className="text-[9px] font-bold uppercase tracking-wide">{t}</span>
-            <span className="text-[8px] text-white/50 leading-none tabular-nums">{v}</span>
-        </button>
     );
 }
 

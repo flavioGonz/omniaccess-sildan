@@ -7,7 +7,7 @@ import { leerReglas, aplicarCambios, diferencias, validarCambios } from "@/lib/a
 
 const xml = (n: string) => readFileSync(join(__dirname, "fixtures", "analitica", `${n}.xml`), "utf8");
 
-test("lee las 4 líneas y ve que la 1 de Cairoli está dibujada pero apagada", () => {
+test("lee las 4 líneas: la 1 de Cairoli está dibujada y activa (manda la raíz)", () => {
     const l = leerReglas(xml("cairoli-LineDetection"), "linea");
     assert.equal(l.max, 4);
     assert.equal(l.reglas.length, 4);
@@ -15,7 +15,7 @@ test("lee las 4 líneas y ve que la 1 de Cairoli está dibujada pero apagada", (
     const [uno, dos] = l.reglas;
     assert.deepEqual(uno.points, [{ x: 517, y: 371 }, { x: 850, y: 607 }]);
     assert.equal(uno.vacia, false);
-    assert.equal(uno.enabled, false, "el elemento dice false aunque la raíz diga true");
+    assert.equal(uno.enabled, true, "el <enabled> propio dice false, pero la cámara lo ignora: manda la raíz");
     assert.equal(uno.objetivo, "vehicle");
     assert.equal(uno.direction, "both");
     assert.equal(dos.vacia, true);
@@ -91,20 +91,16 @@ test("zona nueva en un lugar sin coordenadas, y borrarla las saca", () => {
     assert.equal((sin.match(/<RegionCoordinatesList>/g) || []).length, 0);
 });
 
-test("prender una línea ya dibujada (el caso de Cairoli) sin tocar su geometría", () => {
-    const con = aplicarCambios(xml("cairoli-LineDetection"), "linea", [{ id: 1, enabled: true }]);
-    const l = leerReglas(con, "linea");
-    assert.equal(l.reglas[0].enabled, true);
-    assert.deepEqual(l.reglas[0].points, [{ x: 517, y: 371 }, { x: 850, y: 607 }]);
-});
-
-test("apagar la única línea prendida apaga la raíz pero conserva el dibujo", () => {
+test("activa:false apaga todas las líneas sin borrarlas; un cambio de ajuste no la vuelve a prender", () => {
     const con = aplicarCambios(xml("depo-LineDetection"), "linea", [{ id: 1, points: [{ x: 1, y: 2 }, { x: 300, y: 400 }] }]);
-    const off = aplicarCambios(con, "linea", [{ id: 1, enabled: false }]);
+    assert.equal(leerReglas(con, "linea").raiz, true, "dibujar prende la raíz");
+    const off = aplicarCambios(con, "linea", [], { activa: false });
     const l = leerReglas(off, "linea");
     assert.equal(l.raiz, false);
     assert.equal(l.reglas[0].vacia, false);
     assert.equal(l.reglas[0].enabled, false);
+    const ajuste = aplicarCambios(off, "linea", [{ id: 1, sensibilidad: 30 }]);
+    assert.equal(leerReglas(ajuste, "linea").raiz, false, "cambiar la sensibilidad no prende lo que se apagó");
 });
 
 test("validación: línea de un punto, zona de 2 o de 11 vértices, lugar inexistente", () => {
