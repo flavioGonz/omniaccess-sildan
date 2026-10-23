@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, Clock, Camera, ShieldAlert, ShieldCheck, ShieldQuestion, PanelRightOpen, Maximize2, Loader2, ChevronRight, Ban, PlayCircle, ScanEye } from "lucide-react";
+import { Server, Clock, Camera, ShieldAlert, ShieldCheck, ShieldQuestion, PanelRightOpen, Maximize2, Loader2, ChevronRight, ChevronLeft, Ban, PlayCircle, ScanEye } from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
@@ -56,6 +56,53 @@ const SNAPSHOT_FICHA_MS = 2000;
 const REPETIR_MS = 8000;
 /** Sin tocar nada este tiempo, la ficha se cierra. */
 const FICHA_SE_CIERRA_MS = 60_000;
+/** Espacio entre baldosas. */
+const HUECO = 12;
+/** Más angosta que esto, una baldosa no se lee a 3 m: si no entran todas, el mosaico pasa de página. */
+const BALDOSA_MIN = 300;
+/** Cada cuánto pasa de página el mosaico (no pasa mientras hay una alarma o una ficha abierta). */
+const PAGINA_MS = 15_000;
+
+/**
+ * Cuántas columnas y filas, y de qué alto, para que entren `n` baldosas 16:9 en `ancho`×`alto`
+ * (la grande ocupa 2×2). Prueba de menos a más columnas y se queda con la primera en que entran
+ * todas: la de baldosas más grandes. Si no entran ni con baldosas de BALDOSA_MIN, devuelve cuántas
+ * van por página. Antes eran `auto-rows-fr` con a lo sumo 4 columnas: con 45 cámaras, 12 filas de
+ * 55 px.
+ */
+function medirMosaico(ancho: number, alto: number, n: number, conGrande: boolean) {
+    const celdas = n + (conGrande ? 3 : 0);
+    const maxCols = Math.max(1, Math.floor((ancho + HUECO) / (BALDOSA_MIN + HUECO)));
+    const filasQueEntran = (c: number) => { const w = (ancho - HUECO * (c - 1)) / c; return { w, f: Math.max(1, Math.floor((alto + HUECO) / (w * 9 / 16 + HUECO))) }; };
+    for (let c = 1; c <= maxCols; c++) {
+        const { w, f } = filasQueEntran(c);
+        if (conGrande && (c < 2 || f < 2)) continue;
+        if (c * f >= celdas) {
+            const filas = Math.max(conGrande ? 2 : 1, Math.ceil(celdas / c));
+            // Las filas estiran hasta llenar el alto, pero sin pasar de un 16:9 un poco más alto.
+            const h = Math.min((alto - HUECO * (filas - 1)) / filas, w * 9 / 16 * 1.25);
+            return { cols: c, filas, alto: h, porPagina: n };
+        }
+    }
+    const c = Math.max(conGrande ? 2 : 1, maxCols);
+    const { w, f } = filasQueEntran(c);
+    const filas = Math.max(conGrande ? 2 : 1, f);
+    const h = Math.min((alto - HUECO * (filas - 1)) / filas, w * 9 / 16 * 1.25);
+    return { cols: c, filas, alto: h, porPagina: Math.max(1, c * filas - (conGrande ? 3 : 0)) };
+}
+
+/** El tamaño de un elemento, al píxel, siguiendo sus cambios. */
+function useTamano<T extends HTMLElement>() {
+    const ref = useRef<T>(null);
+    const [t, setT] = useState({ w: 0, h: 0 });
+    useEffect(() => {
+        const el = ref.current; if (!el) return;
+        const ro = new ResizeObserver(([e]) => setT({ w: Math.floor(e.contentRect.width), h: Math.floor(e.contentRect.height) }));
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+    return [ref, t] as const;
+}
 
 type Det = { id: string; deviceId: string | null; deviceName: string | null; nvrName?: string | null; ch?: number | null; type: string; snapshotPath: string | null; timestamp: string; acknowledged?: boolean; ackKind?: string | null; label?: string | null;
     /** Lo que vio omni-vision en la captura y su veredicto (vision-analisis.js → lib/verificacion). */
@@ -92,36 +139,45 @@ const pasa = (d: Det, f: Filtro) => f === "todas" ? true : f === "vision" ? d.ve
 const fotoDe = (d: Det, ancho = 480) => conAncho(getImagePath(d.snapshotPath), ancho) || (d.deviceId ? `/api/snapshot/${d.deviceId}?w=${ancho}&t=${d.id}` : null);
 const fotoGrande = (d: Det) => getImagePath(d.snapshotPath) || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
 
-function Canal({ cam, pendientes, confirmada, grande, alTocar }: { cam: Cam; pendientes: Alarma[]; confirmada: boolean; grande: boolean; alTocar: () => void }) {
+/** Los nombres que vienen de un NVR traen a veces entidades HTML («Ext. -&gt; Fco. Simon»). */
+const legible = (t: string | null | undefined) => String(t ?? "").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&amp;/g, "&");
+
+/**
+ * Un canal del mosaico. `compacta`: la baldosa es chica (muchas cámaras) y lleva sólo el nombre y
+ * la última detección, en una línea cada uno — el 23/10 con 45 cámaras las baldosas medían 55 px de
+ * alto y el nombre, el estado y la barra de abajo se pisaban.
+ */
+function Canal({ cam, pendientes, confirmada, grande, compacta, alTocar }: { cam: Cam; pendientes: Alarma[]; confirmada: boolean; grande: boolean; compacta: boolean; alTocar: () => void }) {
     const enAlarma = pendientes.length > 0 || confirmada;
     const [k, setK] = useState(0);
     useEffect(() => { const iv = setInterval(() => setK((x) => x + 1), enAlarma ? SNAPSHOT_ALARMA_MS : SNAPSHOT_CALMA_MS); return () => clearInterval(iv); }, [enAlarma]);
     const m = cam.ultima ? metaDe(cam.ultima.type) : null;
+    const nombre = legible(cam.name);
     return (
-        <motion.button type="button" layout onClick={alTocar} aria-label={`Ver la cámara ${cam.name}`} transition={{ type: "spring", stiffness: 260, damping: 30 }}
-            className={cn("relative rounded-2xl overflow-hidden bg-neutral-900 ring-1 ring-white/10 text-left", tocable, grande ? "col-span-2 row-span-2" : "")}>
+        <motion.button type="button" layout onClick={alTocar} aria-label={`Ver la cámara ${nombre}`} transition={{ type: "spring", stiffness: 260, damping: 30 }}
+            className={cn("relative min-h-0 min-w-0 rounded-xl overflow-hidden bg-neutral-900 ring-1 ring-white/10 text-left", tocable, grande ? "col-span-2 row-span-2" : "", enAlarma && "ring-2 ring-[var(--mal)]")}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`/api/snapshot/${cam.id}?w=640&t=${k}`} alt={cam.name} draggable={false} className="absolute inset-0 w-full h-full object-cover" />
+            <img src={`/api/snapshot/${cam.id}?w=${grande ? 960 : 640}&t=${k}`} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover" />
             <GeomOverlay geom={cam.geom} alert={enAlarma} />
             {enAlarma && (
                 <CanalEnAlarma escala={grande ? "pared" : "panel"} estado={pendientes.length ? "pendiente" : "confirmada"}
                     tipo={pendientes.length ? metaDe(pendientes[0].type).label : m ? m.label : "Intrusión"}
                     desde={pendientes.length ? pendientes[0].ts : cam.ultima?.timestamp || null} eventos={pendientes.length}
-                    camara={`${cam.name}${cam.nvrName ? ` · ${cam.nvrName}` : ""}${cam.ch != null ? ` · CH ${cam.ch}` : ""}`} />
+                    camara={`${nombre}${cam.nvrName ? ` · ${cam.nvrName}` : ""}${cam.ch != null ? ` · CH ${cam.ch}` : ""}`} />
             )}
-            <div className="absolute top-0 inset-x-0 px-4 pt-3 pb-8 bg-gradient-to-b from-black/80 via-black/30 to-transparent z-[42]">
-                <div className={cn("font-bold text-white drop-shadow leading-tight", grande ? "text-[28px]" : "text-[20px]")}>{cam.name}</div>
-                <div className="flex items-center gap-3 mt-0.5 text-[13px] text-white/70">
-                    {cam.nvrName && <span className="inline-flex items-center gap-1"><Server size={12} /> {cam.nvrName}{cam.ch != null ? ` · CH ${cam.ch}` : ""}</span>}
+            <div className={cn("absolute top-0 inset-x-0 bg-gradient-to-b from-black/85 via-black/40 to-transparent z-[42]", compacta ? "px-3 pt-2 pb-5" : "px-4 pt-3 pb-8")}>
+                <div className={cn("font-bold text-white drop-shadow leading-tight truncate", grande ? "text-[28px]" : compacta ? "text-[15px]" : "text-[19px]")}>{nombre}</div>
+                {!compacta && cam.nvrName && <div className="mt-0.5 text-[13px] text-white/70 truncate inline-flex items-center gap-1 max-w-full"><Server size={12} className="shrink-0" /> {cam.nvrName}{cam.ch != null ? ` · CH ${cam.ch}` : ""}</div>}
+                {!compacta && cam.horarios && <div className="mt-1 [&_span]:!text-[12px]"><ResumenArmado h={cam.horarios} /></div>}
+            </div>
+            {!enAlarma && (
+                <div className={cn("absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/85 to-transparent flex items-center gap-1.5 text-white/80 z-[42] min-w-0", compacta ? "px-3 pt-4 pb-1.5 text-[12px]" : "px-4 pt-6 pb-2.5 text-[14px]")}>
+                    {cam.ultima && m
+                        ? <><m.Icon size={compacta ? 12 : 15} className={cn("shrink-0", m.cls.split(" ")[0])} /> <span className="font-semibold truncate">{m.label}</span> <span className="text-white/55 tabular-nums whitespace-nowrap">· {horaCorta(cam.ultima.timestamp)}{compacta ? "" : ` · ${hace(cam.ultima.timestamp)}`}</span></>
+                        : <span className="text-white/45 truncate">Sin detecciones</span>}
+                    {!compacta && <span className="ml-auto grid h-9 w-9 place-items-center rounded-lg bg-black/45 text-white/85 shrink-0" aria-hidden><PanelRightOpen size={16} /></span>}
                 </div>
-                {cam.horarios && <div className="mt-1 [&_span]:!text-[12px]"><ResumenArmado h={cam.horarios} /></div>}
-            </div>
-            <div className="absolute bottom-0 inset-x-0 px-4 py-3 bg-gradient-to-t from-black/80 to-transparent flex items-center gap-2 text-[14px] text-white/80 z-[42]">
-                {!enAlarma && (cam.ultima && m
-                    ? <><m.Icon size={15} className={m.cls.split(" ")[0]} /> <span className="font-semibold">{m.label}</span> <span className="text-white/55 tabular-nums">· {horaCorta(cam.ultima.timestamp)} · {hace(cam.ultima.timestamp)}</span></>
-                    : <><Camera size={15} className="text-white/40" /> <span className="text-white/55">Sin detecciones</span></>)}
-                <span className="ml-auto grid h-10 w-10 place-items-center rounded-xl bg-black/45 text-white/85 shrink-0" aria-hidden><PanelRightOpen size={18} /></span>
-            </div>
+            )}
         </motion.button>
     );
 }
@@ -142,7 +198,7 @@ function Renglon({ d, geom, alTocar }: { d: Det; geom?: Geom | null; alTocar: ()
             <span className={cn("absolute top-2 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-bold uppercase", e.c)}><e.Ic size={11} /> {e.t}</span>
             <div className="absolute bottom-2 left-3 right-3">
                 <div className="flex items-center gap-1.5 text-[14px] font-bold text-white"><m.Icon size={14} className={m.cls.split(" ")[0]} /> {m.label}{d.label && CLASE[d.label] ? <span className="font-semibold text-white/70">· {CLASE[d.label]}</span> : null}</div>
-                <div className="text-[12.5px] text-white/75 truncate">{d.deviceName || "—"} · <span className="tabular-nums font-semibold text-white/90">{horaCorta(d.timestamp)}</span> · {hace(d.timestamp)}</div>
+                <div className="text-[12.5px] text-white/75 truncate">{legible(d.deviceName) || "—"} · <span className="tabular-nums font-semibold text-white/90">{horaCorta(d.timestamp)}</span> · {hace(d.timestamp)}</div>
             </div>
         </motion.button>
     );
@@ -207,18 +263,51 @@ export function VistaIntrusion() {
     }, [vivas, modo, silencio]);
 
     const n = camaras.length;
-    const cols = grandeId ? 4 : n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
+    const [mosaicoRef, tam] = useTamano<HTMLDivElement>();
+    const lay = useMemo(() => medirMosaico(tam.w, tam.h, n, !!grandeId), [tam.w, tam.h, n, grandeId]);
+    const paginas = Math.max(1, Math.ceil(n / lay.porPagina));
+    const [pagina, setPagina] = useState(0);
+    const pag = grandeId ? 0 : Math.min(pagina, paginas - 1);
+    const enPagina = ordenadas.slice(pag * lay.porPagina, pag * lay.porPagina + lay.porPagina);
+    const compacta = tam.w > 0 && (tam.w - HUECO * (lay.cols - 1)) / lay.cols < 420;
     const camAbierta = camId ? camaras.find((c) => c.id === camId) || null : null;
     const abrirCamara = useCallback((id: string) => { setDet(null); setCamId(id); }, []);
+    // Pasa de página solo, salvo con una alarma (se queda en la primera, que la tiene grande) o una ficha abierta.
+    const quieto = !!grandeId || !!camId || !!det;
+    useEffect(() => {
+        if (paginas <= 1 || quieto) return;
+        const iv = setInterval(() => setPagina((p) => (p + 1) % paginas), PAGINA_MS);
+        return () => clearInterval(iv);
+    }, [paginas, quieto]);
 
     return (
         <div className="absolute inset-0 flex flex-col p-4">
             <div className="flex-1 min-h-0 flex gap-4">
-                <div className="flex-1 min-w-0 grid gap-4 auto-rows-fr" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
-                    {!datos && !error && <div className="col-span-full grid place-items-center text-[20px] text-muted-foreground">Cargando cámaras…</div>}
-                    {error && !datos && <div className="col-span-full grid place-items-center text-[20px] text-[var(--mal-texto)]">No se pudo leer el monitor: {error}</div>}
-                    {datos && n === 0 && <div className="col-span-full grid place-items-center text-[20px] text-muted-foreground">No hay cámaras de intrusión dadas de alta.</div>}
-                    {ordenadas.map((c) => <Canal key={c.id} cam={c} pendientes={porCamara.get(c.id) || []} confirmada={atendiendo.has(c.id)} grande={c.id === grandeId} alTocar={() => abrirCamara(c.id)} />)}
+                <div className="flex-1 min-w-0 flex flex-col gap-2">
+                    <div ref={mosaicoRef} className="flex-1 min-h-0 relative">
+                        {!datos && !error && <div className="absolute inset-0 grid place-items-center text-[20px] text-muted-foreground">Cargando cámaras…</div>}
+                        {error && !datos && <div className="absolute inset-0 grid place-items-center text-[20px] text-[var(--mal-texto)]">No se pudo leer el monitor: {error}</div>}
+                        {datos && n === 0 && <div className="absolute inset-0 grid place-items-center text-[20px] text-muted-foreground">No hay cámaras de intrusión dadas de alta.</div>}
+                        {tam.w > 0 && n > 0 && (
+                            <AnimatePresence mode="wait" initial={false}>
+                                <motion.div key={pag} initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }} transition={SUAVE}
+                                    className="absolute inset-0 grid content-center"
+                                    style={{ gap: HUECO, gridTemplateColumns: `repeat(${lay.cols}, minmax(0, 1fr))`, gridAutoRows: `${Math.floor(lay.alto)}px` }}>
+                                    {enPagina.map((c) => <Canal key={c.id} cam={c} pendientes={porCamara.get(c.id) || []} confirmada={atendiendo.has(c.id)} grande={c.id === grandeId} compacta={compacta && c.id !== grandeId} alTocar={() => abrirCamara(c.id)} />)}
+                                </motion.div>
+                            </AnimatePresence>
+                        )}
+                    </div>
+                    {paginas > 1 && (
+                        <div className="shrink-0 flex items-center justify-center gap-3 text-[14px] text-muted-foreground">
+                            <button type="button" onClick={() => setPagina((p) => (p - 1 + paginas) % paginas)} disabled={!!grandeId} aria-label="Página anterior" className={cn("grid h-10 w-10 place-items-center rounded-xl bg-card border border-border disabled:opacity-40", tocable)}><ChevronLeft size={18} /></button>
+                            <div className="flex items-center gap-1.5">
+                                {Array.from({ length: paginas }, (_, i) => <span key={i} className={cn("h-2 rounded-full transition-all", i === pag ? "w-6 bg-[var(--accion-en-oscuro)]" : "w-2 bg-white/25")} />)}
+                            </div>
+                            <span className="tabular-nums">{grandeId ? "Quieta en la alarma" : `${pag + 1} de ${paginas} · ${n} cámaras · pasa cada ${PAGINA_MS / 1000} s`}</span>
+                            <button type="button" onClick={() => setPagina((p) => (p + 1) % paginas)} disabled={!!grandeId} aria-label="Página siguiente" className={cn("grid h-10 w-10 place-items-center rounded-xl bg-card border border-border disabled:opacity-40", tocable)}><ChevronRight size={18} /></button>
+                        </div>
+                    )}
                 </div>
 
                 {/* La franja: se desliza con el dedo y se filtra. Cada detección abre su ficha. */}
@@ -308,7 +397,7 @@ function FichaCamara({ cam, pendientes, confirmada, alCerrar, alAmpliar, alVerDe
             {cam && (
                 <div className="p-5 space-y-5">
                     <div>
-                        <div className="text-[26px] font-bold leading-tight">{cam.name}</div>
+                        <div className="text-[26px] font-bold leading-tight">{legible(cam.name)}</div>
                         {cam.nvrName && <div className="text-[15px] text-muted-foreground inline-flex items-center gap-1.5 mt-0.5"><Server size={14} /> {cam.nvrName}{cam.ch != null ? ` · CH ${cam.ch}` : ""}</div>}
                     </div>
                     <button type="button" onClick={() => alAmpliar(`/api/snapshot/${cam.id}?t=${Date.now()}`)}
@@ -421,7 +510,7 @@ function FichaDeteccion({ d: d0, geom, alCerrar, alAmpliar, alVerCamara, marcar 
                         <span className={cn("grid h-14 w-14 place-items-center rounded-2xl shrink-0", m.cls)}><m.Icon size={26} /></span>
                         <div className="min-w-0 flex-1">
                             <div className="text-[24px] font-bold leading-tight">{m.label}{d.label && CLASE[d.label] ? ` · ${CLASE[d.label]}` : ""}</div>
-                            <div className="text-[16px] text-muted-foreground mt-0.5">{d.deviceName || "Cámara"}</div>
+                            <div className="text-[16px] text-muted-foreground mt-0.5">{legible(d.deviceName) || "Cámara"}</div>
                         </div>
                         <span className={cn("inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[13px] font-bold uppercase shrink-0", e.c)}><e.Ic size={14} /> {e.t}</span>
                     </div>
