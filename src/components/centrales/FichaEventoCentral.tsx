@@ -12,6 +12,7 @@ import { nivel } from "@/lib/centrales/prioridades";
 import { TEXTO_MINIMO, segATexto, type Cierre, type EventoCentral, type Procedimiento } from "@/lib/centrales/tratamiento-tipos";
 import type { PasoGestion } from "@/lib/gestion-alarma-texto";
 import { cn } from "@/lib/utils";
+import { IlustracionEvento } from "@/components/centrales/IlustracionEvento";
 
 /**
  * La ficha de un evento de central de alarma (22/10, Nico: «similar a la de Intrusión pero con cosas
@@ -87,6 +88,10 @@ export function FichaEventoCentral({ id, abierta, alCerrar }: { id: string | nul
                 {ev && f && (
                     <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_420px] lg:divide-x divide-border overflow-y-auto lg:overflow-hidden">
                         <div className="min-h-0 lg:overflow-y-auto p-5 space-y-5">
+                            {/* La misma escena del detalle de Centrales (23/10, Nico: «estandarizar las animaciones»):
+                                qué pasó, antes de mirar las cámaras. */}
+                            <IlustracionEvento key={ev.id} evento={{ categoria: "ALARMA", tipo: ev.tipo, texto: ev.titulo }} alto={190}
+                                className="rounded-[10px] border border-border overflow-hidden pb-3" />
                             <Camaras ev={ev} />
                             <Contexto f={f} />
                         </div>

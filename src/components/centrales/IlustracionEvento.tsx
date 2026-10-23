@@ -24,7 +24,7 @@ export type Escena =
     | "robo" | "panico" | "coaccion" | "incendio" | "medica" | "sabotaje" | "gas" | "agua" | "temperatura" | "alarma"
     | "armado" | "desarmado" | "comunicacion" | "corriente" | "bateria" | "dispositivo" | "prueba" | "programacion" | "generico";
 
-type Ev = { categoria?: string | null; tipo?: string | null; texto?: string | null } | null | undefined;
+type Ev = { categoria?: string | null; tipo?: string | null; texto?: string | null; restaura?: boolean; propio?: boolean } | null | undefined;
 
 const ALARMA: Record<string, Escena> = {
     ROBO: "robo", PANICO: "panico", COACCION: "coaccion", INCENDIO: "incendio", MEDICA: "medica", SABOTAJE: "sabotaje",
@@ -47,7 +47,13 @@ export function escenaDe(e: Ev): { escena: Escena; normal: boolean } {
         case "FALLA": return { escena: FALLA[t] || "dispositivo", normal: false };
         case "FALLA_FIN": return { escena: FALLA[t] || "dispositivo", normal: true };
         case "PRUEBA": return { escena: "prueba", normal: false };
-        case "OTRO": return { escena: t === "PROGRAMACION" || t === "ACCESO" ? "programacion" : t === "ANULADA" ? "dispositivo" : "generico", normal: false };
+        // Lo «otro» también tiene escena: desactivar el comunicador es comunicación; anular, un equipo; el
+        // horario de apertura y cierre, el armado. `restaura` (calificador 3 de Contact ID) es su fin.
+        case "OTRO": return {
+            escena: t === "COMUNICACION" ? "comunicacion" : t === "ANULADA" || t === "SISTEMA" ? "dispositivo" : t === "HORARIO" ? "armado"
+                : t === "PROGRAMACION" || t === "ACCESO" ? "programacion" : "generico",
+            normal: !!e.restaura,
+        };
         default: return { escena: "generico", normal: false };
     }
 }
@@ -108,7 +114,12 @@ export function IlustracionEvento({ evento, className, alto = 210 }: Props) {
                     <rect x={0} y={0} width={400} height={220} fill={`url(#vin-${uid})`} pointerEvents="none" />
                 </svg>
             </div>
-            <figcaption className="px-5 pt-2.5 text-[12.5px] leading-snug text-muted-foreground">{FRASE[escena][normal ? 1 : 0]}</figcaption>
+            <figcaption className="px-5 pt-2.5 text-[12.5px] leading-snug text-muted-foreground">
+                {/* Lo «otro» no tiene una frase general que le calce: se dice el evento mismo. */}
+                {evento?.categoria === "OTRO" && evento.texto
+                    ? <>{evento.texto}.{evento.propio ? " Es un código propio de la central: se nombra por su familia del estándar Contact ID." : ""}</>
+                    : FRASE[escena][normal ? 1 : 0]}
+            </figcaption>
         </figure>
     );
 }

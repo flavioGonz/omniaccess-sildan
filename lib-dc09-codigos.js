@@ -27,6 +27,95 @@ const CID = {
     306: ["OTRO", "PROGRAMACION", "Programación cambiada"], 412: ["OTRO", "PROGRAMACION", "Acceso remoto a la central"], 413: ["FALLA", "PROGRAMACION", "Acceso remoto fallido"],
     570: ["OTRO", "ANULADA", "Zona anulada"], 625: ["OTRO", "PROGRAMACION", "Cambio de fecha y hora"], 626: ["FALLA", "SISTEMA", "Hora de la central inexacta"], 601: ["PRUEBA", "PRUEBA", "Prueba manual"], 602: ["PRUEBA", "PRUEBA", "Prueba periódica"], 627: ["OTRO", "PROGRAMACION", "Entró en programación"], 628: ["OTRO", "PROGRAMACION", "Salió de programación"],
 };
+/*
+ * El resto de la tabla Contact ID de Ademco (SIA DC-05), para que ningún código estándar llegue como
+ * «Evento N» (23/10, Nico: «Evento 554 no lo reconocés: debés reconocerlos todos»). No pisa lo de
+ * arriba: lo de arriba es lo que ya se había probado contra centrales reales.
+ * Fuente: lista completa de códigos Contact ID de Ademco (DC-05).
+ */
+const CID_ESTANDAR = {
+    116: ["ALARMA", "INCENDIO", "Ducto"], 117: ["ALARMA", "INCENDIO", "Llama"],
+    124: ["ALARMA", "COACCION", "Coacción: acceso concedido"], 125: ["ALARMA", "COACCION", "Coacción: salida concedida"],
+    141: ["ALARMA", "GENERAL", "Lazo de sondeo abierto"], 142: ["ALARMA", "GENERAL", "Lazo de sondeo en corto"], 146: ["ALARMA", "ROBO", "Robo silencioso"],
+    152: ["ALARMA", "TEMPERATURA", "Refrigeración"], 153: ["ALARMA", "TEMPERATURA", "Pérdida de calefacción"], 155: ["ALARMA", "ROBO", "Rotura de lámina (vidrio)"],
+    156: ["ALARMA", "GENERAL", "Falla de día"], 157: ["ALARMA", "GAS", "Gas envasado bajo"], 161: ["ALARMA", "GENERAL", "Pérdida de flujo de aire"],
+    162: ["ALARMA", "GAS", "Monóxido de carbono"], 163: ["ALARMA", "GENERAL", "Nivel de tanque"],
+    200: ["FALLA", "INCENDIO", "Supervisión de incendio"], 201: ["FALLA", "INCENDIO", "Baja presión de agua"], 202: ["FALLA", "INCENDIO", "Bajo CO2"],
+    203: ["FALLA", "INCENDIO", "Sensor de válvula"], 204: ["FALLA", "INCENDIO", "Bajo nivel de agua"], 205: ["FALLA", "INCENDIO", "Bomba activada"], 206: ["FALLA", "INCENDIO", "Falla de bomba"],
+    303: ["FALLA", "SISTEMA", "Falla de memoria RAM"], 304: ["FALLA", "SISTEMA", "Falla de memoria ROM"], 307: ["FALLA", "SISTEMA", "Autoprueba fallida"],
+    308: ["FALLA", "SISTEMA", "Apagado del sistema"], 310: ["FALLA", "SISTEMA", "Falla de tierra"], 312: ["FALLA", "CORRIENTE", "Sobrecorriente en la fuente"],
+    313: ["OTRO", "SISTEMA", "Reinicio por el técnico"], 314: ["FALLA", "CORRIENTE", "Falla de la fuente principal"],
+    320: ["FALLA", "SIRENA", "Falla de sirena o relé"], 322: ["FALLA", "SIRENA", "Falla de sirena 2"], 323: ["FALLA", "SIRENA", "Falla del relé de alarma"],
+    324: ["FALLA", "SIRENA", "Falla del relé de falla"], 325: ["FALLA", "SIRENA", "Falla del relé inversor"], 326: ["FALLA", "SIRENA", "Falla del circuito de aviso 3"], 327: ["FALLA", "SIRENA", "Falla del circuito de aviso 4"],
+    330: ["FALLA", "EXPANSOR", "Falla de periférico"], 331: ["FALLA", "EXPANSOR", "Lazo de sondeo abierto"], 332: ["FALLA", "EXPANSOR", "Lazo de sondeo en corto"], 333: ["FALLA", "EXPANSOR", "Falla de módulo expansor"],
+    334: ["FALLA", "EXPANSOR", "Falla de repetidor"], 335: ["FALLA", "EXPANSOR", "Impresora sin papel"], 336: ["FALLA", "EXPANSOR", "Falla de impresora"],
+    337: ["FALLA", "CORRIENTE", "Módulo sin corriente continua"], 338: ["FALLA", "BATERIA", "Batería baja de módulo"], 339: ["OTRO", "SISTEMA", "Reinicio de módulo"],
+    341: ["ALARMA", "SABOTAJE", "Sabotaje de módulo"], 342: ["FALLA", "CORRIENTE", "Módulo sin corriente"], 343: ["FALLA", "EXPANSOR", "Autoprueba de módulo fallida"], 344: ["FALLA", "SENSOR", "Interferencia de radio"],
+    352: ["FALLA", "COMUNICACION", "Falla de línea 2"], 353: ["FALLA", "COMUNICACION", "Falla del transmisor de radio"], 355: ["FALLA", "COMUNICACION", "Pérdida de supervisión de radio"],
+    356: ["FALLA", "COMUNICACION", "Pérdida del sondeo central"], 357: ["FALLA", "COMUNICACION", "Problema de antena del radio (VSWR)"],
+    370: ["FALLA", "SENSOR", "Falla de lazo de protección"], 371: ["FALLA", "SENSOR", "Lazo de protección abierto"], 372: ["FALLA", "SENSOR", "Lazo de protección en corto"],
+    373: ["FALLA", "INCENDIO", "Falla de incendio"], 374: ["ALARMA", "ROBO", "Error de salida (zona)"], 375: ["FALLA", "SENSOR", "Falla de zona de pánico"],
+    376: ["FALLA", "SENSOR", "Falla de zona de asalto"], 377: ["FALLA", "SENSOR", "Zona repetitiva (swinger)"], 378: ["FALLA", "SENSOR", "Falla de zona cruzada"],
+    382: ["FALLA", "SENSOR", "Pérdida de supervisión (RPM)"], 385: ["FALLA", "SENSOR", "Detector de humo: sensibilidad alta"], 386: ["FALLA", "SENSOR", "Detector de humo: sensibilidad baja"],
+    387: ["FALLA", "SENSOR", "Intrusión: sensibilidad alta"], 388: ["FALLA", "SENSOR", "Intrusión: sensibilidad baja"], 389: ["FALLA", "SENSOR", "Autoprueba de sensor fallida"],
+    391: ["FALLA", "SENSOR", "Falla de vigilancia de sensor"], 392: ["FALLA", "SENSOR", "Error de compensación"], 393: ["FALLA", "SENSOR", "Aviso de mantenimiento"],
+    404: ["OTRO", "HORARIO", "Apertura o cierre tarde"], 405: ["OTRO", "HORARIO", "Apertura o cierre diferido"], 411: ["OTRO", "PROGRAMACION", "Pedido de devolución de llamada"],
+    414: ["OTRO", "SISTEMA", "Apagado del sistema"], 415: ["OTRO", "COMUNICACION", "Discador apagado"], 416: ["OTRO", "PROGRAMACION", "Carga remota exitosa"],
+    421: ["OTRO", "ACCESO", "Acceso denegado"], 422: ["OTRO", "ACCESO", "Acceso de usuario"], 423: ["ALARMA", "ROBO", "Acceso forzado"], 424: ["OTRO", "ACCESO", "Salida denegada"],
+    425: ["OTRO", "ACCESO", "Salida concedida"], 426: ["FALLA", "SENSOR", "Puerta de acceso abierta demasiado tiempo"], 427: ["FALLA", "SENSOR", "Falla de monitor de puerta"],
+    428: ["FALLA", "SENSOR", "Falla de pulsador de salida"], 429: ["FALLA", "SENSOR", "Falla de sensor de puerta"], 430: ["FALLA", "SENSOR", "Falla de lector"],
+    431: ["FALLA", "SENSOR", "Falla de cerradura"], 432: ["FALLA", "SENSOR", "Falla de integridad de puerta"], 433: ["FALLA", "SENSOR", "Falla de zona cruzada de puerta"],
+    434: ["ALARMA", "COACCION", "Coacción en puerta"], 435: ["ALARMA", "ROBO", "Salida por puerta en alarma"],
+    450: ["OTRO", "HORARIO", "Apertura o cierre fuera de excepción"], 451: ["OTRO", "HORARIO", "Apertura o cierre temprano"], 452: ["OTRO", "HORARIO", "Apertura o cierre tarde"],
+    453: ["OTRO", "HORARIO", "No se abrió"], 454: ["OTRO", "HORARIO", "No se cerró"], 455: ["FALLA", "SISTEMA", "Falló el armado automático"], 457: ["ALARMA", "ROBO", "Error de salida (usuario)"],
+    458: ["OTRO", "ACCESO", "Usuario en el lugar"], 459: ["ALARMA", "ROBO", "Cierre reciente tras alarma"], 461: ["OTRO", "ACCESO", "Código incorrecto"], 462: ["OTRO", "ACCESO", "Código correcto"],
+    463: ["OTRO", "SISTEMA", "Rearmado después de una alarma"], 464: ["OTRO", "HORARIO", "Armado automático postergado"], 465: ["OTRO", "SISTEMA", "Pánico restablecido"], 466: ["OTRO", "ACCESO", "Servicio en el lugar"],
+    501: ["OTRO", "ANULADA", "Lector de acceso desactivado"], 520: ["OTRO", "ANULADA", "Sirena o relé desactivado"], 521: ["OTRO", "ANULADA", "Sirena 1 desactivada"], 522: ["OTRO", "ANULADA", "Sirena 2 desactivada"],
+    523: ["OTRO", "ANULADA", "Relé de alarma desactivado"], 524: ["OTRO", "ANULADA", "Relé de falla desactivado"], 525: ["OTRO", "ANULADA", "Relé inversor desactivado"],
+    526: ["OTRO", "ANULADA", "Circuito de aviso 3 desactivado"], 527: ["OTRO", "ANULADA", "Circuito de aviso 4 desactivado"], 531: ["OTRO", "SISTEMA", "Módulo agregado"], 532: ["OTRO", "SISTEMA", "Módulo quitado"],
+    551: ["OTRO", "COMUNICACION", "Discador desactivado"], 552: ["OTRO", "COMUNICACION", "Transmisor de radio desactivado"], 553: ["OTRO", "COMUNICACION", "Carga y descarga remota desactivada"],
+    571: ["OTRO", "ANULADA", "Zona de incendio anulada"], 572: ["OTRO", "ANULADA", "Zona 24 h anulada"], 573: ["OTRO", "ANULADA", "Zona de robo anulada"], 574: ["OTRO", "ANULADA", "Grupo anulado"],
+    575: ["OTRO", "ANULADA", "Zona repetitiva anulada"], 576: ["OTRO", "ANULADA", "Zona de acceso puenteada"], 577: ["OTRO", "ANULADA", "Punto de acceso anulado"],
+    603: ["PRUEBA", "PRUEBA", "Transmisión periódica de radio"], 604: ["PRUEBA", "PRUEBA", "Prueba de incendio"], 605: ["OTRO", "SISTEMA", "Sigue un informe de estado"],
+    606: ["OTRO", "SISTEMA", "Sigue escucha de audio"], 607: ["PRUEBA", "PRUEBA", "Modo prueba de recorrido"], 608: ["PRUEBA", "PRUEBA", "Sistema en modo prueba"],
+    609: ["OTRO", "SISTEMA", "Transmisor de video activo"], 610: ["PRUEBA", "PRUEBA", "Punto probado: bien"], 611: ["PRUEBA", "PRUEBA", "Punto sin probar"], 612: ["PRUEBA", "PRUEBA", "Puntos sin probar"],
+    613: ["PRUEBA", "PRUEBA", "Zona de intrusión probada"], 614: ["PRUEBA", "PRUEBA", "Zona de incendio probada"], 615: ["PRUEBA", "PRUEBA", "Zona de pánico probada"], 616: ["OTRO", "SISTEMA", "Pedido de servicio"],
+    621: ["OTRO", "SISTEMA", "Registro de eventos borrado"], 622: ["OTRO", "SISTEMA", "Registro de eventos al 50 %"], 623: ["OTRO", "SISTEMA", "Registro de eventos al 90 %"], 624: ["OTRO", "SISTEMA", "Registro de eventos lleno"],
+    629: ["OTRO", "SISTEMA", "Marca de registro de 32 horas"], 630: ["OTRO", "HORARIO", "Cambio de horario"], 631: ["OTRO", "HORARIO", "Cambio de horario de excepción"], 632: ["OTRO", "HORARIO", "Cambio de horario de acceso"],
+    641: ["ALARMA", "MEDICA", "Inactividad de la persona vigilada"], 642: ["OTRO", "ACCESO", "Llegada esperada (latch-key)"],
+    651: ["OTRO", "SISTEMA", "Reinicio"], 652: ["OTRO", "PROGRAMACION", "Código de usuario borrado"], 653: ["OTRO", "PROGRAMACION", "Código de usuario cambiado"], 654: ["OTRO", "PROGRAMACION", "Nivel de acceso de usuario cambiado"],
+    655: ["OTRO", "SISTEMA", "Reinicio"], 656: ["OTRO", "PROGRAMACION", "Código de usuario agregado"], 657: ["OTRO", "PROGRAMACION", "Usuario borrado"], 658: ["OTRO", "PROGRAMACION", "Usuario cambiado"], 659: ["OTRO", "PROGRAMACION", "Nivel de acceso cambiado"],
+    750: ["OTRO", "PROGRAMACION", "Configuración aplicada"], 751: ["OTRO", "PROGRAMACION", "Configuración de módulo cambiada"], 752: ["OTRO", "SISTEMA", "Módulo agregado"], 753: ["OTRO", "SISTEMA", "Módulo quitado"],
+    754: ["OTRO", "PROGRAMACION", "Actualización de firmware"], 755: ["OTRO", "PROGRAMACION", "Firmware actualizado"], 756: ["FALLA", "PROGRAMACION", "Falló la actualización de firmware"],
+};
+for (const [k, v] of Object.entries(CID_ESTANDAR)) if (!(k in CID)) CID[k] = v;
+for (let k = 760; k <= 799; k++) if (!(k in CID)) CID[k] = ["OTRO", "ACCESO", "Inactividad de usuario"];
+
+/**
+ * Un código que no está en la tabla (propio del fabricante, como el 554 de Paradox): se nombra por
+ * su familia del estándar, que es lo que se puede decir con certeza, y con el número a la vista.
+ */
+function familiaCid(ev) {
+    const f = (cat, tipo, texto) => [cat, tipo, `${texto} (código ${ev})`];
+    if (ev >= 100 && ev < 200) return f("ALARMA", "GENERAL", "Alarma");
+    if (ev >= 200 && ev < 300) return f("FALLA", "INCENDIO", "Supervisión de incendio");
+    if (ev >= 350 && ev < 360) return f("FALLA", "COMUNICACION", "Falla de comunicación");
+    if (ev >= 380 && ev < 400) return f("FALLA", "SENSOR", "Falla de sensor");
+    if (ev >= 300 && ev < 400) return f("FALLA", "SISTEMA", "Falla del sistema");
+    if (ev >= 400 && ev < 420) return f("OTRO", "ACCESO", "Apertura o cierre");
+    if (ev >= 420 && ev < 440) return f("OTRO", "ACCESO", "Control de acceso");
+    if (ev >= 400 && ev < 500) return f("OTRO", "HORARIO", "Apertura o cierre");
+    if (ev >= 520 && ev < 530) return f("OTRO", "ANULADA", "Sirena o relé desactivado");
+    if (ev >= 530 && ev < 540) return f("OTRO", "SISTEMA", "Módulo");
+    if (ev >= 550 && ev < 570) return f("OTRO", "COMUNICACION", "Comunicación desactivada");
+    if (ev >= 570 && ev < 580) return f("OTRO", "ANULADA", "Anulación");
+    if (ev >= 500 && ev < 600) return f("OTRO", "ANULADA", "Desactivación");
+    if (ev >= 600 && ev < 620) return f("PRUEBA", "PRUEBA", "Prueba");
+    if (ev >= 620 && ev < 700) return f("OTRO", "SISTEMA", "Evento del sistema");
+    if (ev >= 700 && ev < 800) return f("OTRO", "PROGRAMACION", "Configuración");
+    return f("OTRO", "SISTEMA", "Evento propio de la central");
+}
+
 const CID_APERTURA = { 400: "", 401: "", 402: "de grupo", 403: "automático", 406: "cancelado", 407: "remoto", 408: "rápido", 409: "con llave", 441: "presente", 442: "presente con llave", 456: "parcial" };
 
 // SIA: código de dos letras → [categoría, tipo, texto]. Los de restauración apuntan al tipo de su alarma.
@@ -77,16 +166,19 @@ function traducirCid(datos) {
         const texto = ev === 406 ? "Alarma cancelada por el usuario" : `${arma ? "Armado" : "Desarmado"}${extra ? ` ${extra}` : ""}`;
         return [{ categoria: arma ? "ARMADO" : "DESARMADO", tipo: arma ? (presente ? "PRESENTE" : "ARMADO") : "DESARMADO", texto, codigo, cid: ev, particion: part, usuario: zz, zona: null }];
     }
-    const def = CID[ev] || (ev >= 100 && ev < 200 ? ["ALARMA", "GENERAL", `Alarma ${ev}`] : ev >= 300 && ev < 400 ? ["FALLA", "SISTEMA", `Falla ${ev}`] : ["OTRO", "DESCONOCIDO", `Evento ${ev}`]);
+    const def = CID[ev] || familiaCid(ev);
     let [categoria, tipo, texto] = def;
     if (q === 3) {
         if (categoria === "ALARMA") { categoria = "RESTAURACION"; texto = `${texto} restaurado`; }
         else if (categoria === "FALLA") { categoria = "FALLA_FIN"; texto = `${texto}: normal`; }
+        // El resto (anulaciones, desactivaciones, sistema) también vuelve: se dice que terminó.
+        else if (categoria === "OTRO") texto = `${texto}: fin`;
     }
     // El último campo es la zona sólo en alarmas y restauraciones; en 3xx/6xx suele ser un módulo
     // o nada, y «000» quiere decir «la central» (no una zona 0): no se crea una zona de mentira.
-    const esZona = (categoria === "ALARMA" || categoria === "RESTAURACION") && zz > 0;
-    return [{ categoria, tipo, texto, codigo, cid: ev, particion: part, zona: esZona ? zz : null, modulo: esZona ? null : zz || null, usuario: null }];
+    // Una anulación (57x) también nombra la zona anulada.
+    const esZona = (categoria === "ALARMA" || categoria === "RESTAURACION" || tipo === "ANULADA") && zz > 0;
+    return [{ categoria, tipo, texto, codigo, cid: ev, particion: part, zona: esZona ? zz : null, modulo: esZona ? null : zz || null, usuario: null, ...(q === 3 ? { restaura: true } : {}), ...(CID[ev] ? {} : { propio: true }) }];
 }
 
 /**
@@ -129,4 +221,4 @@ function traducir(m) {
 /** Las categorías que, según el ajuste, son una alarma para el operador. */
 const ES_ALARMA = (e) => e.categoria === "ALARMA";
 
-module.exports = { traducir, traducirCid, traducirSia, CID, SIA, ES_ALARMA };
+module.exports = { traducir, traducirCid, traducirSia, CID, SIA, ES_ALARMA, familiaCid };
