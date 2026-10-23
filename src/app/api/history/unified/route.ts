@@ -317,6 +317,17 @@ export async function GET(req: NextRequest) {
      */
     const identificacion = sp.get("type") || "ALL";
     const decision = sp.get("decision") || "ALL";
+    /**
+     * Los disparos sin vehículo (AccessEvent.sinVehiculo: sin chapa y OmniVision no vio ningún
+     * vehículo en la foto). 23/10, Nico: la cámara de salida mandaba cientos por noche, todos
+     * «Denegado · Sin lectura» con la calle vacía. Por defecto no se muestran; «mostrar» los suma
+     * y «solo» deja únicamente esos.
+     */
+    const sinVehiculo = ["mostrar", "solo"].includes(sp.get("sinVehiculo") || "") ? sp.get("sinVehiculo")! : "ocultar";
+    const NO_LEIDAS_SQL = ["NO_LEIDA", "UNKNOWN", "unknown", "S/P"];
+    const porSinVehiculo = sinVehiculo === "solo"
+        ? { sinVehiculo: true, plateDetected: { in: NO_LEIDAS_SQL } }
+        : sinVehiculo === "ocultar" ? { NOT: { sinVehiculo: true, plateDetected: { in: NO_LEIDAS_SQL } } } : {};
     const sentido = sp.get("direction") || "ALL";
 
     // Qué tipos se quieren ver. Sin filtro, todos.
@@ -402,7 +413,7 @@ export async function GET(req: NextRequest) {
      */
     const estadosPedidos = ["PASO", "ESTACIONADO", "VISTO"].filter(quiere);
     // Con el filtro OmniVision sólo quedan accesos: las lecturas del seguimiento no se analizan.
-    const pedirTrack = estadosPedidos.length > 0 && !vision.length;
+    const pedirTrack = estadosPedidos.length > 0 && !vision.length && sinVehiculo !== "solo";
 
     /* OmniVision en cámaras RTSP (ver objetosOmniVision). Los filtros propios de un acceso (con qué
        se identificó, si abrió, en qué sentido) no aplican: con alguno puesto, no entran. */
@@ -410,7 +421,7 @@ export async function GET(req: NextRequest) {
     const filtrosDeAcceso = ["FACE", "TAG"].includes(identificacion) || ["GRANT", "DENY"].includes(decision) || ["ENTRY", "EXIT"].includes(sentido);
     // Con cámaras elegidas (y sin tipos), también los objetos: son de esas cámaras, no miles.
     const quiereOVObjetos = tipos.includes("OV_OBJETO") || (camaras.length > 0 && tipos.length === 0);
-    const pedirOV = !filtrosDeAcceso && (quiere("OV_CHAPA") || quiereOVObjetos);
+    const pedirOV = !filtrosDeAcceso && sinVehiculo !== "solo" && (quiere("OV_CHAPA") || quiereOVObjetos);
     const { clases: clasesOV, grupos: gruposOV } = clasesDe(vision);
 
     const [accesos, avistamientos, objetosOV] = await Promise.all([
@@ -418,6 +429,7 @@ export async function GET(req: NextRequest) {
             ? prisma.accessEvent.findMany({
                 where: {
                     ...porFecha,
+                    ...porSinVehiculo,
                     ...(porVision ? { id: { in: porVision.ids } } : {}),
                     ...(camaras.length || tipoChapa || areaEn || areaFuera ? { AND: [
                         ...(camaras.length ? [{ OR: [{ device: { name: { in: camaras } } }, { location: { in: camaras } }] }] : []),
@@ -633,10 +645,16 @@ export async function GET(req: NextRequest) {
     // El tipo de cámara de cada objeto parecido: decide en qué ficha se abre (intrusión o visor).
     const idsObj = semantica && skip === 0 ? [...new Set(semantica.objetos.slice(0, OBJETOS_EN_FRANJA).map((o) => o.deviceId).filter(Boolean) as string[])] : [];
     const tiposObjetos = new Map(idsObj.length ? (await prisma.device.findMany({ where: { id: { in: idsObj } }, select: { id: true, deviceType: true } })).map((d) => [d.id, String(d.deviceType)]) : []);
+    // Cuántos disparos sin vehículo quedaron afuera en el período (sólo en la primera página): la
+    // pantalla lo dice, para que no parezca que la cámara no mandó nada.
+    const ocultosSinVehiculo = sinVehiculo === "ocultar" && pedirAccesos && skip === 0
+        ? await prisma.accessEvent.count({ where: { ...porFecha, sinVehiculo: true, plateDetected: { in: NO_LEIDAS_SQL } } }).catch(() => 0)
+        : 0;
     return NextResponse.json({
         filas: pagina,
         hay: filas.length > skip + take,
         enPagina: pagina.length,
+        ocultosSinVehiculo,
         /** El filtro OmniVision llegó al tope: se miraron sólo las VISION_IDS_MAX lecturas más nuevas. */
         visionTruncado: !!porVision?.truncado,
         /**

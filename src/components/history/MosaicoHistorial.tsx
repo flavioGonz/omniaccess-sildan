@@ -1,9 +1,9 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import { Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Loader2, Server, ShieldAlert, Sparkles, XCircle } from "lucide-react";
+import { Ban, Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Loader2, Server, ShieldAlert, Sparkles, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { chapaDe, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
+import { chapaDe, esSinVehiculo, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 import { getImagePath } from "@/lib/image-path";
 import { fechaCorta, hora } from "@/lib/fechas";
 import { Cargando, ErrorEstado, Vacio } from "@/components/ui/estados";
@@ -86,7 +86,9 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
     const url = getImagePath(f.foto);
     const chica = bento && !grande;
     const acceso = f.tipo === "ACCESO";
-    const denegado = acceso && f.decision === "DENY";
+    // Sin vehículo no es «Denegado»: no había nadie a quien negarle nada.
+    const sinVehiculo = acceso && esSinVehiculo(f.plate, f.vision?.releida);
+    const denegado = acceso && f.decision === "DENY" && !sinVehiculo;
     const r = rasgoDe(f);
     const leida = !!f.plate && !esNoLeida(f.plate);
     /* Una NO_LEIDA lleva la chapa que leyó OmniVision (doble verificación), con su marca. */
@@ -125,6 +127,10 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
                     /* Encontrado por la IA, no un registro: el distintivo violeta (21/10). */
                     <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] pleno-quieto" title="Encontrado por IA: OmniVision lo vio parecido a lo que buscaste. Es un posible, no un registro.">
                         <Sparkles size={10} />{chica ? "IA" : "IA · OmniVision"}
+                    </span>
+                ) : sinVehiculo ? (
+                    <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] bg-black/60 text-white/85" title="La cámara disparó sin chapa y OmniVision no vio ningún vehículo en la foto: un disparo falso, no un acceso.">
+                        <Ban size={10} />{chica ? "" : "Sin vehículo"}
                     </span>
                 ) : acceso ? (
                     <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]", denegado ? "pleno-mal" : "pleno-bien")}>
@@ -174,7 +180,7 @@ export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReinten
     const bento = vista === "bento";
     const [siluetas] = useSiluetas();
     const accesos = filas.filter((f) => f.tipo === "ACCESO");
-    const destacarDenegadas = !!accesos.length && accesos.filter((f) => f.decision === "DENY").length / accesos.length <= DENEGADAS_EXCEPCION;
+    const destacarDenegadas = !!accesos.length && accesos.filter((f) => f.decision === "DENY" && !esSinVehiculo(f.plate, f.vision?.releida)).length / accesos.length <= DENEGADAS_EXCEPCION;
     const centinela = useRef<HTMLDivElement>(null);
 
     // Scroll infinito: al asomar el final se pide la página siguiente, como en la lista.

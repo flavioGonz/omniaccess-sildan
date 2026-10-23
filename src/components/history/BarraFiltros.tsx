@@ -52,13 +52,15 @@ export type FiltrosHistorial = {
     vision: string[];
     /** Ids de lib/categoria-chapa (TIPOS_CHAPA): taxi, policía, ambulancia… por cómo empieza la chapa. */
     chapa: string[];
+    /** Disparos sin vehículo (sin chapa y OmniVision no vio ningún vehículo): ocultos por defecto (23/10). */
+    sinVehiculo: "ocultar" | "mostrar" | "solo";
 };
 
 export type CambiarFiltros = <K extends keyof FiltrosHistorial>(clave: K, valor: FiltrosHistorial[K]) => void;
 
 export const SIN_FILTROS: FiltrosHistorial = {
     desde: "", hasta: "", horaDesde: "", horaHasta: "", tipos: [], identificacion: "ALL", resultado: "ALL", sentido: "ALL",
-    camaras: [], areas: [], color: "ALL", tipoVeh: "ALL", merodeo: false, vision: [], chapa: [],
+    camaras: [], areas: [], color: "ALL", tipoVeh: "ALL", merodeo: false, vision: [], chapa: [], sinVehiculo: "ocultar",
 };
 
 /** Los atajos de período. Se calculan al apretar: la medianoche puede pasar con la pantalla abierta. */
@@ -314,7 +316,7 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
                 </Desplegable>
             )}
 
-            <Desplegable Ico={Sparkles} rotulo={visionPuesta ? `OmniVision · ${visionPuesta}` : "OmniVision"} puesto={visionPuesta > 0} titulo="OmniVision" ancho={340}
+            <Desplegable Ico={Sparkles} rotulo={visionPuesta ? `OmniVision · ${visionPuesta}` : f.sinVehiculo === "solo" ? "Sólo sin vehículo" : f.sinVehiculo === "mostrar" ? "OmniVision · con sin vehículo" : "OmniVision"} puesto={visionPuesta > 0 || f.sinVehiculo !== "ocultar"} titulo="OmniVision" ancho={340}
                 desactivado={soloSeguimiento ? "OmniVision analiza la foto de los accesos: con sólo seguimiento elegido no hay nada que filtrar." : undefined}>
                 <div>
                     <Titulo>Lo que vio OmniVision en la foto</Titulo>
@@ -330,6 +332,18 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
                     <Casilla activa={f.vision.includes(OPCION_RELEIDA.id)} onClick={() => alternar("vision", OPCION_RELEIDA.id)} Ico={ScanEye} rotulo={OPCION_RELEIDA.rotulo} ayuda={OPCION_RELEIDA.ayuda} />
                 </div>
                 {visionPuesta > 0 && <button type="button" onClick={() => cambiar("vision", [])} className="text-[12px] font-semibold tono-accion">Quitar este filtro</button>}
+                <div className="border-t border-border pt-2">
+                    <Titulo>Disparos sin vehículo</Titulo>
+                    <p className="text-[11px] text-muted-foreground leading-snug mt-1 mb-1.5">
+                        La cámara disparó sin leer chapa y OmniVision no vio ningún vehículo en la foto (de noche, luces y reflejos). No son accesos: por defecto no se muestran.
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                        {([["ocultar", "Ocultar"], ["mostrar", "Mostrar"], ["solo", "Sólo esos"]] as const).map(([v, t]) => (
+                            <button key={v} type="button" onClick={() => cambiar("sinVehiculo", v)}
+                                className={cn("h-7 px-2.5 rounded-full border text-[12px] font-semibold", f.sinVehiculo === v ? "accion border-transparent" : "border-border hover:bg-accent")}>{t}</button>
+                        ))}
+                    </div>
+                </div>
             </Desplegable>
 
             <Desplegable Ico={IdCard} rotulo={f.chapa.length ? (f.chapa.length === 1 ? TIPOS_CHAPA.find((t) => t.id === f.chapa[0])?.rotulo || "Tipo de chapa" : `Tipo de chapa · ${f.chapa.length}`) : "Tipo de chapa"} puesto={f.chapa.length > 0} titulo="Tipo de chapa" ancho={320}>

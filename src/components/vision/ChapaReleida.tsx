@@ -25,6 +25,11 @@ export { compararLectura, type Comparacion };
 /** Lo que las lectoras escriben cuando no leyeron (el mismo conjunto que lib/relectura, que no entra en el navegador). */
 const NO_LEIDAS = new Set(["", "NO_LEIDA", "UNKNOWN", "S/P", "NOLEIDA", "SP"]);
 export const esSinLectura = (p?: string | null) => NO_LEIDAS.has(String(p || "").trim().toUpperCase());
+/**
+ * Un disparo sin vehículo: la cámara no leyó chapa y OmniVision no vio ningún vehículo en la foto.
+ * No es un acceso denegado: no había nadie (23/10, la cámara de salida de noche).
+ */
+export const esSinVehiculo = (plate: string | null | undefined, r: ReleidaMin) => esSinLectura(plate) && r?.estado === "SIN_VEHICULO";
 
 /** Lo mínimo de una relectura para decir la chapa (RelecturaEvento y VisionFila.releida lo cumplen). */
 export type ReleidaMin = { plate: string | null; estado: string; confianza?: number | null } | null | undefined;
@@ -84,7 +89,7 @@ export function MarcaOmniVision({ r, oscuro, tamano = "sm", soloIcono, className
                 leyo ? (oscuro ? "text-[var(--accion-en-oscuro)]" : "text-[var(--accion)]") : (oscuro ? "text-white/45" : "text-muted-foreground"),
                 className)}>
             <Sparkles size={ico} className="shrink-0" />
-            {!soloIcono && (leyo ? `OmniVision${r.estado === "DUDOSA" ? " · dudosa" : ""}` : "OmniVision no la leyó")}
+            {!soloIcono && (leyo ? `OmniVision${r.estado === "DUDOSA" ? " · dudosa" : ""}` : r.estado === "SIN_VEHICULO" ? "OmniVision: sin vehículo" : "OmniVision no la leyó")}
         </span>
     );
 }

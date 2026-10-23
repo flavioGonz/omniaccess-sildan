@@ -176,6 +176,7 @@ export default function HistoryPage() {
     const puestos = useMemo(() => {
         let n = searchTerm.trim() ? 1 : 0;
         if (f.desde || f.hasta || f.horaDesde || f.horaHasta) n++;
+        if (f.sinVehiculo !== "ocultar") n++;
         if (f.tipos.length) n++;
         if (f.identificacion !== "ALL" && activeMode === null) n++;
         if (f.resultado !== "ALL") n++;
@@ -308,6 +309,8 @@ export default function HistoryPage() {
                 buscar={searchTerm}
                 desde={periodo.desde}
                 hasta={periodo.hasta}
+                sinVehiculo={f.sinVehiculo}
+                alVerSinVehiculo={() => cambiar("sinVehiculo", "mostrar")}
                 tipos={f.tipos}
                 identificacion={soloSeguimiento ? "ALL" : f.identificacion}
                 resultado={soloSeguimiento ? "ALL" : f.resultado}

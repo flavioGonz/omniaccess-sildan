@@ -180,10 +180,16 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa, permitidas = () =
     async function guardar(id, datos, rid, doble = false) {
         if (doble) datos = { ...datos, candidatos: { ...(datos.candidatos || {}), doble: true } };
         // Un reintento pisa su fila de ERROR (y le corre la fecha: de ahí se cuenta el próximo).
-        if (rid) { await prisma.relectura.update({ where: { id: rid }, data: { error: null, ...datos, createdAt: new Date() } }); return; }
-        await prisma.relectura.create({ data: { accessEventId: id, ...datos } }).catch((e) => {
+        if (rid) await prisma.relectura.update({ where: { id: rid }, data: { error: null, ...datos, createdAt: new Date() } });
+        else await prisma.relectura.create({ data: { accessEventId: id, ...datos } }).catch((e) => {
             if (!String(e.message).includes("Unique")) throw e; // otra vuelta ya la hizo
         });
+        // Disparo sin vehículo (23/10): la cámara no leyó chapa y en la foto no hay ningún vehículo.
+        // Se marca en el evento para que el historial lo pueda dejar afuera sin cruzar tablas. Sólo
+        // en una NO_LEIDA: en la doble verificación la cámara sí leyó una chapa.
+        if (datos.estado === "SIN_VEHICULO" && !doble) {
+            await prisma.accessEvent.updateMany({ where: { id, plateDetected: { in: NO_LEIDAS } }, data: { sinVehiculo: true } }).catch(() => {});
+        }
     }
 
     /**

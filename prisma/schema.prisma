@@ -278,6 +278,9 @@ model AccessEvent {
   plateNumber   String?
   details       String?
   createdAt     DateTime        @default(now())
+  /// La cámara no leyó chapa y OmniVision no vio ningún vehículo en la foto (Relectura SIN_VEHICULO):
+  /// un disparo falso. El historial lo oculta por defecto (23/10). Lo marca vision-relectura.js.
+  sinVehiculo   Boolean         @default(false)
   device        Device?         @relation(fields: [deviceId], references: [id], map: "AccessEvent_deviceId_fkey_v2")
   user          User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
   bitacora      Bitacora?
@@ -285,6 +288,7 @@ model AccessEvent {
   // La presencia por lote y el historial de una matrícula consultan por estos campos.
   @@index([plateDetected, timestamp])
   @@index([timestamp])
+  @@index([sinVehiculo, timestamp])
 }
 
 // Cruce de línea / entrada-salida de zona (Intrusión). No es una matrícula: tabla propia.

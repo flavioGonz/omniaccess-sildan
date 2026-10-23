@@ -4,11 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Clock, Car, Camera, Activity, ChevronRight, Inbox,
     LogIn, LogOut, ParkingCircle, ShieldCheck, ShieldX,
-    ShieldAlert, MoreHorizontal, Wifi, WifiOff, Eye,
+    ShieldAlert, MoreHorizontal, Wifi, WifiOff, Eye, Ban,
 } from "lucide-react";
 import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { cn } from "@/lib/utils";
-import { chapaDe, esSinLectura, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
+import { chapaDe, esSinLectura, esSinVehiculo, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
 import { Pista } from "@/components/ui/pista";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Momento, Matricula, Miniatura, Nada } from "@/components/ui/celdas";
@@ -211,8 +211,13 @@ function HaceCuanto({ desde }: { desde: string }) {
     return <span className="text-[11.5px] text-muted-foreground tabular-nums">hace {leerDuracion(ms)}</span>;
 }
 
-export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, areas = [], filtroArea = null, vision = [], chapa = [], barra, vista = "lista", onMerodeo, onResumen, onCargado, onMotores, omnivision = true, grabador = false, foto = null }: {
+export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, areas = [], filtroArea = null, vision = [], chapa = [], barra, vista = "lista", onMerodeo, onResumen, onCargado, onMotores, omnivision = true, grabador = false, foto = null, sinVehiculo = "ocultar", alVerSinVehiculo }: {
     buscar: string; desde: string; hasta: string; tipos: string[];
+    /**
+     * Los disparos sin vehículo (sin chapa y OmniVision no vio ningún vehículo): «ocultar» por
+     * defecto, «mostrar» o «solo». `alVerSinVehiculo` es el enlace del pie («N ocultos · ver»).
+     */
+    sinVehiculo?: "ocultar" | "mostrar" | "solo"; alVerSinVehiculo?: () => void;
     /**
      * Los motores de la búsqueda, además de los registros (21/10: un solo buscador con botones). Con
      * `omnivision` entra lo que OmniVision vio parecido a lo escrito; con `grabador`, lo que encuentra
@@ -290,10 +295,11 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     const visionClave = vision.join(",");
     const chapaClave = chapa.join(",");
     const [visionTruncado, setVisionTruncado] = useState(false);
+    const [ocultosSinVehiculo, setOcultosSinVehiculo] = useState(0);
     const [omni, setOmni] = useState<FranjaOmni | null>(null);
     const camarasClave = (camaras || []).join("\u0001");
     const areasClave = areas.join(",");
-    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave, camarasClave, chapaClave, areasClave]);
+    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave, camarasClave, chapaClave, areasClave, sinVehiculo]);
 
     useEffect(() => {
         let vivo = true;
@@ -309,6 +315,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         if (visionClave) q.set("vision", visionClave);
         if (chapaClave) q.set("chapa", chapaClave);
         if (!omnivision) q.set("omni", "0");
+        if (sinVehiculo !== "ocultar") q.set("sinVehiculo", sinVehiculo);
         for (const c of camaras || []) q.append("cam", c);
         for (const a of areas) q.append("area", a);
         const esta = q.toString();
@@ -325,7 +332,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                 setFilas((prev) => (pagina === 0 ? (j.filas || []) : [...prev, ...(j.filas || [])]));
                 setHay(!!j.hay);
                 setVisionTruncado(!!j.visionTruncado);
-                if (pagina === 0) setOmni(j.omnivision || null);
+                if (pagina === 0) { setOmni(j.omnivision || null); setOcultosSinVehiculo(Number(j.ocultosSinVehiculo) || 0); }
                 onCargado?.();
             })
             .catch((e) => {
@@ -339,7 +346,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             .finally(() => { if (vivo) setCargando(false); });
         return () => { vivo = false; };
     // `version` entra por el reset de página; si ya estaba en 0 hace falta igual volver a pedir.
-    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version, visionClave, camarasClave, chapaClave, areasClave, omnivision]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version, visionClave, camarasClave, chapaClave, areasClave, omnivision, sinVehiculo]); // eslint-disable-line react-hooks/exhaustive-deps
 
     /*
      * La búsqueda en los grabadores: se pide al dejar de escribir y se sigue su avance (cada grabador
@@ -445,6 +452,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         // Con el filtro OmniVision no: un acceso recién llegado todavía no se analizó, y meterlo
         // sería mostrar algo que no se sabe si cumple el filtro.
         if (visionClave) return;
+        // «Sólo sin vehículo»: uno nuevo todavía no se sabe si lo es; entra al recargar.
+        if (sinVehiculo === "solo") return;
         // Un evento es de ahora: sólo entra si el rango llega hasta hoy.
         if (hasta && new Date(hasta) < new Date(new Date().toDateString())) return;
         const f = desdeEvento(ev);
@@ -456,7 +465,20 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         }
         setFilas((prev) => (prev.some((x) => x.id === f.id) ? prev : [f, ...prev]));
         marcar(f.id);
-    }, [pagina, tipos, identificacion, resultado, sentido, hasta, buscar, marcar, visionClave]));
+        // Una NO_LEIDA llega antes de que OmniVision la mire (unos segundos). Se pregunta después: si
+        // fue un disparo sin vehículo, se saca (o se rotula, si se pidió verlos).
+        if (esSinLectura(f.plate) && ev?.id) {
+            const id = String(ev.id);
+            const mirar = (intento: number) => setTimeout(async () => {
+                const j = await fetch(`/api/history/sin-vehiculo?ids=${encodeURIComponent(id)}`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
+                if (j?.sinVehiculo?.includes(id)) {
+                    if (sinVehiculo === "ocultar") { setFilas((prev) => prev.filter((x) => x.id !== f.id)); setOcultosSinVehiculo((n) => n + 1); }
+                    else setFilas((prev) => prev.map((x) => (x.id === f.id ? { ...x, vision: { ...(x.vision || { vio: [] }), releida: { plate: null, estado: "SIN_VEHICULO", confianza: null } } as any } : x)));
+                } else if (!j?.analizados?.includes(id) && intento < 3) mirar(intento + 1);
+            }, 6000 * intento);
+            mirar(1);
+        }
+    }, [pagina, tipos, identificacion, resultado, sentido, hasta, buscar, marcar, visionClave, sinVehiculo]));
 
     /*
      * Lo que encontró la IA se abre en la MISMA ventana que los registros (21/10, Nico: «las mismas
@@ -816,10 +838,12 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             tituloAyuda: "Cómo salió",
             ayuda: "En un acceso, si se permitió o se denegó. En un avistamiento, qué tan segura fue la lectura: verde arriba de 85%, ámbar entre 65 y 85, rojo debajo.",
             valor: (f) => f.tipo === "ACCESO"
-                ? (f.decision === "DENY" ? "Denegado" : "Permitido")
+                ? (esSinVehiculo(f.plate, f.vision?.releida) ? "Sin vehículo" : f.decision === "DENY" ? "Denegado" : "Permitido")
                 : (f.confianza != null ? `${Math.round(f.confianza * 100)}%` : ""),
             celda: (f) => {
                 if (f.tipo === "ACCESO") {
+                    // Disparo sin vehículo: sin chapa y OmniVision no vio ningún vehículo. No es un denegado.
+                    if (esSinVehiculo(f.plate, f.vision?.releida)) return <span className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground" title="La cámara disparó sin chapa y OmniVision no vio ningún vehículo en la foto."><Ban className="w-3.5 h-3.5" /> Sin vehículo</span>;
                     return f.decision === "DENY" ? (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-500 dark:text-rose-400"><ShieldX className="w-3.5 h-3.5" /> Denegado</span>
                     ) : (
@@ -948,6 +972,12 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                 </span>
             )}
             {visionTruncado && <span className="tono-aviso">· el filtro OmniVision miró las 5.000 lecturas más nuevas que lo cumplen</span>}
+            {sinVehiculo === "ocultar" && ocultosSinVehiculo > 0 && (
+                <span className="inline-flex items-center gap-1 tabular-nums" title="Disparos de la cámara sin chapa en los que OmniVision no vio ningún vehículo en la foto. No son accesos.">
+                    <span className="opacity-50">·</span><Ban size={11} /> {ocultosSinVehiculo.toLocaleString("es-UY")} sin vehículo ocultos
+                    {alVerSinVehiculo && <button type="button" onClick={alVerSinVehiculo} className="font-semibold text-[var(--accion)] hover:underline">ver</button>}
+                </span>
+            )}
         </span>
     );
 
