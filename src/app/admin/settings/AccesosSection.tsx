@@ -4,18 +4,21 @@
  * Ajustes › Accesos al panel: los usuarios del sistema y los roles de la aplicación.
  *
  * Antes era "Usuarios del Sistema": una tabla propia dentro de un marco gris, un modal con
- * cuatro campos y un `<select>` con dos opciones fijas (Administrador / Solo lectura). No
- * se podía decir "este operador ve monitor e historial y nada más", ni se veía en la tabla
- * qué podía hacer cada uno.
+ * cuatro campos y un `<select>` con dos opciones fijas (Administrador / Solo lectura). El 7/10
+ * pasó a dos pestañas con una grilla de casillas sueltas, una por pantalla.
  *
- * Ahora: dos pestañas. **Usuarios**, con la tabla de la aplicación (`ui/tabla`) y un cajón
- * (`ui/cajon`) en bloques: quién es, cómo entra, qué puede hacer — con la grilla de permisos
- * del rol a la vista. **Roles**, donde se editan los roles con la grilla de permisos
- * (`lib/permisos`): se crean, se duplican, se borran si nadie los usa. Lo que se marca acá
- * es lo que el middleware corta y lo que el menú muestra.
+ * El 23/10 (openspec roles-y-permisos; Nico: «faltan secciones, módulos y que sea más
+ * profesional») el rol se edita como una MATRIZ: una fila por sección, agrupadas por módulo
+ * (Operación, LPR, Video, Intrusión, Alarm Hub, OmniVision…), y una columna por nivel (Ver,
+ * Operar, Configurar). Cada módulo dice si está activo en esta instalación; cada permiso explica
+ * qué habilita; los delicados (Accesos, Mantenimiento, enlaces de pantalla, armar y desarmar)
+ * llevan su marca. Un rol nuevo puede salir de una plantilla. Cada cambio queda en Auditoría.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Loader2, Pencil, Trash2, Copy, ShieldCheck, KeyRound, User as UserIco, Lock, Camera, Upload, Check, Info, AlertTriangle } from "lucide-react";
+import {
+    Plus, Loader2, Pencil, Trash2, Copy, ShieldCheck, ShieldAlert, KeyRound, User as UserIco, Lock, Camera, Upload, Check, Info, AlertTriangle,
+    Eye, Hand, Settings2, LayoutGrid, Car, Video, Radar, RadioTower, ScanEye, ScanFace, Rows3, ShieldHalf, Users, Cpu, SlidersHorizontal, FileStack, Minus,
+} from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
@@ -29,7 +32,12 @@ import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui
 import { Pista } from "@/components/ui/pista";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { useSessionRole } from "@/hooks/useSessionRole";
-import { PERMISOS, GRUPOS_PERMISOS, resumirPermisos, esAdministrador, type Permiso } from "@/lib/permisos";
+import { useFuncion } from "@/lib/funciones-cliente";
+import { getEnabledModules } from "@/app/actions/modules";
+import {
+    PERMISOS, MODULOS, NIVELES, SECCIONES_PERMISOS, PLANTILLAS_ROL, resumirPermisos, esAdministrador, normalizarPermisos, nivelesPorModulo,
+    type ModuloId, type Nivel, type Permiso,
+} from "@/lib/permisos";
 import {
     getUsuariosSistema, saveUsuarioSistema, deleteUsuarioSistema,
     getRolesApp, saveRolApp, duplicarRolApp, deleteRolApp,
@@ -38,65 +46,171 @@ import {
 
 const fotoUrl = (cara?: string | null) => (cara ? (cara.startsWith("/") || cara.startsWith("http") ? cara : `/api/files/${cara}`) : null);
 
-/* ─────────────────────────── La grilla de permisos ─────────────────────────── */
+/* ─────────────────────────── Módulos ─────────────────────────── */
+
+const ICONO_MODULO: Record<ModuloId, React.ComponentType<{ size?: number; className?: string }>> = {
+    operacion: LayoutGrid, lpr: Car, video: Video, intrusion: Radar, hub: RadioTower, vision: ScanEye, rostro: ScanFace,
+    filas: Rows3, guardia: ShieldHalf, padron: Users, equipos: Cpu, administracion: SlidersHorizontal,
+};
+const ICONO_NIVEL: Record<Nivel, React.ComponentType<{ size?: number; className?: string }>> = { ver: Eye, operar: Hand, configurar: Settings2 };
 
 /**
- * Los permisos agrupados, como casillas o como lectura. Es la misma pieza en el cajón del
- * usuario (sólo lectura: lo que su rol le da) y en el editor de roles (editable).
+ * Qué módulos están activos en esta instalación (el modo y las funciones). Un módulo apagado se
+ * puede asignar igual —la instalación puede prenderlo mañana— pero se ve atenuado y lo dice.
  */
-function GrillaPermisos({ valor, onChange, soloLectura, compacta }: { valor: string[]; onChange?: (v: string[]) => void; soloLectura?: boolean; compacta?: boolean }) {
-    const set = new Set(valor);
-    const alternar = (p: Permiso) => {
-        if (soloLectura || !onChange) return;
-        const n = new Set(set);
-        if (n.has(p.clave)) n.delete(p.clave); else n.add(p.clave);
-        onChange([...n]);
+function useModulosActivos(): Record<ModuloId, boolean> | null {
+    const [modos, setModos] = useState<Record<string, boolean> | null>(null);
+    useEffect(() => { getEnabledModules().then((m) => setModos(m as any)).catch(() => setModos({})); }, []);
+    const intrusion = useFuncion("FUNC_INTRUSION"), recepcion = useFuncion("FUNC_ALARMAS_RECEPCION");
+    if (!modos) return null;
+    return {
+        operacion: true, video: true, vision: true, guardia: true, padron: true, equipos: true, administracion: true,
+        lpr: !!modos.MODULE_LPR, rostro: !!modos.MODULE_FACE, filas: !!modos.MODULE_QUEUE,
+        intrusion: intrusion !== false, hub: recepcion === true,
     };
-    const alternarGrupo = (g: string, todos: boolean) => {
+}
+
+/* ─────────────────────────── La matriz de permisos ─────────────────────────── */
+
+/** Una casilla de la matriz: marcada, desmarcada, o marcada y trabada (la incluye un nivel más alto). */
+function Casilla({ p, on, trabada, soloLectura, alTocar }: { p: Permiso; on: boolean; trabada: boolean; soloLectura?: boolean; alTocar: () => void }) {
+    const texto = (
+        <span className="block">
+            {p.descripcion}
+            {p.delicado && <span className="mt-1.5 flex items-start gap-1 tono-aviso font-semibold"><ShieldAlert size={12} className="mt-0.5 shrink-0" />{p.delicado}</span>}
+            {trabada && <span className="mt-1.5 block text-muted-foreground">Lo incluye un nivel más alto de esta sección.</span>}
+            {p.rutas.length > 0 && <span className="mt-1.5 block text-muted-foreground">Abre: {p.rutas.join(", ")}</span>}
+        </span>
+    );
+    return (
+        <Pista titulo={p.rotulo} texto={texto} ancho={320} lado="arriba">
+            <button type="button" onClick={alTocar} disabled={soloLectura || trabada} aria-pressed={on} aria-label={p.rotulo}
+                className={cn("relative h-7 w-7 rounded-[7px] border grid place-items-center transition-colors",
+                    on ? (p.delicado ? "bg-[var(--aviso)] border-[var(--aviso)] text-white" : "bg-[var(--accion)] border-[var(--accion)] text-white") : "border-border bg-background hover:border-[var(--accion)]",
+                    trabada && "opacity-60", (soloLectura || trabada) && "cursor-default")}>
+                {on ? <Check size={14} strokeWidth={3} /> : null}
+                {p.delicado && !on && <ShieldAlert size={10} className="absolute -top-1 -right-1 tono-aviso bg-card rounded-full" />}
+            </button>
+        </Pista>
+    );
+}
+
+/**
+ * La matriz: módulos como cabeceras (con su estado en la instalación y un interruptor para todo el
+ * módulo y para cada nivel del módulo), secciones como filas y Ver / Operar / Configurar como
+ * columnas. Operar y Configurar arrastran Ver: Ver queda trabado mientras haya uno más alto.
+ */
+function MatrizPermisos({ valor, onChange, soloLectura }: { valor: string[]; onChange?: (v: string[]) => void; soloLectura?: boolean }) {
+    const set = new Set(valor);
+    const activos = useModulosActivos();
+    const fijar = (claves: string[], prender: boolean) => {
         if (soloLectura || !onChange) return;
         const n = new Set(set);
-        PERMISOS.filter((p) => p.grupo === g).forEach((p) => (todos ? n.add(p.clave) : n.delete(p.clave)));
-        onChange([...n]);
+        claves.forEach((k) => (prender ? n.add(k) : n.delete(k)));
+        // Al apagar un Ver que algún nivel alto todavía pide, normalizar lo vuelve a poner: se apagan también los altos de esa sección.
+        if (!prender) for (const k of claves) { const p = PERMISOS.find((x) => x.clave === k); if (p?.nivel === "ver") PERMISOS.filter((q) => q.seccion === p.seccion).forEach((q) => n.delete(q.clave)); }
+        onChange(normalizarPermisos([...n]));
     };
     return (
-        <div className={cn("grid gap-3", compacta ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2")}>
-            {GRUPOS_PERMISOS.map((g) => {
-                const del = PERMISOS.filter((p) => p.grupo === g);
+        <div className="rounded-[10px] border border-border overflow-hidden">
+            <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,72px)] items-center bg-muted/50 border-b border-border px-3 h-9 text-[11px] font-semibold text-muted-foreground sticky top-0 z-[1]">
+                <span>Sección</span>
+                {NIVELES.map((n) => { const I = ICONO_NIVEL[n.id]; return <Pista key={n.id} titulo={n.nombre} texto={n.ayuda}><span className="inline-flex items-center justify-center gap-1"><I size={12} /> {n.nombre}</span></Pista>; })}
+            </div>
+            {MODULOS.map((m) => {
+                const I = ICONO_MODULO[m.id];
+                const secciones = SECCIONES_PERMISOS.filter((s) => s.modulo === m.id);
+                const del = PERMISOS.filter((p) => p.modulo === m.id);
                 const marcados = del.filter((p) => set.has(p.clave)).length;
+                const activo = activos ? activos[m.id] : true;
                 return (
-                    <div key={g} className="rounded-[10px] border border-border bg-card/40 p-3">
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{g}</span>
-                            {!soloLectura ? (
-                                <button type="button" onClick={() => alternarGrupo(g, marcados < del.length)} className="text-[11px] font-semibold text-[var(--accion)]">
-                                    {marcados < del.length ? "Todo el grupo" : "Nada del grupo"}
-                                </button>
-                            ) : <span className="text-[10px] text-muted-foreground tabular-nums">{marcados}/{del.length}</span>}
-                        </div>
-                        <ul className="space-y-1">
-                            {del.map((p) => {
-                                const on = set.has(p.clave);
+                    <section key={m.id} className={cn("border-b border-border last:border-0", !activo && "opacity-70")}>
+                        <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,72px)] items-center px-3 py-2 bg-card">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <span className="grid h-7 w-7 place-items-center rounded-[7px] bg-muted text-muted-foreground shrink-0"><I size={15} /></span>
+                                <Pista titulo={m.nombre} texto={m.descripcion}><span className="text-[13px] font-semibold truncate">{m.nombre}</span></Pista>
+                                <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">{marcados}/{del.length}</span>
+                                {!activo && <span className="text-[10.5px] rounded-full border border-border px-1.5 py-px text-muted-foreground shrink-0">apagado en esta instalación</span>}
+                                {!soloLectura && (
+                                    <button type="button" onClick={() => fijar(del.map((p) => p.clave), marcados < del.length)}
+                                        className="ml-1 text-[11px] font-semibold text-[var(--accion)] hover:underline shrink-0">{marcados < del.length ? "Todo el módulo" : "Nada del módulo"}</button>
+                                )}
+                            </div>
+                            {NIVELES.map((n) => {
+                                const delNivel = del.filter((p) => p.nivel === n.id);
+                                if (!delNivel.length || soloLectura) return <span key={n.id} />;
+                                const todos = delNivel.every((p) => set.has(p.clave));
                                 return (
-                                    <li key={p.clave}>
-                                        <Pista titulo={p.rotulo} texto={<span>{p.descripcion}{p.rutas.length ? <span className="block mt-1 text-muted-foreground">Abre: {p.rutas.join(", ")}</span> : null}</span>} ancho={320} lado="derecha">
-                                            <button type="button" onClick={() => alternar(p)} disabled={soloLectura}
-                                                className={cn("w-full flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[12px] transition",
-                                                    on ? "text-foreground" : "text-muted-foreground",
-                                                    !soloLectura && "hover:bg-accent", soloLectura && "cursor-default")}>
-                                                <span className={cn("h-4 w-4 rounded-[4px] border flex items-center justify-center shrink-0",
-                                                    on ? "bg-[var(--accion)] border-[var(--accion)] text-white" : "border-border bg-background")}>
-                                                    {on && <Check size={11} />}
-                                                </span>
-                                                <span className={cn(on ? "" : "line-through decoration-border")}>{p.rotulo}</span>
+                                    <div key={n.id} className="grid place-items-center">
+                                        <Pista titulo={`${n.nombre} en todo ${m.nombre}`} texto={todos ? "Apagar este nivel en todas las secciones del módulo." : "Prender este nivel en todas las secciones del módulo."}>
+                                            <button type="button" onClick={() => fijar(delNivel.map((p) => p.clave), !todos)} aria-label={`${n.nombre} en todo ${m.nombre}`}
+                                                className={cn("h-6 w-6 rounded-full grid place-items-center text-[11px]", todos ? "text-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_14%,transparent)]" : "text-muted-foreground hover:bg-accent")}>
+                                                {todos ? <Check size={12} strokeWidth={3} /> : <Plus size={12} />}
                                             </button>
                                         </Pista>
-                                    </li>
+                                    </div>
                                 );
                             })}
-                        </ul>
-                    </div>
+                        </div>
+                        {secciones.map((s) => {
+                            const altos = (["operar", "configurar"] as Nivel[]).some((n) => s.niveles[n] && set.has(s.niveles[n]!.clave));
+                            return (
+                                <div key={s.seccion} className="grid grid-cols-[minmax(0,1fr)_repeat(3,72px)] items-center px-3 py-1.5 pl-11 border-t border-border/60 hover:bg-muted/30">
+                                    <span className="text-[12.5px] truncate">{s.nombre}</span>
+                                    {NIVELES.map((n) => {
+                                        const p = s.niveles[n.id];
+                                        if (!p) return <span key={n.id} className="grid place-items-center text-muted-foreground/40"><Minus size={12} /></span>;
+                                        const trabada = n.id === "ver" && altos;
+                                        return (
+                                            <div key={n.id} className="grid place-items-center">
+                                                <Casilla p={p} on={set.has(p.clave)} trabada={trabada} soloLectura={soloLectura} alTocar={() => fijar([p.clave], !set.has(p.clave))} />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })}
+                    </section>
                 );
             })}
+        </div>
+    );
+}
+
+/** El resumen por módulo, en chips: el nivel más alto que tiene en cada uno. Para tablas y la ficha del usuario. */
+function ResumenPorModulo({ permisos, max = 12 }: { permisos: string[]; max?: number }) {
+    if (esAdministrador(permisos)) return <span className="text-[12px] text-foreground font-semibold">Todo el panel</span>;
+    const filas = nivelesPorModulo(permisos).filter((x) => x.nivel);
+    if (!filas.length) return <span className="text-[12px] text-muted-foreground">Sin permisos: puede entrar pero no abre nada.</span>;
+    return (
+        <div className="flex flex-wrap gap-1">
+            {filas.slice(0, max).map((x) => {
+                const I = ICONO_NIVEL[x.nivel!];
+                const nivel = NIVELES.find((n) => n.id === x.nivel)!;
+                return (
+                    <Pista key={x.modulo.id} titulo={x.modulo.nombre} texto={`${x.cuantos} de ${x.total} permisos · hasta ${nivel.nombre}`}>
+                        <span className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-1.5 py-0.5 text-[10.5px] font-semibold">
+                            <I size={10} className={x.nivel === "configurar" ? "tono-aviso" : x.nivel === "operar" ? "text-[var(--accion)]" : "text-muted-foreground"} />{x.modulo.nombre}
+                        </span>
+                    </Pista>
+                );
+            })}
+        </div>
+    );
+}
+
+/** El encabezado del rol: cuántos permisos, cuántos delicados, cuántos usuarios. */
+function ContadorRol({ permisos, usuarios }: { permisos: string[]; usuarios?: number }) {
+    const delicados = PERMISOS.filter((p) => p.delicado && permisos.includes(p.clave));
+    return (
+        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 h-7 font-semibold tabular-nums"><ShieldCheck size={13} /> {permisos.length} de {PERMISOS.length} permisos</span>
+            {delicados.length > 0 && (
+                <Pista titulo="Permisos delicados" texto={delicados.map((p) => `${p.rotulo}: ${p.delicado}`).join(" · ")}>
+                    <span className="inline-flex items-center gap-1.5 rounded-full chip-aviso border px-2.5 h-7 font-semibold"><ShieldAlert size={13} /> {delicados.length} delicado{delicados.length === 1 ? "" : "s"}</span>
+                </Pista>
+            )}
+            {usuarios != null && <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 h-7 text-muted-foreground tabular-nums"><Users size={13} /> {usuarios} usuario{usuarios === 1 ? "" : "s"}</span>}
         </div>
     );
 }
@@ -200,8 +314,9 @@ function CajonUsuarioSistema({ usuario, roles, abierto, onOpenChange, onGuardado
                     )}
                     {rol && (
                         <div className="mt-3">
-                            <p className="text-[12px] text-muted-foreground mb-2">{rol.descripcion || "Sin descripción."} Con este rol abre:</p>
-                            <GrillaPermisos valor={rol.permisos} soloLectura compacta />
+                            <p className="text-[12px] text-muted-foreground mb-2">{rol.descripcion || "Sin descripción."}</p>
+                            <ContadorRol permisos={rol.permisos} />
+                            <div className="mt-3"><ResumenPorModulo permisos={rol.permisos} /></div>
                         </div>
                     )}
                 </CajonSeccion>
@@ -217,9 +332,19 @@ function CajonRol({ rol, abierto, onOpenChange, onGuardado }: { rol: RolApp | nu
     const [nombre, setNombre] = useState("");
     const [descripcion, setDescripcion] = useState("");
     const [permisos, setPermisos] = useState<string[]>([]);
+    const [plantilla, setPlantilla] = useState<string | null>(null);
     const [guardando, setGuardando] = useState(false);
-    useEffect(() => { if (abierto) { setNombre(rol?.nombre || ""); setDescripcion(rol?.descripcion || ""); setPermisos(rol?.permisos || []); } }, [abierto, rol]);
+    useEffect(() => { if (abierto) { setNombre(rol?.nombre || ""); setDescripcion(rol?.descripcion || ""); setPermisos(rol?.permisos || []); setPlantilla(null); } }, [abierto, rol]);
     const esAdminSistema = rol?.id === "rol-administrador";
+    const usar = (id: string | null) => {
+        setPlantilla(id);
+        const t = PLANTILLAS_ROL.find((x) => x.id === id);
+        if (!t) { setPermisos([]); return; }
+        setPermisos(t.permisos);
+        // El nombre y la descripción de la plantilla, salvo que ya se hayan escrito otros.
+        setNombre((n) => (!n.trim() || PLANTILLAS_ROL.some((x) => x.nombre === n) ? t.nombre : n));
+        setDescripcion((d) => (!d.trim() || PLANTILLAS_ROL.some((x) => x.descripcion === d) ? t.descripcion : d));
+    };
     const guardar = async () => {
         setGuardando(true);
         try {
@@ -231,19 +356,32 @@ function CajonRol({ rol, abierto, onOpenChange, onGuardado }: { rol: RolApp | nu
     };
     return (
         <Cajon open={abierto} onOpenChange={onOpenChange}>
-            <CajonContenido ancho="intermedio" titulo={esAlta ? "Nuevo rol" : rol!.nombre}
-                descripcion={esAlta ? "Un conjunto de permisos con nombre, para asignárselo a usuarios del panel." : `${rol!.usuarios} usuario${rol!.usuarios === 1 ? "" : "s"} con este rol${rol!.esSistema ? " · rol de sistema" : ""}`}
+            <CajonContenido ancho="medio" titulo={esAlta ? "Nuevo rol" : rol!.nombre}
+                descripcion={esAlta ? "Un conjunto de permisos con nombre, para asignárselo a usuarios del panel. Se puede partir de una plantilla." : `${rol!.usuarios} usuario${rol!.usuarios === 1 ? "" : "s"} con este rol${rol!.esSistema ? " · rol de sistema" : ""}`}
                 pie={
                     <div className="flex items-center justify-between gap-3">
-                        <span className="text-[11px] text-muted-foreground tabular-nums">{resumirPermisos(permisos)}</span>
+                        <ContadorRol permisos={permisos} usuarios={rol?.usuarios} />
                         <div className="flex gap-2">
                             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-                            <Button type="button" onClick={guardar} disabled={guardando || !nombre.trim()}>{guardando ? <Loader2 size={14} className="animate-spin mr-1" /> : null}{esAlta ? "Crear rol" : "Guardar"}</Button>
+                            <Button type="button" onClick={guardar} disabled={guardando || !nombre.trim() || esAdminSistema}>{guardando ? <Loader2 size={14} className="animate-spin mr-1" /> : null}{esAlta ? "Crear rol" : "Guardar"}</Button>
                         </div>
                     </div>
                 }>
+                {esAlta && (
+                    <CajonSeccion titulo="Partir de una plantilla" icono={FileStack} ayuda="Ninguna incluye Accesos ni Mantenimiento. Después se ajusta en la matriz.">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {[{ id: null as string | null, nombre: "En blanco", descripcion: "Sin ningún permiso: se marca a mano.", permisos: [] as string[] }, ...PLANTILLAS_ROL].map((t) => (
+                                <button key={t.id || "blanco"} type="button" onClick={() => usar(t.id)}
+                                    className={cn("text-left rounded-[10px] border p-3 transition-colors", plantilla === t.id ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent")}>
+                                    <div className="flex items-center gap-2"><span className="text-[13px] font-semibold">{t.nombre}</span><span className="ml-auto text-[11px] text-muted-foreground tabular-nums">{t.permisos.length}</span></div>
+                                    <p className="mt-1 text-[11.5px] text-muted-foreground leading-snug line-clamp-3">{t.descripcion}</p>
+                                </button>
+                            ))}
+                        </div>
+                    </CajonSeccion>
+                )}
                 <CajonSeccion titulo="Cómo se llama" icono={KeyRound}>
-                    <div className="grid grid-cols-1 gap-3.5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                         <CajonCampo etiqueta="Nombre">
                             <Input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="ej: Guardia de noche" disabled={!!rol?.esSistema} />
                         </CajonCampo>
@@ -252,9 +390,9 @@ function CajonRol({ rol, abierto, onOpenChange, onGuardado }: { rol: RolApp | nu
                         </CajonCampo>
                     </div>
                 </CajonSeccion>
-                <CajonSeccion titulo="Qué puede abrir" icono={ShieldCheck}
-                    ayuda={esAdminSistema ? "Administrador tiene siempre todo: si se le pudiera sacar Accesos al panel, nadie podría volver a esta pantalla." : "Cada casilla es una pantalla o una función. Pasá el mouse para ver qué habilita y qué rutas abre."}>
-                    <GrillaPermisos valor={permisos} onChange={setPermisos} soloLectura={esAdminSistema} />
+                <CajonSeccion titulo="Qué puede hacer" icono={ShieldCheck}
+                    ayuda={esAdminSistema ? "Administrador tiene siempre todo, también lo que se agregue después: si se le pudiera sacar Accesos al panel, nadie podría volver a esta pantalla." : "Ver abre la pantalla; Operar hace la tarea del día; Configurar cambia cómo funciona. Operar y Configurar incluyen Ver. Pasá el mouse por cada casilla para ver qué habilita."}>
+                    <MatrizPermisos valor={permisos} onChange={setPermisos} soloLectura={esAdminSistema} />
                     {esAdministrador(permisos) && !esAdminSistema && (
                         <p className="mt-3 text-[12px] text-muted-foreground inline-flex items-center gap-1.5"><Info size={12} /> Con todos los permisos, este rol equivale a Administrador.</p>
                     )}
@@ -280,14 +418,17 @@ export default function AccesosSection() {
     const [aBorrar, setABorrar] = useState<UsuarioSistema | null>(null);
     const [rolABorrar, setRolABorrar] = useState<RolApp | null>(null);
 
+    // Los usuarios y los roles los lee sólo quien tiene Accesos (spec permisos-aplicacion, lecturas delicadas).
+    const conAccesos = loaded && tiene("accesos");
     const cargar = useCallback(() => {
+        if (!conAccesos) { setCargando(false); return; }
         setCargando(true); setError(null);
         Promise.all([getUsuariosSistema(), getRolesApp()])
             .then(([u, r]) => { setUsuarios(u); setRoles(r); })
             .catch((e) => setError(e?.message || "No se pudo leer"))
             .finally(() => setCargando(false));
-    }, []);
-    useEffect(() => { cargar(); }, [cargar]);
+    }, [conAccesos]);
+    useEffect(() => { if (loaded) cargar(); }, [loaded, cargar]);
 
     const puedoEditar = !loaded || tiene("accesos");
 
@@ -310,20 +451,12 @@ export default function AccesosSection() {
                 : <Nada />,
         },
         {
-            clave: "permisos", titulo: "Qué puede abrir", ayuda: "Resumen de los permisos del rol. El detalle, en la ficha.", valor: (u) => resumirPermisos(u.permisos, 99),
-            celda: (u) => {
-                const set = new Set(u.permisos);
-                const todos = PERMISOS.every((p) => set.has(p.clave));
-                if (todos) return <span className="text-[12px] text-foreground">Todo el panel</span>;
-                const tiene = PERMISOS.filter((p) => set.has(p.clave));
-                return (
-                    <div className="flex flex-wrap gap-1 max-w-[520px]">
-                        {tiene.slice(0, 6).map((p) => <span key={p.clave} className="chip-neutro rounded-md border px-1.5 py-0.5 text-[10px] font-semibold">{p.rotulo}</span>)}
-                        {tiene.length > 6 && <Pista titulo="Y además" texto={tiene.slice(6).map((p) => p.rotulo).join(", ")}><span className="chip-neutro rounded-md border px-1.5 py-0.5 text-[10px] font-semibold">+{tiene.length - 6}</span></Pista>}
-                        {tiene.length === 0 && <span className="text-[12px] text-muted-foreground">Sin permisos: puede entrar pero no abre nada.</span>}
-                    </div>
-                );
-            },
+            clave: "permisos", titulo: "Qué puede hacer", ayuda: "Por módulo, el nivel más alto que le da su rol (ojo = ver, mano = operar, engranaje = configurar). El detalle, en la ficha.", valor: (u) => resumirPermisos(u.permisos, 99),
+            celda: (u) => <div className="max-w-[560px]"><ResumenPorModulo permisos={u.permisos} max={8} /></div>,
+        },
+        {
+            clave: "entrada", titulo: "Última entrada", ancho: 130, ordenable: true, valor: (u) => (u.ultimaEntrada ? new Date(u.ultimaEntrada).toISOString() : ""),
+            celda: (u) => u.ultimaEntrada ? <Momento t={u.ultimaEntrada} /> : <Pista titulo="Sin entradas registradas" texto="Las entradas al panel se registran desde el 23/10."><span className="text-[12px] text-muted-foreground">—</span></Pista>,
         },
         { clave: "phone", titulo: "Teléfono", ancho: 130, valor: (u) => u.phone || "", celda: (u) => u.phone ? <span className="text-[12px] tabular-nums">{u.phone}</span> : <Nada /> },
         {
@@ -348,7 +481,11 @@ export default function AccesosSection() {
     const columnasRoles: ColumnaTabla<RolApp>[] = [
         { clave: "nombre", titulo: "Rol", ancho: 200, ordenable: true, valor: (r) => r.nombre, celda: (r) => <span className="inline-flex items-center gap-2"><ShieldCheck size={14} className={esAdministrador(r.permisos) ? "text-[var(--mal)]" : "text-muted-foreground"} /><span className="font-semibold text-[13px]">{r.nombre}</span>{r.esSistema && <Estado tono="quieto">sistema</Estado>}</span> },
         { clave: "descripcion", titulo: "Para qué es", valor: (r) => r.descripcion, celda: (r) => r.descripcion ? <span className="text-[12px] text-muted-foreground">{r.descripcion}</span> : <Nada /> },
-        { clave: "permisos", titulo: "Permisos", ancho: 260, valor: (r) => resumirPermisos(r.permisos, 99), celda: (r) => <span className="text-[12px]">{resumirPermisos(r.permisos, 4)}</span> },
+        { clave: "permisos", titulo: "Qué puede hacer", valor: (r) => resumirPermisos(r.permisos, 99), celda: (r) => <ResumenPorModulo permisos={r.permisos} max={8} /> },
+        {
+            clave: "delicados", titulo: "", ancho: 60, auxiliar: true, valor: (r) => PERMISOS.filter((p) => p.delicado && r.permisos.includes(p.clave)).length,
+            celda: (r) => { const d = PERMISOS.filter((p) => p.delicado && r.permisos.includes(p.clave)); return d.length ? <Pista titulo="Permisos delicados" texto={d.map((p) => p.rotulo).join(", ")}><span className="inline-flex items-center gap-1 tono-aviso text-[12px] font-semibold"><ShieldAlert size={13} />{d.length}</span></Pista> : null; },
+        },
         { clave: "usuarios", titulo: "Usuarios", ancho: 90, alinear: "der", ordenable: true, valor: (r) => r.usuarios, celda: (r) => <span className="tabular-nums text-[12px]">{r.usuarios}</span> },
         { clave: "updatedAt", titulo: "Editado", ancho: 110, valor: (r) => new Date(r.updatedAt).toISOString(), celda: (r) => <Momento t={r.updatedAt} soloFecha /> },
         {
@@ -385,7 +522,7 @@ export default function AccesosSection() {
             </div>
 
             {loaded && !puedoEditar && (
-                <p className="text-[12px] text-muted-foreground inline-flex items-center gap-1.5"><Info size={12} /> Tu rol no incluye «Accesos al panel»: ves la lista pero no podés cambiarla.</p>
+                <p className="text-[12px] text-muted-foreground inline-flex items-center gap-1.5"><Info size={12} /> Tu rol no incluye «Accesos al panel»: los usuarios y los roles los ve y los cambia quien lo tiene.</p>
             )}
 
             <div className="h-[calc(100vh-260px)] min-h-[420px]">
@@ -406,7 +543,7 @@ export default function AccesosSection() {
                         cargando={cargando} error={error} alReintentar={cargar}
                         vacio={{ icono: ShieldCheck, titulo: "Sin roles", ayuda: "Los dos de sistema se crean solos al entrar." }}
                         alClickFila={(r) => setCajonRol({ abierto: true, rol: r })}
-                        barra={<p className="text-[12px] text-muted-foreground">Un rol es un conjunto de permisos con nombre. Pasá el mouse por cada permiso para ver qué pantallas abre. Los cambios se aplican cuando el usuario vuelve a iniciar sesión.</p>}
+                        barra={<p className="text-[12px] text-muted-foreground">Un rol es un conjunto de permisos por módulo y nivel (ver, operar, configurar). Los cambios se aplican cuando el usuario vuelve a iniciar sesión, y quedan en Auditoría.</p>}
                     />
                 )}
             </div>

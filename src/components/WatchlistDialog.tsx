@@ -1,5 +1,7 @@
 "use client";
 
+import { Switch } from "@/components/ui/switch";
+import { MatriculaEnBase, useMatriculasEnBase } from "@/components/registro/MatriculaEnBase";
 import { useEffect, useMemo, useState } from "react";
 import { Ban, Bell, BellOff, ChevronRight, Loader2, Plus, RotateCcw, Search, ShieldAlert, ShieldX, Siren, Cctv, Star, X } from "lucide-react";
 import { Tooltip } from "react-tooltip";
@@ -122,6 +124,9 @@ export function WatchlistDialog({ onClose, plateInicial }: {
         } finally { setSaving(false); }
     }
 
+    // La misma chapa, activa en la misma lista: cargarla otra vez sólo pisaba el motivo sin avisar.
+    const enBase = useMatriculasEnBase([plate]);
+    const yaEnEsta = (enBase.datos[plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")] || []).some((r) => r.donde === "vigilancia" && r.activa && r.categoria === category);
     // Sin «En búsqueda» (función de LPR, apagada en San Nicolás) queda sólo la lista negra.
     const busquedaOn = useFuncion("LPR_BUSQUEDA");
     const categorias = WATCH_CATEGORY_LIST.filter((c) => busquedaOn || c.value !== "SEARCH");
@@ -156,7 +161,7 @@ export function WatchlistDialog({ onClose, plateInicial }: {
             <Cajon open={!abierta} onOpenChange={(o) => { if (!o && !abierta) onClose(); }}>
                 <CajonContenido ancho="intermedio" titulo="Lista negra" sinCabecera
                     descripcion="Cargar una matrícula para que la barrera la deniegue siempre y salte como alerta."
-                    className="!bg-[var(--mal)] text-white !border-l-0">
+                    className="tema-rojo !bg-[var(--mal)] text-white !border-l-0">
                     <Tooltip id={TT} place="bottom" positionStrategy="fixed" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[9999]" />
 
                     {/* ── Qué es esto ── */}
@@ -200,6 +205,8 @@ export function WatchlistDialog({ onClose, plateInicial }: {
                             </label>
                             <p className="text-[12px] text-white/85 leading-snug">Como la lee la cámara: sin espacios ni guiones.</p>
                         </div>
+                        {/* Qué hay ya con esta chapa en toda la base (21/10): residente, proveedor, otra lista. */}
+                        <MatriculaEnBase plates={[plate]} variante="rojo" />
 
                         {categorias.length > 1 && (
                             <div className="grid grid-cols-2 gap-2">
@@ -232,14 +239,16 @@ export function WatchlistDialog({ onClose, plateInicial }: {
                         )}
 
                         <div className="flex items-center gap-2">
-                            <button onClick={() => setNotify((n) => !n)} aria-pressed={notify}
-                                data-tooltip-id={TT} data-tooltip-content={notify ? "Avisa: al leerla manda Telegram a la guardia y dispara las reglas de Notificaciones. Tocá para que sólo se vea en el monitor." : "En silencio: sólo se ve en el monitor. Tocá para que también avise por Telegram y Notificaciones."}
-                                className={cn("h-11 px-3.5 rounded-full text-[12.5px] font-bold flex items-center gap-1.5 whitespace-nowrap border transition-colors", notify ? "bg-white/20 border-white/40" : "border-white/25 text-white/70")}>
-                                {notify ? <Bell size={14} /> : <BellOff size={14} />} {notify ? "Avisa" : "Silencio"}
-                            </button>
-                            <button onClick={() => onAdd()} disabled={saving || !plate.trim()}
+                            {/* «Avisa» como interruptor (21/10, Nico: «cambiá el estilo del chip Avisar por un toggle»). */}
+                            <label className="h-11 px-3 rounded-[8px] border border-white/25 flex items-center gap-2.5 cursor-pointer whitespace-nowrap"
+                                data-tooltip-id={TT} data-tooltip-content={notify ? "Avisa: al leerla manda Telegram a la guardia y dispara las reglas de Notificaciones." : "En silencio: sólo se ve en el monitor."}>
+                                {notify ? <Bell size={14} /> : <BellOff size={14} className="text-white/70" />}
+                                <span className={cn("text-[12.5px] font-bold", !notify && "text-white/70")}>Avisar</span>
+                                <Switch checked={notify} onCheckedChange={setNotify} aria-label="Avisar por Telegram y Notificaciones" />
+                            </label>
+                            <button onClick={() => onAdd()} disabled={saving || !plate.trim() || yaEnEsta}
                                 className="flex-1 h-11 rounded-[8px] bg-white text-[var(--mal)] text-[14px] font-extrabold flex items-center justify-center gap-1.5 disabled:opacity-50 hover:bg-white/90">
-                                {saving ? <Loader2 size={15} className="animate-spin" /> : <Ban size={15} />} {negra ? "Cargar en la lista negra" : "Cargar en búsqueda"}
+                                {saving ? <Loader2 size={15} className="animate-spin" /> : <Ban size={15} />} {yaEnEsta ? (negra ? "Ya está en la lista negra" : "Ya está en búsqueda") : negra ? "Cargar en la lista negra" : "Cargar en búsqueda"}
                             </button>
                         </div>
                     </section>

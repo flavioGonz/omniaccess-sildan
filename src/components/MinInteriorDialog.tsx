@@ -214,9 +214,17 @@ export function MinInteriorDialog({ plate, open, onOpenChange }: { plate?: strin
 
                                 <AnimatePresence>
                                     {(error || aviso) && (
-                                        <motion.p key={error || aviso} className={cn("rounded-[6px] border px-3 py-2 text-[12px]", error ? "chip-mal" : "chip-aviso")} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                                        <motion.div key={error || aviso} className={cn("rounded-[6px] border px-3 py-2 text-[12px]", error ? "chip-mal" : "chip-aviso")} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
                                             {error || aviso}
-                                        </motion.p>
+                                            {/* Si la consulta asistida no anda, que quede la salida manual: la matrícula ya copiada. */}
+                                            {error && (
+                                                <a href={MIN_INTERIOR_URL} target="_blank" rel="noopener noreferrer"
+                                                    onClick={() => { try { void navigator.clipboard?.writeText(normalizarMatricula(mat)); } catch { /* sin portapapeles */ } }}
+                                                    className="mt-1.5 flex items-center gap-1.5 font-semibold underline underline-offset-2">
+                                                    <ExternalLink size={12} /> Abrir el sitio oficial (la matrícula queda copiada)
+                                                </a>
+                                            )}
+                                        </motion.div>
                                     )}
                                 </AnimatePresence>
 

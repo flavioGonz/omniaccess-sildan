@@ -149,3 +149,35 @@ export function limitesDelDia(aaaammdd: string): { inicio: Date; fin: Date } | n
     const finSig = medianocheEnZona(paraInput(sig));
     return { inicio, fin: new Date((finSig ? finSig.getTime() : inicio.getTime() + 86400000) - 1) };
 }
+
+/**
+ * Un extremo del filtro de período: "AAAA-MM-DD" (el día entero del barrio) o "AAAA-MM-DDTHH:MM"
+ * (ese minuto, hora del barrio). `fin` incluye el minuto entero: «hasta las 04:00» llega a 04:00:59.
+ *
+ * 23/10, Nico: «en el historial, en el filtro de fecha, poder filtrar con hora también».
+ */
+export function limiteDeFiltro(v: string | null | undefined, extremo: "inicio" | "fin"): Date | null {
+    if (!v) return null;
+    const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/.exec(v);
+    if (m) {
+        const dia = limitesDelDia(m[1]);
+        if (!dia) return null;
+        const ms = dia.inicio.getTime() + (Number(m[2]) * 60 + Number(m[3])) * 60_000;
+        return new Date(extremo === "fin" ? ms + 59_999 : ms);
+    }
+    const dia = limitesDelDia(v);
+    if (dia) return dia[extremo];
+    const d = new Date(v);
+    return isNaN(+d) ? null : d;
+}
+
+/**
+ * El período del filtro con sus horas, como lo entiende limiteDeFiltro. Una hora sin día va con el
+ * día de hoy; «hasta» con hora y sin día va con el día de «desde» (lo habitual: hoy de 03:00 a 04:00).
+ */
+export function periodoConHora(desde: string, hasta: string, horaDesde: string, horaHasta: string): { desde: string; hasta: string } {
+    const hoy = paraInput(new Date());
+    const d = horaDesde ? `${desde || hoy}T${horaDesde}` : desde;
+    const h = horaHasta ? `${hasta || desde || hoy}T${horaHasta}` : hasta;
+    return { desde: d, hasta: h };
+}

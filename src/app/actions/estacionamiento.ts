@@ -1,5 +1,6 @@
 "use server";
 
+import { leerArbolAreas, type AreaArbol } from "@/lib/areas-historial";
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/app/actions/auth";
@@ -19,6 +20,8 @@ import { detectar } from "@/lib/vision";
  * franja o apagar el motor: la auditoría del 18/10).
  */
 
+/** Los equipos que tienen video propio (los que pueden mirar un estacionamiento). */
+const TIPOS_CON_VIDEO = ["LPR_CAMERA", "LPR_INTERIOR", "CAMERA", "QUEUE_COUNTER"];
 const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
 
 async function exigir(permiso?: "ajustes") {
@@ -31,6 +34,8 @@ async function exigir(permiso?: "ajustes") {
 export type LugarAbierto = { id: string; lugar: number; plate: string | null; desde: string; hasta: string; avisado: boolean };
 export type CamaraEstacionamiento = {
     id: string; nombre: string; tipo: string;
+    /** El área de Dispositivos donde está (null = sin área): para elegirla agrupada por área. */
+    areaId: string | null;
     /** ¿La mira OmniVision? (Visión → cámaras). Sin eso la franja está y nadie la mide. */
     mirada: boolean;
     franja: { esquinas: Esquinas; lugares: number; activa: boolean; nombre: string | null } | null;
@@ -42,25 +47,28 @@ export async function listarEstacionamiento(): Promise<{
     prendida: boolean; ocuparSeg: number; liberarSeg: number;
     camaras: CamaraEstacionamiento[];
     recientes: (LugarAbierto & { camara: string })[];
+    areas: AreaArbol[];
 }> {
     await exigir();
-    const [prendida, vision, equipos, franjas, abiertas, recientes] = await Promise.all([
+    const [prendida, vision, equipos, franjas, abiertas, recientes, arbol] = await Promise.all([
         estacionamientoPrendido(),
         camarasVision(),
-        prisma.device.findMany({ where: { deviceType: { not: "NVR" } }, select: { id: true, name: true, deviceType: true }, orderBy: { name: "asc" } }),
+        // Toda cámara con video (21/10, Nico: «no deja seleccionar cualquier cámara»): antes sólo las que ya
+        // miraba OmniVision, así que las de Otto Villa no aparecían. Las que no mira se ofrecen igual, avisadas.
+        prisma.device.findMany({ where: { deviceType: { in: TIPOS_CON_VIDEO as any } }, select: { id: true, name: true, deviceType: true }, orderBy: { name: "asc" } }),
         prisma.franja.findMany(),
         prisma.ocupacion.findMany({ where: { cerrada: false }, orderBy: { desde: "asc" } }),
         prisma.ocupacion.findMany({ where: { cerrada: true, hasta: { gte: new Date(Date.now() - 24 * 3600_000) } }, orderBy: { hasta: "desc" }, take: 40, include: { device: { select: { name: true } } } }),
+        leerArbolAreas().catch(() => ({ areas: [] as AreaArbol[], equipoArea: {} as Record<string, string> })),
     ]);
     const porEquipo = new Map(franjas.map((f) => [f.deviceId, f]));
     const fila = (o: any): LugarAbierto => ({ id: o.id, lugar: o.lugar, plate: o.plate, desde: o.desde.toISOString(), hasta: o.hasta.toISOString(), avisado: o.avisado });
     const camaras = equipos
-        .filter((d) => vision.todas || vision.ids.has(d.id) || porEquipo.has(d.id))
         .map((d): CamaraEstacionamiento => {
             const f = porEquipo.get(d.id);
             const esq = f ? leerEsquinas(f.esquinas) : null;
             return {
-                id: d.id, nombre: d.name, tipo: String(d.deviceType),
+                id: d.id, nombre: d.name, tipo: String(d.deviceType), areaId: arbol.equipoArea[d.id] || null,
                 mirada: vision.todas || vision.ids.has(d.id),
                 franja: f && esq ? { esquinas: esq, lugares: f.lugares, activa: f.activa, nombre: f.nombre } : null,
                 vivo: estadoEnVivo(d.id),
@@ -68,7 +76,7 @@ export async function listarEstacionamiento(): Promise<{
             };
         });
     return {
-        prendida, ocuparSeg: OCUPAR_MS / 1000, liberarSeg: LIBERAR_MS / 1000, camaras,
+        prendida, ocuparSeg: OCUPAR_MS / 1000, liberarSeg: LIBERAR_MS / 1000, camaras, areas: arbol.areas,
         recientes: recientes.map((o) => ({ ...fila(o), camara: o.device?.name || o.deviceId })),
     };
 }
@@ -153,4 +161,23 @@ export async function borrarEstacionamiento(deviceId: string) {
 /** Las celdas de una franja (la misma fórmula que el servidor), para quien no quiera repetirla. */
 export async function celdasDeFranja(esquinas: Esquinas, lugares: number) {
     return Array.from({ length: lugares }, (_, i) => celda(esquinas, i, lugares));
+}
+
+/**
+ * Que OmniVision mire esta cámara (21/10): ahora se puede dibujar una franja en cualquier cámara,
+ * y en una que OmniVision no mira la franja se guarda pero nadie la mide. Esto la suma a
+ * VISION_CAMARAS (la lista que lee vision-worker en cada vuelta). Con la lista vacía ya mira todas.
+ * Cada cámara más es GPU: por eso es un botón, no algo que pase solo al guardar.
+ */
+export async function mirarConOmniVision(deviceId: string): Promise<{ ok: boolean; error?: string }> {
+    const s: any = await getSession();
+    if (!s) throw new Error("Sin sesión");
+    if (!permisosDeSesion(s).includes("ajustes")) return { ok: false, error: "Sólo quien tiene Ajustes puede sumar cámaras a OmniVision." };
+    const fila = await prisma.setting.findUnique({ where: { key: "VISION_CAMARAS" } });
+    let ids: string[] = [];
+    try { const l = JSON.parse(fila?.value || "[]"); ids = Array.isArray(l) ? l.map(String) : []; } catch { ids = []; }
+    if (!ids.length || ids.includes(deviceId)) return { ok: true }; // vacía = todas; o ya estaba
+    const value = JSON.stringify([...ids, deviceId]);
+    await prisma.setting.upsert({ where: { key: "VISION_CAMARAS" }, update: { value }, create: { key: "VISION_CAMARAS", value } });
+    return { ok: true };
 }

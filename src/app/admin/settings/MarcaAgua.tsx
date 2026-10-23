@@ -24,7 +24,7 @@ export default function MarcaAgua() {
         finally { setGuardando(false); }
     };
     return (
-        <div className="rounded-[10px] border border-border bg-card p-5 max-w-xl space-y-4">
+        <div className="rounded-[10px] border border-border bg-card p-5 space-y-4">
             <div className="flex items-start gap-4">
                 <div className="min-w-0 flex-1">
                     <div className="text-[15px] font-bold text-foreground">Logo en lo que sale por WhatsApp</div>

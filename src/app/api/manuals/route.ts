@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
             }
             if (!/\.(png|jpe?g|webp)$/i.test(nombre)) nombre += ".png";
 
-            let buf = Buffer.from(await (file as File).arrayBuffer());
+            let buf: Buffer = Buffer.from(await (file as File).arrayBuffer());
             try {   // normalizar: máx 2400 px de ancho y PNG recomprimido
                 const sharp = (await import("sharp")).default;
                 const img = sharp(buf); const meta2 = await img.metadata();

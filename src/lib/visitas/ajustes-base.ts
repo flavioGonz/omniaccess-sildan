@@ -41,8 +41,8 @@ export const TIPO_PASE_LIBRE = "PASE_LIBRE";
 export const NOMBRE_PASE_LIBRE = "Pase libre";
 /**
  * Visita.vence es obligatorio: el pase libre lleva un vence lejano para que el resto del sistema
- * (ordenar por vencimiento, «excedida») no lo tome por vencido. Lo cierra antes la Salida o el
- * corte del día; las pantallas y el aviso de excedida lo reconocen por su tipo, no por la hora.
+ * (ordenar por vencimiento, «excedida») no lo tome por vencido. Lo cierra la Salida; el corte del
+ * día sólo lo barre pasadas estas horas (ver visitas/tick); las pantallas y el aviso de excedida lo reconocen por su tipo, no por la hora.
  */
 export const PASE_LIBRE_HORAS = 36;
 export const esPaseLibre = (tipo: string | null | undefined) => tipo === TIPO_PASE_LIBRE;

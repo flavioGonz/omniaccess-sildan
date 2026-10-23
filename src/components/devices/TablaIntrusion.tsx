@@ -4,7 +4,7 @@ import { ChipModo } from "@/components/devices/ModoCamara";
 import { modoIntrusionDe } from "@/lib/modo-camara";
 
 import { useEffect, useMemo, useState } from "react";
-import { Radar, Server, BellRing, BellOff, Crosshair, Settings2, Trash2, Search, Loader2, Camera, Activity } from "lucide-react";
+import { Radar, Server, BellRing, BellOff, Crosshair, Settings2, Trash2, Search, Loader2, Camera, Activity, PowerOff } from "lucide-react";
 import { Tooltip } from "react-tooltip";
 import { cn } from "@/lib/utils";
 import { getIntrusionCameras, type IntrusionCam } from "@/app/actions/detections";
@@ -111,7 +111,8 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                                             : <span className="inline-flex items-center gap-1 text-[10px] font-bold text-muted-foreground" data-tooltip-id="tt-intr" data-tooltip-content="Todavía no se confirmó que le avise a OmniAccess. Se configura en el calibrador (control «Servidor»)."><BellOff size={12} /> Sin confirmar</span>}
                                     </td>
                                     <td className="text-center">
-                                        {h ? <span className={cn("inline-flex items-center gap-1.5 text-[10px] font-bold uppercase", h.reachable ? "text-emerald-500" : "text-red-500")}><span className={cn("w-1.5 h-1.5 rounded-full", h.reachable ? "bg-emerald-500" : "bg-red-500")} />{h.reachable ? "En línea" : "Sin respuesta"}</span>
+                                        {h?.apagado ? <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase text-muted-foreground"><PowerOff size={11} /> Apagado</span>
+                                            : h ? <span className={cn("inline-flex items-center gap-1.5 text-[10px] font-bold uppercase", h.reachable ? "text-emerald-500" : "text-red-500")}><span className={cn("w-1.5 h-1.5 rounded-full", h.reachable ? "bg-emerald-500" : "bg-red-500")} />{h.reachable ? "En línea" : "Sin respuesta"}</span>
                                             : <span className="text-[10px] text-muted-foreground">—</span>}
                                     </td>
                                     <td className="text-right pr-5">
@@ -120,7 +121,7 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                                                 className="h-8 px-2.5 rounded-md bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20 text-[11px] font-bold inline-flex items-center gap-1.5"><Crosshair size={13} /> Calibrar</button>
                                             <button onClick={() => onVerSalud?.(d)} className="h-8 w-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground grid place-items-center" data-tooltip-id="tt-intr" data-tooltip-content="Historial de salud: si respondió, latencia y alertas de las últimas horas"><Activity size={14} /></button>
                                             <button onClick={() => onEditar?.(d)} className="h-8 w-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground grid place-items-center" data-tooltip-id="tt-intr" data-tooltip-content="Editar la cámara: nombre, conexión y grabación"><Settings2 size={14} /></button>
-                                            <DeleteConfirmDialog id={d.id} title={d.name} description="Se saca de OmniAccess (la cámara y su grabación en el NVR no se tocan)." onDelete={deleteDevice} onSuccess={onReload}>
+                                            <DeleteConfirmDialog id={d.id} title={d.name} description="Se borra de todo OmniAccess: su historial (accesos, detecciones, alarmas, lecturas), sus reglas, su área, su video en vivo y su lugar en OmniVision. Queda sólo el registro en Auditoría. La cámara y su grabación en el NVR no se tocan." onDelete={deleteDevice} onSuccess={onReload}>
                                                 <button className="h-8 w-8 rounded-md hover:bg-red-500/10 text-red-400 grid place-items-center" data-tooltip-id="tt-intr" data-tooltip-content="Quitar de OmniAccess"><Trash2 size={14} /></button>
                                             </DeleteConfirmDialog>
                                         </div>

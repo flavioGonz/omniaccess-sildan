@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { AlertTriangle, Check, Loader2, MessageCircle, Search, Send, Share2, X } from "lucide-react";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
+import { PreparandoEnvio } from "@/components/video/PreparandoEnvio";
 import { compartirEvento, estadoCompartido, opcionesCompartir, type DestinoCompartir, type OpcionesCompartir } from "@/app/actions/compartir";
 
 /** Cada cuánto se pregunta cómo van los envíos, y hasta cuándo (con clip el worker tarda lo que dura el tramo). */
@@ -52,6 +53,11 @@ export function CompartirEvento({ foto, deviceId, deviceName, instante, titulo, 
     const [nota, setNota] = useState("");
     const [enviando, setEnviando] = useState(false);
     const [trabajos, setTrabajos] = useState<{ id: string; nombre: string; estado: string; error: string | null }[] | null>(null);
+    /** Cuándo se mandó: de ahí cuenta el avance del armado (el worker no informa pasos intermedios). */
+    const [salio, setSalio] = useState(0);
+    /** Cuándo el worker lo tomó (dejó de estar PENDING): recién ahí empieza a pedir el tramo al NVR. */
+    const [tomado, setTomado] = useState(0);
+    useEffect(() => { if (trabajos && !tomado && trabajos.some((t) => t.estado !== "PENDING")) setTomado(Date.now()); }, [trabajos, tomado]);
     const nombres = useRef(new Map<string, string>());
 
     useEffect(() => {
@@ -104,6 +110,7 @@ export function CompartirEvento({ foto, deviceId, deviceName, instante, titulo, 
         }).catch((e) => ({ ok: false as const, error: String(e?.message || e) }));
         setEnviando(false);
         if (!r.ok) { setError(r.error); return; }
+        setSalio(Date.now()); setTomado(0);
         setTrabajos(r.trabajos.map((t) => ({ ...t, estado: "PENDING", error: null })));
     };
 
@@ -137,7 +144,13 @@ export function CompartirEvento({ foto, deviceId, deviceName, instante, titulo, 
                     <section className="px-6 pt-5">
                         <div className={rotulo}>Lo que se manda</div>
                         <div className="rounded-[10px] border border-border overflow-hidden">
-                            {foto && (
+                            {trabajos && !terminado ? (
+                                // Mientras sale: lo mismo que al abrir una grabación — la foto detrás y los pasos del pedido al NVR.
+                                <PreparandoEnvio poster={foto ? `${foto}${foto.includes("?") ? "&" : "?"}w=640` : null} camara={deviceName} instante={momento.getTime()}
+                                    segundos={(op?.ventanaClip.antes ?? 5) + (op?.ventanaClip.despues ?? 5)} antes={op?.ventanaClip.antes}
+                                    canal={canal === "telegram" ? "Telegram" : "WhatsApp"} deviceId={deviceId} desde={tomado || salio}
+                                    conClip={!!op?.conClip && !!deviceId} conIntro={false} enCola={!tomado} />
+                            ) : foto && (
                                 /* eslint-disable-next-line @next/next/no-img-element */
                                 <img src={`${foto}${foto.includes("?") ? "&" : "?"}w=640`} alt="" className="w-full aspect-video object-cover bg-black" />
                             )}
@@ -154,10 +167,10 @@ export function CompartirEvento({ foto, deviceId, deviceName, instante, titulo, 
                             <div className="rounded-[10px] border border-border divide-y divide-border">
                                 {trabajos.map((t) => (
                                     <div key={t.id} className="flex items-start justify-between gap-3 px-3 py-2.5 text-[12.5px]">
-                                        <span className="font-semibold">{t.nombre}</span>
+                                        <span className="font-semibold min-w-0">{t.nombre}</span>
                                         <span className={cn("flex items-center gap-1.5 text-right", t.estado === "SENT" ? "tono-bien" : t.estado === "FAILED" ? "tono-mal" : "text-muted-foreground")}>
                                             {t.estado === "SENT" ? <><Check size={14} /> Enviado</>
-                                                : t.estado === "FAILED" ? <><AlertTriangle size={14} className="shrink-0" /> <span className="max-w-[220px]">{t.error || "No salió"}</span></>
+                                                : t.estado === "FAILED" ? <><AlertTriangle size={14} className="shrink-0" /> <span className="max-w-[220px] break-words [overflow-wrap:anywhere]">{t.error || "No salió"}</span></>
                                                     : <><Loader2 size={14} className="animate-spin" /> Enviando…</>}
                                         </span>
                                     </div>
@@ -236,7 +249,7 @@ export function CompartirEvento({ foto, deviceId, deviceName, instante, titulo, 
                             </section>
                         </>
                     )}
-                    {error && <p className="mx-6 mb-6 text-[12px] tono-mal flex items-start gap-2"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}</p>}
+                    {error && <p className="mx-6 mb-6 text-[12px] tono-mal flex items-start gap-2 break-words [overflow-wrap:anywhere]"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}</p>}
                 </div>
 
                 {/* ── Pie ── */}

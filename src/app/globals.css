@@ -2317,3 +2317,83 @@ html:not(.dark) .regla-tema .tms-tramo[data-tono="lectura"] { background: var(--
 @keyframes oa-aparecer { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .oa-aparecer { animation: oa-aparecer 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 @media (prefers-reduced-motion: reduce) { .oa-aparecer { animation: none; } }
+
+/* El brillo que cruza un marco que está cargando (components/ui/marco-refinado). Sólo transform. */
+@keyframes marco-barrido {
+  from { transform: translateX(0) skewX(-14deg); }
+  to { transform: translateX(400%) skewX(-14deg); }
+}
+
+/* El ajuste del video de la ficha (components/video/AjusteVideoFicha): entra con un pequeño
+   desplazamiento, y un cabezal recorre la línea de tiempo con la duración real del clip. */
+@keyframes oa-ajuste-entra { from { opacity: 0; transform: translateX(6px) scale(0.98); } }
+.oa-ajuste-entra { animation: oa-ajuste-entra 160ms cubic-bezier(.22,1,.36,1); }
+.oa-ajuste-entra.oa-ajuste-abajo { animation-name: oa-ajuste-entra-abajo; }
+@keyframes oa-ajuste-entra-abajo { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+@keyframes oa-ajuste-cabezal { from { left: 0%; } to { left: 100%; } }
+.oa-ajuste-cabezal { animation: oa-ajuste-cabezal linear infinite; }
+@media (prefers-reduced-motion: reduce) { .oa-ajuste-cabezal { animation: none; display: none; } .oa-ajuste-entra { animation: none; } }
+
+/* La capa de un aviso de OmniVision sobre la foto (components/vision/CapaComportamiento): la zona
+   con el borde caminando, la caja que entra, y la que late mientras la estadía sigue abierta. */
+@keyframes oa-zona-camina { to { stroke-dashoffset: -32; } }
+.oa-zona-camina { animation: oa-zona-camina 1.4s linear infinite; }
+@keyframes oa-caja-entra { from { opacity: 0; transform: scale(1.25); } }
+.oa-caja-entra { animation: oa-caja-entra 420ms cubic-bezier(.22,1,.36,1); }
+@keyframes oa-caja-late { 0% { opacity: 0.9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.35); } }
+.oa-caja-late { animation: oa-caja-late 1.8s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) { .oa-zona-camina, .oa-caja-entra, .oa-caja-late { animation: none; } .oa-caja-late { display: none; } }
+
+/* El popover del ajuste del video (AjusteVideoFicha): oscuro sobre la foto, y en la ventana del
+   evento en tema claro, la tarjeta clara como el resto de los paneles del visor. El texto blanco ya
+   se pasa a --foreground por las reglas de .visor-zona de arriba. */
+.oa-ajuste-pop { background: rgba(13, 17, 23, 0.95); border-color: rgba(255, 255, 255, 0.12); }
+html:not(.dark) .visor-raiz .visor-zona .oa-ajuste-pop { background: var(--card); border-color: var(--border); }
+
+/* El tema del cajón de la lista negra (WatchlistDialog y CajonListaNegra): todo rojo, letra
+   blanca (20/10 y 21/10, Nico: «el drawer de lista negra debe ser igual al que tenemos con fondo
+   rojo»). Se remapean los tokens adentro del cajón, así las piezas compartidas (CajonSeccion,
+   CajonCampo, Input, Button, Tabla) se ven bien sin reescribirlas. El primario pasa a blanco
+   con letra roja: sobre rojo, el azul de acción no se lee. */
+.tema-rojo {
+  --background: var(--mal);
+  --foreground: #fff;
+  --card: rgba(255, 255, 255, 0.08);
+  --card-foreground: #fff;
+  --muted: rgba(255, 255, 255, 0.12);
+  --muted-foreground: rgba(255, 255, 255, 0.78);
+  --border: rgba(255, 255, 255, 0.22);
+  --input: rgba(255, 255, 255, 0.3);
+  --ring: rgba(255, 255, 255, 0.7);
+  --accent: rgba(255, 255, 255, 0.14);
+  --accent-foreground: #fff;
+  --primary: #fff;
+  --primary-foreground: var(--mal);
+  --accion: #fff;
+  background: var(--mal);
+  color: #fff;
+}
+.tema-rojo .tono-mal, .tema-rojo .tono-aviso, .tema-rojo .tono-accion { color: #fff; }
+.tema-rojo .chip-mal, .tema-rojo .chip-aviso, .tema-rojo .chip-info, .tema-rojo .chip-bien {
+  background: rgba(0, 0, 0, 0.2); color: #fff; border-color: rgba(255, 255, 255, 0.28);
+}
+.tema-rojo input:not(.bg-white)::placeholder { color: rgba(255, 255, 255, 0.55); }
+
+/*
+ * Un evento P1 de una central de alarma (22/10, Nico: «cuando son P1 la fila entera se pinta de rojo,
+ * texto en blanco, animado parpadeando»). La fila en el rojo del sistema (--mal) y el texto en blanco.
+ *
+ * 23/10, Nico: «cuando un evento es alarma y está en rojo, debe parpadear». Antes latía sólo el texto
+ * y sólo mientras el evento seguía sin tratar: con las alarmas ya tratadas la fila quedaba roja y
+ * quieta, y el latido del texto solo casi no se notaba. Ahora toda fila roja parpadea, y lo que late
+ * es el fondo: cada celda se oscurece y vuelve (la animación va en la celda porque el fondo de la
+ * fila lleva !important y una animación no le gana). Sin pendiente, el ritmo es más lento; sin
+ * movimiento si el usuario lo pidió.
+ */
+tr.omni-fila-p1, tr.omni-fila-p1:hover { background: var(--mal) !important; }
+tr.omni-fila-p1 > td, tr.omni-fila-p1 > td * { color: #fff !important; }
+tr.omni-fila-p1 > td [class*="chip-"] { background: rgba(255, 255, 255, .18) !important; border-color: rgba(255, 255, 255, .35) !important; }
+@keyframes omni-p1-late { 0%, 100% { background-color: transparent; } 50% { background-color: rgba(0, 0, 0, .38); } }
+tr.omni-fila-p1 > td { animation: omni-p1-late 1.6s ease-in-out infinite; }
+tr.omni-fila-p1-viva > td { animation-duration: .9s; }
+@media (prefers-reduced-motion: reduce) { tr.omni-fila-p1 > td { animation: none; } }

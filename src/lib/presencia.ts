@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizarMatricula } from "@/lib/lista-negra";
 import { leerAjustesVisitas } from "@/lib/visitas/ajustes";
 import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
+import { esDeProveedores } from "@/lib/presencia-grupos";
 
 /**
  * Quién está adentro del barrio ahora (Monitor LPR › las cuatro tarjetas de presencia).
@@ -99,6 +100,10 @@ export type ResidenteAdentro = { userId: string; nombre: string; unidad: string 
 export type VisitaAdentro = {
     id: string; plate: string | null; nombre: string | null; empresa: string | null; tipo: string; tipoNombre: string;
     lote: string | null; origen: string; entrada: string; vence: string; excedida: boolean;
+    /** Proveedor con pase libre: sin tiempo, la cierra la Salida; nunca «excedida» ni para cerrar a mano. */
+    paseLibre: boolean;
+    /** De un proveedor (la abrió su entrada, o es un pase libre): va a la pestaña Proveedores. */
+    proveedor: boolean;
 };
 
 export type Presencia = {
@@ -110,7 +115,9 @@ export type Presencia = {
     /** Los vehículos adentro con algo fuera de lo común (lista negra, merodeo, primera vez, alta frecuencia). */
     atipicos: AutoAdentro[];
     /** Los cuatro números de la pared (Control LPR). */
-    resumen: { residentes: number; visitasProveedores: number; desconocidos: number; atipicos: number };
+    resumen: { residentes: number; visitasProveedores: number; desconocidos: number; atipicos: number;
+        /** «Visitas y proveedores», partido en dos (21/10, Nico: «visitas debe ser una tab, proveedores otra»). */
+        visitas: number; proveedores: number };
     ventanas: { residentesDias: number; visitasHoras: number };
     calculado: string;
 };
@@ -252,8 +259,10 @@ async function calcular(): Promise<Presencia> {
     const visitas: VisitaAdentro[] = visitasAbiertas.map((v) => ({
         id: v.id, plate: v.plate, nombre: v.nombre, empresa: v.empresa, tipo: v.tipo,
         tipoNombre: tipos.get(v.tipo) || (esPaseLibre(v.tipo) ? NOMBRE_PASE_LIBRE : v.tipo), lote: v.loteNombre, origen: v.origen,
-        entrada: v.entra.toISOString(), vence: v.vence.toISOString(), excedida: v.vence.getTime() < ahora,
+        entrada: v.entra.toISOString(), vence: v.vence.toISOString(), excedida: !esPaseLibre(v.tipo) && v.vence.getTime() < ahora,
+        paseLibre: esPaseLibre(v.tipo), proveedor: v.origen === "PROVEEDOR" || esPaseLibre(v.tipo),
     }));
+    const sinChapa = visitas.filter((v) => !v.plate);
 
     return {
         modo: abierto ? "ABIERTO" : "CERRADO",
@@ -266,7 +275,9 @@ async function calcular(): Promise<Presencia> {
             residentes: residentes.size,
             // Lo registrado que no es residente: visitas, invitados, proveedores, personal y lista
             // blanca con el auto adentro, más las visitas registradas que entraron sin chapa (a pie, moto).
-            visitasProveedores: autosVisitas.filter((a) => a.clase !== "no_registrado").length + visitasAbiertas.filter((v) => !v.plate).length,
+            visitasProveedores: autosVisitas.filter((a) => a.clase !== "no_registrado").length + sinChapa.length,
+            proveedores: autosVisitas.filter((a) => esDeProveedores(a)).length + sinChapa.filter((v) => v.proveedor).length,
+            visitas: autosVisitas.filter((a) => a.clase !== "no_registrado" && !esDeProveedores(a)).length + sinChapa.filter((v) => !v.proveedor).length,
             desconocidos: autosVisitas.filter((a) => a.clase === "no_registrado").length,
             atipicos: autos.filter((a) => a.atipico.length).length,
         },

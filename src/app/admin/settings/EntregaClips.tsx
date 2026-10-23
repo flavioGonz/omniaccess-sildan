@@ -75,7 +75,7 @@ export default function EntregaClips() {
 
     if (cargando) return <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="animate-spin" size={16} /> Leyendo la entrega de clips…</div>;
     return (
-        <div className="rounded-[10px] border border-border bg-card p-5 max-w-3xl space-y-5">
+        <div className="rounded-[10px] border border-border bg-card p-5 space-y-5">
             <div>
                 <h3 className="text-sm font-bold text-foreground">Entrega de clips</h3>
                 <p className="text-[12px] text-muted-foreground mt-0.5">Cómo se arma el video cuando se ve o se descarga desde la ficha de un evento, el monitor, el mapa o la consola del guardia. El clip se convierte en el momento: más resolución es más espera y más peso.</p>

@@ -7,7 +7,9 @@
  * ningún otro lado.
  */
 
-export type ClaveVista = "intrusion" | "lpr" | "mapa" | "resumen" | "salud" | "rotacion" | "camaras";
+import type { FuncionId } from "@/lib/funciones";
+
+export type ClaveVista = "intrusion" | "alarmas" | "lpr" | "face" | "mapa" | "resumen" | "salud" | "rotacion" | "camaras";
 
 export type Vista = {
     clave: ClaveVista;
@@ -17,23 +19,44 @@ export type Vista = {
     /** Qué muestra, en dos o tres frases. */
     queMuestra: string;
     /** Ícono de lucide, por nombre: el menú lo resuelve. */
-    icono: "ShieldAlert" | "Car" | "Map" | "LayoutDashboard" | "HeartPulse" | "RefreshCw" | "Cctv";
+    icono: "ShieldAlert" | "Siren" | "Car" | "ScanFace" | "Map" | "LayoutDashboard" | "HeartPulse" | "RefreshCw" | "Cctv";
+    /**
+     * La función de la instalación sin la cual la vista no existe (openspec alarmas-como-funciones):
+     * apagada, Monitores no la ofrece, la rotación la saltea y la pantalla dice que está apagada.
+     */
+    funcion?: FuncionId;
     /** Si la vista puede sonar y con qué modos. */
     sonido?: { ajuste: string; modos: { valor: string; rotulo: string }[] };
 };
 
 export const VISTAS: Vista[] = [
     {
-        clave: "intrusion", nombre: "Intrusión", icono: "ShieldAlert",
+        clave: "intrusion", nombre: "Intrusión", icono: "ShieldAlert", funcion: "FUNC_INTRUSION",
         paraQuien: "La pared del centro: quien tiene que ver una intrusión en el segundo en que ocurre.",
         queMuestra: "Todas las cámaras de intrusión en mosaico, con su línea y su zona dibujadas y el armado de cada regla. Cuando una detecta, su canal se pone rojo y crece hasta ocupar media pantalla; al costado, las últimas detecciones con su foto.",
         sonido: { ajuste: "MONITOR_INTRUSION_SONIDO", modos: [{ valor: "off", rotulo: "Sin sonido" }, { valor: "una", rotulo: "Un tono por alarma" }, { valor: "repetir", rotulo: "Repetir hasta que se acepte" }] },
+    },
+    {
+        // 23/10, Nico: «un nuevo tipo de monitor para los wall, "Alarmas", con las alarmas del hub…
+        // la recepción de eventos debe ser muy rápida: tenemos que verificar cada evento con video en vivo».
+        clave: "alarmas", nombre: "Alarmas", icono: "Siren", funcion: "FUNC_ALARMAS_GESTION",
+        paraQuien: "La pared del centro: quien verifica con video cada alarma que manda una central.",
+        queMuestra: "La alarma más urgente sin tratar, con su prioridad, cuánto hace y quién la tiene, y las cámaras de su área en una pared como la de Cámaras: las de la zona en grande, el resto alrededor, con su disposición, páginas y «Ver el momento». Al costado, las otras pendientes, el procedimiento y lo que va llegando de las centrales con qué pasó con cada alarma; abajo, cada central con su armado y si sigue reportando.",
+        sonido: { ajuste: "MONITOR_ALARMAS_SONIDO", modos: [{ valor: "una", rotulo: "Un tono por alarma" }, { valor: "repetir", rotulo: "Repetir mientras nadie la tome" }, { valor: "off", rotulo: "Sin sonido" }] },
     },
     {
         clave: "lpr", nombre: "Control LPR", icono: "Car",
         paraQuien: "La garita o la pared: quién entra y quién sale, y si se le abrió.",
         queMuestra: "La última lectura grande (chapa y cuadro), permitido o denegado con el motivo, la tira de las últimas diez, los contadores del día y una fila de atención con lista negra, en búsqueda y merodeo.",
         sonido: { ajuste: "MONITOR_LPR_SONIDO", modos: [{ valor: "off", rotulo: "Sin sonido" }, { valor: "denegado", rotulo: "En cada denegado" }, { valor: "lista", rotulo: "Sólo lista negra y en búsqueda" }] },
+    },
+    {
+        // 23/10, Nico: «falta el Monitor Face; debe tener un Monitor Face en /admin/monitores». Sólo
+        // las terminales faciales (decisión de Nico): el Control LPR, pero con caras (openspec pared-vms).
+        clave: "face", nombre: "Monitor Face", icono: "ScanFace",
+        paraQuien: "La garita o la pared: quién entra y quién sale por reconocimiento facial, y si se le abrió.",
+        queMuestra: "El último acceso grande, con la foto que tomó la terminal junto a la del padrón, la persona y su unidad, permitido o denegado con el motivo; la tira de los anteriores, los contadores del día y los denegados y desconocidos de la última hora.",
+        sonido: { ajuste: "MONITOR_FACE_SONIDO", modos: [{ valor: "off", rotulo: "Sin sonido" }, { valor: "denegado", rotulo: "En cada denegado" }, { valor: "desconocido", rotulo: "Sólo desconocidos y lista negra" }] },
     },
     {
         clave: "mapa", nombre: "Mapa", icono: "Map",
@@ -58,7 +81,7 @@ export const VISTAS: Vista[] = [
     {
         clave: "rotacion", nombre: "Rotación", icono: "RefreshCw",
         paraQuien: "Quien tiene un solo monitor y quiere ver varias cosas.",
-        queMuestra: "Alterna las vistas que elijas cada tantos segundos. Si hay una intrusión confirmada, se queda en Intrusión hasta que se resuelva.",
+        queMuestra: "Alterna las vistas que elijas cada tantos segundos. Si hay una intrusión confirmada, se queda en Intrusión hasta que se resuelva; si hay una alarma crítica de una central y la rotación incluye Alarmas, se queda en Alarmas hasta que se trate.",
     },
 ];
 
@@ -76,7 +99,10 @@ export const vistaPorClave = (c: string) => VISTAS.find((v) => v.clave === c) ||
 export const ALCANCE_COMUN = ["/api/monitor/alarmas", "/api/monitor/marco"];
 export const ALCANCE_POR_VISTA: Record<ClaveVista, string[]> = {
     intrusion: ["/api/monitor/intrusion"],
+    // Las cámaras del área del evento, como en la pared Cámaras (y la foto de un canal de NVR, de respaldo).
+    alarmas: ["/api/monitor/centrales", "/api/monitor/camaras"],
     lpr: ["/api/monitor/lpr"],
+    face: ["/api/monitor/face"],
     mapa: ["/api/monitor/mapa"],
     resumen: ["/api/monitor/resumen"],
     salud: ["/api/monitor/salud", "/api/system-status"],

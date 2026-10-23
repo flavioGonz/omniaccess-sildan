@@ -293,7 +293,7 @@ export async function getQueueDailyBreakdown(deviceId?: string, from?: Date, to?
         lastMap.set(key, e.peopleCount);
     }
 
-    const result: { date: string; avg: number; max: number; count: number; total: number }[] = [];
+    const result: { date: string; avg: number; max: number; last: number; count: number; total: number }[] = [];
     const cursor = new Date(start);
     while (cursor <= end) {
         const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;

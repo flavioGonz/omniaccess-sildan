@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
-import { MarcoMonitor } from "@/components/monitor/MarcoMonitor";
+import { MarcoMonitor, SiFuncion } from "@/components/monitor/MarcoMonitor";
 import AlertaIntrusionGlobal from "@/components/intrusion/AlertaIntrusionGlobal";
+import { PilaAvisos } from "@/components/avisos/PilaAvisos";
+import { AvisosLpr } from "@/components/avisos/AvisosLpr";
 import { getSession } from "@/app/actions/auth";
-import { permisosDeSesion, puedeAbrir } from "@/lib/permisos";
+import { permisosDeSesion } from "@/lib/permisos";
 
 export const metadata: Metadata = { title: "OmniAccess · Monitor" };
 export const dynamic = "force-dynamic";
@@ -19,11 +21,14 @@ export default async function MonitorLayout({ children }: { children: React.Reac
      * resolver), con los mismos permisos que en el panel. Las acciones van por la sesión.
      */
     const sesion: any = await getSession().catch(() => null);
-    const puedeDecidir = !!sesion && puedeAbrir(permisosDeSesion(sesion), "/admin/monitor-intrusion");
+    const puedeDecidir = !!sesion && permisosDeSesion(sesion).includes("intrusion.atender");
     return (
         <MarcoMonitor puedeDecidir={puedeDecidir}>
             {children}
-            <AlertaIntrusionGlobal soloLectura decide={puedeDecidir} />
+            <SiFuncion id="FUNC_INTRUSION"><AlertaIntrusionGlobal soloLectura decide={puedeDecidir} /></SiFuncion>
+            {/* En la pared, sólo lo crítico (lista negra) y sin botones: no hay sesión para decidir. */}
+            <AvisosLpr soloLectura />
+            <PilaAvisos soloCriticos />
         </MarcoMonitor>
     );
 }

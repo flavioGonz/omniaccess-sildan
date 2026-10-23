@@ -22,7 +22,7 @@ async function exigirGuardia(): Promise<string> {
     const s: any = await getSession();
     if (s) {
         const perms = permisosDeSesion(s);
-        if (perms.includes("guardia") || perms.includes("ajustes")) return String(s.name || s.sub || "panel");
+        if (perms.includes("visitas") || perms.includes("guardia") || perms.includes("ajustes")) return String(s.name || s.sub || "panel");
     }
     // La consola de la garita no tiene sesión del panel: vale el guardia identificado con su PIN.
     const guardia = await leerGuardia();

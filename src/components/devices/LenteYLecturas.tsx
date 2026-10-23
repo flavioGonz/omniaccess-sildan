@@ -22,7 +22,10 @@ const TOPE_MOVIMIENTO_MS = 5000;
 
 type Lente = { zoom: boolean; foco: boolean; habilitado: boolean; motivo?: string };
 
-export function ControlesLente({ deviceId, tt }: { deviceId: string; tt: string }) {
+/** Sin `tt` (una pantalla sin ReactTooltip, como el calibrador) la ayuda va en el `title` nativo. */
+const ayudaDe = (tt: string | undefined, texto?: string) => (tt ? { "data-tooltip-id": tt, "data-tooltip-content": texto } : { title: texto });
+
+export function ControlesLente({ deviceId, tt, className }: { deviceId: string; tt?: string; className?: string }) {
     const [lente, setLente] = useState<Lente | null>(null);
     const [autofoco, setAutofoco] = useState(false);
     const moviendo = useRef<{ que: string; t: ReturnType<typeof setTimeout> } | null>(null);
@@ -57,7 +60,7 @@ export function ControlesLente({ deviceId, tt }: { deviceId: string; tt: string 
     // Una función que devuelve el botón (no un componente): definido adentro, se remontaría en cada render.
     const mantener = ({ que, sentido, icono: I, ayuda }: { que: "zoom" | "foco"; sentido: 1 | -1; icono: any; ayuda: string }) => (
         <button key={`${que}${sentido}`} type="button" disabled={off} aria-label={ayuda}
-            data-tooltip-id={tt} data-tooltip-content={off ? lente.motivo : `${ayuda} (mantener apretado)`}
+            {...ayudaDe(tt, off ? lente.motivo : `${ayuda} (mantener apretado)`)}
             onPointerDown={(e) => {
                 if (off) return;
                 (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -72,18 +75,18 @@ export function ControlesLente({ deviceId, tt }: { deviceId: string; tt: string 
     );
 
     return (
-        <div className={cn("absolute right-4 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 rounded-full p-1", vidrio)}>
+        <div className={cn("absolute right-4 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 rounded-full p-1", vidrio, className)}>
             {lente.zoom && <>
                 {mantener({ que: "zoom", sentido: 1, icono: ZoomIn, ayuda: "Acercar (zoom)" })}
                 {mantener({ que: "zoom", sentido: -1, icono: ZoomOut, ayuda: "Alejar (zoom)" })}
             </>}
             {lente.zoom && lente.foco && <span className="w-4 h-px bg-white/25 my-0.5" />}
             {lente.foco && <>
-                <span className="text-white/60" data-tooltip-id={tt} data-tooltip-content="Foco"><Focus size={12} /></span>
+                <span className="text-white/60" {...ayudaDe(tt, "Foco")}><Focus size={12} /></span>
                 {mantener({ que: "foco", sentido: 1, icono: Plus, ayuda: "Foco: más lejos" })}
                 {mantener({ que: "foco", sentido: -1, icono: Minus, ayuda: "Foco: más cerca" })}
                 <button type="button" disabled={off || autofoco} aria-label="Autofoco"
-                    data-tooltip-id={tt} data-tooltip-content={off ? lente.motivo : "Autofoco: la cámara busca el foco sola sobre lo que ve ahora"}
+                    {...ayudaDe(tt, off ? lente.motivo : "Autofoco: la cámara busca el foco sola sobre lo que ve ahora")}
                     onClick={async () => { setAutofoco(true); await mandar("autofoco", 0); setTimeout(() => setAutofoco(false), 2500); }}
                     className="h-8 w-8 grid place-items-center rounded-full hover:bg-white/15 disabled:opacity-40">
                     {autofoco ? <Loader2 size={15} className="animate-spin" /> : <Crosshair size={15} />}

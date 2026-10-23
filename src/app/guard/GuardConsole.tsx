@@ -2,6 +2,7 @@
 
 import { useFuncion } from "@/lib/funciones-cliente";
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useConfirmar } from "@/components/ui/use-confirmar";
 import {
     Camera,
     Loader2,
@@ -123,6 +124,8 @@ const tabTransition = { type: "tween" as const, ease: [0.22, 1, 0.36, 1] as [num
 
 export default function GuardConsole({ initialEntries, logo, headerColor, initialIcons, units, guards }: GuardConsoleProps) {
     const [activeTab, setActiveTab] = useState<TabType>("control");
+    // Confirmar en el cajón del panel, no con el confirm() del navegador (punto 6, 21/10).
+    const { confirmar, elemento: confirmacion } = useConfirmar();
     /** Avisos a la guardia sin atender: el número rojo sobre la pestaña Visitas. */
     const [avisosPendientes, setAvisosPendientes] = useState(0);
     // Los avisos llegan aunque el guardia esté en otra pestaña: se cuentan y se muestran acá,
@@ -1490,7 +1493,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
     };
 
     const handleDelete = async (id: string) => {
-        if (confirm("¿Está seguro de eliminar este registro?")) {
+        if (await confirmar({ titulo: "Eliminar este registro de la bitácora", descripcion: "La entrada se borra del historial.", accion: "Eliminar" })) {
             try {
                 await deleteBitacoraEntry(id);
                 setEntries(prev => prev.filter((e: any) => e.id !== id));
@@ -1503,6 +1506,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
 
     return (
         <div className="h-screen w-screen bg-white text-black flex overflow-hidden font-sans select-none">
+            {confirmacion}
 
             {/* IDENTITY / LOGIN OVERLAY */}
             <AnimatePresence>

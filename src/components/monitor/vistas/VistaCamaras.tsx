@@ -2,8 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera, ScanEye, Crosshair } from "lucide-react";
+import { FolderTree, Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera, ScanEye, Crosshair, ScanSearch } from "lucide-react";
 import { useMarco, BarraDelMarco } from "@/components/monitor/MarcoMonitor";
+import { fondoDe, type TonoFondo } from "@/lib/monitor/fondos";
+import { BuscarEnPared, canalesParaBuscar } from "@/components/monitor/camaras/BuscarEnPared";
+import type { RutasParecidos } from "@/components/visor/BuscarParecidos";
+import { sembrarAreas } from "@/lib/use-areas";
+import { CasillaWeb } from "@/components/monitor/camaras/CasillaWeb";
+import { esClaveWeb, idDeClaveWeb, type FuenteWeb } from "@/lib/monitor/fuentes-web";
 import { usarDatos, horaCorta, hace, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { metaDe } from "@/components/intrusion/comun";
@@ -66,14 +72,20 @@ const CAPTURA_EN_BALDOSA_MS = 15_000;
 type Datos = {
     /** OmniVision: carga medida contra su tope, cuántas cámaras analiza, y si quien mira puede cambiarlo. */
     vision?: { total: number; tope: number; medido: boolean; cuantas: number; puedeCambiar: boolean };
-    canales: Canal[]; errores: { nvr: string; error: string }[]; go2rtc: boolean; ventanaAlertaMs: number; ahora: string; vistas: VistaGuardada[]; puedeEditar: boolean;
+    canales: Canal[]; errores: { nvr: string; error: string }[]; go2rtc: boolean;
+    /** Las áreas de Dispositivos, en el orden del árbol. */
+    areas?: { id: string; nombre: string; padre: string | null; color: string; nivel: number }[]; ventanaAlertaMs: number; ahora: string; vistas: VistaGuardada[]; puedeEditar: boolean;
+    /** Las páginas web para las casillas `web:` (openspec pared-vms). */
+    fuentes?: FuenteWeb[];
     /** Seguimiento visual: por idCanal, los enlaces a las cámaras vecinas. */
     seguimiento?: Record<string, { to: string; x: number; y: number }[]> };
 /** colMovil: en el celular la pared es una lista que se desliza, de 1 o 2 columnas. */
-type Prefs = { vista: string; disposicion: string; pagSeg: number; pausa: boolean; nvr: string; colMovil: 1 | 2 };
+type Prefs = { vista: string; disposicion: string; pagSeg: number; pausa: boolean; nvr: string; area: string; colMovil: 1 | 2 };
 type Celda = { casilla: Casilla; canal: Canal | null; claveFaltante?: string | null };
 
-const PREFS_INICIALES: Prefs = { vista: AUTO, disposicion: DISPOSICION_POR_DEFECTO, pagSeg: 20, pausa: false, nvr: "todos", colMovil: 1 };
+const PREFS_INICIALES: Prefs = { vista: AUTO, disposicion: DISPOSICION_POR_DEFECTO, pagSeg: 20, pausa: false, nvr: "todos", area: "todas", colMovil: 1 };
+/** «Sin área» en el filtro de áreas. */
+const SIN_AREA = "__sin_area";
 
 /** Los ajustes de esta ventana; los parámetros de la dirección mandan sobre lo guardado. */
 function leerPrefs(): { prefs: Prefs; canalSolo: string | null } {
@@ -86,7 +98,7 @@ function leerPrefs(): { prefs: Prefs; canalSolo: string | null } {
         if (g) p.disposicion = g;
         if (q.get("disposicion") && DISPOSICIONES.some((d) => d.clave === q.get("disposicion"))) p.disposicion = q.get("disposicion")!;
         if (q.get("vista")) p.vista = q.get("vista")!;
-        const c = q.get("canal"); if (c && CLAVE_CANAL.test(c)) canalSolo = c;
+        const c = q.get("canal"); if (c && CLAVE_CANAL.test(c) && !esClaveWeb(c)) canalSolo = c;
     } catch { }
     if (!DISPOSICIONES.some((d) => d.clave === p.disposicion)) p.disposicion = DISPOSICION_POR_DEFECTO;
     if (!PAGINA_SEG.includes(p.pagSeg as any)) p.pagSeg = PREFS_INICIALES.pagSeg;
@@ -201,7 +213,7 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
     const grande = celda.casilla.w > 1;
     if (!c) {
         return (
-            <div style={estiloCasilla(celda.casilla)} className="relative min-h-0 rounded-[10px] bg-neutral-950 ring-1 ring-white/5 grid place-items-center text-[12px] text-white/25">
+            <div style={estiloCasilla(celda.casilla)} className="relative min-h-0 rounded-[10px] bg-muted/60 ring-1 ring-border grid place-items-center text-[12px] text-muted-foreground/70">
                 {celda.claveFaltante ? "El canal de esta casilla ya no está" : ""}
             </div>
         );
@@ -307,8 +319,11 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
     );
 }
 
+/** El veredicto de OmniVision que confirma una detección (hay alguien en la captura). */
+const VEREDICTO_CONFIRMADO = "PRESENTE";
+
 export function VistaCamaras() {
-    const { latir, setTitulo } = useMarco();
+    const { latir, setTitulo, setFondo, pantalla } = useMarco();
     usarReloj(5000);
     const { datos, error, recargar } = usarDatos<Datos>("/api/monitor/camaras", INTERVALO_MS, latir);
 
@@ -387,13 +402,26 @@ export function VistaCamaras() {
     const modoVista: "solo" | "guardada" | "auto" = canalSolo ? "solo" : guardada ? "guardada" : "auto";
     const disp = disposicionDe(modoVista === "solo" ? "1" : guardada ? guardada.disposicion : prefs?.disposicion);
     const filtro = prefs?.nvr && (prefs.nvr === "todos" || nvrs.includes(prefs.nvr)) ? prefs.nvr : "todos";
+    /*
+     * Por área de Dispositivos (21/10, Nico: «filtrar las cámaras por áreas también acá»). Un área
+     * incluye las de adentro; un canal sin equipo cuenta en el área de su NVR. Se combina con el NVR.
+     */
+    const areas = datos?.areas || [];
+    const areaSel = prefs?.area && (prefs.area === "todas" || prefs.area === SIN_AREA || areas.some((a) => a.id === prefs.area)) ? prefs.area : "todas";
+    const bajoArea = useMemo(() => {
+        const m = new Map<string, Set<string>>();
+        for (const a of areas) { const set = new Set([a.id]); let cambio = true; while (cambio) { cambio = false; for (const b of areas) if (b.padre && set.has(b.padre) && !set.has(b.id)) { set.add(b.id); cambio = true; } } m.set(a.id, set); }
+        return m;
+    }, [areas]);
+    const enArea = useCallback((c: Canal, area: string) => area === "todas" ? true : area === SIN_AREA ? !c.areaId || !bajoArea.has(c.areaId) : !!c.areaId && !!bajoArea.get(area)?.has(c.areaId), [bajoArea]);
+    const nombreArea = areaSel === "todas" ? null : areaSel === SIN_AREA ? "Sin área" : areas.find((a) => a.id === areaSel)?.nombre || null;
 
     // Automática: las que detectan van primero (a la casilla grande, si hay); el resto en el orden del NVR.
     const ordenados = useMemo(() => {
-        const f = todos.filter((c) => filtro === "todos" || grupoDe(c) === filtro);
+        const f = todos.filter((c) => (filtro === "todos" || grupoDe(c) === filtro) && enArea(c, areaSel));
         const con = f.filter((c) => alertaDe(c)).sort((a, b) => +new Date(alertaDe(b)!.ts) - +new Date(alertaDe(a)!.ts));
         return [...con, ...f.filter((c) => !alertaDe(c))];
-    }, [todos, filtro, alertaDe]);
+    }, [todos, filtro, alertaDe, enArea, areaSel]);
     const porPagina = disp.casillas.length;
     const paginas = modoVista === "auto" ? Math.max(1, Math.ceil(ordenados.length / porPagina)) : 1;
     const [pagina, setPagina] = useState(0);
@@ -401,12 +429,20 @@ export function VistaCamaras() {
     const pausada = !!prefs?.pausa;
     /** Editando el seguimiento visual (arrastrar cámaras unas sobre otras): la página no pasa sola. */
     const [editandoSeg, setEditandoSeg] = useState(false);
+    /** «Buscar parecidos» abierto (y desde qué canal): mientras tanto la página no pasa sola. Ver más abajo. */
+    const [buscar, setBuscar] = useState<{ canal: Canal | null } | null>(null);
     useEffect(() => { if (hayAlerta) setPagina(0); }, [hayAlerta]);
+    // Mismo criterio de fondo que las demás paredes (lib/monitor/fondos): una detección en pantalla es
+    // ámbar (hay que mirarla); si OmniVision confirmó que hay alguien, roja (hay que atenderla).
+    const tonoPared: TonoFondo | null = !hayAlerta ? null
+        : ordenados.some((c) => alertaDe(c)?.verif?.veredicto === VEREDICTO_CONFIRMADO) ? "mal" : "aviso";
+    useEffect(() => { setFondo(fondoDe(tonoPared)); }, [tonoPared, setFondo]);
+    useEffect(() => () => setFondo(null), [setFondo]);
     useEffect(() => {
-        if (modoVista !== "auto" || paginas <= 1 || pausada || hayAlerta || editandoSeg) return;
+        if (modoVista !== "auto" || paginas <= 1 || pausada || hayAlerta || editandoSeg || buscar) return;
         const iv = setInterval(() => setPagina((p) => (p + 1) % paginas), (prefs?.pagSeg || 20) * 1000);
         return () => clearInterval(iv);
-    }, [modoVista, paginas, pausada, hayAlerta, prefs?.pagSeg, editandoSeg]);
+    }, [modoVista, paginas, pausada, hayAlerta, prefs?.pagSeg, editandoSeg, buscar]);
     const pag = Math.min(pagina, paginas - 1);
 
     const celdas: Celda[] = useMemo(() => {
@@ -456,10 +492,21 @@ export function VistaCamaras() {
     }, [abiertaClave, enPantalla]);
 
     // Menús de la barra.
-    const [menu, setMenu] = useState<null | "vista" | "disposicion" | "nvr" | "paginas" | "ventanas" | "recursos">(null);
+    const [menu, setMenu] = useState<null | "vista" | "disposicion" | "nvr" | "area" | "paginas" | "ventanas" | "recursos">(null);
     const cerrarMenu = useCallback(() => setMenu(null), []);
     const alternar = (m: NonNullable<typeof menu>) => setMenu((x) => (x === m ? null : m));
     const [editando, setEditando] = useState<VistaGuardada | null>(null);
+    /**
+     * «Buscar parecidos» (openspec pared-vms): abierto, y desde qué canal si se abrió desde su ficha.
+     * Va por /api/monitor/camaras, que también abre a un enlace de pantalla (decisión de Nico, 23/10);
+     * con enlace, el resultado se queda en la foto (la grabación y compartir piden una persona).
+     */
+    const rutasBuscar = useMemo<RutasParecidos>(() => ({
+        buscar: "/api/monitor/camaras/buscar", imagen: "/api/monitor/camaras/imagen",
+        chapas: pantalla ? null : "/api/vision/parecidos/chapas", limitado: !!pantalla,
+    }), [pantalla]);
+    useEffect(() => { if (datos?.areas?.length) sembrarAreas(datos.areas); }, [datos?.areas]);
+    const fuentesPorId = useMemo(() => new Map((datos?.fuentes || []).map((f) => [f.id, f])), [datos?.fuentes]);
     const [pantallas, setPantallas] = useState<Pantalla[] | null>(null);
     const [aviso, setAviso] = useState<string | null>(null);
     /** Por canal: en qué paso está su entrada o salida de OmniVision (se dibuja en el canal mismo). */
@@ -507,7 +554,7 @@ export function VistaCamaras() {
 
     if (editando) {
         return (
-            <EditorVista inicial={editando} canales={todos} alSalir={(r) => {
+            <EditorVista inicial={editando} canales={todos} fuentes={datos?.fuentes || []} alSalir={(r) => {
                 setEditando(null);
                 if (r === "borrada") setPrefs({ vista: AUTO });
                 else if (r) setPrefs({ vista: r.id });
@@ -517,7 +564,7 @@ export function VistaCamaras() {
     }
 
 
-    const nombreVista = modoVista === "solo" ? (porClave.get(canalSolo!)?.nombre || "Una cámara") : guardada ? guardada.nombre : filtro === "todos" ? "Todas las cámaras" : filtro;
+    const nombreVista = modoVista === "solo" ? (porClave.get(canalSolo!)?.nombre || "Una cámara") : guardada ? guardada.nombre : [nombreArea, filtro === "todos" ? null : filtro].filter(Boolean).join(" · ") || "Todas las cámaras";
     // Los NVR que no contestan van en su menú, apagados y con el porqué: un aviso fijo arriba
     // (como era hasta el 15/10) le sacaba una fila al video para algo que no se puede arreglar desde acá.
     const nvrsCaidos = datos?.errores || [];
@@ -568,6 +615,35 @@ export function VistaCamaras() {
         </>
     );
     const hayNvrs = nvrs.length > 1 || nvrsCaidos.length > 0;
+    const haySinArea = todos.some((c) => enArea(c, SIN_AREA));
+    const opcionesArea = (
+        <>
+            <OpcionMenu onClick={() => { setPrefs({ area: "todas" }); setPagina(0); setMenu(null); }} elegida={areaSel === "todas"}>
+                <span className="flex-1 truncate">Todas las áreas</span>
+                <span className="text-[12px] text-muted-foreground tabular-nums">{todos.length}</span>
+            </OpcionMenu>
+            {areas.map((a) => {
+                const n = todos.filter((c) => enArea(c, a.id)).length;
+                if (!n) return null;
+                return (
+                    <OpcionMenu key={a.id} onClick={() => { setPrefs({ area: a.id }); setPagina(0); setMenu(null); }} elegida={areaSel === a.id}>
+                        <span className="flex items-center gap-2 flex-1 min-w-0" style={{ paddingLeft: a.nivel * 12 }}>
+                            <span className="h-2.5 w-2.5 rounded-[3px] shrink-0" style={{ background: a.color }} />
+                            <span className="truncate">{a.nombre}</span>
+                        </span>
+                        <span className="text-[12px] text-muted-foreground tabular-nums">{n}</span>
+                    </OpcionMenu>
+                );
+            })}
+            {haySinArea && (
+                <OpcionMenu onClick={() => { setPrefs({ area: SIN_AREA }); setPagina(0); setMenu(null); }} elegida={areaSel === SIN_AREA}>
+                    <span className="flex-1 truncate text-muted-foreground">Sin área</span>
+                    <span className="text-[12px] text-muted-foreground tabular-nums">{todos.filter((c) => enArea(c, SIN_AREA)).length}</span>
+                </OpcionMenu>
+            )}
+        </>
+    );
+    const hayAreas = areas.length > 0;
 
     /**
      * Mandar a OmniVision o retirar (PUT /api/vision/camaras/<id>, permiso Ajustes). El servidor
@@ -592,7 +668,9 @@ export function VistaCamaras() {
         setTimeout(() => setPasosVision((s) => (s[c.clave]?.fase === "listo" || s[c.clave]?.fase === "retirado" ? (({ [c.clave]: _, ...resto }) => resto)(s) : s)), PASO_VISION_LISTO_MS);
     };
 
-    const baldosa = (celda: Celda, i: number, libre = false) => (
+    const baldosa = (celda: Celda, i: number, libre = false) => !celda.canal && esClaveWeb(celda.claveFaltante) ? (
+        <CasillaWeb key={`${celda.claveFaltante}-${i}`} casilla={celda.casilla} clave={celda.claveFaltante} libre={libre} fuente={fuentesPorId.get(idDeClaveWeb(celda.claveFaltante)) || null} />
+    ) : (
         <Baldosa key={celda.canal?.clave || `vacia-${i}`} celda={celda} modo={celda.canal ? modos.get(celda.canal.clave) || "foto" : "foto"} hls={hls} libre={libre}
             dormida={libre && !!celda.canal && !aLaVista.has(celda.canal.clave)}
             alerta={celda.canal ? alertaDe(celda.canal) : null} lecturas={celda.canal ? lecturasDe(celda.canal) : []}
@@ -655,6 +733,16 @@ export function VistaCamaras() {
                                         </div>
                                     </Flotante>
                                 </div>
+                                {hayAreas && modoVista === "auto" && (
+                                    <div className="relative shrink-0">
+                                        <BotonBarra onClick={() => alternar("area")} activo={menu === "area"} titulo="Mostrar las cámaras de un área de Dispositivos">
+                                            <FolderTree size={15} className={areaSel === "todas" ? "text-muted-foreground" : "text-[var(--accion-en-oscuro)]"} />
+                                            <span className="max-w-[160px] truncate">{nombreArea || "Todas las áreas"}</span>
+                                            <ChevronDown size={14} className="text-muted-foreground" />
+                                        </BotonBarra>
+                                        <Flotante abierto={menu === "area"} alCerrar={cerrarMenu} className="w-[280px] max-h-[60vh] overflow-y-auto">{opcionesArea}</Flotante>
+                                    </div>
+                                )}
                                 {hayNvrs && (
                                     <div className="relative shrink-0">
                                         <BotonBarra onClick={() => alternar("nvr")} activo={menu === "nvr"} titulo="Mostrar los canales de un solo grabador">
@@ -682,6 +770,9 @@ export function VistaCamaras() {
                             </>)}
                         </>)}
                         <div className="ml-auto flex items-center gap-1.5 min-w-0">
+                            <BotonBarra onClick={() => setBuscar({ canal: null })} activo={!!buscar} titulo="Buscar parecidos: una persona, un vehículo, un objeto o un animal, desde un canal o una foto del celular">
+                                <ScanSearch size={15} className="text-[var(--accion-en-oscuro)]" /> <span className="hidden xl:inline">Buscar parecidos</span>
+                            </BotonBarra>
                             <Recursos h265={h265} directosOk={directosOk} directosMal={directosMal} />
                             {datos?.puedeEditar && modoVista !== "solo" && (
                                 <BotonBarra onClick={() => setEditandoSeg((x) => !x)} activo={editandoSeg} className="px-2.5"
@@ -754,13 +845,16 @@ export function VistaCamaras() {
                     items={[
                         { k: "vista", Icono: LayoutGrid, rotulo: guardada ? guardada.nombre : "Vista", activo: menu === "vista", onClick: () => alternar("vista") },
                         { k: "col", Icono: prefs?.colMovil === 2 ? Columns2 : Rows3, rotulo: prefs?.colMovil === 2 ? "2 columnas" : "1 columna", onClick: () => setPrefs({ colMovil: prefs?.colMovil === 2 ? 1 : 2 }) },
+                        ...(modoVista === "auto" && hayAreas ? [{ k: "area", Icono: FolderTree, rotulo: nombreArea || "Áreas", activo: menu === "area", onClick: () => alternar("area") }] : []),
                         ...(modoVista === "auto" && hayNvrs ? [{ k: "nvr", Icono: Server, rotulo: filtro === "todos" ? "NVR" : filtro, activo: menu === "nvr", onClick: () => alternar("nvr"), punto: nvrsCaidos.length > 0 }] : []),
+                        { k: "buscar", Icono: ScanSearch, rotulo: "Buscar", activo: !!buscar, onClick: () => setBuscar({ canal: null }) },
                         { k: "recursos", Icono: Gauge, rotulo: "Servidor", activo: menu === "recursos", onClick: () => alternar("recursos") },
                     ]} />
             )}
             {movil && (
-                <Hoja abierta={menu === "vista" || menu === "nvr" || menu === "recursos"} titulo={menu === "vista" ? "Vista" : menu === "nvr" ? "Grabador" : "Lo que usa el servidor"} alCerrar={cerrarMenu}>
+                <Hoja abierta={menu === "vista" || menu === "nvr" || menu === "area" || menu === "recursos"} titulo={menu === "vista" ? "Vista" : menu === "nvr" ? "Grabador" : menu === "area" ? "Área" : "Lo que usa el servidor"} alCerrar={cerrarMenu}>
                     {menu === "vista" && opcionesVista}
+                    {menu === "area" && opcionesArea}
                     {menu === "nvr" && opcionesNvr}
                     {menu === "recursos" && <div className="flex flex-wrap gap-1.5"><Recursos h265={h265} directosOk={directosOk} directosMal={directosMal} envolver /></div>}
                 </Hoja>
@@ -776,7 +870,11 @@ export function VistaCamaras() {
                 alSoltarOrigen={() => setOrigenClave(null)}
                 alVision={datos?.vision?.puedeCambiar && abierta ? () => ponerEnVision(abierta) : undefined}
                 pasoVision={abierta ? pasosVision[abierta.clave] || null : null} alCerrarPaso={abierta ? () => ponerPaso(abierta.clave, null) : undefined}
+                alBuscar={abierta ? () => setBuscar({ canal: abierta }) : undefined}
                 alVentana={!movil && abierta ? () => { if (!abrirVentana({ canal: abierta.clave }, `canal-${abierta.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined} />
+
+            <BuscarEnPared abierto={!!buscar} canalInicial={buscar?.canal || null} rutas={rutasBuscar} alCerrar={() => setBuscar(null)}
+                canales={canalesParaBuscar(enPantalla.length ? [...enPantalla, ...todos] : todos)} />
         </div>
     );
 }

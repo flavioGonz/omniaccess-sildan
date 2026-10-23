@@ -4,15 +4,17 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { sileo as toast } from "sileo";
-import { AlertTriangle, Car, Check, Clock, Loader2, Minus, Pencil, Plus, RefreshCw, ScanEye, SquareParking, Trash2, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { AlertTriangle, Car, Check, Clock, Loader2, Minus, Pencil, Plus, RefreshCw, ScanEye, SquareParking, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
+import { ElegirCamara } from "@/components/devices/ElegirCamara";
+import { ModalEscena, BloquePanel, CifraPanel, BotonPanel } from "@/components/vision/ModalEscena";
 import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
 import { horaSeg } from "@/lib/fechas";
 import {
-    listarEstacionamiento, guardarEstacionamiento, borrarEstacionamiento, probarAhora,
+    listarEstacionamiento, guardarEstacionamiento, borrarEstacionamiento, probarAhora, mirarConOmniVision,
     type CamaraEstacionamiento,
 } from "@/app/actions/estacionamiento";
 
@@ -56,11 +58,18 @@ export default function Pagina() {
     return <Suspense fallback={<Cargando />}><Estacionamiento /></Suspense>;
 }
 
+/*
+ * 21/10, Nico: «debe ser más profesional, premium; la cámara se ve muy grande, ocupa casi toda la
+ * pantalla; deben ser tablas, con las plazas definidas, al presionarlas se abrirá un modal
+ * estilizado para dibujar las plazas». La pantalla es ahora un tablero: las cifras, la tabla de
+ * franjas (una por cámara, con su miniatura y sus lugares), lo ocupado ahora y lo que se fue. La
+ * cámara grande y el dibujo viven en la ventana (ModalEscena), que se abre tocando una franja.
+ */
 function Estacionamiento() {
     const sp = useSearchParams();
     const [datos, setDatos] = useState<Datos | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [elegida, setElegida] = useState<string | null>(sp.get("camara"));
+    const [abierta, setAbierta] = useState<string | null>(sp.get("camara"));
     const [, setTic] = useState(0);
 
     const cargar = useCallback(async () => {
@@ -71,92 +80,133 @@ function Estacionamiento() {
 
     const conFranja = useMemo(() => (datos?.camaras || []).filter((c) => c.franja), [datos]);
     const sinFranja = useMemo(() => (datos?.camaras || []).filter((c) => !c.franja), [datos]);
-    // De entrada, la primera con franja.
-    useEffect(() => { if (!elegida && conFranja[0]) setElegida(conFranja[0].id); }, [elegida, conFranja]);
-    const cam = datos?.camaras.find((c) => c.id === elegida) || null;
+    const cam = datos?.camaras.find((c) => c.id === abierta) || null;
 
     const totales = useMemo(() => {
         let lugares = 0, ocupados = 0;
         for (const c of conFranja) { if (!c.franja?.activa) continue; lugares += c.franja.lugares; ocupados += c.abiertas.length; }
         return { lugares, ocupados };
     }, [conFranja]);
+    const ocupadosAhora = useMemo(() => conFranja.flatMap((c) => c.abiertas.map((o) => ({ ...o, camara: c.franja?.nombre || c.nombre, camaraId: c.id }))).sort((a, b) => (a.desde < b.desde ? -1 : 1)), [conFranja]);
+
+    const colsFranjas = useMemo<ColumnaTabla<CamaraEstacionamiento>[]>(() => [
+        { clave: "vista", titulo: "", ancho: 132, auxiliar: true, celda: (c) => <MiniFranja c={c} /> },
+        { clave: "franja", titulo: "Franja", valor: (c) => c.franja?.nombre || c.nombre, celda: (c) => (
+            <div className="min-w-0 leading-tight">
+                <div className="text-[13px] font-semibold truncate">{c.franja?.nombre || c.nombre}</div>
+                <div className="text-[11.5px] text-muted-foreground truncate">{c.franja?.nombre ? c.nombre : `${c.franja?.lugares} lugares`}</div>
+            </div>) },
+        { clave: "lugares", titulo: "Lugares", ancho: 220, ordenable: true, valor: (c) => c.abiertas.length, celda: (c) => <Ocupacion c={c} /> },
+        { clave: "estado", titulo: "Estado", ancho: 190, valor: (c) => estadoDe(c, datos?.prendida ?? false).texto, celda: (c) => { const e = estadoDe(c, datos?.prendida ?? false); return <Chip tono={e.tono} icono={e.icono}>{e.texto}</Chip>; } },
+        { clave: "abrir", titulo: "", ancho: 156, auxiliar: true, alinear: "der", celda: () => (
+            <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-[6px] whitespace-nowrap text-[12px] font-semibold text-[var(--accion)] group-hover:bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]"><Pencil size={13} /> Dibujar lugares</span>) },
+    ], [datos?.prendida]);
+
+    const colsOcupados = useMemo<ColumnaTabla<(typeof ocupadosAhora)[number]>[]>(() => [
+        { clave: "lugar", titulo: "Lugar", ancho: 70, valor: (o) => o.lugar + 1, celda: (o) => <span className="w-7 h-7 rounded-[6px] grid place-items-center bg-muted text-[12px] font-bold tabular-nums">{o.lugar + 1}</span> },
+        { clave: "camara", titulo: "Franja", valor: (o) => o.camara },
+        { clave: "plate", titulo: "Matrícula", ancho: 130, valor: (o) => o.plate || "", celda: (o) => <PlacaChica texto={o.plate} /> },
+        { clave: "estado", titulo: "Estado", ancho: 150, valor: (o) => (o.avisado ? "Estacionado" : "Recién llegado"), celda: (o) => <Chip tono={o.avisado ? "info" : "aviso"} icono={Car}>{o.avisado ? "Estacionado" : "Recién llegado"}</Chip> },
+        { clave: "desde", titulo: "Desde", ancho: 100, ordenable: true, valor: (o) => o.desde, celda: (o) => <span className="tabular-nums text-[12.5px]">{horaSeg(o.desde)}</span> },
+        { clave: "lleva", titulo: "Lleva", ancho: 110, alinear: "der", valor: (o) => Date.now() - new Date(o.desde).getTime(), celda: (o) => <span className="tabular-nums text-[12.5px] font-semibold">{lapso(new Date(o.desde).getTime())}</span> },
+    ], []);
+
+    const colsRetirados = useMemo<ColumnaTabla<Datos["recientes"][number]>[]>(() => [
+        { clave: "hasta", titulo: "Se fue", ancho: 100, ordenable: true, valor: (o) => o.hasta, celda: (o) => <span className="tabular-nums text-[12.5px]">{horaSeg(o.hasta)}</span> },
+        { clave: "plate", titulo: "Matrícula", ancho: 130, valor: (o) => o.plate || "", celda: (o) => <PlacaChica texto={o.plate} /> },
+        { clave: "camara", titulo: "Franja", valor: (o) => `${o.camara} · lugar ${o.lugar + 1}` },
+        { clave: "estuvo", titulo: "Estuvo", ancho: 110, alinear: "der", valor: (o) => new Date(o.hasta).getTime() - new Date(o.desde).getTime(), celda: (o) => <span className="tabular-nums text-[12.5px]">{lapsoEntre(o.desde, o.hasta)}</span> },
+    ], []);
 
     if (error && !datos) return <div className="p-6"><ErrorEstado mensaje={error} alReintentar={cargar} /></div>;
     if (!datos) return <div className="p-6"><Cargando texto="Trayendo los lugares…" /></div>;
+    const libres = Math.max(0, totales.lugares - totales.ocupados);
 
     return (
         <div className="px-6 lg:px-8 py-5 max-w-[1500px] mx-auto space-y-5">
             <header className="flex flex-wrap items-start gap-4">
-                <span className="w-11 h-11 rounded-[10px] grid place-items-center bg-muted border border-border shrink-0"><SquareParking size={20} className="text-[var(--accion)]" /></span>
+                <span className="w-11 h-11 rounded-[10px] grid place-items-center bg-muted shrink-0"><SquareParking size={20} className="text-[var(--accion)]" /></span>
                 <div className="min-w-0 flex-1">
-                    <h1 className="text-[22px] font-bold tracking-[-0.01em] leading-tight">Estacionamiento</h1>
+                    <h1 className="text-[20px] font-bold tracking-[-0.015em] leading-tight">Estacionamiento</h1>
                     <p className="text-[13px] text-muted-foreground mt-0.5 max-w-[760px]">
-                        Se dibuja una franja sobre el cordón con los lugares que entran, y OmniVision mira qué lugares tienen un vehículo.
-                        Un lugar se ocupa cuando el vehículo se queda {datos.ocuparSeg} s, avisa «estacionó» a los 3 min y queda libre a los {datos.liberarSeg} s de no verlo.
+                        Una franja sobre el cordón con los lugares que entran; OmniVision mira cuáles tienen un vehículo.
+                        Se ocupa a los {datos.ocuparSeg} s, avisa «estacionó» a los 3 min y se libera a los {datos.liberarSeg} s sin verlo.
                     </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     {datos.prendida
                         ? <Chip tono="bien" icono={Check}>Analítica prendida</Chip>
                         : <Chip tono="aviso" icono={AlertTriangle}>Analítica apagada</Chip>}
-                    <Link href="/admin/vision/analiticas" className="text-[12.5px] font-semibold text-[var(--accion)] hover:underline">{datos.prendida ? "Analíticas" : "Prenderla en Analíticas"}</Link>
+                    <Link href="/admin/vision/analiticas" className="text-[12.5px] font-semibold text-[var(--accion)] hover:underline">{datos.prendida ? "Analíticas" : "Prenderla"}</Link>
                 </div>
             </header>
 
             {!datos.prendida && (
-                <div className="rounded-[10px] border border-[var(--aviso)]/40 bg-[var(--aviso)]/10 px-4 py-3 text-[12.5px] tono-aviso">
-                    Con la analítica apagada nadie mira los lugares: lo que se ve abajo es lo último que se midió.
+                <div className="rounded-[10px] bg-[var(--aviso-suave)] px-4 py-3 text-[12.5px] tono-aviso">
+                    Con la analítica apagada nadie mira los lugares: lo que se ve es lo último que se midió.
                 </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-5 items-start">
-                {/* ── Las cámaras ── */}
-                <aside className="space-y-3">
-                    <div className="flex items-baseline justify-between">
-                        <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Cámaras con lugares</div>
-                        <div className="text-[12px] text-muted-foreground tabular-nums">{totales.ocupados} de {totales.lugares} ocupados</div>
-                    </div>
-                    {conFranja.length === 0 && <p className="text-[12.5px] text-muted-foreground">Todavía no hay ninguna. Elegí una cámara abajo y dibujá dónde se estaciona.</p>}
-                    <div className="space-y-1.5">
-                        {conFranja.map((c) => <TarjetaCamara key={c.id} c={c} activa={c.id === elegida} onClick={() => setElegida(c.id)} />)}
-                    </div>
+            {/* Las cifras del barrio, de un vistazo. */}
+            <section className="grid grid-cols-2 sm:grid-cols-5 rounded-[10px] bg-muted/50 divide-x divide-border overflow-hidden">
+                <Cifra n={conFranja.length} r="franjas" />
+                <Cifra n={totales.lugares} r="lugares" />
+                <Cifra n={totales.ocupados} r="ocupados" tono={totales.ocupados ? "var(--accion)" : undefined} />
+                <Cifra n={libres} r="libres" tono={libres ? "var(--bien-texto)" : undefined} />
+                <Cifra n={datos.recientes.length} r="se fueron · 24 h" />
+            </section>
+
+            <section className="space-y-2.5">
+                <div className="flex items-center gap-3">
+                    <h2 className="text-[15px] font-semibold tracking-[-0.01em]">Franjas</h2>
+                    <span className="text-[12px] text-muted-foreground">Tocá una para ver la cámara y dibujar sus lugares.</span>
                     {sinFranja.length > 0 && (
-                        <div className="pt-2">
-                            <label className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="otra">Agregar en otra cámara</label>
-                            <select id="otra" value="" onChange={(e) => e.target.value && setElegida(e.target.value)}
-                                className="mt-1.5 w-full h-9 rounded-[6px] border border-border bg-background px-2 text-[13px]">
-                                <option value="">Elegir cámara…</option>
-                                {sinFranja.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.mirada ? "" : " (no la mira OmniVision)"}</option>)}
-                            </select>
+                        <div className="ml-auto">
+                            {/* Con buscador y por área (21/10): era un Select sin buscar, y sólo con las cámaras que ya miraba OmniVision. */}
+                            <ElegirCamara icono={Plus} placeholder="Nueva franja en…" titulo="Nueva franja en una cámara" className="w-[240px]" ancho={360}
+                                camaras={sinFranja.map((c) => ({ id: c.id, nombre: c.nombre, tipo: c.tipo, areaId: c.areaId, nota: c.mirada ? null : "sin OmniVision" }))}
+                                areas={datos.areas || []} alElegir={(id) => setAbierta(id)} />
                         </div>
                     )}
-                </aside>
+                </div>
+                <Tabla<CamaraEstacionamiento> id="estacionamiento-franjas" filas={conFranja} clave={(c) => c.id} columnas={colsFranjas}
+                    alClickFila={(c) => setAbierta(c.id)} filaActiva={(c) => c.id === abierta} controles={false}
+                    vacio={{ icono: SquareParking, titulo: "Todavía no hay franjas", ayuda: "Elegí «Nueva franja en…» y dibujá dónde se estaciona." }} />
+            </section>
 
-                {/* ── La cámara elegida ── */}
-                <section className="min-w-0">
-                    {cam ? <PanelCamara key={cam.id} c={cam} alCambiar={cargar} prendida={datos.prendida} /> : (
-                        <div className="h-[360px] rounded-[10px] border border-dashed border-border grid place-items-center text-[13px] text-muted-foreground">Elegí una cámara.</div>
-                    )}
+            <div className="grid gap-5 xl:grid-cols-2 items-start">
+                <section className="space-y-2.5">
+                    <h2 className="text-[15px] font-semibold tracking-[-0.01em]">Ocupados ahora</h2>
+                    <Tabla id="estacionamiento-ocupados" filas={ocupadosAhora} clave={(o) => o.id} columnas={colsOcupados} controles={false}
+                        alClickFila={(o) => setAbierta(o.camaraId)}
+                        vacio={{ icono: Car, titulo: "Ningún lugar ocupado" }} />
+                </section>
+                <section className="space-y-2.5">
+                    <h2 className="text-[15px] font-semibold tracking-[-0.01em]">Se fueron · últimas 24 h</h2>
+                    <Tabla id="estacionamiento-retirados" filas={datos.recientes} clave={(o) => o.id} columnas={colsRetirados} controles={false}
+                        vacio={{ icono: Clock, titulo: "Nadie se fue en las últimas 24 h" }} />
                 </section>
             </div>
 
-            {datos.recientes.length > 0 && (
-                <section>
-                    <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Se retiraron en las últimas 24 h</div>
-                    <div className="rounded-[10px] border border-border divide-y divide-border">
-                        {datos.recientes.map((o) => (
-                            <div key={o.id} className="flex items-center gap-3 px-4 py-2 text-[13px]">
-                                <span className="w-16 text-muted-foreground tabular-nums">{horaSeg(o.hasta)}</span>
-                                <PlacaChica texto={o.plate} />
-                                <span className="text-muted-foreground truncate">{o.camara} · lugar {o.lugar + 1}</span>
-                                <span className="ml-auto text-muted-foreground tabular-nums">{lapsoEntre(o.desde, o.hasta)}</span>
-                            </div>
-                        ))}
-                    </div>
-                </section>
-            )}
+            {cam && <ModalFranja key={cam.id} c={cam} prendida={datos.prendida} alCerrar={() => setAbierta(null)} alCambiar={cargar} />}
         </div>
     );
+}
+
+function Cifra({ n, r, tono }: { n: number; r: string; tono?: string }) {
+    return (
+        <div className="px-4 py-3">
+            <div className="text-[22px] font-bold tabular-nums leading-none" style={tono ? { color: tono } : undefined}>{n}</div>
+            <div className="mt-1 text-[11.5px] text-muted-foreground">{r}</div>
+        </div>
+    );
+}
+
+function estadoDe(c: CamaraEstacionamiento, prendida: boolean): { tono: "bien" | "aviso" | "quieto"; texto: string; icono: typeof Check } {
+    if (!c.franja?.activa) return { tono: "quieto", texto: "Apagada", icono: Clock };
+    if (!c.mirada) return { tono: "aviso", texto: "OmniVision no la mira", icono: AlertTriangle };
+    if (c.vivo && !c.vivo.vieja) return { tono: "bien", texto: `Mirando · ${horaSeg(c.vivo.ultimaMirada!)}`, icono: ScanEye };
+    return { tono: "quieto", texto: prendida ? "Esperando la primera mirada" : "Sin mirar", icono: Clock };
 }
 
 const lapsoEntre = (a: string, b: string) => {
@@ -170,38 +220,49 @@ function PlacaChica({ texto }: { texto: string | null }) {
         : <span className="inline-flex items-center h-[20px] px-1.5 rounded-[4px] border border-dashed border-border text-muted-foreground text-[11px]">sin chapa</span>;
 }
 
-function TarjetaCamara({ c, activa, onClick }: { c: CamaraEstacionamiento; activa: boolean; onClick: () => void }) {
+/** Los lugares de una franja en fila: lleno = ocupado. Se lee de un vistazo cuántos quedan. */
+function Ocupacion({ c }: { c: CamaraEstacionamiento }) {
     const f = c.franja!;
     const ocupado = new Set(c.abiertas.map((o) => o.lugar));
-    const sinDatos = !c.mirada || !c.vivo || c.vivo.vieja;
     return (
-        <button type="button" onClick={onClick} aria-pressed={activa}
-            className={cn("w-full text-left rounded-[10px] border px-3 py-2.5 transition-colors", activa ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-muted/60")}>
-            <div className="flex items-center gap-2">
-                <span className="text-[13px] font-semibold truncate">{f.nombre || c.nombre}</span>
-                <span className="ml-auto text-[12px] tabular-nums text-muted-foreground">{ocupado.size}/{f.lugares}</span>
-            </div>
-            {f.nombre && <div className="text-[11px] text-muted-foreground truncate">{c.nombre}</div>}
-            {/* Los lugares en fila: lleno = ocupado. Se lee de un vistazo cuántos quedan. */}
-            <div className="mt-2 flex gap-[3px]">
+        <div className="flex items-center gap-3 min-w-0">
+            <div className="flex gap-[3px] flex-1 min-w-0">
                 {Array.from({ length: f.lugares }, (_, i) => (
-                    <span key={i} className={cn("h-1.5 flex-1 rounded-full", !f.activa ? "bg-muted" : ocupado.has(i) ? "bg-[var(--accion)]" : "bg-muted-foreground/20")} />
+                    <span key={i} className={cn("h-2 flex-1 rounded-full", !f.activa ? "bg-muted" : ocupado.has(i) ? "bg-[var(--accion)]" : "bg-muted-foreground/20")} />
                 ))}
             </div>
-            {(!f.activa || sinDatos) && (
-                <div className={cn("mt-1.5 text-[11px]", !f.activa ? "text-muted-foreground" : "tono-aviso")}>
-                    {!f.activa ? "Apagada" : !c.mirada ? "OmniVision no mira esta cámara" : "Sin miradas recientes"}
-                </div>
-            )}
-        </button>
+            <span className="text-[12.5px] tabular-nums shrink-0"><b>{ocupado.size}</b><span className="text-muted-foreground">/{f.lugares}</span></span>
+        </div>
+    );
+}
+
+/** La miniatura de la tabla: el cuadro de la cámara con sus lugares, ocupados en azul. */
+function MiniFranja({ c }: { c: CamaraEstacionamiento }) {
+    const f = c.franja!;
+    const esq = f.esquinas as Esq;
+    const ocupado = new Set(c.abiertas.map((o) => o.lugar));
+    const [mal, setMal] = useState(false);
+    return (
+        <span className="relative block w-[116px] aspect-video rounded-[6px] overflow-hidden bg-black shadow-[0_3px_22px_rgba(0,0,0,0.22)]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {!mal && <img src={`/api/vision/cuadro?camara=${encodeURIComponent(c.id)}&w=240`} alt="" loading="lazy" onError={() => setMal(true)} className="absolute inset-0 w-full h-full object-cover" />}
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full">
+                {Array.from({ length: f.lugares }, (_, i) => (
+                    <polygon key={i} points={celdaDe(esq, i, f.lugares).map((p) => `${p.x * 100},${p.y * 100}`).join(" ")} vectorEffect="non-scaling-stroke"
+                        fill={ocupado.has(i) ? "color-mix(in oklab, var(--accion-en-oscuro) 45%, transparent)" : "rgba(255,255,255,0.08)"}
+                        stroke={ocupado.has(i) ? "var(--accion-en-oscuro)" : "rgba(255,255,255,0.8)"} strokeWidth={1} />
+                ))}
+            </svg>
+        </span>
     );
 }
 
 /**
- * Una cámara: el cuadro con los lugares encima (en vivo, o editando la franja), y la lista de lugares.
+ * La ventana de una franja: la cámara entera a la izquierda con los lugares (se arrastran las
+ * esquinas, siempre), y a la derecha cuántos lugares, el nombre, si mide, la prueba y cómo está
+ * cada lugar ahora. Sin franja todavía, arranca con una de ejemplo para mover.
  */
-function PanelCamara({ c, alCambiar, prendida }: { c: CamaraEstacionamiento; alCambiar: () => void; prendida: boolean }) {
-    const [editando, setEditando] = useState(!c.franja);
+function ModalFranja({ c, prendida, alCerrar, alCambiar }: { c: CamaraEstacionamiento; prendida: boolean; alCerrar: () => void; alCambiar: () => void }) {
     const [esq, setEsq] = useState<Esq>((c.franja?.esquinas as Esq) || FRANJA_INICIAL);
     const [lugares, setLugares] = useState(c.franja?.lugares || 6);
     const [nombre, setNombre] = useState(c.franja?.nombre || "");
@@ -210,23 +271,24 @@ function PanelCamara({ c, alCambiar, prendida }: { c: CamaraEstacionamiento; alC
     const [prueba, setPrueba] = useState<Prueba | null>(null);
     const [probando, setProbando] = useState(false);
     const [borrar, setBorrar] = useState(false);
-    // El cuadro de la cámara: el mismo stream que mira OmniVision; se renueva solo mientras no se edita.
-    const [vuelta, setVuelta] = useState(0);
-    useEffect(() => { if (editando) return; const iv = setInterval(() => setVuelta((v) => v + 1), REFRESCO_MS); return () => clearInterval(iv); }, [editando]);
-    const foto = prueba?.foto || `/api/vision/cuadro?camara=${encodeURIComponent(c.id)}&v=${vuelta}`;
+    const [aspecto, setAspecto] = useState(16 / 9);
     const [fotoMal, setFotoMal] = useState(false);
+    const [vuelta, setVuelta] = useState(0);
+    const foto = prueba?.foto || `/api/vision/cuadro?camara=${encodeURIComponent(c.id)}&v=${vuelta}`;
 
-    const cancelar = () => {
-        setEsq((c.franja?.esquinas as Esq) || FRANJA_INICIAL); setLugares(c.franja?.lugares || 6); setNombre(c.franja?.nombre || ""); setActiva(c.franja?.activa ?? true);
-        setPrueba(null); setEditando(!c.franja);
-    };
+    const cambio = !c.franja || lugares !== c.franja.lugares || nombre !== (c.franja.nombre || "") || activa !== c.franja.activa
+        || JSON.stringify(esq) !== JSON.stringify(c.franja.esquinas);
+    // Con la geometría como estaba, cada lugar muestra su ocupación; movida, todavía no se sabe.
+    const mismaGeometria = !!c.franja && lugares === c.franja.lugares && JSON.stringify(esq) === JSON.stringify(c.franja.esquinas);
+    const porLugar = new Map(mismaGeometria ? c.abiertas.map((o) => [o.lugar, o]) : []);
+
     const guardar = async () => {
         setGuardando(true);
         try {
             const r = await guardarEstacionamiento(c.id, { esquinas: esq, lugares, activa, nombre });
             if (!r.ok) { toast.error({ title: r.error || "No se pudo guardar" }); return; }
             toast.success({ title: "Lugares guardados", description: r.cerradas ? `Se cerraron ${r.cerradas} ocupaciones de la franja anterior.` : "OmniVision empieza a mirarlos en la próxima vuelta." });
-            setEditando(false); setPrueba(null); alCambiar();
+            setPrueba(null); alCambiar(); alCerrar();
         } catch (e: any) { toast.error({ title: e?.message || "No se pudo guardar" }); }
         finally { setGuardando(false); }
     };
@@ -239,104 +301,119 @@ function PanelCamara({ c, alCambiar, prendida }: { c: CamaraEstacionamiento; alC
         } catch (e: any) { toast.error({ title: e?.message || "No se pudo probar" }); }
         finally { setProbando(false); }
     };
-
-    const porLugar = new Map(c.abiertas.map((o) => [o.lugar, o]));
-    const n = editando ? lugares : c.franja?.lugares || lugares;
-    const geom = editando ? esq : ((c.franja?.esquinas as Esq) || esq);
+    const e = estadoDe(c, prendida);
+    const [sumando, setSumando] = useState(false);
+    const sumarAOmniVision = async () => {
+        setSumando(true);
+        try {
+            const r = await mirarConOmniVision(c.id);
+            if (!r.ok) { toast.error({ title: r.error || "No se pudo" }); return; }
+            toast.success({ title: "OmniVision la mira desde la próxima vuelta" }); alCambiar();
+        } catch (er: any) { toast.error({ title: er?.message || "No se pudo" }); }
+        finally { setSumando(false); }
+    };
 
     return (
-        <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-[16px] font-bold mr-1">{c.franja?.nombre || c.nombre}</h2>
-                {!c.mirada && <Chip tono="aviso" icono={AlertTriangle} title="Agregala en Visión → Laboratorio → cámaras">OmniVision no la mira</Chip>}
-                {c.mirada && c.franja && !editando && (c.vivo && !c.vivo.vieja
-                    ? <Chip tono="bien" icono={ScanEye}>Mirando · {horaSeg(c.vivo.ultimaMirada!)}</Chip>
-                    : <Chip tono="quieto" icono={Clock}>{prendida ? "Esperando la primera mirada" : "Sin mirar"}</Chip>)}
-                <div className="ml-auto flex items-center gap-2">
-                    {!editando && c.franja && <Button size="sm" variant="outline" onClick={() => setEditando(true)}><Pencil size={14} /> Editar lugares</Button>}
-                    {!editando && c.franja && <Button size="sm" variant="outline" onClick={() => setBorrar(true)}><Trash2 size={14} /> Quitar</Button>}
-                </div>
-            </div>
-
-            {/* ── El cuadro con los lugares ── */}
-            <div className="relative rounded-[10px] overflow-hidden bg-black select-none">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={foto} alt={`Cuadro de ${c.nombre}`} className="block w-full h-auto" draggable={false}
-                    onLoad={() => setFotoMal(false)} onError={() => setFotoMal(true)} />
-                {fotoMal && <div className="absolute inset-0 grid place-items-center text-white/80 text-[13px]">La cámara no entregó un cuadro.</div>}
-                <Lienzo esq={geom} n={n} editable={editando} setEsq={setEsq} abiertas={editando ? new Map() : porLugar}
-                    vivo={editando ? null : c.vivo} prueba={prueba} />
-            </div>
-
-            {editando ? (
-                <div className="rounded-[10px] border border-border p-4 space-y-4">
-                    <p className="text-[12.5px] text-muted-foreground">Arrastrá las cuatro esquinas sobre el cordón: el lado de arriba y el de abajo siguen la calle, y los lugares se achican solos con la distancia. Poné cuántos autos entran.</p>
-                    <div className="flex flex-wrap items-end gap-5">
-                        <div>
-                            <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Lugares</div>
-                            <div className="flex items-center rounded-[6px] border border-border">
-                                <button type="button" onClick={() => setLugares((x) => Math.max(1, x - 1))} className="w-9 h-9 grid place-items-center hover:bg-muted" aria-label="Uno menos"><Minus size={15} /></button>
-                                <span className="w-10 text-center text-[15px] font-bold tabular-nums">{lugares}</span>
-                                <button type="button" onClick={() => setLugares((x) => Math.min(40, x + 1))} className="w-9 h-9 grid place-items-center hover:bg-muted" aria-label="Uno más"><Plus size={15} /></button>
-                            </div>
+        <>
+            <ModalEscena abierto alCerrar={alCerrar} titulo={nombre || c.nombre} subtitulo={nombre ? c.nombre : c.franja ? `${c.franja.lugares} lugares` : "Franja nueva"} aspecto={aspecto}
+                chips={c.franja ? <Chip tono={e.tono} icono={e.icono}>{e.texto}</Chip> : <Chip tono="info" icono={Pencil}>Nueva</Chip>}
+                escena={<>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={foto} alt={`Cuadro de ${c.nombre}`} draggable={false} className="absolute inset-0 w-full h-full object-fill"
+                        onLoad={(ev) => { setFotoMal(false); const i = ev.currentTarget; if (i.naturalWidth && i.naturalHeight) setAspecto(i.naturalWidth / i.naturalHeight); }} onError={() => setFotoMal(true)} />
+                    {fotoMal && <div className="absolute inset-0 grid place-items-center text-white/70 text-[13px]">La cámara no entregó un cuadro.</div>}
+                    <Lienzo esq={esq} n={lugares} editable setEsq={setEsq} abiertas={porLugar} vivo={mismaGeometria ? c.vivo : null} prueba={prueba} />
+                </>}
+                sobreEscena={<div className="flex items-center gap-3 text-[12px] text-white/75">
+                    <span>Arrastrá las cuatro esquinas sobre el cordón: los lugares se achican solos con la distancia.</span>
+                    <button type="button" onClick={() => { setPrueba(null); setVuelta((v) => v + 1); }} className="ml-auto shrink-0 inline-flex items-center gap-1 text-white/80 hover:text-white"><RefreshCw size={12} /> Otro cuadro</button>
+                </div>}
+                panel={<>
+                    {/* Ahora se puede dibujar en cualquier cámara: si OmniVision no la mira, la franja no se mide. */}
+                    {!c.mirada && (
+                        <div className="rounded-[10px] bg-[color-mix(in_oklab,var(--aviso)_14%,transparent)] px-3 py-2.5 text-[12px] leading-snug text-white/85 space-y-2">
+                            <div className="flex items-start gap-2"><AlertTriangle size={14} className="text-[var(--aviso)] shrink-0 mt-px" /> OmniVision no mira esta cámara: la franja se guarda, pero nadie mide sus lugares.</div>
+                            <BotonPanel onClick={sumarAOmniVision} disabled={sumando} className="w-full justify-center">
+                                {sumando ? <Loader2 size={14} className="animate-spin" /> : <ScanEye size={14} />} Que OmniVision la mire
+                            </BotonPanel>
                         </div>
-                        <div className="min-w-[220px] flex-1">
-                            <label htmlFor="nombre-franja" className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Nombre (opcional)</label>
-                            <input id="nombre-franja" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: Calle 21, vereda norte"
-                                className="mt-1.5 w-full h-9 rounded-[6px] border border-border bg-background px-3 text-[13px]" />
-                        </div>
-                        <label className="flex items-center gap-2 h-9 text-[13px]">
-                            <Switch checked={activa} onCheckedChange={setActiva} /> {activa ? "Mide" : "Apagada"}
-                        </label>
-                    </div>
-                    {prueba?.ok && (
-                        <p className="text-[12.5px]">
-                            <b>Ahora:</b> OmniVision ve {prueba.vehiculos?.length || 0} {prueba.vehiculos?.length === 1 ? "vehículo" : "vehículos"}; {prueba.ocupados?.filter((x) => x != null).length || 0} {prueba.ocupados?.filter((x) => x != null).length === 1 ? "cae" : "caen"} en algún lugar.
-                            {(prueba.vehiculos || []).some((v) => v.lugar == null) && " Los que están afuera de la franja se ven en gris."}
-                        </p>
                     )}
-                    <div className="flex flex-wrap items-center gap-2">
-                        <Button size="sm" variant="outline" onClick={probar} disabled={probando}>{probando ? <Loader2 size={14} className="animate-spin" /> : <ScanEye size={14} />} Probar ahora</Button>
-                        <span className="ml-auto flex items-center gap-2">
-                            {c.franja && <Button size="sm" variant="outline" onClick={cancelar} disabled={guardando}><X size={14} /> Cancelar</Button>}
-                            <Button size="sm" onClick={guardar} disabled={guardando}>{guardando ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Guardar lugares</Button>
-                        </span>
-                    </div>
-                </div>
-            ) : c.franja && (
-                <div className="rounded-[10px] border border-border divide-y divide-border">
-                    {Array.from({ length: c.franja.lugares }, (_, i) => {
-                        const o = porLugar.get(i);
-                        const viendo = c.vivo?.lugares?.[i];
-                        const confirmando = !o && viendo?.vistoDesde != null && !c.vivo?.vieja;
-                        return (
-                            <div key={i} className="flex items-center gap-3 px-4 py-2.5 text-[13px]">
-                                <span className="w-7 h-7 rounded-[6px] grid place-items-center bg-muted text-[12px] font-bold tabular-nums">{i + 1}</span>
-                                {o ? (
-                                    <>
-                                        <span className={cn("inline-flex items-center gap-1 text-[12px] font-semibold", o.avisado ? "tono-info" : "tono-aviso")}><Car size={14} /> {o.avisado ? "Estacionado" : "Recién llegado"}</span>
-                                        <PlacaChica texto={o.plate} />
-                                        <span className="ml-auto text-muted-foreground tabular-nums">desde {horaSeg(o.desde)} · {lapso(new Date(o.desde).getTime())}</span>
-                                    </>
-                                ) : confirmando ? (
-                                    <span className="text-[12px] tono-aviso">Hay un vehículo · confirmando</span>
-                                ) : (
-                                    <span className="text-[12px] text-muted-foreground">Libre</span>
-                                )}
+                    <BloquePanel rotulo="Ahora">
+                        <div className="grid grid-cols-3 gap-2">
+                            <CifraPanel n={c.franja ? c.abiertas.length : "—"} rotulo="ocupados" tono={c.abiertas.length ? "var(--accion-en-oscuro)" : undefined} />
+                            <CifraPanel n={c.franja ? Math.max(0, c.franja.lugares - c.abiertas.length) : "—"} rotulo="libres" />
+                            <CifraPanel n={lugares} rotulo="lugares" />
+                        </div>
+                    </BloquePanel>
+                    <BloquePanel rotulo="La franja">
+                        <div className="space-y-3">
+                            <label className="block">
+                                <span className="text-[12px] text-white/60">Nombre</span>
+                                <input value={nombre} onChange={(ev) => setNombre(ev.target.value)} placeholder="Ej.: Calle 21, vereda norte"
+                                    className="mt-1 w-full h-9 rounded-[6px] bg-white/[0.06] border border-white/10 px-3 text-[13px] text-white placeholder:text-white/35 outline-none focus:border-[var(--accion-en-oscuro)]" />
+                            </label>
+                            <div className="flex items-center gap-3">
+                                <span className="flex-1 text-[12.5px] text-white/80">Lugares que entran</span>
+                                <div className="flex items-center rounded-[6px] bg-white/[0.06]">
+                                    <button type="button" onClick={() => setLugares((x) => Math.max(1, x - 1))} className="w-8 h-8 grid place-items-center hover:bg-white/10 rounded-l-[6px]" aria-label="Uno menos"><Minus size={14} /></button>
+                                    <span className="w-9 text-center text-[15px] font-bold tabular-nums">{lugares}</span>
+                                    <button type="button" onClick={() => setLugares((x) => Math.min(40, x + 1))} className="w-8 h-8 grid place-items-center hover:bg-white/10 rounded-r-[6px]" aria-label="Uno más"><Plus size={14} /></button>
+                                </div>
                             </div>
-                        );
-                    })}
-                </div>
-            )}
-
+                            <label className="flex items-center gap-3 cursor-pointer">
+                                <span className="flex-1 text-[12.5px] text-white/80">{activa ? "Mide" : "Apagada: se guarda, no se mira"}</span>
+                                <Switch checked={activa} onCheckedChange={setActiva} />
+                            </label>
+                        </div>
+                    </BloquePanel>
+                    <BloquePanel rotulo="Probar" extra={prueba?.ok ? <span className="text-[11px] text-white/50 tabular-nums">{horaSeg(new Date().toISOString())}</span> : undefined}>
+                        <BotonPanel onClick={probar} disabled={probando} className="w-full justify-center">
+                            {probando ? <Loader2 size={14} className="animate-spin" /> : <ScanEye size={14} />} Ver qué ve OmniVision ahora
+                        </BotonPanel>
+                        {prueba?.ok && (
+                            <p className="mt-2 text-[12px] text-white/70 leading-snug">
+                                Ve {prueba.vehiculos?.length || 0} {prueba.vehiculos?.length === 1 ? "vehículo" : "vehículos"}; {prueba.ocupados?.filter((x) => x != null).length || 0} {prueba.ocupados?.filter((x) => x != null).length === 1 ? "cae" : "caen"} en algún lugar.
+                                {(prueba.vehiculos || []).some((v) => v.lugar == null) && " Los de afuera de la franja, punteados."}
+                            </p>
+                        )}
+                    </BloquePanel>
+                    {c.franja && mismaGeometria && (
+                        <BloquePanel rotulo="Cada lugar">
+                            <div className="rounded-[10px] bg-white/[0.04] divide-y divide-white/[0.06]">
+                                {Array.from({ length: c.franja.lugares }, (_, i) => {
+                                    const o = porLugar.get(i);
+                                    const confirmando = !o && c.vivo?.lugares?.[i]?.vistoDesde != null && !c.vivo?.vieja;
+                                    return (
+                                        <div key={i} className="flex items-center gap-2.5 px-3 py-2 text-[12.5px]">
+                                            <span className="w-6 h-6 rounded-[6px] grid place-items-center bg-white/10 text-[11px] font-bold tabular-nums">{i + 1}</span>
+                                            {o ? (<>
+                                                {o.plate ? <span className="inline-flex items-center h-[19px] px-1.5 rounded-[4px] bg-white text-black text-[10.5px] font-bold tabular-nums tracking-[0.06em]">{o.plate}</span> : <span className="text-white/50 text-[11.5px]">sin chapa</span>}
+                                                <span className={cn("text-[11.5px] font-semibold", o.avisado ? "text-[var(--accion-en-oscuro)]" : "text-[var(--aviso)]")}>{o.avisado ? "estacionado" : "recién llegado"}</span>
+                                                <span className="ml-auto tabular-nums text-white/60">{lapso(new Date(o.desde).getTime())}</span>
+                                            </>) : confirmando ? <span className="text-[11.5px] text-[var(--aviso)]">hay un vehículo · confirmando</span>
+                                                : <span className="text-[11.5px] text-white/45">libre</span>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </BloquePanel>
+                    )}
+                    {c.franja && !mismaGeometria && <p className="text-[12px] text-white/55">Cambiaste la franja: al guardar, las ocupaciones de la anterior se cierran con su «se retiró».</p>}
+                </>}
+                pie={<>
+                    {c.franja && <BotonPanel peligro onClick={() => setBorrar(true)} disabled={guardando}><Trash2 size={14} /> Quitar</BotonPanel>}
+                    <span className="ml-auto" />
+                    <BotonPanel onClick={alCerrar} disabled={guardando}>Cancelar</BotonPanel>
+                    <BotonPanel primario onClick={guardar} disabled={guardando || !cambio}>{guardando ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Guardar lugares</BotonPanel>
+                </>} />
             {borrar && (
                 <ConfirmarAccion id={c.id} title={`los lugares de ${c.franja?.nombre || c.nombre}`}
                     description={`Se borra la franja. ${c.abiertas.length ? `Las ${c.abiertas.length} ocupaciones abiertas se cierran con su «se retiró».` : ""}`}
                     etiquetaAccion="Quitar" open={borrar} onOpenChange={setBorrar}
                     onDelete={async (id) => { await borrarEstacionamiento(id); }}
-                    onSuccess={() => { setBorrar(false); alCambiar(); }} />
+                    onSuccess={() => { setBorrar(false); alCambiar(); alCerrar(); }} />
             )}
-        </div>
+        </>
     );
 }
 
@@ -411,7 +488,6 @@ function Lienzo({ esq, n, editable, setEsq, abiertas, vivo, prueba }: {
                     className="absolute w-4 h-4 -ml-2 -mt-2 rounded-full border-2 border-white bg-[var(--accion-en-oscuro)] cursor-grab active:cursor-grabbing touch-none"
                     style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }} />
             ))}
-            {editable && <span className="absolute left-2 top-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-[6px] bg-black/60 text-white text-[11px] font-semibold pointer-events-none"><RefreshCw size={11} /> Editando: arrastrá las esquinas</span>}
         </div>
     );
 }

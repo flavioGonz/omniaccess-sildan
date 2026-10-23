@@ -4,22 +4,20 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAcuSeekImage } from "@/lib/acuseek";
-import { nvrConAcuSeek, conSesion } from "@/lib/acuseek-nvr";
+import { nvrPorHost, conSesion } from "@/lib/acuseek-nvr";
 
 export async function GET(req: NextRequest) {
     const no = await conSesion(); if (no) return no;
     const u = req.nextUrl.searchParams.get("u");
     if (!u) return new NextResponse("missing u", { status: 400 });
     try {
-        const nvr = (await nvrConAcuSeek())?.dev;
-        if (!nvr?.ip) return new NextResponse("no nvr", { status: 404 });
-        // seguridad: solo imágenes del propio NVR
-        const host = new URL(u).hostname;
-        const nvrHost = nvr.ip.replace(/^https?:\/\//, "").split(":")[0];
-        if (host !== nvrHost) return new NextResponse("forbidden host", { status: 403 });
+        // Sólo imágenes de un grabador nuestro con AcuSearch: el dueño se elige por el host de la URL
+        // (texto e imagen pueden ir a grabadores distintos).
+        const nvr = (await nvrPorHost(new URL(u).hostname))?.dev;
+        if (!nvr?.ip) return new NextResponse("forbidden host", { status: 403 });
 
         const { buf, contentType } = await fetchAcuSeekImage(nvr, u);
-        return new NextResponse(buf, { status: 200, headers: { "Content-Type": contentType, "Cache-Control": "private, max-age=3600" } });
+        return new NextResponse(new Uint8Array(buf), { status: 200, headers: { "Content-Type": contentType, "Cache-Control": "private, max-age=3600" } });
     } catch (e: any) {
         return new NextResponse("image error", { status: 502 });
     }

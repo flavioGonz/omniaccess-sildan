@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { autorizarMonitor, SIN_CACHE } from "@/lib/monitor/servidor";
 import { analizarDeteccion } from "@/lib/intrusion/analisis";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
  * de la pared; cae dentro del alcance de la vista Intrusión y no escribe nada.
  */
 export async function GET(req: NextRequest) {
+    const funcionApagada = await exigirFuncion("FUNC_INTRUSION"); if (funcionApagada) return funcionApagada;
     const p = await autorizarMonitor("/api/monitor/intrusion/analisis");
     if (p.error) return p.error;
     const id = req.nextUrl.searchParams.get("id") || "";

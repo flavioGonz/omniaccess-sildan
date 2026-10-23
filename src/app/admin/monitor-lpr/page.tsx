@@ -1,13 +1,15 @@
 "use client";
 
+import { IconosAvisosMonitor } from "@/components/avisos/PilaAvisos";
 import { useFuncion } from "@/lib/funciones-cliente";
+import { useSilencioAvisos } from "@/lib/avisos-pantalla";
 import { useEffect, useState, useMemo, useRef, memo, useCallback, createContext, useContext } from "react";
 import { io, Socket } from "socket.io-client";
 import { useRouter } from "next/navigation";
 import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDevice, relecturasDeEventos } from "@/app/actions/history";
 import { chapaDe, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
 import type { RelecturaEvento } from "@/lib/relectura";
-import { getDevices, getAvailableStreams } from "@/app/actions/devices";
+import { getDevices, getAvailableStreams, getEquiposApagados } from "@/app/actions/devices";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
 import { SugerenciaRelectura } from "@/components/monitor/SugerenciaRelectura";
@@ -83,6 +85,8 @@ import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
 import { RegistrarMatricula } from "@/components/registro/RegistrarMatricula";
 import { Filtros } from "@/components/ui/filtros";
+import { ElegirArea } from "@/components/devices/ElegirArea";
+import { useFiltroArea } from "@/lib/use-filtro-area";
 import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 
 /** Matrícula → logo de su empresa (ver logosPorMatricula). */
@@ -563,168 +567,6 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
 });
 
 
-/** Mini-ventanas apiladas abajo a la derecha con las lecturas anómalas.
- *  Quedan FIJAS hasta que el guardia cierra cada una (o todas). */
-function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any[]; onDismiss: (id: string) => void; onClear: () => void; onRegister: (p?: string) => void }) {
-    const comp = useContext(ComportamientoCtx);
-    const relMap = useContext(RelecturasCtx);
-    if (!items.length) return null;
-    return (
-        <div className="fixed bottom-4 right-4 z-[400] w-[340px] max-w-[92vw] flex flex-col gap-2 pointer-events-none">
-            <div className="flex items-center justify-between px-1 pointer-events-auto">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-yellow-300">
-                    <AlertTriangle size={13} /> Lecturas para revisar · {items.length}
-                </span>
-                <button onClick={onClear} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground bg-card border border-border rounded px-2 py-0.5">Cerrar todas</button>
-            </div>
-            <div className="flex flex-col gap-2 pr-0.5 pointer-events-auto">
-                {items.slice(0, 4).map((ev) => {
-                    const plate = (ev.plateDetected || "").toUpperCase();
-                    const anomalous = !ev.plateDetected || ["NO_LEIDA", "UNKNOWN", "S/P"].includes(plate);
-                    const watch = ev.watch;
-                    const watchMeta = watch ? watchCatMeta(watch.category) : null;
-                    const tipo = tipoDeteccion(ev, watch, comp);
-                    const img = getImagePath(ev.snapshotPath || ev.imagePath) || "";
-                    const dir = ev.direction;
-                    const isBlack = tipo?.key === "negra";
-                    return (
-                        <div key={ev.id} className={cn(
-                            "relative rounded-xl border bg-card shadow-2xl overflow-hidden animate-in slide-in-from-right-4 duration-200",
-                            isBlack ? "border-red-500/60 ring-2 ring-red-500/40" : anomalous ? "border-yellow-500/50" : "border-border"
-                        )}>
-                            <button onClick={() => onDismiss(ev.id)} title="Cerrar" className="absolute top-1.5 right-1.5 z-10 h-6 w-6 rounded-md bg-black/50 hover:bg-black/70 text-white/80 hover:text-white flex items-center justify-center backdrop-blur"><X size={13} /></button>
-                            <VisorEventoAcceso event={!ev.relectura && relMap[ev.id] ? { ...ev, relectura: relMap[ev.id] } : ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
-                                <div className="flex gap-2.5 p-2.5 cursor-pointer">
-                                    <div className="w-24 h-16 rounded-lg overflow-hidden shrink-0 border border-border">
-                                        <SmartThumb src={img} w={240} className="w-full h-full" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            {anomalous && chapaDe(ev.plateDetected, ev.relectura || relMap[ev.id]).omni ? (
-                                                <span className="inline-flex items-center gap-1.5"><span className="font-mono text-sm font-bold tracking-wider text-foreground">{textoChapa(chapaDe(ev.plateDetected, ev.relectura || relMap[ev.id]))}</span><MarcaOmniVision r={ev.relectura || relMap[ev.id]} tamano="xs" /></span>
-                                            ) : anomalous ? (
-                                                <span className="inline-flex items-center gap-1 text-xs font-bold text-yellow-300"><AlertTriangle size={12} /> SIN LECTURA</span>
-                                            ) : (
-                                                <span className="inline-flex items-center gap-1.5"><span className="font-mono text-sm font-bold tracking-wider text-foreground">{ev.plateDetected}</span><MarcaVerificacion plate={ev.plateDetected} r={ev.relectura || relMap[ev.id]} tamano="xs" /></span>
-                                            )}
-                                            <Badge className={cn("text-[8px] px-1 py-0", dir === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>{dir === "EXIT" ? "SALIDA" : "ENTRADA"}</Badge>
-                                        </div>
-                                        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                                            {watchMeta
-                                                ? <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchMeta.badge)}><ShieldAlert size={9} /> {watchMeta.label.toUpperCase()}</span>
-                                                : tipo && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
-                                            {ev.user?.name && <span className="text-[10px] text-blue-400 truncate max-w-[120px]">{ev.user.name}</span>}
-                                        </div>
-                                        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                                            <TimeAgo timestamp={ev.timestamp} />
-                                            {ev.device?.name && <span className="truncate">· {ev.device.name}</span>}
-                                        </div>
-                                    </div>
-                                </div>
-                            </VisorEventoAcceso>
-                        </div>
-                    );
-                })}
-            </div>
-            {items.length > 4 && (
-                <div className="relative h-8 mt-0.5 pointer-events-auto">
-                    <div className="absolute inset-x-3 top-2 h-7 rounded-xl bg-card/50 border border-border" />
-                    <div className="absolute inset-x-1.5 top-1 h-7 rounded-xl bg-card/75 border border-border" />
-                    <div className="absolute inset-x-0 top-0 h-8 rounded-xl bg-card border border-border shadow-lg flex items-center justify-center gap-1.5 text-[11px] font-bold text-muted-foreground">
-                        <AlertTriangle size={12} className="text-yellow-400" /> +{items.length - 4} en cola
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
-
-/** Alertas críticas (merodeo + lista negra): mini-popups abajo a la IZQUIERDA con
- *  animación de peligro constante. Siempre activas, se cierran a mano. */
-function CriticalAlerts({ items, onDismiss, onClear, onRegister, onAbrirIntrusion }: { items: any[]; onDismiss: (id: string) => void; onClear: () => void; onRegister: (p?: string) => void; onAbrirIntrusion: (ev: any) => void }) {
-    const router = useRouter();
-    if (!items.length) return null;
-    return (
-        <div className="fixed bottom-4 left-4 z-[410] w-[340px] max-w-[92vw] flex flex-col gap-2 pointer-events-none">
-            <style>{`@keyframes oaPeligro{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.55),0 0 12px 1px rgba(239,68,68,.35)}50%{box-shadow:0 0 0 4px rgba(239,68,68,0),0 0 26px 8px rgba(239,68,68,.7)}}@keyframes oaLatir{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}`}</style>
-            <div className="flex items-center justify-between px-1 pointer-events-auto">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-red-400"><ShieldAlert size={13} style={{ animation: "oaLatir 1s ease-in-out infinite" }} /> Alertas críticas · {items.length}</span>
-                <button onClick={onClear} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground bg-card border border-border rounded px-2 py-0.5">Cerrar todas</button>
-            </div>
-            <div className="flex flex-col gap-2 pointer-events-auto">
-                {items.slice(0, 4).map((ev) => {
-                    const isMer = ev.kind === "merodeo";
-                    const isIntr = ev.kind === "intrusion";
-                    const img = getImagePath(ev.snapshotPath || ev.imagePath) || "";
-                    return (
-                        <div key={ev.id} className="relative rounded-xl border-2 border-red-500/70 bg-card overflow-hidden" style={{ animation: "oaPeligro 1.1s ease-in-out infinite" }}>
-                            <button onClick={() => onDismiss(ev.id)} title="Cerrar" className="absolute top-1.5 right-1.5 z-10 h-6 w-6 rounded-md bg-black/50 hover:bg-black/70 text-white/80 hover:text-white flex items-center justify-center backdrop-blur"><X size={13} /></button>
-                            {isMer ? (
-                                <button onClick={() => router.push(`/admin/history?search=${encodeURIComponent(ev.plate || "")}`)} className="w-full text-left flex gap-2.5 p-2.5">
-                                    <div className="w-12 h-12 rounded-lg bg-red-500/15 border border-red-500/40 flex items-center justify-center shrink-0">
-                                        <AlertTriangle size={22} className="text-red-400" style={{ animation: "oaLatir 1s ease-in-out infinite" }} />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="text-[10px] font-black uppercase tracking-wider text-red-400">Merodeo</span>
-                                            <span className="font-mono text-sm font-bold tracking-wider text-foreground">{ev.plate || "S/L"}</span>
-                                        </div>
-                                        <div className="mt-0.5 text-[10px] text-muted-foreground">{ev.count} pasadas en {ev.windowMin} min · {ev.distinctDevices} acceso/s{ev.deviceName ? ` · ${ev.deviceName}` : ""}</div>
-                                        <div className="mt-0.5 text-[10px] text-muted-foreground"><TimeAgo timestamp={ev.timestamp} /></div>
-                                    </div>
-                                </button>
-                            ) : isIntr ? (
-                                /* Era un <div>: la de merodeo y la de lista negra se tocaban y abrían su detalle, la de
-                                   intrusión no hacía nada, y la guardia no tenía cómo volver al evento (San Nicolás, 15/10). */
-                                <button type="button" onClick={() => onAbrirIntrusion(ev)} title="Ver la detección: captura y grabación" className="w-full text-left flex gap-2.5 p-2.5 hover:bg-accent/40 transition-colors">
-                                    <div className="w-12 h-12 rounded-lg bg-red-500/15 border border-red-500/40 flex items-center justify-center shrink-0">
-                                        <ShieldAlert size={22} className="text-red-400" style={{ animation: "oaLatir 1s ease-in-out infinite" }} />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="text-[10px] font-black uppercase tracking-wider text-red-400">Intrusión</span>
-                                            <span className="font-mono text-sm font-bold tracking-wider text-foreground truncate">{ev.deviceName || ev.device?.name || "Cámara"}</span>
-                                        </div>
-                                        <div className="mt-0.5 text-[10px] text-muted-foreground truncate">{ev.details || (ev.type === "line" ? "Cruce de línea" : "Zona")}</div>
-                                        <div className="mt-0.5 text-[10px] text-muted-foreground"><TimeAgo timestamp={ev.timestamp} /></div>
-                                    </div>
-                                </button>
-                            ) : (
-                                <VisorEventoAcceso event={ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
-                                    <div className="flex gap-2.5 p-2.5 cursor-pointer">
-                                        <div className="w-24 h-16 rounded-lg overflow-hidden shrink-0 border border-red-500/40">
-                                            <SmartThumb src={img} w={240} className="w-full h-full" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="font-mono text-sm font-bold tracking-wider text-foreground">{ev.plateDetected || "S/L"}</span>
-                                                <Badge className={cn("text-[8px] px-1 py-0", ev.direction === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>{ev.direction === "EXIT" ? "SALIDA" : "ENTRADA"}</Badge>
-                                            </div>
-                                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                                                <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/50"><ShieldAlert size={9} /> Lista Negra</span>
-                                                {ev.user?.name && <span className="text-[10px] text-blue-400 truncate max-w-[110px]">{ev.user.name}</span>}
-                                            </div>
-                                            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground"><TimeAgo timestamp={ev.timestamp} />{ev.device?.name && <span className="truncate">· {ev.device.name}</span>}</div>
-                                        </div>
-                                    </div>
-                                </VisorEventoAcceso>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
-            {items.length > 4 && (
-                <div className="relative h-8 mt-0.5 pointer-events-auto">
-                    <div className="absolute inset-x-3 top-2 h-7 rounded-xl bg-red-500/10 border border-red-500/40" />
-                    <div className="absolute inset-x-1.5 top-1 h-7 rounded-xl bg-red-500/15 border border-red-500/50" />
-                    <div className="absolute inset-x-0 top-0 h-8 rounded-xl bg-card border-2 border-red-500/60 shadow-lg flex items-center justify-center gap-1.5 text-[11px] font-bold text-red-400">
-                        <ShieldAlert size={12} /> +{items.length - 4} críticas más
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
 
 /**
  * Una columna del monitor: todo lo de un sentido.
@@ -777,6 +619,8 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
     const entrada = dir === "ENTRY";
     const Icono = entrada ? LogIn : LogOut;
     const sinLeer = eventos.filter((e) => !e.plateDetected || ["NO_LEIDA", "unknown", "S/P"].includes(e.plateDetected)).length;
+    const ultimaDeCamaras = camaras.map((d: any) => ultimaPorCamara(d.id)).filter((e: any) => e?.timestamp)
+        .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
     return (
         <section className="flex flex-col min-h-0 overflow-hidden">
             {/* Encabezado del sentido */}
@@ -796,7 +640,8 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
                 cámaras son 16:9; si el recuadro no lo es, se mira un pedazo. */}
             <div className="shrink-0 p-4 border-b border-border">
                 <div className="grid gap-3 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 31%)" }}>
-                    <CenterShot ev={eventos[0]} onRegister={onRegister} dir={dir} className="aspect-video" watchMap={watchMap} logos={logos} />
+                    {/* La última de la columna; si la lista todavía no la trae, la más nueva de sus cámaras. */}
+                    <CenterShot ev={eventos[0] || ultimaDeCamaras} onRegister={onRegister} dir={dir} className="aspect-video" watchMap={watchMap} logos={logos} />
                     <div className={cn("grid gap-2", camaras.length > 2 ? "grid-cols-2" : "grid-cols-1")}>
                         {camaras.map((d: any) => <CamTile key={d.id} dev={d} accent={entrada ? "emerald" : "orange"} ev={ultimaPorCamara(d.id)} onRegister={onRegister} className="aspect-video" />)}
                         {/* Con una sola cámara sobra la mitad del costado: ahí va el resumen del sentido. */}
@@ -838,6 +683,11 @@ export default function MonitorLPR() {
     const [lastCapByDev, setLastCapByDev] = useState<Record<string, any>>({});
     const [isConnected, setIsConnected] = useState(false);
     const [devices, setDevices] = useState<Device[]>([]);
+    // Áreas de Dispositivos (21/10, Nico): las columnas muestran sólo las cámaras del área elegida y
+    // sus lecturas. Los números de «Hoy» siguen siendo del día entero (salen del servidor).
+    const fa = useFiltroArea("monitor-lpr");
+    /** Los equipos del área elegida (null = todas), en un ref: el refresco cada 5 s lo lee al momento. */
+    const idsAreaRef = useRef<string[] | null>(null);
     const [streams, setStreams] = useState<string[]>([]);
     const router = useRouter();
     const [units, setUnits] = useState<any[]>([]);
@@ -845,12 +695,8 @@ export default function MonitorLPR() {
     const [parkingSlots, setParkingSlots] = useState<any[]>([]);
     const [registerOpen, setRegisterOpen] = useState(false);
     const [registerInit, setRegisterInit] = useState<{ plate?: string } | undefined>(undefined);
-    // Alertas críticas (merodeo + lista negra) — mini-popups con animación de peligro, siempre activas.
-    const [criticals, setCriticals] = useState<any[]>([]);
-    const critSeenRef = useRef<Set<string>>(new Set());
-    const critInitedRef = useRef(false);
-    const dismissedCritRef = useRef<Set<string>>(new Set());
-    const dismissCritical = useCallback((id: string) => { dismissedCritRef.current.add(id); setCriticals(c => c.filter(x => x.id !== id)); }, []);
+    // Lista negra, merodeo e intrusión ya no saltan acá: van a la pila de avisos de toda la app
+    // (components/avisos, 20/10). Este monitor sólo conserva el contador de lecturas para revisar.
     const [eventsLoading, setEventsLoading] = useState(true);
     const [verDetecciones, setVerDetecciones] = useState(false);
     /** La detección abierta desde el cajón. Al cerrarla se vuelve al cajón, como en la ficha del evento. */
@@ -865,14 +711,6 @@ export default function MonitorLPR() {
         getAnalyticsGeometryBatch([fichaDet.deviceId]).then((g) => setGeomDet(g?.[fichaDet.deviceId!])).catch(() => { });
     }, [fichaDet?.deviceId]);
     const pendingRef = useRef<any[]>([]);
-    // Lecturas anómalas fijadas (sin lectura / lista negra / lista blanca / vigilancia):
-    // quedan como mini-ventanas apiladas abajo hasta que el guardia las cierra.
-    const [pinned, setPinned] = useState<any[]>([]);
-    const dismissedRef = useRef<Set<string>>(new Set()); // ids que el guardia cerró: no reaparecen
-    const dismissPin = useCallback((id: string) => { dismissedRef.current.add(id); setPinned(p => p.filter(x => x.id !== id)); }, []);
-    // Toggle del popup automático de lecturas anómalas — DESHABILITADO por defecto.
-    const [pinEnabled, setPinEnabled] = useState(false);
-    useEffect(() => { if (!pinEnabled) { setPinned([]); dismissedRef.current.clear(); } }, [pinEnabled]);
 
     const lastEntry = events.find(e => e.direction === 'ENTRY');
     const lastExit = events.find(e => e.direction === 'EXIT');
@@ -880,7 +718,10 @@ export default function MonitorLPR() {
     const loadInitialData = async () => {
         try {
             const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-            const data = await getAccessEvents({ take: 50, from: twentyFourHoursAgo, type: "PLATE" });
+            // Con un área elegida, las 50 lecturas se piden de SUS cámaras (22/10, Nico: «cuando cambio el
+            // área no muestra bien las últimas capturas»): eran las 50 últimas de todo el servidor y
+            // se filtraban acá; las de un área tranquila quedaban afuera y la columna salía vacía.
+            const data = await getAccessEvents({ take: 50, from: twentyFourHoursAgo, type: "PLATE", ...(idsAreaRef.current ? { deviceIds: idsAreaRef.current } : {}) });
             setEvents(data.events as FullAccessEvent[]);
             setEventsLoading(false);
             const todayStats = await getEventsCountToday("PLATE");
@@ -895,7 +736,9 @@ export default function MonitorLPR() {
     // últimas las lee el contenedor, no la cámara, y sus lecturas no llegan por el socket
     // de access_event, así que su última captura se vuelve a pedir cada tanto.
     const esCamaraDeAcceso = (x: any) => x.deviceType === "LPR_CAMERA" || (x.deviceType === "LPR_INTERIOR" && !!x.trackAcceso);
-    useEffect(() => { getDevices().then((d: any) => setDevices((d || []).filter(esCamaraDeAcceso))).catch(() => {}); getLastEventPerDevice().then(setLastCapByDev).catch(() => {}); getAvailableStreams().then((s: any) => setStreams(s || [])).catch(() => {}); }, []);
+    // Sólo las que leen matrículas de un acceso —ANPR de la cámara (LPR_CAMERA) o lectura de OmniVision
+    // (LPR_INTERIOR que mira un acceso)— y que no estén apagadas por su área (22/10).
+    useEffect(() => { Promise.all([getDevices(), getEquiposApagados().catch(() => [] as string[])]).then(([d, off]: any) => { const ap = new Set<string>(off || []); setDevices((d || []).filter((x: any) => esCamaraDeAcceso(x) && !ap.has(x.id))); }).catch(() => {}); getLastEventPerDevice().then(setLastCapByDev).catch(() => {}); getAvailableStreams().then((s: any) => setStreams(s || [])).catch(() => {}); }, []);
     const hayInterioresDeAcceso = useMemo(() => devices.some((x: any) => x.deviceType === "LPR_INTERIOR"), [devices]);
     useEffect(() => {
         if (!hayInterioresDeAcceso) return;
@@ -911,19 +754,11 @@ export default function MonitorLPR() {
     // Watchlist (lista negra / búsqueda / VIP) — resaltado + sonido
     const [watchMap, setWatchMap] = useState<Record<string, any>>({});
     const [showWatch, setShowWatch] = useState(false);
-    const [soundOn, setSoundOn] = useState(true);
+    // El silencio es el de la pila de avisos (lib/avisos-pantalla): uno solo para todo el panel.
+    const [silencioAvisos, setSilencioAvisos] = useSilencioAvisos();
+    const soundOn = !silencioAvisos;
     const soundOnRef = useRef(true);
     useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
-    // Las ventanitas de intrusión (16/10): se prenden y se apagan como las de anomalías; se
-    // recuerda en este navegador. Apagarlas no apaga la alarma global: sólo las de esta pantalla.
-    const [intrPopups, setIntrPopups] = useState(true);
-    const intrPopupsRef = useRef(true);
-    useEffect(() => { try { const v = localStorage.getItem("oa.lpr.intrusionPopups"); if (v != null) { setIntrPopups(v === "1"); intrPopupsRef.current = v === "1"; } } catch { } }, []);
-    const cambiarIntrPopups = (v: boolean) => {
-        setIntrPopups(v); intrPopupsRef.current = v;
-        try { localStorage.setItem("oa.lpr.intrusionPopups", v ? "1" : "0"); } catch { }
-        if (!v) setCriticals((prev) => prev.filter((x) => x.kind !== "intrusion"));
-    };
     const audioCtxRef = useRef<any>(null);
     const lastAlertRef = useRef<Record<string, number>>({});
     // Los interruptores de cada pestaña de Usuarios («Cómo se comporta»): color propio y sonido
@@ -1055,29 +890,18 @@ export default function MonitorLPR() {
             pendingRef.current.push(event);
         });
 
-        newSocket.on("merodeo_alert", (a: any) => {
-            const id = `mer_${(a.plate || "?")}_${Date.now()}`;
-            setCriticals((prev) => [{ id, kind: "merodeo", timestamp: new Date().toISOString(), ...a }, ...prev].slice(0, 24));
-            if (soundOnRef.current) beep(true);
+        // Un disparo sin vehículo (OmniVision no vio ningún vehículo en la foto de una NO_LEIDA): se
+        // mostró al llegar porque todavía no se sabía, y se saca apenas se sabe (24/10, vision-relectura).
+        newSocket.on("lectura_descartada", (d: { accessEventId?: string }) => {
+            const id = d?.accessEventId; if (!id) return;
+            pendingRef.current = pendingRef.current.filter((e) => e.id !== id);
+            setEvents((prev) => {
+                const ev = prev.find((e) => e.id === id); if (!ev) return prev;
+                setStats((s) => ({ total: Math.max(0, s.total - 1), grants: s.grants - (ev.decision === "GRANT" ? 1 : 0), denies: Math.max(0, s.denies - (ev.decision === "DENY" ? 1 : 0)) }));
+                return prev.filter((e) => e.id !== id);
+            });
         });
-        // Intrusión: cruce de línea / zona del perímetro. Entra al mismo stream de alertas
-        // críticas que merodeo/lista negra, con kind "intrusion" para que se pinte distinto.
-        // Escucha `general_detection`, que es lo que emite la pila de intrusión que quedó
-        // (Detection); `intrusion_alert` era de la pila vieja y ya no lo emite nadie, así que
-        // este monitor estuvo meses sin enterarse de una intrusión.
-        const NOMBRE_DETECCION: Record<string, string> = { LINECROSS: "Cruce de línea", INTRUSION: "Intrusión en zona", REGION_ENTER: "Entró a la zona", REGION_EXIT: "Salió de la zona" };
-        newSocket.on("general_detection", (a: any) => {
-            if (!a?.id || a.type === "MOTION") return;
-            if (!intrPopupsRef.current) return;
-            setCriticals((prev) => prev.some((x) => x.id === a.id) ? prev : [{ id: a.id, kind: "intrusion", timestamp: a.timestamp || new Date().toISOString(), deviceId: a.deviceId || null, type: a.type, label: a.label || null, deviceName: a.deviceName, details: NOMBRE_DETECCION[a.type] || "Detección", snapshotPath: a.snapshotPath || null }, ...prev].slice(0, 24));
-            if (soundOnRef.current) beep(true);
-        });
-        // La captura de una detección llega unos segundos después: sin esto la ficha que se abre
-        // desde la alerta lateral quedaba sin foto.
-        newSocket.on("detection_snapshot", (d: any) => {
-            if (!d?.id || !d.snapshotPath) return;
-            setCriticals((prev) => prev.some((x) => x.id === d.id) ? prev.map((x) => (x.id === d.id ? { ...x, snapshotPath: d.snapshotPath } : x)) : prev);
-        });
+
         setSocket(newSocket);
         return () => {
             clearInterval(watchdog);
@@ -1118,36 +942,6 @@ export default function MonitorLPR() {
         const role = String(e.user?.role || "").toUpperCase();
         return cat === "negra" || cat === "blacklisted" || role === "BLACKLISTED";
     }, [watchMap]);
-    const esAnomala = useCallback((e: any) => {
-        const plate = (e.plateDetected || "").toUpperCase();
-        if (plate === "DOOR_OPEN" || plate === "DOOR_CLOSE") return false;
-        if (esNegra(e)) return false; // la lista negra va al stack CRÍTICO, no al de anomalías
-        const anomalous = !e.plateDetected || ["NO_LEIDA", "UNKNOWN", "S/P"].includes(plate);
-        const role = (e.user?.role || "").toUpperCase();
-        return anomalous || !!e.watch || role === "WHITELISTED" || !!e.user?.vip;
-    }, [esNegra]);
-    useEffect(() => {
-        if (!pinEnabled) return;
-        setPinned((prev) => {
-            const seen = new Set(prev.map((x) => x.id));
-            const nuevos = events.filter((e) => esAnomala(e) && !seen.has(e.id) && !dismissedRef.current.has(e.id));
-            if (!nuevos.length) return prev;
-            return [...nuevos, ...prev].slice(0, 24);
-        });
-    }, [pinEnabled, events, esAnomala]);
-    // Lista negra → stack crítico SIEMPRE (independiente del toggle). Solo detecciones nuevas
-    // (las históricas del feed al cargar se marcan como vistas para no inundar ni sonar).
-    useEffect(() => {
-        const negras = events.filter(esNegra);
-        if (!critInitedRef.current) { negras.forEach((e) => critSeenRef.current.add(e.id)); critInitedRef.current = true; return; }
-        const nuevos = negras.filter((e) => !critSeenRef.current.has(e.id));
-        if (!nuevos.length) return;
-        nuevos.forEach((e) => critSeenRef.current.add(e.id));
-        const dispo = nuevos.filter((e) => !dismissedCritRef.current.has(e.id)).map((e) => ({ ...e, kind: "negra" }));
-        if (!dispo.length) return;
-        setCriticals((prev) => [...dispo, ...prev].slice(0, 24));
-        if (soundOnRef.current) beep(true);
-    }, [events, esNegra, beep]);
 
     const vehFacets = useMemo(() => collectVehicleFacets(events as any[]), [events]);
     const filteredEvents = useMemo(() => {
@@ -1155,6 +949,7 @@ export default function MonitorLPR() {
             const plate = (e.plateDetected || '').toUpperCase();
             if (plate === 'DOOR_OPEN' || plate === 'DOOR_CLOSE') return false;
             if (activeFilter !== "ALL" && e.decision !== activeFilter) return false;
+            if (fa.filtrando && !fa.enArea((e as any).device?.id || (e as any).deviceId)) return false;
             if (filterColor !== "ALL" || filterVehType !== "ALL") {
                 const m = parseVehicleMeta(e.details);
                 if (filterColor !== "ALL" && m.color !== filterColor) return false;
@@ -1162,11 +957,17 @@ export default function MonitorLPR() {
             }
             return true;
         });
-    }, [events, activeFilter, filterColor, filterVehType]);
+    }, [events, activeFilter, filterColor, filterVehType, fa.filtrando, fa.enArea]);
 
     const entryEvents = useMemo(() => filteredEvents.filter(e => e.direction === 'ENTRY'), [filteredEvents]);
     const exitEvents = useMemo(() => filteredEvents.filter(e => e.direction === 'EXIT'), [filteredEvents]);
-    const lprDevs = useMemo(() => devices, [devices]);
+    const lprDevs = useMemo(() => devices.filter((x: any) => fa.enArea(x.id)), [devices, fa.enArea]);
+    // Al cambiar el área: los ids nuevos y se vuelve a pedir enseguida (no al próximo refresco).
+    const claveIds = fa.filtrando ? lprDevs.map((x: any) => x.id).sort().join(",") : "";
+    useEffect(() => {
+        idsAreaRef.current = fa.filtrando ? (claveIds ? claveIds.split(",") : []) : null;
+        if (devices.length) { setEventsLoading(true); loadInitialData(); }
+    }, [claveIds, fa.filtrando, devices.length]); // eslint-disable-line react-hooks/exhaustive-deps
     const entryCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'ENTRY'), [lprDevs]);
     const exitCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'EXIT'), [lprDevs]);
     /*
@@ -1239,6 +1040,11 @@ export default function MonitorLPR() {
                                 { valor: "DENY", rotulo: "", titulo: "Denegadas", icono: Ban, cuenta: stats.denies, tono: "mal" },
                             ],
                         }]}>
+                        {fa.hayAreas && (
+                            <ElegirArea areas={fa.areas} valor={fa.area} alElegir={fa.setArea} compacto
+                                cuenta={(a) => devices.filter((x: any) => fa.enAreaDe(a, x.id)).length}
+                                sinArea={devices.some((x: any) => !fa.areaDe(x.id))} />
+                        )}
                         {vehFacets.colors.length > 0 && (
                             <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)} title="Color del vehículo"
                                 className={cn("h-[34px] rounded-lg bg-muted/60 border-0 px-3 text-[12px] font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--accion)]/40", filterColor === "ALL" ? "text-muted-foreground" : "text-foreground")}>
@@ -1275,17 +1081,9 @@ export default function MonitorLPR() {
                                 <ShieldAlert size={15} /><span className="hidden 2xl:inline">Lista negra</span>
                                 {Object.keys(watchMap).length > 0 && <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full pleno-mal text-[9px] font-bold flex items-center justify-center tabular-nums">{Object.keys(watchMap).length}</span>}
                             </button>
-                            <button onClick={() => setPinEnabled(v => !v)} title={pinEnabled ? "Ventanitas de lecturas anómalas: prendidas" : "Ventanitas de lecturas anómalas: apagadas"} aria-pressed={pinEnabled}
-                                aria-label="Ventanitas de anomalías"
-                                className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", pinEnabled ? "bg-background tono-aviso" : "text-muted-foreground hover:text-foreground hover:bg-background")}>
-                                <AlertTriangle size={15} />
-                            </button>
-                            {/* Las ventanitas de intrusión (cruces, zonas) a la derecha: se pueden apagar como las de anomalías. */}
-                            <button onClick={() => cambiarIntrPopups(!intrPopups)} title={intrPopups ? "Ventanitas de intrusión: prendidas" : "Ventanitas de intrusión: apagadas"} aria-pressed={intrPopups} aria-label="Ventanitas de intrusión"
-                                className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", intrPopups ? "bg-background tono-mal" : "text-muted-foreground hover:text-foreground hover:bg-background")}>
-                                <Siren size={15} />
-                            </button>
-                            <button onClick={() => setSoundOn(s => !s)} title={soundOn ? "Silenciar alertas" : "Activar sonido"} aria-pressed={!soundOn}
+                            {/* Qué avisos saltan y la lectura en voz alta (la pila de avisos, components/avisos). */}
+                            <IconosAvisosMonitor />
+                            <button onClick={() => setSilencioAvisos(!silencioAvisos)} title={soundOn ? "Silenciar alertas" : "Activar sonido"} aria-pressed={!soundOn}
                                 className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", soundOn ? "text-muted-foreground hover:text-foreground hover:bg-background" : "bg-background tono-mal")}>
                                 {soundOn ? <Volume2 size={15} /> : <VolumeX size={15} />}
                             </button>
@@ -1318,9 +1116,6 @@ export default function MonitorLPR() {
                 {plazasOn && <CajonPlaza plate={plazaDe} onClose={() => setPlazaDe(null)}
                     onRegistrar={(p) => { setPlazaDe(null); openRegister(p); }}
                     alCambiar={() => getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => { })} />}
-                <PinnedAnomalies items={pinned} onDismiss={dismissPin} onClear={() => setPinned([])} onRegister={openRegister} />
-                <CriticalAlerts items={criticals} onDismiss={dismissCritical} onClear={() => setCriticals([])} onRegister={openRegister}
-                    onAbrirIntrusion={(ev) => setFichaDet({ id: ev.id, deviceId: ev.deviceId || null, deviceName: ev.deviceName || null, type: ev.type || "OTHER", eventType: null, snapshotPath: ev.snapshotPath || null, timestamp: ev.timestamp, label: ev.label || null })} />
                 {/* Registrar pregunta primero qué es la matrícula (persona del barrio o seguimiento)
                     y recién ahí abre el cajón que corresponde. Antes abría el alta vieja de persona. */}
                 <RegistrarMatricula plate={registerOpen ? registerInit?.plate || null : null}

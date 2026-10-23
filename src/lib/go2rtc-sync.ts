@@ -1,5 +1,6 @@
 import fs from "fs";
 import net from "net";
+import { spawn } from "child_process";
 import yaml from "js-yaml";
 import { prisma } from "@/lib/prisma";
 import { getChannelMap, resolveNvrById } from "@/lib/nvr-resolve";
@@ -45,13 +46,49 @@ export function rtspDirect(dev: Dev, channel: string): string {
 }
 
 /** RTSP de un canal a través de la NVR (para cámaras colgadas de un NVR). */
-function rtspViaNvr(nvr: { ip: string; user: string; pass: string; rtspPort: string; brand: string }, ch: number, hd: boolean): string {
+export function rtspViaNvr(nvr: { ip: string; user: string; pass: string; rtspPort: string; brand: string }, ch: number, hd: boolean): string {
     const cred = nvr.pass ? `${enc(nvr.user)}:${enc(nvr.pass)}@` : `${enc(nvr.user)}@`;
     const port = nvr.rtspPort || "554";
     if (String(nvr.brand).toUpperCase() === "DAHUA") {
         return `rtsp://${cred}${nvr.ip}:${port}/cam/realmonitor?channel=${ch}&subtype=${hd ? 0 : 1}`;
     }
     return `rtsp://${cred}${nvr.ip}:${port}/Streaming/Channels/${ch}${hd ? "01" : "02"}`;
+}
+
+/**
+ * ¿Ese RTSP entrega video de verdad? Se le pide a ffprobe que lo abra y diga qué trae.
+ *
+ * 21/10, Otto Villa: el puerto 554 de las cámaras estaba abierto, pero las LPR contestaban
+ * «453 Not Enough Bandwidth» al SETUP (ya tenían tomadas todas sus conexiones: el NVR y el
+ * sistema que había antes) y otra contestaba datos que no son video. Con «el puerto responde»
+ * se elegía el directo y el vivo quedaba en 500. El NVR, en cambio, entregaba esos canales bien.
+ */
+const PRUEBA_RTSP_MS = 8000;
+export function rtspResponde(url: string, ms = PRUEBA_RTSP_MS): Promise<boolean> {
+    return new Promise((resolve) => {
+        let out = "", listo = false;
+        const fin = (ok: boolean) => { if (listo) return; listo = true; try { p.kill("SIGKILL"); } catch { } resolve(ok); };
+        const p = spawn("ffprobe", ["-v", "error", "-rtsp_transport", "tcp", "-select_streams", "v:0", "-show_entries", "stream=codec_type", "-of", "csv=p=0", "-i", url], { stdio: ["ignore", "pipe", "ignore"] });
+        const t = setTimeout(() => fin(false), ms);
+        p.stdout.on("data", (d: Buffer) => { out += d.toString(); });
+        p.on("close", () => { clearTimeout(t); fin(/video/.test(out)); });
+        p.on("error", () => { clearTimeout(t); fin(false); });
+    });
+}
+
+/**
+ * El RTSP para una cámara: directo si de verdad entrega video; si no, y la cámara graba en un NVR
+ * dado de alta, el de su canal en el NVR (101 → principal, 102 → secundario). Sin NVR, el directo.
+ */
+export async function rtspDeCamara(dev: Dev, canal: "101" | "102"): Promise<{ url: string; via: "directo" | "nvr" }> {
+    const directo = rtspDirect(dev, canal);
+    if (dev.ip && await rtspResponde(directo)) return { url: directo, via: "directo" };
+    try {
+        const e = dev.ip ? (await getChannelMap())[dev.ip] : null;
+        const nvr = e?.ch ? await resolveNvrById(e.nvrId) : null;
+        if (nvr && e) return { url: rtspViaNvr(nvr, e.ch, canal === "101"), via: "nvr" };
+    } catch { /* sin mapa: queda el directo */ }
+    return { url: directo, via: "directo" };
 }
 
 // El segundo origen de cada stream es un ffmpeg que transcodifica a H.264 (los canales
@@ -63,6 +100,51 @@ let _gpu: boolean | null = null;
 function transcode(n: string): string {
     if (_gpu === null) { try { _gpu = fs.existsSync(DRI); } catch { _gpu = false; } }
     return `ffmpeg:${n}#video=h264${_gpu ? "#hardware=vaapi" : ""}`;
+}
+
+/** Un stream con un solo origen y sin transcode (el anillo de dispatch-worker copia lo que llega). */
+async function writeStreamSolo(name: string, src: string): Promise<void> {
+    try {
+        let doc: any = {};
+        if (fs.existsSync(CONFIG)) doc = (yaml.load(fs.readFileSync(CONFIG, "utf8")) as any) || {};
+        if (!doc.streams || typeof doc.streams !== "object") doc.streams = {};
+        doc.streams[name] = [src];
+        try { fs.copyFileSync(CONFIG, `${CONFIG}.bak.auto.${Date.now()}`); } catch { }
+        fs.writeFileSync(CONFIG, yaml.dump(doc, { lineWidth: 400 }), "utf8");
+    } catch (e) { console.error("[go2rtc-sync] yaml:", (e as any)?.message); }
+    try {
+        const c = new AbortController(); const t = setTimeout(() => c.abort(), 5000);
+        await fetch(`${GO2RTC}/api/streams?name=${enc(name)}&src=${enc(src)}`, { method: "PUT", signal: c.signal });
+        clearTimeout(t);
+    } catch { }
+}
+
+/**
+ * Quita streams de go2rtc (del yaml y en caliente). Lo usa el apagado de un área (lib/apagado):
+ * un equipo apagado no tiene vivo, y go2rtc no le abre conexiones a la cámara.
+ */
+export async function quitarStreams(nombres: string[]): Promise<void> {
+    if (!nombres.length) return;
+    try {
+        if (fs.existsSync(CONFIG)) {
+            const doc: any = (yaml.load(fs.readFileSync(CONFIG, "utf8")) as any) || {};
+            if (doc.streams && typeof doc.streams === "object") {
+                let cambio = false;
+                for (const n of nombres) if (n in doc.streams) { delete doc.streams[n]; cambio = true; }
+                if (cambio) {
+                    try { fs.copyFileSync(CONFIG, `${CONFIG}.bak.auto.${Date.now()}`); } catch { }
+                    fs.writeFileSync(CONFIG, yaml.dump(doc, { lineWidth: 400 }), "utf8");
+                }
+            }
+        }
+    } catch (e) { console.error("[go2rtc-sync] yaml:", (e as any)?.message); }
+    for (const n of nombres) {
+        try {
+            const c = new AbortController(); const t = setTimeout(() => c.abort(), 5000);
+            await fetch(`${GO2RTC}/api/streams?src=${enc(n)}`, { method: "DELETE", signal: c.signal });
+            clearTimeout(t);
+        } catch { }
+    }
 }
 
 async function writeStreams(name: string, nameHd: string, sd: string, hd: string): Promise<void> {
@@ -104,6 +186,10 @@ export async function syncLprStream(dev: Dev): Promise<void> {
         const name = `lpr_${dev.id}`;
         const nameHd = `${name}_hd`;
 
+        // Un equipo de un área apagada no tiene vivo (lib/apagado): guardarlo no se lo vuelve a abrir.
+        const { equiposApagados } = await import("@/lib/apagado");
+        if ((await equiposApagados()).has(dev.id)) { await quitarStreams([name, nameHd]); return; }
+
         // Cámaras interiores (intrusión de San Nicolás): traen su RTSP escrito a mano
         // (cualquier marca/canal), se usa tal cual y no se arma desde la IP. El mismo
         // origen va a las dos entradas, y writeStreams ya agrega el transcode a H264.
@@ -114,6 +200,20 @@ export async function syncLprStream(dev: Dev): Promise<void> {
         }
 
         if (!dev.ip) return;
+
+        /*
+         * Bosch (20/10, contador de filas del Hospital Británico en el lab): `?inst=1` es el primer
+         * flujo y `?inst=2` el segundo; `h26x=4` le pide H.264. Antes una Bosch no tenía receta y
+         * guardarla desde la ficha no registraba su vivo. Un contador de filas además tiene
+         * `bosch_<ip>`, el stream que graba el anillo de clips de las alertas de fila (dispatch-worker).
+         */
+        if (String(dev.brand || "").toUpperCase() === "BOSCH") {
+            const cred = dev.password ? `${enc(dev.username || "service")}:${enc(dev.password)}@` : dev.username ? `${enc(dev.username)}@` : "";
+            const sd = `rtsp://${cred}${dev.ip}:554/?inst=2&h26x=4`, hd = `rtsp://${cred}${dev.ip}:554/?inst=1&h26x=4`;
+            await writeStreams(name, nameHd, sd, hd);
+            if (dev.deviceType === "QUEUE_COUNTER") await writeStreamSolo(`bosch_${dev.ip.replace(/\./g, "_")}`, sd);
+            return;
+        }
 
         if (dev.deviceType === "CAMERA") {
             // resolver NVR + canal por el mapa
@@ -126,7 +226,8 @@ export async function syncLprStream(dev: Dev): Promise<void> {
                         // VIVO SD: directo a la cámara si su RTSP responde (menos latencia + descarga al NVR);
                         //          si no responde (cámara aislada detrás del NVR), cae al NVR.
                         // VIVO HD: siempre por el NVR (el main es H265 y se transcodifica igual).
-                        const direct = await tcpReachable(dev.ip, 554, 1500);
+                        // «Responde» es que entrega video, no que el puerto esté abierto (ver rtspResponde).
+                        const direct = (await tcpReachable(dev.ip, 554, 1500)) && (await rtspResponde(rtspDirect(dev, "102")));
                         const sd = direct ? rtspDirect(dev, "102") : rtspViaNvr(nvr, entry.ch, false);
                         console.log(`[go2rtc-sync] ${dev.ip} SD=${direct ? "directo-cámara" : "vía-NVR"}`);
                         await writeStreams(name, nameHd, sd, rtspViaNvr(nvr, entry.ch, true));
@@ -142,7 +243,9 @@ export async function syncLprStream(dev: Dev): Promise<void> {
         // LPR: sólo Hikvision (flota del primer barrio); otras marcas quedan manuales.
         if (dev.deviceType !== "LPR_CAMERA") return;
         if (dev.brand && dev.brand !== "HIKVISION") return;
-        await writeStreams(name, nameHd, rtspDirect(dev, "102"), rtspDirect(dev, "101"));
+        // Directo si entrega video; si no (conexiones agotadas, 453), por su canal en el NVR.
+        const [sdL, hdL] = [await rtspDeCamara(dev, "102"), await rtspDeCamara(dev, "101")];
+        await writeStreams(name, nameHd, sdL.url, hdL.url);
     } catch (e) {
         console.error("[go2rtc-sync] failed:", (e as any)?.message);
     }

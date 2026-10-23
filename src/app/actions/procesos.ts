@@ -18,7 +18,7 @@ import { getDispatchQueue } from "@/lib/dispatch-queue";
 
 async function exigirAjustes(): Promise<string> {
     const s: any = await getSession();
-    if (!s || !permisosDeSesion(s).includes("ajustes")) throw new Error("Sólo quien tiene Ajustes puede ver y tocar los procesos.");
+    if (!s || !permisosDeSesion(s).includes("mantenimiento")) throw new Error("Hace falta el permiso Mantenimiento para ver y tocar los procesos.");
     return String(s.name || s.sub || "panel");
 }
 

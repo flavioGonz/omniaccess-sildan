@@ -5,6 +5,8 @@ import { Camera, Eye, ImageUp, Loader2, Radio, ScanSearch, TriangleAlert } from 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Filtros } from "@/components/ui/filtros";
+import { ElegirCamara } from "@/components/devices/ElegirCamara";
+import { useAreas } from "@/lib/use-areas";
 import { esPropia } from "@/lib/nombres-propios";
 
 /**
@@ -48,6 +50,7 @@ export function ProbarModelo({ camaras, clases, activo }: {
     const archivo = useRef<HTMLInputElement>(null);
 
     useEffect(() => { if (!camara && camaras.length) setCamara(camaras[0].id); }, [camaras, camara]);
+    const { areas, equipoArea } = useAreas();
     // Al irse de la pantalla el vivo se corta: si no, seguiría pidiendo cuadros sin nadie mirando.
     useEffect(() => () => { parar.current = true; }, []);
 
@@ -118,10 +121,11 @@ export function ProbarModelo({ camaras, clases, activo }: {
                     opciones: [{ valor: "camara", rotulo: "Cámara", icono: Camera }, { valor: "foto", rotulo: "Foto", icono: ImageUp }] }]} />
                 {fuente === "camara" ? (
                     <>
-                        <select value={camara} onChange={(e) => { parar.current = true; setCamara(e.target.value); }} disabled={!!vivo}
-                            className="h-[34px] rounded-lg border border-border bg-background px-2.5 text-[12.5px] font-semibold max-w-[240px]">
-                            {camaras.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
+                        {/* Con buscador y por área, como el resto (punto 6, 21/10). Quieto mientras corre el vivo. */}
+                        <div className={cn(vivo && "pointer-events-none opacity-50")}>
+                            <ElegirCamara valor={camara || null} alElegir={(id) => { if (!id) return; parar.current = true; setCamara(id); }} alinear="start" className="h-[34px] max-w-[240px]"
+                                areas={areas} camaras={camaras.map((c) => ({ id: c.id, nombre: c.name, areaId: equipoArea[c.id] || null }))} />
+                        </div>
                         <Button size="sm" variant="outline" onClick={mirar} disabled={!camara || cargando || !!vivo}>
                             {cargando ? <Loader2 size={14} className="animate-spin" /> : <ScanSearch size={14} />} Mirar ahora
                         </Button>

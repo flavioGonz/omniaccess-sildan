@@ -1,5 +1,7 @@
 "use client";
 
+import { ElegirCamara } from "@/components/devices/ElegirCamara";
+import { useAreas } from "@/lib/use-areas";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ListVideo, Loader2, User, Car, PawPrint, Backpack, Shapes, Sparkles, Video, Gauge, type LucideIcon, Boxes, Inbox } from "lucide-react";
@@ -58,6 +60,7 @@ export default function DeteccionesVision() {
     const [h, setH] = useState("24");
     const [grupo, setGrupo] = useState("");
     const [camara, setCamara] = useState("");
+    const areasDisp = useAreas();
     const [clase, setClase] = useState("");
     const [conRotulo, setConRotulo] = useState(false);
     const [cargandoMas, setCargandoMas] = useState(false);
@@ -163,15 +166,10 @@ export default function DeteccionesVision() {
                     { clave: "grupo", titulo: "Qué", valor: grupo, alElegir: (v) => { setGrupo(v); setClase(""); }, opciones: GRUPOS.filter((g) => g.v !== "propio" || porGrupo("propio") > 0 || grupo === "propio").map((g) => ({ valor: g.v, rotulo: g.r, icono: g.icono, cuenta: porGrupo(g.v) })) },
                     { clave: "rotulo", titulo: "Rotulado", valor: conRotulo ? "si" : "", alElegir: (v) => setConRotulo(v === "si"), opciones: [{ valor: "", rotulo: "Todo" }, { valor: "si", rotulo: "Con texto leído" }] },
                 ]} />
-                <label className={cn("relative inline-flex items-center h-[34px] rounded-lg pl-2.5 pr-2 gap-1.5 text-[12px] font-semibold cursor-pointer", camara ? "bg-[var(--accion)] text-white" : "bg-muted/60 text-foreground")}>
-                    <Video size={14} strokeWidth={2.2} />
-                    <select value={camara} onChange={(e) => setCamara(e.target.value)} aria-label="Cámara"
-                        className="appearance-none bg-transparent outline-none pr-4 cursor-pointer max-w-[220px] truncate [&>option]:text-foreground [&>option]:bg-background">
-                        <option value="">Todas las cámaras ({camaras.length})</option>
-                        {camaras.map((c) => <option key={c.id} value={c.id}>{c.name} · {datos.porCamara[c.id] || 0}</option>)}
-                    </select>
-                    <span className="pointer-events-none absolute right-2 text-[9px] opacity-70">▼</span>
-                </label>
+                {/* Con buscador y por área (21/10): era un <select> con todas las cámaras de corrido. */}
+                <ElegirCamara variante="filtro" icono={Video} alinear="start" ancho={360} titulo="Cámara" valor={camara || null} alElegir={setCamara}
+                    todas={`Todas las cámaras (${camaras.length})`} areas={areasDisp.areas}
+                    camaras={camaras.map((c) => ({ id: c.id, nombre: c.name, areaId: areasDisp.equipoArea[c.id] || null, cuenta: datos.porCamara[c.id] || 0 }))} />
                 <Pista titulo="Siluetas de OmniVision" texto="Dibuja sobre cada tarjeta la silueta del objeto. Se calcula al mirarla. Es la misma opción que en Buscar, el historial y el visor.">
                     <button type="button" onClick={() => setSiluetas(!siluetas)} aria-pressed={siluetas} aria-label="Siluetas de OmniVision"
                         className={cn("h-[34px] px-2.5 rounded-lg border inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors",

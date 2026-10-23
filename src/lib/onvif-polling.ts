@@ -12,6 +12,7 @@
  */
 
 import https from "https";
+import { parseWWWAuthenticate, buildDigestHeader } from "@/lib/digest-auth";
 import { prisma } from "@/lib/prisma";
 import { sendQueueAlertToTelegram, sendTelegramMessage } from "@/lib/telegram";
 import { uploadToS3 } from "@/lib/s3";
@@ -148,7 +149,95 @@ function emitSocket(event: string, data: Record<string, any>) {
     } catch {}
 }
 
-// ─── HTTPS Request Helper ──────────────────────────
+// ─── Pedidos a la cámara ──────────────────────────
+/*
+ * HTTP o HTTPS según la cámara (20/10, Nico, la Bosch del Hospital Británico en el lab: «usá HTTP,
+ * porque el HTTPS de la cámara se cuelga cada tanto»). Todo iba por https://, fijo. Las IPs en el
+ * ajuste BOSCH_SOLO_HTTP (separadas por coma) van por http://; el resto, como siempre. Sin el
+ * ajuste nada cambia: es lo que tienen las instalaciones que ya cuentan filas.
+ */
+let soloHttp: { ips: Set<string>; leido: number } = { ips: new Set(), leido: 0 };
+async function ipsSoloHttp(): Promise<Set<string>> {
+    if (Date.now() - soloHttp.leido < 60_000) return soloHttp.ips;
+    try {
+        const r = await prisma.setting.findUnique({ where: { key: "BOSCH_SOLO_HTTP" } });
+        soloHttp = { ips: new Set(String(r?.value || "").split(/[\s,]+/).map((x) => x.trim()).filter(Boolean)), leido: Date.now() };
+    } catch { soloHttp.leido = Date.now(); }
+    return soloHttp.ips;
+}
+/** La base de los pedidos a una cámara: http:// si está en BOSCH_SOLO_HTTP, https:// si no. */
+async function baseCamara(ip: string): Promise<string> {
+    return (await ipsSoloHttp()).has(ip) ? `http://${ip}` : `https://${ip}`;
+}
+/** Una dirección que devuelve la cámara (la del PullPoint) va por el mismo esquema que se eligió para ella. */
+function mismoEsquema(url: string, base: string): string {
+    return base.startsWith("http://") ? url.replace(/^https:\/\//i, "http://") : url;
+}
+
+const agenteSinVerificar = new https.Agent({ rejectUnauthorized: false });
+
+/**
+ * Un pedido a la cámara, por http o https según la URL, con Basic y, si la cámara contesta 401 con un
+ * desafío Digest, una segunda vuelta con Digest. Por HTTP las Bosch no aceptan Basic: piden Digest.
+ * Antes un 401 era un error y la cámara quedaba sin leer.
+ */
+function pedirCamara(url: string, metodo: "GET" | "POST", cuerpo: string | null, username: string, password: string, timeoutMs: number, autorizacion?: string): Promise<{ status: number; datos: Buffer; desafio: string | null }> {
+    return new Promise((resolve, reject) => {
+        const u = new URL(url);
+        const seguro = u.protocol === "https:";
+        const lib = seguro ? https : require("http");
+        const headers: Record<string, string | number> = {
+            Authorization: autorizacion || `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`,
+        };
+        if (cuerpo !== null) { headers["Content-Type"] = "application/soap+xml; charset=utf-8"; headers["Content-Length"] = Buffer.byteLength(cuerpo); }
+        const req = lib.request({
+            hostname: u.hostname, port: u.port || (seguro ? 443 : 80), path: u.pathname + u.search, method: metodo, headers, timeout: timeoutMs,
+            ...(seguro ? { agent: agenteSinVerificar } : {}),
+        }, (res: any) => {
+            const trozos: Buffer[] = [];
+            res.on("data", (c: Buffer) => trozos.push(c));
+            res.on("end", () => resolve({ status: res.statusCode || 0, datos: Buffer.concat(trozos), desafio: String(res.headers?.["www-authenticate"] || "") || null }));
+        });
+        req.on("error", reject);
+        req.on("timeout", () => { req.destroy(); reject(new Error(`Timeout after ${timeoutMs}ms`)); });
+        /*
+         * Un tope TOTAL, además del de inactividad: por la VPN del Hospital Británico la respuesta
+         * llegaba a cuentagotas, el socket nunca quedaba quieto el tiempo de `timeout` y el pedido
+         * no terminaba nunca. Como el ciclo espera a cada cámara, se quedaba colgado entero.
+         */
+        const tope = setTimeout(() => { req.destroy(new Error(`Timeout after ${timeoutMs}ms`)); }, timeoutMs + 2000);
+        req.on("close", () => clearTimeout(tope));
+        if (cuerpo !== null) req.write(cuerpo);
+        req.end();
+    });
+}
+/**
+ * Lo que se le espera a una cámara de BOSCH_SOLO_HTTP. La del Hospital Británico va por una VPN
+ * donde conectar tarda hasta 4 s y la primera respuesta hasta 8 s (medido el 20/10): con los 10 s
+ * de siempre, crear la suscripción no llegaba nunca. Las demás, como siempre.
+ */
+const ESPERA_LENTA_MS = 30_000;
+/*
+ * Tras una suscripción fallida, una cámara de BOSCH_SOLO_HTTP no se vuelve a intentar en el segundo
+ * siguiente. Con la del Hospital Británico, el ciclo de 1 s le pedía un PullPoint nuevo cada vez que
+ * el anterior vencía por la VPN; cada pedido que la cámara sí recibía le dejaba una suscripción viva
+ * 5 min, y al rato contestaba «ter:Action · Action Failed» (sin lugar para más). Espera 15 s, y el
+ * doble en cada fallo seguido, hasta 5 min. Tampoco se le pide la suscripción push (ver más abajo).
+ */
+const ESPERA_REINTENTO_MS = 15_000;
+const ESPERA_REINTENTO_MAX_MS = 5 * 60_000;
+const reintentoDesde = new Map<string, number>();
+const fallosLenta = new Map<string, number>();
+async function pedirCamaraConDigest(url: string, metodo: "GET" | "POST", cuerpo: string | null, username: string, password: string, timeoutMs: number) {
+    if ((await ipsSoloHttp()).has(new URL(url).hostname)) timeoutMs = Math.max(timeoutMs, ESPERA_LENTA_MS);
+    const r = await pedirCamara(url, metodo, cuerpo, username, password, timeoutMs);
+    if (r.status !== 401 || !r.desafio || !/digest/i.test(r.desafio)) return r;
+    const d = parseWWWAuthenticate(r.desafio);
+    if (!d) return r;
+    const u = new URL(url);
+    return pedirCamara(url, metodo, cuerpo, username, password, timeoutMs, buildDigestHeader(metodo, u.pathname + u.search, username, password, d));
+}
+
 function httpsRequest(
     url: string,
     body: string,
@@ -156,48 +245,13 @@ function httpsRequest(
     password: string,
     timeoutMs = 15000
 ): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const parsed = new URL(url);
-        const auth = Buffer.from(`${username}:${password}`).toString("base64");
-
-        const options: https.RequestOptions = {
-            hostname: parsed.hostname,
-            port: parsed.port || 443,
-            path: parsed.pathname + parsed.search,
-            method: "POST",
-            headers: {
-                "Content-Type": "application/soap+xml; charset=utf-8",
-                "Authorization": `Basic ${auth}`,
-                "Content-Length": Buffer.byteLength(body),
-            },
-            rejectAuthorized: false,
-            timeout: timeoutMs,
-        } as any;
-
-        // Force skip TLS verification for self-signed camera certs
-        const agent = new https.Agent({ rejectUnauthorized: false });
-        (options as any).agent = agent;
-
-        const req = https.request(options, (res) => {
-            let data = "";
-            res.on("data", (chunk: Buffer) => { data += chunk.toString(); });
-            res.on("end", () => {
-                if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-                    resolve(data);
-                } else {
-                    reject(new Error(`HTTPS ${res.statusCode}: ${data.substring(0, 200)}`));
-                }
-            });
-        });
-
-        req.on("error", reject);
-        req.on("timeout", () => {
-            req.destroy();
-            reject(new Error(`Timeout after ${timeoutMs}ms`));
-        });
-
-        req.write(body);
-        req.end();
+    return pedirCamaraConDigest(url, "POST", body, username, password, timeoutMs).then((r) => {
+        const data = r.datos.toString();
+        if (r.status >= 200 && r.status < 300) return data;
+        // Un SOAP Fault dice el porqué en Subcode y Reason; los primeros 200 caracteres eran sólo el sobre.
+        const codigos = [...data.matchAll(/<[\w-]*:?Value>([^<]+)<\/[\w-]*:?Value>/g)].map((m) => m[1]).join(" / ");
+        const razon = data.match(/<[\w-]*:?Text[^>]*>([^<]+)<\/[\w-]*:?Text>/)?.[1];
+        throw new Error(`HTTP ${r.status}: ${codigos || razon ? [codigos, razon].filter(Boolean).join(" · ") : data.substring(0, 200)}`);
     });
 }
 
@@ -336,7 +390,7 @@ async function fireHealthAlert(deviceId: string, kind: string) {
         const dev = await prisma.device.findUnique({ where: { id: deviceId }, select: { name: true, ip: true, username: true, password: true } });
         if (!dev) return;
         let snapshotPath: string | null = null;
-        try { snapshotPath = await grabSnapshot(dev.ip, dev.username, dev.password, deviceId); } catch {}
+        try { snapshotPath = await grabSnapshot(dev.ip, dev.username || "admin", dev.password || "", deviceId); } catch {}
         const meta: any = ({
             tamper: { title: "Cámara movida o tapada", emoji: "🚧", desc: "La escena cambió drásticamente: la cámara pudo ser movida, girada o tapada. El aforo de esta fila puede no ser confiable." },
             bright: { title: "Imagen demasiado clara", emoji: "🔆", desc: "Imagen sobreexpuesta (sol/contraluz). El conteo puede ser poco fiable." },
@@ -401,7 +455,8 @@ async function ensureSubscription(
 
     // Create new subscription
     try {
-        const eventServiceUrl = `https://${ip}/onvif/events_service`;
+        const base = await baseCamara(ip);
+        const eventServiceUrl = `${base}/onvif/events_service`;
         const resp = await httpsRequest(
             eventServiceUrl,
             createPullPointEnvelope(300),
@@ -421,7 +476,7 @@ async function ensureSubscription(
 
         const sub: ONVIFSubscription = {
             deviceId,
-            pullPointUrl: addrMatch[1],
+            pullPointUrl: mismoEsquema(addrMatch[1], base),
             terminationTime: termMatch ? new Date(termMatch[1]) : new Date(Date.now() + 300000),
             lastPull: Date.now(),
         };
@@ -442,50 +497,13 @@ async function grabSnapshot(
     password: string,
     deviceId: string
 ): Promise<string | null> {
-    return new Promise((resolve) => {
-        try {
-            const auth = Buffer.from(`${username}:${password}`).toString("base64");
-            const agent = new https.Agent({ rejectUnauthorized: false });
-
-            const parsed = new URL(`https://${ip}/snap.jpg?JpegSize=L`);
-            const req = https.request(
-                {
-                    hostname: parsed.hostname,
-                    port: parsed.port || 443,
-                    path: parsed.pathname + parsed.search,
-                    method: "GET",
-                    headers: { Authorization: `Basic ${auth}` },
-                    agent,
-                    timeout: 5000,
-                },
-                (res) => {
-                    if (res.statusCode !== 200) {
-                        res.resume();
-                        resolve(null);
-                        return;
-                    }
-                    const chunks: Buffer[] = [];
-                    res.on("data", (c: Buffer) => chunks.push(c));
-                    res.on("end", async () => {
-                        const buf = Buffer.concat(chunks);
-                        if (buf.length < 100) { resolve(null); return; }
-                        try {
-                            const filename = `queue/${deviceId}/${Date.now()}.jpg`;
-                            const path = await uploadToS3(buf, filename, "image/jpeg", "queue");
-                            resolve(path);
-                        } catch {
-                            resolve(null);
-                        }
-                    });
-                }
-            );
-            req.on("error", () => resolve(null));
-            req.on("timeout", () => { req.destroy(); resolve(null); });
-            req.end();
-        } catch {
-            resolve(null);
-        }
-    });
+    try {
+        const r = await pedirCamaraConDigest(`${await baseCamara(ip)}/snap.jpg?JpegSize=L`, "GET", null, username, password, 5000);
+        if (r.status !== 200 || r.datos.length < 100) return null;
+        return await uploadToS3(r.datos, `queue/${deviceId}/${Date.now()}.jpg`, "image/jpeg", "queue");
+    } catch {
+        return null;
+    }
 }
 
 // ─── Main Poll Function ────────────────────────────
@@ -501,12 +519,15 @@ export async function pollBoschDevices(): Promise<{
     const result = { devicesFound: 0, devicesPolled: 0, eventsCreated: 0, errors: [] as string[] };
 
     // Get all Bosch QUEUE_COUNTER devices
-    const devices = await prisma.device.findMany({
+    const { equiposApagados } = await import("@/lib/apagado");
+    const apagados = await equiposApagados();
+    // Los de un área apagada (Dispositivos) no se sondean.
+    const devices = (await prisma.device.findMany({
         where: {
             brand: "BOSCH",
             deviceType: "QUEUE_COUNTER",
         },
-    });
+    })).filter((d) => !apagados.has(d.id));
 
     result.devicesFound = devices.length;
     if (devices.length === 0) return result;
@@ -519,9 +540,22 @@ export async function pollBoschDevices(): Promise<{
 
         result.devicesPolled++;
 
+        // Una cámara lenta que no aceptó la suscripción espera antes de volver a pedirla (ver ESPERA_REINTENTO).
+        const lenta = (await ipsSoloHttp()).has(device.ip);
+        if (lenta && (reintentoDesde.get(device.id) || 0) > Date.now()) continue;
+
         try {
             // Ensure we have an active subscription
             const sub = await ensureSubscription(device.id, device.ip, device.username, device.password);
+            if (lenta) {
+                if (sub) reintentoDesde.delete(device.id);
+                else {
+                    const n = (fallosLenta.get(device.id) || 0) + 1;
+                    fallosLenta.set(device.id, n);
+                    reintentoDesde.set(device.id, Date.now() + Math.min(ESPERA_REINTENTO_MAX_MS, ESPERA_REINTENTO_MS * 2 ** (n - 1)));
+                }
+                if (sub) fallosLenta.delete(device.id);
+            }
             if (!sub) {
                 result.errors.push(`Failed to subscribe to ${device.name} (${device.ip})`);
                 // Connectivity: subscription failure counts toward an outage
@@ -919,13 +953,18 @@ function subscribeEnvelope(consumerUrl: string, terminationSeconds = 120): strin
 
 async function subscribePushForAll() {
     try {
-        const devices = await prisma.device.findMany({
+        const { equiposApagados } = await import("@/lib/apagado");
+        const apagados = await equiposApagados();
+        const devices = (await prisma.device.findMany({
             where: { deviceType: "QUEUE_COUNTER", brand: "BOSCH" },
             select: { id: true, name: true, ip: true, username: true, password: true },
-        });
+        })).filter((d) => !apagados.has(d.id));
+        const lentas = await ipsSoloHttp();
         for (const d of devices) {
+            // Las de BOSCH_SOLO_HTTP no: van por una VPN y cada pedido le ocupa otra suscripción a la cámara.
+            if (lentas.has(d.ip)) continue;
             try {
-                await httpsRequest(`https://${d.ip}/onvif/events_service`,
+                await httpsRequest(`${await baseCamara(d.ip)}/onvif/events_service`,
                     subscribeEnvelope(ONVIF_PUSH_URL, 120),
                     d.username || "admin", d.password || "admin", 10000);
                 console.log(`[ONVIF-Push] Subscribed ${d.name} -> ${ONVIF_PUSH_URL}`);

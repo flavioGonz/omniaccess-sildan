@@ -53,7 +53,7 @@ export default function VisitasSection() {
     }
 
     return (
-        <div className="max-w-5xl space-y-6">
+        <div className="space-y-6">
             <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
                     <h2 className="text-[17px] font-bold">Visitas y patrones</h2>

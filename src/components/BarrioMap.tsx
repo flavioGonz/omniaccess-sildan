@@ -1,5 +1,6 @@
 "use client";
 
+import { lineasDe, zonasDe, tieneGeom, type GeomVarias } from "@/lib/geom-intrusion";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -215,13 +216,13 @@ function MapCtxMenu({ onCtx }: { onCtx: (oe: MouseEvent) => void }) {
     } });
     return null;
 }
-type MiniGeom = { line?: { x: number; y: number }[]; field?: { x: number; y: number }[] };
+type MiniGeom = GeomVarias;
 function MiniGeomOverlay({ geom }: { geom?: MiniGeom }) {
-    if (!geom || ((!geom.line || geom.line.length < 2) && (!geom.field || geom.field.length < 3))) return null;
+    if (!tieneGeom(geom)) return null;
     return (
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
-            {geom.field && geom.field.length >= 3 && <polygon points={geom.field.map((p) => `${p.x},${p.y}`).join(" ")} fill="rgba(244,63,94,0.18)" stroke="#f43f5e" strokeWidth={1.4} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
-            {geom.line && geom.line.length === 2 && <line x1={geom.line[0].x} y1={geom.line[0].y} x2={geom.line[1].x} y2={geom.line[1].y} stroke="#38bdf8" strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
+            {zonasDe(geom).map((z, i) => <polygon key={`z${i}`} points={z.map((p) => `${p.x},${p.y}`).join(" ")} fill="rgba(244,63,94,0.18)" stroke="#f43f5e" strokeWidth={1.4} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />)}
+            {lineasDe(geom).map((l, i) => <line key={`l${i}`} x1={l[0].x} y1={l[0].y} x2={l[1].x} y2={l[1].y} stroke="#38bdf8" strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" />)}
         </svg>
     );
 }
@@ -268,7 +269,7 @@ const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", ico
 // Manija (vértice) para editar los puntos de una división guardada.
 const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab"></span>`, iconSize: [14, 14], iconAnchor: [7, 7] });
 // Ficha del evento de intrusión: imagen a sangre (sin borde) con datos y botones como overlay, borde rojo animado.
-function IntrAlertCard({ card, clip, onAck, onClose, onViewRec, soloLectura }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; clip: string | null; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void; soloLectura?: boolean }) {
+function IntrAlertCard({ card, clip, onAck, onClose, onViewRec, soloLectura }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; clip: string | null; onAck: (id: string, k: "real" | "false") => void; onClose: () => void; onViewRec?: () => void; soloLectura?: boolean }) {
     return (
         <div className="intr-alert-card">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -294,7 +295,7 @@ function IntrAlertCard({ card, clip, onAck, onClose, onViewRec, soloLectura }: {
     );
 }
 // Burbuja HTML anclada por proyección sobre la cámara (no usa Popup de Leaflet -> no parpadea).
-function IntrAlertBubble({ card, camList, cam, onAck, onClose, onViewRec, soloLectura }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; cam: { lat: number; lng: number }; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void; soloLectura?: boolean }) {
+function IntrAlertBubble({ card, camList, cam, onAck, onClose, onViewRec, soloLectura }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; cam: { lat: number; lng: number }; onAck: (id: string, k: "real" | "false") => void; onClose: () => void; onViewRec?: () => void; soloLectura?: boolean }) {
     const map = useMap();
     const ref = useRef<HTMLDivElement | null>(null);
     const posRef = useRef({ lat: cam.lat, lng: cam.lng });
@@ -739,7 +740,7 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
             setGeomLoading(false);
         })();
     }, [editing, intrCamList]);
-    const geomKinds = useCallback((id: string) => { const g = intrGeomPrev[id]; return { line: !!(g && g.line && g.line.length >= 2), zone: !!(g && g.field && g.field.length >= 3) }; }, [intrGeomPrev]);
+    const geomKinds = useCallback((id: string) => { const g = intrGeomPrev[id]; return { line: lineasDe(g).length > 0, zone: zonasDe(g).length > 0 }; }, [intrGeomPrev]);
     const [intrMenu, setIntrMenu] = useState(false);
     const [intrDrawer, setIntrDrawer] = useState<null | "line" | "zone">(null);
     const [condEdit, setCondEdit] = useState<null | { deviceId: string; kind: "line" | "zone" }>(null);

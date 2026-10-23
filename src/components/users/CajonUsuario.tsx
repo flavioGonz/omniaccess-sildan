@@ -1,5 +1,6 @@
 "use client";
 
+import { MatriculaEnBase } from "@/components/registro/MatriculaEnBase";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
@@ -571,6 +572,123 @@ export function CajonUsuario({
                         </div>
                     </CajonSeccion>
 
+                    {/* ── Con qué entra ──
+                        Enseguida de quién es, y abierta: es lo que se viene a cargar al dar de alta a
+                        un residente (Nico, 22/10). Estaba debajo del plano de «Dónde vive» y había que
+                        bajar media ficha para llegar a la matrícula. El resto de las secciones arranca
+                        cerrada con su resumen: cerrada no es vacía, y los campos se mandan igual. */}
+                    <CajonSeccion titulo="Con qué entra" icono={KeyRound} plegable abiertaAlInicio resumen={resumenCredenciales}
+                        ayuda="Cada credencial abre por un camino distinto. Se pueden cargar todas o ninguna.">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <CajonCampo etiqueta="Matrículas" className="sm:col-span-2"
+                                pista="Se escriben sin espacios ni guiones, como las lee la cámara. Una persona puede tener varias. Sacar una de acá le saca ese vehículo a la persona. Y cargarlas no alcanza para que abra la barrera: hay que mandarlas además a los equipos, ahí abajo.">
+                                <div className="rounded-[10px] border border-border bg-card/40 p-2 flex flex-wrap gap-1.5 items-center">
+                                    {chapas.map((ch) => (
+                                        <span key={ch}
+                                            className="inline-flex items-center gap-1 pl-2 pr-1 py-1 rounded-[7px] border border-[var(--accion)]/35 bg-[color-mix(in_oklab,var(--accion)_9%,transparent)]">
+                                            <Car size={12} className="text-[var(--accion)] shrink-0" />
+                                            <span className="text-[12.5px] font-bold tracking-[0.1em] tabular-nums text-foreground">{ch}</span>
+                                            <button type="button" aria-label={`Sacar ${ch}`}
+                                                onClick={() => setChapas((l) => l.filter((x) => x !== ch))}
+                                                className="w-4 h-4 rounded-full flex items-center justify-center text-muted-foreground hover:text-[var(--mal-texto)] transition-colors">
+                                                <X size={11} />
+                                            </button>
+                                        </span>
+                                    ))}
+                                    <input
+                                        value={chapaNueva}
+                                        placeholder={chapas.length ? "Otra más…" : "ABC1234"}
+                                        onChange={(e) => setChapaNueva(limpiarChapa(e.target.value))}
+                                        /* Enter, coma o espacio la agregan. El que viene de cargar
+                                           una lista escribe separando con comas sin pensarlo, y
+                                           obligarlo a apretar un botón entre una y otra es pelear
+                                           contra lo que sus dedos ya saben hacer. */
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" || e.key === "," || e.key === " ") {
+                                                e.preventDefault();
+                                                const v = limpiarChapa(chapaNueva);
+                                                if (v && !chapas.includes(v)) setChapas((l) => [...l, v]);
+                                                setChapaNueva("");
+                                            } else if (e.key === "Backspace" && !chapaNueva && chapas.length) {
+                                                setChapas((l) => l.slice(0, -1));
+                                            }
+                                        }}
+                                        /* Al salir del campo también: escribir una matrícula y
+                                           apretar Guardar sin darle Enter era perderla en silencio. */
+                                        onBlur={() => {
+                                            const v = limpiarChapa(chapaNueva);
+                                            if (v && !chapas.includes(v)) setChapas((l) => [...l, v]);
+                                            setChapaNueva("");
+                                        }}
+                                        className="flex-1 min-w-[108px] bg-transparent outline-none px-1.5 py-1 text-[12.5px] font-bold tracking-[0.1em] tabular-nums uppercase placeholder:font-normal placeholder:tracking-normal placeholder:text-muted-foreground" />
+                                </div>
+                                {/* Las nuevas (y la que se está escribiendo), contra toda la base: si ya es de otro,
+                                    está en una lista o es de un invitado, se ve antes de guardar (21/10). */}
+                                <MatriculaEnBase className="mt-2" excluirUserId={user?.id}
+                                    plates={[...chapas.filter((c) => !(user?.vehicles || []).some((v: any) => limpiarChapa(v.plate) === c)), chapaNueva]} />
+                            </CajonCampo>
+                            <CajonCampo etiqueta="Qué vehículo es"
+                                pista="No cambia si abre o no: sirve para reconocerlo en el historial cuando la foto no se ve bien. Se le pone a los vehículos que se den de alta acá; los que ya estaban conservan el suyo, que se cambia en la pantalla de Vehículos. Hasta hoy este desplegable no se leía en ninguna parte y todo vehículo nacía Sedán.">
+                                <Select name="vehicleType" defaultValue={user?.vehicles?.[0]?.type || "SEDAN"}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        {CLASES_VEHICULO.map((v) => <SelectItem key={v.valor} value={v.valor}>{v.rotulo}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                            </CajonCampo>
+                            <CajonCampo etiqueta="Tarjetas o llaveros"
+                                pista="El número grabado en la tarjeta o el llavero RFID. Una persona puede tener varios: el del auto, el de la bicicleta, el de la casa."
+                                pistaTitulo="Tarjetas y llaveros RFID">
+                                <Input name="accessTags"
+                                    defaultValue={user?.accessTags?.join(", ")
+                                        || user?.credentials?.find((c) => c.type === "TAG")?.value || ""}
+                                    placeholder="Varios, separados por coma" className="tabular-nums" />
+                            </CajonCampo>
+                            <CajonCampo etiqueta={pinOculto ? "Resetear código PIN" : "Código PIN"}
+                                ayuda={pinOculto ? "Tiene un PIN que sólo ve su dueño. Escribí uno nuevo para resetearlo; vacío lo deja como está." : undefined}
+                                pista={pinOculto
+                                    ? "Es una cuenta del panel: cada uno ve su propio PIN y a los demás sólo se lo puede cambiar."
+                                    : "Queda oculto al escribirlo, pero se guarda tal cual: cualquiera con acceso al panel puede verlo, salvo el de las cuentas del panel, que sólo ve su dueño. No abre el panel: para eso está la contraseña."}>
+                                <PasswordInput name={pinOculto && !pin ? undefined : "pin"} value={pin} onChange={(e) => setPin(e.target.value)}
+                                    placeholder={pinOculto ? "•••• (oculto)" : "Para el teclado de la entrada"} className="tabular-nums" />
+                            </CajonCampo>
+                            {/* Grupos al lado del PIN: es lo que completa la fila, y así la sección entra sin scroll. */}
+                            <div>
+                            <span className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/85 mb-1.5">
+                                Grupos de acceso
+                                <Pista titulo="Grupos de acceso" ancho={280}
+                                    texto="El grupo dice POR DÓNDE puede pasar: qué equipos le corresponden. Los equipos de cada grupo se eligen en Grupos de acceso.">
+                                    <HelpCircle size={12.5} className="text-muted-foreground/50 hover:text-[var(--accion)] transition-colors cursor-help" />
+                                </Pista>
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                                {groups.map((g) => {
+                                    const puesto = gruposElegidos.includes(g.id);
+                                    return (
+                                        /* Píldora porque es una elección que se prende y se apaga,
+                                           no un botón que dispara algo. */
+                                        <button key={g.id} type="button"
+                                            onClick={() => alternar(gruposElegidos, setGruposElegidos, g.id)}
+                                            className={cn(
+                                                "px-2.5 py-1 rounded-full border text-[12px] font-semibold transition-colors flex items-center gap-1.5",
+                                                puesto ? "border-[var(--accion)] text-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]"
+                                                    : "border-border text-muted-foreground hover:bg-accent",
+                                            )}>
+                                            {puesto && <Check size={11} />}{g.name}
+                                        </button>
+                                    );
+                                })}
+                                {!groups.length && <span className="text-[12px] text-muted-foreground">Todavía no hay grupos creados.</span>}
+                            </div>
+                            {gruposElegidos.map((id) => <input key={id} type="hidden" name="groupId" value={id} />)}
+                            {/* Dice "este formulario trae grupos": sin ninguno elegido, eso es "sacalo de todos". */}
+                            <input type="hidden" name="gruposEnviados" value="1" />
+                        </div>
+                        </div>
+
+
+                    </CajonSeccion>
+
                     {/* ── Dónde vive ── */}
                     {/* ── Como proveedor ──
                         Lo que se habló para los deliverys y proveedores: en un barrio abierto el
@@ -580,7 +698,8 @@ export function CajonUsuario({
                         pasa; la cámara de Salida la cierra. */}
                     <input type="hidden" name="proveedorEnviado" value="1" />
                     {esProveedor && (
-                        <CajonSeccion titulo="Como proveedor" icono={Truck}
+                        <CajonSeccion titulo="Como proveedor" icono={Truck} plegable
+                            resumen={[empresaElegida?.nombre || (user as any)?.empresa, tipoVisita === TIPO_PASE_LIBRE ? "pase libre" : tipoElegido ? `${tipoElegido.nombre} · ${tipoElegido.minutos} min` : "sin visita"].filter(Boolean).join(" · ")}
                             ayuda={<>Lo que el sistema necesita para tratarlo como proveedor y no como un auto desconocido.{" "}
                                 {/* En otra pestaña: el cajón tiene lo que se está escribiendo, y salir de acá lo perdía. */}
                                 <a href={RUTA_PROVEEDORES} target="_blank" rel="noopener noreferrer" className="tono-accion font-semibold inline-flex items-center gap-1 hover:underline">Ir a proveedores <ExternalLink size={11} /></a></>}>
@@ -637,7 +756,7 @@ export function CajonUsuario({
                     )}
 
                     <CajonSeccion titulo={esProveedor ? "A qué lote va" : "Dónde vive"} icono={DoorOpen}
-                        plegable={esProveedor} resumen={unidad ? unidad.name : "todo el barrio"}
+                        plegable resumen={unidad ? unidad.name : esProveedor ? "todo el barrio" : "sin asignar"}
                         ayuda={esProveedor ? "Si va siempre a la misma casa (el jardinero del Lote 30): es el lote que se pone en su visita. Si reparte en todo el barrio, dejalo vacío." : undefined}>
                         {/*
                           * Se elige tocando la casa en el plano, no de una lista.
@@ -758,125 +877,17 @@ export function CajonUsuario({
 
                     </CajonSeccion>
 
-                    {/* ── Con qué entra ── */}
-                    <CajonSeccion titulo="Con qué entra" icono={KeyRound} plegable resumen={resumenCredenciales}
-                        ayuda="Cada credencial abre por un camino distinto. Se pueden cargar todas o ninguna.">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                            <CajonCampo etiqueta="Matrículas" className="sm:col-span-2"
-                                pista="Se escriben sin espacios ni guiones, como las lee la cámara. Una persona puede tener varias. Sacar una de acá le saca ese vehículo a la persona. Y cargarlas no alcanza para que abra la barrera: hay que mandarlas además a los equipos, ahí abajo.">
-                                <div className="rounded-[10px] border border-border bg-card/40 p-2 flex flex-wrap gap-1.5 items-center">
-                                    {chapas.map((ch) => (
-                                        <span key={ch}
-                                            className="inline-flex items-center gap-1 pl-2 pr-1 py-1 rounded-[7px] border border-[var(--accion)]/35 bg-[color-mix(in_oklab,var(--accion)_9%,transparent)]">
-                                            <Car size={12} className="text-[var(--accion)] shrink-0" />
-                                            <span className="text-[12.5px] font-bold tracking-[0.1em] tabular-nums text-foreground">{ch}</span>
-                                            <button type="button" aria-label={`Sacar ${ch}`}
-                                                onClick={() => setChapas((l) => l.filter((x) => x !== ch))}
-                                                className="w-4 h-4 rounded-full flex items-center justify-center text-muted-foreground hover:text-[var(--mal-texto)] transition-colors">
-                                                <X size={11} />
-                                            </button>
-                                        </span>
-                                    ))}
-                                    <input
-                                        value={chapaNueva}
-                                        placeholder={chapas.length ? "Otra más…" : "ABC1234"}
-                                        onChange={(e) => setChapaNueva(limpiarChapa(e.target.value))}
-                                        /* Enter, coma o espacio la agregan. El que viene de cargar
-                                           una lista escribe separando con comas sin pensarlo, y
-                                           obligarlo a apretar un botón entre una y otra es pelear
-                                           contra lo que sus dedos ya saben hacer. */
-                                        onKeyDown={(e) => {
-                                            if (e.key === "Enter" || e.key === "," || e.key === " ") {
-                                                e.preventDefault();
-                                                const v = limpiarChapa(chapaNueva);
-                                                if (v && !chapas.includes(v)) setChapas((l) => [...l, v]);
-                                                setChapaNueva("");
-                                            } else if (e.key === "Backspace" && !chapaNueva && chapas.length) {
-                                                setChapas((l) => l.slice(0, -1));
-                                            }
-                                        }}
-                                        /* Al salir del campo también: escribir una matrícula y
-                                           apretar Guardar sin darle Enter era perderla en silencio. */
-                                        onBlur={() => {
-                                            const v = limpiarChapa(chapaNueva);
-                                            if (v && !chapas.includes(v)) setChapas((l) => [...l, v]);
-                                            setChapaNueva("");
-                                        }}
-                                        className="flex-1 min-w-[108px] bg-transparent outline-none px-1.5 py-1 text-[12.5px] font-bold tracking-[0.1em] tabular-nums uppercase placeholder:font-normal placeholder:tracking-normal placeholder:text-muted-foreground" />
-                                </div>
-                            </CajonCampo>
-                            <CajonCampo etiqueta="Qué vehículo es"
-                                pista="No cambia si abre o no: sirve para reconocerlo en el historial cuando la foto no se ve bien. Se le pone a los vehículos que se den de alta acá; los que ya estaban conservan el suyo, que se cambia en la pantalla de Vehículos. Hasta hoy este desplegable no se leía en ninguna parte y todo vehículo nacía Sedán.">
-                                <Select name="vehicleType" defaultValue={user?.vehicles?.[0]?.type || "SEDAN"}>
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        {CLASES_VEHICULO.map((v) => <SelectItem key={v.valor} value={v.valor}>{v.rotulo}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                            </CajonCampo>
-                            <CajonCampo etiqueta="Tarjetas o llaveros"
-                                pista="El número grabado en la tarjeta o el llavero RFID. Una persona puede tener varios: el del auto, el de la bicicleta, el de la casa."
-                                pistaTitulo="Tarjetas y llaveros RFID">
-                                <Input name="accessTags"
-                                    defaultValue={user?.accessTags?.join(", ")
-                                        || user?.credentials?.find((c) => c.type === "TAG")?.value || ""}
-                                    placeholder="Varios, separados por coma" className="tabular-nums" />
-                            </CajonCampo>
-                            <CajonCampo etiqueta={pinOculto ? "Resetear código PIN" : "Código PIN"}
-                                ayuda={pinOculto ? "Tiene un PIN que sólo ve su dueño. Escribí uno nuevo para resetearlo; vacío lo deja como está." : undefined}
-                                pista={pinOculto
-                                    ? "Es una cuenta del panel: cada uno ve su propio PIN y a los demás sólo se lo puede cambiar."
-                                    : "Queda oculto al escribirlo, pero se guarda tal cual: cualquiera con acceso al panel puede verlo, salvo el de las cuentas del panel, que sólo ve su dueño. No abre el panel: para eso está la contraseña."}>
-                                <PasswordInput name={pinOculto && !pin ? undefined : "pin"} value={pin} onChange={(e) => setPin(e.target.value)}
-                                    placeholder={pinOculto ? "•••• (oculto)" : "Para el teclado de la entrada"} className="tabular-nums" />
-                            </CajonCampo>
-                            {/* Grupos al lado del PIN: es lo que completa la fila, y así la sección entra sin scroll. */}
-                            <div>
-                            <span className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/85 mb-1.5">
-                                Grupos de acceso
-                                <Pista titulo="Grupos de acceso" ancho={280}
-                                    texto="El grupo dice POR DÓNDE puede pasar: qué equipos le corresponden. Los equipos de cada grupo se eligen en Grupos de acceso.">
-                                    <HelpCircle size={12.5} className="text-muted-foreground/50 hover:text-[var(--accion)] transition-colors cursor-help" />
-                                </Pista>
-                            </span>
-                            <div className="flex flex-wrap gap-1.5">
-                                {groups.map((g) => {
-                                    const puesto = gruposElegidos.includes(g.id);
-                                    return (
-                                        /* Píldora porque es una elección que se prende y se apaga,
-                                           no un botón que dispara algo. */
-                                        <button key={g.id} type="button"
-                                            onClick={() => alternar(gruposElegidos, setGruposElegidos, g.id)}
-                                            className={cn(
-                                                "px-2.5 py-1 rounded-full border text-[12px] font-semibold transition-colors flex items-center gap-1.5",
-                                                puesto ? "border-[var(--accion)] text-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]"
-                                                    : "border-border text-muted-foreground hover:bg-accent",
-                                            )}>
-                                            {puesto && <Check size={11} />}{g.name}
-                                        </button>
-                                    );
-                                })}
-                                {!groups.length && <span className="text-[12px] text-muted-foreground">Todavía no hay grupos creados.</span>}
-                            </div>
-                            {gruposElegidos.map((id) => <input key={id} type="hidden" name="groupId" value={id} />)}
-                            {/* Dice "este formulario trae grupos": sin ninguno elegido, eso es "sacalo de todos". */}
-                            <input type="hidden" name="gruposEnviados" value="1" />
-                        </div>
-                        </div>
-
-
-                    </CajonSeccion>
-
                     {/* ── Lista negra: sólo en una persona ya guardada (necesita id y matrículas en la base) ── */}
                     {user?.id && (
-                        <CajonSeccion titulo="Lista negra" icono={ShieldAlert}
+                        <CajonSeccion titulo="Lista negra" icono={ShieldAlert} plegable resumen="tiene efecto inmediato"
                             ayuda="Es una acción con efecto inmediato en la barrera y en las lectoras, por eso no espera al Guardar de la ficha.">
                             <ListaNegraDePersona userId={user.id} chapas={chapas} onCambio={() => onSuccess?.()} />
                         </CajonSeccion>
                     )}
 
                     {/* ── A qué equipos se manda ── */}
-                    <CajonSeccion titulo="A qué equipos se manda" icono={Server}
+                    <CajonSeccion titulo="A qué equipos se manda" icono={Server} plegable
+                        resumen={lprElegidos.length + facialesElegidos.length ? `${lprElegidos.length + facialesElegidos.length} ${lprElegidos.length + facialesElegidos.length === 1 ? "equipo" : "equipos"}` : "ninguno elegido"}
                         ayuda="Los grupos dan el permiso; esto copia la credencial a la memoria del equipo. Son cosas distintas: sin la copia, el equipo tiene el permiso pero no sabe a quién reconocer.">
 
                         <EquiposDeLosGrupos groups={groups} elegidos={gruposElegidos} />

@@ -18,6 +18,12 @@ import { PtzControls } from "@/components/PtzControls";
  * Lo que se calibra es la analítica de la cámara (AcuSense / Smart Event Hikvision, IVS Dahua):
  * la LÍNEA de cruce con su sentido, la ZONA de intrusión, la SENSIBILIDAD y el OBJETIVO (persona,
  * vehículo o ambos), y que la cámara le AVISE a OmniAccess (servidor de alarmas).
+ *
+ * Varias líneas y zonas (23/10, Nico: «no puedo eliminar analíticas creadas… los dispositivos
+ * siempre tienen varias… que se guarde perfecto»). La cámara tiene hasta 4 de cada una y esto veía
+ * la primera. Ahora el editor elige cuál (1–4), «Eliminar» la quita (también «Limpiar» + «Guardar»),
+ * y cada guardado vuelve a leer la cámara y compara: si algo no quedó como se pidió, se dice qué.
+ * El aspecto es el mismo de siempre: sólo se agregó lo necesario para elegir y borrar.
  */
 
 const toast = {
@@ -31,12 +37,17 @@ const screenToCam = (p: P) => ({ x: Math.round(p.x * 10), y: Math.round(1000 - p
 const SNAP = 1.5;
 const snap = (v: number) => (v < SNAP ? 0 : v > 100 - SNAP ? 100 : v);
 type Dir = "both" | "ab" | "ba";
-type Ajustes = { sensibilidad: number | null; objetivo: string | null; objetivoSoportado: boolean } | null;
+/** Un lugar de la cámara (1–4) para una línea o una zona; `vacia` = no hay nada dibujado. */
+type Regla = { id: number; vacia: boolean; enabled: boolean; points: P[]; direction: Dir; sensibilidad: number | null; objetivo: string | null };
 type Cfg = {
     support: { line: boolean; field: boolean };
-    line: { points: P[]; direction: Dir; enabled: boolean; ajustes: Ajustes };
-    field: { points: P[]; enabled: boolean; ajustes: Ajustes };
+    lineas: Regla[];
+    zonas: Regla[];
+    edita: { varias: boolean; borrar: boolean; ajustes: boolean; motivo?: string };
 };
+const dibujadas = (l: Regla[] | undefined) => (l || []).filter((r) => !r.vacia);
+const todas = (c: Cfg | null) => (c ? [...dibujadas(c.lineas), ...dibujadas(c.zonas)] : []);
+const cuantas = (n: number, uno: string, varios: string) => (n === 0 ? "sin dibujar" : n === 1 ? `1 ${uno}` : `${n} ${varios}`);
 
 /* ─────────────────────────── Video en vivo (go2rtc) ─────────────────────────── */
 function LiveVideo({ streamName, deviceId }: { streamName: string; deviceId: string }) {
@@ -124,19 +135,20 @@ type Extra = { alarma: boolean | null };
 const SENS = [40, 60, 80];
 const OBJETIVOS: { v: string; t: string }[] = [{ v: "human", t: "Persona" }, { v: "vehicle", t: "Vehículo" }, { v: "human,vehicle", t: "Ambos" }];
 const DIR_TXT: Record<Dir, string> = { both: "Ambos", ab: "A→B", ba: "B→A" };
-const ajustesActivos = (c: Cfg | null): Ajustes => (c?.support.line ? c.line.ajustes : c?.field.ajustes) || null;
+/** Los ajustes que muestra el riel: los de la primera regla dibujada (se aplican a todas). */
+const ajustesActivos = (c: Cfg | null) => { const r = todas(c).find((x) => x.sensibilidad != null || x.objetivo != null); return r ? { sensibilidad: r.sensibilidad, objetivo: r.objetivo } : null; };
 
 const CONTROLS: Ctl[] = [
     { key: "line", label: "Línea", icon: Minus, svg: "line", detail: "La línea virtual de cruce. Cuando alguien la atraviesa (en el sentido elegido) la cámara dispara la alarma. Ideal para el borde del cerco o el muro: se dibuja sobre un cuadro real de esta cámara.",
-        valueText: (c) => (c?.line.points.length === 2 ? "dibujada" : "sin dibujar"), disabled: (c) => !c?.support.line },
+        valueText: (c) => cuantas(dibujadas(c?.lineas).length, "línea", "líneas"), disabled: (c) => !c?.support.line },
     { key: "zone", label: "Zona", icon: Hexagon, svg: "zone", detail: "La zona de intrusión: un polígono. Si alguien entra y permanece dentro, la cámara avisa. Sirve para patios o sectores donde no se puede reducir el perímetro a una raya.",
-        valueText: (c) => (c && c.field.points.length >= 3 ? `${c.field.points.length} vértices` : "sin dibujar"), disabled: (c) => !c?.support.field },
+        valueText: (c) => cuantas(dibujadas(c?.zonas).length, "zona", "zonas"), disabled: (c) => !c?.support.field },
     { key: "dir", label: "Sentido", icon: ArrowLeftRight, svg: "dir", detail: "En qué sentido se considera cruce: A→B (sólo de afuera hacia adentro, por ejemplo), B→A o ambos. Con un solo sentido se descartan las salidas legítimas y baja el ruido.",
-        valueText: (c) => (c ? DIR_TXT[c.line.direction] : "—"), disabled: (c) => !c?.support.line || (c?.line.points.length || 0) !== 2 },
+        valueText: (c) => { const d = [...new Set(dibujadas(c?.lineas).map((r) => r.direction))]; return d.length === 1 ? DIR_TXT[d[0]] : d.length ? "varios" : "—"; }, disabled: (c) => !dibujadas(c?.lineas).length },
     { key: "sens", label: "Sensibilidad", icon: Gauge, svg: "sens", detail: "Qué tan fácil dispara. Alta detecta todo (y también hojas, sombras y bichos de noche); baja sólo lo evidente. En perímetro con vegetación, 40–60 suele ser el equilibrio.",
-        valueText: (c) => { const a = ajustesActivos(c); return a?.sensibilidad != null ? String(a.sensibilidad) : "—"; }, disabled: (c) => ajustesActivos(c)?.sensibilidad == null },
+        valueText: (c) => { const a = ajustesActivos(c); return a?.sensibilidad != null ? String(a.sensibilidad) : "—"; }, disabled: (c) => !c?.edita.ajustes || ajustesActivos(c)?.sensibilidad == null },
     { key: "target", label: "Objetivo", icon: PersonStanding, svg: "target", detail: "Qué dispara la alarma (cámaras AcuSense): sólo personas, sólo vehículos o ambos. Filtrar a personas elimina casi todas las falsas alarmas por animales, luces o lluvia.",
-        valueText: (c) => { const a = ajustesActivos(c); return OBJETIVOS.find((o) => o.v === a?.objetivo)?.t || (a?.objetivo || "—"); }, disabled: (c) => !ajustesActivos(c)?.objetivoSoportado },
+        valueText: (c) => { const a = ajustesActivos(c); return OBJETIVOS.find((o) => o.v === a?.objetivo)?.t || (a?.objetivo || "—"); }, disabled: (c) => !c?.edita.ajustes || ajustesActivos(c)?.objetivo == null },
     { key: "alarm", label: "Servidor", icon: BellRing, svg: "alarm", detail: "Que la cámara le avise a OmniAccess cada detección (servidor de alarmas / HTTP host). Sin esto la cámara detecta pero el monitor de intrusión nunca se entera.",
         valueText: (_c, e) => (e.alarma == null ? "—" : e.alarma ? "OK" : "FALTA") },
     { key: "test", label: "Probar", icon: Send, svg: "test", detail: "Manda un aviso de prueba desde la cámara hacia OmniAccess para confirmar que el camino completo anda (cámara → red → servidor).",
@@ -156,6 +168,8 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
     const [videoNonce, setVideoNonce] = useState(0);
     // editor
     const [edit, setEdit] = useState<null | "line" | "zone">(null);
+    /** Qué lugar de la cámara (1–4) se está editando. */
+    const [editId, setEditId] = useState(1);
     const [pts, setPts] = useState<P[]>([]);
     const [dir, setDir] = useState<Dir>("both");
     const [guardando, setGuardando] = useState(false);
@@ -167,11 +181,15 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
         try {
             const d = await fetch(`/api/devices/analytics?deviceId=${device.id}`, { cache: "no-store" }).then((r) => r.json());
             if (!d.ok) { setError(d.error || "No se pudo leer la cámara"); setCfg(null); }
-            else setCfg({
-                support: d.support || { line: false, field: false },
-                line: { points: (d.line?.points || []).map(camToScreen), direction: (d.line?.direction || "both") as Dir, enabled: !!d.line?.enabled, ajustes: d.line?.ajustes || null },
-                field: { points: (d.field?.points || []).map(camToScreen), enabled: !!d.field?.enabled, ajustes: d.field?.ajustes || null },
-            });
+            else {
+                const regla = (r: any): Regla => ({ id: r.id, vacia: !!r.vacia, enabled: !!r.enabled, points: (r.points || []).map(camToScreen), direction: (r.direction || "both") as Dir, sensibilidad: r.sensibilidad ?? null, objetivo: r.objetivo ?? null });
+                setCfg({
+                    support: d.support || { line: false, field: false },
+                    lineas: (d.lineas?.reglas || []).map(regla),
+                    zonas: (d.zonas?.reglas || []).map(regla),
+                    edita: d.edita || { varias: false, borrar: false, ajustes: false },
+                });
+            }
         } catch { setError("Error de conexión con la cámara"); }
         finally { setLoading(false); }
         fetch(`/api/devices/alarm-host?deviceId=${device.id}`, { cache: "no-store" }).then((r) => r.json()).then((a) => setAlarma(!!(a?.hasOmni || (a?.dahua && a?.ok)))).catch(() => setAlarma(null));
@@ -181,43 +199,53 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
 
     const post = async (body: any) => {
         const r = await fetch(`/api/devices/analytics?deviceId=${device.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        const j = await r.json().catch(() => ({}));
+        let j = await r.json().catch(() => ({}));
         if (!j.ok) throw new Error(j.error || "La cámara no aceptó el cambio");
+        // La escritura corre en el servidor: la cámara tarda en aplicar (hasta un par de minutos si se
+        // encadenan cambios) y un pedido tan largo lo cortaba el proxy. Se consulta hasta que termina.
+        if (j.enCurso) {
+            const hasta = Date.now() + 5 * 60_000;
+            for (;;) {
+                await new Promise((res) => setTimeout(res, 3000));
+                const e = await fetch(`/api/devices/analytics?deviceId=${device.id}&estado=1`, { cache: "no-store" }).then((x) => x.json()).catch(() => null);
+                if (e?.estado === "listo") { j = e; break; }
+                if (e?.estado === "error") throw new Error(e.error || "La cámara no aceptó el cambio");
+                if (Date.now() > hasta) throw new Error("La cámara no terminó de aplicar en 5 minutos");
+            }
+        }
+        // Se releyó la cámara: si algo no quedó como se pidió, es un error y se dice qué.
+        if (Array.isArray(j.diferencias) && j.diferencias.length) throw new Error(`La cámara no quedó igual: ${j.diferencias.join(" · ")}`);
+    };
+    /** Un ajuste para todas las reglas dibujadas, en una sola escritura por tipo. */
+    const ajusteATodas = (campo: "sensibilidad" | "objetivo", v: any) => post({
+        lineas: dibujadas(cfg?.lineas).map((r) => ({ id: r.id, [campo]: v })),
+        zonas: dibujadas(cfg?.zonas).map((r) => ({ id: r.id, [campo]: v })),
+    });
+    const abrirEditor = (kind: "line" | "zone", id?: number) => {
+        const lista = kind === "line" ? cfg!.lineas : cfg!.zonas;
+        const r = (id != null ? lista.find((x) => x.id === id) : null) || lista.find((x) => !x.vacia) || lista[0];
+        setEdit(kind); setEditId(r?.id || 1); setPts(r && !r.vacia ? r.points : []); setDir(r?.direction || "both");
     };
     const aplicar = async (key: string, titulo: string, fn: () => Promise<void>) => {
         setBusy(key); setConfirm(null);
         try { await fn(); toast.success(titulo, { description: "Aplicado en la cámara" }); setTimeout(() => setVideoNonce((n) => n + 1), 600); await cargar(); }
-        catch (e: any) { toast.error("No se pudo aplicar", { description: e?.message }); }
+        catch (e: any) { toast.error("No se pudo aplicar", { description: e?.message }); cargar(); }
         finally { setBusy(null); }
     };
 
     const clic = (ctl: Ctl) => {
         if (!cfg && ctl.key !== "alarm" && ctl.key !== "test") return;
-        if (ctl.key === "line" || ctl.key === "zone") {
-            setEdit(ctl.key === "line" ? "line" : "zone");
-            setPts(ctl.key === "line" ? cfg!.line.points : cfg!.field.points);
-            setDir(cfg!.line.direction);
-            return;
-        }
-        if (ctl.key === "dir") {
-            const orden: Dir[] = ["both", "ab", "ba"]; const v = orden[(orden.indexOf(cfg!.line.direction) + 1) % 3];
-            setConfirm({ titulo: `Sentido → ${DIR_TXT[v]}`, detalle: ctl.detail, svg: "dir", hacer: () => aplicar("dir", `Sentido → ${DIR_TXT[v]}`, () => post({ kind: "line", enabled: true, points: cfg!.line.points.map(screenToCam), direction: v })) });
-            return;
-        }
+        if (ctl.key === "line" || ctl.key === "zone") { abrirEditor(ctl.key); return; }
+        // El sentido es de cada línea: se elige en el editor, arriba, con la línea elegida.
+        if (ctl.key === "dir") { abrirEditor("line"); return; }
         if (ctl.key === "sens") {
             const a = ajustesActivos(cfg); const i = SENS.findIndex((x) => x >= (a?.sensibilidad ?? 0)); const v = SENS[(i + 1) % SENS.length] ?? 60;
-            setConfirm({ titulo: `Sensibilidad → ${v}`, detalle: ctl.detail, svg: "sens", hacer: () => aplicar("sens", `Sensibilidad → ${v}`, async () => {
-                if (cfg!.support.line) await post({ kind: "line", soloAjustes: true, sensibilidad: v });
-                if (cfg!.support.field) await post({ kind: "field", soloAjustes: true, sensibilidad: v });
-            }) });
+            setConfirm({ titulo: `Sensibilidad → ${v}`, detalle: `${ctl.detail} Se aplica a las ${todas(cfg).length} líneas y zonas dibujadas.`, svg: "sens", hacer: () => aplicar("sens", `Sensibilidad → ${v}`, () => ajusteATodas("sensibilidad", v)) });
             return;
         }
         if (ctl.key === "target") {
             const a = ajustesActivos(cfg); const i = OBJETIVOS.findIndex((o) => o.v === a?.objetivo); const v = OBJETIVOS[(i + 1) % OBJETIVOS.length];
-            setConfirm({ titulo: `Objetivo → ${v.t}`, detalle: ctl.detail, svg: "target", hacer: () => aplicar("target", `Objetivo → ${v.t}`, async () => {
-                if (cfg!.support.line && cfg!.line.ajustes?.objetivoSoportado) await post({ kind: "line", soloAjustes: true, objetivo: v.v });
-                if (cfg!.support.field && cfg!.field.ajustes?.objetivoSoportado) await post({ kind: "field", soloAjustes: true, objetivo: v.v });
-            }) });
+            setConfirm({ titulo: `Objetivo → ${v.t}`, detalle: `${ctl.detail} Se aplica a las ${todas(cfg).length} líneas y zonas dibujadas.`, svg: "target", hacer: () => aplicar("target", `Objetivo → ${v.t}`, () => ajusteATodas("objetivo", v.v)) });
             return;
         }
         if (ctl.key === "alarm") {
@@ -245,12 +273,16 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
         ];
         setAutoSteps(pasos.map((p) => ({ ...p, status: "pending" })));
         const marcar = (k: string, ok: boolean, error?: string) => setAutoSteps((xs) => xs.map((x) => (x.key === k ? { ...x, status: ok ? "ok" : "fail", error } : x)));
-        try { if (cfg?.support.line) await post({ kind: "line", soloAjustes: true, sensibilidad: 60 }); if (cfg?.support.field) await post({ kind: "field", soloAjustes: true, sensibilidad: 60 }); marcar("sens", true); } catch (e: any) { marcar("sens", false, e?.message); }
-        try {
-            const sop = (cfg?.line.ajustes?.objetivoSoportado || cfg?.field.ajustes?.objetivoSoportado);
-            if (!sop) marcar("target", false, "esta cámara no filtra por objetivo");
-            else { if (cfg?.line.ajustes?.objetivoSoportado) await post({ kind: "line", soloAjustes: true, objetivo: "human,vehicle" }); if (cfg?.field.ajustes?.objetivoSoportado) await post({ kind: "field", soloAjustes: true, objetivo: "human,vehicle" }); marcar("target", true); }
-        } catch (e: any) { marcar("target", false, e?.message); }
+        // Sensibilidad y objetivo van en la misma escritura: la cámara tarda en aplicar cada una.
+        const hay = todas(cfg);
+        if (!hay.length) { marcar("sens", false, "no hay líneas ni zonas dibujadas"); marcar("target", false, "no hay líneas ni zonas dibujadas"); }
+        else if (!cfg?.edita.ajustes) { marcar("sens", false, "este equipo no deja cambiarla desde acá"); marcar("target", false, "este equipo no deja cambiarlo desde acá"); }
+        else {
+            const objetivo = hay.some((r) => r.objetivo != null);
+            const cambio = (r: Regla) => ({ id: r.id, sensibilidad: 60, ...(r.objetivo != null ? { objetivo: "human,vehicle" } : {}) });
+            try { await post({ lineas: dibujadas(cfg.lineas).map(cambio), zonas: dibujadas(cfg.zonas).map(cambio) }); marcar("sens", true); if (objetivo) marcar("target", true); else marcar("target", false, "esta cámara no filtra por objetivo"); }
+            catch (e: any) { marcar("sens", false, e?.message); marcar("target", false, e?.message); }
+        }
         try { const a = await fetch(`/api/devices/alarm-host?deviceId=${device.id}`, { method: "POST" }).then((r) => r.json()); marcar("alarm", !!a?.ok, a?.ok ? undefined : a?.error); } catch (e: any) { marcar("alarm", false, e?.message); }
         cargar();
     };
@@ -259,22 +291,46 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
     const evtPct = (e: React.PointerEvent): P => { const r = svgRef.current!.getBoundingClientRect(); return { x: snap(Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100))), y: snap(Math.max(0, Math.min(100, ((e.clientY - r.top) / r.height) * 100))) }; };
     const onDown = (e: React.PointerEvent) => { if (drag.current != null) return; const p = evtPct(e); setPts((l) => (edit === "line" ? (l.length >= 2 ? [l[1], p] : [...l, p]) : [...l, p])); };
     const onMove = (e: React.PointerEvent) => { if (drag.current == null) return; const p = evtPct(e); setPts((l) => l.map((q, k) => (k === drag.current ? p : q))); };
+    const listaEdit = edit === "line" ? cfg?.lineas || [] : cfg?.zonas || [];
+    const reglaEdit = listaEdit.find((r) => r.id === editId) || null;
+    const nombreEdit = `${edit === "line" ? "Línea" : "Zona"} ${editId}`;
+    const sinGuardar = !!edit && (JSON.stringify(pts) !== JSON.stringify(reglaEdit && !reglaEdit.vacia ? reglaEdit.points : []) || (edit === "line" && !!reglaEdit && !reglaEdit.vacia && dir !== reglaEdit.direction));
+    const eliminar = () => setConfirm({
+        titulo: `Eliminar ${nombreEdit}`, detalle: `Se quita de la cámara (queda vacía, como de fábrica). Las demás ${edit === "line" ? "líneas" : "zonas"} no se tocan.`, svg: edit === "line" ? "line" : "zone",
+        hacer: async () => {
+            setConfirm(null); setGuardando(true);
+            try { await post(edit === "line" ? { lineas: [{ id: editId, borrar: true }] } : { zonas: [{ id: editId, borrar: true }] }); toast.success(`${nombreEdit} eliminada`, { description: "Se volvió a leer la cámara: ya no está" }); setEdit(null); await cargar(); }
+            catch (e: any) { toast.error("No se pudo eliminar", { description: e?.message }); cargar(); }
+            finally { setGuardando(false); }
+        },
+    });
     const guardarEdicion = async () => {
+        // «Limpiar» + «Guardar» sobre una que existe es borrarla: era lo que Nico intentó y chocaba.
+        if (!pts.length && reglaEdit && !reglaEdit.vacia) { if (cfg?.edita.borrar) eliminar(); else toast.error("No se puede eliminar desde acá", { description: cfg?.edita.motivo }); return; }
         if (edit === "line" && pts.length !== 2) { toast.error("La línea necesita 2 puntos"); return; }
         if (edit === "zone" && pts.length < 3) { toast.error("La zona necesita al menos 3 puntos"); return; }
+        if (edit === "zone" && pts.length > 10) { toast.error("La zona admite hasta 10 vértices"); return; }
         setGuardando(true);
         try {
-            await post(edit === "line" ? { kind: "line", enabled: true, points: pts.map(screenToCam), direction: dir } : { kind: "field", enabled: true, points: pts.map(screenToCam) });
-            toast.success(edit === "line" ? "Línea guardada en la cámara" : "Zona guardada en la cámara");
+            const p = pts.map(screenToCam);
+            await post(edit === "line" ? { lineas: [{ id: editId, points: p, direction: dir }] } : { zonas: [{ id: editId, points: p }] });
+            toast.success(edit === "line" ? `${nombreEdit} guardada en la cámara` : `${nombreEdit} guardada en la cámara`, { description: "Se volvió a leer la cámara y quedó igual" });
             setEdit(null); await cargar();
-        } catch (e: any) { toast.error("No se pudo guardar", { description: e?.message }); }
+        } catch (e: any) { toast.error("No se pudo guardar", { description: e?.message }); cargar(); }
         finally { setGuardando(false); }
+    };
+    /** Cambiar de lugar en el editor: si hay cambios sin guardar, se pregunta. */
+    const elegirLugar = (id: number) => {
+        if (id === editId) return;
+        const ir = () => { setConfirm(null); abrirEditor(edit!, id); };
+        if (sinGuardar) setConfirm({ titulo: `${nombreEdit} tiene cambios sin guardar`, detalle: "Si cambiás de lugar se pierden.", svg: edit === "line" ? "line" : "zone", hacer: async () => ir() });
+        else ir();
     };
 
     const active = hover ? CONTROLS.find((c) => c.key === hover) : null;
     const extra: Extra = { alarma };
-    const linea = cfg?.line.points || [];
-    const zona = cfg?.field.points || [];
+    const lineasDib = dibujadas(cfg?.lineas);
+    const zonasDib = dibujadas(cfg?.zonas);
     const color = edit === "zone" ? "#f43f5e" : "#38bdf8";
     const mid = (l: P[]) => (l.length === 2 ? { x: (l[0].x + l[1].x) / 2, y: (l[0].y + l[1].y) / 2 } : null);
     const flechas = (l: P[], d: Dir) => {
@@ -282,6 +338,12 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
         const dx = l[1].x - l[0].x, dy = l[1].y - l[0].y, len = Math.hypot(dx, dy) || 1; const nx = -dy / len, ny = dx / len;
         const una = (sg: 1 | -1) => { const t = { x: m.x + nx * sg * 7, y: m.y + ny * sg * 7 }; return <line key={sg} x1={m.x} y1={m.y} x2={t.x} y2={t.y} stroke="#fbbf24" strokeWidth={2.4} strokeLinecap="round" vectorEffect="non-scaling-stroke" markerEnd="url(#punta)" />; };
         return <>{(d === "both" || d === "ab") && una(1)}{(d === "both" || d === "ba") && una(-1)}</>;
+    };
+    /** El nombre corto (L1, Z2) junto a su dibujo: con varias, hay que saber cuál es cuál. */
+    const rotulo = (l: P[], t: string) => {
+        if (!l.length) return null;
+        const c = { x: l.reduce((s, p) => s + p.x, 0) / l.length, y: l.reduce((s, p) => s + p.y, 0) / l.length };
+        return <text x={c.x} y={c.y - 2.4} textAnchor="middle" fontSize="2" fontWeight="800" fill="#fff" stroke="#000" strokeWidth={0.35} paintOrder="stroke" style={{ pointerEvents: "none" }}>{t}</text>;
     };
 
     return (
@@ -293,12 +355,16 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
                     {!edit && cfg && (
                         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
                             <defs><marker id="punta" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#fbbf24" /></marker></defs>
-                            {zona.length >= 3 && <polygon points={zona.map((p) => `${p.x},${p.y}`).join(" ")} fill="rgba(244,63,94,0.16)" stroke="#f43f5e" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
-                            {linea.length === 2 && <>
-                                <line x1={linea[0].x} y1={linea[0].y} x2={linea[1].x} y2={linea[1].y} stroke="#38bdf8" strokeWidth={3} vectorEffect="non-scaling-stroke" />
-                                <line x1={linea[0].x} y1={linea[0].y} x2={linea[1].x} y2={linea[1].y} stroke="#fff" strokeWidth={1} strokeDasharray="3 6" vectorEffect="non-scaling-stroke" opacity={0.6}><animate attributeName="stroke-dashoffset" from="9" to="0" dur="0.6s" repeatCount="indefinite" /></line>
-                                {flechas(linea, cfg.line.direction)}
-                            </>}
+                            {zonasDib.map((z) => <g key={`z${z.id}`}>
+                                <polygon points={z.points.map((p) => `${p.x},${p.y}`).join(" ")} fill="rgba(244,63,94,0.16)" stroke="#f43f5e" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                                {rotulo(z.points, `Z${z.id}`)}
+                            </g>)}
+                            {lineasDib.map((l) => <g key={`l${l.id}`}>
+                                <line x1={l.points[0].x} y1={l.points[0].y} x2={l.points[1].x} y2={l.points[1].y} stroke="#38bdf8" strokeWidth={3} vectorEffect="non-scaling-stroke" />
+                                <line x1={l.points[0].x} y1={l.points[0].y} x2={l.points[1].x} y2={l.points[1].y} stroke="#fff" strokeWidth={1} strokeDasharray="3 6" vectorEffect="non-scaling-stroke" opacity={0.6}><animate attributeName="stroke-dashoffset" from="9" to="0" dur="0.6s" repeatCount="indefinite" /></line>
+                                {flechas(l.points, l.direction)}
+                                {lineasDib.length + zonasDib.length > 1 && rotulo(l.points, `L${l.id}`)}
+                            </g>)}
                         </svg>
                     )}
 
@@ -309,7 +375,18 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
                                 <div className={cn("flex items-center gap-2", edit === "line" ? "text-sky-300" : "text-rose-300")}>
                                     {edit === "line" ? <Minus size={16} /> : <Hexagon size={16} />}
                                     <span className="text-xs font-bold uppercase tracking-wide">{edit === "line" ? "Línea de cruce" : "Zona de intrusión"}</span>
-                                    <span className="text-[10px] text-white/50">· {edit === "line" ? "tocá los 2 extremos, arrastrá para ajustar" : "tocá para agregar vértices, doble clic borra"}</span>
+                                    {/* Cuál de los lugares de la cámara: lleno = dibujado, punteado = libre. */}
+                                    {listaEdit.length > 1 && (
+                                        <div className="inline-flex rounded-lg bg-white/[0.06] p-0.5 ml-1">
+                                            {listaEdit.map((r) => (
+                                                <button key={r.id} onClick={() => elegirLugar(r.id)} title={r.vacia ? `${edit === "line" ? "Línea" : "Zona"} ${r.id}: libre` : `${edit === "line" ? "Línea" : "Zona"} ${r.id}: dibujada`}
+                                                    className={cn("h-6 min-w-[24px] px-1.5 rounded-md text-[11px] font-bold", r.id === editId ? (edit === "line" ? "bg-sky-400 text-black" : "bg-rose-500 text-white") : r.vacia ? "text-white/40 border border-dashed border-white/20" : "text-white/85 hover:text-white")}>
+                                                    {r.vacia && r.id !== editId ? "+" : r.id}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <span className="text-[10px] text-white/50">· {guardando ? "aplicando en la cámara y comprobando que quedó: puede tardar hasta dos minutos" : edit === "line" ? "tocá los 2 extremos, arrastrá para ajustar" : "tocá para agregar vértices, doble clic borra"}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     {edit === "line" && (
@@ -321,7 +398,8 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
                                         </div>
                                     )}
                                     <button onClick={() => setPts([])} className="h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[11px] font-semibold flex items-center gap-1.5"><Trash2 size={13} /> Limpiar</button>
-                                    <button onClick={() => setPts(edit === "line" ? linea : zona)} className="h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[11px] font-semibold flex items-center gap-1.5"><RotateCcw size={13} /> Revertir</button>
+                                    <button onClick={() => { setPts(reglaEdit && !reglaEdit.vacia ? reglaEdit.points : []); if (reglaEdit) setDir(reglaEdit.direction); }} className="h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[11px] font-semibold flex items-center gap-1.5"><RotateCcw size={13} /> Revertir</button>
+                                    {reglaEdit && !reglaEdit.vacia && cfg?.edita.borrar && <button onClick={eliminar} disabled={guardando} className="h-8 px-3 rounded-lg bg-red-500/15 hover:bg-red-500/25 text-red-300 text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-50"><Trash2 size={13} /> Eliminar</button>}
                                     <button onClick={() => setEdit(null)} className="h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[11px] font-semibold flex items-center gap-1.5"><X size={13} /> Cerrar</button>
                                     <button onClick={guardarEdicion} disabled={guardando} className={cn("h-8 px-4 rounded-lg text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50", edit === "line" ? "bg-sky-500 hover:bg-sky-400 text-black" : "bg-rose-500 hover:bg-rose-400 text-white")}>
                                         {guardando ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Guardar
@@ -336,6 +414,11 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
                                     <svg ref={svgRef} viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full touch-none cursor-crosshair"
                                         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={() => (drag.current = null)} onPointerLeave={() => (drag.current = null)}>
                                         <defs><marker id="punta" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#fbbf24" /></marker></defs>
+                                        {/* Las demás, tenues: para dibujar ésta sabiendo dónde están. */}
+                                        <g opacity={0.35} style={{ pointerEvents: "none" }}>
+                                            {zonasDib.filter((z) => !(edit === "zone" && z.id === editId)).map((z) => <polygon key={`oz${z.id}`} points={z.points.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#f43f5e" strokeWidth={1.4} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />)}
+                                            {lineasDib.filter((l) => !(edit === "line" && l.id === editId)).map((l) => <line key={`ol${l.id}`} x1={l.points[0].x} y1={l.points[0].y} x2={l.points[1].x} y2={l.points[1].y} stroke="#38bdf8" strokeWidth={1.6} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />)}
+                                        </g>
                                         {edit === "zone" && pts.length >= 2 && <polygon points={pts.map((p) => `${p.x},${p.y}`).join(" ")} fill="rgba(244,63,94,0.18)" stroke={color} strokeWidth={2.4} vectorEffect="non-scaling-stroke" />}
                                         {edit === "line" && pts.length === 2 && <><line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={color} strokeWidth={3} vectorEffect="non-scaling-stroke" />{flechas(pts, dir)}</>}
                                         {pts.map((p, i) => (
@@ -358,6 +441,11 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
                         <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" /></span>
                         <span className="text-[10px] font-bold text-white uppercase tracking-wide">Calibración de intrusión</span>
                         <span className="text-[10px] text-white/70">· {device.name}</span>
+                        {/* El disparo de la lectura de matrículas usa la línea 1 / zona 1 de la cámara (camera-rule):
+                            si se dispara con ellas, tocarlas acá cambia también el disparo. */}
+                        {device.deviceType === "LPR_INTERIOR" && ["linea", "zona", "camara"].includes(String(device.trackTrigger || "")) && (
+                            <span className="text-[10px] font-semibold text-amber-300">· Ojo: la lectura de matrículas se dispara con la {device.trackTrigger === "linea" ? "línea" : "zona"} 1 de esta cámara</span>
+                        )}
                     </div>
                     <button onClick={onClose} className="absolute top-3 right-3 h-9 w-9 rounded-full bg-black/50 backdrop-blur-md text-white/90 hover:bg-black/70 flex items-center justify-center z-10"><X size={18} /></button>
 
@@ -431,7 +519,7 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
                         {CONTROLS.map((ctl) => {
                             const Icon = ctl.key === "target" && ajustesActivos(cfg)?.objetivo === "vehicle" ? Car : ctl.key === "target" && ajustesActivos(cfg)?.objetivo === "human,vehicle" ? Users : ctl.icon;
                             const dis = loading || !!busy || (ctl.disabled ? ctl.disabled(cfg) : false);
-                            const ok = ctl.key === "alarm" ? alarma : ctl.key === "line" ? linea.length === 2 : ctl.key === "zone" ? zona.length >= 3 : undefined;
+                            const ok = ctl.key === "alarm" ? alarma : ctl.key === "line" ? lineasDib.length > 0 : ctl.key === "zone" ? zonasDib.length > 0 : undefined;
                             return (
                                 <button key={ctl.key} onMouseEnter={() => setHover(ctl.key)} onMouseLeave={() => setHover((h) => (h === ctl.key ? null : h))}
                                     onClick={() => clic(ctl)} disabled={dis}

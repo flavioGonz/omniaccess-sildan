@@ -40,7 +40,8 @@ const QRLIB = opcional("qrcode");
 const firmarUrl = opcional("./firma-medios")?.firmarUrl || ((u) => u);
 const listaNegra = opcional("./lib-lista-negra");
 
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 
 const LOCAL = process.env.OMNI_LOCAL_URL || "http://127.0.0.1:10001";
 const GO2RTC = (process.env.GO2RTC_API || "http://127.0.0.1:1984").replace(/\/+$/, "");
@@ -582,7 +583,7 @@ async function camaras(ctx) {
 }
 async function camaraAhora(ctx, deviceId) {
     const d = await prisma.device.findUnique({ where: { id: deviceId }, select: { id: true, name: true } });
-    if (!d) return texto(ctx.chatId, "⚠️ Esa cámara ya no existe.");
+    if (!d) return texto(ctx.chatId, "⚠️ Esa cámara no es de esta instalación: el botón viene de otro OmniAccess (el laboratorio) o la cámara se borró.");
     accion(ctx.chatId, "upload_photo");
     try {
         const buf = await fotoDeCamara(d.id);
@@ -592,7 +593,7 @@ async function camaraAhora(ctx, deviceId) {
 }
 async function clip(ctx, deviceId) {
     const d = await prisma.device.findUnique({ where: { id: deviceId }, select: { id: true, name: true } });
-    if (!d) return texto(ctx.chatId, "⚠️ Esa cámara ya no existe.");
+    if (!d) return texto(ctx.chatId, "⚠️ Esa cámara no es de esta instalación: el botón viene de otro OmniAccess (el laboratorio) o la cámara se borró.");
     if (grabando.has(d.id)) return texto(ctx.chatId, `⏳ Ya estoy grabando <b>${esc(d.name)}</b>, un momento.`);
     grabando.add(d.id);
     const aviso = await texto(ctx.chatId, `🎬 Grabando ${CLIP_SEG} s de <b>${esc(d.name)}</b>…`).catch(() => null);

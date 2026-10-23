@@ -57,7 +57,7 @@ function hostBody(id: string, ip: string, port: string, path: string): string {
 /** Asegura que OmniAccess sea servidor de alarma del equipo (lo agrega si falta). */
 export async function ensureAlarmHost(d: CamDev): Promise<{ ok: boolean; already?: boolean; slot?: string; error?: string }> {
     const t = await getEventTarget();
-    if (!t) return { ok: false, error: "Falta configurar el host de eventos de OmniAccess (Settings EVENT_HOST_IP)." };
+    if (!t) return { ok: false, sinDestino: true, error: "Falta decir a qué IP le mandan los eventos las cámaras (destino de eventos)." } as any;
     const cur = await readAlarmHosts(d);
     if (!cur.ok) return { ok: false, error: cur.error };
     if (cur.hasOmni) return { ok: true, already: true };
@@ -71,8 +71,20 @@ export async function ensureAlarmHost(d: CamDev): Promise<{ ok: boolean; already
         await authenticatedRequest("PUT", `${LIST}/${slot}`, dev(d), { data: hostBody(slot, t.ip, t.port, t.path), contentType: "application/xml", responseType: "text", timeout: 9000 });
         return { ok: true, slot };
     } catch (e: any) {
-        return { ok: false, error: e?.message || "ISAPI PUT error" };
+        return { ok: false, error: errorIsapi(e, "No se pudo escribir el servidor de alarmas") };
     }
+}
+
+/** El motivo que da la cámara (statusString / subStatusCode del XML), no sólo «status code 400». */
+function errorIsapi(e: any, porDefecto: string): string {
+    const cuerpo = String(e?.response?.data || "");
+    const sub = cuerpo.match(/<subStatusCode>([^<]+)/i)?.[1], est = cuerpo.match(/<statusString>([^<]+)/i)?.[1];
+    const st = e?.response?.status;
+    if (st === 401) return "La cámara rechazó el usuario o la clave (401).";
+    if (st === 403) return `La cámara no lo permite (403)${sub ? `: ${sub}` : ""}. Revisá que el usuario sea administrador.`;
+    if (sub || est) return `La cámara contestó ${st || "error"}: ${[est, sub].filter(Boolean).join(" · ")}.`;
+    if (e?.code === "ECONNREFUSED" || e?.code === "ETIMEDOUT" || e?.code === "EHOSTUNREACH") return `La cámara no contestó (${e.code}).`;
+    return e?.message || porDefecto;
 }
 
 

@@ -11,6 +11,8 @@
     "start:webhooks": "node server.js",
     "lint": "eslint .",
     "test": "npx playwright test",
+    "test:libs": "node scripts/probar.js",
+    "typecheck": "tsc --noEmit -p .",
     "test:ui": "npx playwright test --ui",
     "test:report": "npx playwright show-report"
   },
@@ -19,6 +21,8 @@
     "@aws-sdk/lib-storage": "^3.958.0",
     "@heroui/react": "^2.8.7",
     "@hookform/resolvers": "^5.2.2",
+    "@hugeicons/core-free-icons": "^4.3.5",
+    "@hugeicons/react": "^1.1.10",
     "@prisma/client": "^5.22.0",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",

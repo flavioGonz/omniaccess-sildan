@@ -9,8 +9,9 @@
  *  · DOS MOTORES, elegibles arriba: OmniVision (el registro de detecciones de OmniAccess, por cómo
  *    se ve: foto o frase) y el Grabador (AcuSearch del NVR, por foto). Antes era sólo AcuSearch, y
  *    en San Nicolás se le pedía al NVR 2 —que no lo tiene— y contestaba «socket hang up».
- *  · FOTO o TEXTO: con texto se describe lo que se busca («camioneta blanca con escalera»). El
- *    grabador de este barrio no busca por texto, así que el texto va siempre por OmniVision.
+ *  · FOTO o TEXTO: con texto se describe lo que se busca («camioneta blanca con escalera»).
+ *    21/10: con un NVR VPro (AcuSeek activado) el grabador también busca por texto; si el
+ *    grabador no lo tiene, el aviso lo dice y ofrece OmniVision.
  *  · La espera al centro del panel, y los errores dicen qué hacer (ampliar el rango, probar el
  *    otro motor) en vez de mostrar el mensaje técnico.
  *
@@ -35,7 +36,6 @@ type Hallazgo = {
     score: number | null; camara: string; deviceId?: string | null; channel?: number; time: string; attrs?: Record<string, string>;
 };
 
-const proxyNvr = (u?: string) => (u ? `/api/acuseek/image?u=${encodeURIComponent(u)}` : "");
 const imgVision = (clave?: string | null, w?: number) => (clave ? `/api/vision/imagen/${clave}${w ? `?w=${w}` : ""}` : "");
 /** Los rangos de cada motor: OmniVision guarda 30 días de huellas; el grabador busca de a pocos días. */
 const RANGOS: Record<Motor, { valor: string; rotulo: string; ms: number }[]> = {
@@ -112,8 +112,7 @@ export function AcuSearchPanel({ image, previewUrl, engine, onEngineChange, cent
     const corrida = useRef(0);
 
     const rango = RANGOS[motor][rangoIdx];
-    // El texto sólo lo busca OmniVision: si se pasa a texto con el grabador elegido, se cambia y se dice.
-    const motorEfectivo: Motor = modo === "texto" ? "omnivision" : motor;
+    const motorEfectivo: Motor = motor;
 
     const buscar = useCallback(async () => {
         const mia = ++corrida.current;
@@ -145,34 +144,49 @@ export function AcuSearchPanel({ image, previewUrl, engine, onEngineChange, cent
                 if (!lista.length) setAviso({ texto: modo === "texto" ? "OmniVision no encontró nada parecido a esa descripción en ese rango." : "OmniVision no encontró nada parecido en ese rango." });
                 return;
             }
-            // Grabador (AcuSearch): crea la tarea y se consulta su avance.
+            /*
+             * El grabador, por texto o por foto, por la búsqueda de grabadores sin fabricante
+             * (/api/grabador/buscar, lib/grabador-busqueda; 21/10). Antes esto llamaba a /api/acuseek/*:
+             * un solo NVR, sólo Hikvision, y el primer pedido de avance de un VPro (que contesta
+             * «deviceError» el primer segundo) cortaba la búsqueda. Ahora busca en todos los que
+             * pueden, junta los hallazgos con su cámara, y tolera ese primer error.
+             */
             const centro = centerTimeMs || Date.now();
             const mitad = rango.ms / 2;
-            const fd = new FormData();
-            fd.append("file", image!, "ref.jpg");
-            fd.append("from", new Date(centro - mitad).toISOString());
-            fd.append("to", new Date(Math.min(Date.now(), centro + mitad)).toISOString());
-            fd.append("similarity", String(similitud / 100)); fd.append("engine", engine);
-            const j = await fetch("/api/acuseek/image-search", { method: "POST", body: fd }).then((r) => r.json()).catch(() => ({ ok: false, error: "No se pudo pedir" }));
+            const desde = new Date(centro - mitad).toISOString(), hasta = new Date(Math.min(Date.now(), centro + mitad)).toISOString();
+            let pedido: Promise<any>;
+            if (modo === "texto") {
+                pedido = fetch("/api/grabador/buscar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ texto: consulta.trim(), desde, hasta, similitud }) }).then((r) => r.json());
+            } else {
+                const fd = new FormData();
+                fd.append("imagen", image!, "ref.jpg");
+                fd.append("objeto", engine === "human" ? "persona" : "vehiculo");
+                fd.append("desde", desde); fd.append("hasta", hasta); fd.append("similitud", String(similitud));
+                pedido = fetch("/api/grabador/buscar", { method: "POST", body: fd }).then((r) => r.json());
+            }
+            const j = await pedido.catch(() => ({ ok: false, error: "No se pudo pedir" }));
             if (mia !== corrida.current) return;
-            if (!j.ok) { setBuscando(false); setAviso({ texto: j.sinAcuSeek ? j.error : `El grabador no pudo buscar: ${j.error || "sin respuesta"}.`, sinGrabador: true }); return; }
+            if (!j.ok) { setBuscando(false); setAviso({ texto: j.sinGrabador ? `Ningún grabador de esta instalación busca ${modo === "texto" ? "por texto" : "por foto"}. Probá con OmniVision.` : `El grabador no pudo buscar: ${j.error || "sin respuesta"}.`, sinGrabador: true }); return; }
             setProgreso(0);
             let vueltas = 0;
             poll.current = setInterval(async () => {
                 vueltas++;
-                const pr = await fetch(`/api/acuseek/image-search?taskId=${encodeURIComponent(j.taskID)}&max=60&engine=${engine}&minScore=${similitud}`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
+                const pr = await fetch(`/api/grabador/buscar?tareas=${encodeURIComponent(j.tareas)}&max=60`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
                 if (!pr || mia !== corrida.current) return;
                 if (!pr.ok) { clearInterval(poll.current); setBuscando(false); setAviso({ texto: `El grabador cortó la búsqueda: ${pr.error || "sin respuesta"}.`, sinGrabador: true }); return; }
-                if (pr.progress != null) setProgreso(Number(pr.progress));
-                if (pr.totalMatches != null) setTotal(pr.totalMatches);
-                if (pr.status === "completed" || vueltas > 45) {
+                if (pr.progreso != null) setProgreso(Number(pr.progreso));
+                if (pr.total != null) setTotal(pr.total);
+                const soloError = (pr.errores?.length || 0) > 0 && !(pr.hallazgos || []).length;
+                const listo = (pr.terminada && !(soloError && vueltas < 6)) || vueltas > 45;
+                if (listo) {
                     clearInterval(poll.current); setBuscando(false);
-                    const lista: Hallazgo[] = (pr.matches || []).map((m: any) => ({
-                        clave: `nvr-${m.id}-${m.channel}`, fuente: "grabador", foto: proxyNvr(m.imagePath), recorte: m.targetImagePath ? proxyNvr(m.targetImagePath) : null,
-                        rect: m.rect || null, score: m.score ?? null, camara: m.deviceName || `Canal ${m.channel}`, deviceId: m.deviceId, channel: m.channel, time: m.time, attrs: m.attrs,
+                    const lista: Hallazgo[] = (pr.hallazgos || []).map((h: any) => ({
+                        clave: `nvr-${h.id}`, fuente: "grabador", foto: h.foto || h.recorte || "", recorte: h.recorte || null,
+                        rect: h.caja ? { x: h.caja.x, y: h.caja.y, width: h.caja.w, height: h.caja.h } : null,
+                        score: h.puntaje ?? null, camara: h.camara || `Canal ${h.canal}`, deviceId: h.deviceId, channel: h.canal, time: h.momento, attrs: h.atributos,
                     }));
                     setHallazgos(lista);
-                    if (!lista.length) setAviso({ texto: "El grabador no encontró coincidencias en ese rango." });
+                    if (!lista.length) setAviso({ texto: soloError ? `El grabador no contestó: ${pr.errores[0]}.` : modo === "texto" ? "El grabador no encontró nada con esa descripción en ese rango." : "El grabador no encontró coincidencias en ese rango." });
                 }
             }, 1200);
         } catch (e: any) {
@@ -209,11 +223,11 @@ export function AcuSearchPanel({ image, previewUrl, engine, onEngineChange, cent
             {/* Cómo se busca: motor, foto o texto, qué, cuándo */}
             <div className="px-5 pb-3 border-b border-border shrink-0">
                 <Filtros className="gap-2" grupos={[
-                    { clave: "motor", titulo: "Dónde buscar", valor: motorEfectivo, alElegir: (v) => { setMotor(v as Motor); if (v === "grabador") setModo("foto"); },
+                    { clave: "motor", titulo: "Dónde buscar", valor: motorEfectivo, alElegir: (v) => { setMotor(v as Motor); if (v === "grabador" && !image) setModo("texto"); },
                         opciones: [{ valor: "omnivision", rotulo: "OmniVision", icono: Sparkles, titulo: "El registro de detecciones de OmniAccess: por foto o por descripción" },
-                            { valor: "grabador", rotulo: "Grabador", icono: Server, titulo: "AcuSearch del NVR: busca la foto en lo grabado" }] },
+                            { valor: "grabador", rotulo: "Grabador", icono: Server, titulo: "El NVR (AcuSearch / AcuSeek): busca la foto, o la descripción en un VPro, en lo grabado" }] },
                     { clave: "modo", titulo: "Con qué", valor: modo, alElegir: (v) => setModo(v as Modo),
-                        opciones: [{ valor: "foto", rotulo: "Foto", icono: ImageIcon, titulo: "El recorte de este evento" }, { valor: "texto", rotulo: "Texto", icono: Type, titulo: "Describir lo que se busca (sólo OmniVision)" }] },
+                        opciones: [{ valor: "foto", rotulo: "Foto", icono: ImageIcon, titulo: "El recorte de este evento" }, { valor: "texto", rotulo: "Texto", icono: Type, titulo: "Describir lo que se busca (OmniVision, o el grabador si es un VPro con AcuSeek)" }] },
                     { clave: "que", titulo: "Qué", valor: engine, alElegir: (v) => onEngineChange?.(v as any),
                         opciones: [{ valor: "vehicle", rotulo: "", icono: Car, titulo: "Vehículos" }, { valor: "human", rotulo: "", icono: User, titulo: "Personas" }] },
                     { clave: "rango", titulo: "Cuándo", valor: String(rangoIdx), alElegir: (v) => setRangoIdx(Number(v)),

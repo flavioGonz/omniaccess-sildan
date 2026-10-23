@@ -10,7 +10,9 @@ import { prisma } from "./prisma";
  */
 let _queue: Queue | null = null;
 export function getDispatchQueue(): Queue {
-    if (!_queue) _queue = new Queue("dispatch", { connection: makeRedisConnection() });
+    // BullMQ trae su propia copia de ioredis y sus tipos no aceptan la nuestra, aunque en tiempo de
+    // ejecución es el mismo cliente (así anduvo siempre): el `as any` es sólo para el compilador.
+    if (!_queue) _queue = new Queue("dispatch", { connection: makeRedisConnection() as any });
     return _queue;
 }
 

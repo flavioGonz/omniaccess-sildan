@@ -1,5 +1,7 @@
 "use client";
 
+import { ControlesLente } from "@/components/devices/LenteYLecturas";
+import { modoLprDe } from "@/lib/modo-camara";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { sileo } from "sileo";
@@ -197,6 +199,14 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
     const svgRef = useRef<SVGSVGElement>(null);
 
     const streamName = `lpr_${device.id}_hd`;
+    /*
+     * Lectura de OmniVision (22/10, Nico: «con cámaras que no son ANPR, comunes, que vamos a usar como
+     * lector, me deja abrir el calibrador pero da error porque no son ANPR»). Esas cámaras no tienen
+     * región ANPR ni «modo vía»: pedirlas daba 403. Se calibra sólo la imagen (obturador, ganancia,
+     * WDR, IR, foco, lente), que es lo que sí ayuda a que OmniVision lea; lo de ANPR no se ofrece.
+     */
+    const esOmni = modoLprDe(device) === "omnivision";
+    const controles = esOmni ? CONTROLS.filter((c) => c.key !== "anprRoad") : CONTROLS;
     const LANE_COLORS = ["#f59e0b", "#22d3ee", "#a78bfa", "#34d399"];
 
     const loadCfg = useCallback(async () => {
@@ -240,7 +250,7 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
             const r = await fetch(`/api/devices/anpr-region?deviceId=${device.id}`, { cache: "no-store" });
             const j = await r.json();
             if (j.ok) setRegion(j.region);
-            else { toast.error("No se pudo leer la región ANPR", { description: j.error }); setRegionMode(false); }
+            else { toast.error("No se pudo leer la región ANPR", { description: r.status === 403 || r.status === 404 || /403|404|notSupport/i.test(String(j.error)) ? "La cámara no tiene ANPR (o no deja leer su región): si es una cámara común, use la lectura de OmniVision." : j.error }); setRegionMode(false); }
         } catch (e: any) { toast.error("Error leyendo la región", { description: e?.message }); setRegionMode(false); }
         finally { setRegionLoading(false); }
     }
@@ -313,6 +323,9 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
                 {/* Video */}
                 <div className="relative flex-1 bg-black group">
                     <LiveVideo key={`${streamName}-${videoNonce}`} streamName={streamName} deviceId={device.id} />
+                    {/* Zoom y foco del lente (21/10, Nico: «agregar el zoom también acá, para acercar o alejar
+                        el lente»): los mismos controles que la ficha del equipo, sobre el video que se calibra. */}
+                    {!regionMode && <ControlesLente deviceId={device.id} className="z-20" />}
 
                     {/* ── Editor de región ANPR (línea de captura) ── */}
                     {regionMode && (
@@ -415,6 +428,7 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
                         <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" /></span>
                         <span className="text-[10px] font-bold text-white uppercase tracking-wide">Calibración</span>
                         <span className="text-[10px] text-white/70">· {device.name}</span>
+                        {esOmni && <span className="text-[10px] font-semibold text-sky-300">· Lectura OmniVision (sin ANPR): se calibra la imagen</span>}
                     </div>
                     <button onClick={onClose} className="absolute top-3 right-3 h-9 w-9 rounded-full bg-black/50 backdrop-blur-md text-white/90 hover:bg-black/70 flex items-center justify-center transition-colors z-10"><X size={18} /></button>
 
@@ -515,13 +529,13 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
                             {autoRunning ? <Loader2 size={20} className="animate-spin" /> : <Wand2 size={20} />}
                             <div className="text-left leading-tight">
                                 <div className="text-sm">Auto-calibración</div>
-                                <div className="text-[10px] font-semibold opacity-80">Perfil ANPR barrio-noche</div>
+                                <div className="text-[10px] font-semibold opacity-80">{esOmni ? "Perfil lectura de matrículas" : "Perfil ANPR barrio-noche"}</div>
                             </div>
                         </button>
 
                         <div className="w-px h-10 bg-white/10 mx-1 shrink-0" />
 
-                        {CONTROLS.map((ctl) => {
+                        {controles.map((ctl) => {
                             const Icon = ctl.icon;
                             const on = cfg && ctl.active ? ctl.active(cfg) : undefined;
                             const isBusy = busy === ctl.key;
@@ -545,8 +559,8 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
                             );
                         })}
 
-                        <div className="w-px h-10 bg-white/10 mx-1 shrink-0" />
-                        <button
+                        {!esOmni && <div className="w-px h-10 bg-white/10 mx-1 shrink-0" />}
+                        {!esOmni && <button
                             onClick={() => (regionMode ? closeRegion() : openRegion())}
                             className={[
                                 "shrink-0 flex items-center gap-2 px-3 h-14 rounded-xl border transition active:scale-95",
@@ -557,7 +571,7 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
                                 <div className="text-xs font-bold">Línea de captura</div>
                                 <div className="text-[9px] font-semibold opacity-70">Región ANPR editable</div>
                             </div>
-                        </button>
+                        </button>}
 
                         <div className="flex-1" />
                         <button onClick={loadCfg} className="shrink-0 h-14 w-12 rounded-xl bg-white/[0.05] border border-white/10 text-white/70 hover:bg-white/[0.1] flex items-center justify-center" title="Releer cámara"><RefreshCw size={16} className={loadingCfg ? "animate-spin" : ""} /></button>

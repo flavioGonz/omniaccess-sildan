@@ -51,7 +51,8 @@ const { normalizarChapa } = require("./lib-chapa");
 const sharp = require("sharp");
 const { PrismaClient } = require("@prisma/client");
 
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 const LPR_URL = process.env.OMNI_LPR_URL || "http://127.0.0.1:8000";
 const APP_URL = process.env.INTERNAL_BASE_URL || "http://127.0.0.1:10001";
 const MIN_CONF = Number(process.env.TRACKING_MIN_CONFIDENCE || 0.6);
@@ -421,8 +422,12 @@ async function camaras() {
                 trackLine: true, trackAcceso: true, direction: true,
             },
         });
+        // Los de un área apagada (Dispositivos, lib/apagado.ts) no se leen.
+        let apagados = new Set();
+        try { apagados = new Set(JSON.parse(await ajuste("EQUIPOS_APAGADOS", "[]") || "[]").map(String)); } catch { }
         for (const d of devs) {
             if (!d.rtspUrl || !d.rtspUrl.trim()) continue;
+            if (apagados.has(d.id)) continue;
             let roi = null;
             try { roi = d.trackRoi ? JSON.parse(d.trackRoi) : null; } catch { }
             let linea = null;

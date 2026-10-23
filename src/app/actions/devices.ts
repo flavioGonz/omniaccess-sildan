@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
 import { uploadToS3 } from "@/lib/s3";
 import { sinClaves } from "@/lib/equipo-publico";
+import { olvidarPuertosHttp } from "@/lib/host-http";
 
 async function saveFile(file: any, folder: string): Promise<string | null> {
     if (!file || typeof file === 'string' || !file.size) return null;
@@ -88,6 +89,16 @@ function camposSeguimiento(formData: FormData) {
     return datos;
 }
 
+/**
+ * El puerto HTTP/ISAPI que vino en el formulario (lib/host-http). `undefined` = el formulario no lo
+ * trae (otras pantallas llaman a updateDevice): no se toca. Vacío u 80 = el de siempre (null).
+ */
+function puertoHttpDe(formData: FormData): number | null | undefined {
+    if (!formData.has("httpPort")) return undefined;
+    const n = parseInt(String(formData.get("httpPort") || ""));
+    return n > 0 && n < 65536 && n !== 80 ? n : null;
+}
+
 export async function createDevice(formData: FormData) {
     const name = formData.get("name") as string;
     const ip = formData.get("ip") as string;
@@ -124,6 +135,7 @@ export async function createDevice(formData: FormData) {
             authType,
             mac,
             port: portNum,
+            httpPort: puertoHttpDe(formData) ?? null,
             modelPhoto,
             brandLogo,
             deviceModel: formData.get("deviceModel") as string,
@@ -133,6 +145,7 @@ export async function createDevice(formData: FormData) {
             } : undefined
         },
     });
+    olvidarPuertosHttp();
 
     // Automatic sync on add
     try {
@@ -217,12 +230,14 @@ export async function updateDevice(id: string, formData: FormData) {
             authType,
             mac,
             port: portNum,
+            ...(puertoHttpDe(formData) !== undefined ? { httpPort: puertoHttpDe(formData) } : {}),
             deviceModel,
             ...seguimiento,
             ...(modelPhoto && { modelPhoto }),
             ...(brandLogo && { brandLogo }),
         },
     });
+    olvidarPuertosHttp();
 
     // Auto-registrar/actualizar el stream en go2rtc (LPR Hikvision)
     try {
@@ -236,9 +251,19 @@ export async function updateDevice(id: string, formData: FormData) {
     revalidatePath("/admin/devices");
 }
 
-export async function deleteDevice(id: string) {
-    await prisma.device.delete({ where: { id } });
+/**
+ * Borrar un equipo: de todos lados, no sólo su fila (lib/borrar-equipo). Pide el permiso
+ * Dispositivos: antes no pedía nada.
+ */
+export async function deleteDevice(id: string): Promise<{ success: boolean; error?: string }> {
+    const { getSession } = await import("@/app/actions/auth");
+    const { permisosDeSesion } = await import("@/lib/permisos");
+    const s: any = await getSession().catch(() => null);
+    if (!s || !permisosDeSesion(s).includes("dispositivos.editar")) return { success: false, error: "Hace falta el permiso Editar dispositivos para borrar equipos." };
+    const { borrarEquipoDeTodo } = await import("@/lib/borrar-equipo");
+    const r = await borrarEquipoDeTodo(id, String(s.name || s.sub || "panel"));
     revalidatePath("/admin/devices");
+    return r.ok ? { success: true } : { success: false, error: r.error };
 }
 
 export async function getDevices() {
@@ -261,8 +286,14 @@ export async function getCredencialesDispositivo(id: string): Promise<{ username
     const { getSession } = await import("@/app/actions/auth");
     const { permisosDeSesion } = await import("@/lib/permisos");
     const s: any = await getSession().catch(() => null);
-    if (!s || !permisosDeSesion(s).includes("dispositivos")) return null;
+    if (!s || !permisosDeSesion(s).includes("dispositivos.editar")) return null;
     return prisma.device.findUnique({ where: { id }, select: { username: true, password: true, rtspUrl: true } });
+}
+
+/** Los equipos apagados por su área (lib/apagado): las pantallas que listan cámaras los dejan afuera. */
+export async function getEquiposApagados(): Promise<string[]> {
+    const { equiposApagados } = await import("@/lib/apagado");
+    return [...(await equiposApagados().catch(() => new Set<string>()))];
 }
 
 export async function getDevicesCount() {

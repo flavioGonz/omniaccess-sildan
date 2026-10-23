@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useConfirmar } from "@/components/ui/use-confirmar";
 import {
     Dialog,
     DialogContent,
@@ -90,6 +91,7 @@ interface DriverDetailsDialogProps {
 
 
 export function DriverDetailsDialog({ brand, isOpen, onClose }: DriverDetailsDialogProps) {
+    const { confirmar, elemento: confirmacion } = useConfirmar();
     const [newModel, setNewModel] = useState({ value: "", label: "", category: "", photo: "" });
     const [isAdding, setIsAdding] = useState(false);
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
@@ -125,7 +127,7 @@ export function DriverDetailsDialog({ brand, isOpen, onClose }: DriverDetailsDia
     };
 
     const handleDeleteModel = async (modelValue: string) => {
-        if (!confirm("¿Estás seguro de eliminar este modelo?")) return;
+        if (!(await confirmar({ titulo: `Eliminar el modelo ${modelValue}`, descripcion: "Deja de ofrecerse al dar de alta un equipo de esta marca.", accion: "Eliminar" }))) return;
 
         setIsDeleting(modelValue);
         const result = await deleteDeviceModel(brand, modelValue);
@@ -171,6 +173,7 @@ export function DriverDetailsDialog({ brand, isOpen, onClose }: DriverDetailsDia
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
+            {confirmacion}
             <DialogContent className="max-w-5xl bg-card/95 border-border backdrop-blur-xl p-0 overflow-hidden flex flex-col md:flex-row gap-0 h-[700px]">
                 <DialogTitle className="sr-only">{brand} Driver Configuration</DialogTitle>
                 {/* Left Side: Driver Info */}
@@ -884,6 +887,7 @@ function BoschOnvifPipeline() {
 }
 
 function BrandEditor() {
+    const { confirmar, elemento: confirmacion } = useConfirmar();
     const [brands, setBrands] = useState<{ code: string; name: string }[]>(
         Object.entries(HIKVISION_VEHICLE_BRANDS)
             .map(([code, name]) => ({ code, name }))
@@ -899,8 +903,8 @@ function BrandEditor() {
         .filter(b => b.code.includes(filter) || b.name.toLowerCase().includes(filter.toLowerCase()))
         .sort((a, b) => parseInt(a.code) - parseInt(b.code));
 
-    const handleDelete = (code: string) => {
-        if (confirm("¿Eliminar este mapeo de marca?")) {
+    const handleDelete = async (code: string) => {
+        if (await confirmar({ titulo: `Eliminar el código de marca ${code}`, descripcion: "Las lecturas con ese código dejan de mostrar la marca.", accion: "Eliminar" })) {
             setBrands(prev => prev.filter(b => b.code !== code));
         }
     };
@@ -941,6 +945,7 @@ function BrandEditor() {
 
     return (
         <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-4 duration-500">
+            {confirmacion}
             <div className="p-4 bg-gradient-to-r from-purple-600/10 to-transparent border border-purple-500/20 rounded-2xl mb-4 shrink-0">
                 <h4 className="text-sm font-bold text-foreground uppercase tracking-widest mb-2 flex items-center gap-2">
                     <Car size={16} className="text-purple-500" />

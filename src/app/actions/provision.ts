@@ -25,8 +25,10 @@ function montevideoNow(): string {
 /** A dónde deben enviar los eventos las cámaras (server webhook). Configurable por
  *  Setting; si no está, se auto-detecta de una cámara ya configurada y se cachea. */
 async function getWebhookTarget(): Promise<{ ip: string; port: string; url: string } | null> {
-    const rows = await prisma.setting.findMany({ where: { key: { in: ["LPR_WEBHOOK_HOST", "LPR_WEBHOOK_PORT", "LPR_WEBHOOK_URL"] } } });
+    const rows = await prisma.setting.findMany({ where: { key: { in: ["EVENT_HOST_IP", "EVENT_HOST_PORT", "LPR_WEBHOOK_HOST", "LPR_WEBHOOK_PORT", "LPR_WEBHOOK_URL"] } } });
     const m: any = {}; rows.forEach((r) => (m[r.key] = r.value));
+    // El destino dicho en el panel manda (actions/destino-eventos): es el mismo para alarmas y LPR.
+    if (m.EVENT_HOST_IP) return { ip: m.EVENT_HOST_IP, port: m.EVENT_HOST_PORT || "10000", url: m.LPR_WEBHOOK_URL || "/api/webhooks/hikvision" };
     if (m.LPR_WEBHOOK_HOST) return { ip: m.LPR_WEBHOOK_HOST, port: m.LPR_WEBHOOK_PORT || "10000", url: m.LPR_WEBHOOK_URL || "/api/webhooks/hikvision" };
     const cams = await prisma.device.findMany({ where: { deviceType: "LPR_CAMERA", brand: "HIKVISION" }, select: { ip: true, username: true, password: true, authType: true } });
     for (const c of cams) {
@@ -45,13 +47,23 @@ async function getWebhookTarget(): Promise<{ ip: string; port: string; url: stri
 
 export type ProvisionStep = { name: string; ok: boolean; detail: string };
 
-export async function provisionLprDevice(deviceId: string, includePlates = true) {
+/**
+ * Los pasos de la puesta a punto, por clave. `solo` elige cuáles correr (21/10, Nico: «permití
+ * seleccionar con toggles qué quiero poner a punto y qué no»): sin `solo`, todos como siempre (y
+ * Matrículas según `includePlates`). El cajón de la puesta a punto los corre de a uno para mostrar
+ * el avance de cada paso.
+ */
+export type ClavePuesta = "hora" | "eventos" | "anpr" | "h264" | "vivo" | "matriculas";
+
+export async function provisionLprDevice(deviceId: string, includePlates = true, solo?: ClavePuesta[]) {
     const d = await prisma.device.findUnique({ where: { id: deviceId } });
     if (!d) return { ok: false, error: "Dispositivo no encontrado", steps: [] as ProvisionStep[] };
     if (d.brand !== "HIKVISION" || (d.deviceType as any) !== "LPR_CAMERA") return { ok: false, error: "Solo cámaras LPR Hikvision", steps: [] as ProvisionStep[] };
 
     const steps: ProvisionStep[] = [];
-    const step = async (name: string, fn: () => Promise<string>) => {
+    const quiere = (k: ClavePuesta) => !solo || solo.includes(k);
+    const step = async (name: string, fn: () => Promise<string>, clave?: ClavePuesta) => {
+        if (clave && !quiere(clave)) return;
         try { steps.push({ name, ok: true, detail: await fn() }); }
         catch (e: any) { steps.push({ name, ok: false, detail: e?.message || "error" }); }
     };
@@ -63,7 +75,7 @@ export async function provisionLprDevice(deviceId: string, includePlates = true)
         xml = setTag(setTag(xml, "timeMode", "manual"), "localTime", local);
         await authenticatedRequest("PUT", "/ISAPI/System/time", auth(d), { data: xml, contentType: "application/xml", responseType: "text", timeout: 8000 });
         return local.replace("T", " ").slice(0, 19);
-    });
+    }, "hora");
 
     // 2) Envío de eventos → server (HTTP host id=1). Es lo que hace que la cámara reporte.
     await step("Envío de eventos (HTTP host)", async () => {
@@ -72,7 +84,7 @@ export async function provisionLprDevice(deviceId: string, includePlates = true)
         const xml = `<HttpHostNotification version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema"><id>1</id><url>${t.url}</url><protocolType>HTTP</protocolType><parameterFormatType>XML</parameterFormatType><addressingFormatType>ipaddress</addressingFormatType><ipAddress>${t.ip}</ipAddress><portNo>${t.port}</portNo><userName></userName><httpAuthenticationMethod>none</httpAuthenticationMethod><ANPR><detectionUpLoadPicturesType opt="all,licensePlatePicture,detectionPicture">all</detectionUpLoadPicturesType></ANPR></HttpHostNotification>`;
         await authenticatedRequest("PUT", "/ISAPI/Event/notification/httpHosts/1", auth(d), { data: xml, contentType: "application/xml", responseType: "text", timeout: 8000 });
         return `${t.ip}:${t.port}${t.url}`;
-    });
+    }, "eventos");
 
     // 3) Modo ANPR (verificación; cambiarlo requiere reboot, no lo forzamos)
     await step("Modo ANPR", async () => {
@@ -80,7 +92,7 @@ export async function provisionLprDevice(deviceId: string, includePlates = true)
         const t = pick(xml, "type");
         if (t === "roadDetection") return "OK · roadDetection";
         throw new Error(`está en '${t}'; pasala a roadDetection y reiniciá la cámara`);
-    });
+    }, "anpr");
 
     // 4) Códec H.264 en principal(101) y sub(102) → video en vivo sin transcodificar
     await step("Códec H.264", async () => {
@@ -93,13 +105,13 @@ export async function provisionLprDevice(deviceId: string, includePlates = true)
             done.push(ch);
         }
         return "canales " + done.join(", ");
-    });
+    }, "h264");
 
     // 5) Stream de video en go2rtc (persistente + en caliente)
-    await step("Video en vivo (go2rtc)", async () => { await syncLprStream(d as any); return "stream registrado"; });
+    await step("Video en vivo (go2rtc)", async () => { await syncLprStream(d as any); return "stream registrado"; }, "vivo");
 
     // 6) Matrículas (diff incremental) — sólo si se pide (puede tardar en cámaras nuevas)
-    if (includePlates) {
+    if (solo ? solo.includes("matriculas") : includePlates) {
         await step("Matrículas", async () => {
             const r: any = await syncDeviceIncremental(deviceId);
             if (!r.ok) throw new Error(r.error || "falló la sincronización");

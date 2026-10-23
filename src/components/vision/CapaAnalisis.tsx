@@ -116,6 +116,10 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 </g>
             )}
 
+            {/* Las demás líneas y zonas prendidas de la cámara (hasta 4 de cada una): más sobrias que la primera. */}
+            {geom?.otras?.zonas.map((z, i) => <polygon key={`oz${i}`} points={pts(z, W, H)} fill="none" stroke={COLOR_GEOM} strokeWidth={2} strokeDasharray="8 6" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />)}
+            {geom?.otras?.lineas.map((l, i) => <polyline key={`ol${i}`} points={pts(l, W, H)} fill="none" stroke={COLOR_GEOM} strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />)}
+
             {/* Las siluetas: relleno en degradé y borde con brillo, del color de su grupo. */}
             {objetos.map((o, i) => {
                 const k = COLOR_GRUPO[o.grupo] ? o.grupo : "otro";

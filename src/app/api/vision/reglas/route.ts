@@ -107,7 +107,7 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
     const s: any = await getSession();
     if (!s) return NextResponse.json({ error: "Sin sesión" }, { status: 401 });
-    if (!permisosDeSesion(s).includes("ajustes")) return NextResponse.json({ error: "Sólo quien tiene Ajustes puede cambiar las reglas." }, { status: 403 });
+    if (!permisosDeSesion(s).includes("vision.config")) return NextResponse.json({ error: "Hace falta el permiso Configurar OmniVision para cambiar las reglas." }, { status: 403 });
     const b = await req.json().catch(() => null);
     const { reglas, errores } = validarReglas(b?.reglas);
     if (errores.length) return NextResponse.json({ error: errores.join(" · ") }, { status: 400 });

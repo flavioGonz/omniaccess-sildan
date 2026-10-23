@@ -27,6 +27,11 @@ const MERODEO_DENEGADOS = 4;
 /** Lo que la cámara manda cuando NO leyó una chapa: no es una matrícula y no puede ser merodeo ni vigilancia. */
 const NO_ES_CHAPA = new Set(["", "NOLEIDA", "NOLEIDO", "UNKNOWN", "SINLECTURA", "SINMATRICULA", "NONE", "NULL"]);
 const esChapa = (ch: string | null | undefined): ch is string => !!ch && !NO_ES_CHAPA.has(ch);
+/**
+ * Sin los disparos sin vehículo: la cámara no leyó chapa y OmniVision no vio ningún vehículo en la
+ * foto (lo marca vision-relectura). No son accesos: no van a la pared ni a los contadores (24/10).
+ */
+const SIN_DISPAROS = { sinVehiculo: false } as const;
 
 
 /** Cuántas no registradas "en el barrio" se muestran como mucho. */
@@ -56,11 +61,11 @@ export async function GET() {
     const inc = INCLUIR_LECTURA;
     const soloPermitidas = abierto ? {} : { decision: "GRANT" as any };
     const [ultimas, entradas, salidas, denegados, recientes, visitas, avisos] = await Promise.all([
-        prisma.accessEvent.findMany({ orderBy: { timestamp: "desc" }, take: ULTIMAS_EN_TIRA + 1, include: inc }),
-        prisma.accessEvent.count({ where: { timestamp: { gte: hoy }, direction: "ENTRY", ...soloPermitidas } }),
-        prisma.accessEvent.count({ where: { timestamp: { gte: hoy }, direction: "EXIT", ...soloPermitidas } }),
-        abierto ? Promise.resolve(0) : prisma.accessEvent.count({ where: { timestamp: { gte: hoy }, decision: "DENY" } }),
-        prisma.accessEvent.findMany({ where: { timestamp: { gte: desdeAtencion } }, orderBy: { timestamp: "desc" }, take: 500, select: { id: true, timestamp: true, plateDetected: true, decision: true, details: true, direction: true, device: { select: { name: true } } } }),
+        prisma.accessEvent.findMany({ where: SIN_DISPAROS, orderBy: { timestamp: "desc" }, take: ULTIMAS_EN_TIRA + 1, include: inc }),
+        prisma.accessEvent.count({ where: { ...SIN_DISPAROS, timestamp: { gte: hoy }, direction: "ENTRY", ...soloPermitidas } }),
+        prisma.accessEvent.count({ where: { ...SIN_DISPAROS, timestamp: { gte: hoy }, direction: "EXIT", ...soloPermitidas } }),
+        abierto ? Promise.resolve(0) : prisma.accessEvent.count({ where: { ...SIN_DISPAROS, timestamp: { gte: hoy }, decision: "DENY" } }),
+        prisma.accessEvent.findMany({ where: { ...SIN_DISPAROS, timestamp: { gte: desdeAtencion } }, orderBy: { timestamp: "desc" }, take: 500, select: { id: true, timestamp: true, plateDetected: true, decision: true, details: true, direction: true, device: { select: { name: true } } } }),
         prisma.visita.findMany({ where: { sale: null }, orderBy: { vence: "asc" }, take: 200 }).catch(() => []),
         prisma.avisoGuardia.findMany({ where: { atendidoAt: null }, orderBy: { creado: "desc" }, take: AVISOS_MAX }).catch(() => []),
     ]);

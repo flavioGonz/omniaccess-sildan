@@ -33,12 +33,17 @@ import { ZONA } from "@/lib/fechas";
 const SIN_DATOS_MS = 60_000;
 /** Cursor y botones se esconden tras este tiempo quieto. */
 const OCULTAR_CURSOR_MS = 5000;
-/** Cada cuánto el marco repite su propia lectura (nombre del barrio, ajustes). */
-const INTERVALO_MARCO_MS = 5 * 60 * 1000;
+/**
+ * Cada cuánto el marco repite su propia lectura (nombre del barrio, ajustes, funciones). Era cada
+ * 5 min; con las funciones de la instalación una vista apagada tiene que volver sola en un minuto.
+ */
+const INTERVALO_MARCO_MS = 60 * 1000;
 
 type Ajustes = { sonido: Record<string, string>; rotacion: { vistas: string[]; segundos: number } };
 type Marco = {
     barrio: string;
+    /** Funciones de la instalación ya efectivas (Intrusión, Recepción y Gestión de alarmas). null = todavía no se sabe. */
+    funciones: Record<string, boolean> | null;
     ajustes: Ajustes | null;
     pantalla: { enlaceId: string; vista: string } | null;
     /** Llamar cada vez que llega un dato: es lo que sostiene "En vivo". */
@@ -65,6 +70,16 @@ type Marco = {
 const Ctx = createContext<Marco | null>(null);
 export const useMarco = () => { const c = useContext(Ctx); if (!c) throw new Error("useMarco fuera de MarcoMonitor"); return c; };
 
+/**
+ * Lo de adentro sólo con la función prendida (Intrusión, alarmas). Mientras no se sabe, no se dibuja:
+ * una alerta de intrusión que aparece un instante y se va en una instalación sin intrusión es peor
+ * que aparecer un segundo tarde donde sí está.
+ */
+export function SiFuncion({ id, children }: { id: string; children: React.ReactNode }) {
+    const { funciones } = useMarco();
+    return funciones?.[id] ? <>{children}</> : null;
+}
+
 /** Dibuja `children` dentro del encabezado del marco, en la misma fila que el título y la hora. */
 export function BarraDelMarco({ children }: { children: React.ReactNode }) {
     const { barra, setUsaBarra } = useMarco();
@@ -72,7 +87,14 @@ export function BarraDelMarco({ children }: { children: React.ReactNode }) {
     return barra ? createPortal(children, barra) : null;
 }
 
-export function MarcoMonitor({ children, puedeDecidir = false }: { children: React.ReactNode; puedeDecidir?: boolean }) {
+/**
+ * `embebido` (21/10, Monitor CCTV en el menú del panel): la misma vista de pared, pero dentro del
+ * panel. Ocupa el alto de su lugar en vez de la pantalla entera, no pide pantalla completa al
+ * primer toque (en el panel se toca todo el tiempo), y el botón de pantalla completa agranda sólo
+ * el marco, no la página con el menú.
+ */
+export function MarcoMonitor({ children, puedeDecidir = false, embebido = false, tituloFijo }: { children: React.ReactNode; puedeDecidir?: boolean; embebido?: boolean; /** Embebido: el nombre de la entrada del menú (p. ej. «Monitor CCTV») en vez del de la vista. */ tituloFijo?: string }) {
+    const raiz = useRef<HTMLDivElement>(null);
     const [titulo, setTitulo] = useState("");
     const [fondo, setFondo] = useState<string | null>(null);
     const [ultimoDato, setUltimoDato] = useState<number>(() => Date.now());
@@ -99,7 +121,7 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
     }, []);
     const latir = useCallback(() => setUltimoDato(Date.now()), []);
 
-    const { datos: marco, revocado } = usarDatos<{ barrio: string; ajustes: Ajustes; pantalla: Marco["pantalla"] }>("/api/monitor/marco", INTERVALO_MARCO_MS, latir);
+    const { datos: marco, revocado } = usarDatos<{ barrio: string; ajustes: Ajustes; funciones?: Record<string, boolean>; pantalla: Marco["pantalla"] }>("/api/monitor/marco", INTERVALO_MARCO_MS, latir);
 
     // Cualquier evento del socket cuenta como señal de vida.
     const { conectado } = useTiempoReal("access_event", latir);
@@ -113,7 +135,7 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
         let reloj: any = null;
         const despertar = () => { setQuieto(false); clearTimeout(reloj); reloj = setTimeout(() => setQuieto(true), OCULTAR_CURSOR_MS); };
         const primerGesto = async () => {
-            if (!document.fullscreenElement) { try { await document.documentElement.requestFullscreen(); } catch { } }
+            if (!embebido && !document.fullscreenElement) { try { await document.documentElement.requestFullscreen(); } catch { } }
             if (await habilitarAudio()) setBloqueado(false);
         };
         const cambioLleno = () => setLleno(!!document.fullscreenElement);
@@ -123,21 +145,21 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
         document.addEventListener("fullscreenchange", cambioLleno);
         despertar(); setBloqueado(audioBloqueado());
         return () => { clearTimeout(reloj); window.removeEventListener("pointermove", despertar); window.removeEventListener("pointerdown", despertar); window.removeEventListener("keydown", despertar); window.removeEventListener("pointerdown", primerGesto); window.removeEventListener("keydown", primerGesto); document.removeEventListener("fullscreenchange", cambioLleno); };
-    }, []);
+    }, [embebido]);
 
     const sinDatos = ahora - ultimoDato > SIN_DATOS_MS && (!conectado || ahora - ultimoDato > SIN_DATOS_MS * 2);
     const reconectando = !conectado && !sinDatos;
     const minutosSin = Math.max(1, Math.floor((ahora - ultimoDato) / 60000));
 
     const valor = useMemo<Marco>(() => ({
-        barrio: marco?.barrio || "OmniAccess", ajustes: marco?.ajustes || null, pantalla: marco?.pantalla || null,
+        barrio: marco?.barrio || "OmniAccess", ajustes: marco?.ajustes || null, funciones: marco?.funciones || null, pantalla: marco?.pantalla || null,
         latir, tactil, conectado, setTitulo, setFondo, silencio, audioBloqueado: bloqueado, puedeDecidir, barra, setUsaBarra,
     }), [marco, latir, tactil, conectado, silencio, bloqueado, puedeDecidir, barra]);
 
     const hora = new Date(ahora).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: ZONA });
     const fecha = new Date(ahora).toLocaleDateString("es-UY", { weekday: "long", day: "numeric", month: "long", timeZone: ZONA });
 
-    const alternarLleno = async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch { } };
+    const alternarLleno = async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await (embebido && raiz.current ? raiz.current : document.documentElement).requestFullscreen(); } catch { } };
     const alternarSilencio = () => { const v = !silencio; setSilencio(v); try { localStorage.setItem("oa.monitor.silencio", v ? "1" : "0"); } catch { } };
 
     if (revocado) {
@@ -155,7 +177,7 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
 
     return (
         <Ctx.Provider value={valor}>
-            <div className={cn("dark h-[100dvh] overflow-hidden bg-background text-foreground flex flex-col select-none overscroll-none touch-manipulation [-webkit-tap-highlight-color:transparent] transition-[background-color] duration-700", quieto && !tactil && "cursor-none")}
+            <div ref={raiz} className={cn("overflow-hidden relative", embebido ? "h-full" : "dark h-[100dvh]", " bg-background text-foreground flex flex-col select-none overscroll-none touch-manipulation [-webkit-tap-highlight-color:transparent] transition-[background-color] duration-700", quieto && !tactil && !embebido && "cursor-none")}
                 style={fondo ? ({
                     // Con una lectura en pantalla, TODA la interfaz toma su color: el fondo y también cada
                     // panel (card, muted, borde), que pasan a ser velos claros sobre ese color en vez de negro.
@@ -165,37 +187,48 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
                     "--popover": `color-mix(in oklab, ${fondo} 85%, #000)`, "--muted-foreground": "rgba(255,255,255,0.72)",
                 } as React.CSSProperties) : undefined}>
                 {/* Encabezado: barrio, vista, vitalidad y reloj. En "sin datos" se pinta ENTERO de ámbar. */}
-                <header className={cn("shrink-0 flex items-center gap-4 lg:gap-6 px-4 lg:px-8 h-[64px] border-b transition-colors",
+                {/* En el panel (embebido) el encabezado se achica: se lee a 50 cm, no a 4 m, y el panel
+                    ya tiene su menú y su marca. El tema es el del panel (claro u oscuro), no el oscuro fijo. */}
+                <header className={cn("shrink-0 flex items-center border-b transition-colors", embebido ? "gap-3 px-4 h-[52px]" : "gap-4 lg:gap-5 px-4 lg:px-6 h-[50px]",
                     sinDatos ? "bg-[var(--aviso)] text-[#16120a] border-transparent" : fondo ? "bg-black/20 border-white/15" : "bg-card/60 border-border")}>
                     <div className={cn("min-w-0 flex items-baseline gap-3", usaBarra && "md:shrink-0 md:max-w-[300px]")}>
-                        <span className="text-[22px] font-bold truncate">{valor.barrio}</span>
-                        {titulo && <span className={cn("text-[18px] font-semibold truncate", sinDatos ? "opacity-80" : "text-muted-foreground")}>· {titulo}</span>}
+                        {embebido ? (
+                            <>
+                                <span className="text-[16px] font-bold tracking-[-0.01em] truncate">{tituloFijo || titulo || "Monitor"}</span>
+                                <span className={cn("text-[12px] truncate", sinDatos ? "opacity-80" : "text-muted-foreground")}>{valor.barrio}</span>
+                            </>
+                        ) : (
+                            <>
+                                <span className="text-[18px] font-bold tracking-[-0.01em] truncate">{valor.barrio}</span>
+                                {titulo && <span className={cn("text-[15px] font-semibold truncate", sinDatos ? "opacity-80" : "text-muted-foreground")}>· {titulo}</span>}
+                            </>
+                        )}
                     </div>
                     {/* Los controles de la vista, si los pone (BarraDelMarco). Fuera de escritorio no: en
                         un celular no entran en la fila, y la vista los lleva abajo. */}
                     <div ref={setBarra} className={cn("min-w-0 flex-1 items-center", usaBarra ? "hidden md:flex" : "hidden")} />
-                    <div className={cn("ml-auto flex items-center gap-2 text-[14px] lg:text-[16px] font-bold uppercase tracking-[0.12em] whitespace-nowrap", usaBarra && "md:ml-0", !sinDatos && (reconectando ? "text-[var(--aviso-texto)]" : "text-[var(--bien-texto)]"))}>
-                        {sinDatos ? <><AlertTriangle size={22} /> Sin datos hace {minutosSin} min</>
-                            : reconectando ? <><RefreshCw size={18} className="animate-spin" /> Reconectando</>
-                                : <><span className="h-3 w-3 rounded-full bg-[var(--bien)] animate-pulse" /> En vivo</>}
+                    <div className={cn("ml-auto flex items-center gap-2 font-bold whitespace-nowrap", embebido ? "text-[11px] uppercase tracking-[0.1em]" : "text-[12px] lg:text-[13px] uppercase tracking-[0.12em]", usaBarra && "md:ml-0", !sinDatos && (reconectando ? "text-[var(--aviso-texto)]" : "text-[var(--bien-texto)]"))}>
+                        {sinDatos ? <><AlertTriangle size={embebido ? 15 : 18} /> Sin datos hace {minutosSin} min</>
+                            : reconectando ? <><RefreshCw size={embebido ? 13 : 15} className="animate-spin" /> Reconectando</>
+                                : <><span className={cn("rounded-full bg-[var(--bien)] animate-pulse", embebido ? "h-2 w-2" : "h-2.5 w-2.5")} /> En vivo</>}
                     </div>
                     <div className="flex items-baseline gap-3 tabular-nums">
-                        <span className={cn("hidden text-[16px] capitalize whitespace-nowrap", usaBarra ? "min-[2200px]:inline" : "lg:inline", sinDatos ? "opacity-80" : "text-muted-foreground")} suppressHydrationWarning>{montado ? fecha : ""}</span>
-                        <span className="text-[26px] lg:text-[30px] font-bold leading-none" suppressHydrationWarning>{montado ? hora : "--:--:--"}</span>
+                        {!embebido && <span className={cn("hidden text-[14px] capitalize whitespace-nowrap", usaBarra ? "min-[2200px]:inline" : "lg:inline", sinDatos ? "opacity-80" : "text-muted-foreground")} suppressHydrationWarning>{montado ? fecha : ""}</span>}
+                        <span className={cn("font-bold leading-none", embebido ? "text-[17px]" : "text-[22px] lg:text-[24px]")} suppressHydrationWarning>{montado ? hora : "--:--:--"}</span>
                     </div>
-                    <div className={cn("flex items-center gap-1 transition-opacity duration-300", quieto && !tactil ? "opacity-0" : "opacity-100")}>
+                    <div className={cn("flex items-center gap-1 transition-opacity duration-300", quieto && !tactil && !embebido ? "opacity-0" : "opacity-100")}>
                         <button onClick={alternarSilencio} title={silencio ? "Activar sonido" : "Silenciar esta pantalla"} aria-label={silencio ? "Activar sonido" : "Silenciar"}
-                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : "h-10 w-10")}>{silencio ? <VolumeX size={tactil ? 24 : 20} /> : <Volume2 size={tactil ? 24 : 20} />}</button>
+                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : embebido ? "h-8 w-8 rounded-lg" : "h-9 w-9 rounded-lg")}>{silencio ? <VolumeX size={tactil ? 24 : embebido ? 16 : 18} /> : <Volume2 size={tactil ? 24 : embebido ? 16 : 18} />}</button>
                         <button onClick={alternarLleno} title={lleno ? "Salir de pantalla completa" : "Pantalla completa"} aria-label="Pantalla completa"
-                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : "h-10 w-10")}>{lleno ? <Minimize2 size={tactil ? 24 : 20} /> : <Maximize2 size={tactil ? 24 : 20} />}</button>
+                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : embebido ? "h-8 w-8 rounded-lg" : "h-9 w-9 rounded-lg")}>{lleno ? <Minimize2 size={tactil ? 24 : embebido ? 16 : 18} /> : <Maximize2 size={tactil ? 24 : embebido ? 16 : 18} />}</button>
                     </div>
                 </header>
                 {bloqueado && !silencio && (
-                    <div className="shrink-0 bg-[var(--info-suave)] text-[var(--info-texto)] text-[15px] font-semibold text-center py-1.5">Tocá la pantalla para habilitar el sonido y la pantalla completa</div>
+                    <div className={cn("shrink-0 bg-[var(--info-suave)] text-[var(--info-texto)] font-semibold text-center", embebido ? "text-[12px] py-1" : "text-[15px] py-1.5")}>{embebido ? "Tocá la pantalla para habilitar el sonido" : "Tocá la pantalla para habilitar el sonido y la pantalla completa"}</div>
                 )}
                 <main className="flex-1 min-h-0 relative overflow-y-auto overscroll-contain">{children}</main>
                 {!conectado && (
-                    <div className="fixed bottom-4 left-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-card border border-border text-[14px] text-muted-foreground"><WifiOff size={16} /> Sin conexión en vivo: se actualiza por consulta</div>
+                    <div className={cn(embebido ? "absolute" : "fixed", "bottom-4 left-4 z-30")} ><div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-card border border-border text-[14px] text-muted-foreground"><WifiOff size={16} /> Sin conexión en vivo: se actualiza por consulta</div></div>
                 )}
             </div>
         </Ctx.Provider>

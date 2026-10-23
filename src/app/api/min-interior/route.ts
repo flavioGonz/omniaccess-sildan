@@ -57,11 +57,31 @@ function extractImg(html: string): string {
   return m ? m[1] : "";
 }
 
-async function start() {
-  const r = await fetch(INDEX, { headers: { "User-Agent": UA }, cache: "no-store" });
+/**
+ * Pide el formulario. Sin seguir redirecciones (22/10): el sitio pasó a contestar 302 hacia la
+ * portada del Ministerio en gub.uy, y siguiéndola se traía una página sin formulario y el error era
+ * el genérico «no devolvió el formulario», sin forma de saber qué pasaba. Ahora cada falla dice cuál.
+ */
+async function start(): Promise<{ cookie: string; csrf: string; image: string; falla?: string }> {
+  const r = await fetch(INDEX, { headers: { "User-Agent": UA }, cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(15000) });
+  if (r.status >= 300 && r.status < 400) {
+    const destino = r.headers.get("location") || "otra dirección";
+    console.error(`[min-interior] ${INDEX} redirige (${r.status}) a ${destino}`);
+    return { cookie: "", csrf: "", image: "", falla: `El Ministerio ya no atiende la consulta en ${new URL(INDEX).host}: la dirección redirige a ${destino}. Mientras OmniAccess no se adapte al sitio nuevo, consultala en el sitio oficial.` };
+  }
+  if (!r.ok) {
+    console.error(`[min-interior] ${INDEX} respondió ${r.status}`);
+    return { cookie: "", csrf: "", image: "", falla: `El sitio del Ministerio respondió ${r.status}. Reintentá en unos minutos o consultá en el sitio oficial.` };
+  }
   const html = await r.text();
   const cookie = phpsessid(getSetCookies(r));
-  return { cookie, csrf: extractCsrf(html), image: extractImg(html) };
+  const out = { cookie, csrf: extractCsrf(html), image: extractImg(html) };
+  const falta = [!out.cookie && "la sesión", !out.csrf && "el token del formulario", !out.image && "la imagen de verificación"].filter(Boolean);
+  if (falta.length) {
+    console.error(`[min-interior] el formulario vino sin ${falta.join(", ")} (${html.length} bytes)`);
+    return { ...out, falla: `El sitio del Ministerio contestó, pero sin ${falta.join(", ")}: puede haber cambiado su formulario. Consultala en el sitio oficial.` };
+  }
+  return out;
 }
 
 export async function GET(req: NextRequest) {
@@ -69,10 +89,10 @@ export async function GET(req: NextRequest) {
   const action = req.nextUrl.searchParams.get("action") || "start";
   try {
     if (action === "start") {
-      const { cookie, csrf, image } = await start();
-      if (!cookie || !csrf || !image)
+      const { cookie, csrf, image, falla } = await start();
+      if (falla || !cookie || !csrf || !image)
         return NextResponse.json(
-          { ok: false, error: "El sitio del Ministerio no devolvió el formulario. Reintentá en unos segundos." },
+          { ok: false, error: falla || "El sitio del Ministerio no devolvió el formulario. Reintentá en unos segundos.", sitioOficial: true },
           { status: 502 }
         );
       const sid = rid();

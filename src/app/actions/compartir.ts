@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
-import { PERMISOS_VIDEO } from "@/lib/clip-instante";
+import { PERMISOS_VIDEO, ventanaAlerta } from "@/lib/clip-instante";
 import { telefonoWhatsApp, estadoSesionWhatsApp } from "@/lib/whatsapp";
 import { enqueueDispatch } from "@/lib/dispatch-queue";
 
@@ -31,6 +31,8 @@ export type OpcionesCompartir = {
     telegram: { disponible: boolean; motivo?: string; destinos: DestinoCompartir[] };
     /** «Clip animado en alertas» prendido: el worker suma el video del instante. */
     conClip: boolean;
+    /** El tramo que arma el worker para ese clip (Ajustes → Video del evento, la ventana de alertas): lo usa el panel para mostrar qué se le pide al NVR. */
+    ventanaClip: { antes: number; despues: number };
 };
 
 async function exigir() {
@@ -110,6 +112,7 @@ export async function opcionesCompartir(q = ""): Promise<OpcionesCompartir> {
             destinos: tgDestinos,
         },
         conClip: animado === "true",
+        ventanaClip: await ventanaAlerta(),
     };
 }
 

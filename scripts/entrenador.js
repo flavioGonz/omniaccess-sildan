@@ -30,7 +30,8 @@ const { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectsCommand } = r
 
 const salud = require("./salud-equipo");
 const correr = promisify(exec);
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("../lib-cifrado-datos").enPrisma(new PrismaClient());
 const log = (...a) => console.log(new Date().toISOString(), "[entrenador]", ...a);
 
 const CADA_MS = 20_000;

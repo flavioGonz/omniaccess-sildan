@@ -10,7 +10,7 @@
  * despues alguien mueve la camara en el mapa, el historial no se deforma.
  */
 const { PrismaClient } = require("@prisma/client");
-const prisma = global.__omniPrisma || new PrismaClient();
+const prisma = global.__omniPrisma || require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 if (!global.__omniPrisma) global.__omniPrisma = prisma;
 
 let cacheMapa = { ts: 0, camaras: new Map() };

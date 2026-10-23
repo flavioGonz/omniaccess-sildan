@@ -9,6 +9,7 @@ import {
     Scan, Car, Home, ParkingSquare, ShieldAlert, Star, Search as Lupa,
     UserPlus, Radio, LogIn, LogOut, Image as IconoFoto, Video, Eye, EyeOff,
     PlayCircle, Download, Archive, ShieldBan, ScanFace, Sparkles, Activity, GalleryHorizontal, Cctv, Undo2, Share2, ScanSearch,
+    Repeat, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ActividadEnVivo } from "@/components/tracking/ActividadEnVivo";
@@ -37,6 +38,8 @@ import { SeguimientoVivo } from "@/components/visor/SeguimientoVivo";
 import { BuscarParecidos } from "@/components/visor/BuscarParecidos";
 import { describirObjeto } from "@/components/visor/FichaVisor";
 import { chapaDe, esSinLectura, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
+import { useClipEvento } from "@/lib/clip-evento";
+import { AjusteVideoFicha } from "@/components/video/AjusteVideoFicha";
 
 export type CuadroAvistamiento = {
     plate: string;
@@ -371,6 +374,17 @@ export function VisorCuadro({
     const [proporcion, setProporcion] = useState(AR_VENTANA);
     /** Qué se está mirando: el cuadro guardado o lo que la cámara ve ahora. */
     const [modo, setModo] = useState<"foto" | "vivo" | "grabacion">("foto");
+    /*
+     * El video del evento, en loop sobre la foto, también en la ficha LPR (21/10, Nico: «tenemos varias
+     * ventanas modales, LPR, intrusión…»): era la única sin él. Mismo clip, misma preferencia (V acá,
+     * C en las otras, que acá ya marca el lector) y mismo ajuste de segundos que las demás.
+     * Mientras corre, el recuadro de la chapa y las siluetas se apagan: son de la foto, y sobre un
+     * auto que se mueve marcarían el lugar equivocado.
+     */
+    const conPaso = !!pasoViendo?.foto;
+    const idClip = fila.deviceId ? `lpr-${fila.deviceId}-${new Date(fila.timestamp).getTime()}-${fila.plate}` : null;
+    const clipEv = useClipEvento({ id: idClip, deviceId: fila.deviceId, instante: fila.timestamp, activo: hayGrabacion && modo === "foto" && !conPaso });
+    const enVideo = clipEv.clipOn && clipEv.clip.estado === "listo" && clipEv.clipVisible && modo === "foto" && !conPaso;
     /** El cajón del clip de la grabación: se abre desde la barra del reproductor o desde los íconos de arriba. */
     const [clip, setClip] = useState(false);
     /** Buscar lo que se ve en la foto en todas las cámaras (recorte → OmniVision / NVR). */
@@ -546,12 +560,13 @@ export function VisorCuadro({
             if (e.key === "-" || e.key === "_") zoomEn(escala / 1.5);
             if (e.key === "0") reiniciar();
             if (e.key === "c" || e.key === "C") setVerContorno((v) => !v);
+            if ((e.key === "v" || e.key === "V") && hayGrabacion) clipEv.cambiarClip(!clipEv.clipOn);
             if ((e.key === "o" || e.key === "O") && vision) setVerSiluetas(!verSiluetas);
             if ((e.key === "p" || e.key === "P") && recuadro) irALaChapa();
         };
         window.addEventListener("keydown", tecla);
         return () => window.removeEventListener("keydown", tecla);
-    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio, modo, clip, parecidos, grabacionDe, tapado]);
+    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio, modo, clip, parecidos, grabacionDe, tapado, hayGrabacion, clipEv.clipOn]);
 
     // La rueda se escucha a mano y no con onWheel: React lo registra como pasivo y no
     // deja frenar el desplazamiento de la página detrás del visor.
@@ -859,6 +874,11 @@ export function VisorCuadro({
                             className={cn("block w-full h-full object-cover select-none",
                                 modo === "vivo" && "invisible")}
                             draggable={false} />
+                        {modo === "foto" && !enPaso && clipEv.clipOn && clipEv.clip.estado === "listo" && clipEv.clip.url && (
+                            <video key={clipEv.clip.url} src={clipEv.clip.url} autoPlay muted loop playsInline
+                                onPlaying={() => clipEv.setClipVisible(true)} onError={() => clipEv.setClipVisible(false)}
+                                className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-500 pointer-events-none", clipEv.clipVisible ? "opacity-100" : "opacity-0")} />
+                        )}
                         {modo === "vivo" && (
                             <>
                                 {/* contain, no cover (18/10, Nico: «que quepa en la ventana completo»): con cover
@@ -889,13 +909,13 @@ export function VisorCuadro({
 
                         {/* La retícula marca dónde estaba la chapa EN ESA FOTO. Sobre el vivo
                             sería una marca sobre una escena que ya cambió, así que se apaga. */}
-                        {modo === "foto" && !enPaso && !limpio && verContorno && (
+                        {modo === "foto" && !enPaso && !limpio && verContorno && !enVideo && (
                             <ContornoDeteccion bbox={fila.bbox} plate={fila.plate} escala={escala} />
                         )}
 
                         {/* Lo que vio OmniVision: siluetas y rótulos. La caja es exactamente la
                             foto (misma proporción), así que el ajuste «contain» cae justo. */}
-                        {modo === "foto" && !enPaso && !limpio && verSiluetas && vision && (
+                        {modo === "foto" && !enPaso && !limpio && verSiluetas && vision && !enVideo && (
                             <CapaAnalisis analisis={vision} atributos className="z-[6]"
                                 chapa={datos?.relectura?.plate && datos.relectura.caja ? { plate: datos.relectura.plate, caja: datos.relectura.caja } : null} />
                         )}
@@ -1301,6 +1321,21 @@ export function VisorCuadro({
                                 </BotonRiel>
                             )}
                             <span className="w-4 h-px bg-white/15" />
+                        </>
+                    )}
+                    {/* El video del evento en loop, y cuánto trae (21/10). */}
+                    {modo === "foto" && !enPaso && hayGrabacion && (
+                        <>
+                            <span className="relative">
+                                <BotonRiel activo={clipEv.clipOn} onClick={() => clipEv.cambiarClip(!clipEv.clipOn)}
+                                    title={!clipEv.clipOn ? `Ver en loop el video del evento (${clipEv.ventana.antes} s antes, ${clipEv.ventana.despues} s después)  ( V )`
+                                        : clipEv.clip.estado === "sin" ? `Sin video: ${clipEv.clip.motivo}. Tocá para ver sólo la foto  ( V )`
+                                            : clipEv.clip.estado === "listo" ? `Video del evento en loop. Tocá para ver sólo la foto  ( V )` : "Trayendo el video del grabador…  ( V )"}>
+                                    {clipEv.clipOn && clipEv.clip.estado === "cargando" ? <Loader2 size={15} className="animate-spin" /> : <Repeat size={15} />}
+                                </BotonRiel>
+                                {clipEv.clipOn && clipEv.clip.estado === "sin" && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--aviso)] ring-2 ring-black/60 pointer-events-none" />}
+                            </span>
+                            <AjusteVideoFicha />
                         </>
                     )}
                     {modo === "foto" && fila.snapshotUrl && (

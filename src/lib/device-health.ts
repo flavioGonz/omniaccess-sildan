@@ -97,7 +97,9 @@ export async function probeAllDevices(): Promise<HealthResult[]> {
         select: { id: true, name: true, ip: true, username: true, password: true, authType: true, deviceType: true },
     });
     const viewers = await go2rtcViewers();
-    return Promise.all(devices.map((d) => probe(d, viewers).catch((): HealthResult => ({
+    const { equiposApagados } = await import("@/lib/apagado");
+    const apagados = await equiposApagados();
+    return Promise.all(devices.filter((d) => !apagados.has(d.id)).map((d) => probe(d, viewers).catch((): HealthResult => ({
         id: d.id, name: d.name, deviceType: d.deviceType, ip: d.ip, reachable: false,
         latencyMs: null, memPct: null, uptimeSec: null, driftSec: null, disksOk: null, viewers: 0, vcaMode: null,
     }))));
@@ -106,14 +108,14 @@ export async function probeAllDevices(): Promise<HealthResult[]> {
 // ── Reglas de alerta ──
 const DRIFT_LIMIT = 120;
 
-async function ensureAlert(deviceId: string, name: string, type: string, severity: string, message: string) {
+export async function ensureAlert(deviceId: string, name: string, type: string, severity: string, message: string) {
     const existing = await prisma.deviceAlert.findFirst({ where: { deviceId, type, active: true } });
     if (existing) return;
     await prisma.deviceAlert.create({ data: { deviceId, type, severity, message, active: true } });
     const icon = severity === "critical" ? "🔴" : "🟠";
     await sendTelegramMessage(`${icon} <b>ALERTA · ${name}</b>\n${message}`).catch(() => { });
 }
-async function resolveAlert(deviceId: string, name: string, type: string) {
+export async function resolveAlert(deviceId: string, name: string, type: string) {
     const existing = await prisma.deviceAlert.findFirst({ where: { deviceId, type, active: true } });
     if (!existing) return;
     await prisma.deviceAlert.update({ where: { id: existing.id }, data: { active: false, resolvedAt: new Date() } });

@@ -4,7 +4,8 @@ const http = require("http");
 const crypto = require("crypto");
 const { PrismaClient } = require("@prisma/client");
 const { uploadToS3 } = require("./lib-s3");
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 
 const md5 = (s) => crypto.createHash("md5").update(s).digest("hex");
 function parseWWW(h) { const o = {}; (h || "").replace(/(\w+)=(?:"([^"]*)"|([^,]*))/g, (m, k, q, v) => { o[k] = q !== undefined ? q : (v || "").trim(); return m; }); return o; }
@@ -18,10 +19,10 @@ function digestHeader(user, pass, method, uri, wa) {
     if (qop) h += `, qop=${qop}, nc=${nc}, cnonce="${cnonce}"`;
     return h;
 }
-function getBinary(ip, path, user, pass, timeout = 3500) {
+function getBinary(ip, path, user, pass, timeout = 3500, port = 80) {
     return new Promise((resolve) => {
         const doReq = (auth) => {
-            const req = http.request({ host: ip, port: 80, path, method: "GET", timeout, headers: auth ? { Authorization: auth } : {} }, (res) => {
+            const req = http.request({ host: ip, port, path, method: "GET", timeout, headers: auth ? { Authorization: auth } : {} }, (res) => {
                 if (res.statusCode === 401 && !auth) {
                     const wa = res.headers["www-authenticate"]; res.resume();
                     if (wa) doReq(digestHeader(user, pass, "GET", path, wa)); else resolve(null);
@@ -45,7 +46,9 @@ async function captureForDevice(dev, detId) {
         const brand = String(dev.brand || "").toUpperCase();
         const user = dev.username || "admin", pass = dev.password || "";
         const path = brand === "DAHUA" ? "/cgi-bin/snapshot.cgi?channel=1" : "/ISAPI/Streaming/channels/101/picture";
-        const buf = await getBinary(dev.ip, path, user, pass);
+        // El puerto web de la ficha (21/10): los equipos detrás de un NAT no siempre están en el 80.
+        const host = String(dev.ip).replace(/^https?:\/\//, "").split("/")[0].split(":")[0];
+        const buf = await getBinary(host, path, user, pass, 3500, Number(dev.httpPort) || 80);
         if (!buf || buf.length < 1000) return null;
         const p = await uploadToS3(buf, `${detId}.jpg`, "image/jpeg", "intrusion");
         await prisma.detection.update({ where: { id: detId }, data: { snapshotPath: p } }).catch(() => {});

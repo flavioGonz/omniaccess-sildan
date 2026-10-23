@@ -1,5 +1,7 @@
 "use client";
 
+import { useFuncion } from "@/lib/funciones-cliente";
+
 import { useEffect, useState, useRef, useMemo } from "react";
 import { Tooltip as ReactTooltip } from "react-tooltip";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
@@ -75,6 +77,7 @@ const toast = {
 import { io } from "socket.io-client";
 import { Badge } from "@/components/ui/badge";
 import { DeviceFormDialog } from "@/components/DeviceFormDialog";
+import { CajonContadorFila } from "@/components/devices/CajonContadorFila";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { DeviceMemoryDialog } from "@/components/DeviceMemoryDialog";
 import { DevicePlateListDialog } from "@/components/DevicePlateListDialog";
@@ -93,7 +96,7 @@ import {
     DropdownMenuLabel,
     DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, DownloadCloud, UploadCloud, Info } from "lucide-react";
+import { MoreHorizontal, DownloadCloud, UploadCloud, Info, PowerOff, Crosshair } from "lucide-react";
 import { Radar } from "lucide-react";
 import { getDevicesWithAnalytics } from "@/app/actions/detections";
 import {
@@ -105,11 +108,14 @@ import {
 import { cn } from "@/lib/utils";
 import { HardDrive as HardDriveIco, ScanSearch, Calculator } from "lucide-react";
 import { CajonDispositivo } from "@/components/devices/CajonDispositivo";
+import { CajonCentral } from "@/components/centrales/CajonCentral";
+import { VistaCentrales } from "@/components/centrales/VistaCentrales";
 import { ChipModo } from "@/components/devices/ModoCamara";
 import { esLprDeAcceso, modoLprDe } from "@/lib/modo-camara";
 import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
 import { ConfirmarHora } from "@/components/devices/ConfirmarHora";
 import { IntrusionCalibrator as CalibradorIntrusion } from "@/components/IntrusionCalibrator";
+import { InteriorCalibrator } from "@/components/InteriorCalibrator";
 import { TablaIntrusion } from "@/components/devices/TablaIntrusion";
 import { ImportarCanalesNvr } from "@/components/devices/ImportarCanalesNvr";
 import { Car as CarIco, Radar as RadarIco, Server as ServerIco, ChevronDown as ChevronDownIco, Download as DownloadIco, LogIn as LogInIco, LogOut as LogOutIco } from "lucide-react";
@@ -117,7 +123,7 @@ import { grabacionesDe, detectarGrabaciones, calcularRetencion, type FilaGrabaci
 import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
 import { SyncToDevicesDialog } from "@/components/SyncToDevicesDialog";
 import { VistaArea } from "@/components/devices/VistaArea";
-import { ArbolAreas, arrastrarEquipos, enArea, IconoTipo, TODAS } from "@/components/devices/ArbolAreas";
+import { ArbolAreas, arrastrarEquipos, enArea, IconoTipo, TODAS, TODOS_LOS_TIPOS } from "@/components/devices/ArbolAreas";
 import { leerAreas, type EstadoAreas } from "@/app/actions/areas";
 
 // Inline SVG data URIs for fallback images (avoid 404s for missing placeholder files)
@@ -135,10 +141,12 @@ const TYPE_META: Record<string, { label: string; color: string; activeClass: str
     LPR_CAMERA: { label: "Cámaras LPR", color: "text-amber-400", activeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
     CAMERA: { label: "Intrusión", color: "text-red-400", activeClass: "bg-red-500/15 text-red-300 border-red-500/30" },
     FACE_TERMINAL: { label: "Face", color: "text-teal-400", activeClass: "bg-teal-500/15 text-teal-300 border-teal-500/30" },
-    QUEUE_COUNTER: { label: "Queue", color: "text-violet-400", activeClass: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
+    QUEUE_COUNTER: { label: "Filas", color: "text-violet-400", activeClass: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
     NVR: { label: "NVR", color: "text-blue-400", activeClass: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
     // (SN) La LPR de seguimiento interior: la página de Olivos no tenía este tipo y el equipo no
     // aparecía en ninguna vista. Se edita con el formulario general (menú «…»).
+    // Alarm Hub (21/10): centrales de alarma que reportan por SIA DC-09.
+    ALARM_HUB: { label: "Centrales de alarma", color: "text-red-400", activeClass: "bg-red-500/15 text-red-300 border-red-500/30" },
     LPR_INTERIOR: { label: "LPR interior", color: "text-amber-400", activeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
 };
 
@@ -229,6 +237,7 @@ export default function DevicesPage() {
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
+    const recepcionOn = useFuncion("FUNC_ALARMAS_RECEPCION") === true;
 
     const [devices, setDevices] = useState<any[]>([]);
     const [groups, setGroups] = useState<any[]>([]);
@@ -263,6 +272,14 @@ export default function DevicesPage() {
     // Áreas (árbol para agrupar equipos) y el nodo elegido, que filtra la tabla.
     const [areas, setAreas] = useState<EstadoAreas>({ areas: [], equipos: {} });
     const [areaSel, setAreaSelState] = useState<string>(TODAS);
+    /*
+     * ¿Se eligió un tipo a propósito? (21/10, Nico: «cuando me paro en un tipo de equipo, NVR por
+     * ejemplo, y a la vez en un área, debe mostrarme con ese filtro»). Antes elegir un tipo volvía a
+     * «Todas» y elegir un área mostraba todos los tipos de esa área. Ahora los dos filtros se suman:
+     * con un tipo elegido, el área filtra la tabla de ese tipo; tocar de nuevo el tipo lo suelta y el
+     * área muestra todos sus equipos.
+     */
+    const [tipoFijo, setTipoFijo] = useState<boolean>(() => !!searchParams.get("type"));
     const setAreaSel = (v: string) => { setAreaSelState(v); try { localStorage.setItem("devices.area", v); } catch { } };
     useEffect(() => { leerAreas().then(setAreas).catch(() => { }); try { const v = localStorage.getItem("devices.area"); if (v) setAreaSelState(v); } catch { } }, []);
     const buscador = useRef<HTMLInputElement>(null);
@@ -309,13 +326,28 @@ export default function DevicesPage() {
     // (SN) Sólo si hay alguna: en una instalación sin LPR interior la vista vacía no suma nada.
     if (modules.MODULE_LPR && devices.some((d) => vistaDe(d) === "LPR_INTERIOR")) allowedTypes.splice(1, 0, "LPR_INTERIOR");
     if (modules.MODULE_FACE) allowedTypes.push("FACE_TERMINAL");
-    if (modules.MODULE_QUEUE) allowedTypes.push("QUEUE_COUNTER");
+    // Los contadores de fila se ven aunque el modo Filas no sea el que corre, si hay alguno dado de alta
+    // (21/10, Nico: «la cámara del Británico no la veo en dispositivos»: el lab corre en modo LPR y
+    // tiene un contador Bosch para probar; existía, contaba, y no había dónde verlo ni editarlo).
+    if (modules.MODULE_QUEUE || devices.some((d) => vistaDe(d) === "QUEUE_COUNTER")) allowedTypes.push("QUEUE_COUNTER");
+    // Dar de alta centrales sólo con la Recepción de alarmas prendida (openspec alarmas-como-funciones);
+    // las ya dadas de alta se siguen viendo y editando.
+    // Las centrales de alarma, sólo si hay alguna (se agregan desde «Agregar»).
+    if (devices.some((d) => d.deviceType === "ALARM_HUB")) allowedTypes.push("ALARM_HUB");
     const pedido = searchParams.get('type');
     const typeFilter = pedido && allowedTypes.includes(pedido) ? pedido : (allowedTypes[0] || "LPR_CAMERA");
     // Alta: un solo botón que pregunta qué se agrega (LPR, intrusión o NVR) e importar canales de un NVR.
     const [alta, setAlta] = useState<null | "lpr" | "intrusion" | "nvr" | "otro">(null);
     const [editando, setEditando] = useState<any>(null);
+    /** Un contador de filas tiene su propia ficha (CajonContadorFila), no la de las cámaras ni el formulario viejo. */
+    const [contador, setContador] = useState<any>(null);
+    /** La ficha de una central de alarma (CajonCentral): `null` cerrada, "" alta nueva. */
+    const [central, setCentral] = useState<string | null>(null);
+    const [versionCentrales, setVersionCentrales] = useState(0);
+    const abrir = (d: any) => (d.deviceType === "ALARM_HUB" ? setCentral(d.id) : vistaDe(d) === "QUEUE_COUNTER" ? setContador(d) : ["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(d)) ? setEditando(d) : null);
     const [calibIntr, setCalibIntr] = useState<any>(null);
+    /** El calibrador de la lectura de omni-lpr (disparo, zona, línea de pasada): antes sólo se llegaba desde el monitor de intrusión. */
+    const [calibLect, setCalibLect] = useState<any>(null);
     // Sincronizar hora: siempre se pregunta antes (lista de equipos + desfase actual).
     const [pedirHora, setPedirHora] = useState<any[] | null>(null);
     const [importandoDe, setImportandoDe] = useState<any>(null);
@@ -562,20 +594,25 @@ export default function DevicesPage() {
             </header>
 
             <div className="flex gap-4 items-start">
-                <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={typeFilter}
-                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(d)) ? setEditando(d) : null)} health={health} alertasDe={alertasDe}
-                    colapsado={panelCerrado} onColapsar={colapsarPanel} onTipo={(t) => { setAreaSel(TODAS); setFilter(t); }}
+                <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={tipoFijo || areaSel === TODAS ? typeFilter : TODOS_LOS_TIPOS}
+                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={abrir} health={health} alertasDe={alertasDe}
+                    colapsado={panelCerrado} onColapsar={colapsarPanel} onTipo={(t) => { if (t === typeFilter && tipoFijo && areaSel !== TODAS) { setTipoFijo(false); return; } setTipoFijo(true); setFilter(t); }}
                     tipos={allowedTypes.map((t) => ({ tipo: t, rotulo: TYPE_META[t]?.label || t, cuenta: devices.filter((d) => vistaDe(d) === t).length, alertas: devices.filter((d) => vistaDe(d) === t && alertasDe[d.id]?.length).length }))} />
                 <div className="flex-1 min-w-0 space-y-4">
-            {areaSel !== TODAS ? (
-                <VistaArea estado={areas} areaId={areaSel} devices={devices.filter((d) => allowedTypes.includes(d.deviceType))} busqueda={searchTerm}
+            {areaSel !== TODAS && !tipoFijo ? (
+                <VistaArea estado={areas} areaId={areaSel} busqueda={searchTerm}
+                    // vistaDe y no deviceType: con todas las LPR_INTERIOR mirando un acceso, LPR_INTERIOR no está
+                    // en allowedTypes y las cámaras de lectura OmniVision desaparecían de la vista del área.
+                    devices={devices.filter((d) => allowedTypes.includes(vistaDe(d)))}
                     health={health} alertasDe={alertasDe} grab={grab} detectando={detectando} calculando={calculando}
-                    onDetectar={(ids) => detectar(ids)} onRetencion={retencion} onEditar={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(d.deviceType) ? setEditando(d) : null)}
+                    onDetectar={(ids) => detectar(ids)} onRetencion={retencion} onEditar={abrir}
                     onCalibrar={(d) => (d.deviceType === "CAMERA" ? setCalibIntr(d) : setCalibrating(d))}
+                    onCalibrarIntrusion={(d) => setCalibIntr(d)}
                     onSalud={(d) => setHealthHistory(d)} onElegirArea={setAreaSel} />
             ) : (<>
 
-            {typeFilter !== "NVR" && typeFilter !== "CAMERA" && (
+            {typeFilter === "ALARM_HUB" && <VistaCentrales alAbrir={(id) => setCentral(id)} version={versionCentrales} busqueda={searchTerm} />}
+            {typeFilter !== "NVR" && typeFilter !== "CAMERA" && typeFilter !== "ALARM_HUB" && (
             <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
                 <Table>
                     <TableHeader className="bg-card/60">
@@ -610,7 +647,7 @@ export default function DevicesPage() {
                             const h = health[dev.id];
 
                             return (
-                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; if (["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(dev))) setEditando(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
+                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; abrir(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
                                     <TableCell className="py-2 pl-4">
                                         <div className="flex items-center gap-3 min-w-0">
                                             <div className="relative shrink-0">
@@ -688,6 +725,7 @@ export default function DevicesPage() {
                                             const probed = h && typeof h.reachable === "boolean";
                                             const on = probed ? h.reachable : ((lastPull > 0 && now - lastPull < 600000) || (lastPush > 0 && now - lastPush < 600000));
                                             const msg = probed ? (h.reachable ? `Responde · ${h.latencyMs ?? "?"} ms` : "Sin respuesta") : "Sin sondeo todavía";
+                                            if (h?.apagado) return <span className="h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit text-muted-foreground border-border bg-muted/40" data-tooltip-id="tt-grab" data-tooltip-content="Su área está apagada: OmniAccess no la consume (sin vivo, análisis ni consultas). Se reactiva desde el árbol de áreas."><PowerOff size={10} /> Apagado</span>;
                                             return (
                                                 <div className="inline-flex items-center gap-1">
                                                     <span className={cn("h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border", on ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/25" : "bg-red-500/10 text-red-500 border-red-500/25")}
@@ -734,7 +772,10 @@ export default function DevicesPage() {
                                                 </div>
                                             )}
 
-                                            {dev.deviceType === 'LPR_CAMERA' && dev.brand === 'HIKVISION' && (
+                                            {/* 23/10, Nico: «no tengo el calibrador de camaras en dispositivos». La condición miraba
+                                                deviceType === LPR_CAMERA y dejaba afuera a las de lectura OmniVision (LPR_INTERIOR +
+                                                acceso), que la tabla muestra como LPR. El calibrador ya sabe tratarlas (sin ANPR). */}
+                                            {vistaDe(dev) === 'LPR_CAMERA' && dev.brand === 'HIKVISION' && (
                                             <TooltipProvider>
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>
@@ -747,9 +788,28 @@ export default function DevicesPage() {
                                                             <Wand2 size={15} />
                                                         </Button>
                                                     </TooltipTrigger>
-                                                    <TooltipContent><p>Calibrar ANPR</p></TooltipContent>
+                                                    <TooltipContent><p>{modoLprDe(dev) === 'omnivision' ? 'Calibrar imagen (lectura OmniVision)' : 'Calibrar ANPR'}</p></TooltipContent>
                                                 </Tooltip>
                                             </TooltipProvider>
+                                            )}
+
+                                            {/* 23/10, Nico: «la cámara es de intrusión pero la catalogamos como LPR de OmniAccess: no
+                                                puedo calibrar la intrusión». La capa de intrusión no depende del tipo (server.js registra
+                                                el cruce de cualquier equipo y el monitor de intrusión ya lista las LPR_INTERIOR); lo que
+                                                faltaba era llegar a su calibrador desde acá. */}
+                                            {dev.deviceType === 'LPR_INTERIOR' && (dev.brand === 'HIKVISION' || dev.brand === 'DAHUA') && (
+                                                <Button variant="ghost" size="icon" onClick={() => setCalibIntr(dev)}
+                                                    data-tooltip-id="tt-grab" data-tooltip-content="Calibrar intrusión (analítica de la cámara: línea, zona, objetivo, aviso)"
+                                                    className="h-7 w-7 rounded-md bg-card/50 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 border border-border/50 hover:border-red-500/30 transition-all">
+                                                    <Crosshair size={15} />
+                                                </Button>
+                                            )}
+                                            {dev.deviceType === 'LPR_INTERIOR' && (
+                                                <Button variant="ghost" size="icon" onClick={() => setCalibLect(dev)}
+                                                    data-tooltip-id="tt-grab" data-tooltip-content="Lectura de matrículas: qué la dispara, zona de interés y línea de pasada"
+                                                    className="h-7 w-7 rounded-md bg-card/50 text-muted-foreground hover:text-sky-500 hover:bg-sky-500/10 border border-border/50 hover:border-sky-500/30 transition-all">
+                                                    <ScanLine size={15} />
+                                                </Button>
                                             )}
 
                                             {dev.deviceType === 'LPR_CAMERA' && dev.brand === 'HIKVISION' && (
@@ -803,8 +863,12 @@ export default function DevicesPage() {
 
                                                     <DropdownMenuSeparator className="bg-foreground/10" />
 
-                                                    {dev.deviceType === "LPR_CAMERA" ? (
-                                                        <DropdownMenuItem onClick={() => setEditando(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-blue-400 focus:bg-foreground/10 focus:text-blue-400">
+                                                    {/* Toda la que tiene ficha nueva va a la ficha (22/10, Nico: «Editar configuración sigue
+                                                        llamando a un modal viejo»): la lectura de OmniVision es una LPR_INTERIOR y caía en el
+                                                        modal viejo. El modal viejo queda sólo para los tipos que la ficha no cubre (lector
+                                                        facial, intercomunicador…). */}
+                                                    {["LPR_CAMERA", "CAMERA", "NVR", "QUEUE_COUNTER"].includes(vistaDe(dev)) || dev.deviceType === "QUEUE_COUNTER" ? (
+                                                        <DropdownMenuItem onClick={() => abrir(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-blue-400 focus:bg-foreground/10 focus:text-blue-400">
                                                             <Settings2 size={14} /> Editar configuración
                                                         </DropdownMenuItem>
                                                     ) : (
@@ -820,7 +884,7 @@ export default function DevicesPage() {
                                                     <DeleteConfirmDialog
                                                         id={dev.id}
                                                         title={dev.name}
-                                                        description="Se eliminará este dispositivo."
+                                                        description="Se borra de todo OmniAccess: su historial (accesos, detecciones, alarmas, lecturas), sus reglas, su área, su video en vivo y su lugar en OmniVision. Queda sólo el registro en Auditoría. La cámara y su grabación en el NVR no se tocan."
                                                         onDelete={deleteDevice}
                                                         onSuccess={loadData}
                                                     >
@@ -878,7 +942,9 @@ export default function DevicesPage() {
                                     const h = health[dev.id];
                                     const disks: any[] = h?.disks || [];
                                     const disksOk = disks.length > 0 && disks.every((d) => d.status === 'ok');
-                                    const healthy = h?.reachable && (disks.length === 0 || disksOk) && (h?.memPct == null || h.memPct < 95);
+                                    // La memoria no entra en «Saludable»: un NVR usa casi toda la RAM como caché y vive
+                                    // al 95-98 %; contarla dejaba a los grabadores sanos en «Atención» para siempre.
+                                    const healthy = h?.reachable && (disks.length === 0 || disksOk);
                                     return (
                                         <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; setEditando(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
                                             <TableCell className="py-3 pl-5">
@@ -953,13 +1019,13 @@ export default function DevicesPage() {
                                                         </div>
                                                     ) : <span className="text-[9px] text-muted-foreground" data-tooltip-id="tt-grab" data-tooltip-content="Este equipo no informa uso de CPU.">CPU: N/D</span>}
                                                     {h?.memPct != null ? (
-                                                        <div className="w-16">
+                                                        <div className="w-16" data-tooltip-id="tt-grab" data-tooltip-content={`Memoria ${h.memPct} %. En un grabador es normal que esté casi llena: la usa como caché. No es una falla.`}>
                                                             <div className="flex items-center gap-1">
-                                                                <MemoryStick size={11} className={h.memPct >= 90 ? "text-amber-400" : "text-cyan-400"} />
+                                                                <MemoryStick size={11} className="text-cyan-400" />
                                                                 <span className="text-[11px] font-mono text-foreground">{h.memPct}%</span>
                                                             </div>
                                                             <div className="h-1 rounded-full bg-border/60 overflow-hidden mt-0.5">
-                                                                <div className={cn("h-full rounded-full", h.memPct >= 90 ? "bg-amber-400" : "bg-cyan-400")} style={{ width: `${h.memPct}%` }} />
+                                                                <div className="h-full rounded-full bg-cyan-400" style={{ width: `${h.memPct}%` }} />
                                                             </div>
                                                         </div>
                                                     ) : <span className="text-muted-foreground text-xs">—</span>}
@@ -1005,7 +1071,7 @@ export default function DevicesPage() {
                                                             <Settings2 size={14} /> Editar configuración
                                                         </DropdownMenuItem>
                                                         <DropdownMenuSeparator className="bg-foreground/10" />
-                                                        <DeleteConfirmDialog id={dev.id} title={dev.name} description="Se eliminará este NVR." onDelete={deleteDevice} onSuccess={loadData}>
+                                                        <DeleteConfirmDialog id={dev.id} title={dev.name} description="Se borra de todo OmniAccess: su salud, sus canales en el mapa, sus streams y lo que tenga guardado. Las cámaras que graban en él quedan, sin su grabación vinculada. Queda sólo el registro en Auditoría. El NVR en sí no se toca." onDelete={deleteDevice} onSuccess={loadData}>
                                                             <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-red-500/10 hover:text-red-500 gap-2 text-red-400">
                                                                 <Trash2 size={14} /> Eliminar
                                                             </div>
@@ -1033,13 +1099,16 @@ export default function DevicesPage() {
 
             {/* Altas desde el botón «Agregar» */}
             <CajonDispositivo groups={groups} open={alta === "lpr"} onOpenChange={(v) => !v && setAlta(null)} onSuccess={() => { loadData(); cargarGrab(); }}
-                alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} />
+                alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} alAgregarCentral={recepcionOn ? () => { setAlta(null); setCentral(""); } : undefined} />
+            <CajonCentral abierto={central !== null} centralId={central || null} alCerrar={() => setCentral(null)} alCambiar={() => { loadData(); setVersionCentrales((v) => v + 1); }} />
+            <CajonContadorFila device={contador} open={!!contador} onOpenChange={(v) => !v && setContador(null)} onSuccess={() => { loadData(); }} />
             <CajonDispositivo device={editando} groups={groups} open={!!editando} onOpenChange={(v) => !v && setEditando(null)} onSuccess={() => { loadData(); cargarGrab(); }}
-                alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} />
+                alCalibrar={(d) => setCalibIntr(d)} alCalibrarImagen={(d) => setCalibrating(d)} alCalibrarLectura={(d) => setCalibLect(d)} alImportar={(d) => setImportandoDe(d)} />
             <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "otro"} alCambiarAbierto={(v) => !v && setAlta(null)} />
             <ConfirmarHora equipos={pedirHora || []} health={health} open={!!pedirHora} onOpenChange={(v) => !v && setPedirHora(null)} onListo={() => setTimeout(refreshHealth, 1500)} />
             <ReactTooltip id="tt-alertas" place="top" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[60]" />
             {calibIntr && <CalibradorIntrusion device={calibIntr} onClose={() => { setCalibIntr(null); loadData(); }} />}
+            {calibLect && <InteriorCalibrator device={calibLect} onClose={() => { setCalibLect(null); loadData(); }} />}
             <ImportarCanalesNvr nvr={importandoDe} groups={groups} open={!!importandoDe} onOpenChange={(v) => !v && setImportandoDe(null)} onListo={() => { loadData(); cargarGrab(); }} />
 
             {healthHistory && (

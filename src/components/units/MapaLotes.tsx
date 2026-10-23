@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Polygon, Tooltip as LTooltip, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { Loader2, MapPin, Pentagon } from "lucide-react";
@@ -25,18 +25,35 @@ import { getBarrioMap, type BarrioMapData } from "@/app/actions/barriomap";
 
 const CENTRO_POR_DEFECTO: [number, number] = [-34.9011, -56.1645];
 
-/** Leaflet mide mal si el contenedor todavía no existía al montarse. */
-function Acomodar({ cuando }: { cuando: unknown }) {
+/**
+ * Leaflet mide mal si el contenedor todavía no existía al montarse — o si existía oculto:
+ * en la ficha de la persona el plano vive en una sección que arranca cerrada (22/10), y
+ * montado con ancho 0 queda gris y encuadrado en cualquier lado al abrirla. Por eso también
+ * se mira el tamaño: cuando el contenedor pasa de no tener ancho a tenerlo, se reacomoda y
+ * se vuelve a encuadrar (`alVerse`).
+ */
+function Acomodar({ cuando, alVerse }: { cuando: unknown; alVerse: () => void }) {
     const map = useMap();
     useEffect(() => {
         const t = setTimeout(() => map.invalidateSize(), 120);
         return () => clearTimeout(t);
     }, [map, cuando]);
+    useEffect(() => {
+        const el = map.getContainer();
+        let visible = el.clientWidth > 0;
+        const ro = new ResizeObserver(() => {
+            const ahora = el.clientWidth > 0;
+            if (ahora && !visible) { map.invalidateSize(); alVerse(); }
+            visible = ahora;
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [map, alVerse]);
     return null;
 }
 
 /** Encuadra el lote elegido, o todo el barrio si no hay ninguno. */
-function Encuadrar({ puntos }: { puntos: [number, number][][] }) {
+function Encuadrar({ puntos, vuelta }: { puntos: [number, number][][]; vuelta: number }) {
     const map = useMap();
     useEffect(() => {
         const todos = puntos.flat();
@@ -44,7 +61,7 @@ function Encuadrar({ puntos }: { puntos: [number, number][][] }) {
         try {
             map.fitBounds(todos as any, { padding: [28, 28], maxZoom: 19, animate: false });
         } catch { /* un solo punto o coordenadas rotas: se deja el encuadre que había */ }
-    }, [map, JSON.stringify(puntos)]);
+    }, [map, JSON.stringify(puntos), vuelta]);
     return null;
 }
 
@@ -81,6 +98,8 @@ export function MapaLotes({ unidadId, loteElegido, alElegir, nombreDeUnidad, alt
 }) {
     const [mapa, setMapa] = useState<BarrioMapData | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [vuelta, setVuelta] = useState(0);
+    const alVerse = useCallback(() => setVuelta((v) => v + 1), []);
 
     useEffect(() => {
         let vivo = true;
@@ -159,8 +178,8 @@ export function MapaLotes({ unidadId, loteElegido, alElegir, nombreDeUnidad, alt
                 <TileLayer
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
                     maxZoom={21} maxNativeZoom={19} />
-                <Acomodar cuando={alto} />
-                <Encuadrar puntos={aEncuadrar} />
+                <Acomodar cuando={alto} alVerse={alVerse} />
+                <Encuadrar puntos={aEncuadrar} vuelta={vuelta} />
 
                 {lotes.map((lo) => {
                     const esEste = lo.id === idElegido;

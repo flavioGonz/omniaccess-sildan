@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { ZONA } from "@/lib/fechas";
 import { leerAjustesVisitas } from "./ajustes";
-import { TIPO_PASE_LIBRE } from "./ajustes-base";
+import { TIPO_PASE_LIBRE, PASE_LIBRE_HORAS } from "./ajustes-base";
 import { enZona, aMinutos, duracion } from "./calculos";
 import { motivo } from "./presentacion";
 import { cerrarVisita, crearAviso } from "./registro";
@@ -68,7 +68,14 @@ export async function tick(opts: { forzarPerfiles?: boolean } = {}) {
         ultimoCorte = dia;
         // Sólo las que entraron antes del corte de hoy: una visita registrada a las 05:10 no es de ayer.
         const desdeCorte = new Date(ahora.getTime() - (zona.minuto - corte) * 60_000);
-        const viejas = await prisma.visita.findMany({ where: { sale: null, entra: { lt: desdeCorte } }, select: { id: true } });
+        /*
+         * El pase libre no se cierra en el corte (21/10, Nico: «proveedores con pase libre, que no debe
+         * cerrar su visita»): la cuadrilla que queda trabajando de noche seguía adentro y el corte la
+         * daba por ida. La cierra la Salida; el corte sólo barre el que lleva más de PASE_LIBRE_HORAS
+         * (una salida que la cámara no leyó), para que no quede adentro para siempre.
+         */
+        const viejas = await prisma.visita.findMany({ where: { sale: null, entra: { lt: desdeCorte },
+            OR: [{ tipo: { not: TIPO_PASE_LIBRE } }, { entra: { lt: new Date(ahora.getTime() - PASE_LIBRE_HORAS * 3_600_000) } }] }, select: { id: true } });
         for (const v of viejas) if (await cerrarVisita(v.id, { cierre: "FIN_DEL_DIA", por: "sistema" })) r.cerradasFinDelDia++;
     }
 

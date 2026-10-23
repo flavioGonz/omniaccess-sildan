@@ -1,5 +1,8 @@
 "use client";
 
+import { useAreas } from "@/lib/use-areas";
+import { ComoFunciona } from "@/components/vision/ComoFunciona";
+import type { ClaveComportamiento } from "@/lib/comportamientos";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
@@ -19,7 +22,7 @@ import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { EditorGeometria } from "@/components/vision/EditorGeometria";
 import {
-    TIPOS_REGLA, CLASES_OBJETO, CON_HORARIO, TIPOS_EVENTO, duracionCorta, FILA,
+    TIPOS_REGLA, CLASES_OBJETO, CON_HORARIO, TIPOS_EVENTO, duracionCorta, FILA, TIPOS_RETIRADOS,
     type ReglaVision, type TipoRegla, type Punto,
 } from "@/lib/vision-reglas";
 import { listaPropias, useNombresPropios } from "@/lib/nombres-propios";
@@ -139,7 +142,9 @@ export default function ReglasVision() {
         const tipo = sp.get("nueva") as TipoRegla | null;
         if (!tipo || !(tipo in TIPOS_REGLA)) return;
         window.history.replaceState(null, "", window.location.pathname);
-        const cam = datos.camaras[0]?.id || "";
+        // Desde el vivo de un canal en la ficha del NVR llega también ?camara=<id> (21/10).
+        const pedida = sp.get("camara");
+        const cam = (pedida && datos.camaras.some((c) => c.id === pedida) ? pedida : null) || datos.camaras[0]?.id || "";
         setEditando({ base: reglaNueva(tipo, cam), deviceIds: cam ? [cam] : [], originales: [], nueva: true });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [datos]);
@@ -429,8 +434,9 @@ function fotoCamara(id: string, w: number) {
 function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar, enGrupo }: { r: ReglaVision; camara: string; s?: Resumen; apagadaLab: boolean; alAbrir: () => void; alActivar: (v: boolean) => void; enGrupo?: boolean }) {
     const Ic = ICONO[r.tipo];
     const max = Math.max(1, ...(s?.porHora || [0]));
+    const retirada = TIPOS_RETIRADOS.includes(r.tipo);
     return (
-        <div className={cn("rounded-[10px] border border-border bg-card overflow-hidden flex flex-col", (!r.activa || apagadaLab) && "opacity-60")}>
+        <div className={cn("rounded-[10px] border border-border bg-card overflow-hidden flex flex-col", (!r.activa || apagadaLab || retirada) && "opacity-60")}>
             <button type="button" onClick={alAbrir} className="relative aspect-video bg-black overflow-hidden" aria-label={`Editar ${r.nombre}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={fotoCamara(r.deviceId, 320)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" />
@@ -439,6 +445,7 @@ function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar, enGrupo }:
                     {r.linea && <line x1={r.linea.a[0]} y1={r.linea.a[1]} x2={r.linea.b[0]} y2={r.linea.b[1]} stroke="var(--accion-en-oscuro)" strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinecap="round" />}
                 </svg>
                 <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 h-6 px-2 rounded-full bg-black/65 text-white text-[10.5px] font-semibold"><Ic size={11} /> {TIPOS_REGLA[r.tipo].nombre}</span>
+                {retirada && <span className="absolute right-1.5 top-1.5 h-6 px-2 rounded-full bg-black/65 text-white text-[10.5px] font-semibold inline-flex items-center" title="Esta analítica se retiró: la regla queda guardada pero no corre.">Retirada · no corre</span>}
                 {!r.linea && !(r.zona && r.zona.length >= 3) && <span className="absolute left-1.5 bottom-1.5 px-1.5 py-0.5 rounded-[5px] bg-black/65 text-white text-[10px]">Todo el cuadro</span>}
             </button>
             <div className="p-2.5 flex flex-col gap-1.5">
@@ -614,8 +621,25 @@ function ElegirCamaras({ elegidas, camaras, vistos, alAlternar }: { elegidas: st
     const [abierto, setAbierto] = useState(false);
     const [buscar, setBuscar] = useState("");
     const q = buscar.trim().toLowerCase();
-    const lista = camaras.filter((c) => !q || c.name.toLowerCase().includes(q))
-        .sort((a, b) => (vistos.get(b.id) || 0) - (vistos.get(a.id) || 0) || Number(b.analiza) - Number(a.analiza) || a.name.localeCompare(b.name));
+    /*
+     * Por área (21/10, Nico: «que se vean las áreas existentes»): las cámaras van agrupadas en el
+     * orden del árbol de Dispositivos, y se busca también por el nombre del área. Dentro de cada
+     * área sigue el orden de antes: primero las que vieron lo que cuenta la regla.
+     */
+    const { areas, equipoArea } = useAreas();
+    const camino = useMemo(() => {
+        const porId = new Map(areas.map((a) => [a.id, a]));
+        return new Map(areas.map((a) => { const p: string[] = []; let cur: typeof a | undefined = a; for (let i = 0; cur && i < 20; i++) { p.unshift(cur.nombre); cur = cur.padre ? porId.get(cur.padre) : undefined; } return [a.id, p.join(" › ")]; }));
+    }, [areas]);
+    const areaDe = (id: string) => (equipoArea[id] && camino.has(equipoArea[id]) ? equipoArea[id] : null);
+    const orden = (a: { id: string; name: string; analiza: boolean }, b: { id: string; name: string; analiza: boolean }) =>
+        (vistos.get(b.id) || 0) - (vistos.get(a.id) || 0) || Number(b.analiza) - Number(a.analiza) || a.name.localeCompare(b.name);
+    const lista = camaras.filter((c) => { if (!q) return true; const ar = areaDe(c.id); return c.name.toLowerCase().includes(q) || (!!ar && (camino.get(ar) || "").toLowerCase().includes(q)); });
+    const grupos = [
+        ...areas.map((a) => ({ area: a, camaras: lista.filter((c) => areaDe(c.id) === a.id).sort(orden) })),
+        { area: null as (typeof areas)[number] | null, camaras: lista.filter((c) => !areaDe(c.id)).sort(orden) },
+    ].filter((g) => g.camaras.length);
+    const conAreas = areas.length > 0;
     const sel = camaras.filter((c) => elegidas.includes(c.id));
     return (
         <Popover open={abierto} onOpenChange={setAbierto}>
@@ -637,7 +661,16 @@ function ElegirCamaras({ elegidas, camaras, vistos, alAlternar }: { elegidas: st
             <PopoverContent align="start" className="p-1 w-[400px]">
                 <div className="p-1"><Input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar cámara" className="h-9" /></div>
                 <div className="max-h-[min(380px,55vh)] overflow-y-auto">
-                    {lista.map((c) => {
+                    {lista.length === 0 && <div className="px-3 py-6 text-center text-[12.5px] text-muted-foreground">Ninguna cámara ni área se llama así.</div>}
+                    {grupos.map((g) => (<div key={g.area?.id || "_sin"}>
+                    {conAreas && (
+                        <div className="sticky top-0 z-10 bg-popover px-2 pt-2 pb-1 flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground" style={{ paddingLeft: 8 + (g.area?.nivel || 0) * 10 }}>
+                            {g.area ? <span className="h-2.5 w-2.5 rounded-[3px] shrink-0" style={{ background: g.area.color }} /> : null}
+                            <span className="truncate">{g.area ? camino.get(g.area.id) : "Sin área"}</span>
+                            <span className="ml-auto tabular-nums opacity-70">{g.camaras.length}</span>
+                        </div>
+                    )}
+                    {g.camaras.map((c) => {
                         const on = elegidas.includes(c.id);
                         const n = vistos.get(c.id) || 0;
                         return (
@@ -655,6 +688,7 @@ function ElegirCamaras({ elegidas, camaras, vistos, alAlternar }: { elegidas: st
                             </button>
                         );
                     })}
+                    </div>))}
                 </div>
             </PopoverContent>
         </Popover>
@@ -844,7 +878,7 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                         <CajonCampo etiqueta="Analítica">
                             <Desplegable valor={r.tipo} vacio="Elegí la analítica" ancho={440}
                                 alElegir={(v) => { setPlantilla(null); conTipo(v as TipoRegla); }}
-                                opciones={(Object.keys(TIPOS_REGLA) as TipoRegla[]).map((k) => {
+                                opciones={(Object.keys(TIPOS_REGLA) as TipoRegla[]).filter((k) => !TIPOS_RETIRADOS.includes(k) || k === r.tipo).map((k) => {
                                     const Ic = ICONO[k];
                                     return { valor: k, titulo: TIPOS_REGLA[k].nombre, detalle: FORMA[k], extra: TIPOS_REGLA[k].queHace,
                                         icono: <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-muted"><Ic size={15} /></span> };
@@ -852,7 +886,7 @@ function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, 
                         </CajonCampo>
                         <CajonCampo etiqueta="Plantilla" ayuda="Una configuración de uso común: pone las clases, los tiempos, el horario y el aviso. Después se ajusta lo que haga falta.">
                             <Desplegable valor={plantilla} vacio="Empezar desde una plantilla" ancho={440} alElegir={usarPlantilla}
-                                opciones={PLANTILLAS.map((p) => {
+                                opciones={PLANTILLAS.filter((p) => !TIPOS_RETIRADOS.includes(p.tipo)).map((p) => {
                                     const Ic = ICONO[p.tipo];
                                     return { valor: p.id, titulo: p.nombre, detalle: p.que, extra: `Ej.: ${p.ejemplo}`,
                                         icono: <span className="grid h-8 w-8 place-items-center rounded-[6px] bg-[color-mix(in_oklab,var(--accion)_12%,transparent)] text-[var(--accion)]"><Ic size={15} /></span> };
@@ -1059,7 +1093,18 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
         alListo({ ...base, clases, nombre, ...(conHorario ? { horario: noche ? HORARIO_NOCHE : null } : {}) }, ids);
     };
     const q = buscar.trim().toLowerCase();
-    const camarasVistas = camaras.filter((c) => !q || c.name.toLowerCase().includes(q))
+    // Áreas de Dispositivos (21/10): un chip por área con cámaras, y la búsqueda mira también el área.
+    const { areas: arbol, equipoArea } = useAreas();
+    const [areaFiltro, setAreaFiltro] = useState<string | null>(null);
+    const hijasDe = useMemo(() => {
+        const m = new Map<string, Set<string>>();
+        for (const a of arbol) { const set = new Set([a.id]); let cambio = true; while (cambio) { cambio = false; for (const b of arbol) if (b.padre && set.has(b.padre) && !set.has(b.id)) { set.add(b.id); cambio = true; } } m.set(a.id, set); }
+        return m;
+    }, [arbol]);
+    const enArea = (id: string, areaId: string) => !!equipoArea[id] && !!hijasDe.get(areaId)?.has(equipoArea[id]);
+    const nombreArea = (id: string) => arbol.find((a) => a.id === equipoArea[id])?.nombre?.toLowerCase() || "";
+    const areasConCamaras = arbol.filter((a) => camaras.some((c) => enArea(c.id, a.id)));
+    const camarasVistas = camaras.filter((c) => (!q || c.name.toLowerCase().includes(q) || nombreArea(c.id).includes(q)) && (!areaFiltro || enArea(c.id, areaFiltro)))
         .sort((a, b) => (vistas.get(b.id) || 0) - (vistas.get(a.id) || 0) || Number(b.analiza) - Number(a.analiza));
     const enVision = camaras.filter((c) => c.analiza);
 
@@ -1111,7 +1156,7 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
                         <div>
                             <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Atajos</div>
                             <div className="flex flex-wrap gap-1.5">
-                                {PLANTILLAS.map((p) => {
+                                {PLANTILLAS.filter((p) => !TIPOS_RETIRADOS.includes(p.tipo)).map((p) => {
                                     const Ic = ICONO[p.tipo];
                                     return (
                                         <Pista key={p.id} titulo={p.nombre} texto={`${p.que} Ej.: ${p.ejemplo}`} ancho={280}>
@@ -1154,7 +1199,7 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
                                 <span className="text-[11.5px] text-muted-foreground">lo que dispara la regla</span>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {SITUACIONES.map((s) => {
+                                {SITUACIONES.filter((s) => !TIPOS_RETIRADOS.includes(s.tipo)).map((s) => {
                                     const no = porQueNo(s, grupos);
                                     const on = situacion === s.id;
                                     const apagada = !analiticas[s.tipo];
@@ -1174,6 +1219,9 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
                                     );
                                 })}
                             </div>
+                            {/* La elegida, animada y explicada: se ve qué tiene que pasar antes de dibujar nada (21/10).
+                                Debajo de la grilla y no arriba: arriba corría las tarjetas justo al tocar una. */}
+                            {sit && <ComoFunciona key={sit.id} clave={sit.tipo as ClaveComportamiento} className="mt-3 rounded-[10px] border border-border p-3" />}
                         </div>
 
                         {/* 3. Cuándo */}
@@ -1206,7 +1254,23 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
                             <span className="ml-auto text-[12px] tabular-nums text-muted-foreground">{elegidas.length ? `${elegidas.length} elegida${elegidas.length === 1 ? "" : "s"}` : ""}</span>
                         </div>
                         {clases.length > 0 && !conVistos.length && <p className="text-[11px] text-muted-foreground">OmniVision no vio {nombresSujetos.toLowerCase()} en ninguna cámara en los últimos {vistosDias} días: elegilas a mano.</p>}
-                        <Input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar cámara" className="h-10" />
+                        <Input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar cámara o área" className="h-10" />
+                        {areasConCamaras.length > 0 && (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <button type="button" onClick={() => setAreaFiltro(null)} aria-pressed={!areaFiltro}
+                                    className={cn("h-7 px-2.5 rounded-full text-[11.5px] font-semibold border", !areaFiltro ? "accion border-transparent" : "border-border text-muted-foreground hover:text-foreground")}>Todas las áreas</button>
+                                {areasConCamaras.map((a) => (
+                                    <button key={a.id} type="button" onClick={() => setAreaFiltro(areaFiltro === a.id ? null : a.id)} aria-pressed={areaFiltro === a.id}
+                                        className={cn("h-7 pl-2 pr-2.5 rounded-full text-[11.5px] font-semibold border inline-flex items-center gap-1.5", areaFiltro === a.id ? "accion border-transparent" : "border-border text-muted-foreground hover:text-foreground")}>
+                                        <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: a.color }} /> {a.nombre}
+                                    </button>
+                                ))}
+                                {areaFiltro && camarasVistas.length > 0 && (
+                                    <button type="button" onClick={() => setElegidas([...new Set([...elegidas, ...camarasVistas.map((c) => c.id)])])}
+                                        className="ml-auto h-7 px-2.5 rounded-full text-[11.5px] font-semibold text-[var(--accion)] hover:bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]">Elegir las {camarasVistas.length} de esta área</button>
+                                )}
+                            </div>
+                        )}
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             {camarasVistas.map((c) => {
                                 const on = elegidas.includes(c.id);

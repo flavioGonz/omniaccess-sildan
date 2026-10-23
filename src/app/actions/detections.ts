@@ -123,7 +123,7 @@ export async function getDevicesWithAnalytics(): Promise<string[]> {
 }
 
 
-import { getSmartSupport, readLine, readField } from "@/lib/isapi-analytics";
+import { getSmartSupport, leerTodas } from "@/lib/isapi-analytics";
 import { resolveForCamera } from "@/lib/nvr-resolve";
 import { readDahuaIvs } from "@/lib/dahua-ivs";
 
@@ -150,13 +150,20 @@ export async function getIntrusionCameras(): Promise<IntrusionCam[]> {
     let alarmSet = new Set<string>(); try { alarmSet = new Set(JSON.parse(alarmRow?.value || "[]")); } catch { }
     const nvrName: Record<string, string> = {}; nvrs.forEach((n) => (nvrName[n.id] = n.name));
     let map: any = {}; try { map = mapRow ? JSON.parse(mapRow.value) : {}; } catch { }
-    return devices.map((d) => {
+    // Las cámaras de un área apagada (Dispositivos) no van al monitor: OmniAccess no las consume.
+    const { equiposApagados } = await import("@/lib/apagado");
+    const apagados = await equiposApagados().catch(() => new Set<string>());
+    return devices.filter((d) => !apagados.has(d.id)).map((d) => {
         const e = map[d.ip]; const nid = e ? (e.nvr || e.nvrId || null) : null;
         return { id: d.id, name: d.name, brand: String(d.brand), ip: d.ip, nvrName: nid ? (nvrName[nid] || null) : null, nvrId: nid, ch: e ? Number(e.ch) : null, alarmOk: alarmSet.has(d.ip), tipo: String(d.deviceType), tieneRtsp: !!d.rtspUrl };
     });
 }
 
-type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[]; supported: boolean };
+/**
+ * `line` / `field`: la primera regla prendida (lo que dibujaban las pantallas de una sola).
+ * `lines` / `fields`: TODAS las prendidas — una cámara Hikvision tiene hasta 4 de cada una (23/10).
+ */
+type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[]; lines?: { x: number; y: number }[][]; fields?: { x: number; y: number }[][]; supported: boolean };
 const camToScreen = (p: { x: number; y: number }) => ({ x: p.x / 10, y: (1000 - p.y) / 10 });
 
 // Cache en memoria de la geometría por dispositivo (evita re-consultar las NVR/cámaras en cada carga de la grilla).
@@ -196,12 +203,14 @@ export async function getAnalyticsGeometryBatch(ids: string[], fresco = false): 
             const dev = { ip: d.ip, username: d.username, password: d.password, authType: d.authType || "DIGEST" } as any;
             const sup = await getSmartSupport(dev);
             if (!sup.line && !sup.field) { store(empty); return; }
-            const line = sup.line ? await readLine(dev, 1) : { enabled: false, points: [] as any[] };
-            const field = sup.field ? await readField(dev, 1) : { enabled: false, points: [] as any[] };
+            const lineas = sup.line ? await leerTodas(dev, "linea", 1).catch(() => null) : null;
+            const zonas = sup.field ? await leerTodas(dev, "zona", 1).catch(() => null) : null;
             // Sólo lo que está PRENDIDO: una regla apagada conserva sus coordenadas en la cámara, y
             // dibujarlas en el vivo hacía creer que la línea seguía vigilando (9/10: la de la LPR
             // Interior se quitó y seguía apareciendo en el vivo del monitor de intrusión).
-            store({ supported: true, line: line.enabled ? (line.points || []).map(camToScreen) : [], field: field.enabled ? (field.points || []).map(camToScreen) : [] });
+            const lines = (lineas?.reglas || []).filter((r) => r.enabled).map((r) => r.points.map(camToScreen));
+            const fields = (zonas?.reglas || []).filter((r) => r.enabled).map((r) => r.points.map(camToScreen));
+            store({ supported: true, line: lines[0] || [], field: fields[0] || [], lines, fields });
         } catch { /* transitorio: no cachear, reintentar en la próxima carga */ }
     };
     for (let i = 0; i < devs.length; i += 6) await Promise.all(devs.slice(i, i + 6).map(one));
@@ -286,15 +295,23 @@ export async function getDetectionHistory(opts: { page?: number; pageSize?: numb
 export type ActiveAlarm = { deviceId: string; id: string; type: string; ts: string };
 
 /** Alarmas de intrusión sin aceptar (para reconstruir los overlays al recargar la página). */
+function camarasDe(details: string | null): string[] {
+    try { const c = JSON.parse(details || "{}")?.camaras; return Array.isArray(c) ? c.map(String) : []; } catch { return []; }
+}
+
 export async function getActiveAlarms(): Promise<ActiveAlarm[]> {
     const since = new Date(Date.now() - 6 * 3600 * 1000);
     try {
         const rows = await prisma.detection.findMany({
             where: { acknowledged: false, type: { not: "MOTION" }, timestamp: { gte: since }, deviceId: { not: null } },
             orderBy: { timestamp: "desc" }, take: 300,
-            select: { id: true, deviceId: true, type: true, timestamp: true },
+            select: { id: true, deviceId: true, type: true, timestamp: true, details: true },
         });
-        return rows.map((r) => ({ deviceId: r.deviceId!, id: r.id, type: r.type, ts: r.timestamp.toISOString() }));
+        // La alarma de una central (Alarm Hub) se muestra sobre las cámaras de su zona (details.camaras).
+        return rows.flatMap((r) => {
+            const camaras = r.type === "CENTRAL" ? camarasDe(r.details) : [];
+            return (camaras.length ? camaras : [r.deviceId!]).map((deviceId) => ({ deviceId, id: r.id, type: r.type, ts: r.timestamp.toISOString() }));
+        });
     } catch { return []; }
 }
 
@@ -450,8 +467,11 @@ export async function marcarDeteccion(id: string, kind: "real" | "false"): Promi
 export async function ackAlarms(deviceId: string, kind: "real" | "false" = "real"): Promise<{ ok: boolean; count: number }> {
     const since = new Date(Date.now() - 6 * 3600 * 1000);
     try {
+        // Las de la cámara. Las de una central de alarma NO (22/10, Nico: «tratar evento obligando a
+        // anotar algo»): un evento de central se termina sólo tratándolo, con su cierre y su texto
+        // (lib/centrales/tratamiento). Aceptar la cámara de la zona dejaba el robo atendido sin una palabra.
         const r = await prisma.detection.updateMany({
-            where: { deviceId, acknowledged: false, type: { not: "MOTION" }, timestamp: { gte: since } },
+            where: { deviceId, acknowledged: false, type: { notIn: ["MOTION", "CENTRAL"] }, timestamp: { gte: since } },
             data: { acknowledged: true, ackKind: kind, ackAt: new Date() },
         });
         if (r.count) await registrarGestion(await claveDeCamara(deviceId, kind), kind === "real" ? "CONFIRMO_REAL" : "MARCO_FALSA", await quienOpera(), { deviceId, detalle: r.count > 1 ? `${r.count} detecciones de la cámara` : null });

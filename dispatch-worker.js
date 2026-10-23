@@ -10,7 +10,8 @@ const { PrismaClient } = require("@prisma/client");
 const fs = require("fs");
 const { execFile } = require("child_process");
 
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 const connection = new IORedis(process.env.REDIS_URL || "redis://127.0.0.1:6379", {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
@@ -165,9 +166,12 @@ function stopRecorder(deviceId, borrar) {
 /** El conjunto { deviceId → stream RTSP } que tiene que estar grabando ahora. */
 async function conjuntoAGrabar() {
     const quiero = new Map();
+    // Los de un área apagada (Dispositivos, lib/apagado.ts) no se graban.
+    let apagados = new Set();
+    try { apagados = new Set(JSON.parse(await getSetting("EQUIPOS_APAGADOS", "[]") || "[]").map(String)); } catch {}
     // Cámaras de fila (el primer barrio): como siempre.
     const filas = await prisma.device.findMany({ where: { deviceType: "QUEUE_COUNTER" }, select: { id: true, ip: true } });
-    for (const d of filas) if (d.ip) quiero.set(d.id, `rtsp://127.0.0.1:8554/bosch_${String(d.ip).replace(/\./g, "_")}`);
+    for (const d of filas) if (d.ip && !apagados.has(d.id)) quiero.set(d.id, `rtsp://127.0.0.1:8554/bosch_${String(d.ip).replace(/\./g, "_")}`);
     // Cámaras sin NVR alcanzadas por una regla activa, sólo si el clip en alertas está prendido:
     // con el interruptor apagado ningún clip se va a pedir y grabar sería CPU y disco tirados.
     if ((await getSetting("DISPATCH_ANIMATED", "false")) !== "true") return quiero;
@@ -188,6 +192,7 @@ async function conjuntoAGrabar() {
         select: { id: true, ip: true },
     });
     for (const d of devs) {
+        if (apagados.has(d.id)) continue;
         if (d.ip && mapa[d.ip]) continue; // tiene NVR: el clip sale de la grabación
         quiero.set(d.id, `rtsp://127.0.0.1:8554/lpr_${d.id}`);
     }
@@ -272,6 +277,60 @@ function openwaSendVideo(baseUrl, apiKey, session, chatId, base64, caption) {
 }
 function openwaSendVideoUrl(baseUrl, apiKey, session, chatId, videoUrl, caption) {
     return wahaPost(baseUrl, apiKey, "/api/sendVideo", { session, chatId, file: { mimetype: "video/mp4", filename: "clip.mp4", url: videoUrl }, caption }, 40000);
+}
+
+/*
+ * Telegram por SUBIDA, no por URL (20/10, Nico, al compartir un evento en San Nicolás: «Bad Request:
+ * failed to get HTTP URL content»). Mandar la URL obligaba a Telegram a bajar la foto o el clip del
+ * barrio, y no puede: San Nicolás no tiene dirección pública cargada (PUBLIC_BASE_URL cae en la del
+ * primer barrio) y los medios están detrás de la firma. Este proceso los tiene a mano (la web en
+ * 127.0.0.1, el clip en el mismo disco), así que los sube él: llega siempre, sin depender de afuera.
+ */
+async function telegramSubir(token, metodo, campo, buf, nombre, tipo, caption, extra) {
+    try {
+        const f = new FormData();
+        f.append("chat_id", String(extra && extra.chat_id ? extra.chat_id : ""));
+        f.append(campo, new Blob([buf], { type: tipo }), nombre);
+        if (caption) { f.append("caption", String(caption).slice(0, 1024)); f.append("parse_mode", "HTML"); }
+        if (campo === "animation" || campo === "video") f.append("supports_streaming", "true");
+        if (extra && extra.reply_markup) f.append("reply_markup", JSON.stringify(extra.reply_markup));
+        const r = await fetch(`https://api.telegram.org/bot${token}/${metodo}`, { method: "POST", body: f, signal: AbortSignal.timeout(60000) });
+        const d = await r.text();
+        return { ok: r.ok, body: d };
+    } catch (e) { return { ok: false, body: e.message || String(e) }; }
+}
+/** La foto del evento para Telegram: la de la web local, achicada y con el logo (la misma de WhatsApp). */
+async function telegramFotoSubida(token, chatId, snapshotPath, deviceId, caption, extra) {
+    const ruta = imagePathFor(snapshotPath, deviceId);
+    const b64 = ruta ? await fetchLocalBase64(ruta) : null;
+    if (!b64) return null;
+    return telegramSubir(token, "sendPhoto", "photo", Buffer.from(b64, "base64"), "evento.jpg", "image/jpeg", caption, { ...(extra || {}), chat_id: chatId });
+}
+/** El clip para Telegram: del disco que comparte con la web (lib/clip-instante DIR_CLIPS) o, si no está, por la web local. */
+async function telegramClipSubido(token, chatId, nombre, caption, extra) {
+    let buf = null;
+    try { buf = fs.readFileSync(path.join(process.env.CLIPS_DIR || path.join(os.tmpdir(), "omniaccess-clips"), nombre)); } catch { }
+    if (!buf) buf = await new Promise((resolve) => {
+        const req = http.request({ hostname: "127.0.0.1", port: 10001, path: "/api/clip/" + encodeURIComponent(nombre), method: "GET", timeout: 20000 }, (res) => {
+            if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+            const ch = []; res.on("data", (x) => ch.push(x)); res.on("end", () => resolve(Buffer.concat(ch)));
+        });
+        req.on("error", () => resolve(null)); req.on("timeout", () => { req.destroy(); resolve(null); }); req.end();
+    });
+    if (!buf || buf.length < 1500) return { ok: false, body: "el clip no está en el disco" };
+    return telegramSubir(token, "sendAnimation", "animation", buf, nombre, "video/mp4", caption, { ...(extra || {}), chat_id: chatId });
+}
+/** Lo que contesta Telegram, en castellano: el JSON crudo terminaba en la pantalla del operador. */
+function errorTelegram(body) {
+    let d = String(body || "");
+    try { const j = JSON.parse(d); d = j.description || d; } catch { }
+    if (/chat not found/i.test(d)) return "Telegram no encuentra el chat: el bot no está en el grupo, o la persona nunca le escribió.";
+    if (/kicked|not a member/i.test(d)) return "Sacaron al bot del grupo: hay que volver a agregarlo.";
+    if (/blocked by the user/i.test(d)) return "Esa persona bloqueó al bot.";
+    if (/unauthorized/i.test(d)) return "El token del bot no es válido (Centro de Notificaciones → Telegram).";
+    if (/failed to get HTTP URL content|wrong file identifier/i.test(d)) return "Telegram no pudo bajar la imagen del barrio.";
+    if (/too large|entity too large/i.test(d)) return "El archivo es demasiado grande para Telegram.";
+    return d.slice(0, 160);
 }
 
 // Telegram sendAnimation (by public URL).
@@ -395,20 +454,31 @@ async function handle(job) {
                 );
                 // Los botones de la alerta (20/10, bot de Telegram): «la cámara ahora», «clip 10 s» e «historial» de la
                 // matrícula. Los atiende el proceso telegram-bot; si no está corriendo, la alerta llega igual.
+                /*
+                 * Sin botones donde no hay bot que los atienda (21/10, Nico: «Esa cámara ya no existe» al
+                 * tocar «La cámara ahora» de un evento compartido desde el lab). El lab manda con el mismo
+                 * token y al mismo grupo que San Nicolás y no corre telegram-bot: el toque lo contestaba
+                 * el bot de San Nicolás, que busca la cámara del lab en SU base. TELEGRAM_BOTONES = 0.
+                 */
+                const conBotones = String(await getSetting("TELEGRAM_BOTONES", "1")).trim() !== "0";
                 const filaBotones = [];
-                if (dj.deviceId) filaBotones.push({ text: "📷 La cámara ahora", callback_data: ("cam:" + dj.deviceId).slice(0, 64) }, { text: "🎬 Clip 10 s", callback_data: ("clip:" + dj.deviceId).slice(0, 64) });
-                const chapa = String(p.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                if (dj.deviceId && conBotones) filaBotones.push({ text: "📷 La cámara ahora", callback_data: ("cam:" + dj.deviceId).slice(0, 64) }, { text: "🎬 Clip 10 s", callback_data: ("clip:" + dj.deviceId).slice(0, 64) });
+                const chapa = conBotones ? String(p.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "") : "";
                 const extraTg = filaBotones.length || chapa ? { reply_markup: { inline_keyboard: [filaBotones, chapa ? [{ text: "🚘 Historial de " + chapa, callback_data: "m:h:" + chapa }] : []].filter((f) => f.length) } } : undefined;
                 let r;
+                // Subidos, no por URL (ver telegramSubir). La URL queda sólo de último recurso.
                 if (clip) {
-                    r = await telegramSendAnimation(token, chat, firmarUrl(base.replace(/\/+$/, "") + "/api/clip/" + clip.nombre), htmlText, extraTg);
-                    if (!r || !r.ok) notaVideo = "sin video: Telegram rechazó el clip (" + String((r && r.body) || "").slice(0, 80) + ")";
+                    r = await telegramClipSubido(token, chat, clip.nombre, htmlText, extraTg);
+                    if (!r || !r.ok) notaVideo = "sin video: Telegram rechazó el clip (" + errorTelegram(r && r.body) + ")";
                 }
+                if (!r || !r.ok) r = await telegramFotoSubida(token, chat, p.snapshotPath, dj.deviceId, htmlText, extraTg);
                 if (!r || !r.ok) {
                     const img = imageUrlFor(base, p.snapshotPath, dj.deviceId);
-                    r = img ? await telegramSendPhoto(token, chat, img, htmlText, extraTg) : await telegramSend(token, chat, htmlText, extraTg);
+                    const conFoto = img ? await telegramSendPhoto(token, chat, img, htmlText, extraTg) : null;
+                    // Sin foto que llegue, el texto solo: mejor el aviso sin imagen que ningún aviso.
+                    r = conFoto && conFoto.ok ? conFoto : await telegramSend(token, chat, htmlText, extraTg);
                 }
-                if (!r.ok) throw new Error("Telegram: " + r.body);
+                if (!r.ok) throw new Error("Telegram: " + errorTelegram(r.body));
             } else if (dj.channel === "whatsapp") {
                 const url = await getSetting("OPENWA_URL", await getSetting("WAHA_URL", "http://192.168.99.22:2785"));
                 const key = await getSetting("OPENWA_API_KEY", await getSetting("WAHA_API_KEY", ""));

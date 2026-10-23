@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { filtroDeAreas } from "@/lib/filtro-areas";
+import { leerAreasHistorial } from "@/lib/areas-historial";
 import { TIPOS_CHAPA, prefijosDeTipo } from "@/lib/categoria-chapa";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
-import { limitesDelDia } from "@/lib/fechas";
+import { limiteDeFiltro } from "@/lib/fechas";
 import { Prisma } from "@prisma/client";
 import { clasesDe, RELECTURA_CON_CHAPA, VISION_IDS_MAX, type EmpresaFila, type VisionFila } from "@/lib/historial-vision";
 import { empresasDeLecturas } from "@/lib/empresas-servidor";
@@ -128,7 +130,7 @@ async function tamanoDeFoto(camara: string, clave: string): Promise<{ w: number;
         return v;
     } catch { return ya || null; }
 }
-async function objetosOmniVision(p: { soloChapas: boolean; desde: Date | null; hasta: Date | null; buscar: string; clases: string[]; grupos: string[]; camaras: string[]; limite: number; tipoChapa?: { prefijos: string[]; taxiAspecto: boolean } | null }): Promise<FilaOV[]> {
+async function objetosOmniVision(p: { soloChapas: boolean; desde: Date | null; hasta: Date | null; buscar: string; clases: string[]; grupos: string[]; camaras: string[]; areaEn?: string[] | null; areaFuera?: string[] | null; limite: number; tipoChapa?: { prefijos: string[]; taxiAspecto: boolean } | null }): Promise<FilaOV[]> {
     const q = p.buscar ? `%${p.buscar}%` : null;
     const tc = p.tipoChapa;
     const likes = tc ? tc.prefijos.map((x) => `${x}%`) : [];
@@ -149,6 +151,8 @@ async function objetosOmniVision(p: { soloChapas: boolean; desde: Date | null; h
            ${p.hasta ? Prisma.sql`AND o."primeraVez" <= ${sinZona(p.hasta)}::timestamp` : Prisma.empty}
            ${p.clases.length || p.grupos.length ? Prisma.sql`AND (o.clase = ANY(${p.clases}::text[]) OR o.grupo = ANY(${p.grupos}::text[]))` : Prisma.empty}
            ${p.camaras.length ? Prisma.sql`AND o.camara = ANY(${p.camaras}::text[])` : Prisma.empty}
+           ${p.areaEn ? Prisma.sql`AND o.camara = ANY(${p.areaEn}::text[])` : Prisma.empty}
+           ${p.areaFuera ? Prisma.sql`AND NOT (o.camara = ANY(${p.areaFuera}::text[]))` : Prisma.empty}
            ${q ? Prisma.sql`AND (o.camara ILIKE ${q} OR o.clase ILIKE ${q} OR m.texto LIKE ${qChapa})` : Prisma.empty}
            ${tc ? Prisma.sql`AND (m.texto LIKE ANY(${likes}::text[])${tc.taxiAspecto ? Prisma.sql` OR o.atributos @> '[{"id":"servicio","valor":"taxi"}]'::jsonb` : Prisma.empty})` : Prisma.empty}
          ORDER BY o."primeraVez" DESC
@@ -290,13 +294,8 @@ const OBJETOS_EN_FRANJA = 12;
 const VENTANA_PERMANENCIA_MS = 36 * 3600 * 1000;
 
 /** Una fecha de `<input type="date">` (día entero del barrio) o un instante completo. */
-const leerLimite = (v: string | null, extremo: "inicio" | "fin"): Date | null => {
-    if (!v) return null;
-    const dia = limitesDelDia(v);
-    if (dia) return dia[extremo];
-    const d = new Date(v);
-    return isNaN(+d) ? null : d;
-};
+/** Un día de `<input type="date">`, ese día con hora («AAAA-MM-DDTHH:MM», hora del barrio) o un instante (lib/fechas). */
+const leerLimite = (v: string | null, extremo: "inicio" | "fin"): Date | null => limiteDeFiltro(v, extremo);
 
 export async function GET(req: NextRequest) {
     const auth = await verifyApiAuth();
@@ -318,6 +317,17 @@ export async function GET(req: NextRequest) {
      */
     const identificacion = sp.get("type") || "ALL";
     const decision = sp.get("decision") || "ALL";
+    /**
+     * Los disparos sin vehículo (AccessEvent.sinVehiculo: sin chapa y OmniVision no vio ningún
+     * vehículo en la foto). 23/10, Nico: la cámara de salida mandaba cientos por noche, todos
+     * «Denegado · Sin lectura» con la calle vacía. Por defecto no se muestran; «mostrar» los suma
+     * y «solo» deja únicamente esos.
+     */
+    const sinVehiculo = ["mostrar", "solo"].includes(sp.get("sinVehiculo") || "") ? sp.get("sinVehiculo")! : "ocultar";
+    const NO_LEIDAS_SQL = ["NO_LEIDA", "UNKNOWN", "unknown", "S/P"];
+    const porSinVehiculo = sinVehiculo === "solo"
+        ? { sinVehiculo: true, plateDetected: { in: NO_LEIDAS_SQL } }
+        : sinVehiculo === "ocultar" ? { NOT: { sinVehiculo: true, plateDetected: { in: NO_LEIDAS_SQL } } } : {};
     const sentido = sp.get("direction") || "ALL";
 
     // Qué tipos se quieren ver. Sin filtro, todos.
@@ -331,6 +341,16 @@ export async function GET(req: NextRequest) {
      * mostraba lo que hubiera entre las primeras 60 filas: casi siempre nada.
      */
     const camaras = sp.getAll("cam").map((c) => c.trim()).filter(Boolean).slice(0, 50);
+    /*
+     * Las áreas de Dispositivos (area=… repetido; lib/filtro-areas). Van aparte de las cámaras a
+     * propósito: elegir una cámara suma sus objetos de OmniVision a la lista, y elegir un área de
+     * cuarenta cámaras haría lo mismo con miles. Un área sin cámaras no muestra nada.
+     */
+    const areasPedidas = sp.getAll("area").map((a) => a.trim()).filter(Boolean).slice(0, 50);
+    const porArea = areasPedidas.length ? filtroDeAreas(areasPedidas, await leerAreasHistorial().catch(() => null)) : null;
+    const NINGUNA = "·ninguna cámara en el área·";
+    const areaEn = porArea && "en" in porArea ? (porArea.en.length ? porArea.en : [NINGUNA]) : null;
+    const areaFuera = porArea && "fuera" in porArea && porArea.fuera.length ? porArea.fuera : null;
     /**
      * El tipo de chapa (lib/categoria-chapa: taxi, policía, ambulancia, diplomático…), por cómo
      * empieza la matrícula. Taxi suma además lo que OmniVision reconoce como taxi por su aspecto.
@@ -373,7 +393,9 @@ export async function GET(req: NextRequest) {
      * se describe, y mandarla a SigLIP sólo trae ruido. Si omni-vision no contesta, se busca igual
      * con lo demás y se dice.
      */
-    const pareceDescripcion = buscar.length >= 3 && /[a-záéíóúñ]{3,}/i.test(buscar) && !/^[A-Z]{2,4}\s?-?\d{3,5}$/i.test(buscar);
+    // `omni=0`: el botón OmniVision del buscador apagado (21/10): sólo registros (y grabador, si lo pidió).
+    const conOmni = req.nextUrl.searchParams.get("omni") !== "0";
+    const pareceDescripcion = conOmni && buscar.length >= 3 && /[a-záéíóúñ]{3,}/i.test(buscar) && !/^[A-Z]{2,4}\s?-?\d{3,5}$/i.test(buscar);
     const [porBusquedaVision, semantica] = await Promise.all([
         buscar && pedirAccesos ? idsBusquedaVision(buscar, desde, hasta) : Promise.resolve([] as string[]),
         pareceDescripcion
@@ -391,7 +413,7 @@ export async function GET(req: NextRequest) {
      */
     const estadosPedidos = ["PASO", "ESTACIONADO", "VISTO"].filter(quiere);
     // Con el filtro OmniVision sólo quedan accesos: las lecturas del seguimiento no se analizan.
-    const pedirTrack = estadosPedidos.length > 0 && !vision.length;
+    const pedirTrack = estadosPedidos.length > 0 && !vision.length && sinVehiculo !== "solo";
 
     /* OmniVision en cámaras RTSP (ver objetosOmniVision). Los filtros propios de un acceso (con qué
        se identificó, si abrió, en qué sentido) no aplican: con alguno puesto, no entran. */
@@ -399,7 +421,7 @@ export async function GET(req: NextRequest) {
     const filtrosDeAcceso = ["FACE", "TAG"].includes(identificacion) || ["GRANT", "DENY"].includes(decision) || ["ENTRY", "EXIT"].includes(sentido);
     // Con cámaras elegidas (y sin tipos), también los objetos: son de esas cámaras, no miles.
     const quiereOVObjetos = tipos.includes("OV_OBJETO") || (camaras.length > 0 && tipos.length === 0);
-    const pedirOV = !filtrosDeAcceso && (quiere("OV_CHAPA") || quiereOVObjetos);
+    const pedirOV = !filtrosDeAcceso && sinVehiculo !== "solo" && (quiere("OV_CHAPA") || quiereOVObjetos);
     const { clases: clasesOV, grupos: gruposOV } = clasesDe(vision);
 
     const [accesos, avistamientos, objetosOV] = await Promise.all([
@@ -407,9 +429,12 @@ export async function GET(req: NextRequest) {
             ? prisma.accessEvent.findMany({
                 where: {
                     ...porFecha,
+                    ...porSinVehiculo,
                     ...(porVision ? { id: { in: porVision.ids } } : {}),
-                    ...(camaras.length || tipoChapa ? { AND: [
+                    ...(camaras.length || tipoChapa || areaEn || areaFuera ? { AND: [
                         ...(camaras.length ? [{ OR: [{ device: { name: { in: camaras } } }, { location: { in: camaras } }] }] : []),
+                        ...(areaEn ? [{ OR: [{ device: { name: { in: areaEn } } }, { location: { in: areaEn } }] }] : []),
+                        ...(areaFuera ? [{ NOT: { OR: [{ device: { name: { in: areaFuera } } }, { location: { in: areaFuera } }] } }] : []),
                         ...(tipoChapa ? [{ OR: [...porChapa("plateDetected")!.OR, ...porChapa("plateNumber")!.OR] }] : []),
                     ] } : {}),
                     // Son enums de Prisma; un valor inventado en la URL no rompe la consulta, se ignora.
@@ -441,7 +466,10 @@ export async function GET(req: NextRequest) {
                 where: {
                     source: "TRACK",
                     ...porFecha,
-                    ...(camaras.length ? { cameraName: { in: camaras } } : {}),
+                    // Cámaras y área sobre el mismo campo: se cruzan en una sola condición (un segundo
+                    // `AND` en este objeto lo pisaría el del tipo de chapa).
+                    ...(camaras.length || areaEn ? { cameraName: { in: camaras.length ? (areaEn ? (camaras.filter((c) => areaEn.includes(c)).length ? camaras.filter((c) => areaEn.includes(c)) : [NINGUNA]) : camaras) : areaEn! } } : {}),
+                    ...(areaFuera ? { NOT: { cameraName: { in: areaFuera } } } : {}),
                     ...(tipos.length ? { estado: { in: estadosPedidos } } : {}),
                     ...(tipoChapa ? { AND: [porChapa("plate")!] } : {}),
                     ...(buscar
@@ -458,7 +486,7 @@ export async function GET(req: NextRequest) {
             })
             : Promise.resolve([] as any[]),
         pedirOV
-            ? objetosOmniVision({ soloChapas: !quiereOVObjetos, desde, hasta, buscar, clases: clasesOV, grupos: gruposOV, camaras, limite: cuantas, tipoChapa }).catch((e) => { console.error("[historial] OmniVision RTSP:", e?.message); return [] as FilaOV[]; })
+            ? objetosOmniVision({ soloChapas: !quiereOVObjetos, desde, hasta, buscar, clases: clasesOV, grupos: gruposOV, camaras, areaEn, areaFuera, limite: cuantas, tipoChapa }).catch((e) => { console.error("[historial] OmniVision RTSP:", e?.message); return [] as FilaOV[]; })
             : Promise.resolve([] as FilaOV[]),
     ]);
 
@@ -614,10 +642,19 @@ export async function GET(req: NextRequest) {
     // `hay` dice si conviene pedir otra página: sobró al menos una de las que se pidieron
     // de más. Un total exacto exigiría contar las dos tablas con los mismos filtros y no
     // cambia nada de lo que se puede hacer con el resultado.
+    // El tipo de cámara de cada objeto parecido: decide en qué ficha se abre (intrusión o visor).
+    const idsObj = semantica && skip === 0 ? [...new Set(semantica.objetos.slice(0, OBJETOS_EN_FRANJA).map((o) => o.deviceId).filter(Boolean) as string[])] : [];
+    const tiposObjetos = new Map(idsObj.length ? (await prisma.device.findMany({ where: { id: { in: idsObj } }, select: { id: true, deviceType: true } })).map((d) => [d.id, String(d.deviceType)]) : []);
+    // Cuántos disparos sin vehículo quedaron afuera en el período (sólo en la primera página): la
+    // pantalla lo dice, para que no parezca que la cámara no mandó nada.
+    const ocultosSinVehiculo = sinVehiculo === "ocultar" && pedirAccesos && skip === 0
+        ? await prisma.accessEvent.count({ where: { ...porFecha, sinVehiculo: true, plateDetected: { in: NO_LEIDAS_SQL } } }).catch(() => 0)
+        : 0;
     return NextResponse.json({
         filas: pagina,
         hay: filas.length > skip + take,
         enPagina: pagina.length,
+        ocultosSinVehiculo,
         /** El filtro OmniVision llegó al tope: se miraron sólo las VISION_IDS_MAX lecturas más nuevas. */
         visionTruncado: !!porVision?.truncado,
         /**
@@ -630,6 +667,7 @@ export async function GET(req: NextRequest) {
             accesos: porSemantica.length,
             objetos: semantica.objetos.slice(0, OBJETOS_EN_FRANJA).map((o) => ({
                 id: o.id, camara: o.camara, clase: o.clase, grupo: o.grupo, momento: o.primeraVez.toISOString(), recorte: o.recorte, prob: Math.round(o.prob * 1000) / 1000,
+                deviceId: o.deviceId, foto: o.foto ?? null, caja: Array.isArray(o.caja) ? o.caja : null, tipoCamara: o.deviceId ? tiposObjetos.get(o.deviceId) || null : null,
             })),
         } : null,
     });

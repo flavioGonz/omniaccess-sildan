@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { autorizarMonitor, SIN_CACHE } from "@/lib/monitor/servidor";
 import { getActiveAlarms, getIntrusionesConfirmadas } from "@/app/actions/detections";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
  * sobre cualquier vista: las pendientes (nadie las aceptó) y las confirmadas sin resolver.
  */
 export async function GET() {
+    const funcionApagada = await exigirFuncion("FUNC_INTRUSION"); if (funcionApagada) return funcionApagada;
     const p = await autorizarMonitor("/api/monitor/alarmas");
     if (p.error) return p.error;
     const [pendientes, confirmadas] = await Promise.all([getActiveAlarms(), getIntrusionesConfirmadas()]);

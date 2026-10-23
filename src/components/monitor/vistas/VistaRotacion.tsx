@@ -12,24 +12,34 @@ import { VistaMapa } from "./VistaMapa";
 import { VistaResumen } from "./VistaResumen";
 import { VistaSalud } from "./VistaSalud";
 import { VistaCamaras } from "./VistaCamaras";
+import { VistaFace } from "./VistaFace";
+import { VistaAlarmas } from "./VistaAlarmas";
 
 /**
  * Rotación: alterna las vistas configuradas en Monitores cada N segundos, con fundido.
  * Una intrusión confirmada o pendiente la clava en Intrusión hasta que se resuelva: una
- * pared que sigue girando mientras hay alguien adentro es una pared que no sirve.
+ * pared que sigue girando mientras hay alguien adentro es una pared que no sirve. Lo mismo una
+ * alarma crítica de una central (P1 o P2) sin tratar, si la rotación incluye «Alarmas».
  */
-const COMPONENTES: Record<Exclude<ClaveVista, "rotacion">, React.ComponentType> = { intrusion: VistaIntrusion, lpr: VistaLpr, mapa: VistaMapa, resumen: VistaResumen, salud: VistaSalud, camaras: VistaCamaras };
+const COMPONENTES: Record<Exclude<ClaveVista, "rotacion">, React.ComponentType> = { intrusion: VistaIntrusion, alarmas: VistaAlarmas, lpr: VistaLpr, mapa: VistaMapa, resumen: VistaResumen, salud: VistaSalud, camaras: VistaCamaras, face: VistaFace };
 type Alarmas = { pendientes: any[]; confirmadas: any[] };
 
 export function VistaRotacion() {
-    const { ajustes, setTitulo, latir } = useMarco();
-    const vistas = useMemo(() => (ajustes?.rotacion?.vistas?.length ? ajustes.rotacion.vistas : [...ROTACION_VISTAS_POR_DEFECTO]).filter((v) => v in COMPONENTES) as Exclude<ClaveVista, "rotacion">[], [ajustes]);
+    const { ajustes, setTitulo, latir, funciones } = useMarco();
+    // Las vistas cuya función de la instalación está apagada se saltean (Intrusión, Alarmas).
+    const vistas = useMemo(() => (ajustes?.rotacion?.vistas?.length ? ajustes.rotacion.vistas : [...ROTACION_VISTAS_POR_DEFECTO])
+        .filter((v) => v in COMPONENTES)
+        .filter((v) => { const f = vistaPorClave(v)?.funcion; return !f || !funciones || funciones[f] !== false; }) as Exclude<ClaveVista, "rotacion">[], [ajustes, funciones]);
     const segundos = Math.max(ROTACION_SEG_MIN, ajustes?.rotacion?.segundos || ROTACION_SEG_POR_DEFECTO);
     const [i, setI] = useState(0);
-    const { datos: alarmas } = usarDatos<Alarmas>("/api/monitor/alarmas", 15_000, latir);
-    const clavada = !!alarmas && (alarmas.pendientes.length > 0 || alarmas.confirmadas.length > 0) && vistas.includes("intrusion");
+    const { datos: alarmas } = usarDatos<Alarmas>(vistas.includes("intrusion") ? "/api/monitor/alarmas" : null, 15_000, latir);
+    const conCentrales = vistas.includes("alarmas");
+    const { datos: centrales } = usarDatos<{ pendientes: { prioridad: number }[] }>(conCentrales ? "/api/monitor/centrales" : null, 15_000, latir);
+    const clavadaIntrusion = !!alarmas && (alarmas.pendientes.length > 0 || alarmas.confirmadas.length > 0) && vistas.includes("intrusion");
+    const clavadaCentral = conCentrales && !!centrales?.pendientes?.some((e) => e.prioridad <= 2);
+    const clavada = clavadaIntrusion || clavadaCentral;
     useEffect(() => { if (clavada) return; const iv = setInterval(() => setI((x) => (x + 1) % Math.max(1, vistas.length)), segundos * 1000); return () => clearInterval(iv); }, [segundos, vistas.length, clavada]);
-    const actual = clavada ? "intrusion" : vistas[i % Math.max(1, vistas.length)] || "resumen";
+    const actual = clavadaIntrusion ? "intrusion" : clavadaCentral ? "alarmas" : vistas[i % Math.max(1, vistas.length)] || "resumen";
     const siguiente = vistas[(i + 1) % Math.max(1, vistas.length)];
     useEffect(() => { setTitulo(`${vistaPorClave(actual)?.nombre || actual} · rotación`); }, [actual, setTitulo]);
     const Comp = COMPONENTES[actual];
@@ -41,7 +51,7 @@ export function VistaRotacion() {
                 </motion.div>
             </AnimatePresence>
             <div className="absolute bottom-3 right-4 z-[700] flex items-center gap-2 px-3 py-1 rounded-full bg-black/55 text-white/70 text-[12px] font-semibold backdrop-blur-sm">
-                {clavada ? <span className="text-red-200">Rotación detenida: intrusión sin resolver</span> : <>{vistas.map((v) => <span key={v} className={v === actual ? "text-white" : "text-white/35"}>●</span>)}<span className="ml-1">siguiente: {vistaPorClave(siguiente)?.nombre || siguiente}</span></>}
+                {clavada ? <span className="text-red-200">Rotación detenida: {clavadaIntrusion ? "intrusión sin resolver" : "alarma crítica sin tratar"}</span> : <>{vistas.map((v) => <span key={v} className={v === actual ? "text-white" : "text-white/35"}>●</span>)}<span className="ml-1">siguiente: {vistaPorClave(siguiente)?.nombre || siguiente}</span></>}
             </div>
         </div>
     );

@@ -7,7 +7,12 @@
  * un ciclo (el botón importa al diálogo).
  */
 
-export const MIN_INTERIOR_URL = "https://matriculas-requeridas.minterior.gub.uy/index.php";
+/**
+ * La página del servicio en gub.uy. Hasta el 22/10 era el formulario de
+ * matriculas-requeridas.minterior.gub.uy/index.php, pero ese sitio ahora redirige a la portada del
+ * Ministerio en gub.uy: el enlace «Abrir el sitio oficial» llevaba a una página que ya no existe.
+ */
+export const MIN_INTERIOR_URL = "https://www.gub.uy/ministerio-interior/tramites-y-servicios/servicios/matriculas-requeridas";
 
 /** Sólo letras y números en mayúscula: así la escribe el sitio y así la guarda OmniAccess. */
 export const normalizarMatricula = (p?: string | null) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");

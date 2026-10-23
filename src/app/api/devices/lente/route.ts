@@ -20,10 +20,10 @@ export const dynamic = "force-dynamic";
  *
  * MOVER EL LENTE ES TOCAR EL EQUIPO: una cámara LPR desenfocada deja de leer. Por eso:
  *   · pide el permiso «dispositivos» (no alcanza con tener sesión);
- *   · el servidor tiene que habilitarlo con OMNI_MUEVE_LENTES=si en su .env. El lab de IES ve las
- *     cámaras reales de San Nicolás por la VPN y nunca debe moverlas: sin la llave, contesta que
- *     no y la pantalla muestra los controles apagados con el motivo. Mismo criterio que
- *     OMNI_ABRE_BARRERAS (lib/barrera-omnivision).
+ *   · el servidor tiene que habilitarlo con OMNI_MUEVE_LENTES=si en su .env: sin la llave, contesta
+ *     que no y la pantalla muestra los controles apagados con el motivo. Mismo criterio que
+ *     OMNI_ABRE_BARRERAS (lib/barrera-omnivision). El lab de IES la tiene prendida desde el 21/10
+ *     (Nico: «en el lab debe funcionar»), y desde ahí mueve las cámaras reales de San Nicolás.
  * Preguntar qué sabe hacer (GET) es sólo lectura y funciona en cualquier servidor.
  */
 const LLAVE_SERVIDOR = "OMNI_MUEVE_LENTES";
@@ -46,7 +46,7 @@ async function puede(): Promise<NextResponse | null> {
     if (!auth.authenticated) return unauthorizedResponse();
     if (auth.pantalla) return forbiddenResponse("Un enlace de pantalla no toca cámaras.");
     const s: any = await getSession().catch(() => null);
-    if (!s || !permisosDeSesion(s).includes("dispositivos")) return forbiddenResponse("Mover el lente pide el permiso de Dispositivos.");
+    if (!s || !permisosDeSesion(s).includes("dispositivos.editar")) return forbiddenResponse("Mover el lente pide el permiso de Dispositivos.");
     return null;
 }
 

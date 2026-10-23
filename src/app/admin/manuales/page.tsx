@@ -5,6 +5,7 @@
  *  faltantes, capturador automático y compilación a HTML/PDF.
  */
 import { useEffect, useRef, useState, useCallback } from "react";
+import { useConfirmar } from "@/components/ui/use-confirmar";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     BookOpen, Save, Hammer, Camera, Download, FileText, Image as ImageIcon, Loader2, Check,
@@ -76,6 +77,7 @@ function preview(md: string): string {
 }
 
 export default function ManualesPage() {
+    const { confirmar, elemento: confirmacion } = useConfirmar();
     const [lista, setLista] = useState<Manual[]>([]);
     const [producto, setProducto] = useState<any>(null);
     const [sel, setSel] = useState<string | null>(null);
@@ -100,7 +102,7 @@ export default function ManualesPage() {
     useEffect(cargarLista, [cargarLista]);
 
     async function abrir(id: string) {
-        if (sucio && !confirm("Hay cambios sin guardar. ¿Descartarlos?")) return;
+        if (sucio && !(await confirmar({ titulo: "Descartar los cambios sin guardar", descripcion: "Lo que editaste en este manual se pierde.", accion: "Descartar" }))) return;
         const j = await fetch(`/api/manuals?id=${id}`, { cache: "no-store" }).then((r) => r.json());
         if (!j.ok) { toast.error({ title: "No se pudo abrir" }); return; }
         setSel(id); setMd(j.md); setMdOrig(j.md); setImgs(j.imagenes || []);
@@ -163,11 +165,14 @@ export default function ManualesPage() {
 
     return (
         <div className="h-full flex flex-col bg-background text-foreground overflow-hidden">
+            {confirmacion}
             {/* ── Encabezado ── */}
             <div className="px-6 py-3 border-b border-border flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-xl bg-gradient-to-br from-sky-500/20 to-cyan-500/10 border border-sky-500/20"><BookOpen size={20} className="text-sky-400" /></div>
                     <div>
+                        {/* Se entra desde el menú de Configuración (21/10): el rótulo dice de dónde cuelga y vuelve. */}
+                        <a href="/admin/settings" className="block text-[11px] text-muted-foreground hover:text-foreground leading-none mb-0.5">Configuración ›</a>
                         <h1 className="text-base font-bold">Manuales</h1>
                         <p className="text-[11px] text-muted-foreground">{producto ? `${producto.familia} · versión ${producto.version}` : "Constructor de documentación"}</p>
                     </div>

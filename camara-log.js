@@ -17,7 +17,8 @@ require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 const http = require("http");
 const crypto = require("crypto");
 const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 
 /** Cada cuánto se le pide a cada cámara. Dispara a cada segundo mientras ve un vehículo (medido: 10 capturas en 14 s en LPR Salida): con 30 s se pisaban las 20 que guarda. */
 const CADA_MS = Number(process.env.CAMARA_LOG_CADA_MS || 10_000);

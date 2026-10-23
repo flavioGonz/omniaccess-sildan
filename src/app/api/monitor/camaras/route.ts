@@ -10,10 +10,12 @@ import { getChannelMap } from "@/lib/nvr-resolve";
 import { getAnalyticsGeometryBatch } from "@/app/actions/detections";
 import { puedeDisenarVistas } from "@/app/actions/monitores";
 import { AJUSTE_VISTAS_CAMARAS, leerVistas } from "@/lib/monitor/disposiciones";
+import { AJUSTE_FUENTES_WEB, leerFuentes } from "@/lib/monitor/fuentes-web";
 import { verificacionesDe } from "@/lib/verificacion";
 import { camarasVision, cargaVision } from "@/lib/vision-camaras";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
+import { leerArbolAreas } from "@/lib/areas-historial";
 
 /**
  * GET /api/monitor/camaras → los canales que dibuja la pared de video (vista Cámaras).
@@ -87,6 +89,8 @@ export type CanalPared = {
     stream: string;
     /** Si es un equipo de OmniAccess: sus detecciones llegan con este id. */
     equipoId: string | null;
+    /** El área de Dispositivos (la del equipo; un canal sin equipo toma la de su NVR). Para filtrar la pared. */
+    areaId?: string | null;
     /**
      * La detección en curso (de los últimos VENTANA_ALERTA_MS). `foto` es su captura y `verif` lo
      * que OmniVision vio en ella (siluetas y veredicto): la baldosa la muestra un rato con las
@@ -119,7 +123,7 @@ export async function GET() {
         }).catch(() => []),
         prisma.detection.groupBy({ by: ["deviceId"], where: { timestamp: { gte: desdeActividad }, type: { not: "MOTION" } } }).catch(() => []),
         prisma.accessEvent.groupBy({ by: ["deviceId"], where: { timestamp: { gte: desdeActividad } } }).catch(() => []),
-        prisma.setting.findMany({ where: { key: { in: [AJUSTE_VISTAS_CAMARAS, "VISUAL_TRACK_LINKS"] } } }).catch(() => []),
+        prisma.setting.findMany({ where: { key: { in: [AJUSTE_VISTAS_CAMARAS, "VISUAL_TRACK_LINKS", AJUSTE_FUENTES_WEB] } } }).catch(() => []),
         p.auth.pantalla ? Promise.resolve(false) : puedeDisenarVistas(),
     ]);
 
@@ -151,11 +155,14 @@ export async function GET() {
     }));
     const extrasDe = (id: string) => {
         const funcion = funcionDe(id);
-        const g = funcion === "intrusion" && tieneGeom(id) ? { line: geoms[id].line || [], field: geoms[id].field || [] } : null;
+        const g = funcion === "intrusion" && tieneGeom(id) ? { line: geoms[id].line || [], field: geoms[id].field || [], lines: geoms[id].lines || [], fields: geoms[id].fields || [] } : null;
         return { funcion, geom: g, ultima: ultimaPorEquipo.get(id) || null, lecturas: funcion === "lpr" ? lecturasPorEquipo.get(id) || [] : [] };
     };
 
     const porIp = new Map(equipos.filter((e) => e.ip).map((e) => [e.ip as string, e]));
+    // Lo apagado por área (lib/apagado) no va a la pared: ni como equipo ni como canal de su NVR.
+    const { lectorCanalesApagados } = await import("@/lib/apagado");
+    const off = await lectorCanalesApagados().catch(() => null);
     const usados = new Set<string>();
     const canales: CanalPared[] = [];
     const errores: { nvr: string; error: string }[] = [];
@@ -163,12 +170,14 @@ export async function GET() {
 
     const lecturas = await Promise.all(nvrs.map((n) => canalesDe(n as any).then((r) => ({ n, r }))));
     for (const { n, r } of lecturas) {
+        if (off?.equipos.has(n.id)) continue;
         if (!r.ok) { errores.push({ nvr: n.name, error: r.error || "No se pudieron leer los canales" }); continue; }
         for (const c of [...r.channels].sort((a, b) => a.channel - b.channel)) {
             // El segundo sensor de una cámara bi-espectral es la misma cámara: va una vez.
             if (c.sensorDe) continue;
             const ch = Number(c.channel);
             const eq = c.ip ? porIp.get(c.ip) : undefined;
+            if (off?.apagado(n.id, ch, c.ip || null) || (eq && off?.equipos.has(eq.id))) { if (eq) usados.add(eq.id); continue; }
             if (eq && streams?.has(`lpr_${eq.id}`)) {
                 usados.add(eq.id);
                 canales.push({ clave: `dev:${eq.id}`, nombre: eq.name, nvrId: n.id, nvr: n.name, ch, online: c.online ?? null, stream: `lpr_${eq.id}`, equipoId: eq.id, alerta: alertaPorEquipo.get(eq.id) || alertaPorCanal.get(`${n.id}:${ch}`) || null, ...extrasDe(eq.id) });
@@ -186,7 +195,7 @@ export async function GET() {
     const mapa = await getChannelMap().catch(() => ({} as Record<string, { nvrId: string | null; ch: number }>));
     const nombreNvr = new Map(nvrs.map((n) => [n.id, n.name]));
     for (const e of equipos) {
-        if (usados.has(e.id) || !streams?.has(`lpr_${e.id}`)) continue;
+        if (usados.has(e.id) || off?.equipos.has(e.id) || !streams?.has(`lpr_${e.id}`)) continue;
         const m = e.ip ? mapa[e.ip] : undefined;
         const nvrId = m?.nvrId && nombreNvr.has(m.nvrId) ? m.nvrId : null;
         canales.push({ clave: `dev:${e.id}`, nombre: e.name, nvrId, nvr: nvrId ? nombreNvr.get(nvrId)! : null, ch: nvrId && m ? m.ch : null, online: null, stream: `lpr_${e.id}`, equipoId: e.id, alerta: alertaPorEquipo.get(e.id) || null, ...extrasDe(e.id) });
@@ -205,17 +214,23 @@ export async function GET() {
     }
 
     // OmniVision: qué cámaras analiza y cuánto cuesta cada una (lo mide vision-worker).
-    const [enVision, carga, sesion] = await Promise.all([camarasVision().catch(() => ({ todas: false, ids: new Set<string>() })), cargaVision(), p.auth.pantalla ? null : getSession().catch(() => null)]);
+    const [enVision, carga, sesion, arbol] = await Promise.all([camarasVision().catch(() => ({ todas: false, ids: new Set<string>() })), cargaVision(), p.auth.pantalla ? null : getSession().catch(() => null),
+        leerArbolAreas().catch(() => ({ areas: [], equipoArea: {} as Record<string, string> }))]);
     for (const c of canales) {
         const id = c.equipoId || `nvrch-${c.nvrId}-${c.ch}`;
         c.vision = { analiza: enVision.ids.has(id), porSeg: carga.porCamara[id] ?? null };
+        c.areaId = (c.equipoId && arbol.equipoArea[c.equipoId]) || (c.nvrId && arbol.equipoArea[c.nvrId]) || null;
     }
 
     return NextResponse.json({
         canales,
-        vision: { ...carga, cuantas: enVision.ids.size, puedeCambiar: !!sesion && permisosDeSesion(sesion as any).includes("ajustes") },
+        // Las áreas de Dispositivos (21/10, Nico: «filtrar las cámaras por áreas también acá»).
+        areas: arbol.areas,
+        vision: { ...carga, cuantas: enVision.ids.size, puedeCambiar: !!sesion && permisosDeSesion(sesion as any).includes("vision.config") },
         errores,
         vistas: leerVistas(filasAjustes.find((f) => f.key === AJUSTE_VISTAS_CAMARAS)?.value),
+        // Las páginas web que se pueden poner en una casilla (openspec pared-vms).
+        fuentes: leerFuentes(filasAjustes.find((f) => f.key === AJUSTE_FUENTES_WEB)?.value),
         // Seguimiento visual (el mismo Setting que la ficha de intrusión): por cámara, a qué vecinas
         // se pasa y por qué punto. Se manda entero: son pocas cámaras y pocos enlaces.
         seguimiento: (() => { try { return JSON.parse(filasAjustes.find((f) => f.key === "VISUAL_TRACK_LINKS")?.value || "{}"); } catch { return {}; } })(),

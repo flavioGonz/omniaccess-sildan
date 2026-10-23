@@ -13,12 +13,11 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
     LayoutDashboard,
     Radar,
-    Siren,
+    Siren, Cctv,
     Users,
     Car,
     Settings,
     ShieldCheck,
-    BookOpen,
     History,
     DoorOpen,
     HelpCircle,
@@ -47,14 +46,17 @@ import {
     MonitorPlay,
     Ban,
     FileSearch,
+    ScanEye, ClipboardList,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
-import { hasAcuSeekNvr } from "@/app/actions/acuseek";
 import { logout } from "@/app/actions/auth";
 import AforoAlertOverlay from "@/components/AforoAlertOverlay";
 import AlertaIntrusionGlobal from "@/components/intrusion/AlertaIntrusionGlobal";
+import AlertaCentralGlobal from "@/components/centrales/AlertaCentralGlobal";
+import { PilaAvisos } from "@/components/avisos/PilaAvisos";
+import { AvisosLpr } from "@/components/avisos/AvisosLpr";
 import { CargarMarcasCamara } from "@/components/CargarMarcasCamara";
 import { VivoProvider } from "@/components/vivo/PanelVivo";
 
@@ -106,6 +108,11 @@ export default function AdminLayout({
     const pathname = usePathname();
     // «Plazas de parking» es una función de LPR que se apaga (20/10: San Nicolás no la usa).
     const plazasOn = useFuncion("LPR_PLAZAS");
+    // Intrusión y alarmas son funciones de la instalación, no del modo (openspec alarmas-como-funciones):
+    // valen igual en Matrículas, Rostro y Filas. `null` (todavía no se sabe) cuenta como apagada.
+    const intrusionOn = useFuncion("FUNC_INTRUSION") === true;
+    const recepcionOn = useFuncion("FUNC_ALARMAS_RECEPCION") === true;
+    const gestionOn = useFuncion("FUNC_ALARMAS_GESTION") === true;
     const searchParams = useSearchParams();
     // La pestaña Lista negra tiene su entrada en el menú: las dos viven en /admin/users.
     const enListaNegra = pathname === "/admin/users" && searchParams?.get("tab") === "listanegra";
@@ -117,7 +124,6 @@ export default function AdminLayout({
     // cada ítem pregunta por la clave de su pantalla. `ve` es sólo azúcar para leerlo.
     const ve = tiene;
     const [loggingOut, setLoggingOut] = useState(false);
-    const [acuseekOk, setAcuseekOk] = useState(false);
     const [modules, setModules] = useState<Record<ModuleId, boolean>>({
         MODULE_LPR: true,
         MODULE_FACE: false,
@@ -142,7 +148,6 @@ export default function AdminLayout({
     }, [pathname]);
     useEffect(() => {
         getEnabledModules().then(setModules).catch(() => { }).finally(() => setModulosListos(true));
-        hasAcuSeekNvr().then(setAcuseekOk).catch(() => {});
     }, []);
 
     const handleLogout = async () => {
@@ -209,40 +214,43 @@ export default function AdminLayout({
                 <nav className="flex-1 p-3 space-y-1 overflow-y-auto custom-scrollbar">
                     {!(modulosListos && roleLoaded) ? <EsqueletoMenu collapsed={collapsed} /> : (<>
                     {modules.MODULE_QUEUE ? (
-                        ve("monitor") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-queue" active={pathname === "/admin/monitor-queue"} collapsed={collapsed} />)
+                        puede("/admin/monitor-queue") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-queue" active={pathname === "/admin/monitor-queue"} collapsed={collapsed} />)
                     ) : modules.MODULE_FACE ? (
-                        ve("monitor") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-face" active={pathname === "/admin/monitor-face"} collapsed={collapsed} />)
+                        puede("/admin/monitor-face") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-face" active={pathname === "/admin/monitor-face"} collapsed={collapsed} />)
                     ) : (
-                        ve("monitor") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor LPR" href="/admin/monitor-lpr" active={pathname === "/admin/monitor-lpr"} collapsed={collapsed} />)
+                        puede("/admin/monitor-lpr") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor LPR" href="/admin/monitor-lpr" active={pathname === "/admin/monitor-lpr"} collapsed={collapsed} />)
                     )}
+                    {/* Los monitores juntos y en este orden (21/10, Nico): LPR, Intrusión, CCTV. */}
+                    {intrusionOn && puede("/admin/monitor-intrusion") && (<SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />)}
                     {!modules.MODULE_QUEUE && (
-                        ve("monitor") && (<SidebarItem icon={<Siren size={18} />} label="Gestión de alarmas" href="/admin/alarmas" active={pathname === "/admin/alarmas"} collapsed={collapsed} />)
+                        puede("/admin/monitor-cctv") && (<SidebarItem icon={<Cctv size={18} />} label="Monitor CCTV" href="/admin/monitor-cctv" active={pathname === "/admin/monitor-cctv"} collapsed={collapsed} />)
                     )}
-                    {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
-                        ve("intrusion") && (<SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />)
-                    )}
+                    {/* Gestión de alarmas también junta lo de LPR (atención, presencia): sigue en Matrículas y Rostro
+                        como antes, y en Filas aparece si hay intrusión o centrales. */}
+                    {(!modules.MODULE_QUEUE || intrusionOn || recepcionOn) && puede("/admin/alarmas") && (<SidebarItem icon={<Siren size={18} />} label="Gestión de alarmas" href="/admin/alarmas" active={pathname === "/admin/alarmas"} collapsed={collapsed} />)}
                     {modules.MODULE_QUEUE ? (
-                        ve("filas") && (<SidebarItem icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />)
+                        puede("/admin/flujo-filas") && (<SidebarItem icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />)
                     ) : (
-                        ve("historial") && (<SidebarItem icon={<History size={18} />} label="Historial de Acceso" href="/admin/history" active={pathname === "/admin/history"} collapsed={collapsed} />)
+                        puede("/admin/history") && (<SidebarItem icon={<History size={18} />} label="Historial de Acceso" href="/admin/history" active={pathname === "/admin/history"} collapsed={collapsed} />)
                     )}
                     {modules.MODULE_QUEUE && (
-                        ve("mapa") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapas" href="/admin/mapas" active={pathname === "/admin/mapas"} collapsed={collapsed} />)
+                        puede("/admin/mapas") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapas" href="/admin/mapas" active={pathname === "/admin/mapas"} collapsed={collapsed} />)
                     )}
-                    {!modules.MODULE_QUEUE && (
-                        ve("mapa") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapa" href="/admin/mapa" active={pathname === "/admin/mapa"} collapsed={collapsed} />)
-                    )}
-                    {ve("monitores") && (<SidebarItem icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />)}
+                    {/* Con Filas, Monitores sigue arriba (ese barrio no tiene sección Gestión); si no, va en Gestión. */}
+                    {modules.MODULE_QUEUE && puede("/admin/monitores") && (<SidebarItem icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />)}
 
                     {!modules.MODULE_QUEUE && (
                         <>
                             {!collapsed && <div className="pt-3 pb-1 px-3 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider transition-opacity">Gestión</div>}
                             {collapsed && <div className="my-2 border-t border-border" />}
-                            {ve("usuarios") && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users" && !enListaNegra} collapsed={collapsed} />)}
+                            {puede("/admin/users") && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users" && !enListaNegra} collapsed={collapsed} />)}
+                            {/* Monitores y Mapa pasaron a Gestión (21/10, Nico): arriba quedan sólo los monitores en vivo. */}
+                            {puede("/admin/monitores") && (<SidebarItem icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />)}
+                            {puede("/admin/mapa") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapa" href="/admin/mapa" active={pathname === "/admin/mapa"} collapsed={collapsed} />)}
                             {/* Entrada propia (San Nicolás, 15/10): desde que la «Lista de vigilancia» pasó a ser una pestaña
                                 de Usuarios, la guardia no la encontraba. Es lo que más se busca con apuro. */}
-                            {ve("usuarios") && (<SidebarItem icon={<Ban size={18} />} label="Lista negra" href="/admin/users?tab=listanegra" active={enListaNegra} collapsed={collapsed} insignia={enListaNegraN} />)}
-                            {ve("unidades") && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
+                            {puede("/admin/users") && (<SidebarItem icon={<Ban size={18} />} label="Lista negra" href="/admin/users?tab=listanegra" active={enListaNegra} collapsed={collapsed} insignia={enListaNegraN} />)}
+                            {puede("/admin/units") && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
                             {/* Una sola entrada para toda la flota.
                                 Antes había tres —una por módulo—, y cada una llevaba su propio
                                 `?type=`. O sea que desde el menú NUNCA se llegaba a la lista
@@ -251,18 +259,19 @@ export default function AdminLayout({
                                 `pathname` contra "type=LPR", y usePathname() no devuelve la query
                                 — asi que ninguna de las tres se marcaba nunca como elegida.
                                 Los dispositivos no son de un módulo: son el parque. */}
-                            {ve("dispositivos") && (<SidebarItem icon={<Video size={18} />} label="Dispositivos" href="/admin/devices" active={!!pathname?.startsWith("/admin/devices")} collapsed={collapsed} />)}
-                            {ve("invitados") && (<SidebarItem icon={<Calendar size={18} />} label="Calendario" href="/admin/calendar" active={pathname === "/admin/calendar"} collapsed={collapsed} />)}
-                            {modules.MODULE_LPR && ve("invitados") && (<SidebarItem icon={<Ticket size={18} />} label="Invitados" href="/admin/invitados" active={pathname === "/admin/invitados"} collapsed={collapsed} />)}
+                            {puede("/admin/devices") && (<SidebarItem icon={<Video size={18} />} label="Dispositivos" href="/admin/devices" active={!!pathname?.startsWith("/admin/devices")} collapsed={collapsed} />)}
+                            {puede("/admin/calendar") && (<SidebarItem icon={<Calendar size={18} />} label="Calendario" href="/admin/calendar" active={pathname === "/admin/calendar"} collapsed={collapsed} />)}
+                            {modules.MODULE_LPR && puede("/admin/invitados") && (<SidebarItem icon={<Ticket size={18} />} label="Invitados" href="/admin/invitados" active={pathname === "/admin/invitados"} collapsed={collapsed} />)}
                         </>
                     )}
 
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
                         <>
                             {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-amber-500/60 uppercase tracking-widest">LPR</div>}
-                            {ve("vehiculos") && (<SidebarItem icon={<Car size={18} />} label="Vehículos / Matrículas" href="/admin/vehicles" active={pathname === "/admin/vehicles" || pathname === "/admin/credentials"} collapsed={collapsed} />)}
-                            {ve("historial") && (<SidebarItem icon={<FileSearch size={18} />} label="Lecturas de cámara" href="/admin/lecturas-camara" active={pathname === "/admin/lecturas-camara"} collapsed={collapsed} />)}
-                            {acuseekOk && ve("acuseek") && (<SidebarItem icon={<Sparkles size={18} />} label="Búsqueda inteligente" href="/admin/acuseek" active={pathname === "/admin/acuseek"} collapsed={collapsed} />)}
+                            {puede("/admin/vehicles") && (<SidebarItem icon={<Car size={18} />} label="Vehículos / Matrículas" href="/admin/vehicles" active={pathname === "/admin/vehicles" || pathname === "/admin/credentials"} collapsed={collapsed} />)}
+                            {puede("/admin/lecturas-camara") && (<SidebarItem icon={<FileSearch size={18} />} label="Lecturas de cámara" href="/admin/lecturas-camara" active={pathname === "/admin/lecturas-camara"} collapsed={collapsed} />)}
+                            {/* «Búsqueda inteligente» salió del menú (21/10): mezclaba la búsqueda propia con la del grabador.
+                                Ahora vive en el buscador del Historial, con un botón por motor (OmniVision, Grabador IA). */}
                         </>
                     )}
 
@@ -275,24 +284,24 @@ export default function AdminLayout({
                     {modules.MODULE_QUEUE && (
                         <>
                             {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-violet-500/60 uppercase tracking-widest">Filas</div>}
-                            {ve("filas") && (<SidebarItem icon={<Rows3 size={18} />} label="Filas" href="/admin/filas" active={pathname === "/admin/filas"} collapsed={collapsed} />)}
-                            {ve("filas") && (<SidebarItem icon={<Send size={18} />} label="Despachos" href="/admin/despachos" active={pathname === "/admin/despachos"} collapsed={collapsed} />)}
-                            {ve("filas") && (<SidebarItem icon={<FileBarChart size={18} />} label="Reportes" href="/admin/reportes-queue" active={pathname === "/admin/reportes-queue"} collapsed={collapsed} />)}
-                            {ve("filas") && (<SidebarItem icon={<Calendar size={18} />} label="Horarios de Filas" href="/admin/horarios-filas" active={pathname === "/admin/horarios-filas"} collapsed={collapsed} />)}
-                            {ve("filas") && (<SidebarItem icon={<LayoutGrid size={18} />} label="Pantalla / Kiosko" href="/admin/kiosko" active={pathname === "/admin/kiosko"} collapsed={collapsed} />)}
-                            {ve("filas") && (<SidebarItem icon={<SlidersHorizontal size={18} />} label="Calibración" href="/admin/calibracion-aforo" active={pathname === "/admin/calibracion-aforo"} collapsed={collapsed} />)}
+                            {puede("/admin/filas") && (<SidebarItem icon={<Rows3 size={18} />} label="Filas" href="/admin/filas" active={pathname === "/admin/filas"} collapsed={collapsed} />)}
+                            {puede("/admin/despachos") && (<SidebarItem icon={<Send size={18} />} label="Despachos" href="/admin/despachos" active={pathname === "/admin/despachos"} collapsed={collapsed} />)}
+                            {puede("/admin/reportes-queue") && (<SidebarItem icon={<FileBarChart size={18} />} label="Reportes" href="/admin/reportes-queue" active={pathname === "/admin/reportes-queue"} collapsed={collapsed} />)}
+                            {puede("/admin/horarios-filas") && (<SidebarItem icon={<Calendar size={18} />} label="Horarios de Filas" href="/admin/horarios-filas" active={pathname === "/admin/horarios-filas"} collapsed={collapsed} />)}
+                            {puede("/admin/kiosko") && (<SidebarItem icon={<LayoutGrid size={18} />} label="Pantalla / Kiosko" href="/admin/kiosko" active={pathname === "/admin/kiosko"} collapsed={collapsed} />)}
+                            {puede("/admin/calibracion-aforo") && (<SidebarItem icon={<SlidersHorizontal size={18} />} label="Calibración" href="/admin/calibracion-aforo" active={pathname === "/admin/calibracion-aforo"} collapsed={collapsed} />)}
                         </>
                     )}
 
                     {!modules.MODULE_QUEUE && (
                         <>
-                            {ve("vehiculos") && (<SidebarItem icon={<CreditCard size={18} />} label="Tags RFID" href="/admin/rfid" active={pathname === "/admin/rfid"} collapsed={collapsed} />)}
-                            {ve("grupos") && (<SidebarItem icon={<Users size={18} />} label="Grupos de Acceso" href="/admin/groups" active={pathname === "/admin/groups"} collapsed={collapsed} />)}
+                            {puede("/admin/rfid") && (<SidebarItem icon={<CreditCard size={18} />} label="Tags RFID" href="/admin/rfid" active={pathname === "/admin/rfid"} collapsed={collapsed} />)}
+                            {puede("/admin/groups") && (<SidebarItem icon={<Users size={18} />} label="Grupos de Acceso" href="/admin/groups" active={pathname === "/admin/groups"} collapsed={collapsed} />)}
                         </>
                     )}
 
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
-                        ve("plazas") && plazasOn && (<SidebarItem icon={<LayoutGrid size={18} />} label="Plazas de Parking" href="/admin/plazas" active={pathname === "/admin/plazas"} collapsed={collapsed} />)
+                        puede("/admin/plazas") && plazasOn && (<SidebarItem icon={<LayoutGrid size={18} />} label="Plazas de Parking" href="/admin/plazas" active={pathname === "/admin/plazas"} collapsed={collapsed} />)
                     )}
 
                     {modules.MODULE_LPR && modules.MODULE_GUARD && (
@@ -300,15 +309,20 @@ export default function AdminLayout({
                             {!collapsed && <div className="pt-3 pb-1 px-3 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider transition-opacity">Guardia</div>}
                             {collapsed && <div className="my-2 border-t border-border" />}
                             {ve("guardia") && (<SidebarItem icon={<ShieldCheck size={18} />} label="Consola de Guardia" href="/guard" active={pathname === "/guard"} collapsed={collapsed} />)}
-                            {ve("guardia") && (<SidebarItem icon={<FileBarChart size={18} />} label="Bitácora" href="/admin/bitacora" active={pathname === "/admin/bitacora"} collapsed={collapsed} />)}
-                            {ve("guardia") && (<SidebarItem icon={<Clock size={18} />} label="Visitas" href="/admin/visitas" active={pathname === "/admin/visitas"} collapsed={collapsed} />)}
-                            {ve("guardia") && (<SidebarItem icon={<ShieldCheck size={18} />} label="Consola / Puesto" href="/admin/consolas" active={pathname === "/admin/consolas"} collapsed={collapsed} />)}
+                            {puede("/admin/bitacora") && (<SidebarItem icon={<FileBarChart size={18} />} label="Bitácora" href="/admin/bitacora" active={pathname === "/admin/bitacora"} collapsed={collapsed} />)}
+                            {puede("/admin/visitas") && (<SidebarItem icon={<Clock size={18} />} label="Visitas" href="/admin/visitas" active={pathname === "/admin/visitas"} collapsed={collapsed} />)}
+                            {puede("/admin/consolas") && (<SidebarItem icon={<ShieldCheck size={18} />} label="Consola / Puesto" href="/admin/consolas" active={pathname === "/admin/consolas"} collapsed={collapsed} />)}
                         </>
                     )}
 
                     <div className="my-2 border-t border-border" />
-                    {ve("ajustes") && (<SidebarItem icon={<BookOpen size={18} />} label="Manuales" href="/admin/manuales" active={pathname === "/admin/manuales"} collapsed={collapsed} />)}
-                            {ve("ajustes") && (<SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings"} collapsed={collapsed} />)}
+                    {/* Manuales salió de acá (21/10, Nico): es una entrada del menú de Configuración, y
+                        mientras se está en él queda marcada Configuración. */}
+                    {/* OmniVision y Auditoría viven dentro de Configuración; quien los tiene sin Ajustes (un
+                        operador de monitoreo, un auditor) no tendría por dónde entrar (roles-y-permisos). */}
+                    {!puede("/admin/settings") && puede("/admin/vision") && (<SidebarItem icon={<ScanEye size={18} />} label="OmniVision" href="/admin/vision" active={!!pathname?.startsWith("/admin/vision")} collapsed={collapsed} />)}
+                    {!puede("/admin/settings") && puede("/admin/audit") && (<SidebarItem icon={<ClipboardList size={18} />} label="Auditoría" href="/admin/audit" active={pathname === "/admin/audit"} collapsed={collapsed} />)}
+                    {puede("/admin/settings") && (<SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings" || pathname === "/admin/manuales"} collapsed={collapsed} />)}
                                     </>)}
                 </nav>
 
@@ -382,7 +396,12 @@ export default function AdminLayout({
                 en cada pantalla del panel, en barrios que no tienen ninguna cámara de aforo (15/10). */}
             {modulosListos && modules.MODULE_QUEUE && <AforoAlertOverlay />}
             {/* Intrusión confirmada por una cámara: respira en rojo en TODA la aplicación hasta que alguien decida real / falsa. */}
-            <AlertaIntrusionGlobal />
+            {intrusionOn && <AlertaIntrusionGlobal />}
+            {/* Los eventos de las centrales de alarma: su propia ficha, que se trata (22/10). */}
+            {gestionOn && <AlertaCentralGlobal />}
+            {/* Los avisos de toda la app, en una sola pila abajo al centro (20/10): intrusión, lista negra, merodeo, patrones y OmniVision. */}
+            <AvisosLpr />
+            <PilaAvisos />
             <CargarMarcasCamara />
             <LiveEdgeKeeper />
 

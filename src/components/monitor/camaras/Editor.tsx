@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { X, Search, Save, Trash2, Loader2, Server, Plus, ShieldAlert, Car, GripVertical } from "lucide-react";
+import { X, Search, Save, Trash2, Loader2, Server, Plus, ShieldAlert, Car, GripVertical, Globe, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DISPOSICIONES, disposicionDe, NOMBRE_VISTA_MAX, type VistaCamaras } from "@/lib/monitor/disposiciones";
 import { guardarVistaCamaras, borrarVistaCamaras } from "@/app/actions/monitores";
 import { Foto, Glifo, estiloCasilla, fotoDe, ubicacion, grupoDe, type Canal } from "./piezas";
 import { cn } from "@/lib/utils";
+import { esClaveWeb, PREFIJO_WEB, type FuenteWeb } from "@/lib/monitor/fuentes-web";
 
 /**
  * Diseñar una vista, como en un NVR: se elige la disposición y qué canal va en cada casilla.
@@ -23,9 +24,11 @@ import { cn } from "@/lib/utils";
 const FOTO_EDITOR_MS = 30_000;
 const ARRASTRE = "text/omni-canal";
 
-export function EditorVista({ inicial, canales, alSalir }: {
+export function EditorVista({ inicial, canales, fuentes = [], alSalir }: {
     inicial: VistaCamaras;
     canales: Canal[];
+    /** Las páginas web que se pueden poner en una casilla en lugar de un canal (openspec pared-vms). */
+    fuentes?: FuenteWeb[];
     /** Al terminar: la vista guardada (para mostrarla), "borrada", o null si se canceló. */
     alSalir: (r: VistaCamaras | "borrada" | null) => void;
 }) {
@@ -37,6 +40,8 @@ export function EditorVista({ inicial, canales, alSalir }: {
     const [error, setError] = useState<string | null>(null);
     const d = disposicionDe(b.disposicion);
     const porClave = useMemo(() => new Map(canales.map((c) => [c.clave, c])), [canales]);
+    const fuentePorClave = useMemo(() => new Map(fuentes.map((f) => [`${PREFIJO_WEB}${f.id}`, f])), [fuentes]);
+    const fuentesVisibles = useMemo(() => { const q = buscar.trim().toLowerCase(); return fuentes.filter((f) => !q || `${f.nombre} ${f.url}`.toLowerCase().includes(q)); }, [fuentes, buscar]);
     const usados = new Set(b.canales.filter(Boolean) as string[]);
 
     const cambiarDisposicion = (clave: string) => {
@@ -97,6 +102,7 @@ export function EditorVista({ inicial, canales, alSalir }: {
                 {d.casillas.map((cas, i) => {
                     const c = b.canales[i] ? porClave.get(b.canales[i]!) : null;
                     const f = c ? fotoDe(c, 480) : null;
+                    const web = esClaveWeb(b.canales[i]) ? fuentePorClave.get(b.canales[i]!) || null : null;
                     return (
                         <div key={i} style={estiloCasilla(cas)} role="button" tabIndex={0} onClick={() => setSel(i)}
                             onDragOver={(e) => e.preventDefault()} onDrop={(e) => soltar(i, e)}
@@ -113,8 +119,22 @@ export function EditorVista({ inicial, canales, alSalir }: {
                                     <button type="button" aria-label="Vaciar esta casilla" onClick={(e) => { e.stopPropagation(); poner(i, null); }}
                                         className="absolute top-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white/85 hover:text-white"><X size={15} /></button>
                                 </>
+                            ) : web ? (
+                                <>
+                                    {/* Una página: no se carga mientras se diseña; se muestra qué es y de dónde. */}
+                                    <span className="absolute inset-0 bg-[radial-gradient(120%_90%_at_20%_0%,color-mix(in_oklab,var(--accion)_22%,transparent),transparent_60%)]" />
+                                    <span className="absolute inset-0 grid place-items-center text-center px-4">
+                                        <span className="flex flex-col items-center gap-1.5">
+                                            <span className="grid place-items-center h-10 w-10 rounded-[12px] bg-white/10 text-[var(--accion-en-oscuro)]"><Globe size={20} /></span>
+                                            <span className="text-[14px] font-bold text-white">{web.nombre}</span>
+                                            <span className="text-[11.5px] text-white/55 truncate max-w-full">{(() => { try { return new URL(web.url).host; } catch { return web.url; } })()}</span>
+                                        </span>
+                                    </span>
+                                    <button type="button" aria-label="Vaciar esta casilla" onClick={(e) => { e.stopPropagation(); poner(i, null); }}
+                                        className="absolute top-2 right-2 grid h-8 w-8 place-items-center rounded-full bg-black/60 text-white/85 hover:text-white"><X size={15} /></button>
+                                </>
                             ) : b.canales[i] ? (
-                                <span className="absolute inset-0 grid place-items-center text-[13px] text-white/45 text-center px-3">Este canal ya no está en la lista</span>
+                                <span className="absolute inset-0 grid place-items-center text-[13px] text-white/45 text-center px-3">{esClaveWeb(b.canales[i]) ? "Esta página web ya no existe" : "Este canal ya no está en la lista"}</span>
                             ) : (
                                 <span className="absolute inset-0 grid place-items-center text-white/35">
                                     <span className="flex flex-col items-center gap-1 text-[13px]"><Plus size={20} />{sel === i ? "Elegí un canal de la lista" : "Vacía"}</span>
@@ -147,10 +167,30 @@ export function EditorVista({ inicial, canales, alSalir }: {
                 </div>
                 <div className="relative">
                     <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar canal" aria-label="Buscar canal"
+                    <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder={fuentes.length ? "Buscar canal o página" : "Buscar canal"} aria-label="Buscar canal"
                         className="w-full h-10 rounded-[6px] border border-input bg-background pl-9 pr-3 text-[14px] outline-none focus:ring-2 focus:ring-[var(--accion)]" />
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1">
+                    {fuentesVisibles.length > 0 && (
+                        <div className="mb-2">
+                            <div className="sticky top-0 bg-card py-1 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-1"><Globe size={10} /> Páginas web</div>
+                            {fuentesVisibles.map((w) => {
+                                const k = `${PREFIJO_WEB}${w.id}`; const en = b.canales.indexOf(k);
+                                return (
+                                    <button key={k} type="button" draggable onDragStart={(e) => e.dataTransfer.setData(ARRASTRE, k)} onClick={() => elegir(k)}
+                                        className={cn("w-full flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-left hover:bg-muted", usados.has(k) && "opacity-60")}>
+                                        <GripVertical size={14} className="text-muted-foreground/60 shrink-0" />
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block text-[13px] font-semibold truncate">{w.nombre}</span>
+                                            <span className="block text-[11.5px] text-muted-foreground truncate">{(() => { try { return new URL(w.url).host; } catch { return w.url; } })()}</span>
+                                        </span>
+                                        {!!w.avisos?.length && <TriangleAlert size={14} className="text-[var(--aviso-texto)] shrink-0" aria-label="Tiene avisos: ver Monitores" />}
+                                        {en >= 0 && <span className="rounded-full bg-muted px-1.5 text-[11px] font-semibold tabular-nums">{en + 1}</span>}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
                     {grupos.map(([g, lista]) => (
                         <div key={g} className="mb-2">
                             <div className="sticky top-0 bg-card py-1 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-1"><Server size={10} /> {g}</div>
@@ -172,7 +212,7 @@ export function EditorVista({ inicial, canales, alSalir }: {
                             })}
                         </div>
                     ))}
-                    {!grupos.length && <p className="text-[13px] text-muted-foreground p-2">Ningún canal con ese nombre.</p>}
+                    {!grupos.length && !fuentesVisibles.length && <p className="text-[13px] text-muted-foreground p-2">Ningún canal con ese nombre.</p>}
                 </div>
                 {error && <p className="text-[13px] tono-mal">{error}</p>}
                 <div className="flex items-center gap-2">

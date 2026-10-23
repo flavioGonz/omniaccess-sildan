@@ -3,7 +3,8 @@
 const http = require("http");
 const crypto = require("crypto");
 const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+// Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
+const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 const { captureForDevice } = require("./lib-intrusion-capture");
 
 const md5 = (s) => crypto.createHash("md5").update(s).digest("hex");

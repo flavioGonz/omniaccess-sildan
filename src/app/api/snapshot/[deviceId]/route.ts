@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { hostHttp } from "@/lib/host-http";
 import { prisma } from "@/lib/prisma";
 import https from "https";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
@@ -134,15 +135,15 @@ export async function GET(
             case "BOSCH":
                 snapshotUrl = `https://${device.ip}/snap.jpg?JpegSize=L`; break;
             case "DAHUA":
-                snapshotUrl = `http://${device.ip}/cgi-bin/snapshot.cgi?channel=1`; break;
+                snapshotUrl = `http://${await hostHttp(device.ip)}/cgi-bin/snapshot.cgi?channel=1`; break;
             default:
-                snapshotUrl = `http://${device.ip}/snap.jpg`;
+                snapshotUrl = `http://${await hostHttp(device.ip)}/snap.jpg`;
         }
         let imageBuffer = await fetchSnapshot(snapshotUrl, headers);
         if (!imageBuffer) imageBuffer = await nvrSnapshot(deviceId);
         if (!imageBuffer) imageBuffer = await go2rtcFrameRetry(deviceId);
         if (!imageBuffer) return new NextResponse("No snapshot available", { status: 502 });
-        return new NextResponse(imageBuffer, {
+        return new NextResponse(new Uint8Array(imageBuffer), {
             status: 200,
             headers: {
                 "Content-Type": "image/jpeg",

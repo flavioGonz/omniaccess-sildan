@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
-import { ChevronRight, Folder, FolderOpen, Eye, Settings2, Crosshair, Wand2, Inbox, Layers, GripVertical, Activity } from "lucide-react";
+import { ChevronRight, Folder, FolderOpen, Eye, Settings2, Crosshair, Wand2, Inbox, Layers, GripVertical, Activity, PowerOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { esLprDeAcceso } from "@/lib/modo-camara";
 import { IconoTipo, ICONO_TIPO, arrastrarEquipos, SIN_AREA } from "@/components/devices/ArbolAreas";
 import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
 import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
@@ -15,11 +15,13 @@ import type { FilaGrabacion } from "@/app/actions/grabaciones";
  * sus sub-áreas como grupos plegables. Se llega eligiendo una carpeta en el árbol.
  */
 export function VistaArea({ estado, areaId, devices, busqueda = "", health = {}, alertasDe = {}, grab = {}, detectando, calculando,
-    onDetectar, onRetencion, onEditar, onVivo, onCalibrar, onSalud, onElegirArea }: {
+    onDetectar, onRetencion, onEditar, onVivo, onCalibrar, onCalibrarIntrusion, onSalud, onElegirArea }: {
     estado: EstadoAreas; areaId: string; devices: any[]; busqueda?: string; health?: Record<string, any>; alertasDe?: Record<string, AlertaEquipo[]>;
     grab?: Record<string, FilaGrabacion>; detectando?: string | null; calculando?: string | null;
     onDetectar: (ids: string[]) => void; onRetencion: (id: string) => void; onEditar: (d: any) => void; onVivo?: (d: any) => void;
     onCalibrar: (d: any) => void; onSalud: (d: any) => void; onElegirArea: (id: string) => void;
+    /** La analítica de intrusión de una cámara que además lee matrículas (LPR_INTERIOR): la misma cámara puede vigilar un perímetro. */
+    onCalibrarIntrusion?: (d: any) => void;
 }) {
     const [tipo, setTipo] = useState<string>("todos");
     const [cerrados, setCerrados] = useState<Set<string>>(new Set());
@@ -49,7 +51,12 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
         const h = health[d.id];
         const on = h ? h.reachable : null;
         return (
-            <motion.div key={d.id} layout draggable onDragStart={(e: any) => arrastrarEquipos(e, [d.id], d.name)} onClick={(e: any) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; onEditar(d); }}
+            /* Un div común y no motion.div (22/10, Nico: «el drag and drop no funciona más para colocar
+               dispositivos en áreas»): framer-motion se queda con onDragStart para su propio gesto de
+               arrastre y no se lo pasa al elemento, así que el arrastre nativo salía sin el equipo
+               adentro y el árbol de áreas no lo aceptaba. Lo único que se pierde es la animación de
+               reacomodo de la fila. */
+            <div key={d.id} draggable onDragStart={(e) => arrastrarEquipos(e, [d.id], d.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; onEditar(d); }}
                 className={cn("group grid grid-cols-[minmax(0,1.6fr)_110px_minmax(0,1.3fr)_78px_auto] items-center gap-3 px-3 py-2 border-t border-border/50 hover:bg-foreground/[0.03] cursor-pointer", alertasDe[d.id] && "bg-red-500/[0.035]")}>
                 <div className="flex items-center gap-2.5 min-w-0">
                     <GripVertical size={12} className="text-muted-foreground/30 group-hover:text-muted-foreground shrink-0 -ml-1" />
@@ -76,18 +83,22 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
                     {d.deviceType === "NVR" ? <span className="text-[11px] text-muted-foreground">—</span> :
                         <CeldaGrabacion g={grab[d.id]} detectando={detectando === d.id || detectando === "__todas__"} calculando={calculando === d.id} onDetectar={() => onDetectar([d.id])} onRetencion={() => onRetencion(d.id)} />}
                 </div>
-                <span className={cn("h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit",
+                {h?.apagado ? <span className="h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit text-muted-foreground border-border bg-muted/40" data-tooltip-id="tt-grab" data-tooltip-content="Su área está apagada: OmniAccess no la consume (sin vivo, análisis ni consultas). Se reactiva desde el árbol de áreas."><PowerOff size={10} /> Apagado</span> : <span className={cn("h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit",
                     on === null ? "text-muted-foreground border-border" : on ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/25" : "bg-red-500/10 text-red-500 border-red-500/25")}>
                     <span className={cn("w-1.5 h-1.5 rounded-full", on === null ? "bg-muted-foreground/40" : on ? "bg-emerald-500" : "bg-red-500")} />{on === null ? "…" : on ? "On" : "Off"}
-                </span>
+                </span>}
                 <div className="flex items-center justify-end gap-0.5">
-                    {(d.deviceType === "CAMERA" || (d.deviceType === "LPR_CAMERA" && d.brand === "HIKVISION")) && (
-                        <button onClick={() => onCalibrar(d)} data-tooltip-id="tt-grab" data-tooltip-content={d.deviceType === "CAMERA" ? "Calibrar intrusión" : "Calibrar ANPR"} className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10">{d.deviceType === "CAMERA" ? <Crosshair size={14} /> : <Wand2 size={14} />}</button>
+                    {/* Las de lectura OmniVision (LPR_INTERIOR + acceso) también se calibran: imagen, sin ANPR. */}
+                    {(d.deviceType === "CAMERA" || (esLprDeAcceso(d) && d.brand === "HIKVISION")) && (
+                        <button onClick={() => onCalibrar(d)} data-tooltip-id="tt-grab" data-tooltip-content={d.deviceType === "CAMERA" ? "Calibrar intrusión" : d.deviceType === "LPR_INTERIOR" ? "Calibrar imagen (lectura OmniVision)" : "Calibrar ANPR"} className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10">{d.deviceType === "CAMERA" ? <Crosshair size={14} /> : <Wand2 size={14} />}</button>
+                    )}
+                    {d.deviceType === "LPR_INTERIOR" && onCalibrarIntrusion && (d.brand === "HIKVISION" || d.brand === "DAHUA") && (
+                        <button onClick={() => onCalibrarIntrusion(d)} data-tooltip-id="tt-grab" data-tooltip-content="Calibrar intrusión (analítica de la cámara)" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-500/10"><Crosshair size={14} /></button>
                     )}
                     <button onClick={() => onSalud(d)} data-tooltip-id="tt-grab" data-tooltip-content="Historial de salud" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><Activity size={14} /></button>
                     <button onClick={() => onEditar(d)} data-tooltip-id="tt-grab" data-tooltip-content="Editar" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><Settings2 size={14} /></button>
                 </div>
-            </motion.div>
+            </div>
         );
     };
 

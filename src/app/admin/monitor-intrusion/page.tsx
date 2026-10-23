@@ -1,13 +1,14 @@
 "use client";
 
+import { AjusteVideoFicha } from "@/components/video/AjusteVideoFicha";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, reclasificarComoFalsa, marcarDeteccion, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
 import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Eye, ScanEye, UserX, CircleDashed, Layers, Repeat, Image as ImageIcon } from "lucide-react";
-import { useClipEvento, CLIP_ANTES_S } from "@/lib/clip-evento";
+import { useClipEvento } from "@/lib/clip-evento";
 import { cn } from "@/lib/utils";
-import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
+import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
 import { InteriorCalibrator } from "@/components/InteriorCalibrator";
 import { PtzControls, ptzAngleToDir } from "@/components/PtzControls";
 import { PlaybackTimeline } from "@/components/PlaybackTimeline";
@@ -19,6 +20,7 @@ import { META_DETECCION, GeomOverlay } from "@/components/intrusion/comun";
 import "react-tooltip/dist/react-tooltip.css";
 import { LiveModal } from "@/components/intrusion/LiveModal";
 import { FichaDeteccion as DetailDialog } from "@/components/intrusion/FichaDeteccion";
+import { CajonServidorAlarma } from "@/components/intrusion/CajonServidorAlarma";
 import { HorarioArmadoDialog, ResumenArmado, type HorariosCamara } from "@/components/intrusion/HorarioArmado";
 import { conAncho } from "@/lib/ancho-foto";
 import { FILTROS_VISION, VEREDICTOS, pasaVision, type FiltroVision, type Veredicto } from "@/lib/vision-capa";
@@ -26,6 +28,9 @@ import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Filtros } from "@/components/ui/filtros";
 import { Seek } from "@/components/ui/search";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ElegirArea } from "@/components/devices/ElegirArea";
+import { useFiltroArea } from "@/lib/use-filtro-area";
 
 /** El ícono de cada filtro de OmniVision, para la barra de sólo íconos de la lista. */
 const ICONO_VISION: Record<FiltroVision, typeof ScanEye> = { todas: ScanEye, alguien: User, nadie: UserX, sin: CircleDashed };
@@ -219,149 +224,6 @@ function CamTile({ cam, alarms, last, geom, hasAnalytics, alarmActive, attending
                 {m ? <m.Icon size={13} className={cn("shrink-0 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]", tc)} /> : <Clock size={12} className="shrink-0 text-white/55 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]" />}
                 <span className={cn("text-[11px] font-extrabold truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]", tc)}>{m ? m.label : "Sin detecciones"}</span>
                 {m && <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-bold tabular-nums text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]"><Clock size={9} className="opacity-70" />{ago(last!.timestamp)}</span>}
-            </div>
-        </div>
-    );
-}
-
-function AlarmDialog({ cam, onClose, onStatus }: { cam: IntrusionCam; onClose: () => void; onStatus?: (camId: string, ok: boolean) => void }) {
-    const [phase, setPhase] = useState<"loading" | "ready" | "applying" | "testing">("loading");
-    const [hosts, setHosts] = useState<any[]>([]);
-    const [hasOmni, setHasOmni] = useState(false);
-    const [msg, setMsg] = useState("");
-    const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
-    const [dahua, setDahua] = useState(false);
-    const [nvr, setNvr] = useState<{ ip: string; name: string; reachable: boolean } | null>(null);
-    const [info, setInfo] = useState("");
-
-    const load = () => {
-        setPhase("loading"); setTest(null);
-        fetch(`/api/devices/alarm-host?deviceId=${cam.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => {
-            setHosts(Array.isArray(d.hosts) ? d.hosts : []); setHasOmni(!!d.hasOmni);
-            setDahua(!!d.dahua); setNvr(d.nvr || null); setInfo(d.info || "");
-            if (!d.ok && d.error) setMsg(d.error); else setMsg("");
-            onStatus?.(cam.id, !!d.hasOmni);
-            setPhase("ready");
-        }).catch(() => { setMsg("No se pudo leer la configuración del equipo"); setPhase("ready"); });
-    };
-    useEffect(load, [cam.id]);
-
-    const apply = async () => {
-        setPhase("applying"); setMsg("");
-        try {
-            const d = await fetch(`/api/devices/alarm-host?deviceId=${cam.id}`, { method: "POST" }).then((r) => r.json());
-            setMsg(d.ok ? (d.already ? "Ya estaba configurado ✓" : "Configurado en el equipo ✓") : (d.error || "No se pudo configurar"));
-            if (d.ok) onStatus?.(cam.id, true);
-        } catch (e: any) { setMsg(e?.message || "Error"); }
-        load();
-    };
-    const doTest = async () => {
-        setPhase("testing"); setTest(null);
-        try {
-            const d = await fetch(`/api/devices/alarm-host?deviceId=${cam.id}&action=test`, { method: "POST" }).then((r) => r.json());
-            if (d.ok) setTest({ ok: !!d.reporting, text: d.reporting ? "El equipo reporta OK a OmniAccess ✓" : "Test enviado; el equipo no confirmó explícitamente (revisá que lleguen eventos)." });
-            else setTest({ ok: false, text: d.error || "El test falló" });
-        } catch (e: any) { setTest({ ok: false, text: e?.message || "Error en el test" }); }
-        setPhase("ready");
-    };
-
-    const EVENT_TARGET = "172.16.2.71:10000"; // informativo
-
-    return (
-        <div className="fixed inset-0 z-[2000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => phase === "ready" || phase === "loading" ? onClose() : null}>
-            <div className="w-full max-w-lg rounded-2xl bg-card border border-border shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center gap-2.5 px-5 py-4 border-b border-border bg-gradient-to-r from-red-500/[0.07] to-transparent">
-                    <span className="w-8 h-8 rounded-xl bg-red-500/15 grid place-items-center"><BellRing size={16} className="text-red-500" /></span>
-                    <div className="min-w-0">
-                        <div className="font-bold leading-tight truncate">Servidor de alarma</div>
-                        <div className="text-[11px] text-muted-foreground truncate">{cam.name}{cam.nvrName ? ` · ${cam.nvrName}` : ""}</div>
-                    </div>
-                    <button onClick={onClose} className="ml-auto w-8 h-8 grid place-items-center rounded-full hover:bg-accent text-muted-foreground"><X size={18} /></button>
-                </div>
-
-                <div className="p-5 space-y-4">
-                    {phase === "loading" ? (
-                        <div className="flex items-center gap-2 text-muted-foreground py-6 justify-center"><Loader2 size={16} className="animate-spin" /> Leyendo configuración del equipo…</div>
-                    ) : (
-                        <>
-                            {dahua ? (
-                                /* ── DAHUA: suscripción por eventManager (pull), no hay push por equipo ── */
-                                <>
-                                    <div className="rounded-xl border border-border bg-background/50 p-3.5">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Recepción de eventos (Dahua)</span>
-                                            {nvr?.reachable
-                                                ? <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"><Check size={11} /> Suscripción activa</span>
-                                                : <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/15 text-red-400 border border-red-500/30"><ShieldAlert size={11} /> NVR no accesible</span>}
-                                        </div>
-                                        <p className="text-[12px] text-muted-foreground">{info || "OmniAccess recibe los eventos de este NVR Dahua por suscripción directa (eventManager). No requiere configurar un servidor de alarma en el equipo."}</p>
-                                        {nvr && <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1.5"><Server size={12} /> NVR: <span className="font-mono">{nvr.name} · {nvr.ip}</span></p>}
-                                        <p className="text-[10px] text-muted-foreground mt-1">Ingesta OmniAccess: <span className="font-mono">eventManager.cgi (pull)</span></p>
-                                    </div>
-
-                                    {msg && !nvr?.reachable && <p className="text-sm font-semibold text-red-500">{msg}</p>}
-                                    {test && <p className={cn("text-sm font-semibold flex items-center gap-1.5", test.ok ? "text-emerald-500" : "text-amber-500")}><Wifi size={15} /> {test.text}</p>}
-
-                                    <div className="flex items-center gap-2">
-                                        <button onClick={doTest} disabled={phase === "testing"} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold active:scale-95 transition-all disabled:opacity-60">
-                                            {phase === "testing" ? <Loader2 size={15} className="animate-spin" /> : <Wifi size={15} />} Verificar suscripción
-                                        </button>
-                                        <button onClick={onClose} className="ml-auto px-4 py-2.5 rounded-xl text-sm font-bold text-muted-foreground hover:bg-accent">Cerrar</button>
-                                    </div>
-                                </>
-                            ) : (
-                            <>
-                            {/* Estado actual */}
-                            <div className="rounded-xl border border-border bg-background/50 p-3.5">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Servidores de alarma en el equipo</span>
-                                    {hasOmni
-                                        ? <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"><Check size={11} /> OmniAccess presente</span>
-                                        : <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30"><ShieldAlert size={11} /> OmniAccess no configurado</span>}
-                                </div>
-                                {hosts.length === 0 ? (
-                                    <p className="text-[12px] text-muted-foreground">El equipo no tiene servidores de alarma configurados.</p>
-                                ) : (
-                                    <div className="space-y-1">
-                                        {hosts.map((h, i) => (
-                                            <div key={i} className="flex items-center gap-2 text-[12px] font-mono">
-                                                <span className="text-muted-foreground w-5">#{h.id}</span>
-                                                <span className={cn("truncate", h.ip && h.ip !== "0.0.0.0" ? "text-foreground" : "text-muted-foreground/50")}>
-                                                    {h.ip && h.ip !== "0.0.0.0" ? `${h.ip}:${h.port}${h.url || ""}` : "— libre —"}
-                                                </span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                <p className="text-[10px] text-muted-foreground mt-2">Destino OmniAccess: <span className="font-mono">{EVENT_TARGET}</span></p>
-                            </div>
-
-                            {msg && <p className={cn("text-sm font-semibold", msg.includes("✓") ? "text-emerald-500" : "text-red-500")}>{msg}</p>}
-                            {test && <p className={cn("text-sm font-semibold flex items-center gap-1.5", test.ok ? "text-emerald-500" : "text-amber-500")}><Wifi size={15} /> {test.text}</p>}
-
-                            {/* Acciones */}
-                            <div className="flex items-center gap-2">
-                                {hasOmni ? (
-                                    <>
-                                        <button onClick={doTest} disabled={phase === "testing"} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold active:scale-95 transition-all disabled:opacity-60">
-                                            {phase === "testing" ? <Loader2 size={15} className="animate-spin" /> : <Wifi size={15} />} Probar reporte
-                                        </button>
-                                        <button onClick={apply} disabled={phase === "applying"} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border hover:bg-accent text-sm font-bold text-muted-foreground active:scale-95 transition-all">
-                                            {phase === "applying" ? <Loader2 size={15} className="animate-spin" /> : <RefreshCcw size={14} />} Reescribir config
-                                        </button>
-                                    </>
-                                ) : (
-                                    <button onClick={apply} disabled={phase === "applying"} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold active:scale-95 transition-all disabled:opacity-60">
-                                        {phase === "applying" ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Configurar OmniAccess como alarma
-                                    </button>
-                                )}
-                                <button onClick={onClose} className="ml-auto px-4 py-2.5 rounded-xl text-sm font-bold text-muted-foreground hover:bg-accent">Cerrar</button>
-                            </div>
-                            </>
-                            )}
-                        </>
-                    )}
-                </div>
             </div>
         </div>
     );
@@ -748,7 +610,7 @@ function MovablePip({ children, defaultW = 208, ring = "ring-white/15" }: { chil
         }
     };
     const end = (e: React.PointerEvent) => { d.current = null; try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { } };
-    const style: React.CSSProperties = st.x == null ? { right: 16, top: 64, width: st.w } : { left: st.x, top: st.y, width: st.w };
+    const style: React.CSSProperties = st.x == null ? { right: 16, top: 64, width: st.w } : { left: st.x, top: st.y ?? 64, width: st.w };
     return (
         <div ref={el} style={style} onPointerMove={onMove} onPointerUp={end} onPointerCancel={end}
             className={cn("absolute z-30 aspect-video rounded-xl overflow-hidden shadow-2xl ring-1 bg-black/60 select-none touch-none", ring)}>
@@ -777,7 +639,7 @@ function SeleccionDeteccion({ d, cam, alFicha, alVivo, alGrabacion, alCerrar }: 
 }) {
     const [ok, setOk] = useState(true);
     useEffect(() => { setOk(true); }, [d?.id]);
-    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible } = useClipEvento({
+    const { clipOn, cambiarClip, clip, clipVisible, setClipVisible, ventana: ventanaFicha } = useClipEvento({
         id: d?.id, deviceId: d?.deviceId, instante: d?.timestamp, nvrId: cam?.nvrId ?? null, ch: (d as any)?.ch ?? cam?.ch ?? null,
         activo: !!d && !String(d.id).startsWith("live-"),
     });
@@ -801,23 +663,24 @@ function SeleccionDeteccion({ d, cam, alFicha, alVivo, alGrabacion, alCerrar }: 
                 {d.deviceId && !String(d.id).startsWith("live-") && (
                     <button type="button" onClick={() => cambiarClip(!clipOn)} aria-pressed={clipOn}
                         data-tooltip-id="mi-tip"
-                        data-tooltip-content={!clipOn ? `Ver en loop los ${CLIP_ANTES_S} s antes de la foto`
+                        data-tooltip-content={!clipOn ? `Ver en loop los ${ventanaFicha.antes} s antes de la foto`
                             : clip.estado === "sin" ? `Sin video: ${clip.motivo}. Tocá para ver sólo la foto`
-                                : clip.estado === "listo" ? `Video del evento en loop (${CLIP_ANTES_S} s antes). Tocá para ver sólo la foto` : "Trayendo el video del grabador…"}
+                                : clip.estado === "listo" ? `Video del evento en loop (${ventanaFicha.antes} s antes). Tocá para ver sólo la foto` : "Trayendo el video del grabador…"}
                         className="absolute top-2 left-2 h-7 pl-2 pr-2.5 rounded-full bg-black/55 hover:bg-black/75 text-white/90 inline-flex items-center gap-1.5 text-[11px] font-semibold tabular-nums">
                         {!clipOn ? <><ImageIcon size={13} /> Foto</>
-                            : enVideo ? <><span className="w-1.5 h-1.5 rounded-full bg-[var(--accion-en-oscuro)]" /><Repeat size={13} /> {CLIP_ANTES_S} s antes</>
+                            : enVideo ? <><span className="w-1.5 h-1.5 rounded-full bg-[var(--accion-en-oscuro)]" /><Repeat size={13} /> {ventanaFicha.antes} s antes</>
                                 : clip.estado === "sin" ? <><ImageIcon size={13} /> Sin video</>
                                     : <><Loader2 size={13} className="animate-spin" /> Video…</>}
                     </button>
                 )}
+                {d.deviceId && !String(d.id).startsWith("live-") && <AjusteVideoFicha chico lado="abajo" className="absolute top-2 right-11 z-[3]" />}
                 <button type="button" onClick={alCerrar} aria-label="Cerrar" data-tooltip-id="mi-tip" data-tooltip-content="Quitar la selección"
                     className="absolute top-2 right-2 w-7 h-7 grid place-items-center rounded-full bg-black/55 text-white/85 hover:bg-black/75 hover:text-white"><X size={14} /></button>
             </div>
             <div className="px-4 pt-3 pb-3.5 flex flex-col gap-2.5">
                 <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">
-                        <div className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", d.type === "MOTION" ? "tono-info" : d.type === "LINECROSS" || d.type === "INTRUSION" ? "tono-mal" : "tono-aviso")}><m.Icon size={13} /> {m.label}</div>
+                        <div className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", d.type === "MOTION" ? "tono-info" : d.type === "LINECROSS" || d.type === "INTRUSION" || d.type === "CENTRAL" ? "tono-mal" : "tono-aviso")}><m.Icon size={13} /> {m.label}</div>
                         <div className="text-[15px] font-bold tracking-tight truncate">{d.deviceName || "Cámara"}</div>
                         <div className="text-[12px] text-muted-foreground tabular-nums">
                             {t.toLocaleDateString("es-UY", { weekday: "short", day: "2-digit", month: "2-digit" })} · {t.toLocaleTimeString("es-UY", { hour12: false })} · {ago(d.timestamp)}
@@ -838,6 +701,9 @@ function SeleccionDeteccion({ d, cam, alFicha, alVivo, alGrabacion, alCerrar }: 
 
 export default function MonitorIntrusion() {
     const [cams, setCams] = useState<IntrusionCam[]>([]);
+    // Áreas de Dispositivos (21/10, Nico): la pared y la columna de detecciones muestran sólo lo del
+    // área elegida. Un canal sin área propia toma la de su NVR.
+    const fa = useFiltroArea("monitor-intrusion");
     const [loading, setLoading] = useState(true);
     const [analyticsIds, setAnalyticsIds] = useState<Set<string>>(new Set());
     const [alarmIds, setAlarmIds] = useState<Set<string>>(new Set());
@@ -848,9 +714,11 @@ export default function MonitorIntrusion() {
     const [liveDev, setLiveDev] = useState<IntrusionCam | null>(null);
     const [q, setQ] = useState("");
     const [calibrateDev, setCalibrateDev] = useState<IntrusionCam | null>(null);
+    /** En una LPR_INTERIOR, qué se calibra: su intrusión (la analítica de la cámara) o la lectura de omni-lpr. */
+    const [calibQue, setCalibQue] = useState<"intrusion" | "lectura" | null>(null);
     /** Al cerrar un calibrador: la geometría de esa cámara se vuelve a leer sin el caché (acaba de cambiar). */
     const cerrarCalibrador = (id: string) => {
-        setCalibrateDev(null);
+        setCalibrateDev(null); setCalibQue(null);
         getAnalyticsGeometryBatch([id], true).then((g) => setGeom((prev) => ({ ...prev, ...g }))).catch(() => { });
         setAnalyticsIds((s) => new Set(s).add(id));
     };
@@ -926,8 +794,10 @@ export default function MonitorIntrusion() {
                 const item: DetItem = { id: d.id, deviceId: d.deviceId, deviceName: d.deviceName, type: d.type, eventType: d.eventType, snapshotPath: d.snapshotPath || null, timestamp: d.timestamp };
                 setDets((prev) => [item, ...prev.filter((x) => x.id !== d.id)].slice(0, 60));
                 if (d.deviceId && d.type !== "MOTION") { // alarma que se apila sobre el canal hasta que el operador la acepte
-                    const chip: AlarmChip = { id: d.id, type: d.type, label: (META[d.type] || META.OTHER).label, ts: d.timestamp };
-                    setAlarms((a) => ({ ...a, [d.deviceId]: [chip, ...(a[d.deviceId] || []).filter((x) => x.id !== d.id)].slice(0, 5) }));
+                    const chip: AlarmChip = { id: d.id, type: d.type, label: d.type === "CENTRAL" && d.label ? d.label : (META[d.type] || META.OTHER).label, ts: d.timestamp };
+                    // La alarma de una central (Alarm Hub) se enciende en las cámaras que miran esa zona.
+                    const sobre: string[] = d.type === "CENTRAL" && Array.isArray(d.camaras) && d.camaras.length ? d.camaras : [d.deviceId];
+                    setAlarms((a) => { const n = { ...a }; for (const k of sobre) n[k] = [chip, ...(a[k] || []).filter((x) => x.id !== d.id)].slice(0, 5); return n; });
                 }
             });
             s.on("detection_snapshot", (d: any) => { setDets((prev) => prev.map((x) => x.id === d.id ? { ...x, snapshotPath: d.snapshotPath } : x)); });
@@ -1002,10 +872,10 @@ export default function MonitorIntrusion() {
             if (analyticsIds.has(d.id)) return 1_000;
             return 0;
         };
-        let list = [...cams];
+        let list = cams.filter((c) => fa.enArea(c.id, c.nvrId));
         if (term) list = list.filter((c) => c.name.toLowerCase().includes(term) || (c.nvrName || "").toLowerCase().includes(term));
         return list.sort((a, b) => score(b) - score(a) || String(a.name).localeCompare(String(b.name)));
-    }, [cams, analyticsIds, lastByDev, q, alarms]);
+    }, [cams, analyticsIds, lastByDev, q, alarms, fa.enArea]);
 
     const [vision, setVision] = useState<FiltroVision>("todas");
     const [busDets, setBusDets] = useState("");
@@ -1014,8 +884,9 @@ export default function MonitorIntrusion() {
         const t = busDets.trim().toLowerCase();
         return (filter === "MOTION" ? dets.filter((d) => d.type === "MOTION") : filter === "ANALYTIC" ? dets.filter((d) => d.type !== "MOTION") : dets)
             .filter((d) => pasaVision(d.veredicto, vision))
+            .filter((d) => !fa.filtrando || fa.enArea(d.deviceId, d.deviceId ? camById[d.deviceId]?.nvrId : null))
             .filter((d) => !t || `${d.deviceName || ""} ${(d.deviceId && camById[d.deviceId]?.nvrName) || ""} ${(META[d.type] || META.OTHER).label}`.toLowerCase().includes(t));
-    }, [dets, filter, vision, busDets, camById]);
+    }, [dets, filter, vision, busDets, camById, fa.filtrando, fa.enArea]);
     // Lo histórico: la columna arranca con las 60 últimas y trae de a 60 más al llegar al final.
     const [hayMasDets, setHayMasDets] = useState(true);
     const [cargandoMasDets, setCargandoMasDets] = useState(false);
@@ -1035,7 +906,7 @@ export default function MonitorIntrusion() {
     }, [dets, filter, cargandoMasDets]);
     const columnasDets = useMemo<ColumnaTabla<DetItem>[]>(() => [
         { clave: "tipo", titulo: "Tipo", ancho: 128, valor: (d) => (META[d.type] || META.OTHER).label,
-            celda: (d) => { const m = META[d.type] || META.OTHER; return <span className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", d.type === "MOTION" ? "tono-info" : d.type === "LINECROSS" || d.type === "INTRUSION" ? "tono-mal" : "tono-aviso")}><m.Icon size={13} /> {m.label}</span>; } },
+            celda: (d) => { const m = META[d.type] || META.OTHER; return <span className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", d.type === "MOTION" ? "tono-info" : d.type === "LINECROSS" || d.type === "INTRUSION" || d.type === "CENTRAL" ? "tono-mal" : "tono-aviso")}><m.Icon size={13} /> {m.label}</span>; } },
         { clave: "camara", titulo: "Cámara", valor: (d) => d.deviceName || "Cámara",
             celda: (d) => <div className="min-w-0"><div className="text-[12px] font-semibold truncate">{d.deviceName || "Cámara"}</div>{d.deviceId && camById[d.deviceId]?.nvrName && <div className="text-[10.5px] text-muted-foreground truncate">{camById[d.deviceId]!.nvrName}</div>}</div> },
         { clave: "hora", titulo: "Hora", ancho: 84, alinear: "der", valor: (d) => d.timestamp,
@@ -1063,7 +934,7 @@ export default function MonitorIntrusion() {
                     <span className="relative grid h-10 w-10 place-items-center rounded-xl bg-red-500/15 shrink-0"><Radar size={20} className="text-red-500" /></span>
                     <div className="min-w-0">
                         <h1 className="text-lg font-bold tracking-tight">Monitor de Intrusión</h1>
-                        <p className="text-xs text-muted-foreground truncate">Cruce de línea, intrusión, zonas y movimiento · {cams.length} canales</p>
+                        <p className="text-xs text-muted-foreground truncate">Cruce de línea, intrusión, zonas y movimiento · {fa.filtrando ? `${cams.filter((c) => fa.enArea(c.id, c.nvrId)).length} de ${cams.length} canales · ${fa.nombre || "área"}` : `${cams.length} canales`}</p>
                     </div>
                 </div>
                 {/* La barra de la pared: buscar canal, y las tres puertas (historial, evidencia, horario).
@@ -1072,6 +943,11 @@ export default function MonitorIntrusion() {
                     derecha. Ahora: piezas compartidas, un alto, y el filtro de tipo junto a lo que filtra. */}
                 <div className="flex items-center gap-2 shrink-0">
                     <div className="hidden md:block"><Seek value={q} onChange={setQ} placeholder="Buscar canal" startOpen width={220} alto={34} /></div>
+                    {fa.hayAreas && (
+                        <ElegirArea areas={fa.areas} valor={fa.area} alElegir={fa.setArea}
+                            cuenta={(a) => cams.filter((c) => fa.enAreaDe(a, c.id, c.nvrId)).length}
+                            sinArea={cams.some((c) => !fa.areaDe(c.id, c.nvrId))} />
+                    )}
                     <span className="inline-flex items-center gap-1.5 h-[34px] px-3 rounded-lg bg-muted/60 text-[12px] font-semibold tono-bien" data-tooltip-id="mi-tip" data-tooltip-content="Las detecciones llegan en tiempo real">
                         <Circle size={7} className="fill-current animate-pulse" /> En vivo
                     </span>
@@ -1097,7 +973,8 @@ export default function MonitorIntrusion() {
                         </div>
                     ) : shown.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-                            <Camera size={28} className="opacity-30" /><span className="text-sm">Sin canales</span>
+                            <Camera size={28} className="opacity-30" /><span className="text-sm">{fa.filtrando && cams.length ? `Ningún canal en ${fa.nombre || "esta área"}` : q.trim() ? "Ningún canal se llama así" : "Sin canales"}</span>
+                            {fa.filtrando && cams.length > 0 && <button type="button" onClick={() => fa.setArea("todas")} className="text-[12px] font-semibold text-[var(--accion)] hover:underline">Ver todas las áreas</button>}
                         </div>
                     ) : (
                         <>
@@ -1145,7 +1022,7 @@ export default function MonitorIntrusion() {
                         alClickFila={(d) => setSel((x) => (x?.id === d.id ? null : d))}
                         filaActiva={(d) => d.id === sel?.id}
                         filaDestacada={(d) => Date.now() - new Date(d.timestamp).getTime() < 20_000}
-                        vacio={{ icono: ShieldAlert, titulo: busDets || vision !== "todas" ? "Ninguna detección con este filtro" : "Sin detecciones recientes", ayuda: busDets ? "La búsqueda mira cámara, NVR y tipo." : undefined }}
+                        vacio={{ icono: ShieldAlert, titulo: busDets || vision !== "todas" || fa.filtrando ? "Ninguna detección con este filtro" : "Sin detecciones recientes", ayuda: busDets ? "La búsqueda mira cámara, NVR y tipo." : undefined }}
                         masFilas={{ hay: hayMasDets, cargando: cargandoMasDets, traer: traerMasDets, modo: "scroll" }}
                         pie={<span className="tabular-nums">{filasDets.length} de {dets.length} cargadas</span>}
                         barra={
@@ -1169,12 +1046,37 @@ export default function MonitorIntrusion() {
 
             {/* Un calibrador por cámara, no dos: la interior (LPR Interior) se calibra en el de
                 pantalla completa, que muestra y edita la MISMA línea de la cámara y además la
-                zona de lectura y el estacionamiento. Las perimetrales siguen con éste, que dibuja
-                zonas poligonales y llega a los canales de un NVR. (9/10, Nico) */}
-            {calibrateDev && calibrateDev.tipo === "LPR_INTERIOR" && <InteriorCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
-            {calibrateDev && calibrateDev.tipo !== "LPR_INTERIOR" && <LineZoneCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
+                zona de lectura y el estacionamiento. La intrusión, con el mismo calibrador que en
+                Dispositivos (23/10: todas las líneas y zonas de la cámara, no sólo la primera). */}
+            {/* 23/10, Nico: una cámara catalogada como LPR de OmniAccess (LPR_INTERIOR) puede ser también
+                la perimetral, y desde acá sólo se abría el calibrador de lectura: no había cómo calibrarle la
+                intrusión. Ahora se elige. */}
+            {calibrateDev && calibrateDev.tipo === "LPR_INTERIOR" && !calibQue && (
+                <Dialog open onOpenChange={(v) => { if (!v) { setCalibrateDev(null); setCalibQue(null); } }}>
+                    <DialogContent className="max-w-md">
+                        <DialogHeader>
+                            <DialogTitle>¿Qué calibrar en {calibrateDev.name}?</DialogTitle>
+                            <DialogDescription>Esta cámara lee matrículas y también puede vigilar con su propia analítica.</DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-2">
+                            <button onClick={() => setCalibQue("intrusion")} className="text-left rounded-[10px] border border-border p-3 hover:bg-muted">
+                                <p className="font-semibold text-[13px] inline-flex items-center gap-1.5"><Crosshair size={14} className="text-red-500" /> Intrusión</p>
+                                <p className="text-[12px] text-muted-foreground">Línea de cruce, zona, sentido, sensibilidad y objetivo de la cámara. Es lo que llega a este monitor.</p>
+                            </button>
+                            <button onClick={() => setCalibQue("lectura")} className="text-left rounded-[10px] border border-border p-3 hover:bg-muted">
+                                <p className="font-semibold text-[13px] inline-flex items-center gap-1.5"><ScanEye size={14} className="text-sky-500" /> Lectura de matrículas</p>
+                                <p className="text-[12px] text-muted-foreground">Qué dispara la lectura de omni-lpr, la zona de interés, la línea de pasada y dónde estacionan.</p>
+                            </button>
+                        </div>
+                        <p className="text-[11.5px] text-muted-foreground">La cámara tiene una sola línea y una sola zona: si la lectura se dispara con ellas, cambiarlas en uno cambia el otro.</p>
+                    </DialogContent>
+                </Dialog>
+            )}
+            {calibrateDev && calibrateDev.tipo === "LPR_INTERIOR" && calibQue === "lectura" && <InteriorCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
+            {calibrateDev && (calibrateDev.tipo !== "LPR_INTERIOR" || calibQue === "intrusion") && <IntrusionCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
             {horarioDev && <HorarioArmadoDialog cam={horarioDev.cam} todasLasCamaras={horarioDev.todas} actual={horarioDev.cam ? horarios[horarioDev.cam.id] ?? null : null} general={horarioGeneral} camaras={horarios} onClose={() => setHorarioDev(null)} onAplicado={cargarHorarios} />}
-            {alarmDev && <AlarmDialog cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />}
+            {/* El servidor de alarma de la cámara, en un cajón (21/10: era un diálogo con el destino escrito a mano). */}
+            <CajonServidorAlarma cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { if (prev.has(id) === ok) return prev; const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
                 hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); const nx = Object.keys(alarms).find((d) => d !== id && alarms[d]?.length); if (nx && camById[nx]) openAlarmFicha(camById[nx]); else setDetail(null); }}
                 enAtencion={!!(detail?.deviceId && attendingIds.has(detail.deviceId))} onCerrarAtencion={(id, como) => { cerrarAtencion(id, como); setDetail(null); }}

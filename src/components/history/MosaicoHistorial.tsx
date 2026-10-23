@@ -1,9 +1,9 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import { Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Loader2, ShieldAlert, XCircle } from "lucide-react";
+import { Ban, Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Loader2, Server, ShieldAlert, Sparkles, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { chapaDe, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
+import { chapaDe, esSinVehiculo, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 import { getImagePath } from "@/lib/image-path";
 import { fechaCorta, hora } from "@/lib/fechas";
 import { Cargando, ErrorEstado, Vacio } from "@/components/ui/estados";
@@ -86,7 +86,9 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
     const url = getImagePath(f.foto);
     const chica = bento && !grande;
     const acceso = f.tipo === "ACCESO";
-    const denegado = acceso && f.decision === "DENY";
+    // Sin vehículo no es «Denegado»: no había nadie a quien negarle nada.
+    const sinVehiculo = acceso && esSinVehiculo(f.plate, f.vision?.releida);
+    const denegado = acceso && f.decision === "DENY" && !sinVehiculo;
     const r = rasgoDe(f);
     const leida = !!f.plate && !esNoLeida(f.plate);
     /* Una NO_LEIDA lleva la chapa que leyó OmniVision (doble verificación), con su marca. */
@@ -99,6 +101,7 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
                y con casi todas denegadas era una grilla de bordes rojos. Al pasar, el anillo
                azul marca cuál se va a abrir. */
             className={cn("group relative overflow-hidden rounded-[8px] bg-black text-left transition-[box-shadow] duration-200 hover:ring-2 hover:ring-[var(--accion)] focus-visible:ring-2 focus-visible:ring-[var(--accion)] outline-none [content-visibility:auto]",
+                f.ia && (f.ia.fuente === "grabador" ? "ring-1 ring-sky-500/70" : "ring-1 ring-[var(--quieto)]/70"),
                 bento ? (grande ? "col-span-2 row-span-2" : "") : "aspect-video")}>
             {url ? (
                 /* La foto y sus siluetas en la misma caja: crecen juntas al pasar, si no se despegan. */
@@ -115,7 +118,21 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
             <span className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent" />
 
             <span className="absolute top-1.5 left-1.5 right-1.5 flex items-start justify-between gap-1">
-                {acceso ? (
+                {f.ia?.fuente === "grabador" ? (
+                    /* Lo encontró el grabador (su búsqueda inteligente): celeste, para distinguirlo del de OmniVision. */
+                    <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] bg-sky-600 text-white" title={`Lo encontró el grabador${f.ia.grabador ? ` (${f.ia.grabador})` : ""} en lo grabado. Es un posible, no un registro.`}>
+                        <Server size={10} />{chica ? "NVR" : "Grabador · IA"}
+                    </span>
+                ) : f.ia ? (
+                    /* Encontrado por la IA, no un registro: el distintivo violeta (21/10). */
+                    <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] pleno-quieto" title="Encontrado por IA: OmniVision lo vio parecido a lo que buscaste. Es un posible, no un registro.">
+                        <Sparkles size={10} />{chica ? "IA" : "IA · OmniVision"}
+                    </span>
+                ) : sinVehiculo ? (
+                    <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] bg-black/60 text-white/85" title="La cámara disparó sin chapa y OmniVision no vio ningún vehículo en la foto: un disparo falso, no un acceso.">
+                        <Ban size={10} />{chica ? "" : "Sin vehículo"}
+                    </span>
+                ) : acceso ? (
                     <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]", denegado ? "pleno-mal" : "pleno-bien")}>
                         {denegado ? <XCircle size={10} /> : <CheckCircle2 size={10} />}{chica ? "" : denegado ? "Denegado" : "Autorizado"}
                     </span>
@@ -163,7 +180,7 @@ export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReinten
     const bento = vista === "bento";
     const [siluetas] = useSiluetas();
     const accesos = filas.filter((f) => f.tipo === "ACCESO");
-    const destacarDenegadas = !!accesos.length && accesos.filter((f) => f.decision === "DENY").length / accesos.length <= DENEGADAS_EXCEPCION;
+    const destacarDenegadas = !!accesos.length && accesos.filter((f) => f.decision === "DENY" && !esSinVehiculo(f.plate, f.vision?.releida)).length / accesos.length <= DENEGADAS_EXCEPCION;
     const centinela = useRef<HTMLDivElement>(null);
 
     // Scroll infinito: al asomar el final se pide la página siguiente, como en la lista.
@@ -190,7 +207,7 @@ export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReinten
                                     : "gap-3 grid-cols-[repeat(auto-fill,minmax(230px,1fr))]")}>
                                     {filas.map((f, i) => {
                                         const merodea = !!(f.plate && merodeando.has(f.plate));
-                                        const grande = bento && ((destacarDenegadas && f.tipo === "ACCESO" && f.decision === "DENY" && !!f.plate && !esNoLeida(f.plate)) || merodea || i % RITMO_BENTO === 0);
+                                        const grande = bento && !f.ia && ((destacarDenegadas && f.tipo === "ACCESO" && f.decision === "DENY" && !!f.plate && !esNoLeida(f.plate)) || merodea || i % RITMO_BENTO === 0);
                                         return <Tarjeta key={f.id} f={f} bento={bento} grande={grande} merodea={merodea} siluetas={siluetas} alAbrir={alAbrir} />;
                                     })}
                                 </div>

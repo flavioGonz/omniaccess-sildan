@@ -22,8 +22,11 @@ export type ObjetoAnalizado = {
 export type Analisis = { ancho: number; alto: number; objetos: ObjetoAnalizado[]; tarea?: string;
     /** Doble verificación: el cuadro propio del canal, sacado unos segundos después (clave en MinIO). */
     propio?: { foto: string; despuesMs: number; ancho: number; alto: number; objetos: ObjetoAnalizado[]; tarea?: string } | null };
-/** Línea (polilínea) y zona (polígono), normalizadas 0-1. */
-export type GeomNorm = { linea: Pt[]; zona: Pt[] };
+/**
+ * Línea (polilínea) y zona (polígono), normalizadas 0-1. `otras`: las demás líneas y zonas
+ * prendidas de la cámara (hasta 4 de cada una, 23/10); el veredicto las mira todas.
+ */
+export type GeomNorm = { linea: Pt[]; zona: Pt[]; otras?: { lineas: Pt[][]; zonas: Pt[][] } };
 
 /** Lo que cuenta para confirmar una intrusión: gente y vehículos. Un perro solo es otra cosa. */
 export const GRUPOS_RELEVANTES = new Set(["persona", "vehiculo"]);
@@ -37,11 +40,14 @@ export const BANDA_LINEA = 0.015;
 export const PUNTOS_SILUETA_MAX = 80;
 
 /** La geometría del monitor de intrusión (0-100) a la de acá (0-1). */
-export function geomDeIntrusion(g: { line?: { x: number; y: number }[]; field?: { x: number; y: number }[] } | null | undefined): GeomNorm | null {
+export function geomDeIntrusion(g: { line?: { x: number; y: number }[]; field?: { x: number; y: number }[]; lines?: { x: number; y: number }[][]; fields?: { x: number; y: number }[][] } | null | undefined): GeomNorm | null {
     if (!g) return null;
-    const linea = (g.line || []).map((p) => [p.x / 100, p.y / 100] as Pt);
-    const zona = (g.field || []).map((p) => [p.x / 100, p.y / 100] as Pt);
-    return linea.length >= 2 || zona.length >= 3 ? { linea: linea.length >= 2 ? linea : [], zona: zona.length >= 3 ? zona : [] } : null;
+    const norm = (l: { x: number; y: number }[]) => l.map((p) => [p.x / 100, p.y / 100] as Pt);
+    const lineas = (g.lines && g.lines.length ? g.lines : g.line ? [g.line] : []).map(norm).filter((l) => l.length >= 2);
+    const zonas = (g.fields && g.fields.length ? g.fields : g.field ? [g.field] : []).map(norm).filter((z) => z.length >= 3);
+    if (!lineas.length && !zonas.length) return null;
+    const otras = lineas.length > 1 || zonas.length > 1 ? { lineas: lineas.slice(1), zonas: zonas.slice(1) } : undefined;
+    return { linea: lineas[0] || [], zona: zonas[0] || [], ...(otras ? { otras } : {}) };
 }
 
 export function poligonos(o: ObjetoAnalizado): Pt[][] {
@@ -147,7 +153,9 @@ export function pasaVision(v: Veredicto | null | undefined, f: FiltroVision): bo
 
 /** El veredicto de una captura con la geometría de la cámara, y qué objetos tocan. */
 export function veredicto(a: Analisis, g: GeomNorm | null): { estado: Veredicto; tocan: boolean[] } {
-    const tocan = a.objetos.map((o) => !!g && GRUPOS_RELEVANTES.has(o.grupo) && (tocaLinea(o, g.linea, a.ancho, a.alto) || tocaZona(o, g.zona, a.ancho, a.alto)));
+    const lineas = g ? [g.linea, ...(g.otras?.lineas || [])] : [];
+    const zonas = g ? [g.zona, ...(g.otras?.zonas || [])] : [];
+    const tocan = a.objetos.map((o) => !!g && GRUPOS_RELEVANTES.has(o.grupo) && (lineas.some((l) => tocaLinea(o, l, a.ancho, a.alto)) || zonas.some((z) => tocaZona(o, z, a.ancho, a.alto))));
     const relevantes = a.objetos.filter((o) => GRUPOS_RELEVANTES.has(o.grupo));
     // Sin la geometría de la cámara no se puede decir que algo TOCA la línea: a lo sumo que hay
     // alguien. «Confirmada» sólo cuando se pudo medir.

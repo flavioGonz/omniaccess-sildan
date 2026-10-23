@@ -48,7 +48,9 @@ export async function aplicarModoCamara(id: string, pedido: PedidoModo): Promise
         let data: Record<string, unknown>;
         if (modo === "omnivision") {
             let rtsp = d.rtspUrl?.trim() || null;
-            if (!rtsp && d.ip) { const { rtspDirect } = await import("@/lib/go2rtc-sync"); rtsp = rtspDirect(d as any, "101"); }
+            // El que de verdad entrega video: directo, o por su canal en el NVR (21/10, Otto Villa: las LPR
+            // tenían todas sus conexiones tomadas y contestaban 453 al directo).
+            if (!rtsp && d.ip) { const { rtspDeCamara } = await import("@/lib/go2rtc-sync"); rtsp = (await rtspDeCamara(d as any, "101")).url; }
             data = { deviceType: "LPR_INTERIOR", trackAcceso: true, trackEnabled: true, lprVerifica: false, lprAbre: !!abre, rtspUrl: rtsp };
             if (!rtsp) pendientes.push("Falta el video (RTSP) de la cámara: sin eso omni-lpr no tiene qué leer.");
             if (!cap.lector) pendientes.push("El lector (Modos › LPR) está apagado: hasta prenderlo no se lee nada.");

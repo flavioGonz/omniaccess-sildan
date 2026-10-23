@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { exigirPermiso } from "@/lib/permiso-servidor";
 import { EQUIPO_PUBLICO } from "@/lib/equipo-publico";
 import { heredarListaNegraSiCorresponde } from "@/app/actions/watchlist";
 import { revalidatePath } from "next/cache";
@@ -185,6 +186,7 @@ export async function guardiaVigente(): Promise<string | null> {
 }
 
 export async function getAdminsList() {
+    await exigirPermiso("accesos", "getAdminsList");
     const admins = await prisma.user.findMany({
         where: {
             role: { in: ['ADMIN', 'OPERATOR'] }
@@ -314,6 +316,7 @@ export async function saveGuard(formData: FormData) {
 }
 
 export async function saveAdmin(formData: FormData) {
+    await exigirPermiso("accesos", "saveAdmin");
     const id = formData.get("id") as string;
     const name = formData.get("name") as string;
     const email = formData.get("email") as string;
@@ -384,6 +387,7 @@ export async function saveAdmin(formData: FormData) {
 }
 
 export async function deleteAdmin(id: string) {
+    await exigirPermiso("accesos", "deleteAdmin");
     // Prevent deleting self? UI handles it usually, or middleware.
     await prisma.user.delete({ where: { id } });
     revalidatePath("/admin/settings");
@@ -636,6 +640,7 @@ export async function updateUser(id: string, formData: FormData) {
 }
 
 export async function deleteAllUsers() {
+    await exigirPermiso("mantenimiento", "deleteAllUsers");
     try {
         await prisma.user.deleteMany({});
         revalidatePath('/admin/users');

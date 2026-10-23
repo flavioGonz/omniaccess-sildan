@@ -148,6 +148,8 @@ export function Tabla<T>({
     alClickFila,
     filaActiva,
     filaDestacada,
+    claseFila,
+    alArrastrarFila,
     expandir,
     masFilas,
     alto,
@@ -173,6 +175,13 @@ export function Tabla<T>({
     filaActiva?: (fila: T) => boolean;
     /** Para el destello de una fila que acaba de llegar por el socket. */
     filaDestacada?: (fila: T) => boolean;
+    /**
+     * Una clase propia para una fila (22/10: el evento P1 de una central va la fila entera en rojo).
+     * Manda sobre el fondo de «activa» y del hover: es un estado, no una selección.
+     */
+    claseFila?: (fila: T) => string | undefined;
+    /** Si viene, la fila se puede arrastrar (p. ej. a un área del árbol de Dispositivos). */
+    alArrastrarFila?: (fila: T, e: React.DragEvent) => void;
     /** Devuelve el contenido desplegado de la fila, o null si está cerrada. */
     expandir?: (fila: T) => React.ReactNode | null;
     masFilas?: MasFilas;
@@ -509,12 +518,15 @@ export function Tabla<T>({
                             return (
                                 <React.Fragment key={k}>
                                     <tr
+                                        draggable={alArrastrarFila ? true : undefined}
+                                        onDragStart={alArrastrarFila ? (e) => alArrastrarFila(fila, e) : undefined}
                                         onClick={() => alClickFila?.(fila)}
                                         className={cn(
                                             "border-b border-border/60 transition-colors group",
                                             alClickFila && "cursor-pointer",
                                             filaActiva?.(fila) ? "bg-accent" : "hover:bg-accent/50",
                                             filaDestacada?.(fila) && "omni-fila-nueva",
+                                            claseFila?.(fila),
                                         )}>
                                         {visibles.map((c) => {
                                             const iDato = c.auxiliar ? -1 : columnasDato.indexOf(c);

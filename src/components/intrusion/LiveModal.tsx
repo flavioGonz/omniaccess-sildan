@@ -6,7 +6,6 @@ import { getSocketUrl } from "@/lib/socket-config";
 import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem, getEvidenciaCamara, type EvidenciaItem } from "@/app/actions/detections";
 import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Play, Pause, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 import { PtzControls, ptzAngleToDir } from "@/components/PtzControls";
 import { Scrub, type MarcaScrub } from "@/components/Scrub";
 import { motion, AnimatePresence } from "framer-motion";
@@ -15,7 +14,7 @@ import { DescargaClip } from "@/components/video/DescargaClip";
 import { Tooltip as RTooltip } from "react-tooltip";
 import "react-tooltip/dist/react-tooltip.css";
 
-type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[] };
+import { GeomOverlay, type Geom } from "@/components/intrusion/comun";
 
 /**
  * Cuánto video se pide al NVR al navegar la línea de tiempo.
@@ -65,25 +64,6 @@ function ago(ts: string) {
 }
 
 
-function GeomOverlay({ geom, alert }: { geom?: Geom; alert?: boolean }) {
-    if (!geom || ((!geom.line || geom.line.length < 2) && (!geom.field || geom.field.length < 3))) return null;
-    const lineC = alert ? "#f87171" : "#38bdf8";
-    const zoneStroke = alert ? "#ef4444" : "#f43f5e";
-    const zoneFill = alert ? "rgba(239,68,68,0.30)" : "rgba(244,63,94,0.16)";
-    return (
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className={cn("absolute inset-0 w-full h-full pointer-events-none", alert && "animate-pulse")}>
-            {alert && (
-                <defs><filter id="detglow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="1.1" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>
-            )}
-            {geom.field && geom.field.length >= 3 && (
-                <polygon points={geom.field.map((p) => `${p.x},${p.y}`).join(" ")} fill={zoneFill} stroke={zoneStroke} strokeWidth={alert ? 2.2 : 1.4} strokeLinejoin="round" vectorEffect="non-scaling-stroke" filter={alert ? "url(#detglow)" : undefined} />
-            )}
-            {geom.line && geom.line.length === 2 && (
-                <line x1={geom.line[0].x} y1={geom.line[0].y} x2={geom.line[1].x} y2={geom.line[1].y} stroke={lineC} strokeWidth={alert ? 3 : 2} strokeLinecap="round" vectorEffect="non-scaling-stroke" filter={alert ? "url(#detglow)" : undefined} />
-            )}
-        </svg>
-    );
-}
 
 
 function Dots() {
@@ -124,7 +104,7 @@ function MovablePip({ children, defaultW = 208, ring = "ring-white/15" }: { chil
         }
     };
     const end = (e: React.PointerEvent) => { d.current = null; try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { } };
-    const style: React.CSSProperties = st.x == null ? { right: 16, top: 64, width: st.w } : { left: st.x, top: st.y, width: st.w };
+    const style: React.CSSProperties = st.x == null ? { right: 16, top: 64, width: st.w } : { left: st.x, top: st.y ?? 64, width: st.w };
     return (
         <div ref={el} style={style} onPointerMove={onMove} onPointerUp={end} onPointerCancel={end}
             className={cn("absolute z-30 aspect-video rounded-xl overflow-hidden shadow-2xl ring-1 bg-black/60 select-none touch-none", ring)}>
@@ -197,7 +177,7 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
         try {
             if (!v.videoWidth || v.readyState < 2) return true;
             let c = sampleCanvas.current; if (!c) { c = document.createElement("canvas"); c.width = 8; c.height = 8; sampleCanvas.current = c; }
-            const ctx = c.getContext("2d", { willReadFrequently: true } as any); if (!ctx) return false;
+            const ctx = c.getContext("2d", { willReadFrequently: true }); if (!ctx) return false;
             ctx.drawImage(v, 0, 0, 8, 8);
             const d = ctx.getImageData(0, 0, 8, 8).data; let r = 0, g = 0, b = 0, n = 0;
             for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }

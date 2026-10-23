@@ -436,7 +436,7 @@ function FlowSection({ flow, range, onRange, className }: { flow: any; range: st
     const _src = flow?.buckets || flow?.hours || [];
     const hours = (_src.length ? _src : Array.from({ length: 24 }, () => ({}))).map((b: any, i: number) => ({ hour: i, label: b.label ?? (String(i).padStart(2, "0") + "h"), entradas: b.entradas ?? 0, salidas: b.salidas ?? 0 }));
     const N = hours.length || 24;
-    const maxV = Math.max(...hours.map(h => Math.max(h.entradas, h.salidas)), 4);
+    const maxV = Math.max(...hours.map((h: { entradas: number; salidas: number }) => Math.max(h.entradas, h.salidas)), 4);
     const W = 1000, H = 240, PAD_L = 34, PAD_R = 14, PAD_T = 14, PAD_B = 30;
     const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
     const gw = plotW / N;
@@ -530,7 +530,8 @@ export default function FlujoFilasPage() {
                 getQueueFlowSeries(filterDevice || undefined, range),
             ]);
 
-            setEvents(eventsData.events);
+            // El canal puede venir vacío de la base; la tabla lo muestra igual.
+            setEvents(eventsData.events as unknown as CrowdEvent[]);
             setTotal(eventsData.total);
             setHourly(hourlyData);
             setOutages(outagesData || []);

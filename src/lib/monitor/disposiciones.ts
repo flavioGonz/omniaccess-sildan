@@ -46,8 +46,11 @@ export type VistaCamaras = { id: string; nombre: string; disposicion: string; ca
 export const AJUSTE_VISTAS_CAMARAS = "MONITOR_CAMARAS_VISTAS";
 export const VISTAS_CAMARAS_MAX = 40;
 export const NOMBRE_VISTA_MAX = 40;
-/** La clave de un canal tal como la arma /api/monitor/camaras: «dev:<id>» o «nvr:<id>:<ch>». */
-export const CLAVE_CANAL = /^(dev:[\w-]{1,80}|nvr:[\w-]{1,80}:\d{1,4})$/;
+/**
+ * La clave de un canal tal como la arma /api/monitor/camaras: «dev:<id>» o «nvr:<id>:<ch>». O una
+ * fuente web, «web:<id>» (openspec pared-vms): una página en la casilla en lugar de video.
+ */
+export const CLAVE_CANAL = /^(dev:[\w-]{1,80}|nvr:[\w-]{1,80}:\d{1,4}|web:[\w-]{1,40})$/;
 
 /** Lo que llega del navegador, limpio; null si no es una vista. */
 export function vistaValida(v: any): VistaCamaras | null {
