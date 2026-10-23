@@ -92,7 +92,7 @@ export const ACCIONES: Record<string, Archivo> = {
     maps: { defecto: P("mapa.editar") },
     "modo-camara": { defecto: P("dispositivos.editar") },
     modules: { defecto: P("ajustes") },
-    monitores: { defecto: P("monitores.config"), por: { listarEnlacesPantalla: P("monitores") } },
+    monitores: { defecto: P("monitores.config"), por: { listarEnlacesPantalla: P("monitores"), listarFuentesWeb: P("monitores") } },
     notifications: { defecto: P("notificaciones") },
     nvr: { defecto: P("dispositivos.editar") },
     padron: { defecto: P("vigilancia"), por: { guardarComportamientoPadron: P("vigilancia", "usuarios.editar") } },

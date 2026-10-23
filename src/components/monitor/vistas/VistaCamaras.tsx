@@ -8,6 +8,8 @@ import { fondoDe, type TonoFondo } from "@/lib/monitor/fondos";
 import { BuscarEnPared, canalesParaBuscar } from "@/components/monitor/camaras/BuscarEnPared";
 import type { RutasParecidos } from "@/components/visor/BuscarParecidos";
 import { sembrarAreas } from "@/lib/use-areas";
+import { CasillaWeb } from "@/components/monitor/camaras/CasillaWeb";
+import { esClaveWeb, idDeClaveWeb, type FuenteWeb } from "@/lib/monitor/fuentes-web";
 import { usarDatos, horaCorta, hace, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { metaDe } from "@/components/intrusion/comun";
@@ -73,6 +75,8 @@ type Datos = {
     canales: Canal[]; errores: { nvr: string; error: string }[]; go2rtc: boolean;
     /** Las áreas de Dispositivos, en el orden del árbol. */
     areas?: { id: string; nombre: string; padre: string | null; color: string; nivel: number }[]; ventanaAlertaMs: number; ahora: string; vistas: VistaGuardada[]; puedeEditar: boolean;
+    /** Las páginas web para las casillas `web:` (openspec pared-vms). */
+    fuentes?: FuenteWeb[];
     /** Seguimiento visual: por idCanal, los enlaces a las cámaras vecinas. */
     seguimiento?: Record<string, { to: string; x: number; y: number }[]> };
 /** colMovil: en el celular la pared es una lista que se desliza, de 1 o 2 columnas. */
@@ -94,7 +98,7 @@ function leerPrefs(): { prefs: Prefs; canalSolo: string | null } {
         if (g) p.disposicion = g;
         if (q.get("disposicion") && DISPOSICIONES.some((d) => d.clave === q.get("disposicion"))) p.disposicion = q.get("disposicion")!;
         if (q.get("vista")) p.vista = q.get("vista")!;
-        const c = q.get("canal"); if (c && CLAVE_CANAL.test(c)) canalSolo = c;
+        const c = q.get("canal"); if (c && CLAVE_CANAL.test(c) && !esClaveWeb(c)) canalSolo = c;
     } catch { }
     if (!DISPOSICIONES.some((d) => d.clave === p.disposicion)) p.disposicion = DISPOSICION_POR_DEFECTO;
     if (!PAGINA_SEG.includes(p.pagSeg as any)) p.pagSeg = PREFS_INICIALES.pagSeg;
@@ -502,6 +506,7 @@ export function VistaCamaras() {
         chapas: pantalla ? null : "/api/vision/parecidos/chapas", limitado: !!pantalla,
     }), [pantalla]);
     useEffect(() => { if (datos?.areas?.length) sembrarAreas(datos.areas); }, [datos?.areas]);
+    const fuentesPorId = useMemo(() => new Map((datos?.fuentes || []).map((f) => [f.id, f])), [datos?.fuentes]);
     const [pantallas, setPantallas] = useState<Pantalla[] | null>(null);
     const [aviso, setAviso] = useState<string | null>(null);
     /** Por canal: en qué paso está su entrada o salida de OmniVision (se dibuja en el canal mismo). */
@@ -549,7 +554,7 @@ export function VistaCamaras() {
 
     if (editando) {
         return (
-            <EditorVista inicial={editando} canales={todos} alSalir={(r) => {
+            <EditorVista inicial={editando} canales={todos} fuentes={datos?.fuentes || []} alSalir={(r) => {
                 setEditando(null);
                 if (r === "borrada") setPrefs({ vista: AUTO });
                 else if (r) setPrefs({ vista: r.id });
@@ -663,7 +668,9 @@ export function VistaCamaras() {
         setTimeout(() => setPasosVision((s) => (s[c.clave]?.fase === "listo" || s[c.clave]?.fase === "retirado" ? (({ [c.clave]: _, ...resto }) => resto)(s) : s)), PASO_VISION_LISTO_MS);
     };
 
-    const baldosa = (celda: Celda, i: number, libre = false) => (
+    const baldosa = (celda: Celda, i: number, libre = false) => !celda.canal && esClaveWeb(celda.claveFaltante) ? (
+        <CasillaWeb key={`${celda.claveFaltante}-${i}`} casilla={celda.casilla} clave={celda.claveFaltante} libre={libre} fuente={fuentesPorId.get(idDeClaveWeb(celda.claveFaltante)) || null} />
+    ) : (
         <Baldosa key={celda.canal?.clave || `vacia-${i}`} celda={celda} modo={celda.canal ? modos.get(celda.canal.clave) || "foto" : "foto"} hls={hls} libre={libre}
             dormida={libre && !!celda.canal && !aLaVista.has(celda.canal.clave)}
             alerta={celda.canal ? alertaDe(celda.canal) : null} lecturas={celda.canal ? lecturasDe(celda.canal) : []}

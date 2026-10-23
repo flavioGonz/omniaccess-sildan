@@ -11,6 +11,7 @@ import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { Momento, Nada } from "@/components/ui/celdas";
 import { MiniaturaVista } from "@/components/monitor/MiniaturaVista";
+import { PaginasWeb } from "@/components/monitor/PaginasWeb";
 import { VISTAS, vistaPorClave, type ClaveVista, type Vista } from "@/lib/monitor/vistas";
 import { useFuncion } from "@/lib/funciones-cliente";
 
@@ -56,6 +57,8 @@ const rotuloSonido = (v: Vista, a: Ajustes | null) => {
 
 export default function MonitoresPage() {
     const vistas = useVistasDisponibles();
+    const { tiene, loaded: rolListo } = useSessionRole();
+    const puedeConfigurarPagina = !rolListo || tiene("monitores.config");
     const [enlaces, setEnlaces] = useState<EnlaceListado[] | null>(null);
     const [ajustes, setAjustes] = useState<Ajustes | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -131,6 +134,8 @@ export default function MonitoresPage() {
 
             <Tabla id="monitores" filas={vistas} clave={(v) => v.clave} columnas={columnas} controles={false} seleccionCeldas={false}
                 error={error} alReintentar={cargar} alClickFila={(v) => { setAbierta(v.clave); setCajon(true); }} filaActiva={(v) => cajon && v.clave === abierta} />
+
+            <PaginasWeb puedeConfigurar={puedeConfigurarPagina} />
 
             <CajonMonitor clave={abierta} abierto={cajon} alCerrar={() => setCajon(false)} enlaces={abierta ? porVista[abierta] || [] : []} cargando={enlaces === null}
                 ajustes={ajustes} setAjustes={setAjustes} recargar={cargar} />

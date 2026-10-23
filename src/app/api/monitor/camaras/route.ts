@@ -10,6 +10,7 @@ import { getChannelMap } from "@/lib/nvr-resolve";
 import { getAnalyticsGeometryBatch } from "@/app/actions/detections";
 import { puedeDisenarVistas } from "@/app/actions/monitores";
 import { AJUSTE_VISTAS_CAMARAS, leerVistas } from "@/lib/monitor/disposiciones";
+import { AJUSTE_FUENTES_WEB, leerFuentes } from "@/lib/monitor/fuentes-web";
 import { verificacionesDe } from "@/lib/verificacion";
 import { camarasVision, cargaVision } from "@/lib/vision-camaras";
 import { getSession } from "@/app/actions/auth";
@@ -122,7 +123,7 @@ export async function GET() {
         }).catch(() => []),
         prisma.detection.groupBy({ by: ["deviceId"], where: { timestamp: { gte: desdeActividad }, type: { not: "MOTION" } } }).catch(() => []),
         prisma.accessEvent.groupBy({ by: ["deviceId"], where: { timestamp: { gte: desdeActividad } } }).catch(() => []),
-        prisma.setting.findMany({ where: { key: { in: [AJUSTE_VISTAS_CAMARAS, "VISUAL_TRACK_LINKS"] } } }).catch(() => []),
+        prisma.setting.findMany({ where: { key: { in: [AJUSTE_VISTAS_CAMARAS, "VISUAL_TRACK_LINKS", AJUSTE_FUENTES_WEB] } } }).catch(() => []),
         p.auth.pantalla ? Promise.resolve(false) : puedeDisenarVistas(),
     ]);
 
@@ -228,6 +229,8 @@ export async function GET() {
         vision: { ...carga, cuantas: enVision.ids.size, puedeCambiar: !!sesion && permisosDeSesion(sesion as any).includes("vision.config") },
         errores,
         vistas: leerVistas(filasAjustes.find((f) => f.key === AJUSTE_VISTAS_CAMARAS)?.value),
+        // Las páginas web que se pueden poner en una casilla (openspec pared-vms).
+        fuentes: leerFuentes(filasAjustes.find((f) => f.key === AJUSTE_FUENTES_WEB)?.value),
         // Seguimiento visual (el mismo Setting que la ficha de intrusión): por cámara, a qué vecinas
         // se pasa y por qué punto. Se manda entero: son pocas cámaras y pocos enlaces.
         seguimiento: (() => { try { return JSON.parse(filasAjustes.find((f) => f.key === "VISUAL_TRACK_LINKS")?.value || "{}"); } catch { return {}; } })(),

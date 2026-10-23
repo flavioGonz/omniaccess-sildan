@@ -43,16 +43,16 @@
 
 ## 4. Canal web
 
-- [ ] 4.1 `lib/monitor/fuentes-web.ts`:
+- [x] 4.1 `lib/monitor/fuentes-web.ts`:
   - `fuenteValida` (http/https, sin credenciales en la dirección, nombre, recarga de 0 a 1440 min, zoom de 50 a 200);
   - `leerFuentes`;
   - `CLAVE_CANAL` acepta `web:<id>`.
 
   Las acciones `guardarFuenteWeb` y `borrarFuenteWeb` piden `monitores.config` y revisan los encabezados del sitio (X-Frame-Options, frame-ancestors, http dentro de https, sin respuesta) para guardar los avisos.
   - Pruebas: validación, y que la clasificación de acciones las tenga con `monitores.config`.
-- [ ] 4.2 `/admin/monitores`: la sección «Páginas web» (lista con sus avisos, alta, edición y borrado en un cajón). `/api/monitor/camaras` devuelve las fuentes.
+- [x] 4.2 `/admin/monitores`: la sección «Páginas web» (lista con sus avisos, alta, edición y borrado en un cajón). `/api/monitor/camaras` devuelve las fuentes.
   - Verificación: en el lab, cargar una fuente que se deja enmarcar y una que no (se ve el aviso).
-- [ ] 4.3 `camaras/Editor.tsx`: sección «Páginas web» para poner una fuente en una casilla. En `VistaCamaras`:
+- [x] 4.3 `camaras/Editor.tsx`: sección «Páginas web» para poner una fuente en una casilla. En `VistaCamaras`:
   - la casilla `web:` dibuja el iframe aislado (`sandbox` sin `allow-top-navigation` ni `allow-popups`, `referrerpolicy=no-referrer`), con el rótulo, el zoom y la recarga;
   - «Fuente web que ya no existe» si se borró;
   - fuera de `ordenados`, alertas, seguimiento y búsqueda.

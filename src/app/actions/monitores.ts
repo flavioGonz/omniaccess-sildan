@@ -2,11 +2,13 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { getSession } from "@/app/actions/auth";
 import { nuevoToken, hashToken, olvidarVigencia } from "@/lib/pantalla-auth";
 import { esVista, vistaPorClave, CLAVES_VISTAS, type ClaveVista } from "@/lib/monitor/vistas";
 import { permisosDeSesion } from "@/lib/permisos";
 import { AJUSTE_VISTAS_CAMARAS, VISTAS_CAMARAS_MAX, vistaValida, leerVistas, type VistaCamaras } from "@/lib/monitor/disposiciones";
+import { AJUSTE_FUENTES_WEB, FUENTES_WEB_MAX, fuenteValida, leerFuentes, problemaDeUrl, prohibeMarco, type AvisoFuente, type FuenteWeb } from "@/lib/monitor/fuentes-web";
 import { AJUSTE_ROTACION_VISTAS, AJUSTE_ROTACION_SEG, ROTACION_SEG_MIN, ROTACION_SEG_POR_DEFECTO, ROTACION_VISTAS_POR_DEFECTO } from "@/lib/monitor/ajustes";
 
 /**
@@ -132,5 +134,81 @@ export async function borrarVistaCamaras(id: string): Promise<{ ok: boolean }> {
     await exigirMonitores();
     const vistas = await vistasGuardadas();
     await escribirVistas(vistas.filter((x) => x.id !== id));
+    return { ok: true };
+}
+
+// ── Fuentes web de la pared de cámaras (openspec pared-vms) ───────────────────────────
+
+async function fuentesGuardadas() {
+    const fila = await prisma.setting.findUnique({ where: { key: AJUSTE_FUENTES_WEB } });
+    return leerFuentes(fila?.value);
+}
+async function escribirFuentes(fuentes: FuenteWeb[]) {
+    const value = JSON.stringify(fuentes);
+    await prisma.setting.upsert({ where: { key: AJUSTE_FUENTES_WEB }, update: { value }, create: { key: AJUSTE_FUENTES_WEB, value } });
+}
+
+/** El catálogo, con sus avisos, para la sección «Páginas web» de Monitores. */
+export async function listarFuentesWeb(): Promise<FuenteWeb[]> {
+    await exigirMonitores("monitores");
+    return fuentesGuardadas();
+}
+
+/**
+ * Lo que se puede saber desde el servidor de si la página se va a ver en la pared: si el sitio
+ * prohíbe mostrarse en un marco, si es http dentro de un panel https, si contesta. Son avisos: que
+ * el servidor no llegue no prueba que la PC de la pared no llegue (una herramienta de la LAN).
+ * Se leen sólo los encabezados; el cuerpo se descarta.
+ */
+async function revisarFuente(url: string): Promise<AvisoFuente[]> {
+    const avisos: AvisoFuente[] = [];
+    try {
+        const h = await headers();
+        const proto = (h.get("x-forwarded-proto") || "").split(",")[0].trim() || (h.get("origin") || h.get("referer") || "").split(":")[0];
+        if (url.startsWith("http:") && proto === "https") avisos.push("http-en-https");
+    } catch { /* sin encabezados: no se sabe */ }
+    let actual = url;
+    try {
+        for (let saltos = 0; saltos <= REVISAR_SALTOS; saltos++) {
+            const r = await fetch(actual, { method: "GET", redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(REVISAR_MS), headers: { "user-agent": "OmniAccess (revisar fuente web)" } });
+            r.body?.cancel().catch(() => { });
+            const destino = r.headers.get("location");
+            if (r.status >= 300 && r.status < 400 && destino) { actual = new URL(destino, actual).toString(); continue; }
+            if (prohibeMarco(r.headers.get("x-frame-options"), r.headers.get("content-security-policy"))) avisos.push("no-enmarcable");
+            return avisos;
+        }
+    } catch { avisos.push("sin-respuesta"); }
+    return avisos;
+}
+/** Cuánto se espera a que la página conteste, y cuántas redirecciones se siguen, al revisarla. */
+const REVISAR_MS = 5000;
+const REVISAR_SALTOS = 3;
+
+/** Crea (sin id) o reemplaza (con id) una fuente. La revisa al guardar y deja los avisos con ella. */
+export async function guardarFuenteWeb(data: unknown): Promise<{ ok: true; fuente: FuenteWeb } | { ok: false; error: string }> {
+    await exigirMonitores();
+    const crudo: any = data && typeof data === "object" ? data : {};
+    const problema = problemaDeUrl(String(crudo.url || "").trim());
+    if (problema) return { ok: false, error: problema };
+    const f = fuenteValida(crudo);
+    if (!f) return { ok: false, error: "La página necesita un nombre y una dirección." };
+    const fuentes = await fuentesGuardadas();
+    const i = f.id ? fuentes.findIndex((x) => x.id === f.id) : -1;
+    if (i < 0 && fuentes.length >= FUENTES_WEB_MAX) return { ok: false, error: `Ya hay ${FUENTES_WEB_MAX} páginas: borrá alguna antes.` };
+    const fuente: FuenteWeb = { ...f, id: i >= 0 ? f.id : `w${Date.now().toString(36)}`, avisos: await revisarFuente(f.url) };
+    if (i >= 0) fuentes[i] = fuente; else fuentes.push(fuente);
+    await escribirFuentes(fuentes);
+    revalidatePath("/admin/monitores");
+    return { ok: true, fuente };
+}
+
+/** Borra una fuente. Las vistas que la usaban muestran «Página que ya no existe» en esa casilla. */
+export async function borrarFuenteWeb(id: string): Promise<{ ok: boolean }> {
+    await exigirMonitores();
+    const fuentes = await fuentesGuardadas();
+    const n = fuentes.filter((f) => f.id !== id);
+    if (n.length === fuentes.length) return { ok: false };
+    await escribirFuentes(n);
+    revalidatePath("/admin/monitores");
     return { ok: true };
 }

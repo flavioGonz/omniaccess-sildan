@@ -49,3 +49,40 @@ test("alcance: buscar parecidos lo abren Cámaras y Rotación, no LPR", () => {
 test("la subida del celular es pública por su propia regla", () => {
     assert.equal(claseDeApi("/api/subida/abc"), "propio");
 });
+
+import { fuenteValida, leerFuentes, problemaDeUrl, prohibeMarco, esClaveWeb } from "@/lib/monitor/fuentes-web";
+import { vistaValida } from "@/lib/monitor/disposiciones";
+
+test("fuentes web: direcciones", () => {
+    assert.equal(problemaDeUrl("https://grafana.ies.com.uy/d/abc"), null);
+    assert.equal(problemaDeUrl("http://10.1.1.5:3000"), null);
+    assert.ok(problemaDeUrl("ftp://x"));
+    assert.ok(problemaDeUrl("javascript:alert(1)"));
+    assert.ok(problemaDeUrl("https://admin:clave@x.com"));
+    assert.ok(problemaDeUrl("no es una url"));
+});
+
+test("fuentes web: se limpian y se acotan", () => {
+    const f = fuenteValida({ id: "w1", nombre: "  Tablero  ", url: "https://x.com", recargaMin: 99999, zoom: 10, avisos: ["no-enmarcable", "inventado"] });
+    assert.deepEqual(f, { id: "w1", nombre: "Tablero", url: "https://x.com", recargaMin: 1440, zoom: 50, avisos: ["no-enmarcable"] });
+    assert.equal(fuenteValida({ nombre: "", url: "https://x.com" }), null);
+    assert.equal(fuenteValida({ nombre: "x", url: "file:///etc/passwd" }), null);
+    assert.deepEqual(leerFuentes("roto"), []);
+    assert.equal(leerFuentes(JSON.stringify([{ nombre: "sin id", url: "https://x.com" }])).length, 0);
+});
+
+test("fuentes web: qué encabezados prohíben el marco", () => {
+    assert.equal(prohibeMarco("DENY", null), true);
+    assert.equal(prohibeMarco("sameorigin", null), true);
+    assert.equal(prohibeMarco(null, "default-src 'self'; frame-ancestors 'self'"), true);
+    assert.equal(prohibeMarco(null, "frame-ancestors *"), false);
+    assert.equal(prohibeMarco(null, "default-src 'self'"), false);
+    assert.equal(prohibeMarco(null, null), false);
+});
+
+test("una vista guardada acepta una página en una casilla", () => {
+    assert.ok(esClaveWeb("web:w1abc"));
+    assert.ok(!esClaveWeb("dev:abc"));
+    const v = vistaValida({ id: "v1", nombre: "Con tablero", disposicion: "4", canales: ["web:w1", "dev:c1", "web:../x", null] });
+    assert.deepEqual(v?.canales, ["web:w1", "dev:c1", null, null]);
+});
