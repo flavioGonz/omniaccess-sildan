@@ -5,8 +5,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
     Siren, Home, Ticket, CircleDashed, AlertTriangle, RefreshCw, Radar, ShieldAlert, ScanEye, Repeat, Car, Check, X, LogOut, Undo2,
     Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers, Loader2, NotebookPen, Image as ImageIcon,
-    Activity, Truck, Infinity as SinTiempo, RadioTower,
+    Activity, Truck, Infinity as SinTiempo, RadioTower, ChevronRight, MessagesSquare,
 } from "lucide-react";
+import { getEnabledModules } from "@/app/actions/modules";
 import { VistaCentrales, ChipPrioridad } from "@/components/alarmas/MensajesCentrales";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { abrirEventoCentral } from "@/lib/centrales/abrir-evento";
@@ -51,6 +52,13 @@ import { BotonAjustesAvisos } from "@/components/avisos/PilaAvisos";
  * alarmas», y el lugar al que llevan los cuatro números de la pared (Control LPR) — residentes,
  * visitas y proveedores, desconocidos y atípicos dentro.
  *
+ * Por sistema (23/10, Nico: «las pestañas deben organizarse mejor: LPR, Intrusión, Alarm Hub, así
+ * queda más claro y centralizamos en un panel todos los eventos de OmniAccess»). Eran ocho pestañas
+ * en una fila, mezclando de qué sistema venía la alarma con quién estaba adentro, y una alarma de
+ * central figuraba como «Intrusión». Ahora arriba va el sistema —Todo, LPR, Intrusión, Alarm Hub— y,
+ * al lado, lo que ese sistema tiene para mirar (LPR: sus alarmas y quién está adentro; Alarm Hub:
+ * los eventos a tratar y los mensajes de las centrales). «Todo» sigue siendo el panel único, por hora.
+ *
  * Arriba, qué se mira: las alarmas o una de las cuatro listas de quién está adentro (eran cinco
  * tarjetas con ícono y número; a Nico no le gustaron, 16/10 — quedó un selector con la cuenta). Abajo, la tabla de lo elegido y, a la derecha, lo seleccionado con lo que
  * se hace con eso: real o falsa, atendida, «salió».
@@ -58,8 +66,28 @@ import { BotonAjustesAvisos } from "@/components/avisos/PilaAvisos";
  * El cálculo vive en el servidor (lib/alarmas.ts y lib/presencia.ts), con el porqué de cada criterio.
  */
 
-type Ver = "todo" | "alarmas" | "centrales" | "atipicos" | "residentes" | "visitas" | "proveedores" | "desconocidos";
-const VER: Ver[] = ["todo", "alarmas", "centrales", "atipicos", "residentes", "visitas", "proveedores", "desconocidos"];
+type Grupo = "todo" | "lpr" | "intrusion" | "hub";
+/** Lo que se mira, que es también el `?ver=` de la dirección. Cada uno pertenece a un grupo. */
+type Ver = "todo" | "lpr" | "atipicos" | "residentes" | "visitas" | "proveedores" | "desconocidos" | "intrusion" | "hub" | "centrales";
+const GRUPO_DE: Record<Ver, Grupo> = {
+    todo: "todo", lpr: "lpr", atipicos: "lpr", residentes: "lpr", visitas: "lpr", proveedores: "lpr", desconocidos: "lpr",
+    intrusion: "intrusion", hub: "hub", centrales: "hub",
+};
+const VER = Object.keys(GRUPO_DE) as Ver[];
+/** Los `?ver=` de antes de los grupos que pueden seguir en enlaces: «alarmas» era la lista de todas las alarmas. */
+const VER_VIEJO: Record<string, Ver> = { alarmas: "todo" };
+const leerVer = (v: string | null): Ver | null => (!v ? null : VER.includes(v as Ver) ? (v as Ver) : VER_VIEJO[v] || null);
+/** Las listas de alarmas; las demás son de quién está adentro o los mensajes de las centrales. */
+const DE_ALARMAS: Ver[] = ["todo", "lpr", "intrusion", "hub"];
+/**
+ * De dónde viene una alarma, como se filtra. Una de central viene de la lib con fuente «intrusion»
+ * (es una detección), pero no es de una cámara: se separa para no decir «Intrusión» de un robo
+ * que mandó un panel.
+ */
+type Origen = FuenteAlarma | "central";
+const origenDe = (a: Alarma): Origen => (a.tipo === "CENTRAL" ? "central" : a.fuente);
+const GRUPO_DE_ORIGEN: Record<Origen, Exclude<Grupo, "todo">> = { lpr: "lpr", patron: "lpr", intrusion: "intrusion", vision: "intrusion", central: "hub" };
+const ORIGENES_DE: Record<Grupo, Origen[]> = { todo: ["central", "intrusion", "vision", "lpr", "patron"], lpr: ["lpr", "patron"], intrusion: ["intrusion", "vision"], hub: [] };
 /** Las dos pestañas de lo registrado que no es del barrio: tienen la misma forma, cambia qué entra. */
 const esDeRegistrados = (v: Ver) => v === "visitas" || v === "proveedores";
 /**
@@ -76,8 +104,8 @@ type Datos = { horas: number; alarmas: Alarma[]; errorAlarmas: string | null; pr
 /** Cada cuánto se vuelve a pedir, además de con cada evento del socket. */
 const REFRESCO_MS = 20_000;
 
-const NOMBRE_FUENTE: Record<FuenteAlarma, string> = { intrusion: "Intrusión", lpr: "LPR", patron: "Patrones", vision: "OmniVision" };
-const ICONO_FUENTE: Record<FuenteAlarma, typeof Radar> = { intrusion: Radar, lpr: ShieldAlert, patron: Repeat, vision: ScanEye };
+const NOMBRE_FUENTE: Record<Origen, string> = { intrusion: "Intrusión", lpr: "LPR", patron: "Patrones", vision: "OmniVision", central: "Alarm Hub" };
+const ICONO_FUENTE: Record<Origen, typeof Radar> = { intrusion: Radar, lpr: ShieldAlert, patron: Repeat, vision: ScanEye, central: RadioTower };
 const NOMBRE_CLASE: Record<ClasePresencia, string> = {
     residente: "Residente", personal: "Personal", proveedor: "Proveedor", visita: "Visita", invitado: "Invitado", lista_blanca: "Lista blanca", no_registrado: "No registrado",
 };
@@ -93,10 +121,17 @@ export default function GestionAlarmasPagina() {
 function GestionAlarmas() {
     const router = useRouter();
     const sp = useSearchParams();
-    const pedido = sp.get("ver") as Ver | null;
-    const [ver, setVerEstado] = useState<Ver>(pedido && VER.includes(pedido) ? pedido : "todo");
-    useEffect(() => { if (pedido && VER.includes(pedido)) setVerEstado(pedido); }, [pedido]);
+    const pedido = leerVer(sp.get("ver"));
+    const [ver, setVerEstado] = useState<Ver>(pedido || "todo");
+    useEffect(() => { if (pedido) setVerEstado(pedido); }, [pedido]);
     const setVer = (v: Ver) => { setVerEstado(v); setSel(null); router.replace(`/admin/alarmas?ver=${v}`, { scroll: false }); };
+    const grupo = GRUPO_DE[ver];
+    // Volver a un grupo lo abre en lo último que se miró ahí.
+    const [ultimoDe, setUltimoDe] = useState<Partial<Record<Grupo, Ver>>>({});
+    useEffect(() => { setUltimoDe((u) => (u[grupo] === ver ? u : { ...u, [grupo]: ver })); }, [grupo, ver]);
+    // El modo: el grupo LPR es de las instalaciones que leen matrículas (no de Filas).
+    const [modulos, setModulos] = useState<{ lpr: boolean } | null>(null);
+    useEffect(() => { getEnabledModules().then((m) => setModulos({ lpr: !!m.MODULE_LPR && !m.MODULE_QUEUE })).catch(() => setModulos({ lpr: true })); }, []);
 
     const [horas, setHoras] = useState(24);
     const [datos, setDatos] = useState<Datos | null>(null);
@@ -160,34 +195,69 @@ function GestionAlarmas() {
 
     // Funciones de la instalación: sin Intrusión no se listan las de cámara; sin Gestión de alarmas,
     // las de central (sin Recepción ni siquiera hay pestaña Centrales).
-    const intrusionOn = useFuncion("FUNC_INTRUSION") !== false;
-    const recepcionOn = useFuncion("FUNC_ALARMAS_RECEPCION") === true;
-    const gestionOn = useFuncion("FUNC_ALARMAS_GESTION") === true;
+    const fIntrusion = useFuncion("FUNC_INTRUSION"), fRecepcion = useFuncion("FUNC_ALARMAS_RECEPCION"), fGestion = useFuncion("FUNC_ALARMAS_GESTION");
+    const intrusionOn = fIntrusion !== false;
+    const recepcionOn = fRecepcion === true;
+    const gestionOn = fGestion === true;
+    /** Ya se sabe qué está prendido: antes de esto no se corrige el `?ver=` (sería por falta de dato, no porque esté apagado). */
+    const sabido = fIntrusion !== null && fRecepcion !== null && fGestion !== null;
     const p = datos?.presencia || null;
     const alarmas = useMemo(() => (datos?.alarmas || []).filter(enAlarma)
         .filter((a) => a.tipo === "CENTRAL" ? gestionOn : a.fuente !== "intrusion" || intrusionOn), [datos, enAlarma, intrusionOn, gestionOn]);
     const pendientes = alarmas.filter((a) => a.estado === "pendiente");
+    const delGrupo = useCallback((a: Alarma, g: Grupo = grupo) => g === "todo" || GRUPO_DE_ORIGEN[origenDe(a)] === g, [grupo]);
+    const pendientesDe = (g: Grupo) => (datos ? pendientes.filter((a) => delGrupo(a, g)).length : undefined);
 
-    // ── Qué se mira ──
-    const vistas: Pestania<Ver>[] = [
-        { valor: "todo", rotulo: "Todo", icono: Layers, ayuda: "Las alarmas y los autos que están adentro sin ser del barrio, por hora" },
-        { valor: "alarmas", rotulo: "Alarmas", icono: Siren, cuenta: datos ? pendientes.length : undefined, tono: "mal", ayuda: "Alarmas sin atender" },
-        // Lo que mandan las centrales de alarma (Alarm Hub), en palabras: armado, fallas, pruebas, alarmas.
-        ...(recepcionOn ? [{ valor: "centrales" as Ver, rotulo: "Centrales", icono: RadioTower, ayuda: "Lo que mandan las centrales de alarma: armado y desarmado, alarmas, fallas y pruebas" }] : []),
-        { valor: "atipicos", rotulo: "Atípicos dentro", icono: AlertTriangle, cuenta: fa.filtrando ? autosDe("atipicos").length : p?.resumen.atipicos, tono: "aviso" },
-        { valor: "residentes", rotulo: "Residentes dentro", icono: Home, cuenta: p?.resumen.residentes },
-        // Visitas y Proveedores en dos pestañas (21/10, Nico): un delivery que vence y la cuadrilla con
-        // pase libre que está todo el día no se miran igual, y juntos se tapaban.
-        { valor: "visitas", rotulo: "Visitas", icono: Ticket, cuenta: fa.filtrando ? autosDe("visitas").length : p?.resumen.visitas, ayuda: "Visitas, invitados y lista blanca adentro" },
-        { valor: "proveedores", rotulo: "Proveedores", icono: Truck, cuenta: fa.filtrando ? autosDe("proveedores").length : p?.resumen.proveedores, ayuda: "Proveedores, personal y pases libres adentro" },
-        { valor: "desconocidos", rotulo: "Desconocidos dentro", icono: CircleDashed, cuenta: fa.filtrando ? autosDe("desconocidos").length : p?.resumen.desconocidos },
-    ];
+    // ── Qué se mira: el sistema, y lo que ese sistema tiene para mirar ──
+    // Un grupo se ofrece si su sistema está (o si igual llegaron alarmas suyas: no se esconde lo que hay que atender).
+    const hayDe = (g: Grupo) => alarmas.some((a) => delGrupo(a, g));
+    const lprOn = modulos ? modulos.lpr : true;
+    const grupoVisible: Record<Grupo, boolean> = { todo: true, lpr: lprOn || hayDe("lpr"), intrusion: intrusionOn || hayDe("intrusion"), hub: recepcionOn };
+    const grupos: Pestania<Grupo>[] = ([
+        { valor: "todo", rotulo: "Todo", icono: Layers, cuenta: pendientesDe("todo"), tono: "mal", ayuda: "Todos los eventos de OmniAccess por hora: LPR, intrusión y centrales de alarma, y los autos que están adentro sin ser del barrio" },
+        { valor: "lpr", rotulo: "LPR", icono: Car, cuenta: pendientesDe("lpr"), tono: "mal", ayuda: "Lista negra, en búsqueda y patrones de las matrículas, y quién está adentro del barrio" },
+        { valor: "intrusion", rotulo: "Intrusión", icono: Radar, cuenta: pendientesDe("intrusion"), tono: "mal", ayuda: "Lo que detectan las cámaras: cruces de línea, zonas y las analíticas de OmniVision" },
+        { valor: "hub", rotulo: "Alarm Hub", icono: RadioTower, cuenta: gestionOn ? pendientesDe("hub") : undefined, tono: "mal", ayuda: "Las centrales de alarma: los eventos a tratar y todo lo que mandan" },
+    ] as Pestania<Grupo>[]).filter((g) => grupoVisible[g.valor]);
+    const subsDe: Record<Grupo, Pestania<Ver>[]> = {
+        todo: [],
+        intrusion: [],
+        lpr: [
+            { valor: "lpr", rotulo: "Alarmas", icono: Siren, cuenta: pendientesDe("lpr"), tono: "mal", ayuda: "Alarmas de matrículas sin atender: lista negra, en búsqueda y patrones" },
+            { valor: "atipicos", rotulo: "Atípicos", icono: AlertTriangle, cuenta: fa.filtrando ? autosDe("atipicos").length : p?.resumen.atipicos, tono: "aviso", ayuda: "Lo fuera de lo común que está adentro" },
+            { valor: "residentes", rotulo: "Residentes", icono: Home, cuenta: p?.resumen.residentes, ayuda: "Residentes adentro" },
+            // Visitas y Proveedores separados (21/10, Nico): un delivery que vence y la cuadrilla con
+            // pase libre que está todo el día no se miran igual, y juntos se tapaban.
+            { valor: "visitas", rotulo: "Visitas", icono: Ticket, cuenta: fa.filtrando ? autosDe("visitas").length : p?.resumen.visitas, ayuda: "Visitas, invitados y lista blanca adentro" },
+            { valor: "proveedores", rotulo: "Proveedores", icono: Truck, cuenta: fa.filtrando ? autosDe("proveedores").length : p?.resumen.proveedores, ayuda: "Proveedores, personal y pases libres adentro" },
+            { valor: "desconocidos", rotulo: "Desconocidos", icono: CircleDashed, cuenta: fa.filtrando ? autosDe("desconocidos").length : p?.resumen.desconocidos, ayuda: "Matrículas sin registrar adentro" },
+        ],
+        hub: [
+            ...(gestionOn ? [{ valor: "hub" as Ver, rotulo: "Eventos a tratar", icono: Siren, cuenta: pendientesDe("hub"), tono: "mal" as const, ayuda: "Los eventos de las centrales sin tratar, con su procedimiento" }] : []),
+            // Lo que mandan las centrales, en palabras: armado, fallas, pruebas, alarmas.
+            { valor: "centrales", rotulo: "Mensajes de las centrales", icono: MessagesSquare, ayuda: "Lo que mandan las centrales de alarma: armado y desarmado, alarmas, fallas y pruebas" },
+        ],
+    };
+    const subs = subsDe[grupo];
+    const elegirGrupo = (g: Grupo) => {
+        if (g === grupo) return;
+        const opciones = g === "todo" ? (["todo"] as Ver[]) : g === "intrusion" ? (["intrusion"] as Ver[]) : subsDe[g].map((s) => s.valor);
+        const u = ultimoDe[g];
+        setVer(u && opciones.includes(u) ? u : opciones[0]);
+        setOrigenes([]);
+    };
+    // Un grupo que deja de estar (se apagó su función) o un «Eventos a tratar» sin Gestión: a lo que sí hay.
+    useEffect(() => {
+        if (!sabido || !modulos || !datos) return;
+        if (!grupoVisible[grupo]) setVerEstado("todo");
+        else if (ver === "hub" && !gestionOn && recepcionOn) setVerEstado("centrales");
+    }, [grupo, ver, gestionOn, recepcionOn, sabido, modulos, !!datos, grupoVisible[grupo]]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── Filtros de la tabla ──
     const [busqueda, setBusqueda] = useState("");
     /** Los orígenes elegidos; ninguno = todos. Así no hay un segundo «Todas» al lado del de estado. */
-    const [origenes, setOrigenes] = useState<FuenteAlarma[]>([]);
-    const alternarOrigen = (f: FuenteAlarma) => setOrigenes((xs) => (xs.includes(f) ? xs.filter((x) => x !== f) : [...xs, f]));
+    const [origenes, setOrigenes] = useState<Origen[]>([]);
+    const alternarOrigen = (f: Origen) => setOrigenes((xs) => (xs.includes(f) ? xs.filter((x) => x !== f) : [...xs, f]));
     const [estado, setEstado] = useState<"pendiente" | "atendida" | "todas">("pendiente");
     /** Un equipo puntual (16/10): de qué cámara, lectora o NVR. Null = todos. */
     const [equipo, setEquipo] = useState<Equipo | null>(null);
@@ -197,14 +267,15 @@ function GestionAlarmas() {
     const t = busqueda.trim().toUpperCase().replace(/[^A-Z0-9Ñ ]/g, "");
     const pasa = (...campos: (string | null | undefined)[]) => !t || campos.some((c) => (c || "").toUpperCase().replace(/[^A-Z0-9Ñ ]/g, "").includes(t));
 
-    const filasAlarmas = useMemo(() => alarmas
+    const alarmasGrupo = useMemo(() => alarmas.filter((a) => delGrupo(a)), [alarmas, delGrupo]);
+    const filasAlarmas = useMemo(() => alarmasGrupo
         .filter((a) => deEquipo(a.deviceId, a.camara))
-        .filter((a) => !origenes.length || origenes.includes(a.fuente))
+        .filter((a) => !origenes.length || origenes.includes(origenDe(a)))
         .filter((a) => estado === "todas" || a.estado === estado)
-        .filter((a) => pasa(a.titulo, a.plate, a.camara, a.detalle)), [alarmas, origenes, estado, t, equipo]); // eslint-disable-line react-hooks/exhaustive-deps
-    const cuentaFuente = (f: FuenteAlarma) => alarmas.filter((a) => a.fuente === f && (estado === "todas" || a.estado === estado) && deEquipo(a.deviceId, a.camara)).length;
-    const cuentaEstado = (e: "pendiente" | "atendida") => alarmas.filter((a) => a.estado === e && (!origenes.length || origenes.includes(a.fuente)) && deEquipo(a.deviceId, a.camara)).length;
-    const cuentaEquipo = useCallback((e: Equipo) => alarmas.filter((a) => (estado === "todas" || a.estado === estado) && deEquipo(a.deviceId, a.camara, e)).length, [alarmas, estado]); // eslint-disable-line react-hooks/exhaustive-deps
+        .filter((a) => pasa(a.titulo, a.plate, a.camara, a.detalle)), [alarmasGrupo, origenes, estado, t, equipo]); // eslint-disable-line react-hooks/exhaustive-deps
+    const cuentaFuente = (f: Origen) => alarmasGrupo.filter((a) => origenDe(a) === f && (estado === "todas" || a.estado === estado) && deEquipo(a.deviceId, a.camara)).length;
+    const cuentaEstado = (e: "pendiente" | "atendida") => alarmasGrupo.filter((a) => a.estado === e && (!origenes.length || origenes.includes(origenDe(a))) && deEquipo(a.deviceId, a.camara)).length;
+    const cuentaEquipo = useCallback((e: Equipo) => alarmasGrupo.filter((a) => (estado === "todas" || a.estado === estado) && deEquipo(a.deviceId, a.camara, e)).length, [alarmasGrupo, estado]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const gestionDe = (a: AutoAdentro): GestionAuto | null => (a.accessEventId && datos?.gestionAutos?.[a.accessEventId]) || null;
     // Declarada como función (se iza): las pestañas de arriba la usan para contar con el área elegida.
@@ -236,10 +307,10 @@ function GestionAlarmas() {
     const colsAlarmas = useMemo<ColumnaTabla<Alarma>[]>(() => [
         // La captura de la alarma, primero (16/10, Nico): es lo que se reconoce de un vistazo.
         { clave: "foto", titulo: "", ancho: 92, auxiliar: true, celda: (a) => <Miniatura src={fotoChica(a.foto, 320)} alt={a.titulo} ancho={80} alto={48} /> },
-        { clave: "tipo", titulo: "Alarma", valor: (a) => `${a.titulo} · ${NOMBRE_FUENTE[a.fuente]}`, celda: (a) => { const I = ICONO_FUENTE[a.fuente]; return (
+        { clave: "tipo", titulo: "Alarma", valor: (a) => `${a.titulo} · ${NOMBRE_FUENTE[origenDe(a)]}`, celda: (a) => { const I = ICONO_FUENTE[origenDe(a)]; return (
             <div className="flex items-center gap-2.5 min-w-0">
                 <I size={15} className={cn("shrink-0", tonoTexto(a.tono))} />
-                <div className="min-w-0 leading-tight"><div className="text-[13px] font-semibold truncate">{a.titulo}</div><div className="text-[11px] text-muted-foreground flex items-center gap-1.5">{NOMBRE_FUENTE[a.fuente]}{a.prioridad != null && <ChipPrioridad n={a.prioridad} corto />}</div></div>
+                <div className="min-w-0 leading-tight"><div className="text-[13px] font-semibold truncate">{a.titulo}</div><div className="text-[11px] text-muted-foreground flex items-center gap-1.5">{NOMBRE_FUENTE[origenDe(a)]}{a.prioridad != null && <ChipPrioridad n={a.prioridad} corto />}</div></div>
             </div>); } },
         { clave: "donde", titulo: "Matrícula · cámara", ancho: 190, valor: (a) => [a.plate, a.camara].filter(Boolean).join(" · "), celda: (a) => (
             <div className="min-w-0 flex flex-col items-start gap-0.5">{a.plate && <Matricula p={a.plate} />}<span className="text-[11.5px] text-muted-foreground truncate max-w-full">{a.camara || (a.plate ? "" : "—")}</span></div>) },
@@ -253,9 +324,9 @@ function GestionAlarmas() {
     const colsTodo = useMemo<ColumnaTabla<FilaTodo>[]>(() => [
         { clave: "foto", titulo: "", ancho: 92, auxiliar: true, celda: (f) => <Miniatura src={fotoChica(f.alarma ? f.alarma.foto : f.auto!.foto, 320)} alt="" ancho={80} alto={48} /> },
         { clave: "que", titulo: "Qué", valor: (f) => f.alarma ? f.alarma.titulo : NOMBRE_CLASE[f.auto!.clase], celda: (f) => {
-            if (f.alarma) { const a = f.alarma; const I = ICONO_FUENTE[a.fuente]; return (
+            if (f.alarma) { const a = f.alarma; const I = ICONO_FUENTE[origenDe(a)]; return (
                 <div className="flex items-center gap-2.5 min-w-0"><I size={15} className={cn("shrink-0", tonoTexto(a.tono))} />
-                    <div className="min-w-0 leading-tight"><div className="text-[13px] font-semibold truncate">{a.titulo}</div><div className="text-[11px] text-muted-foreground flex items-center gap-1.5">{NOMBRE_FUENTE[a.fuente]}{a.prioridad != null && <ChipPrioridad n={a.prioridad} corto />}</div></div></div>); }
+                    <div className="min-w-0 leading-tight"><div className="text-[13px] font-semibold truncate">{a.titulo}</div><div className="text-[11px] text-muted-foreground flex items-center gap-1.5">{NOMBRE_FUENTE[origenDe(a)]}{a.prioridad != null && <ChipPrioridad n={a.prioridad} corto />}</div></div></div>); }
             const a = f.auto!; const at = a.atipico[0];
             return (
                 <div className="flex items-center gap-2.5 min-w-0">{at ? <AlertTriangle size={15} className={cn("shrink-0", tonoTexto(TONO_ATIPICO[at]))} /> : <Car size={15} className="shrink-0 text-muted-foreground" />}
@@ -330,9 +401,9 @@ function GestionAlarmas() {
     ], [ocupado, cerrarVisita]);
 
     // ── Lo seleccionado ──
-    const alarmaSel = ver === "alarmas" || ver === "todo" ? alarmas.find((a) => a.id === sel) || null : null;
+    const alarmaSel = DE_ALARMAS.includes(ver) ? alarmas.find((a) => a.id === sel) || null : null;
     const plateSel = sel?.startsWith("p:") ? sel.slice(2) : sel;
-    const autoSel = ver !== "alarmas" && ver !== "residentes" && !alarmaSel ? (p ? [...p.autosResidentes, ...p.autosVisitas, ...p.atipicos].find((a) => a.plate === plateSel) || null : null) : null;
+    const autoSel = (ver === "todo" || !DE_ALARMAS.includes(ver)) && ver !== "residentes" && ver !== "centrales" && !alarmaSel ? (p ? [...p.autosResidentes, ...p.autosVisitas, ...p.atipicos].find((a) => a.plate === plateSel) || null : null) : null;
 
     /*
      * Los filtros de la tabla en UN renglón (17/10, Nico: «el origen está mal ubicado, mucho texto;
@@ -342,6 +413,8 @@ function GestionAlarmas() {
      * para atrás. Lo que decía cada chip en palabras pasó a la ayuda al pasar el mouse.
      */
     const etiquetaEstado = estado === "pendiente" ? "sin atender" : estado === "atendida" ? "atendidas" : "en total";
+    // Los orígenes del grupo que se miran (en Alarm Hub hay uno solo: no se ofrece filtro).
+    const origenesBarra = ORIGENES_DE[grupo].filter((f) => (f !== "intrusion" || intrusionOn) && (f !== "central" || gestionOn));
     const barraAlarmas = (
         <div className="flex items-center gap-2 flex-wrap">
             <Filtros busqueda={busqueda} alBuscar={setBusqueda} placeholder="Matrícula, cámara o tipo"
@@ -350,8 +423,8 @@ function GestionAlarmas() {
                     { valor: "atendida", rotulo: "Atendidas", cuenta: cuentaEstado("atendida") },
                     { valor: "todas", rotulo: "Todas" }] }]} />
             <div className="ml-auto flex items-center gap-2">
-                <div className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5 gap-0.5" role="group" aria-label="Origen">
-                    {(["intrusion", "lpr", "patron", "vision"] as FuenteAlarma[]).filter((f) => f !== "intrusion" || intrusionOn).map((f) => {
+                {origenesBarra.length > 1 && <div className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5 gap-0.5" role="group" aria-label="Origen">
+                    {origenesBarra.map((f) => {
                         const I = ICONO_FUENTE[f], on = origenes.includes(f), n = cuentaFuente(f);
                         return (
                             <button key={f} type="button" onClick={() => alternarOrigen(f)} aria-pressed={on} aria-label={NOMBRE_FUENTE[f]}
@@ -359,7 +432,7 @@ function GestionAlarmas() {
                                 className={cn("relative h-[30px] w-[34px] rounded-md grid place-items-center transition-colors",
                                     on ? "bg-[var(--accion)] text-white" : "text-muted-foreground hover:text-foreground hover:bg-background", !n && !on && "opacity-40")}>
                                 <I size={15} />
-                                {n > 0 && <span className={cn("absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9.5px] font-bold tabular-nums grid place-items-center", on ? "bg-white text-[var(--accion)]" : f === "intrusion" || f === "lpr" ? "pleno-mal" : "bg-foreground text-background")}>{n > 99 ? "99+" : n}</span>}
+                                {n > 0 && <span className={cn("absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9.5px] font-bold tabular-nums grid place-items-center", on ? "bg-white text-[var(--accion)]" : f === "intrusion" || f === "lpr" || f === "central" ? "pleno-mal" : "bg-foreground text-background")}>{n > 99 ? "99+" : n}</span>}
                             </button>
                         );
                     })}
@@ -367,7 +440,7 @@ function GestionAlarmas() {
                         <button type="button" onClick={() => setOrigenes([])} aria-label="Todos los orígenes" data-tooltip-id="tt-alarmas" data-tooltip-content="Ver todos los orígenes"
                             className="h-[30px] w-[26px] rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-background"><X size={13} /></button>
                     )}
-                </div>
+                </div>}
                 <ElegirDispositivo compacto valor={equipo} alElegir={setEquipo} cuenta={cuentaEquipo} />
                 <span className="w-px h-5 bg-border" />
                 <Filtros grupos={[{ clave: "rango", titulo: "Hasta cuándo para atrás se miran las alarmas", valor: String(horas), alElegir: (v) => setHoras(Number(v)),
@@ -388,7 +461,7 @@ function GestionAlarmas() {
                         <span className="grid place-items-center w-10 h-10 rounded-[10px] bg-muted/60 text-[var(--accion)] shrink-0"><Siren size={20} /></span>
                         <div className="min-w-0">
                             <h1 className="text-lg font-bold tracking-tight">Gestión de alarmas</h1>
-                            <p className="text-xs text-muted-foreground truncate">Intrusión, LPR, patrones y OmniVision en un solo lugar, y quién está adentro del barrio</p>
+                            <p className="text-xs text-muted-foreground truncate">Todos los eventos de OmniAccess en un panel: LPR, intrusión y centrales de alarma</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -404,7 +477,15 @@ function GestionAlarmas() {
                         <button type="button" onClick={traer} title="Volver a pedir" className="w-[34px] h-[34px] rounded-lg grid place-items-center bg-muted/60 text-muted-foreground hover:text-foreground"><RefreshCw size={15} className={cn(cargando && "animate-spin")} /></button>
                     </div>
                 </div>
-                <Pestanias valor={ver} opciones={vistas} alElegir={setVer} />
+                <div className="flex items-center gap-2 flex-wrap">
+                    <Pestanias valor={grupo} opciones={grupos} alElegir={elegirGrupo} />
+                    {subs.length > 1 && (
+                        <div key={grupo} className="oa-aparecer flex items-center gap-2 min-w-0 max-w-full">
+                            <ChevronRight size={16} className="text-muted-foreground/60 shrink-0" aria-hidden />
+                            <Pestanias valor={ver} opciones={subs} alElegir={setVer} />
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Cuerpo: la tabla de lo elegido y lo seleccionado a la derecha. */}
@@ -426,12 +507,12 @@ function GestionAlarmas() {
                             vacio={vacio("Nada que gestionar")}
                             pie={<span className="tabular-nums">{filasTodo.filter((f) => f.alarma).length} alarmas y {filasTodo.filter((f) => f.auto).length} autos adentro sin ser del barrio · últimas {horas} h</span>}
                             barra={barraAlarmas} />
-                    ) : ver === "alarmas" ? (
+                    ) : DE_ALARMAS.includes(ver) ? (
                         <Tabla<Alarma> {...comun} id="alarmas" filas={filasAlarmas} clave={(a) => a.id} columnas={colsAlarmas}
                             alClickFila={(a) => setSel((x) => (x === a.id ? null : a.id))} filaActiva={(a) => a.id === sel}
                             filaDestacada={(a) => a.estado === "pendiente" && Date.now() - new Date(a.ts).getTime() < 60_000}
-                            vacio={vacio(estado === "pendiente" ? "No hay alarmas sin atender" : "Sin alarmas en este rango")}
-                            pie={<span className="tabular-nums">{filasAlarmas.length} de {alarmas.length} en las últimas {horas} h{datos?.errorAlarmas ? ` · ${datos.errorAlarmas}` : ""}</span>}
+                            vacio={vacio(estado === "pendiente" ? (ver === "hub" ? "No hay eventos de central sin tratar" : ver === "intrusion" ? "No hay detecciones sin atender" : "No hay alarmas LPR sin atender") : "Sin alarmas en este rango")}
+                            pie={<span className="tabular-nums">{filasAlarmas.length} de {alarmasGrupo.length} en las últimas {horas} h{datos?.errorAlarmas ? ` · ${datos.errorAlarmas}` : ""}</span>}
                             barra={barraAlarmas} />
                     ) : ver === "residentes" ? (
                         <Tabla<ResidenteAdentro> {...comun} id="alarmas-residentes" filas={filasResidentes} clave={(r) => r.userId} columnas={colsResidentes}
@@ -465,7 +546,7 @@ function GestionAlarmas() {
                                 <div className="max-w-[260px] text-muted-foreground">
                                     <Siren size={26} className="mx-auto mb-3 opacity-40" />
                                     <div className="text-[13px] font-semibold text-foreground">Elegí una fila</div>
-                                    <div className="text-[12.5px] mt-1">{ver === "alarmas" || ver === "todo" ? "Se ve la captura y se marca como real, falsa o atendida." : ver === "residentes" ? "Los residentes no tienen acciones: se corrigen desde sus autos." : "Se ve la última captura, se marca real o falsa con un comentario y, si se fue sin que se leyera, «salió»."}</div>
+                                    <div className="text-[12.5px] mt-1">{DE_ALARMAS.includes(ver) ? "Se ve la captura y se marca como real, falsa o atendida." : ver === "residentes" ? "Los residentes no tienen acciones: se corrigen desde sus autos." : "Se ve la última captura, se marca real o falsa con un comentario y, si se fue sin que se leyera, «salió»."}</div>
                                 </div>
                             </div>
                         )}

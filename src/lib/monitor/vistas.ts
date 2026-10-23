@@ -41,7 +41,7 @@ export const VISTAS: Vista[] = [
         // la recepción de eventos debe ser muy rápida: tenemos que verificar cada evento con video en vivo».
         clave: "alarmas", nombre: "Alarmas", icono: "Siren", funcion: "FUNC_ALARMAS_GESTION",
         paraQuien: "La pared del centro: quien verifica con video cada alarma que manda una central.",
-        queMuestra: "La alarma más urgente sin tratar, con su prioridad, cuánto hace, quién la tiene y el video en vivo de las cámaras de su zona, que arranca en cuanto llega el evento. Al costado, la fila de las otras pendientes y todo lo que va llegando de las centrales; abajo, cada central con su armado y si sigue reportando.",
+        queMuestra: "La alarma más urgente sin tratar, con su prioridad, cuánto hace y quién la tiene, y las cámaras de su área en una pared como la de Cámaras: las de la zona en grande, el resto alrededor, con su disposición, páginas y «Ver el momento». Al costado, las otras pendientes, el procedimiento y lo que va llegando de las centrales con qué pasó con cada alarma; abajo, cada central con su armado y si sigue reportando.",
         sonido: { ajuste: "MONITOR_ALARMAS_SONIDO", modos: [{ valor: "una", rotulo: "Un tono por alarma" }, { valor: "repetir", rotulo: "Repetir mientras nadie la tome" }, { valor: "off", rotulo: "Sin sonido" }] },
     },
     {
@@ -91,8 +91,8 @@ export const vistaPorClave = (c: string) => VISTAS.find((v) => v.clave === c) ||
 export const ALCANCE_COMUN = ["/api/monitor/alarmas", "/api/monitor/marco"];
 export const ALCANCE_POR_VISTA: Record<ClaveVista, string[]> = {
     intrusion: ["/api/monitor/intrusion"],
-    // La foto de un canal de NVR, de respaldo cuando su vivo no arranca (VerificacionVideo).
-    alarmas: ["/api/monitor/centrales", "/api/monitor/camaras/foto"],
+    // Las cámaras del área del evento, como en la pared Cámaras (y la foto de un canal de NVR, de respaldo).
+    alarmas: ["/api/monitor/centrales", "/api/monitor/camaras"],
     lpr: ["/api/monitor/lpr"],
     mapa: ["/api/monitor/mapa"],
     resumen: ["/api/monitor/resumen"],

@@ -163,6 +163,8 @@ export type EventoCentral = {
     central: { id: string; deviceId: string; nombre: string; cuenta: string; prueba: boolean };
     zona: { zona: number; nombre: string | null; camaras: string[] } | null;
     particion: number | null; area: string | null;
+    /** El área del evento (la de la zona, o la del equipo de la central): la pared muestra sus cámaras. */
+    areaId: string | null;
     operador: { nombre: string | null; desde: string | null; soyYo: boolean };
     tratado: { por: string | null; ts: string; cierre: string; resultado: string | null; texto: string | null } | null;
     /** Pasos del procedimiento ya hechos: { paso: { por, ts } }. */

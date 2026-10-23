@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Siren, ShieldCheck, ShieldOff, Shield, Wrench, CheckCircle2, FlaskConical, Info, UserRound, UserX, TrendingUp, Radio, Camera, Minimize2, Loader2, Hash, Layers, MapPin, KeyRound } from "lucide-react";
+import { Siren, ShieldCheck, ShieldOff, Shield, Wrench, CheckCircle2, FlaskConical, Info, UserRound, UserX, TrendingUp, Radio, Hash, Layers, MapPin, KeyRound, ListChecks, Inbox, CircleDashed } from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { sonar } from "@/lib/sonido-monitor";
-import { VerificacionVideo, type CamVerif, type OrigenVerif } from "@/components/centrales/VerificacionVideo";
+import type { CamVerif, OrigenVerif } from "@/components/centrales/VerificacionVideo";
+import { ParedArea, type AreaPared } from "@/components/monitor/alarmas/ParedArea";
+import type { Canal } from "@/components/monitor/camaras/piezas";
 import { SUAVE, tocable } from "@/components/monitor/tactil";
 import { IlustracionEvento } from "@/components/centrales/IlustracionEvento";
 import { claseDeAlarma, nivel, PRIORIDADES_DEFECTO, type Prioridades } from "@/lib/centrales/prioridades";
@@ -28,12 +30,13 @@ import { cn } from "@/lib/utils";
  *
  * Qué se ve:
  *  · Al frente, la alarma más urgente sin tratar (el orden de Gestión de alarmas: prioridad, y entre
- *    iguales la más nueva). La franja de arriba toma el color de su prioridad, el reloj cuenta desde
- *    el evento y dice si alguien la tomó. El video de las cámaras de la zona ocupa casi todo; al
- *    costado, la escena de lo que pasó (la misma de Centrales y de la ficha) y los cuadros que se
- *    guardaron en el momento.
- *  · A la derecha, las otras en espera (tocar una la trae al frente por un minuto) y lo que va
- *    llegando de las centrales, evento por evento.
+ *    iguales la más nueva). Una franja baja con el color de su prioridad, el reloj desde el evento y
+ *    si alguien la tomó; debajo, a todo el ancho, las cámaras del área del evento como en la pared
+ *    Cámaras (ParedArea, 23/10, Nico: «que permita ver tipo el monitor de cámaras… un evento está
+ *    asociado a un área donde el dispositivo pertenece»), con las de la verificación marcadas.
+ *  · A la derecha, las otras en espera (tocar una la trae al frente por un minuto) y, en dos
+ *    solapas, lo de esta alarma (la escena, el procedimiento, los datos y los cuadros del momento)
+ *    y lo que va llegando de las centrales, cada evento con qué pasó con su alarma.
  *  · Abajo, cada central: si reporta, si está armada y desde cuándo.
  *  · Sin nada pendiente, la calma: el escudo, cuántas centrales reportan y los números del día.
  *
@@ -50,12 +53,16 @@ const ELEGIDA_MS = 60_000;
 const LLEGADA_MS = 3500;
 /** Si una cámara no da video, su foto se renueva así. */
 const FOTO_MS = 2000;
+/** Cada cuánto se releen los canales del área (lo mismo que la pared Cámaras). */
+const CAMARAS_MS = 30_000;
+/** Un evento de «Llegando» de hace menos que esto prende el punto de la solapa. */
+const NUEVO_MS = 30_000;
 /** Prioridad hasta la que una alarma suena con el tono fuerte, repite y destella. */
 const CRITICA_HASTA = 2;
 
 type Cam = CamVerif;
 type Pendiente = {
-    id: string; ts: string; tipo: string; titulo: string; prioridad: number; area: string | null; particion: number | null;
+    id: string; ts: string; tipo: string; titulo: string; prioridad: number; area: string | null; areaId?: string | null; particion: number | null;
     central: { id: string; nombre: string; cuenta: string; prueba: boolean };
     zona: { zona: number; nombre: string | null } | null;
     codigo: string | null; texto: string | null; usuario: number | string | null;
@@ -72,12 +79,16 @@ type Reciente = {
     id: string; ts: string; central: string; categoria: string; tipo: string | null; texto: string; codigo: string | null;
     zona: number | null; zonaNombre: string | null; particion: number | null; usuario: number | string | null;
     restaura: boolean; propio: boolean; prioridad: number; detectionId: string | null;
+    /** Qué pasó con la alarma que generó: pendiente, o quién la trató y cómo. */
+    alarma?: { estado: "pendiente" | "tratada"; por: string | null; resultado: string | null; ts: string | null } | null;
 };
 type Central = {
     id: string; nombre: string; cuenta: string; estado: string; prueba: boolean; ultimoMensajeAt: string | null; supervisionSeg: number;
     armado: { armada: boolean; presente: boolean; texto: string | null; particion: number | null; usuario: number | string | null; ts: string } | null;
     enAlarma: number;
 };
+/** Lo que la pared usa de /api/monitor/camaras: los canales con su área, y el árbol de áreas. */
+type DatosCamaras = { canales: Canal[]; areas?: AreaPared[] };
 type Datos = { ahora: string; prioridades?: Prioridades; pendientes: Pendiente[]; recientes: Reciente[]; centrales: Central[]; hoy: { alarmas: number; tratadas: number; falsas: number } };
 
 /** El color de una prioridad, como variable CSS (para mezclar fondos y anillos). */
@@ -86,9 +97,9 @@ const mm = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); const
 const zonaTexto = (z: { zona: number; nombre: string | null } | null) => z ? `Zona ${z.zona}${z.nombre ? ` · ${z.nombre}` : ""}` : null;
 
 /** El reloj grande de la alarma: cuánto hace que llegó, al segundo. */
-function Reloj({ desde, grande }: { desde: string; grande?: boolean }) {
+function Reloj({ desde, grande, medio }: { desde: string; grande?: boolean; medio?: boolean }) {
     usarReloj(1000);
-    return <span className={cn("tabular-nums font-bold leading-none", grande ? "text-[56px] tracking-[-0.02em]" : "text-[20px]")}>{mm(Date.now() - new Date(desde).getTime())}</span>;
+    return <span className={cn("tabular-nums font-bold leading-none", grande ? "text-[56px] tracking-[-0.02em]" : medio ? "text-[38px] tracking-[-0.02em]" : "text-[20px]")}>{mm(Date.now() - new Date(desde).getTime())}</span>;
 }
 
 /** Una pastilla de prioridad: «P1 · Crítica». */
@@ -136,86 +147,98 @@ function AvanceProcedimiento({ p }: { p: NonNullable<Pendiente["procedimiento"]>
     );
 }
 
-function AlFrente({ e, recienLlegada }: { e: Pendiente; recienLlegada: boolean }) {
+/** La escena, el procedimiento, los datos y los cuadros de la alarma al frente (la solapa «Esta alarma»). */
+function DetalleFrente({ e }: { e: Pendiente }) {
+    return (
+        <div className="space-y-3 p-3">
+            <div className="rounded-[12px] bg-background/60 ring-1 ring-border overflow-hidden">
+                <IlustracionEvento key={e.id} evento={{ categoria: "ALARMA", tipo: e.tipo, texto: e.texto || e.titulo }} alto={150} className="pb-2" />
+            </div>
+            {e.procedimiento && e.procedimiento.pasos.length > 0 && <AvanceProcedimiento p={e.procedimiento} />}
+            <div className="rounded-[14px] bg-background/60 ring-1 ring-border px-4 py-1">
+                {e.zona && <Dato icono={MapPin} rotulo="Zona" valor={zonaTexto(e.zona)} />}
+                {e.area && <Dato icono={Layers} rotulo="Área" valor={e.area} />}
+                {e.texto && <Dato icono={Info} rotulo="Lo que mandó la central" valor={e.texto} />}
+                {e.codigo && <Dato icono={Hash} rotulo="Código" valor={<span className="tabular-nums">{e.codigo}</span>} />}
+                {e.particion != null && <Dato icono={Layers} rotulo="Partición" valor={e.particion} />}
+                {e.usuario != null && <Dato icono={KeyRound} rotulo="Usuario" valor={e.usuario} />}
+                <Dato icono={Radio} rotulo="Central" valor={`${e.central.nombre}${e.central.cuenta ? ` · cuenta ${e.central.cuenta}` : ""}`} />
+            </div>
+            {e.fotos.length > 0 && (
+                <div className="rounded-[14px] bg-background/60 ring-1 ring-border p-3">
+                    <div className="text-[12px] text-muted-foreground mb-2">Cuadros del momento del evento</div>
+                    <div className="grid grid-cols-2 gap-2">
+                        {e.fotos.map((f, i) => {
+                            const src = conAncho(getImagePath(f.foto), 480) || getImagePath(f.foto);
+                            // eslint-disable-next-line @next/next/no-img-element
+                            return src ? <img key={i} src={src} alt="" draggable={false} className="w-full aspect-video object-cover rounded-[8px] bg-black" /> : null;
+                        })}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/*
+ * La alarma al frente. La franja de arriba era de 140 px (sirena de 72, título de 38): con la pared
+ * de cámaras abajo, cada renglón que se le saca es video. Queda en una franja baja, con lo que se lee
+ * de lejos —prioridad, qué, dónde, cuánto hace, quién la tiene— y el video a todo el ancho.
+ */
+function AlFrente({ e, recienLlegada, camaras }: { e: Pendiente; recienLlegada: boolean; camaras: { datos: DatosCamaras | null; cargando: boolean } }) {
     const reducir = useReducedMotion();
     const color = colorDe(e.prioridad);
     const critica = e.prioridad <= CRITICA_HASTA;
     return (
-        <motion.section key={e.id} layout initial={{ opacity: 0, scale: 0.97, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }}
+        <motion.section key={e.id} layout initial={{ opacity: 0, scale: 0.98, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }}
             transition={{ type: "spring", stiffness: 300, damping: 32 }}
-            className="relative h-full min-h-0 flex flex-col rounded-[18px] overflow-hidden ring-2"
-            style={{ ["--tw-ring-color" as any]: `color-mix(in oklab, ${color} 70%, transparent)`, background: `color-mix(in oklab, ${color} 7%, var(--background))` }}>
-            {/* La franja de arriba: qué, dónde, cuánto hace y quién. Late mientras nadie la toma. */}
-            <motion.header className="shrink-0 flex items-center gap-5 px-6 py-4"
-                style={{ background: `color-mix(in oklab, ${color} 26%, var(--card))` }}
-                animate={critica && !e.operador && !reducir ? { backgroundColor: [`color-mix(in oklab, ${color} 22%, var(--card))`, `color-mix(in oklab, ${color} 42%, var(--card))`, `color-mix(in oklab, ${color} 22%, var(--card))`] } : undefined}
+            className="relative h-full min-h-0 flex flex-col rounded-[16px] overflow-hidden ring-2"
+            style={{ ["--tw-ring-color" as any]: `color-mix(in oklab, ${color} 70%, transparent)`, background: `color-mix(in oklab, ${color} 5%, var(--background))` }}>
+            {/* La franja: qué, dónde, cuánto hace y quién. Late mientras nadie toma una crítica. */}
+            <motion.header className="shrink-0 flex items-center gap-4 px-4 py-2.5"
+                style={{ background: `color-mix(in oklab, ${color} 22%, var(--card))` }}
+                animate={critica && !e.operador && !reducir ? { backgroundColor: [`color-mix(in oklab, ${color} 18%, var(--card))`, `color-mix(in oklab, ${color} 36%, var(--card))`, `color-mix(in oklab, ${color} 18%, var(--card))`] } : undefined}
                 transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}>
-                <motion.span className="grid h-[72px] w-[72px] shrink-0 place-items-center rounded-full text-white" style={{ background: color }}
+                <motion.span className="grid h-12 w-12 shrink-0 place-items-center rounded-full text-white" style={{ background: color }}
                     animate={critica && !reducir ? { scale: [1, 1.08, 1] } : undefined} transition={{ duration: 1.2, repeat: Infinity }}>
-                    <Siren size={38} />
+                    <Siren size={26} />
                 </motion.span>
                 <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-3 flex-wrap">
-                        <Prioridad p={e.prioridad} grande />
-                        {e.central.prueba && <span className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full chip-quieto border text-[12px] font-bold"><FlaskConical size={13} /> Central de prueba</span>}
-                        {e.escalado && <span className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full pleno-mal text-[12px] font-bold"><TrendingUp size={13} /> Escalada · {e.escalado}</span>}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                        <Prioridad p={e.prioridad} />
+                        <h2 className="text-[28px] font-bold leading-tight tracking-[-0.02em] truncate">{e.titulo}</h2>
+                        {e.central.prueba && <span className="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-full chip-quieto border text-[11.5px] font-bold"><FlaskConical size={12} /> Central de prueba</span>}
+                        {e.escalado && <span className="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-full pleno-mal text-[11.5px] font-bold"><TrendingUp size={12} /> Escalada · {e.escalado}</span>}
                     </div>
-                    <h2 className="mt-1.5 text-[38px] font-bold leading-[1.05] tracking-[-0.02em] truncate">{e.titulo}</h2>
-                    <div className="mt-1 text-[18px] text-muted-foreground truncate">{[e.central.nombre, e.area, e.particion != null ? `Partición ${e.particion}` : null].filter(Boolean).join(" · ")}</div>
+                    <div className="text-[15px] text-muted-foreground truncate">{[e.central.nombre, e.area ? `Área ${e.area}` : null, e.particion != null ? `Partición ${e.particion}` : null].filter(Boolean).join(" · ")}</div>
                 </div>
-                <div className="shrink-0 text-right">
-                    <Reloj desde={e.ts} grande />
-                    <div className="mt-1 text-[15px] text-muted-foreground tabular-nums">llegó a las {horaCorta(e.ts)}</div>
-                    <div className="mt-2 flex justify-end">
-                        {e.operador
-                            ? <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full chip-info border text-[14px] font-bold"><UserRound size={15} /> La tiene {e.operador.nombre}{e.operador.desde ? ` · ${hace(e.operador.desde)}` : ""}</span>
-                            : <motion.span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full pleno-aviso text-[14px] font-bold" animate={reducir ? undefined : { opacity: [1, 0.55, 1] }} transition={{ duration: 1.4, repeat: Infinity }}><UserX size={15} /> Nadie la tomó</motion.span>}
+                <div className="shrink-0 flex items-center gap-4">
+                    {e.operador
+                        ? <span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full chip-info border text-[14px] font-bold"><UserRound size={15} /> La tiene {e.operador.nombre}{e.operador.desde ? ` · ${hace(e.operador.desde)}` : ""}</span>
+                        : <motion.span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full pleno-aviso text-[14px] font-bold" animate={reducir ? undefined : { opacity: [1, 0.55, 1] }} transition={{ duration: 1.4, repeat: Infinity }}><UserX size={15} /> Nadie la tomó</motion.span>}
+                    <div className="text-right">
+                        <Reloj desde={e.ts} medio />
+                        <div className="text-[12.5px] text-muted-foreground tabular-nums">llegó a las {horaCorta(e.ts)}</div>
                     </div>
                 </div>
             </motion.header>
-            <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_340px] gap-3 p-3">
-                <VerificacionVideo eventoId={e.id} instanteMs={new Date(e.ts).getTime()} camaras={e.camaras} otras={e.otras || []} origen={e.origenCamaras || null} escala="pared"
+            <div className="flex-1 min-h-0 p-2.5">
+                <ParedArea eventoId={e.id} instanteMs={new Date(e.ts).getTime()} color={color} zona={e.zona ? `Zona ${e.zona.zona}` : e.particion != null ? `Partición ${e.particion}` : null}
+                    verif={e.camaras} otras={e.otras || []} areaId={e.areaId || null} areaNombre={e.area}
+                    canales={camaras.datos?.canales || null} areas={camaras.datos?.areas || []} cargando={camaras.cargando}
                     vacio={(
                         <div className="relative flex-1 rounded-2xl bg-card ring-1 ring-border overflow-hidden grid place-items-center">
                             <div className="w-full max-w-[760px] px-6">
                                 <IlustracionEvento key={e.id} evento={{ categoria: "ALARMA", tipo: e.tipo, texto: e.texto || e.titulo }} alto={300} />
-                                <p className="mt-2 text-center text-[17px] text-muted-foreground">No hay cámaras para verificar este evento. Se asocian en Dispositivos › la central: a la zona, a su área o al abonado.</p>
+                                <p className="mt-2 text-center text-[17px] text-muted-foreground">No hay cámaras para verificar este evento. Se asocian en Dispositivos › la central: a la zona, a su área o al abonado; o se le da un área a la central.</p>
                             </div>
                         </div>
                     )} />
-                <aside className="min-h-0 flex flex-col gap-3 overflow-y-auto">
-                    {e.camaras.length > 0 && (
-                        <div className="rounded-[14px] bg-card ring-1 ring-border overflow-hidden">
-                            <IlustracionEvento key={e.id} evento={{ categoria: "ALARMA", tipo: e.tipo, texto: e.texto || e.titulo }} alto={170} className="pb-2" />
-                        </div>
-                    )}
-                    {e.procedimiento && e.procedimiento.pasos.length > 0 && <AvanceProcedimiento p={e.procedimiento} />}
-                    <div className="rounded-[14px] bg-card ring-1 ring-border px-4 py-1">
-                        {e.zona && <Dato icono={MapPin} rotulo="Zona" valor={zonaTexto(e.zona)} />}
-                        {e.texto && <Dato icono={Info} rotulo="Lo que mandó la central" valor={e.texto} />}
-                        {e.codigo && <Dato icono={Hash} rotulo="Código" valor={<span className="tabular-nums">{e.codigo}</span>} />}
-                        {e.particion != null && <Dato icono={Layers} rotulo="Partición" valor={e.particion} />}
-                        {e.usuario != null && <Dato icono={KeyRound} rotulo="Usuario" valor={e.usuario} />}
-                        <Dato icono={Radio} rotulo="Central" valor={`${e.central.nombre} · cuenta ${e.central.cuenta}`} />
-                    </div>
-                    {e.fotos.length > 0 && (
-                        <div className="rounded-[14px] bg-card ring-1 ring-border p-3">
-                            <div className="text-[12px] text-muted-foreground mb-2">Cuadros del momento del evento</div>
-                            <div className="grid grid-cols-2 gap-2">
-                                {e.fotos.map((f, i) => {
-                                    const src = conAncho(getImagePath(f.foto), 480) || getImagePath(f.foto);
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    return src ? <img key={i} src={src} alt="" draggable={false} className="w-full aspect-video object-cover rounded-[8px] bg-black" /> : null;
-                                })}
-                            </div>
-                        </div>
-                    )}
-                </aside>
             </div>
             {/* El destello de llegada: un anillo que late dos veces alrededor de toda la alarma. */}
             <AnimatePresence>
                 {recienLlegada && !reducir && (
-                    <motion.div key="destello" className="pointer-events-none absolute inset-0 rounded-[18px]" style={{ boxShadow: `inset 0 0 0 6px ${color}, inset 0 0 80px ${color}` }}
+                    <motion.div key="destello" className="pointer-events-none absolute inset-0 rounded-[16px]" style={{ boxShadow: `inset 0 0 0 6px ${color}, inset 0 0 80px ${color}` }}
                         initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0.25, 1, 0] }} exit={{ opacity: 0 }} transition={{ duration: LLEGADA_MS / 1000, ease: "easeInOut" }} />
                 )}
             </AnimatePresence>
@@ -277,7 +300,7 @@ function Calma({ datos }: { datos: Datos | null }) {
 
 function EnEspera({ lista, alElegir, nuevas }: { lista: Pendiente[]; alElegir: (id: string) => void; nuevas: Set<string> }) {
     return (
-        <section className="shrink-0 max-h-[46%] min-h-0 flex flex-col rounded-[14px] bg-card ring-1 ring-border overflow-hidden">
+        <section className="shrink-0 max-h-[34%] min-h-0 flex flex-col rounded-[14px] bg-card ring-1 ring-border overflow-hidden">
             <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 text-[15px] font-bold">
                 En espera <span className="tabular-nums text-muted-foreground">{lista.length}</span>
             </div>
@@ -302,14 +325,33 @@ function EnEspera({ lista, alElegir, nuevas }: { lista: Pendiente[]; alElegir: (
 
 const ICONO_CATEGORIA: Record<string, any> = { ALARMA: Siren, RESTAURACION: CheckCircle2, FALLA: Wrench, FALLA_FIN: CheckCircle2, ARMADO: ShieldCheck, DESARMADO: ShieldOff, PRUEBA: FlaskConical };
 
-function Llegando({ recientes, conectado }: { recientes: Reciente[]; conectado: boolean }) {
+/**
+ * Qué pasó con la alarma de un evento (23/10: Nico no encontró en la pared dos robos de prueba —uno
+ * llegó con la gestión apagada y el otro lo trató otro operador— y nada lo decía).
+ */
+function EstadoAlarma({ r }: { r: Reciente }) {
+    if (r.categoria !== "ALARMA" || r.restaura) return null;
+    const a = r.alarma;
+    if (!a) return r.detectionId ? null : <div className="mt-1 inline-flex items-center gap-1 text-[12px] text-muted-foreground"><CircleDashed size={12} /> Sólo registrado: no generó alarma (la gestión de alarmas estaba apagada)</div>;
+    if (a.estado === "pendiente") return <div className="mt-1 inline-flex items-center gap-1 h-5 px-2 rounded-full pleno-mal text-[11.5px] font-bold">Sin tratar</div>;
+    return (
+        <div className="mt-1 inline-flex items-center gap-1.5 text-[12px]">
+            <span className={cn("inline-flex items-center h-5 px-2 rounded-full border text-[11.5px] font-bold", a.resultado === "falsa" ? "chip-quieto" : "chip-aviso")}>{a.resultado === "falsa" ? "Falsa" : "Real"}</span>
+            <span className="text-muted-foreground">tratada{a.por ? ` por ${a.por}` : ""}{a.ts ? ` · ${horaCorta(a.ts)}` : ""}</span>
+        </div>
+    );
+}
+
+function Llegando({ recientes, conectado, enSolapa }: { recientes: Reciente[]; conectado: boolean; enSolapa?: boolean }) {
     usarReloj(15_000);
     return (
-        <section className="flex-1 min-h-0 flex flex-col rounded-[14px] bg-card ring-1 ring-border overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 text-[15px] font-bold">
-                Llegando de las centrales
-                <span className={cn("ml-auto h-2.5 w-2.5 rounded-full", conectado ? "bg-[var(--bien)] animate-pulse" : "bg-[var(--aviso)]")} aria-label={conectado ? "En vivo" : "Por consulta"} />
-            </div>
+        <section className={cn("flex-1 min-h-0 flex flex-col overflow-hidden", !enSolapa && "rounded-[14px] bg-card ring-1 ring-border")}>
+            {!enSolapa && (
+                <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 text-[15px] font-bold">
+                    Llegando de las centrales
+                    <span className={cn("ml-auto h-2.5 w-2.5 rounded-full", conectado ? "bg-[var(--bien)] animate-pulse" : "bg-[var(--aviso)]")} aria-label={conectado ? "En vivo" : "Por consulta"} />
+                </div>
+            )}
             <div className="min-h-0 overflow-y-auto">
                 {recientes.length === 0 && <p className="px-4 py-3 text-[14px] text-muted-foreground">Nada en las últimas 24 horas.</p>}
                 <AnimatePresence initial={false}>
@@ -324,6 +366,7 @@ function Llegando({ recientes, conectado }: { recientes: Reciente[]; conectado: 
                                 <div className="min-w-0 flex-1">
                                     <div className="text-[15px] font-semibold leading-snug truncate">{r.texto}</div>
                                     <div className="text-[12.5px] text-muted-foreground truncate">{[r.central, r.zona != null ? `Zona ${r.zona}${r.zonaNombre ? ` · ${r.zonaNombre}` : ""}` : null, r.particion != null && r.zona == null ? `Partición ${r.particion}` : null].filter(Boolean).join(" · ")}</div>
+                                    <EstadoAlarma r={r} />
                                 </div>
                                 <span className="text-[13px] text-muted-foreground tabular-nums whitespace-nowrap">{horaCorta(r.ts)}</span>
                             </motion.div>
@@ -443,6 +486,14 @@ export function VistaAlarmas() {
     const frente = vigente || pendientes[0] || null;
     const resto = pendientes.filter((e) => e.id !== frente?.id);
 
+    // Las cámaras del área, como las de la pared Cámaras: sólo se piden mientras hay una alarma al frente.
+    const camaras = usarDatos<DatosCamaras>(frente ? "/api/monitor/camaras" : null, CAMARAS_MS);
+    // La solapa de la derecha vuelve a «Esta alarma» con cada alarma nueva al frente.
+    const [solapa, setSolapa] = useState<"alarma" | "llegando">("alarma");
+    useEffect(() => { setSolapa("alarma"); }, [frente?.id]);
+    const ultimoReciente = datos?.recientes?.[0]?.ts || null;
+    const llegoAlgo = !!ultimoReciente && ahora - new Date(ultimoReciente).getTime() < NUEVO_MS;
+
     // Sonido: un tono por alarma nueva (fuerte si es crítica), y en «repetir» insiste mientras haya una crítica que nadie tomó.
     const modo = ajustes?.sonido?.alarmas || "una";
     const sonadas = useRef(new Set<string>());
@@ -465,12 +516,28 @@ export function VistaAlarmas() {
             <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_400px] gap-3">
                 <div className="min-h-0">
                     <AnimatePresence mode="wait">
-                        {frente ? <AlFrente key={frente.id} e={frente} recienLlegada={nuevas.has(frente.id)} /> : <Calma key="calma" datos={datos} />}
+                        {frente ? <AlFrente key={frente.id} e={frente} recienLlegada={nuevas.has(frente.id)} camaras={{ datos: camaras.datos, cargando: !camaras.datos && !camaras.error }} /> : <Calma key="calma" datos={datos} />}
                     </AnimatePresence>
                 </div>
                 <aside className="min-h-0 flex flex-col gap-3">
-                    <EnEspera lista={resto} nuevas={nuevas} alElegir={(id) => setElegida({ id, hasta: Date.now() + ELEGIDA_MS })} />
-                    <Llegando recientes={datos?.recientes || []} conectado={conectado} />
+                    {frente && <EnEspera lista={resto} nuevas={nuevas} alElegir={(id) => setElegida({ id, hasta: Date.now() + ELEGIDA_MS })} />}
+                    {frente ? (
+                        <section className="flex-1 min-h-0 flex flex-col rounded-[14px] bg-card ring-1 ring-border overflow-hidden">
+                            <div className="shrink-0 flex items-center gap-1 p-1.5 border-b border-border" role="tablist">
+                                {([["alarma", "Esta alarma", ListChecks], ["llegando", "Llegando", Inbox]] as const).map(([v, r, I]) => (
+                                    <button key={v} type="button" role="tab" aria-selected={solapa === v} onClick={() => setSolapa(v)}
+                                        className={cn("flex-1 h-10 rounded-[10px] inline-flex items-center justify-center gap-2 text-[14.5px] font-bold", tocable, solapa === v ? "bg-background ring-1 ring-border" : "text-muted-foreground")}>
+                                        <I size={16} /> {r}
+                                        {v === "llegando" && llegoAlgo && solapa !== "llegando" && <span className="h-2 w-2 rounded-full bg-[var(--accion)] animate-pulse" aria-label="Llegó algo nuevo" />}
+                                    </button>
+                                ))}
+                                <span className={cn("mx-2 h-2.5 w-2.5 rounded-full shrink-0", conectado ? "bg-[var(--bien)] animate-pulse" : "bg-[var(--aviso)]")} title={conectado ? "En vivo" : "Por consulta"} />
+                            </div>
+                            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+                                {solapa === "alarma" ? <DetalleFrente e={frente} /> : <Llegando recientes={datos?.recientes || []} conectado={conectado} enSolapa />}
+                            </div>
+                        </section>
+                    ) : <Llegando recientes={datos?.recientes || []} conectado={conectado} />}
                 </aside>
             </div>
             <Centrales centrales={datos?.centrales || []} />

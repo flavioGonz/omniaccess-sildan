@@ -187,7 +187,7 @@ export function AvisosLpr({ soloLectura = false }: {
         const acciones: AccionAviso[] = [];
         if (!soloLectura) {
             if (it.eventoId) acciones.push({ clave: "ver", etiqueta: "Ver evento", icono: "ver", ayuda: "La ficha del evento, acá mismo", correr: () => setFicha(it.eventoId) });
-            else if (gestionable) acciones.push({ clave: "ver", etiqueta: "Ver", icono: "ver", ayuda: "Abrirla en Gestión de alarmas", correr: () => router.push(`/admin/alarmas?ver=alarmas&id=${encodeURIComponent(clave)}`) });
+            else if (gestionable) acciones.push({ clave: "ver", etiqueta: "Ver", icono: "ver", ayuda: "Abrirla en Gestión de alarmas", correr: () => router.push(`/admin/alarmas?ver=todo&id=${encodeURIComponent(clave)}`) });
             else if (it.plate) acciones.push({ clave: "hist", etiqueta: "Historial", icono: "historial", correr: () => router.push(`/admin/history?search=${encodeURIComponent(it.plate!)}`) });
             if (gestionable) {
                 acciones.push(o?.soyYo
@@ -212,7 +212,7 @@ export function AvisosLpr({ soloLectura = false }: {
         if (!soloLectura) {
             acciones.push(a.accessEventId
                 ? { clave: "ver", etiqueta: "Ver evento", icono: "ver", ayuda: "La ficha del evento, acá mismo", correr: () => setFicha(a.accessEventId) }
-                : { clave: "ver", etiqueta: "Ver", icono: "ver", ayuda: "Abrirla en Gestión de alarmas", correr: () => router.push(`/admin/alarmas?ver=alarmas&id=${encodeURIComponent(a.id)}`) });
+                : { clave: "ver", etiqueta: "Ver", icono: "ver", ayuda: "Abrirla en Gestión de alarmas", correr: () => router.push(`/admin/alarmas?ver=todo&id=${encodeURIComponent(a.id)}`) });
             acciones.push({
                 clave: "desactivar", etiqueta: "Desactivar", icono: "desactivar", principal: true, confirmar: "¿Resuelta? Desactivar",
                 ayuda: "Ya se resolvió: la alarma se apaga en todas las pantallas y queda en la bitácora",

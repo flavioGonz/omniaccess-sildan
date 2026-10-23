@@ -118,7 +118,7 @@ async function armar(dets: Det[], yo: string | null): Promise<EventoCentral[]> {
             prioridad,
             central: { id: c?.id || "", deviceId: d.deviceId || "", nombre: c?.device?.name || x.central || "Central", cuenta: c?.cuenta || x.cuenta || "", prueba: !!c?.prueba },
             zona: x.zona != null ? { zona: Number(x.zona), nombre: z?.nombre || null, camaras: ((z?.camaras as string[] | undefined) || x.camaras || []).map(String) } : null,
-            particion: x.particion ?? null, area: areaId ? nombreArea.get(areaId) || null : null,
+            particion: x.particion ?? null, area: areaId ? nombreArea.get(areaId) || null : null, areaId,
             operador: { nombre: at?.operador || null, desde: at?.operadorDesde?.toISOString() || null, soyYo: !!yo && at?.operador === yo },
             tratado: d.acknowledged ? { por: trato?.por || at?.por || null, ts: (trato?.ts || at?.ts || d.timestamp).toISOString(), cierre: trato ? cierre : at?.nota || (d.ackKind === "false" ? "Falsa alarma" : "Aceptada sin tratar"), resultado: at?.resultado || (d.ackKind === "false" ? "falsa" : d.ackKind ? "real" : null), texto: trato ? textoTrato : null } : null,
             pasos, salteos, procedimiento: proc.r, escalado: escalo && !d.acknowledged ? escalo.detalle : null,
