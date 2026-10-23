@@ -75,8 +75,8 @@
 
 ## 6. Cierre
 
-- [ ] 6.1 `tsc --noEmit`, `node scripts/probar.js` y `node scripts/probar-dc09.js` en verde. Desplegar en el lab y recorrer las tres cosas con un enlace de pantalla de Cámaras, uno de Face y una sesión de operador.
-- [ ] 6.2 Documentar en el proyecto (`claude/pared-vms.md`) la búsqueda desde la pared (incluido el QR y su seguridad), las fuentes web y sus límites (sitios que no se dejan enmarcar, http dentro de https) y el Monitor Face.
+- [x] 6.1 `tsc --noEmit`, `node scripts/probar.js` y `node scripts/probar-dc09.js` en verde. Desplegar en el lab y recorrer las tres cosas con un enlace de pantalla de Cámaras, uno de Face y una sesión de operador.
+- [x] 6.2 Documentar en el proyecto (`claude/pared-vms.md`) la búsqueda desde la pared (incluido el QR y su seguridad), las fuentes web y sus límites (sitios que no se dejan enmarcar, http dentro de https) y el Monitor Face.
 
 ## Workflow follow-up
 

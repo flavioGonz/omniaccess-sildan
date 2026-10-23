@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { autorizarMonitor, inicioDelDia, SIN_CACHE } from "@/lib/monitor/servidor";
 import { leerDetalleRostro, motivoDeRostro } from "@/lib/monitor/rostro";
+import { getSession } from "@/app/actions/auth";
+import { permisosDeSesion } from "@/lib/permisos";
+import { forbiddenResponse } from "@/lib/api-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +38,11 @@ const forma = (e: any) => {
 export async function GET() {
     const p = await autorizarMonitor("/api/monitor/face");
     if (p.error) return p.error;
+    // Con sesión, el mismo permiso que la página (las rutas de /api/monitor pasan con cualquier sesión).
+    if (!p.auth.pantalla) {
+        const s: any = await getSession().catch(() => null);
+        if (!permisosDeSesion(s).includes("rostros")) return forbiddenResponse("Hace falta el permiso Monitor facial.");
+    }
     const hoy = inicioDelDia();
     const [ultimas, permitidos, denegados, desconocidos, atencion, terminales] = await Promise.all([
         prisma.accessEvent.findMany({ where: SOLO_ROSTRO, orderBy: { timestamp: "desc" }, take: EN_TIRA + 1, include: INCLUIR }),
