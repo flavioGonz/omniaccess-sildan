@@ -9,7 +9,7 @@
 
 import type { FuncionId } from "@/lib/funciones";
 
-export type ClaveVista = "intrusion" | "alarmas" | "lpr" | "mapa" | "resumen" | "salud" | "rotacion" | "camaras";
+export type ClaveVista = "intrusion" | "alarmas" | "lpr" | "face" | "mapa" | "resumen" | "salud" | "rotacion" | "camaras";
 
 export type Vista = {
     clave: ClaveVista;
@@ -19,7 +19,7 @@ export type Vista = {
     /** Qué muestra, en dos o tres frases. */
     queMuestra: string;
     /** Ícono de lucide, por nombre: el menú lo resuelve. */
-    icono: "ShieldAlert" | "Siren" | "Car" | "Map" | "LayoutDashboard" | "HeartPulse" | "RefreshCw" | "Cctv";
+    icono: "ShieldAlert" | "Siren" | "Car" | "ScanFace" | "Map" | "LayoutDashboard" | "HeartPulse" | "RefreshCw" | "Cctv";
     /**
      * La función de la instalación sin la cual la vista no existe (openspec alarmas-como-funciones):
      * apagada, Monitores no la ofrece, la rotación la saltea y la pantalla dice que está apagada.
@@ -49,6 +49,14 @@ export const VISTAS: Vista[] = [
         paraQuien: "La garita o la pared: quién entra y quién sale, y si se le abrió.",
         queMuestra: "La última lectura grande (chapa y cuadro), permitido o denegado con el motivo, la tira de las últimas diez, los contadores del día y una fila de atención con lista negra, en búsqueda y merodeo.",
         sonido: { ajuste: "MONITOR_LPR_SONIDO", modos: [{ valor: "off", rotulo: "Sin sonido" }, { valor: "denegado", rotulo: "En cada denegado" }, { valor: "lista", rotulo: "Sólo lista negra y en búsqueda" }] },
+    },
+    {
+        // 23/10, Nico: «falta el Monitor Face; debe tener un Monitor Face en /admin/monitores». Sólo
+        // las terminales faciales (decisión de Nico): el Control LPR, pero con caras (openspec pared-vms).
+        clave: "face", nombre: "Monitor Face", icono: "ScanFace",
+        paraQuien: "La garita o la pared: quién entra y quién sale por reconocimiento facial, y si se le abrió.",
+        queMuestra: "El último acceso grande, con la foto que tomó la terminal junto a la del padrón, la persona y su unidad, permitido o denegado con el motivo; la tira de los anteriores, los contadores del día y los denegados y desconocidos de la última hora.",
+        sonido: { ajuste: "MONITOR_FACE_SONIDO", modos: [{ valor: "off", rotulo: "Sin sonido" }, { valor: "denegado", rotulo: "En cada denegado" }, { valor: "desconocido", rotulo: "Sólo desconocidos y lista negra" }] },
     },
     {
         clave: "mapa", nombre: "Mapa", icono: "Map",
@@ -94,6 +102,7 @@ export const ALCANCE_POR_VISTA: Record<ClaveVista, string[]> = {
     // Las cámaras del área del evento, como en la pared Cámaras (y la foto de un canal de NVR, de respaldo).
     alarmas: ["/api/monitor/centrales", "/api/monitor/camaras"],
     lpr: ["/api/monitor/lpr"],
+    face: ["/api/monitor/face"],
     mapa: ["/api/monitor/mapa"],
     resumen: ["/api/monitor/resumen"],
     salud: ["/api/monitor/salud", "/api/system-status"],

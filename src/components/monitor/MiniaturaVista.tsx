@@ -108,6 +108,40 @@ function Lpr({ q }: { q: boolean }) {
     );
 }
 
+/** Monitor Face: la foto tomada y la del padrón, lado a lado, y la línea de lectura que baja. */
+function Face({ q }: { q: boolean }) {
+    const cara = (x: number) => (
+        <g>
+            <rect x={x} y={11} width={36} height={48} rx={3} fill="#111c2e" />
+            <circle cx={x + 18} cy={29} r={8} fill="#cbd5e1" />
+            <path d={`M${x + 6} 55 q12 -16 24 0`} fill="#94a3b8" />
+        </g>
+    );
+    return (
+        <g>
+            {cara(13)}
+            {cara(53)}
+            {/* La línea que baja sobre la tomada, como la terminal mirando. */}
+            <motion.rect x={13} y={11} width={36} height={1.6} fill="#38bdf8" animate={q ? { y: 30 } : { y: [0, 46, 0] }} transition={rep(2.4)} />
+            {/* El permitido. */}
+            <motion.g animate={q ? undefined : { scale: [0.6, 1.1, 1], opacity: [0, 1, 1] }} transition={{ duration: 0.6, delay: 0.6, repeat: Infinity, repeatDelay: 2.6 }} style={caja}>
+                <circle cx={122} cy={26} r={13} fill="var(--bien)" />
+                <path d="M116 26 l4 4 l8 -9" fill="none" stroke="#fff" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" />
+            </motion.g>
+            <rect x={97} y={46} width={46} height={4} rx={2} fill="rgba(255,255,255,0.6)" />
+            <rect x={103} y={53} width={34} height={3} rx={1.5} fill="rgba(255,255,255,0.3)" />
+            {/* La tira de los anteriores. */}
+            {[13, 35, 57, 79, 101, 123].map((x, i) => (
+                <g key={x}>
+                    <rect x={x} y={66} width={20} height={19} rx={2} fill={TEJA} />
+                    <circle cx={x + 10} cy={73} r={3.5} fill="#94a3b8" opacity={0.8} />
+                    <rect x={x + 4} y={80} width={12} height={2.4} rx={1} fill={i === 1 ? "var(--mal)" : "var(--bien)"} opacity={0.85} />
+                </g>
+            ))}
+        </g>
+    );
+}
+
 function Mapa({ q }: { q: boolean }) {
     // La calle y el recorrido son los mismos puntos. El auto se mueve con transform (x/y), no con
     // cx/cy: framer dejaba los atributos SVG en «undefined» al volver a dibujar la fila de la tabla.
@@ -214,7 +248,7 @@ function Rotacion({ q }: { q: boolean }) {
 }
 
 const DIBUJOS: Record<ClaveVista, (p: { q: boolean }) => React.ReactNode> = {
-    intrusion: Intrusion, alarmas: Alarmas, lpr: Lpr, mapa: Mapa, resumen: Resumen, salud: Salud, camaras: Camaras, rotacion: Rotacion,
+    intrusion: Intrusion, alarmas: Alarmas, lpr: Lpr, face: Face, mapa: Mapa, resumen: Resumen, salud: Salud, camaras: Camaras, rotacion: Rotacion,
 };
 
 /**

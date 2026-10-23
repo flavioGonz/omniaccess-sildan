@@ -12,6 +12,7 @@ import { VistaMapa } from "./VistaMapa";
 import { VistaResumen } from "./VistaResumen";
 import { VistaSalud } from "./VistaSalud";
 import { VistaCamaras } from "./VistaCamaras";
+import { VistaFace } from "./VistaFace";
 import { VistaAlarmas } from "./VistaAlarmas";
 
 /**
@@ -20,7 +21,7 @@ import { VistaAlarmas } from "./VistaAlarmas";
  * pared que sigue girando mientras hay alguien adentro es una pared que no sirve. Lo mismo una
  * alarma crítica de una central (P1 o P2) sin tratar, si la rotación incluye «Alarmas».
  */
-const COMPONENTES: Record<Exclude<ClaveVista, "rotacion">, React.ComponentType> = { intrusion: VistaIntrusion, alarmas: VistaAlarmas, lpr: VistaLpr, mapa: VistaMapa, resumen: VistaResumen, salud: VistaSalud, camaras: VistaCamaras };
+const COMPONENTES: Record<Exclude<ClaveVista, "rotacion">, React.ComponentType> = { intrusion: VistaIntrusion, alarmas: VistaAlarmas, lpr: VistaLpr, mapa: VistaMapa, resumen: VistaResumen, salud: VistaSalud, camaras: VistaCamaras, face: VistaFace };
 type Alarmas = { pendientes: any[]; confirmadas: any[] };
 
 export function VistaRotacion() {

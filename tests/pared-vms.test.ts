@@ -86,3 +86,31 @@ test("una vista guardada acepta una página en una casilla", () => {
     const v = vistaValida({ id: "v1", nombre: "Con tablero", disposicion: "4", canales: ["web:w1", "dev:c1", "web:../x", null] });
     assert.deepEqual(v?.canales, ["web:w1", "dev:c1", null, null]);
 });
+
+import { leerDetalleRostro, motivoDeRostro } from "@/lib/monitor/rostro";
+import { permisoDeRuta } from "@/lib/permisos";
+import { vistaPorClave } from "@/lib/monitor/vistas";
+
+test("monitor face: lo que deja la terminal en el detalle", () => {
+    assert.deepEqual(leerDetalleRostro("Rostro: Ana Pérez, FaceImage: face/abc.jpg, Similitud: 87.5% (Modo: WHITELIST)"), { nombre: "Ana Pérez", recorte: "face/abc.jpg", similitud: 87.5 });
+    assert.deepEqual(leerDetalleRostro("Rostro: Juan, Similitud: 90% (Modo: BLACKLIST)"), { nombre: "Juan", recorte: null, similitud: 90 });
+    assert.deepEqual(leerDetalleRostro(null), { nombre: null, recorte: null, similitud: null });
+});
+
+test("monitor face: el motivo de cada acceso", () => {
+    assert.equal(motivoDeRostro({ decision: "GRANT", userId: "u1" }), "permitido");
+    assert.equal(motivoDeRostro({ decision: "DENY", userId: null }), "desconocido");
+    assert.equal(motivoDeRostro({ decision: "DENY", userId: "u1", rol: "BLACKLISTED" }), "lista-negra");
+    assert.equal(motivoDeRostro({ decision: "DENY", userId: "u1", detalles: "Rostro: X, Similitud: 90% (Modo: BLACKLIST)" }), "lista-negra");
+    assert.equal(motivoDeRostro({ decision: "DENY", userId: "u1" }), "denegado");
+});
+
+test("monitor face: vista, alcance y permiso", () => {
+    assert.ok(vistaPorClave("face"));
+    assert.ok(alcanceCubre("face", "/api/monitor/face"));
+    assert.ok(!alcanceCubre("face", "/api/monitor/lpr"));
+    assert.ok(!alcanceCubre("lpr", "/api/monitor/face"));
+    assert.ok(alcanceCubre("rotacion", "/api/monitor/face"));
+    assert.equal(permisoDeRuta("/monitor/face")?.clave, "rostros");
+    assert.equal(permisoDeRuta("/monitor/lpr")?.clave, "monitores");
+});

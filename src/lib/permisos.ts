@@ -136,7 +136,7 @@ const SECCIONES: Seccion[] = [
     ] },
     // ── Rostro ──
     { modulo: "rostro", seccion: "rostros", nombre: "Rostro", permisos: [
-        ["rostros", "ver", "Monitor facial", "El monitor facial y la búsqueda por foto.", ["/admin/monitor-face", "/admin/dashboard-face"]],
+        ["rostros", "ver", "Monitor facial", "El monitor facial (también la pantalla Monitor Face) y la búsqueda por foto.", ["/admin/monitor-face", "/admin/dashboard-face", "/monitor/face"]],
         ["rostros.listas", "operar", "Listas de rostros", "Las listas blanca y negra de rostros, la carga de caras y su sincronización con los equipos.",
             ["/admin/dashboard-face/blacklist", "/admin/dashboard-face/whitelist", "/admin/dashboard-face/upload"]],
     ] },

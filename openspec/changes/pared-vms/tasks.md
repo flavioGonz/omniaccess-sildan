@@ -60,11 +60,11 @@
 
 ## 5. Monitor Face
 
-- [ ] 5.1 `vistas.ts`: vista `face` (nombre, para quién, qué muestra, `ScanFace`, alcance, sonido `MONITOR_FACE_SONIDO`). `permisos.ts`: la ruta `/monitor/face` en el permiso `rostros`. `/monitor/[vista]` la registra.
+- [x] 5.1 `vistas.ts`: vista `face` (nombre, para quién, qué muestra, `ScanFace`, alcance, sonido `MONITOR_FACE_SONIDO`). `permisos.ts`: la ruta `/monitor/face` en el permiso `rostros`. `/monitor/[vista]` la registra.
   - Verificación: `node scripts/probar.js` (cobertura de páginas y alcances) en verde; la tarjeta aparece en `/admin/monitores`.
-- [ ] 5.2 `/api/monitor/face`: `accessType FACE` y `FACE_TERMINAL`; últimas 11 con persona, foto del padrón, unidad, foto tomada, decisión, motivo, sentido y terminal; contadores del día; atención de la última hora; cantidad de terminales.
+- [x] 5.2 `/api/monitor/face`: `accessType FACE` y `FACE_TERMINAL`; últimas 11 con persona, foto del padrón, unidad, foto tomada, decisión, motivo, sentido y terminal; contadores del día; atención de la última hora; cantidad de terminales.
   - Verificación: en el lab devuelve ceros y listas vacías sin error, con sesión y con un enlace de Face; un enlace de LPR → 403.
-- [ ] 5.3 `vistas/VistaFace.tsx`:
+- [x] 5.3 `vistas/VistaFace.tsx`:
   - acceso grande (foto tomada y foto del padrón, nombre o «Desconocido», unidad, terminal, sentido, hora, permitido o denegado y motivo);
   - tira de diez, contadores y atención;
   - en vivo con `access_event`;
