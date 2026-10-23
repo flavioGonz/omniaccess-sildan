@@ -22,6 +22,7 @@ function useVistasDisponibles() {
     return VISTAS.filter((v) => !v.funcion || estado[v.funcion] !== false);
 }
 import { ROTACION_SEG_MIN } from "@/lib/monitor/ajustes";
+import { useSessionRole } from "@/hooks/useSessionRole";
 import { listarEnlacesPantalla, crearEnlacePantalla, revocarEnlacePantalla, leerAjustesMonitores, guardarAjusteSonido, guardarRotacion, type EnlaceListado } from "@/app/actions/monitores";
 
 /**
@@ -145,6 +146,9 @@ function CajonMonitor({ clave, abierto, alCerrar, enlaces, cargando, ajustes, se
 }) {
     const vistas = useVistasDisponibles();
     const v = clave ? vistaPorClave(clave) : null;
+    // Crear un enlace de pantalla es delicado (abre la vista sin usuario): pide «Configurar monitores».
+    const { tiene, loaded: rolListo } = useSessionRole();
+    const puedeConfigurar = !rolListo || tiene("monitores.config");
     const origen = typeof window !== "undefined" ? window.location.origin : "";
     const url = v ? `${origen}/monitor/${v.clave}` : "";
     const [nombre, setNombre] = useState("");
@@ -245,7 +249,7 @@ function CajonMonitor({ clave, abierto, alCerrar, enlaces, cargando, ajustes, se
                                                 <div className="font-semibold truncate">{e.nombre}</div>
                                                 <div className="text-[11.5px] text-muted-foreground truncate">creado por {e.creadoPor || "—"} · <Momento t={e.creadoEn} /> · {e.revocadoEn ? <>revocado <Momento t={e.revocadoEn} /></> : e.ultimoUsoEn ? <>último uso <Momento t={e.ultimoUsoEn} />{e.ultimoUsoIp ? ` · ${e.ultimoUsoIp}` : ""}</> : "sin uso todavía"}</div>
                                             </div>
-                                            {!e.revocadoEn && (
+                                            {!e.revocadoEn && puedeConfigurar && (
                                                 <ConfirmarAccion id={e.id} title={`Revocar «${e.nombre}»`} description="La pantalla que lo use deja de abrirse en su próxima actualización. El enlace queda listado como revocado; para volver a conectarla hay que emitir uno nuevo." etiquetaAccion="Revocar"
                                                     onDelete={async (id) => { await revocarEnlacePantalla(id); return { success: true } as any; }} onSuccess={recargar}>
                                                     <button type="button" className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[12px] font-semibold text-[var(--mal-texto)] hover:bg-[var(--mal-suave)]"><Ban size={13} /> Revocar</button>
@@ -265,6 +269,8 @@ function CajonMonitor({ clave, abierto, alCerrar, enlaces, cargando, ajustes, se
                             </div>
                             <p className="text-[11.5px] text-muted-foreground">La primera carga canjea el token por una cookie y lo saca de la dirección; después alcanza con {url}.</p>
                         </div>
+                    ) : !puedeConfigurar ? (
+                        <p className="text-[12px] text-muted-foreground">Crear y revocar enlaces de pantalla pide el permiso «Configurar monitores»: un enlace abre la vista sin usuario hasta que alguien lo revoque.</p>
                     ) : (
                         <div className="flex items-center gap-2">
                             <Input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder={`Dónde va a estar: «Monitor 2 · garita»`} className="h-8" onKeyDown={(e) => { if (e.key === "Enter") crear(); }} />

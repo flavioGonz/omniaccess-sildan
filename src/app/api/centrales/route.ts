@@ -36,7 +36,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
     const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
-    const { s, no } = await sesionCon("dispositivos"); if (no) return no;
+    const { s, no } = await sesionCon("hub.config"); if (no) return no;
     const b = await req.json().catch(() => ({}));
     const nombre = String(b?.nombre || "").trim().slice(0, 80);
     if (!nombre) return NextResponse.json({ ok: false, error: "Poné un nombre (p. ej. «Central Club House»)." }, { status: 400 });
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
     const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
-    const { s, no } = await sesionCon("dispositivos"); if (no) return no;
+    const { s, no } = await sesionCon("hub.config"); if (no) return no;
     const b = await req.json().catch(() => ({}));
     const d = b?.destino;
     if (!d?.direccion || !/^[a-z0-9.-]{3,253}$/i.test(String(d.direccion).trim())) return NextResponse.json({ ok: false, error: "La dirección es un dominio o una IP pública (p. ej. alarmas.ies.com.uy)." }, { status: 400 });

@@ -20,7 +20,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
     const { id } = await params;
     const conClave = req.nextUrl.searchParams.get("clave") === "1";
-    const { s, no } = await sesionCon(conClave ? "dispositivos" : undefined); if (no) return no;
+    const { s, no } = await sesionCon(conClave ? "hub.config" : undefined); if (no) return no;
     const c = await prisma.centralAlarma.findFirst({ where: { OR: [{ id }, { deviceId: id }] }, include: { device: { select: { id: true, name: true, ip: true, httpPort: true, username: true, deviceModel: true } }, zonas: { orderBy: { zona: "asc" } } } });
     if (!c) return NextResponse.json({ ok: false, error: "No existe esa central" }, { status: 404 });
     const [mensajes, alertas, destino] = await Promise.all([
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
     const { id } = await params;
-    const { s, no } = await sesionCon("dispositivos"); if (no) return no;
+    const { s, no } = await sesionCon("hub.config"); if (no) return no;
     const c = await prisma.centralAlarma.findFirst({ where: { OR: [{ id }, { deviceId: id }] }, include: { device: { select: { name: true } } } });
     if (!c) return NextResponse.json({ ok: false, error: "No existe esa central" }, { status: 404 });
     const b = await req.json().catch(() => ({}));

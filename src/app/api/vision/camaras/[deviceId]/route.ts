@@ -18,7 +18,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ dev
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ deviceId: string }> }) {
     const s: any = await getSession();
     if (!s) return NextResponse.json({ error: "Sin sesión" }, { status: 401 });
-    if (!permisosDeSesion(s).includes("ajustes")) return NextResponse.json({ error: "Sólo quien tiene Ajustes puede cambiar qué analiza OmniVision." }, { status: 403 });
+    if (!permisosDeSesion(s).includes("vision.config")) return NextResponse.json({ error: "Hace falta el permiso Configurar OmniVision para cambiar qué analiza OmniVision." }, { status: 403 });
     const { deviceId } = await params;
     const b = await req.json().catch(() => null);
     if (typeof b?.analiza !== "boolean") return NextResponse.json({ error: "Falta «analiza»." }, { status: 400 });

@@ -259,7 +259,7 @@ export async function deleteDevice(id: string): Promise<{ success: boolean; erro
     const { getSession } = await import("@/app/actions/auth");
     const { permisosDeSesion } = await import("@/lib/permisos");
     const s: any = await getSession().catch(() => null);
-    if (!s || !permisosDeSesion(s).includes("dispositivos")) return { success: false, error: "Sólo quien tiene Dispositivos puede borrar equipos." };
+    if (!s || !permisosDeSesion(s).includes("dispositivos.editar")) return { success: false, error: "Hace falta el permiso Editar dispositivos para borrar equipos." };
     const { borrarEquipoDeTodo } = await import("@/lib/borrar-equipo");
     const r = await borrarEquipoDeTodo(id, String(s.name || s.sub || "panel"));
     revalidatePath("/admin/devices");
@@ -286,7 +286,7 @@ export async function getCredencialesDispositivo(id: string): Promise<{ username
     const { getSession } = await import("@/app/actions/auth");
     const { permisosDeSesion } = await import("@/lib/permisos");
     const s: any = await getSession().catch(() => null);
-    if (!s || !permisosDeSesion(s).includes("dispositivos")) return null;
+    if (!s || !permisosDeSesion(s).includes("dispositivos.editar")) return null;
     return prisma.device.findUnique({ where: { id }, select: { username: true, password: true, rtspUrl: true } });
 }
 

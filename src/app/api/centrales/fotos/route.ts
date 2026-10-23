@@ -5,7 +5,7 @@
  *
  *   GET → { bucket, dias, topeGb, regla (días de la regla vigente en el bucket, 0 = ninguna), n, bytes, desde, truncado }
  *   PUT { dias?, topeGb? } → guarda, y aplica la regla de días en el bucket en el acto (el tope por
- *       tamaño lo aplica alarm-receiver cada 6 h). Sólo administrador; queda en Auditoría.
+ *       tamaño lo aplica alarm-receiver cada 6 h). Pide «Configurar centrales» (hub.config); queda en Auditoría.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { CreateBucketCommand, HeadBucketCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { prisma } from "@/lib/prisma";
 import { sesionCon, auditar } from "@/lib/centrales/sesion";
-import { permisosDeSesion, esAdministrador } from "@/lib/permisos";
+import { permisosDeSesion } from "@/lib/permisos";
 import { exigirFuncion } from "@/lib/funcion-servidor";
 import { getS3InternalClient, getBucketLifecycle, updateBucketLifecycle } from "@/app/actions/settings";
 
@@ -69,7 +69,7 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
     const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
     const { s, no } = await sesionCon(); if (no) return no;
-    if (!esAdministrador(permisosDeSesion(s))) return NextResponse.json({ ok: false, error: "Esto lo cambia un administrador." }, { status: 403 });
+    if (!permisosDeSesion(s).includes("hub.config")) return NextResponse.json({ ok: false, error: "Hace falta el permiso Configurar centrales." }, { status: 403 });
     const b = await req.json().catch(() => ({}));
     const antes = await ret.leerRetencion(prisma);
     const dias = b?.dias != null ? ret.diasValidos(b.dias) : antes.dias;

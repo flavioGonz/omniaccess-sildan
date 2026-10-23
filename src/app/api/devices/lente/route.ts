@@ -46,7 +46,7 @@ async function puede(): Promise<NextResponse | null> {
     if (!auth.authenticated) return unauthorizedResponse();
     if (auth.pantalla) return forbiddenResponse("Un enlace de pantalla no toca cámaras.");
     const s: any = await getSession().catch(() => null);
-    if (!s || !permisosDeSesion(s).includes("dispositivos")) return forbiddenResponse("Mover el lente pide el permiso de Dispositivos.");
+    if (!s || !permisosDeSesion(s).includes("dispositivos.editar")) return forbiddenResponse("Mover el lente pide el permiso de Dispositivos.");
     return null;
 }
 

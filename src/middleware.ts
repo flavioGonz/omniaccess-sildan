@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { jwtVerify } from 'jose'
-import { puedeAbrir, permisosDeSesion } from '@/lib/permisos'
+import { puedeAbrir, permisosDeSesion, tieneAlguno } from '@/lib/permisos'
+import { claseDeAccion } from '@/lib/permisos-acciones'
+import { claseDeApi, METODOS_DE_ESCRITURA } from '@/lib/permisos-api'
 import { esVista, alcanceCubre, enlaceAbre, COOKIE_PANTALLA, PARAM_PANTALLA, type ClaveVista } from '@/lib/monitor/vistas'
-import { accionPermitidaSinSesion } from '@/lib/acciones-publicas'
+import { accionPermitidaSinSesion, nombreDeAccion } from '@/lib/acciones-publicas'
 import { firmaDeMedioValida, PARAM_FIRMA } from '@/lib/firma-medios'
 
 /**
@@ -57,13 +59,40 @@ async function firmaValida(token: string | undefined, tipo?: string): Promise<bo
  * encabezado `Next-Action`. Las páginas públicas (/guard, /login, /residente…) importan
  * módulos enteros de acciones, así que sin esto cualquiera desde internet podía invocar
  * acciones que no revisan quién llama — `deleteAllUsers`, `restoreBackup`, `saveAdmin`
- * (ver lib/acciones-publicas). Con sesión del panel pasa todo, como antes; sin sesión,
- * sólo lo de la lista. Va antes que todo lo demás porque no depende de la ruta.
+ * (ver lib/acciones-publicas). Sin sesión, sólo lo de la lista. Va antes que todo lo demás
+ * porque no depende de la ruta.
+ *
+ * Con sesión del panel (23/10, openspec roles-y-permisos) la acción pide su permiso
+ * (lib/permisos-acciones): antes pasaba todo, y un rol con sólo «Monitor» podía invocar
+ * `restoreBackup`. Una acción que no está en la tabla no corre.
  */
+const soloAvisar = () => process.env.OMNI_PERMISOS_SOLO_AVISAR === '1'
+/** El payload de la sesión del panel, o null. */
+async function sesionDelPanel(request: NextRequest): Promise<Record<string, unknown> | null> {
+    const t = request.cookies.get('session')?.value
+    if (!t || !key) return null
+    try { return (await jwtVerify(t, key, { algorithms: ['HS256'] })).payload as Record<string, unknown> } catch { return null }
+}
+/** El rechazo por permiso (o null en modo «sólo avisar»), con su línea en el registro. */
+function porPermiso(s: Record<string, unknown>, que: string, claves: readonly string[] | null): NextResponse | null {
+    const avisar = soloAvisar()
+    console.warn(`[permisos] ${avisar ? 'habría rechazado' : 'rechazado'}: ${s.name || s.sub || '?'} (${s.rolApp || s.role || 'sin rol'}) ${que} sin ${claves ? claves.join('|') : 'clasificar'}`)
+    if (avisar) return null
+    return NextResponse.json({ ok: false, error: claves ? 'Tu rol no tiene permiso para esto.' : 'Esta acción no está habilitada para ningún rol.', permiso: claves }, { status: 403 })
+}
 async function puertaDeAcciones(request: NextRequest): Promise<NextResponse | null> {
     const id = request.headers.get('next-action')
     if (!id || request.method !== 'POST') return null
-    if (await firmaValida(request.cookies.get('session')?.value)) return null
+    const s = await sesionDelPanel(request)
+    if (s) {
+        const nombre = nombreDeAccion(id)
+        // Sin el manifiesto no se sabe qué acción es: se deja pasar como antes y queda en el registro.
+        if (!nombre) { console.warn(`[permisos] acción sin nombre (id desconocido) en ${request.nextUrl.pathname}`); return null }
+        const clase = claseDeAccion(nombre)
+        if (clase === 'sesion' || clase === 'secreto') return null
+        if (!clase) return porPermiso(s, nombre, null)
+        return tieneAlguno(permisosDeSesion(s as any), clase) ? null : porPermiso(s, nombre, clase)
+    }
     const guardia = await firmaValida(request.cookies.get('guardia')?.value, 'guardia')
     const { ok, nombre } = accionPermitidaSinSesion(id, guardia)
     if (ok) return null
@@ -71,10 +100,27 @@ async function puertaDeAcciones(request: NextRequest): Promise<NextResponse | nu
     return NextResponse.json({ error: 'Esta acción necesita una sesión del panel' }, { status: 403 })
 }
 
+/**
+ * La API que cambia algo, con sesión del panel (23/10, openspec roles-y-permisos): pide su permiso
+ * (lib/permisos-api). Antes alcanzaba la sesión. Va arriba de todo porque algunas rutas salen antes
+ * (las de medios, las públicas); las que tienen su propia regla están marcadas `propio`. Sin sesión
+ * del panel no hace nada: siguen las reglas de cada ruta (token del equipo, enlace de pantalla).
+ */
+async function puertaDeApi(request: NextRequest): Promise<NextResponse | null> {
+    const { pathname } = request.nextUrl
+    if (!pathname.startsWith('/api/') || !METODOS_DE_ESCRITURA.has(request.method)) return null
+    const s = await sesionDelPanel(request)
+    if (!s) return null
+    const clase = claseDeApi(pathname)
+    if (clase === 'propio' || clase === 'sesion') return null
+    if (!clase) return porPermiso(s, `${request.method} ${pathname}`, null)
+    return tieneAlguno(permisosDeSesion(s as any), clase) ? null : porPermiso(s, `${request.method} ${pathname}`, clase)
+}
+
 export async function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl
 
-    const rechazo = await puertaDeAcciones(request)
+    const rechazo = (await puertaDeAcciones(request)) || (await puertaDeApi(request))
     if (rechazo) return rechazo
 
     // --- go2rtc: sólo lo que reproduce, nada de su administración ---

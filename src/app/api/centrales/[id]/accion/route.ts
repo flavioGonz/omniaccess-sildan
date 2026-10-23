@@ -18,7 +18,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { id } = await params;
     const b = await req.json().catch(() => ({}));
     const accion = String(b?.accion || "");
-    const permiso = accion === "armar" || accion === "desarmar" ? "centrales" : accion === "estado" ? undefined : "dispositivos";
+    const permiso = accion === "armar" || accion === "desarmar" ? "centrales" : accion === "estado" ? undefined : "hub.config";
     const { s, no } = await sesionCon(permiso as any); if (no) return no;
     const c = await prisma.centralAlarma.findFirst({ where: { OR: [{ id }, { deviceId: id }] }, include: { device: true } });
     if (!c) return NextResponse.json({ ok: false, error: "No existe esa central" }, { status: 404 });

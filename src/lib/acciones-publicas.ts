@@ -92,7 +92,7 @@ let leidoEn = 0;
 /** Se relee cada tanto por si se compiló de nuevo sin reiniciar (no debería pasar, pero no cuesta). */
 const RELEER_MS = 10 * 60_000;
 
-function nombreDeAccion(id: string): string | null {
+export function nombreDeAccion(id: string): string | null {
     if (!mapa || Date.now() - leidoEn > RELEER_MS) {
         try {
             const crudo = JSON.parse(readFileSync(join(process.cwd(), ".next/server/server-reference-manifest.json"), "utf8"));

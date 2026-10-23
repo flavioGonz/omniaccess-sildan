@@ -18,16 +18,17 @@ import { AJUSTE_ROTACION_VISTAS, AJUSTE_ROTACION_SEG, ROTACION_SEG_MIN, ROTACION
  * cookie `session`, que una pantalla no tiene.
  */
 
-async function exigirMonitores() {
+/** Ver la lista pide Monitores; crear enlaces, diseñar vistas, sonido y rotación, Configurar monitores. */
+async function exigirMonitores(nivel: "monitores" | "monitores.config" = "monitores.config") {
     const s: any = await getSession();
-    if (!permisosDeSesion(s).includes("monitores")) throw new Error("No tenés permiso para administrar los monitores.");
+    if (!permisosDeSesion(s).includes(nivel)) throw new Error(nivel === "monitores" ? "No tenés permiso para ver los monitores." : "Hace falta el permiso Configurar monitores.");
     return s;
 }
 
 export type EnlaceListado = { id: string; nombre: string; vista: ClaveVista; creadoPor: string | null; creadoEn: string; ultimoUsoEn: string | null; ultimoUsoIp: string | null; revocadoEn: string | null };
 
 export async function listarEnlacesPantalla(): Promise<EnlaceListado[]> {
-    await exigirMonitores();
+    await exigirMonitores("monitores");
     const filas = await prisma.enlacePantalla.findMany({ orderBy: [{ revocadoEn: "asc" }, { creadoEn: "desc" }] });
     return filas.filter((f) => esVista(f.vista)).map((f) => ({
         id: f.id, nombre: f.nombre, vista: f.vista as ClaveVista, creadoPor: f.creadoPor, creadoEn: f.creadoEn.toISOString(),
@@ -100,7 +101,7 @@ export async function guardarRotacion(data: { vistas: string[]; segundos: number
  * botón: un enlace de pantalla no tiene sesión, y un operador sin el permiso no las cambia.
  */
 export async function puedeDisenarVistas(): Promise<boolean> {
-    try { const s: any = await getSession(); return !!s && permisosDeSesion(s).includes("monitores"); } catch { return false; }
+    try { const s: any = await getSession(); return !!s && permisosDeSesion(s).includes("monitores.config"); } catch { return false; }
 }
 
 async function vistasGuardadas() {

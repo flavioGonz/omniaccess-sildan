@@ -111,7 +111,7 @@ function FaceDashboardContent() {
             if (mode) setFaceMode(mode.value);
 
             const urlSet = await getSetting("COMPAREFACE_URL");
-            const keySet = await getSetting("COMPAREFACE_KEY");
+            const keySet = await getSetting("COMPAREFACE_KEY").catch(() => null);   // un secreto: sin Ajustes no viene (lib/ajustes-secretos)
             setAiConfig({
                 endpoint: urlSet?.value || "",
                 apiKey: keySet?.value || "",

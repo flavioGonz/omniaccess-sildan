@@ -34,7 +34,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     const funcionApagada = await exigirFuncion("FUNC_ALARMAS_GESTION"); if (funcionApagada) return funcionApagada;
     const { id } = await params;
-    const { s, no } = await sesionCon(); if (no) return no;
+    const { s, no } = await sesionCon("hub.tratar"); if (no) return no;
     if (!ID.test(id)) return NextResponse.json({ ok: false, error: "Evento inválido" }, { status: 400 });
     const yo = quien(s);
     if (!yo) return NextResponse.json({ ok: false, error: "Hace falta una sesión con nombre." }, { status: 401 });

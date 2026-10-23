@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     const { permisosDeSesion } = await import("@/lib/permisos");
     const s: any = await getSession().catch(() => null);
     if (!s) return NextResponse.json({ ok: false, error: "Sin sesión" }, { status: 401 });
-    if (!permisosDeSesion(s).includes("dispositivos")) return NextResponse.json({ ok: false, error: "Pide el permiso Dispositivos." }, { status: 403 });
+    if (!permisosDeSesion(s).includes("dispositivos.editar")) return NextResponse.json({ ok: false, error: "Pide el permiso Dispositivos." }, { status: 403 });
     const b = await req.json().catch(() => ({}));
     const id = String(b?.deviceId || "");
     if (!id || !(await prisma.device.findUnique({ where: { id }, select: { id: true } }))) return NextResponse.json({ ok: false, error: "No existe ese equipo." }, { status: 404 });

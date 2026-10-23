@@ -49,7 +49,8 @@ export async function marcaAgua(): Promise<string | null> {
 }
 
 /** Quién puede pedir o mandar un clip: los que ya ven video en el panel (monitor, intrusión, historial). */
-export const PERMISOS_VIDEO = ["monitor", "intrusion", "historial"] as const;
+/** Mandar o exportar video (roles-y-permisos: «Grabaciones y clips»; los roles de antes con Monitor, Intrusión o Historial lo traen traducido). */
+export const PERMISOS_VIDEO = ["grabaciones"] as const;
 
 /** Cuánto se espera, como mucho, a que el tramo posterior exista antes de cortar. */
 const ESPERA_TOPE_MS = 30_000;

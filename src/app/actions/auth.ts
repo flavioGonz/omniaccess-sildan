@@ -1,11 +1,12 @@
 'use server'
 
-import { cookies } from 'next/headers'
-import { pantallaInicio } from '@/lib/landing'
+import { cookies, headers } from 'next/headers'
+import { inicioPara } from '@/lib/landing'
+import { ACCION_ACCESOS } from '@/lib/auditoria-accesos'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { SignJWT, jwtVerify } from 'jose'
-import { ROL_ADMINISTRADOR_ID, CLAVES_PERMISOS, PERMISOS_OPERADOR, esAdministrador } from '@/lib/permisos'
+import { ROL_ADMINISTRADOR_ID, CLAVES_PERMISOS, PERMISOS_OPERADOR, VERSION_PERMISOS, esAdministrador, normalizarPermisos } from '@/lib/permisos'
 import bcrypt from 'bcryptjs'
 
 // JWT_SECRET MUST come from environment - no hardcoded fallback
@@ -66,6 +67,17 @@ setInterval(() => {
     }
 }, 30 * 60 * 1000)
 
+/**
+ * Cada entrada al panel queda en AccionSistema (openspec roles-y-permisos, «Auditoría de accesos»):
+ * «Entró al panel», o «Entrada fallida» con el motivo. Es lo que dice la última entrada de cada usuario en
+ * Ajustes → Accesos. Nunca la contraseña: el usuario que se intentó y desde dónde.
+ */
+async function anotarEntrada(quien: string, ok: boolean, motivo?: string) {
+    let ip = ''
+    try { const h = await headers(); ip = (h.get('x-real-ip') || h.get('x-forwarded-for') || '').split(',')[0].trim() } catch { }
+    await prisma.accionSistema.create({ data: { quien: String(quien || '?').slice(0, 80), accion: ok ? ACCION_ACCESOS.ENTRO : ACCION_ACCESOS.ENTRADA_FALLIDA, objetivo: 'panel', ok, detalle: [motivo, ip ? `desde ${ip}` : ''].filter(Boolean).join(' · ').slice(0, 300) || null } }).catch(() => { })
+}
+
 export async function login(formData: FormData) {
     const username = formData.get('username') as string
     const password = formData.get('password') as string
@@ -91,6 +103,7 @@ export async function login(formData: FormData) {
     })
 
     if (!user) {
+        await anotarEntrada(username, false, 'usuario inexistente')
         return { error: 'Usuario o contraseña incorrectos' }
     }
 
@@ -100,6 +113,7 @@ export async function login(formData: FormData) {
        guardia sigue aceptando su PIN por su propio camino (verifyGuardCredential). */
     const passwordCred = user.credentials.find(c => c.type === 'PASSWORD')
     if (!passwordCred) {
+        await anotarEntrada(username, false, 'sin contraseña')
         return { error: 'Usuario o contraseña incorrectos' }
     }
 
@@ -122,6 +136,7 @@ export async function login(formData: FormData) {
     }
 
     if (!passwordValid) {
+        await anotarEntrada(username, false, 'contraseña incorrecta')
         return { error: 'Usuario o contraseña incorrectos' }
     }
 
@@ -133,11 +148,15 @@ export async function login(formData: FormData) {
     // usan la consola /guard, no este login.
     const esDelPanel = !!user.appRole || user.role === 'ADMIN' || user.role === 'OPERATOR'
     if (!esDelPanel) {
+        await anotarEntrada(username, false, 'cuenta sin acceso al panel')
         return { error: 'Esta cuenta no tiene acceso al panel de administración. Las cuentas de guardia ingresan por la consola (/guard).' }
     }
     // Los permisos viajan en la sesión: el middleware corta rutas y el menú se arma con esto
     // sin consultar la base en cada navegación. Cambiar un rol pide volver a entrar.
-    const perms: string[] = user.appRole ? user.appRole.permisos : (user.role === 'ADMIN' ? CLAVES_PERMISOS : PERMISOS_OPERADOR)
+    // Un rol guardado antes del catálogo por niveles (si todavía no corrió scripts/permisos-roles.js)
+    // se traduce acá; el token sale siempre con la versión nueva (`pv`).
+    const versionRoles = (await prisma.setting.findUnique({ where: { key: 'PERMISOS_VERSION' } }).catch(() => null))?.value
+    const perms: string[] = user.appRole ? normalizarPermisos(user.appRole.permisos, { deAntes: versionRoles !== String(VERSION_PERMISOS) }) : (user.role === 'ADMIN' ? CLAVES_PERMISOS : PERMISOS_OPERADOR)
     const rolApp = user.appRole?.nombre || (user.role === 'ADMIN' ? 'Administrador' : 'Operador')
     // Administrador lo es por su rol, no por tener hoy todas las claves del catálogo: si mañana
     // se agrega un permiso, el que ya es administrador sigue viendo todo (lib/permisos).
@@ -149,12 +168,13 @@ export async function login(formData: FormData) {
 
     const expiresCtx = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
-    const token = await new SignJWT({ sub: user.id, role: roleSesion, name: user.name, perms, rolApp, rolAppId: user.appRoleId || null })
+    const token = await new SignJWT({ sub: user.id, role: roleSesion, name: user.name, perms, pv: VERSION_PERMISOS, rolApp, rolAppId: user.appRoleId || null })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime('24h')
         .sign(key)
 
+    await anotarEntrada(user.name, true)
     const cookieStore = await cookies()
     cookieStore.set('session', token, {
         httpOnly: true,
@@ -173,7 +193,7 @@ export async function login(formData: FormData) {
     // y la misma que abre "Monitor en Vivo" en el menú.
     const modos = await prisma.setting.findMany({ where: { key: { in: ['MODULE_QUEUE', 'MODULE_FACE', 'MODULE_LPR'] } } })
     const activo = (k: string) => modos.find(m => m.key === k)?.value === 'true'
-    redirect(pantallaInicio({ MODULE_QUEUE: activo('MODULE_QUEUE'), MODULE_FACE: activo('MODULE_FACE'), MODULE_LPR: activo('MODULE_LPR') }))
+    redirect(inicioPara({ MODULE_QUEUE: activo('MODULE_QUEUE'), MODULE_FACE: activo('MODULE_FACE'), MODULE_LPR: activo('MODULE_LPR') }, roleSesion === 'ADMIN' ? CLAVES_PERMISOS : perms))
 }
 
 export async function resetPassword(formData: FormData) {

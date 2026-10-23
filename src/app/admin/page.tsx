@@ -1,14 +1,11 @@
 import { redirect } from "next/navigation";
 import { getEnabledModules } from "@/app/actions/modules";
+import { getSession } from "@/app/actions/auth";
+import { inicioPara } from "@/lib/landing";
+import { permisosDeSesion } from "@/lib/permisos";
 
+/** El inicio del panel: el monitor del modo, o la primera pantalla que el rol pueda abrir (lib/landing). */
 export default async function AdminPage() {
-    const modules = await getEnabledModules();
-    
-    if (modules.MODULE_QUEUE) {
-        redirect("/admin/monitor-queue");
-    } else if (modules.MODULE_FACE) {
-        redirect("/admin/monitor-face");
-    } else {
-        redirect("/admin/monitor-lpr");
-    }
+    const [modules, sesion] = await Promise.all([getEnabledModules(), getSession()]);
+    redirect(inicioPara(modules, permisosDeSesion(sesion as any)));
 }

@@ -92,6 +92,9 @@ fi
 # escriben según lo que había; después no se tocan (idempotente).
 node scripts/funciones-instalacion.js >> "$LOG" 2>&1 || anotar "AVISO: no se escribieron las funciones de la instalación"
 
+# Los roles al catálogo de permisos por módulo y nivel: traduce una vez y después sólo normaliza.
+node scripts/permisos-roles.js >> "$LOG" 2>&1 || anotar "AVISO: no se revisaron los permisos de los roles"
+
 # Las retenciones de los buckets de capturas (alarmas e intrusión): idempotente, dice qué hizo.
 timeout 120 node scripts/retenciones.js >> "$LOG" 2>&1 || anotar "AVISO: no se revisaron las retenciones del almacenamiento"
 

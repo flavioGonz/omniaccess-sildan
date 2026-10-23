@@ -1,5 +1,8 @@
 "use server";
 
+import { exigirPermiso } from "@/lib/permiso-servidor";
+import { esClaveSecreta } from "@/lib/ajustes-secretos";
+
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import {
@@ -35,6 +38,8 @@ const IMAGEN_DE_MARCA = /\.(png|jpe?g|webp)$/i;
 
 export async function getSetting(key: string) {
     await sinSesionSoloGuardia([key]);
+    // Un secreto (token, clave, conexión) sólo para quien tiene Ajustes (lib/ajustes-secretos).
+    if (esClaveSecreta(String(key))) await exigirPermiso("ajustes", `getSetting ${key}`);
     try {
         const setting = await prisma.setting.findUnique({
             where: { key },
@@ -63,6 +68,7 @@ export async function updateSetting(key: string, value: string) {
 }
 
 export async function purgeAccessEvents() {
+    await exigirPermiso("mantenimiento", "purgeAccessEvents");
     console.log("Starting purge process...");
 
     const retentionSetting = await leerAjuste("dataRetentionMonths");
@@ -328,6 +334,7 @@ export async function testExternalDbConnection(url: string) {
  * Updates the DATABASE_URL in the .env file and restarts the app if possible
  */
 export async function updateDatabaseUrl(newUrl: string) {
+    await exigirPermiso("mantenimiento", "updateDatabaseUrl");
     try {
         const envPath = path.join(process.cwd(), '.env');
         let envContent = await fs.readFile(envPath, 'utf8');
@@ -358,6 +365,7 @@ export async function updateDatabaseUrl(newUrl: string) {
  * Runs migrations on the current database
  */
 export async function runDatabaseMigrations() {
+    await exigirPermiso("mantenimiento", "runDatabaseMigrations");
     const { exec } = await import('child_process');
     const util = await import('util');
     const execPromise = util.promisify(exec);
@@ -444,6 +452,7 @@ const TABLAS_DEL_RESPALDO = [
 const modeloDe = (t: { clave: string; modelo?: string }) => (prisma as any)[t.modelo || t.clave];
 
 export async function downloadBackup() {
+    await exigirPermiso("mantenimiento", "downloadBackup");
     try {
         const [
             users, vehicles, devices, events, units, credentials,
@@ -524,6 +533,7 @@ export async function restoreBackup(
     merge: boolean = false,
     opciones?: { forzar?: boolean },
 ) {
+    await exigirPermiso("mantenimiento", "restoreBackup");
     try {
         const data = backupData?.data;
         if (!data) throw new Error("Formato de backup inválido");
@@ -757,6 +767,7 @@ export async function restoreBackup(
 }
 
 export async function populateDatabase() {
+    await exigirPermiso("mantenimiento", "populateDatabase");
     try {
         const { exec } = await import('child_process');
         const util = await import('util');

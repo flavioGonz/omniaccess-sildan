@@ -22,7 +22,7 @@ export async function puedeMirar(): Promise<NextResponse | null> {
 export async function puedeCambiar(): Promise<{ error: NextResponse | null; quien: string | null }> {
     const s: any = await getSession();
     if (!s) return { error: NextResponse.json({ error: "Sin sesión" }, { status: 401 }), quien: null };
-    if (!permisosDeSesion(s).includes("ajustes")) return { error: NextResponse.json({ error: "Sólo quien tiene Ajustes puede cambiar o entrenar analíticas." }, { status: 403 }), quien: null };
+    if (!permisosDeSesion(s).includes("vision.config")) return { error: NextResponse.json({ error: "Hace falta el permiso Configurar OmniVision para cambiar o entrenar analíticas." }, { status: 403 }), quien: null };
     return { error: null, quien: s.name || s.email || s.sub || null };
 }
 

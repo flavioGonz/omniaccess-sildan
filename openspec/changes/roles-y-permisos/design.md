@@ -40,9 +40,9 @@ El catálogo (48 permisos), con los delicados marcados con ⚠:
 | Módulo | Sección | Ver | Operar | Configurar |
 |---|---|---|---|---|
 | Operación | Gestión de alarmas | `alarmas` | `alarmas.atender` | |
-| | Historial y lecturas | `historial` | `historial.exportar` | |
+| | Historial y lecturas | `historial` | `historial.exportar`, `grabaciones` (mandaban clips) | |
 | | Mapa y seguimiento | `mapa` | | `mapa.editar` |
-| | Monitores de pared | `monitores` | | `monitores.enlaces` ⚠ |
+| | Monitores de pared | `monitores` | | `monitores.config` ⚠ |
 | LPR | Monitor LPR | `lpr` | `lpr.operar` | |
 | | Lista de vigilancia | | `vigilancia` | |
 | | Invitados | `invitados` | `invitados.gestionar` | |
@@ -80,6 +80,8 @@ Rutas de página que cambian o se suman:
 
 ### 2. Dependencias de nivel resueltas al normalizar
 
+(Implementado: una clave que existe en los dos catálogos —`intrusion`, `ajustes`— sólo se traduce en un token sin `pv` o en un rol antes de la migración, marcada con `PERMISOS_VERSION = 2` en Setting; si no, quitarle un nivel a un rol se desharía solo. Gestión de alarmas la abre también quien tiene el Ver de Alarm Hub, Intrusión, LPR u OmniVision: `TAMBIEN_ABREN`.)
+
 `normalizarPermisos(lista)` agrega «Ver» a toda sección donde haya Operar o Configurar, y traduce las claves viejas. Se aplica al guardar un rol, en el script de migración y en `permisosDeSesion` (para los tokens viejos). Así el chequeo es siempre `includes`, y nunca hay que preguntar «¿tiene ver o algo más alto?».
 
 ### 3. Traducción de lo viejo: «misma superficie, nada menos»
@@ -87,12 +89,12 @@ Rutas de página que cambian o se suman:
 | Clave vieja | Se traduce a (además de sí misma, si sigue existiendo) |
 |---|---|
 | `monitor` | `lpr`, `lpr.operar`, `video`, `grabaciones`, `rostros`, `rostros.listas`, `filas`, `alarmas`, `alarmas.atender`, `hub`, `hub.tratar` |
-| `intrusion` | `intrusion.atender`, `intrusion.reglas` |
-| `historial` | `historial.exportar` |
+| `intrusion` | `intrusion.atender`, `intrusion.reglas`, `grabaciones` |
+| `historial` | `historial.exportar`, `grabaciones` (mandaban clips) |
 | `mapa` | `mapa.editar` |
 | `invitados` | `invitados.gestionar` |
 | `guardia` | `guardia.puestos`, `visitas` |
-| `monitores` | `monitores.enlaces` |
+| `monitores` | `monitores.config` |
 | `usuarios` / `unidades` / `vehiculos` | sus `.editar` |
 | `plazas` | `plazas.config` |
 | `dispositivos` | `dispositivos.editar`, `hub.config` (la central se daba de alta en Dispositivos) |

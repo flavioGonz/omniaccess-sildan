@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, Ban, Camera, Check, CheckCircle2, CircleDot, CircleHelp, Clock, Flame, Hand, History, Info, ListChecks, Loader2, MessageSquareText, Phone, RotateCcw, ShieldAlert, ShieldCheck, ShieldOff, Siren, SkipForward, Timer, UserRound, Users, Wrench, X } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Eye, Ban, Camera, Check, CheckCircle2, CircleDot, CircleHelp, Clock, Flame, Hand, History, Info, ListChecks, Loader2, MessageSquareText, Phone, RotateCcw, ShieldAlert, ShieldCheck, ShieldOff, Siren, SkipForward, Timer, UserRound, Users, Wrench, X } from "lucide-react";
 import { Pista } from "@/components/ui/pista";
+import { useSessionRole } from "@/hooks/useSessionRole";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Estado } from "@/components/ui/celdas";
@@ -223,6 +224,9 @@ function Gestion({ ev, f, alHecho, debajo }: { ev: EventoCentral; f: Ficha; alHe
     const [texto, setTexto] = useState("");
     const mio = ev.operador.soyYo;
     const deOtro = !!ev.operador.nombre && !mio;
+    // Ver un evento no es tratarlo (roles-y-permisos): sin «Tratar eventos» no se ofrece tomarlo.
+    const { tiene, loaded: rolListo } = useSessionRole();
+    const puedeTratar = !rolListo || tiene("hub.tratar");
     // El procedimiento con que se abrió el evento (guardado con él): el de su clase o el de su prioridad.
     const pasos = ev.procedimiento?.pasos || [];
     const faltan = obligatoriosFaltantes(pasos, ev.pasos, ev.salteos || {});
@@ -251,7 +255,11 @@ function Gestion({ ev, f, alHecho, debajo }: { ev: EventoCentral; f: Ficha; alHe
                         <div className="text-[13.5px] font-semibold truncate">{mio ? "Lo estás atendiendo vos" : deOtro ? `Lo tiene ${ev.operador.nombre}` : "Nadie lo tomó"}</div>
                         <div className="text-[11.5px] text-muted-foreground">{ev.operador.desde ? `desde ${hora(ev.operador.desde)} · ${hace(ev.operador.desde)}` : "Sin tomar: cualquiera lo puede tomar"}</div>
                     </div>
-                    {mio ? (
+                    {!puedeTratar ? (
+                        <Pista titulo="Sólo para ver" texto="Tu rol ve los eventos de las centrales pero no los trata: hace falta el permiso «Tratar eventos» (Alarm Hub)." lado="abajo" ancho={280}>
+                            <span className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-full border border-border text-[12px] text-muted-foreground"><Eye size={13} /> Sólo ver</span>
+                        </Pista>
+                    ) : mio ? (
                         <Pista texto="Se lo pasás a otro operador; podés dejarle una nota. Queda en la bitácora." lado="abajo"><Button size="sm" variant="outline" onClick={() => setPasando((v) => !v)} disabled={!!ocupado} className="gap-1.5 bg-background"><ArrowRightLeft size={13} /> Pasar</Button></Pista>
                     ) : deOtro ? (
                         <Pista texto={`Lo tiene ${ev.operador.nombre}. Para tomarlo hay que escribir por qué; queda en la auditoría con su nombre.`} lado="abajo"><Button size="sm" variant="outline" onClick={() => setQuitando((v) => !v)} disabled={!!ocupado} className="gap-1.5 bg-background"><Hand size={13} /> Quitárselo</Button></Pista>

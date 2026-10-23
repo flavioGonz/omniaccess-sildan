@@ -8,6 +8,7 @@ import {
     Activity, Truck, Infinity as SinTiempo, RadioTower, ChevronRight, MessagesSquare,
 } from "lucide-react";
 import { getEnabledModules } from "@/app/actions/modules";
+import { useSessionRole } from "@/hooks/useSessionRole";
 import { VistaCentrales, ChipPrioridad } from "@/components/alarmas/MensajesCentrales";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { abrirEventoCentral } from "@/lib/centrales/abrir-evento";
@@ -212,7 +213,14 @@ function GestionAlarmas() {
     // Un grupo se ofrece si su sistema está (o si igual llegaron alarmas suyas: no se esconde lo que hay que atender).
     const hayDe = (g: Grupo) => alarmas.some((a) => delGrupo(a, g));
     const lprOn = modulos ? modulos.lpr : true;
-    const grupoVisible: Record<Grupo, boolean> = { todo: true, lpr: lprOn || hayDe("lpr"), intrusion: intrusionOn || hayDe("intrusion"), hub: recepcionOn };
+    // Y el rol (roles-y-permisos): «Gestión de alarmas · ver» es el panel único; cada sistema, su Ver.
+    const { tiene, loaded: rolListo } = useSessionRole();
+    const grupoVisible: Record<Grupo, boolean> = {
+        todo: !rolListo || tiene("alarmas"),
+        lpr: (lprOn || hayDe("lpr")) && (!rolListo || tiene("lpr")),
+        intrusion: (intrusionOn || hayDe("intrusion")) && (!rolListo || tiene("intrusion") || tiene("vision")),
+        hub: recepcionOn && (!rolListo || tiene("hub")),
+    };
     const grupos: Pestania<Grupo>[] = ([
         { valor: "todo", rotulo: "Todo", icono: Layers, cuenta: pendientesDe("todo"), tono: "mal", ayuda: "Todos los eventos de OmniAccess por hora: LPR, intrusión y centrales de alarma, y los autos que están adentro sin ser del barrio" },
         { valor: "lpr", rotulo: "LPR", icono: Car, cuenta: pendientesDe("lpr"), tono: "mal", ayuda: "Lista negra, en búsqueda y patrones de las matrículas, y quién está adentro del barrio" },
@@ -248,10 +256,13 @@ function GestionAlarmas() {
     };
     // Un grupo que deja de estar (se apagó su función) o un «Eventos a tratar» sin Gestión: a lo que sí hay.
     useEffect(() => {
-        if (!sabido || !modulos || !datos) return;
-        if (!grupoVisible[grupo]) setVerEstado("todo");
+        if (!sabido || !modulos || !datos || !rolListo) return;
+        if (!grupoVisible[grupo]) {
+            const otro = (["todo", "lpr", "intrusion", "hub"] as Grupo[]).find((g) => grupoVisible[g]);
+            if (otro) setVerEstado(otro === "hub" ? (gestionOn ? "hub" : "centrales") : otro);
+        }
         else if (ver === "hub" && !gestionOn && recepcionOn) setVerEstado("centrales");
-    }, [grupo, ver, gestionOn, recepcionOn, sabido, modulos, !!datos, grupoVisible[grupo]]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [grupo, ver, gestionOn, recepcionOn, sabido, modulos, !!datos, rolListo, grupoVisible[grupo]]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── Filtros de la tabla ──
     const [busqueda, setBusqueda] = useState("");

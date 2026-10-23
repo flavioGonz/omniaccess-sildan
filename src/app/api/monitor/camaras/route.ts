@@ -225,7 +225,7 @@ export async function GET() {
         canales,
         // Las áreas de Dispositivos (21/10, Nico: «filtrar las cámaras por áreas también acá»).
         areas: arbol.areas,
-        vision: { ...carga, cuantas: enVision.ids.size, puedeCambiar: !!sesion && permisosDeSesion(sesion as any).includes("ajustes") },
+        vision: { ...carga, cuantas: enVision.ids.size, puedeCambiar: !!sesion && permisosDeSesion(sesion as any).includes("vision.config") },
         errores,
         vistas: leerVistas(filasAjustes.find((f) => f.key === AJUSTE_VISTAS_CAMARAS)?.value),
         // Seguimiento visual (el mismo Setting que la ficha de intrusión): por cámara, a qué vecinas

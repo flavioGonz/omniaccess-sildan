@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
     const s: any = await getSession();
     if (!s) return NextResponse.json({ error: "Sin sesión" }, { status: 401 });
-    if (!permisosDeSesion(s).includes("ajustes")) return NextResponse.json({ error: "Sólo quien tiene Ajustes puede cambiar esto." }, { status: 403 });
+    if (!permisosDeSesion(s).includes("vision.config")) return NextResponse.json({ error: "Hace falta el permiso Configurar OmniVision para cambiar esto." }, { status: 403 });
     const b = await req.json().catch(() => null);
     if (typeof b?.tarea !== "string" || !(b.tarea in TAREAS_VISION) || typeof b?.activa !== "boolean") return NextResponse.json({ error: "Pedido inválido" }, { status: 400 });
     const apagadas = new Set(await leerTareasApagadas());

@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
     const s: any = await getSession();
     if (!s) return NextResponse.json({ error: "Sin sesión" }, { status: 401 });
-    if (!permisosDeSesion(s).includes("ajustes")) return NextResponse.json({ error: "Sólo quien tiene Ajustes puede cambiar esto." }, { status: 403 });
+    if (!permisosDeSesion(s).includes("vision.config")) return NextResponse.json({ error: "Hace falta el permiso Configurar OmniVision para cambiar esto." }, { status: 403 });
     const b = await req.json().catch(() => null);
     const tipo = b?.tipo === "clase" ? "clase" : b?.tipo === "analitica" ? "analitica" : null;
     if (!tipo || typeof b?.id !== "string" || typeof b?.prendida !== "boolean") return NextResponse.json({ error: "Pedido inválido" }, { status: 400 });

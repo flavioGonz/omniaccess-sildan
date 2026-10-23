@@ -148,7 +148,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
     const s: any = await getSession();
     if (!s) return NextResponse.json({ error: "Sin sesión" }, { status: 401 });
-    if (!permisosDeSesion(s).includes("ajustes")) return NextResponse.json({ error: "Sólo quien tiene Ajustes puede cambiar esto." }, { status: 403 });
+    if (!permisosDeSesion(s).includes("vision.config")) return NextResponse.json({ error: "Hace falta el permiso Configurar OmniVision para cambiar esto." }, { status: 403 });
     const b = await req.json().catch(() => null);
     const u = Number(b?.umbral);
     if (!Number.isFinite(u) || u < UMBRAL_RELECTURA.min || u > UMBRAL_RELECTURA.max) return NextResponse.json({ error: `Entre ${UMBRAL_RELECTURA.min * 100} y ${UMBRAL_RELECTURA.max * 100} %` }, { status: 400 });

@@ -14,6 +14,8 @@ export function useSessionRole() {
     const [name, setName] = useState<string | null>(null);
     const [perms, setPerms] = useState<string[] | null>(null);
     const [rolApp, setRolApp] = useState<string | null>(null);
+    /** La versión del catálogo del token (lib/permisos, VERSION_PERMISOS): sin ella las claves se traducen. */
+    const [pv, setPv] = useState<unknown>(null);
     const [loaded, setLoaded] = useState(false);
     useEffect(() => {
         let vivo = true;
@@ -24,6 +26,7 @@ export function useSessionRole() {
                 setName((s?.name as string) ?? null);
                 setPerms(Array.isArray(s?.perms) ? s.perms : null);
                 setRolApp((s?.rolApp as string) ?? null);
+                setPv(s?.pv ?? null);
                 setLoaded(true);
             })
             .catch(() => { if (vivo) setLoaded(true); });
@@ -31,8 +34,8 @@ export function useSessionRole() {
     }, []);
     const isAdmin = role === "ADMIN";
     // Mismo criterio que el middleware: Administrador ve todo, incluso lo agregado después de entrar.
-    const efectivos = loaded ? permisosDeSesion({ perms, role, rolApp }) : null;
+    const efectivos = loaded ? permisosDeSesion({ perms, role, rolApp, pv }) : null;
     const tiene = (clave: string) => (efectivos ? efectivos.includes(clave) : false);
     const puede = (ruta: string) => (efectivos ? puedeAbrir(efectivos, ruta) : true);
-    return { role, name, perms, rolApp, loaded, isAdmin, tiene, puede };
+    return { role, name, perms, rolApp, loaded, isAdmin, tiene, puede, efectivos };
 }

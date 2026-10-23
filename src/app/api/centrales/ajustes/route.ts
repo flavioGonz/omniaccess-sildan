@@ -3,7 +3,7 @@
  *   GET → { cierres, procedimiento, procedimientosClase, escalado }        (con sesión)
  *   PUT { cierres? , procedimiento?, procedimientosClase?, escalado?, restaurar?: "cierres" | "procedimiento" | "escalado" }
  *       `procedimientosClase`: { ROBO: Paso[] | null, … } — null o ausente = usa el de su prioridad.
- *       sólo administrador; queda en Auditoría.
+ *       pide «Configurar centrales» (hub.config); queda en Auditoría.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sesionCon, auditar } from "@/lib/centrales/sesion";
-import { permisosDeSesion, esAdministrador } from "@/lib/permisos";
+import { permisosDeSesion } from "@/lib/permisos";
 import { leerConfigTratamiento } from "@/lib/centrales/tratamiento";
 import {
     AJUSTE_CIERRES, AJUSTE_ESCALADO, AJUSTE_PROCEDIMIENTO, AJUSTE_PROCEDIMIENTOS_CLASE, CIERRES_DEFECTO, ESCALADO_DEFECTO, PROCEDIMIENTO_DEFECTO,
@@ -29,7 +29,7 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
     const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
     const { s, no } = await sesionCon(); if (no) return no;
-    if (!esAdministrador(permisosDeSesion(s))) return NextResponse.json({ ok: false, error: "Esto lo cambia un administrador." }, { status: 403 });
+    if (!permisosDeSesion(s).includes("hub.config")) return NextResponse.json({ ok: false, error: "Hace falta el permiso Configurar centrales." }, { status: 403 });
     const b = await req.json().catch(() => ({}));
     const guardar = (key: string, value: unknown) => prisma.setting.upsert({ where: { key }, update: { value: JSON.stringify(value) }, create: { key, value: JSON.stringify(value) } });
     const hechos: string[] = [];
