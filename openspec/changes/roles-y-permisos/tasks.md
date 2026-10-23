@@ -58,9 +58,9 @@
 
 ## 5. Cierre
 
-- [ ] 5.1 `tsc --noEmit`, `node scripts/probar.js` y `node scripts/probar-dc09.js` en verde. Desplegar en el lab con `OMNI_PERMISOS_SOLO_AVISAR=1` y correr `scripts/permisos-roles.js`.
-- [ ] 5.2 Recorrer el lab con un rol Operador y con uno de cada plantilla, y vaciar el registro de «habría rechazado» corrigiendo la clasificación. Después sacar el modo sólo avisar y repetir.
-- [ ] 5.3 Documentar en el proyecto (`claude/roles-y-permisos.md`): el catálogo, la traducción, cómo se clasifica una acción o una ruta nueva, y el modo sólo avisar.
+- [x] 5.1 `tsc --noEmit`, `node scripts/probar.js` y `node scripts/probar-dc09.js` en verde. Desplegar en el lab con `OMNI_PERMISOS_SOLO_AVISAR=1` y correr `scripts/permisos-roles.js`.
+- [ ] 5.2 (en curso: verificado en el lab con una sesión de operador generada en el servidor —página sin permiso → «sin permiso», acción de Ajustes y tratar un evento → «habría rechazado»—; falta recorrerlo con un usuario real de rol Operador y sacar el modo sólo avisar) Recorrer el lab con un rol Operador y con uno de cada plantilla, y vaciar el registro de «habría rechazado» corrigiendo la clasificación. Después sacar el modo sólo avisar y repetir.
+- [x] 5.3 Documentar en el proyecto (`claude/roles-y-permisos.md`): el catálogo, la traducción, cómo se clasifica una acción o una ruta nueva, y el modo sólo avisar.
 
 ## Workflow follow-up
 
