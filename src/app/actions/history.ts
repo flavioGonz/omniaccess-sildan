@@ -74,9 +74,15 @@ export async function getAccessEvents(options?: {
     to?: Date,
     omitEnrichment?: boolean,
     /** Sólo las lecturas de estos equipos (el filtro de área del Monitor LPR). */
-    deviceIds?: string[]
+    deviceIds?: string[],
+    /** Traer también los disparos sin vehículo (ver abajo). Por defecto no. */
+    conSinVehiculo?: boolean
 }) {
-    const whereClause: any = {};
+    // Los disparos sin vehículo (la cámara no leyó chapa y OmniVision no vio ningún vehículo en la
+    // foto: luces, reflejos, niebla) no son accesos. El historial ya los escondía (23/10); el Monitor
+    // LPR los seguía mostrando: 24/10, Nico, «sigo teniendo capturas así», y MATRICULA SALIDA de San
+    // Nicolás marcó 803 de 1466 eventos así en 24 h, casi todos de noche.
+    const whereClause: any = options?.conSinVehiculo ? {} : { sinVehiculo: false };
     if (options?.deviceIds) whereClause.deviceId = { in: options.deviceIds };
 
     if (options?.userId) {
@@ -197,7 +203,8 @@ export async function getEventsCountToday(type?: "PLATE" | "FACE" | "TAG") {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
-    const baseWhere: any = { timestamp: { gte: startOfDay } };
+    // Sin los disparos sin vehículo: no son accesos (ver getAccessEvents).
+    const baseWhere: any = { timestamp: { gte: startOfDay }, sinVehiculo: false };
     if (type) baseWhere.accessType = type;
 
     try {
@@ -487,6 +494,7 @@ export async function getLastEventPerDevice() {
             SELECT DISTINCT ON ("deviceId") "deviceId", id, "plateDetected", "snapshotPath", "imagePath", decision, direction, timestamp, details
             FROM "AccessEvent"
             WHERE "accessType" = 'PLATE' AND "deviceId" IS NOT NULL AND "snapshotPath" IS NOT NULL AND "snapshotPath" <> ''
+              AND "sinVehiculo" = false
             ORDER BY "deviceId", timestamp DESC
         `);
         const map: Record<string, any> = {};

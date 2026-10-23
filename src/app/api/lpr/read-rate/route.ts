@@ -51,6 +51,9 @@ export async function GET(req: NextRequest) {
                 COUNT(*) FILTER (WHERE e."plateDetected" IS NOT NULL AND e."plateDetected" NOT IN ('NO_LEIDA','unknown','UNKNOWN','S/P',''))::int AS read
             FROM "AccessEvent" e LEFT JOIN "Device" d ON d."id" = e."deviceId"
             WHERE e."accessType" = 'PLATE' AND e."timestamp" >= ${since}
+              -- Un disparo sin vehículo no es una chapa que no se leyó: no había auto (24/10). Contarlo
+              -- bajaba la tasa de MATRICULA SALIDA a la mitad por las falsas de la noche.
+              AND e."sinVehiculo" = false
             GROUP BY e."deviceId", d."name", d."direction"
             ORDER BY total DESC`;
         const perHourRaw: any[] = await prisma.$queryRaw`
@@ -58,7 +61,7 @@ export async function GET(req: NextRequest) {
                 COUNT(*)::int AS total,
                 COUNT(*) FILTER (WHERE e."plateDetected" IS NOT NULL AND e."plateDetected" NOT IN ('NO_LEIDA','unknown','UNKNOWN','S/P',''))::int AS read
             FROM "AccessEvent" e
-            WHERE e."accessType" = 'PLATE' AND e."timestamp" >= ${since}
+            WHERE e."accessType" = 'PLATE' AND e."timestamp" >= ${since} AND e."sinVehiculo" = false
             GROUP BY hr ORDER BY hr`;
 
         const perCamera = perCameraRaw.map((r) => {

@@ -26,6 +26,21 @@
 
 const sharp = require("sharp");
 const { normalizarChapa } = require("./lib-chapa");
+const http = require("http");
+
+/**
+ * Avisa a las pantallas por el socket de los webhooks (/internal/emit, como vision-analisis). Un
+ * disparo sin vehículo se descarta en vivo: el Monitor LPR lo mostró al llegar (todavía no se
+ * sabía) y lo saca apenas OmniVision dice que en la foto no hay ningún vehículo (24/10).
+ */
+function emitir(evento, datos) {
+    try {
+        const cuerpo = JSON.stringify({ __event: evento, ...datos });
+        const req = http.request({ hostname: "127.0.0.1", port: Number(process.env.WEBHOOK_PORT || 10000), path: "/internal/emit", method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(cuerpo) }, timeout: 2000 });
+        req.on("error", () => { }); req.on("timeout", () => req.destroy());
+        req.write(cuerpo); req.end();
+    } catch { }
+}
 
 const APP = (process.env.APP_INTERNAL_URL || "http://127.0.0.1:10001").replace(/\/$/, "");
 const LPR = (process.env.OMNI_LPR_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -188,7 +203,8 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa, permitidas = () =
         // Se marca en el evento para que el historial lo pueda dejar afuera sin cruzar tablas. Sólo
         // en una NO_LEIDA: en la doble verificación la cámara sí leyó una chapa.
         if (datos.estado === "SIN_VEHICULO" && !doble) {
-            await prisma.accessEvent.updateMany({ where: { id, plateDetected: { in: NO_LEIDAS } }, data: { sinVehiculo: true } }).catch(() => {});
+            const r = await prisma.accessEvent.updateMany({ where: { id, plateDetected: { in: NO_LEIDAS } }, data: { sinVehiculo: true } }).catch(() => ({ count: 0 }));
+            if (r.count) emitir("lectura_descartada", { accessEventId: id, motivo: "sin-vehiculo" });
         }
     }
 

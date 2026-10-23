@@ -285,6 +285,15 @@ export function VistaLpr() {
     useTiempoReal("visita", () => recargar());
     // omni-vision terminó de mirar la foto de una lectura: se trae para dibujarla.
     useTiempoReal("lectura_analizada", () => recargar());
+    // Un disparo sin vehículo se saca de la pared apenas OmniVision lo descarta (24/10): la
+    // protagonista vuelve a ser la lectura anterior y la tira se queda sin él.
+    useTiempoReal("lectura_descartada", (d: any) => {
+        const id = d?.accessEventId; if (!id) return;
+        setTira((t) => t.filter((x) => x.id !== id));
+        setUltima((u) => (u && u.id === id ? null : u));
+        setFijada((f) => (f && f.id === id ? null : f));
+        recargar();
+    });
     useTiempoReal("aviso_guardia", (d: any) => { recargar(); if (d?.accion === "nuevo" && !silencio && modoSonido !== "off") sonar("denegado"); });
 
     // Los contadores vuelven a cero a la medianoche del barrio sin recargar: se pide de nuevo al cambiar el día.

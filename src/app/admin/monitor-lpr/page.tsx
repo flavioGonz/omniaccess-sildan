@@ -890,6 +890,18 @@ export default function MonitorLPR() {
             pendingRef.current.push(event);
         });
 
+        // Un disparo sin vehículo (OmniVision no vio ningún vehículo en la foto de una NO_LEIDA): se
+        // mostró al llegar porque todavía no se sabía, y se saca apenas se sabe (24/10, vision-relectura).
+        newSocket.on("lectura_descartada", (d: { accessEventId?: string }) => {
+            const id = d?.accessEventId; if (!id) return;
+            pendingRef.current = pendingRef.current.filter((e) => e.id !== id);
+            setEvents((prev) => {
+                const ev = prev.find((e) => e.id === id); if (!ev) return prev;
+                setStats((s) => ({ total: Math.max(0, s.total - 1), grants: s.grants - (ev.decision === "GRANT" ? 1 : 0), denies: Math.max(0, s.denies - (ev.decision === "DENY" ? 1 : 0)) }));
+                return prev.filter((e) => e.id !== id);
+            });
+        });
+
         setSocket(newSocket);
         return () => {
             clearInterval(watchdog);
