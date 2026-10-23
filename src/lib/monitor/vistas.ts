@@ -7,7 +7,7 @@
  * ningún otro lado.
  */
 
-export type ClaveVista = "intrusion" | "lpr" | "mapa" | "resumen" | "salud" | "rotacion" | "camaras";
+export type ClaveVista = "intrusion" | "alarmas" | "lpr" | "mapa" | "resumen" | "salud" | "rotacion" | "camaras";
 
 export type Vista = {
     clave: ClaveVista;
@@ -17,7 +17,7 @@ export type Vista = {
     /** Qué muestra, en dos o tres frases. */
     queMuestra: string;
     /** Ícono de lucide, por nombre: el menú lo resuelve. */
-    icono: "ShieldAlert" | "Car" | "Map" | "LayoutDashboard" | "HeartPulse" | "RefreshCw" | "Cctv";
+    icono: "ShieldAlert" | "Siren" | "Car" | "Map" | "LayoutDashboard" | "HeartPulse" | "RefreshCw" | "Cctv";
     /** Si la vista puede sonar y con qué modos. */
     sonido?: { ajuste: string; modos: { valor: string; rotulo: string }[] };
 };
@@ -28,6 +28,14 @@ export const VISTAS: Vista[] = [
         paraQuien: "La pared del centro: quien tiene que ver una intrusión en el segundo en que ocurre.",
         queMuestra: "Todas las cámaras de intrusión en mosaico, con su línea y su zona dibujadas y el armado de cada regla. Cuando una detecta, su canal se pone rojo y crece hasta ocupar media pantalla; al costado, las últimas detecciones con su foto.",
         sonido: { ajuste: "MONITOR_INTRUSION_SONIDO", modos: [{ valor: "off", rotulo: "Sin sonido" }, { valor: "una", rotulo: "Un tono por alarma" }, { valor: "repetir", rotulo: "Repetir hasta que se acepte" }] },
+    },
+    {
+        // 23/10, Nico: «un nuevo tipo de monitor para los wall, "Alarmas", con las alarmas del hub…
+        // la recepción de eventos debe ser muy rápida: tenemos que verificar cada evento con video en vivo».
+        clave: "alarmas", nombre: "Alarmas", icono: "Siren",
+        paraQuien: "La pared del centro: quien verifica con video cada alarma que manda una central.",
+        queMuestra: "La alarma más urgente sin tratar, con su prioridad, cuánto hace, quién la tiene y el video en vivo de las cámaras de su zona, que arranca en cuanto llega el evento. Al costado, la fila de las otras pendientes y todo lo que va llegando de las centrales; abajo, cada central con su armado y si sigue reportando.",
+        sonido: { ajuste: "MONITOR_ALARMAS_SONIDO", modos: [{ valor: "una", rotulo: "Un tono por alarma" }, { valor: "repetir", rotulo: "Repetir mientras nadie la tome" }, { valor: "off", rotulo: "Sin sonido" }] },
     },
     {
         clave: "lpr", nombre: "Control LPR", icono: "Car",
@@ -58,7 +66,7 @@ export const VISTAS: Vista[] = [
     {
         clave: "rotacion", nombre: "Rotación", icono: "RefreshCw",
         paraQuien: "Quien tiene un solo monitor y quiere ver varias cosas.",
-        queMuestra: "Alterna las vistas que elijas cada tantos segundos. Si hay una intrusión confirmada, se queda en Intrusión hasta que se resuelva.",
+        queMuestra: "Alterna las vistas que elijas cada tantos segundos. Si hay una intrusión confirmada, se queda en Intrusión hasta que se resuelva; si hay una alarma crítica de una central y la rotación incluye Alarmas, se queda en Alarmas hasta que se trate.",
     },
 ];
 
@@ -76,6 +84,7 @@ export const vistaPorClave = (c: string) => VISTAS.find((v) => v.clave === c) ||
 export const ALCANCE_COMUN = ["/api/monitor/alarmas", "/api/monitor/marco"];
 export const ALCANCE_POR_VISTA: Record<ClaveVista, string[]> = {
     intrusion: ["/api/monitor/intrusion"],
+    alarmas: ["/api/monitor/centrales"],
     lpr: ["/api/monitor/lpr"],
     mapa: ["/api/monitor/mapa"],
     resumen: ["/api/monitor/resumen"],

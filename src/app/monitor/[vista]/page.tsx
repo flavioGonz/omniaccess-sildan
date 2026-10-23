@@ -10,8 +10,9 @@ import { VistaResumen } from "@/components/monitor/vistas/VistaResumen";
 import { VistaSalud } from "@/components/monitor/vistas/VistaSalud";
 import { VistaRotacion } from "@/components/monitor/vistas/VistaRotacion";
 import { VistaCamaras } from "@/components/monitor/vistas/VistaCamaras";
+import { VistaAlarmas } from "@/components/monitor/vistas/VistaAlarmas";
 
-const COMPONENTES = { intrusion: VistaIntrusion, lpr: VistaLpr, mapa: VistaMapa, resumen: VistaResumen, salud: VistaSalud, rotacion: VistaRotacion, camaras: VistaCamaras } as const;
+const COMPONENTES = { intrusion: VistaIntrusion, alarmas: VistaAlarmas, lpr: VistaLpr, mapa: VistaMapa, resumen: VistaResumen, salud: VistaSalud, rotacion: VistaRotacion, camaras: VistaCamaras } as const;
 
 export default function PaginaVista({ params }: { params: Promise<{ vista: string }> }) {
     const { vista } = use(params);
