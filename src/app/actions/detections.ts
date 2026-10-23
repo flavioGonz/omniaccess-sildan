@@ -123,7 +123,7 @@ export async function getDevicesWithAnalytics(): Promise<string[]> {
 }
 
 
-import { getSmartSupport, readLine, readField } from "@/lib/isapi-analytics";
+import { getSmartSupport, leerTodas } from "@/lib/isapi-analytics";
 import { resolveForCamera } from "@/lib/nvr-resolve";
 import { readDahuaIvs } from "@/lib/dahua-ivs";
 
@@ -159,7 +159,11 @@ export async function getIntrusionCameras(): Promise<IntrusionCam[]> {
     });
 }
 
-type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[]; supported: boolean };
+/**
+ * `line` / `field`: la primera regla prendida (lo que dibujaban las pantallas de una sola).
+ * `lines` / `fields`: TODAS las prendidas — una cámara Hikvision tiene hasta 4 de cada una (23/10).
+ */
+type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[]; lines?: { x: number; y: number }[][]; fields?: { x: number; y: number }[][]; supported: boolean };
 const camToScreen = (p: { x: number; y: number }) => ({ x: p.x / 10, y: (1000 - p.y) / 10 });
 
 // Cache en memoria de la geometría por dispositivo (evita re-consultar las NVR/cámaras en cada carga de la grilla).
@@ -199,12 +203,14 @@ export async function getAnalyticsGeometryBatch(ids: string[], fresco = false): 
             const dev = { ip: d.ip, username: d.username, password: d.password, authType: d.authType || "DIGEST" } as any;
             const sup = await getSmartSupport(dev);
             if (!sup.line && !sup.field) { store(empty); return; }
-            const line = sup.line ? await readLine(dev, 1) : { enabled: false, points: [] as any[] };
-            const field = sup.field ? await readField(dev, 1) : { enabled: false, points: [] as any[] };
+            const lineas = sup.line ? await leerTodas(dev, "linea", 1).catch(() => null) : null;
+            const zonas = sup.field ? await leerTodas(dev, "zona", 1).catch(() => null) : null;
             // Sólo lo que está PRENDIDO: una regla apagada conserva sus coordenadas en la cámara, y
             // dibujarlas en el vivo hacía creer que la línea seguía vigilando (9/10: la de la LPR
             // Interior se quitó y seguía apareciendo en el vivo del monitor de intrusión).
-            store({ supported: true, line: line.enabled ? (line.points || []).map(camToScreen) : [], field: field.enabled ? (field.points || []).map(camToScreen) : [] });
+            const lines = (lineas?.reglas || []).filter((r) => r.enabled).map((r) => r.points.map(camToScreen));
+            const fields = (zonas?.reglas || []).filter((r) => r.enabled).map((r) => r.points.map(camToScreen));
+            store({ supported: true, line: lines[0] || [], field: fields[0] || [], lines, fields });
         } catch { /* transitorio: no cachear, reintentar en la próxima carga */ }
     };
     for (let i = 0; i < devs.length; i += 6) await Promise.all(devs.slice(i, i + 6).map(one));

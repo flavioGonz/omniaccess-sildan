@@ -1,5 +1,6 @@
 "use client";
 
+import { lineasDe, zonasDe } from "@/lib/geom-intrusion";
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { Disposicion } from "@/lib/monitor/disposiciones";
@@ -115,13 +116,13 @@ export function Foto({ src, ms, className }: { src: string; ms: number; classNam
  * coincide si la baldosa es 16:9; acá el SVG copia el ajuste del video — `slice` es
  * object-cover y `meet` es object-contain — así la línea cae donde la cámara la tiene.
  */
-export function Geometria({ geom, alerta, ajuste }: { geom: { line: Punto[]; field: Punto[] }; alerta: boolean; ajuste: "cover" | "contain" }) {
+export function Geometria({ geom, alerta, ajuste }: { geom: { line: Punto[]; field: Punto[]; lines?: Punto[][]; fields?: Punto[][] }; alerta: boolean; ajuste: "cover" | "contain" }) {
     const p = (q: Punto[]) => q.map((x) => `${(x.x * 1.6).toFixed(1)},${(x.y * 0.9).toFixed(1)}`).join(" ");
     const linea = alerta ? "#f87171" : "#38bdf8";
     return (
         <svg viewBox="0 0 160 90" preserveAspectRatio={ajuste === "cover" ? "xMidYMid slice" : "xMidYMid meet"} className="absolute inset-0 w-full h-full pointer-events-none">
-            {geom.field.length >= 3 && <polygon points={p(geom.field)} fill={alerta ? "rgba(239,68,68,0.28)" : "rgba(244,63,94,0.12)"} stroke={alerta ? "#ef4444" : "#f43f5e"} strokeWidth={0.5} vectorEffect="non-scaling-stroke" />}
-            {geom.line.length >= 2 && <polyline points={p(geom.line)} fill="none" stroke={linea} strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
+            {zonasDe(geom).map((z, i) => <polygon key={`z${i}`} points={p(z)} fill={alerta ? "rgba(239,68,68,0.28)" : "rgba(244,63,94,0.12)"} stroke={alerta ? "#ef4444" : "#f43f5e"} strokeWidth={0.5} vectorEffect="non-scaling-stroke" />)}
+            {lineasDe(geom).map((l, i) => <polyline key={`l${i}`} points={p(l)} fill="none" stroke={linea} strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" />)}
         </svg>
     );
 }

@@ -2,6 +2,7 @@
  * ISAPI Smart analytics — cruce de línea (LineDetection) e intrusión (FieldDetection).
  * Lectura no destructiva + escritura read-modify-write (se reenvía el propio XML del
  * equipo con la geometría/enabled cambiados, para no romper campos que no tocamos).
+ * Cada una es una LISTA de hasta 4 reglas: el XML se interpreta en lib/analitica-xml.ts.
  *
  * Coordenadas Hikvision: 0–1000, ORIGEN ABAJO-IZQUIERDA. La UI invierte Y para dibujar
  * sobre el video (y_pantalla = 1000 - y). Acá se guardan/leen tal cual (sin invertir).
@@ -19,7 +20,16 @@ async function get(d: CamDev, p: string): Promise<string> {
     return authenticatedRequest("GET", p, dv(d), { responseType: "text", accept: "application/xml", timeout: 8000 });
 }
 async function put(d: CamDev, p: string, body: string): Promise<string> {
-    return authenticatedRequest("PUT", p, dv(d), { data: body, contentType: "application/xml", responseType: "text", timeout: 9000 });
+    try {
+        return await authenticatedRequest("PUT", p, dv(d), { data: body, contentType: "application/xml", responseType: "text", timeout: 9000 });
+    } catch (e: any) {
+        // La cámara explica el rechazo en el cuerpo (ResponseStatus): sin esto sólo se veía «status code 400».
+        const cuerpo = String(e?.response?.data || "");
+        const sub = cuerpo.match(/<subStatusCode>\s*([^<]+?)\s*<\/subStatusCode>/i)?.[1];
+        const txt = cuerpo.match(/<statusString>\s*([^<]+?)\s*<\/statusString>/i)?.[1];
+        if (sub || txt) throw new Error(`La cámara rechazó el cambio: ${[txt, sub].filter(Boolean).join(" · ")}`);
+        throw e;
+    }
 }
 
 export async function getSmartSupport(d: CamDev): Promise<{ line: boolean; field: boolean }> {
@@ -32,71 +42,66 @@ export async function getSmartSupport(d: CamDev): Promise<{ line: boolean; field
     } catch { return { line: false, field: false }; }
 }
 
-function parsePoints(block: string): Pt[] {
-    const pts: Pt[] = [];
-    const re = /<positionX>\s*(\d+)\s*<\/positionX>\s*<positionY>\s*(\d+)\s*<\/positionY>/gi;
-    let m; while ((m = re.exec(block))) pts.push({ x: parseInt(m[1], 10), y: parseInt(m[2], 10) });
-    return pts;
-}
-function isEnabled(xml: string): boolean { return /<enabled>\s*true/i.test(xml.split(/<\/?\w+RegionList/i)[0] || xml); }
+import { leerReglas, aplicarCambios, diferencias, validarCambios, type CambioRegla, type LecturaReglas, type ReglaCam, type TipoRegla } from "@/lib/analitica-xml";
 
 export type AnalyticRead = { supported: boolean; enabled: boolean; points: Pt[]; raw?: string; dir?: "both" | "ab" | "ba" };
 
-const hikDirToUi = (v?: string): "both" | "ab" | "ba" => (v === "left-right" ? "ab" : v === "right-left" ? "ba" : "both");
-const uiDirToHik = (v?: string): string => (v === "ab" ? "left-right" : v === "ba" ? "right-left" : "any");
+const ruta = (tipo: TipoRegla, ch: number) => (tipo === "linea" ? pathLine(ch) : pathField(ch));
+const NO_SOPORTA = /notSupport|Invalid Operation/i;
+
+/** Todas las líneas o todas las zonas de la cámara (null si no tiene esa analítica). */
+export async function leerTodas(d: CamDev, tipo: TipoRegla, ch = 1): Promise<(LecturaReglas & { xml: string }) | null> {
+    const xml = await get(d, ruta(tipo, ch));
+    if (NO_SOPORTA.test(xml) || !/<(LineDetection|FieldDetection)\b/i.test(xml)) return null;
+    return { ...leerReglas(xml, tipo), xml };
+}
+
+/**
+ * Escribe los cambios de un tipo en UNA escritura (lee el XML de la cámara, cambia sólo esos
+ * elementos y lo devuelve), vuelve a leer y compara: lo que devuelve son las diferencias entre lo
+ * pedido y lo que la cámara guardó. Vacío = quedó exactamente así.
+ */
+export async function escribirTodas(d: CamDev, tipo: TipoRegla, cambios: CambioRegla[], ch = 1): Promise<{ diferencias: string[]; reglas: ReglaCam[] }> {
+    if (!cambios.length) { const l = await leerTodas(d, tipo, ch); return { diferencias: [], reglas: l?.reglas || [] }; }
+    const actual = await leerTodas(d, tipo, ch);
+    if (!actual) throw new Error(tipo === "linea" ? "La cámara no tiene cruce de línea" : "La cámara no tiene zona de intrusión");
+    const error = validarCambios(tipo, cambios, actual.max);
+    if (error) throw new Error(error);
+    try {
+        await put(d, ruta(tipo, ch), aplicarCambios(actual.xml, tipo, cambios));
+    } catch (e) {
+        // Una zona borrada va sin coordenadas, como la trae la cámara de fábrica. Si algún firmware
+        // no lo acepta, segundo intento: apagada y con su dibujo.
+        if (tipo !== "zona" || !cambios.some((c) => c.borrar)) throw e;
+        await put(d, ruta(tipo, ch), aplicarCambios(actual.xml, tipo, cambios, { conservarZona: true }));
+    }
+    const despues = await leerTodas(d, tipo, ch);
+    const reglas = despues?.reglas || [];
+    return { diferencias: diferencias(cambios, reglas), reglas };
+}
+
+/** La primera regla prendida (o, si no hay, la primera dibujada): lo que mostraban las pantallas de una sola línea. */
+function primera(l: LecturaReglas | null): AnalyticRead {
+    if (!l) return { supported: false, enabled: false, points: [] };
+    const r = l.reglas.find((x) => x.enabled) || l.reglas.find((x) => !x.vacia);
+    return { supported: true, enabled: !!r?.enabled, points: r?.points || [], dir: r?.direction };
+}
 
 export async function readLine(d: CamDev, ch = 1): Promise<AnalyticRead> {
-    try {
-        const xml = await get(d, pathLine(ch));
-        if (/notSupport|Invalid Operation/i.test(xml)) return { supported: false, enabled: false, points: [] };
-        // primera lista de coordenadas (la línea = 2 puntos)
-        const list = xml.match(/<CoordinatesList[\s\S]*?<\/CoordinatesList>/i)?.[0] || xml;
-        const dir = hikDirToUi(xml.match(/<directionSensitivity>\s*([\w-]+)\s*<\/directionSensitivity>/i)?.[1]);
-        return { supported: true, enabled: isEnabled(xml), points: parsePoints(list), raw: xml, dir };
-    } catch { return { supported: false, enabled: false, points: [] }; }
+    try { return primera(await leerTodas(d, "linea", ch)); } catch { return { supported: false, enabled: false, points: [] }; }
 }
-
 export async function readField(d: CamDev, ch = 1): Promise<AnalyticRead> {
-    try {
-        const xml = await get(d, pathField(ch));
-        if (/notSupport|Invalid Operation/i.test(xml)) return { supported: false, enabled: false, points: [] };
-        const list = xml.match(/<RegionCoordinatesList[\s\S]*?<\/RegionCoordinatesList>/i)?.[0] || xml;
-        return { supported: true, enabled: isEnabled(xml), points: parsePoints(list), raw: xml };
-    } catch { return { supported: false, enabled: false, points: [] }; }
+    try { return primera(await leerTodas(d, "zona", ch)); } catch { return { supported: false, enabled: false, points: [] }; }
 }
 
-const clamp = (v: number) => Math.max(0, Math.min(1000, Math.round(v)));
-
-function setEnabled(xml: string, on: boolean): string {
-    return xml.replace(/<enabled>\s*(true|false)\s*<\/enabled>/i, `<enabled>${on ? "true" : "false"}</enabled>`);
-}
-function replaceFirstCoords(xml: string, listTag: string, inner: string): string {
-    const re = new RegExp(`(<${listTag}[^>]*>)([\\s\\S]*?)(<\\/${listTag}>)`, "i");
-    return xml.replace(re, (_f, o, _m, c) => `${o}${inner}${c}`);
-}
-
-/** Escribe la línea (2 puntos) por read-modify-write. */
+/** Compatibilidad (una sola línea): escribe o apaga la primera regla. */
 export async function writeLine(d: CamDev, ch: number, data: { enabled: boolean; points: Pt[]; direction?: string }): Promise<void> {
-    let xml = await get(d, pathLine(ch));
-    xml = setEnabled(xml, data.enabled);
-    // Apagar sin puntos deja las coordenadas como estaban: la regla queda apagada, no borrada.
-    if (data.points.length) {
-        const inner = data.points.map((p) => `<Coordinates><positionX>${clamp(p.x)}</positionX><positionY>${clamp(p.y)}</positionY></Coordinates>`).join("");
-        xml = replaceFirstCoords(xml, "CoordinatesList", inner);
-    }
-    if (data.direction && /<directionSensitivity>/i.test(xml)) {
-        xml = xml.replace(/<directionSensitivity>\s*[\w-]+\s*<\/directionSensitivity>/i, `<directionSensitivity>${uiDirToHik(data.direction)}</directionSensitivity>`);
-    }
-    await put(d, pathLine(ch), xml);
+    const l = await leerTodas(d, "linea", ch);
+    const id = (l?.reglas.find((x) => x.enabled) || l?.reglas.find((x) => !x.vacia) || l?.reglas[0])?.id || 1;
+    await escribirTodas(d, "linea", [data.enabled && data.points.length ? { id, points: data.points, direction: data.direction as any } : { id, enabled: false }], ch);
 }
-
-/** Escribe la zona de intrusión (polígono) por read-modify-write. */
 export async function writeField(d: CamDev, ch: number, data: { enabled: boolean; points: Pt[] }): Promise<void> {
-    let xml = await get(d, pathField(ch));
-    xml = setEnabled(xml, data.enabled);
-    if (data.points.length) {
-        const inner = data.points.map((p) => `<RegionCoordinates><positionX>${clamp(p.x)}</positionX><positionY>${clamp(p.y)}</positionY></RegionCoordinates>`).join("");
-        xml = replaceFirstCoords(xml, "RegionCoordinatesList", inner);
-    }
-    await put(d, pathField(ch), xml);
+    const l = await leerTodas(d, "zona", ch);
+    const id = (l?.reglas.find((x) => x.enabled) || l?.reglas.find((x) => !x.vacia) || l?.reglas[0])?.id || 1;
+    await escribirTodas(d, "zona", [data.enabled && data.points.length ? { id, points: data.points } : { id, enabled: false }], ch);
 }

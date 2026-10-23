@@ -8,7 +8,7 @@ import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getA
 import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Eye, ScanEye, UserX, CircleDashed, Layers, Repeat, Image as ImageIcon } from "lucide-react";
 import { useClipEvento } from "@/lib/clip-evento";
 import { cn } from "@/lib/utils";
-import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
+import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
 import { InteriorCalibrator } from "@/components/InteriorCalibrator";
 import { PtzControls, ptzAngleToDir } from "@/components/PtzControls";
 import { PlaybackTimeline } from "@/components/PlaybackTimeline";
@@ -1046,8 +1046,8 @@ export default function MonitorIntrusion() {
 
             {/* Un calibrador por cámara, no dos: la interior (LPR Interior) se calibra en el de
                 pantalla completa, que muestra y edita la MISMA línea de la cámara y además la
-                zona de lectura y el estacionamiento. Las perimetrales siguen con éste, que dibuja
-                zonas poligonales y llega a los canales de un NVR. (9/10, Nico) */}
+                zona de lectura y el estacionamiento. La intrusión, con el mismo calibrador que en
+                Dispositivos (23/10: todas las líneas y zonas de la cámara, no sólo la primera). */}
             {/* 23/10, Nico: una cámara catalogada como LPR de OmniAccess (LPR_INTERIOR) puede ser también
                 la perimetral, y desde acá sólo se abría el calibrador de lectura: no había cómo calibrarle la
                 intrusión. Ahora se elige. */}
@@ -1073,7 +1073,7 @@ export default function MonitorIntrusion() {
                 </Dialog>
             )}
             {calibrateDev && calibrateDev.tipo === "LPR_INTERIOR" && calibQue === "lectura" && <InteriorCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
-            {calibrateDev && (calibrateDev.tipo !== "LPR_INTERIOR" || calibQue === "intrusion") && <LineZoneCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
+            {calibrateDev && (calibrateDev.tipo !== "LPR_INTERIOR" || calibQue === "intrusion") && <IntrusionCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
             {horarioDev && <HorarioArmadoDialog cam={horarioDev.cam} todasLasCamaras={horarioDev.todas} actual={horarioDev.cam ? horarios[horarioDev.cam.id] ?? null : null} general={horarioGeneral} camaras={horarios} onClose={() => setHorarioDev(null)} onAplicado={cargarHorarios} />}
             {/* El servidor de alarma de la cámara, en un cajón (21/10: era un diálogo con el destino escrito a mano). */}
             <CajonServidorAlarma cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { if (prev.has(id) === ok) return prev; const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />

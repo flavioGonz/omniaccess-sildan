@@ -2,13 +2,15 @@
 
 import { Radar, ShieldAlert, Activity, LogIn, LogOut, Siren } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { lineasDe, zonasDe, tieneGeom } from "@/lib/geom-intrusion";
 
 /**
  * Lo que comparten el monitor de intrusión del panel y la vista de pantalla: cómo se llama y
  * se dibuja cada tipo de detección, y la línea/zona dibujadas sobre el cuadro. Salió de
  * `admin/monitor-intrusion/page.tsx` el 7/10 para que la pared no tenga su propia copia.
  */
-export type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[] };
+/** `lines` / `fields`: todas las prendidas (hasta 4 de cada una, 23/10); `line` / `field`, la primera. */
+export type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[]; lines?: { x: number; y: number }[][]; fields?: { x: number; y: number }[][] };
 
 export const META_DETECCION: Record<string, { label: string; cls: string; ring: string; dot: string; Icon: any }> = {
     LINECROSS: { label: "Cruce de línea", cls: "text-red-300 border-red-500/40 bg-red-500/10", ring: "ring-red-500", dot: "bg-red-500", Icon: Radar },
@@ -23,7 +25,7 @@ export const META_DETECCION: Record<string, { label: string; cls: string; ring: 
 export const metaDe = (tipo: string | null | undefined) => META_DETECCION[tipo || ""] || META_DETECCION.OTHER;
 
 export function GeomOverlay({ geom, alert }: { geom?: Geom | null; alert?: boolean }) {
-    if (!geom || ((!geom.line || geom.line.length < 2) && (!geom.field || geom.field.length < 3))) return null;
+    if (!tieneGeom(geom)) return null;
     const lineC = alert ? "#f87171" : "#38bdf8";
     const zoneStroke = alert ? "#ef4444" : "#f43f5e";
     const zoneFill = alert ? "rgba(239,68,68,0.30)" : "rgba(244,63,94,0.16)";
@@ -32,12 +34,12 @@ export function GeomOverlay({ geom, alert }: { geom?: Geom | null; alert?: boole
             {alert && (
                 <defs><filter id="detglow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="1.1" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>
             )}
-            {geom.field && geom.field.length >= 3 && (
-                <polygon points={geom.field.map((p) => `${p.x},${p.y}`).join(" ")} fill={zoneFill} stroke={zoneStroke} strokeWidth={alert ? 2.2 : 1.4} strokeLinejoin="round" vectorEffect="non-scaling-stroke" filter={alert ? "url(#detglow)" : undefined} />
-            )}
-            {geom.line && geom.line.length === 2 && (
-                <line x1={geom.line[0].x} y1={geom.line[0].y} x2={geom.line[1].x} y2={geom.line[1].y} stroke={lineC} strokeWidth={alert ? 3 : 2} strokeLinecap="round" vectorEffect="non-scaling-stroke" filter={alert ? "url(#detglow)" : undefined} />
-            )}
+            {zonasDe(geom).map((z, i) => (
+                <polygon key={`z${i}`} points={z.map((p) => `${p.x},${p.y}`).join(" ")} fill={zoneFill} stroke={zoneStroke} strokeWidth={alert ? 2.2 : 1.4} strokeLinejoin="round" vectorEffect="non-scaling-stroke" filter={alert ? "url(#detglow)" : undefined} />
+            ))}
+            {lineasDe(geom).map((l, i) => (
+                <line key={`l${i}`} x1={l[0].x} y1={l[0].y} x2={l[1].x} y2={l[1].y} stroke={lineC} strokeWidth={alert ? 3 : 2} strokeLinecap="round" vectorEffect="non-scaling-stroke" filter={alert ? "url(#detglow)" : undefined} />
+            ))}
         </svg>
     );
 }

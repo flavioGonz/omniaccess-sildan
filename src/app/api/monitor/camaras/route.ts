@@ -154,7 +154,7 @@ export async function GET() {
     }));
     const extrasDe = (id: string) => {
         const funcion = funcionDe(id);
-        const g = funcion === "intrusion" && tieneGeom(id) ? { line: geoms[id].line || [], field: geoms[id].field || [] } : null;
+        const g = funcion === "intrusion" && tieneGeom(id) ? { line: geoms[id].line || [], field: geoms[id].field || [], lines: geoms[id].lines || [], fields: geoms[id].fields || [] } : null;
         return { funcion, geom: g, ultima: ultimaPorEquipo.get(id) || null, lecturas: funcion === "lpr" ? lecturasPorEquipo.get(id) || [] : [] };
     };
 
