@@ -94,7 +94,7 @@ import {
     DropdownMenuLabel,
     DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, DownloadCloud, UploadCloud, Info, PowerOff } from "lucide-react";
+import { MoreHorizontal, DownloadCloud, UploadCloud, Info, PowerOff, Crosshair } from "lucide-react";
 import { Radar } from "lucide-react";
 import { getDevicesWithAnalytics } from "@/app/actions/detections";
 import {
@@ -113,6 +113,7 @@ import { esLprDeAcceso, modoLprDe } from "@/lib/modo-camara";
 import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
 import { ConfirmarHora } from "@/components/devices/ConfirmarHora";
 import { IntrusionCalibrator as CalibradorIntrusion } from "@/components/IntrusionCalibrator";
+import { InteriorCalibrator } from "@/components/InteriorCalibrator";
 import { TablaIntrusion } from "@/components/devices/TablaIntrusion";
 import { ImportarCanalesNvr } from "@/components/devices/ImportarCanalesNvr";
 import { Car as CarIco, Radar as RadarIco, Server as ServerIco, ChevronDown as ChevronDownIco, Download as DownloadIco, LogIn as LogInIco, LogOut as LogOutIco } from "lucide-react";
@@ -340,6 +341,8 @@ export default function DevicesPage() {
     const [versionCentrales, setVersionCentrales] = useState(0);
     const abrir = (d: any) => (d.deviceType === "ALARM_HUB" ? setCentral(d.id) : vistaDe(d) === "QUEUE_COUNTER" ? setContador(d) : ["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(d)) ? setEditando(d) : null);
     const [calibIntr, setCalibIntr] = useState<any>(null);
+    /** El calibrador de la lectura de omni-lpr (disparo, zona, línea de pasada): antes sólo se llegaba desde el monitor de intrusión. */
+    const [calibLect, setCalibLect] = useState<any>(null);
     // Sincronizar hora: siempre se pregunta antes (lista de equipos + desfase actual).
     const [pedirHora, setPedirHora] = useState<any[] | null>(null);
     const [importandoDe, setImportandoDe] = useState<any>(null);
@@ -592,10 +595,14 @@ export default function DevicesPage() {
                     tipos={allowedTypes.map((t) => ({ tipo: t, rotulo: TYPE_META[t]?.label || t, cuenta: devices.filter((d) => vistaDe(d) === t).length, alertas: devices.filter((d) => vistaDe(d) === t && alertasDe[d.id]?.length).length }))} />
                 <div className="flex-1 min-w-0 space-y-4">
             {areaSel !== TODAS && !tipoFijo ? (
-                <VistaArea estado={areas} areaId={areaSel} devices={devices.filter((d) => allowedTypes.includes(d.deviceType))} busqueda={searchTerm}
+                <VistaArea estado={areas} areaId={areaSel} busqueda={searchTerm}
+                    // vistaDe y no deviceType: con todas las LPR_INTERIOR mirando un acceso, LPR_INTERIOR no está
+                    // en allowedTypes y las cámaras de lectura OmniVision desaparecían de la vista del área.
+                    devices={devices.filter((d) => allowedTypes.includes(vistaDe(d)))}
                     health={health} alertasDe={alertasDe} grab={grab} detectando={detectando} calculando={calculando}
                     onDetectar={(ids) => detectar(ids)} onRetencion={retencion} onEditar={abrir}
                     onCalibrar={(d) => (d.deviceType === "CAMERA" ? setCalibIntr(d) : setCalibrating(d))}
+                    onCalibrarIntrusion={(d) => setCalibIntr(d)}
                     onSalud={(d) => setHealthHistory(d)} onElegirArea={setAreaSel} />
             ) : (<>
 
@@ -779,6 +786,25 @@ export default function DevicesPage() {
                                                     <TooltipContent><p>{modoLprDe(dev) === 'omnivision' ? 'Calibrar imagen (lectura OmniVision)' : 'Calibrar ANPR'}</p></TooltipContent>
                                                 </Tooltip>
                                             </TooltipProvider>
+                                            )}
+
+                                            {/* 23/10, Nico: «la cámara es de intrusión pero la catalogamos como LPR de OmniAccess: no
+                                                puedo calibrar la intrusión». La capa de intrusión no depende del tipo (server.js registra
+                                                el cruce de cualquier equipo y el monitor de intrusión ya lista las LPR_INTERIOR); lo que
+                                                faltaba era llegar a su calibrador desde acá. */}
+                                            {dev.deviceType === 'LPR_INTERIOR' && (dev.brand === 'HIKVISION' || dev.brand === 'DAHUA') && (
+                                                <Button variant="ghost" size="icon" onClick={() => setCalibIntr(dev)}
+                                                    data-tooltip-id="tt-grab" data-tooltip-content="Calibrar intrusión (analítica de la cámara: línea, zona, objetivo, aviso)"
+                                                    className="h-7 w-7 rounded-md bg-card/50 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 border border-border/50 hover:border-red-500/30 transition-all">
+                                                    <Crosshair size={15} />
+                                                </Button>
+                                            )}
+                                            {dev.deviceType === 'LPR_INTERIOR' && (
+                                                <Button variant="ghost" size="icon" onClick={() => setCalibLect(dev)}
+                                                    data-tooltip-id="tt-grab" data-tooltip-content="Lectura de matrículas: qué la dispara, zona de interés y línea de pasada"
+                                                    className="h-7 w-7 rounded-md bg-card/50 text-muted-foreground hover:text-sky-500 hover:bg-sky-500/10 border border-border/50 hover:border-sky-500/30 transition-all">
+                                                    <ScanLine size={15} />
+                                                </Button>
                                             )}
 
                                             {dev.deviceType === 'LPR_CAMERA' && dev.brand === 'HIKVISION' && (
@@ -1072,11 +1098,12 @@ export default function DevicesPage() {
             <CajonCentral abierto={central !== null} centralId={central || null} alCerrar={() => setCentral(null)} alCambiar={() => { loadData(); setVersionCentrales((v) => v + 1); }} />
             <CajonContadorFila device={contador} open={!!contador} onOpenChange={(v) => !v && setContador(null)} onSuccess={() => { loadData(); }} />
             <CajonDispositivo device={editando} groups={groups} open={!!editando} onOpenChange={(v) => !v && setEditando(null)} onSuccess={() => { loadData(); cargarGrab(); }}
-                alCalibrar={(d) => setCalibIntr(d)} alCalibrarImagen={(d) => setCalibrating(d)} alImportar={(d) => setImportandoDe(d)} />
+                alCalibrar={(d) => setCalibIntr(d)} alCalibrarImagen={(d) => setCalibrating(d)} alCalibrarLectura={(d) => setCalibLect(d)} alImportar={(d) => setImportandoDe(d)} />
             <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "otro"} alCambiarAbierto={(v) => !v && setAlta(null)} />
             <ConfirmarHora equipos={pedirHora || []} health={health} open={!!pedirHora} onOpenChange={(v) => !v && setPedirHora(null)} onListo={() => setTimeout(refreshHealth, 1500)} />
             <ReactTooltip id="tt-alertas" place="top" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[60]" />
             {calibIntr && <CalibradorIntrusion device={calibIntr} onClose={() => { setCalibIntr(null); loadData(); }} />}
+            {calibLect && <InteriorCalibrator device={calibLect} onClose={() => { setCalibLect(null); loadData(); }} />}
             <ImportarCanalesNvr nvr={importandoDe} groups={groups} open={!!importandoDe} onOpenChange={(v) => !v && setImportandoDe(null)} onListo={() => { loadData(); cargarGrab(); }} />
 
             {healthHistory && (

@@ -347,7 +347,7 @@ function TipoDeCamara({ tipo, original, caps, leyendo, modoLpr, modoIntr, onCamb
 
 /* ── El cajón ─────────────────────────────────────────────────────────────────── */
 
-export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenChange, alCalibrar, alCalibrarImagen, alImportar, alAgregarCentral }: {
+export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenChange, alCalibrar, alCalibrarImagen, alCalibrarLectura, alImportar, alAgregarCentral }: {
     /** Con equipo: ficha de edición. Sin equipo: alta por pasos. */
     device?: any | null;
     groups?: any[];
@@ -358,6 +358,8 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     alCalibrar?: (d: { id: string; name: string; ip: string; brand: string; deviceType: string }) => void;
     /** El calibrador de imagen de la LPR (obturador, ganancia, foco, zoom, línea de captura). */
     alCalibrarImagen?: (d: any) => void;
+    /** El calibrador de la lectura de omni-lpr (disparo, zona de interés, línea de pasada) de una LPR_INTERIOR. */
+    alCalibrarLectura?: (d: any) => void;
     /** Abrir la importación de cámaras de un NVR desde su ficha. */
     alImportar?: (d: any) => void;
     /** Alarm Hub: la central de alarma tiene su propio cajón (CajonCentral); el alta lo abre desde acá. */
@@ -1092,6 +1094,18 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                         {tipo === "LPR_CAMERA" && alCalibrarImagen && device?.id && (
                             <Bloque titulo="Calibración de imagen" icono={Crosshair} ayuda="Obturador, ganancia, anti-brillo, WDR, filtro IR, foco, zoom y la línea de captura ANPR, sobre el video en vivo. Cada cambio pide confirmación y es reversible.">
                                 <Button variant="outline" onClick={() => { onOpenChange(false); alCalibrarImagen(device); }} className="gap-1.5"><Crosshair size={15} /> Abrir el calibrador</Button>
+                            </Bloque>
+                        )}
+                        {device?.deviceType === "LPR_INTERIOR" && alCalibrarLectura && device?.id && (
+                            <Bloque titulo="Lectura de matrículas" icono={ScanLine} ayuda="Qué dispara la lectura de omni-lpr (cambio de imagen, OmniVision, línea o zona de la cámara), la zona de interés, la línea de pasada y dónde estacionan.">
+                                <Button variant="outline" onClick={() => { onOpenChange(false); alCalibrarLectura(device); }} className="gap-1.5"><ScanLine size={15} /> Abrir el calibrador de lectura</Button>
+                            </Bloque>
+                        )}
+                        {/* 23/10: una cámara catalogada como LPR de OmniAccess puede ser a la vez la perimetral
+                            (AcuSense). Su intrusión se calibra igual que la de una CAMERA. */}
+                        {device?.deviceType === "LPR_INTERIOR" && alCalibrar && device?.id && (device.brand === "HIKVISION" || device.brand === "DAHUA") && (
+                            <Bloque titulo="Analítica de intrusión" icono={Crosshair} ayuda="La analítica de la propia cámara: línea de cruce, zona, sentido, sensibilidad, objetivo y aviso a OmniAccess. La línea y la zona son las mismas que puede usar el disparo de la lectura: si la lectura se dispara por línea o zona de la cámara, cambiarlas acá cambia también el disparo.">
+                                <Button variant="outline" onClick={() => { onOpenChange(false); alCalibrar(device); }} className="gap-1.5 text-red-500 border-red-500/30"><Crosshair size={15} /> Abrir el calibrador de intrusión</Button>
                             </Bloque>
                         )}
                         {tipo === "NVR" && alImportar && (

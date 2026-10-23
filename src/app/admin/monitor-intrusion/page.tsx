@@ -28,6 +28,7 @@ import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Filtros } from "@/components/ui/filtros";
 import { Seek } from "@/components/ui/search";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ElegirArea } from "@/components/devices/ElegirArea";
 import { useFiltroArea } from "@/lib/use-filtro-area";
 
@@ -713,9 +714,11 @@ export default function MonitorIntrusion() {
     const [liveDev, setLiveDev] = useState<IntrusionCam | null>(null);
     const [q, setQ] = useState("");
     const [calibrateDev, setCalibrateDev] = useState<IntrusionCam | null>(null);
+    /** En una LPR_INTERIOR, qué se calibra: su intrusión (la analítica de la cámara) o la lectura de omni-lpr. */
+    const [calibQue, setCalibQue] = useState<"intrusion" | "lectura" | null>(null);
     /** Al cerrar un calibrador: la geometría de esa cámara se vuelve a leer sin el caché (acaba de cambiar). */
     const cerrarCalibrador = (id: string) => {
-        setCalibrateDev(null);
+        setCalibrateDev(null); setCalibQue(null);
         getAnalyticsGeometryBatch([id], true).then((g) => setGeom((prev) => ({ ...prev, ...g }))).catch(() => { });
         setAnalyticsIds((s) => new Set(s).add(id));
     };
@@ -1045,8 +1048,32 @@ export default function MonitorIntrusion() {
                 pantalla completa, que muestra y edita la MISMA línea de la cámara y además la
                 zona de lectura y el estacionamiento. Las perimetrales siguen con éste, que dibuja
                 zonas poligonales y llega a los canales de un NVR. (9/10, Nico) */}
-            {calibrateDev && calibrateDev.tipo === "LPR_INTERIOR" && <InteriorCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
-            {calibrateDev && calibrateDev.tipo !== "LPR_INTERIOR" && <LineZoneCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
+            {/* 23/10, Nico: una cámara catalogada como LPR de OmniAccess (LPR_INTERIOR) puede ser también
+                la perimetral, y desde acá sólo se abría el calibrador de lectura: no había cómo calibrarle la
+                intrusión. Ahora se elige. */}
+            {calibrateDev && calibrateDev.tipo === "LPR_INTERIOR" && !calibQue && (
+                <Dialog open onOpenChange={(v) => { if (!v) { setCalibrateDev(null); setCalibQue(null); } }}>
+                    <DialogContent className="max-w-md">
+                        <DialogHeader>
+                            <DialogTitle>¿Qué calibrar en {calibrateDev.name}?</DialogTitle>
+                            <DialogDescription>Esta cámara lee matrículas y también puede vigilar con su propia analítica.</DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-2">
+                            <button onClick={() => setCalibQue("intrusion")} className="text-left rounded-[10px] border border-border p-3 hover:bg-muted">
+                                <p className="font-semibold text-[13px] inline-flex items-center gap-1.5"><Crosshair size={14} className="text-red-500" /> Intrusión</p>
+                                <p className="text-[12px] text-muted-foreground">Línea de cruce, zona, sentido, sensibilidad y objetivo de la cámara. Es lo que llega a este monitor.</p>
+                            </button>
+                            <button onClick={() => setCalibQue("lectura")} className="text-left rounded-[10px] border border-border p-3 hover:bg-muted">
+                                <p className="font-semibold text-[13px] inline-flex items-center gap-1.5"><ScanEye size={14} className="text-sky-500" /> Lectura de matrículas</p>
+                                <p className="text-[12px] text-muted-foreground">Qué dispara la lectura de omni-lpr, la zona de interés, la línea de pasada y dónde estacionan.</p>
+                            </button>
+                        </div>
+                        <p className="text-[11.5px] text-muted-foreground">La cámara tiene una sola línea y una sola zona: si la lectura se dispara con ellas, cambiarlas en uno cambia el otro.</p>
+                    </DialogContent>
+                </Dialog>
+            )}
+            {calibrateDev && calibrateDev.tipo === "LPR_INTERIOR" && calibQue === "lectura" && <InteriorCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
+            {calibrateDev && (calibrateDev.tipo !== "LPR_INTERIOR" || calibQue === "intrusion") && <LineZoneCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
             {horarioDev && <HorarioArmadoDialog cam={horarioDev.cam} todasLasCamaras={horarioDev.todas} actual={horarioDev.cam ? horarios[horarioDev.cam.id] ?? null : null} general={horarioGeneral} camaras={horarios} onClose={() => setHorarioDev(null)} onAplicado={cargarHorarios} />}
             {/* El servidor de alarma de la cámara, en un cajón (21/10: era un diálogo con el destino escrito a mano). */}
             <CajonServidorAlarma cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { if (prev.has(id) === ok) return prev; const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />

@@ -15,11 +15,13 @@ import type { FilaGrabacion } from "@/app/actions/grabaciones";
  * sus sub-áreas como grupos plegables. Se llega eligiendo una carpeta en el árbol.
  */
 export function VistaArea({ estado, areaId, devices, busqueda = "", health = {}, alertasDe = {}, grab = {}, detectando, calculando,
-    onDetectar, onRetencion, onEditar, onVivo, onCalibrar, onSalud, onElegirArea }: {
+    onDetectar, onRetencion, onEditar, onVivo, onCalibrar, onCalibrarIntrusion, onSalud, onElegirArea }: {
     estado: EstadoAreas; areaId: string; devices: any[]; busqueda?: string; health?: Record<string, any>; alertasDe?: Record<string, AlertaEquipo[]>;
     grab?: Record<string, FilaGrabacion>; detectando?: string | null; calculando?: string | null;
     onDetectar: (ids: string[]) => void; onRetencion: (id: string) => void; onEditar: (d: any) => void; onVivo?: (d: any) => void;
     onCalibrar: (d: any) => void; onSalud: (d: any) => void; onElegirArea: (id: string) => void;
+    /** La analítica de intrusión de una cámara que además lee matrículas (LPR_INTERIOR): la misma cámara puede vigilar un perímetro. */
+    onCalibrarIntrusion?: (d: any) => void;
 }) {
     const [tipo, setTipo] = useState<string>("todos");
     const [cerrados, setCerrados] = useState<Set<string>>(new Set());
@@ -89,6 +91,9 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
                     {/* Las de lectura OmniVision (LPR_INTERIOR + acceso) también se calibran: imagen, sin ANPR. */}
                     {(d.deviceType === "CAMERA" || (esLprDeAcceso(d) && d.brand === "HIKVISION")) && (
                         <button onClick={() => onCalibrar(d)} data-tooltip-id="tt-grab" data-tooltip-content={d.deviceType === "CAMERA" ? "Calibrar intrusión" : d.deviceType === "LPR_INTERIOR" ? "Calibrar imagen (lectura OmniVision)" : "Calibrar ANPR"} className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10">{d.deviceType === "CAMERA" ? <Crosshair size={14} /> : <Wand2 size={14} />}</button>
+                    )}
+                    {d.deviceType === "LPR_INTERIOR" && onCalibrarIntrusion && (d.brand === "HIKVISION" || d.brand === "DAHUA") && (
+                        <button onClick={() => onCalibrarIntrusion(d)} data-tooltip-id="tt-grab" data-tooltip-content="Calibrar intrusión (analítica de la cámara)" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-500/10"><Crosshair size={14} /></button>
                     )}
                     <button onClick={() => onSalud(d)} data-tooltip-id="tt-grab" data-tooltip-content="Historial de salud" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><Activity size={14} /></button>
                     <button onClick={() => onEditar(d)} data-tooltip-id="tt-grab" data-tooltip-content="Editar" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><Settings2 size={14} /></button>

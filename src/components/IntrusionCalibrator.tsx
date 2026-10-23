@@ -358,6 +358,11 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
                         <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" /></span>
                         <span className="text-[10px] font-bold text-white uppercase tracking-wide">Calibración de intrusión</span>
                         <span className="text-[10px] text-white/70">· {device.name}</span>
+                        {/* La cámara tiene UNA línea y UNA zona (LineDetection/1, FieldDetection/1): si la lectura de
+                            matrículas se dispara con ellas, tocarlas acá cambia también el disparo. */}
+                        {device.deviceType === "LPR_INTERIOR" && ["linea", "zona", "camara"].includes(String(device.trackTrigger || "")) && (
+                            <span className="text-[10px] font-semibold text-amber-300">· Ojo: la lectura de matrículas se dispara con la {device.trackTrigger === "linea" ? "línea" : "zona"} de esta cámara</span>
+                        )}
                     </div>
                     <button onClick={onClose} className="absolute top-3 right-3 h-9 w-9 rounded-full bg-black/50 backdrop-blur-md text-white/90 hover:bg-black/70 flex items-center justify-center z-10"><X size={18} /></button>
 
