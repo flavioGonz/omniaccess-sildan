@@ -33,12 +33,17 @@ import { ZONA } from "@/lib/fechas";
 const SIN_DATOS_MS = 60_000;
 /** Cursor y botones se esconden tras este tiempo quieto. */
 const OCULTAR_CURSOR_MS = 5000;
-/** Cada cuánto el marco repite su propia lectura (nombre del barrio, ajustes). */
-const INTERVALO_MARCO_MS = 5 * 60 * 1000;
+/**
+ * Cada cuánto el marco repite su propia lectura (nombre del barrio, ajustes, funciones). Era cada
+ * 5 min; con las funciones de la instalación una vista apagada tiene que volver sola en un minuto.
+ */
+const INTERVALO_MARCO_MS = 60 * 1000;
 
 type Ajustes = { sonido: Record<string, string>; rotacion: { vistas: string[]; segundos: number } };
 type Marco = {
     barrio: string;
+    /** Funciones de la instalación ya efectivas (Intrusión, Recepción y Gestión de alarmas). null = todavía no se sabe. */
+    funciones: Record<string, boolean> | null;
     ajustes: Ajustes | null;
     pantalla: { enlaceId: string; vista: string } | null;
     /** Llamar cada vez que llega un dato: es lo que sostiene "En vivo". */
@@ -64,6 +69,16 @@ type Marco = {
 };
 const Ctx = createContext<Marco | null>(null);
 export const useMarco = () => { const c = useContext(Ctx); if (!c) throw new Error("useMarco fuera de MarcoMonitor"); return c; };
+
+/**
+ * Lo de adentro sólo con la función prendida (Intrusión, alarmas). Mientras no se sabe, no se dibuja:
+ * una alerta de intrusión que aparece un instante y se va en una instalación sin intrusión es peor
+ * que aparecer un segundo tarde donde sí está.
+ */
+export function SiFuncion({ id, children }: { id: string; children: React.ReactNode }) {
+    const { funciones } = useMarco();
+    return funciones?.[id] ? <>{children}</> : null;
+}
 
 /** Dibuja `children` dentro del encabezado del marco, en la misma fila que el título y la hora. */
 export function BarraDelMarco({ children }: { children: React.ReactNode }) {
@@ -106,7 +121,7 @@ export function MarcoMonitor({ children, puedeDecidir = false, embebido = false,
     }, []);
     const latir = useCallback(() => setUltimoDato(Date.now()), []);
 
-    const { datos: marco, revocado } = usarDatos<{ barrio: string; ajustes: Ajustes; pantalla: Marco["pantalla"] }>("/api/monitor/marco", INTERVALO_MARCO_MS, latir);
+    const { datos: marco, revocado } = usarDatos<{ barrio: string; ajustes: Ajustes; funciones?: Record<string, boolean>; pantalla: Marco["pantalla"] }>("/api/monitor/marco", INTERVALO_MARCO_MS, latir);
 
     // Cualquier evento del socket cuenta como señal de vida.
     const { conectado } = useTiempoReal("access_event", latir);
@@ -137,7 +152,7 @@ export function MarcoMonitor({ children, puedeDecidir = false, embebido = false,
     const minutosSin = Math.max(1, Math.floor((ahora - ultimoDato) / 60000));
 
     const valor = useMemo<Marco>(() => ({
-        barrio: marco?.barrio || "OmniAccess", ajustes: marco?.ajustes || null, pantalla: marco?.pantalla || null,
+        barrio: marco?.barrio || "OmniAccess", ajustes: marco?.ajustes || null, funciones: marco?.funciones || null, pantalla: marco?.pantalla || null,
         latir, tactil, conectado, setTitulo, setFondo, silencio, audioBloqueado: bloqueado, puedeDecidir, barra, setUsaBarra,
     }), [marco, latir, tactil, conectado, silencio, bloqueado, puedeDecidir, barra]);
 

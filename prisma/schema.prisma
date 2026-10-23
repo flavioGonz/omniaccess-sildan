@@ -1556,6 +1556,9 @@ model CentralAlarma {
   /// ESPERANDO (nunca habló) | EN_LINEA | SIN_SUPERVISION
   estado          String           @default("ESPERANDO")
   ultimoMensajeAt DateTime?
+  /// Las cámaras del abonado (ids de equipo o `nvrch-<nvr>-<ch>`): con las de cada zona y las de su
+  /// área arman la video verificación de sus eventos (openspec alarmas-como-funciones).
+  camaras         String[]         @default([])
   ipOrigen        String?
   transporte      String?
   createdAt       DateTime         @default(now())
@@ -1573,7 +1576,8 @@ model ZonaCentral {
   particion Int?
   nombre    String?
   areaId    String?
-  /// ids de Device (cámaras) asociadas: la alarma de la zona trae un cuadro de cada una.
+  /// Cámaras de la zona, hasta 4: ids de Device o canales de NVR `nvrch-<nvr>-<ch>`. Sin ninguna,
+  /// se usan las de su área y después las del abonado (lib-centrales-camaras.js).
   camaras   String[]      @default([])
   tipo      String?
   createdAt DateTime      @default(now())

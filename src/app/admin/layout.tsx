@@ -107,6 +107,11 @@ export default function AdminLayout({
     const pathname = usePathname();
     // «Plazas de parking» es una función de LPR que se apaga (20/10: San Nicolás no la usa).
     const plazasOn = useFuncion("LPR_PLAZAS");
+    // Intrusión y alarmas son funciones de la instalación, no del modo (openspec alarmas-como-funciones):
+    // valen igual en Matrículas, Rostro y Filas. `null` (todavía no se sabe) cuenta como apagada.
+    const intrusionOn = useFuncion("FUNC_INTRUSION") === true;
+    const recepcionOn = useFuncion("FUNC_ALARMAS_RECEPCION") === true;
+    const gestionOn = useFuncion("FUNC_ALARMAS_GESTION") === true;
     const searchParams = useSearchParams();
     // La pestaña Lista negra tiene su entrada en el menú: las dos viven en /admin/users.
     const enListaNegra = pathname === "/admin/users" && searchParams?.get("tab") === "listanegra";
@@ -215,15 +220,13 @@ export default function AdminLayout({
                         ve("monitor") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor LPR" href="/admin/monitor-lpr" active={pathname === "/admin/monitor-lpr"} collapsed={collapsed} />)
                     )}
                     {/* Los monitores juntos y en este orden (21/10, Nico): LPR, Intrusión, CCTV. */}
-                    {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
-                        ve("intrusion") && (<SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />)
-                    )}
+                    {intrusionOn && ve("intrusion") && (<SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />)}
                     {!modules.MODULE_QUEUE && (
                         ve("monitor") && (<SidebarItem icon={<Cctv size={18} />} label="Monitor CCTV" href="/admin/monitor-cctv" active={pathname === "/admin/monitor-cctv"} collapsed={collapsed} />)
                     )}
-                    {!modules.MODULE_QUEUE && (
-                        ve("monitor") && (<SidebarItem icon={<Siren size={18} />} label="Gestión de alarmas" href="/admin/alarmas" active={pathname === "/admin/alarmas"} collapsed={collapsed} />)
-                    )}
+                    {/* Gestión de alarmas también junta lo de LPR (atención, presencia): sigue en Matrículas y Rostro
+                        como antes, y en Filas aparece si hay intrusión o centrales. */}
+                    {(!modules.MODULE_QUEUE || intrusionOn || recepcionOn) && ve("monitor") && (<SidebarItem icon={<Siren size={18} />} label="Gestión de alarmas" href="/admin/alarmas" active={pathname === "/admin/alarmas"} collapsed={collapsed} />)}
                     {modules.MODULE_QUEUE ? (
                         ve("filas") && (<SidebarItem icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />)
                     ) : (
@@ -388,9 +391,9 @@ export default function AdminLayout({
                 en cada pantalla del panel, en barrios que no tienen ninguna cámara de aforo (15/10). */}
             {modulosListos && modules.MODULE_QUEUE && <AforoAlertOverlay />}
             {/* Intrusión confirmada por una cámara: respira en rojo en TODA la aplicación hasta que alguien decida real / falsa. */}
-            <AlertaIntrusionGlobal />
+            {intrusionOn && <AlertaIntrusionGlobal />}
             {/* Los eventos de las centrales de alarma: su propia ficha, que se trata (22/10). */}
-            <AlertaCentralGlobal />
+            {gestionOn && <AlertaCentralGlobal />}
             {/* Los avisos de toda la app, en una sola pila abajo al centro (20/10): intrusión, lista negra, merodeo, patrones y OmniVision. */}
             <AvisosLpr />
             <PilaAvisos />

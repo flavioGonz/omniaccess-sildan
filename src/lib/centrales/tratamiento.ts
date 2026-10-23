@@ -3,11 +3,11 @@ import { avisarPorSocket } from "@/lib/avisar";
 import { registrarGestion } from "@/lib/gestion-alarma";
 import { leerArbolAreas } from "@/lib/areas-historial";
 import { leerPrioridadesGuardadas } from "./prioridades-servidor";
-import { claseDeAlarma, type Prioridades } from "./prioridades";
+import { CLASES, claseDeAlarma, type Prioridades } from "./prioridades";
 import {
-    AJUSTE_CIERRES, AJUSTE_ESCALADO, AJUSTE_PROCEDIMIENTO, TEXTO_MINIMO,
-    leerCierres, leerEscalado, leerProcedimiento, segATexto,
-    type Cierre, type Escalado, type EventoCentral, type Procedimiento,
+    AJUSTE_CIERRES, AJUSTE_ESCALADO, AJUSTE_PROCEDIMIENTO, AJUSTE_PROCEDIMIENTOS_CLASE, MOTIVO_SALTEO_MINIMO, TEXTO_MINIMO,
+    leerCierres, leerEscalado, leerPasos, leerProcedimiento, leerProcedimientosClase, obligatoriosFaltantes, resolverProcedimiento, segATexto,
+    type Cierre, type Escalado, type EventoCentral, type Procedimiento, type ProcedimientoResuelto, type ProcedimientosClase,
 } from "./tratamiento-tipos";
 
 /**
@@ -29,15 +29,30 @@ import {
 
 export const ACCION_PASO = "PASO_PROC";
 export const ACCION_DESPASO = "PASO_PROC_NO";
+/** Saltear un paso con su motivo (detalle «<paso> — <motivo>»). Destildar (PASO_PROC_NO) lo deshace. */
+export const ACCION_SALTEO = "PASO_PROC_SALTEO";
 export const ACCION_TRATO = "TRATO";
 export const ACCION_ESCALO = "ESCALO";
 const ESCALO_TOMAR = "Nadie lo tomó";
 const ESCALO_TRATAR = "Tomado y sin tratar";
 
-export async function leerConfigTratamiento(): Promise<{ prioridades: Prioridades; cierres: Cierre[]; procedimiento: Procedimiento; escalado: Escalado }> {
-    const filas = await prisma.setting.findMany({ where: { key: { in: [AJUSTE_CIERRES, AJUSTE_PROCEDIMIENTO, AJUSTE_ESCALADO] } } }).catch(() => []);
+export async function leerConfigTratamiento(): Promise<{ prioridades: Prioridades; cierres: Cierre[]; procedimiento: Procedimiento; procedimientosClase: ProcedimientosClase; escalado: Escalado }> {
+    const filas = await prisma.setting.findMany({ where: { key: { in: [AJUSTE_CIERRES, AJUSTE_PROCEDIMIENTO, AJUSTE_PROCEDIMIENTOS_CLASE, AJUSTE_ESCALADO] } } }).catch(() => []);
     const v = (k: string) => filas.find((f) => f.key === k)?.value;
-    return { prioridades: await leerPrioridadesGuardadas(), cierres: leerCierres(v(AJUSTE_CIERRES)), procedimiento: leerProcedimiento(v(AJUSTE_PROCEDIMIENTO)), escalado: leerEscalado(v(AJUSTE_ESCALADO)) };
+    return { prioridades: await leerPrioridadesGuardadas(), cierres: leerCierres(v(AJUSTE_CIERRES)), procedimiento: leerProcedimiento(v(AJUSTE_PROCEDIMIENTO)), procedimientosClase: leerProcedimientosClase(v(AJUSTE_PROCEDIMIENTOS_CLASE)), escalado: leerEscalado(v(AJUSTE_ESCALADO)) };
+}
+
+/**
+ * El procedimiento con que se abrió el evento. Se guarda en el evento (`details.procedimiento`) la
+ * primera vez que el servidor lo arma — en la práctica, en el segundo que sigue a la alarma: la ventana
+ * global y la pared lo piden apenas avisa el socket, y la vuelta de salud arma los que queden. Desde
+ * entonces cambiar el ajuste no lo toca: la auditoría tiene que coincidir con lo que vio el operador.
+ */
+function procedimientoDe(x: any, d: { eventType: string | null }, prioridad: number, cfg: { procedimiento: Procedimiento; procedimientosClase: ProcedimientosClase }): { r: ProcedimientoResuelto; nuevo: boolean } {
+    const g = x?.procedimiento;
+    if (g && Array.isArray(g.pasos) && g.origen && (g.origen.tipo === "clase" || g.origen.tipo === "prioridad")) return { r: { pasos: leerPasos(g.pasos), origen: g.origen }, nuevo: false };
+    const clase = claseDeAlarma(d.eventType);
+    return { r: resolverProcedimiento(clase, CLASES.find((c) => c.clase === clase)?.nombre || clase, prioridad, cfg.procedimiento, cfg.procedimientosClase), nuevo: true };
 }
 
 const TITULO: Record<string, string> = { ROBO: "Robo", PANICO: "Pánico", COACCION: "Coacción", INCENDIO: "Incendio", MEDICA: "Emergencia médica", SABOTAJE: "Sabotaje", GAS: "Gas", AGUA: "Pérdida de agua", TEMPERATURA: "Temperatura", GENERAL: "Alarma" };
@@ -68,7 +83,8 @@ async function armar(dets: Det[], yo: string | null): Promise<EventoCentral[]> {
     };
     const porDev = new Map(centrales.map((c) => [c.deviceId, c]));
     const nombreArea = new Map(arbol.areas.map((a) => [a.id, a.nombre]));
-    return dets.map((d) => {
+    const porGuardar: { id: string; details: any }[] = [];
+    const eventos = dets.map((d) => {
         const clave = `d:${d.id}`;
         const x = detallesDe(d.details);
         const c = d.deviceId ? porDev.get(d.deviceId) : undefined;
@@ -76,10 +92,20 @@ async function armar(dets: Det[], yo: string | null): Promise<EventoCentral[]> {
         const at = atendidas.find((a) => a.clave === clave);
         const pasosG = gestion.filter((g) => g.clave === clave);
         const pasos: EventoCentral["pasos"] = {};
+        const salteos: EventoCentral["salteos"] = {};
         for (const g of pasosG) {
-            if (g.accion === ACCION_PASO && g.detalle) pasos[g.detalle] = { por: g.por, ts: g.ts.toISOString() };
-            if (g.accion === ACCION_DESPASO && g.detalle) delete pasos[g.detalle];
+            if (g.accion === ACCION_PASO && g.detalle) { pasos[g.detalle] = { por: g.por, ts: g.ts.toISOString() }; delete salteos[g.detalle]; }
+            if (g.accion === ACCION_DESPASO && g.detalle) { delete pasos[g.detalle]; delete salteos[g.detalle]; }
+            if (g.accion === ACCION_SALTEO && g.detalle) {
+                const i = g.detalle.indexOf(" — ");
+                const paso = i > 0 ? g.detalle.slice(0, i) : g.detalle;
+                salteos[paso] = { por: g.por, ts: g.ts.toISOString(), motivo: i > 0 ? g.detalle.slice(i + 3) : "" };
+                delete pasos[paso];
+            }
         }
+        const prioridad = prioridades[claseDeAlarma(d.eventType)];
+        const proc = procedimientoDe(x, d, prioridad, cfg);
+        if (proc.nuevo) porGuardar.push({ id: d.id, details: { ...x, procedimiento: proc.r } });
         const primeraToma = pasosG.find((g) => g.accion === "TOMO");
         const trato = [...pasosG].reverse().find((g) => g.accion === ACCION_TRATO);
         const escalo = [...pasosG].reverse().find((g) => g.accion === ACCION_ESCALO);
@@ -89,19 +115,29 @@ async function armar(dets: Det[], yo: string | null): Promise<EventoCentral[]> {
         return {
             id: d.id, clave, ts: d.timestamp.toISOString(), tipo: d.eventType || "GENERAL",
             titulo: `${TITULO[d.eventType || ""] || "Alarma"}${x.zona ? ` · Zona ${x.zona}${z?.nombre ? ` · ${z.nombre}` : ""}` : ""}`,
-            prioridad: prioridades[claseDeAlarma(d.eventType)],
+            prioridad,
             central: { id: c?.id || "", deviceId: d.deviceId || "", nombre: c?.device?.name || x.central || "Central", cuenta: c?.cuenta || x.cuenta || "", prueba: !!c?.prueba },
             zona: x.zona != null ? { zona: Number(x.zona), nombre: z?.nombre || null, camaras: ((z?.camaras as string[] | undefined) || x.camaras || []).map(String) } : null,
             particion: x.particion ?? null, area: areaId ? nombreArea.get(areaId) || null : null,
             operador: { nombre: at?.operador || null, desde: at?.operadorDesde?.toISOString() || null, soyYo: !!yo && at?.operador === yo },
             tratado: d.acknowledged ? { por: trato?.por || at?.por || null, ts: (trato?.ts || at?.ts || d.timestamp).toISOString(), cierre: trato ? cierre : at?.nota || (d.ackKind === "false" ? "Falsa alarma" : "Aceptada sin tratar"), resultado: at?.resultado || (d.ackKind === "false" ? "falsa" : d.ackKind ? "real" : null), texto: trato ? textoTrato : null } : null,
-            pasos, escalado: escalo && !d.acknowledged ? escalo.detalle : null,
+            pasos, salteos, procedimiento: proc.r, escalado: escalo && !d.acknowledged ? escalo.detalle : null,
             tiempos: {
                 tomarSeg: primeraToma ? Math.max(0, Math.round((primeraToma.ts.getTime() - t0) / 1000)) : null,
                 tratarSeg: trato ? Math.max(0, Math.round((trato.ts.getTime() - t0) / 1000)) : null,
             },
         };
     });
+    // La instantánea del procedimiento, la primera vez (ver procedimientoDe). Sin esperar: no demora la lectura.
+    // Se relee el detalle justo antes de escribir: el receptor agrega los cuadros del momento en los
+    // mismos segundos, y escribir lo leído antes los borraría.
+    if (porGuardar.length) void Promise.all(porGuardar.map(async (g) => {
+        const ahora = await prisma.detection.findUnique({ where: { id: g.id }, select: { details: true } }).catch(() => null);
+        const actual = detallesDe(ahora?.details ?? null);
+        if (actual.procedimiento) return;
+        await prisma.detection.update({ where: { id: g.id }, data: { details: JSON.stringify({ ...actual, procedimiento: g.details.procedimiento }) } }).catch(() => null);
+    }));
+    return eventos;
 }
 
 const SELECT_DET = { id: true, deviceId: true, eventType: true, label: true, timestamp: true, details: true, acknowledged: true, ackKind: true } as const;
@@ -129,7 +165,7 @@ export async function eventoCentral(id: string, yo: string | null) {
     };
 }
 
-type Resultado = { ok: true } | { ok: false, error: string, status?: number };
+type Resultado = { ok: true } | { ok: false, error: string, status?: number, faltan?: string[] };
 const no = (error: string, status = 400): Resultado => ({ ok: false, error, status });
 
 async function pendiente(id: string) {
@@ -176,6 +212,24 @@ export async function marcarPaso(id: string, por: string, paso: string, hecho: b
 }
 
 /**
+ * Saltear un paso con un motivo escrito (openspec alarmas-como-funciones): es lo que permite tratar
+ * sin hacer un paso obligatorio. Sólo quien lo tiene; queda en la bitácora con el motivo.
+ */
+export async function saltearPaso(id: string, por: string, paso: string, motivo: string): Promise<Resultado> {
+    const d = await pendiente(id);
+    if (!d) return no("No existe ese evento", 404);
+    if (d.acknowledged) return no("Ese evento ya se trató.", 409);
+    const a = await prisma.alarmaAtendida.findUnique({ where: { clave: `d:${id}` }, select: { operador: true } });
+    if (a?.operador !== por) return no(a?.operador ? `Lo tiene ${a.operador}: tomalo para seguir el procedimiento.` : "Tomalo primero.", 409);
+    const p = String(paso || "").trim().slice(0, 100);
+    const m = String(motivo || "").trim();
+    if (!p) return no("Falta el paso.");
+    if (m.length < MOTIVO_SALTEO_MINIMO) return no(`Escribí por qué se saltea (al menos ${MOTIVO_SALTEO_MINIMO} letras).`);
+    await registrarGestion(`d:${id}`, ACCION_SALTEO as any, por, { deviceId: d.deviceId, detalle: `${p} — ${m.slice(0, 300)}` });
+    return { ok: true };
+}
+
+/**
  * Tratarlo: un cierre del catálogo y un texto que diga algo. Si nadie lo tenía, lo toma; si lo tiene
  * otro, no (primero hay que quitárselo, con motivo). Lo da por terminado en todas las pantallas.
  */
@@ -191,6 +245,12 @@ export async function tratarEvento(id: string, por: string, cierreId: string, te
     const clave = `d:${id}`;
     const a = await prisma.alarmaAtendida.findUnique({ where: { clave }, select: { operador: true } });
     if (a?.operador && a.operador !== por) return no(`Lo tiene ${a.operador}. Para tratarlo, primero quitáselo (con motivo).`, 409);
+    // Los pasos obligatorios del procedimiento con que se abrió: hechos o salteados con motivo.
+    const ev = await eventoCentral(id, por);
+    if (ev) {
+        const faltan = obligatoriosFaltantes(ev.evento.procedimiento.pasos, ev.evento.pasos, ev.evento.salteos);
+        if (faltan.length) return { ok: false, error: `Faltan pasos obligatorios: ${faltan.map((x) => `«${x}»`).join(", ")}. Hacelos o salteálos escribiendo por qué.`, status: 409, faltan } as Resultado;
+    }
     if (!a?.operador) { const r = await tomarEvento(id, por); if (!r.ok) return r; }
     const ahora = new Date();
     await prisma.detection.update({ where: { id }, data: { acknowledged: true, ackKind: cierre.resultado === "falsa" ? "false" : "real", ackAt: ahora } });

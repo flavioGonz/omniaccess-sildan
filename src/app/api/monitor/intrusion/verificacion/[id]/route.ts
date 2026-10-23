@@ -4,6 +4,7 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { prisma } from "@/lib/prisma";
 import { getS3Client } from "@/lib/s3";
 import { autorizarMonitor } from "@/lib/monitor/servidor";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ const BUCKET = process.env.VISION_BUCKET || "objetos";
  * clave sale de la base, nunca del pedido.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    const funcionApagada = await exigirFuncion("FUNC_INTRUSION"); if (funcionApagada) return funcionApagada;
     const p = await autorizarMonitor("/api/monitor/intrusion");
     if (p.error) return p.error;
     const { id } = await params;

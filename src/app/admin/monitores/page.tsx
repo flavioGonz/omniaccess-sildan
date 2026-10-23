@@ -12,6 +12,15 @@ import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { Momento, Nada } from "@/components/ui/celdas";
 import { MiniaturaVista } from "@/components/monitor/MiniaturaVista";
 import { VISTAS, vistaPorClave, type ClaveVista, type Vista } from "@/lib/monitor/vistas";
+import { useFuncion } from "@/lib/funciones-cliente";
+
+/** Las vistas que la instalación tiene: sin su función prendida (Intrusión, Alarmas) no se ofrecen. */
+function useVistasDisponibles() {
+    const intrusion = useFuncion("FUNC_INTRUSION");
+    const gestion = useFuncion("FUNC_ALARMAS_GESTION");
+    const estado: Record<string, boolean | null> = { FUNC_INTRUSION: intrusion, FUNC_ALARMAS_GESTION: gestion };
+    return VISTAS.filter((v) => !v.funcion || estado[v.funcion] !== false);
+}
 import { ROTACION_SEG_MIN } from "@/lib/monitor/ajustes";
 import { listarEnlacesPantalla, crearEnlacePantalla, revocarEnlacePantalla, leerAjustesMonitores, guardarAjusteSonido, guardarRotacion, type EnlaceListado } from "@/app/actions/monitores";
 
@@ -45,6 +54,7 @@ const rotuloSonido = (v: Vista, a: Ajustes | null) => {
 };
 
 export default function MonitoresPage() {
+    const vistas = useVistasDisponibles();
     const [enlaces, setEnlaces] = useState<EnlaceListado[] | null>(null);
     const [ajustes, setAjustes] = useState<Ajustes | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -118,7 +128,7 @@ export default function MonitoresPage() {
                 </div>
             </div>
 
-            <Tabla id="monitores" filas={VISTAS} clave={(v) => v.clave} columnas={columnas} controles={false} seleccionCeldas={false}
+            <Tabla id="monitores" filas={vistas} clave={(v) => v.clave} columnas={columnas} controles={false} seleccionCeldas={false}
                 error={error} alReintentar={cargar} alClickFila={(v) => { setAbierta(v.clave); setCajon(true); }} filaActiva={(v) => cajon && v.clave === abierta} />
 
             <CajonMonitor clave={abierta} abierto={cajon} alCerrar={() => setCajon(false)} enlaces={abierta ? porVista[abierta] || [] : []} cargando={enlaces === null}
@@ -133,6 +143,7 @@ function CajonMonitor({ clave, abierto, alCerrar, enlaces, cargando, ajustes, se
     clave: ClaveVista | null; abierto: boolean; alCerrar: () => void; enlaces: EnlaceListado[]; cargando: boolean;
     ajustes: Ajustes | null; setAjustes: React.Dispatch<React.SetStateAction<Ajustes | null>>; recargar: () => void;
 }) {
+    const vistas = useVistasDisponibles();
     const v = clave ? vistaPorClave(clave) : null;
     const origen = typeof window !== "undefined" ? window.location.origin : "";
     const url = v ? `${origen}/monitor/${v.clave}` : "";
@@ -201,7 +212,7 @@ function CajonMonitor({ clave, abierto, alCerrar, enlaces, cargando, ajustes, se
                 {v.clave === "rotacion" && ajustes && (
                     <CajonSeccion titulo="Qué alterna" icono={RefreshCw} ayuda="El orden es el de los números. Una intrusión sin resolver, o una alarma crítica de central si está «Alarmas», la deja quieta en esa vista.">
                         <div className="grid grid-cols-2 gap-2">
-                            {VISTAS.filter((x) => x.clave !== "rotacion").map((x) => {
+                            {vistas.filter((x) => x.clave !== "rotacion").map((x) => {
                                 const on = rotVistas.includes(x.clave);
                                 return (
                                     <button key={x.clave} type="button" aria-pressed={on} onClick={() => setRotVistas((p) => on ? p.filter((k) => k !== x.clave) : [...p, x.clave])}

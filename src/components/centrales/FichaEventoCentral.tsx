@@ -9,10 +9,11 @@ import { ChipPrioridad } from "@/components/alarmas/MensajesCentrales";
 import { Actividad, type EventoActividad } from "@/components/alarmas/GestionEnVivo";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { nivel } from "@/lib/centrales/prioridades";
-import { TEXTO_MINIMO, segATexto, type Cierre, type EventoCentral, type Procedimiento } from "@/lib/centrales/tratamiento-tipos";
+import { MOTIVO_SALTEO_MINIMO, TEXTO_MINIMO, obligatoriosFaltantes, origenProcedimiento, segATexto, type Cierre, type EventoCentral, type Procedimiento } from "@/lib/centrales/tratamiento-tipos";
 import type { PasoGestion } from "@/lib/gestion-alarma-texto";
 import { cn } from "@/lib/utils";
 import { IlustracionEvento } from "@/components/centrales/IlustracionEvento";
+import { VerificacionVideo, type CamVerif, type OrigenVerif } from "@/components/centrales/VerificacionVideo";
 
 /**
  * La ficha de un evento de central de alarma (22/10, Nico: «similar a la de Intrusión pero con cosas
@@ -34,6 +35,8 @@ type Ficha = {
     evento: EventoCentral;
     contexto: { id: string; ts: string; eventos: { categoria: string; texto: string; zona?: number | null; usuario?: number | null }[]; esEste: boolean }[];
     pasos: PasoGestion[]; cierres: Cierre[]; procedimiento: Procedimiento;
+    /** Las cámaras de la verificación (zona → área → abonado) y las otras del abonado. */
+    video?: { camaras: CamVerif[]; otras: CamVerif[] } & OrigenVerif;
 };
 
 const hora = (iso: string) => new Date(iso).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "America/Montevideo" });
@@ -92,7 +95,9 @@ export function FichaEventoCentral({ id, abierta, alCerrar }: { id: string | nul
                                 qué pasó, antes de mirar las cámaras. */}
                             <IlustracionEvento key={ev.id} evento={{ categoria: "ALARMA", tipo: ev.tipo, texto: ev.titulo }} alto={190}
                                 className="rounded-[10px] border border-border overflow-hidden pb-3" />
-                            <Camaras ev={ev} />
+                            {/* Video verificación (23/10): en vivo al abrir, y «Ver el momento» con la grabación. */}
+                            <VerificacionVideo eventoId={ev.id} instanteMs={new Date(ev.ts).getTime()} camaras={f.video?.camaras || []} otras={f.video?.otras || []}
+                                origen={f.video ? { origen: f.video.origen, area: f.video.area } : null} />
                             <Contexto f={f} />
                         </div>
                         <div className="min-h-0 lg:overflow-y-auto p-5 space-y-5">
@@ -107,33 +112,6 @@ export function FichaEventoCentral({ id, abierta, alCerrar }: { id: string | nul
                 )}
             </DialogContent>
         </Dialog>
-    );
-}
-
-/** Las cámaras de la zona: una foto que se refresca cada 5 s. Sin cámaras, se dice dónde asignarlas. */
-function Camaras({ ev }: { ev: EventoCentral }) {
-    const [t, setT] = useState(() => Date.now());
-    useEffect(() => { const iv = setInterval(() => setT(Date.now()), 5000); return () => clearInterval(iv); }, []);
-    const cams = ev.zona?.camaras || [];
-    return (
-        <section>
-            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2 flex items-center gap-1.5"><Camera size={12} /> Cámaras de la zona</div>
-            {!cams.length ? (
-                <div className="rounded-[10px] border border-dashed border-border px-4 py-5 text-[12.5px] text-muted-foreground">
-                    {ev.zona ? <>La zona {ev.zona.zona} no tiene cámaras asignadas. Se asignan en Dispositivos › la central › Zonas, y desde entonces la foto aparece acá.</> : "El evento no trae zona."}
-                </div>
-            ) : (
-                <div className={cn("grid gap-2", cams.length > 1 && "grid-cols-2")}>
-                    {cams.slice(0, 4).map((c) => (
-                        <div key={c} className="relative aspect-video rounded-[10px] overflow-hidden bg-muted">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={`/api/snapshot/${c}?t=${Math.floor(t / 5000)}`} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                            <span className="absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10.5px] font-semibold text-white">AHORA · cada 5 s</span>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </section>
     );
 }
 
@@ -186,7 +164,11 @@ function Gestion({ ev, f, alHecho }: { ev: EventoCentral; f: Ficha; alHecho: () 
     const [texto, setTexto] = useState("");
     const mio = ev.operador.soyYo;
     const deOtro = !!ev.operador.nombre && !mio;
-    const pasos = f.procedimiento[String(ev.prioridad) as keyof Procedimiento] || [];
+    // El procedimiento con que se abrió el evento (guardado con él): el de su clase o el de su prioridad.
+    const pasos = ev.procedimiento?.pasos || [];
+    const faltan = obligatoriosFaltantes(pasos, ev.pasos, ev.salteos || {});
+    const [salteando, setSalteando] = useState<string | null>(null);
+    const [motivoSalteo, setMotivoSalteo] = useState("");
 
     const accion = async (clave: string, cuerpo: Record<string, unknown>, despues?: () => void) => {
         setOcupado(clave); setError(null);
@@ -230,22 +212,46 @@ function Gestion({ ev, f, alHecho }: { ev: EventoCentral; f: Ficha; alHecho: () 
                 )}
             </div>
 
-            {/* El procedimiento de su prioridad. */}
+            {/* El procedimiento (23/10, openspec alarmas-como-funciones): de su clase o de su prioridad,
+                con los pasos obligatorios marcados. Un obligatorio se tilda o se saltea escribiendo por qué. */}
             {pasos.length > 0 && (
                 <section>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Procedimiento P{ev.prioridad}</div>
+                    <div className="flex items-baseline gap-2 mb-2">
+                        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{ev.procedimiento ? origenProcedimiento(ev.procedimiento) : "Procedimiento"}</span>
+                        <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">{pasos.filter((x) => ev.pasos[x.texto] || ev.salteos?.[x.texto]).length}/{pasos.length}</span>
+                    </div>
                     <ul className="space-y-1">
-                        {pasos.map((p) => {
+                        {pasos.map((paso) => {
+                            const p = paso.texto;
                             const hecho = ev.pasos[p];
+                            const salteo = ev.salteos?.[p];
                             return (
-                                <li key={p}>
-                                    <button type="button" disabled={!mio || !!ocupado} onClick={() => accion(`paso:${p}`, { accion: "paso", paso: p, hecho: !hecho })}
-                                        title={!mio ? "Tomalo para seguir el procedimiento" : undefined}
-                                        className={cn("w-full flex items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors", mio ? "hover:bg-accent" : "opacity-70 cursor-not-allowed")}>
-                                        <span className={cn("mt-0.5 grid h-4 w-4 place-items-center rounded border shrink-0", hecho ? "bg-[var(--bien)] border-[var(--bien)] text-white" : "border-border")}>{hecho && <Check size={11} />}</span>
-                                        <span className="min-w-0 flex-1"><span className={cn(hecho && "line-through opacity-70")}>{p}</span>
-                                            {hecho && <span className="block text-[11px] text-muted-foreground tabular-nums">{hecho.por} · {hora(hecho.ts)}</span>}</span>
-                                    </button>
+                                <li key={p} className="rounded-md">
+                                    <div className={cn("flex items-start gap-1", !mio && "opacity-70")}>
+                                        <button type="button" disabled={!mio || !!ocupado} onClick={() => accion(`paso:${p}`, { accion: "paso", paso: p, hecho: !(hecho || salteo) })}
+                                            title={!mio ? "Tomalo para seguir el procedimiento" : hecho || salteo ? "Deshacer" : "Hecho"}
+                                            className={cn("flex-1 min-w-0 flex items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors", mio ? "hover:bg-accent" : "cursor-not-allowed")}>
+                                            <span className={cn("mt-0.5 grid h-4 w-4 place-items-center rounded border shrink-0", hecho ? "bg-[var(--bien)] border-[var(--bien)] text-white" : salteo ? "bg-[var(--aviso)] border-[var(--aviso)] text-[#16120a]" : "border-border")}>{hecho ? <Check size={11} /> : salteo ? <X size={11} /> : null}</span>
+                                            <span className="min-w-0 flex-1">
+                                                <span className={cn((hecho || salteo) && "line-through opacity-70")}>{p}</span>
+                                                {paso.obligatorio && !hecho && !salteo && <span className="ml-1.5 inline-flex items-center rounded px-1 py-px text-[10px] font-bold uppercase tracking-wider chip-aviso border">obligatorio</span>}
+                                                {hecho && <span className="block text-[11px] text-muted-foreground tabular-nums">{hecho.por} · {hora(hecho.ts)}</span>}
+                                                {salteo && <span className="block text-[11px] text-[var(--aviso-texto)]">Salteado por {salteo.por} · {hora(salteo.ts)}: «{salteo.motivo}»</span>}
+                                            </span>
+                                        </button>
+                                        {mio && !hecho && !salteo && (
+                                            <button type="button" onClick={() => { setSalteando(salteando === p ? null : p); setMotivoSalteo(""); }} disabled={!!ocupado}
+                                                className="shrink-0 h-7 mt-0.5 px-2 rounded-md text-[11.5px] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent">Saltear</button>
+                                        )}
+                                    </div>
+                                    {salteando === p && (
+                                        <div className="mt-1 ml-8 flex gap-2">
+                                            <input autoFocus value={motivoSalteo} onChange={(e) => setMotivoSalteo(e.target.value)} placeholder="Por qué se saltea (queda en la auditoría)" maxLength={300}
+                                                className="flex-1 h-8 rounded-[8px] px-3 text-[12.5px] bg-background border border-border outline-none focus:ring-2 focus:ring-[var(--accion)]/40" />
+                                            <Button size="sm" onClick={() => accion(`salteo:${p}`, { accion: "saltear", paso: p, motivo: motivoSalteo }, () => { setSalteando(null); setMotivoSalteo(""); })}
+                                                disabled={motivoSalteo.trim().length < MOTIVO_SALTEO_MINIMO || !!ocupado}>Saltear</Button>
+                                        </div>
+                                    )}
                                 </li>
                             );
                         })}
@@ -255,10 +261,15 @@ function Gestion({ ev, f, alHecho }: { ev: EventoCentral; f: Ficha; alHecho: () 
 
             {/* Tratar: cómo se cerró + qué se hizo. Es lo único que lo termina. */}
             {!tratando ? (
-                <Button className="w-full h-11 text-[14px] font-bold gap-2" onClick={() => setTratando(true)} disabled={deOtro || !!ocupado}
-                    title={deOtro ? `Lo tiene ${ev.operador.nombre}: quitáselo primero` : undefined}>
-                    <CheckCircle2 size={17} /> TRATAR EVENTO
-                </Button>
+                <>
+                    <Button className="w-full h-11 text-[14px] font-bold gap-2" onClick={() => setTratando(true)} disabled={deOtro || !!ocupado || faltan.length > 0}
+                        title={deOtro ? `Lo tiene ${ev.operador.nombre}: quitáselo primero` : undefined}>
+                        <CheckCircle2 size={17} /> TRATAR EVENTO
+                    </Button>
+                    {faltan.length > 0 && !deOtro && (
+                        <p className="text-[12px] text-[var(--aviso-texto)] -mt-2">Falta{faltan.length > 1 ? "n" : ""} {faltan.map((x) => `«${x}»`).join(", ")}: tildalo{faltan.length > 1 ? "s" : ""} o salteálo{faltan.length > 1 ? "s" : ""} escribiendo por qué.</p>
+                    )}
+                </>
             ) : (
                 <section className="rounded-[10px] border border-border p-3 space-y-3">
                     <div className="flex items-center"><span className="text-[13px] font-semibold flex-1">Tratar el evento</span><button type="button" onClick={() => setTratando(false)} className="text-muted-foreground hover:text-foreground" aria-label="Cancelar"><X size={15} /></button></div>

@@ -7,7 +7,7 @@ import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { sonar } from "@/lib/sonido-monitor";
-import { Vivo, Foto, vivoDe, reproduceH265, usaHls } from "@/components/monitor/camaras/piezas";
+import { VerificacionVideo, type CamVerif, type OrigenVerif } from "@/components/centrales/VerificacionVideo";
 import { SUAVE, tocable } from "@/components/monitor/tactil";
 import { IlustracionEvento } from "@/components/centrales/IlustracionEvento";
 import { claseDeAlarma, nivel, PRIORIDADES_DEFECTO, type Prioridades } from "@/lib/centrales/prioridades";
@@ -53,13 +53,17 @@ const FOTO_MS = 2000;
 /** Prioridad hasta la que una alarma suena con el tono fuerte, repite y destella. */
 const CRITICA_HASTA = 2;
 
-type Cam = { id: string; nombre: string; stream: string };
+type Cam = CamVerif;
 type Pendiente = {
     id: string; ts: string; tipo: string; titulo: string; prioridad: number; area: string | null; particion: number | null;
     central: { id: string; nombre: string; cuenta: string; prueba: boolean };
     zona: { zona: number; nombre: string | null } | null;
     codigo: string | null; texto: string | null; usuario: number | string | null;
     camaras: Cam[]; fotos: { camara: string | null; foto: string }[];
+    /** El avance del procedimiento (sólo para mirar). */
+    procedimiento?: { origen: string; pasos: { texto: string; obligatorio: boolean; estado: "hecho" | "salteado" | "pendiente"; por: string | null; ts: string | null; motivo: string | null }[] } | null;
+    /** Las demás cámaras del abonado y de dónde salen las de la verificación (zona → área → abonado). */
+    otras?: Cam[]; origenCamaras?: OrigenVerif | null;
     operador: { nombre: string; desde: string | null } | null; escalado: string | null;
     /** Llegó por el socket y la consulta todavía no la trajo. */
     provisoria?: number;
@@ -93,57 +97,6 @@ function Prioridad({ p, grande }: { p: number; grande?: boolean }) {
     return <span className={cn("inline-flex items-center gap-1.5 rounded-full font-bold uppercase tracking-[0.08em]", `pleno-${n.tono}`, grande ? "h-9 px-4 text-[16px]" : "h-6 px-2.5 text-[11px]")}>P{p} · {n.nombre}</span>;
 }
 
-// ── Video de la zona ────────────────────────────────────────────────────────────────────────
-
-/** Una cámara de la zona: el vivo de go2rtc y, si no arranca, su foto renovándose. */
-function Camara({ c, h265, hls, sola, alTocar }: { c: Cam; h265: boolean; hls: boolean; sola: boolean; alTocar: () => void }) {
-    const [vivo, setVivo] = useState<boolean | null>(null);
-    useEffect(() => { setVivo(null); }, [c.stream]);
-    return (
-        <motion.button type="button" layout onClick={alTocar} transition={SUAVE} aria-label={`Cámara ${c.nombre}`}
-            className={cn("relative rounded-2xl overflow-hidden bg-black ring-1 ring-white/10 text-left min-h-0", tocable)}>
-            {vivo !== false
-                ? <Vivo src={vivoDe(c.stream, !h265, hls)} alResultado={setVivo} className="absolute inset-0 w-full h-full object-contain" />
-                : <Foto src={`/api/snapshot/${c.id}?w=1280`} ms={FOTO_MS} className="absolute inset-0 w-full h-full object-contain" />}
-            {vivo === null && <span className="absolute inset-0 grid place-items-center text-white/40"><Loader2 size={34} className="animate-spin" /></span>}
-            <div className="absolute top-0 inset-x-0 px-4 pt-3 pb-10 bg-gradient-to-b from-black/80 to-transparent flex items-center gap-3">
-                <span className={cn("inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[12px] font-bold uppercase tracking-[0.1em]", vivo === false ? "bg-white/15 text-white/80" : "pleno-mal")}>
-                    {vivo === false ? <><Camera size={13} /> Foto</> : <><span className="h-2 w-2 rounded-full bg-white animate-pulse" /> En vivo</>}
-                </span>
-                <span className="text-[20px] font-bold text-white drop-shadow truncate">{c.nombre}</span>
-                {sola && <span className="ml-auto grid h-9 w-9 place-items-center rounded-xl bg-black/50 text-white/80" aria-hidden><Minimize2 size={17} /></span>}
-            </div>
-        </motion.button>
-    );
-}
-
-function VideoZona({ camaras, evento }: { camaras: Cam[]; evento: Pendiente }) {
-    const [h265, setH265] = useState(true);
-    const [hls, setHls] = useState(false);
-    const [sola, setSola] = useState<string | null>(null);
-    useEffect(() => { setH265(reproduceH265()); setHls(usaHls()); }, []);
-    useEffect(() => { setSola(null); }, [evento.id]);
-    const vistas = sola ? camaras.filter((c) => c.id === sola) : camaras;
-    if (!camaras.length) {
-        return (
-            <div className="relative h-full rounded-2xl bg-card ring-1 ring-border overflow-hidden grid place-items-center">
-                <div className="w-full max-w-[760px] px-6">
-                    <IlustracionEvento key={evento.id} evento={{ categoria: "ALARMA", tipo: evento.tipo, texto: evento.texto || evento.titulo }} alto={300} />
-                    <p className="mt-2 text-center text-[17px] text-muted-foreground">Esta zona no tiene cámaras asociadas: no hay video para verificar. Se asocian en Dispositivos › la central › Zonas.</p>
-                </div>
-            </div>
-        );
-    }
-    // Dos cámaras, una arriba de la otra: el lugar es más ancho que alto y así cada video sale más grande.
-    const cols = vistas.length <= 2 ? "grid-cols-1" : "grid-cols-2";
-    const filas = vistas.length === 1 ? "grid-rows-1" : "grid-rows-2";
-    return (
-        <div className={cn("grid h-full gap-2", cols, filas)}>
-            {vistas.map((c) => <Camara key={c.id} c={c} h265={h265} hls={hls} sola={!!sola} alTocar={() => setSola((s) => (s ? null : camaras.length > 1 ? c.id : null))} />)}
-        </div>
-    );
-}
-
 // ── La alarma al frente ─────────────────────────────────────────────────────────────────────
 
 function Dato({ icono: Ic, rotulo, valor }: { icono: any; rotulo: string; valor: React.ReactNode }) {
@@ -151,6 +104,34 @@ function Dato({ icono: Ic, rotulo, valor }: { icono: any; rotulo: string; valor:
         <div className="flex items-start gap-2.5 py-2 border-b border-border last:border-0">
             <Ic size={17} className="mt-0.5 text-muted-foreground shrink-0" />
             <div className="min-w-0"><div className="text-[12px] text-muted-foreground">{rotulo}</div><div className="text-[16px] font-semibold leading-snug break-words">{valor}</div></div>
+        </div>
+    );
+}
+
+/** El procedimiento de la alarma al frente: cuántos pasos van, cuáles faltan y quién hizo cada uno. Sólo mirar. */
+function AvanceProcedimiento({ p }: { p: NonNullable<Pendiente["procedimiento"]> }) {
+    const hechos = p.pasos.filter((x) => x.estado !== "pendiente").length;
+    const pct = Math.round((hechos / p.pasos.length) * 100);
+    return (
+        <div className="rounded-[14px] bg-card ring-1 ring-border p-4">
+            <div className="flex items-baseline gap-2">
+                <span className="text-[14px] font-bold">{p.origen}</span>
+                <span className="ml-auto text-[15px] font-bold tabular-nums">{hechos}/{p.pasos.length}</span>
+            </div>
+            <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden"><motion.div className="h-full rounded-full bg-[var(--bien)]" initial={false} animate={{ width: `${pct}%` }} transition={{ duration: 0.5 }} /></div>
+            <ol className="mt-3 space-y-1.5">
+                {p.pasos.map((x) => (
+                    <li key={x.texto} className="flex items-start gap-2">
+                        <span className={cn("mt-0.5 grid h-5 w-5 place-items-center rounded-full shrink-0 text-[11px] font-bold", x.estado === "hecho" ? "pleno-bien" : x.estado === "salteado" ? "pleno-aviso" : x.obligatorio ? "ring-2 ring-[var(--aviso)]" : "ring-1 ring-border")}>
+                            {x.estado === "hecho" ? <CheckCircle2 size={13} /> : x.estado === "salteado" ? "–" : null}
+                        </span>
+                        <div className="min-w-0">
+                            <div className={cn("text-[14.5px] leading-snug", x.estado !== "pendiente" && "text-muted-foreground line-through")}>{x.texto}{x.obligatorio && x.estado === "pendiente" && <span className="ml-1.5 text-[11px] font-bold uppercase tono-aviso">obligatorio</span>}</div>
+                            {x.por && <div className="text-[12px] text-muted-foreground">{x.estado === "salteado" ? `salteado por ${x.por}${x.motivo ? `: «${x.motivo}»` : ""}` : x.por}{x.ts ? ` · ${horaCorta(x.ts)}` : ""}</div>}
+                        </div>
+                    </li>
+                ))}
+            </ol>
         </div>
     );
 }
@@ -193,13 +174,22 @@ function AlFrente({ e, recienLlegada }: { e: Pendiente; recienLlegada: boolean }
                 </div>
             </motion.header>
             <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_340px] gap-3 p-3">
-                <VideoZona camaras={e.camaras} evento={e} />
+                <VerificacionVideo eventoId={e.id} instanteMs={new Date(e.ts).getTime()} camaras={e.camaras} otras={e.otras || []} origen={e.origenCamaras || null} escala="pared"
+                    vacio={(
+                        <div className="relative flex-1 rounded-2xl bg-card ring-1 ring-border overflow-hidden grid place-items-center">
+                            <div className="w-full max-w-[760px] px-6">
+                                <IlustracionEvento key={e.id} evento={{ categoria: "ALARMA", tipo: e.tipo, texto: e.texto || e.titulo }} alto={300} />
+                                <p className="mt-2 text-center text-[17px] text-muted-foreground">No hay cámaras para verificar este evento. Se asocian en Dispositivos › la central: a la zona, a su área o al abonado.</p>
+                            </div>
+                        </div>
+                    )} />
                 <aside className="min-h-0 flex flex-col gap-3 overflow-y-auto">
                     {e.camaras.length > 0 && (
                         <div className="rounded-[14px] bg-card ring-1 ring-border overflow-hidden">
                             <IlustracionEvento key={e.id} evento={{ categoria: "ALARMA", tipo: e.tipo, texto: e.texto || e.titulo }} alto={170} className="pb-2" />
                         </div>
                     )}
+                    {e.procedimiento && e.procedimiento.pasos.length > 0 && <AvanceProcedimiento p={e.procedimiento} />}
                     <div className="rounded-[14px] bg-card ring-1 ring-border px-4 py-1">
                         {e.zona && <Dato icono={MapPin} rotulo="Zona" valor={zonaTexto(e.zona)} />}
                         {e.texto && <Dato icono={Info} rotulo="Lo que mandó la central" valor={e.texto} />}
@@ -301,7 +291,7 @@ function EnEspera({ lista, alElegir, nuevas }: { lista: Pendiente[]; alElegir: (
                             <span className="absolute left-0 inset-y-0 w-1.5" style={{ background: colorDe(e.prioridad) }} />
                             <div className="flex items-center gap-2"><Prioridad p={e.prioridad} /><span className="ml-auto"><Reloj desde={e.ts} /></span></div>
                             <div className="mt-1 text-[16px] font-bold truncate">{e.titulo}</div>
-                            <div className="text-[13px] text-muted-foreground truncate">{e.central.nombre}{e.operador ? ` · la tiene ${e.operador.nombre}` : " · nadie la tomó"}</div>
+                            <div className="text-[13px] text-muted-foreground truncate">{e.central.nombre}{e.operador ? ` · la tiene ${e.operador.nombre}` : " · nadie la tomó"}{e.procedimiento?.pasos.length ? ` · ${e.procedimiento.pasos.filter((x) => x.estado !== "pendiente").length}/${e.procedimiento.pasos.length} pasos` : ""}</div>
                         </motion.button>
                     ))}
                 </AnimatePresence>
@@ -408,7 +398,10 @@ export function VistaAlarmas() {
         if (d?.type !== "CENTRAL" || !d.id) return;
         latir();
         const ahora = Date.now();
-        const camaras: Cam[] = (Array.isArray(d.camaras) ? d.camaras : []).map((id: any) => ({ id: String(id), nombre: nombres.current.get(String(id)) || "Cámara de la zona", stream: `lpr_${id}` }));
+        // El receptor manda [{ id, nombre, stream }]; uno viejo mandaba sólo las ids.
+        const camaras: Cam[] = (Array.isArray(d.camaras) ? d.camaras : []).map((c: any) => typeof c === "string"
+            ? { id: c, nombre: nombres.current.get(c) || "Cámara de la zona", stream: `lpr_${c}` }
+            : { id: String(c.id), nombre: c.nombre || nombres.current.get(String(c.id)) || "Cámara de la zona", stream: c.stream || `lpr_${c.id}` });
         const [central, ...resto] = String(d.deviceName || "Central").split(" · ");
         setProvisorias((p) => p.some((x) => x.id === d.id) ? p : [{
             id: d.id, ts: d.timestamp ? new Date(d.timestamp).toISOString() : new Date().toISOString(), tipo: d.eventType || "GENERAL", titulo: d.label || "Alarma",

@@ -1,5 +1,7 @@
 "use client";
 
+import { useFuncion } from "@/lib/funciones-cliente";
+
 import { useEffect, useState, useRef, useMemo } from "react";
 import { Tooltip as ReactTooltip } from "react-tooltip";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
@@ -235,6 +237,7 @@ export default function DevicesPage() {
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
+    const recepcionOn = useFuncion("FUNC_ALARMAS_RECEPCION") === true;
 
     const [devices, setDevices] = useState<any[]>([]);
     const [groups, setGroups] = useState<any[]>([]);
@@ -327,6 +330,8 @@ export default function DevicesPage() {
     // (21/10, Nico: «la cámara del Británico no la veo en dispositivos»: el lab corre en modo LPR y
     // tiene un contador Bosch para probar; existía, contaba, y no había dónde verlo ni editarlo).
     if (modules.MODULE_QUEUE || devices.some((d) => vistaDe(d) === "QUEUE_COUNTER")) allowedTypes.push("QUEUE_COUNTER");
+    // Dar de alta centrales sólo con la Recepción de alarmas prendida (openspec alarmas-como-funciones);
+    // las ya dadas de alta se siguen viendo y editando.
     // Las centrales de alarma, sólo si hay alguna (se agregan desde «Agregar»).
     if (devices.some((d) => d.deviceType === "ALARM_HUB")) allowedTypes.push("ALARM_HUB");
     const pedido = searchParams.get('type');
@@ -1094,7 +1099,7 @@ export default function DevicesPage() {
 
             {/* Altas desde el botón «Agregar» */}
             <CajonDispositivo groups={groups} open={alta === "lpr"} onOpenChange={(v) => !v && setAlta(null)} onSuccess={() => { loadData(); cargarGrab(); }}
-                alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} alAgregarCentral={() => { setAlta(null); setCentral(""); }} />
+                alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} alAgregarCentral={recepcionOn ? () => { setAlta(null); setCentral(""); } : undefined} />
             <CajonCentral abierto={central !== null} centralId={central || null} alCerrar={() => setCentral(null)} alCambiar={() => { loadData(); setVersionCentrales((v) => v + 1); }} />
             <CajonContadorFila device={contador} open={!!contador} onOpenChange={(v) => !v && setContador(null)} onSuccess={() => { loadData(); }} />
             <CajonDispositivo device={editando} groups={groups} open={!!editando} onOpenChange={(v) => !v && setEditando(null)} onSuccess={() => { loadData(); cargarGrab(); }}

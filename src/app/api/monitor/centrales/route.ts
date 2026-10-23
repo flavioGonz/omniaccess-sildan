@@ -4,6 +4,9 @@ import { autorizarMonitor, inicioDelDia, SIN_CACHE } from "@/lib/monitor/servido
 import { eventosPendientes } from "@/lib/centrales/tratamiento";
 import { leerPrioridadesGuardadas } from "@/lib/centrales/prioridades-servidor";
 import { prioridadDe } from "@/lib/centrales/prioridades";
+import { camarasDeEvento } from "@/lib/centrales/camaras";
+import { origenProcedimiento } from "@/lib/centrales/tratamiento-tipos";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +32,8 @@ export const dynamic = "force-dynamic";
 /** Hasta cuántas horas atrás cuenta una alarma pendiente: lo mismo que Gestión de alarmas. */
 const HORAS_PENDIENTES = 24;
 const RECIENTES = 40;
+/** Cuántas pendientes traen su video resuelto (las que pueden estar al frente o elegirse de la cola). */
+const CON_VIDEO = 12;
 /** El último armado se busca hasta acá: una central que no se arma hace un mes dice «sin dato». */
 const DIAS_ARMADO = 30;
 
@@ -36,6 +41,7 @@ type EventoMsg = { categoria?: string; tipo?: string; texto?: string; codigo?: s
 const detalles = (s: string | null) => { try { return JSON.parse(s || "{}") || {}; } catch { return {}; } };
 
 export async function GET() {
+    const funcionApagada = await exigirFuncion("FUNC_ALARMAS_GESTION"); if (funcionApagada) return funcionApagada;
     const p = await autorizarMonitor("/api/monitor/centrales");
     if (p.error) return p.error;
     try {
@@ -55,9 +61,9 @@ export async function GET() {
         // Los detalles de cada pendiente (código, texto, cuadros) y los nombres de sus cámaras.
         const dets = pendientes.length ? await prisma.detection.findMany({ where: { id: { in: pendientes.map((e) => e.id) } }, select: { id: true, details: true, snapshotPath: true } }) : [];
         const det = new Map(dets.map((d) => [d.id, { ...detalles(d.details), snapshotPath: d.snapshotPath }]));
-        const camIds = [...new Set(pendientes.flatMap((e) => e.zona?.camaras || []))];
-        const cams = camIds.length ? await prisma.device.findMany({ where: { id: { in: camIds } }, select: { id: true, name: true } }) : [];
-        const nombreCam = new Map(cams.map((c) => [c.id, c.name]));
+        // La video verificación (zona → área → abonado, y las otras del abonado) de las primeras: son las
+        // que pueden estar al frente; el resto de la cola no muestra video.
+        const video = new Map(await Promise.all(pendientes.slice(0, CON_VIDEO).map(async (e) => [e.id, await camarasDeEvento(e.central.id, e.zona?.zona ?? null).catch(() => null)] as const)));
 
         // El último armado o desarmado de cada central (una consulta por central: son pocas).
         const desdeArmado = new Date(Date.now() - DIAS_ARMADO * 86400_000);
@@ -81,9 +87,19 @@ export async function GET() {
                     central: { id: e.central.id, nombre: e.central.nombre, cuenta: e.central.cuenta, prueba: e.central.prueba },
                     zona: e.zona ? { zona: e.zona.zona, nombre: e.zona.nombre } : null,
                     codigo: x.codigo || null, texto: x.texto || null, usuario: x.usuario ?? null,
-                    camaras: (e.zona?.camaras || []).map((id) => ({ id, nombre: nombreCam.get(id) || "Cámara", stream: `lpr_${id}` })),
+                    camaras: video.get(e.id)?.camaras || [],
+                    otras: video.get(e.id)?.otras || [],
+                    origenCamaras: video.get(e.id) ? { origen: video.get(e.id)!.origen, area: video.get(e.id)!.area } : null,
                     fotos: (Array.isArray(x.fotos) ? x.fotos : x.snapshotPath ? [{ camara: e.zona?.camaras?.[0] || null, foto: x.snapshotPath }] : []).slice(0, 4),
                     operador: e.operador.nombre ? { nombre: e.operador.nombre, desde: e.operador.desde } : null,
+                    // El avance del procedimiento, para mirarlo (la pared no tilda nada).
+                    procedimiento: e.procedimiento ? {
+                        origen: origenProcedimiento(e.procedimiento),
+                        pasos: e.procedimiento.pasos.map((q) => {
+                            const h = e.pasos[q.texto], sl = e.salteos[q.texto];
+                            return { texto: q.texto, obligatorio: q.obligatorio, estado: h ? "hecho" : sl ? "salteado" : "pendiente", por: h?.por || sl?.por || null, ts: h?.ts || sl?.ts || null, motivo: sl?.motivo || null };
+                        }),
+                    } : null,
                     escalado: e.escalado,
                 };
             }),

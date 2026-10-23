@@ -29,7 +29,9 @@ type Modelo = { modelo: string; nombre: string; probado: boolean; ayuda: string;
 type Zona = { id?: string; zona: number; particion: number | null; nombre: string | null; areaId: string | null; camaras: string[]; tipo?: string | null };
 type Mensaje = { id: string; recibido: string; ip: string | null; transporte: string | null; idMensaje: string | null; cifrado: boolean; seq: number | null; datos: string | null; respuesta: string | null; error: string | null; eventos: any[] | null };
 type Ficha = {
-    central: { id: string; deviceId: string; modelo: string; cuenta: string; protocolo: string; cifrado: boolean; lanVpn: boolean; prueba: boolean; supervisionSeg: number; estado: string; ultimoMensajeAt: string | null; ipOrigen: string | null; transporte: string | null; device: { id: string; name: string; ip: string; httpPort: number | null; username: string | null; deviceModel?: string | null }; zonas: Zona[] };
+    central: { id: string; deviceId: string; modelo: string; cuenta: string; protocolo: string; cifrado: boolean; lanVpn: boolean; prueba: boolean; supervisionSeg: number; estado: string; ultimoMensajeAt: string | null; ipOrigen: string | null; transporte: string | null; device: { id: string; name: string; ip: string; httpPort: number | null; username: string | null; deviceModel?: string | null }; zonas: Zona[];
+        /** Las cámaras del abonado: ids de equipo o `nvrch-<nvr>-<ch>` (openspec alarmas-como-funciones). */
+        camaras?: string[] };
     mensajes: Mensaje[]; alertas: { type: string; severity: string; message: string }[]; destino: { direccion: string; puerto: number; transporte: string } | null; modelo: Modelo;
 };
 
@@ -229,6 +231,7 @@ function FichaCentral({ id, alCambiar, alBorrada }: { id: string; alCambiar?: ()
                 <div className="space-y-1.5">{d.alertas.map((a) => <div key={a.type} className={cn("rounded-[10px] px-3 py-2 text-[12.5px]", a.severity === "critical" ? "chip-mal" : "chip-aviso")}>{a.message}</div>)}</div>
             )}
             <Receptor d={d} recargar={cargar} />
+            <CamarasAbonado d={d} recargar={cargar} />
             <Zonas d={d} recargar={cargar} />
             {d.modelo.controla && <Control d={d} />}
             <Mensajes mensajes={d.mensajes} />
@@ -342,20 +345,93 @@ function Receptor({ d, recargar }: { d: Ficha; recargar: () => void }) {
     );
 }
 
+/**
+ * Las cámaras que se pueden elegir para una zona o para el abonado: los equipos cámara y, además, los
+ * canales de los NVR que no son equipo (`nvrch-<nvr>-<ch>`, como el Monitor CCTV), cada uno con el área
+ * de su equipo o de su NVR (openspec alarmas-como-funciones). Los canales salen de /api/monitor/camaras,
+ * que les pregunta a los NVR: si no contesta, quedan los equipos.
+ */
+function useCamarasElegibles(equipoArea: Record<string, string>) {
+    const [equipos, setEquipos] = useState<{ id: string; nombre: string; tipo: string; areaId: string | null }[]>([]);
+    const [canales, setCanales] = useState<{ id: string; nombre: string; tipo: string; areaId: string | null }[]>([]);
+    useEffect(() => {
+        getDevices().then((ds: any[]) => setEquipos((ds || []).filter((x) => ["CAMERA", "LPR_CAMERA", "LPR_INTERIOR", "QUEUE_COUNTER"].includes(String(x.deviceType))).map((x) => ({ id: x.id, nombre: x.name, tipo: String(x.deviceType), areaId: equipoArea[x.id] || null })))).catch(() => { });
+    }, [equipoArea]);
+    useEffect(() => {
+        fetch("/api/monitor/camaras", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+            const cs = (j?.canales || []).filter((c: any) => !c.equipoId && c.nvrId && c.ch != null);
+            setCanales(cs.map((c: any) => ({ id: `nvrch-${c.nvrId}-${c.ch}`, nombre: `${c.nombre} · ${c.nvr} CH ${c.ch}`, tipo: "CANAL", areaId: c.areaId || equipoArea[c.nvrId] || null })));
+        }).catch(() => { });
+    }, [equipoArea]);
+    const camaras = useMemo(() => [...equipos, ...canales], [equipos, canales]);
+    const nombreCam = useMemo(() => new Map(camaras.map((x) => [x.id, x.nombre])), [camaras]);
+    return { camaras, nombreCam };
+}
+
+/** Las cámaras del abonado: las de toda la central, para las zonas sin cámaras y para «otras cámaras» en el evento. */
+function CamarasAbonado({ d, recargar }: { d: Ficha; recargar: () => void }) {
+    const { areas, equipoArea } = useAreas();
+    const { camaras, nombreCam } = useCamarasElegibles(equipoArea);
+    const [lista, setLista] = useState<string[]>(d.central.camaras || []);
+    const [sucia, setSucia] = useState(false);
+    const [guardando, setGuardando] = useState(false);
+    useEffect(() => { if (!sucia) setLista(d.central.camaras || []); }, [d.central.camaras, sucia]);
+    const areaCentral = equipoArea[d.central.deviceId] || null;
+    const guardar = async () => {
+        setGuardando(true);
+        try { await pedir(`/api/centrales/${d.central.id}`, { method: "PATCH", body: JSON.stringify({ camaras: lista }) }); setSucia(false); toast.success({ title: "Cámaras del abonado guardadas" }); recargar(); }
+        catch (e: any) { toast.error({ title: "No se pudieron guardar", description: e?.message }); }
+        finally { setGuardando(false); }
+    };
+    return (
+        <CajonSeccion titulo={`Cámaras del abonado (${lista.length})`} icono={Camera}
+            ayuda="Las cámaras de este cliente. Una zona sin cámaras ni área usa éstas, y al abrir un evento quedan a mano como «otras cámaras» para seguir lo que pasa."
+            pista="Pueden ser equipos o canales de un NVR que no están dados de alta como equipo. Se sugieren primero las del área de la central.">
+            <div className="flex items-center gap-1.5 flex-wrap">
+                {lista.length === 0 && <span className="text-[12.5px] text-muted-foreground mr-1">Ninguna todavía.</span>}
+                {lista.map((cid) => (
+                    <span key={cid} className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded-full bg-muted/70 text-[11.5px] font-semibold">
+                        <Camera size={11} className="text-muted-foreground" />{nombreCam.get(cid) || (cid.startsWith("nvrch-") ? "Canal de NVR" : "Cámara")}
+                        <button type="button" onClick={() => { setLista((l) => l.filter((x) => x !== cid)); setSucia(true); }} className="grid place-items-center h-4 w-4 rounded-full hover:bg-background" aria-label="Quitar"><X size={10} /></button>
+                    </span>
+                ))}
+                <ElegirCamara camaras={camaras.filter((x) => !lista.includes(x.id))} areas={areas} alElegir={(cid) => { if (cid) { setLista((l) => [...l, cid]); setSucia(true); } }}
+                    placeholder="Agregar cámara" alinear="start" className="h-7 text-[11.5px]" sugerida={areaCentral ? { areaId: areaCentral, rotulo: "área de la central" } : null} />
+                <span className="flex-1" />
+                {sucia && <Button size="sm" onClick={guardar} disabled={guardando}>{guardando ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Guardar</Button>}
+            </div>
+        </CajonSeccion>
+    );
+}
+
 function Zonas({ d, recargar }: { d: Ficha; recargar: () => void }) {
     const { areas, equipoArea } = useAreas();
     const [zonas, setZonas] = useState<Zona[]>(d.central.zonas);
     const [sucias, setSucias] = useState(false);
     const [borrar, setBorrar] = useState<number[]>([]);
     const [nueva, setNueva] = useState("");
-    const [camaras, setCamaras] = useState<{ id: string; nombre: string; tipo: string; areaId: string | null }[]>([]);
+    const { camaras, nombreCam } = useCamarasElegibles(equipoArea);
     const [guardando, setGuardando] = useState(false);
     const [leyendo, setLeyendo] = useState(false);
     useEffect(() => { if (!sucias) setZonas(d.central.zonas); }, [d.central.zonas, sucias]);
-    useEffect(() => {
-        getDevices().then((ds: any[]) => setCamaras((ds || []).filter((x) => ["CAMERA", "LPR_CAMERA", "LPR_INTERIOR", "QUEUE_COUNTER"].includes(String(x.deviceType))).map((x) => ({ id: x.id, nombre: x.name, tipo: String(x.deviceType), areaId: equipoArea[x.id] || null })))).catch(() => { });
-    }, [equipoArea]);
-    const nombreCam = useMemo(() => new Map(camaras.map((x) => [x.id, x.nombre])), [camaras]);
+    /**
+     * De dónde salen las cámaras de cada zona, con lo que se está editando (la misma regla que usa el
+     * receptor, lib-centrales-camaras.js): las elegidas; si no hay, las del área de la zona (y sus
+     * sub-áreas, sólo equipos); si tampoco, las del abonado.
+     */
+    const origenDe = (z: Zona): { texto: string; tono: "bien" | "info" | "aviso" } => {
+        if (z.camaras.length) return { texto: `${z.camaras.length} ${z.camaras.length === 1 ? "elegida" : "elegidas"}`, tono: "bien" };
+        if (z.areaId) {
+            const bajo = new Set([z.areaId]);
+            for (let cambio = true; cambio;) { cambio = false; for (const a of areas) if (a.padre && bajo.has(a.padre) && !bajo.has(a.id)) { bajo.add(a.id); cambio = true; } }
+            const n = camaras.filter((c) => !c.id.startsWith("nvrch-") && c.areaId && bajo.has(c.areaId)).length;
+            const nombre = areas.find((a) => a.id === z.areaId)?.nombre || "su área";
+            if (n) return { texto: `${Math.min(4, n)} del área ${nombre}${n > 4 ? ` (de ${n})` : ""}`, tono: "info" };
+        }
+        const ab = (d.central.camaras || []).length;
+        if (ab) return { texto: `${Math.min(4, ab)} del abonado`, tono: "info" };
+        return { texto: "ninguna: sin video para verificar", tono: "aviso" };
+    };
     /** El área de la central en Dispositivos: sus cámaras se sugieren primero al elegir las de una zona. */
     const areaCentral = equipoArea[d.central.deviceId] || null;
     const cambiar = (zona: number, p: Partial<Zona>) => { setZonas((zs) => zs.map((z) => (z.zona === zona ? { ...z, ...p } : z))); setSucias(true); };
@@ -391,6 +467,7 @@ function Zonas({ d, recargar }: { d: Ficha; recargar: () => void }) {
                             <button type="button" onClick={() => { setZonas((zs) => zs.filter((x) => x.zona !== z.zona)); setBorrar((b) => [...b, z.zona]); setSucias(true); }} className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent" aria-label={`Quitar la zona ${z.zona}`}><Trash2 size={14} /></button>
                         </div>
                         <div className="flex items-center gap-1.5 flex-wrap pl-16">
+                            {(() => { const o = origenDe(z); return <span className={cn("inline-flex items-center gap-1 h-6 px-2 rounded-full border text-[11px] font-semibold", `chip-${o.tono}`)} title="Con qué cámaras se verifica un evento de esta zona"><Camera size={11} /> {o.texto}</span>; })()}
                             {z.camaras.map((cid) => (
                                 <span key={cid} className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded-full bg-muted/70 text-[11.5px] font-semibold">
                                     <Camera size={11} className="text-muted-foreground" />{nombreCam.get(cid) || "Cámara"}

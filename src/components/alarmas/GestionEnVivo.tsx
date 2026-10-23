@@ -84,7 +84,7 @@ const DECISIONES = new Set(["CONFIRMO_REAL", "MARCO_FALSA", "MARCO_REAL", "DESAC
 const COLOR_NODO: Record<string, string> = {
     TOMO: "var(--accion)", PASO: "var(--info)", CONFIRMO_REAL: "var(--mal)", MARCO_REAL: "var(--mal)", MARCO_FALSA: "var(--muted-foreground)",
     ERA_FALSA: "var(--muted-foreground)", DESACTIVO: "var(--bien)", ATENDIO: "var(--bien)", NOTA: "var(--aviso)", SE_FUE: "var(--info)", VOLVIO: "var(--info)",
-    PASO_PROC: "var(--info)", PASO_PROC_NO: "var(--muted-foreground)", TRATO: "var(--bien)", ESCALO: "var(--mal)",
+    PASO_PROC: "var(--info)", PASO_PROC_NO: "var(--muted-foreground)", PASO_PROC_SALTEO: "var(--aviso)", TRATO: "var(--bien)", ESCALO: "var(--mal)",
     origen: "var(--mal)", bien: "var(--bien)", mal: "var(--mal)", info: "var(--info)",
 };
 const diaLargo = (iso: string) => new Date(iso).toLocaleDateString("es-UY", { weekday: "short", day: "numeric", month: "short", timeZone: "America/Montevideo" });

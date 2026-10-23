@@ -83,7 +83,7 @@
   - `CENTRALES_PROCEDIMIENTO` por prioridad admite `{ texto, obligatorio }` además de strings;
   - `procedimientoDe(clase, prioridad)` devuelve los pasos y el origen.
   - Verificación: tests de lectura de lo guardado hoy (strings), de clase con lista, de clase en `null`, y de tope de 12 pasos.
-- [ ] 5.2 `alarm-receiver.js` guarda en `details.procedimiento` la instantánea (pasos y origen) al crear la alarma. Sin instantánea, un evento viejo resuelve con lo vigente.
+- [ ] 5.2 El servidor guarda en `details.procedimiento` la instantánea (pasos y origen) la primera vez que arma el evento (ver design §8). Sin instantánea, un evento viejo resuelve con lo vigente y se guarda.
   - Verificación: un evento del simulador trae la instantánea; cambiar el ajuste no cambia ese evento.
 - [ ] 5.3 `tratamiento.ts`:
   - acción `PASO_PROC_SALTEO` con motivo (mínimo 4 letras), sólo para quien tiene el evento;

@@ -24,11 +24,14 @@ const COMPONENTES: Record<Exclude<ClaveVista, "rotacion">, React.ComponentType> 
 type Alarmas = { pendientes: any[]; confirmadas: any[] };
 
 export function VistaRotacion() {
-    const { ajustes, setTitulo, latir } = useMarco();
-    const vistas = useMemo(() => (ajustes?.rotacion?.vistas?.length ? ajustes.rotacion.vistas : [...ROTACION_VISTAS_POR_DEFECTO]).filter((v) => v in COMPONENTES) as Exclude<ClaveVista, "rotacion">[], [ajustes]);
+    const { ajustes, setTitulo, latir, funciones } = useMarco();
+    // Las vistas cuya función de la instalación está apagada se saltean (Intrusión, Alarmas).
+    const vistas = useMemo(() => (ajustes?.rotacion?.vistas?.length ? ajustes.rotacion.vistas : [...ROTACION_VISTAS_POR_DEFECTO])
+        .filter((v) => v in COMPONENTES)
+        .filter((v) => { const f = vistaPorClave(v)?.funcion; return !f || !funciones || funciones[f] !== false; }) as Exclude<ClaveVista, "rotacion">[], [ajustes, funciones]);
     const segundos = Math.max(ROTACION_SEG_MIN, ajustes?.rotacion?.segundos || ROTACION_SEG_POR_DEFECTO);
     const [i, setI] = useState(0);
-    const { datos: alarmas } = usarDatos<Alarmas>("/api/monitor/alarmas", 15_000, latir);
+    const { datos: alarmas } = usarDatos<Alarmas>(vistas.includes("intrusion") ? "/api/monitor/alarmas" : null, 15_000, latir);
     const conCentrales = vistas.includes("alarmas");
     const { datos: centrales } = usarDatos<{ pendientes: { prioridad: number }[] }>(conCentrales ? "/api/monitor/centrales" : null, 15_000, latir);
     const clavadaIntrusion = !!alarmas && (alarmas.pendientes.length > 0 || alarmas.confirmadas.length > 0) && vistas.includes("intrusion");

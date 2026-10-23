@@ -34,6 +34,7 @@ const dc = require("./lib-dc09");
 const cod = require("./lib-dc09-codigos");
 const cms = require("./lib-cms-salida");
 const { descifrar } = require("./lib-cifrado-datos");
+const camarasCentral = require("./lib-centrales-camaras");
 
 // Claves de los equipos cifradas en la base: se leen descifradas (lib-cifrado-datos, punto 5).
 const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
@@ -186,6 +187,18 @@ async function procesar(trama, ip, transporte) {
     return respuesta;
 }
 
+/** Las cámaras con su nombre y su stream, para el aviso del socket: [{ id, nombre, stream }]. */
+async function nombrarCamaras(ids) {
+    if (!ids.length) return [];
+    try {
+        const canales = ids.map((id) => ({ id, c: camarasCentral.canalDe(id) }));
+        const nvrIds = [...new Set(canales.filter((x) => x.c).map((x) => x.c.nvrId))];
+        const devs = await prisma.device.findMany({ where: { id: { in: [...ids.filter((id) => !camarasCentral.canalDe(id)), ...nvrIds] } }, select: { id: true, name: true } });
+        const nombre = new Map(devs.map((d) => [d.id, d.name]));
+        return canales.map(({ id, c }) => ({ id, nombre: c ? `${nombre.get(c.nvrId) || "NVR"} · canal ${c.ch}` : nombre.get(id) || "Cámara", stream: camarasCentral.streamDe(id) }));
+    } catch { return ids.map((id) => ({ id, nombre: "Cámara", stream: camarasCentral.streamDe(id) })); }
+}
+
 async function despues(central, msg, eventos, mensajeId) {
     for (const e of eventos) {
         let zona = null;
@@ -194,8 +207,16 @@ async function despues(central, msg, eventos, mensajeId) {
             zona = await prisma.zonaCentral.upsert({ where: { centralId_zona: { centralId: central.id, zona: e.zona } }, update: {}, create: { centralId: central.id, zona: e.zona, particion: e.particion ?? null } }).catch(() => null);
         }
         if (e.categoria !== "ALARMA") continue;
+        // Gestión apagada: el mensaje ya quedó registrado; sólo sale el aviso de las reglas, sin alarma para tratar.
+        if (!gestionOn) {
+            if (!central.prueba) avisarPorReglas({ modulo: "INTRUSION", evento: "CENTRAL", deviceId: central.deviceId, deviceName: `${central.nombre}${zona ? ` · Zona ${zona.zona}${zona.nombre ? ` · ${zona.nombre}` : ""}` : ""}`, clase: null, snapshotPath: null, extra: { eventType: e.tipo } });
+            continue;
+        }
         const rotuloZona = zona ? (zona.nombre ? `Zona ${zona.zona} · ${zona.nombre}` : `Zona ${zona.zona}`) : e.particion != null ? `Partición ${e.particion}` : null;
-        const camaras = zona?.camaras || [];
+        // Las cámaras de la verificación: las de la zona, si no las de su área, si no las del abonado
+        // (lib-centrales-camaras.js, openspec alarmas-como-funciones).
+        const ver = await camarasCentral.camarasDeZona(prisma, central.id, zona ? zona.zona : null).catch(() => ({ ids: zona?.camaras || [], origen: "zona" }));
+        const camaras = ver.ids;
         const det = await prisma.detection.create({
             data: {
                 deviceId: central.deviceId, type: "CENTRAL", eventType: e.tipo, label: rotuloZona || e.texto, timestamp: new Date(),
@@ -204,12 +225,16 @@ async function despues(central, msg, eventos, mensajeId) {
         });
         if (mensajeId) prisma.mensajeCentral.update({ where: { id: mensajeId }, data: { detectionId: det.id } }).catch(() => { });
         const nombre = `${central.nombre}${rotuloZona ? ` · ${rotuloZona}` : ""}`;
-        emitir("general_detection", { id: det.id, deviceId: central.deviceId, deviceName: nombre, type: "CENTRAL", eventType: e.tipo, label: `${TIPO_ROTULO[e.tipo] || e.texto}${rotuloZona ? ` · ${rotuloZona}` : ""}`, timestamp: det.timestamp, camaras });
+        // El aviso lleva las cámaras con nombre y stream: la pared abre el video con esto, sin esperar su consulta.
+        emitir("general_detection", { id: det.id, deviceId: central.deviceId, deviceName: nombre, type: "CENTRAL", eventType: e.tipo, label: `${TIPO_ROTULO[e.tipo] || e.texto}${rotuloZona ? ` · ${rotuloZona}` : ""}`, timestamp: det.timestamp, camaras: await nombrarCamaras(camaras) });
         // La foto: un cuadro de cada cámara de la zona; la primera es la de la ficha.
         const fotos = [];
         for (let i = 0; i < Math.min(camaras.length, 4); i++) { const p = await fotoDe(camaras[i], `${det.id}${i ? `-${i}` : ""}.jpg`); if (p) fotos.push({ camara: camaras[i], foto: p }); }
         if (fotos.length) {
-            await prisma.detection.update({ where: { id: det.id }, data: { snapshotPath: fotos[0].foto, details: JSON.stringify({ ...JSON.parse(det.details || "{}"), fotos }) } }).catch(() => { });
+            // Releído justo antes: el panel guarda en estos mismos segundos el procedimiento del evento.
+            const ahora = await prisma.detection.findUnique({ where: { id: det.id }, select: { details: true } }).catch(() => null);
+            let previo = {}; try { previo = JSON.parse((ahora && ahora.details) || det.details || "{}") || {}; } catch { }
+            await prisma.detection.update({ where: { id: det.id }, data: { snapshotPath: fotos[0].foto, details: JSON.stringify({ ...previo, fotos }) } }).catch(() => { });
             emitir("detection_snapshot", { id: det.id, snapshotPath: fotos[0].foto });
         }
         // Una central de prueba (el simulador) no dispara reglas: no le llega nada a la guardia.
@@ -263,7 +288,10 @@ async function procesarCms(trama, ip) {
     return cms.ACK;
 }
 
+/** Las conexiones abiertas: al apagar la recepción se cortan todas, no sólo se deja de aceptar nuevas. */
+const abiertas = new Set();
 const tcpCms = net.createServer((s) => {
+    abiertas.add(s); s.once("close", () => abiertas.delete(s));
     const ip = String(s.remoteAddress || "").replace(/^::ffff:/, "");
     if (!cmsPermitida(ip)) { log(`cms: conexión de ${ip} rechazada (no está en ALARMAS_CMS_DESDE)`); s.destroy(); return; }
     const n = (porIp.get(`cms:${ip}`) || 0) + 1;
@@ -286,6 +314,7 @@ tcpCms.on("error", (e) => { log("TCP CMS:", e.message); process.exit(1); });
 // ── Red ──────────────────────────────────────────────────────────────────────────────────────
 const porIp = new Map();
 const tcp = net.createServer((s) => {
+    abiertas.add(s); s.once("close", () => abiertas.delete(s));
     const ip = String(s.remoteAddress || "").replace(/^::ffff:/, "");
     const n = (porIp.get(ip) || 0) + 1;
     if (n > CONEXIONES_POR_IP) { s.destroy(); return; }
@@ -306,21 +335,70 @@ const tcp = net.createServer((s) => {
 });
 tcp.on("error", (e) => { log("TCP:", e.message); process.exit(1); });
 
-const udp = dgram.createSocket("udp4");
-udp.on("message", (b, rinfo) => {
-    if (b.length > dc.LARGO_MAX * 2) return;
-    const { tramas } = dc.separar(b.toString("latin1"));
-    for (const t of tramas) procesar(t, rinfo.address, "udp").then((resp) => { if (resp) udp.send(Buffer.from(resp, "latin1"), rinfo.port, rinfo.address); }).catch((e) => log("udp:", e.message));
-});
-udp.on("error", (e) => { log("UDP:", e.message); process.exit(1); });
+// UDP: un socket cerrado no se vuelve a abrir, así que se crea uno nuevo cada vez que se prende.
+let udp = null;
+function nuevoUdp() {
+    const u = dgram.createSocket("udp4");
+    u.on("message", (b, rinfo) => {
+        if (b.length > dc.LARGO_MAX * 2) return;
+        const { tramas } = dc.separar(b.toString("latin1"));
+        for (const t of tramas) procesar(t, rinfo.address, "udp").then((resp) => { if (resp) u.send(Buffer.from(resp, "latin1"), rinfo.port, rinfo.address); }).catch((e) => log("udp:", e.message));
+    });
+    u.on("error", (e) => { log("UDP:", e.message); process.exit(1); });
+    return u;
+}
 
-releer().then(() => {
+// ── Funciones de la instalación (openspec alarmas-como-funciones) ─────────────────────────────
+// Recepción apagada: los puertos se CIERRAN (no se contesta NAK: la central reintentaría el mismo
+// evento para siempre y trabaría la cola; con el puerto cerrado registra falla de comunicación, que
+// es la verdad). Gestión apagada: se registra y se avisa, pero no se crean alarmas para tratar.
+// Se sondea Setting: el panel no tiene cómo avisarle a este proceso sin pasar por server.js.
+const SONDEO_FUNCIONES_MS = 15_000;
+let escuchando = false;
+/** Gestión de alarmas efectiva (prendida y con la recepción prendida). Antes de leerla, prendida: se lee antes de abrir. */
+let gestionOn = true;
+async function leerFunciones() {
+    const filas = await prisma.setting.findMany({ where: { key: { in: ["FUNC_ALARMAS_RECEPCION", "FUNC_ALARMAS_GESTION"] } }, select: { key: true, value: true } });
+    const v = (k) => filas.find((f) => f.key === k)?.value === "true";   // sin fila: apagada (su defecto)
+    return { recepcion: v("FUNC_ALARMAS_RECEPCION"), gestion: v("FUNC_ALARMAS_RECEPCION") && v("FUNC_ALARMAS_GESTION") };
+}
+function abrirPuertos() {
+    if (escuchando) return;
+    escuchando = true;
+    udp = nuevoUdp();
     tcp.listen(PUERTO, "0.0.0.0", () => log(`escuchando TCP ${PUERTO}`));
     udp.bind(PUERTO, "0.0.0.0", () => log(`escuchando UDP ${PUERTO} · ${centrales.size} centrales dadas de alta`));
     if (PUERTO_CMS) tcpCms.listen(PUERTO_CMS, "0.0.0.0", () => log(`escuchando TCP ${PUERTO_CMS} (salida a CMS de receptores: IPC10, Sur-Gard) desde ${CMS_DESDE.join(", ")}`));
+}
+function cerrarPuertos() {
+    if (!escuchando) return;
+    escuchando = false;
+    try { tcp.close(); } catch { }
+    try { if (PUERTO_CMS) tcpCms.close(); } catch { }
+    try { udp?.close(); } catch { }
+    udp = null;
+    for (const s of abiertas) s.destroy();
+    log("recepción de alarmas apagada en Ajustes → Modos: puertos cerrados");
+}
+async function aplicarFunciones() {
+    try {
+        const f = await leerFunciones();
+        if (f.gestion !== gestionOn) log(`gestión de alarmas ${f.gestion ? "prendida" : "apagada: se registra y se avisa, sin alarmas para tratar"}`);
+        gestionOn = f.gestion;
+        if (f.recepcion) abrirPuertos(); else cerrarPuertos();
+    } catch (e) {
+        // Si la base no contesta se queda como estaba: nunca se cierra el puerto por un hipo de consulta.
+        log("no se pudieron leer las funciones:", e.message);
+    }
+}
+
+releer().then(async () => {
+    await aplicarFunciones();
+    if (!escuchando) log("recepción de alarmas apagada en Ajustes → Modos: no se abren los puertos");
     setInterval(releer, RELEER_MS).unref();
+    setInterval(aplicarFunciones, SONDEO_FUNCIONES_MS).unref();
 });
 
-const cerrar = () => { try { tcp.close(); udp.close(); tcpCms.close(); } catch { } prisma.$disconnect().finally(() => process.exit(0)); };
+const cerrar = () => { try { tcp.close(); udp?.close(); tcpCms.close(); } catch { } prisma.$disconnect().finally(() => process.exit(0)); };
 process.on("SIGINT", cerrar); process.on("SIGTERM", cerrar);
 module.exports = { procesar, procesarCms };

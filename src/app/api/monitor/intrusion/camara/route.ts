@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { autorizarMonitor, inicioDelDia, SIN_CACHE } from "@/lib/monitor/servidor";
 import { getDetectionHistory } from "@/app/actions/detections";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,7 @@ const DETECCIONES_EN_FICHA = 30;
  * de esa vista la puede leer; no escribe nada.
  */
 export async function GET(req: NextRequest) {
+    const funcionApagada = await exigirFuncion("FUNC_INTRUSION"); if (funcionApagada) return funcionApagada;
     const p = await autorizarMonitor("/api/monitor/intrusion/camara");
     if (p.error) return p.error;
     const id = req.nextUrl.searchParams.get("id") || "";

@@ -9,9 +9,11 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { sesionCon } from "@/lib/centrales/sesion";
 import { eventosPendientes, leerConfigTratamiento } from "@/lib/centrales/tratamiento";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 
 export async function GET() {
+    const funcionApagada = await exigirFuncion("FUNC_ALARMAS_GESTION"); if (funcionApagada) return funcionApagada;
     const { s, no } = await sesionCon(); if (no) return no;
     try {
         const yo = (s?.name as string) || (s?.sub as string) || null;

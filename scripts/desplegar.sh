@@ -88,6 +88,10 @@ if [ -n "$(git diff --name-only "$ANTES" HEAD -- prisma/)" ]; then
   anotar "migraciones aplicadas"
 fi
 
+# Las funciones de la instalación (Intrusión, Recepción y Gestión de alarmas): la primera vez se
+# escriben según lo que había; después no se tocan (idempotente).
+node scripts/funciones-instalacion.js >> "$LOG" 2>&1 || anotar "AVISO: no se escribieron las funciones de la instalación"
+
 if ! sh scripts/compilar-sin-corte.sh; then
   volver_codigo; anotar "DESPLIEGUE_FALLO: el build falló o no contestó (ver /tmp/build.log); la web sigue con lo anterior"; exit 1
 fi

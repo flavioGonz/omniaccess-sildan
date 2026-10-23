@@ -7,6 +7,8 @@
  * ningún otro lado.
  */
 
+import type { FuncionId } from "@/lib/funciones";
+
 export type ClaveVista = "intrusion" | "alarmas" | "lpr" | "mapa" | "resumen" | "salud" | "rotacion" | "camaras";
 
 export type Vista = {
@@ -18,13 +20,18 @@ export type Vista = {
     queMuestra: string;
     /** Ícono de lucide, por nombre: el menú lo resuelve. */
     icono: "ShieldAlert" | "Siren" | "Car" | "Map" | "LayoutDashboard" | "HeartPulse" | "RefreshCw" | "Cctv";
+    /**
+     * La función de la instalación sin la cual la vista no existe (openspec alarmas-como-funciones):
+     * apagada, Monitores no la ofrece, la rotación la saltea y la pantalla dice que está apagada.
+     */
+    funcion?: FuncionId;
     /** Si la vista puede sonar y con qué modos. */
     sonido?: { ajuste: string; modos: { valor: string; rotulo: string }[] };
 };
 
 export const VISTAS: Vista[] = [
     {
-        clave: "intrusion", nombre: "Intrusión", icono: "ShieldAlert",
+        clave: "intrusion", nombre: "Intrusión", icono: "ShieldAlert", funcion: "FUNC_INTRUSION",
         paraQuien: "La pared del centro: quien tiene que ver una intrusión en el segundo en que ocurre.",
         queMuestra: "Todas las cámaras de intrusión en mosaico, con su línea y su zona dibujadas y el armado de cada regla. Cuando una detecta, su canal se pone rojo y crece hasta ocupar media pantalla; al costado, las últimas detecciones con su foto.",
         sonido: { ajuste: "MONITOR_INTRUSION_SONIDO", modos: [{ valor: "off", rotulo: "Sin sonido" }, { valor: "una", rotulo: "Un tono por alarma" }, { valor: "repetir", rotulo: "Repetir hasta que se acepte" }] },
@@ -32,7 +39,7 @@ export const VISTAS: Vista[] = [
     {
         // 23/10, Nico: «un nuevo tipo de monitor para los wall, "Alarmas", con las alarmas del hub…
         // la recepción de eventos debe ser muy rápida: tenemos que verificar cada evento con video en vivo».
-        clave: "alarmas", nombre: "Alarmas", icono: "Siren",
+        clave: "alarmas", nombre: "Alarmas", icono: "Siren", funcion: "FUNC_ALARMAS_GESTION",
         paraQuien: "La pared del centro: quien verifica con video cada alarma que manda una central.",
         queMuestra: "La alarma más urgente sin tratar, con su prioridad, cuánto hace, quién la tiene y el video en vivo de las cámaras de su zona, que arranca en cuanto llega el evento. Al costado, la fila de las otras pendientes y todo lo que va llegando de las centrales; abajo, cada central con su armado y si sigue reportando.",
         sonido: { ajuste: "MONITOR_ALARMAS_SONIDO", modos: [{ valor: "una", rotulo: "Un tono por alarma" }, { valor: "repetir", rotulo: "Repetir mientras nadie la tome" }, { valor: "off", rotulo: "Sin sonido" }] },
@@ -84,7 +91,8 @@ export const vistaPorClave = (c: string) => VISTAS.find((v) => v.clave === c) ||
 export const ALCANCE_COMUN = ["/api/monitor/alarmas", "/api/monitor/marco"];
 export const ALCANCE_POR_VISTA: Record<ClaveVista, string[]> = {
     intrusion: ["/api/monitor/intrusion"],
-    alarmas: ["/api/monitor/centrales"],
+    // La foto de un canal de NVR, de respaldo cuando su vivo no arranca (VerificacionVideo).
+    alarmas: ["/api/monitor/centrales", "/api/monitor/camaras/foto"],
     lpr: ["/api/monitor/lpr"],
     mapa: ["/api/monitor/mapa"],
     resumen: ["/api/monitor/resumen"],

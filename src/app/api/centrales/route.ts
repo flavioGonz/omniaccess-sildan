@@ -15,10 +15,12 @@ import { prisma } from "@/lib/prisma";
 import { MODELOS, PUERTO_RECEPTOR, claveNueva, cuentaLibre, guardarClave, guardarDestino, leerDestino } from "@/lib/centrales";
 import { auditar, sesionCon } from "@/lib/centrales/sesion";
 import type { ModeloCentral } from "@/lib/centrales/tipos";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 const sinCache = { headers: { "Cache-Control": "no-store" } };
 
 export async function GET() {
+    const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
     const { no } = await sesionCon(); if (no) return no;
     const [filas, destino] = await Promise.all([
         prisma.centralAlarma.findMany({ include: { device: { select: { id: true, name: true, ip: true } }, _count: { select: { zonas: true } } }, orderBy: { createdAt: "asc" } }),
@@ -33,6 +35,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+    const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
     const { s, no } = await sesionCon("dispositivos"); if (no) return no;
     const b = await req.json().catch(() => ({}));
     const nombre = String(b?.nombre || "").trim().slice(0, 80);
@@ -74,6 +77,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+    const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
     const { s, no } = await sesionCon("dispositivos"); if (no) return no;
     const b = await req.json().catch(() => ({}));
     const d = b?.destino;

@@ -8,6 +8,7 @@ import {
     Activity, Truck, Infinity as SinTiempo, RadioTower,
 } from "lucide-react";
 import { VistaCentrales, ChipPrioridad } from "@/components/alarmas/MensajesCentrales";
+import { useFuncion } from "@/lib/funciones-cliente";
 import { abrirEventoCentral } from "@/lib/centrales/abrir-evento";
 import { ElegirArea } from "@/components/devices/ElegirArea";
 import { useFiltroArea, TODAS_LAS_AREAS } from "@/lib/use-filtro-area";
@@ -157,8 +158,14 @@ function GestionAlarmas() {
     const enAlarma = useCallback((a: Alarma) => (a.areaId ? fa.contieneArea(a.areaId) : fa.enArea(a.deviceId)), [fa.contieneArea, fa.enArea]); // eslint-disable-line react-hooks/exhaustive-deps
     const enAreaCentral = useCallback((deviceId: string | null, areaZona?: string | null) => (areaZona ? fa.contieneArea(areaZona) : fa.enArea(deviceId)), [fa.contieneArea, fa.enArea]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // Funciones de la instalación: sin Intrusión no se listan las de cámara; sin Gestión de alarmas,
+    // las de central (sin Recepción ni siquiera hay pestaña Centrales).
+    const intrusionOn = useFuncion("FUNC_INTRUSION") !== false;
+    const recepcionOn = useFuncion("FUNC_ALARMAS_RECEPCION") === true;
+    const gestionOn = useFuncion("FUNC_ALARMAS_GESTION") === true;
     const p = datos?.presencia || null;
-    const alarmas = useMemo(() => (datos?.alarmas || []).filter(enAlarma), [datos, enAlarma]);
+    const alarmas = useMemo(() => (datos?.alarmas || []).filter(enAlarma)
+        .filter((a) => a.tipo === "CENTRAL" ? gestionOn : a.fuente !== "intrusion" || intrusionOn), [datos, enAlarma, intrusionOn, gestionOn]);
     const pendientes = alarmas.filter((a) => a.estado === "pendiente");
 
     // ── Qué se mira ──
@@ -166,7 +173,7 @@ function GestionAlarmas() {
         { valor: "todo", rotulo: "Todo", icono: Layers, ayuda: "Las alarmas y los autos que están adentro sin ser del barrio, por hora" },
         { valor: "alarmas", rotulo: "Alarmas", icono: Siren, cuenta: datos ? pendientes.length : undefined, tono: "mal", ayuda: "Alarmas sin atender" },
         // Lo que mandan las centrales de alarma (Alarm Hub), en palabras: armado, fallas, pruebas, alarmas.
-        { valor: "centrales", rotulo: "Centrales", icono: RadioTower, ayuda: "Lo que mandan las centrales de alarma: armado y desarmado, alarmas, fallas y pruebas" },
+        ...(recepcionOn ? [{ valor: "centrales" as Ver, rotulo: "Centrales", icono: RadioTower, ayuda: "Lo que mandan las centrales de alarma: armado y desarmado, alarmas, fallas y pruebas" }] : []),
         { valor: "atipicos", rotulo: "Atípicos dentro", icono: AlertTriangle, cuenta: fa.filtrando ? autosDe("atipicos").length : p?.resumen.atipicos, tono: "aviso" },
         { valor: "residentes", rotulo: "Residentes dentro", icono: Home, cuenta: p?.resumen.residentes },
         // Visitas y Proveedores en dos pestañas (21/10, Nico): un delivery que vence y la cuadrilla con
@@ -344,7 +351,7 @@ function GestionAlarmas() {
                     { valor: "todas", rotulo: "Todas" }] }]} />
             <div className="ml-auto flex items-center gap-2">
                 <div className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5 gap-0.5" role="group" aria-label="Origen">
-                    {(["intrusion", "lpr", "patron", "vision"] as FuenteAlarma[]).map((f) => {
+                    {(["intrusion", "lpr", "patron", "vision"] as FuenteAlarma[]).filter((f) => f !== "intrusion" || intrusionOn).map((f) => {
                         const I = ICONO_FUENTE[f], on = origenes.includes(f), n = cuentaFuente(f);
                         return (
                             <button key={f} type="button" onClick={() => alternarOrigen(f)} aria-pressed={on} aria-label={NOMBRE_FUENTE[f]}
@@ -401,7 +408,7 @@ function GestionAlarmas() {
             </div>
 
             {/* Cuerpo: la tabla de lo elegido y lo seleccionado a la derecha. */}
-            {ver === "centrales" ? <VistaCentrales key="centrales" horas={horas} setHoras={setHoras} enArea={enAreaCentral} area={{ nombre: fa.nombre, filtrando: fa.filtrando, verTodas: () => fa.setArea(TODAS_LAS_AREAS) }} /> : (
+            {ver === "centrales" && recepcionOn ? <VistaCentrales key="centrales" horas={horas} setHoras={setHoras} enArea={enAreaCentral} area={{ nombre: fa.nombre, filtrando: fa.filtrando, verTodas: () => fa.setArea(TODAS_LAS_AREAS) }} /> : (
             <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[1fr_400px] xl:divide-x divide-border">
                 <div className="min-h-0 flex flex-col gap-3 p-4">
                     {(hecho || fallo) && (

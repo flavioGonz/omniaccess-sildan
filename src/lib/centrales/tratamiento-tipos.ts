@@ -11,6 +11,8 @@
 
 export const AJUSTE_CIERRES = "CENTRALES_CIERRES";
 export const AJUSTE_PROCEDIMIENTO = "CENTRALES_PROCEDIMIENTO";
+/** El procedimiento de cada clase de evento (openspec alarmas-como-funciones); sin uno, vale el de su prioridad. */
+export const AJUSTE_PROCEDIMIENTOS_CLASE = "CENTRALES_PROCEDIMIENTOS";
 export const AJUSTE_ESCALADO = "CENTRALES_ESCALADO";
 
 /** Cómo se cerró: el resultado cuenta para los informes (cuántas falsas, cuántas reales). */
@@ -30,15 +32,35 @@ export const CIERRES_DEFECTO: Cierre[] = [
     { id: "sin-contacto", texto: "No se pudo contactar al titular", resultado: "otro", activo: true },
 ];
 
-/** Los pasos que se van tildando según la prioridad del evento (1 a 5). Cada tilde queda con hora y quién. */
-export type Procedimiento = Record<"1" | "2" | "3" | "4" | "5", string[]>;
+/**
+ * Un paso del procedimiento. `obligatorio`: TRATAR exige tildarlo o saltearlo escribiendo por qué
+ * (23/10, Nico: «tener sus procedimientos de actuación marcados»). Cada tilde y cada salteo quedan
+ * con hora y quién.
+ */
+export type Paso = { texto: string; obligatorio: boolean };
+/** El procedimiento de cada prioridad (1 a 5): el respaldo de las clases que no tienen uno propio. */
+export type Procedimiento = Record<"1" | "2" | "3" | "4" | "5", Paso[]>;
+const p = (texto: string, obligatorio = false): Paso => ({ texto, obligatorio });
 export const PROCEDIMIENTO_DEFECTO: Procedimiento = {
-    "1": ["Mirar las cámaras de la zona", "Llamar al titular o a sus contactos", "Llamar a la policía (911)", "Enviar a la guardia"],
-    "2": ["Mirar las cámaras de la zona", "Llamar al titular", "Enviar a la guardia si no contesta"],
-    "3": ["Llamar al titular"],
+    "1": [p("Mirar las cámaras de la zona"), p("Llamar al titular o a sus contactos"), p("Llamar a la policía (911)"), p("Enviar a la guardia")],
+    "2": [p("Mirar las cámaras de la zona"), p("Llamar al titular"), p("Enviar a la guardia si no contesta")],
+    "3": [p("Llamar al titular")],
     "4": [],
     "5": [],
 };
+/** Hasta cuántos pasos tiene un procedimiento. */
+export const PASOS_MAX = 12;
+/** Lo mínimo que hay que escribir para saltear un paso obligatorio. */
+export const MOTIVO_SALTEO_MINIMO = 4;
+
+/** Las clases de evento que pueden tener procedimiento propio (las de lib/centrales/prioridades que son alarmas o fallas). */
+export const CLASES_CON_PROCEDIMIENTO = ["ROBO", "PANICO", "COACCION", "INCENDIO", "MEDICA", "SABOTAJE", "TECNICA", "FALLA"] as const;
+export type ClaseConProcedimiento = (typeof CLASES_CON_PROCEDIMIENTO)[number];
+/** `null` (o ausente) = usa el de su prioridad. */
+export type ProcedimientosClase = Partial<Record<ClaseConProcedimiento, Paso[] | null>>;
+
+/** El procedimiento que le toca a un evento, y de dónde sale (para decirlo en la ficha y en la auditoría). */
+export type ProcedimientoResuelto = { pasos: Paso[]; origen: { tipo: "clase"; clase: string; nombre: string } | { tipo: "prioridad"; prioridad: number } };
 
 /**
  * Hasta qué prioridad salta la ventana con sonido (`ventanaHasta`) y en qué prioridad entra la pila
@@ -69,15 +91,55 @@ export function leerCierres(v: unknown): Cierre[] {
     return out.length ? out : CIERRES_DEFECTO;
 }
 
+/** Un paso guardado: el texto suelto de antes (no obligatorio) o { texto, obligatorio }. */
+export function leerPaso(x: unknown): Paso | null {
+    const texto = String((x && typeof x === "object" ? (x as any).texto : x) || "").trim().slice(0, 100);
+    if (!texto) return null;
+    return { texto, obligatorio: !!(x && typeof x === "object" && (x as any).obligatorio) };
+}
+/** Una lista de pasos: sin vacíos, sin repetidos (el texto es su clave en la bitácora), hasta PASOS_MAX. */
+export function leerPasos(v: unknown): Paso[] {
+    if (!Array.isArray(v)) return [];
+    const vistos = new Set<string>();
+    const out: Paso[] = [];
+    for (const x of v) { const q = leerPaso(x); if (q && !vistos.has(q.texto)) { vistos.add(q.texto); out.push(q); } }
+    return out.slice(0, PASOS_MAX);
+}
+
 export function leerProcedimiento(v: unknown): Procedimiento {
     const g = json(v) as any;
     const out = { ...PROCEDIMIENTO_DEFECTO };
     if (g && typeof g === "object") {
-        for (const k of ["1", "2", "3", "4", "5"] as const) {
-            if (Array.isArray(g[k])) out[k] = g[k].map((x: unknown) => String(x || "").trim().slice(0, 100)).filter(Boolean).slice(0, 12);
-        }
+        for (const k of ["1", "2", "3", "4", "5"] as const) if (Array.isArray(g[k])) out[k] = leerPasos(g[k]);
     }
     return out;
+}
+
+/** Lo guardado por clase: cada clase con su lista, o null (= la de su prioridad). Lo desconocido se descarta. */
+export function leerProcedimientosClase(v: unknown): ProcedimientosClase {
+    const g = json(v) as any;
+    const out: ProcedimientosClase = {};
+    if (g && typeof g === "object") {
+        for (const c of CLASES_CON_PROCEDIMIENTO) if (Array.isArray(g[c])) out[c] = leerPasos(g[c]);
+    }
+    return out;
+}
+
+/**
+ * El procedimiento de un evento: el de su clase si tiene uno (aunque esté vacío a propósito: una clase
+ * con lista vacía no tiene pasos), y si no, el de su prioridad.
+ */
+export function resolverProcedimiento(clase: string, nombreClase: string, prioridad: number, porPrioridad: Procedimiento, porClase: ProcedimientosClase): ProcedimientoResuelto {
+    const propio = (porClase as Record<string, Paso[] | null | undefined>)[clase];
+    if (Array.isArray(propio)) return { pasos: propio, origen: { tipo: "clase", clase, nombre: nombreClase } };
+    const k = String(Math.min(5, Math.max(1, prioridad))) as keyof Procedimiento;
+    return { pasos: porPrioridad[k] || [], origen: { tipo: "prioridad", prioridad: Number(k) } };
+}
+export const origenProcedimiento = (r: ProcedimientoResuelto) => r.origen.tipo === "clase" ? `Procedimiento de ${r.origen.nombre}` : `Procedimiento de prioridad ${r.origen.prioridad}`;
+
+/** Los obligatorios que todavía no están ni hechos ni salteados: lo que le falta a TRATAR. */
+export function obligatoriosFaltantes(pasos: Paso[], hechos: Record<string, unknown>, salteados: Record<string, unknown>): string[] {
+    return pasos.filter((x) => x.obligatorio && !hechos[x.texto] && !salteados[x.texto]).map((x) => x.texto);
 }
 
 export function leerEscalado(v: unknown): Escalado {
@@ -105,6 +167,10 @@ export type EventoCentral = {
     tratado: { por: string | null; ts: string; cierre: string; resultado: string | null; texto: string | null } | null;
     /** Pasos del procedimiento ya hechos: { paso: { por, ts } }. */
     pasos: Record<string, { por: string | null; ts: string }>;
+    /** Pasos salteados con su motivo: { paso: { por, ts, motivo } }. */
+    salteos: Record<string, { por: string | null; ts: string; motivo: string }>;
+    /** El procedimiento con que se abrió el evento (guardado con él) y de dónde salió. */
+    procedimiento: ProcedimientoResuelto;
     escalado: string | null;
     tiempos: { tomarSeg: number | null; tratarSeg: number | null };
 };

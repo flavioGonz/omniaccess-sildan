@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RotateCcw, Save, Siren } from "lucide-react";
+import { ArrowDown, ArrowUp, Loader2, Plus, RotateCcw, Save, Siren, Trash2 } from "lucide-react";
 import { toast } from "@/lib/avisos";
 import { Button } from "@/components/ui/button";
 import { ChipPrioridad } from "@/components/alarmas/MensajesCentrales";
 import { CLASES, NIVELES, PRIORIDADES_DEFECTO, type ClaseEvento, type Prioridades } from "@/lib/centrales/prioridades";
-import type { Cierre, Escalado, Procedimiento } from "@/lib/centrales/tratamiento-tipos";
+import { CLASES_CON_PROCEDIMIENTO, PASOS_MAX, type Cierre, type Escalado, type Paso, type Procedimiento, type ProcedimientosClase } from "@/lib/centrales/tratamiento-tipos";
 import { cn } from "@/lib/utils";
+import { useFuncion } from "@/lib/funciones-cliente";
 
 /**
  * Ajustes › Centrales de alarma (22/10, Nico: «clasificar los eventos en grado de importancia,
@@ -24,6 +25,19 @@ import { cn } from "@/lib/utils";
  */
 export default function CentralesSection() {
     const [parte, setParte] = useState<"prioridades" | "cierres" | "procedimiento" | "escalado">("prioridades");
+    // Sin la Recepción de alarmas estos ajustes no existen (sus rutas contestan 404): se dice dónde prenderla.
+    const recepcion = useFuncion("FUNC_ALARMAS_RECEPCION");
+    if (recepcion === false) {
+        return (
+            <div className="rounded-[10px] border border-border bg-card px-5 py-6 flex items-start gap-3 max-w-2xl">
+                <Siren size={20} className="mt-0.5 text-muted-foreground shrink-0" />
+                <div>
+                    <div className="text-[14px] font-semibold">La Recepción de alarmas está apagada</div>
+                    <p className="mt-1 text-[12.5px] text-muted-foreground leading-relaxed">Las prioridades, los cierres, los procedimientos y el escalado son de las alarmas de las centrales. Se prende en Ajustes → Modos → Funciones de la instalación.</p>
+                </div>
+            </div>
+        );
+    }
     return (
         <div className="space-y-5">
             <div className="flex items-center rounded-full border border-border p-0.5 w-fit" role="tablist">
@@ -117,7 +131,35 @@ function PrioridadesCentralesSection() {
 
 /* ── Cierres, procedimiento y escalado (lib/centrales/tratamiento-tipos) ── */
 
-type Ajustes = { cierres: Cierre[]; procedimiento: Procedimiento; escalado: Escalado };
+type Ajustes = { cierres: Cierre[]; procedimiento: Procedimiento; procedimientosClase: ProcedimientosClase; escalado: Escalado };
+
+/**
+ * Los pasos de un procedimiento, uno por fila: el texto, si es obligatorio, y subir, bajar o quitar
+ * (openspec alarmas-como-funciones). Era un textarea con un paso por renglón: no había dónde decir que
+ * un paso es obligatorio, y ordenar era cortar y pegar.
+ */
+function EditorPasos({ pasos, alCambiar }: { pasos: Paso[]; alCambiar: (p: Paso[]) => void }) {
+    const entrada = "h-8 rounded-[8px] px-2.5 text-[12.5px] bg-background border border-border outline-none focus:ring-2 focus:ring-[var(--accion)]/40";
+    const mover = (i: number, d: -1 | 1) => { const j = i + d; if (j < 0 || j >= pasos.length) return; const x = [...pasos]; [x[i], x[j]] = [x[j], x[i]]; alCambiar(x); };
+    return (
+        <div className="space-y-1.5">
+            {pasos.length === 0 && <p className="text-[12px] text-muted-foreground">Sin pasos.</p>}
+            {pasos.map((p, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                    <span className="w-5 text-right text-[11.5px] text-muted-foreground tabular-nums">{i + 1}.</span>
+                    <input value={p.texto} onChange={(e) => alCambiar(pasos.map((x, j) => (j === i ? { ...x, texto: e.target.value.slice(0, 100) } : x)))} placeholder="Qué hacer" className={cn(entrada, "flex-1 min-w-0")} />
+                    <label className={cn("flex items-center gap-1.5 h-8 px-2 rounded-[8px] border text-[11.5px] font-semibold cursor-pointer select-none", p.obligatorio ? "chip-aviso" : "border-border text-muted-foreground")} title="Para tratar el evento hay que tildarlo o saltearlo escribiendo por qué">
+                        <input type="checkbox" checked={p.obligatorio} onChange={(e) => alCambiar(pasos.map((x, j) => (j === i ? { ...x, obligatorio: e.target.checked } : x)))} className="accent-[var(--aviso)]" /> Obligatorio
+                    </label>
+                    <button type="button" onClick={() => mover(i, -1)} disabled={i === 0} aria-label="Subir" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-accent disabled:opacity-30"><ArrowUp size={14} /></button>
+                    <button type="button" onClick={() => mover(i, 1)} disabled={i === pasos.length - 1} aria-label="Bajar" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-accent disabled:opacity-30"><ArrowDown size={14} /></button>
+                    <button type="button" onClick={() => alCambiar(pasos.filter((_, j) => j !== i))} aria-label="Quitar el paso" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-[var(--mal-texto)] hover:bg-accent"><Trash2 size={14} /></button>
+                </div>
+            ))}
+            {pasos.length < PASOS_MAX && <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => alCambiar([...pasos, { texto: "", obligatorio: false }])}><Plus size={14} /> Agregar paso</Button>}
+        </div>
+    );
+}
 
 function AjustesTratamiento({ parte }: { parte: "cierres" | "procedimiento" | "escalado" }) {
     const [guardado, setGuardado] = useState<Ajustes | null>(null);
@@ -128,12 +170,14 @@ function AjustesTratamiento({ parte }: { parte: "cierres" | "procedimiento" | "e
         .then(async (r) => { const j = await r.json().catch(() => null); if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`); return j as Ajustes; })
         .then((x) => { setGuardado(x); setA(x); setError(null); }).catch((e) => setError(e?.message || "No se pudo leer."));
     useEffect(() => { cargar(); }, []);
-    const cambiado = !!a && !!guardado && JSON.stringify(a[parte]) !== JSON.stringify(guardado[parte]);
+    // El procedimiento son dos ajustes que se editan juntos: el de cada clase y el de cada prioridad.
+    const delaParte = (x: Ajustes) => (parte === "procedimiento" ? { procedimiento: x.procedimiento, procedimientosClase: x.procedimientosClase } : { [parte]: x[parte] });
+    const cambiado = !!a && !!guardado && JSON.stringify(delaParte(a)) !== JSON.stringify(delaParte(guardado));
     const guardar = async (restaurar = false) => {
         if (!a) return;
         setGuardando(true);
         try {
-            const r = await fetch("/api/centrales/ajustes", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(restaurar ? { restaurar: parte } : { [parte]: a[parte] }) });
+            const r = await fetch("/api/centrales/ajustes", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(restaurar ? { restaurar: parte } : delaParte(a)) });
             const j = await r.json().catch(() => null);
             if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
             setGuardado(j); setA(j); toast.success(restaurar ? "Restaurado lo de fábrica" : "Guardado");
@@ -161,13 +205,31 @@ function AjustesTratamiento({ parte }: { parte: "cierres" | "procedimiento" | "e
                 <Button variant="outline" size="sm" onClick={() => setA({ ...a, cierres: [...a.cierres, { id: `nuevo-${Date.now().toString(36)}`, texto: "", resultado: "otro", activo: true }] })}>Agregar cierre</Button>
             </>)}
             {parte === "procedimiento" && (<>
-                <p className="text-[12.5px] text-muted-foreground max-w-prose">Los pasos que el operador va tildando en la ficha del evento, según su prioridad. Cada tilde queda con su nombre y la hora. Un paso por renglón.</p>
+                <p className="text-[12.5px] text-muted-foreground max-w-prose">Los pasos que el operador tilda en la ficha del evento. Cada <b>clase</b> de evento puede tener el suyo (un incendio no se atiende como un robo); la que no tiene usa el de su <b>prioridad</b>. Un paso <b>obligatorio</b> hay que hacerlo, o saltearlo escribiendo por qué, para poder tratar el evento. Cada tilde y cada salteo quedan con nombre y hora. Un evento conserva el procedimiento con que llegó.</p>
+                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground pt-1">Por clase de evento</div>
+                {CLASES.filter((c) => (CLASES_CON_PROCEDIMIENTO as readonly string[]).includes(c.clase)).map((c) => {
+                    const propio = (a.procedimientosClase as Record<string, Paso[] | null | undefined>)[c.clase];
+                    const tiene = Array.isArray(propio);
+                    const fijar = (v: Paso[] | null) => setA({ ...a, procedimientosClase: { ...a.procedimientosClase, [c.clase]: v } });
+                    return (
+                        <div key={c.clase} className="rounded-[10px] border border-border p-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-[13px] font-semibold">{c.nombre}</span>
+                                <span className="text-[11.5px] text-muted-foreground truncate">{c.ejemplos}</span>
+                                <span className="ml-auto flex items-center rounded-full border border-border p-0.5 shrink-0">
+                                    <button type="button" onClick={() => fijar(null)} className={cn("h-7 px-2.5 rounded-full text-[11.5px] font-semibold", !tiene ? "bg-foreground text-background" : "text-muted-foreground")}>Usa el de su prioridad</button>
+                                    <button type="button" onClick={() => fijar(tiene ? propio! : [])} className={cn("h-7 px-2.5 rounded-full text-[11.5px] font-semibold", tiene ? "bg-foreground text-background" : "text-muted-foreground")}>Propio</button>
+                                </span>
+                            </div>
+                            {tiene && <EditorPasos pasos={propio!} alCambiar={(p) => fijar(p)} />}
+                        </div>
+                    );
+                })}
+                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground pt-2">Por prioridad (para las clases sin procedimiento propio)</div>
                 {(["1", "2", "3", "4", "5"] as const).map((n) => (
-                    <div key={n} className="rounded-[10px] border border-border p-3">
-                        <div className="flex items-center gap-2 mb-2"><ChipPrioridad n={Number(n)} /></div>
-                        <textarea value={a.procedimiento[n].join("\n")} rows={Math.max(2, a.procedimiento[n].length + 1)}
-                            onChange={(e) => setA({ ...a, procedimiento: { ...a.procedimiento, [n]: e.target.value.split("\n").map((x) => x.slice(0, 100)) } })}
-                            placeholder="Sin pasos" className="w-full rounded-[8px] px-3 py-2 text-[12.5px] bg-background border border-border outline-none focus:ring-2 focus:ring-[var(--accion)]/40 resize-y" />
+                    <div key={n} className="rounded-[10px] border border-border p-3 space-y-2">
+                        <div className="flex items-center gap-2"><ChipPrioridad n={Number(n)} /></div>
+                        <EditorPasos pasos={a.procedimiento[n]} alCambiar={(p) => setA({ ...a, procedimiento: { ...a.procedimiento, [n]: p } })} />
                     </div>
                 ))}
             </>)}

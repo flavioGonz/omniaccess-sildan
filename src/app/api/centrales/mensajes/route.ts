@@ -17,12 +17,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sesionCon } from "@/lib/centrales/sesion";
 import { leerPrioridadesGuardadas } from "@/lib/centrales/prioridades-servidor";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 const RANGOS_H = [24, 72, 168];
 /** Tope de filas: 7 días de supervisión de varias centrales son miles; la pantalla no necesita más. */
 const TOPE = 3000;
 
 export async function GET(req: NextRequest) {
+    const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
     const { no } = await sesionCon(); if (no) return no;
     const pedido = Number(req.nextUrl.searchParams.get("h"));
     const h = RANGOS_H.includes(pedido) ? pedido : 24;

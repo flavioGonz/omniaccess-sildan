@@ -17,9 +17,12 @@ async function ejecutar() {
         // Diagnóstico de imagen (tapada, borrosa, movida): unas pocas cámaras por vuelta, cada una cada ~15 min.
         { const { vueltaDiagnostico } = await import("@/lib/diagnostico-imagen"); await vueltaDiagnostico().catch((e) => console.error("[diagnostico-imagen]", e?.message)); }
         // Centrales de alarma (Alarm Hub): supervisión y fallas abiertas.
-        { const { evaluarCentrales } = await import("@/lib/centrales/supervision"); await evaluarCentrales().catch((e) => console.error("[centrales]", e?.message)); }
-        // Eventos de central que nadie tomó o nadie trató a tiempo: se escalan (lib/centrales/tratamiento).
-        { const { evaluarEscalado } = await import("@/lib/centrales/tratamiento"); await evaluarEscalado().catch((e) => console.error("[centrales] escalado", e?.message)); }
+        // Con la Recepción apagada no se evalúan: el receptor cerró sus puertos a propósito, y alertar
+        // «sin supervisión» por cada central sería ruido (openspec alarmas-como-funciones).
+        const { funcionActiva } = await import("@/app/actions/funciones");
+        if (await funcionActiva("FUNC_ALARMAS_RECEPCION")) { const { evaluarCentrales } = await import("@/lib/centrales/supervision"); await evaluarCentrales().catch((e) => console.error("[centrales]", e?.message)); }
+        // Eventos de central que nadie tomó o nadie trató a tiempo: se escalan (lib/centrales/tratamiento). Sólo con Gestión.
+        if (await funcionActiva("FUNC_ALARMAS_GESTION")) { const { evaluarEscalado } = await import("@/lib/centrales/tratamiento"); await evaluarEscalado().catch((e) => console.error("[centrales] escalado", e?.message)); }
         return NextResponse.json({ ok: true, n: results.length, ts: Date.now() });
     } catch (e: any) {
         return NextResponse.json({ ok: false, error: e?.message || "tick error" }, { status: 500 });

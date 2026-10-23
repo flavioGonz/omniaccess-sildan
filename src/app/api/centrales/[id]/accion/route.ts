@@ -11,8 +11,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { destinoPara, driverDe, equipoDe } from "@/lib/centrales";
 import { auditar, sesionCon } from "@/lib/centrales/sesion";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
     const { id } = await params;
     const b = await req.json().catch(() => ({}));
     const accion = String(b?.accion || "");

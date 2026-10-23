@@ -5,6 +5,7 @@ import { horariosDeTodas } from "@/lib/horarios-camaras";
 import { prisma } from "@/lib/prisma";
 import { inicioDelDia } from "@/lib/monitor/servidor";
 import { verificacionesDe } from "@/lib/verificacion";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ const ULTIMAS_EN_FRANJA = 40;
  * las últimas detecciones para la franja. Una sola llamada: la pared la repite cada 30 s.
  */
 export async function GET() {
+    const funcionApagada = await exigirFuncion("FUNC_INTRUSION"); if (funcionApagada) return funcionApagada;
     const p = await autorizarMonitor("/api/monitor/intrusion");
     if (p.error) return p.error;
     const camaras = await getIntrusionCameras();

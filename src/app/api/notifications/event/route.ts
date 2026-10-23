@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { notificarEvento, type EventoNotificable } from "@/lib/reglas-notificacion";
 import { alLeerMatricula } from "@/lib/visitas/motor";
+import { esAvisoDeCamara } from "@/lib/funciones";
+import { funcionActiva } from "@/app/actions/funciones";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,12 @@ export async function POST(req: NextRequest) {
     const b = (await req.json().catch(() => ({}))) as Partial<EventoNotificable>;
     if (!b?.modulo || !b?.evento) {
         return NextResponse.json({ error: "Falta modulo o evento" }, { status: 400 });
+    }
+
+    // Intrusión apagada (openspec alarmas-como-funciones): el evento de la cámara ya se guardó, pero
+    // no sale ningún aviso. 200 y no un error: para server.js no falló nada.
+    if (esAvisoDeCamara(b) && !(await funcionActiva("FUNC_INTRUSION"))) {
+        return NextResponse.json({ ok: true, encolados: 0, omitido: "función apagada" });
     }
 
     // Visitas y patrones: cerrar/abrir visitas y mirar patrones con cada lectura LPR. Sin

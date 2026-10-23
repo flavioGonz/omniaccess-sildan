@@ -94,7 +94,7 @@ La usan `FichaEventoCentral` (reemplaza `Camaras`, la foto cada 5 s) y `VistaAla
 ### 8. Procedimientos por clase con instantánea
 Nuevo ajuste `CENTRALES_PROCEDIMIENTOS`: `{ [clase]: { pasos: { texto, obligatorio }[] } | null }`. `null` significa usar el de su prioridad. `CENTRALES_PROCEDIMIENTO` (por prioridad) pasa a admitir `{ texto, obligatorio }` además de `string`; los strings leen como no obligatorios.
 
-- **Instantánea:** al crear la alarma, `alarm-receiver` guarda en `details.procedimiento` los pasos resueltos y el origen («Incendio» o «prioridad 1»). La ficha y el servidor usan esa instantánea. Un evento viejo sin instantánea resuelve con lo vigente.
+- **Instantánea:** el servidor guarda en `details.procedimiento` los pasos resueltos y el origen («Incendio» o «prioridad 1») la primera vez que arma el evento (`armar()` en `tratamiento.ts`). En la práctica es en el segundo que sigue a la alarma: la ventana global y la pared lo piden apenas llega el aviso del socket, y la vuelta de salud arma los que queden. Se descartó calcularlo en `alarm-receiver`: es CommonJS y habría que duplicar la lectura de procedimientos que vive en TS. Antes de escribir se relee el detalle, porque el receptor agrega los cuadros del momento en esos mismos segundos (y el receptor también relee antes de escribir).
 - **Saltear:** nueva acción de gestión `PASO_PROC_SALTEO`, con `detalle` = `<paso> — <motivo>`.
 - **Control en el servidor:** `tratarEvento` verifica que cada paso obligatorio de la instantánea tenga un `PASO_PROC` o un `PASO_PROC_SALTEO` vigente. Si falta alguno, devuelve 409 con la lista.
 
@@ -112,7 +112,7 @@ La vista ya relee con `alarma_gestion`, el evento que emite `registrarGestion`, 
 
 ## Risks / Trade-offs
 
-- [Un administrador apaga la recepción por error y las centrales quedan sin receptor] → El texto «si se apaga» lo dice antes de confirmar, el cambio queda auditado, y la salud de las centrales pasa a «sin supervisión» y avisa por las reglas existentes.
+- [Un administrador apaga la recepción por error y las centrales quedan sin receptor] → Apagar pide confirmar en un cajón que dice qué deja de pasar, el cambio queda auditado (`AccionSistema`), y la propia central registra la falla de comunicación. La vuelta de salud deja de evaluar la supervisión mientras la recepción está apagada: alertar «sin supervisión» por cada central sería ruido de algo que se apagó a propósito.
 - [El receptor sondea la base cada 15 s] → Es una consulta liviana por clave, en un proceso aparte del web. Si la base no contesta, se mantiene el último estado conocido y nunca se cierra el puerto por un fallo de consulta (misma regla que `funcionActiva`).
 - [Las cámaras del área pueden ser muchas] → Tope de 4 para la verificación; el resto queda en «otras cámaras del abonado» sólo si están en la lista del abonado.
 - [Vivo de 4 cámaras más grabación en una PC de pared modesta] → La grabación reemplaza al vivo de esa cámara, no se suma; las «otras» se abren de a una.

@@ -1,7 +1,8 @@
 /**
  * /api/centrales/<id> — la ficha de una central.
  *   GET  [?clave=1]  → { central, zonas, mensajes, alertas, modelo }   (?clave=1: la clave AES, con permiso Dispositivos y Auditoría)
- *   PATCH { nombre?, supervisionSeg?, lanVpn?, prueba?, protocolo?, zonas?: [{ zona, nombre, areaId, camaras }], nuevaClave? }
+ *   PATCH { nombre?, supervisionSeg?, lanVpn?, prueba?, protocolo?, camaras?: string[], zonas?: [{ zona, nombre, areaId, camaras }], nuevaClave? }
+ *         `camaras`: las del abonado (ids de equipo o `nvrch-<nvr>-<ch>`); las de una zona, hasta 4.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,10 +12,12 @@ import { prisma } from "@/lib/prisma";
 import { MODELOS, claveNueva, guardarClave, leerClave, leerDestino } from "@/lib/centrales";
 import { auditar, sesionCon } from "@/lib/centrales/sesion";
 import { SUPERVISION_MAX } from "@/lib/centrales/limites";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 const sinCache = { headers: { "Cache-Control": "no-store" } };
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
     const { id } = await params;
     const conClave = req.nextUrl.searchParams.get("clave") === "1";
     const { s, no } = await sesionCon(conClave ? "dispositivos" : undefined); if (no) return no;
@@ -32,6 +35,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    const funcionApagada = await exigirFuncion("FUNC_ALARMAS_RECEPCION"); if (funcionApagada) return funcionApagada;
     const { id } = await params;
     const { s, no } = await sesionCon("dispositivos"); if (no) return no;
     const c = await prisma.centralAlarma.findFirst({ where: { OR: [{ id }, { deviceId: id }] }, include: { device: { select: { name: true } } } });
@@ -42,6 +46,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (b.lanVpn != null) data.lanVpn = !!b.lanVpn;
     if (b.prueba != null) data.prueba = !!b.prueba;
     if (b.protocolo) data.protocolo = b.protocolo === "ADM-CID" ? "ADM-CID" : "SIA-DCS";
+    // Las cámaras del abonado (openspec alarmas-como-funciones): sin repetir, hasta 32.
+    if (Array.isArray(b.camaras)) data.camaras = [...new Set(b.camaras.map((x: unknown) => String(x || "").trim()).filter(Boolean))].slice(0, 32);
     let nueva: string | null = null;
     try {
         if (b.nuevaClave) { nueva = claveNueva(); data.claveCifrada = guardarClave(nueva); data.modoClave = null; }
@@ -51,7 +57,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             for (const z of b.zonas.slice(0, 512)) {
                 const zona = Number(z?.zona);
                 if (!Number.isInteger(zona) || zona < 0) continue;
-                const valores = { nombre: z.nombre ? String(z.nombre).slice(0, 80) : null, areaId: z.areaId || null, camaras: Array.isArray(z.camaras) ? z.camaras.map(String).slice(0, 8) : [], particion: z.particion != null ? Number(z.particion) : null };
+                const valores = { nombre: z.nombre ? String(z.nombre).slice(0, 80) : null, areaId: z.areaId || null, camaras: Array.isArray(z.camaras) ? [...new Set<string>(z.camaras.map(String))].slice(0, 4) : [], particion: z.particion != null ? Number(z.particion) : null };
                 await prisma.zonaCentral.upsert({ where: { centralId_zona: { centralId: c.id, zona } }, update: valores, create: { centralId: c.id, zona, ...valores } });
             }
             if (Array.isArray(b.borrarZonas) && b.borrarZonas.length) await prisma.zonaCentral.deleteMany({ where: { centralId: c.id, zona: { in: b.borrarZonas.map(Number) } } });

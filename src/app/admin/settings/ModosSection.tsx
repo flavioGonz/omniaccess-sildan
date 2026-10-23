@@ -56,17 +56,20 @@
 
 import { fijarFuncion } from "@/lib/funciones-cliente";
 import { useEffect, useState } from "react";
-import { Car, ScanFace, Users, ShieldCheck, Cpu, CornerDownRight, Check, type LucideIcon } from "lucide-react";
+import { Car, ScanFace, Users, ShieldCheck, Cpu, CornerDownRight, Check, Radar, Radio, Siren, type LucideIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 import { MODULE_DEFINITIONS, type ModuleId, type ModuleInfo } from "@/lib/module-definitions";
-import { FUNCIONES, dependenciaCumplida, type FuncionId, type Funcion } from "@/lib/funciones";
+import { FUNCIONES, FUNCIONES_INSTALACION, dependenciaCumplida, type FuncionId, type Funcion } from "@/lib/funciones";
 import { getEnabledModules, toggleModule } from "@/app/actions/modules";
 import { getFunciones, toggleFuncion } from "@/app/actions/funciones";
 import { fijarMarcasCamara } from "@/lib/marca-vehiculo";
 
 /** Los íconos que los módulos pueden pedir por nombre. */
 const ICONOS: Record<string, LucideIcon> = { Car, ScanFace, Users, ShieldCheck };
+const ICONO_FUNCION: Partial<Record<FuncionId, LucideIcon>> = { FUNC_INTRUSION: Radar, FUNC_ALARMAS_RECEPCION: Radio, FUNC_ALARMAS_GESTION: Siren };
 
 /* ── El interruptor ───────────────────────────────────────────────────────────────
  *
@@ -190,8 +193,10 @@ function EsquemaModulo({ id }: { id: ModuleId }) {
 }
 
 /* ── Una función ──────────────────────────────────────────────────────────────── */
-function FilaFuncion({ f, encendida, ocupada, bloqueada, padre, onToggle }: {
+function FilaFuncion({ f, encendida, ocupada, bloqueada, padre, onToggle, icono: Icono }: {
     f: Funcion; encendida: boolean; ocupada: boolean; bloqueada: boolean; padre?: string; onToggle: () => void;
+    /** Las funciones de la instalación llevan su ícono, como las capas. */
+    icono?: LucideIcon;
 }) {
     return (
         <div className={cn(
@@ -201,6 +206,7 @@ function FilaFuncion({ f, encendida, ocupada, bloqueada, padre, onToggle }: {
             f.requiere && "pl-9",
         )}>
             {f.requiere && <CornerDownRight size={13} className="mt-0.5 shrink-0 text-muted-foreground/60" />}
+            {Icono && <Icono size={16} className={cn("mt-0.5 shrink-0", encendida && !bloqueada ? "text-foreground" : "text-muted-foreground")} />}
             <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-semibold leading-snug text-foreground">{f.nombre}</div>
                 <p className="mt-1 text-[11px] leading-[1.45] text-muted-foreground">{f.que}</p>
@@ -216,7 +222,7 @@ function FilaFuncion({ f, encendida, ocupada, bloqueada, padre, onToggle }: {
                     interruptor gris sin explicación, que es lo que obliga a adivinar. */}
                 {bloqueada && (
                     <p className="mt-1.5 text-[11px] leading-[1.45] text-[var(--aviso-texto)]">
-                        Necesita «{padre}» prendida: sin estadías no hay ocupación que medir.
+                        Necesita «{padre}» prendida{f.id === "LPR_OCUPACION" ? ": sin estadías no hay ocupación que medir" : f.id === "FUNC_ALARMAS_GESTION" ? ": sin recepción no llega ninguna alarma para tratar" : ""}.
                     </p>
                 )}
             </div>
@@ -247,6 +253,8 @@ export default function ModosSection({ onActivar }: {
     const [funciones, setFunciones] = useState<Record<string, boolean>>({});
     const [cargando, setCargando] = useState(true);
     const [alternando, setAlternando] = useState<string | null>(null);
+    /** Apagar una función de la instalación se confirma: saca menús, alertas y hasta puertos. */
+    const [confirmar, setConfirmar] = useState<Funcion | null>(null);
 
     useEffect(() => {
         getEnabledModules()
@@ -287,9 +295,14 @@ export default function ModosSection({ onActivar }: {
             fijarFuncion(f.id, valor);  // menú, monitor, fichas: lo ven sin recargar (lib/funciones-cliente)
             toast.success({ title: valor ? "Función activada" : "Función desactivada" });
         } else {
-            toast.error({ title: "No se pudo cambiar la función" });
+            toast.error({ title: "No se pudo cambiar la función", description: r.error });
         }
         setAlternando(null);
+    };
+    /** Las de la instalación: prender es directo; apagar pasa por el cajón que dice qué deja de pasar. */
+    const pedirFuncion = (f: Funcion) => {
+        const encendida = funciones[f.id] ?? f.porDefecto;
+        if (f.alcance === "instalacion" && encendida) setConfirmar(f); else alternarFuncion(f);
     };
 
     const modos = MODULE_DEFINITIONS.filter((m) => m.exclusive);
@@ -411,6 +424,48 @@ export default function ModosSection({ onActivar }: {
                 </section>
             )}
 
+            {/* ── Funciones de la instalación: no dependen del modo (openspec alarmas-como-funciones) ── */}
+            <section className="space-y-2.5">
+                <h3 className="text-[9px] font-bold uppercase leading-none tracking-[0.14em] text-muted-foreground">
+                    Funciones de la instalación
+                </h3>
+                <p className="max-w-2xl text-[11px] leading-[1.45] text-muted-foreground">
+                    Valen igual en Matrículas, Rostro y Filas: cambiar de modo no las toca. Se prenden y se
+                    apagan sin recargar; el menú, las alertas y las vistas de pared obedecen enseguida.
+                </p>
+                <div className="divide-y divide-border rounded-[var(--radius)] border border-border bg-card">
+                    {FUNCIONES_INSTALACION().map((f) => (
+                        <FilaFuncion
+                            key={f.id}
+                            f={f}
+                            icono={ICONO_FUNCION[f.id]}
+                            encendida={funciones[f.id] ?? f.porDefecto}
+                            ocupada={alternando === f.id}
+                            bloqueada={!dependenciaCumplida(f, funciones)}
+                            padre={f.requiere ? FUNCIONES.find((x) => x.id === f.requiere)?.nombre : undefined}
+                            onToggle={() => pedirFuncion(f)}
+                        />
+                    ))}
+                </div>
+            </section>
+
+            <Cajon open={!!confirmar} onOpenChange={(o) => { if (!o) setConfirmar(null); }}>
+                <CajonContenido ancho="angosto" titulo={confirmar ? `Apagar ${confirmar.nombre}` : ""} descripcion="Vale para toda la instalación, en cualquier modo. Queda registrado con tu nombre."
+                    pie={<><Button variant="outline" onClick={() => setConfirmar(null)}>Cancelar</Button>
+                        <Button variant="destructive" disabled={alternando === confirmar?.id} onClick={async () => { const f = confirmar; if (!f) return; await alternarFuncion(f); setConfirmar(null); }}>Apagar</Button></>}>
+                    {confirmar && (
+                        <CajonSeccion titulo="Qué deja de pasar">
+                            <p className="text-[13px] leading-relaxed">{confirmar.siSeApaga}</p>
+                            {FUNCIONES.some((x) => x.requiere === confirmar.id && (funciones[x.id] ?? x.porDefecto)) && (
+                                <p className="text-[12.5px] text-[var(--aviso-texto)]">
+                                    También queda sin efecto «{FUNCIONES.filter((x) => x.requiere === confirmar.id).map((x) => x.nombre).join("», «")}», que depende de ésta. Su ajuste se conserva: vuelve a andar al prender ésta.
+                                </p>
+                            )}
+                        </CajonSeccion>
+                    )}
+                </CajonContenido>
+            </Cajon>
+
             {/*
               * Las funciones, colgadas del módulo al que pertenecen.
               *
@@ -418,7 +473,7 @@ export default function ModosSection({ onActivar }: {
               * decir de cuál. Con una sola función se podía adivinar; con dos ya no.
               */}
             {MODULE_DEFINITIONS.map((mod) => {
-                const delModulo = FUNCIONES.filter((f) => f.modulo === mod.id);
+                const delModulo = FUNCIONES.filter((f) => f.alcance === "modulo" && f.modulo === mod.id);
                 if (!delModulo.length || !prendido(mod)) return null;
 
                 return (

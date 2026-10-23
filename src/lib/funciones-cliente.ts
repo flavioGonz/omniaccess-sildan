@@ -2,7 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { getFunciones } from "@/app/actions/funciones";
-import type { FuncionId } from "@/lib/funciones";
+import { estadoEfectivo, type FuncionId } from "@/lib/funciones";
 
 /**
  * Las funciones de los módulos (lib/funciones) vistas desde el navegador: se piden UNA vez por
@@ -31,10 +31,16 @@ export function fijarFuncion(id: FuncionId, valor: boolean) {
     avisar();
 }
 
+/**
+ * El estado EFECTIVO: prendida y con aquello de lo que depende prendido (la Gestión de alarmas con la
+ * Recepción apagada da false aunque su ajuste diga true). Ajustes → Modos lee lo guardado aparte.
+ */
+const efectiva = (id: FuncionId): boolean | null => (estado ? estadoEfectivo(id, estado) : null);
+
 export function useFuncion(id: FuncionId): boolean | null {
     const v = useSyncExternalStore(
         (cb) => { oyentes.add(cb); return () => { oyentes.delete(cb); }; },
-        () => (estado ? estado[id] ?? null : null),
+        () => efectiva(id),
         () => null,
     );
     useEffect(() => { if (!estado) refrescarFunciones(); }, []);
