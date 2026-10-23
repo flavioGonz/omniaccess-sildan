@@ -79,7 +79,7 @@ function PrioridadesCentralesSection() {
     };
 
     return (
-        <div className="max-w-3xl space-y-6">
+        <div className="space-y-6">
             <div className="flex items-start gap-3">
                 <span className="grid place-items-center w-10 h-10 rounded-[10px] bg-muted/60 shrink-0"><Siren size={18} className="text-muted-foreground" /></span>
                 <div className="min-w-0">
@@ -97,9 +97,10 @@ function PrioridadesCentralesSection() {
                 <div className="py-10 grid place-items-center"><Loader2 size={18} className="animate-spin text-muted-foreground" /></div>
             ) : (
                 <>
-                    <div className="rounded-[10px] border border-border divide-y divide-border">
+                    {/* En dos columnas en pantallas anchas: una sola dejaba media pantalla vacía (23/10, Nico). */}
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
                         {CLASES.map((c) => (
-                            <div key={c.clase} className="flex items-center gap-4 px-4 py-3">
+                            <div key={c.clase} className="flex items-center gap-4 px-4 py-3 rounded-[10px] border border-border bg-card">
                                 <div className="min-w-0 flex-1">
                                     <div className="text-[13.5px] font-semibold flex items-center gap-2">{c.nombre}{p[c.clase] !== c.defecto && <span className="text-[11px] font-normal text-muted-foreground">de fábrica: P{c.defecto}</span>}</div>
                                     <div className="text-[12px] text-muted-foreground truncate">{c.ejemplos}</div>
@@ -184,16 +185,16 @@ function AjustesTratamiento({ parte }: { parte: "cierres" | "procedimiento" | "e
         } catch (e: any) { toast.error(e?.message || "No se pudo guardar."); }
         finally { setGuardando(false); }
     };
-    if (error) return <div className="rounded-[10px] chip-mal px-3 py-2.5 text-[12.5px] flex items-center gap-3 max-w-3xl"><span className="flex-1">{error}</span><Button size="sm" variant="outline" onClick={cargar}>Reintentar</Button></div>;
-    if (!a) return <div className="py-10 grid place-items-center max-w-3xl"><Loader2 size={18} className="animate-spin text-muted-foreground" /></div>;
+    if (error) return <div className="rounded-[10px] chip-mal px-3 py-2.5 text-[12.5px] flex items-center gap-3"><span className="flex-1">{error}</span><Button size="sm" variant="outline" onClick={cargar}>Reintentar</Button></div>;
+    if (!a) return <div className="py-10 grid place-items-center"><Loader2 size={18} className="animate-spin text-muted-foreground" /></div>;
     const entrada = "h-9 rounded-[8px] px-3 text-[12.5px] bg-background border border-border outline-none focus:ring-2 focus:ring-[var(--accion)]/40";
     return (
-        <div className="max-w-3xl space-y-4">
+        <div className="space-y-4">
             {parte === "cierres" && (<>
                 <p className="text-[12.5px] text-muted-foreground max-w-prose">Lo que se elige al <b>tratar</b> un evento de central, además del texto obligatorio. El resultado (falsa, real u otro) es el que cuenta en los informes. Uno desactivado deja de ofrecerse pero no se borra de lo ya tratado.</p>
-                <div className="rounded-[10px] border border-border divide-y divide-border">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
                     {a.cierres.map((c, i) => (
-                        <div key={c.id} className="flex items-center gap-2 px-3 py-2">
+                        <div key={c.id} className="flex items-center gap-2 px-3 py-2 rounded-[10px] border border-border bg-card">
                             <input value={c.texto} onChange={(e) => setA({ ...a, cierres: a.cierres.map((x, j) => (j === i ? { ...x, texto: e.target.value } : x)) })} className={cn(entrada, "flex-1 min-w-0", !c.activo && "opacity-50")} maxLength={120} />
                             <select value={c.resultado} onChange={(e) => setA({ ...a, cierres: a.cierres.map((x, j) => (j === i ? { ...x, resultado: e.target.value as Cierre["resultado"] } : x)) })} className={cn(entrada, "w-[110px]")}>
                                 <option value="falsa">Falsa</option><option value="real">Real</option><option value="otro">Otro</option>
@@ -206,6 +207,8 @@ function AjustesTratamiento({ parte }: { parte: "cierres" | "procedimiento" | "e
             </>)}
             {parte === "procedimiento" && (<>
                 <p className="text-[12.5px] text-muted-foreground max-w-prose">Los pasos que el operador tilda en la ficha del evento. Cada <b>clase</b> de evento puede tener el suyo (un incendio no se atiende como un robo); la que no tiene usa el de su <b>prioridad</b>. Un paso <b>obligatorio</b> hay que hacerlo, o saltearlo escribiendo por qué, para poder tratar el evento. Cada tilde y cada salteo quedan con nombre y hora. Un evento conserva el procedimiento con que llegó.</p>
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-6 gap-y-3 items-start">
+                <div className="space-y-3">
                 <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground pt-1">Por clase de evento</div>
                 {CLASES.filter((c) => (CLASES_CON_PROCEDIMIENTO as readonly string[]).includes(c.clase)).map((c) => {
                     const propio = (a.procedimientosClase as Record<string, Paso[] | null | undefined>)[c.clase];
@@ -225,16 +228,20 @@ function AjustesTratamiento({ parte }: { parte: "cierres" | "procedimiento" | "e
                         </div>
                     );
                 })}
-                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground pt-2">Por prioridad (para las clases sin procedimiento propio)</div>
+                </div>
+                <div className="space-y-3">
+                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground pt-1">Por prioridad (para las clases sin procedimiento propio)</div>
                 {(["1", "2", "3", "4", "5"] as const).map((n) => (
                     <div key={n} className="rounded-[10px] border border-border p-3 space-y-2">
                         <div className="flex items-center gap-2"><ChipPrioridad n={Number(n)} /></div>
                         <EditorPasos pasos={a.procedimiento[n]} alCambiar={(p) => setA({ ...a, procedimiento: { ...a.procedimiento, [n]: p } })} />
                     </div>
                 ))}
+                </div>
+                </div>
             </>)}
             {parte === "escalado" && (
-                <div className="rounded-[10px] border border-border divide-y divide-border">
+                <div className="rounded-[10px] border border-border divide-y divide-border bg-card">
                     {([
                         ["ventanaHasta", "Abre la ventana con sonido hasta", "prioridad", "En todas las pantallas del panel, hasta que alguien lo trate. 0 = nunca."],
                         ["avisoHasta", "Aparece en los avisos de abajo hasta", "prioridad", "Sin abrir ventana. No puede ser menos que la de la ventana."],

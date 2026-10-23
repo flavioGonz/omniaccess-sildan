@@ -61,7 +61,7 @@ export default function VentanaFicha() {
     };
 
     return (
-        <div className="rounded-[10px] border border-border bg-card p-5 max-w-xl space-y-5">
+        <div className="rounded-[10px] border border-border bg-card p-5 space-y-5">
             <div className="flex items-start gap-3">
                 <span className="grid h-9 w-9 place-items-center rounded-[6px] bg-muted text-muted-foreground shrink-0"><Repeat size={17} /></span>
                 <div>

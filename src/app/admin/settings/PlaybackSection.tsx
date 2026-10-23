@@ -78,6 +78,8 @@ export default function PlaybackSection() {
                 </div>
             </div>
 
+            {/* Las partes en dos columnas en pantallas anchas: apiladas a 576 px dejaban la derecha vacía (23/10, Nico: «está cortado»). */}
+            <div className="grid grid-cols-1 2xl:grid-cols-2 gap-4 items-start">
             {cargando ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="animate-spin" size={16} /> Leyendo la configuración…</div>
             ) : error ? (
@@ -86,7 +88,7 @@ export default function PlaybackSection() {
                     <Button variant="outline" size="sm" className="mt-3" onClick={cargar}>Reintentar</Button>
                 </div>
             ) : (
-                <div className="rounded-[10px] border border-border bg-card p-5 max-w-xl space-y-5">
+                <div className="rounded-[10px] border border-border bg-card p-5 space-y-5">
                     <div className="grid grid-cols-2 gap-4">
                         <label className="block">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Segundos antes</span>
@@ -123,6 +125,7 @@ export default function PlaybackSection() {
             <VentanaAlerta />
             {/* Cómo se entrega el clip: resolución, calidad, formato y nombre. Cierra la parte de video. */}
             <EntregaClips />
+            </div>
         </div>
     );
 }
