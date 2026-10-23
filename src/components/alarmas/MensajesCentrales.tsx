@@ -16,6 +16,7 @@ import { segATexto } from "@/lib/centrales/tratamiento-tipos";
 import { Timer, ExternalLink, Layers, X } from "lucide-react";
 import { Tooltip } from "react-tooltip";
 import { partesTrama, type TonoParte } from "@/lib/centrales/trama-partes";
+import { IlustracionEvento } from "@/components/centrales/IlustracionEvento";
 
 /**
  * La pestaña «Centrales» de Gestión de alarmas (22/10, Nico: «¿no debe tener un módulo para mostrar
@@ -319,6 +320,8 @@ export function DetalleMensajeCentral({ m, datos }: { m: Mensaje; datos: Datos |
     const donde = e0 ? dondeDe(m, e0, zona) : null;
     return (
         <div className="flex flex-col min-h-full">
+            {/* Arriba, lo que pasó contado en una escena animada (23/10, Nico): se entiende antes de leer. */}
+            <IlustracionEvento key={m.id} evento={sinUsar(m) ? null : e0} className="border-b border-border pb-3" />
             <div className={cn("px-5 pt-5 pb-4", !lleno && "border-b border-border")} style={lleno}>
                 <div className="flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.14em] opacity-80">
                     {n != null ? <span>P{n} · {nivel(n).nombre}</span> : <span>{sinUsar(m) ? "Sin usar" : "Mensaje"}</span>}
