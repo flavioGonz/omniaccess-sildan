@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Siren, ShieldCheck, ShieldOff, Shield, Wrench, CheckCircle2, FlaskConical, Info, UserRound, UserX, TrendingUp, Radio, Hash, Layers, MapPin, KeyRound, ListChecks, Inbox, CircleDashed } from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
+import { fondoDe, type TonoFondo } from "@/lib/monitor/fondos";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { sonar } from "@/lib/sonido-monitor";
@@ -91,6 +92,8 @@ type Central = {
 type DatosCamaras = { canales: Canal[]; areas?: AreaPared[] };
 type Datos = { ahora: string; prioridades?: Prioridades; pendientes: Pendiente[]; recientes: Reciente[]; centrales: Central[]; hoy: { alarmas: number; tratadas: number; falsas: number } };
 
+/** El tono de fondo de la pared para cada nivel de prioridad (lib/monitor/fondos). */
+const TONO_FONDO_NIVEL: Record<"mal" | "aviso" | "info" | "quieto", TonoFondo | null> = { mal: "mal", aviso: "aviso", info: "info", quieto: null };
 /** El color de una prioridad, como variable CSS (para mezclar fondos y anillos). */
 const colorDe = (p: number) => `var(--${nivel(p).tono})`;
 const mm = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const r = s % 60; return h ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}` : `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`; };
@@ -99,7 +102,7 @@ const zonaTexto = (z: { zona: number; nombre: string | null } | null) => z ? `Zo
 /** El reloj grande de la alarma: cuánto hace que llegó, al segundo. */
 function Reloj({ desde, grande, medio }: { desde: string; grande?: boolean; medio?: boolean }) {
     usarReloj(1000);
-    return <span className={cn("tabular-nums font-bold leading-none", grande ? "text-[56px] tracking-[-0.02em]" : medio ? "text-[38px] tracking-[-0.02em]" : "text-[20px]")}>{mm(Date.now() - new Date(desde).getTime())}</span>;
+    return <span className={cn("tabular-nums font-bold leading-none", grande ? "text-[56px] tracking-[-0.02em]" : medio ? "text-[30px] tracking-[-0.02em]" : "text-[20px]")}>{mm(Date.now() - new Date(desde).getTime())}</span>;
 }
 
 /** Una pastilla de prioridad: «P1 · Crítica». */
@@ -192,36 +195,29 @@ function AlFrente({ e, recienLlegada, camaras }: { e: Pendiente; recienLlegada: 
     return (
         <motion.section key={e.id} layout initial={{ opacity: 0, scale: 0.98, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }}
             transition={{ type: "spring", stiffness: 300, damping: 32 }}
-            className="relative h-full min-h-0 flex flex-col rounded-[16px] overflow-hidden ring-2"
-            style={{ ["--tw-ring-color" as any]: `color-mix(in oklab, ${color} 70%, transparent)`, background: `color-mix(in oklab, ${color} 5%, var(--background))` }}>
-            {/* La franja: qué, dónde, cuánto hace y quién. Late mientras nadie toma una crítica. */}
-            <motion.header className="shrink-0 flex items-center gap-4 px-4 py-2.5"
-                style={{ background: `color-mix(in oklab, ${color} 22%, var(--card))` }}
-                animate={critica && !e.operador && !reducir ? { backgroundColor: [`color-mix(in oklab, ${color} 18%, var(--card))`, `color-mix(in oklab, ${color} 36%, var(--card))`, `color-mix(in oklab, ${color} 18%, var(--card))`] } : undefined}
-                transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}>
-                <motion.span className="grid h-12 w-12 shrink-0 place-items-center rounded-full text-white" style={{ background: color }}
-                    animate={critica && !reducir ? { scale: [1, 1.08, 1] } : undefined} transition={{ duration: 1.2, repeat: Infinity }}>
-                    <Siren size={26} />
+            className="relative h-full min-h-0 flex flex-col rounded-[14px] overflow-hidden bg-black/15">
+            {/* Una sola fila (23/10, Nico: «el marco superior con el título ocupa mucho espacio»): el color
+                ya lo dice toda la pared (lib/monitor/fondos); acá va qué, dónde, quién y cuánto hace. */}
+            <header className="shrink-0 flex items-center gap-3 px-3 h-[52px] bg-black/25">
+                <motion.span className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white" style={{ background: color }}
+                    animate={critica && !e.operador && !reducir ? { scale: [1, 1.1, 1] } : undefined} transition={{ duration: 1.2, repeat: Infinity }}>
+                    <Siren size={19} />
                 </motion.span>
-                <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                        <Prioridad p={e.prioridad} />
-                        <h2 className="text-[28px] font-bold leading-tight tracking-[-0.02em] truncate">{e.titulo}</h2>
-                        {e.central.prueba && <span className="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-full chip-quieto border text-[11.5px] font-bold"><FlaskConical size={12} /> Central de prueba</span>}
-                        {e.escalado && <span className="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-full pleno-mal text-[11.5px] font-bold"><TrendingUp size={12} /> Escalada · {e.escalado}</span>}
-                    </div>
-                    <div className="text-[15px] text-muted-foreground truncate">{[e.central.nombre, e.area ? `Área ${e.area}` : null, e.particion != null ? `Partición ${e.particion}` : null].filter(Boolean).join(" · ")}</div>
-                </div>
-                <div className="shrink-0 flex items-center gap-4">
+                <Prioridad p={e.prioridad} />
+                <h2 className="min-w-0 text-[24px] font-bold leading-none tracking-[-0.02em] truncate">{e.titulo}</h2>
+                <span className="min-w-0 hidden xl:inline text-[15px] text-white/75 truncate">{[e.central.nombre, e.area ? `Área ${e.area}` : null, e.particion != null ? `Partición ${e.particion}` : null].filter(Boolean).join(" · ")}</span>
+                {e.central.prueba && <span className="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-full bg-white/15 text-[11.5px] font-bold"><FlaskConical size={12} /> Prueba</span>}
+                {e.escalado && <span className="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-full bg-white text-[var(--mal)] text-[11.5px] font-bold"><TrendingUp size={12} /> Escalada</span>}
+                <div className="ml-auto shrink-0 flex items-center gap-3">
                     {e.operador
-                        ? <span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full chip-info border text-[14px] font-bold"><UserRound size={15} /> La tiene {e.operador.nombre}{e.operador.desde ? ` · ${hace(e.operador.desde)}` : ""}</span>
-                        : <motion.span className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full pleno-aviso text-[14px] font-bold" animate={reducir ? undefined : { opacity: [1, 0.55, 1] }} transition={{ duration: 1.4, repeat: Infinity }}><UserX size={15} /> Nadie la tomó</motion.span>}
-                    <div className="text-right">
+                        ? <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full bg-white/15 text-[13.5px] font-bold"><UserRound size={14} /> {e.operador.nombre}{e.operador.desde ? ` · ${hace(e.operador.desde)}` : ""}</span>
+                        : <motion.span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full pleno-aviso text-[13.5px] font-bold" animate={reducir ? undefined : { opacity: [1, 0.55, 1] }} transition={{ duration: 1.4, repeat: Infinity }}><UserX size={14} /> Nadie la tomó</motion.span>}
+                    <div className="flex items-baseline gap-2">
                         <Reloj desde={e.ts} medio />
-                        <div className="text-[12.5px] text-muted-foreground tabular-nums">llegó a las {horaCorta(e.ts)}</div>
+                        <span className="text-[12px] text-white/70 tabular-nums">desde {horaCorta(e.ts)}</span>
                     </div>
                 </div>
-            </motion.header>
+            </header>
             <div className="flex-1 min-h-0 p-2.5">
                 <ParedArea eventoId={e.id} instanteMs={new Date(e.ts).getTime()} color={color} zona={e.zona ? `Zona ${e.zona.zona}` : e.particion != null ? `Partición ${e.particion}` : null}
                     verif={e.camaras} otras={e.otras || []} areaId={e.areaId || null} areaNombre={e.area}
@@ -421,7 +417,7 @@ function Centrales({ centrales }: { centrales: Central[] }) {
 // ── La vista ────────────────────────────────────────────────────────────────────────────────
 
 export function VistaAlarmas() {
-    const { setTitulo, latir, ajustes, silencio, conectado } = useMarco();
+    const { setTitulo, latir, ajustes, silencio, conectado, setFondo } = useMarco();
     useEffect(() => { setTitulo("Alarmas"); }, [setTitulo]);
     const { datos, error, actualizado, recargar } = usarDatos<Datos>("/api/monitor/centrales", INTERVALO_MS, latir);
 
@@ -485,6 +481,13 @@ export function VistaAlarmas() {
     const vigente = elegida && elegida.hasta > ahora ? pendientes.find((e) => e.id === elegida.id) : null;
     const frente = vigente || pendientes[0] || null;
     const resto = pendientes.filter((e) => e.id !== frente?.id);
+
+    // Toda la pared toma el color de la alarma al frente, con el criterio común (lib/monitor/fondos):
+    // crítica en rojo (más fuerte si nadie la tomó), alta y media en ámbar, baja en azul. Sin alarma, negra.
+    const tonoFrente: TonoFondo | null = frente ? TONO_FONDO_NIVEL[nivel(frente.prioridad).tono] : null;
+    const gritar = !!frente && frente.prioridad <= CRITICA_HASTA && !frente.operador;
+    useEffect(() => { setFondo(fondoDe(tonoFrente, gritar)); }, [tonoFrente, gritar, setFondo]);
+    useEffect(() => () => setFondo(null), [setFondo]);
 
     // Las cámaras del área, como las de la pared Cámaras: sólo se piden mientras hay una alarma al frente.
     const camaras = usarDatos<DatosCamaras>(frente ? "/api/monitor/camaras" : null, CAMARAS_MS);

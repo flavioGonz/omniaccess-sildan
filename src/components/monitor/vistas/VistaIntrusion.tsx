@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Server, Clock, Camera, ShieldAlert, ShieldCheck, ShieldQuestion, PanelRightOpen, Maximize2, Loader2, ChevronRight, ChevronLeft, Ban, PlayCircle, ScanEye } from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
+import { fondoDe, type TonoFondo } from "@/lib/monitor/fondos";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { CanalEnAlarma } from "@/components/intrusion/CanalEnAlarma";
@@ -205,7 +206,7 @@ function Renglon({ d, geom, alTocar }: { d: Det; geom?: Geom | null; alTocar: ()
 }
 
 export function VistaIntrusion() {
-    const { latir, setTitulo, ajustes, silencio, puedeDecidir } = useMarco();
+    const { latir, setTitulo, setFondo, ajustes, silencio, puedeDecidir } = useMarco();
     useEffect(() => { setTitulo("Intrusión"); }, [setTitulo]);
     usarReloj();
     const { datos, error, recargar } = usarDatos<Datos>("/api/monitor/intrusion", INTERVALO_MS, latir);
@@ -230,6 +231,11 @@ export function VistaIntrusion() {
 
     const porCamara = useMemo(() => { const m = new Map<string, Alarma[]>(); for (const a of vivas) m.set(a.deviceId, [...(m.get(a.deviceId) || []), a]); return m; }, [vivas]);
     const atendiendo = useMemo(() => new Set(datos?.atendiendo || []), [datos]);
+    // El fondo dice el estado de la pared con el mismo criterio que LPR y alarmas (lib/monitor/fondos):
+    // rojo mientras haya una intrusión sin atender; ámbar si sólo quedan cámaras ya tomadas por alguien.
+    const tonoPared: TonoFondo | null = vivas.length ? "mal" : atendiendo.size ? "aviso" : null;
+    useEffect(() => { setFondo(fondoDe(tonoPared, tonoPared === "mal")); }, [tonoPared, setFondo]);
+    useEffect(() => () => setFondo(null), [setFondo]);
     const camaras = datos?.camaras || [];
     // La cámara en alarma más reciente va al lugar grande.
     const grandeId = useMemo(() => {

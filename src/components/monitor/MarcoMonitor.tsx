@@ -189,7 +189,7 @@ export function MarcoMonitor({ children, puedeDecidir = false, embebido = false,
                 {/* Encabezado: barrio, vista, vitalidad y reloj. En "sin datos" se pinta ENTERO de ámbar. */}
                 {/* En el panel (embebido) el encabezado se achica: se lee a 50 cm, no a 4 m, y el panel
                     ya tiene su menú y su marca. El tema es el del panel (claro u oscuro), no el oscuro fijo. */}
-                <header className={cn("shrink-0 flex items-center border-b transition-colors", embebido ? "gap-3 px-4 h-[52px]" : "gap-4 lg:gap-6 px-4 lg:px-8 h-[64px]",
+                <header className={cn("shrink-0 flex items-center border-b transition-colors", embebido ? "gap-3 px-4 h-[52px]" : "gap-4 lg:gap-5 px-4 lg:px-6 h-[50px]",
                     sinDatos ? "bg-[var(--aviso)] text-[#16120a] border-transparent" : fondo ? "bg-black/20 border-white/15" : "bg-card/60 border-border")}>
                     <div className={cn("min-w-0 flex items-baseline gap-3", usaBarra && "md:shrink-0 md:max-w-[300px]")}>
                         {embebido ? (
@@ -199,28 +199,28 @@ export function MarcoMonitor({ children, puedeDecidir = false, embebido = false,
                             </>
                         ) : (
                             <>
-                                <span className="text-[22px] font-bold truncate">{valor.barrio}</span>
-                                {titulo && <span className={cn("text-[18px] font-semibold truncate", sinDatos ? "opacity-80" : "text-muted-foreground")}>· {titulo}</span>}
+                                <span className="text-[18px] font-bold tracking-[-0.01em] truncate">{valor.barrio}</span>
+                                {titulo && <span className={cn("text-[15px] font-semibold truncate", sinDatos ? "opacity-80" : "text-muted-foreground")}>· {titulo}</span>}
                             </>
                         )}
                     </div>
                     {/* Los controles de la vista, si los pone (BarraDelMarco). Fuera de escritorio no: en
                         un celular no entran en la fila, y la vista los lleva abajo. */}
                     <div ref={setBarra} className={cn("min-w-0 flex-1 items-center", usaBarra ? "hidden md:flex" : "hidden")} />
-                    <div className={cn("ml-auto flex items-center gap-2 font-bold whitespace-nowrap", embebido ? "text-[11px] uppercase tracking-[0.1em]" : "text-[14px] lg:text-[16px] uppercase tracking-[0.12em]", usaBarra && "md:ml-0", !sinDatos && (reconectando ? "text-[var(--aviso-texto)]" : "text-[var(--bien-texto)]"))}>
-                        {sinDatos ? <><AlertTriangle size={embebido ? 15 : 22} /> Sin datos hace {minutosSin} min</>
-                            : reconectando ? <><RefreshCw size={embebido ? 13 : 18} className="animate-spin" /> Reconectando</>
-                                : <><span className={cn("rounded-full bg-[var(--bien)] animate-pulse", embebido ? "h-2 w-2" : "h-3 w-3")} /> En vivo</>}
+                    <div className={cn("ml-auto flex items-center gap-2 font-bold whitespace-nowrap", embebido ? "text-[11px] uppercase tracking-[0.1em]" : "text-[12px] lg:text-[13px] uppercase tracking-[0.12em]", usaBarra && "md:ml-0", !sinDatos && (reconectando ? "text-[var(--aviso-texto)]" : "text-[var(--bien-texto)]"))}>
+                        {sinDatos ? <><AlertTriangle size={embebido ? 15 : 18} /> Sin datos hace {minutosSin} min</>
+                            : reconectando ? <><RefreshCw size={embebido ? 13 : 15} className="animate-spin" /> Reconectando</>
+                                : <><span className={cn("rounded-full bg-[var(--bien)] animate-pulse", embebido ? "h-2 w-2" : "h-2.5 w-2.5")} /> En vivo</>}
                     </div>
                     <div className="flex items-baseline gap-3 tabular-nums">
-                        {!embebido && <span className={cn("hidden text-[16px] capitalize whitespace-nowrap", usaBarra ? "min-[2200px]:inline" : "lg:inline", sinDatos ? "opacity-80" : "text-muted-foreground")} suppressHydrationWarning>{montado ? fecha : ""}</span>}
-                        <span className={cn("font-bold leading-none", embebido ? "text-[17px]" : "text-[26px] lg:text-[30px]")} suppressHydrationWarning>{montado ? hora : "--:--:--"}</span>
+                        {!embebido && <span className={cn("hidden text-[14px] capitalize whitespace-nowrap", usaBarra ? "min-[2200px]:inline" : "lg:inline", sinDatos ? "opacity-80" : "text-muted-foreground")} suppressHydrationWarning>{montado ? fecha : ""}</span>}
+                        <span className={cn("font-bold leading-none", embebido ? "text-[17px]" : "text-[22px] lg:text-[24px]")} suppressHydrationWarning>{montado ? hora : "--:--:--"}</span>
                     </div>
                     <div className={cn("flex items-center gap-1 transition-opacity duration-300", quieto && !tactil && !embebido ? "opacity-0" : "opacity-100")}>
                         <button onClick={alternarSilencio} title={silencio ? "Activar sonido" : "Silenciar esta pantalla"} aria-label={silencio ? "Activar sonido" : "Silenciar"}
-                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : embebido ? "h-8 w-8 rounded-lg" : "h-10 w-10")}>{silencio ? <VolumeX size={tactil ? 24 : embebido ? 16 : 20} /> : <Volume2 size={tactil ? 24 : embebido ? 16 : 20} />}</button>
+                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : embebido ? "h-8 w-8 rounded-lg" : "h-9 w-9 rounded-lg")}>{silencio ? <VolumeX size={tactil ? 24 : embebido ? 16 : 18} /> : <Volume2 size={tactil ? 24 : embebido ? 16 : 18} />}</button>
                         <button onClick={alternarLleno} title={lleno ? "Salir de pantalla completa" : "Pantalla completa"} aria-label="Pantalla completa"
-                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : embebido ? "h-8 w-8 rounded-lg" : "h-10 w-10")}>{lleno ? <Minimize2 size={tactil ? 24 : embebido ? 16 : 20} /> : <Maximize2 size={tactil ? 24 : embebido ? 16 : 20} />}</button>
+                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : embebido ? "h-8 w-8 rounded-lg" : "h-9 w-9 rounded-lg")}>{lleno ? <Minimize2 size={tactil ? 24 : embebido ? 16 : 18} /> : <Maximize2 size={tactil ? 24 : embebido ? 16 : 18} />}</button>
                     </div>
                 </header>
                 {bloqueado && !silencio && (

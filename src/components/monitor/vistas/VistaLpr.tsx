@@ -7,6 +7,7 @@ import {
     PanelRightOpen, Home, Car, Ticket, History, Maximize2, ChevronRight, Loader2, CircleDashed, AlertTriangle, Timer, Activity,
     ScanEye, ArrowDown, ArrowUp, SlidersHorizontal,
 } from "lucide-react";
+import { fondoDe, type TonoFondo } from "@/lib/monitor/fondos";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
@@ -184,17 +185,17 @@ const tinteDe = (l: Lectura | null | undefined, conEmpresa?: boolean): Tinte => 
     return "autorizado";
 };
 /** `color`: el tono puro; el fondo de la pantalla lo mezcla con negro (MEZCLA_FONDO) para que el texto se lea. */
-const TINTE: Record<Tinte, { color: string; anillo: string }> = {
-    autorizado: { color: "rgb(16,185,129)", anillo: "ring-emerald-400" },
-    proveedor: { color: "rgb(245,158,11)", anillo: "ring-amber-400" },
-    visita: { color: "rgb(139,92,246)", anillo: "ring-violet-400" },
-    denegado: { color: "rgb(239,68,68)", anillo: "ring-red-500" },
-    negra: { color: "rgb(239,68,68)", anillo: "ring-red-500" },
-    desconocido: { color: "rgb(120,120,120)", anillo: "ring-white/25" },
+/** El tono de cada tinte en el criterio común de las paredes (lib/monitor/fondos) y el anillo de su lectura. */
+const TINTE: Record<Tinte, { tono: TonoFondo | null; anillo: string }> = {
+    autorizado: { tono: "bien", anillo: "ring-emerald-400" },
+    proveedor: { tono: "aviso", anillo: "ring-amber-400" },
+    visita: { tono: "visita", anillo: "ring-violet-400" },
+    denegado: { tono: "mal", anillo: "ring-red-500" },
+    negra: { tono: "mal", anillo: "ring-red-500" },
+    desconocido: { tono: null, anillo: "ring-white/25" },
 };
-/** Cuánto color lleva el fondo (el resto es negro). La lista negra, más: tiene que gritar. */
-const MEZCLA_FONDO = { normal: 62, negra: 72 };
-const fondoDe = (t: Tinte) => (t === "desconocido" ? null : `color-mix(in oklab, ${TINTE[t].color} ${t === "negra" ? MEZCLA_FONDO.negra : MEZCLA_FONDO.normal}%, #050505)`);
+/** La lista negra lleva más color: tiene que gritar. */
+const fondoLpr = (t: Tinte) => fondoDe(TINTE[t].tono, t === "negra");
 /**
  * El motivo del denegado, sacado de `details`. Ese campo mezcla el motivo con la ficha del
  * vehículo que leyó la cámara ("Marca: …, Modelo: …, Color: …"): se descartan esos pares y
@@ -296,7 +297,7 @@ export function VistaLpr() {
     const protagonista = fijada || ultima;
     const tinte = tinteDe(protagonista, !!(protagonista?.plate && datos?.logos?.[protagonista.plate]));
     // Toda la pantalla, encabezado incluido, toma el color de quien pasó.
-    useEffect(() => { setFondo(fondoDe(tinte)); }, [tinte, setFondo]);
+    useEffect(() => { setFondo(fondoLpr(tinte)); }, [tinte, setFondo]);
     useEffect(() => () => setFondo(null), [setFondo]);
     const nuevaMientrasFijada = fijada && ultima && ultima.id !== fijada.id && ultima.ts > fijada.ts ? ultima : null;
     const visibles = useMemo(() => tira.filter((l) => pasaFiltro(l, filtro, modo)), [tira, filtro, modo]);

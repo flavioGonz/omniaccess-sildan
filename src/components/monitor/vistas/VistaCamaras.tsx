@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FolderTree, Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera, ScanEye, Crosshair } from "lucide-react";
 import { useMarco, BarraDelMarco } from "@/components/monitor/MarcoMonitor";
+import { fondoDe, type TonoFondo } from "@/lib/monitor/fondos";
 import { usarDatos, horaCorta, hace, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { metaDe } from "@/components/intrusion/comun";
@@ -311,8 +312,11 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
     );
 }
 
+/** El veredicto de OmniVision que confirma una detección (hay alguien en la captura). */
+const VEREDICTO_CONFIRMADO = "PRESENTE";
+
 export function VistaCamaras() {
-    const { latir, setTitulo } = useMarco();
+    const { latir, setTitulo, setFondo } = useMarco();
     usarReloj(5000);
     const { datos, error, recargar } = usarDatos<Datos>("/api/monitor/camaras", INTERVALO_MS, latir);
 
@@ -419,6 +423,12 @@ export function VistaCamaras() {
     /** Editando el seguimiento visual (arrastrar cámaras unas sobre otras): la página no pasa sola. */
     const [editandoSeg, setEditandoSeg] = useState(false);
     useEffect(() => { if (hayAlerta) setPagina(0); }, [hayAlerta]);
+    // Mismo criterio de fondo que las demás paredes (lib/monitor/fondos): una detección en pantalla es
+    // ámbar (hay que mirarla); si OmniVision confirmó que hay alguien, roja (hay que atenderla).
+    const tonoPared: TonoFondo | null = !hayAlerta ? null
+        : ordenados.some((c) => alertaDe(c)?.verif?.veredicto === VEREDICTO_CONFIRMADO) ? "mal" : "aviso";
+    useEffect(() => { setFondo(fondoDe(tonoPared)); }, [tonoPared, setFondo]);
+    useEffect(() => () => setFondo(null), [setFondo]);
     useEffect(() => {
         if (modoVista !== "auto" || paginas <= 1 || pausada || hayAlerta || editandoSeg) return;
         const iv = setInterval(() => setPagina((p) => (p + 1) % paginas), (prefs?.pagSeg || 20) * 1000);
