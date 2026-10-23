@@ -417,7 +417,10 @@ releer().then(async () => {
     setInterval(cuidarFotos, RETENCION_MS).unref();
     if (!escuchando) log("recepción de alarmas apagada en Ajustes → Modos: no se abren los puertos");
     setInterval(releer, RELEER_MS).unref();
-    setInterval(aplicarFunciones, SONDEO_FUNCIONES_MS).unref();
+    // Éste NO va con unref: con la recepción apagada no hay ningún puerto abierto, y sin algo vivo en
+    // el bucle el proceso terminaba solo y PM2 lo levantaba cada 3 s (24/10, San Nicolás, sin
+    // centrales: 10 reinicios en medio minuto). Es lo que mantiene el proceso esperando a que se prenda.
+    setInterval(aplicarFunciones, SONDEO_FUNCIONES_MS);
 });
 
 const cerrar = () => { try { tcp.close(); udp?.close(); tcpCms.close(); } catch { } prisma.$disconnect().finally(() => process.exit(0)); };
