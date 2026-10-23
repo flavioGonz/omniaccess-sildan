@@ -113,7 +113,7 @@ function MatrizPermisos({ valor, onChange, soloLectura }: { valor: string[]; onC
     };
     return (
         <div className="rounded-[10px] border border-border overflow-hidden">
-            <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,84px)] items-center bg-muted/50 border-b border-border px-3 h-9 text-[11px] font-semibold text-muted-foreground sticky top-0 z-[1]">
+            <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,72px)] items-center bg-muted/50 border-b border-border px-3 h-9 text-[11px] font-semibold text-muted-foreground sticky top-0 z-[1]">
                 <span>Sección</span>
                 {NIVELES.map((n) => { const I = ICONO_NIVEL[n.id]; return <Pista key={n.id} titulo={n.nombre} texto={n.ayuda}><span className="inline-flex items-center justify-center gap-1"><I size={12} /> {n.nombre}</span></Pista>; })}
             </div>
@@ -125,7 +125,7 @@ function MatrizPermisos({ valor, onChange, soloLectura }: { valor: string[]; onC
                 const activo = activos ? activos[m.id] : true;
                 return (
                     <section key={m.id} className={cn("border-b border-border last:border-0", !activo && "opacity-70")}>
-                        <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,84px)] items-center px-3 py-2 bg-card">
+                        <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,72px)] items-center px-3 py-2 bg-card">
                             <div className="flex items-center gap-2 min-w-0">
                                 <span className="grid h-7 w-7 place-items-center rounded-[7px] bg-muted text-muted-foreground shrink-0"><I size={15} /></span>
                                 <Pista titulo={m.nombre} texto={m.descripcion}><span className="text-[13px] font-semibold truncate">{m.nombre}</span></Pista>
@@ -155,7 +155,7 @@ function MatrizPermisos({ valor, onChange, soloLectura }: { valor: string[]; onC
                         {secciones.map((s) => {
                             const altos = (["operar", "configurar"] as Nivel[]).some((n) => s.niveles[n] && set.has(s.niveles[n]!.clave));
                             return (
-                                <div key={s.seccion} className="grid grid-cols-[minmax(0,1fr)_repeat(3,84px)] items-center px-3 py-1.5 pl-12 border-t border-border/60 hover:bg-muted/30">
+                                <div key={s.seccion} className="grid grid-cols-[minmax(0,1fr)_repeat(3,72px)] items-center px-3 py-1.5 pl-11 border-t border-border/60 hover:bg-muted/30">
                                     <span className="text-[12.5px] truncate">{s.nombre}</span>
                                     {NIVELES.map((n) => {
                                         const p = s.niveles[n.id];
@@ -356,7 +356,7 @@ function CajonRol({ rol, abierto, onOpenChange, onGuardado }: { rol: RolApp | nu
     };
     return (
         <Cajon open={abierto} onOpenChange={onOpenChange}>
-            <CajonContenido ancho="ancho" titulo={esAlta ? "Nuevo rol" : rol!.nombre}
+            <CajonContenido ancho="medio" titulo={esAlta ? "Nuevo rol" : rol!.nombre}
                 descripcion={esAlta ? "Un conjunto de permisos con nombre, para asignárselo a usuarios del panel. Se puede partir de una plantilla." : `${rol!.usuarios} usuario${rol!.usuarios === 1 ? "" : "s"} con este rol${rol!.esSistema ? " · rol de sistema" : ""}`}
                 pie={
                     <div className="flex items-center justify-between gap-3">
@@ -369,7 +369,7 @@ function CajonRol({ rol, abierto, onOpenChange, onGuardado }: { rol: RolApp | nu
                 }>
                 {esAlta && (
                     <CajonSeccion titulo="Partir de una plantilla" icono={FileStack} ayuda="Ninguna incluye Accesos ni Mantenimiento. Después se ajusta en la matriz.">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {[{ id: null as string | null, nombre: "En blanco", descripcion: "Sin ningún permiso: se marca a mano.", permisos: [] as string[] }, ...PLANTILLAS_ROL].map((t) => (
                                 <button key={t.id || "blanco"} type="button" onClick={() => usar(t.id)}
                                     className={cn("text-left rounded-[10px] border p-3 transition-colors", plantilla === t.id ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent")}>
