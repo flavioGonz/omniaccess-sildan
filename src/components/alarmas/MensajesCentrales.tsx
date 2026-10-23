@@ -224,7 +224,7 @@ export function TablaMensajesCentrales({ horas, setHoras, datos, error, cargando
             id="alarmas-centrales" filas={filas} clave={(m) => m.id} columnas={columnas}
             alClickFila={(m) => alElegir(sel === m.id ? null : m.id)} filaActiva={(m) => m.id === sel}
             filaDestacada={(m) => primero(m)?.categoria === "ALARMA" && Date.now() - new Date(m.recibido).getTime() < 60_000}
-            // P1 (22/10, Nico): la fila entera en rojo con el texto en blanco, latiendo mientras el evento siga sin tratar.
+            // P1 (22/10 y 23/10, Nico): la fila entera en rojo con el texto en blanco, parpadeando; más rápido mientras el evento siga sin tratar.
             claseFila={(m) => !sinUsar(m) && prioridadMensaje(m, prio) === 1 ? cn("omni-fila-p1", m.detectionId && sinTratarSet.has(m.detectionId) && "omni-fila-p1-viva") : undefined}
             vacio={{
                 titulo: t ? "Nada con esa búsqueda" : !datos?.centrales.length ? "Todavía no hay centrales dadas de alta"

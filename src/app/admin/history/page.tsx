@@ -303,7 +303,7 @@ export default function HistoryPage() {
                 onMotores={setMotores}
                 barra={
                     <BarraFiltros f={f} cambiar={cambiar} limpiar={limpiarFiltros} puestos={puestos}
-                        camarasDisponibles={resumen.camaras} camarasServidor={camarasServidor} areasDatos={areasDatos} colores={resumen.colores} tiposVeh={resumen.tipos}
+                        camarasDisponibles={resumen.camaras} camarasServidor={camarasServidor} areasDatos={areasDatos}
                         soloSeguimiento={soloSeguimiento} modo={modosListos ? activeMode : "LPR"} merodeando={chapasMerodeo.size} />
                 }
                 buscar={searchTerm}

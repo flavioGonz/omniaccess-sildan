@@ -3,11 +3,12 @@
 import { useMemo, useState } from "react";
 import {
     Bike, Bus, CalendarRange, FolderTree, Camera, Car, Check, ChevronDown, CreditCard, Eraser, Layers, LogIn, LogOut,
-    IdCard, Motorbike, Palette, PawPrint, PersonStanding, ScanEye, ScanFace, ShieldAlert, ShieldCheck, ShieldX, Sparkles, Truck,
+    IdCard, Motorbike, PawPrint, PersonStanding, ScanEye, ScanFace, Shield, ShieldAlert, ShieldCheck, ShieldX, Sparkles, Truck,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Filtros, type GrupoFiltro } from "@/components/ui/filtros";
 import { Pista } from "@/components/ui/pista";
+import { Tooltip } from "react-tooltip";
 import { cn } from "@/lib/utils";
 import { fechaCorta, paraInput, periodoConHora } from "@/lib/fechas";
 import { RASGOS } from "@/components/history/TablaUnificada";
@@ -24,12 +25,13 @@ import { SIN_AREA, filtroDeAreas, pasaAreas, type DatosAreasHistorial } from "@/
  * cerrarlo y leer los chips: tres pasos para algo que el operador hace veinte veces por turno.
  * En Olivos el historial pasó a una barra con los filtros frecuentes como botones y los demás en
  * desplegables (main 1013697), y acá se hizo lo mismo con los filtros de este historial, que son
- * más: clase de registro, cámaras, vehículo, merodeo y, nuevo, lo que vio OmniVision.
+ * más: clase de registro, cámaras, merodeo y lo que vio OmniVision.
  *
- *   - Resultado y sentido, que se tocan todo el tiempo: botones, una opción por grupo.
- *   - Registros, período, cámaras, vehículo y OmniVision: un botón cada uno que dice lo que
+ *   - Resultado y sentido, que se tocan todo el tiempo: botones, una opción por grupo (el resultado,
+ *     sólo con su escudo).
+ *   - Registros, período, cámaras, OmniVision y tipo de chapa: un botón cada uno que dice lo que
  *     tiene puesto («Hoy», «2 cámaras») y despliega sus opciones con la explicación.
- *   - Merodeo: un interruptor con cuántas matrículas lo cumplen ahora.
+ *   - Merodeo: un ícono de acción con cuántas matrículas lo cumplen ahora.
  *
  * Cada botón dice su estado: no hacen falta chips para saber por qué no aparece algo.
  */
@@ -126,15 +128,18 @@ function Casilla({ activa, onClick, Ico, rotulo, ayuda, tono }: { activa: boolea
     );
 }
 
+/** La ayuda de las opciones de sólo ícono de la barra (react-tooltip). */
+const AYUDA_FILTROS = "historial-filtros";
+
 const Titulo = ({ children }: { children: React.ReactNode }) => (
     <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{children}</div>
 );
 
-export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles, camarasServidor, areasDatos, colores, tiposVeh, soloSeguimiento, modo, merodeando }: {
+export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles, camarasServidor, areasDatos, soloSeguimiento, modo, merodeando }: {
     f: FiltrosHistorial; cambiar: CambiarFiltros; limpiar: () => void;
     /** Cuántos filtros hay puestos (más la búsqueda): con alguno aparece «Limpiar». */
     puestos: number;
-    camarasDisponibles: string[]; colores: string[]; tiposVeh: string[];
+    camarasDisponibles: string[];
     /** Las cámaras del período según el servidor, con su origen. Si llegaron, mandan sobre las de lo cargado. */
     camarasServidor?: CamaraHistorial[] | null;
     /** Las áreas de Dispositivos con sus cámaras (api/history/areas). Sin áreas creadas, no hay filtro. */
@@ -184,7 +189,9 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
         },
         {
             clave: "resultado", titulo: "Si se abrió o no (sólo accesos)", valor: f.resultado, alElegir: (v) => cambiar("resultado", v as any), oculto: soloSeguimiento,
-            opciones: [{ valor: "ALL", rotulo: "Todos" }, { valor: "GRANT", rotulo: "Permitidos", tono: "bien", icono: ShieldCheck }, { valor: "DENY", rotulo: "Denegados", tono: "mal", icono: ShieldX }],
+            // Sólo el ícono (23/10, Nico: «denegados y permitidos, también íconos de acción»): el
+            // escudo con tilde o con cruz se reconoce antes de leerlo, y la barra gana el ancho de dos rótulos.
+            opciones: [{ valor: "ALL", rotulo: "", icono: Shield, titulo: "Permitidos y denegados" }, { valor: "GRANT", rotulo: "", tono: "bien", icono: ShieldCheck, titulo: "Sólo permitidos" }, { valor: "DENY", rotulo: "", tono: "mal", icono: ShieldX, titulo: "Sólo denegados" }],
         },
         {
             clave: "sentido", titulo: "Entradas o salidas (sólo accesos)", valor: f.sentido, alElegir: (v) => cambiar("sentido", v as any), oculto: soloSeguimiento,
@@ -207,7 +214,22 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
                 </div>
             </Desplegable>
 
-            <Filtros grupos={grupos} />
+            <Filtros grupos={grupos} ayudaId={AYUDA_FILTROS} />
+            <Tooltip id={AYUDA_FILTROS} place="bottom" positionStrategy="fixed" className="!text-[12px] !rounded-lg !z-[9999]" />
+            {/* Merodeo, como ícono de acción (23/10, Nico): el escudo con la cuenta de matrículas que lo
+                cumplen ahora; prendido, en rojo lleno. */}
+            {!soloSeguimiento && (
+                <Pista titulo={f.merodeo ? "Merodeo · prendido" : "Merodeo"} texto={`La misma matrícula cuatro veces o más en lo cargado sin llegar a entrar (denegada, o vista pasar). Es una señal para mirar, no una conclusión.${merodeando ? ` Ahora: ${merodeando} ${merodeando === 1 ? "matrícula" : "matrículas"}.` : " Ahora no hay ninguna."}`} lado="abajo" ancho={260}>
+                    <button type="button" onClick={() => cambiar("merodeo", !f.merodeo)} aria-pressed={f.merodeo} aria-label="Merodeo"
+                        className={cn("relative grid place-items-center h-[34px] w-[34px] rounded-lg border transition-colors",
+                            f.merodeo ? "pleno-mal border-transparent" : "border-border text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                        <ShieldAlert size={16} />
+                        {merodeando > 0 && (
+                            <span className={cn("absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full text-[9.5px] font-bold tabular-nums grid place-items-center", f.merodeo ? "bg-white text-[var(--mal)]" : "pleno-mal")}>{merodeando > 99 ? "99+" : merodeando}</span>
+                        )}
+                    </button>
+                </Pista>
+            )}
 
             <Desplegable Ico={CalendarRange} rotulo={rotuloPeriodo} puesto={!!(f.desde || f.hasta || f.horaDesde || f.horaHasta)} titulo="Período" ancho={300}>
                 <Titulo>Período</Titulo>
@@ -296,26 +318,10 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
                 </Desplegable>
             )}
 
-            {!soloSeguimiento && (colores.length > 0 || tiposVeh.length > 0) && (
-                <Desplegable Ico={Car} rotulo={[f.color !== "ALL" ? f.color : "", f.tipoVeh !== "ALL" ? f.tipoVeh : ""].filter(Boolean).join(" · ") || "Vehículo"}
-                    puesto={f.color !== "ALL" || f.tipoVeh !== "ALL"} titulo="Vehículo" ancho={280}>
-                    <Titulo>Lo que reconoció la cámara LPR</Titulo>
-                    <p className="text-[11px] text-muted-foreground leading-snug">Color y tipo según la cámara en cada lectura (no el padrón). Se ofrecen los que aparecen en lo cargado.</p>
-                    <div className="grid grid-cols-2 gap-2">
-                        {[{ k: "color" as const, rot: "Color", Ico: Palette, ops: colores }, { k: "tipoVeh" as const, rot: "Tipo", Ico: Truck, ops: tiposVeh }].map(({ k, rot, Ico, ops }) => (
-                            <label key={k} className="block">
-                                <span className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground mb-1"><Ico size={11} /> {rot}</span>
-                                <select value={f[k]} onChange={(e) => cambiar(k, e.target.value)} disabled={!ops.length}
-                                    className="w-full h-9 rounded-md border border-border bg-muted/40 px-2 text-[12.5px] outline-none focus:border-[var(--accion)]">
-                                    <option value="ALL">Todos</option>
-                                    {ops.map((o) => <option key={o} value={o}>{o}</option>)}
-                                </select>
-                            </label>
-                        ))}
-                    </div>
-                </Desplegable>
-            )}
-
+            {/* El desplegable «Vehículo» (color y tipo según la cámara LPR) se sacó el 23/10 a pedido de
+                Nico: lo que se ve de un vehículo se busca escribiéndolo («moto blanca») o con OmniVision,
+                y dos desplegables para lo mismo confundían. Los filtros siguen en FiltrosHistorial por si
+                vuelven, pero nada los prende. */}
             <Desplegable Ico={Sparkles} rotulo={visionPuesta ? `OmniVision · ${visionPuesta}` : f.sinVehiculo === "solo" ? "Sólo sin vehículo" : f.sinVehiculo === "mostrar" ? "OmniVision · con sin vehículo" : "OmniVision"} puesto={visionPuesta > 0 || f.sinVehiculo !== "ocultar"} titulo="OmniVision" ancho={340}
                 desactivado={soloSeguimiento ? "OmniVision analiza la foto de los accesos: con sólo seguimiento elegido no hay nada que filtrar." : undefined}>
                 <div>
@@ -360,17 +366,6 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
                 </div>
                 {f.chapa.length > 0 && <button type="button" onClick={() => cambiar("chapa", [])} className="text-[12px] font-semibold tono-accion">Quitar este filtro</button>}
             </Desplegable>
-
-            {!soloSeguimiento && (
-                <Pista titulo="Merodeo" texto="La misma matrícula cuatro veces o más en lo cargado sin llegar a entrar (denegada, o vista pasar). Es una señal para mirar, no una conclusión." lado="abajo" ancho={260}>
-                    <button type="button" onClick={() => cambiar("merodeo", !f.merodeo)} aria-pressed={f.merodeo}
-                        className={cn("inline-flex items-center gap-1.5 h-[34px] px-2.5 rounded-lg border text-[12px] font-semibold transition-colors whitespace-nowrap",
-                            f.merodeo ? "pleno-mal border-transparent" : "border-border text-foreground hover:bg-accent")}>
-                        <ShieldAlert size={14} className={f.merodeo ? "" : "text-muted-foreground"} />
-                        Merodeo<span className={cn("tabular-nums", f.merodeo ? "opacity-80" : "text-muted-foreground")}>· {merodeando}</span>
-                    </button>
-                </Pista>
-            )}
 
             {puestos > 0 && (
                 <button type="button" onClick={limpiar}

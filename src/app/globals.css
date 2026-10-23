@@ -2381,13 +2381,19 @@ html:not(.dark) .visor-raiz .visor-zona .oa-ajuste-pop { background: var(--card)
 
 /*
  * Un evento P1 de una central de alarma (22/10, Nico: «cuando son P1 la fila entera se pinta de rojo,
- * texto en blanco, animado parpadeando»). La fila en el rojo del sistema (--mal) y el texto en blanco;
- * mientras el evento siga SIN TRATAR, el texto late. Tratado, queda roja y quieta: el registro sigue
- * diciendo que fue una emergencia, pero no pide nada. Sin movimiento si el usuario lo pidió.
+ * texto en blanco, animado parpadeando»). La fila en el rojo del sistema (--mal) y el texto en blanco.
+ *
+ * 23/10, Nico: «cuando un evento es alarma y está en rojo, debe parpadear». Antes latía sólo el texto
+ * y sólo mientras el evento seguía sin tratar: con las alarmas ya tratadas la fila quedaba roja y
+ * quieta, y el latido del texto solo casi no se notaba. Ahora toda fila roja parpadea, y lo que late
+ * es el fondo: cada celda se oscurece y vuelve (la animación va en la celda porque el fondo de la
+ * fila lleva !important y una animación no le gana). Sin pendiente, el ritmo es más lento; sin
+ * movimiento si el usuario lo pidió.
  */
 tr.omni-fila-p1, tr.omni-fila-p1:hover { background: var(--mal) !important; }
 tr.omni-fila-p1 > td, tr.omni-fila-p1 > td * { color: #fff !important; }
 tr.omni-fila-p1 > td [class*="chip-"] { background: rgba(255, 255, 255, .18) !important; border-color: rgba(255, 255, 255, .35) !important; }
-@keyframes omni-p1-late { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-tr.omni-fila-p1-viva > td { animation: omni-p1-late 1.1s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { tr.omni-fila-p1-viva > td { animation: none; } }
+@keyframes omni-p1-late { 0%, 100% { background-color: transparent; } 50% { background-color: rgba(0, 0, 0, .38); } }
+tr.omni-fila-p1 > td { animation: omni-p1-late 1.6s ease-in-out infinite; }
+tr.omni-fila-p1-viva > td { animation-duration: .9s; }
+@media (prefers-reduced-motion: reduce) { tr.omni-fila-p1 > td { animation: none; } }
