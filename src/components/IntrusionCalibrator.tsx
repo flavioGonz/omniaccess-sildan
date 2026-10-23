@@ -199,8 +199,20 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
 
     const post = async (body: any) => {
         const r = await fetch(`/api/devices/analytics?deviceId=${device.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        const j = await r.json().catch(() => ({}));
+        let j = await r.json().catch(() => ({}));
         if (!j.ok) throw new Error(j.error || "La cámara no aceptó el cambio");
+        // La escritura corre en el servidor: la cámara tarda en aplicar (hasta un par de minutos si se
+        // encadenan cambios) y un pedido tan largo lo cortaba el proxy. Se consulta hasta que termina.
+        if (j.enCurso) {
+            const hasta = Date.now() + 5 * 60_000;
+            for (;;) {
+                await new Promise((res) => setTimeout(res, 3000));
+                const e = await fetch(`/api/devices/analytics?deviceId=${device.id}&estado=1`, { cache: "no-store" }).then((x) => x.json()).catch(() => null);
+                if (e?.estado === "listo") { j = e; break; }
+                if (e?.estado === "error") throw new Error(e.error || "La cámara no aceptó el cambio");
+                if (Date.now() > hasta) throw new Error("La cámara no terminó de aplicar en 5 minutos");
+            }
+        }
         // Se releyó la cámara: si algo no quedó como se pidió, es un error y se dice qué.
         if (Array.isArray(j.diferencias) && j.diferencias.length) throw new Error(`La cámara no quedó igual: ${j.diferencias.join(" · ")}`);
     };
@@ -374,7 +386,7 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
                                             ))}
                                         </div>
                                     )}
-                                    <span className="text-[10px] text-white/50">· {guardando ? "aplicando en la cámara: después de cada cambio tarda hasta un minuto en volver a aceptar otro" : edit === "line" ? "tocá los 2 extremos, arrastrá para ajustar" : "tocá para agregar vértices, doble clic borra"}</span>
+                                    <span className="text-[10px] text-white/50">· {guardando ? "aplicando en la cámara y comprobando que quedó: puede tardar hasta dos minutos" : edit === "line" ? "tocá los 2 extremos, arrastrá para ajustar" : "tocá para agregar vértices, doble clic borra"}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     {edit === "line" && (

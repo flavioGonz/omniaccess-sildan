@@ -148,13 +148,13 @@ export async function escribirTodas(d: CamDev, tipo: TipoRegla, cambios: CambioR
     for (const c of cambios) {
         if (c.borrar && actual.reglas.find((r) => r.id === c.id)?.vacia) continue;
         const listo = (l: LecturaReglas) => !diferencias([c], l.reglas).length;
-        if (tipo === "zona" && c.borrar) { await conReintento(d, tipo, ch, () => isapi(d, "DELETE", rutaElemento(tipo, ch, c.id)), listo); continue; }
+        if (tipo === "zona" && c.borrar) { await conReintento(d, tipo, ch, () => isapi(d, "DELETE", rutaElemento(tipo, ch, c.id)), listo); await esperar(d, tipo, ch, listo); continue; }
         if (porElemento) {
             try {
                 const item = await get(d, rutaElemento(tipo, ch, c.id));
                 if (!new RegExp(`<${tipo === "linea" ? "LineItem" : "FieldDetectionRegion"}\\b`, "i").test(item)) throw new SinRuta("sin ruta por elemento");
                 const nuevo = aplicarCambios(item, tipo, [c], { soloElemento: true, vacio });
-                if (sinEspacios(nuevo) !== sinEspacios(item)) await conReintento(d, tipo, ch, () => put(d, rutaElemento(tipo, ch, c.id), nuevo), listo);
+                if (sinEspacios(nuevo) !== sinEspacios(item)) { await conReintento(d, tipo, ch, () => put(d, rutaElemento(tipo, ch, c.id), nuevo), listo); await esperar(d, tipo, ch, listo); }
                 continue;
             } catch (e: any) {
                 // Sin ruta por elemento (404/403/otro XML): se sigue con el XML completo. Un corte no es eso.
@@ -165,11 +165,16 @@ export async function escribirTodas(d: CamDev, tipo: TipoRegla, cambios: CambioR
         const base = await leerTodas(d, tipo, ch);
         if (!base) throw new Error("la cámara dejó de contestar la analítica");
         const nuevo = aplicarCambios(base.xml, tipo, [c]);
-        if (sinEspacios(nuevo) !== sinEspacios(base.xml)) await conReintento(d, tipo, ch, () => put(d, ruta(tipo, ch), nuevo), listo);
+        if (sinEspacios(nuevo) !== sinEspacios(base.xml)) { await conReintento(d, tipo, ch, () => put(d, ruta(tipo, ch), nuevo), listo); await esperar(d, tipo, ch, listo); }
     }
     // La raíz: prendida mientras haya algo dibujado (o lo que se pidió), apagada si no queda nada.
+    // Se toca con el XML COMPLETO, así que tiene que ser uno releído DESPUÉS de que la cámara aplicó
+    // lo anterior: la cámara contesta OK al borrar y lo aplica unos segundos más tarde, y un PUT con
+    // el XML viejo volvía a escribir la zona recién borrada (23/10: «Zona 1: sigue en la cámara»).
     const ahora = await leerTodas(d, tipo, ch);
-    if (ahora) {
+    if (ahora && diferencias(cambios, ahora.reglas).length) {
+        // Todavía no se ve lo pedido: no se manda un XML que lo desharía. La diferencia se informa abajo.
+    } else if (ahora) {
         const hay = ahora.reglas.some((r) => !r.vacia);
         const quiero = hay ? (activa ?? (actual.raiz || cambios.some((c) => c.points))) : false;
         if (ahora.raiz !== quiero) await conReintento(d, tipo, ch, () => put(d, ruta(tipo, ch), aplicarCambios(ahora.xml, tipo, [], { activa: quiero })), (l) => l.raiz === quiero);
@@ -182,6 +187,19 @@ export async function escribirTodas(d: CamDev, tipo: TipoRegla, cambios: CambioR
 }
 
 /**
+ * Espera a que la cámara muestre lo escrito (relee cada 3 s, hasta 30 s). La cámara contesta OK
+ * antes de aplicar: sin esto, lo siguiente se hacía sobre una lectura vieja.
+ */
+async function esperar(d: CamDev, tipo: TipoRegla, ch: number, listo: (l: LecturaReglas) => boolean): Promise<boolean> {
+    for (let i = 0; i < 10; i++) {
+        const l = await leerTodas(d, tipo, ch).catch(() => null);
+        if (l && listo(l)) return true;
+        await new Promise((r) => setTimeout(r, 3000));
+    }
+    return false;
+}
+
+/**
  * Una escritura con su plan para cuando la cámara corta la conexión: mientras aplica un cambio de
  * analítica deja de contestar unos segundos, y a veces corta DESPUÉS de haberlo aplicado. Se espera,
  * se relee, y sólo se vuelve a mandar si no quedó (`listo` mira la cámara releída).
@@ -191,9 +209,10 @@ async function conReintento(d: CamDev, tipo: TipoRegla, ch: number, escribir: ()
         try { await escribir(); return; }
         catch (e: any) {
             if (!(e instanceof Corte)) throw e;
-            await new Promise((r) => setTimeout(r, 4000 * intento));
-            const ahora = await leerTodas(d, tipo, ch).catch(() => null);
-            if (ahora && listo(ahora)) return;
+            // Antes de volver a mandar: ¿ya lo aplicó? Se mira durante 30 s (la cámara también corta
+            // las lecturas mientras aplica). Medido el 23/10: una zona nueva quedó guardada y el
+            // pedido se dio por fallido porque las tres relecturas cayeron en ese rato.
+            if (await esperar(d, tipo, ch, listo)) return;
             if (intento >= 3) throw new Error(`la cámara está ocupada (cortó la conexión ${intento} veces): probá de nuevo en un minuto`);
         }
     }

@@ -11,6 +11,7 @@
  *         tiempo) o `borrar`. `…Activas` prende o apaga todas las de un tipo (la cámara no deja
  *         apagar una sola: ver lib/analitica-xml.ts). Se escribe todo un tipo en un solo PUT, se vuelve a leer la
  *         cámara y se devuelven las `diferencias` entre lo pedido y lo guardado: vacío = quedó así.
+ *         Corre en segundo plano y contesta { enCurso: true }; el resultado, en GET …&estado=1.
  *       → { kind:"line"|"field", enabled, points, direction }  (forma vieja: la primera regla)
  *
  * Coordenadas 0–1000 origen abajo-izquierda (la pantalla invierte Y).
@@ -28,6 +29,10 @@ import { ZONA_MAX, ZONA_MIN, type CambioRegla, type ReglaCam } from "@/lib/anali
 
 export const dynamic = "force-dynamic";
 const SIN_CACHE = { "Cache-Control": "no-store" };
+
+/** La escritura en curso (o la última) de cada equipo. En globalThis para que sobreviva al recompilar en desarrollo. */
+type Trabajo = { estado: "aplicando" | "listo" | "error"; desde: number; hasta?: number; diferencias?: string[]; error?: string };
+const TRABAJOS: Map<string, Trabajo> = ((globalThis as any).__analiticaTrabajos ||= new Map());
 
 async function load(id: string) {
     const d = await prisma.device.findUnique({ where: { id }, select: { id: true, ip: true, username: true, password: true, authType: true, httpPort: true } });
@@ -53,6 +58,11 @@ async function dahua(camD: NonNullable<Awaited<ReturnType<typeof resolveForCamer
 
 export async function GET(req: NextRequest) {
     const id = req.nextUrl.searchParams.get("deviceId");
+    // Cómo va la última escritura de este equipo (ver POST).
+    if (id && req.nextUrl.searchParams.get("estado")) {
+        const t = TRABAJOS.get(id);
+        return NextResponse.json({ ok: true, ...(t || { estado: "libre" }), segundos: t ? Math.round(((t.hasta || Date.now()) - t.desde) / 1000) : 0 }, { headers: SIN_CACHE });
+    }
     const ch = parseInt(req.nextUrl.searchParams.get("ch") || "1") || 1;
     if (!id) return NextResponse.json({ ok: false, error: "deviceId requerido" }, { status: 400 });
     const d = await load(id);
@@ -108,14 +118,24 @@ export async function POST(req: NextRequest) {
                 return NextResponse.json({ ok: true, diferencias: [] });
             } catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || "Dahua IVS write error" }, { status: 502 }); }
         }
-        try {
-            // De a un tipo: si la línea falla, la zona no se toca (y se dice cuál falló).
-            const rl = await escribirTodas(d as any, "linea", lineas, ch, activa(body.lineasActivas)).catch((e) => { throw new Error(`Líneas: ${e?.message || e}`); });
-            const rz = await escribirTodas(d as any, "zona", zonas, ch, activa(body.zonasActivas)).catch((e) => { throw new Error(`Zonas: ${e?.message || e}`); });
-            return NextResponse.json({ ok: true, diferencias: [...rl.diferencias, ...rz.diferencias] });
-        } catch (e: any) {
-            return NextResponse.json({ ok: false, error: e?.message || "ISAPI PUT error" }, { status: 502 });
-        }
+        // En segundo plano: la cámara tarda (deja de contestar 30–50 s después de cada cambio y hay que
+        // esperar a verlo aplicado), y un pedido de un minuto o dos lo corta el proxy. La pantalla
+        // consulta `?deviceId=…&estado=1` hasta que termina.
+        const previo = TRABAJOS.get(id);
+        if (previo?.estado === "aplicando" && Date.now() - previo.desde < 5 * 60_000) return NextResponse.json({ ok: false, error: "La cámara todavía está aplicando el cambio anterior: esperá a que termine." }, { status: 409 });
+        const trabajo: Trabajo = { estado: "aplicando", desde: Date.now() };
+        TRABAJOS.set(id, trabajo);
+        void (async () => {
+            try {
+                // De a un tipo: si la línea falla, la zona no se toca (y se dice cuál falló).
+                const rl = await escribirTodas(d as any, "linea", lineas, ch, activa(body.lineasActivas)).catch((e) => { throw new Error(`Líneas: ${e?.message || e}`); });
+                const rz = await escribirTodas(d as any, "zona", zonas, ch, activa(body.zonasActivas)).catch((e) => { throw new Error(`Zonas: ${e?.message || e}`); });
+                Object.assign(trabajo, { estado: "listo", diferencias: [...rl.diferencias, ...rz.diferencias], hasta: Date.now() });
+            } catch (e: any) {
+                Object.assign(trabajo, { estado: "error", error: e?.message || "ISAPI PUT error", hasta: Date.now() });
+            }
+        })();
+        return NextResponse.json({ ok: true, enCurso: true });
     }
 
     // ── Forma vieja: una línea / una zona ──
