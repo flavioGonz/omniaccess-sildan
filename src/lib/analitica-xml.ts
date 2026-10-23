@@ -134,10 +134,12 @@ export function leerReglas(xml: string, tipo: TipoRegla): LecturaReglas {
 }
 
 /** Cómo luce una línea vacía EN ESTA cámara (unas usan (0,1000), otras (0,0)). */
-function puntoVacio(xml: string): Pt {
+function puntoVacio(xml: string, defecto: Pt = { x: 0, y: 1000 }): Pt {
     for (const r of leerReglasCrudas(xml)) if (r.length === 2 && r[0].x === r[1].x && r[0].y === r[1].y) return r[0];
-    return { x: 0, y: 1000 };
+    return defecto;
 }
+/** El punto con el que esta cámara marca una línea vacía (para borrar con el XML de un solo elemento). */
+export const puntoVacioDe = (xmlCompleto: string): Pt => puntoVacio(xmlCompleto);
 function leerReglasCrudas(xml: string): Pt[][] {
     return bloques(xml, "linea").map((b) => puntos(b.texto));
 }
@@ -155,9 +157,9 @@ const coordsXml = (tipo: TipoRegla, p: Pt[]) => {
  * `conservarZona`: al borrar una zona deja sus coordenadas y sólo la apaga. Es el segundo intento
  * si una cámara rechaza la zona sin `RegionCoordinatesList`.
  */
-export function aplicarCambios(xml: string, tipo: TipoRegla, cambios: CambioRegla[], opciones: { conservarZona?: boolean; activa?: boolean } = {}): string {
+export function aplicarCambios(xml: string, tipo: TipoRegla, cambios: CambioRegla[], opciones: { conservarZona?: boolean; activa?: boolean; soloElemento?: boolean; vacio?: Pt } = {}): string {
     const e = ETIQUETA[tipo];
-    const vacio = tipo === "linea" ? puntoVacio(xml) : null;
+    const vacio = tipo === "linea" ? puntoVacio(xml, opciones.vacio) : null;
     // De atrás para adelante: así los índices de los bloques que faltan no se corren.
     const bs = bloques(xml, tipo);
     const porId = new Map(cambios.map((c) => [c.id, c]));
@@ -188,6 +190,8 @@ export function aplicarCambios(xml: string, tipo: TipoRegla, cambios: CambioRegl
         }
         xml = xml.slice(0, b.inicio) + t + xml.slice(b.fin);
     }
+    // El XML de un solo elemento (…/lineItem/<id>, …/regions/<id>) no tiene raíz que tocar.
+    if (opciones.soloElemento) return xml;
     const dibujadas = leerReglasConRaiz(xml, tipo, true).some((r) => !r.vacia);
     const prendidas = dibujadas && (opciones.activa ?? (cabezaPrendida(xml, tipo) || cambios.some((c) => c.points)));
     const cab = cabeza(xml, tipo);

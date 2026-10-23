@@ -118,3 +118,13 @@ test("diferencias: avisa si la cámara no guardó lo pedido", () => {
     assert.equal(d.length, 1);
     assert.match(d[0], /no guardó/);
 });
+
+test("un solo elemento (…/lineItem/<id>): cambia el elemento y no toca ningún otro <enabled>", () => {
+    const item = xml("cerco-LineDetection").match(/<LineItem>[\s\S]*?<\/LineItem>/)![0];
+    const vaciado = aplicarCambios(item, "linea", [{ id: 1, borrar: true }], { soloElemento: true, vacio: { x: 0, y: 0 } });
+    assert.match(vaciado, /^<LineItem>/);
+    assert.equal(leerReglas(`<LineDetection><enabled>true</enabled><LineItemList size="4">${vaciado}</LineItemList></LineDetection>`, "linea").reglas[0].vacia, true);
+    const dibujado = aplicarCambios(item, "linea", [{ id: 1, points: [{ x: 10, y: 20 }, { x: 30, y: 40 }], direction: "ba" }], { soloElemento: true });
+    assert.match(dibujado, /<directionSensitivity>right-left<\/directionSensitivity>/);
+    assert.match(dibujado, /<positionX>10<\/positionX><positionY>20<\/positionY>/);
+});

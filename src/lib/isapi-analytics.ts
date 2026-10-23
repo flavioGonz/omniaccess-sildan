@@ -21,8 +21,11 @@ const pathField = (ch: number) => `/ISAPI/Smart/FieldDetection/${ch}`;
 async function get(d: CamDev, p: string): Promise<string> {
     // Con el mismo transporte que el PUT (sin keep-alive): un GET autenticado por axios también
     // cortaba a veces, y la relectura que verifica lo guardado no puede fallar por eso.
-    try { return await isapi(d, "GET", p); }
-    catch (e) { if (e instanceof Corte) return isapi(d, "GET", p); throw e; }
+    // Mientras aplica un cambio de analítica la cámara corta también las lecturas: se espera y se relee.
+    for (let intento = 1; ; intento++) {
+        try { return await isapi(d, "GET", p); }
+        catch (e) { if (!(e instanceof Corte) || intento >= 4) throw e; await new Promise((r) => setTimeout(r, 3000 * intento)); }
+    }
 }
 /**
  * PUT a la cámara como lo hace curl, que es lo único que anduvo siempre (medido el 23/10 en una
@@ -97,7 +100,7 @@ export async function getSmartSupport(d: CamDev): Promise<{ line: boolean; field
     } catch { return { line: false, field: false }; }
 }
 
-import { leerReglas, aplicarCambios, diferencias, validarCambios, type CambioRegla, type LecturaReglas, type ReglaCam, type TipoRegla } from "@/lib/analitica-xml";
+import { leerReglas, aplicarCambios, diferencias, validarCambios, puntoVacioDe, type CambioRegla, type LecturaReglas, type ReglaCam, type TipoRegla } from "@/lib/analitica-xml";
 
 export type AnalyticRead = { supported: boolean; enabled: boolean; points: Pt[]; raw?: string; dir?: "both" | "ab" | "ba" };
 
@@ -116,29 +119,60 @@ export async function leerTodas(d: CamDev, tipo: TipoRegla, ch = 1): Promise<(Le
  * elementos y lo devuelve), vuelve a leer y compara: lo que devuelve son las diferencias entre lo
  * pedido y lo que la cámara guardó. Vacío = quedó exactamente así.
  */
+const rutaElemento = (tipo: TipoRegla, ch: number, id: number) => (tipo === "linea" ? `${pathLine(ch)}/lineItem/${id}` : `${pathField(ch)}/regions/${id}`);
+const sinEspacios = (x: string) => x.replace(/\s+/g, "");
+class SinRuta extends Error {}
+
+/**
+ * Escribe los cambios de un tipo y devuelve las diferencias entre lo pedido y lo que la cámara
+ * guardó (vacío = quedó exactamente así).
+ *
+ * Elemento por elemento (…/lineItem/<id>, …/regions/<id>) y no el XML entero: probado el 23/10 en
+ * «DEPO EXTERIOR» (DS-2CD2146G2-ISU, V5.7.15), el PUT del XML completo la deja ocupada y corta las
+ * conexiones siguientes por minutos, y el de un solo elemento entra enseguida. Y para BORRAR:
+ *  · la zona, con DELETE …/regions/<id>: por PUT no hay forma (sin coordenadas conserva las que
+ *    tenía, con la lista vacía corta, con puntos repetidos da badParameters);
+ *  · la línea, con PUT …/lineItem/<id> y sus dos puntos iguales (así la trae de fábrica; DELETE no
+ *    está permitido).
+ * El `<enabled>` de la raíz (que es el que manda) se toca al final y sólo si tiene que cambiar.
+ * Si la cámara no tiene las rutas por elemento, se vuelve al XML completo.
+ */
 export async function escribirTodas(d: CamDev, tipo: TipoRegla, cambios: CambioRegla[], ch = 1, activa?: boolean): Promise<{ diferencias: string[]; reglas: ReglaCam[] }> {
     if (!cambios.length && activa === undefined) { const l = await leerTodas(d, tipo, ch); return { diferencias: [], reglas: l?.reglas || [] }; }
     const actual = await leerTodas(d, tipo, ch);
     if (!actual) throw new Error(tipo === "linea" ? "La cámara no tiene cruce de línea" : "La cámara no tiene zona de intrusión");
     const error = validarCambios(tipo, cambios, actual.max);
     if (error) throw new Error(error);
-
-    // Una ZONA se borra con DELETE …/regions/<id>. Por PUT no hay forma: sin coordenadas la cámara
-    // conserva las que tenía, con la lista vacía corta la conexión y con puntos repetidos contesta
-    // badParameters (probado el 23/10 en «DEPO EXTERIOR»). La LÍNEA sí se vacía por PUT, con sus dos
-    // puntos iguales, que es como la trae de fábrica.
-    const borrarZonas = tipo === "zona" ? cambios.filter((c) => c.borrar && !actual.reglas.find((r) => r.id === c.id)?.vacia) : [];
-    for (const c of borrarZonas) {
-        await conReintento(d, tipo, ch, () => isapi(d, "DELETE", `${pathField(ch)}/regions/${c.id}`), (l) => !!l.reglas.find((r) => r.id === c.id)?.vacia);
-    }
-    const resto = tipo === "zona" ? cambios.filter((c) => !c.borrar) : cambios;
-    const base = borrarZonas.length ? await leerTodas(d, tipo, ch) : actual;
-    if (base && (resto.length || activa !== undefined || borrarZonas.length)) {
-        const nuevo = aplicarCambios(base.xml, tipo, resto, { activa });
-        // Nada que escribir: no se manda un PUT idéntico a lo que ya tiene la cámara.
-        if (nuevo.replace(/\s+/g, "") !== base.xml.replace(/\s+/g, "")) {
-            await conReintento(d, tipo, ch, () => put(d, ruta(tipo, ch), nuevo), (l) => !diferencias(resto, l.reglas).length && (activa === undefined || l.raiz === activa));
+    const vacio = puntoVacioDe(actual.xml);
+    let porElemento = true;
+    for (const c of cambios) {
+        if (c.borrar && actual.reglas.find((r) => r.id === c.id)?.vacia) continue;
+        const listo = (l: LecturaReglas) => !diferencias([c], l.reglas).length;
+        if (tipo === "zona" && c.borrar) { await conReintento(d, tipo, ch, () => isapi(d, "DELETE", rutaElemento(tipo, ch, c.id)), listo); continue; }
+        if (porElemento) {
+            try {
+                const item = await get(d, rutaElemento(tipo, ch, c.id));
+                if (!new RegExp(`<${tipo === "linea" ? "LineItem" : "FieldDetectionRegion"}\\b`, "i").test(item)) throw new SinRuta("sin ruta por elemento");
+                const nuevo = aplicarCambios(item, tipo, [c], { soloElemento: true, vacio });
+                if (sinEspacios(nuevo) !== sinEspacios(item)) await conReintento(d, tipo, ch, () => put(d, rutaElemento(tipo, ch, c.id), nuevo), listo);
+                continue;
+            } catch (e: any) {
+                // Sin ruta por elemento (404/403/otro XML): se sigue con el XML completo. Un corte no es eso.
+                if (e instanceof Corte || !(e instanceof SinRuta || /contestó 40[34]|rechazó el cambio: (Invalid Operation|.*notSupport|.*methodNotAllowed|404)/i.test(e?.message || ""))) throw e;
+                porElemento = false;
+            }
         }
+        const base = await leerTodas(d, tipo, ch);
+        if (!base) throw new Error("la cámara dejó de contestar la analítica");
+        const nuevo = aplicarCambios(base.xml, tipo, [c]);
+        if (sinEspacios(nuevo) !== sinEspacios(base.xml)) await conReintento(d, tipo, ch, () => put(d, ruta(tipo, ch), nuevo), listo);
+    }
+    // La raíz: prendida mientras haya algo dibujado (o lo que se pidió), apagada si no queda nada.
+    const ahora = await leerTodas(d, tipo, ch);
+    if (ahora) {
+        const hay = ahora.reglas.some((r) => !r.vacia);
+        const quiero = hay ? (activa ?? (actual.raiz || cambios.some((c) => c.points))) : false;
+        if (ahora.raiz !== quiero) await conReintento(d, tipo, ch, () => put(d, ruta(tipo, ch), aplicarCambios(ahora.xml, tipo, [], { activa: quiero })), (l) => l.raiz === quiero);
     }
     const despues = await leerTodas(d, tipo, ch);
     const reglas = despues?.reglas || [];

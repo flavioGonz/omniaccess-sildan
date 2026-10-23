@@ -217,7 +217,7 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
     const aplicar = async (key: string, titulo: string, fn: () => Promise<void>) => {
         setBusy(key); setConfirm(null);
         try { await fn(); toast.success(titulo, { description: "Aplicado en la cámara" }); setTimeout(() => setVideoNonce((n) => n + 1), 600); await cargar(); }
-        catch (e: any) { toast.error("No se pudo aplicar", { description: e?.message }); }
+        catch (e: any) { toast.error("No se pudo aplicar", { description: e?.message }); cargar(); }
         finally { setBusy(null); }
     };
 
@@ -288,7 +288,7 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
         hacer: async () => {
             setConfirm(null); setGuardando(true);
             try { await post(edit === "line" ? { lineas: [{ id: editId, borrar: true }] } : { zonas: [{ id: editId, borrar: true }] }); toast.success(`${nombreEdit} eliminada`, { description: "Se volvió a leer la cámara: ya no está" }); setEdit(null); await cargar(); }
-            catch (e: any) { toast.error("No se pudo eliminar", { description: e?.message }); }
+            catch (e: any) { toast.error("No se pudo eliminar", { description: e?.message }); cargar(); }
             finally { setGuardando(false); }
         },
     });
@@ -304,7 +304,7 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
             await post(edit === "line" ? { lineas: [{ id: editId, points: p, direction: dir }] } : { zonas: [{ id: editId, points: p }] });
             toast.success(edit === "line" ? `${nombreEdit} guardada en la cámara` : `${nombreEdit} guardada en la cámara`, { description: "Se volvió a leer la cámara y quedó igual" });
             setEdit(null); await cargar();
-        } catch (e: any) { toast.error("No se pudo guardar", { description: e?.message }); }
+        } catch (e: any) { toast.error("No se pudo guardar", { description: e?.message }); cargar(); }
         finally { setGuardando(false); }
     };
     /** Cambiar de lugar en el editor: si hay cambios sin guardar, se pregunta. */
@@ -374,7 +374,7 @@ export function IntrusionCalibrator({ device, onClose }: { device: any; onClose:
                                             ))}
                                         </div>
                                     )}
-                                    <span className="text-[10px] text-white/50">· {edit === "line" ? "tocá los 2 extremos, arrastrá para ajustar" : "tocá para agregar vértices, doble clic borra"}</span>
+                                    <span className="text-[10px] text-white/50">· {guardando ? "aplicando en la cámara: después de cada cambio tarda hasta un minuto en volver a aceptar otro" : edit === "line" ? "tocá los 2 extremos, arrastrá para ajustar" : "tocá para agregar vértices, doble clic borra"}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     {edit === "line" && (
