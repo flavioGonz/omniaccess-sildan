@@ -760,7 +760,10 @@ export default function DevicesPage() {
                                                 </div>
                                             )}
 
-                                            {dev.deviceType === 'LPR_CAMERA' && dev.brand === 'HIKVISION' && (
+                                            {/* 23/10, Nico: «no tengo el calibrador de camaras en dispositivos». La condición miraba
+                                                deviceType === LPR_CAMERA y dejaba afuera a las de lectura OmniVision (LPR_INTERIOR +
+                                                acceso), que la tabla muestra como LPR. El calibrador ya sabe tratarlas (sin ANPR). */}
+                                            {vistaDe(dev) === 'LPR_CAMERA' && dev.brand === 'HIKVISION' && (
                                             <TooltipProvider>
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>
@@ -773,7 +776,7 @@ export default function DevicesPage() {
                                                             <Wand2 size={15} />
                                                         </Button>
                                                     </TooltipTrigger>
-                                                    <TooltipContent><p>Calibrar ANPR</p></TooltipContent>
+                                                    <TooltipContent><p>{modoLprDe(dev) === 'omnivision' ? 'Calibrar imagen (lectura OmniVision)' : 'Calibrar ANPR'}</p></TooltipContent>
                                                 </Tooltip>
                                             </TooltipProvider>
                                             )}

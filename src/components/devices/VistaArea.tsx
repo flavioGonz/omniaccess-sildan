@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, Folder, FolderOpen, Eye, Settings2, Crosshair, Wand2, Inbox, Layers, GripVertical, Activity, PowerOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { esLprDeAcceso } from "@/lib/modo-camara";
 import { IconoTipo, ICONO_TIPO, arrastrarEquipos, SIN_AREA } from "@/components/devices/ArbolAreas";
 import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
 import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
@@ -85,8 +86,9 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
                     <span className={cn("w-1.5 h-1.5 rounded-full", on === null ? "bg-muted-foreground/40" : on ? "bg-emerald-500" : "bg-red-500")} />{on === null ? "…" : on ? "On" : "Off"}
                 </span>}
                 <div className="flex items-center justify-end gap-0.5">
-                    {(d.deviceType === "CAMERA" || (d.deviceType === "LPR_CAMERA" && d.brand === "HIKVISION")) && (
-                        <button onClick={() => onCalibrar(d)} data-tooltip-id="tt-grab" data-tooltip-content={d.deviceType === "CAMERA" ? "Calibrar intrusión" : "Calibrar ANPR"} className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10">{d.deviceType === "CAMERA" ? <Crosshair size={14} /> : <Wand2 size={14} />}</button>
+                    {/* Las de lectura OmniVision (LPR_INTERIOR + acceso) también se calibran: imagen, sin ANPR. */}
+                    {(d.deviceType === "CAMERA" || (esLprDeAcceso(d) && d.brand === "HIKVISION")) && (
+                        <button onClick={() => onCalibrar(d)} data-tooltip-id="tt-grab" data-tooltip-content={d.deviceType === "CAMERA" ? "Calibrar intrusión" : d.deviceType === "LPR_INTERIOR" ? "Calibrar imagen (lectura OmniVision)" : "Calibrar ANPR"} className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10">{d.deviceType === "CAMERA" ? <Crosshair size={14} /> : <Wand2 size={14} />}</button>
                     )}
                     <button onClick={() => onSalud(d)} data-tooltip-id="tt-grab" data-tooltip-content="Historial de salud" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><Activity size={14} /></button>
                     <button onClick={() => onEditar(d)} data-tooltip-id="tt-grab" data-tooltip-content="Editar" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><Settings2 size={14} /></button>
