@@ -5,6 +5,7 @@ import { ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MinInteriorDialog } from "@/components/MinInteriorDialog";
 import { normalizarMatricula } from "@/lib/min-interior";
+import { useFuncion } from "@/lib/funciones-cliente";
 
 export { MIN_INTERIOR_URL } from "@/lib/min-interior";
 
@@ -22,6 +23,10 @@ export function MinInteriorButton({
 }) {
     const [open, setOpen] = useState(false);
     const p = normalizarMatricula(plate);
+    // Función LPR_MIN_INTERIOR (Ajustes → Modos → LPR), apagada por defecto: el sitio dejó de contestar
+    // y un botón que siempre da error es un control que miente. Mientras no se sabe, tampoco se muestra.
+    const activa = useFuncion("LPR_MIN_INTERIOR");
+    if (!activa) return null;
 
     return (
         <>
