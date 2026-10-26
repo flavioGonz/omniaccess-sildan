@@ -17,7 +17,7 @@ import type { ModuleId } from "@/lib/module-definitions";
  * haya una segunda función no haya que inventar un segundo mecanismo.
  */
 
-export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS" | "LPR_PLAZAS" | "LPR_BUSQUEDA"
+export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS" | "LPR_PLAZAS" | "LPR_BUSQUEDA" | "LPR_MIN_INTERIOR"
     | "FUNC_INTRUSION" | "FUNC_ALARMAS_RECEPCION" | "FUNC_ALARMAS_GESTION";
 
 export interface Funcion {
@@ -96,6 +96,15 @@ export const FUNCIONES: Funcion[] = [
         que: "Un segundo nivel de la lista negra: la matrícula pasa, pero al leerla se avisa con el motivo (ámbar en el monitor y en los avisos).",
         siSeApaga: "Queda sólo la lista negra (alerta máxima): se deja de ofrecer «En búsqueda» al cargar, desaparece de las listas y de los filtros, y no salta ningún aviso de búsqueda (20/10: San Nicolás no la usa). Las cargadas no se borran.",
         porDefecto: true,
+    },
+    {
+        id: "LPR_MIN_INTERIOR",
+        alcance: "modulo",
+        modulo: "MODULE_LPR",
+        nombre: "Consulta de Matrículas Requeridas (Min. del Interior)",
+        que: "El botón «Min. Interior» del Monitor LPR: consulta la matrícula en el sitio público de Matrículas Requeridas, con el código de seguridad que escribe el guardia.",
+        siSeApaga: "Desaparece el botón del Monitor LPR y la consulta deja de responder. Apagada por defecto desde el 26/10: el sitio del Ministerio dejó de contestar a la consulta y el botón sólo daba error.",
+        porDefecto: false,
     },
 
     // ── Funciones de la instalación (openspec/changes/alarmas-como-funciones) ──

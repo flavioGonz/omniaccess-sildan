@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -85,6 +86,7 @@ async function start(): Promise<{ cookie: string; csrf: string; image: string; f
 }
 
 export async function GET(req: NextRequest) {
+  const funcionApagada = await exigirFuncion("LPR_MIN_INTERIOR"); if (funcionApagada) return funcionApagada;
   gc();
   const action = req.nextUrl.searchParams.get("action") || "start";
   try {
@@ -155,6 +157,7 @@ function classify(text: string): { status: "REQUERIDA" | "NO" | "CAPTCHA" | "UNK
 }
 
 export async function POST(req: NextRequest) {
+  const funcionApagada = await exigirFuncion("LPR_MIN_INTERIOR"); if (funcionApagada) return funcionApagada;
   gc();
   try {
     const body: any = await req.json().catch(() => ({}));
