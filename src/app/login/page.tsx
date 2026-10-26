@@ -126,12 +126,12 @@ export default function LoginPage() {
                                         <div className="space-y-2">
                                             <label className="text-sm font-medium text-foreground/80">Usuario</label>
                                             <div className="relative group">
-                                                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-[#B20D30] transition-colors" size={20} />
+                                                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-[var(--accion)] transition-colors" size={20} />
                                                 <Input
                                                     name="username"
                                                     type="text"
                                                     required
-                                                    className="bg-muted/50 border-border h-14 pl-12 text-foreground text-base focus:ring-[#B20D30] focus:border-[#B20D30] rounded-xl placeholder:text-muted-foreground transition-all"
+                                                    className="bg-muted/50 border-border h-14 pl-12 text-foreground text-base focus:ring-[var(--accion-foco)] focus:border-[var(--accion)] rounded-xl placeholder:text-muted-foreground transition-all"
                                                     placeholder="Nombre de usuario"
                                                 />
                                             </div>
@@ -143,17 +143,17 @@ export default function LoginPage() {
                                                 <button
                                                     type="button"
                                                     onClick={() => setMode('reset')}
-                                                    className="text-sm font-semibold text-[#B20D30] hover:text-[#d9123c] transition-colors"
+                                                    className="text-sm font-semibold text-[var(--accion)] hover:text-[var(--accion-sobre)] transition-colors"
                                                 >
                                                     ¿Olvidó su contraseña?
                                                 </button>
                                             </div>
                                             <div className="relative group">
-                                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-[#B20D30] transition-colors" size={20} />
+                                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-[var(--accion)] transition-colors" size={20} />
                                                 <PasswordInput
                                                     name="password"
                                                     required
-                                                    className="bg-muted/50 border-border h-14 pl-12 text-foreground text-base focus:ring-[#B20D30] focus:border-[#B20D30] rounded-xl placeholder:text-muted-foreground transition-all"
+                                                    className="bg-muted/50 border-border h-14 pl-12 text-foreground text-base focus:ring-[var(--accion-foco)] focus:border-[var(--accion)] rounded-xl placeholder:text-muted-foreground transition-all"
                                                     placeholder="••••••••"
                                                 />
                                             </div>
@@ -172,7 +172,7 @@ export default function LoginPage() {
 
                                         <Button
                                             disabled={loading}
-                                            className="w-full h-14 bg-[#B20D30] hover:bg-[#d9123c] text-white font-bold text-lg rounded-xl transition-all shadow-lg shadow-[#B20D30]/20 active:scale-[0.98] disabled:opacity-50"
+                                            className="w-full h-14 bg-[var(--accion)] hover:bg-[var(--accion-sobre)] text-white font-bold text-lg rounded-xl transition-all active:scale-[0.98] disabled:opacity-50"
                                         >
                                             <span className="flex items-center justify-center gap-2">
                                                 {loading ? <RefreshCw className="animate-spin" size={22} /> : (
@@ -269,18 +269,17 @@ export default function LoginPage() {
 
             {/* RIGHT SIDE: IMAGE & QUOTE (always dark — sits over a photo) */}
             <div className="hidden lg:block relative overflow-hidden bg-black">
-                {/* Video de fondo; si el navegador no puede reproducirlo queda la imagen */}
-                <video
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    preload="auto"
-                    poster={brand.loginBgUrl || "/login-bg-split.png"}
-                    className="absolute inset-0 h-full w-full object-cover"
-                >
-                    <source src="/branding/intro-login-lpr.mp4" type="video/mp4" />
-                </video>
+                {/* Con una imagen cargada en Ajustes → Branding se muestra esa imagen y no el video de
+                    muestra: el video es genérico (una chapa que no es de ningún barrio) y tapaba la
+                    imagen de la instalación, que quedaba sólo como póster. Sin imagen, el video. */}
+                {brand.loginBgUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={brand.loginBgUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                ) : (
+                    <video autoPlay muted loop playsInline preload="auto" poster="/login-bg-split.png" className="absolute inset-0 h-full w-full object-cover">
+                        <source src="/branding/intro-login-lpr.mp4" type="video/mp4" />
+                    </video>
+                )}
                 {/* Overlay Gradient */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
 
@@ -292,23 +291,23 @@ export default function LoginPage() {
                         transition={{ delay: 0.4, duration: 0.6 }}
                         className="max-w-xl"
                     >
-                        <Quote className="text-[#B20D30] mb-6 w-12 h-12 opacity-80" />
+                        <Quote className="text-[var(--accion-en-oscuro)] mb-6 w-12 h-12 opacity-80" />
                         <h3 className="text-3xl xl:text-4xl font-semibold text-white leading-tight mb-8">
                             "{tCur.quote}"
                         </h3>
                         <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-full border-2 border-[#B20D30] overflow-hidden bg-neutral-800">
+                            <div className="w-12 h-12 rounded-full border-2 border-[var(--accion-en-oscuro)] overflow-hidden bg-neutral-800">
                                 <User className="w-full h-full p-2 text-neutral-400" />
                             </div>
                             <div>
-                                <p className="text-white font-bold text-lg underline decoration-[#B20D30] decoration-2 underline-offset-4">{tCur.name}</p>
+                                <p className="text-white font-bold text-lg underline decoration-[var(--accion-en-oscuro)] decoration-2 underline-offset-4">{tCur.name}</p>
                                 <p className="text-neutral-400 font-medium">{tCur.role}</p>
                             </div>
                         </div>
 
                         {/* Pagination indicator dots like in the UI kit */}
                         <div className="flex gap-2 mt-12">
-                            {testimonials.map((_, i) => <div key={i} className={i === (tIdx % testimonials.length) ? "w-8 h-2 bg-[#B20D30] rounded-full transition-all duration-500" : "w-2 h-2 bg-white/20 rounded-full transition-all duration-500"} />)}
+                            {testimonials.map((_, i) => <div key={i} className={i === (tIdx % testimonials.length) ? "w-8 h-2 bg-[var(--accion-en-oscuro)] rounded-full transition-all duration-500" : "w-2 h-2 bg-white/20 rounded-full transition-all duration-500"} />)}
                         </div>
                     </motion.div>
 
