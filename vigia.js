@@ -302,9 +302,28 @@ function contesta(mod, ip) {
         r.end();
     });
 }
+/**
+ * El video directo de la cámara (RTSP, sin pasar por go2rtc). HB, 21–26/10: la web de la Bosch se
+ * cuelga por rachas de más de un minuto mientras el video y los eventos siguen andando, y el vigía
+ * mandaba al grupo 10 a 18 «la cámara no contesta» / «volvió» por día. La web colgada no es una
+ * cámara caída: sólo se la declara caída si tampoco entrega video.
+ */
+const RTSP_TOPE_S = 10;
+/** El flujo secundario de las Bosch de fila (el mismo que lee go2rtc en bosch_<ip>). */
+const RTSP_RUTA_BOSCH = "/rtsp_tunnel?p=1&line=1&inst=2&vcd=2";
+async function videoDirecto(c) {
+    const url = `rtsp://${encodeURIComponent(c.username || "")}:${encodeURIComponent(c.password || "")}@${c.ip}${RTSP_RUTA_BOSCH}`;
+    try {
+        const { stdout } = await correr(`timeout ${RTSP_TOPE_S + 2} ffprobe -v error -rtsp_transport tcp -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 '${url}'`, { timeout: (RTSP_TOPE_S + 5) * 1000 });
+        return stdout.trim() ? { ok: true, detalle: `video directo (${stdout.trim()})` } : { ok: false, detalle: "RTSP sin video" };
+    } catch (e) { return { ok: false, detalle: "RTSP no contesta" }; }
+}
 const porCamara = async (c) => {
     const [a, b] = await Promise.all([contesta(https, c.ip), contesta(http, c.ip)]);
-    return a.ok ? a : b.ok ? b : { ok: false, detalle: `no contesta: ${a.detalle}` };
+    if (a.ok) return a;
+    if (b.ok) return b;
+    const v = await videoDirecto(c);
+    return v.ok ? { ok: true, detalle: `la web no contesta pero el ${v.detalle} sí` } : { ok: false, detalle: `no contesta ni por web ni por video (${a.detalle})` };
 };
 
 /** El flujo en go2rtc. Con la cámara caída no se juzga a go2rtc: no tendría de dónde sacar video. */
