@@ -13,13 +13,19 @@ export type Verificacion = {
     /** De dónde sale el veredicto final: la captura de la cámara o el cuadro propio, el más fuerte. */
     fuente: "captura" | "propio" | null;
     aviso: string | null;
+    /**
+     * La foto del evento como está HOY en la base. Una ficha abierta desde una lista que recibió la
+     * detección por socket antes de que se guardara la captura no la trae (26/10: la ficha caía al
+     * vivo de la cámara y dibujaba encima la moto del evento, que ya se había ido).
+     */
+    foto?: string | null;
 };
 
 export async function verificacionesDe(ids: string[], geomPorCamara: Record<string, any>): Promise<Map<string, Verificacion>> {
     const out = new Map<string, Verificacion>();
     const unicos = [...new Set(ids.filter(Boolean))];
     if (!unicos.length) return out;
-    const filas = await prisma.detection.findMany({ where: { id: { in: unicos }, verifAt: { not: null } }, select: { id: true, deviceId: true, verifEstado: true, verifAnalisis: true, verifAviso: true } }).catch(() => []);
+    const filas = await prisma.detection.findMany({ where: { id: { in: unicos }, verifAt: { not: null } }, select: { id: true, deviceId: true, snapshotPath: true, verifEstado: true, verifAnalisis: true, verifAviso: true } }).catch(() => []);
     for (const f of filas) {
         const a = (f.verifEstado === "OK" ? f.verifAnalisis : null) as Analisis | null;
         const g = f.deviceId ? geomDeIntrusion(geomPorCamara[f.deviceId]) : null;
@@ -29,7 +35,7 @@ export async function verificacionesDe(ids: string[], geomPorCamara: Record<stri
         out.set(f.id, {
             estado: f.verifEstado, veredicto: usaPropio ? vp!.estado : v?.estado ?? null, analisis: a, tocan: v?.tocan ?? [],
             propio: vp && a?.propio ? { veredicto: vp.estado, despuesS: Math.round(a.propio.despuesMs / 1000) } : null,
-            fuente: v ? (usaPropio ? "propio" : "captura") : null, aviso: f.verifAviso,
+            fuente: v ? (usaPropio ? "propio" : "captura") : null, aviso: f.verifAviso, foto: f.snapshotPath,
         });
     }
     return out;
