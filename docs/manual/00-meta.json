@@ -14,6 +14,17 @@
   "_nota": "Cada modo del sistema tiene su propia serie de manuales. 'modo' define el nombre del producto en la portada. Los manuales sin 'modo' son transversales (valen para cualquier modo).",
   "manuales": [
     {
+      "id": "sistema",
+      "grupo": "OmniAccess",
+      "titulo": "Manual del sistema",
+      "subtitulo": "Todas las secciones, con las licencias LPR, Face y Filas",
+      "para": "Operadores, administradores y técnicos: cada pantalla del panel explicada, con capturas.",
+      "color": "#8A6CFF",
+      "icono": "shield",
+      "prefijo": "oa",
+      "orden": 0
+    },
+    {
       "id": "operador",
       "modo": "LPR",
       "grupo": "OmniAccess LPR",
