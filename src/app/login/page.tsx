@@ -23,7 +23,13 @@ export default function LoginPage() {
     const [brand, setBrand] = useState<{ name: string; subtitle: string; logoUrl: string; loginBgUrl: string }>({ name: '', subtitle: '', logoUrl: '', loginBgUrl: '' });
     useEffect(() => { getAppBranding().then((b: any) => setBrand(b)).catch(() => {}); }, []);
     const [tIdx, setTIdx] = useState(0);
-    const TS_DEFAULT = [{ quote: "OmniAccess ha revolucionado la forma en que gestionamos la seguridad. No es solo un sistema, es la base de nuestra tranquilidad operativa.", name: "Ricardo Valenzuela", role: "Director de Seguridad Patrimonial" }];
+    // Sin testimonios cargados en Ajustes → Branding se muestran frases del producto, no la cita
+    // de una persona inventada: un nombre y un cargo que nadie dijo, en la puerta de entrada de un
+    // sistema de seguridad, es justo lo que no se puede mostrar.
+    const TS_DEFAULT = [
+        { quote: "La cámara detecta. OmniVision confirma: cada evento se verifica con inteligencia artificial propia antes de avisar.", name: "OmniVision", role: "IA propia, en el servidor del sitio" },
+        { quote: "Matrículas, rostros, filas e intrusión en un solo panel, con las imágenes guardadas en el sitio.", name: "OmniAccess", role: "Ve. Verifica. Avisa." },
+    ];
     const testimonials: any[] = ((brand as any).testimonials && (brand as any).testimonials.length) ? (brand as any).testimonials : TS_DEFAULT;
     useEffect(() => { const n = testimonials.length; if (n <= 1) return; const iv = setInterval(() => setTIdx((i) => (i + 1) % n), 7000); return () => clearInterval(iv); }, [testimonials.length]);
     const tCur = testimonials[tIdx % testimonials.length] || TS_DEFAULT[0];

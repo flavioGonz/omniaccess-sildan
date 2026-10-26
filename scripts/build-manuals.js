@@ -47,15 +47,11 @@ function medidaPng(p) {
     } catch { return null; }
 }
 
-/* Isotipo OmniAccess — anillo de cobertura con el paso abierto. */
-const LOGO = (px) => `<svg width="${px}" height="${px}" viewBox="0 0 64 64" aria-label="OmniAccess">
-  <defs><linearGradient id="oaG${px}" x1="6" y1="58" x2="58" y2="6" gradientUnits="userSpaceOnUse">
-    <stop offset="0" stop-color="#0ea5e9"/><stop offset=".55" stop-color="#3b82f6"/><stop offset="1" stop-color="#22d3ee"/>
-  </linearGradient></defs>
-  <path d="M51.7 16.6 A25 25 0 1 0 51.7 47.4" fill="none" stroke="url(#oaG${px})" stroke-width="5.4" stroke-linecap="round"/>
-  <path d="M41 21.3 A14 14 0 1 0 41 42.7" fill="none" stroke="url(#oaG${px})" stroke-width="4.4" stroke-linecap="round" opacity=".78"/>
-  <path d="M41.5 24 L49.8 32 L41.5 40" fill="none" stroke="url(#oaG${px})" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M53.4 27.2 L58.2 32 L53.4 36.8" fill="none" stroke="url(#oaG${px})" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity=".5"/>
+/* Isotipo OmniAccess — recuadro de detección + lente; el punto es OmniVision (ver brand/OmniLogo.tsx). */
+const LOGO = (px) => `<svg width="${px}" height="${px}" viewBox="0 0 64 64" aria-label="OmniAccess" fill="none">
+  <path d="M6 20V10a4 4 0 0 1 4-4h10M44 6h10a4 4 0 0 1 4 4v10M58 44v10a4 4 0 0 1-4 4H44M20 58H10a4 4 0 0 1-4-4V44" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="32" cy="32" r="14" stroke="currentColor" stroke-width="5"/>
+  <circle cx="32" cy="32" r="5.5" fill="#8A6CFF"/>
 </svg>`;
 
 /* ─────────────── Markdown mínimo (sin dependencias) ─────────────── */

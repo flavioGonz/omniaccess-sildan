@@ -26,31 +26,32 @@ except ImportError as e:
     sys.exit(f"falta una dependencia ({e}); ver el encabezado del script")
 
 RAIZ = Path(__file__).resolve().parent.parent
-PUBLIC = RAIZ / "public"
+PUBLIC = Path(__import__("os").environ.get("SALIDA", str(RAIZ / "public")))
 FUENTE_WOFF2 = RAIZ / "src/app/fuentes/outfit-latin.woff2"
 
 # Colores del producto (ver DESIGN.md): fondo oscuro de la app y el degradado del isotipo.
-FONDO = (11, 18, 32, 255)          # #0b1220
-FONDO_HEX = "#0b1220"
+FONDO = (10, 14, 20, 255)          # #0A0E14, la tinta de la identidad
+FONDO_HEX = "#0A0E14"
 BLANCO = (255, 255, 255, 255)
 GRIS = (148, 163, 184, 255)        # slate-400
 
-MARCA_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="{w}" height="{w}">
-  <defs>
-    <linearGradient id="g" x1="6" y1="58" x2="58" y2="6" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0ea5e9"/><stop offset=".55" stop-color="#3b82f6"/><stop offset="1" stop-color="#22d3ee"/>
-    </linearGradient>
-  </defs>
-  <path d="M51.7 16.6 A25 25 0 1 0 51.7 47.4" fill="none" stroke="url(#g)" stroke-width="5.4" stroke-linecap="round"/>
-  <path d="M41 21.3 A14 14 0 1 0 41 42.7" fill="none" stroke="url(#g)" stroke-width="4.4" stroke-linecap="round" opacity=".78"/>
-  <path d="M41.5 24 L49.8 32 L41.5 40" fill="none" stroke="url(#g)" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M53.4 27.2 L58.2 32 L53.4 36.8" fill="none" stroke="url(#g)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity=".5"/>
+# El isotipo (src/components/brand/OmniLogo.tsx): recuadro de detección + lente, y el punto
+# violeta de OmniVision. `trazo` y `punto` cambian según el fondo donde va.
+VIOLETA = "#8A6CFF"
+MARCA_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="{w}" height="{w}" fill="none">
+  <path d="M6 20V10a4 4 0 0 1 4-4h10M44 6h10a4 4 0 0 1 4 4v10M58 44v10a4 4 0 0 1-4 4H44M20 58H10a4 4 0 0 1-4-4V44" stroke="{trazo}" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="32" cy="32" r="14" stroke="{trazo}" stroke-width="5"/>
+  <circle cx="32" cy="32" r="5.5" fill="{punto}"/>
 </svg>"""
 
+# Cada consola instalable lleva el color de su producto de fondo, para distinguirlas en
+# la pantalla del teléfono o la tablet. La del guardia y la general van en tinta.
+COLOR_PRODUCTO = {"guard": "#0A0E14", "lpr": "#1F5EFF", "face": "#E8457C", "filas": "#0FA3A3"}
 
-def marca(px: int) -> Image.Image:
+
+def marca(px: int, trazo: str = "#FFFFFF", punto: str = VIOLETA) -> Image.Image:
     """El isotipo solo, sobre transparente, de px×px."""
-    png = cairosvg.svg2png(bytestring=MARCA_SVG.format(w=px).encode(), output_width=px, output_height=px)
+    png = cairosvg.svg2png(bytestring=MARCA_SVG.format(w=px, trazo=trazo, punto=punto).encode(), output_width=px, output_height=px)
     return Image.open(io.BytesIO(png)).convert("RGBA")
 
 
@@ -65,13 +66,17 @@ def fuente(peso: int, tam: int) -> ImageFont.FreeTypeFont:
     return fnt
 
 
-def icono(px: int, margen: float = 0.14, radio: float = 0.22, fondo=FONDO) -> Image.Image:
+def hex_rgba(h: str):
+    h = h.lstrip("#"); return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255)
+
+
+def icono(px: int, margen: float = 0.14, radio: float = 0.22, fondo=FONDO, punto: str = VIOLETA) -> Image.Image:
     """Ícono cuadrado: fondo oscuro con esquinas redondeadas y el isotipo centrado.
     `margen` es la fracción de aire alrededor (los maskable piden más)."""
     im = Image.new("RGBA", (px, px), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     d.rounded_rectangle([0, 0, px - 1, px - 1], radius=int(px * radio), fill=fondo)
-    m = marca(int(px * (1 - 2 * margen)))
+    m = marca(int(px * (1 - 2 * margen)), punto=punto)
     im.alpha_composite(m, (int(px * margen), int(px * margen)))
     return im
 
@@ -81,7 +86,7 @@ def wordmark(ancho: int, alto: int, claro: bool = True, fondo=(0, 0, 0, 0)) -> I
     im = Image.new("RGBA", (ancho, alto), fondo)
     d = ImageDraw.Draw(im)
     mk = int(alto * 0.46)
-    t1, t2 = "OmniAccess", "CONTROL Y ACCESO"
+    t1, t2 = "OmniAccess", "VE. VERIFICA. AVISA."
     # El tamaño del nombre sale del ancho disponible, no de un número fijo: así el mismo
     # dibujo sirve para 1024×512 y para una cabecera angosta sin recortarse.
     tam = int(alto * 0.24)
@@ -94,7 +99,7 @@ def wordmark(ancho: int, alto: int, claro: bool = True, fondo=(0, 0, 0, 0)) -> I
     w1 = d.textlength(t1, font=f1); w2 = sum(d.textlength(ch, font=f2) + esp for ch in t2)
     bloque = mk + alto * 0.1 + max(w1, w2)
     x = (ancho - bloque) / 2
-    im.alpha_composite(marca(mk), (int(x), (alto - mk) // 2))
+    im.alpha_composite(marca(mk, trazo="#FFFFFF" if claro else FONDO_HEX), (int(x), (alto - mk) // 2))
     tx = x + mk + alto * 0.1
     col = BLANCO if claro else (15, 23, 42, 255)
     ty = alto / 2 - tam * 0.72
@@ -116,8 +121,8 @@ def og(ancho=1200, alto=630) -> Image.Image:
     f1 = fuente(700, 108); f2 = fuente(400, 38); f3 = fuente(600, 26)
     x = 110 + mk + 70
     d.text((x, 170), "OmniAccess", font=f1, fill=BLANCO)
-    d.text((x, 305), "Control de acceso y vigilancia", font=f2, fill=(203, 213, 225, 255))
-    d.text((x, 358), "LPR · facial · intrusión · visitas", font=f2, fill=GRIS)
+    d.text((x, 305), "Ve. Verifica. Avisa.", font=f2, fill=(203, 213, 225, 255))
+    d.text((x, 358), "LPR · Face · Filas · intrusión incluida", font=f2, fill=GRIS)
     cx = x
     for ch in "INGENIERÍA EN SEGURIDAD":
         d.text((cx, 445), ch, font=f3, fill=(100, 116, 139, 255)); cx += d.textlength(ch, font=f3) + 4
@@ -139,10 +144,12 @@ def main():
     # Los nombres que ya usan los manifests de cada consola (guard/lpr/face/filas) y el
     # servicio worker: se pisan con la marca del producto para no tocar cuatro manifests
     # y la caché de la PWA instalada en las tablets.
-    for mod in ("guard", "lpr", "face", "filas"):
-        guardar(icono(192), f"iconos/{mod}-192.png")
-        guardar(icono(512), f"iconos/{mod}-512.png")
-        guardar(icono(512, margen=0.24, radio=0.0), f"iconos/{mod}-512-maskable.png")
+    for mod, color in COLOR_PRODUCTO.items():
+        # Sobre un fondo de color el punto va blanco: el violeta sobre azul o rosa no se lee.
+        f, pt = hex_rgba(color), (VIOLETA if mod == "guard" else "#FFFFFF")
+        guardar(icono(192, fondo=f, punto=pt), f"iconos/{mod}-192.png")
+        guardar(icono(512, fondo=f, punto=pt), f"iconos/{mod}-512.png")
+        guardar(icono(512, margen=0.24, radio=0.0, fondo=f, punto=pt), f"iconos/{mod}-512-maskable.png")
     for rel in ("icon-192.png", "icons/icon-192.png"):
         guardar(icono(192), rel)
     for rel in ("icon-512.png", "icons/icon-512.png"):
