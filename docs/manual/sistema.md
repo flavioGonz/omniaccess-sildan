@@ -4,25 +4,25 @@ OmniAccess es una plataforma de seguridad que reúne en un solo panel el control
 
 Este manual recorre el sistema sección por sección, en el mismo orden en que aparecen en el menú. Cada capítulo dice para qué sirve la pantalla, cómo se llega y qué se puede hacer en ella.
 
-## Las tres licencias
+## Los tres productos
 
-OmniAccess se contrata por licencia, según lo que se necesita controlar. Las licencias se combinan entre sí.
+OmniAccess es una familia de tres productos, cada uno para controlar una cosa distinta. Comparten el mismo panel, así que una instalación puede tener uno, dos o los tres.
 
-| Licencia | Para qué | Pantallas propias |
+| Producto | Para qué | Pantallas propias |
 |---|---|---|
-| **LPR** | Vehículos: lectura de matrículas, padrón, visitas e invitados | Monitor LPR, Historial, Lecturas de cámara, Vehículos, Visitas, Invitados, Plazas |
-| **Face** | Personas: terminales de reconocimiento facial, tarjetas y porteros | Monitor facial, listas de rostros, Tags RFID |
-| **Control de Filas** | Aforo de filas y salas de espera | Control de filas, Flujo, Reportes, Pantalla de sala, Horarios |
+| **OmniAccess LPR** | Vehículos: lectura de matrículas, padrón, visitas e invitados | Monitor LPR, Historial, Lecturas de cámara, Vehículos, Visitas, Invitados, Plazas |
+| **OmniAccess Face** | Personas: terminales de reconocimiento facial, tarjetas y porteros | Monitor facial, listas de rostros, Tags RFID |
+| **OmniAccess Filas** | Aforo de filas y salas de espera | Control de filas, Flujo, Reportes, Pantalla de sala, Horarios |
 
-> **Intrusión viene incluida en todas las licencias**: Monitor de intrusión, líneas y zonas por cámara, verificación con OmniVision, Gestión de alarmas y centrales de alarma. También son comunes a todas el mapa, los monitores de pared, las notificaciones, los roles, la auditoría y la salud del sistema.
+> **Intrusión viene incluida en los tres productos**: Monitor de intrusión, líneas y zonas por cámara, verificación con OmniVision, Gestión de alarmas y centrales de alarma. También son comunes a los tres el mapa, los monitores de pared, las notificaciones, los roles, la auditoría y la salud del sistema.
 
 ## Cómo está organizado el panel
 
-El menú de la izquierda se arma según la licencia y el rol de cada usuario: nadie ve una pantalla que no puede usar. Está dividido en tres bloques.
+El menú de la izquierda se arma según el producto y el rol de cada usuario: nadie ve una pantalla que no puede usar. Está dividido en tres bloques.
 
 - **Operación**: los monitores en vivo (LPR, Intrusión, CCTV), la Gestión de alarmas y el Historial.
 - **Gestión**: personas, monitores de pared, mapa, lista negra, unidades, dispositivos, calendario e invitados.
-- **Por licencia**: en LPR, Vehículos, Lecturas de cámara, Tags RFID y Grupos de acceso.
+- **Por producto**: en OmniAccess LPR, Vehículos, Lecturas de cámara, Tags RFID y Grupos de acceso.
 
 Abajo del menú están siempre a la vista los usuarios en línea, el uso de la placa de video (GPU) del servidor, el cambio de tema claro u oscuro y la salida.
 
@@ -193,7 +193,7 @@ La vigilancia del perímetro. Muestra las cámaras de intrusión con sus líneas
 
 ![Monitor de intrusión](img/oa-intrusion.jpg)
 
-> El módulo de intrusión está incluido en las tres licencias.
+> El módulo de intrusión está incluido en los tres productos.
 
 ## Qué se ve
 
@@ -629,8 +629,8 @@ Qué sale, por dónde, a quién y cuándo.
 
 ## Modos
 
-- Las licencias activas de la instalación.
-- **Matrículas**: funciones del modo LPR, como Plazas de parking.
+- Los productos activos en la instalación.
+- **Matrículas**: funciones de OmniAccess LPR, como Plazas de parking.
 - **Visitas y patrones**: barrio abierto o cerrado, tipos de visita y avisos a la guardia.
 - **Centrales de alarma**: prioridades, cierres, procedimiento y escalado.
 
@@ -686,9 +686,9 @@ Desde la consola el guardia:
 
 > El manual de la tablet detalla la aplicación del guardia para Android.
 
-# Licencia Face
+# OmniAccess Face
 
-La licencia Face controla el acceso de personas con terminales de reconocimiento facial, tarjetas RFID y porteros.
+OmniAccess Face controla el acceso de personas con terminales de reconocimiento facial, tarjetas RFID y porteros.
 
 ## Monitor facial
 
@@ -718,9 +718,9 @@ Un grupo define quién puede abrir qué equipos y en qué horario. Cada persona 
 
 Las tarjetas y llaveros de la instalación, a quién están asignados y en qué estado. Una tarjeta se asigna a una persona y se carga en las terminales Akuvox.
 
-# Licencia Control de Filas
+# OmniAccess Filas
 
-La licencia de Filas cuenta personas en filas, salas de espera y accesos, avisa cuando se supera el límite y muestra el estado en una pantalla para el público.
+OmniAccess Filas cuenta personas en filas, salas de espera y accesos, avisa cuando se supera el límite y muestra el estado en una pantalla para el público.
 
 ## Control de filas
 
