@@ -192,11 +192,21 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     const [rk] = useState(Date.now());
     // Un aviso de OmniVision se mira sobre su cuadro crudo, con la capa en vivo encima (ver FichaVision).
     const conCapa = !!vision?.fotoCruda && cur.id === det.id;
-    const captura = conCapa ? vision!.fotoCruda : cur.snapshotPath ? cur.snapshotPath : (cur.deviceId ? `/api/snapshot/${cur.deviceId}?t=${rk}_${cur.id}` : null);
+    /* La foto del evento: la que trajo quien abrió la ficha o, si no la trajo (llegó por socket antes
+       de que se guardara la captura), la que tiene hoy la base, que viene con la verificación. */
+    const fotoEvento = cur.snapshotPath || verif?.foto || null;
+    /** Sin foto del evento se muestra el cuadro de AHORA: sirve para ubicarse, pero no es el momento del evento. */
+    const enVivo = !conCapa && !fotoEvento && !!cur.deviceId;
+    const captura = conCapa ? vision!.fotoCruda : fotoEvento ? fotoEvento : enVivo ? `/api/snapshot/${cur.deviceId}?t=${rk}_${cur.id}` : null;
     const propio = verif?.analisis?.propio ? verif.analisis.propio : null;
-    const enPropio = foto === "propio" && !!propio;
-    const src = enPropio ? `/api/monitor/intrusion/verificacion/${cur.id}` : captura;
-    const capa = enPropio ? propio : verif?.analisis || null;
+    const URL_PROPIO = `/api/monitor/intrusion/verificacion/${cur.id}`;
+    /** Gestión de alarmas pasa el cuadro propio como foto cuando la cámara no mandó captura. */
+    const fotoEsPropio = !!propio && captura === URL_PROPIO;
+    const enPropio = (foto === "propio" || fotoEsPropio) && !!propio;
+    const src = enPropio ? URL_PROPIO : captura;
+    /* Lo que vio OmniVision va sólo sobre la foto que miró. Sobre el vivo no: dibujaba una moto que
+       ya no estaba (26/10, Nico: «esta el recuadro pero la moto no»). */
+    const capa = enPropio ? propio : enVivo ? null : verif?.analisis || null;
     const g = useMemo(() => geomDeIntrusion(geom as any), [geom]);
     const ver = verif?.veredicto ? VEREDICTOS[verif.veredicto] : null;
     const verificando = !verif?.estado && real && !claveGestion && !soloVer && Date.now() - new Date(cur.timestamp).getTime() < VERIFICANDO_MS;
@@ -220,7 +230,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
             if (modo !== "foto") { if (e.key === "Escape" && !clipGrab) { e.preventDefault(); setModo("foto"); } return; }
             if (e.key === "ArrowLeft") { e.preventDefault(); go(1); }
             else if (e.key === "ArrowRight") { e.preventDefault(); go(-1); }
-            else if (e.key === "Escape") { e.preventDefault(); if (verNota) setVerNota(false); else if (limpio) setLimpio(false); else if (enPropio) setFoto("captura"); else onClose(); }
+            else if (e.key === "Escape") { e.preventDefault(); if (verNota) setVerNota(false); else if (limpio) setLimpio(false); else if (enPropio && !fotoEsPropio) setFoto("captura"); else onClose(); }
             else if (e.key === "h" || e.key === "H") setLimpio((v) => !v);
             else if ((e.key === "o" || e.key === "O") && capa) setVerSiluetas(!verSiluetas);
             else if ((e.key === "c" || e.key === "C") && real) cambiarClip(!clipOn);
@@ -398,7 +408,14 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     <div className="visor-zona absolute top-[92px] left-1/2 -translate-x-1/2 z-30 visor-panel rounded-[10px] pl-3.5 pr-1.5 py-1.5 flex items-center gap-3 text-[12px] text-white/85">
                         <ScanEye size={14} className="text-white/55" />
                         <span>Cuadro propio de OmniVision · <b className="text-white">{verif?.propio?.despuesS ?? "?"} s después</b>{verif?.propio ? ` · ${VEREDICTOS[verif.propio.veredicto].rotulo.toLowerCase()}` : ""}</span>
-                        <BotonVisor icono={Undo2} onClick={() => setFoto("captura")}>Volver a la captura</BotonVisor>
+                        {!fotoEsPropio && <BotonVisor icono={Undo2} onClick={() => setFoto("captura")}>Volver a la captura</BotonVisor>}
+                    </div>
+                )}
+                {/* Sin la foto del evento, la imagen es la de ahora: se dice, para que nadie la lea como el momento del cruce. */}
+                {enVivo && !oculto && modo === "foto" && (
+                    <div className="visor-zona absolute top-[92px] left-1/2 -translate-x-1/2 z-30 visor-panel rounded-[10px] px-3.5 py-1.5 flex items-center gap-2.5 text-[12px] text-white/85">
+                        <Radio size={14} className="text-[var(--aviso-texto)]" />
+                        <span>Cuadro de <b className="text-white">ahora</b> · la captura del evento no llegó</span>
                     </div>
                 )}
 
@@ -440,7 +457,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                 extra={<span className="text-[11px] text-white/45 tabular-nums">{verif.analisis.objetos.length} {verif.analisis.objetos.length === 1 ? "objeto" : "objetos"}</span>}>
                                 {verif.analisis.objetos.length ? <ListaVision objetos={(enPropio && propio ? propio : verif.analisis).objetos} />
                                     : <p className="text-[12.5px] text-white/60">Ni personas, ni vehículos, ni animales en la captura.</p>}
-                                {propio && (
+                                {propio && !fotoEsPropio && (
                                     /* La doble verificación: un cuadro del canal unos segundos después. Se mira en grande en lugar de la captura. */
                                     <button type="button" onClick={() => setFoto(enPropio ? "captura" : "propio")}
                                         className={cn("mt-2 w-full flex items-center gap-3 p-1.5 rounded-[8px] text-left transition-colors", enPropio ? "bg-white/15" : "bg-white/[0.06] hover:bg-white/12")}>
@@ -583,9 +600,9 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                         </>
                     )}
                     <span className="w-4 h-px bg-white/15" />
-                    {real && cur.snapshotPath && <BotonRiel onClick={() => setParecidos(true)} title="Buscar parecidos: recortar algo de la foto y buscarlo en todas las cámaras"><ScanSearch size={15} /></BotonRiel>}
+                    {real && fotoEvento && <BotonRiel onClick={() => setParecidos(true)} title="Buscar parecidos: recortar algo de la foto y buscarlo en todas las cámaras"><ScanSearch size={15} /></BotonRiel>}
                     {real && cur.deviceId && canalClip && ventanaClip && <BotonRiel onClick={() => setDescarga(true)} title={`Exportar un clip: bajarlo o mandarlo por WhatsApp (${ventanaClip.antes} s antes y ${ventanaClip.despues} s después)`}><Download size={15} /></BotonRiel>}
-                    {real && cur.snapshotPath && <BotonRiel onClick={() => setCompartir(true)} title="Compartir por WhatsApp o Telegram"><Share2 size={15} /></BotonRiel>}
+                    {real && fotoEvento && <BotonRiel onClick={() => setCompartir(true)} title="Compartir por WhatsApp o Telegram"><Share2 size={15} /></BotonRiel>}
                     <span className="w-4 h-px bg-white/15" />
                     {capa && (
                         <span className="relative">
@@ -601,14 +618,14 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
 
                 {/* Buscar parecidos baja como persiana dentro de esta ventana, como en la ficha LPR. */}
                 <AnimatePresence>
-                    {parecidos && cur.snapshotPath && (
-                        <BuscarParecidos key="parecidos" foto={cur.snapshotPath} instanteMs={momento.getTime()} onCerrar={() => setParecidos(false)}
+                    {parecidos && fotoEvento && (
+                        <BuscarParecidos key="parecidos" foto={fotoEvento} instanteMs={momento.getTime()} onCerrar={() => setParecidos(false)}
                             onVerGrabacion={(deviceId, ms, camara) => setGrabacionDe({ deviceId, ms, camara })} />
                     )}
                 </AnimatePresence>
 
                 {/* Compartir: un cajón dentro de la ventana, como «Exportar clip». */}
-                {compartir && <CompartirEvento foto={cur.snapshotPath || null} deviceId={cur.deviceId || null} deviceName={cur.deviceName || cam?.name || null}
+                {compartir && <CompartirEvento foto={fotoEvento} deviceId={cur.deviceId || null} deviceName={cur.deviceName || cam?.name || null}
                     instante={cur.timestamp} titulo={`🚨 ${m.label}${clase ? ` · ${clase}` : ""} · ${cur.deviceName || cam?.name || "Cámara"}`} lineas={lineasCompartir}
                     onCerrar={() => setCompartir(false)} />}
                 {descarga && canalClip && ventanaClip && (
