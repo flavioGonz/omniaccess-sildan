@@ -114,7 +114,18 @@ export async function PUT(req: NextRequest) {
     const ids = new Set((await prisma.device.findMany({ select: { id: true } })).map((d) => d.id));
     // Los canales de NVR que están en OmniVision también son cámaras válidas para una regla.
     for (const id of (await camarasVision()).ids) if (CANAL_NVR.test(id)) ids.add(id);
-    const sinCamara = reglas.filter((r) => !ids.has(r.deviceId));
+    /**
+     * Una regla cuya cámara ya no existe sólo se rechaza si es nueva o se la movió a esa cámara.
+     * Antes se rechazaba la lista ENTERA ante la primera huérfana (27/10, Nico: «no me deja eliminar
+     * analíticas creadas para filas»): en el lab quedó «Cola Caja 1» apuntando a una cámara borrada, y
+     * como el panel guarda siempre la lista completa, ningún cambio ni borrado de OTRA regla podía
+     * guardarse. Una regla que ya estaba guardada así se conserva tal cual (no corre: el motor no
+     * encuentra su cámara) hasta que alguien la borre.
+     */
+    let previas: { id: string; deviceId: string }[] = [];
+    try { previas = JSON.parse((await prisma.setting.findUnique({ where: { key: CLAVE_REGLAS } }))?.value || "[]"); } catch { previas = []; }
+    const yaEstaba = new Set(previas.map((r) => `${r.id}|${r.deviceId}`));
+    const sinCamara = reglas.filter((r) => !ids.has(r.deviceId) && !yaEstaba.has(`${r.id}|${r.deviceId}`));
     if (sinCamara.length) return NextResponse.json({ error: `La cámara de «${sinCamara[0].nombre}» ya no existe.` }, { status: 400 });
     await guardarAjuste(CLAVE_REGLAS, JSON.stringify(reglas));
     return NextResponse.json({ ok: true, reglas });

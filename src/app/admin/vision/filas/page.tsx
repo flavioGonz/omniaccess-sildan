@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { Chip, ErrorEstado, Cargando, Vacio } from "@/components/ui/estados";
 import { Pista } from "@/components/ui/pista";
 import { useTiempoReal, useDestello } from "@/lib/tiempo-real";
+import { useConfirmar } from "@/components/ui/use-confirmar";
 import { bandaFila, type Punto } from "@/lib/vision-reglas";
 
 /**
@@ -37,7 +38,7 @@ import { bandaFila, type Punto } from "@/lib/vision-reglas";
 
 type Banda = "bien" | "aviso" | "mal";
 type Fila = {
-    id: string; nombre: string; deviceId: string; camara: string; activa: boolean; analiza: boolean;
+    id: string; nombre: string; deviceId: string; camara: string; camaraBorrada?: boolean; activa: boolean; analiza: boolean;
     zona: Punto[] | null; limite: number | null; rebote: number; permanencia: number; escalarMin: number; enfrioMin: number; avisar: boolean;
     horario: { desde: string; hasta: string } | null; abierta: boolean; inicio: string;
     aforo: number; desde: string | null; banda: Banda; maximo: number; entradas: number; salidas: number; llenaDesde: string | null;
@@ -222,6 +223,28 @@ function ModalFila({ f, aforo, tic, vivo, datos, alCerrar, alGuardado }: { f: Fi
     const horasFlujo = f.porHora.map((x, h) => ({ h, a: x.entran, b: x.salen, titulo: `${String(h).padStart(2, "0")} h: ${x.entran} entraron · ${x.salen} salieron` }));
     const horasAforo = f.aforoPorHora.map((x, h) => ({ h, a: x?.prom ?? 0, b: x?.max ?? 0, titulo: x ? `${String(h).padStart(2, "0")} h: ${x.prom.toLocaleString("es-UY")} en promedio · máximo ${x.max}` : "" }));
     const cambioZona = JSON.stringify(zona) !== JSON.stringify(f.zona || []);
+    const { confirmar, elemento } = useConfirmar();
+
+    /**
+     * Borrar la fila desde acá (27/10, Nico: «no me deja eliminar analíticas creadas para filas»):
+     * sólo se podía desde Reglas, y nada en esta pantalla lo decía. Es la misma operación que el
+     * Borrar de Reglas: la lista entera sin esta regla. Sus eventos quedan (los vence la retención).
+     */
+    const borrar = async () => {
+        if (!(await confirmar({ titulo: `Borrar la fila «${f.nombre}»`, descripcion: "Deja de contar y de avisar. Lo que ya registró queda hasta que venza su retención.", accion: "Borrar" }))) return;
+        setGuardando(true);
+        try {
+            const r = await fetch("/api/vision/reglas", { cache: "no-store" });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || !Array.isArray(j?.reglas)) throw new Error(j?.error || `El servidor respondió ${r.status}`);
+            const p = await fetch("/api/vision/reglas", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ reglas: j.reglas.filter((x: any) => x.id !== f.id) }) });
+            const k = await p.json().catch(() => ({}));
+            if (!p.ok) throw new Error(k?.error || `El servidor respondió ${p.status}`);
+            toast.success({ title: "Fila borrada", description: f.nombre });
+            alCerrar(); alGuardado();
+        } catch (e: any) { toast.error({ title: "No se borró la fila", description: e?.message }); }
+        finally { setGuardando(false); }
+    };
 
     /** La zona se guarda en la regla: la lista entera, con esta regla cambiada (como Reglas). */
     const guardarZona = async () => {
@@ -319,8 +342,10 @@ function ModalFila({ f, aforo, tic, vivo, datos, alCerrar, alGuardado }: { f: Fi
                 <BotonPanel primario onClick={guardarZona} disabled={guardando || !cambioZona || zona.length < 3}>{guardando ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Guardar zona</BotonPanel>
             </> : <>
                 <Link href="/admin/vision/reglas" className="h-9 px-3.5 rounded-[6px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 text-white/80 hover:text-white bg-white/[0.06] hover:bg-white/[0.12]"><Settings2 size={14} /> Reglas</Link>
+                <button type="button" onClick={borrar} disabled={guardando} className="h-9 px-3.5 rounded-[6px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 text-white/70 hover:text-[var(--mal)] bg-white/[0.06] hover:bg-white/[0.12] disabled:opacity-50"><Trash2 size={14} /> Borrar</button>
                 <span className="ml-auto" />
-                <BotonPanel primario onClick={() => setDibujando(true)}><Pencil size={14} /> Dibujar la zona</BotonPanel>
+                {!f.camaraBorrada && <BotonPanel primario onClick={() => setDibujando(true)}><Pencil size={14} /> Dibujar la zona</BotonPanel>}
+                {elemento}
             </>} />
     );
 }
@@ -338,7 +363,7 @@ function columnas(tic: number, vivo: Record<string, Vivo>, cambiaron: Set<string
         { clave: "fila", titulo: "Fila", valor: (f) => f.nombre, celda: (f) => (
             <div className={cn("min-w-0 leading-tight", (!f.activa || !f.analiza) && "opacity-60")}>
                 <div className="text-[13px] font-semibold truncate">{f.nombre}</div>
-                <div className="text-[11.5px] text-muted-foreground truncate">{f.camara}{!f.analiza ? " · OmniVision no la mira" : !f.activa ? " · apagada" : ""}</div>
+                <div className="text-[11.5px] text-muted-foreground truncate">{f.camaraBorrada ? "La cámara ya no existe: borrá la fila" : <>{f.camara}{!f.analiza ? " · OmniVision no la mira" : !f.activa ? " · apagada" : ""}</>}</div>
             </div>) },
         { clave: "aforo", titulo: "Aforo", ancho: 200, ordenable: true, valor: (f) => f.aforo, celda: (f) => (
             <div className="flex items-center gap-3">

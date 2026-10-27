@@ -1,3 +1,4 @@
+import { CANAL_NVR } from "@/lib/vision-camaras";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
@@ -124,6 +125,7 @@ export async function GET() {
     const nombres = new Map((await prisma.device.findMany({ where: { id: { in: reglas.map((r) => r.deviceId) } }, select: { id: true, name: true } })).map((d) => [d.id, d.name]));
     return NextResponse.json({
         prendida, ventanaEsperaMin: VENTANA_ESPERA_MIN, ventanaMedidaMin: VENTANA_MEDIDA_MIN,
-        filas: filas.map((f) => ({ ...f, camara: nombres.get(f.deviceId) || f.deviceId })),
+        // Una regla puede quedar apuntando a una cámara borrada: se dice, en vez de mostrar el id crudo.
+        filas: filas.map((f) => ({ ...f, camaraBorrada: !nombres.has(f.deviceId) && !CANAL_NVR.test(f.deviceId), camara: nombres.get(f.deviceId) || (CANAL_NVR.test(f.deviceId) ? f.deviceId : "Cámara borrada") })),
     }, { headers: { "Cache-Control": "no-store" } });
 }
