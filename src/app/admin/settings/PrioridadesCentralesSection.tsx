@@ -560,7 +560,7 @@ function ParProcedimiento({ alSucio }: { alSucio: (b: boolean) => void }) {
                                             <Cubo icono={I} tono={tonoDe(n)} tam={32} />
                                             <div className="min-w-0 flex-1">
                                                 <div className="text-[13.5px] font-semibold">{c.nombre}</div>
-                                                <div className="text-[12px] text-muted-foreground truncate">{tiene ? `${pasos!.length} ${pasos!.length === 1 ? "paso propio" : "pasos propios"}` : `Usa los ${heredados} pasos de P${n} · ${nivel(n).nombre}`}</div>
+                                                <div className="text-[12px] text-muted-foreground truncate">{tiene ? `${pasos!.length} ${pasos!.length === 1 ? "paso propio" : "pasos propios"}` : (heredados === 0 ? `Usa el de P${n} · ${nivel(n).nombre}, que no tiene pasos` : heredados === 1 ? `Usa el paso de P${n} · ${nivel(n).nombre}` : `Usa los ${heredados} pasos de P${n} · ${nivel(n).nombre}`)}</div>
                                             </div>
                                             <Segmentos id={`proc-${c.clase}`} rotulo={`Procedimiento de ${c.nombre}`} valor={tiene ? "propio" : "prio"} chico
                                                 opciones={[{ valor: "prio", texto: `El de P${n}` }, { valor: "propio", texto: "Propio" }]}
