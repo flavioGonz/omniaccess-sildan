@@ -1,4 +1,5 @@
 import { Device, Credential } from "@prisma/client";
+import type { CuentaLeida, SesionLeida, CapacidadesLeidas } from "@/lib/usuarios-equipo/hikvision";
 
 /**
  * Base interface for all device drivers.
@@ -76,6 +77,16 @@ export interface IStatsDriver extends IDeviceDriver {
 }
 
 /**
+ * Las cuentas locales del equipo y quién está conectado (openspec usuarios-de-equipos). Una marca
+ * puede saber de cuentas y no de sesiones: por eso `listarSesiones` es opcional y quien llama dice
+ * «esta marca no informa sesiones» en vez de mostrar una lista vacía.
+ */
+export interface IUsuariosDriver extends IDeviceDriver {
+    listarCuentas(device: Device): Promise<{ cuentas: CuentaLeida[]; capacidades: CapacidadesLeidas | null }>;
+    listarSesiones?(device: Device): Promise<SesionLeida[]>;
+}
+
+/**
  * Type guard helpers
  */
 export function isLprDriver(driver: IDeviceDriver): driver is ILprDriver {
@@ -96,4 +107,8 @@ export function isLogDriver(driver: IDeviceDriver): driver is ILogDriver {
 
 export function isStatsDriver(driver: IDeviceDriver): driver is IStatsDriver {
     return 'getDeviceStats' in driver;
+}
+
+export function isUsuariosDriver(driver: IDeviceDriver): driver is IUsuariosDriver {
+    return 'listarCuentas' in driver;
 }

@@ -176,6 +176,12 @@ const SECCIONES: Seccion[] = [
         ["dispositivos", "ver", "Dispositivos", "Cámaras, grabadores y lectoras: su estado y su salud.", ["/admin/devices"]],
         ["dispositivos.editar", "configurar", "Editar dispositivos", "Dar de alta y editar equipos, sincronizar matrículas, la hora, los canales y el modo de cada cámara."],
     ] },
+    // Las cuentas locales de los equipos (openspec usuarios-de-equipos). Sección propia: es delicado y
+    // no va con «editar dispositivos» (cambiar la IP de una cámara no es dar acceso a sus cuentas).
+    { modulo: "equipos", seccion: "usuarios-equipos", nombre: "Usuarios de los equipos", permisos: [
+        ["dispositivos.usuarios", "configurar", "Usuarios de los equipos", "Crear, cambiar y borrar las cuentas locales de los equipos, sincronizarlas por área y marcar como conocidas las cuentas y las IP que aparecen.", [],
+            "Puede crear cuentas con acceso a los equipos y borrar las que hay."],
+    ] },
     // ── Administración ──
     { modulo: "administracion", seccion: "ajustes", nombre: "Ajustes", permisos: [
         ["ajustes", "configurar", "Ajustes", "La configuración del sistema: modos, funciones, marca, almacenamiento y demás.", ["/admin/settings", "/admin/debug", "/admin/manuales"]],

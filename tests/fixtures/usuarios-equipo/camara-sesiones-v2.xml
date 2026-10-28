@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OnlineUserList version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<OnlineUser>
+<id>1</id>
+<name>admin</name>
+<type>admin</type>
+<loginTime>2026-10-28T09:12:44</loginTime>
+<clientAddress>
+<ipAddress>198.51.100.10</ipAddress>
+</clientAddress>
+</OnlineUser>
+<OnlineUser>
+<id>2</id>
+<name>admin</name>
+<type>admin</type>
+<loginTime>2026-10-28T09:12:44</loginTime>
+<clientAddress>
+<ipAddress>198.51.100.10</ipAddress>
+</clientAddress>
+</OnlineUser>
+<OnlineUser>
+<id>3</id>
+<name>admin</name>
+<type>admin</type>
+<loginTime>2026-10-27T22:01:10</loginTime>
+<clientAddress>
+<ipAddress>::ffff:192.0.2.122</ipAddress>
+</clientAddress>
+</OnlineUser>
+</OnlineUserList>

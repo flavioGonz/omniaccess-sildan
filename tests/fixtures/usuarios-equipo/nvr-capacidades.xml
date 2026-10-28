@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<User version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<id min="1" max="32">1</id>
+<userName min="1" max="32"></userName>
+<isSupportWeakPassword opt="true,false">false</isSupportWeakPassword>
+<isSupportKeyWord opt="true,false">true</isSupportKeyWord>
+</User>

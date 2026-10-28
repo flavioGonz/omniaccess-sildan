@@ -7,7 +7,7 @@ import { Tooltip } from "react-tooltip";
 import {
     ChevronRight, Folder, FolderOpen, FolderPlus, Pencil, Trash2, Layers, Inbox, Car, Radar, HardDrive, Cpu,
     Eye, EyeOff, ChevronsDownUp, ChevronsUpDown, GripVertical, Check, X, Palette, MousePointerClick, PanelLeftClose, PanelLeftOpen,
-    Power, PowerOff, Loader2,
+    Power, PowerOff, Loader2, ShieldCheck,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -218,6 +218,8 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                     ) : (
                         <span className={cn("flex-1 min-w-0 truncate text-[12.5px] font-semibold", apagada && "text-muted-foreground")} onDoubleClick={(e) => { e.stopPropagation(); setEditando(a.id); }}>{a.nombre}</span>
                     )}
+                    {/* Cuentas de los equipos gestionadas desde esta área (openspec usuarios-de-equipos). */}
+                    {editando !== a.id && a.cuentas?.gestionada && <ShieldCheck size={12} className="tono-bien shrink-0" aria-label="Cuentas gestionadas" />}
                     {borrando === a.id ? (
                         <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                             <span className="text-[10.5px] text-red-500 font-semibold">¿Borrar?</span>

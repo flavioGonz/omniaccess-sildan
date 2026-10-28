@@ -58,7 +58,9 @@ function descifrar(valor) {
  *    nada (la instalación sigue como antes, en claro).
  * Compatible hacia atrás: lo que ya estaba en claro se lee igual. Gemelo de src/lib/cifrado-datos.ts.
  */
-const CAMPOS = new Set(["password", "rtspUrl"]);
+const CAMPOS = new Set(["password", "rtspUrl", "claveEquipos", "passwordAnterior"]);
+/** Qué campos se cifran al escribir cada modelo. User sólo la clave de equipos: su `password` no existe y no se toca. */
+const CIFRAR_EN = { Device: ["password", "rtspUrl", "passwordAnterior"], User: ["claveEquipos"] };
 function descifrarProfundo(x, n = 0) {
     if (!x || typeof x !== "object" || n > 6) return x;
     if (Array.isArray(x)) { for (const y of x) descifrarProfundo(y, n + 1); return x; }
@@ -70,11 +72,11 @@ function descifrarProfundo(x, n = 0) {
     }
     return x;
 }
-function cifrarDatos(d) {
+function cifrarDatos(d, campos) {
     // Una copia: el objeto del que llama no se toca (puede seguir usando la clave en claro después).
     if (!d || typeof d !== "object" || !clave()) return d;
     const c = { ...d };
-    for (const k of CAMPOS) {
+    for (const k of campos) {
         if (typeof c[k] === "string" && c[k] && !estaCifrado(c[k])) c[k] = cifrar(c[k]);
         else if (c[k] && typeof c[k] === "object" && typeof c[k].set === "string" && c[k].set && !estaCifrado(c[k].set)) c[k] = { ...c[k], set: cifrar(c[k].set) };
     }
@@ -83,11 +85,14 @@ function cifrarDatos(d) {
 function enPrisma(prisma) {
     if (!prisma || prisma.__conCifrado) return prisma;
     prisma.$use(async (params, next) => {
-        if (params.model === "Device") {
+        // Device: las claves de los equipos. User: la clave de equipos de cada persona (usuarios-de-equipos).
+        const campos = CIFRAR_EN[params.model];
+        if (campos) {
             const a = params.args || {};
-            if (["create", "update", "updateMany"].includes(params.action)) params.args = { ...a, data: cifrarDatos(a.data) };
-            else if (params.action === "createMany") params.args = { ...a, data: Array.isArray(a.data) ? a.data.map(cifrarDatos) : cifrarDatos(a.data) };
-            else if (params.action === "upsert") params.args = { ...a, create: cifrarDatos(a.create), update: cifrarDatos(a.update) };
+            const cd = (d) => cifrarDatos(d, campos);
+            if (["create", "update", "updateMany"].includes(params.action)) params.args = { ...a, data: cd(a.data) };
+            else if (params.action === "createMany") params.args = { ...a, data: Array.isArray(a.data) ? a.data.map(cd) : cd(a.data) };
+            else if (params.action === "upsert") params.args = { ...a, create: cd(a.create), update: cd(a.update) };
         }
         return descifrarProfundo(await next(params));
     });

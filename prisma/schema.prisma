@@ -95,6 +95,12 @@ model User {
   /// y sus pasadas desde `autorizadoCambio` se marcan en la planilla.
   autorizado      Boolean       @default(true)
   autorizadoCambio DateTime?
+  /// Cuenta en los equipos (openspec usuarios-de-equipos): se marca a mano por persona. La clave es
+  /// propia (no la del panel, que está con hash) y se guarda cifrada (lib/cifrado-datos).
+  cuentaEquipos       Boolean @default(false)
+  claveEquipos        String?
+  claveEquiposVersion Int     @default(0)
+  nombreEquipos       String?
 
   @@index([empleadorId])
 }
@@ -142,6 +148,10 @@ model AppRole {
   descripcion String   @default("")
   permisos    String[] @default([])
   esSistema   Boolean  @default(false)
+  /// Cuentas en los equipos (openspec usuarios-de-equipos): con qué nivel se crea la cuenta de
+  /// quien tiene este rol («ninguno», «visualizador», «operador») y en qué tipos de equipo.
+  nivelEquipos String   @default("ninguno")
+  tiposEquipos String[] @default([])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now()) @updatedAt
   users       User[]
@@ -265,6 +275,9 @@ model Device {
   // como String JSON (0..1), mismo criterio que trackLine, y se escribe en la cámara por ISAPI.
   intrusionEnabled  Boolean        @default(false)
   intrusionGeometry String?
+  /// Rotación de la cuenta de servicio (usuarios-de-equipos, fase 4): la clave anterior, cifrada,
+  /// mientras la nueva no se confirmó.
+  passwordAnterior  String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   accessEvents    AccessEvent[]
@@ -279,6 +292,8 @@ model Device {
   ocupaciones     Ocupacion[]
   /// Si es un Alarm Hub: cuenta, clave y estado de la central (alarm-receiver.js).
   central         CentralAlarma?
+  cuentasLocales  CuentaEquipo[]
+  sesionesLocales SesionEquipo[]
 }
 
 model AccessEvent {
@@ -1633,4 +1648,92 @@ model MensajeCentral {
   @@index([centralId, recibido])
   @@index([cuenta, seq])
   @@index([recibido])
+}
+
+// ─── Usuarios de los equipos (openspec usuarios-de-equipos) ───────────────────
+
+/// Una cuenta local de un equipo, como la leyó OmniAccess. La clase (servicio, de fábrica,
+/// gestionada, no gestionada) no se guarda: se calcula al leer (lib/usuarios-equipo/inventario).
+model CuentaEquipo {
+  id             String    @id @default(cuid())
+  deviceId       String
+  device         Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  nombre         String
+  /// El id de la cuenta en el equipo (Hikvision: 1..32).
+  idEquipo       String?
+  /// Administrador | Operador | Visualizador | otro texto del equipo.
+  nivel          String?
+  /// El equipo no la deja borrar (Hikvision: `inherent`, o el id 1).
+  deFabrica      Boolean   @default(false)
+  /// «omniaccess» si la creó OmniAccess; «equipo» si apareció en la lectura.
+  origen         String    @default("equipo")
+  userId         String?
+  /// Una cuenta no gestionada que alguien reconoció, con el motivo.
+  conocida       Boolean   @default(false)
+  conocidaMotivo String?
+  conocidaPor    String?
+  primeraVez     DateTime  @default(now())
+  ultimaVez      DateTime  @default(now())
+  desaparecida   DateTime?
+
+  @@unique([deviceId, nombre])
+  @@index([deviceId])
+}
+
+/// Una sesión abierta en un equipo (quién estaba conectado y desde dónde). Se cierra con la hora de
+/// la primera lectura en la que ya no estaba.
+model SesionEquipo {
+  id           String    @id @default(cuid())
+  deviceId     String
+  device       Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  nombre       String
+  ip           String
+  /// servidor | grabador | equipo | conocida | desconocida
+  procedencia  String
+  /// El nombre del equipo, del grabador o de la IP conocida.
+  origenNombre String?
+  /// La hora de entrada que informa el equipo (texto: cada modelo la da distinta).
+  desdeEquipo  String?
+  vistaPrimera DateTime  @default(now())
+  vistaUltima  DateTime  @default(now())
+  hasta        DateTime?
+
+  @@index([deviceId, hasta])
+  @@index([vistaUltima])
+}
+
+/// La última lectura de cuentas y de sesiones de cada equipo: cuándo, y por qué falló si falló.
+model LecturaUsuariosEquipo {
+  deviceId      String    @id
+  cuentasAt     DateTime?
+  cuentasOk     Boolean   @default(false)
+  cuentasError  String?
+  sesionesAt    DateTime?
+  sesionesOk    Boolean   @default(false)
+  sesionesError String?
+  /// Tope de cuentas y reglas de la clave que informa el equipo.
+  maxCuentas    Int?
+  claveDebil    Boolean?
+}
+
+/// Estado de la cuenta de una persona del panel en un equipo (fase 3: sincronización).
+model SincroCuenta {
+  id            String    @id @default(cuid())
+  userId        String?
+  deviceId      String
+  /// El nombre de la cuenta: una baja pendiente sobrevive al borrado del usuario.
+  nombre        String
+  /// al-dia | pendiente | error | conflicto | fuera-de-area
+  estado        String    @default("pendiente")
+  /// crear | cambiar | borrar
+  accion        String?
+  motivo        String?
+  intentos      Int       @default(0)
+  ultimoIntento DateTime?
+  claveVersion  Int       @default(0)
+  actualizado   DateTime  @default(now()) @updatedAt
+
+  @@unique([deviceId, nombre])
+  @@index([userId])
+  @@index([estado])
 }

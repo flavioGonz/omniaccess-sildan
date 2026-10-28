@@ -196,6 +196,8 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/api/apk') ||
         pathname.startsWith('/api/webhooks/') ||
         pathname.startsWith('/api/devices/health/tick') ||
+        // La lectura de cuentas y sesiones de los equipos (usuarios-de-equipos): la llama el cron, como la salud.
+        pathname === '/api/devices/usuarios/tick' ||
         pathname === '/api/subscribe' ||
         pathname.startsWith('/api/push/dispatch') ||
         // /api/events NO va aca: estaba en la lista publica y devolvia, sin sesion y a

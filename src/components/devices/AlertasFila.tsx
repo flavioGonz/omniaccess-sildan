@@ -1,6 +1,6 @@
 "use client";
 
-import { WifiOff, HardDrive, MemoryStick, Clock, AlertTriangle } from "lucide-react";
+import { WifiOff, HardDrive, MemoryStick, Clock, AlertTriangle, UserX, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,6 +16,11 @@ const TIPO: Record<string, { t: string; I: any }> = {
     mem: { t: "Memoria", I: MemoryStick },
     drift: { t: "Hora corrida", I: Clock },
 };
+/** Las de usuarios de los equipos llevan el nombre de la cuenta en el tipo (una alerta por cuenta). */
+const tipoDe = (type: string) => TIPO[type]
+    || (type.startsWith("cuenta-no-gestionada:") ? { t: "Cuenta no gestionada", I: UserX } : null)
+    || (type.startsWith("sesion-desconocida:") ? { t: "Acceso desconocido", I: Globe } : null)
+    || { t: "Alerta", I: AlertTriangle };
 
 export function claseNombreConAlerta(alertas?: AlertaEquipo[]) {
     if (!alertas?.length) return "";
@@ -28,7 +33,7 @@ export function AlertasFila({ alertas, onVer }: { alertas?: AlertaEquipo[]; onVe
     return (
         <span className="flex flex-wrap items-center gap-1 mt-1">
             {alertas.map((a) => {
-                const m = TIPO[a.type] || { t: "Alerta", I: AlertTriangle };
+                const m = tipoDe(a.type);
                 const critica = a.severity === "critical";
                 return (
                     <button key={a.id} type="button" onClick={(e) => { e.stopPropagation(); onVer?.(); }}

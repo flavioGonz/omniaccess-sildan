@@ -23,7 +23,7 @@ export const RUTAS_API: [RegExp, ClaseApi][] = [
     // La foto del celular para la pared: pública, la autoriza el token del QR (lib/monitor/subida).
     [/^\/api\/subida\//, "propio"],
     [/^\/api\/(health|version|subscribe|queue-report|notifications\/event|visitas\/tick|vigilancia\/bot)$/, "propio"],
-    [/^\/api\/(apk|push\/dispatch|topology|chatbot|onvif\/notify|invitado|branding|min-interior|devices\/health\/tick)(\/|$)/, "propio"],
+    [/^\/api\/(apk|push\/dispatch|topology|chatbot|onvif\/notify|invitado|branding|min-interior|devices\/health\/tick|devices\/usuarios\/tick)(\/|$)/, "propio"],
     [/^\/api\/queue\/(poll|vca-config|report\/send|reset|schedule\/tick|report\/tick)(\/|$)/, "propio"],
     // El motor de seguimiento con su token (x-tracking-token): lo llama el worker, no una persona.
     [/^\/api\/tracking\/(sighting|franja\/vision|franja\/mirar|calibracion|stays\/sweep)$/, "propio"],
@@ -56,6 +56,8 @@ export const RUTAS_API: [RegExp, ClaseApi][] = [
     [/^\/api\/vision\//, P("vision.config")],
     // ── Equipos, seguimiento ──
     [/^\/api\/tracking\/(probe|frame|camera-rule|service|calibration|enabled|stays\/verify)$/, P("dispositivos.editar", "ajustes")],
+    // Las cuentas locales de los equipos (openspec usuarios-de-equipos): su propio permiso, delicado.
+    [/^\/api\/devices\/(usuarios\/|[^/]+\/usuarios(\/|$))/, P("dispositivos.usuarios")],
     [/^\/api\/devices\//, P("dispositivos.editar")],
     [/^\/api\/queue\/onvif-topics$/, P("filas.config")],
     // ── Padrón ──

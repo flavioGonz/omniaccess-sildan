@@ -123,6 +123,7 @@ import { grabacionesDe, detectarGrabaciones, calcularRetencion, type FilaGrabaci
 import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
 import { SyncToDevicesDialog } from "@/components/SyncToDevicesDialog";
 import { VistaArea } from "@/components/devices/VistaArea";
+import { PanelCuentas } from "@/components/devices/usuarios/PanelCuentas";
 import { ArbolAreas, arrastrarEquipos, enArea, IconoTipo, TODAS, TODOS_LOS_TIPOS } from "@/components/devices/ArbolAreas";
 import { leerAreas, type EstadoAreas } from "@/app/actions/areas";
 
@@ -238,6 +239,8 @@ export default function DevicesPage() {
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const recepcionOn = useFuncion("FUNC_ALARMAS_RECEPCION") === true;
+    /** Usuarios de los equipos (openspec usuarios-de-equipos): el panel de cuentas de todo el sitio, en «Todas». */
+    const usuariosOn = useFuncion("EQUIPOS_USUARIOS") === true;
 
     const [devices, setDevices] = useState<any[]>([]);
     const [groups, setGroups] = useState<any[]>([]);
@@ -610,6 +613,10 @@ export default function DevicesPage() {
                     onCalibrarIntrusion={(d) => setCalibIntr(d)}
                     onSalud={(d) => setHealthHistory(d)} onElegirArea={setAreaSel} />
             ) : (<>
+            {usuariosOn && areaSel === TODAS && (
+                <PanelCuentas estado={areas} areaId={null} deviceIds={null}
+                    onAbrirEquipo={(id) => { const d = devices.find((x) => x.id === id); if (d) abrir(d); }} />
+            )}
 
             {typeFilter === "ALARM_HUB" && <VistaCentrales alAbrir={(id) => setCentral(id)} version={versionCentrales} busqueda={searchTerm} />}
             {typeFilter !== "NVR" && typeFilter !== "CAMERA" && typeFilter !== "ALARM_HUB" && (

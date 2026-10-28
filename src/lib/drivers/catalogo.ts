@@ -23,7 +23,7 @@
  */
 
 /** Las cosas que un equipo puede hacer por OmniAccess. */
-export type Capacidad = "lpr" | "rostro" | "rfid" | "bitacora" | "relé" | "conteo" | "video";
+export type Capacidad = "lpr" | "rostro" | "rfid" | "bitacora" | "relé" | "conteo" | "video" | "usuarios" | "sesiones";
 
 export const QUE_ES: Record<Capacidad, string> = {
     lpr: "Cargarle matrículas y que abra por patente",
@@ -33,6 +33,8 @@ export const QUE_ES: Record<Capacidad, string> = {
     "relé": "Abrirle la puerta a distancia",
     conteo: "Leerle el aforo y los cruces de una zona",
     video: "Ver su video y sacarle cuadros",
+    usuarios: "Leerle las cuentas locales (y, más adelante, crearlas y borrarlas)",
+    sesiones: "Ver quién está conectado y desde qué IP",
 };
 
 export type EstadoDriver = "andando" | "parcial" | "sin hacer";
@@ -50,7 +52,7 @@ export type Soporte = {
 export const SOPORTE: Soporte[] = [
     {
         marca: "HIKVISION", rotulo: "Hikvision", estado: "andando",
-        hace: ["lpr", "rostro", "bitacora", "relé", "video"],
+        hace: ["lpr", "rostro", "bitacora", "relé", "video", "usuarios", "sesiones"],
         nota: "Es la marca sobre la que se construyó el sistema y la que más cosas tiene probadas. Hoy es la única que sabe cargarle matrículas a un equipo.",
     },
     {
@@ -150,3 +152,6 @@ export function evaluar(marca: string, tipo: string): Veredicto {
     const faltan = necesita.filter((c) => !soporte.hace.includes(c));
     return { sirve: faltan.length === 0, faltan, soporte };
 }
+
+/** ¿Se pueden leer las cuentas locales de esta marca? (openspec usuarios-de-equipos) */
+export const leeUsuarios = (marca: string) => !!soporteDe(marca)?.hace.includes("usuarios");

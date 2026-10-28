@@ -18,7 +18,7 @@ import type { ModuleId } from "@/lib/module-definitions";
  */
 
 export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS" | "LPR_PLAZAS" | "LPR_BUSQUEDA" | "LPR_MIN_INTERIOR"
-    | "FUNC_INTRUSION" | "FUNC_ALARMAS_RECEPCION" | "FUNC_ALARMAS_GESTION";
+    | "FUNC_INTRUSION" | "FUNC_ALARMAS_RECEPCION" | "FUNC_ALARMAS_GESTION" | "EQUIPOS_USUARIOS";
 
 export interface Funcion {
     id: FuncionId;
@@ -131,6 +131,14 @@ export const FUNCIONES: Funcion[] = [
         nombre: "Gestión de alarmas de central",
         que: "Cada alarma de una central se vuelve un evento para tratar: la cola por prioridad, tomar y tratar con cierre y texto, el procedimiento de actuación con sus pasos, la video verificación (vivo y grabación del momento), el escalado, la ventana que se abre en cualquier pantalla y la vista de pared Alarmas.",
         siSeApaga: "Los mensajes se siguen recibiendo, registrando y avisando por las reglas, pero no se crea ninguna alarma para tratar: no hay cola, no se abre ninguna ventana, no se escala y la vista de pared Alarmas se apaga.",
+        porDefecto: false,
+    },
+    {
+        id: "EQUIPOS_USUARIOS",
+        alcance: "instalacion",
+        nombre: "Usuarios de los equipos",
+        que: "Lee las cuentas locales de cada equipo compatible (hoy, Hikvision) y quién está conectado y desde dónde. Avisa cuando aparece una cuenta que no creó OmniAccess o una sesión desde una IP desconocida. Las cuentas se ven en la ficha de cada equipo y por área en Dispositivos.",
+        siSeApaga: "Se deja de leer a los equipos y desaparecen el bloque de usuarios y el panel de cuentas de las áreas. Lo ya leído no se borra: al prenderla otra vez se ve como estaba y se actualiza en la próxima vuelta.",
         porDefecto: false,
     },
 ];

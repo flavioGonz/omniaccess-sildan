@@ -8,26 +8,26 @@
   - qué devuelve el equipo cuando la clave no cumple la regla;
   - que la cuenta creada entra con su clave, y que después del `DELETE` ya no.
   - Verificación: queda `claude/usuarios-equipos-medicion.md` en el proyecto, con los cuerpos (sin claves) y las respuestas por modelo y firmware.
-- [ ] 1.2 Migración aditiva `…_usuarios_de_equipos` (`prisma migrate deploy`, sólo comentarios `//` y `///`):
+- [x] 1.2 Migración aditiva `…_usuarios_de_equipos` (`prisma migrate deploy`, sólo comentarios `//` y `///`):
   - `CuentaEquipo`, `SesionEquipo` y `SincroCuenta`;
   - en `User`: `cuentaEquipos`, `claveEquipos`, `claveEquiposVersion` y `nombreEquipos`;
   - en `AppRole`: `nivelEquipos` y `tiposEquipos`;
   - en `Device`: `passwordAnterior`;
   - `lib-cifrado-datos.js` y `lib/cifrado-datos.ts` suman `claveEquipos` y `passwordAnterior` a los campos cifrados (los dos gemelos).
   - Verificación: la migración corre en el lab; `prisma.cuentaEquipo.count()` da 0; una prueba confirma que `claveEquipos` se guarda con el prefijo `enc:v1:`.
-- [ ] 1.3 La función `EQUIPOS_USUARIOS` en `lib/funciones.ts` (alcance instalación, apagada por defecto) y el permiso `dispositivos.usuarios` en `lib/permisos.ts` (configurar, delicado). Ninguna plantilla de rol lleva el permiso.
+- [x] 1.3 La función `EQUIPOS_USUARIOS` en `lib/funciones.ts` (alcance instalación, apagada por defecto) y el permiso `dispositivos.usuarios` en `lib/permisos.ts` (configurar, delicado). Ninguna plantilla de rol lleva el permiso.
   - Verificación: `node scripts/probar.js` en verde, con las pruebas de catálogo de permisos y de funciones; la función aparece en Ajustes → Modos.
 
 ## 2. Leer cuentas y sesiones (sólo lectura)
 
-- [ ] 2.1 `IUsuariosDriver` en `lib/drivers/IDeviceDriver.ts`, con su guardia de tipo, y en `catalogo.ts` las capacidades `usuarios` y `sesiones`, sólo para Hikvision.
+- [x] 2.1 `IUsuariosDriver` en `lib/drivers/IDeviceDriver.ts`, con su guardia de tipo, y en `catalogo.ts` las capacidades `usuarios` y `sesiones`, sólo para Hikvision.
   - Verificación: `tsc` limpio; el catálogo dice «todavía no» para las demás marcas.
-- [ ] 2.2 La lectura en `HikvisionDriver`:
+- [x] 2.2 La lectura en `HikvisionDriver`:
   - `listarCuentas` (lista, `inherent` o id 1, capacidades y `REGLAS_CLAVE[HIKVISION]`);
   - `listarSesiones`;
   - el parseo, en `lib/usuarios-equipo/hikvision.ts`.
   - Prueba: `tests/usuarios-equipo.test.ts` sobre las respuestas medidas el 28/10: cámara v2.0 con sesiones, grabador v1.0 con 4 cuentas y `bondIpAddressList`, y 404.
-- [ ] 2.3 `lib/usuarios-equipo/inventario.ts`:
+- [x] 2.3 `lib/usuarios-equipo/inventario.ts`:
   - `clasificar` (servicio, de fábrica, gestionada, no gestionada);
   - `procedencia` (servidor, grabador, equipo conocido, desconocida), con las cuatro fuentes de design §6;
   - `fusionarLectura`: altas, desaparecidas y la regla de que una lectura fallida no borra.
@@ -39,7 +39,7 @@
   - la retención de `RETENCION_SESIONES_DIAS`;
   - suma la línea del cron y la entrada en `lib/tareas/catalogo.ts`; el middleware la deja pasar como las demás tareas.
   - Verificación en el lab, con la función prendida: una vuelta lee los 79 equipos en menos de 60 s (medido en el registro). Las alertas de la primera vuelta coinciden con las cuentas y las IP reales. La segunda vuelta no repite ninguna. Con la función apagada, 404 y ningún pedido a los equipos.
-- [ ] 2.5 Las rutas de lectura, con `dispositivos` y `exigirFuncion`:
+- [x] 2.5 Las rutas de lectura, con `dispositivos` y `exigirFuncion`:
   - `GET /api/devices/[id]/usuarios`: cuentas con su clase, sesiones abiertas, última lectura y su error;
   - `GET /api/devices/usuarios`: todas, con filtros;
   - `GET /api/devices/usuarios/sesiones`: la historia.

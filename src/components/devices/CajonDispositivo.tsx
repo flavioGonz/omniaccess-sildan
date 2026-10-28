@@ -13,6 +13,8 @@ import {
 import { leerAreas, crearArea, type Area } from "@/app/actions/areas";
 import { guardarGrupo } from "@/app/actions/groups";
 import { DestinoEventos } from "@/components/devices/DestinoEventos";
+import { UsuariosEquipo } from "@/components/devices/usuarios/UsuariosEquipo";
+import { useFuncion } from "@/lib/funciones-cliente";
 import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -379,6 +381,8 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         direction: device?.direction || "ENTRY", groupId: "none",
     }), [device]);
     const [f, setF] = useState(blanco());
+    /** Usuarios de los equipos (openspec usuarios-de-equipos): sólo con la función prendida. */
+    const usuariosOn = useFuncion("EQUIPOS_USUARIOS");
     const set = (k: keyof ReturnType<typeof blanco>, v: string) => setF((p) => ({ ...p, [k]: v }));
 
     const [detectando, setDetectando] = useState(false);
@@ -1074,6 +1078,11 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                             </Bloque>
                         )}
                         <Bloque titulo="Conexión" icono={Network} ayuda="Cómo llega el servidor al equipo. Si cambiás IP o clave, «Comprobar» confirma que sigue respondiendo.">{bloqueConexion}</Bloque>
+                        {usuariosOn && device?.id && (
+                            <Bloque titulo="Usuarios del equipo" icono={Users} ayuda="Las cuentas locales del equipo y quién está conectado ahora. Avisa de cuentas que no creó OmniAccess y de accesos desde IP desconocidas. No cambia nada en el equipo.">
+                                <UsuariosEquipo deviceId={device.id} />
+                            </Bloque>
+                        )}
                         {tipo !== "NVR" && (
                             <Bloque titulo="Grabación" icono={HardDrive} ayuda="En qué NVR y canal se graba: de ahí salen los clips y el playback."
                                 accion={<Button variant="outline" size="sm" onClick={calcRet} disabled={calculando || !actual} className="gap-1.5" {...tip("Busca en el NVR la grabación más vieja de este canal y calcula cuántos días guarda.")}>{calculando ? <Loader2 size={14} className="animate-spin" /> : <Server size={14} />} Calcular retención</Button>}>

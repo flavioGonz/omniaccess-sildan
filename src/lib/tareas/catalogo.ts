@@ -161,6 +161,11 @@ export const TAREAS: Record<string, TareaProgramada> = {
         queHace: "Sondea cada equipo, guarda la muestra y dispara las alertas de equipo caído.",
         siFalla: "No se detecta un equipo caído y la gráfica de salud queda con un hueco.",
     },
+    "/api/devices/usuarios/tick": {
+        clave: "usuarios-equipos", nombre: "Usuarios de los equipos",
+        queHace: "Cada 5 minutos lee quién está conectado a cada equipo y, cada hora, sus cuentas locales. Avisa de cuentas que no creó OmniAccess y de sesiones desde IP desconocidas. Sólo lee: no cambia nada en los equipos.",
+        siFalla: "Las cuentas y las sesiones de la ficha de cada equipo quedan con la hora de la última lectura buena, y no se avisa de cuentas ni de accesos nuevos.",
+    },
     "/api/visitas/tick": {
         clave: "visitas", nombre: "Visitas y patrones",
         queHace: "Vence visitas, avisa permanencias largas, cierra el día y recalcula los perfiles de las matrículas cada 10 minutos.",

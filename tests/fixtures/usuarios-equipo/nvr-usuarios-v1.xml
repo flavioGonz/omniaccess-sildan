@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<UserList version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<User version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<id>1</id>
+<userName>admin</userName>
+<bondIpAddressList>
+<bondIpAddress>
+<id>1</id>
+<ipAddress>0.0.0.0</ipAddress>
+<ipv6Address>::</ipv6Address>
+</bondIpAddress>
+</bondIpAddressList>
+<bondMacAddressList>
+<bondMacAddress>
+<id>1</id>
+<macAddress>00:00:00:00:00:00</macAddress>
+</bondMacAddress>
+</bondMacAddressList>
+<userLevel>Administrator</userLevel>
+<attribute>
+<inherent>true</inherent>
+</attribute>
+</User>
+<User version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<id>2</id>
+<userName>operador1</userName>
+<bondIpAddressList>
+<bondIpAddress>
+<id>1</id>
+<ipAddress>0.0.0.0</ipAddress>
+</bondIpAddress>
+</bondIpAddressList>
+<userLevel>Operator</userLevel>
+</User>
+<User version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<id>3</id>
+<userName>guardia</userName>
+<userLevel>Viewer</userLevel>
+</User>
+<User version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<id>4</id>
+<userName>vecino&amp;co</userName>
+<userLevel>Viewer</userLevel>
+</User>
+</UserList>

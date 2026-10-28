@@ -1,5 +1,6 @@
 import axios from "axios";
-import { IDeviceDriver, ILprDriver, IFaceDriver, ILogDriver, ListaCamara } from "./IDeviceDriver";
+import { IDeviceDriver, ILprDriver, IFaceDriver, ILogDriver, IUsuariosDriver, ListaCamara } from "./IDeviceDriver";
+import { parsearCuentasHik, parsearSesionesHik, parsearCapacidadesHik, type CuentaLeida, type SesionLeida, type CapacidadesLeidas } from "@/lib/usuarios-equipo/hikvision";
 import { Device, Credential, CredentialType, AuthType } from "@prisma/client";
 import {
     authenticatedRequest,
@@ -10,7 +11,7 @@ import {
 } from "../digest-auth";
 import crypto from "crypto";
 
-export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
+export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver, IUsuariosDriver {
     /**
      * JSON request with automatic Basic/Digest auth via shared module.
      * Includes Hikvision-specific fallback: retry with path-only URI if query params cause 401.
@@ -48,6 +49,36 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
             }
             throw error;
         }
+    }
+
+    /**
+     * Cuentas locales y sesiones abiertas (openspec usuarios-de-equipos). Sólo GET: van por
+     * authenticatedRequest, así que en un equipo de sólo lectura (OMNI_EQUIPOS_SOLO_LECTURA) también
+     * andan. Con el puerto HTTP del equipo y un tope corto, porque la lectura recorre todos los equipos.
+     */
+    private async isapiXml(device: Device, ruta: string): Promise<string> {
+        const d: DigestAuthDevice = { ip: device.ip, username: device.username || "admin", password: device.password || "", authType: device.authType, httpPort: device.httpPort };
+        const opc = { accept: "application/xml", contentType: "application/xml", responseType: "text" as const, timeout: 6000 };
+        try {
+            return String(await authenticatedRequest("GET", ruta, d, opc));
+        } catch (e: any) {
+            // Un equipo dado de alta como BASIC que en realidad pide Digest (los Hikvision nuevos): se reintenta una vez.
+            if (e?.response?.status === 401 && d.authType !== "DIGEST" && /digest/i.test(String(e.response.headers?.["www-authenticate"] || ""))) {
+                return String(await authenticatedRequest("GET", ruta, { ...d, authType: "DIGEST" }, opc));
+            }
+            throw e;
+        }
+    }
+
+    async listarCuentas(device: Device): Promise<{ cuentas: CuentaLeida[]; capacidades: CapacidadesLeidas | null }> {
+        const cuentas = parsearCuentasHik(await this.isapiXml(device, "/ISAPI/Security/users"));
+        // Las capacidades son un extra (topes y reglas): si el equipo no las da, la lectura igual vale.
+        const capacidades = await this.isapiXml(device, "/ISAPI/Security/users/1/capabilities").then(parsearCapacidadesHik).catch(() => null);
+        return { cuentas, capacidades };
+    }
+
+    async listarSesiones(device: Device): Promise<SesionLeida[]> {
+        return parsearSesionesHik(await this.isapiXml(device, "/ISAPI/Security/onlineUser"));
     }
 
     /**

@@ -14,7 +14,11 @@ import { APAGADO_SIN_AREA, CLAVE_APAGADOS, recalcularApagados } from "@/lib/apag
  */
 const CLAVE = "DEVICE_AREAS";
 
-export type Area = { id: string; nombre: string; padre: string | null; orden: number; color: string };
+/**
+ * `cuentas`: la gestión de las cuentas locales de los equipos del área (openspec usuarios-de-equipos).
+ * Sin el campo, el área hereda el de su madre; la raíz y «Sin área» no se gestionan (lib/usuarios-equipo/areas).
+ */
+export type Area = { id: string; nombre: string; padre: string | null; orden: number; color: string; cuentas?: { gestionada: boolean; roles: string[] } };
 /** `apagadas`: áreas, «Sin área» o tipos apagados (lib/apagado). */
 export type EstadoAreas = { areas: Area[]; equipos: Record<string, string>; apagadas?: string[] };
 

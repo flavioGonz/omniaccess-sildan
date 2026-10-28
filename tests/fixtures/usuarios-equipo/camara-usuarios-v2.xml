@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<UserList version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<User version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<id>1</id>
+<userName>admin</userName>
+<userLevel>Administrator</userLevel>
+</User>
+</UserList>
