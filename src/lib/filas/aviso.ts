@@ -21,6 +21,8 @@ export type TipoAviso = "lleno" | "escalamiento";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const hhmm = (d: Date) => enMontevideo(d).hhmm;
+/** «1 persona», «3 personas». */
+export const personasTxt = (n: number) => `${n} ${n === 1 ? "persona" : "personas"}`;
 const minutosDesde = (d: Date, ahora: Date) => Math.max(0, Math.round((ahora.getTime() - d.getTime()) / 60_000));
 
 export function textoAvisoFila(p: { fila: string; demora: DemoraFila; tipo: TipoAviso; ahora?: Date; personas?: number; sostenidoMin?: number | null }): string {
@@ -38,8 +40,8 @@ export function textoAvisoFila(p: { fila: string; demora: DemoraFila; tipo: Tipo
         : sostenida ? `🟠 <b>${esc(p.fila)} — fila cargada</b>` : `🟠 <b>${esc(p.fila)} — fila sobre el límite</b>`);
     lineas.push("");
     lineas.push(sostenida
-        ? `👥 <b>${personas} personas</b> · ${d.limite} o más desde hace <b>${Math.max(1, p.sostenidoMin as number)} min</b>`
-        : `👥 <b>${personas} personas</b> · límite ${d.limite}${sobran > 0 ? ` (+${sobran})` : ""}`);
+        ? `👥 <b>${personasTxt(personas)}</b> · ${d.limite} o más desde hace <b>${Math.max(1, p.sostenidoMin as number)} min</b>`
+        : `👥 <b>${personasTxt(personas)}</b> · límite ${d.limite}${sobran > 0 ? ` (+${sobran})` : ""}`);
     lineas.push(d.esperaMin === 0 ? "⏳ Sin espera" : d.esperaMin != null
         ? `⏳ Espera estimada <b>~${d.esperaMin} min</b>`
         : `⏳ Espera estimada: sin salidas en ${VENTANA_ESPERA_MIN} min`);

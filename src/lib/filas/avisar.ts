@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { enqueueDispatch } from "@/lib/dispatch-queue";
 import { demoraFila } from "@/lib/filas/demora";
-import { textoAvisoFila, textoPlano, type TipoAviso } from "@/lib/filas/aviso";
+import { textoAvisoFila, textoPlano, personasTxt, type TipoAviso } from "@/lib/filas/aviso";
 import { AVISO_CLIP_ANTES_SEG, AVISO_CLIP_DESPUES_SEG } from "@/lib/filas/constantes";
 import { silencioHasta } from "@/lib/filas/acuses";
 import { botonesAviso } from "@/lib/filas/bot";
@@ -45,9 +45,9 @@ export async function avisarFila(p: {
     const base = {
         ruleName: p.alerta, deviceName: fila, channelName: p.canal || "Aforo",
         // Asunto del correo: lo que pasa, en el renglón que se lee en la bandeja de entrada.
-        asunto: p.tipo === "escalamiento" ? `${fila}: la fila sigue cargada (${p.personas} personas)`
-            : p.sostenidoMin != null ? `${fila}: ${p.personas} personas en la fila hace ${Math.max(1, p.sostenidoMin)} min`
-            : `${fila}: fila sobre el límite (${p.personas} personas)`,
+        asunto: p.tipo === "escalamiento" ? `${fila}: la fila sigue cargada (${personasTxt(p.personas)})`
+            : p.sostenidoMin != null ? `${fila}: ${personasTxt(p.personas)} en la fila hace ${Math.max(1, p.sostenidoMin)} min`
+            : `${fila}: fila sobre el límite (${personasTxt(p.personas)})`,
         count: p.personas, threshold: p.limite, snapshotPath: p.snapshotPath || null,
         html, text: textoPlano(html), aviso: p.tipo,
         conVideo: true, clipAntes: AVISO_CLIP_ANTES_SEG, clipDespues: AVISO_CLIP_DESPUES_SEG,
