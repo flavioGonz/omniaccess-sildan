@@ -22,7 +22,15 @@ Medido el 28/10 en el lab, en una muestra de 14 de sus 79 equipos (todos Hikvisi
 - **Aviso de cuenta no gestionada.** Cuando aparece en un equipo una cuenta que OmniAccess no creó, se marca y se avisa: una alerta del equipo y una entrada en Auditoría. **No se borra sola** (decisión de Nico del 28/10); borrarla es una acción aparte.
 - **Altas, bajas y cambios a mano.** Desde la ficha del equipo se puede crear una cuenta, cambiarle la clave o el nivel, y borrarla. Cada acción pide confirmación y queda en Auditoría. Nunca se toca la cuenta de servicio ni la de fábrica.
 - **Quién está conectado.** Se leen las sesiones abiertas de cada equipo (usuario, IP y desde cuándo) y se reconoce de dónde viene cada una: el servidor de OmniAccess, un grabador dado de alta o una IP desconocida. Una sesión desde una IP desconocida se registra y se avisa: es el «acceso local» que hoy no se ve.
-- **Una pantalla para todo el sitio.** «Usuarios de equipos» junta todas las cuentas de todos los equipos en una tabla, para responder dos preguntas: qué cuentas hay en todos lados y dónde está cada persona.
+- **Todo en las áreas de Dispositivos** (pedido de Nico, 28/10). Cada área decide si sus equipos tienen **cuentas gestionadas** y qué roles tienen cuenta en ellos; las sub-áreas heredan. En un área sin gestionar sólo se lee.
+  - **En la vista del área** están los controles: el estado de las cuentas, Revisar, Sincronizar, Crear cuenta en el área, la auditoría del área y su ajuste.
+  - **En «Todas»** se ven las cuentas de todo el sitio, para ver dónde está cada persona.
+  - No hay una pantalla aparte fuera de Dispositivos.
+- **Nada se toca sin confirmar** (pedido de Nico, 28/10). Antes de cualquier alta, cambio, baja, adopción o rotación, una ventana dice qué se va a hacer, equipo por equipo, y lo que queda afuera.
+  - Usa íconos y el tono de la gravedad.
+  - Advierte con nombre propio cuando se **sobrescribe** algo local, como la clave del `admin` del equipo o una cuenta adoptada.
+  - Lo grave pide una confirmación reforzada.
+  - Después de aceptar, la misma ventana muestra el avance y el resultado de cada equipo.
 - **Sincronización desde el panel:**
   - un usuario del panel puede tener **cuenta en equipos**; se marca a mano, por persona (decisión de Nico);
   - su **rol** dice con qué nivel se crea la cuenta y en qué tipos de equipo;
@@ -40,6 +48,8 @@ Medido el 28/10 en el lab, en una muestra de 14 de sus 79 equipos (todos Hikvisi
 - `equipos-sesiones-locales`: las sesiones abiertas en cada equipo, de dónde vienen y su registro.
 - `equipos-sincronizacion-panel`: la cuenta en equipos de los usuarios del panel, con su política por rol, su clave cifrada, la aplicación de los cambios y la revisión de diferencias.
 - `equipos-rotacion-servicio`: el cambio de la clave de la cuenta de servicio de un equipo (fase posterior).
+- `equipos-moderacion-por-area`: qué áreas de Dispositivos tienen cuentas gestionadas y para qué roles, y los controles de sincronización, alta y auditoría en la vista del área.
+- `equipos-confirmacion-cambios`: la confirmación previa de toda escritura de cuentas, con sus advertencias de sobrescritura, la confirmación reforzada y el resultado por equipo.
 
 ### Modified Capabilities
 
@@ -63,7 +73,9 @@ Ninguna: `openspec/specs/` todavía no tiene especificaciones archivadas.
   - la cuenta en equipos de un usuario del panel se edita con `accesos`.
 - **Pantallas:**
   - un bloque «Usuarios del equipo» en `CajonDispositivo`;
-  - una página nueva, «Usuarios de equipos», en Equipos;
-  - en `AccesosSection`, la cuenta en equipos del usuario y el nivel por rol.
+  - en la vista del área de Dispositivos (`VistaArea`, `ArbolAreas`): el panel «Cuentas» con sus controles y su auditoría, y la vista de cuentas de «Todas»;
+  - una ventana de confirmación común para toda escritura de cuentas;
+  - en `AccesosSection`: la cuenta en equipos del usuario y el nivel por rol.
+- **Áreas:** el ajuste por área (`cuentas: { gestionada, roles }`) se guarda junto a las áreas, en el Setting `DEVICE_AREAS`.
 - **Auditoría:** acciones nuevas en `AccionSistema`; `DeviceAlert` suma los tipos `cuenta-no-gestionada` y `sesion-desconocida`.
 - **San Nicolás:** nada se lleva hasta que Nico lo diga. Desde el lab los equipos de San Nicolás siguen siendo de sólo lectura: se pueden leer, nunca escribir.

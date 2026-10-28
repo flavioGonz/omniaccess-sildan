@@ -54,8 +54,16 @@
 
   Piezas de `ui/`, sin colores sueltos.
   - Verificación: vista previa con datos simulados (cámara con sesiones, grabador con 4 cuentas, equipo caído y marca sin soporte), en claro y oscuro, a 1366 px.
-- [ ] 2.7 La página «Usuarios de equipos» en Equipos (`/admin/devices/usuarios`): tabla de todas las cuentas con filtros por clase, nivel y equipo, el buscador y la pestaña de sesiones. Se registra en `permisos.ts`, en el menú y en `PAGINAS` de la prueba de cobertura.
-  - Verificación: en el lab, buscar `admin` lista los equipos donde está; la prueba de cobertura de páginas sigue en verde.
+- [ ] 2.7 En Dispositivos, las cuentas por área (design §10–11), en sólo lectura:
+  - `areaGestora(estado, deviceId)` con la herencia;
+  - el campo `cuentas?` en `Area` (`actions/areas.ts`, sin acción de escritura todavía);
+  - el panel «Cuentas» de `VistaArea`: la franja de estado, «Revisar» y «Auditoría» del área;
+  - el escudo y el punto de aviso en `ArbolAreas`;
+  - en «Todas», la tabla de cuentas de todo el sitio, con filtros, buscador y la pestaña de sesiones.
+
+  No hay una página fuera de Dispositivos.
+  - Pruebas: `areaGestora` con sub-área que hereda, sub-área con ajuste propio, «Sin área» y equipo de un área borrada.
+  - Verificación: en el lab, buscar `admin` en «Todas» lista los equipos con su área; la auditoría de un área muestra sólo lo de sus equipos.
 - [ ] 2.8 Documentar en el proyecto (`claude/usuarios-de-equipos.md`):
   - qué se lee y cada cuánto;
   - qué significa cada clase y cada procedencia;
@@ -65,27 +73,45 @@
 
 ## 3. Altas, cambios y bajas a mano
 
+- [ ] 3.0 La ventana `ConfirmarCuentas` (design §12):
+  - recibe un plan;
+  - encabezado con ícono y tono por gravedad;
+  - la tabla `ADVERTENCIAS`, con la sobrescritura del admin local, de una cuenta ajena, el NVR que entra con esa clave y la sesión abierta;
+  - la lista por equipo agrupada por área, y «Queda afuera»;
+  - la confirmación reforzada (casilla y escribir la cantidad);
+  - el paso al avance con estados animados y «Reintentar»;
+  - el foco inicial en Cancelar; Esc y Cancelar no envían nada.
+
+  Se arma con `ui/dialog`, tokens e íconos de lucide, sin colores sueltos.
+  - Pruebas: la gravedad y las advertencias que salen de cada tipo de plan; el botón queda deshabilitado sin la confirmación reforzada.
+  - Verificación: vista previa con cinco planes (crear en un equipo, sincronizar un área con mezcla, borrar en 5, adoptar y rotar admin en 8), en claro y oscuro, a 1366 y 1920 px, y con la entrada y la salida animadas.
+
 - [ ] 3.1 La escritura en `HikvisionDriver`: `crearCuenta`, `cambiarCuenta` y `borrarCuenta`, tal como lo dejó la medición 1.1, por `authenticatedRequest`. Más `lib/usuarios-equipo/clave.ts`, con `validarClave(marca, nombre, clave)` y `generarClave(marca)`; las dos usan `REGLAS_CLAVE`.
   - Pruebas: la clave generada siempre pasa la validación (1000 corridas); la validación rechaza las claves cortas, las de un solo tipo y las que contienen el nombre; los cuerpos XML no tienen la clave fuera de su etiqueta.
 - [ ] 3.2 Las rutas de escritura, con `dispositivos.usuarios` y `exigirFuncion`:
   - `POST` y `PATCH` en `/api/devices/[id]/usuarios`, y `DELETE` en `/api/devices/[id]/usuarios/[cuenta]`;
   - `POST …/conocida` para una cuenta o una IP.
 
-  Rechazan la cuenta de servicio y la de fábrica antes de salir. Vuelven a leer el equipo para verificar. Registran en Auditoría sin la clave.
-  - Pruebas: borrar la de servicio → rechazo sin pedido al equipo (con el driver simulado); sin permiso → 403; en un equipo de sólo lectura → corte con el aviso.
-- [ ] 3.3 Las acciones en el bloque: crear (nombre, nivel y clave escrita o generada, mostrada una sola vez), cambiar clave, cambiar nivel y borrar (con `DeleteConfirmDialog`). Las acciones no se muestran sin permiso ni en un equipo de sólo lectura.
-  - Verificación: en el equipo de prueba de 1.1, crear, entrar con la cuenta nueva, cambiarle la clave, borrarla y confirmar que no entra. Auditoría muestra las cuatro acciones. En un equipo de San Nicolás, desde el lab, las acciones no aparecen.
+  Rechazan la cuenta de servicio y la de fábrica antes de salir, y los equipos de un área no gestionada. Reciben el plan confirmado, lo recalculan y lo rechazan si cambió. Vuelven a leer el equipo para verificar. Registran en Auditoría sin la clave.
+  - Pruebas: borrar la de servicio → rechazo sin pedido al equipo (con el driver simulado); sin permiso → 403; equipo de un área sin gestionar → rechazo; plan viejo → rechazo con el plan nuevo; en un equipo de sólo lectura → corte con el aviso.
+- [ ] 3.3 Las acciones, todas a través de `ConfirmarCuentas`:
+  - en el bloque del equipo: crear (nombre, nivel y clave escrita o generada, mostrada una sola vez), cambiar clave, cambiar nivel y borrar;
+  - en el panel del área: «Crear cuenta en el área» (elegir los equipos) y el ajuste del área (gestionada, heredada y roles), con su plan.
+
+  No se muestran sin permiso, en un área sin gestionar ni en un equipo de sólo lectura.
+  - Verificación: en el equipo de prueba de 1.1, dentro de un área de prueba gestionada: crear, entrar con la cuenta nueva, cambiarle la clave, borrarla y confirmar que no entra. Auditoría y la auditoría del área muestran las cuatro acciones. En un equipo de San Nicolás, desde el lab, las acciones no aparecen.
 - [ ] 3.4 Sumar al doc del proyecto las altas y bajas a mano, y las cuentas protegidas.
   - Verificación: el doc actualizado.
 
 ## 4. Sincronización desde el panel
 
 - [ ] 4.1 `lib/usuarios-equipo/sincro.ts`:
-  - `cuentasDeseadas(usuarios, roles, equipos)`;
+  - `cuentasDeseadas(usuarios, roles, equipos, areas)`, con las tres condiciones de `equipos-moderacion-por-area`;
+  - los equipos movidos fuera de un área gestionada quedan «fuera de área», sin borrar;
   - `planDeEquipo(deseadas, leidas)`, con crear, cambiar clave, cambiar nivel, borrar gestionada y conflicto;
   - la regla de que las no gestionadas, la de servicio y la de fábrica nunca entran en el plan;
   - la validación del nivel por marca (sin «administrador» en Hikvision).
-  - Pruebas sobre los escenarios del spec: alta, baja, rol «ninguno», conflicto por nombre, equipo reseteado, nivel cambiado a mano y equipo con cuentas ajenas.
+  - Pruebas sobre los escenarios del spec: alta, baja, rol «ninguno», rol no habilitado en el área, sub-área que hereda, equipo movido de área, conflicto por nombre, equipo reseteado, nivel cambiado a mano y equipo con cuentas ajenas.
 - [ ] 4.2 La aplicación:
   - `SincroCuenta` por `(userId, deviceId)`;
   - al guardar, intento inmediato en segundo plano; lo que falla queda pendiente y lo toma la tarea 2.4;
@@ -96,19 +122,20 @@
 - [ ] 4.3 Ajustes → Accesos:
   - en el editor del rol: nivel y tipos de equipo;
   - en la ficha del usuario: «Cuenta en equipos», la clave (generar o escribir; sin `OMNI_CLAVE_DATOS` no se puede prender), el resumen «N de M al día» y la lista de pendientes y conflictos;
-  - antes de guardar, el plan: «Se crea la cuenta en 12 equipos»;
-  - al borrar: «También se quitan sus cuentas de 12 equipos».
+  - antes de guardar, `ConfirmarCuentas` con el plan: «Se crea la cuenta en 12 equipos»;
+  - al borrar: «También se quitan sus cuentas de 12 equipos»;
+  - si se cancela, no se guarda.
 
   Todo con `accesos`.
   - Verificación: vista previa con los estados (al día, pendientes, conflicto y sin clave de cifrado), y en el lab, alta y baja de un usuario de prueba contra el equipo de prueba.
-- [ ] 4.4 La revisión de diferencias en «Usuarios de equipos»: por equipo, lo que falta, lo que sobra y lo que tiene otro nivel, con «Volver a aplicar».
+- [ ] 4.4 «Revisar» y «Sincronizar» en el panel del área: por equipo, lo que falta, lo que sobra, lo que tiene otro nivel y lo que quedó fuera de área. «Sincronizar» abre `ConfirmarCuentas` con el plan del área y sus sub-áreas.
   - Verificación: con el equipo de prueba, borrar a mano en el equipo una cuenta gestionada. La revisión la muestra faltante y «Volver a aplicar» la crea con la clave guardada.
 - [ ] 4.5 Sumar al doc del proyecto la sincronización: quién se sincroniza, la política por rol, la clave cifrada, las bajas pendientes y los conflictos.
   - Verificación: el doc actualizado.
 
 ## 5. Rotación de la cuenta de servicio (fase posterior)
 
-- [ ] 5.1 Hacer la rotación comprobada (design §11):
+- [ ] 5.1 Hacer la rotación comprobada (design §13), con `ConfirmarCuentas` y la advertencia de sobrescritura del admin local:
   - cambiar la clave en el equipo, comprobarla con un GET y recién entonces guardarla;
   - `passwordAnterior` y el reintento con la segunda clave en `authenticatedRequest` ante un 401;
   - el estado «rotación sin confirmar».
@@ -120,7 +147,7 @@
 
 ## 6. Cierre
 
-- [ ] 6.1 Correr `tsc --noEmit` y `node scripts/probar.js` en verde. Desplegar en el lab y recorrer las cuatro fases con un usuario Técnico, uno sin permiso y un enlace de pantalla.
+- [ ] 6.1 Correr `tsc --noEmit` y `node scripts/probar.js` en verde. Desplegar en el lab y recorrer las cuatro fases con un usuario Técnico, uno sin permiso y un enlace de pantalla. Comprobar que ninguna escritura de cuentas salió sin pasar por `ConfirmarCuentas`.
   - Verificación: ningún pedido de escritura salió hacia la red 192.168.1.0/24 (lo dice el registro de `exigirEscritura`).
 
 ## Workflow follow-up

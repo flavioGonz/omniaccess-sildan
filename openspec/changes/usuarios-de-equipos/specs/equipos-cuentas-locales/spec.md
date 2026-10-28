@@ -59,7 +59,7 @@ Cuando una lectura encuentra una cuenta no gestionada que antes no estaba, el si
 - **THEN** la alerta se cierra, la cuenta sigue «no gestionada» con la marca de conocida, y Auditoría registra quién la marcó y por qué
 
 ### Requirement: Altas, cambios y bajas a mano
-Quien tenga el permiso `dispositivos.usuarios` SHALL poder crear una cuenta en un equipo compatible, cambiarle la clave o el nivel, y borrarla. Cada acción pide confirmación, se aplica en el equipo, se vuelve a leer para verificarla y queda en Auditoría con quién, qué equipo y el resultado.
+Quien tenga el permiso `dispositivos.usuarios` SHALL poder crear una cuenta en un equipo compatible de un área gestionada, cambiarle la clave o el nivel, y borrarla. Cada acción pasa por la confirmación previa (ver `equipos-confirmacion-cambios`), se aplica en el equipo, se vuelve a leer para verificarla y queda en Auditoría con quién, qué equipo y el resultado.
 
 #### Scenario: Crear una cuenta
 - **WHEN** se crea `supervisor` como Operador en una cámara y el equipo la acepta
@@ -101,9 +101,9 @@ Para un equipo cuya marca no tiene la capacidad «usuarios», el sistema SHALL d
 - **WHEN** se abre el bloque «Usuarios del equipo» de un Alarm Hub genérico
 - **THEN** dice «Las cuentas de esta marca todavía no se leen» y no muestra acciones
 
-### Requirement: Vista de todo el sitio
-La pantalla «Usuarios de equipos» SHALL listar todas las cuentas de todos los equipos, y dejar filtrar por clase, por nivel, por equipo y por nombre de cuenta, para ver en qué equipos está cada nombre.
+### Requirement: Vista de cuentas en Dispositivos
+La vista «Cuentas» de Dispositivos SHALL listar las cuentas de los equipos del área elegida y sus sub-áreas («Todas» lista las de todo el sitio). Se puede filtrar por clase, por nivel, por equipo y por nombre de cuenta, para ver en qué equipos está cada nombre. No hay una pantalla aparte fuera de Dispositivos.
 
 #### Scenario: Dónde está una persona
-- **WHEN** se busca `jperez`
-- **THEN** la tabla muestra cada equipo donde existe esa cuenta, con su nivel, su clase y la última vez que se vio
+- **WHEN** en «Todas» se busca `jperez`
+- **THEN** la tabla muestra cada equipo donde existe esa cuenta, con su área, su nivel, su clase y la última vez que se vio

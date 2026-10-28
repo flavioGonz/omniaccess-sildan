@@ -14,11 +14,11 @@ Un usuario del panel SHALL tener cuenta en los equipos sólo si alguien con el p
 - **THEN** no se le crea ninguna cuenta en ningún equipo
 
 ### Requirement: Política por rol
-Cada rol del panel SHALL definir con qué nivel se crea la cuenta («ninguno», «visualizador» u «operador») y en qué tipos de equipo. Pedir un nivel que la marca no permite para una cuenta adicional (Hikvision sólo admite una cuenta Administrador) MUST rechazarse al guardar el rol.
+Cada rol del panel SHALL definir con qué nivel se crea la cuenta («ninguno», «visualizador» u «operador») y en qué tipos de equipo. Las áreas deciden después en cuáles equipos (ver `equipos-moderacion-por-area`). Pedir un nivel que la marca no permite para una cuenta adicional (Hikvision sólo admite un Administrador) MUST rechazarse al guardar el rol.
 
 #### Scenario: Técnico en cámaras y grabadores
 - **WHEN** el rol Técnico dice «operador» en cámaras, LPR y grabadores
-- **THEN** quien tenga ese rol y la marca recibe una cuenta Operador en esos equipos y en ningún otro
+- **THEN** quien tenga ese rol y la marca recibe una cuenta Operador en esos tipos de equipo, dentro de las áreas gestionadas que habilitan a Técnico, y en ningún otro
 
 #### Scenario: Rol sin cuenta en equipos
 - **WHEN** el rol Auditor dice «ninguno»
@@ -36,11 +36,11 @@ La clave de equipos SHALL ser propia de cada persona, distinta de la del panel, 
 - **THEN** no se puede prender «Cuenta en equipos» y se explica por qué; nunca se guarda una clave en claro
 
 ### Requirement: Los cambios del panel llegan a los equipos
-Cuando se prende la marca, cambia el rol, cambia la clave de equipos, se apaga la marca o se borra un usuario del panel, el sistema SHALL calcular qué hay que crear, cambiar o borrar en cada equipo, mostrarlo antes de guardar, aplicarlo y dejar el resultado por equipo.
+Cuando se prende la marca, cambia el rol, cambia la clave de equipos, se apaga la marca o se borra un usuario del panel, el sistema SHALL calcular qué hay que crear, cambiar o borrar en cada equipo. Lo muestra en la confirmación previa, lo aplica al aceptar y deja el resultado por equipo.
 
 #### Scenario: Alta de una persona
 - **WHEN** se le prende «Cuenta en equipos» a un Técnico y hay 12 equipos de los tipos de su rol
-- **THEN** antes de guardar se lee «Se crea la cuenta en 12 equipos»; al guardar se crea en cada uno y la persona muestra «12 de 12 al día»
+- **THEN** antes de guardar, la confirmación dice «Se crea la cuenta en 12 equipos» con la lista; al aceptar se crea en cada uno y la persona muestra «12 de 12 al día»
 
 #### Scenario: Baja de una persona
 - **WHEN** se borra un usuario del panel que tenía cuenta en 12 equipos

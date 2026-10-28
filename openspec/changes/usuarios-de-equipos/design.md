@@ -148,8 +148,9 @@ Cada apertura también va a `AccionSistema` con textos de un `ACCION_EQUIPOS`, a
 - `dispositivos.usuarios` es nuevo: configurar y **delicado** («Puede crear cuentas con acceso a los equipos y borrarlas»). No va en ningún rol de sistema salvo el de administrador completo.
 - Ver cuentas y sesiones va con `dispositivos`.
 - La cuenta en equipos de una persona y el nivel por rol van con `accesos`, que ya es el permiso de quién entra a qué.
+- El ajuste de un área (gestionada y roles) pide `dispositivos.usuarios` y `dispositivos.editar`: cambia qué equipos se tocan.
 
-### 10. Las pantallas
+### 10. Las pantallas (revisado el 28/10: todo vive en Dispositivos)
 
 Se usan las piezas que ya existen (`ui/tabla`, `ui/celdas`, `Button`, `DeleteConfirmDialog`), con los cuatro estados: cargando, vacío, error con reintento y con datos.
 
@@ -157,12 +158,53 @@ Se usan las piezas que ya existen (`ui/tabla`, `ui/celdas`, `Button`, `DeleteCon
   - las cuentas con su clase como chip: servicio en `info`, de fábrica en `quieto`, gestionada en `bien` y no gestionada en `aviso`;
   - debajo, las sesiones abiertas con su procedencia;
   - las acciones según el permiso, y el aviso de sólo lectura cuando corresponde.
-- **«Usuarios de equipos»**: una página en Equipos con una tabla de todas las cuentas, filtros y buscador (`Seek`), y una pestaña de sesiones.
-- **Ajustes → Accesos:**
+- **Panel «Cuentas» de un área** (`VistaArea`), arriba de la lista de equipos y plegable:
+  - una franja de estado con chips («10 al día · 1 pendiente · 1 conflicto · 2 no gestionadas · 1 sesión desconocida»), en tonos de estado y no de acción;
+  - los botones «Revisar», «Sincronizar», «Crear cuenta en el área» y «Auditoría», todos en el azul de acción, con íconos (`ScanSearch`, `RefreshCcw`, `UserPlus`, `ScrollText`);
+  - el engranaje del ajuste del área: «Cuentas gestionadas» (propio o heredado) y los roles habilitados.
+- **En `ArbolAreas`**, cada área gestionada lleva un ícono de escudo (`ShieldCheck`) y, si tiene diferencias o alertas, un punto de aviso.
+- **«Todas»** muestra la tabla de cuentas de todo el sitio, con filtros y buscador (`Seek`), y una pestaña de sesiones. No hay una página fuera de Dispositivos.
+- **Ajustes → Accesos** (lo de la persona, no lo de los equipos):
   - en la ficha del usuario: «Cuenta en equipos», la clave (generar o escribir) y el estado «12 de 12 al día», con el detalle de cada equipo pendiente o en conflicto;
   - en el editor del rol: el nivel y los tipos de equipo.
 
-### 11. La rotación de servicio (fase 4)
+### 11. Moderación por áreas
+
+Las áreas ya existen como un árbol guardado en el Setting `DEVICE_AREAS` (`areas[]`, `equipos{deviceId: areaId}`, `apagadas[]`), con `actions/areas.ts`. Cada `Area` suma un campo opcional:
+
+```
+cuentas?: { gestionada: boolean; roles: string[] }
+```
+
+Si no lo tiene, hereda el de su madre. La raíz y «Sin área» valen «no gestionada».
+
+- `areaGestora(estado, deviceId)` sube por el árbol y devuelve el área que decide y su ajuste. La usan las rutas, el plan de sincronización y las pantallas, así que hay una sola verdad.
+- `cuentasDeseadas` (decisión 8) recibe también las áreas. Una persona entra en un equipo sólo si se cumplen las tres condiciones del spec: la marca, el nivel del rol para ese tipo y el rol habilitado en el área.
+- **Mover un equipo** de un área gestionada a otra que no lo es no borra nada: deja sus cuentas gestionadas como «fuera de área», visibles en la revisión, y borrarlas es una acción con confirmación. Si un arrastre borrara cuentas, una reorganización del árbol terminaría en bajas en equipos.
+- **Cambiar el ajuste de un área** (gestionar o no, los roles) es una escritura de cuentas: pasa por la confirmación con su plan.
+
+*Alternativa descartada:* un modelo `AreaCuentas` aparte. Las áreas ya viven en un JSON con sus propias acciones, y separar su política obligaría a mantener dos árboles en sincronía.
+
+### 12. La ventana de confirmación
+
+Es una sola pieza, `ConfirmarCuentas`, sobre `ui/dialog`: no son los `window.confirm` ni una ventana propia de cada pantalla. La usan el bloque del equipo, el panel del área, Accesos y la rotación. Recibe un **plan** (las acciones por equipo que calcula `planDeEquipo`), así lo que se confirma es exactamente lo que se envía.
+
+- **Encabezado.** Un ícono grande en un círculo del tono de la gravedad, el título de la acción y la cantidad de equipos. Hay tres gravedades:
+  - información (`UserPlus`): crear;
+  - aviso (`KeyRound`, `ShieldHalf`): cambiar clave o nivel;
+  - mal (`UserX`, `ShieldAlert`, `RotateCcwKey`): borrar, adoptar, sobrescribir o rotar.
+- **Advertencias**, una por línea, con ícono y el nombre de la cuenta. Salen de una tabla `ADVERTENCIAS` con el texto de cada caso, para no repetirlo en cada pantalla:
+  - se sobrescribe la clave del administrador local;
+  - se sobrescribe una cuenta que no creó OmniAccess;
+  - el NVR entra con esta clave;
+  - se borra una cuenta con una sesión abierta ahora.
+- **Lista por equipo**, agrupada por área. Cada fila lleva el equipo, el ícono del efecto y el texto («crear jperez · Operador»), y se puede abrir.
+- **«Queda afuera»**, en gris: sólo lectura, sin soporte, área sin gestionar o apagado, con el motivo.
+- **Confirmación reforzada** para la gravedad mal: la casilla «Entiendo lo que se va a sobrescribir» y, con más de un equipo, escribir la cantidad. El botón de aceptar dice la acción y el número («Borrar en 5 equipos»).
+- **Después de aceptar**, la misma ventana pasa al avance: una barra y cada fila con su estado (en curso, hecho y verificado, pendiente o error con el motivo), con entradas y salidas animadas (framer-motion) y «Reintentar» por equipo. Se puede cerrar y el trabajo sigue en el servidor; el área muestra el avance.
+- **Esc y Cancelar no envían nada.** El foco arranca en Cancelar, nunca en aceptar.
+
+### 13. La rotación de servicio (fase 4)
 
 Va en este orden:
 
@@ -180,6 +222,8 @@ Mientras el equipo queda «rotación sin confirmar», `Device` guarda las dos cl
 - **[La clave de equipos cifrada vale lo que vale `OMNI_CLAVE_DATOS`]** → Es el mismo riesgo y la misma protección que las claves de los dispositivos, que ya están cifradas así. Sin la clave en el servidor no se puede prender «Cuenta en equipos».
 - **[Borrar una persona con un equipo caído deja una cuenta viva en ese equipo]** → La baja queda pendiente con el nombre y la revisión la reintenta hasta que sale. La pantalla muestra «bajas pendientes».
 - **[Desde el lab, la IP del servidor se ve distinta]** → Se marca conocida una vez (decisión 6).
+- **[Una reorganización de áreas dispara bajas]** → Mover equipos no borra: deja las cuentas «fuera de área» (decisión 11).
+- **[Que la confirmación muestre una cosa y se envíe otra]** → La ventana recibe el plan, y la ruta de aplicar vuelve a calcularlo y rechaza si cambió (un equipo leído entretanto). En ese caso, se muestra el plan nuevo.
 
 ## Migration Plan
 
