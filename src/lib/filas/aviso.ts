@@ -23,22 +23,27 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 const hhmm = (d: Date) => enMontevideo(d).hhmm;
 const minutosDesde = (d: Date, ahora: Date) => Math.max(0, Math.round((ahora.getTime() - d.getTime()) / 60_000));
 
-export function textoAvisoFila(p: { fila: string; demora: DemoraFila; tipo: TipoAviso; ahora?: Date; personas?: number }): string {
+export function textoAvisoFila(p: { fila: string; demora: DemoraFila; tipo: TipoAviso; ahora?: Date; personas?: number; sostenidoMin?: number | null }): string {
     const ahora = p.ahora || new Date();
     const d = p.demora;
     const personas = p.personas ?? d.aforo ?? 0;
     const sobran = personas - d.limite;
     const lineas: string[] = [];
 
+    // Regla sostenida (lib/onvif-polling): el aviso dice «hace N min con X o más», que es lo que la
+    // disparó; «sobre el límite» con 3 personas y límite 3 se leía como un error.
+    const sostenida = p.sostenidoMin != null;
     lineas.push(p.tipo === "escalamiento"
         ? `🔴 <b>${esc(p.fila)} — sigue sobre el límite</b>\n<i>Avisar al supervisor</i>`
-        : `🟠 <b>${esc(p.fila)} — fila sobre el límite</b>`);
+        : sostenida ? `🟠 <b>${esc(p.fila)} — fila cargada</b>` : `🟠 <b>${esc(p.fila)} — fila sobre el límite</b>`);
     lineas.push("");
-    lineas.push(`👥 <b>${personas} personas</b> · límite ${d.limite}${sobran > 0 ? ` (+${sobran})` : ""}`);
+    lineas.push(sostenida
+        ? `👥 <b>${personas} personas</b> · ${d.limite} o más desde hace <b>${Math.max(1, p.sostenidoMin as number)} min</b>`
+        : `👥 <b>${personas} personas</b> · límite ${d.limite}${sobran > 0 ? ` (+${sobran})` : ""}`);
     lineas.push(d.esperaMin === 0 ? "⏳ Sin espera" : d.esperaMin != null
         ? `⏳ Espera estimada <b>~${d.esperaMin} min</b>`
         : `⏳ Espera estimada: sin salidas en ${VENTANA_ESPERA_MIN} min`);
-    if (d.sobreDesde) {
+    if (d.sobreDesde && !sostenida) {
         const m = minutosDesde(d.sobreDesde, ahora);
         lineas.push(`⏱️ Sobre el límite desde las ${hhmm(d.sobreDesde)}${m >= 1 ? ` (<b>${m} min</b>)` : ""}`);
     }

@@ -9,6 +9,16 @@ export const CANAL_SALIDA = "Salida";
 /** Cómo se reconoce el canal de aforo (la regla se llama distinto según quién la configuró). */
 export const CANAL_AFORO_RX = /aforo|occupancy|ocupaci/i;
 /** Todo lo que no es un contador de cruce es aforo (Occupancy, «Aforo», el nombre que le hayan puesto). */
+/**
+ * Aviso de fila sostenida (HB, 28/10). Con la zona nueva, «3 o más durante 2 minutos» daba unos 3
+ * avisos por día hábil; el valor instantáneo, decenas de ráfagas de segundos.
+ *   SOSTENIDO_POR_DEFECTO_SEG  lo que se propone al crear una regla.
+ *   SOSTENIDO_TOLERANCIA_SEG   una baja más corta que esto no corta el episodio: la cámara
+ *                              parpadea (9 % de las lecturas vuelven al valor anterior en < 3 s).
+ */
+export const SOSTENIDO_POR_DEFECTO_SEG = 120;
+export const SOSTENIDO_TOLERANCIA_SEG = 20;
+
 export const esCanalAforo = (canal?: string | null) => canal !== CANAL_ENTRADA && canal !== CANAL_SALIDA;
 
 /** Límite cuando la fila no tiene uno guardado en sus alertas de aforo. */

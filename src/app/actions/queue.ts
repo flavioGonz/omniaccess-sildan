@@ -227,6 +227,7 @@ export async function createQueueAlert(data: {
     threshold: number;
     cooldownMin?: number;
     cooldownSec?: number;
+    sostenidoSeg?: number;
 }) {
     const sec = data.cooldownSec ?? (data.cooldownMin != null ? data.cooldownMin * 60 : 30);
     return prisma.queueAlert.create({
@@ -237,6 +238,7 @@ export async function createQueueAlert(data: {
             threshold: data.threshold,
             cooldownMin: Math.max(1, Math.round(sec / 60)),
             cooldownSec: sec,
+            sostenidoSeg: Math.max(0, Math.round(data.sostenidoSeg ?? 0)),
         },
     });
 }
@@ -249,8 +251,10 @@ export async function updateQueueAlert(id: string, data: {
     enabled?: boolean;
     cooldownMin?: number;
     cooldownSec?: number;
+    sostenidoSeg?: number;
 }) {
     const upd: any = { ...data };
+    if (data.sostenidoSeg != null) upd.sostenidoSeg = Math.max(0, Math.round(data.sostenidoSeg));
     if (data.cooldownSec != null) {
         upd.cooldownSec = data.cooldownSec;
         upd.cooldownMin = Math.max(1, Math.round(data.cooldownSec / 60));

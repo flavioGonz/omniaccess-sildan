@@ -7,6 +7,8 @@ import axios, { AxiosRequestConfig, Method } from "axios";
 import * as https from "https";
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+/** Último desafío Digest de cada equipo (ver `desafioDesde`). */
+const desafios = new Map<string, DigestChallenge>();
 
 export interface DigestAuthDevice {
     ip: string;
@@ -95,6 +97,13 @@ export async function authenticatedRequest(
         accept?: string;
         responseType?: "json" | "text" | "arraybuffer";
         timeout?: number;
+        /**
+         * Mandar el Digest desde el primer pedido, con el desafío de esta ruta (o el último conocido
+         * de ese equipo). HB, 28/10: la Bosch no pide credenciales para escribir por RCP+ — contesta
+         * «sin permiso» (0x70) — y por un rato tampoco para leer, porque recuerda al que ya entró.
+         * Esperar el 401 dejaba la escritura como anónima.
+         */
+        desafioDesde?: string;
     } = {}
 ): Promise<any> {
     const username = device.username || "admin";
@@ -127,6 +136,25 @@ export async function authenticatedRequest(
         timeout,
         responseType: options.responseType || "json",
     };
+
+    if (device.authType === "DIGEST" && options.desafioDesde) {
+        let desafio = desafios.get(host) || null;
+        if (!desafio) {
+            const r0 = await axios.request({ method: "GET", baseURL, url: options.desafioDesde, httpsAgent, timeout, validateStatus: () => true, responseType: "arraybuffer" }).catch(() => null);
+            const h = r0?.status === 401 ? r0.headers?.["www-authenticate"] : null;
+            desafio = h ? parseWWWAuthenticate(String(h)) : null;
+        }
+        if (desafio) {
+            let r = await axios.request({ ...config, headers: { ...headers, Authorization: buildDigestHeader(method, url, username, password, desafio) }, validateStatus: () => true });
+            if (r.status === 401 && r.headers?.["www-authenticate"]) {
+                desafio = parseWWWAuthenticate(String(r.headers["www-authenticate"]));
+                if (desafio) r = await axios.request({ ...config, headers: { ...headers, Authorization: buildDigestHeader(method, url, username, password, desafio) }, validateStatus: () => true });
+            }
+            if (r.status >= 200 && r.status < 300) { if (desafio) desafios.set(host, desafio); return r.data; }
+            desafios.delete(host);
+            const err: any = new Error(`HTTP ${r.status}`); err.response = r; throw err;
+        }
+    }
 
     try {
         const response = await axios.request(config);

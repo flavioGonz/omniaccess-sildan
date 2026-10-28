@@ -25,6 +25,8 @@ export async function avisarFila(p: {
     snapshotPath?: string | null; tipo: TipoAviso; canal?: string | null;
     /** El aviso de prueba sale aunque estén silenciados: es para ver cómo queda. */
     forzar?: boolean;
+    /** Regla sostenida: minutos que lleva la fila en el límite (cambia el título y el texto). */
+    sostenidoMin?: number | null;
 }): Promise<number> {
     const ahora = new Date();
     // «Silenciar 30 min» desde Telegram: no sale nada hasta esa hora (el panel sigue mostrando la fila).
@@ -39,9 +41,13 @@ export async function avisarFila(p: {
         prisma.setting.findUnique({ where: { key: "TELEGRAM_CHAT_ID" } }).then((s) => (s?.value || process.env.TELEGRAM_CHAT_ID || "").trim()).catch(() => ""),
     ]);
     const fila = dev?.name || "Fila";
-    const html = textoAvisoFila({ fila, demora: { ...demora, limite: p.limite }, tipo: p.tipo, ahora, personas: p.personas });
+    const html = textoAvisoFila({ fila, demora: { ...demora, limite: p.limite }, tipo: p.tipo, ahora, personas: p.personas, sostenidoMin: p.sostenidoMin ?? null });
     const base = {
         ruleName: p.alerta, deviceName: fila, channelName: p.canal || "Aforo",
+        // Asunto del correo: lo que pasa, en el renglón que se lee en la bandeja de entrada.
+        asunto: p.tipo === "escalamiento" ? `${fila}: la fila sigue cargada (${p.personas} personas)`
+            : p.sostenidoMin != null ? `${fila}: ${p.personas} personas en la fila hace ${Math.max(1, p.sostenidoMin)} min`
+            : `${fila}: fila sobre el límite (${p.personas} personas)`,
         count: p.personas, threshold: p.limite, snapshotPath: p.snapshotPath || null,
         html, text: textoPlano(html), aviso: p.tipo,
         conVideo: true, clipAntes: AVISO_CLIP_ANTES_SEG, clipDespues: AVISO_CLIP_DESPUES_SEG,

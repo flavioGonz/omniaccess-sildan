@@ -524,16 +524,27 @@ async function handle(job) {
                     tls: { rejectUnauthorized: false },
                 });
                 const asunto = p.asunto || p.ruleName || "Alerta de OmniAccess";
-                const img = imageUrlFor(base, p.snapshotPath, dj.deviceId);
+                // La foto va DENTRO del correo (adjunto en línea, cid). Antes era un enlace a este
+                // servidor: en HB está detrás del LTE y la VPN, y desde el celular de quien lo lee no
+                // abría. En un aviso de fila es la foto marcada, con las personas y la cuenta.
+                const rutaFoto = fotoParaEnviar(p, dj);
+                const fotoB64 = rutaFoto ? await fetchLocalBase64(rutaFoto) : null;
+                const img = fotoB64 ? "cid:foto-aviso" : imageUrlFor(base, p.snapshotPath, dj.deviceId);
+                // El aviso de filas ya viene armado para Telegram (negritas e itálicas en HTML).
+                const cuerpo = p.html
+                    ? String(p.html).replace(/\n/g, "<br>")
+                    : `<span style="white-space:pre-wrap">${String(text).replace(/</g, "&lt;")}</span>`;
                 const r = await transporte.sendMail({
                     from: (await getSetting("SMTP_FROM", user || "omniaccess@localhost")),
                     to: para,
                     subject: asunto,
                     text,
-                    html: `<div style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.55">`
-                        + `<p style="white-space:pre-wrap;margin:0 0 12px">${String(text).replace(/</g, "&lt;")}</p>`
-                        + (img ? `<img src="${img}" alt="" style="max-width:520px;border-radius:8px">` : "")
+                    html: `<div style="font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif;font-size:14px;line-height:1.55;color:#04223D">`
+                        + `<p style="margin:0 0 14px">${cuerpo}</p>`
+                        + (img ? `<img src="${img}" alt="Foto del momento" style="max-width:640px;width:100%;border-radius:8px">` : "")
+                        + `<p style="margin:14px 0 0;font-size:12px;color:#7D96AE">OmniAccess · IES Ingeniería en Seguridad · Soporte 098 437 437</p>`
                         + `</div>`,
+                    attachments: fotoB64 ? [{ filename: "foto.jpg", content: Buffer.from(fotoB64, "base64"), contentType: "image/jpeg", cid: "foto-aviso" }] : [],
                 });
                 if (!r || (r.rejected || []).length) throw new Error("SMTP rechazó: " + JSON.stringify(r.rejected));
             } else if (dj.channel === "webhook") {

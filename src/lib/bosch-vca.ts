@@ -44,7 +44,13 @@ export interface BoschVca {
 const RCP_CONF = "0x0a1b";
 /** Respuesta de la Bosch a una escritura sin el nivel necesario, y el nivel que pide (service). */
 const ERR_SIN_PERMISO = "0x70";
-const NIVEL_SERVICE = 3;
+/**
+ * Nivel de la cuenta según la Bosch (<auth> de la respuesta): 0 sin clave, 1 «user», 2 «service».
+ * HB, 28/10: probado con las tres cuentas. Antes se esperaba 3 y todo 0x70 se leía como falta de clave.
+ */
+const NIVEL_SERVICE = 2;
+/** Ruta que siempre pide credenciales: de ahí sale el desafío Digest para RCP+ (ver lib/digest-auth). */
+const RUTA_DESAFIO = "/snap.jpg?JpegSize=S";
 export class ErrorSinPermiso extends Error {
     constructor() {
         super("La cámara atiende sin pedir usuario y en ese nivel no deja guardar: en la página web de la cámara, en la gestión de usuarios y contraseñas, poné clave a los niveles «user» y «live» (o desactivá el acceso sin clave). Así pide usuario y OmniAccess entra con el de la ficha, que tiene que ser de nivel «service». No se cambió nada en la cámara.");
@@ -59,7 +65,7 @@ async function rcp(c: BoschConn, cmd: string, type: string, direction: "READ" | 
     const q = new URLSearchParams({ command: cmd, type, direction, num: "1" });
     if (payload) q.set("payload", payload);
     const url = `/rcp.xml?${q.toString()}`;
-    const txt: string = await authenticatedRequest("GET", url, { ip: c.ip, username: c.user, password: c.pass, authType: "DIGEST", secure: true }, { responseType: "text", contentType: "text/xml", timeout });
+    const txt: string = await authenticatedRequest("GET", url, { ip: c.ip, username: c.user, password: c.pass, authType: "DIGEST", secure: true }, { responseType: "text", contentType: "text/xml", timeout, desafioDesde: RUTA_DESAFIO });
     const err = txt.match(/<err>([^<]*)<\/err>/i);
     if (err && err[1].trim() && err[1].trim() !== "0x00") {
         /* HB, 20/10: toda escritura volvía con 0x70 y la app decía «la cámara no aceptó la
@@ -69,6 +75,9 @@ async function rcp(c: BoschConn, cmd: string, type: string, direction: "READ" | 
            «service» (3). Se dice eso, con la salida, en vez de un código. */
         const nivel = Number((txt.match(/<auth>(\d+)<\/auth>/i) || [])[1]);
         if (direction === "WRITE" && err[1].trim() === ERR_SIN_PERMISO && nivel < NIVEL_SERVICE) throw new ErrorSinPermiso();
+        // Con nivel «service» un 0x70 es la cámara rechazando el contenido (por ejemplo, una zona con
+        // otra cantidad de puntos): no es un problema de claves.
+        if (direction === "WRITE" && err[1].trim() === ERR_SIN_PERMISO) throw new Error("La cámara no aceptó la configuración (0x70). No se cambió nada.");
         throw new Error(`La cámara rechazó el comando ${cmd} (${err[1].trim()}).`);
     }
     return txt;
@@ -160,6 +169,10 @@ export function aplicar(script: string, cambios: CambiosVca): string {
         let cuerpo = m[2];
         if (f.points) {
             if (f.points.length < 3 || f.points.length > 16) throw new Error("Una zona necesita entre 3 y 16 puntos.");
+            // La Bosch guarda la cantidad de vértices también fuera del texto: con otra cantidad
+            // rechaza la escritura (0x70). HB, 28/10: una zona de 5 puntos pasada a 6 no entró; con 5, sí.
+            const antes = (cuerpo.match(/Point\(/g) || []).length;
+            if (antes && f.points.length !== antes) throw new Error(`La zona tiene ${antes} puntos y la cámara no acepta cambiar esa cantidad: mové los puntos que ya tiene.`);
             const pts = f.points.map((p) => `Point(${f3(lim(p.x, -1, 1))}, ${f3(lim(p.y, -1, 1))})`).join(" ");
             cuerpo = cuerpo.replace(/(Point\([^)]*\)\s*)+/, pts + " ");
         }

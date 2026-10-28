@@ -426,6 +426,9 @@ model QueueAlert {
   enabled     Boolean   @default(true)
   cooldownMin Int       @default(5)
   cooldownSec Int?
+  /// Segundos seguidos sobre el límite antes de avisar (0 = en el momento). HB, 28/10: la fila de
+  /// la Caja 1 pasa el límite por ráfagas de segundos; avisar por el valor instantáneo es ruido.
+  sostenidoSeg Int      @default(0)
   lastFiredAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

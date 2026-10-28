@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Tooltip } from "react-tooltip";
 import {
     Users, Network, User, KeyRound, Fingerprint, Tag, Type, MapPin, Cpu, ShieldCheck, Activity, Loader2, Check, X,
-    AlertTriangle, Save, ScanSearch, Gauge, BellRing, SlidersHorizontal, CalendarClock, Radio, Plus,
+    AlertTriangle, Save, ScanSearch, Gauge, BellRing, Timer, SlidersHorizontal, CalendarClock, Radio, Plus,
 } from "lucide-react";
 import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import { nombreStreamFila } from "@/lib/stream-fila";
 import { hora } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
+import { SOSTENIDO_POR_DEFECTO_SEG } from "@/lib/filas/constantes";
 
 /**
  * Alta y ficha de un contador de fila (cámara Bosch que cuenta gente en una zona), con el mismo
@@ -61,18 +62,20 @@ export function CajonContadorFila({ device, open, onOpenChange, onSuccess }: {
     const [alerta, setAlerta] = useState<any>(null);
     const [limite, setLimite] = useState(String(LIMITE_POR_DEFECTO));
     const [avisa, setAvisa] = useState(true);
+    // Minutos seguidos en el límite antes de avisar (QueueAlert.sostenidoSeg; 0 = en el momento).
+    const [durante, setDurante] = useState(String(SOSTENIDO_POR_DEFECTO_SEG / 60));
     const [ahora, setAhora] = useState<{ aforo: number | null; cuando: string | null; canales: number }>({ aforo: null, cuando: null, canales: 0 });
     const [susc, setSusc] = useState<Suscripcion | null | undefined>(undefined);
 
     useEffect(() => {
         if (!open) return;
         setF(blanco()); setInfo(null); setGuardando(false); setAlerta(null);
-        setLimite(String(LIMITE_POR_DEFECTO)); setAvisa(true); setAhora({ aforo: null, cuando: null, canales: 0 }); setSusc(undefined);
+        setLimite(String(LIMITE_POR_DEFECTO)); setAvisa(true); setDurante(String(SOSTENIDO_POR_DEFECTO_SEG / 60)); setAhora({ aforo: null, cuando: null, canales: 0 }); setSusc(undefined);
         if (!device?.id) return;
         getCredencialesDispositivo(device.id).then((c) => { if (c) setF((p) => ({ ...p, username: c.username || p.username, password: c.password || "" })); }).catch(() => { });
         getQueueAlerts().then((l: any[]) => {
             const a = l.find((x) => x.deviceId === device.id && (!x.channelName || ES_AFORO.test(x.channelName)));
-            if (a) { setAlerta(a); setLimite(String(a.threshold)); setAvisa(!!a.enabled); }
+            if (a) { setAlerta(a); setLimite(String(a.threshold)); setAvisa(!!a.enabled); setDurante(String(Math.round((a.sostenidoSeg || 0) / 60))); }
         }).catch(() => { });
         getLatestQueueCounts().then((l: any[]) => {
             const d = l.find((x) => x.device.id === device.id);
@@ -87,6 +90,7 @@ export function CajonContadorFila({ device, open, onOpenChange, onSuccess }: {
     const ipValida = /^\d{1,3}(\.\d{1,3}){3}$/.test(f.ip.trim());
     const limiteN = parseInt(limite, 10);
     const limiteValido = Number.isFinite(limiteN) && limiteN > 0;
+    const duranteSeg = Math.max(0, parseInt(durante || "0", 10) || 0) * 60;
 
     async function detectar() {
         if (!ipValida) return;
@@ -111,9 +115,9 @@ export function CajonContadorFila({ device, open, onOpenChange, onSuccess }: {
     async function guardarLimite(deviceId: string) {
         if (!limiteValido) return;
         if (alerta) {
-            if (alerta.threshold !== limiteN || !!alerta.enabled !== avisa) await updateQueueAlert(alerta.id, { threshold: limiteN, enabled: avisa });
+            if (alerta.threshold !== limiteN || !!alerta.enabled !== avisa || (alerta.sostenidoSeg || 0) !== duranteSeg) await updateQueueAlert(alerta.id, { threshold: limiteN, enabled: avisa, sostenidoSeg: duranteSeg });
         } else {
-            const a = await createQueueAlert({ name: f.name.trim() || "Fila", deviceId, channelName: CANAL_AFORO, threshold: limiteN });
+            const a = await createQueueAlert({ name: f.name.trim() || "Fila", deviceId, channelName: CANAL_AFORO, threshold: limiteN, sostenidoSeg: duranteSeg });
             if (!avisa) await updateQueueAlert(a.id, { enabled: false });
         }
     }
@@ -194,9 +198,11 @@ export function CajonContadorFila({ device, open, onOpenChange, onSuccess }: {
                     </div>
                 </div>
             )}
-            <div className="grid grid-cols-[160px_1fr] gap-4 items-end">
+            <div className="grid grid-cols-[130px_130px_1fr] gap-4 items-end">
                 <Campo etiqueta="Límite de la fila" icono={Gauge} value={limite} onChange={(v) => setLimite(v.replace(/\D/g, ""))} placeholder={String(LIMITE_POR_DEFECTO)} mono
                     ayuda="Cuántas personas entran en la fila antes de considerarla llena. Con este número se pinta el estado (bien / aviso / llena) y se dispara el aviso." />
+                <Campo etiqueta="Durante (min)" icono={Timer} value={durante} onChange={(v) => setDurante(v.replace(/\D/g, ""))} placeholder={String(SOSTENIDO_POR_DEFECTO_SEG / 60)} mono
+                    ayuda="Minutos seguidos en el límite antes de avisar. Con 0 avisa en el momento; con 2, una ráfaga de segundos no avisa y una fila que se mantiene sí. Un aviso por cada vez que se carga." />
                 <label className="flex items-center gap-3 h-10 rounded-lg border border-border px-3 cursor-pointer" {...tip("Si está apagado, la fila igual se cuenta y se ve, pero no manda avisos a la guardia ni a los destinatarios.")}>
                     <BellRing size={15} className="text-muted-foreground" />
                     <span className="flex-1 text-[13px]">Avisar cuando llega al límite</span>

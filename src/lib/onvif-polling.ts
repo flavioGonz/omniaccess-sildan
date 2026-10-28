@@ -20,6 +20,7 @@ import { pushVigente, ultimoPush } from "@/lib/filas/push";
 import { fotoDeLectura, cuadroBosch } from "@/lib/filas/foto";
 import { avisarFila } from "@/lib/filas/avisar";
 import { acuseDesde } from "@/lib/filas/acuses";
+import { esCanalAforo, SOSTENIDO_TOLERANCIA_SEG } from "@/lib/filas/constantes";
 
 // ─── Types ─────────────────────────────────────────
 interface ONVIFSubscription {
@@ -709,8 +710,40 @@ async function atiendeAhora(deviceId: string): Promise<boolean> {
     } catch { return true; /* si no se pudo leer el horario, se avisa: callar un aviso es peor */ }
 }
 
+/*
+ * Aviso de fila sostenida (HB, 28/10). Una regla con `sostenidoSeg` avisa recién cuando la fila lleva
+ * ese tiempo seguido en el límite o más. La cámara sólo manda lecturas cuando el número cambia: con la
+ * fila quieta en 3 no llega nada, así que el aviso no puede esperar a la próxima lectura — un
+ * temporizador lo dispara a la hora justa. Un aviso por episodio; una baja de menos de
+ * SOSTENIDO_TOLERANCIA_SEG (parpadeo de la cámara) no corta el episodio.
+ *
+ * El estado va en globalThis: el push (ruta /api/onvif/notify) y el sondeo cargan este módulo por
+ * separado, y cada copia tendría sus propios temporizadores.
+ */
+type EpisodioFila = { desde: number; avisado: boolean; espera?: ReturnType<typeof setTimeout>; corte?: ReturnType<typeof setTimeout> };
+type UltimaLectura = { count: number; snapshotPath: string | null; channelName: string | null };
+const gFila = globalThis as unknown as { __filaEpisodios?: Map<string, EpisodioFila>; __filaUltima?: Map<string, UltimaLectura> };
+const episodios: Map<string, EpisodioFila> = (gFila.__filaEpisodios ||= new Map());
+const ultimaLectura: Map<string, UltimaLectura> = (gFila.__filaUltima ||= new Map());
+
+function cerrarEpisodio(ekey: string) {
+    const e = episodios.get(ekey);
+    if (e?.espera) clearTimeout(e.espera);
+    if (e?.corte) clearTimeout(e.corte);
+    episodios.delete(ekey);
+    overThresholdSince.delete(ekey);
+    escalatedEpisode.delete(ekey);
+}
+
 async function checkQueueAlerts(deviceId: string, channelName: string | null | undefined, count: number, snapshotPath?: string | null) {
-    if (!(await atiendeAhora(deviceId))) return;
+    // Sólo el aforo: las entradas y salidas traen el contador acumulado de la cámara (cientos por día).
+    if (!esCanalAforo(channelName)) return;
+    const previa = ultimaLectura.get(deviceId);
+    ultimaLectura.set(deviceId, { count, snapshotPath: snapshotPath || previa?.snapshotPath || null, channelName: channelName || null });
+    if (!(await atiendeAhora(deviceId))) {
+        for (const k of [...episodios.keys()]) if (k.startsWith(deviceId + ":")) cerrarEpisodio(k);
+        return;
+    }
     const alerts = await prisma.queueAlert.findMany({
         where: {
             enabled: true,
@@ -728,14 +761,20 @@ async function checkQueueAlerts(deviceId: string, channelName: string | null | u
 
     for (const alert of alerts) {
         const ekey = `${deviceId}:${alert.id}`;
+        const sostenidoSeg = (alert as any).sostenidoSeg || 0;
         if (count < alert.threshold) {
-            overThresholdSince.delete(ekey);
-            escalatedEpisode.delete(ekey);
+            if (!sostenidoSeg) { cerrarEpisodio(ekey); continue; }
+            // Bajó: si no vuelve dentro de la tolerancia, termina el episodio.
+            const e = episodios.get(ekey);
+            if (e && !e.corte) e.corte = setTimeout(() => cerrarEpisodio(ekey), SOSTENIDO_TOLERANCIA_SEG * 1000);
             continue;
         }
+        let ep = episodios.get(ekey);
+        if (ep?.corte) { clearTimeout(ep.corte); ep.corte = undefined; }
+        if (!ep) { ep = { desde: now.getTime(), avisado: false }; episodios.set(ekey, ep); }
 
         // Sustained over-threshold → escalate (2nd-level notice for the supervisor)
-        if (!overThresholdSince.has(ekey)) overThresholdSince.set(ekey, now.getTime());
+        if (!overThresholdSince.has(ekey)) overThresholdSince.set(ekey, ep.desde);
         const sustainedMin = (now.getTime() - (overThresholdSince.get(ekey) as number)) / 60000;
         if (sustainedMin >= escalateMin && !escalatedEpisode.has(ekey)) {
             escalatedEpisode.add(ekey);
@@ -761,38 +800,66 @@ async function checkQueueAlerts(deviceId: string, channelName: string | null | u
             }
         }
 
-        if (alert.lastFiredAt) {
-            const cooldownMs = (((alert as any).cooldownSec ?? alert.cooldownMin * 60)) * 1000;
-            if (now.getTime() - alert.lastFiredAt.getTime() < cooldownMs) continue;
+        if (sostenidoSeg > 0) {
+            const lleva = now.getTime() - ep.desde;
+            if (lleva < sostenidoSeg * 1000) {
+                if (!ep.espera) ep.espera = setTimeout(() => { avisoSostenido(ekey, deviceId, alert.id).catch((e) => console.error(`[QueueAlert] sostenido: ${e?.message || e}`)); }, sostenidoSeg * 1000 - lleva);
+                continue;
+            }
+            if (ep.avisado) continue;
         }
+        await dispararAviso(alert, deviceId, channelName, count, snapshotPath, sostenidoSeg > 0 ? Math.round((now.getTime() - ep.desde) / 60000) : null);
+        if (sostenidoSeg > 0) ep.avisado = true;
+    }
+}
 
-        console.log(`[QueueAlert] 🚨 Alert "${alert.name}" fired: ${count} >= ${alert.threshold} personas`);
+/** Venció la espera de una regla sostenida: si la fila sigue en el límite, se avisa. */
+async function avisoSostenido(ekey: string, deviceId: string, alertId: string) {
+    const ep = episodios.get(ekey);
+    if (!ep || ep.avisado) return;
+    ep.espera = undefined;
+    const alert = await prisma.queueAlert.findUnique({ where: { id: alertId } });
+    const u = ultimaLectura.get(deviceId);
+    if (!alert?.enabled || !u || u.count < alert.threshold) return;
+    if (!(await atiendeAhora(deviceId))) return;
+    ep.avisado = true;
+    await dispararAviso(alert, deviceId, u.channelName, u.count, u.snapshotPath, Math.round((Date.now() - ep.desde) / 60000));
+}
 
-        await prisma.queueAlert.update({
-            where: { id: alert.id },
-            data: { lastFiredAt: now },
+/** El aviso de fila: Telegram, WhatsApp y correo (lib/filas/avisar), pantallas y PWA. */
+async function dispararAviso(alert: any, deviceId: string, channelName: string | null | undefined, count: number, snapshotPath: string | null | undefined, sostenidoMin: number | null) {
+    const now = new Date();
+    if (alert.lastFiredAt) {
+        const cooldownMs = ((alert.cooldownSec ?? alert.cooldownMin * 60)) * 1000;
+        if (now.getTime() - new Date(alert.lastFiredAt).getTime() < cooldownMs) return;
+    }
+
+    console.log(`[QueueAlert] 🚨 Alert "${alert.name}" fired: ${count} >= ${alert.threshold} personas${sostenidoMin != null ? ` (sostenida ${sostenidoMin} min)` : ""}`);
+
+    await prisma.queueAlert.update({
+        where: { id: alert.id },
+        data: { lastFiredAt: now },
+    });
+
+    // El aviso (grupo de Telegram + destinatarios de Despachos, con clip): lib/filas/avisar.
+    await avisarFila({ deviceId, alerta: alert.name, personas: count, limite: alert.threshold, snapshotPath, tipo: "lleno", canal: channelName, sostenidoMin })
+        .catch((e) => console.error(`[QueueAlert] aviso "${alert.name}": ${e?.message || e}`));
+
+    // Lo que se ve en las pantallas abiertas y en la PWA, al instante.
+    try {
+        const device = await prisma.device.findUnique({ where: { id: deviceId }, select: { name: true } });
+        emitSocket("queue_alert", {
+            alertName: alert.name, deviceName: device?.name || "Fila", channelName: channelName || "General",
+            peopleCount: count, threshold: alert.threshold, snapshotPath: snapshotPath || null,
+            sustainedMin: sostenidoMin, timestamp: new Date().toISOString(),
         });
-
-        // El aviso (grupo de Telegram + destinatarios de Despachos, con clip): lib/filas/avisar.
-        await avisarFila({ deviceId, alerta: alert.name, personas: count, limite: alert.threshold, snapshotPath, tipo: "lleno", canal: channelName })
-            .catch((e) => console.error(`[QueueAlert] aviso "${alert.name}": ${e?.message || e}`));
-
-        // Lo que se ve en las pantallas abiertas y en la PWA, al instante.
-        try {
-            const device = await prisma.device.findUnique({ where: { id: deviceId }, select: { name: true } });
-            emitSocket("queue_alert", {
-                alertName: alert.name, deviceName: device?.name || "Fila", channelName: channelName || "General",
-                peopleCount: count, threshold: alert.threshold, snapshotPath: snapshotPath || null,
-                timestamp: new Date().toISOString(),
-            });
-            sendWebPushToAll({
-                title: `Aforo ${count} \u00b7 ${device?.name || "Fila"}`,
-                body: `Super\u00f3 el umbral (${alert.threshold}). Regla: ${alert.name}`,
-                url: "/pwa/filas",
-            }).catch(() => {});
-        } catch (err: any) {
-            console.error(`[QueueAlert] aviso en pantalla: ${err.message}`);
-        }
+        sendWebPushToAll({
+            title: `Aforo ${count} \u00b7 ${device?.name || "Fila"}`,
+            body: sostenidoMin != null ? `${alert.threshold} o más hace ${sostenidoMin} min. Regla: ${alert.name}` : `Super\u00f3 el umbral (${alert.threshold}). Regla: ${alert.name}`,
+            url: "/pwa/filas",
+        }).catch(() => {});
+    } catch (err: any) {
+        console.error(`[QueueAlert] aviso en pantalla: ${err.message}`);
     }
 }
 
