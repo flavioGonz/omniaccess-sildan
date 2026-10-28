@@ -9,9 +9,6 @@ import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/componen
 import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
 import type { EstadoAreas, Area } from "@/app/actions/areas";
 import type { FilaGrabacion } from "@/app/actions/grabaciones";
-import { PanelCuentas } from "@/components/devices/usuarios/PanelCuentas";
-import { useFuncion } from "@/lib/funciones-cliente";
-import { ramaDe } from "@/lib/usuarios-equipo/areas";
 
 /**
  * Lo que hay en un área, a la derecha del árbol: todos sus equipos (de todos los tipos), con
@@ -40,14 +37,6 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
     for (let cur = area, i = 0; cur && i < 50; i++) { camino.unshift(cur); cur = estado.areas.find((a) => a.id === cur!.padre) || null; }
 
     const lista = todos(areaId);
-    /* Las cuentas del área (openspec usuarios-de-equipos): todos los equipos de su rama, sin el filtro de
-       tipo ni la búsqueda, que son de la lista de abajo. */
-    const usuariosOn = useFuncion("EQUIPOS_USUARIOS");
-    const idsRama = useMemo(() => {
-        if (areaId === SIN_AREA) return devices.filter((d) => !estado.equipos[d.id] || !estado.areas.some((a) => a.id === estado.equipos[d.id])).map((d) => d.id);
-        const rama = ramaDe(estado, areaId);
-        return devices.filter((d) => rama.has(estado.equipos[d.id])).map((d) => d.id);
-    }, [estado, areaId, devices]);
     const porTipo = useMemo(() => {
         const base = (function sinFiltro(id: string): any[] {
             const dir = devices.filter((d) => (id === SIN_AREA ? !estado.equipos[d.id] || !estado.areas.some((a) => a.id === estado.equipos[d.id]) : estado.equipos[d.id] === id));
@@ -135,9 +124,6 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
 
     const sinArea = areaId === SIN_AREA;
     return (
-        <div className="space-y-4">
-        {usuariosOn && <PanelCuentas estado={estado} areaId={areaId === SIN_AREA ? null : areaId} deviceIds={idsRama}
-            onAbrirEquipo={(id) => { const d = devices.find((x) => x.id === id); if (d) onEditar(d); }} />}
         <div className="rounded-xl border border-border/60 bg-background/50 overflow-hidden">
             {/* Encabezado del área */}
             <div className="px-4 py-3 border-b border-border/60 bg-card/50 space-y-2.5">
@@ -183,7 +169,6 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
                 {directos(areaId).map(fila)}
                 {!sinArea && hijas(areaId).map((h) => grupo(h, 0))}
             </>)}
-        </div>
         </div>
     );
 }

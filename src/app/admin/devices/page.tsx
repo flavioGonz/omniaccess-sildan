@@ -123,8 +123,8 @@ import { grabacionesDe, detectarGrabaciones, calcularRetencion, type FilaGrabaci
 import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
 import { SyncToDevicesDialog } from "@/components/SyncToDevicesDialog";
 import { VistaArea } from "@/components/devices/VistaArea";
-import { PanelCuentas } from "@/components/devices/usuarios/PanelCuentas";
-import { ArbolAreas, arrastrarEquipos, enArea, IconoTipo, TODAS, TODOS_LOS_TIPOS } from "@/components/devices/ArbolAreas";
+import { BotonCuentas } from "@/components/devices/usuarios/CuentasEquipos";
+import { ArbolAreas, arrastrarEquipos, enArea, IconoTipo, SIN_AREA, TODAS, TODOS_LOS_TIPOS } from "@/components/devices/ArbolAreas";
 import { leerAreas, type EstadoAreas } from "@/app/actions/areas";
 
 // Inline SVG data URIs for fallback images (avoid 404s for missing placeholder files)
@@ -275,6 +275,15 @@ export default function DevicesPage() {
     // Áreas (árbol para agrupar equipos) y el nodo elegido, que filtra la tabla.
     const [areas, setAreas] = useState<EstadoAreas>({ areas: [], equipos: {} });
     const [areaSel, setAreaSelState] = useState<string>(TODAS);
+    /* Las cuentas de los equipos siguen lo elegido en el árbol: «Todas» es el sitio; un área, su rama
+       entera (sin el filtro de tipo ni la búsqueda, que son de la lista). */
+    const alcanceCuentas = useMemo(() => areaSel === TODAS
+        ? { areaId: null, nombre: null, deviceIds: null }
+        : {
+            areaId: areaSel === SIN_AREA ? null : areaSel,
+            nombre: areaSel === SIN_AREA ? "Sin área" : areas.areas.find((a) => a.id === areaSel)?.nombre || "Área",
+            deviceIds: devices.filter((d) => enArea(areas, d.id, areaSel)).map((d) => d.id),
+        }, [areaSel, areas, devices]);
     /*
      * ¿Se eligió un tipo a propósito? (21/10, Nico: «cuando me paro en un tipo de equipo, NVR por
      * ejemplo, y a la vez en un área, debe mostrarme con ese filtro»). Antes elegir un tipo volvía a
@@ -583,6 +592,10 @@ export default function DevicesPage() {
                             <ScanLine size={17} className="text-amber-400" />
                         </button>
                     )}
+                    {usuariosOn && (
+                        <BotonCuentas estado={areas} alcance={alcanceCuentas}
+                            onAbrirEquipo={(id) => { const d = devices.find((x) => x.id === id); if (d) abrir(d); }} />
+                    )}
                     <button onClick={() => setPedirHora(devices.filter((d) => ["LPR_CAMERA", "NVR"].includes(d.deviceType) && ["HIKVISION", "DAHUA"].includes(d.brand)))}
                         data-tooltip-id="tt-grab" data-tooltip-content="Sincronizar hora: muestra la hora y el desfase de cada cámara LPR y NVR y pregunta antes de poner la hora del servidor."
                         className="h-10 w-10 rounded-xl grid place-items-center border border-border/60 bg-background/70 hover:bg-accent hover:border-border transition-colors">
@@ -613,10 +626,6 @@ export default function DevicesPage() {
                     onCalibrarIntrusion={(d) => setCalibIntr(d)}
                     onSalud={(d) => setHealthHistory(d)} onElegirArea={setAreaSel} />
             ) : (<>
-            {usuariosOn && areaSel === TODAS && (
-                <PanelCuentas estado={areas} areaId={null} deviceIds={null}
-                    onAbrirEquipo={(id) => { const d = devices.find((x) => x.id === id); if (d) abrir(d); }} />
-            )}
 
             {typeFilter === "ALARM_HUB" && <VistaCentrales alAbrir={(id) => setCentral(id)} version={versionCentrales} busqueda={searchTerm} />}
             {typeFilter !== "NVR" && typeFilter !== "CAMERA" && typeFilter !== "ALARM_HUB" && (
