@@ -156,14 +156,16 @@ export async function leerEquipo(d: Device, conCuentas: boolean, f: Fuentes, aho
 }
 
 /** Una vuelta completa. `soloEquipo` lee uno solo (el botón «Leer ahora» de la ficha), con cuentas. */
-export async function vueltaUsuarios(opc: { soloEquipo?: string; forzarCuentas?: boolean } = {}) {
+export async function vueltaUsuarios(opc: { soloEquipo?: string; soloEquipos?: string[]; forzarCuentas?: boolean } = {}) {
+    // «Revisar» de un área manda su lista; una lista vacía no es «todos», es nada.
+    const solo = opc.soloEquipo ? new Set([opc.soloEquipo]) : opc.soloEquipos ? new Set(opc.soloEquipos) : null;
     const t0 = Date.now(), ahora = new Date();
     const todos = await prisma.device.findMany();
     const apagados = await equiposApagados().catch(() => new Set<string>());
-    const lista = todos.filter((d) => compatible(d) && !apagados.has(d.id) && (!opc.soloEquipo || d.id === opc.soloEquipo));
+    const lista = todos.filter((d) => compatible(d) && !apagados.has(d.id) && (!solo || solo.has(d.id)));
     const f = await fuentesDeProcedencia(todos);
     const ultimas = new Map((await prisma.lecturaUsuariosEquipo.findMany({ where: { deviceId: { in: lista.map((d) => d.id) } }, select: { deviceId: true, cuentasAt: true } })).map((x) => [x.deviceId, x.cuentasAt]));
-    const tocaCuentas = (id: string) => opc.forzarCuentas || !!opc.soloEquipo || !ultimas.get(id) || ahora.getTime() - ultimas.get(id)!.getTime() > CUENTAS_CADA_MIN * 60_000;
+    const tocaCuentas = (id: string) => opc.forzarCuentas || !!solo || !ultimas.get(id) || ahora.getTime() - ultimas.get(id)!.getTime() > CUENTAS_CADA_MIN * 60_000;
 
     const res: ResultadoEquipo[] = [];
     let i = 0;
@@ -171,7 +173,7 @@ export async function vueltaUsuarios(opc: { soloEquipo?: string; forzarCuentas?:
     await Promise.all(Array.from({ length: Math.min(EN_PARALELO, lista.length) }, trabajador));
 
     // Retención: las sesiones cerradas viejas se borran (las abiertas nunca).
-    if (!opc.soloEquipo) await prisma.sesionEquipo.deleteMany({ where: { hasta: { lt: new Date(ahora.getTime() - RETENCION_SESIONES_DIAS * 86_400_000) } } }).catch(() => null);
+    if (!solo) await prisma.sesionEquipo.deleteMany({ where: { hasta: { lt: new Date(ahora.getTime() - RETENCION_SESIONES_DIAS * 86_400_000) } } }).catch(() => null);
 
     return {
         equipos: lista.length,

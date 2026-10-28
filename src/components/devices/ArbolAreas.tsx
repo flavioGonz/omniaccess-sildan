@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 /** Igual que en lib/apagado (no se importa de ahí: ese archivo usa la base y esto corre en el navegador). */
 const APAGADO_SIN_AREA = "__sin_area";
 import { sileo as toast } from "sileo";
+import { PREFIJOS_ALERTA } from "@/lib/usuarios-equipo/inventario";
 import { crearArea, editarArea, borrarArea, moverArea, asignarEquipos, apagarGrupo, type Area, type EstadoAreas } from "@/app/actions/areas";
 
 /**
@@ -181,6 +182,17 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
         }
     };
 
+    // Áreas cuya rama tiene un aviso de cuentas abierto (cuenta no gestionada o acceso desconocido):
+    // se sube desde el área de cada equipo con aviso hasta la raíz. El tope evita un ciclo en datos rotos.
+    const conAvisoCuentas = useMemo(() => {
+        const out = new Set<string>();
+        const padre = new Map(estado.areas.map((a) => [a.id, a.padre]));
+        for (const [deviceId, lista] of Object.entries(alertasDe)) {
+            if (!lista?.some((x: any) => PREFIJOS_ALERTA.some((p) => String(x?.type || "").startsWith(p)))) continue;
+            for (let id: string | null | undefined = estado.equipos[deviceId], n = 0; id && n < 50; id = padre.get(id), n++) out.add(id);
+        }
+        return out;
+    }, [estado, alertasDe]);
     const props = (id: string, esArea: boolean) => ({
         onDragOver: (ev: React.DragEvent) => { if (!aceptar(ev)) return; ev.preventDefault(); ev.dataTransfer.dropEffect = "move"; const z = zonaDe(ev, esArea); if (sobre?.id !== id || sobre.zona !== z) setSobre({ id, zona: z }); },
         onDragLeave: (ev: React.DragEvent) => { if (!(ev.currentTarget as HTMLElement).contains(ev.relatedTarget as Node)) setSobre((s) => (s?.id === id ? null : s)); },
@@ -220,6 +232,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                     )}
                     {/* Cuentas de los equipos gestionadas desde esta área (openspec usuarios-de-equipos). */}
                     {editando !== a.id && a.cuentas?.gestionada && <ShieldCheck size={12} className="tono-bien shrink-0" aria-label="Cuentas gestionadas" />}
+                    {editando !== a.id && a.cuentas?.gestionada && conAvisoCuentas.has(a.id) && <span className="h-1.5 w-1.5 rounded-full bg-[var(--aviso)] shrink-0" aria-label="Cuentas con avisos" title="Hay cuentas no gestionadas o accesos desconocidos en esta área" />}
                     {borrando === a.id ? (
                         <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                             <span className="text-[10.5px] text-red-500 font-semibold">¿Borrar?</span>

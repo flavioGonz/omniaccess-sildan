@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, Globe, ScrollText, ShieldCheck, ShieldQuestion, Users, UserX, Wifi, AlertTriangle, Lock } from "lucide-react";
+import { ChevronDown, Globe, Loader2, ScanSearch, ScrollText, ShieldCheck, ShieldQuestion, Users, UserX, Wifi, AlertTriangle, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Momento } from "@/components/ui/celdas";
@@ -20,6 +20,7 @@ import type { EstadoAreas } from "@/app/actions/areas";
 import { gestoraDeArea } from "@/lib/usuarios-equipo/areas";
 import { CLASES, PROCEDENCIAS, type Clase, type Procedencia } from "@/lib/usuarios-equipo/inventario";
 import { useSessionRole } from "@/hooks/useSessionRole";
+import { sileo as toast } from "sileo";
 import { useDatos, type TodasUsuarios, type CuentaVista, type SesionVista } from "@/components/devices/usuarios/datos";
 import { MarcarConocida, type QueMarcar } from "@/components/devices/usuarios/MarcarConocida";
 
@@ -44,6 +45,7 @@ export function PanelCuentas({ estado, areaId, deviceIds, onAbrirEquipo }: {
     const [marcar, setMarcar] = useState<QueMarcar | null>(null);
     const [plegado, setPlegado] = useState(false);
     useEffect(() => { try { setPlegado(localStorage.getItem(CLAVE_PLEGADO) === "1"); } catch { } }, []);
+    const [revisando, setRevisando] = useState(false);
     const plegar = () => { const v = !plegado; setPlegado(v); try { localStorage.setItem(CLAVE_PLEGADO, v ? "1" : "0"); } catch { } };
 
     const ids = useMemo(() => (deviceIds ? new Set(deviceIds) : null), [deviceIds]);
@@ -58,6 +60,19 @@ export function PanelCuentas({ estado, areaId, deviceIds, onAbrirEquipo }: {
         ajenas: cuentas.filter((c) => c.clase === "no-gestionada" && !c.conocida).length,
         conocidas: cuentas.filter((c) => c.clase === "no-gestionada" && c.conocida).length,
         accesos: equipos.reduce((a, e) => a + (e.sesiones.desconocida || 0), 0),
+    };
+    // «Revisar»: lee ya las cuentas y sesiones de los equipos de este panel (sólo GET a los equipos).
+    const revisar = async () => {
+        setRevisando(true);
+        try {
+            const r = await fetch("/api/devices/usuarios/revisar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceIds: equipos.map((e) => e.id) }) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || !j.ok) throw new Error(j.error || `Error ${r.status}`);
+            toast.success({ title: `Revisados ${j.equipos} ${j.equipos === 1 ? "equipo" : "equipos"}`, description: j.errores ? `${j.errores} no contestaron: se muestra lo último leído.` : undefined });
+            await traer();
+        } catch (e: any) {
+            toast.error({ title: "No se pudo revisar", description: e?.message });
+        } finally { setRevisando(false); }
     };
     const gestora = areaId ? gestoraDeArea(estado, areaId) : null;
     const decideArea = areaId ? estado.areas.find((a) => a.id === areaId) : null;
@@ -97,11 +112,16 @@ export function PanelCuentas({ estado, areaId, deviceIds, onAbrirEquipo }: {
                     {areaId && (gestora?.gestionada
                         ? <Pista texto={gestora.heredada ? `Hereda la gestión de «${gestora.decide?.nombre}».` : "Esta área gestiona las cuentas de sus equipos."}><Chip tono="bien" icono={ShieldCheck}>Gestionadas{gestora.heredada ? " · heredado" : ""}</Chip></Pista>
                         : <Pista texto="Las cuentas de esta área sólo se leen. Activar la gestión por área llega con las altas y bajas."><Chip tono="quieto" icono={Lock}>Sólo lectura</Chip></Pista>)}
-                    {n.ajenas > 0 && <Chip tono="aviso" icono={UserX}>{n.ajenas} no gestionadas</Chip>}
-                    {n.conocidas > 0 && <Chip tono="bien" icono={ShieldCheck}>{n.conocidas} conocidas</Chip>}
+                    {n.ajenas > 0 && <Chip tono="aviso" icono={UserX}>{n.ajenas} {n.ajenas === 1 ? "no gestionada" : "no gestionadas"}</Chip>}
+                    {n.conocidas > 0 && <Chip tono="bien" icono={ShieldCheck}>{n.conocidas} {n.conocidas === 1 ? "conocida" : "conocidas"}</Chip>}
                     {n.accesos > 0 && <Chip tono="mal" icono={Globe}>{n.accesos} {n.accesos === 1 ? "acceso desconocido" : "accesos desconocidos"}</Chip>}
                     {n.error > 0 && <Pista texto="La última lectura de esos equipos falló. Se muestra lo último leído; el motivo está en la ficha de cada uno."><Chip tono="aviso" icono={AlertTriangle}>{n.error} sin leer</Chip></Pista>}
                     {!n.ajenas && !n.accesos && !n.error && n.leidos > 0 && <Chip tono="bien" icono={ShieldCheck}>Todo en orden</Chip>}
+                    {puedeMarcar && equipos.length > 0 && (
+                        <Button size="sm" onClick={revisar} disabled={revisando} className="ml-1">
+                            {revisando ? <Loader2 className="animate-spin" /> : <ScanSearch />}Revisar
+                        </Button>
+                    )}
                 </div>
             </header>
             <AnimatePresence initial={false}>
@@ -133,7 +153,7 @@ export function PanelCuentas({ estado, areaId, deviceIds, onAbrirEquipo }: {
                                     alClickFila={onAbrirEquipo ? (c) => onAbrirEquipo(c.deviceId) : undefined} alto="420px" id="cuentas-equipos" nombreArchivo="cuentas-de-equipos"
                                     vacio={{ icono: ShieldQuestion, titulo: cuentas.length ? "Ninguna cuenta con ese filtro" : "Todavía no hay cuentas leídas", ayuda: cuentas.length ? undefined : "La lectura automática corre cada 5 minutos; las cuentas se leen una vez por hora." }} />
                             )}
-                            {vista === "conectados" && <Conectados deviceIds={equipos.map((e) => e.id)} nombreDe={(id) => porId.get(id)?.name || "?"} puedeMarcar={puedeMarcar} alMarcar={setMarcar} />}
+                            {vista === "conectados" && <Conectados deviceIds={equipos.map((e) => e.id)} nombreDe={(id) => porId.get(id)?.name || "Equipo dado de baja"} puedeMarcar={puedeMarcar} alMarcar={setMarcar} />}
                             {vista === "auditoria" && <Auditoria deviceIds={deviceIds ? equipos.map((e) => e.id) : null} />}
                         </div>
                     </motion.div>
