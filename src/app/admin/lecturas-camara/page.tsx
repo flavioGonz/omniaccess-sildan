@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Camera, CheckCircle2, CircleOff, FileSearch, ScanLine, TriangleAlert, Video, XCircle } from "lucide-react";
+import { Camera, CheckCircle2, CircleOff, Download, FileSearch, ScanLine, TriangleAlert, Video, XCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ExportarInforme } from "@/components/lpr/ExportarInforme";
 import { cn } from "@/lib/utils";
 import { Filtros } from "@/components/ui/filtros";
 import { ElegirCamara } from "@/components/devices/ElegirCamara";
@@ -73,6 +75,7 @@ export default function LecturasCamara() {
     const [abierto, setAbierto] = useState<Fila | null>(null);
     /** Buscar en vivo por chapa (16/10): lo que leyó la cámara, sus variantes, lo que llegó y lo que releyó OmniVision. */
     const [busqueda, setBusqueda] = useState("");
+    const [exportar, setExportar] = useState(false);
 
     const traer = useCallback(() => {
         const q = new URLSearchParams({ h, ...(camara ? { camara } : {}) });
@@ -153,6 +156,7 @@ export default function LecturasCamara() {
                     <p className="text-[12px] text-muted-foreground leading-snug">El registro de cada cámara LPR comparado con lo que recibió OmniAccess y lo que releyó OmniVision.
                         {d?.estado && <> Se copia cada {Math.round(d.estado.cadaMs / 1000)} s · última copia {hace(d.estado.t)}.</>}</p>
                 </div>
+                <Button variant="outline" onClick={() => setExportar(true)} disabled={!d?.camaras.length}><Download />Exportar informe</Button>
             </div>
 
             {d?.camaras.some((c) => c.copia?.error) && (
@@ -196,6 +200,7 @@ export default function LecturasCamara() {
             )}
 
             <CajonComparacion paso={abierto} alCerrar={() => setAbierto(null)} />
+            <ExportarInforme abierto={exportar} alCerrar={() => setExportar(false)} camaras={(d?.camaras || []).map((c) => ({ id: c.id, nombre: c.nombre }))} camaraActual={camara || undefined} />
         </div>
     );
 }

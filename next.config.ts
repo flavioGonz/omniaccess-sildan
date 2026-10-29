@@ -8,7 +8,7 @@ const nextConfig = {
   // Los navegadores lo siguen, pero un cliente estricto no conecta y en polling
   // cada pedido de la tablet costaba dos viajes.
   skipTrailingSlashRedirect: true,
-  serverExternalPackages: ["bullmq", "ioredis", "web-push"],
+  serverExternalPackages: ["bullmq", "ioredis", "web-push", "jspdf", "jspdf-autotable", "exceljs"],
   typescript: {
     ignoreBuildErrors: true,
   },
