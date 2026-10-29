@@ -31,6 +31,7 @@ export const ACCIONES: Record<string, Archivo> = {
     acuseek: { defecto: P("acuseek") },
     alertas: { defecto: S },
     areas: { defecto: P("ajustes", "dispositivos.editar") },
+    avisos: { defecto: P("dispositivos.editar") },
     auth: { defecto: S },
     barriomap: { defecto: P("mapa.editar") },
     bitacora: { defecto: P("guardia") },

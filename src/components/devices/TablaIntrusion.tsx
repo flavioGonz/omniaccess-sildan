@@ -11,7 +11,7 @@ import { getIntrusionCameras, type IntrusionCam } from "@/app/actions/detections
 import { deleteDevice } from "@/app/actions/devices";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
-import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
+import { AlertasFila, type AlertaEquipo } from "@/components/devices/AlertasFila";
 import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
 import { arrastrarEquipos } from "@/components/devices/ArbolAreas";
 import type { FilaGrabacion } from "@/app/actions/grabaciones";
@@ -80,7 +80,7 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                         {filas.map((d) => {
                             const c = cams[d.id]; const h = health[d.id]; const ana = analyticsIds.has(d.id);
                             return (
-                                <tr key={d.id} draggable onDragStart={(e) => arrastrarEquipos(e, [d.id], d.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; onEditar?.(d); }} className={cn("border-t border-border/50 hover:bg-foreground/[0.04] transition-colors cursor-pointer", alertasDe[d.id] && "bg-red-500/[0.035]")}>
+                                <tr key={d.id} draggable onDragStart={(e) => arrastrarEquipos(e, [d.id], d.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; onEditar?.(d); }} className={cn("border-t border-border/50 hover:bg-foreground/[0.04] transition-colors cursor-pointer")}>
                                     <td className="py-2.5 pl-5">
                                         <div className="flex items-center gap-3">
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -89,11 +89,10 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                                                 <span className="absolute -top-1.5 -left-1.5 h-5 w-5 rounded-md bg-red-500 text-white grid place-items-center shadow ring-2 ring-background" data-tooltip-id="tt-intr" data-tooltip-content="Cámara de intrusión"><Radar size={11} /></span>
                                             </span>
                                             <div className="min-w-0">
-                                                <p className={cn("font-semibold text-foreground text-sm leading-tight truncate max-w-[240px]", claseNombreConAlerta(alertasDe[d.id]))}>{d.name}</p>
+                                                <p className={cn("font-semibold text-foreground text-sm leading-tight truncate max-w-[240px]")}>{d.name}</p>
                                                 <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">{d.brand}{d.deviceModel ? ` · ${d.deviceModel}` : ""}
                                                     {/* Quién detecta (lib/modo-camara.ts). Sin modo elegido, se deduce de si avisa. */}
                                                     <ChipModo modo={modoIntrusionDe(d, c ? !!c.alarmOk : null)} tipo="intrusion" /></p>
-                                                <AlertasFila alertas={alertasDe[d.id]} onVer={() => onVerSalud?.(d)} />
                                             </div>
                                         </div>
                                     </td>
@@ -111,9 +110,12 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                                             : <span className="inline-flex items-center gap-1 text-[10px] font-bold text-muted-foreground" data-tooltip-id="tt-intr" data-tooltip-content="Todavía no se confirmó que le avise a OmniAccess. Se configura en el calibrador (control «Servidor»)."><BellOff size={12} /> Sin confirmar</span>}
                                     </td>
                                     <td className="text-center">
+                                        <span className="inline-flex items-center gap-2">
                                         {h?.apagado ? <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase text-muted-foreground"><PowerOff size={11} /> Apagado</span>
                                             : h ? <span className={cn("inline-flex items-center gap-1.5 text-[10px] font-bold uppercase", h.reachable ? "text-emerald-500" : "text-red-500")}><span className={cn("w-1.5 h-1.5 rounded-full", h.reachable ? "bg-emerald-500" : "bg-red-500")} />{h.reachable ? "En línea" : "Sin respuesta"}</span>
                                             : <span className="text-[10px] text-muted-foreground">—</span>}
+                                        {!h?.apagado && <AlertasFila alertas={alertasDe[d.id]} onVer={() => onVerSalud?.(d)} />}
+                                        </span>
                                     </td>
                                     <td className="text-right pr-5">
                                         <div className="inline-flex items-center gap-1.5">

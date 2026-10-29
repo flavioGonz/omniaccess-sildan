@@ -14,6 +14,8 @@ import { leerAreas, crearArea, type Area } from "@/app/actions/areas";
 import { guardarGrupo } from "@/app/actions/groups";
 import { DestinoEventos } from "@/components/devices/DestinoEventos";
 import { UsuariosEquipo } from "@/components/devices/usuarios/UsuariosEquipo";
+import { AvisosEquipo } from "@/components/devices/avisos/AvisosEquipo";
+import { avisosDe } from "@/lib/avisos-equipo";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
@@ -1078,6 +1080,11 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                             </Bloque>
                         )}
                         <Bloque titulo="Conexión" icono={Network} ayuda="Cómo llega el servidor al equipo. Si cambiás IP o clave, «Comprobar» confirma que sigue respondiendo.">{bloqueConexion}</Bloque>
+                        {device?.id && avisosDe(String(device.deviceType)).length > 0 && (
+                            <Bloque titulo="Avisos" icono={BellRing} ayuda="Qué vigila OmniAccess en este equipo y si lo manda a Telegram. Apagado, no abre alerta ni avisa. Para toda un área, desde el encabezado del área.">
+                                <AvisosEquipo deviceId={device.id} deviceType={String(device.deviceType)} />
+                            </Bloque>
+                        )}
                         {usuariosOn && device?.id && (
                             <Bloque titulo="Usuarios del equipo" icono={Users} ayuda="Las cuentas locales del equipo y quién está conectado ahora. Avisa de cuentas que no creó OmniAccess y de accesos desde IP desconocidas. No cambia nada en el equipo.">
                                 <UsuariosEquipo deviceId={device.id} />

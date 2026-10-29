@@ -112,7 +112,7 @@ import { CajonCentral } from "@/components/centrales/CajonCentral";
 import { VistaCentrales } from "@/components/centrales/VistaCentrales";
 import { ChipModo } from "@/components/devices/ModoCamara";
 import { esLprDeAcceso, modoLprDe } from "@/lib/modo-camara";
-import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
+import { AlertasFila, alertasDeFila, type AlertaEquipo } from "@/components/devices/AlertasFila";
 import { ConfirmarHora } from "@/components/devices/ConfirmarHora";
 import { IntrusionCalibrator as CalibradorIntrusion } from "@/components/IntrusionCalibrator";
 import { InteriorCalibrator } from "@/components/InteriorCalibrator";
@@ -263,7 +263,8 @@ export default function DevicesPage() {
     const [userCounts, setUserCounts] = useState<Record<string, number | null>>({});
     const [loadingCounts, setLoadingCounts] = useState(false);
     const [alerts, setAlerts] = useState<any[]>([]);
-    const alertasDe = useMemo(() => { const m: Record<string, AlertaEquipo[]> = {}; for (const a of alerts) (m[a.deviceId] ||= []).push(a); return m; }, [alerts]);
+    // Las de cuentas locales quedan afuera: se ven y se resuelven en el cajón «Cuentas de los equipos».
+    const alertasDe = useMemo(() => { const m: Record<string, AlertaEquipo[]> = {}; for (const a of alertasDeFila(alerts)) (m[a.deviceId] ||= []).push(a); return m; }, [alerts]);
     const [healthHistory, setHealthHistory] = useState<any>(null);
     const [showReadRate, setShowReadRate] = useState(false);
     // Grabaciones de las camaras LPR: NVR + canal (detectado) y retencion calculada.
@@ -663,7 +664,7 @@ export default function DevicesPage() {
                             const h = health[dev.id];
 
                             return (
-                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; abrir(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
+                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; abrir(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-pointer")}>
                                     <TableCell className="py-2 pl-4">
                                         <div className="flex items-center gap-3 min-w-0">
                                             <div className="relative shrink-0">
@@ -678,7 +679,7 @@ export default function DevicesPage() {
                                             </div>
                                             <div className="min-w-0 space-y-1">
                                                 <div className="flex items-center gap-1.5 min-w-0">
-                                                    <p className={cn("font-semibold text-foreground text-[13px] leading-none truncate max-w-[200px]", claseNombreConAlerta(alertasDe[dev.id]))} data-tooltip-id="tt-grab" data-tooltip-content={dev.name}>{dev.name}</p>
+                                                    <p className={cn("font-semibold text-foreground text-[13px] leading-none truncate max-w-[200px]")} data-tooltip-id="tt-grab" data-tooltip-content={dev.name}>{dev.name}</p>
                                                     {esLprDeAcceso(dev) && dev.direction && (
                                                         <span className={cn("h-[16px] px-1 rounded text-[9px] font-black grid place-items-center", dev.direction === "ENTRY" ? "bg-emerald-500/15 text-emerald-500" : "bg-orange-500/15 text-orange-500")}
                                                             data-tooltip-id="tt-grab" data-tooltip-content={dev.direction === "ENTRY" ? "Entrada" : "Salida"}>{dev.direction === "ENTRY" ? <LogInIco size={10} /> : <LogOutIco size={10} />}</span>
@@ -703,7 +704,6 @@ export default function DevicesPage() {
                                                     )}
                                                     {dev.lastEvent && <span className="h-[17px] px-1.5 rounded bg-indigo-500/10 text-indigo-500 text-[9px] font-semibold truncate max-w-[110px] inline-flex items-center" data-tooltip-id="tt-grab" data-tooltip-content="Última lectura">{dev.lastEvent.user?.name || dev.lastEvent.plateDetected || "Sistema"}</span>}
                                                 </div>
-                                                <AlertasFila alertas={alertasDe[dev.id]} onVer={() => setHealthHistory(dev)} />
                                             </div>
                                         </div>
                                     </TableCell>
@@ -744,6 +744,7 @@ export default function DevicesPage() {
                                             if (h?.apagado) return <span className="h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit text-muted-foreground border-border bg-muted/40" data-tooltip-id="tt-grab" data-tooltip-content="Su área está apagada: OmniAccess no la consume (sin vivo, análisis ni consultas). Se reactiva desde el árbol de áreas."><PowerOff size={10} /> Apagado</span>;
                                             return (
                                                 <div className="inline-flex items-center gap-1">
+                                                    <AlertasFila alertas={alertasDe[dev.id]} onVer={() => setHealthHistory(dev)} />
                                                     <span className={cn("h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border", on ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/25" : "bg-red-500/10 text-red-500 border-red-500/25")}
                                                         data-tooltip-id="tt-grab" data-tooltip-content={msg}>
                                                         <span className={cn("w-1.5 h-1.5 rounded-full", on ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />{on ? "On" : "Off"}
@@ -962,14 +963,14 @@ export default function DevicesPage() {
                                     // al 95-98 %; contarla dejaba a los grabadores sanos en «Atención» para siempre.
                                     const healthy = h?.reachable && (disks.length === 0 || disksOk);
                                     return (
-                                        <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; setEditando(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
+                                        <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; setEditando(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors cursor-pointer")}>
                                             <TableCell className="py-3 pl-5">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-10 h-10 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
                                                         <Server size={18} className="text-blue-400" />
                                                     </div>
                                                     <div>
-                                                        <p className={cn("font-semibold text-foreground text-sm leading-none", claseNombreConAlerta(alertasDe[dev.id]))}>{dev.name}</p>
+                                                        <p className={cn("font-semibold text-foreground text-sm leading-none")}>{dev.name}</p>
                                                         <p className="text-[10px] text-muted-foreground mt-1" data-tooltip-id="tt-grab" data-tooltip-content={[h?.machineName && `Nombre: ${h.machineName}`, h?.firmware && `Firmware: ${h.firmware}`, h?.serial && `Serie: ${h.serial}`].filter(Boolean).join(" · ") || "Modelo"}>{h?.model || dev.deviceModel || brand.label}</p>
                                                         <div className="flex items-center gap-1 mt-1 flex-wrap">
                                                             {h?.channels && (
@@ -981,11 +982,11 @@ export default function DevicesPage() {
                                                             {typeof h?.recording === "boolean" && <span className={cn("h-[17px] px-1.5 rounded text-[9px] font-bold inline-flex items-center gap-1", h.recording ? "bg-red-500/10 text-red-500" : "bg-muted text-muted-foreground")} data-tooltip-id="tt-grab" data-tooltip-content={h.recording ? "Grabando" : "No está grabando"}><span className={cn("w-1.5 h-1.5 rounded-full", h.recording ? "bg-red-500 animate-pulse" : "bg-muted-foreground")} /> REC</span>}
                                                             {h?.linkMbps && <span className="h-[17px] px-1.5 rounded bg-sky-500/10 text-sky-500 text-[9px] font-bold inline-flex items-center gap-1" data-tooltip-id="tt-grab" data-tooltip-content={`Enlace de red ${h.linkMbps} Mbps${h.rxGB != null ? ` · recibidos ${h.rxGB} GB / enviados ${h.txGB} GB desde el arranque` : ""}`}><Network size={9} /> {h.linkMbps >= 1000 ? `${h.linkMbps / 1000}G` : `${h.linkMbps}M`}</span>}
                                                         </div>
-                                                        <AlertasFila alertas={alertasDe[dev.id]} onVer={() => setHealthHistory(dev)} />
                                                     </div>
                                                 </div>
                                             </TableCell>
                                             <TableCell>
+                                                <span className="inline-flex items-center gap-1.5">
                                                 {h ? (
                                                     <span className={cn(
                                                         "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wide",
@@ -997,6 +998,8 @@ export default function DevicesPage() {
                                                         {!h.reachable ? "Offline" : healthy ? "Saludable" : "Atención"}
                                                     </span>
                                                 ) : <span className="text-muted-foreground text-xs">Sondeando…</span>}
+                                                <AlertasFila alertas={alertasDe[dev.id]} onVer={() => setHealthHistory(dev)} />
+                                                </span>
                                             </TableCell>
                                             <TableCell>
                                                 <p className="text-xs text-foreground font-mono">{dev.ip}</p>

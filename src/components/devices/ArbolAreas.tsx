@@ -7,14 +7,13 @@ import { Tooltip } from "react-tooltip";
 import {
     ChevronRight, Folder, FolderOpen, FolderPlus, Pencil, Trash2, Layers, Inbox, Car, Radar, HardDrive, Cpu,
     Eye, EyeOff, ChevronsDownUp, ChevronsUpDown, GripVertical, Check, X, Palette, MousePointerClick, PanelLeftClose, PanelLeftOpen,
-    Power, PowerOff, Loader2, ShieldCheck,
+    Power, PowerOff, Loader2, ShieldCheck, Plus,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 /** Igual que en lib/apagado (no se importa de ahí: ese archivo usa la base y esto corre en el navegador). */
 const APAGADO_SIN_AREA = "__sin_area";
 import { sileo as toast } from "sileo";
-import { PREFIJOS_ALERTA } from "@/lib/usuarios-equipo/inventario";
 import { crearArea, editarArea, borrarArea, moverArea, asignarEquipos, apagarGrupo, type Area, type EstadoAreas } from "@/app/actions/areas";
 
 /**
@@ -72,6 +71,14 @@ export function enArea(estado: EstadoAreas, deviceId: string, areaId: string): b
 
 type Zona = "antes" | "dentro" | "despues";
 
+/*
+ * 29/10, Nico: «esta sección de áreas me encanta, pero está muy saturada». Cada fila tenía un
+ * interruptor verde, una pastilla con el número, a veces otra roja con las alertas, y los equipos con
+ * alertas con el nombre en rojo: veinte cosas pidiendo atención a la vez, y casi ninguna la merecía.
+ * Ahora una fila en reposo dice sólo su nombre y cuántos equipos tiene, en gris; si algo de adentro
+ * anda mal, un punto rojo. El interruptor y las acciones aparecen al pasar el mouse, y un área
+ * apagada lo dice con un ícono chico, que es lo único que distingue su estado.
+ */
 export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActual, seleccion, onSeleccion, onAbrirEquipo, health = {}, alertasDe = {}, tipos = [], onTipo, colapsado = false, onColapsar }: {
     estado: EstadoAreas; setEstado: (e: EstadoAreas) => void; devices: any[]; tiposVisibles: string[]; tipoActual: string;
     seleccion: string; onSeleccion: (id: string) => void; onAbrirEquipo?: (d: any) => void; health?: Record<string, any>; alertasDe?: Record<string, any[]>;
@@ -182,17 +189,16 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
         }
     };
 
-    // Áreas cuya rama tiene un aviso de cuentas abierto (cuenta no gestionada o acceso desconocido):
-    // se sube desde el área de cada equipo con aviso hasta la raíz. El tope evita un ciclo en datos rotos.
-    const conAvisoCuentas = useMemo(() => {
+    /** Sube desde el área de cada equipo marcado hasta la raíz. El tope evita un ciclo en datos rotos. */
+    const ramasCon = (ids: string[]) => {
         const out = new Set<string>();
         const padre = new Map(estado.areas.map((a) => [a.id, a.padre]));
-        for (const [deviceId, lista] of Object.entries(alertasDe)) {
-            if (!lista?.some((x: any) => PREFIJOS_ALERTA.some((p) => String(x?.type || "").startsWith(p)))) continue;
-            for (let id: string | null | undefined = estado.equipos[deviceId], n = 0; id && n < 50; id = padre.get(id), n++) out.add(id);
-        }
+        for (const deviceId of ids) for (let id: string | null | undefined = estado.equipos[deviceId], n = 0; id && n < 50; id = padre.get(id), n++) out.add(id);
         return out;
-    }, [estado, alertasDe]);
+    };
+    /** Un equipo pide atención si tiene alertas o no contesta, salvo que esté apagado a propósito. */
+    const mal = (d: any) => { const h = health[d.id]; return !h?.apagado && (!!alertasDe[d.id]?.length || h?.reachable === false); };
+    const conProblema = useMemo(() => ramasCon(devices.filter(mal).map((d) => d.id)), [estado, devices, health, alertasDe]); // eslint-disable-line react-hooks/exhaustive-deps
     const props = (id: string, esArea: boolean) => ({
         onDragOver: (ev: React.DragEvent) => { if (!aceptar(ev)) return; ev.preventDefault(); ev.dataTransfer.dropEffect = "move"; const z = zonaDe(ev, esArea); if (sobre?.id !== id || sobre.zona !== z) setSobre({ id, zona: z }); },
         onDragLeave: (ev: React.DragEvent) => { if (!(ev.currentTarget as HTMLElement).contains(ev.relatedTarget as Node)) setSobre((s) => (s?.id === id ? null : s)); },
@@ -232,7 +238,6 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                     )}
                     {/* Cuentas de los equipos gestionadas desde esta área (openspec usuarios-de-equipos). */}
                     {editando !== a.id && a.cuentas?.gestionada && <ShieldCheck size={12} className="tono-bien shrink-0" aria-label="Cuentas gestionadas" />}
-                    {editando !== a.id && a.cuentas?.gestionada && conAvisoCuentas.has(a.id) && <span className="h-1.5 w-1.5 rounded-full bg-[var(--aviso)] shrink-0" aria-label="Cuentas con avisos" title="Hay cuentas no gestionadas o accesos desconocidos en esta área" />}
                     {borrando === a.id ? (
                         <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                             <span className="text-[10.5px] text-red-500 font-semibold">¿Borrar?</span>
@@ -247,10 +252,16 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                                 <button type="button" onClick={() => setPaleta(paleta === a.id ? null : a.id)} data-tooltip-id="tt-areas" data-tooltip-content="Color" className="h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-background"><Palette size={12} /></button>
                                 <button type="button" onClick={() => setBorrando(a.id)} data-tooltip-id="tt-areas" data-tooltip-content="Borrar el área (los equipos no se borran: suben al área de arriba)" className="h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-red-500 hover:bg-background"><Trash2 size={12} /></button>
                             </span>
-                            <span className="min-w-[22px] h-[18px] px-1.5 rounded-full bg-muted text-[10px] font-bold text-muted-foreground grid place-items-center tabular-nums group-hover:hidden">{contar(a.id)}</span>
-                            <MiniInterruptor prendido={!apagada} bloqueado={!!arriba}
-                                titulo={arriba ? `Apagada con «${arriba.nombre}»: se reactiva desde ahí` : apagada ? `Apagada: OmniAccess no consume sus equipos. Tocá para reactivarla.` : `Apagar «${a.nombre}»: OmniAccess deja de consumir sus equipos`}
-                                onClick={() => setPidiendo({ clave: a.id, titulo: a.nombre, apagar: !apagadas.has(a.id) })} />
+                            <span className="flex items-center gap-1.5 group-hover:hidden">
+                                {!apagada && conProblema.has(a.id) && <Punto titulo="Hay equipos con alertas o sin respuesta" />}
+                                {apagada && <PowerOff size={11} className="text-muted-foreground/70" aria-label="Apagada" />}
+                                <Cuenta n={contar(a.id)} />
+                            </span>
+                            <span className="hidden group-hover:flex items-center pl-0.5">
+                                <MiniInterruptor prendido={!apagada} bloqueado={!!arriba}
+                                    titulo={arriba ? `Apagada con «${arriba.nombre}»: se reactiva desde ahí` : apagada ? `Apagada: OmniAccess no consume sus equipos. Tocá para reactivarla.` : `Apagar «${a.nombre}»: OmniAccess deja de consumir sus equipos`}
+                                    onClick={() => setPidiendo({ clave: a.id, titulo: a.nombre, apagar: !apagadas.has(a.id) })} />
+                            </span>
                         </>
                     )}
                 </div>
@@ -275,7 +286,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
     };
 
     const hoja = (d: any, nivel: number): React.ReactNode => {
-        const h = health[d.id]; const mal = !h?.apagado && (!!alertasDe[d.id]?.length || h?.reachable === false);
+        const h = health[d.id];
         return (
             <div draggable onDragStart={(ev) => { ev.stopPropagation(); arrastrarEquipos(ev, [d.id], d.name); }}
                 onClick={() => onAbrirEquipo?.(d)}
@@ -285,8 +296,10 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                 style={{ paddingLeft: 26 + nivel * 14 }}>
                 <GripVertical size={11} className="text-muted-foreground/40 group-hover:text-muted-foreground shrink-0 -ml-3.5" />
                 <IconoTipo tipo={d.deviceType} size={12.5} className="shrink-0" />
-                <span className={cn("flex-1 min-w-0 truncate text-[12px]", mal ? "text-red-500 font-semibold" : "text-foreground/85")}>{d.name}</span>
-                {h?.apagado ? <PowerOff size={10} className="text-muted-foreground shrink-0" /> : <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", h ? (h.reachable ? "bg-emerald-500" : "bg-red-500") : "bg-muted-foreground/30")} />}
+                <span className="flex-1 min-w-0 truncate text-[12px] text-foreground/80">{d.name}</span>
+                {h?.apagado ? <PowerOff size={10} className="text-muted-foreground/70 shrink-0" />
+                    : mal(d) ? <Punto titulo={h?.reachable === false ? "Sin respuesta" : "Con alertas"} />
+                        : <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", h?.reachable ? "bg-[color-mix(in_oklab,var(--bien)_70%,transparent)]" : "bg-muted-foreground/25")} />}
             </div>
         );
     };
@@ -296,14 +309,15 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
         const apagada = !!claveApagado && apagadas.has(claveApagado);
         return (
             <div {...props(id, false)} onClick={() => onSeleccion(id)} data-tooltip-id="tt-areas" data-tooltip-content={ayuda}
-                className={cn("flex items-center gap-2 h-8 px-2.5 rounded-lg cursor-pointer select-none transition-colors",
+                className={cn("group flex items-center gap-2 h-8 px-2.5 rounded-lg cursor-pointer select-none transition-colors",
                     seleccion === id ? "bg-[color-mix(in_oklab,var(--accion)_14%,transparent)]" : "hover:bg-accent/70",
                     z && "ring-2 ring-[var(--accion)]")}>
                 <I size={15} className="text-muted-foreground shrink-0" />
                 <span className={cn("flex-1 text-[12.5px] font-semibold", apagada && "text-muted-foreground")}>{titulo}</span>
-                <span className="min-w-[22px] h-[18px] px-1.5 rounded-full bg-muted text-[10px] font-bold text-muted-foreground grid place-items-center tabular-nums">{cuenta}</span>
-                {claveApagado && <MiniInterruptor prendido={!apagada} titulo={apagada ? `Apagado: OmniAccess no consume estos equipos. Tocá para reactivar.` : `Apagar «${titulo}»: OmniAccess deja de consumir estos equipos`}
-                    onClick={() => setPidiendo({ clave: claveApagado, titulo, apagar: !apagada })} />}
+                {apagada && <PowerOff size={11} className="text-muted-foreground/70 group-hover:hidden" aria-label="Apagado" />}
+                <span className={cn(claveApagado && "group-hover:hidden")}><Cuenta n={cuenta} /></span>
+                {claveApagado && <span className="hidden group-hover:flex"><MiniInterruptor prendido={!apagada} titulo={apagada ? `Apagado: OmniAccess no consume estos equipos. Tocá para reactivar.` : `Apagar «${titulo}»: OmniAccess deja de consumir estos equipos`}
+                    onClick={() => setPidiendo({ clave: claveApagado, titulo, apagar: !apagada })} /></span>}
             </div>
         );
     };
@@ -311,21 +325,26 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
     const raices = hijas(null);
     const todasAbiertas = estado.areas.length > 0 && estado.areas.every((a) => abiertas.has(a.id));
     const filtros = tipos.length > 0 && (
-        <div className="p-2 border-t border-border/60 space-y-1">
-            <div className="px-1.5 pb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Tipo de equipo</div>
+        <div className="p-2 border-t border-border/60 space-y-0.5">
+            <div className="px-2.5 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Tipo de equipo</div>
             {tipos.map((t) => {
                 const activo = t.tipo === tipoActual; const m = ICONO_TIPO[t.tipo];
                 return (
                     <div key={t.tipo} role="button" tabIndex={0} onClick={() => onTipo?.(t.tipo)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTipo?.(t.tipo); } }}
-                        className={cn("w-full flex items-center gap-2.5 h-10 px-2.5 rounded-lg border transition-all text-left cursor-pointer", apagadas.has(`tipo:${t.tipo}`) && "opacity-70",
-                            activo ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)] shadow-sm" : "border-transparent hover:bg-accent/70")}>
-                        <span className={cn("h-7 w-7 rounded-md grid place-items-center", activo ? "bg-background shadow-sm" : "bg-muted/60")}><IconoTipo tipo={t.tipo} size={15} /></span>
-                        <span className={cn("flex-1 text-[12.5px]", activo ? "font-bold" : "font-semibold text-foreground/85")}>{t.rotulo}</span>
-                        {!!t.alertas && <span className="h-[18px] px-1.5 rounded-full bg-red-500/15 text-red-500 text-[10px] font-bold grid place-items-center tabular-nums" data-tooltip-id="tt-areas" data-tooltip-content={`${t.alertas} con alertas`}>{t.alertas}</span>}
-                        <span className={cn("min-w-[24px] h-[20px] px-1.5 rounded-full text-[10.5px] font-bold grid place-items-center tabular-nums", activo ? "bg-[var(--accion)] text-white" : "bg-muted text-muted-foreground")}>{t.cuenta}</span>
-                        <MiniInterruptor prendido={!apagadas.has(`tipo:${t.tipo}`)}
-                            titulo={apagadas.has(`tipo:${t.tipo}`) ? `Apagadas: OmniAccess no consume las ${t.rotulo.toLowerCase()}. Tocá para reactivar.` : `Apagar todas las ${t.rotulo.toLowerCase()}`}
-                            onClick={() => setPidiendo({ clave: `tipo:${t.tipo}`, titulo: t.rotulo, apagar: !apagadas.has(`tipo:${t.tipo}`) })} />
+                        className={cn("group w-full flex items-center gap-2.5 h-8 px-2.5 rounded-lg transition-colors text-left cursor-pointer",
+                            activo ? "bg-[color-mix(in_oklab,var(--accion)_14%,transparent)]" : "hover:bg-accent/70")}>
+                        <IconoTipo tipo={t.tipo} size={14} className={cn("shrink-0", apagadas.has(`tipo:${t.tipo}`) && "opacity-50")} />
+                        <span className={cn("flex-1 text-[12.5px] font-semibold", !activo && "text-foreground/85", apagadas.has(`tipo:${t.tipo}`) && "text-muted-foreground")}>{t.rotulo}</span>
+                        <span className="flex items-center gap-1.5 group-hover:hidden">
+                            {!!t.alertas && <Punto titulo={`${t.alertas} con alertas o sin respuesta`} />}
+                            {apagadas.has(`tipo:${t.tipo}`) && <PowerOff size={11} className="text-muted-foreground/70" aria-label="Apagadas" />}
+                            <Cuenta n={t.cuenta} activo={activo} />
+                        </span>
+                        <span className="hidden group-hover:flex">
+                            <MiniInterruptor prendido={!apagadas.has(`tipo:${t.tipo}`)}
+                                titulo={apagadas.has(`tipo:${t.tipo}`) ? `Apagadas: OmniAccess no consume las ${t.rotulo.toLowerCase()}. Tocá para reactivar.` : `Apagar todas las ${t.rotulo.toLowerCase()}`}
+                                onClick={() => setPidiendo({ clave: `tipo:${t.tipo}`, titulo: t.rotulo, apagar: !apagadas.has(`tipo:${t.tipo}`) })} />
+                        </span>
                     </div>
                 );
             })}
@@ -358,8 +377,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
     return (
         <aside className="w-[272px] shrink-0 rounded-xl border border-border/60 bg-card/50 flex flex-col max-h-[calc(100vh-190px)] sticky top-4">
             <div className="flex items-center gap-1 px-3 h-11 border-b border-border/60">
-                <Layers size={15} className="text-indigo-400" />
-                <span className="text-[13px] font-bold flex-1">Áreas</span>
+                <span className="text-[13px] font-bold flex-1" data-tooltip-id="tt-areas" data-tooltip-content="Arrastrá equipos y áreas para reorganizar.">Áreas</span>
                 <button type="button" onClick={() => { const v = !verEquipos; setVerEquipos(v); try { localStorage.setItem("areas.verEquipos", v ? "1" : "0"); } catch { } }}
                     data-tooltip-id="tt-areas" data-tooltip-content={verEquipos ? "Ocultar los equipos dentro del árbol" : "Mostrar los equipos dentro del árbol"}
                     className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">{verEquipos ? <Eye size={14} /> : <EyeOff size={14} />}</button>
@@ -369,7 +387,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                 <button type="button" onClick={() => onColapsar?.(true)} data-tooltip-id="tt-areas" data-tooltip-content="Contraer el panel para darle más lugar a la tabla"
                     className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><PanelLeftClose size={14} /></button>
                 <button type="button" onClick={() => nueva(null)} data-tooltip-id="tt-areas" data-tooltip-content="Nueva área. Ej.: «Portería», «Perímetro Norte», «Club House»."
-                    className="h-7 px-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold inline-flex items-center gap-1"><FolderPlus size={13} /> Nueva</button>
+                    className="h-7 pl-1.5 pr-2 rounded-md tono-accion hover:bg-accent text-[12px] font-semibold inline-flex items-center gap-1"><Plus size={14} /> Nueva</button>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-0.5">
                 {raiz(TODAS, Layers, "Todas", visibles.filter(deTipo).length, "Todos los equipos. Soltá un área acá para llevarla a la raíz.")}
@@ -386,7 +404,6 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                 </div>
             </div>
             {filtros}
-            <div className="px-3 py-2 border-t border-border/60 text-[10.5px] text-muted-foreground flex items-center gap-1.5"><GripVertical size={12} /> Arrastrá equipos y áreas para reorganizar</div>
             <ModalApagado pedido={pidiendo} equipos={pidiendo ? afectados(pidiendo.clave) : []} aplicando={aplicando} onConfirmar={confirmar} onCancelar={() => !aplicando && setPidiendo(null)} />
             <TooltipAreas />
         </aside>
@@ -458,6 +475,16 @@ function FotoTooltip({ id }: { id: string }) {
             {estado === "sin" && <span className="text-[11px] text-white/60">La cámara no devolvió imagen</span>}
         </div>
     );
+}
+
+/** Cuántos equipos: un número gris, sin pastilla (en el tipo elegido, en el azul de acción). */
+function Cuenta({ n, activo }: { n: number; activo?: boolean }) {
+    return <span className={cn("min-w-[18px] text-right text-[11px] font-semibold tabular-nums", activo ? "tono-accion" : "text-muted-foreground")}>{n}</span>;
+}
+
+/** Algo de adentro pide atención (alertas o sin respuesta): un punto, no un número. */
+function Punto({ titulo }: { titulo: string }) {
+    return <span className="h-1.5 w-1.5 rounded-full bg-[var(--mal)] shrink-0" role="img" aria-label={titulo} data-tooltip-id="tt-areas" data-tooltip-content={titulo} />;
 }
 
 /**

@@ -102,6 +102,29 @@ export async function sendTelegramPhoto(
             return sendTelegramMessage(caption);
         }
 
+        return postFoto(cfg, imageBuffer, caption);
+    } catch (err: any) {
+        console.error(`[Telegram] sendPhoto error: ${err.message}`);
+        return false;
+    }
+}
+
+/**
+ * Una foto ya armada (no la de una cámara): el diagnóstico de imagen manda la comparación entre el
+ * encuadre habitual y el de ahora. Si la foto no sale, va el texto solo.
+ */
+export async function enviarFotoTelegram(jpeg: Buffer, caption: string): Promise<boolean> {
+    try {
+        const cfg = await configTelegram();
+        if (!cfg) return false;
+        return await postFoto(cfg, jpeg, caption);
+    } catch (err: any) {
+        console.error(`[Telegram] enviarFoto error: ${err.message}`);
+        return false;
+    }
+}
+
+async function postFoto(cfg: { api: string; chat: string }, imageBuffer: Buffer, caption: string): Promise<boolean> {
         // Build multipart form data
         const boundary = "----TelegramBotBoundary" + Date.now();
         const parts: Buffer[] = [];
@@ -170,10 +193,6 @@ export async function sendTelegramPhoto(
             req.write(body);
             req.end();
         });
-    } catch (err: any) {
-        console.error(`[Telegram] sendPhoto error: ${err.message}`);
-        return false;
-    }
 }
 
 // ─── Fetch Camera Snapshot ─────────────────────────

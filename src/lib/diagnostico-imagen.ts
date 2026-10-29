@@ -3,6 +3,7 @@ import path from "path";
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import { ensureAlert, resolveAlert } from "@/lib/device-health";
+import { hora as horaDe } from "@/lib/fechas";
 
 /**
  * Diagnóstico de imagen de las cámaras (21/10, Nico: «detectar imagen borrosa, tapada, girada o
@@ -46,6 +47,12 @@ type Base = { nitidez: number; n: number; bordes: number[] | null; nb: number };
 type Estado = { id: string; ultima: number; base: { dia?: Base; noche?: Base }; racha: { problema: Problema | null; veces: number }; medida?: Medida; problema: Problema | null };
 
 const archivo = (id: string) => path.join(DIR, `${id.replace(/[^\w-]/g, "_")}.json`);
+/**
+ * El último cuadro SANO de cada cámara, de día y de noche: es «lo habitual» que se muestra al lado del
+ * cuadro de ahora en el aviso de Telegram (29/10, Nico: «debe comparar la imagen»). Se pisa con cada
+ * cuadro que coincide con la referencia, así no queda una foto de hace un mes.
+ */
+const archivoRef = (id: string, momento: "dia" | "noche") => path.join(DIR, `${id.replace(/[^\w-]/g, "_")}-${momento}.jpg`);
 async function leer(id: string): Promise<Estado> {
     try { return JSON.parse(await fs.readFile(archivo(id), "utf8")); }
     catch { return { id, ultima: 0, base: {}, racha: { problema: null, veces: 0 }, problema: null }; }
@@ -130,6 +137,40 @@ const TEXTO: Record<Problema, string> = {
     movida: "Cámara movida o girada: lo que se ve ya no coincide con su encuadre habitual.",
 };
 
+const ROTULO: Record<Problema, string> = { tapada: "Tapada", borrosa: "Borrosa", movida: "Movida" };
+
+/** Para el texto sobre la foto: el SVG no acepta &, < ni > sueltos. */
+const xml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * La foto del aviso: el encuadre habitual a la izquierda y el cuadro de ahora a la derecha, cada uno
+ * con su rótulo. El de ahora lleva un borde en el color del estado (rojo el problema, verde la vuelta
+ * a lo normal) para que se lea sin el texto. Sin referencia guardada todavía, va sólo el de ahora.
+ */
+export async function comparacion(id: string, momento: "dia" | "noche", ahora: Buffer, estado: string, ok: boolean): Promise<Buffer | null> {
+    const W = 640, H = 360, BANDA = 34, BORDE = 6;
+    const ref = await fs.readFile(archivoRef(id, momento)).catch(() => null);
+    const color = ok ? "#10b981" : "#e11d48";
+    const panel = async (img: Buffer, rotulo: string, marcado: boolean) => {
+        const foto = await sharp(img).resize(W, H, { fit: "cover" }).jpeg().toBuffer();
+        const svg = Buffer.from(`<svg width="${W}" height="${H + BANDA}" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100%" height="${BANDA}" fill="#0b1220"/>
+            ${marcado ? `<rect x="0" y="0" width="${BORDE}" height="${BANDA}" fill="${color}"/>` : ""}
+            <text x="${marcado ? 16 : 12}" y="23" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="bold" fill="#ffffff">${xml(rotulo)}</text>
+            ${marcado ? `<rect x="${BORDE / 2}" y="${BANDA + BORDE / 2}" width="${W - BORDE}" height="${H - BORDE}" fill="none" stroke="${color}" stroke-width="${BORDE}"/>` : ""}
+        </svg>`);
+        return sharp({ create: { width: W, height: H + BANDA, channels: 3, background: "#0b1220" } })
+            .composite([{ input: foto, top: BANDA, left: 0 }, { input: svg, top: 0, left: 0 }]).png().toBuffer();
+    };
+    const hora = horaDe(new Date());
+    const derecha = await panel(ahora, `Ahora · ${hora} · ${estado}`, true);
+    if (!ref) return sharp(derecha).jpeg({ quality: 82 }).toBuffer();
+    const izquierda = await panel(ref, "Habitual", false);
+    const SEP = 4;
+    return sharp({ create: { width: W * 2 + SEP, height: H + BANDA, channels: 3, background: "#0b1220" } })
+        .composite([{ input: izquierda, top: 0, left: 0 }, { input: derecha, top: 0, left: W + SEP }]).jpeg({ quality: 82 }).toBuffer();
+}
+
 /** Diagnostica una cámara ahora (usa y actualiza lo aprendido). */
 export async function diagnosticar(d: { id: string; name: string }): Promise<Estado | null> {
     const jpeg = await cuadro(d.id);
@@ -139,11 +180,20 @@ export async function diagnosticar(d: { id: string; name: string }): Promise<Est
     const { medida, bordes } = await medir(jpeg);
     const { problema, escena } = juzgar(e, medida, bordes);
     e.medida = { ...medida, escena: escena == null ? null : Math.round(escena * 100) / 100 };
-    if (!problema) aprender(e, medida, bordes, escena);
+    if (!problema) {
+        aprender(e, medida, bordes, escena);
+        // Sólo un cuadro que se parece a la referencia (o mientras se aprende) pasa a ser «lo habitual».
+        if (escena == null || escena > ESCENA_ACTUALIZA) await fs.writeFile(archivoRef(d.id, medida.momento), jpeg).catch(() => null);
+    }
     e.racha = e.racha.problema === problema ? { problema, veces: e.racha.veces + 1 } : { problema, veces: 1 };
     if (e.racha.veces >= VECES) {
-        if (problema && e.problema !== problema) { await ensureAlert(d.id, d.name, "imagen", "warning", TEXTO[problema]); e.problema = problema; }
-        if (!problema && e.problema) { await resolveAlert(d.id, d.name, "imagen"); e.problema = null; }
+        const foto = (titulo: string, ok: boolean) => () => comparacion(d.id, medida.momento, jpeg, titulo, ok);
+        if (problema && e.problema !== problema) {
+            const pct = escena == null ? "" : ` Se parece un ${Math.max(0, Math.round(escena * 100))} % a su encuadre habitual.`;
+            await ensureAlert(d.id, d.name, "imagen", "warning", TEXTO[problema] + (problema === "movida" ? pct : ""), { clave: problema, foto: foto(ROTULO[problema], false) });
+            e.problema = problema;
+        }
+        if (!problema && e.problema) { await resolveAlert(d.id, d.name, "imagen", { foto: foto("Normal", true) }); e.problema = null; }
     }
     await guardar(e);
     return e;

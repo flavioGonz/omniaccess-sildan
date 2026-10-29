@@ -229,6 +229,9 @@ model Device {
   doorStatus      DoorStatus       @default(UNKNOWN)
   authType        AuthType         @default(BASIC)
   username        String?
+  /// Avisos de salud de este equipo: {offline, tapada, borrosa, movida, drift, silencio, vca, disk, telegram}
+  /// con un booleano cada uno. Lo que no está vale «prendido» (lib/avisos-equipo.ts).
+  avisos          Json?
   password        String?
   lastOnlinePull  DateTime?
   lastOnlinePush  DateTime?

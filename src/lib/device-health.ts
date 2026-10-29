@@ -6,7 +6,8 @@
 import { prisma } from "@/lib/prisma";
 import { authenticatedRequest } from "@/lib/digest-auth";
 import { xmlField } from "@/lib/isapi-camera";
-import { sendTelegramMessage } from "@/lib/telegram";
+import { sendTelegramMessage, enviarFotoTelegram } from "@/lib/telegram";
+import { claveDeAlerta, leerAjuste, prendido, type AjusteAvisos, type ClaveAviso } from "@/lib/avisos-equipo";
 
 const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
 
@@ -108,18 +109,40 @@ export async function probeAllDevices(): Promise<HealthResult[]> {
 // ── Reglas de alerta ──
 const DRIFT_LIMIT = 120;
 
-export async function ensureAlert(deviceId: string, name: string, type: string, severity: string, message: string) {
+/** Lo que el equipo tiene prendido (Device.avisos). Sin fila o sin ajuste: todo prendido. */
+async function ajusteAvisos(deviceId: string): Promise<AjusteAvisos> {
+    const d = await prisma.device.findUnique({ where: { id: deviceId }, select: { avisos: true } }).catch(() => null);
+    return leerAjuste(d?.avisos);
+}
+
+/**
+ * Para quien manda algo más que texto: `clave` es el aviso que gobierna esta alerta cuando el tipo no
+ * alcanza (las de imagen: tapada, borrosa o movida), y `foto` la arma sólo si de verdad va a Telegram.
+ */
+export type OpcAlerta = { clave?: ClaveAviso; foto?: () => Promise<Buffer | null> };
+
+async function avisar(aj: AjusteAvisos, texto: string, foto?: () => Promise<Buffer | null>) {
+    if (!prendido(aj, "telegram")) return;
+    const jpeg = foto ? await foto().catch(() => null) : null;
+    await (jpeg ? enviarFotoTelegram(jpeg, texto) : sendTelegramMessage(texto)).catch(() => { });
+}
+
+export async function ensureAlert(deviceId: string, name: string, type: string, severity: string, message: string, opc: OpcAlerta = {}) {
     const existing = await prisma.deviceAlert.findFirst({ where: { deviceId, type, active: true } });
     if (existing) return;
+    // El aviso apagado en el equipo no abre alerta: ni en la tabla, ni en Telegram.
+    const aj = await ajusteAvisos(deviceId);
+    const clave = opc.clave || claveDeAlerta(type);
+    if (clave && !prendido(aj, clave)) return;
     await prisma.deviceAlert.create({ data: { deviceId, type, severity, message, active: true } });
     const icon = severity === "critical" ? "🔴" : "🟠";
-    await sendTelegramMessage(`${icon} <b>ALERTA · ${name}</b>\n${message}`).catch(() => { });
+    await avisar(aj, `${icon} <b>ALERTA · ${name}</b>\n${message}`, opc.foto);
 }
-export async function resolveAlert(deviceId: string, name: string, type: string) {
+export async function resolveAlert(deviceId: string, name: string, type: string, opc: Pick<OpcAlerta, "foto"> = {}) {
     const existing = await prisma.deviceAlert.findFirst({ where: { deviceId, type, active: true } });
     if (!existing) return;
     await prisma.deviceAlert.update({ where: { id: existing.id }, data: { active: false, resolvedAt: new Date() } });
-    await sendTelegramMessage(`🟢 <b>NORMALIZADO · ${name}</b>\n${type === "offline" ? "Volvió a responder" : "Condición resuelta (" + type + ")"}`).catch(() => { });
+    await avisar(await ajusteAvisos(deviceId), `🟢 <b>NORMALIZADO · ${name}</b>\n${type === "offline" ? "Volvió a responder" : type === "imagen" ? "La imagen volvió a lo habitual" : "Condición resuelta (" + type + ")"}`, opc.foto);
 }
 
 export async function persistAndAlert(results: HealthResult[]) {
