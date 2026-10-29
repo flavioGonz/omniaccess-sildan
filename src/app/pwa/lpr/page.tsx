@@ -25,7 +25,9 @@ import { Bell, Camera, Car, ChevronRight, Clock, Columns2, Download, History, La
 import LiveEdgeKeeper from "@/components/LiveEdgeKeeper";
 import PwaSplash from "@/components/PwaSplash";
 import { cn } from "@/lib/utils";
-import { getDevices } from "@/app/actions/devices";
+import { getDevices, getEquiposApagados } from "@/app/actions/devices";
+import { useFiltroArea, TODAS_LAS_AREAS } from "@/lib/use-filtro-area";
+import { SIN_AREA } from "@/lib/filtro-areas";
 import { getAccessEvents, getEventsCountToday } from "@/app/actions/history";
 import { fecha, hace, hora, horaSeg } from "@/lib/fechas";
 import { Chapa, FilaLectura, FotoEvento, Hoja, RESULTADO, VivoCanal, chapaDe, esAnomala, fotoEvento, resultado, type Resultado } from "@/components/pwa/lpr/piezas";
@@ -38,6 +40,13 @@ const CONTADORES_CADA_MS = 60_000;
 /** Al volver a la app después de esto en segundo plano, se recarga entera (el vivo se corta). */
 const RECARGA_TRAS_MS = 20_000;
 const RECIENTES_MAX = 8;
+
+/**
+ * Las cámaras que muestra la app: las mismas que el Monitor LPR. Las LPR de acceso y las interiores
+ * que miran un acceso, menos las apagadas por su área en Dispositivos. Antes la app pedía sólo
+ * LPR_CAMERA y no sabía de áreas: las interiores de acceso no aparecían y las de un área apagada sí.
+ */
+const esCamaraDeAcceso = (x: any) => x.deviceType === "LPR_CAMERA" || (x.deviceType === "LPR_INTERIOR" && !!x.trackAcceso);
 
 type Pestania = "camaras" | "eventos" | "buscar";
 type Filtro = "todos" | Resultado;
@@ -94,6 +103,8 @@ export default function LprPwa() {
     const [buscando, setBuscando] = useState(false);
     const [recientes, setRecientes] = useState<string[]>([]);
     const [tema, setTema] = useTemaApp();
+    // El área de Dispositivos, como en el Monitor LPR (se recuerda en este teléfono).
+    const fa = useFiltroArea("pwa-lpr");
 
     useEffect(() => {
         setColumnas(leer("pwa-lpr-columnas", "1") === "2" ? 2 : 1);
@@ -104,11 +115,13 @@ export default function LprPwa() {
     const cargar = useCallback(async () => {
         setError(false);
         try {
-            const [todos, evs]: any = await Promise.all([
+            const [todos, apagados, evs]: any = await Promise.all([
                 getDevices(),
+                getEquiposApagados().catch(() => [] as string[]),
                 getAccessEvents({ take: PAGINA, type: "PLATE", from: new Date(Date.now() - 7 * 86_400_000), omitEnrichment: true }),
             ]);
-            setCamaras((todos as any[]).filter((d) => d.deviceType === "LPR_CAMERA"));
+            const off = new Set<string>(apagados || []);
+            setCamaras((todos as any[]).filter((d) => esCamaraDeAcceso(d) && !off.has(d.id)));
             const lista = (evs?.events || []) as any[];
             setEventos(lista); setMasPaginas(lista.length >= PAGINA);
             contadores();
@@ -156,8 +169,18 @@ export default function LprPwa() {
         return m;
     }, [eventos]);
 
-    const filtrados = useMemo(() => eventos.filter((e) =>
-        (filtro === "todos" || resultado(e) === filtro) && (!camFiltro || (e.device?.id || e.deviceId) === camFiltro)), [eventos, filtro, camFiltro]);
+    const visibles = useMemo(() => camaras.filter((c) => fa.enArea(c.id)), [camaras, fa]);
+    /** Sólo las áreas que tienen alguna de estas cámaras (y «Sin área» si queda alguna afuera). */
+    const areasConCamaras = useMemo(() => {
+        if (!fa.hayAreas) return [] as { id: string; nombre: string }[];
+        const out = fa.areas.filter((a) => camaras.some((c) => fa.enAreaDe(a.id, c.id))).map((a) => ({ id: a.id, nombre: a.nombre }));
+        if (camaras.some((c) => fa.enAreaDe(SIN_AREA, c.id))) out.push({ id: SIN_AREA, nombre: "Sin área" });
+        return out;
+    }, [fa, camaras]);
+    const filtrados = useMemo(() => eventos.filter((e) => {
+        const id = e.device?.id || e.deviceId;
+        return (filtro === "todos" || resultado(e) === filtro) && (!camFiltro || id === camFiltro) && fa.enArea(id);
+    }), [eventos, filtro, camFiltro, fa]);
 
     /** Eventos agrupados por día y hora, como el feed de Protect. */
     const grupos = useMemo(() => {
@@ -248,8 +271,16 @@ export default function LprPwa() {
                             </button>
                         ))}
                     </div>
+                    {areasConCamaras.length > 1 && (
+                        <div className="mt-3 px-4 flex gap-1.5 overflow-x-auto [&::-webkit-scrollbar]:hidden">
+                            {[{ id: TODAS_LAS_AREAS, nombre: "Todas las áreas" }, ...areasConCamaras].map((a) => (
+                                <button key={a.id} type="button" onClick={() => fa.setArea(a.id)} aria-pressed={fa.area === a.id}
+                                    className={cn("shrink-0 h-8 px-3 rounded-full border text-[12.5px] font-semibold", fa.area === a.id ? "bg-foreground text-background border-transparent" : "border-border bg-card text-muted-foreground")}>{a.nombre}</button>
+                            ))}
+                        </div>
+                    )}
                     <div className="px-4 mt-4 mb-2 flex items-center justify-between">
-                        <span className="text-[13px] font-semibold">{camaras.length} {camaras.length === 1 ? "cámara" : "cámaras"}</span>
+                        <span className="text-[13px] font-semibold">{visibles.length} {visibles.length === 1 ? "cámara" : "cámaras"}{fa.nombre ? ` · ${fa.nombre}` : ""}</span>
                         <div className="flex items-center rounded-full border border-border bg-card p-0.5">
                             <button type="button" aria-label="Una columna" onClick={() => elegirColumnas(1)} className={cn("w-8 h-7 grid place-items-center rounded-full", columnas === 1 ? "bg-muted text-foreground" : "text-muted-foreground")}><Rows3 size={15} /></button>
                             <button type="button" aria-label="Dos columnas" onClick={() => elegirColumnas(2)} className={cn("w-8 h-7 grid place-items-center rounded-full", columnas === 2 ? "bg-muted text-foreground" : "text-muted-foreground")}><Columns2 size={15} /></button>
@@ -263,11 +294,14 @@ export default function LprPwa() {
                             <div className="text-[12.5px] text-muted-foreground mt-1">Revisá la conexión con el servidor.</div>
                             <button type="button" onClick={cargar} className="mt-3 h-9 px-4 rounded-full bg-[var(--accion)] text-white text-[13px] font-semibold inline-flex items-center gap-1.5"><RefreshCw size={14} /> Reintentar</button>
                         </div>
-                    ) : camaras.length === 0 ? (
-                        <div className="py-16 flex flex-col items-center gap-2 text-muted-foreground"><Camera size={26} /><span className="text-[13px]">No hay cámaras LPR dadas de alta.</span></div>
+                    ) : visibles.length === 0 ? (
+                        <div className="py-16 flex flex-col items-center gap-2 text-muted-foreground text-center px-6"><Camera size={26} />
+                            <span className="text-[13px]">{camaras.length ? "No hay cámaras LPR en esta área." : "No hay cámaras LPR encendidas. Revisá en Dispositivos que su área no esté apagada."}</span>
+                            {camaras.length > 0 && <button type="button" onClick={() => fa.setArea(TODAS_LAS_AREAS)} className="tono-accion text-[13px] font-semibold">Ver todas las áreas</button>}
+                        </div>
                     ) : (
                         <div className={cn("px-3 grid gap-3", columnas === 2 ? "grid-cols-2" : "grid-cols-1")}>
-                            {camaras.map((c) => {
+                            {visibles.map((c) => {
                                 const lp = ultima[c.id];
                                 const r = lp ? RESULTADO[resultado(lp)] : null;
                                 return (
@@ -310,10 +344,10 @@ export default function LprPwa() {
                                     className={cn("shrink-0 h-8 px-3 rounded-full border text-[12.5px] font-semibold", filtro === k ? "bg-foreground text-background border-transparent" : "border-border bg-card text-muted-foreground")}>{r}</button>
                             ))}
                         </div>
-                        {camaras.length > 1 && (
+                        {visibles.length > 1 && (
                             <div className="px-4 flex gap-1.5 overflow-x-auto [&::-webkit-scrollbar]:hidden">
-                                <button type="button" onClick={() => setCamFiltro(null)} className={cn("shrink-0 h-7 px-2.5 rounded-full border text-[11.5px]", !camFiltro ? "border-[var(--accion)] tono-accion font-semibold" : "border-border text-muted-foreground")}>Todas las cámaras</button>
-                                {camaras.map((c) => (
+                                <button type="button" onClick={() => setCamFiltro(null)} className={cn("shrink-0 h-7 px-2.5 rounded-full border text-[11.5px]", !camFiltro ? "border-[var(--accion)] tono-accion font-semibold" : "border-border text-muted-foreground")}>{fa.nombre ? `Todas · ${fa.nombre}` : "Todas las cámaras"}</button>
+                                {visibles.map((c) => (
                                     <button key={c.id} type="button" onClick={() => setCamFiltro(c.id)} className={cn("shrink-0 h-7 px-2.5 rounded-full border text-[11.5px]", camFiltro === c.id ? "border-[var(--accion)] tono-accion font-semibold" : "border-border text-muted-foreground")}>{c.name}</button>
                                 ))}
                             </div>
