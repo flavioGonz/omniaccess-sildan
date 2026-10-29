@@ -8,7 +8,11 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-    themeColor: "#3b82f6",
+    // El color de la barra del sistema acompaña al tema del teléfono (antes era azul fijo).
+    themeColor: [
+        { media: "(prefers-color-scheme: dark)", color: "#0b0d12" },
+        { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    ],
     width: "device-width",
     initialScale: 1,
     maximumScale: 1,
