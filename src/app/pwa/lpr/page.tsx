@@ -21,7 +21,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import io from "socket.io-client";
 import { useTheme } from "next-themes";
-import { Bell, Camera, Car, ChevronRight, Clock, Columns2, Download, History, LayoutList, Maximize2, Monitor, Moon, RefreshCw, Rows3, Search, Settings, Sun, SunMedium, Video, WifiOff, X } from "lucide-react";
+import { Bell, Camera, Car, LogIn, ChevronRight, Clock, Columns2, Download, History, LayoutList, Maximize2, Monitor, Moon, RefreshCw, Rows3, Search, Settings, Sun, SunMedium, Video, WifiOff, X } from "lucide-react";
 import LiveEdgeKeeper from "@/components/LiveEdgeKeeper";
 import PwaSplash from "@/components/PwaSplash";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,7 @@ import { getDevices, getEquiposApagados } from "@/app/actions/devices";
 import { useFiltroArea, TODAS_LAS_AREAS } from "@/lib/use-filtro-area";
 import { SIN_AREA } from "@/lib/filtro-areas";
 import { getAccessEvents, getEventsCountToday } from "@/app/actions/history";
+import { getSession } from "@/app/actions/auth";
 import { fecha, hace, hora, horaSeg } from "@/lib/fechas";
 import { Chapa, FilaLectura, FotoEvento, Hoja, RESULTADO, VivoCanal, chapaDe, esAnomala, fotoEvento, resultado, type Resultado } from "@/components/pwa/lpr/piezas";
 import { VistaCamara } from "@/components/pwa/lpr/VistaCamara";
@@ -85,6 +86,9 @@ export default function LprPwa() {
     const [masPaginas, setMasPaginas] = useState(true);
     const [cargando, setCargando] = useState(true);
     const [error, setError] = useState(false);
+    // Sin sesión del panel el servidor rechaza todas las consultas (roles y permisos): no es un
+    // problema de conexión, y decir «revisá la conexión» mandaba a buscar el error donde no está.
+    const [sinSesion, setSinSesion] = useState(false);
     const [hoy, setHoy] = useState<{ total: number; grants: number; denies: number } | null>(null);
     const [pestania, setPestania] = useState<Pestania>("camaras");
     const [columnas, setColumnas] = useState<1 | 2>(1);
@@ -114,6 +118,11 @@ export default function LprPwa() {
     const contadores = useCallback(() => { getEventsCountToday("PLATE").then(setHoy).catch(() => {}); }, []);
     const cargar = useCallback(async () => {
         setError(false);
+        // getSession es una de las acciones que se pueden llamar sin sesión: pregunta primero, así
+        // el teléfono que nunca entró ve «entrá con tu usuario» y no tres consultas rechazadas.
+        const sesion = await getSession().catch(() => undefined);
+        if (sesion === null) { setSinSesion(true); setCargando(false); return; }
+        setSinSesion(false);
         try {
             const [todos, apagados, evs]: any = await Promise.all([
                 getDevices(),
@@ -125,7 +134,12 @@ export default function LprPwa() {
             const lista = (evs?.events || []) as any[];
             setEventos(lista); setMasPaginas(lista.length >= PAGINA);
             contadores();
-        } catch (e) { console.error(e); setError(true); }
+        } catch (e) {
+            console.error(e);
+            // La sesión dura 24 h: si venció mientras la app estaba abierta, el fallo es ése.
+            const s = await getSession().catch(() => undefined);
+            if (s === null) setSinSesion(true); else setError(true);
+        }
         finally { setCargando(false); }
     }, [contadores]);
     const cargarMas = async () => {
@@ -242,6 +256,16 @@ export default function LprPwa() {
         <div className="fixed inset-0 flex flex-col bg-background text-foreground overflow-hidden">
             <PwaSplash target="lpr" />
             <LiveEdgeKeeper />
+            {sinSesion && (
+                // Tapa todo: sin sesión no hay cámaras ni lecturas que mostrar, y un panel vacío con
+                // contadores en «—» parecía una falla del servidor.
+                <div className="absolute inset-0 z-[80] bg-background flex flex-col items-center justify-center text-center px-8 gap-3">
+                    <div className="w-14 h-14 rounded-full bg-muted grid place-items-center"><Camera size={24} className="text-muted-foreground" /></div>
+                    <div className="text-[19px] font-bold tracking-[-0.01em]">Entrá con tu usuario</div>
+                    <div className="text-[13px] text-muted-foreground max-w-[300px]">LPR en vivo muestra cámaras y lecturas, así que pide el mismo usuario y contraseña del panel. Después de entrar volvés directo acá.</div>
+                    <a href={`/login?volver=${encodeURIComponent("/pwa/lpr")}`} className="mt-2 h-11 px-6 rounded-full bg-[var(--accion)] text-white text-[14px] font-semibold inline-flex items-center gap-2"><LogIn size={16} /> Entrar</a>
+                </div>
+            )}
             {!enLinea && <div className="absolute top-0 inset-x-0 z-[90] pleno-mal text-[11px] font-semibold text-center py-1 flex items-center justify-center gap-1.5"><WifiOff size={12} /> Sin conexión</div>}
 
             {/* Encabezado */}
