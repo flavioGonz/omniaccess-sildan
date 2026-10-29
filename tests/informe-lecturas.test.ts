@@ -48,3 +48,9 @@ test("informe: sin lecturas lo dice", () => {
     const inf = armarInforme([], []);
     assert.deepEqual(inf.hallazgos, ["No hay lecturas registradas en el período elegido."]);
 });
+
+test("informe: NO_LEIDA no es una chapa (ni con guion bajo ni normalizada)", async () => {
+    const { chapaNorm } = await import("@/lib/informes/lecturas-resumen");
+    for (const x of ["NO_LEIDA", "NOLEIDA", "unknown", "S/P", "", null]) assert.equal(chapaNorm(x as any), null, String(x));
+    assert.equal(chapaNorm("sbf-2974"), "SBF2974");
+});

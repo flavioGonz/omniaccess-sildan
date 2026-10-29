@@ -16,7 +16,8 @@
 import type { FilaLectura, EstadoPaso } from "@/lib/lecturas-camara";
 
 export const ZONA_INFORME = process.env.NEXT_PUBLIC_TZ || "America/Montevideo";
-const NO_LEIDAS = new Set(["NO_LEIDA", "UNKNOWN", "S/P", "SP", ""]);
+/** Ya normalizadas (sin «_» ni «/»): ver lib/lecturas-camara. */
+const NO_LEIDAS = new Set(["NOLEIDA", "UNKNOWN", "SP", ""]);
 export const chapaNorm = (p: string | null | undefined) => { const n = String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); return n && !NO_LEIDAS.has(n) ? n : null; };
 
 /** Cómo quedó la relectura de OmniVision frente a lo que leyó la cámara en ese paso. */

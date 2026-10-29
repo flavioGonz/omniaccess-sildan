@@ -54,7 +54,13 @@ function parecidas(a: string, b: string) {
     }
     return prev[n] <= 2;
 }
-const NO_LEIDAS = new Set(["NO_LEIDA", "UNKNOWN", "S/P", ""]);
+/**
+ * Lo que no es una chapa, YA NORMALIZADO: normalizarMatricula saca todo lo que no es letra o número,
+ * así que «NO_LEIDA» llega como «NOLEIDA» y «S/P» como «SP». Antes la lista tenía las formas sin
+ * normalizar y nunca coincidía: un paso donde la cámara no leyó y el evento llegó NO_LEIDA contaba
+ * como «otra chapa» (en el lab, 6187 de 6200 «otra chapa» de una semana eran eso).
+ */
+const NO_LEIDAS = new Set(["NOLEIDA", "UNKNOWN", "SP", ""]);
 const chapa = (p: string | null | undefined) => { const n = normalizarMatricula(p || ""); return n && !NO_LEIDAS.has(n) ? n : null; };
 
 export async function compararLecturas(opc: { desde: Date; hasta?: Date; camaras?: string[] }): Promise<{
