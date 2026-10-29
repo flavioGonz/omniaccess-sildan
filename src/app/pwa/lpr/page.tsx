@@ -21,7 +21,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import io from "socket.io-client";
 import { useTheme } from "next-themes";
-import { Bell, Camera, Car, LogIn, ChevronRight, Clock, Columns2, Download, History, LayoutList, Maximize2, Monitor, Moon, RefreshCw, Rows3, Search, Settings, Sun, SunMedium, Video, WifiOff, X } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { AlertTriangle, Bell, Camera, Car, LogIn, Ticket, ChevronRight, Clock, Columns2, Download, History, LayoutList, Maximize2, Monitor, Moon, RefreshCw, Rows3, Search, Settings, Sun, SunMedium, Video, WifiOff, X } from "lucide-react";
 import LiveEdgeKeeper from "@/components/LiveEdgeKeeper";
 import PwaSplash from "@/components/PwaSplash";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,10 @@ import { getSession } from "@/app/actions/auth";
 import { fecha, hace, hora, horaSeg } from "@/lib/fechas";
 import { Chapa, FilaLectura, FotoEvento, Hoja, RESULTADO, VivoCanal, chapaDe, esAnomala, fotoEvento, resultado, type Resultado } from "@/components/pwa/lpr/piezas";
 import { VistaCamara } from "@/components/pwa/lpr/VistaCamara";
+import { Barra } from "@/components/pwa/lpr/Barra";
+import { Visitas } from "@/components/pwa/lpr/Visitas";
+import { Atipicos, type FilaAtipica } from "@/components/pwa/lpr/Atipicos";
+import { CURVA_IOS } from "@/components/pwa/lpr/piezas";
 
 /** Cuántas lecturas trae Eventos de una vez («Cargar más» suma otras tantas). */
 const PAGINA = 60;
@@ -41,6 +46,10 @@ const CONTADORES_CADA_MS = 60_000;
 /** Al volver a la app después de esto en segundo plano, se recarga entera (el vivo se corta). */
 const RECARGA_TRAS_MS = 20_000;
 const RECIENTES_MAX = 8;
+/** Cada cuánto se rehace la lista de atípicos (el mismo cálculo que la pared del Control LPR). */
+const ATIPICOS_CADA_MS = 60_000;
+/** Entre cerrar una hoja y abrir otra: el «history.back()» de la que se cierra llega un instante después. */
+const ESPERA_ATRAS_MS = 260;
 
 /**
  * Las cámaras que muestra la app: las mismas que el Monitor LPR. Las LPR de acceso y las interiores
@@ -49,8 +58,17 @@ const RECIENTES_MAX = 8;
  */
 const esCamaraDeAcceso = (x: any) => x.deviceType === "LPR_CAMERA" || (x.deviceType === "LPR_INTERIOR" && !!x.trackAcceso);
 
-type Pestania = "camaras" | "eventos" | "buscar";
-type Filtro = "todos" | Resultado;
+type Pestania = "camaras" | "eventos" | "visitas" | "atipicos" | "buscar";
+/** El orden de la barra: decide hacia qué lado se desliza una pestaña al cambiar. */
+const PESTANIAS: { clave: Pestania; rotulo: string; titulo: string; icono: any }[] = [
+    { clave: "camaras", rotulo: "Cámaras", titulo: "Cámaras", icono: Video },
+    { clave: "eventos", rotulo: "Eventos", titulo: "Eventos", icono: LayoutList },
+    { clave: "visitas", rotulo: "Visitas", titulo: "Visitas", icono: Ticket },
+    { clave: "atipicos", rotulo: "Atípicos", titulo: "Atípicos", icono: AlertTriangle },
+    { clave: "buscar", rotulo: "Buscar", titulo: "Buscar", icono: Search },
+];
+/** «atipico»: las lecturas de las chapas que hoy están adentro y son atípicas. */
+type Filtro = "todos" | Resultado | "atipico";
 type Tema = "light" | "dark" | "sistema";
 
 function urlB64ToUint8(base64: string) {
@@ -89,6 +107,12 @@ export default function LprPwa() {
     // Sin sesión del panel el servidor rechaza todas las consultas (roles y permisos): no es un
     // problema de conexión, y decir «revisá la conexión» mandaba a buscar el error donde no está.
     const [sinSesion, setSinSesion] = useState(false);
+    /** Quién usa la app: va como «validó» en los ingresos de visitas. */
+    const [quien, setQuien] = useState<string | null>(null);
+    const [atipicos, setAtipicos] = useState<FilaAtipica[] | null>(null);
+    const [errorAtipicos, setErrorAtipicos] = useState(false);
+    /** Hacia dónde se fue la última vez que se cambió de pestaña (1 = a la derecha). */
+    const [sentido, setSentido] = useState(1);
     const [hoy, setHoy] = useState<{ total: number; grants: number; denies: number } | null>(null);
     const [pestania, setPestania] = useState<Pestania>("camaras");
     const [columnas, setColumnas] = useState<1 | 2>(1);
@@ -123,6 +147,7 @@ export default function LprPwa() {
         const sesion = await getSession().catch(() => undefined);
         if (sesion === null) { setSinSesion(true); setCargando(false); return; }
         setSinSesion(false);
+        if (sesion && typeof (sesion as any).name === "string") setQuien((sesion as any).name);
         try {
             const [todos, apagados, evs]: any = await Promise.all([
                 getDevices(),
@@ -150,6 +175,28 @@ export default function LprPwa() {
     };
 
     useEffect(() => { cargar(); const iv = setInterval(contadores, CONTADORES_CADA_MS); return () => clearInterval(iv); }, [cargar, contadores]);
+
+    // Los atípicos se piden siempre (no sólo con la pestaña abierta): la barra muestra cuántos hay.
+    const cargarAtipicos = useCallback(async () => {
+        try {
+            const r = await fetch("/api/monitor/lpr/presencia", { cache: "no-store" });
+            if (!r.ok) throw new Error(String(r.status));
+            const j = await r.json();
+            setAtipicos((j.atipicos || []) as FilaAtipica[]); setErrorAtipicos(false);
+        } catch { setErrorAtipicos(true); }
+    }, []);
+    useEffect(() => {
+        if (sinSesion) return;
+        cargarAtipicos();
+        const iv = setInterval(() => { if (document.visibilityState === "visible") cargarAtipicos(); }, ATIPICOS_CADA_MS);
+        return () => clearInterval(iv);
+    }, [sinSesion, cargarAtipicos]);
+    const chapasAtipicas = useMemo(() => new Set((atipicos || []).map((a) => a.plate).filter(Boolean) as string[]), [atipicos]);
+
+    const irA = (k: Pestania) => {
+        const i = PESTANIAS.findIndex((x) => x.clave === k), j = PESTANIAS.findIndex((x) => x.clave === pestania);
+        setSentido(i >= j ? 1 : -1); setPestania(k);
+    };
 
     useEffect(() => {
         if ("Notification" in window) { if (Notification.permission === "granted") setPush("on"); else if (Notification.permission === "denied") setPush("denied"); }
@@ -193,8 +240,9 @@ export default function LprPwa() {
     }, [fa, camaras]);
     const filtrados = useMemo(() => eventos.filter((e) => {
         const id = e.device?.id || e.deviceId;
-        return (filtro === "todos" || resultado(e) === filtro) && (!camFiltro || id === camFiltro) && fa.enArea(id);
-    }), [eventos, filtro, camFiltro, fa]);
+        const pasa = filtro === "todos" ? true : filtro === "atipico" ? chapasAtipicas.has(chapaDe(e) || "") : resultado(e) === filtro;
+        return pasa && (!camFiltro || id === camFiltro) && fa.enArea(id);
+    }), [eventos, filtro, camFiltro, fa, chapasAtipicas]);
 
     /** Eventos agrupados por día y hora, como el feed de Protect. */
     const grupos = useMemo(() => {
@@ -250,7 +298,13 @@ export default function LprPwa() {
         setTimeout(() => setAbierta({ cam: { id: cam.id, name: cam.name }, desde }), 150);
     };
 
-    const titulo = pestania === "camaras" ? "Cámaras" : pestania === "eventos" ? "Eventos" : "Buscar";
+    const titulo = PESTANIAS.find((x) => x.clave === pestania)!.titulo;
+    /** Abrir una cámara por su nombre (los atípicos traen el nombre de la última que lo vio). */
+    const verCamaraPorNombre = (nombre: string | null, desde: number) => {
+        const cam = camaras.find((c) => c.name === nombre);
+        if (cam) setTimeout(() => setAbierta({ cam: { id: cam.id, name: cam.name }, desde }), ESPERA_ATRAS_MS);
+    };
+    const buscarDesde = (chapa: string) => { setTimeout(() => { irA("buscar"); buscar(chapa); }, ESPERA_ATRAS_MS); };
 
     return (
         <div className="fixed inset-0 flex flex-col bg-background text-foreground overflow-hidden">
@@ -275,7 +329,13 @@ export default function LprPwa() {
                         <span className={cn("w-1.5 h-1.5 rounded-full", conectado ? "pleno-bien" : "pleno-quieto")} />
                         LPR en vivo · {conectado ? "conectado" : "reconectando"}
                     </div>
-                    <h1 className="text-[26px] font-bold tracking-[-0.01em] leading-tight">{titulo}</h1>
+                    <div className="relative h-[34px] overflow-hidden">
+                        <AnimatePresence initial={false} custom={sentido}>
+                            <motion.h1 key={titulo} custom={sentido} className="absolute inset-0 text-[26px] font-bold tracking-[-0.01em] leading-[34px] whitespace-nowrap"
+                                variants={{ entra: (d: number) => ({ y: 14 * d, opacity: 0 }), quieto: { y: 0, opacity: 1 }, sale: (d: number) => ({ y: -14 * d, opacity: 0 }) }}
+                                initial="entra" animate="quieto" exit="sale" transition={{ duration: 0.32, ease: CURVA_IOS }}>{titulo}</motion.h1>
+                        </AnimatePresence>
+                    </div>
                 </div>
                 <button type="button" onClick={() => setAjustes(true)} aria-label="Ajustes" className="relative w-10 h-10 grid place-items-center rounded-full border border-border bg-card active:bg-muted">
                     <Settings size={18} />
@@ -283,12 +343,22 @@ export default function LprPwa() {
                 </button>
             </header>
 
+            {/*
+              Las pestañas se deslizan hacia el lado de la barra donde está la nueva, como al pasar
+              de una a otra en iOS, y la que se va se desvanece hacia el otro (29/10, Nico:
+              «transiciones de entrada y salida premium»). Antes cambiaban de golpe.
+            */}
+            <div className="relative flex-1 min-h-0">
+            <AnimatePresence initial={false} custom={sentido}>
+            <motion.div key={pestania} custom={sentido} className="absolute inset-0 flex flex-col"
+                variants={{ entra: (d: number) => ({ x: 36 * d, opacity: 0, scale: 0.985 }), quieto: { x: 0, opacity: 1, scale: 1 }, sale: (d: number) => ({ x: -36 * d, opacity: 0, scale: 0.985 }) }}
+                initial="entra" animate="quieto" exit="sale" transition={{ duration: 0.34, ease: CURVA_IOS }}>
             {/* ── CÁMARAS ── */}
             {pestania === "camaras" && (
-                <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden pb-24 animate-in fade-in duration-200">
+                <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden pb-28">
                     <div className="px-4 grid grid-cols-3 gap-2">
                         {([["Lecturas hoy", hoy?.total, ""], ["Permitidos", hoy?.grants, "tono-bien"], ["Denegados", hoy?.denies, "tono-mal"]] as const).map(([r, v, t]) => (
-                            <button key={r} type="button" onClick={() => { setPestania("eventos"); setFiltro(t === "tono-bien" ? "permitido" : t === "tono-mal" ? "denegado" : "todos"); }}
+                            <button key={r} type="button" onClick={() => { irA("eventos"); setFiltro(t === "tono-bien" ? "permitido" : t === "tono-mal" ? "denegado" : "todos"); }}
                                 className="text-left rounded-[10px] border border-border bg-card px-3 py-2 active:bg-muted">
                                 <div className="text-[11px] text-muted-foreground">{r}</div>
                                 <div className={cn("text-[20px] font-bold tabular-nums leading-tight", t)}>{v ?? "—"}</div>
@@ -360,10 +430,10 @@ export default function LprPwa() {
 
             {/* ── EVENTOS ── */}
             {pestania === "eventos" && (
-                <div className="flex-1 min-h-0 flex flex-col animate-in fade-in duration-200">
+                <div className="flex-1 min-h-0 flex flex-col">
                     <div className="shrink-0 space-y-2 pb-2">
                         <div className="px-4 flex gap-1.5 overflow-x-auto [&::-webkit-scrollbar]:hidden">
-                            {([["todos", "Todos"], ["permitido", "Permitidos"], ["denegado", "Denegados"], ["noleida", "Sin lectura"]] as [Filtro, string][]).map(([k, r]) => (
+                            {([["todos", "Todos"], ["permitido", "Permitidos"], ["denegado", "Denegados"], ["noleida", "Sin lectura"], ["atipico", `Atípicos${chapasAtipicas.size ? ` · ${chapasAtipicas.size}` : ""}`]] as [Filtro, string][]).map(([k, r]) => (
                                 <button key={k} type="button" onClick={() => setFiltro(k)} aria-pressed={filtro === k}
                                     className={cn("shrink-0 h-8 px-3 rounded-full border text-[12.5px] font-semibold", filtro === k ? "bg-foreground text-background border-transparent" : "border-border bg-card text-muted-foreground")}>{r}</button>
                             ))}
@@ -377,7 +447,7 @@ export default function LprPwa() {
                             </div>
                         )}
                     </div>
-                    <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden px-3 pb-24">
+                    <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden px-3 pb-28">
                         {cargando ? <div className="space-y-1.5">{[0, 1, 2, 3].map((i) => <div key={i} className="h-[66px] rounded-[10px] bg-muted animate-pulse" />)}</div>
                             : error ? <div className="text-center py-16 text-[13px] text-muted-foreground">No se pudieron traer las lecturas. <button type="button" onClick={cargar} className="tono-accion font-semibold">Reintentar</button></div>
                                 : grupos.length === 0 ? <div className="py-16 flex flex-col items-center gap-2 text-muted-foreground"><Car size={26} /><span className="text-[13px]">Sin lecturas con este filtro.</span></div>
@@ -396,7 +466,7 @@ export default function LprPwa() {
 
             {/* ── BUSCAR ── */}
             {pestania === "buscar" && (
-                <div className="flex-1 min-h-0 flex flex-col animate-in fade-in duration-200">
+                <div className="flex-1 min-h-0 flex flex-col">
                     <form onSubmit={(e) => { e.preventDefault(); buscar(); }} className="shrink-0 px-4 pb-3 flex items-center gap-2">
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
@@ -408,7 +478,7 @@ export default function LprPwa() {
                             {buscando ? <RefreshCw size={16} className="animate-spin" /> : <Search size={16} />}Buscar
                         </button>
                     </form>
-                    <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden px-3 pb-24">
+                    <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:hidden px-3 pb-28">
                         {resultados == null ? (
                             recientes.length > 0 ? (
                                 <div>
@@ -434,17 +504,17 @@ export default function LprPwa() {
                 </div>
             )}
 
+            {/* ── VISITAS ── */}
+            {pestania === "visitas" && <Visitas activa quien={quien} />}
+
+            {/* ── ATÍPICOS ── */}
+            {pestania === "atipicos" && <Atipicos filas={atipicos} error={errorAtipicos} alReintentar={cargarAtipicos} alVerCamara={verCamaraPorNombre} alBuscar={buscarDesde} />}
+            </motion.div>
+            </AnimatePresence>
+            </div>
+
             {/* Barra de abajo */}
-            <nav className="absolute bottom-0 inset-x-0 z-30 border-t border-border bg-background/90 backdrop-blur-xl pb-[max(0.4rem,env(safe-area-inset-bottom))]">
-                <div className="grid grid-cols-3">
-                    {([["camaras", "Cámaras", Video], ["eventos", "Eventos", LayoutList], ["buscar", "Buscar", Search]] as const).map(([k, r, Ico]) => (
-                        <button key={k} type="button" onClick={() => setPestania(k)} aria-current={pestania === k ? "page" : undefined}
-                            className={cn("h-14 flex flex-col items-center justify-center gap-0.5 text-[10.5px] font-semibold", pestania === k ? "tono-accion" : "text-muted-foreground")}>
-                            <Ico size={20} strokeWidth={pestania === k ? 2.3 : 1.8} />{r}
-                        </button>
-                    ))}
-                </div>
-            </nav>
+            <Barra botones={PESTANIAS.map((x) => ({ clave: x.clave, rotulo: x.rotulo, icono: x.icono, aviso: x.clave === "atipicos" ? atipicos?.length || 0 : undefined }))} activa={pestania} alElegir={irA} />
 
             {/* La cámara abierta */}
             <VistaCamara camara={abierta?.cam || null} desde={abierta?.desde ?? null} abierta={!!abierta} alCerrar={() => setAbierta(null)} />

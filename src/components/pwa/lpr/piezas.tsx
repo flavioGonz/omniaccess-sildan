@@ -13,6 +13,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { Camera, Car } from "lucide-react";
+import { AnimatePresence, motion, useDragControls } from "framer-motion";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
 /** Lo que la cámara manda cuando no hay chapa: no es una matrícula. */
@@ -134,14 +136,26 @@ export function FilaLectura({ e, alTocar, hora, sinCamara, activa }: { e: any; a
     );
 }
 
+/** La curva de las hojas de iOS: arranca rápido y se asienta sin rebote. */
+export const CURVA_IOS = [0.32, 0.72, 0, 1] as const;
+/** Cuánto hay que bajar una hoja (o qué tan rápido) para que se cierre al soltarla. */
+const CIERRE_PX = 110;
+const CIERRE_VEL = 600;
+
 /**
- * Una hoja que sube desde abajo, como las de Protect. Ocupa la pantalla entera en el celular;
- * se cierra con la flecha, tocando afuera o con «Atrás» del sistema.
+ * Una hoja, con entrada y salida animadas (29/10, Nico: «transiciones de entrada y salida
+ * premium»). Antes aparecía de golpe y al cerrarse desaparecía sin moverse: `return null` apenas
+ * se cerraba no dejaba tiempo para ninguna salida.
+ *
+ * - «media» sube desde abajo, se arrastra de la manija para cerrarla y oscurece lo de atrás;
+ * - «completa» entra desde la derecha, como una pantalla que se empuja en iOS.
+ *
+ * Mientras sale se sigue viendo lo último que mostró: quien la abre suele poner su dato en null
+ * al cerrarla, y sin esto la hoja salía vacía. «Atrás» del celular la cierra en vez de salir.
  */
 export function Hoja({ abierta, alCerrar, children, alto = "completa", className }: {
     abierta: boolean; alCerrar: () => void; children: React.ReactNode; alto?: "completa" | "media"; className?: string;
 }) {
-    // «Atrás» del celular cierra la hoja en vez de salir de la app.
     useEffect(() => {
         if (!abierta) return;
         history.pushState({ hoja: true }, "");
@@ -150,14 +164,41 @@ export function Hoja({ abierta, alCerrar, children, alto = "completa", className
         return () => { window.removeEventListener("popstate", atras); if (history.state?.hoja) history.back(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [abierta]);
-    if (!abierta) return null;
-    return (
-        <div className="fixed inset-0 z-[60] flex flex-col justify-end">
-            <div className="absolute inset-0 bg-black/50 animate-in fade-in duration-200" onClick={alCerrar} />
-            <div className={cn("relative bg-background text-foreground flex flex-col animate-in slide-in-from-bottom duration-300",
-                alto === "completa" ? "h-full" : "max-h-[85vh] rounded-t-[14px] border-t border-border", className)}>
-                {children}
-            </div>
-        </div>
+    const ultimo = useRef<React.ReactNode>(children);
+    if (abierta) ultimo.current = children;
+    const arrastre = useDragControls();
+    const media = alto === "media";
+    // Va al body: dentro de una pestaña que se anima, un «fixed» se ubica respecto de la pestaña
+    // (un transform crea su propio marco) y la hoja quedaba corrida.
+    const [montada, setMontada] = useState(false);
+    useEffect(() => setMontada(true), []);
+    if (!montada) return null;
+    return createPortal(
+        <AnimatePresence>
+            {abierta && (
+                <div key="hoja" className="fixed inset-0 z-[60] flex flex-col justify-end">
+                    <motion.div className="absolute inset-0 bg-black/45" onClick={alCerrar}
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.28, ease: CURVA_IOS }} />
+                    <motion.div
+                        className={cn("relative bg-background text-foreground flex flex-col will-change-transform",
+                            media ? "max-h-[88vh] rounded-t-[14px] border-t border-border" : "h-full", className)}
+                        initial={media ? { y: "100%" } : { x: "100%" }}
+                        animate={media ? { y: 0 } : { x: 0 }}
+                        exit={media ? { y: "100%" } : { x: "100%" }}
+                        transition={{ duration: media ? 0.42 : 0.38, ease: CURVA_IOS }}
+                        drag={media ? "y" : false} dragListener={false} dragControls={arrastre}
+                        dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.9 }}
+                        onDragEnd={(_, i) => { if (i.offset.y > CIERRE_PX || i.velocity.y > CIERRE_VEL) alCerrar(); }}>
+                        {media && (
+                            <div className="shrink-0 pt-2 pb-0.5 grid place-items-center touch-none cursor-grab" onPointerDown={(e) => arrastre.start(e)}>
+                                <span className="w-9 h-[5px] rounded-full bg-muted-foreground/30" />
+                            </div>
+                        )}
+                        {abierta ? children : ultimo.current}
+                    </motion.div>
+                </div>
+            )}
+        </AnimatePresence>,
+        document.body,
     );
 }
