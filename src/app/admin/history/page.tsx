@@ -61,6 +61,13 @@ export default function HistoryPage() {
      * (El buscador de objetos por nombre, «Objetos», quedó adentro de OmniVision: ver TablaUnificada.)
      */
     const [foto, setFoto] = useState<{ blob: Blob; url: string; objeto: "vehiculo" | "persona" } | null>(null);
+    /**
+     * Lo que se le pasa a la tabla, MEMORIZADO. Antes era un objeto nuevo en cada render: la tabla
+     * buscaba en OmniVision cada vez que cambiaba (efecto con [foto]), al empezar avisaba «buscando»
+     * (onMotores), la página se volvía a dibujar, nacía otro objeto y la búsqueda se cortaba y volvía a
+     * empezar. La lista parpadeaba y nunca mostraba nada (29/10, Nico).
+     */
+    const fotoTabla = useMemo(() => (foto ? { blob: foto.blob, objeto: foto.objeto } : null), [foto?.blob, foto?.objeto]); // eslint-disable-line react-hooks/exhaustive-deps
     const elegirFoto = useRef<HTMLInputElement>(null);
     const ponerFoto = useCallback((b: Blob | null | undefined) => {
         if (!b || !/^image\/(jpeg|png|webp)/.test(b.type)) return;
@@ -329,7 +336,7 @@ export default function HistoryPage() {
                 onCargado={alCargar}
                 omnivision={conOmni}
                 grabador={conGrabador && !!(foto ? grabadorPuede?.imagen : grabadorPuede?.texto)}
-                foto={foto ? { blob: foto.blob, objeto: foto.objeto } : null}
+                foto={fotoTabla}
             />
 
             <ExportHistoryDialog

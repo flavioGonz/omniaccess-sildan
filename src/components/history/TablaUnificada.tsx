@@ -391,7 +391,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             siguiente = setTimeout(paso, 1500);
         }, 900);
         return () => { vivo = false; clearTimeout(arranque); clearTimeout(siguiente); };
-    }, [grabador, buscar, desde, hasta, foto]);
+    }, [grabador, buscar, desde, hasta, foto?.blob, foto?.objeto]); // eslint-disable-line react-hooks/exhaustive-deps
 
     /*
      * «Objetos» dentro de OmniVision (21/10, Nico: «el botón Objetos debe estar integrado al buscador
@@ -429,7 +429,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             .then((j) => { if (vivo) setPorFoto({ estado: "listo", resultados: j.resultados || [] }); })
             .catch((e) => { if (vivo) setPorFoto({ estado: "error", resultados: [], error: e?.message || "sin respuesta" }); });
         return () => { vivo = false; };
-    }, [foto, omnivision, desde]);
+    }, [foto?.blob, foto?.objeto, omnivision, desde]); // eslint-disable-line react-hooks/exhaustive-deps
 
     /**
      * En vivo.
