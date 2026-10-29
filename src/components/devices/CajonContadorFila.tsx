@@ -20,6 +20,7 @@ import { hora } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 import { SOSTENIDO_POR_DEFECTO_SEG } from "@/lib/filas/constantes";
+import { AvisoFilaCanales } from "@/components/queue/AvisoFilaCanales";
 
 /**
  * Alta y ficha de un contador de fila (cámara Bosch que cuenta gente en una zona), con el mismo
@@ -262,6 +263,10 @@ export function CajonContadorFila({ device, open, onOpenChange, onSuccess }: {
                 </Bloque>
                 <Bloque titulo="La fila" icono={Users} ayuda="El límite de personas de esta fila y si avisa al llenarse. La zona donde se cuenta vive en la cámara: se ajusta en Calibración.">
                     {bloqueFila}
+                </Bloque>
+                <Bloque titulo="El aviso" icono={BellRing} ayuda="Cuándo sale el aviso de fila cargada y por qué canales. Telegram y video se prenden o apagan acá mismo.">
+                    <AvisoFilaCanales limite={limiteValido ? limiteN : null} duranteMin={duranteSeg / 60} avisa={avisa} alCerrar={() => onOpenChange(false)}
+                        intervaloMin={alerta ? Math.round((alerta.cooldownSec ?? (alerta.cooldownMin || 0) * 60) / 60) || null : null} />
                 </Bloque>
                 <Bloque titulo="Conexión" icono={Network} ayuda="Cómo llega el servidor a la cámara. Con estos datos se suscribe al conteo (ONVIF) y se arma el vivo.">
                     {bloqueConexion}

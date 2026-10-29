@@ -62,3 +62,19 @@ export const FOTOS_DIAS_MAX = 365;
 /** Segundos de video ANTES y DESPUÉS del momento en que la fila pasó el límite. */
 export const AVISO_CLIP_ANTES_SEG = 10;
 export const AVISO_CLIP_DESPUES_SEG = 5;
+
+/*
+ * Por dónde sale el aviso de fila (HB, 28/10). Nico: «desactivá el Telegram que está mandando
+ * videos, luego lo activaremos». Antes el aviso salía SIEMPRE al grupo de Telegram si había chat
+ * cargado, y siempre con video: el interruptor «Telegram» de Notificaciones › Canales no lo
+ * frenaba (el aviso de filas no lo miraba), así que la pantalla decía una cosa y pasaba otra.
+ * Ahora son dos ajustes propios del aviso de filas, que se ven y se explican en la ficha de la fila.
+ *   AJUSTE_AVISO_TELEGRAM  "false" = el aviso no va al grupo ni a destinatarios de Telegram.
+ *                          El bot sigue contestando /foto, /video, etc.: eso es a pedido.
+ *   AJUSTE_AVISO_VIDEO     "false" = va con la foto marcada en lugar del clip. Un clip sale por
+ *                          el enlace del lugar (en HB, un LTE con poco saldo).
+ * Sin el ajuste guardado, los dos quedan prendidos: así andaban las instalaciones hasta hoy.
+ */
+export const AJUSTE_AVISO_TELEGRAM = "FILAS_AVISO_TELEGRAM";
+export const AJUSTE_AVISO_VIDEO = "FILAS_AVISO_VIDEO";
+export const ajustePrendido = (v?: string | null) => (v ?? "").trim() !== "false";

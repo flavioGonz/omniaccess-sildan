@@ -20,7 +20,7 @@ import { pushVigente, ultimoPush } from "@/lib/filas/push";
 import { fotoDeLectura, cuadroBosch } from "@/lib/filas/foto";
 import { avisarFila } from "@/lib/filas/avisar";
 import { acuseDesde } from "@/lib/filas/acuses";
-import { esCanalAforo, SOSTENIDO_TOLERANCIA_SEG } from "@/lib/filas/constantes";
+import { esCanalAforo, SOSTENIDO_TOLERANCIA_SEG, AJUSTE_AVISO_TELEGRAM, ajustePrendido } from "@/lib/filas/constantes";
 
 // ─── Types ─────────────────────────────────────────
 interface ONVIFSubscription {
@@ -795,7 +795,9 @@ async function checkQueueAlerts(deviceId: string, channelName: string | null | u
                 });
                 await avisarFila({ deviceId, alerta: alert.name, personas: count, limite: alert.threshold, snapshotPath, tipo: "escalamiento", canal: channelName });
                 // Critical-event trigger: enqueue an episode report for dispatch
-                enqueueDispatch({ type: "REPORT", channel: "telegram", deviceId, payload: { period: "daily", deviceId, reason: "escalation", ruleName: alert.name } }).catch(() => {});
+                // Con Telegram apagado para los avisos de fila, tampoco el informe del episodio (constantes.ts).
+                const tg = await prisma.setting.findUnique({ where: { key: AJUSTE_AVISO_TELEGRAM } }).catch(() => null);
+                if (ajustePrendido(tg?.value)) enqueueDispatch({ type: "REPORT", channel: "telegram", deviceId, payload: { period: "daily", deviceId, reason: "escalation", ruleName: alert.name } }).catch(() => {});
             } catch (e) { console.warn(`[QueueAlert] escalation dispatch failed "${alert.name}":`, e); }
             }
         }

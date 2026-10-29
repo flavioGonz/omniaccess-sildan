@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { enqueueDispatch } from "@/lib/dispatch-queue";
 import { demoraFila } from "@/lib/filas/demora";
 import { textoAvisoFila, textoPlano, personasTxt, type TipoAviso } from "@/lib/filas/aviso";
-import { AVISO_CLIP_ANTES_SEG, AVISO_CLIP_DESPUES_SEG } from "@/lib/filas/constantes";
+import { AVISO_CLIP_ANTES_SEG, AVISO_CLIP_DESPUES_SEG, AJUSTE_AVISO_TELEGRAM, AJUSTE_AVISO_VIDEO, ajustePrendido } from "@/lib/filas/constantes";
 import { silencioHasta } from "@/lib/filas/acuses";
 import { botonesAviso } from "@/lib/filas/bot";
 
@@ -17,8 +17,10 @@ import { botonesAviso } from "@/lib/filas/bot";
  * horario ni destinatarios. Ahora es un camino: la cola, que reintenta, deja registro en
  * Despachos, y el worker arma el clip del anillo de la cámara (lib/clip-instante).
  *
- * El clip va siempre en el aviso de filas, sin depender del interruptor «clip animado» de las
- * alertas de matrículas: es lo que pidió Nico (19/10) y el anillo de las Bosch graba igual.
+ * El clip no depende del interruptor «clip animado» de las alertas de matrículas: tiene el suyo,
+ * AJUSTE_AVISO_VIDEO (prendido por defecto, como pidió Nico el 19/10). Y Telegram tiene el suyo,
+ * AJUSTE_AVISO_TELEGRAM: apagado, el aviso no sale al grupo ni a destinatarios de Telegram, y
+ * sigue por los demás canales (correo, push). Ver constantes.ts.
  */
 export async function avisarFila(p: {
     deviceId: string; alerta: string; personas: number; limite: number;
@@ -34,12 +36,15 @@ export async function avisarFila(p: {
         const sil = await silencioHasta();
         if (sil) { console.log(`[aviso-fila] silenciado hasta ${sil.toISOString()}: no se manda`); return 0; }
     }
-    const [dev, demora, destinatarios, grupo] = await Promise.all([
+    const [dev, demora, destinatarios, grupoCargado, conTelegram, conVideo] = await Promise.all([
         prisma.device.findUnique({ where: { id: p.deviceId }, select: { name: true } }),
         demoraFila(p.deviceId, ahora),
         destinatariosDespacho(),
         prisma.setting.findUnique({ where: { key: "TELEGRAM_CHAT_ID" } }).then((s) => (s?.value || process.env.TELEGRAM_CHAT_ID || "").trim()).catch(() => ""),
+        leerAjuste(AJUSTE_AVISO_TELEGRAM).then(ajustePrendido),
+        leerAjuste(AJUSTE_AVISO_VIDEO).then(ajustePrendido),
     ]);
+    const grupo = conTelegram ? grupoCargado : "";
     const fila = dev?.name || "Fila";
     const html = textoAvisoFila({ fila, demora: { ...demora, limite: p.limite }, tipo: p.tipo, ahora, personas: p.personas, sostenidoMin: p.sostenidoMin ?? null });
     const base = {
@@ -50,7 +55,7 @@ export async function avisarFila(p: {
             : `${fila}: fila sobre el límite (${personasTxt(p.personas)})`,
         count: p.personas, threshold: p.limite, snapshotPath: p.snapshotPath || null,
         html, text: textoPlano(html), aviso: p.tipo,
-        conVideo: true, clipAntes: AVISO_CLIP_ANTES_SEG, clipDespues: AVISO_CLIP_DESPUES_SEG,
+        conVideo, clipAntes: AVISO_CLIP_ANTES_SEG, clipDespues: AVISO_CLIP_DESPUES_SEG,
         instante: ahora.toISOString(), timestamp: ahora.toISOString(), alertTs: ahora.getTime(),
         // Botones del aviso (Lo atiendo, Foto, Video, Gráfica, Silenciar): sólo los usa Telegram.
         botones: botonesAviso(p.deviceId),
@@ -61,7 +66,7 @@ export async function avisarFila(p: {
     if (grupo) envios.push({ channel: "telegram", extra: { chatId: grupo, recipientName: "Grupo de Telegram" } });
     for (const r of destinatarios) {
         if (!r?.enabled || !r.channel || !r.address) continue;
-        if (r.channel === "telegram" && String(r.address).trim() === grupo) continue; // ya va al grupo
+        if (r.channel === "telegram" && (!conTelegram || String(r.address).trim() === grupo)) continue; // apagado, o ya va al grupo
         envios.push({ channel: r.channel, extra: { chatId: r.address, to: r.address, email: r.address, recipientName: r.name || r.address, recipientChannel: r.channel } });
     }
     let n = 0;
@@ -69,11 +74,17 @@ export async function avisarFila(p: {
         try { await enqueueDispatch({ type: "ALERT", channel: e.channel, deviceId: p.deviceId, payload: { ...base, ...e.extra } }); n++; }
         catch (err: any) { console.error(`[aviso-fila] no se pudo encolar ${e.channel}: ${err?.message || err}`); }
     }
-    if (!n) console.warn(`[aviso-fila] ${fila}: nadie a quien avisar (sin grupo de Telegram ni destinatarios en Despachos)`);
+    if (!conTelegram) console.log(`[aviso-fila] ${fila}: Telegram apagado para avisos de fila (${AJUSTE_AVISO_TELEGRAM})`);
+    if (!n) console.warn(`[aviso-fila] ${fila}: nadie a quien avisar (${conTelegram ? "sin grupo de Telegram" : "Telegram apagado"} y sin destinatarios en Despachos)`);
     return n;
 }
 
 async function destinatariosDespacho(): Promise<any[]> {
     try { const st = await prisma.setting.findUnique({ where: { key: "DISPATCH_RECIPIENTS" } }); return st?.value ? JSON.parse(st.value) : []; }
     catch { return []; }
+}
+
+async function leerAjuste(key: string): Promise<string | null> {
+    try { return (await prisma.setting.findUnique({ where: { key } }))?.value ?? null; }
+    catch { return null; }
 }
