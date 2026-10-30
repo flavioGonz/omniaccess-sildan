@@ -107,12 +107,12 @@ export default function MerodeoSection() {
             <section className={cn("rounded-[10px] border border-border bg-card p-4 flex items-center gap-3", !aj.activo && "opacity-50 pointer-events-none")}>
                 <Home size={16} className="text-muted-foreground shrink-0" />
                 <div className="flex-1">
-                    <div className="font-semibold text-[13px] flex items-center gap-1.5">No contar a residentes autorizados
-                        <span data-tooltip-id={TT} data-tooltip-content={"Un residente con su vehículo registrado que entra y sale varias veces (dejar a los chicos, ir al súper) no es merodeo."} className="cursor-help text-muted-foreground hover:text-foreground"><HelpCircle size={13} /></span>
+                    <div className="font-semibold text-[13px] flex items-center gap-1.5">Incluir residentes
+                        <span data-tooltip-id={TT} data-tooltip-content={"Apagado: las matrículas de residentes (registradas a una persona con lote) nunca disparan merodeo. Ejemplo: un residente que entra y sale 5 veces para llevar a los chicos.\nEncendido: también se vigila a los residentes, con las mismas pasadas y ventana."} className="cursor-help text-muted-foreground hover:text-foreground"><HelpCircle size={13} /></span>
                     </div>
-                    <div className="text-[12px] text-muted-foreground">Las lecturas autorizadas de un vehículo con titular no disparan merodeo.</div>
+                    <div className="text-[12px] text-muted-foreground">{aj.excluirResidentes ? "Apagado: los vehículos de residentes no se marcan como merodeo." : "Encendido: los vehículos de residentes también se marcan como merodeo."}</div>
                 </div>
-                <Switch checked={aj.excluirResidentes} onCheckedChange={(v) => set({ excluirResidentes: v })} />
+                <Switch checked={!aj.excluirResidentes} onCheckedChange={(v) => set({ excluirResidentes: !v })} />
             </section>
 
             <section className="rounded-[10px] border border-border bg-card overflow-hidden">

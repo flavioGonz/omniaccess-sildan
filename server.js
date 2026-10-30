@@ -2815,7 +2815,16 @@ async function checkMerodeo(plate, device, event, logPrefix) {
     const cfg = await getMerodeoConfig();
     if (!cfg.enabled) return;
     // Skip authorized residents (GRANT with a linked user), if configured
-    if (cfg.excludeResidents && event.decision === 'GRANT' && event.userId) return;
+    // Residentes: una matrícula registrada a una persona con lote no dispara merodeo, salvo que
+    // en Ajustes › Merodeo esté encendido "Incluir residentes". Se mira la matrícula en el padrón,
+    // no el resultado de esta lectura (una lectura denegada de un residente sigue siendo de un residente).
+    if (cfg.excludeResidents) {
+        if (event.decision === 'GRANT' && event.userId) return;
+        try {
+            const cr = await prisma.credential.findFirst({ where: { type: 'PLATE', value: clean, user: { unitId: { not: null }, role: { not: 'BLACKLISTED' } } }, select: { id: true } });
+            if (cr) return;
+        } catch (e) {}
+    }
     global.__merodeoCooldown = global.__merodeoCooldown || new Map();
     const now = Date.now();
     const last = global.__merodeoCooldown.get(clean);

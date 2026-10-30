@@ -67,6 +67,7 @@ export async function simularMerodeo(a: AjustesMerodeo, horas = 24) {
         orderBy: { timestamp: "asc" },
     });
     const inicio = Date.now() - horas * 3600_000;
+    const residentes = new Set((await prisma.credential.findMany({ where: { type: "PLATE" as any, user: { unitId: { not: null }, role: { not: "BLACKLISTED" as any } } }, select: { value: true } })).map((x) => x.value.toUpperCase()));
     const porPlaca = new Map<string, number[]>();
     const silencio = new Map<string, number>();
     const avisos: { placa: string; hora: string; pasadas: number; lecturas: number }[] = [];
@@ -78,7 +79,7 @@ export async function simularMerodeo(a: AjustesMerodeo, horas = 24) {
         const t = new Date(e.timestamp).getTime();
         const lista = porPlaca.get(placa) || []; lista.push(t); porPlaca.set(placa, lista);
         if (t < inicio || !c.activo) continue;
-        if (c.excluirResidentes && e.decision === "GRANT" && e.userId) continue;
+        if (c.excluirResidentes && ((e.decision === "GRANT" && e.userId) || residentes.has(placa))) continue;
         const enVentana = lista.filter((x) => x >= t - c.ventanaMin * 60_000);
         // Cómo contaba antes (lecturas sueltas, umbral 3): para comparar.
         const ul = silencioLect.get(placa);
