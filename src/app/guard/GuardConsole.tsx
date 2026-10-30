@@ -70,6 +70,7 @@ import { createBitacoraEntry, deleteBitacoraEntry, getBitacoraPage, searchRecent
 import { getAccessEvents, getPlateAnalysis } from "@/app/actions/history";
 import { getParkingSlots, getParkingOccupancy } from "@/app/actions/plazas";
 import { getQuickCreateData, getGuardsList, verifyGuardCredential, guardiaVigente } from "@/app/actions/users";
+import { native } from "@/lib/guard-native";
 
 /** Cada cuánto se renueva la identificación firmada del guardia (vence a las 14 h sin uso). */
 const RENOVAR_GUARDIA_MS = 60 * 60_000;
@@ -973,6 +974,9 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
 
 
     const handleLogout = () => {
+        // En la app 2.0 el que entra se identifica en la pantalla propia de la app (y la app olvida
+        // el PIN del que sale); en el navegador o en la APK vieja, sigue el camino de siempre.
+        if (native.cambiarGuardia()) return;
         setGuardName("");
         setGuardPhoto(null);
         localStorage.removeItem("bitacora_guard_name");

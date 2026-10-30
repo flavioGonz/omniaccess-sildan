@@ -57,6 +57,16 @@ export const native = {
     // gesto): la APK debe implementar showKeyboard()/hideKeyboard() (InputMethodManager).
     // openUrl(url): abrir URL externa con Intent/Custom Tab (window.open no anda en WebView).
     showKeyboard() { call("showKeyboard"); },
+    /**
+     * OmniAccess Guard 2.0 recuerda al guardia (usuario y PIN cifrados en la tablet) para volver a
+     * identificarlo solo. Al cerrar la sesión en la consola hay que avisarle: si no, en la próxima
+     * apertura entraría otra vez el guardia anterior. Devuelve false si la app no lo sabe hacer
+     * (versiones anteriores, o el navegador).
+     */
+    cambiarGuardia(): boolean {
+        try { const b = bridge(); if (b && typeof b.cambiarGuardia === "function") { b.cambiarGuardia(); return true; } } catch { }
+        return false;
+    },
     hideKeyboard() { call("hideKeyboard"); },
     canOpenUrl(): boolean { try { const b = bridge(); return !!(b && typeof b.openUrl === "function"); } catch { return false; } },
     openUrl(url: string): boolean {

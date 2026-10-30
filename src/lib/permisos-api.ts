@@ -22,6 +22,8 @@ export const RUTAS_API: [RegExp, ClaseApi][] = [
     [/^\/api\/monitor\//, "propio"],
     // La foto del celular para la pared: pública, la autoriza el token del QR (lib/monitor/subida).
     [/^\/api\/subida\//, "propio"],
+    // La app OmniAccess Guard: verifica el servidor y al guardia con usuario y PIN (con su propio tope de intentos).
+    [/^\/api\/guardia\/(servidor|entrar)$/, "propio"],
     [/^\/api\/(health|version|subscribe|queue-report|notifications\/event|visitas\/tick|vigilancia\/bot)$/, "propio"],
     [/^\/api\/(apk|push\/dispatch|topology|chatbot|onvif\/notify|invitado|branding|min-interior|devices\/health\/tick|devices\/usuarios\/tick)(\/|$)/, "propio"],
     [/^\/api\/queue\/(poll|vca-config|report\/send|reset|schedule\/tick|report\/tick)(\/|$)/, "propio"],

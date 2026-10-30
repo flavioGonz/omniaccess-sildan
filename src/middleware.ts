@@ -194,6 +194,10 @@ export async function middleware(request: NextRequest) {
         // La versión y si la sesión sigue: la pregunta una pantalla que puede tener la sesión vencida.
         pathname === '/api/version' ||
         pathname.startsWith('/api/apk') ||
+        // La app OmniAccess Guard: «¿es un OmniAccess?» y la identificación del guardia (usuario y
+        // PIN, con el mismo tope de intentos que la consola). Ver api/guardia/*.
+        pathname === '/api/guardia/servidor' ||
+        pathname === '/api/guardia/entrar' ||
         pathname.startsWith('/api/webhooks/') ||
         pathname.startsWith('/api/devices/health/tick') ||
         // La lectura de cuentas y sesiones de los equipos (usuarios-de-equipos): la llama el cron, como la salud.
