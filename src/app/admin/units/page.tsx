@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Tooltip as ReactTooltip } from "react-tooltip";
-import { Building2, Home, MapPin, Pencil, Trash2, Plus, Search, Phone, X, Users, Loader2 } from "lucide-react";
+import { Building2, Home, MapPin, Pencil, Trash2, Plus, Search, Phone, X, Users, Loader2, Car, ArrowDownRight, ArrowUpLeft } from "lucide-react";
+import { getPresenciaUnidades, type PresenciaUnidad } from "@/app/actions/unidades-actividad";
 import { getUnitsWithDetails, deleteUnit, getAvailableUsers } from "@/app/actions/units";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { CajonUnidad } from "@/components/units/CajonUnidad";
@@ -22,6 +23,15 @@ export default function UnitsPage() {
     const [q, setQ] = useState("");
     const [cat, setCat] = useState<Categoria>("units");
     const [disponibles, setDisponibles] = useState<any[]>([]);
+    const [presencia, setPresencia] = useState<Record<string, PresenciaUnidad>>({});
+    const [soloAdentro, setSoloAdentro] = useState(false);
+    // La presencia se refresca sola: es lo que la guardia mira para saber si hay alguien en la casa.
+    useEffect(() => {
+        let vivo = true;
+        const leer = () => getPresenciaUnidades().then((p) => { if (vivo) setPresencia(p); }).catch(() => { });
+        leer(); const i = setInterval(leer, 30_000);
+        return () => { vivo = false; clearInterval(i); };
+    }, []);
     const [cajon, setCajon] = useState<{ abierto: boolean; id: string | null; padre: string | null }>({ abierto: false, id: null, padre: null });
 
     const cargar = async () => {
@@ -39,11 +49,13 @@ export default function UnitsPage() {
         return units.filter((u) => {
             if (t && ![u.name, u.lot, u.houseNumber, u.contactName, u.adminPhone, ...(u.users || []).map((x: any) => x.name), ...(u.users || []).flatMap((x: any) => (x.vehicles || []).map((v: any) => v.plate))]
                 .some((v) => String(v || "").toLowerCase().includes(t))) return false;
+            if (soloAdentro && !presencia[u.id]?.adentro.length) return false;
             if (cat === "units") return u.parentId !== null || u.type === "CASA";
             if (cat === "complexes") return u.parentId === null && (u.type === "BARRIO" || u.type === "EDIFICIO");
             return true;
         });
-    }, [units, q, cat]);
+    }, [units, q, cat, soloAdentro, presencia]);
+    const conAdentro = useMemo(() => Object.values(presencia).filter((p) => p.adentro.length).length, [presencia]);
     const cuenta = { units: units.filter((u) => u.parentId !== null || u.type === "CASA").length, complexes: units.filter((u) => u.parentId === null && (u.type === "BARRIO" || u.type === "EDIFICIO")).length, all: units.length };
     const ocupadas = filtradas.filter((u) => u.users?.length).length;
 
@@ -58,7 +70,7 @@ export default function UnitsPage() {
                     <div className="h-10 w-10 shrink-0 rounded-xl bg-blue-500/10 border border-blue-500/30 grid place-items-center"><Building2 className="w-5 h-5 text-blue-500" /></div>
                     <div className="min-w-0">
                         <h1 className="text-[20px] font-bold leading-tight">Unidades</h1>
-                        <p className="text-[12px] text-muted-foreground">{filtradas.length} unidades · {ocupadas} ocupadas</p>
+                        <p className="text-[12px] text-muted-foreground">{filtradas.length} unidades · {ocupadas} ocupadas · <span className="tono-bien font-semibold">{conAdentro} con vehículos adentro</span></p>
                     </div>
                 </div>
                 <div className="relative group">
@@ -77,6 +89,10 @@ export default function UnitsPage() {
                             </button>
                         ))}
                     </div>
+                    <button onClick={() => setSoloAdentro((v) => !v)} data-tooltip-id={TT} data-tooltip-content="Mostrar solo las unidades con algún vehículo adentro del barrio (según la última lectura LPR)"
+                        className={cn("h-9 px-3 rounded-lg border text-[12.5px] font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap", soloAdentro ? "bg-emerald-600 border-emerald-600 text-white" : "border-border bg-card text-muted-foreground hover:text-foreground")}>
+                        <Car size={13} /> Adentro <span className={cn("text-[10.5px] tabular-nums", soloAdentro ? "text-white/80" : "text-muted-foreground/70")}>{conAdentro}</span>
+                    </button>
                     <button onClick={() => abrir(null)} className="h-10 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[13px] font-semibold inline-flex items-center gap-1.5 transition-colors"><Plus size={16} /> Agregar</button>
                 </div>
             </div>
@@ -87,17 +103,17 @@ export default function UnitsPage() {
                     <table className="w-full text-left">
                         <thead className="sticky top-0 z-10 bg-card">
                             <tr className="border-b border-border/60">
-                                {["Unidad", "Pertenece a", "Estado", "Residentes y matrículas", "Contacto", ""].map((h, i) => (
-                                    <th key={i} className={cn("px-3 py-2.5 text-[10px] text-muted-foreground uppercase tracking-wide font-semibold", i === 5 && "text-right")}>{h}</th>
+                                {["Unidad", "Pertenece a", "Estado", "Presencia", "Residentes y matrículas", "Contacto", ""].map((h, i) => (
+                                    <th key={i} className={cn("px-3 py-2.5 text-[10px] text-muted-foreground uppercase tracking-wide font-semibold", i === 6 && "text-right")}>{h}</th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody>
                             {loading && units.length === 0 && (
-                                <tr><td colSpan={6} className="py-16 text-center text-muted-foreground"><Loader2 className="mx-auto animate-spin" size={20} /></td></tr>
+                                <tr><td colSpan={7} className="py-16 text-center text-muted-foreground"><Loader2 className="mx-auto animate-spin" size={20} /></td></tr>
                             )}
                             {!loading && filtradas.length === 0 && (
-                                <tr><td colSpan={6} className="py-16 text-center text-muted-foreground"><Building2 size={28} className="mx-auto mb-2 opacity-30" /><p className="text-sm">No se encontraron unidades</p></td></tr>
+                                <tr><td colSpan={7} className="py-16 text-center text-muted-foreground"><Building2 size={28} className="mx-auto mb-2 opacity-30" /><p className="text-sm">No se encontraron unidades</p></td></tr>
                             )}
                             {filtradas.map((u) => {
                                 const pers = u.users || [];
@@ -122,6 +138,7 @@ export default function UnitsPage() {
                                                 {pers.length ? <><Users size={10} /> Ocupada · {pers.length}</> : "Vacante"}
                                             </span>
                                         </td>
+                                        <td className="px-3 py-2"><CeldaPresencia p={presencia[u.id]} /></td>
                                         <td className="px-3 py-2">
                                             {pers.length ? (
                                                 <div className="min-w-0">
@@ -162,9 +179,35 @@ export default function UnitsPage() {
             </div>
 
             <CajonUnidad open={cajon.abierto} onOpenChange={(v) => setCajon((c) => ({ ...c, abierto: v }))}
-                unidad={unidadAbierta} padreId={cajon.padre} unidades={units} disponibles={disponibles}
+                unidad={unidadAbierta} padreId={cajon.padre} presencia={unidadAbierta ? presencia[unidadAbierta.id] : null} unidades={units} disponibles={disponibles}
                 onListo={cargar} onNuevaHija={(padre) => abrir(null, padre)} />
-            <ReactTooltip id={TT} place="top" className="!max-w-[260px] !text-[12px] !rounded-lg !z-[60]" />
+            <ReactTooltip id={TT} place="top" className="!max-w-[300px] !text-[12px] !rounded-lg !z-[60] !whitespace-pre-line" />
+        </div>
+    );
+}
+
+const haceCorto = (iso: string) => {
+    const m = Math.round((Date.now() - +new Date(iso)) / 60000);
+    if (m < 60) return `${Math.max(1, m)} min`;
+    const h = Math.round(m / 60); if (h < 48) return `${h} h`;
+    return `${Math.round(h / 24)} d`;
+};
+/** Vehículos adentro / total y el último movimiento del lote. */
+function CeldaPresencia({ p }: { p?: PresenciaUnidad }) {
+    const total = p ? p.adentro.length + p.afuera.length + p.sinLectura.length : 0;
+    if (!p || total === 0) return <span className="text-muted-foreground/50 text-xs">—</span>;
+    const adentro = p.adentro.length;
+    return (
+        <div className="min-w-0" data-tooltip-id={TT} data-tooltip-content={[p.adentro.length ? `Adentro: ${p.adentro.join(", ")}` : null, p.afuera.length ? `Afuera: ${p.afuera.join(", ")}` : null, p.sinLectura.length ? `Sin lectura: ${p.sinLectura.join(", ")}` : null].filter(Boolean).join("\n")}>
+            <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border", adentro ? "chip-bien" : "chip-neutro")}>
+                <Car size={10} /> {adentro ? `${adentro} de ${total} adentro` : "Afuera"}
+            </span>
+            {p.ultimo && (
+                <p className="text-[11px] text-muted-foreground mt-0.5 inline-flex items-center gap-1 whitespace-nowrap">
+                    {p.ultimo.dir === "ENTRY" ? <ArrowDownRight size={11} className="text-emerald-500" /> : <ArrowUpLeft size={11} className="text-sky-500" />}
+                    {p.ultimo.dir === "ENTRY" ? "Entró" : "Salió"} hace {haceCorto(p.ultimo.ts)}
+                </p>
+            )}
         </div>
     );
 }

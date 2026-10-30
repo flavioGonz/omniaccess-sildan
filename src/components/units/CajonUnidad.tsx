@@ -12,6 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Campo, Bloque, Etiqueta, Heroe, chipHeroe } from "@/components/ui/cajon-campos";
 import { createUnit, updateUnit, bulkCreateSubUnits, assignUserToUnit, unassignUserFromUnit } from "@/app/actions/units";
 import { cn } from "@/lib/utils";
+import { Activity } from "lucide-react";
+import { ActividadUnidad } from "@/components/units/ActividadUnidad";
+import type { PresenciaUnidad } from "@/app/actions/unidades-actividad";
 import { sileo as toast } from "sileo";
 
 const LocationPicker = dynamic(() => import("@/components/LocationPicker"), { ssr: false, loading: () => <div className="h-64 w-full bg-muted animate-pulse rounded-xl" /> });
@@ -23,7 +26,7 @@ const LocationPicker = dynamic(() => import("@/components/LocationPicker"), { ss
  * o edificio, sus sub-unidades con la generación masiva.
  */
 const TT = "tt-unidad";
-type Pestana = "general" | "ubicacion" | "residentes" | "vehiculos" | "unidades";
+type Pestana = "general" | "ubicacion" | "residentes" | "vehiculos" | "actividad" | "unidades";
 const TIPOS = [
     { id: "CASA", I: Home, t: "Lote / casa", d: "Una vivienda: lote del barrio o casa individual." },
     { id: "BARRIO", I: MapPin, t: "Barrio", d: "Agrupa lotes. Se le cargan sub-unidades." },
@@ -31,7 +34,7 @@ const TIPOS = [
 ] as const;
 const VACIO = { name: "", type: "CASA", floors: "", lot: "", houseNumber: "", address: "", adminPhone: "", contactName: "", contactEmail: "", deviceCount: "2", deviceType: "BOTH", coordinates: "-34.6037, -58.3816", parentId: "" };
 
-export function CajonUnidad({ open, onOpenChange, unidad, padreId, unidades, disponibles, onListo, onNuevaHija }: {
+export function CajonUnidad({ open, onOpenChange, unidad, padreId, unidades, disponibles, onListo, onNuevaHija, presencia }: {
     open: boolean; onOpenChange: (v: boolean) => void;
     /** null = alta. */
     unidad: any | null;
@@ -40,6 +43,7 @@ export function CajonUnidad({ open, onOpenChange, unidad, padreId, unidades, dis
     unidades: any[]; disponibles: any[];
     onListo: () => void;
     onNuevaHija: (padreId: string) => void;
+    presencia?: PresenciaUnidad | null;
 }) {
     const esAlta = !unidad;
     const [f, setF] = useState<typeof VACIO>(VACIO);
@@ -97,6 +101,7 @@ export function CajonUnidad({ open, onOpenChange, unidad, padreId, unidades, dis
         { id: "general", I: Info, t: "Datos" },
         { id: "ubicacion", I: MapPin, t: "Ubicación" },
         ...(!esAlta ? [{ id: "residentes" as Pestana, I: Users, t: "Residentes", n: personas.length }, { id: "vehiculos" as Pestana, I: Car, t: "Vehículos", n: matriculas.length }] : []),
+        ...(!esAlta && !esComplejo ? [{ id: "actividad" as Pestana, I: Activity, t: "Actividad", n: presencia?.adentro.length || undefined }] : []),
         ...(!esAlta && esComplejo ? [{ id: "unidades" as Pestana, I: LayoutGrid, t: "Sub-unidades", n: hijas.length }] : []),
     ];
     const libres = disponibles.filter((u) => !qPersona || `${u.name} ${u.email || ""} ${u.phone || ""}`.toLowerCase().includes(qPersona.toLowerCase())).slice(0, 80);
@@ -241,6 +246,8 @@ export function CajonUnidad({ open, onOpenChange, unidad, padreId, unidades, dis
                         </div>
                     </Bloque>
                 )}
+
+                {tab === "actividad" && unidad && <ActividadUnidad unitId={unidad.id} presencia={presencia} tt={TT} />}
 
                 {tab === "vehiculos" && (
                     <Bloque titulo="Vehículos" icono={Car} tt={TT} ayuda="Las matrículas de los residentes de la unidad. Se cargan desde la ficha de cada persona.">
