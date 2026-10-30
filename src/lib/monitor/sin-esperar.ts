@@ -3,9 +3,9 @@
  * pantalla lo espere.
  *
  * Medido el 30/10 en el lab: la primera carga de /api/monitor/camaras tardaba 36,5 s y las
- * siguientes 0,03 s. Esos 36 s eran los grabadores y las cámaras contestando por ISAPI, con
- * reintentos por usuario y por tipo de autenticación, cada vez que el caché de 60 s vencía. Mientras
- * tanto la pared mostraba sólo una rueda girando.
+ * siguientes 0,03 s. Con Server-Timing se vio que no eran los grabadores (63 ms) sino las líneas y
+ * zonas de intrusión de cada cámara, leídas por ISAPI de a seis, con reintentos. Mientras tanto la
+ * pared mostraba sólo una rueda girando.
  *
  * Ahora: si hay un valor anterior se devuelve al instante y, si está viejo, se renueva de fondo.
  * Sólo cuando no hay ninguno (el primer pedido después de reiniciar) se espera, y como mucho
@@ -39,8 +39,12 @@ export async function sinEsperar<T>(clave: string, vigenteMs: number, esperaMaxM
         if (Date.now() - entrada.t > vigenteMs) void renovar();
         return { valor: entrada.valor, completo: true };
     }
+    // Si ya hay una lectura en curso, el que espera es el primer pedido: los siguientes (la misma
+    // pared que repregunta, u otra pantalla) responden al instante con lo que hay. Medido: las
+    // líneas de las cámaras tardan más de 30 s en el primer arranque, y cada vuelta esperaba 1,5 s.
+    const espera = entrada.enCurso ? 0 : esperaMaxMs;
     let reloj: ReturnType<typeof setTimeout> | undefined;
-    const tope = new Promise<null>((r) => { reloj = setTimeout(() => r(null), esperaMaxMs); });
+    const tope = new Promise<null>((r) => { reloj = setTimeout(() => r(null), espera); });
     try {
         const v = await Promise.race([renovar(), tope]);
         return v === null ? { valor: porDefecto, completo: false } : { valor: v as T, completo: true };
