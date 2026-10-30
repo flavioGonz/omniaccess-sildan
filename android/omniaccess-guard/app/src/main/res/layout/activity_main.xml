@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/raiz" android:layout_width="match_parent" android:layout_height="match_parent">
+
+    <!-- El WebView se agrega por código debajo de todo (índice 0), cuando ya se sabe a qué servidor ir. -->
+
+    <!--
+      Lo que se ve mientras la consola carga: el mismo logo del arranque, el barrio y una barra fina.
+      Antes la pantalla quedaba blanca hasta que la página terminaba (a veces varios segundos).
+    -->
+    <LinearLayout android:id="@+id/carga" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:background="@color/fondo" android:gravity="center" android:orientation="vertical" android:clickable="true" android:focusable="true">
+        <ImageView android:id="@+id/carga_logo" android:layout_width="80dp" android:layout_height="80dp" android:src="@drawable/logo" android:contentDescription="@null" />
+        <TextView android:id="@+id/carga_barrio" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="22dp"
+            android:textColor="@color/texto" android:textSize="18sp" android:fontFamily="sans-serif-medium" />
+        <TextView android:id="@+id/carga_estado" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp"
+            android:text="@string/conectando" android:textColor="@color/texto_suave" android:textSize="14sp" />
+        <ProgressBar android:id="@+id/carga_barra" style="@android:style/Widget.Material.ProgressBar.Horizontal" android:layout_width="160dp" android:layout_height="3dp"
+            android:layout_marginTop="22dp" android:max="100" android:progress="8" android:progressDrawable="@drawable/barra_progreso" />
+    </LinearLayout>
+
+    <!-- Si la consola no abre: qué pasó y dos salidas, en vez de la página de error de Chrome. -->
+    <LinearLayout android:id="@+id/falla" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:background="@color/fondo" android:gravity="center" android:orientation="vertical" android:paddingStart="32dp" android:paddingEnd="32dp"
+        android:visibility="gone" android:clickable="true" android:focusable="true">
+        <ImageView android:layout_width="56dp" android:layout_height="56dp" android:src="@drawable/logo" android:alpha="0.5" android:contentDescription="@null" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="22dp" android:text="@string/sin_conexion_titulo"
+            android:textColor="@color/texto" android:textSize="20sp" android:fontFamily="sans-serif-medium" />
+        <TextView android:id="@+id/falla_detalle" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:maxWidth="380dp"
+            android:gravity="center" android:textColor="@color/texto_suave" android:textSize="14.5sp" android:lineSpacingMultiplier="1.25" />
+        <Button android:id="@+id/falla_reintentar" style="@style/Boton" android:layout_width="260dp" android:layout_marginTop="28dp" android:text="@string/reintentar" />
+        <Button android:id="@+id/falla_servidor" android:layout_width="260dp" android:layout_height="52dp" android:layout_marginTop="10dp"
+            android:background="@drawable/fondo_boton_secundario" android:text="@string/cambiar_servidor" android:textAllCaps="false"
+            android:textColor="@color/texto_suave" android:textSize="15sp" android:stateListAnimator="@null" />
+    </LinearLayout>
+</FrameLayout>

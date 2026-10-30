@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  La primera vez que se abre la app (31/10, Nico: «al abrirla debe preguntar el server con las
+  credenciales»). Dos pasos en la misma pantalla: primero el servidor, que se verifica antes de
+  seguir (así un error de tipeo se ve acá y no como una página en blanco), y después el guardia.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/raiz" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:fillViewport="true" android:overScrollMode="never">
+
+    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
+        <LinearLayout android:id="@+id/columna" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_gravity="center" android:orientation="vertical" android:paddingStart="28dp" android:paddingEnd="28dp"
+            android:paddingTop="48dp" android:paddingBottom="32dp">
+
+            <LinearLayout android:id="@+id/marca" android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <ImageView android:layout_width="40dp" android:layout_height="40dp" android:src="@drawable/logo" android:contentDescription="@null" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:text="@string/app_name"
+                    android:textColor="@color/texto" android:textSize="16sp" android:fontFamily="sans-serif-medium" android:letterSpacing="0.01" />
+            </LinearLayout>
+
+            <!-- Paso 1: el servidor -->
+            <LinearLayout android:id="@+id/paso_servidor" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="44dp">
+                <TextView style="@style/Titulo" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/bienvenida_titulo" />
+                <TextView style="@style/Bajada" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:text="@string/bienvenida_bajada" />
+                <TextView style="@style/Rotulo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="32dp" android:labelFor="@+id/servidor" android:text="@string/servidor_rotulo" />
+                <EditText android:id="@+id/servidor" style="@style/Campo" android:layout_marginTop="8dp" android:hint="@string/servidor_ejemplo"
+                    android:inputType="textUri" android:imeOptions="actionGo" android:autofillHints="url" android:importantForAutofill="yes" />
+                <TextView android:id="@+id/error_servidor" style="@style/Error" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" />
+                <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp">
+                    <Button android:id="@+id/continuar" style="@style/Boton" android:text="@string/continuar" />
+                    <ProgressBar android:id="@+id/girando_servidor" android:layout_width="22dp" android:layout_height="22dp" android:layout_gravity="center" android:indeterminateTint="#FFFFFF" android:visibility="gone" android:elevation="4dp" />
+                </FrameLayout>
+            </LinearLayout>
+
+            <!-- Paso 2: el guardia -->
+            <LinearLayout android:id="@+id/paso_guardia" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="44dp" android:visibility="gone">
+                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical"
+                    android:background="@drawable/fondo_chip" android:paddingStart="10dp" android:paddingEnd="14dp" android:paddingTop="6dp" android:paddingBottom="6dp">
+                    <ImageView android:layout_width="16dp" android:layout_height="16dp" android:src="@drawable/ic_check" android:contentDescription="@null" />
+                    <TextView android:id="@+id/barrio" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp"
+                        android:textColor="@color/texto" android:textSize="13.5sp" android:fontFamily="sans-serif-medium" android:maxLines="1" android:ellipsize="end" />
+                </LinearLayout>
+                <TextView style="@style/Titulo" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:text="@string/guardia_titulo" />
+                <TextView style="@style/Bajada" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:text="@string/guardia_bajada" />
+                <TextView style="@style/Rotulo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="32dp" android:labelFor="@+id/usuario" android:text="@string/usuario_rotulo" />
+                <EditText android:id="@+id/usuario" style="@style/Campo" android:layout_marginTop="8dp" android:inputType="textNoSuggestions|textVisiblePassword"
+                    android:imeOptions="actionNext" android:autofillHints="username" android:importantForAutofill="yes" />
+                <TextView style="@style/Rotulo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="18dp" android:labelFor="@+id/pin" android:text="@string/pin_rotulo" />
+                <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp">
+                    <EditText android:id="@+id/pin" style="@style/Campo" android:paddingEnd="56dp" android:inputType="textPassword"
+                        android:imeOptions="actionGo" android:autofillHints="password" android:importantForAutofill="yes" android:letterSpacing="0.08" />
+                    <ImageButton android:id="@+id/ver_pin" android:layout_width="48dp" android:layout_height="48dp" android:layout_gravity="end|center_vertical" android:layout_marginEnd="4dp"
+                        android:background="?android:attr/selectableItemBackgroundBorderless" android:src="@drawable/ic_ojo" android:contentDescription="@string/mostrar_pin" />
+                </FrameLayout>
+                <TextView android:id="@+id/error_guardia" style="@style/Error" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" />
+                <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp">
+                    <Button android:id="@+id/entrar" style="@style/Boton" android:text="@string/entrar" />
+                    <ProgressBar android:id="@+id/girando_guardia" android:layout_width="22dp" android:layout_height="22dp" android:layout_gravity="center" android:indeterminateTint="#FFFFFF" android:visibility="gone" android:elevation="4dp" />
+                </FrameLayout>
+                <Button android:id="@+id/volver_servidor" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="10dp"
+                    android:background="@drawable/fondo_boton_secundario" android:text="@string/cambiar_servidor" android:textAllCaps="false"
+                    android:textColor="@color/texto_suave" android:textSize="15sp" android:stateListAnimator="@null" />
+            </LinearLayout>
+
+            <Space android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:minHeight="32dp" />
+            <TextView android:id="@+id/version" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="40dp"
+                android:gravity="center" android:textColor="@color/texto_tenue" android:textSize="12sp" />
+        </LinearLayout>
+    </FrameLayout>
+</ScrollView>

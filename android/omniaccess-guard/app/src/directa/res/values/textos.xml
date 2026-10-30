@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accesibilidad_rotulo">Pánico con los botones de volumen</string>
+    <string name="accesibilidad_descripcion">Tres toques seguidos a un botón de volumen disparan el pánico de OmniAccess Guard, aunque la pantalla esté apagada. No lee ni guarda nada de lo que se escribe.</string>
+    <string name="actualizando">Actualizando OmniAccess Guard…</string>
+</resources>

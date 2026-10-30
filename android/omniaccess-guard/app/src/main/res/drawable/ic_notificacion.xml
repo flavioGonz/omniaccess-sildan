@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- El logo en una sola tinta, como pide la barra de notificaciones. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="512" android:viewportHeight="512">
+    <path android:pathData="M48,160 L48,88 A40,40 0 0 1 88,48 L160,48 M352,48 L424,48 A40,40 0 0 1 464,88 L464,160 M464,352 L464,424 A40,40 0 0 1 424,464 L352,464 M160,464 L88,464 A40,40 0 0 1 48,424 L48,352" android:strokeColor="#FFFFFF" android:strokeWidth="44" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M256,212 A44,44 0 1 1 255.99,212 Z" android:fillColor="#FFFFFF" />
+    <path android:pathData="M256,144 A112,112 0 1 1 255.99,144" android:strokeColor="#FFFFFF" android:strokeWidth="44" />
+</vector>

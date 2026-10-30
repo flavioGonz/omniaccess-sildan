@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Se permite http sin cifrar porque hay garitas que entran al servidor por la red local
+  (http://192.168.x.x:10001), donde no hay certificado. Lo recomendado es la dirección https del
+  barrio. Lo que NO se hace más, a diferencia de la APK anterior: aceptar cualquier certificado
+  inválido. Play rechaza esas apps, y deja la puerta abierta a que alguien en el medio lea el PIN.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors><certificates src="system" /></trust-anchors>
+    </base-config>
+</network-security-config>

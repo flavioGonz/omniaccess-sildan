@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Los colores de la app, con nombre: el fondo de la garita es oscuro de día y de noche (la tablet vive encendida). -->
+<resources>
+    <color name="fondo">#0B0D12</color>
+    <color name="superficie">#141821</color>
+    <color name="superficie_alta">#1B202B</color>
+    <color name="linea">#262C3A</color>
+    <color name="texto">#F2F4F8</color>
+    <color name="texto_suave">#9AA1B2</color>
+    <color name="texto_tenue">#646B7C</color>
+    <!-- El único color de acción, el mismo azul del panel. -->
+    <color name="accion">#3B74F2</color>
+    <!-- El punto del logo: marca, no acción. -->
+    <color name="marca">#8A6CFF</color>
+    <color name="bien">#2BB673</color>
+    <color name="mal">#F0525F</color>
+    <color name="ic_launcher_fondo">#0B0D12</color>
+</resources>

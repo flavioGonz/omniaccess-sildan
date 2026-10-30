@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="columna_max">440dp</dimen>
+    <dimen name="alto_campo">56dp</dimen>
+</resources>

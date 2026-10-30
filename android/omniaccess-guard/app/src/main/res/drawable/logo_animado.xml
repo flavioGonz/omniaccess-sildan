@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  El logo del arranque, que se arma solo: las esquinas se cierran sobre el centro, el aro se
+  dibuja y el punto aparece con un rebote. 240dp con el logo dentro del círculo de 160dp que
+  Android deja visible en el ícono del arranque.
+-->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt">
+    <aapt:attr name="android:drawable">
+        <vector android:width="240dp" android:height="240dp" android:viewportWidth="768" android:viewportHeight="768">
+            <group android:translateX="215" android:translateY="215" android:scaleX="0.66" android:scaleY="0.66">
+                <group android:name="esquinas" android:pivotX="256" android:pivotY="256">
+                    <path android:name="esquinas_trazo" android:pathData="M48,160 L48,88 A40,40 0 0 1 88,48 L160,48 M352,48 L424,48 A40,40 0 0 1 464,88 L464,160 M464,352 L464,424 A40,40 0 0 1 424,464 L352,464 M160,464 L88,464 A40,40 0 0 1 48,424 L48,352" android:strokeColor="@color/texto" android:strokeWidth="40" android:strokeLineCap="round" android:strokeLineJoin="round" android:strokeAlpha="0" />
+                </group>
+                <path android:name="aro" android:pathData="M256,144 A112,112 0 1 1 255.99,144" android:strokeColor="@color/texto" android:strokeWidth="40" android:strokeLineCap="round" android:trimPathEnd="0" />
+                <group android:name="punto" android:pivotX="256" android:pivotY="256" android:scaleX="0" android:scaleY="0">
+                    <path android:pathData="M256,212 A44,44 0 1 1 255.99,212 Z" android:fillColor="@color/marca" />
+                </group>
+            </group>
+        </vector>
+    </aapt:attr>
+    <target android:name="esquinas">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator android:propertyName="scaleX" android:valueFrom="1.3" android:valueTo="1" android:duration="520" android:interpolator="@android:interpolator/fast_out_slow_in" />
+                <objectAnimator android:propertyName="scaleY" android:valueFrom="1.3" android:valueTo="1" android:duration="520" android:interpolator="@android:interpolator/fast_out_slow_in" />
+            </set>
+        </aapt:attr>
+    </target>
+    <target android:name="esquinas_trazo">
+        <aapt:attr name="android:animation">
+            <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0" android:valueTo="1" android:duration="360" />
+        </aapt:attr>
+    </target>
+    <target android:name="aro">
+        <aapt:attr name="android:animation">
+            <objectAnimator android:propertyName="trimPathEnd" android:valueFrom="0" android:valueTo="1" android:startOffset="160" android:duration="560" android:interpolator="@android:interpolator/fast_out_slow_in" />
+        </aapt:attr>
+    </target>
+    <target android:name="punto">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator android:propertyName="scaleX" android:valueFrom="0" android:valueTo="1" android:startOffset="560" android:duration="340" android:interpolator="@android:anim/overshoot_interpolator" />
+                <objectAnimator android:propertyName="scaleY" android:valueFrom="0" android:valueTo="1" android:startOffset="560" android:duration="340" android:interpolator="@android:anim/overshoot_interpolator" />
+            </set>
+        </aapt:attr>
+    </target>
+</animated-vector>

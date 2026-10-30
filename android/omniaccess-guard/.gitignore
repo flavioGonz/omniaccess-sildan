@@ -1,0 +1,10 @@
+# Nunca al repo: compilados, configuración local y, sobre todo, la firma.
+.gradle/
+build/
+app/build/
+local.properties
+*.jks
+*.keystore
+firma.properties
+.idea/
+*.iml

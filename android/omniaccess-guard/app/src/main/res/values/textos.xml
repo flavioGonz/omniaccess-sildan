@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OmniAccess Guard</string>
+    <string name="version_app">OmniAccess Guard %1$s</string>
+    <string name="bienvenida_titulo">Conectá esta tablet\ncon tu barrio</string>
+    <string name="bienvenida_bajada">Escribí la dirección del servidor de OmniAccess. Te la da la administración del barrio.</string>
+    <string name="servidor_rotulo">Dirección del servidor</string>
+    <string name="servidor_ejemplo">omniaccess.tubarrio.com.uy</string>
+    <string name="continuar">Continuar</string>
+    <string name="guardia_titulo">¿Quién está de guardia?</string>
+    <string name="guardia_bajada">Tu usuario y PIN, los mismos de la consola de garita.</string>
+    <string name="usuario_rotulo">Usuario</string>
+    <string name="pin_rotulo">PIN o contraseña</string>
+    <string name="entrar">Entrar</string>
+    <string name="cambiar_servidor">Cambiar servidor</string>
+    <string name="mostrar_pin">Mostrar el PIN</string>
+    <string name="conectando">Conectando…</string>
+    <string name="sin_conexion_titulo">No se pudo abrir la consola</string>
+    <string name="reintentar">Reintentar</string>
+    <string name="salir_otra_vez">Tocá atrás otra vez para salir</string>
+    <string name="servicio_titulo">Guardia en servicio</string>
+    <string name="servicio_texto">Pánico y ubicación activos</string>
+    <string name="servicio_canal">Guardia en servicio</string>
+    <string name="servicio_canal_detalle">Mantiene el pánico y la ubicación activos durante el turno</string>
+</resources>
