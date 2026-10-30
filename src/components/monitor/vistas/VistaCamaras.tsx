@@ -53,6 +53,12 @@ import { cn } from "@/lib/utils";
 
 /** Cada cuánto se repite la lista de canales (y las detecciones). El socket adelanta lo urgente. */
 const INTERVALO_MS = 30_000;
+/** Cuándo se vuelve a pedir la lista si el servidor avisó que le faltaba algún grabador. */
+const REPEDIR_INCOMPLETO_MS = 2500;
+/** Cuántas casillas de espera dibuja como mucho el esqueleto (una pared de 64 no hace falta copiarla entera). */
+const ESQUELETO_MAX = 16;
+/** Después de esto sin datos, el esqueleto dice qué se está esperando. */
+const ESQUELETO_AVISO_MS = 1500;
 /** Tope de baldosas convertidas por pantalla cuando el navegador no reproduce H.265. */
 const MAX_CONVERTIDOS = 4;
 const PAGINA_SEG = [10, 20, 40] as const;
@@ -78,7 +84,9 @@ type Datos = {
     /** Las páginas web para las casillas `web:` (openspec pared-vms). */
     fuentes?: FuenteWeb[];
     /** Seguimiento visual: por idCanal, los enlaces a las cámaras vecinas. */
-    seguimiento?: Record<string, { to: string; x: number; y: number }[]> };
+    seguimiento?: Record<string, { to: string; x: number; y: number }[]>;
+    /** Faltó algún grabador o alguna línea (se siguen leyendo de fondo): se vuelve a pedir enseguida. */
+    incompleto?: boolean };
 /** colMovil: en el celular la pared es una lista que se desliza, de 1 o 2 columnas. */
 type Prefs = { vista: string; disposicion: string; pagSeg: number; pausa: boolean; nvr: string; area: string; colMovil: 1 | 2 };
 type Celda = { casilla: Casilla; canal: Canal | null; claveFaltante?: string | null };
@@ -506,6 +514,9 @@ export function VistaCamaras() {
         chapas: pantalla ? null : "/api/vision/parecidos/chapas", limitado: !!pantalla,
     }), [pantalla]);
     useEffect(() => { if (datos?.areas?.length) sembrarAreas(datos.areas); }, [datos?.areas]);
+    // El servidor respondió sin esperar a algún grabador (lib/monitor/sin-esperar): se vuelve a pedir
+    // enseguida en vez de esperar la vuelta de 30 s, así los canales que faltaban aparecen solos.
+    useEffect(() => { if (!datos?.incompleto) return; const k = setTimeout(recargar, REPEDIR_INCOMPLETO_MS); return () => clearTimeout(k); }, [datos, recargar]);
     const fuentesPorId = useMemo(() => new Map((datos?.fuentes || []).map((f) => [f.id, f])), [datos?.fuentes]);
     const [pantallas, setPantallas] = useState<Pantalla[] | null>(null);
     const [aviso, setAviso] = useState<string | null>(null);
@@ -688,7 +699,7 @@ export function VistaCamaras() {
 
     const estados = (
         <>
-            {!datos && !error && <div className="col-span-full row-span-full grid place-items-center py-16 text-muted-foreground"><Loader2 className="animate-spin" /></div>}
+            {!datos && !error && <Esqueleto casillas={movil ? 4 : Math.min(ESQUELETO_MAX, disp.cols * disp.filas)} movil={movil} />}
             {error && !datos && (
                 <div className="col-span-full row-span-full grid place-items-center text-center py-16">
                     <div>
@@ -915,5 +926,42 @@ function Hoja({ abierta, titulo, alCerrar, children }: { abierta: boolean; titul
                 </motion.div>
             </>)}
         </AnimatePresence>
+    );
+}
+
+/**
+ * Lo que se ve mientras llega la lista de canales (30/10, Nico: «demora mucho en cargar con ese
+ * loader feo, deseo skeleton loader o algo más premium»). Antes era una rueda en el medio de una
+ * pantalla negra: no decía qué se esperaba ni cuánto faltaba. Ahora la pared ya tiene su forma —
+ * las casillas de la disposición elegida, con el mismo brillo de espera que un video que arranca
+ * (`.vid-surface`) — y, si tarda, dice qué está haciendo.
+ */
+function Esqueleto({ casillas, movil }: { casillas: number; movil: boolean }) {
+    const [lento, setLento] = useState(false);
+    useEffect(() => { const k = setTimeout(() => setLento(true), ESQUELETO_AVISO_MS); return () => clearTimeout(k); }, []);
+    return (
+        <>
+            {Array.from({ length: casillas }, (_, i) => (
+                <motion.div key={i} aria-hidden className={cn("vid-surface rounded-[10px] border border-border/60 relative", movil && "aspect-video")}
+                    initial={{ opacity: 0, scale: 0.985 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.35, delay: Math.min(i, 11) * 0.035, ease: [0.32, 0.72, 0, 1] }}>
+                    <div className="absolute left-3 bottom-3 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-muted-foreground/25" />
+                        <span className="h-2.5 rounded-full bg-muted-foreground/20" style={{ width: `${56 + ((i * 37) % 60)}px` }} />
+                    </div>
+                    <span className="absolute right-3 top-3 h-4 w-10 rounded-[5px] bg-muted-foreground/15" />
+                </motion.div>
+            ))}
+            <span className="sr-only" role="status">Cargando las cámaras</span>
+            <AnimatePresence>
+                {lento && (
+                    <motion.div className="pointer-events-none absolute left-1/2 bottom-6 -translate-x-1/2 z-20"
+                        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+                        <div className="flex items-center gap-2 rounded-full border border-border bg-background/85 backdrop-blur px-3.5 py-1.5 text-[12.5px] text-muted-foreground shadow-[var(--sombra-flotante)]">
+                            <Loader2 size={13} className="animate-spin" /> Leyendo los canales de los grabadores…
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </>
     );
 }

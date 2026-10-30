@@ -16,6 +16,7 @@ import { camarasVision, cargaVision } from "@/lib/vision-camaras";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { leerArbolAreas } from "@/lib/areas-historial";
+import { sinEsperar, ultimoDe } from "@/lib/monitor/sin-esperar";
 
 /**
  * GET /api/monitor/camaras → los canales que dibuja la pared de video (vista Cámaras).
@@ -54,17 +55,30 @@ const LECTURAS_POR_CAMARA = 4;
  */
 const ETIQUETA_CANAL_SIN_MAPEAR = /^canal (\d+) sin mapear$/;
 
-const canalesCache = new Map<string, { t: number; r: { ok: boolean; error?: string; channels: CanalNvr[] } }>();
+/**
+ * Cuánto espera el primer pedido (sin nada guardado) a los grabadores y a las cámaras antes de
+ * responder con lo que hay. Lo que no llegó sigue leyéndose de fondo y entra en la vuelta
+ * siguiente, que el cliente pide enseguida al ver `incompleto` (ver lib/monitor/sin-esperar).
+ */
+const ESPERA_GRABADORES_MS = 2500;
+const ESPERA_GEOMETRIAS_MS = 1500;
+/** Lo mismo que GEOM_TTL de actions/detections: las líneas de una cámara cambian poco. */
+const GEOMETRIAS_VIGENTES_MS = 5 * 60_000;
+
+type LecturaCanales = { ok: boolean; error?: string; channels: CanalNvr[]; pendiente?: boolean };
 
 async function canalesDe(nvr: { id: string; ip: string; username: string | null; password: string | null; authType: string | null }) {
-    const c = canalesCache.get(nvr.id);
-    if (c && Date.now() - c.t < CANALES_VIGENTES_MS) return c.r;
-    const r = await getNvrChannels({ ip: nvr.ip, username: nvr.username || undefined, password: nvr.password || undefined, authType: nvr.authType || undefined })
-        .catch((e: any) => ({ ok: false, error: e?.message || "sin respuesta", channels: [] as CanalNvr[] }));
-    const norm = { ok: !!(r as any).ok, error: (r as any).error, channels: ((r as any).channels || []) as CanalNvr[] };
-    // Un error no se guarda: la próxima vuelta se vuelve a intentar.
-    if (norm.ok) canalesCache.set(nvr.id, { t: Date.now(), r: norm });
-    return norm;
+    const clave = `nvr-canales:${nvr.id}`;
+    return sinEsperar<LecturaCanales>(clave, CANALES_VIGENTES_MS, ESPERA_GRABADORES_MS, async () => {
+        const r = await getNvrChannels({ ip: nvr.ip, username: nvr.username || undefined, password: nvr.password || undefined, authType: nvr.authType || undefined })
+            .catch((e: any) => ({ ok: false, error: e?.message || "sin respuesta", channels: [] as CanalNvr[] }));
+        const norm: LecturaCanales = { ok: !!(r as any).ok, error: (r as any).error, channels: ((r as any).channels || []) as CanalNvr[] };
+        // Un grabador que hoy no contesta conserva los canales de la última vez que sí: el video de
+        // cada canal dice por sí mismo si está caído, y la pared no se vacía por un tropiezo.
+        const antes = ultimoDe<LecturaCanales>(clave);
+        if (!norm.ok && antes?.ok) return antes;
+        return norm;
+    }, { ok: false, channels: [], pendiente: true });
 }
 
 async function streamsEnGo2rtc(): Promise<Set<string> | null> {
@@ -111,6 +125,10 @@ export type CanalPared = {
 export async function GET() {
     const p = await autorizarMonitor("/api/monitor/camaras");
     if (p.error) return p.error;
+    const t0 = Date.now();
+    const tiempos: string[] = [];
+    const marcar = (nombre: string, desde: number) => tiempos.push(`${nombre};dur=${Date.now() - desde}`);
+    let incompleto = false;
 
     const desdeActividad = new Date(Date.now() - ACTIVIDAD_MS);
     const [nvrs, equipos, streams, recientes, conDetecciones, conLecturas, filasAjustes, puedeEditar] = await Promise.all([
@@ -145,7 +163,13 @@ export async function GET() {
     const detecta = new Set(conDetecciones.map((x: any) => x.deviceId).filter(Boolean));
     const lee = new Set([...conLecturas.map((x: any) => x.deviceId).filter(Boolean), ...equipos.filter((e) => String(e.deviceType).startsWith("LPR")).map((e) => e.id)]);
     const candidatosIntrusion = equipos.filter((e) => ["CAMERA", "LPR_INTERIOR"].includes(String(e.deviceType))).map((e) => e.id);
-    const geoms: Record<string, any> = await getAnalyticsGeometryBatch(candidatosIntrusion).catch(() => ({}));
+    marcar("base", t0);
+    const tGeom = Date.now();
+    const g = await sinEsperar<Record<string, any>>(`geometrias:${[...candidatosIntrusion].sort().join(",")}`, GEOMETRIAS_VIGENTES_MS, ESPERA_GEOMETRIAS_MS,
+        () => getAnalyticsGeometryBatch(candidatosIntrusion), {});
+    const geoms = g.valor;
+    if (!g.completo) incompleto = true;
+    marcar("geometrias", tGeom);
     const tieneGeom = (id: string) => { const g = geoms[id]; return !!g && ((g.line?.length || 0) >= 2 || (g.field?.length || 0) >= 3); };
     const funcionDe = (id: string): CanalPared["funcion"] => (lee.has(id) ? "lpr" : detecta.has(id) || tieneGeom(id) ? "intrusion" : null);
     const lecturasPorEquipo = new Map<string, CanalPared["lecturas"]>();
@@ -168,9 +192,13 @@ export async function GET() {
     const errores: { nvr: string; error: string }[] = [];
     const porRegistrar: { nvrId: string; ch: number }[] = [];
 
-    const lecturas = await Promise.all(nvrs.map((n) => canalesDe(n as any).then((r) => ({ n, r }))));
+    const tNvr = Date.now();
+    const lecturas = await Promise.all(nvrs.map((n) => canalesDe(n as any).then((x) => ({ n, r: x.valor }))));
+    marcar("grabadores", tNvr);
     for (const { n, r } of lecturas) {
         if (off?.equipos.has(n.id)) continue;
+        // Todavía leyéndose: no es un error, entra en la vuelta siguiente.
+        if (r.pendiente) { incompleto = true; continue; }
         if (!r.ok) { errores.push({ nvr: n.name, error: r.error || "No se pudieron leer los canales" }); continue; }
         for (const c of [...r.channels].sort((a, b) => a.channel - b.channel)) {
             // El segundo sensor de una cámara bi-espectral es la misma cámara: va una vez.
@@ -201,7 +229,9 @@ export async function GET() {
         canales.push({ clave: `dev:${e.id}`, nombre: e.name, nvrId, nvr: nvrId ? nombreNvr.get(nvrId)! : null, ch: nvrId && m ? m.ch : null, online: null, stream: `lpr_${e.id}`, equipoId: e.id, alerta: alertaPorEquipo.get(e.id) || null, ...extrasDe(e.id) });
     }
     // Registrar en go2rtc es sólo dejar la receta: no abre ninguna conexión hasta que alguien mira.
+    const tReg = Date.now();
     if (streams) await Promise.all(porRegistrar.map((x) => registrarCanalNvr(x.nvrId, x.ch).catch(() => null)));
+    marcar("go2rtc", tReg);
 
     // Lo que vio OmniVision en las capturas de las detecciones en curso (pocas: las de 2 minutos).
     const enCurso = canales.map((c) => c.alerta?.id).filter(Boolean) as string[];
@@ -238,5 +268,7 @@ export async function GET() {
         go2rtc: !!streams,
         ventanaAlertaMs: VENTANA_ALERTA_MS,
         ahora: new Date().toISOString(),
-    }, { headers: SIN_CACHE });
+        // Faltan grabadores o líneas que se siguen leyendo de fondo: el cliente vuelve a pedir enseguida.
+        incompleto,
+    }, { headers: { ...SIN_CACHE, "Server-Timing": [...tiempos, `total;dur=${Date.now() - t0}`].join(", ") } });
 }
