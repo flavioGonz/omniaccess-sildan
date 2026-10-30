@@ -83,12 +83,25 @@ export const DETECCIONES = [
     { g: "guardia", i: "nfc", n: "Rondas con NFC", o: "App del guardia", d: "Cada punto de la ronda se marca acercando el teléfono a una etiqueta: se sabe quién pasó, por dónde y a qué hora." },
 ];
 
-/** La historia del principio, escena por escena. `momento` es la parada de la cámara 3D (escena.js). */
+/**
+ * La historia del principio, con los videos de Nico (30/10, generados con IA). Cada escena tiene su
+ * video, el rótulo de la cámara (como el que se ve sobre una grabación) y lo que OmniAccess
+ * registró. `lado`: de qué lado va el texto, el que el video deja libre (el video del acceso trae
+ * a la izquierda una franja oscura justo para eso).
+ */
 export const ESCENAS = [
-    { momento: "acceso", hora: "21:40", titulo: "Llega un auto al portón", texto: "La cámara lee la matrícula y OmniVision la vuelve a leer en la foto. Si es un residente, la barrera sube sola; si es una visita, la guardia ya sabe a quién viene a ver." },
-    { momento: "perimetro", hora: "03:12", titulo: "Alguien cruza el cerco a las tres de la mañana", texto: "La línea del perímetro avisa, y antes de sonar OmniVision confirma que es una persona y no un perro. La guardia recibe la foto, el lugar en el mapa y el video de ese momento." },
-    { momento: "visitas", hora: "Sábado, 18:05", titulo: "Llega una visita", texto: "El residente la invitó desde su teléfono. Muestra el QR en la garita, el guardia lo escanea con la app y queda registrado quién entró, cuándo y a ver a quién." },
-    { momento: "guardia", hora: "Las 24 horas", titulo: "Todo llega a la guardia", texto: "Las alertas aparecen en la consola de la garita, en la pared de monitores y en el teléfono por Telegram o WhatsApp, con la foto y el botón para ver la grabación." },
+    { id: "acceso", video: "acceso", lado: "izquierda", hora: "21:40", titulo: "Llega un auto al portón",
+      texto: "La cámara lee la matrícula y OmniVision la vuelve a leer en la foto. Si es un residente, la barrera sube sola; si es una visita, la guardia ya sabe a quién viene a ver.",
+      camara: "Acceso principal · cámara LPR", registro: { tono: "bien", titulo: "Matrícula leída y confirmada", detalle: "Residente · Lote 112 · barrera abierta" } },
+    { id: "perimetro", video: "perimetro", lado: "derecha", hora: "03:12", titulo: "Alguien trepa el cerco a las tres de la mañana",
+      texto: "La línea del perímetro avisa, y antes de sonar OmniVision confirma que es una persona trepando y no un perro o una rama. La guardia recibe la foto, el lugar en el mapa y el video de ese momento.",
+      camara: "Perímetro norte · cámara infrarroja", registro: { tono: "alarma", titulo: "Persona trepando · confirmada", detalle: "Cruce de línea · tramo 7 del cerco" } },
+    { id: "visitas", video: "visitas", lado: "izquierda", hora: "Sábado, 18:05", titulo: "Llega una visita",
+      texto: "El residente la invitó desde su teléfono. Muestra el QR en la garita, el guardia lo escanea con la app y queda registrado quién entró, cuándo y a ver a quién.",
+      camara: "Garita · OmniAccess Guard", registro: { tono: "bien", titulo: "Pase vigente", detalle: "Visita a Lote 45 · hasta las 22:00" } },
+    { id: "guardia", video: "guardia", lado: "derecha", hora: "Las 24 horas", titulo: "Todo llega a la guardia",
+      texto: "Las alertas aparecen en la consola de la garita, en la pared de monitores y en el teléfono por Telegram o WhatsApp, con la foto y el botón para ver la grabación.",
+      camara: "Centro de monitoreo", registro: { tono: "marca", titulo: "3 alertas atendidas hoy", detalle: "Las falsas alarmas se descartaron antes de sonar" } },
 ];
 
 export const MODULOS = [

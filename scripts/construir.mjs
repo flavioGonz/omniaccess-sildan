@@ -2,7 +2,7 @@
  * Arma el sitio en dist/:
  *  - index.html + estilos.css + sitio.js: para subir a cualquier hosting.
  *  - omniaccess-un-archivo.html: todo en un archivo, se abre con doble clic (sin servidor).
- *  - artifact.html: el contenido sin <html>/<head>, para publicarlo en claude.ai.
+ *  - artifact.html: el contenido sin <html>/<head>, para publicarlo en claude.ai (con videos/ al lado).
  *
  * El texto sale de src/contenido.js y los íconos de lucide-static: el HTML ya viene escrito,
  * sin esperar a JavaScript. `--mirar` recompila al guardar y sirve dist/ en http://localhost:8080.
@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 
 const raiz = join(dirname(fileURLToPath(import.meta.url)), "..");
 const src = (f) => join(raiz, "src", f);
+const src_ = (...p) => join(raiz, "src", ...p);
 const dist = (f) => join(raiz, "dist", f);
 mkdirSync(join(raiz, "dist"), { recursive: true });
 
@@ -30,14 +31,26 @@ async function armar() {
     const C = await import(`${src("contenido.js")}?v=${Date.now()}`);
     const esIA = (o) => /OmniVision/.test(o);
 
+    // Un video: en el sitio normal apunta a videos/; en el de un solo archivo va embebido.
+    const video = (nombre, embebido) => {
+        const src = embebido ? `data:video/mp4;base64,${readFileSync(src_("videos", `${nombre}.mp4`)).toString("base64")}` : `videos/${nombre}.mp4`;
+        const poster = embebido ? `data:image/jpeg;base64,${readFileSync(src_("videos", `${nombre}.jpg`)).toString("base64")}` : `videos/${nombre}.jpg`;
+        // MP4 (H.264) primero: lo reproducen Chrome, Edge y Safari. El WebM es para los navegadores sin
+        // H.264 (Firefox en algunos Linux, Chromium). En el archivo único va sólo el MP4, por peso.
+        const webm = embebido ? "" : `<source src="videos/${nombre}.webm" type="video/webm">`;
+        return `<video class="video" poster="${poster}" muted loop playsinline preload="metadata" aria-hidden="true"><source src="${src}" type="video/mp4">${webm}</video>`;
+    };
     const escenas = C.ESCENAS.map((e) => `
-    <div class="escena" data-momento="${e.momento}">
+    <section class="escena" id="escena-${e.id}" data-lado="${e.lado}" aria-labelledby="t-${e.id}">
+      <!--VIDEO:${e.video}-->
+      <div class="osd" aria-hidden="true"><span class="rec"></span>${esc(e.camara)} · ${esc(e.hora)}</div>
+      <div class="registro" data-tono="${e.registro.tono}"><b>${esc(e.registro.titulo)}</b><span>${esc(e.registro.detalle)}</span></div>
       <div class="escena-texto">
         <div class="escena-hora">${esc(e.hora)}</div>
-        <h2>${esc(e.titulo)}</h2>
+        <h2 id="t-${e.id}">${esc(e.titulo)}</h2>
         <p>${esc(e.texto)}</p>
       </div>
-    </div>`).join("");
+    </section>`).join("");
 
     const cuenta = (g) => C.DETECCIONES.filter((d) => d.g === g).length;
     const filtros = [`<button class="filtro" type="button" data-g="todos" aria-pressed="true">Todas <small>${C.DETECCIONES.length}</small></button>`,
@@ -77,16 +90,21 @@ async function armar() {
 
     writeFileSync(dist("estilos.css"), css);
     writeFileSync(dist("sitio.js"), js);
-    writeFileSync(dist("index.html"), html.replace("<!--ESTILOS-->", '<link rel="stylesheet" href="estilos.css">').replace("<!--SCRIPT-->", '<script src="sitio.js" defer></script>'));
-
+    const conVideos = (h, embebido) => h.replace(/<!--VIDEO:([a-z]+)-->/g, (_, n) => video(n, embebido));
+    cpSync(src_("videos"), dist("videos"), { recursive: true });
     const enLinea = js.replace(/<\/script/gi, "<\\/script");
-    const unArchivo = html.replace("<!--ESTILOS-->", `<style>\n${css}\n</style>`).replace("<!--SCRIPT-->", `<script>\n${enLinea}\n</script>`);
-    writeFileSync(dist("omniaccess-un-archivo.html"), unArchivo);
+    const conEstilos = (h) => h.replace("<!--ESTILOS-->", `<style>\n${css}\n</style>`).replace("<!--SCRIPT-->", `<script>\n${enLinea}\n</script>`);
 
-    // Para claude.ai: sin doctype/html/head/body (la plataforma pone el esqueleto).
+    // 1. Para hosting: archivos separados, videos en videos/.
+    writeFileSync(dist("index.html"), conVideos(html, false).replace("<!--ESTILOS-->", '<link rel="stylesheet" href="estilos.css">').replace("<!--SCRIPT-->", '<script src="sitio.js" defer></script>'));
+    // 2. Un solo archivo para abrir con doble clic: los videos van adentro (pesa unos 6 MB).
+    writeFileSync(dist("omniaccess-un-archivo.html"), conEstilos(conVideos(html, true)));
+    // 3. Para claude.ai: sin doctype/html/head/body (la plataforma pone el esqueleto); los videos
+    //    se publican al lado, en videos/.
+    const plano = conEstilos(conVideos(html, false));
     const titulo = (html.match(/<title>[\s\S]*?<\/title>/) || [""])[0];
     const fuentes = (html.match(/<link href="https:\/\/fonts.googleapis.com[^>]*>/) || [""])[0];
-    const cuerpo = unArchivo.slice(unArchivo.indexOf("<body>") + 6, unArchivo.lastIndexOf("</body>"));
+    const cuerpo = plano.slice(plano.indexOf("<body>") + 6, plano.lastIndexOf("</body>"));
     writeFileSync(dist("artifact.html"), `${titulo}\n${fuentes}\n<style>\n${css}\n</style>\n${cuerpo}`);
 
     // Las descargas (PDF) no van en git: se copian si están en ./descargas.
