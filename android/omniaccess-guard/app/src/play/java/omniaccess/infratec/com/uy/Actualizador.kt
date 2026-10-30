@@ -1,4 +1,4 @@
-package uy.com.ies.omniaccess.guard
+package omniaccess.infratec.com.uy
 
 import android.app.Activity
 

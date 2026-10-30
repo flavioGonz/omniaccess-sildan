@@ -16,11 +16,11 @@ val firma = Properties().apply {
 }
 
 android {
-    namespace = "uy.com.ies.omniaccess.guard"
+    namespace = "omniaccess.infratec.com.uy"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "uy.com.ies.omniaccess.guard"
+        applicationId = "omniaccess.infratec.com.uy"
         minSdk = 26
         // Play exige 36 para apps nuevas y actualizaciones desde el 31/08/2026.
         targetSdk = 36
