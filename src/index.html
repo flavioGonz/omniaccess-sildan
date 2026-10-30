@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es-UY">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OmniAccess</title>
+<meta name="description" content="OmniAccess usa las cámaras del barrio para leer matrículas, vigilar el perímetro y recibir visitas, y confirma cada alarma con su propia inteligencia artificial. Una solución de Infratec.">
+<meta name="theme-color" content="#070b16">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!--ESTILOS-->
+</head>
+<body>
+<a class="saltar" href="#detecciones">Ir a las detecciones</a>
+
+<header class="barra" id="barra">
+  <a class="marca-sitio" href="#portada" aria-label="OmniAccess, inicio">
+    <svg viewBox="0 0 512 512" aria-hidden="true"><path d="M48,160 L48,88 A40,40 0 0 1 88,48 L160,48 M352,48 L424,48 A40,40 0 0 1 464,88 L464,160 M464,352 L464,424 A40,40 0 0 1 424,464 L352,464 M160,464 L88,464 A40,40 0 0 1 48,424 L48,352" fill="none" stroke="currentColor" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/><circle cx="256" cy="256" r="112" fill="none" stroke="currentColor" stroke-width="44"/><circle cx="256" cy="256" r="46" fill="var(--marca)"/></svg>
+    <span>OmniAccess</span>
+  </a>
+  <nav class="menu" aria-label="Secciones">
+    <a href="#detecciones">Detecciones</a>
+    <a href="#verifica">Cómo verifica</a>
+    <a href="#modulos">Módulos</a>
+    <a href="#descargas">Descargas</a>
+  </nav>
+  <div class="patrocinio"><span>Una solución de</span> <strong>Infratec</strong></div>
+  <a class="boton boton-chico" href="#contacto">Pedí una demo</a>
+</header>
+
+<div class="escenario" id="escenario" aria-hidden="true">
+  <canvas id="lienzo"></canvas>
+  <div class="capa-marcas" id="marcas"></div>
+  <div class="velo"></div>
+</div>
+
+<main>
+  <section class="portada" id="portada">
+    <div class="portada-texto">
+      <h1>El barrio, visto y&nbsp;confirmado</h1>
+      <p class="bajada">OmniAccess usa las cámaras que ya tiene el barrio para leer matrículas, vigilar el perímetro y recibir a las visitas. Antes de avisar, su propia inteligencia artificial confirma lo que pasó: a la guardia sólo le llega lo que importa.</p>
+      <div class="acciones">
+        <a class="boton" href="#contacto">Pedí una demo</a>
+        <a class="boton boton-claro" href="#detecciones">Ver todo lo que detecta</a>
+      </div>
+    </div>
+    <a class="seguir" href="#historia" aria-label="Seguir bajando"><!--ICONO:arrow-down--></a>
+  </section>
+
+  <section class="historia" id="historia" aria-label="Una noche en el barrio">
+    <!--ESCENAS-->
+  </section>
+
+  <section class="seccion detecciones" id="detecciones" aria-labelledby="t-detecciones">
+    <div class="encabezado">
+      <h2 id="t-detecciones">Todo lo que OmniAccess detecta</h2>
+      <p><!--CANTIDAD--> detecciones, cada una con su foto y su lugar en el mapa. Algunas las hace la cámara; la mayoría las hace o las confirma OmniVision, la inteligencia artificial de OmniAccess, que corre en el servidor del barrio.</p>
+    </div>
+    <div class="filtros" role="group" aria-label="Filtrar por tipo"><!--FILTROS--></div>
+    <div class="grupos" id="grupos"><!--GRUPOS--></div>
+  </section>
+
+  <section class="seccion verifica" id="verifica" aria-labelledby="t-verifica">
+    <div class="encabezado">
+      <h2 id="t-verifica">Cada alarma, confirmada antes de sonar</h2>
+      <p>Una cámara sola avisa por una rama que se mueve, un perro o un cambio de luz. OmniAccess le agrega una segunda mirada.</p>
+    </div>
+    <ol class="pasos">
+      <li><span class="paso-icono"><!--ICONO:cctv--></span><h3>La cámara detecta</h3><p>Lee una matrícula o ve algo cruzar la línea del perímetro, y manda la foto.</p></li>
+      <li><span class="paso-icono"><!--ICONO:scan-eye--></span><h3>OmniVision confirma</h3><p>Vuelve a mirar la foto: qué es, si es una persona, qué chapa tiene. Si no hay nada, la alarma no sigue.</p></li>
+      <li><span class="paso-icono"><!--ICONO:bell-ring--></span><h3>La guardia actúa</h3><p>Le llega a la garita, a la pared de monitores y al teléfono, con la foto, el mapa y la grabación de ese momento.</p></li>
+    </ol>
+  </section>
+
+  <section class="seccion modulos" id="modulos" aria-labelledby="t-modulos">
+    <div class="encabezado">
+      <h2 id="t-modulos">Un sistema, todo el barrio</h2>
+      <p>Se arma según lo que necesita cada lugar: acceso por matrícula, por rostro o conteo de filas, siempre con intrusión, visitas y video.</p>
+    </div>
+    <ul class="lista-modulos"><!--MODULOS--></ul>
+  </section>
+
+  <section class="seccion descargas" id="descargas" aria-labelledby="t-descargas">
+    <div class="encabezado">
+      <h2 id="t-descargas">Para leer con calma</h2>
+      <p>Las presentaciones de cada plan, en PDF.</p>
+    </div>
+    <ul class="lista-descargas"><!--DESCARGAS--></ul>
+  </section>
+
+  <section class="contacto" id="contacto" aria-labelledby="t-contacto">
+    <div class="contacto-caja">
+      <div class="patrocinio-grande">OmniAccess es una solución de <strong>Infratec</strong></div>
+      <h2 id="t-contacto">Veámoslo funcionando en tu barrio</h2>
+      <p>Infratec instala, configura y da soporte. Mostramos OmniAccess con las cámaras que ya tienen, sin cambiar el equipamiento.</p>
+      <div class="acciones" id="acciones-contacto"><!--CONTACTO--></div>
+    </div>
+  </section>
+</main>
+
+<footer class="pie">
+  <span>OmniAccess · una solución de Infratec</span>
+  <span class="pie-chico">Las detecciones con OmniVision dependen de la capacidad del servidor del barrio.</span>
+</footer>
+
+<!--SCRIPT-->
+</body>
+</html>

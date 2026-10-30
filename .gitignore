@@ -1,0 +1,4 @@
+node_modules/
+# Los PDF de descargas pesan ~70 MB: se guardan aparte y se copian a dist/ al compilar.
+descargas/
+dist/descargas/

@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="es-UY">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OmniAccess</title>
+<meta name="description" content="OmniAccess usa las cámaras del barrio para leer matrículas, vigilar el perímetro y recibir visitas, y confirma cada alarma con su propia inteligencia artificial. Una solución de Infratec.">
+<meta name="theme-color" content="#070b16">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<a class="saltar" href="#detecciones">Ir a las detecciones</a>
+
+<header class="barra" id="barra">
+  <a class="marca-sitio" href="#portada" aria-label="OmniAccess, inicio">
+    <svg viewBox="0 0 512 512" aria-hidden="true"><path d="M48,160 L48,88 A40,40 0 0 1 88,48 L160,48 M352,48 L424,48 A40,40 0 0 1 464,88 L464,160 M464,352 L464,424 A40,40 0 0 1 424,464 L352,464 M160,464 L88,464 A40,40 0 0 1 48,424 L48,352" fill="none" stroke="currentColor" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/><circle cx="256" cy="256" r="112" fill="none" stroke="currentColor" stroke-width="44"/><circle cx="256" cy="256" r="46" fill="var(--marca)"/></svg>
+    <span>OmniAccess</span>
+  </a>
+  <nav class="menu" aria-label="Secciones">
+    <a href="#detecciones">Detecciones</a>
+    <a href="#verifica">Cómo verifica</a>
+    <a href="#modulos">Módulos</a>
+    <a href="#descargas">Descargas</a>
+  </nav>
+  <div class="patrocinio"><span>Una solución de</span> <strong>Infratec</strong></div>
+  <a class="boton boton-chico" href="#contacto">Pedí una demo</a>
+</header>
+
+<div class="escenario" id="escenario" aria-hidden="true">
+  <canvas id="lienzo"></canvas>
+  <div class="capa-marcas" id="marcas"></div>
+  <div class="velo"></div>
+</div>
+
+<main>
+  <section class="portada" id="portada">
+    <div class="portada-texto">
+      <h1>El barrio, visto y&nbsp;confirmado</h1>
+      <p class="bajada">OmniAccess usa las cámaras que ya tiene el barrio para leer matrículas, vigilar el perímetro y recibir a las visitas. Antes de avisar, su propia inteligencia artificial confirma lo que pasó: a la guardia sólo le llega lo que importa.</p>
+      <div class="acciones">
+        <a class="boton" href="#contacto">Pedí una demo</a>
+        <a class="boton boton-claro" href="#detecciones">Ver todo lo que detecta</a>
+      </div>
+    </div>
+    <a class="seguir" href="#historia" aria-label="Seguir bajando"><svg aria-hidden="true" focusable="false" class="lucide lucide-arrow-down" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v14" /> <path d="m19 12-7 7-7-7" /> </svg></a>
+  </section>
+
+  <section class="historia" id="historia" aria-label="Una noche en el barrio">
+    
+    <div class="escena" data-momento="acceso">
+      <div class="escena-texto">
+        <div class="escena-hora">21:40</div>
+        <h2>Llega un auto al portón</h2>
+        <p>La cámara lee la matrícula y OmniVision la vuelve a leer en la foto. Si es un residente, la barrera sube sola; si es una visita, la guardia ya sabe a quién viene a ver.</p>
+      </div>
+    </div>
+    <div class="escena" data-momento="perimetro">
+      <div class="escena-texto">
+        <div class="escena-hora">03:12</div>
+        <h2>Alguien cruza el cerco a las tres de la mañana</h2>
+        <p>La línea del perímetro avisa, y antes de sonar OmniVision confirma que es una persona y no un perro. La guardia recibe la foto, el lugar en el mapa y el video de ese momento.</p>
+      </div>
+    </div>
+    <div class="escena" data-momento="visitas">
+      <div class="escena-texto">
+        <div class="escena-hora">Sábado, 18:05</div>
+        <h2>Llega una visita</h2>
+        <p>El residente la invitó desde su teléfono. Muestra el QR en la garita, el guardia lo escanea con la app y queda registrado quién entró, cuándo y a ver a quién.</p>
+      </div>
+    </div>
+    <div class="escena" data-momento="guardia">
+      <div class="escena-texto">
+        <div class="escena-hora">Las 24 horas</div>
+        <h2>Todo llega a la guardia</h2>
+        <p>Las alertas aparecen en la consola de la garita, en la pared de monitores y en el teléfono por Telegram o WhatsApp, con la foto y el botón para ver la grabación.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="seccion detecciones" id="detecciones" aria-labelledby="t-detecciones">
+    <div class="encabezado">
+      <h2 id="t-detecciones">Todo lo que OmniAccess detecta</h2>
+      <p>35 detecciones, cada una con su foto y su lugar en el mapa. Algunas las hace la cámara; la mayoría las hace o las confirma OmniVision, la inteligencia artificial de OmniAccess, que corre en el servidor del barrio.</p>
+    </div>
+    <div class="filtros" role="group" aria-label="Filtrar por tipo"><button class="filtro" type="button" data-g="todos" aria-pressed="true">Todas <small>35</small></button><button class="filtro" type="button" data-g="vehiculos" aria-pressed="false">Vehículos y matrículas <small>12</small></button><button class="filtro" type="button" data-g="perimetro" aria-pressed="false">Perímetro e intrusión <small>6</small></button><button class="filtro" type="button" data-g="personas" aria-pressed="false">Personas <small>4</small></button><button class="filtro" type="button" data-g="objetos" aria-pressed="false">Objetos <small>2</small></button><button class="filtro" type="button" data-g="flujo" aria-pressed="false">Conteo y búsqueda <small>3</small></button><button class="filtro" type="button" data-g="salud" aria-pressed="false">Salud de las cámaras <small>5</small></button><button class="filtro" type="button" data-g="guardia" aria-pressed="false">El guardia <small>3</small></button></div>
+    <div class="grupos" id="grupos">
+      <section class="grupo" data-g="vehiculos" aria-labelledby="g-vehiculos">
+        <div class="grupo-titulo"><h3 id="g-vehiculos">Vehículos y matrículas</h3><p>En cada entrada y salida, y en las calles internas.</p></div>
+        <ul class="items">
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-car" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" /> <circle cx="7" cy="17" r="2" /> <path d="M9 17h6" /> <circle cx="17" cy="17" r="2" /> </svg></span>
+            <div><h4>Lectura de matrícula</h4><span class="origen">Cámara LPR</span><p>Lee la chapa en la entrada y en la salida y la cruza con el padrón: residente, visita, proveedor o desconocido. Si corresponde, abre la barrera.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-badge-check" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z" /> <path d="m16 9-5.5 5.5L8 12" /> </svg></span>
+            <div><h4>Doble verificación de la chapa</h4><span class="origen ia">OmniVision</span><p>OmniVision vuelve a leer la foto de cada pasada. Si la cámara confundió un carácter, se corrige antes de decidir quién entró.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-repeat" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m17 2 4 4-4 4" /> <path d="M3 11v-1a4 4 0 0 1 4-4h14" /> <path d="m7 22-4-4 4-4" /> <path d="M21 13v1a4 4 0 0 1-4 4H3" /> </svg></span>
+            <div><h4>Chapas que la cámara no leyó</h4><span class="origen ia">OmniVision</span><p>Cuando la cámara no logra leer la matrícula, OmniVision la rescata de la foto: menos pasadas «sin lectura».</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-palette" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" /> <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /> <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /> <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /> <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /> </svg></span>
+            <div><h4>Marca, color y carrocería</h4><span class="origen ia">OmniVision</span><p>Describe el vehículo: auto plateado, camioneta, moto, camión. Sirve para buscarlo aunque no se vea la chapa.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-text-search" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 5H3" /> <path d="M10 12H3" /> <path d="M10 19H3" /> <circle cx="17" cy="15" r="3" /> <path d="m21 19-1.9-1.9" /> </svg></span>
+            <div><h4>Rotulado y empresa</h4><span class="origen ia">OmniVision</span><p>Lee lo que está escrito en el vehículo, como el nombre de la empresa en una camioneta de reparto.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-ban" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="M4.929 4.929 19.07 19.071" /> </svg></span>
+            <div><h4>Lista negra</h4><span class="origen">Sistema</span><p>Una chapa marcada dispara la alarma en la garita y el aviso por Telegram o WhatsApp, con la foto y la cámara que la vio.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-siren" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 18v-6a5 5 0 1 1 10 0v6" /> <path d="M5 21a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2z" /> <path d="M21 12h1" /> <path d="M18.5 4.5 18 5" /> <path d="M2 12h1" /> <path d="M12 2v1" /> <path d="m4.929 4.929.707.707" /> <path d="M12 12v6" /> </svg></span>
+            <div><h4>Vehículo en búsqueda</h4><span class="origen">Sistema</span><p>Las chapas con pedido de búsqueda avisan al instante y quedan señaladas mientras están adentro.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-route" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="6" cy="19" r="3" /> <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" /> <circle cx="18" cy="5" r="3" /> </svg></span>
+            <div><h4>Merodeo de vehículos</h4><span class="origen">Sistema</span><p>Un vehículo que pasó varias veces sin entrar, o al que le negaron el acceso en las últimas 24 horas.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-sparkles" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" /> <path d="M20 2v4" /> <path d="M22 4h-4" /> <circle cx="4" cy="20" r="2" /> </svg></span>
+            <div><h4>Primera vez visto</h4><span class="origen">Sistema</span><p>Un vehículo que nunca había entrado al barrio queda marcado para que la guardia lo tenga presente.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-activity" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /> </svg></span>
+            <div><h4>Alta frecuencia</h4><span class="origen">Sistema</span><p>Cuatro entradas o más en un día, sin ser del barrio: algo fuera de lo común.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-arrow-left-right" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 3 4 7l4 4" /> <path d="M4 7h16" /> <path d="m16 21 4-4-4-4" /> <path d="M20 17H4" /> </svg></span>
+            <div><h4>Sentido contrario</h4><span class="origen ia">OmniVision</span><p>Algo cruza una línea en la mano que no corresponde: la salida usada como entrada, la contramano de una calle.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-square-parking" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9 12h4a2 2 0 0 0 0-4H9.5a.5.5 0 0 0-.5.5V16" /> <rect width="18" height="18" x="3" y="3" rx="2" /> </svg></span>
+            <div><h4>Estacionamiento y plazas</h4><span class="origen ia">OmniVision</span><p>Qué plazas están ocupadas y cuánto tiempo lleva cada auto en el mismo lugar.</p></div>
+          </li>
+        </ul>
+      </section>
+      <section class="grupo" data-g="perimetro" aria-labelledby="g-perimetro">
+        <div class="grupo-titulo"><h3 id="g-perimetro">Perímetro e intrusión</h3><p>El cerco, los muros y las zonas que de noche nadie debería pisar.</p></div>
+        <ul class="items">
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-fence" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 3 2 5v15c0 .6.4 1 1 1h2c.6 0 1-.4 1-1V5Z" /> <path d="M6 8h4" /> <path d="M6 18h4" /> <path d="m12 3-2 2v15c0 .6.4 1 1 1h2c.6 0 1-.4 1-1V5Z" /> <path d="M14 8h4" /> <path d="M14 18h4" /> <path d="m20 3-2 2v15c0 .6.4 1 1 1h2c.6 0 1-.4 1-1V5Z" /> </svg></span>
+            <div><h4>Cruce de línea</h4><span class="origen ia">Cámara u OmniVision</span><p>Avisa cuando alguien cruza la línea dibujada sobre el perímetro, con la foto. La línea de OmniVision anda en cualquier marca de cámara y puede armarse sólo de noche.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-shield-alert" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /> <path d="M12 8v4" /> <path d="M12 16h.01" /> </svg></span>
+            <div><h4>Intrusión en zona</h4><span class="origen ia">Cámara u OmniVision</span><p>Alguien entra a una zona prohibida y se queda unos segundos. Una sombra o un paso por el borde no avisan.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-scan-eye" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 7V5a2 2 0 0 1 2-2h2" /> <path d="M17 3h2a2 2 0 0 1 2 2v2" /> <path d="M21 17v2a2 2 0 0 1-2 2h-2" /> <path d="M7 21H5a2 2 0 0 1-2-2v-2" /> <circle cx="12" cy="12" r="1" /> <path d="M18.944 12.33a1 1 0 0 0 0-.66 7.5 7.5 0 0 0-13.888 0 1 1 0 0 0 0 .66 7.5 7.5 0 0 0 13.888 0" /> </svg></span>
+            <div><h4>Doble verificación de la alarma</h4><span class="origen ia">OmniVision</span><p>Antes de sonar, OmniVision mira la foto. Si fue un perro, una rama o un cambio de luz, la alarma no molesta a la guardia.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-brick-wall" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="18" height="18" x="3" y="3" rx="2" /> <path d="M12 9v6" /> <path d="M16 15v6" /> <path d="M16 3v6" /> <path d="M3 15h18" /> <path d="M3 9h18" /> <path d="M8 15v6" /> <path d="M8 3v6" /> </svg></span>
+            <div><h4>Persona trepando</h4><span class="origen ia">OmniVision</span><p>Junto al cerco o al muro, una persona con las dos manos por encima de los hombros unos segundos seguidos: alguien trepando.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-footprints" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z" /> <path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z" /> <path d="M16 17h4" /> <path d="M4 13h4" /> </svg></span>
+            <div><h4>Merodeo</h4><span class="origen ia">OmniVision</span><p>Alguien da vueltas en una zona más tiempo del normal, moviéndose, no esperando parado.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-dog" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M11.25 16.25h1.5L12 17z" /> <path d="M16 14v.5" /> <path d="M4.42 11.247A13.152 13.152 0 0 0 4 14.556C4 18.728 7.582 21 12 21s8-2.272 8-6.444a11.702 11.702 0 0 0-.493-3.309" /> <path d="M8 14v.5" /> <path d="M8.5 8.5c-.384 1.05-1.083 2.028-2.344 2.5-1.931.722-3.576-.297-3.656-1-.113-.994 1.177-6.53 4-7 1.923-.321 3.651.845 3.651 2.235A7.497 7.497 0 0 1 14 5.277c0-1.39 1.844-2.598 3.767-2.277 2.823.47 4.113 6.006 4 7-.08.703-1.725 1.722-3.656 1-1.261-.472-1.855-1.45-2.239-2.5" /> </svg></span>
+            <div><h4>Animal en zona</h4><span class="origen ia">OmniVision</span><p>Un perro suelto, un caballo en la calle o un animal en la piscina, sin ninguna persona al lado.</p></div>
+          </li>
+        </ul>
+      </section>
+      <section class="grupo" data-g="personas" aria-labelledby="g-personas">
+        <div class="grupo-titulo"><h3 id="g-personas">Personas</h3><p>Situaciones que piden que alguien vaya a mirar.</p></div>
+        <ul class="items">
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-accessibility" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="16" cy="4" r="1" /> <path d="m18 19 1-7-6 1" /> <path d="m5 8 3-3 5.5 3-2.36 3.5" /> <path d="M4.24 14.5a5 5 0 0 0 6.88 6" /> <path d="M13.76 17.5a5 5 0 0 0-6.88-6" /> </svg></span>
+            <div><h4>Persona en el suelo</h4><span class="origen ia">OmniVision</span><p>Alguien que quedó acostado unos segundos en la calle, la plaza o un espacio común: puede haberse caído.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-users" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /> <path d="M16 3.128a4 4 0 0 1 0 7.744" /> <path d="M22 21v-2a4 4 0 0 0-3-3.87" /> <circle cx="9" cy="7" r="4" /> </svg></span>
+            <div><h4>Aglomeración</h4><span class="origen ia">OmniVision</span><p>Más personas juntas de lo indicado en una zona, durante un rato.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-hard-hat" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10 10V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5" /> <path d="M14 6a6 6 0 0 1 6 6v3" /> <path d="M4 15v-3a6 6 0 0 1 6-6" /> <rect x="2" y="15" width="20" height="4" rx="1" /> </svg></span>
+            <div><h4>Sin casco o sin chaleco</h4><span class="origen ia">OmniVision</span><p>En las obras del barrio, una persona trabajando sin casco o sin chaleco reflectivo.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-scan-face" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 7V5a2 2 0 0 1 2-2h2" /> <path d="M17 3h2a2 2 0 0 1 2 2v2" /> <path d="M21 17v2a2 2 0 0 1-2 2h-2" /> <path d="M7 21H5a2 2 0 0 1-2-2v-2" /> <path d="M8 14s1.5 2 4 2 4-2 4-2" /> <path d="M9 9h.01" /> <path d="M15 9h.01" /> </svg></span>
+            <div><h4>Reconocimiento facial</h4><span class="origen">Terminal facial</span><p>En el modo Face, reconoce a residentes y personal registrados y les abre. Un rostro desconocido queda marcado para la guardia.</p></div>
+          </li>
+        </ul>
+      </section>
+      <section class="grupo" data-g="objetos" aria-labelledby="g-objetos">
+        <div class="grupo-titulo"><h3 id="g-objetos">Objetos</h3><p>Lo que aparece y lo que desaparece.</p></div>
+        <ul class="items">
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-briefcase" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /> <rect width="20" height="14" x="2" y="6" rx="2" /> </svg></span>
+            <div><h4>Objeto abandonado</h4><span class="origen ia">OmniVision</span><p>Un bolso, una mochila o una valija que aparece y queda quieta varios minutos sin nadie al lado.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-package-x" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 22V12" /> <path d="m16.5 14.5 5 5" /> <path d="m16.5 19.5 5-5" /> <path d="M21 10.5V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.729l7 4a2 2 0 0 0 2 .001l.13-.074" /> <path d="M3.29 7 12 12l8.71-5" /> <path d="m7.5 4.27 8.997 5.148" /> </svg></span>
+            <div><h4>Objeto retirado</h4><span class="origen ia">OmniVision</span><p>Algo que estaba quieto, como una bicicleta, una moto o una silla, desaparece. Llega con la foto de antes y la de después.</p></div>
+          </li>
+        </ul>
+      </section>
+      <section class="grupo" data-g="flujo" aria-labelledby="g-flujo">
+        <div class="grupo-titulo"><h3 id="g-flujo">Conteo y búsqueda</h3><p>Cuánta gente, cuántos autos, y encontrar lo que pasó.</p></div>
+        <ul class="items">
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-hash" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <line x1="4" x2="20" y1="9" y2="9" /> <line x1="4" x2="20" y1="15" y2="15" /> <line x1="10" x2="8" y1="3" y2="21" /> <line x1="16" x2="14" y1="3" y2="21" /> </svg></span>
+            <div><h4>Conteo por línea</h4><span class="origen ia">OmniVision</span><p>Cuenta lo que cruza una línea, en cada sentido y por tipo: personas, autos, motos, bicicletas.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-list-ordered" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M11 5h10" /> <path d="M11 12h10" /> <path d="M11 19h10" /> <path d="M4 4h1v5" /> <path d="M4 9h2" /> <path d="M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02" /> </svg></span>
+            <div><h4>Conteo de fila</h4><span class="origen ia">OmniVision</span><p>Cuenta la fila de una caja o un mostrador. Avisa a la guardia al llegar al límite, y al supervisor si sigue llena.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-layers" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" /> <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" /> <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /> </svg></span>
+            <div><h4>Búsqueda y mapa de calor</h4><span class="origen ia">OmniVision</span><p>Registra lo que pasa frente a cada cámara para encontrar después «una persona de rojo» o un auto parecido, y ver por dónde se mueve la gente.</p></div>
+          </li>
+        </ul>
+      </section>
+      <section class="grupo" data-g="salud" aria-labelledby="g-salud">
+        <div class="grupo-titulo"><h3 id="g-salud">Salud de las cámaras</h3><p>Una cámara que no ve es un hueco en la seguridad: también se detecta.</p></div>
+        <ul class="items">
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-eye-off" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" /> <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" /> <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" /> <path d="m2 2 20 20" /> </svg></span>
+            <div><h4>Imagen tapada</h4><span class="origen">OmniAccess</span><p>Alguien tapó la cámara o algo le quedó delante. Compara con lo que esa cámara ve normalmente, de día y de noche.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-cloud-fog" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" /> <path d="M16 17H7" /> <path d="M17 21H9" /> </svg></span>
+            <div><h4>Imagen borrosa</h4><span class="origen">OmniAccess</span><p>Lente sucia, empañada o desenfocada: la cámara sigue andando pero ya no sirve para identificar.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-move" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 2v20" /> <path d="m15 19-3 3-3-3" /> <path d="m19 9 3 3-3 3" /> <path d="M2 12h20" /> <path d="m5 9-3 3 3 3" /> <path d="m9 5 3-3 3 3" /> </svg></span>
+            <div><h4>Cámara movida</h4><span class="origen">OmniAccess</span><p>La cámara cambió de encuadre: alguien la giró o se aflojó el soporte.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-camera-off" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M14.564 14.558a3 3 0 1 1-4.122-4.121" /> <path d="m2 2 20 20" /> <path d="M20 20H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 .819-.175" /> <path d="M9.695 4.024A2 2 0 0 1 10.004 4h3.993a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v7.344" /> </svg></span>
+            <div><h4>Cámara en silencio</h4><span class="origen">OmniAccess</span><p>Una cámara que dejaba eventos y hace horas que no manda ninguno.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-server-off" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M7 2h13a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-5" /> <path d="M10 10 2.5 2.5C2 2 2 2.5 2 5v3a2 2 0 0 0 2 2h6z" /> <path d="M22 17v-1a2 2 0 0 0-2-2h-1" /> <path d="M4 14a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h16.5l1-.5.5.5-8-8H4z" /> <path d="M6 18h.01" /> <path d="m2 2 20 20" /> </svg></span>
+            <div><h4>Equipo sin respuesta</h4><span class="origen">OmniAccess</span><p>Un grabador, una cámara o un controlador que dejó de contestar en la red.</p></div>
+          </li>
+        </ul>
+      </section>
+      <section class="grupo" data-g="guardia" aria-labelledby="g-guardia">
+        <div class="grupo-titulo"><h3 id="g-guardia">El guardia</h3><p>Desde la app de la garita y el teléfono del que hace la ronda.</p></div>
+        <ul class="items">
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-bell-ring" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M22 8c0-2.3-.8-4.3-2-6" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /> <path d="M4 2C2.8 3.7 2 5.7 2 8" /> </svg></span>
+            <div><h4>Botón de pánico</h4><span class="origen">App del guardia</span><p>Desde la pantalla de la app o con tres toques seguidos a un botón de volumen del teléfono.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-person-standing" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="5" r="1" /> <path d="m9 20 3-6 3 6" /> <path d="m6 8 6 2 6-2" /> <path d="M12 10v4" /> </svg></span>
+            <div><h4>Hombre caído</h4><span class="origen">App del guardia</span><p>Un golpe fuerte seguido de quietud: el guardia pudo haberse caído durante la ronda.</p></div>
+          </li>
+          <li class="item">
+            <span class="item-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-nfc" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M6 8.32a7.43 7.43 0 0 1 0 7.36" /> <path d="M9.46 6.21a11.76 11.76 0 0 1 0 11.58" /> <path d="M12.91 4.1a15.91 15.91 0 0 1 .01 15.8" /> <path d="M16.37 2a20.16 20.16 0 0 1 0 20" /> </svg></span>
+            <div><h4>Rondas con NFC</h4><span class="origen">App del guardia</span><p>Cada punto de la ronda se marca acercando el teléfono a una etiqueta: se sabe quién pasó, por dónde y a qué hora.</p></div>
+          </li>
+        </ul>
+      </section></div>
+  </section>
+
+  <section class="seccion verifica" id="verifica" aria-labelledby="t-verifica">
+    <div class="encabezado">
+      <h2 id="t-verifica">Cada alarma, confirmada antes de sonar</h2>
+      <p>Una cámara sola avisa por una rama que se mueve, un perro o un cambio de luz. OmniAccess le agrega una segunda mirada.</p>
+    </div>
+    <ol class="pasos">
+      <li><span class="paso-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-cctv" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M16.75 12h3.632a1 1 0 0 1 .894 1.447l-2.034 4.069a1 1 0 0 1-1.708.134l-2.124-2.97" /> <path d="M17.106 9.053a1 1 0 0 1 .447 1.341l-3.106 6.211a1 1 0 0 1-1.342.447L3.61 12.3a2.92 2.92 0 0 1-1.3-3.91L3.69 5.6a2.92 2.92 0 0 1 3.92-1.3z" /> <path d="M2 19h3.76a2 2 0 0 0 1.8-1.1L9 15" /> <path d="M2 21v-4" /> <path d="M7 9h.01" /> </svg></span><h3>La cámara detecta</h3><p>Lee una matrícula o ve algo cruzar la línea del perímetro, y manda la foto.</p></li>
+      <li><span class="paso-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-scan-eye" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 7V5a2 2 0 0 1 2-2h2" /> <path d="M17 3h2a2 2 0 0 1 2 2v2" /> <path d="M21 17v2a2 2 0 0 1-2 2h-2" /> <path d="M7 21H5a2 2 0 0 1-2-2v-2" /> <circle cx="12" cy="12" r="1" /> <path d="M18.944 12.33a1 1 0 0 0 0-.66 7.5 7.5 0 0 0-13.888 0 1 1 0 0 0 0 .66 7.5 7.5 0 0 0 13.888 0" /> </svg></span><h3>OmniVision confirma</h3><p>Vuelve a mirar la foto: qué es, si es una persona, qué chapa tiene. Si no hay nada, la alarma no sigue.</p></li>
+      <li><span class="paso-icono"><svg aria-hidden="true" focusable="false" class="lucide lucide-bell-ring" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M22 8c0-2.3-.8-4.3-2-6" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /> <path d="M4 2C2.8 3.7 2 5.7 2 8" /> </svg></span><h3>La guardia actúa</h3><p>Le llega a la garita, a la pared de monitores y al teléfono, con la foto, el mapa y la grabación de ese momento.</p></li>
+    </ol>
+  </section>
+
+  <section class="seccion modulos" id="modulos" aria-labelledby="t-modulos">
+    <div class="encabezado">
+      <h2 id="t-modulos">Un sistema, todo el barrio</h2>
+      <p>Se arma según lo que necesita cada lugar: acceso por matrícula, por rostro o conteo de filas, siempre con intrusión, visitas y video.</p>
+    </div>
+    <ul class="lista-modulos"><li><svg aria-hidden="true" focusable="false" class="lucide lucide-car" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" /> <circle cx="7" cy="17" r="2" /> <path d="M9 17h6" /> <circle cx="17" cy="17" r="2" /> </svg><div><h3>LPR</h3><p>Control de acceso vehicular con doble verificación, padrón de residentes, visitas y proveedores, y barreras.</p></div></li><li><svg aria-hidden="true" focusable="false" class="lucide lucide-shield-check" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /> <path d="m9 12 2 2 4-4" /> </svg><div><h3>Intrusión</h3><p>Líneas y zonas sobre el perímetro, con la alarma confirmada por OmniVision antes de llegar a la guardia.</p></div></li><li><svg aria-hidden="true" focusable="false" class="lucide lucide-ticket" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /> <path d="M13 5v2" /> <path d="M13 17v2" /> <path d="M13 11v2" /> </svg><div><h3>Visitas</h3><p>Invitaciones con QR desde el teléfono del residente, tiempos por tipo de visita y registro de cada ingreso.</p></div></li><li><svg aria-hidden="true" focusable="false" class="lucide lucide-scan-face" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 7V5a2 2 0 0 1 2-2h2" /> <path d="M17 3h2a2 2 0 0 1 2 2v2" /> <path d="M21 17v2a2 2 0 0 1-2 2h-2" /> <path d="M7 21H5a2 2 0 0 1-2-2v-2" /> <path d="M8 14s1.5 2 4 2 4-2 4-2" /> <path d="M9 9h.01" /> <path d="M15 9h.01" /> </svg><div><h3>Face</h3><p>Acceso con reconocimiento facial en terminales, con las mismas visitas e intrusión.</p></div></li><li><svg aria-hidden="true" focusable="false" class="lucide lucide-list-ordered" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M11 5h10" /> <path d="M11 12h10" /> <path d="M11 19h10" /> <path d="M4 4h1v5" /> <path d="M4 9h2" /> <path d="M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02" /> </svg><div><h3>Filas</h3><p>Conteo de personas en cajas y mostradores, con avisos y tableros por hora.</p></div></li><li><svg aria-hidden="true" focusable="false" class="lucide lucide-cctv" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M16.75 12h3.632a1 1 0 0 1 .894 1.447l-2.034 4.069a1 1 0 0 1-1.708.134l-2.124-2.97" /> <path d="M17.106 9.053a1 1 0 0 1 .447 1.341l-3.106 6.211a1 1 0 0 1-1.342.447L3.61 12.3a2.92 2.92 0 0 1-1.3-3.91L3.69 5.6a2.92 2.92 0 0 1 3.92-1.3z" /> <path d="M2 19h3.76a2 2 0 0 0 1.8-1.1L9 15" /> <path d="M2 21v-4" /> <path d="M7 9h.01" /> </svg><div><h3>Cámaras y grabación</h3><p>Todas las cámaras en vivo, la grabación de cada grabador y la búsqueda de parecidos, en el mismo panel.</p></div></li><li><svg aria-hidden="true" focusable="false" class="lucide lucide-monitor" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="20" height="14" x="2" y="3" rx="2" /> <line x1="8" x2="16" y1="21" y2="21" /> <line x1="12" x2="12" y1="17" y2="21" /> </svg><div><h3>Pared de monitoreo</h3><p>Monitores que muestran el vivo, se tiñen con quien pasa y se detienen ante una alarma.</p></div></li><li><svg aria-hidden="true" focusable="false" class="lucide lucide-send" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" /> <path d="m21.854 2.147-10.94 10.939" /> </svg><div><h3>Avisos por Telegram y WhatsApp</h3><p>Cada alerta llega con la foto y el enlace a la grabación; el bot también responde consultas.</p></div></li><li><svg aria-hidden="true" focusable="false" class="lucide lucide-tablet-smartphone" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="10" height="14" x="3" y="8" rx="2" /> <path d="M5 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2h-2.4" /> <path d="M8 18h.01" /> </svg><div><h3>App de la garita</h3><p>OmniAccess Guard para Android: consola, pánico, rondas NFC, escaneo de QR y aviso de hombre caído.</p></div></li><li><svg aria-hidden="true" focusable="false" class="lucide lucide-gauge" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m12 14 4-4" /> <path d="M3.34 19a10 10 0 1 1 17.32 0" /> </svg><div><h3>Administración de equipos</h3><p>Salud de cada equipo, horarios centralizados, auditoría de usuarios locales, áreas y avisos de imagen.</p></div></li></ul>
+  </section>
+
+  <section class="seccion descargas" id="descargas" aria-labelledby="t-descargas">
+    <div class="encabezado">
+      <h2 id="t-descargas">Para leer con calma</h2>
+      <p>Las presentaciones de cada plan, en PDF.</p>
+    </div>
+    <ul class="lista-descargas"><li><a href="descargas/OmniAccess-Funciones.pdf" download><span>Presentación general</span><svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg></a></li><li><a href="descargas/OmniAccess-LPR-Funciones.pdf" download><span>OmniAccess LPR</span><svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg></a></li><li><a href="descargas/OmniAccess-Face-Funciones.pdf" download><span>OmniAccess Face</span><svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg></a></li><li><a href="descargas/OmniAccess-Filas-Funciones.pdf" download><span>OmniAccess Filas</span><svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg></a></li><li><a href="descargas/OmniAccess-Intrusion-Funciones.pdf" download><span>Intrusión con doble verificación</span><svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg></a></li></ul>
+  </section>
+
+  <section class="contacto" id="contacto" aria-labelledby="t-contacto">
+    <div class="contacto-caja">
+      <div class="patrocinio-grande">OmniAccess es una solución de <strong>Infratec</strong></div>
+      <h2 id="t-contacto">Veámoslo funcionando en tu barrio</h2>
+      <p>Infratec instala, configura y da soporte. Mostramos OmniAccess con las cámaras que ya tienen, sin cambiar el equipamiento.</p>
+      <div class="acciones" id="acciones-contacto"><p class="sin-datos">Pedile la demo a tu contacto de Infratec.</p></div>
+    </div>
+  </section>
+</main>
+
+<footer class="pie">
+  <span>OmniAccess · una solución de Infratec</span>
+  <span class="pie-chico">Las detecciones con OmniVision dependen de la capacidad del servidor del barrio.</span>
+</footer>
+
+<script src="sitio.js" defer></script>
+</body>
+</html>
