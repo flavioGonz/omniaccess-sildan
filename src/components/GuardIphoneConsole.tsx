@@ -83,6 +83,13 @@ export default function GuardIphoneConsole({
     // Login State
     const [loginUser, setLoginUser] = useState("");
     const [loginPass, setLoginPass] = useState("");
+    // Botón de descarga de la app Android en el login (oculto dentro de la propia app).
+    const [apkVer, setApkVer] = useState<string>("");
+    const [enApp, setEnApp] = useState(false);
+    useEffect(() => {
+        try { setEnApp(!!(window as any).AndroidGuard); } catch { }
+        fetch("/api/apk/version", { cache: "no-store" }).then(r => r.json()).then((d: any) => setApkVer(d?.versionName || "")).catch(() => { });
+    }, []);
 
     // UI Helpers
     const [entries, setEntries] = useState(initialEntries);
@@ -1602,6 +1609,12 @@ export default function GuardIphoneConsole({
                                 <LogIn size={20} /> Ingresar
                             </button>
                         </form>
+                        {!enApp && (
+                            <a href="/api/apk" download className="mt-4 w-full max-w-sm flex items-center justify-center gap-2.5 h-14 rounded-2xl border-2 border-slate-200 bg-slate-50 hover:border-emerald-400 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 font-bold uppercase tracking-widest text-xs transition-all active:scale-95">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.6 9.48l1.84-3.18a.38.38 0 10-.66-.38l-1.86 3.22a11.4 11.4 0 00-9.84 0L5.22 5.92a.38.38 0 10-.66.38L6.4 9.48A10.8 10.8 0 001 18h22a10.8 10.8 0 00-5.4-8.52zM7 15.25a1.06 1.06 0 110-2.12 1.06 1.06 0 010 2.12zm10 0a1.06 1.06 0 110-2.12 1.06 1.06 0 010 2.12z"/></svg>
+                                Descargar app Android{apkVer ? ` · v${apkVer}` : ""}
+                            </a>
+                        )}
                     </motion.div>
                 )}
             </AnimatePresence>
