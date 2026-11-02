@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Check, ShieldCheck, Server, Activity, Plus, Trash2, Save, Zap, Workflow, Code, Car, ChevronsUpDown, Loader2, Search, Pencil, X, AlertTriangle, Copy, Radio, ArrowRight, Database, Camera, Bell, Cpu, RefreshCw } from "lucide-react";
+import { Check, ShieldCheck, Server, BookOpen, Download, ExternalLink, FileText, Activity, Plus, Trash2, Save, Zap, Workflow, Code, Car, ChevronsUpDown, Loader2, Search, Pencil, X, AlertTriangle, Copy, Radio, ArrowRight, Database, Camera, Bell, Cpu, RefreshCw } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DRIVER_MODELS, type DeviceBrand } from "@/lib/driver-models";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import { toast } from "@/lib/avisos";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { DOCS_DRIVER } from "@/lib/driver-docs";
 
 
 // Driver metadata (version, features, etc.)
@@ -233,6 +234,12 @@ export function DriverDetailsDialog({ brand, isOpen, onClose }: DriverDetailsDia
                                     Marcas de Autos
                                 </TabsTrigger>
                             )}
+                            {DOCS_DRIVER[brandKey]?.length ? (
+                                <TabsTrigger value="docs" className="text-[10px] font-bold uppercase tracking-widest px-6 data-[state=active]:bg-blue-600">
+                                    <BookOpen size={14} className="mr-2" />
+                                    Documentación
+                                </TabsTrigger>
+                            ) : null}
                             {brandKey === 'AKUVOX' && (
                                 <TabsTrigger value="webhooks" className="text-[10px] font-bold uppercase tracking-widest px-6 data-[state=active]:bg-blue-600">
                                     <Zap size={14} className="mr-2" />
@@ -425,6 +432,11 @@ export function DriverDetailsDialog({ brand, isOpen, onClose }: DriverDetailsDia
 
                         <TabsContent value="brands" className="flex-1 flex flex-col min-h-0 m-0 focus-visible:ring-0">
                             <BrandEditor />
+                        </TabsContent>
+
+                        {/* Guías de obra del driver (lib/driver-docs) */}
+                        <TabsContent value="docs" className="flex-1 flex flex-col min-h-0 m-0 focus-visible:ring-0">
+                            <DocumentacionDriver docs={DOCS_DRIVER[brandKey] || []} />
                         </TabsContent>
 
                         {/* Akuvox Action URLs Tab */}
@@ -1113,5 +1125,42 @@ function BrandEditor() {
                 </Button>
             </div>
         </div>
+    );
+}
+
+
+/**
+ * Las guías de obra de la marca. Una tarjeta por guía, con lo que trae y dos salidas: verla en
+ * otra pestaña (el visor del navegador) o bajarla para llevarla a la obra.
+ */
+function DocumentacionDriver({ docs }: { docs: import("@/lib/driver-docs").DocDriver[] }) {
+    return (
+        <ScrollArea className="flex-1 min-h-0">
+            <div className="space-y-3 pr-2">
+                {docs.map((d) => (
+                    <div key={d.archivo} className="rounded-[10px] border border-border bg-card p-4">
+                        <div className="flex items-start gap-3">
+                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[6px] bg-[color-mix(in_oklab,var(--accion)_14%,transparent)] tono-accion"><FileText size={20} /></span>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[15px] font-semibold leading-tight">{d.titulo}</div>
+                                <div className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">PDF · {d.paginas} páginas · versión del {d.version}</div>
+                            </div>
+                        </div>
+                        <p className="mt-3 text-[13px] text-muted-foreground">{d.que}</p>
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                            {d.temas.map((t) => <span key={t} className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">{t}</span>)}
+                        </div>
+                        <div className="mt-4 flex items-center justify-end gap-2">
+                            <Button variant="outline" size="sm" asChild>
+                                <a href={d.archivo} download><Download size={14} /> Descargar</a>
+                            </Button>
+                            <Button size="sm" asChild className="bg-[var(--accion)] text-[var(--accion-texto)] hover:bg-[var(--accion-sobre)]">
+                                <a href={d.archivo} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} /> Abrir</a>
+                            </Button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </ScrollArea>
     );
 }
