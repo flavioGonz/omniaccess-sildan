@@ -67,6 +67,18 @@ async function armar() {
         </ul>
       </section>`).join("");
 
+    // Así se ve un evento: la foto con sus cajas (botones) y la lista que las explica.
+    const eventos = C.EVENTOS.map((e) => `
+      <figure class="evento" data-evento="${e.id}">
+        <figcaption class="evento-cab"><h3>${esc(e.titulo)}</h3><p>${esc(e.bajada)}</p></figcaption>
+        <div class="evento-foto">
+          <!--IMG:${e.img}:${esc(e.alt)}-->
+          ${e.puntos.map((p, i) => `<button class="punto" type="button" data-i="${i}" style="left:${p.x}%;top:${p.y}%;width:${p.w}%;height:${p.h}%" aria-label="${i + 1}. ${esc(p.t)}"><span>${i + 1}</span></button>`).join("")}
+        </div>
+        <div class="evento-texto" aria-live="polite"></div>
+        <ol class="evento-lista">${e.puntos.map((p, i) => `<li><button type="button" data-i="${i}"><span class="n">${i + 1}</span><b>${esc(p.t)}</b><span class="d">${esc(p.d)}</span></button></li>`).join("")}</ol>
+      </figure>`).join("");
+
     const modulos = C.MODULOS.map((m) => `<li>${icono(m.i)}<div><h3>${esc(m.n)}</h3><p>${esc(m.d)}</p></div></li>`).join("");
     const descargas = C.DESCARGAS.map((d) => `<li><a href="descargas/${esc(d.a)}" download><span>${esc(d.n)}</span>${icono("download")}</a></li>`).join("");
 
@@ -80,7 +92,7 @@ async function armar() {
 
     let html = readFileSync(src("index.html"), "utf8")
         .replace("<!--ESCENAS-->", escenas).replace("<!--CANTIDAD-->", String(C.DETECCIONES.length))
-        .replace("<!--FILTROS-->", filtros).replace("<!--GRUPOS-->", grupos).replace("<!--MODULOS-->", modulos)
+        .replace("<!--FILTROS-->", filtros).replace("<!--EVENTOS-->", eventos).replace("<!--GRUPOS-->", grupos).replace("<!--MODULOS-->", modulos)
         .replace("<!--DESCARGAS-->", descargas).replace("<!--CONTACTO-->", contacto)
         .replace(/<!--ICONO:([a-z0-9-]+)-->/g, (_, n) => icono(n));
 
@@ -90,8 +102,11 @@ async function armar() {
 
     writeFileSync(dist("estilos.css"), css);
     writeFileSync(dist("sitio.js"), js);
-    const conVideos = (h, embebido) => h.replace(/<!--VIDEO:([a-z]+)-->/g, (_, n) => video(n, embebido));
+    // Las imágenes: en el archivo único van embebidas; en los demás, en img/.
+    const imagen = (n, alt, embebido) => `<img src="${embebido ? `data:image/webp;base64,${readFileSync(src_("img", `${n}.webp`)).toString("base64")}` : `img/${n}.webp`}" alt="${alt}" width="1344" height="756" loading="lazy" decoding="async">`;
+    const conVideos = (h, embebido) => h.replace(/<!--VIDEO:([a-z]+)-->/g, (_, n) => video(n, embebido)).replace(/<!--IMG:([a-z-]+):([^>]*?)-->/g, (_, n, alt) => imagen(n, alt, embebido));
     cpSync(src_("videos"), dist("videos"), { recursive: true });
+    cpSync(src_("img"), dist("img"), { recursive: true });
     const enLinea = js.replace(/<\/script/gi, "<\\/script");
     const conEstilos = (h) => h.replace("<!--ESTILOS-->", `<style>\n${css}\n</style>`).replace("<!--SCRIPT-->", `<script>\n${enLinea}\n</script>`);
 

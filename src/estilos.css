@@ -190,6 +190,51 @@ svg { display: block; }
 
 .pie { background: var(--noche); border-top: 1px solid var(--linea-n); padding: 28px var(--margen) 40px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; color: var(--suave-n); font-size: 14px; }
 
+/* ── Así se ve un evento ────────────────────────────────────────────────
+ * La ventana real del panel con sus datos marcados. Con JavaScript, un recorrido ilumina un dato
+ * por vez (el resto se oscurece) y abajo dice qué es; se puede tocar cualquier número. Sin
+ * JavaScript, o con «menos movimiento», quedan los números quietos y la lista completa. */
+.eventos { padding-bottom: clamp(80px, 10vw, 140px); }
+.evento { margin: 64px auto 0; }
+.evento + .evento { margin-top: 96px; }
+.evento-cab { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 40px; align-items: end; margin-bottom: 22px; }
+.evento-cab h3 { font-size: clamp(24px, 2.6vw, 34px); letter-spacing: -0.02em; }
+.evento-cab p { color: var(--suave-n); font-size: 17px; }
+.evento-foto { position: relative; border-radius: 22px; overflow: hidden; background: #000;
+    box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.9), 0 0 0 1px var(--linea-n); }
+.evento-foto img { display: block; width: 100%; height: auto; }
+.punto { position: absolute; padding: 0; border: 0; background: transparent; border-radius: 8px; cursor: pointer; }
+.punto span { position: absolute; top: -9px; left: -9px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--marca); color: #fff; font: 600 12px/1 Outfit, system-ui, sans-serif; box-shadow: 0 0 0 3px rgba(5, 8, 15, 0.75); }
+.punto:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.con-recorrido .punto span { opacity: 0.85; transform: scale(0.85); transition: opacity 0.3s, transform 0.3s; }
+.con-recorrido .punto.activo { box-shadow: 0 0 0 2px var(--marca), 0 0 0 9999px rgba(5, 8, 15, 0.62); z-index: 2;
+    transition: box-shadow 0.45s cubic-bezier(0.32, 0.72, 0, 1); }
+.con-recorrido .punto.activo span { opacity: 1; transform: scale(1.15); }
+.evento-texto { display: none; }
+.con-recorrido .evento-texto { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 16px; align-items: start; min-height: 92px;
+    margin-top: 22px; padding: 18px 22px; border: 1px solid var(--linea-n); border-radius: 14px; background: var(--noche-2); }
+.evento-texto .n { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--marca); color: #fff; font-weight: 600; }
+.evento-texto b { display: block; font-size: 20px; letter-spacing: -0.01em; }
+.evento-texto p { color: var(--suave-n); margin-top: 4px; max-width: 46em; }
+.evento-texto .barra-avance { width: 120px; height: 3px; border-radius: 3px; background: var(--linea-n); overflow: hidden; margin-top: 16px; }
+.evento-texto .barra-avance i { display: block; height: 100%; width: 0; background: var(--marca); }
+.evento-lista { list-style: none; padding: 0; margin-top: 22px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.evento-lista button { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 26px minmax(0, 1fr); column-gap: 10px; width: 100%; height: 100%;
+    padding: 14px 16px; border: 1px solid var(--linea-n); border-radius: 12px; cursor: pointer; }
+.evento-lista .n { grid-row: span 2; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--linea-n); font-size: 12px; font-weight: 600; }
+.evento-lista b { font-size: 15.5px; }
+.evento-lista .d { color: var(--suave-n); font-size: 14.5px; }
+/* Con el recorrido, la lista queda como índice: sólo los títulos. */
+.con-recorrido .evento-lista { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
+.con-recorrido .evento-lista button { grid-template-columns: 22px minmax(0, 1fr); align-items: center; padding: 9px 12px; }
+.con-recorrido .evento-lista .n { grid-row: auto; width: 20px; height: 20px; font-size: 11px; }
+.con-recorrido .evento-lista b { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.con-recorrido .evento-lista .d { display: none; }
+.evento-lista button[aria-current="true"] { border-color: var(--marca); background: color-mix(in oklab, var(--marca) 14%, transparent); }
+.evento-lista button[aria-current="true"] .n { background: var(--marca); color: #fff; }
+.evento-lista button:focus-visible { outline: 2px solid var(--marca); outline-offset: 2px; }
+
 /* ── Pantallas angostas ───────────────────────────────────────────────── */
 @media (max-width: 1000px) {
     .menu { display: none; }
@@ -198,6 +243,8 @@ svg { display: block; }
     .grupo-titulo { position: static; }
     .lista-descargas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .pasos { grid-template-columns: 1fr; }
+    .evento-cab { grid-template-columns: 1fr; gap: 10px; }
+    .evento-lista { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 700px) {
     body { font-size: 16px; }
@@ -215,4 +262,9 @@ svg { display: block; }
     .items, .lista-modulos { grid-template-columns: 1fr; }
     .lista-modulos li:nth-child(n) { padding-left: 0; padding-right: 0; border-left: 0; }
     .lista-descargas { grid-template-columns: 1fr; }
+    .evento-foto { border-radius: 12px; }
+    .punto span { width: 18px; height: 18px; top: -6px; left: -6px; font-size: 10px; }
+    .evento-lista { grid-template-columns: 1fr; }
+    .con-recorrido .evento-texto { grid-template-columns: 36px minmax(0, 1fr); padding: 16px; }
+    .evento-texto .barra-avance { display: none; }
 }

@@ -127,3 +127,43 @@ export const DESCARGAS = [
     { n: "OmniAccess Filas", a: "OmniAccess-Filas-Funciones.pdf" },
     { n: "Intrusión con doble verificación", a: "OmniAccess-Intrusion-Funciones.pdf" },
 ];
+
+/**
+ * Así se ve un evento (2/11, Nico: «usá esta imagen para mostrar cómo son los eventos; si podés,
+ * animala para explicar cada dato»). Las dos ventanas reales del panel, recortadas a la ventana
+ * (chapas del auto difuminadas y el destinatario con nombre genérico). Cada punto es una caja en %
+ * de la imagen: el recorrido la ilumina y dice qué es. Lo mismo arma las láminas del PDF.
+ */
+export const EVENTOS = [
+    {
+        id: "lpr", img: "evento-lpr", titulo: "Una lectura de matrícula",
+        bajada: "Cada vehículo que pasa abre su ficha: la chapa, el vehículo, el padrón y sus costumbres, sobre la foto de la cámara.",
+        alt: "Ficha de una lectura de matrícula en OmniAccess: la chapa, el vehículo, el padrón, los hábitos y los horarios, sobre la foto de la cámara.",
+        puntos: [
+            { x: 2.2, y: 2.8, w: 18.5, h: 6.4, t: "La lectura", d: "Qué cámara la leyó, en qué sentido, si la barrera abrió y a qué hora." },
+            { x: 2.5, y: 12.6, w: 27.2, h: 14.2, t: "La chapa", d: "La matrícula leída, en su formato Mercosur, verificada sobre la foto." },
+            { x: 2.5, y: 27.8, w: 16, h: 6.8, t: "El vehículo", d: "Marca, color y carrocería." },
+            { x: 2.5, y: 37.6, w: 31.4, h: 8.3, t: "El padrón", d: "Si está registrada en el barrio. Si no, se pasa a lista negra o se registra desde acá mismo." },
+            { x: 2.5, y: 48.2, w: 31.4, h: 16.8, t: "Sus hábitos", d: "Cuántas veces pasa por día en los últimos 30 días, hoy y en la semana." },
+            { x: 2.5, y: 66.2, w: 31.4, h: 13.4, t: "Sus horarios", d: "A qué hora suele entrar y a qué hora salir, hora por hora." },
+            { x: 2.5, y: 81.4, w: 31.4, h: 12.2, t: "Por dónde pasa", d: "Las cámaras que la leyeron, con las entradas y salidas de cada una." },
+            { x: 33.8, y: 6, w: 14.4, h: 8.2, t: "Lo que ve OmniVision", d: "El tipo de vehículo, su color y su carrocería sobre la foto, con la confianza de cada dato." },
+            { x: 94.6, y: 19.2, w: 4, h: 61.8, t: "Todo a un toque", d: "El vivo, la grabación del momento, el clip en loop, buscar parecidos, la imagen limpia, el zoom y las capas de OmniVision." },
+        ],
+    },
+    {
+        id: "intrusion", img: "evento-intrusion", titulo: "Un cruce de línea, y el clip por WhatsApp",
+        bajada: "La detección con lo que vio OmniVision y el contexto para decidir. Y el video de ese momento, a la guardia en dos toques.",
+        alt: "Ficha de un cruce de línea en OmniAccess: la silueta de la persona y la moto sobre la foto, el contexto de la detección y el envío del clip por WhatsApp.",
+        puntos: [
+            { x: 2.3, y: 3, w: 18.6, h: 6.4, t: "Qué pasó", d: "El tipo de detección, la cámara y la hora exacta." },
+            { x: 2.3, y: 11.4, w: 32, h: 18.4, t: "La actividad", d: "La cámara detectó y, segundos después, OmniVision la verificó: confirmada." },
+            { x: 2.3, y: 33.8, w: 32, h: 39.4, t: "Alrededor", d: "El contexto que decide: si es un episodio de varias detecciones, cuánto se mueve esa cámara a esa hora y cuántas de sus alarmas fueron falsas." },
+            { x: 2.3, y: 73.6, w: 19.4, h: 13, t: "Leídas cerca", d: "Las matrículas que leyó el LPR minutos antes y después: quién andaba por ahí." },
+            { x: 35.2, y: 34.6, w: 29, h: 64.4, t: "OmniVision", d: "La silueta de cada persona y vehículo, con su confianza. En rojo, la parte que toca la línea." },
+            { x: 66, y: 13.4, w: 32.2, h: 28.8, t: "El clip del evento", d: "Segundos antes y después del instante: 10, 20, 45 s o 1 min 30, o a medida." },
+            { x: 66, y: 48.6, w: 31.4, h: 24.2, t: "A quién va", d: "Bajarlo, o mandarlo por WhatsApp o Telegram a la guardia o a un usuario del barrio." },
+            { x: 66, y: 79.6, w: 32.4, h: 18.8, t: "Enviado y registrado", d: "Sale con la cámara, la fecha y la hora, y queda registrado en Despachos." },
+        ],
+    },
+];
