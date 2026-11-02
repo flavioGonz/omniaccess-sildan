@@ -480,6 +480,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                             : ver ? ver.rotulo
                                                 : vc.datos?.estado === "SIN_CAMARAS" || (vc.datos && !fotosC.length && !vc.datos.config.camaras) ? "Sin cámaras para verificar"
                                                     : vc.datos?.estado === "SIN_FOTO" ? "Las cámaras no dieron foto"
+                                                        : vc.datos?.estado === "FUERA" ? "Fuera de OmniVision"
                                                         : vc.datos?.estado === "ERROR" ? "OmniVision no pudo mirarlas" : "Sin verificar"}
                                     </div>
                                     <p className="text-[12.5px] text-white/65 leading-snug mt-0.5">
@@ -489,7 +490,8 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                                 : `${ver.rotulo === "Animal" ? "Sólo se ve un animal" : "Se ve una persona o un vehículo"} en ${fotosC.find((f) => f.foto === vc.datos?.fuente)?.nombre || "una cámara de la zona"}.`}</>
                                                 : vc.datos && !vc.datos.config.camaras ? `${vc.datos.config.zona != null ? `La zona ${vc.datos.config.zona}` : "El evento"} no tiene cámaras: ni las de la zona, ni las de su área, ni las del abonado. Se eligen en la central, en Dispositivos → Zonas.`
                                                     : !fotosC.length ? "El evento no trajo fotos. Con «Volver a verificar» se toman las de ahora de las cámaras de la zona."
-                                                        : vc.datos?.estado === "ERROR" ? "Hubo un error al analizarlas. Probá volver a verificar." : "OmniVision todavía no las miró."}
+                                                        : vc.datos?.estado === "FUERA" ? "Las cámaras de la zona no están elegidas para OmniVision (Ajustes → OmniVision): las fotos se ven, pero no se analizan."
+                                                            : vc.datos?.estado === "ERROR" ? "Hubo un error al analizarlas. Probá volver a verificar." : "OmniVision todavía no las miró."}
                                         {" "}<span className="text-white/45">Es una ayuda: la decide una persona.</span>
                                     </p>
                                     {vc.error && <p className="text-[12px] visor-aviso mt-1">{vc.error}</p>}

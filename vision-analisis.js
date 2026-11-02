@@ -315,11 +315,15 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
             if (d.verifEstado !== "PEDIDA" && Date.now() - d.timestamp.getTime() < FOTO_ESPERA_MS && (det.camaras || []).length) return false;
             await fin({ verifEstado: (det.camaras || []).length ? "SIN_FOTO" : "SIN_CAMARAS" });
             contadores.sinFoto++;
+            emitir("detection_verified", { id: d.id });
             return true;
         }
         const t0 = Date.now();
         try {
             const central = [];
+            // Las cámaras que no están elegidas para OmniVision (Ajustes) no se miran: se anota cuáles,
+            // para que la ficha lo diga en vez de «sin foto».
+            const fuera = lista.filter((f) => !deOmni(f)).map((f) => String(f.foto));
             for (const f of lista.filter(deOmni)) {
                 const img = await foto(f.foto);
                 if (!img) return false; // la app no contestó: se reintenta en la próxima vuelta
@@ -327,9 +331,9 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
                 central.push({ camara: String(f.camara), foto: String(f.foto), momento: f.momento, ...(await analizar(img.jpeg, false)) });
                 await dormir(PAUSA_MS);
             }
-            if (!central.length) { await fin({ verifEstado: "SIN_FOTO" }); contadores.sinFoto++; return true; }
+            if (!central.length) { await fin({ verifEstado: fuera.length ? "FUERA" : "SIN_FOTO" }); contadores.sinFoto++; emitir("detection_verified", { id: d.id }); return true; }
             const { camara, foto: _f, momento, ...primera } = central[0];
-            await fin({ verifEstado: "OK", verifAnalisis: { ...primera, central }, verifMs: Date.now() - t0, verifError: null });
+            await fin({ verifEstado: "OK", verifAnalisis: { ...primera, central, fuera }, verifMs: Date.now() - t0, verifError: null });
             contadores.verificadas++; contadores.msUltima = Date.now() - t0;
             emitir("detection_verified", { id: d.id });
         } catch (e) {

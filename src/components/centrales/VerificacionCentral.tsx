@@ -71,7 +71,7 @@ export function TiraFotosCentral({ fotos, sel, onSel, verificando }: { fotos: Fo
                 return (
                     <div key={f.foto} className="flex items-stretch gap-1.5 shrink-0">
                         {antes && <span className="w-px self-stretch my-1 bg-white/15" aria-hidden />}
-                        <button type="button" onClick={() => onSel(i)} aria-pressed={i === sel} title={`${f.nombre} · ${momentoDe(f)}${v ? ` · ${v.rotulo}` : ""}`}
+                        <button type="button" onClick={() => onSel(i)} aria-pressed={i === sel} title={`${f.nombre} · ${momentoDe(f)}${v ? ` · ${v.rotulo}` : f.fuera ? " · la cámara no está en OmniVision" : ""}`}
                             className={cn("group relative w-[124px] rounded-[10px] overflow-hidden text-left transition-[box-shadow,opacity]",
                                 i === sel ? "ring-2 ring-[var(--accion-en-oscuro)]" : "opacity-80 hover:opacity-100 ring-1 ring-white/10")}>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -81,7 +81,7 @@ export function TiraFotosCentral({ fotos, sel, onSel, verificando }: { fotos: Fo
                                 <span className="flex items-center gap-1 text-[9.5px] text-white/70 tabular-nums leading-tight">
                                     {v ? <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: TONO[v.tono] }} />
                                         : verificando ? <Loader2 size={9} className="animate-spin shrink-0" /> : null}
-                                    <span className="truncate">{f.momento === "evento" ? "Evento" : "Ahora"} · {horaSeg(f.en)}</span>
+                                    <span className="truncate">{f.momento === "evento" ? "Evento" : "Ahora"} · {horaSeg(f.en)}{f.fuera ? " · sin OmniVision" : ""}</span>
                                 </span>
                             </span>
                             {v && v.tono !== "quieto" && (

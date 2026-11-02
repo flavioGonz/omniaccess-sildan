@@ -26,9 +26,11 @@ export type FotoCentral = {
     /** Para el vivo y la grabación de esa cámara desde la ficha. */
     deviceId: string | null; grabador: boolean;
     analisis: Analisis | null; veredicto: Veredicto | null;
+    /** La cámara no está elegida para OmniVision (Ajustes): la foto se ve, pero no se analizó. */
+    fuera: boolean;
 };
 export type VerificacionCentral = {
-    /** OK · PEDIDA (fotos de ahora en cola) · SIN_CAMARAS · SIN_FOTO · ERROR · null (todavía no). */
+    /** OK · PEDIDA (fotos de ahora en cola) · SIN_CAMARAS · SIN_FOTO · FUERA (ninguna cámara está en OmniVision) · ERROR · null (todavía no). */
     estado: string | null;
     veredicto: Veredicto | null;
     /** La foto que dio el veredicto (la primera con el veredicto más fuerte). */
@@ -69,10 +71,11 @@ export async function verificacionCentral(id: string): Promise<VerificacionCentr
     const vistos = new Map<string, Analisis>();
     const a = det.verifEstado === "OK" ? (det.verifAnalisis as any) : null;
     for (const x of Array.isArray(a?.central) ? a.central : []) if (x?.foto) vistos.set(String(x.foto), x as Analisis);
+    const fuera = new Set<string>(Array.isArray(a?.fuera) ? a.fuera.map(String) : []);
     const fotos: FotoCentral[] = lista.map((f) => {
         const an = vistos.get(f.foto) || null;
         const r = ref.get(f.camara);
-        return { ...f, nombre: r?.nombre || "Cámara", deviceId: r?.deviceId ?? null, grabador: !!r?.grabador, analisis: an, veredicto: an ? veredictoDe(an, null).estado : null };
+        return { ...f, nombre: r?.nombre || "Cámara", deviceId: r?.deviceId ?? null, grabador: !!r?.grabador, analisis: an, veredicto: an ? veredictoDe(an, null).estado : null, fuera: det.verifEstado === "FUERA" || fuera.has(f.foto) };
     });
     const con = fotos.filter((f) => f.veredicto);
     const mejor = con.sort((x, y) => ORDEN_VEREDICTO.indexOf(x.veredicto!) - ORDEN_VEREDICTO.indexOf(y.veredicto!))[0] || null;
