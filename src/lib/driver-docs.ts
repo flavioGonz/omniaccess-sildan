@@ -2,8 +2,9 @@ import type { DeviceBrand } from "@/lib/driver-models";
 
 /**
  * Documentación de obra por driver: las guías que se abren desde Ajustes → Drivers → (marca) →
- * Documentación. Los PDF viven en public/drivers/<marca>/ y se sirven con la sesión del panel
- * (el middleware no deja pasar /drivers/* sin ella).
+ * Documentación. Los PDF viven en public/drivers/<marca>/ y se sirven como archivos estáticos,
+ * sin pedir sesión (medido el 2/11: 200 sin cookie). Por eso acá va sólo material que se puede
+ * entregar a un cliente o instalador: nada con direcciones, claves ni datos de una instalación.
  *
  * Se arman fuera del repo (OmniAccess-Comercial/generadores) y acá se copia el PDF final. Para
  * sumar una guía: copiar el PDF y agregar su renglón; la pestaña aparece sola en esa marca.
