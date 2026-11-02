@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Camera, Radar, ShieldAlert, Shapes, Video, RefreshCw, Loader2, Check, X, ScanEye } from "lucide-react";
+import { ArrowUpRight, Camera, Radar, ShieldAlert, Shapes, Video, RefreshCw, Loader2, Check, X, ScanEye, ChevronDown } from "lucide-react";
 import { getAnalyticsGeometryBatch, type DetItem, type ResumenDetecciones } from "@/app/actions/detections";
 import { useDestello, useTiempoReal } from "@/lib/tiempo-real";
 import { Estado, type Tono } from "@/components/ui/celdas";
@@ -191,31 +191,11 @@ export function IntrusionPanel({ alAbrir, alarmas }: {
                 ))}
             </div>
 
-            {/* Cada cámara con su última detección: lo que deja ver una cámara muda. */}
-            {resumen && resumen.camaras.length > 0 && (
-                <div className="rounded-[10px] border border-border bg-card">
-                    <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
-                        <Video size={13} className="text-muted-foreground" />
-                        <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Cámaras que detectan</span>
-                        <Pista texto="La última detección de cada cámara. Una cámara que pasa más de un día sin avisar se marca en ámbar: puede ser un lugar tranquilo, o una regla apagada en la cámara. Vale mirarla.">
-                            <span className="ml-auto text-[10.5px] text-muted-foreground underline decoration-dotted underline-offset-2 cursor-help">¿Qué es esto?</span>
-                        </Pista>
-                    </div>
-                    <div className="divide-y divide-border">
-                        {resumen.camaras.map((c) => (
-                            <div key={c.id} className="flex items-center gap-2.5 px-3 py-1.5">
-                                <span className={cn("w-2 h-2 rounded-full shrink-0", c.callada ? "bg-[var(--aviso)]" : "bg-[var(--bien)]")} />
-                                <span className="text-[12.5px] font-semibold text-foreground truncate min-w-0 flex-1">{c.nombre}</span>
-                                <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">{c.dia} en 24 h</span>
-                                <span className={cn("text-[11px] tabular-nums shrink-0 w-[150px] text-right", c.callada ? "tono-aviso font-semibold" : "text-muted-foreground")}
-                                    title={c.ultima ? fechaHoraSeg(c.ultima) : undefined}>
-                                    {c.ultima ? `última ${hace(c.ultima)}` : "nunca detectó"}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
+            {/* Cada cámara con su última detección: lo que deja ver una cámara muda. Es un dato de
+                salud, no el centro del panel (2/11, Nico: con 30 cámaras la lista ocupaba toda la
+                altura y había que bajar para llegar a las detecciones). Queda en un renglón, plegado,
+                y desplegado tiene alto propio. */}
+            {resumen && resumen.camaras.length > 0 && <CamarasQueDetectan camaras={resumen.camaras} />}
 
             {/* omni-vision: el mismo filtro que la pared y el monitor de intrusión (lib/vision-capa). */}
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -320,6 +300,50 @@ export function IntrusionPanel({ alAbrir, alarmas }: {
 }
 
 /** Un contador: el número de hoy grande, las 24 h abajo. Es también el filtro de la lista (una píldora de elección). */
+/**
+ * Las cámaras, en un renglón: cuántas avisaron en 24 h y cuántas no. Plegado por defecto; al
+ * abrirlo, primero las que detectaron (la más reciente arriba), después las calladas, y la lista
+ * tiene su propio alto con scroll: nunca empuja las detecciones fuera de la vista.
+ */
+function CamarasQueDetectan({ camaras }: { camaras: ResumenDetecciones["camaras"] }) {
+    const [abierta, setAbierta] = useState(false);
+    const activas = camaras.filter((c) => !c.callada).length;
+    const calladas = camaras.length - activas;
+    const orden = useMemo(() => [...camaras].sort((x, y) =>
+        Number(x.callada) - Number(y.callada) || (y.ultima ? new Date(y.ultima).getTime() : 0) - (x.ultima ? new Date(x.ultima).getTime() : 0) || x.nombre.localeCompare(y.nombre)), [camaras]);
+    return (
+        <div className="rounded-[10px] border border-border bg-card">
+            <button type="button" onClick={() => setAbierta((v) => !v)} aria-expanded={abierta}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent/40 rounded-[10px]">
+                <Video size={13} className="text-muted-foreground shrink-0" />
+                <span className="text-[12px] font-semibold text-foreground">Cámaras</span>
+                <span className="text-[11.5px] text-muted-foreground tabular-nums">{activas} de {camaras.length} detectaron en 24 h</span>
+                {calladas > 0 && (
+                    <Pista texto="Cámaras que pasaron más de un día sin avisar. Puede ser un lugar tranquilo, o una regla apagada en la cámara: vale mirarlas.">
+                        <span className="chip-aviso rounded-full px-2 py-0.5 text-[10.5px] font-semibold tabular-nums">{calladas} sin avisar</span>
+                    </Pista>
+                )}
+                <ChevronDown size={14} className={cn("ml-auto text-muted-foreground transition-transform", abierta && "rotate-180")} />
+            </button>
+            {abierta && (
+                <div className="max-h-[220px] overflow-y-auto border-t border-border divide-y divide-border">
+                    {orden.map((c) => (
+                        <div key={c.id} className="flex items-center gap-2.5 px-3 py-1.5">
+                            <span className={cn("w-2 h-2 rounded-full shrink-0", c.callada ? "bg-[var(--aviso)]" : "bg-[var(--bien)]")} />
+                            <span className="text-[12px] font-semibold text-foreground truncate min-w-0 flex-1">{c.nombre}</span>
+                            <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">{c.dia} en 24 h</span>
+                            <span className={cn("text-[11px] tabular-nums shrink-0 w-[120px] text-right", c.callada ? "tono-aviso font-semibold" : "text-muted-foreground")}
+                                title={c.ultima ? fechaHoraSeg(c.ultima) : undefined}>
+                                {c.ultima ? `última ${hace(c.ultima)}` : "nunca detectó"}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function Contador({ titulo, valor, dia, activo, onClick, pista, Icono }: {
     /** null mientras se cuenta: un 0 antes de contar es un dato falso. */
     titulo: string; valor: number | null; dia: number | null; activo: boolean; onClick: () => void; pista: string;
