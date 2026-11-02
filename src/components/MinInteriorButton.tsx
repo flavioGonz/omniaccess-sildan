@@ -23,8 +23,9 @@ export function MinInteriorButton({
 }) {
     const [open, setOpen] = useState(false);
     const p = normalizarMatricula(plate);
-    // Función LPR_MIN_INTERIOR (Ajustes → Modos → LPR), apagada por defecto: el sitio dejó de contestar
-    // y un botón que siempre da error es un control que miente. Mientras no se sabe, tampoco se muestra.
+    // Función LPR_MIN_INTERIOR (Ajustes → Modos → LPR). Se apagó el 26/10 porque el sitio dejó de
+    // contestar y un botón que siempre da error es un control que miente; desde el 2/11 vuelve
+    // prendida por defecto. Apagada, el botón no se dibuja.
     const activa = useFuncion("LPR_MIN_INTERIOR");
     if (!activa) return null;
 

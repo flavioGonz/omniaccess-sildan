@@ -102,9 +102,9 @@ export const FUNCIONES: Funcion[] = [
         alcance: "modulo",
         modulo: "MODULE_LPR",
         nombre: "Consulta de Matrículas Requeridas (Min. del Interior)",
-        que: "El botón «Min. Interior» del Monitor LPR: consulta la matrícula en el sitio público de Matrículas Requeridas, con el código de seguridad que escribe el guardia.",
-        siSeApaga: "Desaparece el botón del Monitor LPR y la consulta deja de responder. Apagada por defecto desde el 26/10: el sitio del Ministerio dejó de contestar a la consulta y el botón sólo daba error.",
-        porDefecto: false,
+        que: "El botón «Min. Interior» del Monitor LPR: consulta la matrícula en el sitio público de Matrículas Requeridas, con el código de seguridad que escribe el guardia. Cada respuesta se guarda y, durante 24 h, el botón la muestra sin volver a consultar.",
+        siSeApaga: "Desaparece el botón del Monitor LPR y la consulta deja de responder. Las consultas guardadas no se borran. Estuvo apagada del 26/10 al 2/11, mientras el sitio del Ministerio redirigía a la portada de gub.uy; volvió a estar en línea y se prende otra vez por defecto.",
+        porDefecto: true,
     },
 
     // ── Funciones de la instalación (openspec/changes/alarmas-como-funciones) ──

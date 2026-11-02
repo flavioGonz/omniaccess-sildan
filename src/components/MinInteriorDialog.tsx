@@ -10,7 +10,7 @@ import { Chip } from "@/components/ui/estados";
 import { RotateCw, ShieldAlert, ShieldCheck, ShieldQuestion, Search, Check, ExternalLink, KeyRound, FileSearch } from "lucide-react";
 import { native } from "@/lib/guard-native";
 import { cn } from "@/lib/utils";
-import { MIN_INTERIOR_URL, normalizarMatricula, LARGO_CODIGO, type EstadoConsulta } from "@/lib/min-interior";
+import { MIN_INTERIOR_URL, normalizarMatricula, LARGO_CODIGO, type EstadoConsulta, type UltimaConsulta } from "@/lib/min-interior";
 
 /**
  * Consulta asistida de "Matrículas Requeridas" del Ministerio del Interior.
@@ -27,7 +27,8 @@ import { MIN_INTERIOR_URL, normalizarMatricula, LARGO_CODIGO, type EstadoConsult
  */
 
 type Paso = "verificar" | "consultando" | "resultado";
-type Resultado = { status: EstadoConsulta; matricula: string; excerpt: string; hora: Date };
+/** `guardada`: la respuesta salió de una consulta anterior (quién la hizo), no de recién. */
+type Resultado = { status: EstadoConsulta; matricula: string; excerpt: string; hora: Date; guardada?: string | null };
 
 const PASOS: { clave: Paso; rotulo: string; Icono: React.ComponentType<{ size?: number; className?: string }> }[] = [
     { clave: "verificar", rotulo: "Verificación", Icono: KeyRound },
@@ -43,6 +44,8 @@ const VENCE_PRONTO_MS = 45_000;
 const mmss = (ms: number) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 // 24 h como todo el panel: "03:13 p. m." es el formato del navegador, no el del barrio.
 const horaCorta = (d: Date) => d.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false });
+/** Una consulta guardada puede ser de ayer: hoy sólo la hora, otro día también la fecha. */
+const diaYHora = (d: Date) => d.toDateString() === new Date().toDateString() ? `hoy ${horaCorta(d)}` : `${d.toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" })} ${horaCorta(d)}`;
 
 export function MinInteriorDialog({ plate, open, onOpenChange }: { plate?: string | null; open: boolean; onOpenChange: (o: boolean) => void }) {
     const [paso, setPaso] = useState<Paso>("verificar");
@@ -75,8 +78,28 @@ export function MinInteriorDialog({ plate, open, onOpenChange }: { plate?: strin
 
     const nuevaConsulta = useCallback(() => { setResultado(null); setAviso(""); setPaso("verificar"); startCaptcha(); }, [startCaptcha]);
 
+    // Al abrir, primero lo que ya se sabe: si la matrícula se consultó en las últimas 24 h se muestra
+    // esa respuesta y no se le pide nada al Ministerio ni al guardia. «Consultar de nuevo» sigue a
+    // mano. Sin consulta guardada (o si falla la búsqueda) se va derecho a la verificación.
     useEffect(() => {
-        if (open) { setMat(normalizarMatricula(plate)); nuevaConsulta(); }
+        if (!open) return;
+        const m = normalizarMatricula(plate);
+        setMat(m);
+        if (!m) { nuevaConsulta(); return; }
+        let vivo = true;
+        setResultado(null); setAviso(""); setError(""); setPaso("verificar"); setLoading(true);
+        fetch("/api/min-interior?action=ultima&matricula=" + encodeURIComponent(m), { cache: "no-store" })
+            .then((r) => r.json())
+            .then((d: { ok: boolean; ultima: UltimaConsulta | null }) => {
+                if (!vivo) return;
+                if (d?.ok && d.ultima) {
+                    setLoading(false);
+                    setResultado({ status: d.ultima.estado, matricula: m, excerpt: d.ultima.extracto || "", hora: new Date(d.ultima.creadoEn), guardada: d.ultima.quien || "" });
+                    setPaso("resultado");
+                } else nuevaConsulta();
+            })
+            .catch(() => { if (vivo) nuevaConsulta(); });
+        return () => { vivo = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, plate]);
 
@@ -255,9 +278,13 @@ export function MinInteriorDialog({ plate, open, onOpenChange }: { plate?: strin
                             <motion.div key="resultado" className="space-y-4" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} transition={{ duration: 0.22 }}>
                                 <TarjetaResultado r={resultado} />
                                 <div className="flex items-center justify-between gap-2 pt-1">
-                                    <span className="text-[11px] text-muted-foreground">Fuente: sitio oficial del Ministerio del Interior · {horaCorta(resultado.hora)}</span>
+                                    <span className="text-[11px] text-muted-foreground">
+                                        {resultado.guardada !== undefined
+                                            ? <>Consulta guardada · {diaYHora(resultado.hora)}{resultado.guardada ? ` · ${resultado.guardada}` : ""}</>
+                                            : <>Fuente: sitio oficial del Ministerio del Interior · {horaCorta(resultado.hora)}</>}
+                                    </span>
                                     <div className="flex items-center gap-2">
-                                        <Button type="button" variant="outline" onClick={nuevaConsulta}>Otra consulta</Button>
+                                        <Button type="button" variant="outline" onClick={nuevaConsulta}>{resultado.guardada !== undefined ? "Consultar de nuevo" : "Otra consulta"}</Button>
                                         <Button type="button" onClick={() => onOpenChange(false)} className="bg-[var(--accion)] text-[var(--accion-texto)] hover:bg-[var(--accion-sobre)]">Listo</Button>
                                     </div>
                                 </div>
@@ -287,7 +314,7 @@ function TarjetaResultado({ r }: { r: Resultado }) {
                 <motion.span className="mx-auto grid h-16 w-16 place-items-center rounded-full pleno-bien" initial={{ scale: 0.6 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 14, delay: 0.1 }}><ShieldCheck size={36} /></motion.span>
                 <div className="mt-3 text-[22px] font-bold leading-none tracking-[-0.01em]">Sin requerimiento</div>
                 <div className="mt-2 text-[15px] font-semibold tracking-[0.2em] tabular-nums text-foreground">{r.matricula}</div>
-                <p className="mt-2 text-[13px] text-muted-foreground">No figura como requerida en la consulta de recién.</p>
+                <p className="mt-2 text-[13px] text-muted-foreground">{r.guardada !== undefined ? "No figuraba como requerida en la última consulta. Si pasó tiempo, consultá de nuevo." : "No figura como requerida en la consulta de recién."}</p>
             </motion.div>
         );
     return (

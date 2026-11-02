@@ -1740,3 +1740,18 @@ model SincroCuenta {
   @@index([userId])
   @@index([estado])
 }
+
+/// Cada consulta hecha a Matrículas Requeridas (Min. del Interior), con el código que tipeó una
+/// persona. Sirve para dos cosas: que el botón muestre la última respuesta sin volver a consultar,
+/// y saber quién consultó qué y cuándo (la respuesta es del Ministerio, la consulta es nuestra).
+model ConsultaMinInterior {
+  id        String   @id @default(cuid())
+  creadoEn  DateTime @default(now())
+  matricula String
+  /// REQUERIDA · NO · UNKNOWN (el CAPTCHA mal tipeado no es una consulta y no se guarda).
+  estado    String
+  extracto  String?
+  quien     String?
+
+  @@index([matricula, creadoEn])
+}
