@@ -290,6 +290,56 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
         return true;
     }
 
+    /**
+     * La video verificación de un evento de central (src/lib/centrales/verificacion.ts): las fotos del
+     * momento (alarm-receiver, `details.fotos`) y las de ahora que pidió el operador (`fotosAhora`),
+     * una por cámara. Se mira cada una y se guarda en `verifAnalisis.central`; el veredicto lo calcula
+     * la ficha. Entran las de las últimas 24 h y las que el operador volvió a pedir (PEDIDA).
+     */
+    async function unaCentral() {
+        const d = await prisma.detection.findFirst({
+            where: { type: "CENTRAL", verifAt: null, OR: [{ timestamp: { gte: new Date(Date.now() - VENTANA_INTRUSION_MS) } }, { verifEstado: "PEDIDA" }] },
+            orderBy: { timestamp: "desc" }, select: { id: true, timestamp: true, details: true, verifEstado: true },
+        });
+        if (!d) return false;
+        let det = {}; try { det = JSON.parse(d.details || "{}") || {}; } catch { }
+        const lista = [
+            ...(Array.isArray(det.fotos) ? det.fotos : []).map((f) => ({ ...f, momento: "evento" })),
+            ...(Array.isArray(det.fotosAhora?.fotos) ? det.fotosAhora.fotos : []).map((f) => ({ ...f, momento: "ahora" })),
+        ].filter((f) => f && f.foto);
+        const p = permitidas();
+        const deOmni = (f) => !p || p.todas || p.ids.includes(String(f.camara));
+        const fin = (data) => prisma.detection.update({ where: { id: d.id }, data: { verifAt: new Date(), ...data } });
+        if (!lista.length) {
+            // Las fotos del momento se suben unos segundos después de la alarma: se las espera.
+            if (d.verifEstado !== "PEDIDA" && Date.now() - d.timestamp.getTime() < FOTO_ESPERA_MS && (det.camaras || []).length) return false;
+            await fin({ verifEstado: (det.camaras || []).length ? "SIN_FOTO" : "SIN_CAMARAS" });
+            contadores.sinFoto++;
+            return true;
+        }
+        const t0 = Date.now();
+        try {
+            const central = [];
+            for (const f of lista.filter(deOmni)) {
+                const img = await foto(f.foto);
+                if (!img) return false; // la app no contestó: se reintenta en la próxima vuelta
+                if (img.falta) continue; // la retención ya la borró
+                central.push({ camara: String(f.camara), foto: String(f.foto), momento: f.momento, ...(await analizar(img.jpeg, false)) });
+                await dormir(PAUSA_MS);
+            }
+            if (!central.length) { await fin({ verifEstado: "SIN_FOTO" }); contadores.sinFoto++; return true; }
+            const { camara, foto: _f, momento, ...primera } = central[0];
+            await fin({ verifEstado: "OK", verifAnalisis: { ...primera, central }, verifMs: Date.now() - t0, verifError: null });
+            contadores.verificadas++; contadores.msUltima = Date.now() - t0;
+            emitir("detection_verified", { id: d.id });
+        } catch (e) {
+            await fin({ verifEstado: "ERROR", verifError: String(e.message).slice(0, 300) }).catch(() => null);
+            contadores.errores++; contadores.ultimoError = e.message;
+            emitir("detection_verified", { id: d.id });
+        }
+        return true;
+    }
+
     async function unaLectura() {
         const filas = await prisma.$queryRaw`
             SELECT e.id, e."snapshotPath" AS foto, e.timestamp
@@ -344,7 +394,7 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
 
     let corriendo = true;
     (async function bucle() {
-        log(`análisis de fotos: intrusión (${TIPOS_INTRUSION.join(", ")}), lecturas LPR y huellas para la búsqueda`);
+        log(`análisis de fotos: intrusión (${TIPOS_INTRUSION.join(", ")}), eventos de central, lecturas LPR y huellas para la búsqueda`);
         while (corriendo) {
             let hizo = false;
             try {
@@ -352,6 +402,8 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
                 if (e.detectar) {
                     // La intrusión primero: es la que un guardia está mirando para decidir.
                     if (e.verificar) hizo = await unaIntrusion();
+                    // Los eventos de central, después: el operador los mira con las fotos de cada cámara de la zona.
+                    if (!hizo && e.verificar) hizo = await unaCentral();
                     if (!hizo && e.lpr) hizo = await unaLectura();
                     if (!hizo && e.huellas) hizo = await unaHuella();
                     // En los ratos libres, el taxi de las huellas que ya estaban (sólo cuentas, sin GPU).

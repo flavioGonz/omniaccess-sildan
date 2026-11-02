@@ -5,7 +5,7 @@ import { useClipEvento } from "@/lib/clip-evento";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Check, ChevronLeft, ChevronRight, Clock, Cctv, Eye, EyeOff, ImageOff, Loader2, PlayCircle, Radar,
-    ScanEye, ScanSearch, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen, Repeat, UserRound, Download, Image as IconoFoto, Radio,
+    ScanEye, ScanSearch, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen, Repeat, UserRound, Download, Image as IconoFoto, Radio, RefreshCw,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { BuscarParecidos } from "@/components/visor/BuscarParecidos";
@@ -29,6 +29,7 @@ import { NotaGestion, usarNotaGestion } from "@/components/alarmas/NotaGestion";
 import { GestionEnVivo } from "@/components/alarmas/GestionEnVivo";
 import { CapaComportamiento, type MarcasComportamiento } from "@/components/vision/CapaComportamiento";
 import type { ClaveComportamiento, ParamsComportamiento } from "@/lib/comportamientos";
+import { TiraFotosCentral, momentoDe, useVerificacionCentral } from "@/components/centrales/VerificacionCentral";
 
 /**
  * Una detección de OmniVision (un aviso de sus reglas) abierta en esta ventana (21/10): con qué se
@@ -112,6 +113,25 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
 }) {
     const [cur, setCur] = useState<any>(det);
     /*
+     * Un evento de central (2/11, Nico: «debe traer las capturas de las cámaras de cada zona,
+     * analizarlas y volver a verificar con OmniVision»): el equipo del evento es la CENTRAL, que no
+     * filma. Lo que se mira son las fotos de las cámaras de la zona (del momento y de ahora), cada una
+     * con lo que vio OmniVision; la elegida en la tira es la grande, y el vivo, la grabación y el clip
+     * son de SU cámara (`camId`).
+     */
+    const esCentral = cur.type === "CENTRAL";
+    const vc = useVerificacionCentral(esCentral && !!cur.id && !String(cur.id).startsWith("live-") && !hallazgo ? cur.id : null);
+    const fotosC = vc.datos?.fotos || [];
+    const [selC, setSelC] = useState<number | null>(null);
+    useEffect(() => { setSelC(null); }, [cur.id]);
+    /** Sin elegir, la foto que dio el veredicto (o la primera). */
+    const iC = selC ?? Math.max(0, fotosC.findIndex((f) => f.foto === vc.datos?.fuente));
+    const fotoC = fotosC[iC] || null;
+    /** La grabación y el clip: sólo de un equipo cámara (un canal de NVR suelto no tiene canal conocido acá). */
+    const camId: string | null = esCentral ? (fotoC?.deviceId ?? null) : (cur.deviceId ?? null);
+    /** El vivo: también de un canal de NVR (su stream en go2rtc es `lpr_nvrch-…`, lo registra la central). */
+    const vivoId: string | null = esCentral ? (fotoC?.camara ?? null) : (cur.deviceId ?? null);
+    /*
      * La grabación y el vivo, EN la ventana (18/10, Nico: «el playback de los cruces de línea e
      * intrusión llama al otro modal viejo; debe tener en su mismo modal el módulo de playback, como
      * LPR»). Antes los dos botones abrían el reproductor viejo (LiveModal) encima de la ficha. Ahora
@@ -147,26 +167,26 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
         const chConocido = cur.ch ?? cam?.ch;
         if (chConocido != null) { setCanalClip({ ch: Number(chConocido), nvr: cam?.nvrId ?? null }); return; }
         setCanalClip(null);
-        if (!cur.deviceId) return;
+        if (!camId) return;
         let vivo = true;
-        fetch(`/api/nvr/channel?deviceId=${encodeURIComponent(cur.deviceId)}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+        fetch(`/api/nvr/channel?deviceId=${encodeURIComponent(camId)}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
             .then((j) => { if (vivo && j && j.channel != null) setCanalClip({ ch: Number(j.channel), nvr: j.nvr ? String(j.nvr) : null }); }).catch(() => { });
         return () => { vivo = false; };
-    }, [cur.deviceId, cur.ch, cam?.ch, cam?.nvrId]);
+    }, [camId, cur.ch, cam?.ch, cam?.nvrId]);
     const [sibs, setSibs] = useState<DetHistItem[]>([]);
     useEffect(() => { setCur(det); }, [det]);
     const soloVer = !!hallazgo;
     useEffect(() => { if (!det.deviceId || soloVer) { setSibs([]); return; } getDetectionHistory({ deviceId: det.deviceId, pageSize: 60 }).then((r) => setSibs(r.items)).catch(() => setSibs([])); }, [det.deviceId, soloVer]);
     useEffect(() => { setFoto("captura"); setProporcion(AR_VENTANA); setModo("foto"); setClipGrab(false); }, [cur.id]);
     useEffect(() => {
-        if (modo !== "vivo" || !cur.deviceId) return;
+        if (modo !== "vivo" || !vivoId) return;
         const v = vivoRef.current; if (!v) return;
         setVivoListo(false);
         const alAndar = () => setVivoListo(true);
         v.addEventListener("playing", alAndar);
-        const cortar = montarVivo(v, cur.deviceId, 4, "sd");
+        const cortar = montarVivo(v, vivoId, 4, "sd");
         return () => { v.removeEventListener("playing", alAndar); cortar(); };
-    }, [modo, cur.deviceId]);
+    }, [modo, vivoId]);
     const idx = sibs.findIndex((x) => x.id === cur.id);
     const go = (d: number) => { if (idx < 0) return; const n = idx + d; if (n >= 0 && n < sibs.length) setCur(sibs[n]); };
     const hasPrev = idx >= 0 && idx < sibs.length - 1; // más viejo
@@ -177,10 +197,11 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
        vision-worker avisa que la terminó (una detección recién llegada todavía se está mirando). */
     const [verif, setVerif] = useState<Verificacion | null>(null);
     const pedirVerif = useCallback(() => {
-        if (!real || claveGestion || soloVer) return;
+        // Un evento de central tiene su propia verificación (useVerificacionCentral).
+        if (!real || claveGestion || soloVer || esCentral) return;
         fetch(`/api/monitor/intrusion/verificacion?ids=${encodeURIComponent(cur.id)}`, { cache: "no-store" })
             .then((r) => (r.ok ? r.json() : {})).then((j: Record<string, Verificacion>) => setVerif(j?.[cur.id] || null)).catch(() => { });
-    }, [cur.id, real, claveGestion, soloVer]);
+    }, [cur.id, real, claveGestion, soloVer, esCentral]);
     useEffect(() => { setVerif(null); pedirVerif(); }, [pedirVerif]);
     useTiempoReal("detection_verified", (x: any) => { if (x?.id && x.id === cur.id) pedirVerif(); });
     const { analisis: alrededor, error: errorAlrededor } = useAnalisisDeteccion(real && !claveGestion && !soloVer ? cur.id : null);
@@ -194,9 +215,10 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     const conCapa = !!vision?.fotoCruda && cur.id === det.id;
     /* La foto del evento: la que trajo quien abrió la ficha o, si no la trajo (llegó por socket antes
        de que se guardara la captura), la que tiene hoy la base, que viene con la verificación. */
-    const fotoEvento = cur.snapshotPath || verif?.foto || null;
-    /** Sin foto del evento se muestra el cuadro de AHORA: sirve para ubicarse, pero no es el momento del evento. */
-    const enVivo = !conCapa && !fotoEvento && !!cur.deviceId;
+    const fotoEvento = esCentral ? (fotoC?.foto || cur.snapshotPath || null) : (cur.snapshotPath || verif?.foto || null);
+    /** Sin foto del evento se muestra el cuadro de AHORA: sirve para ubicarse, pero no es el momento del evento.
+        En un evento de central no: el equipo es la central, que no tiene imagen. */
+    const enVivo = !conCapa && !fotoEvento && !!cur.deviceId && !esCentral;
     const captura = conCapa ? vision!.fotoCruda : fotoEvento ? fotoEvento : enVivo ? `/api/snapshot/${cur.deviceId}?t=${rk}_${cur.id}` : null;
     const propio = verif?.analisis?.propio ? verif.analisis.propio : null;
     const URL_PROPIO = `/api/monitor/intrusion/verificacion/${cur.id}`;
@@ -206,10 +228,12 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     const src = enPropio ? URL_PROPIO : captura;
     /* Lo que vio OmniVision va sólo sobre la foto que miró. Sobre el vivo no: dibujaba una moto que
        ya no estaba (26/10, Nico: «esta el recuadro pero la moto no»). */
-    const capa = enPropio ? propio : enVivo ? null : verif?.analisis || null;
+    const capa = esCentral ? (fotoC?.analisis || null) : enPropio ? propio : enVivo ? null : verif?.analisis || null;
     const g = useMemo(() => geomDeIntrusion(geom as any), [geom]);
-    const ver = verif?.veredicto ? VEREDICTOS[verif.veredicto] : null;
-    const verificando = !verif?.estado && real && !claveGestion && !soloVer && Date.now() - new Date(cur.timestamp).getTime() < VERIFICANDO_MS;
+    const ver = esCentral ? (vc.datos?.veredicto ? VEREDICTOS[vc.datos.veredicto] : null) : verif?.veredicto ? VEREDICTOS[verif.veredicto] : null;
+    const verificando = esCentral
+        ? vc.pidiendo || vc.datos?.estado === "PEDIDA" || (!vc.datos?.estado && fotosC.length > 0 && Date.now() - new Date(cur.timestamp).getTime() < VERIFICANDO_MS)
+        : !verif?.estado && real && !claveGestion && !soloVer && Date.now() - new Date(cur.timestamp).getTime() < VERIFICANDO_MS;
     const momento = new Date(cur.timestamp);
 
     const alarmaPendiente = !!(hasAlarm && cur.deviceId && onResolveAlarm);
@@ -262,7 +286,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
         </BotonDecision>
     ) : null;
     const { clipOn, cambiarClip, clip, clipVisible, setClipVisible, ventana: ventanaFicha } = useClipEvento({
-        id: cur.id, deviceId: cur.deviceId, instante: cur.timestamp, nvrId: cam?.nvrId ?? null, ch: cur.ch ?? cam?.ch ?? null, activo: real,
+        id: cur.id, deviceId: camId, instante: cur.timestamp, nvrId: cam?.nvrId ?? null, ch: cur.ch ?? cam?.ch ?? null, activo: real && !!camId,
     });
     const enVideo = clipOn && clip.estado === "listo" && clipVisible && !enPropio;
     /** Con la grabación o el vivo en la ventana, lo de encima se oculta como en la imagen limpia. */
@@ -330,11 +354,11 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                 <div className={cn("visor-velo-izq absolute inset-y-0 left-0 w-[58%] z-[5] pointer-events-none bg-gradient-to-r from-black/85 via-black/50 to-transparent transition-opacity", oculto && "opacity-0")} />
 
                 {/* La grabación del NVR, en el lugar de la foto, con su regla y sus controles (como en LPR). */}
-                {modo === "grabacion" && cur.deviceId && (
-                    <GrabacionVisor deviceId={cur.deviceId} camara={cur.deviceName || cam?.name} instanteMs={momento.getTime()} poster={captura} clip={clipGrab} onClip={setClipGrab} />
+                {modo === "grabacion" && camId && (
+                    <GrabacionVisor deviceId={camId} camara={esCentral ? fotoC?.nombre : cur.deviceName || cam?.name} instanteMs={momento.getTime()} poster={captura} clip={clipGrab} onClip={setClipGrab} />
                 )}
                 {/* El vivo de la cámara, en la misma ventana. */}
-                {modo === "vivo" && cur.deviceId && (
+                {modo === "vivo" && vivoId && (
                     <div className="absolute inset-0 z-[8] bg-black overflow-hidden">
                         {/* El cuadro de la detección desenfocado detrás: rellena lo que el vivo (entero) no ocupa. */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -354,7 +378,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     <div className="absolute top-4 right-4 z-40 flex items-center gap-2">
                         <span className="h-9 pl-2.5 pr-3 rounded-full bg-black/55 backdrop-blur-xl border border-white/15 text-white/85 text-[12px] font-semibold flex items-center gap-2 max-w-[300px]">
                             {modo === "vivo" ? <Radio size={14} className="animate-pulse text-[var(--mal)] shrink-0" /> : <PlayCircle size={14} className="text-[var(--accion-en-oscuro)] shrink-0" />}
-                            <span className="truncate">{modo === "vivo" ? "En vivo" : "Grabación"} · {cur.deviceName || cam?.name || "Cámara"}</span>
+                            <span className="truncate">{modo === "vivo" ? "En vivo" : "Grabación"} · {esCentral ? fotoC?.nombre || "Cámara" : cur.deviceName || cam?.name || "Cámara"}</span>
                         </span>
                         <span className="h-9 rounded-full bg-black/55 backdrop-blur-xl border border-white/15 p-0.5 flex items-center gap-0.5">
                             <button type="button" onClick={() => setModo("foto")} title="Volver a la foto de la detección  ( Esc )" aria-label="Volver a la foto"
@@ -397,6 +421,19 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     </div>
                 </div>
 
+                {/* Las fotos de las cámaras de la zona (evento de central), arriba a la derecha. */}
+                {esCentral && !oculto && modo === "foto" && fotosC.length > 0 && (
+                    <div className="visor-zona absolute top-[78px] right-[70px] z-30">
+                        <TiraFotosCentral fotos={fotosC} sel={iC} onSel={setSelC} verificando={verificando} />
+                    </div>
+                )}
+                {/* Lo que se ve en grande: qué cámara y de qué momento. */}
+                {esCentral && !oculto && modo === "foto" && fotoC && (
+                    <div className="visor-zona absolute bottom-[86px] left-1/2 -translate-x-1/2 z-30 visor-panel rounded-full px-3.5 py-1.5 flex items-center gap-2 text-[12px] text-white/85 whitespace-nowrap">
+                        <Cctv size={13} className="text-white/55" />
+                        <b className="text-white font-semibold">{fotoC.nombre}</b><span className="text-white/35">·</span><span className="tabular-nums">{momentoDe(fotoC)}</span>
+                    </div>
+                )}
                 {limpio && modo === "foto" && (
                     <button type="button" onClick={() => setLimpio(false)} title="Mostrar la ficha y los controles  ( H )"
                         className="absolute top-4 right-4 z-40 h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/80 text-[11.5px] font-semibold flex items-center gap-1.5 opacity-40 hover:opacity-100 transition-opacity">
@@ -434,7 +471,48 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                 </div>
                             </div>
                         )}
-                        {!vision && !hallazgo && <div className="flex items-start gap-3">
+                        {esCentral && !hallazgo && (
+                            <div className="flex items-start gap-3">
+                                <span className="mt-1.5 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: ver ? TONO_VEREDICTO[ver.tono] : "rgba(255,255,255,0.3)" }} />
+                                <div className="min-w-0 flex-1">
+                                    <div className={cn("text-[22px] font-bold leading-tight", ver ? TEXTO_VEREDICTO[ver.tono] : "text-white/70")}>
+                                        {verificando ? <span className="inline-flex items-center gap-2"><Loader2 size={18} className="animate-spin" /> Verificando…</span>
+                                            : ver ? ver.rotulo
+                                                : vc.datos?.estado === "SIN_CAMARAS" || (vc.datos && !fotosC.length && !vc.datos.config.camaras) ? "Sin cámaras para verificar"
+                                                    : vc.datos?.estado === "SIN_FOTO" ? "Las cámaras no dieron foto"
+                                                        : vc.datos?.estado === "ERROR" ? "OmniVision no pudo mirarlas" : "Sin verificar"}
+                                    </div>
+                                    <p className="text-[12.5px] text-white/65 leading-snug mt-0.5">
+                                        {verificando ? (vc.datos?.estado === "PEDIDA" || vc.pidiendo ? "Tomando los cuadros de ahora de las cámaras de la zona y mirándolos con OmniVision." : "OmniVision está mirando las fotos de las cámaras de la zona.")
+                                            : ver ? <>{ver.tono === "quieto" && vc.datos!.veredicto === "NADA"
+                                                ? `OmniVision miró ${fotosC.filter((f) => f.analisis).length} ${fotosC.filter((f) => f.analisis).length === 1 ? "foto" : "fotos"} de ${new Set(fotosC.map((f) => f.camara)).size} ${new Set(fotosC.map((f) => f.camara)).size === 1 ? "cámara" : "cámaras"} de la zona y no vio personas, vehículos ni animales.`
+                                                : `${ver.rotulo === "Animal" ? "Sólo se ve un animal" : "Se ve una persona o un vehículo"} en ${fotosC.find((f) => f.foto === vc.datos?.fuente)?.nombre || "una cámara de la zona"}.`}</>
+                                                : vc.datos && !vc.datos.config.camaras ? `${vc.datos.config.zona != null ? `La zona ${vc.datos.config.zona}` : "El evento"} no tiene cámaras: ni las de la zona, ni las de su área, ni las del abonado. Se eligen en la central, en Dispositivos → Zonas.`
+                                                    : !fotosC.length ? "El evento no trajo fotos. Con «Volver a verificar» se toman las de ahora de las cámaras de la zona."
+                                                        : vc.datos?.estado === "ERROR" ? "Hubo un error al analizarlas. Probá volver a verificar." : "OmniVision todavía no las miró."}
+                                        {" "}<span className="text-white/45">Es una ayuda: la decide una persona.</span>
+                                    </p>
+                                    {vc.error && <p className="text-[12px] visor-aviso mt-1">{vc.error}</p>}
+                                    {real && vc.datos && vc.datos.config.camaras > 0 && (
+                                        <div className="mt-2">
+                                            <BotonVisor icono={vc.pidiendo ? Loader2 : RefreshCw} onClick={vc.verificarAhora} ocupada={vc.pidiendo || vc.datos.estado === "PEDIDA"}
+                                                title="Sacar un cuadro de ahora de cada cámara de la zona y volver a mirarlo con OmniVision">
+                                                Volver a verificar
+                                            </BotonVisor>
+                                            {vc.datos.pedida && <span className="ml-2 text-[11px] text-white/45 tabular-nums">Última: {horaSeg(vc.datos.pedida.en)}{vc.datos.pedida.quien ? ` · ${vc.datos.pedida.quien}` : ""}</span>}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {esCentral && fotoC?.analisis && (
+                            <Seccion titulo="Lo que vio OmniVision" icono={Sparkles}
+                                extra={<span className="text-[11px] text-white/45 tabular-nums truncate max-w-[200px]">{fotoC.nombre} · {fotoC.analisis.objetos.length} {fotoC.analisis.objetos.length === 1 ? "objeto" : "objetos"}</span>}>
+                                {fotoC.analisis.objetos.length ? <ListaVision objetos={fotoC.analisis.objetos} />
+                                    : <p className="text-[12.5px] text-white/60">Ni personas, ni vehículos, ni animales en esta foto.</p>}
+                            </Seccion>
+                        )}
+                        {!vision && !hallazgo && !esCentral && <div className="flex items-start gap-3">
                             <span className="mt-1.5 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: ver ? TONO_VEREDICTO[ver.tono] : "rgba(255,255,255,0.3)" }} />
                             <div className="min-w-0">
                                 <div className={cn("text-[22px] font-bold leading-tight", ver ? TEXTO_VEREDICTO[ver.tono] : "text-white/70")}>
@@ -452,7 +530,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                             </div>
                         </div>}
 
-                        {verif?.analisis && (
+                        {verif?.analisis && !esCentral && (
                             <Seccion titulo="Lo que vio OmniVision" icono={Sparkles}
                                 extra={<span className="text-[11px] text-white/45 tabular-nums">{verif.analisis.objetos.length} {verif.analisis.objetos.length === 1 ? "objeto" : "objetos"}</span>}>
                                 {verif.analisis.objetos.length ? <ListaVision objetos={(enPropio && propio ? propio : verif.analisis).objetos} />
@@ -581,9 +659,9 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     compartir), y lo que cambia lo que se ve encima (OmniVision, imagen limpia). Sin zoom. */}
                 <div className={cn("visor-zona absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5 transition-opacity",
                     oculto && "opacity-0 pointer-events-none")}>
-                    {cur.deviceId && <BotonRiel onClick={() => setModo("vivo")} title="Ver la cámara en vivo, acá"><Cctv size={15} /></BotonRiel>}
-                    {cur.deviceId && real && <BotonRiel onClick={() => setModo("grabacion")} title="Ver la grabación de este momento, acá (con su regla y los eventos de la cámara)"><PlayCircle size={15} /></BotonRiel>}
-                    {real && cur.deviceId && (
+                    {vivoId && <BotonRiel onClick={() => setModo("vivo")} title={esCentral ? `Ver ${fotoC?.nombre || "la cámara"} en vivo, acá` : "Ver la cámara en vivo, acá"}><Cctv size={15} /></BotonRiel>}
+                    {camId && real && <BotonRiel onClick={() => setModo("grabacion")} title="Ver la grabación de este momento, acá (con su regla y los eventos de la cámara)"><PlayCircle size={15} /></BotonRiel>}
+                    {real && camId && (
                         <>
                             <span className="w-4 h-px bg-white/15" />
                             <span className="relative">
@@ -601,7 +679,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     )}
                     <span className="w-4 h-px bg-white/15" />
                     {real && fotoEvento && <BotonRiel onClick={() => setParecidos(true)} title="Buscar parecidos: recortar algo de la foto y buscarlo en todas las cámaras"><ScanSearch size={15} /></BotonRiel>}
-                    {real && cur.deviceId && canalClip && ventanaClip && <BotonRiel onClick={() => setDescarga(true)} title={`Exportar un clip: bajarlo o mandarlo por WhatsApp (${ventanaClip.antes} s antes y ${ventanaClip.despues} s después)`}><Download size={15} /></BotonRiel>}
+                    {real && camId && canalClip && ventanaClip && <BotonRiel onClick={() => setDescarga(true)} title={`Exportar un clip: bajarlo o mandarlo por WhatsApp (${ventanaClip.antes} s antes y ${ventanaClip.despues} s después)`}><Download size={15} /></BotonRiel>}
                     {real && fotoEvento && <BotonRiel onClick={() => setCompartir(true)} title="Compartir por WhatsApp o Telegram"><Share2 size={15} /></BotonRiel>}
                     <span className="w-4 h-px bg-white/15" />
                     {capa && (
@@ -629,7 +707,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     instante={cur.timestamp} titulo={`🚨 ${m.label}${clase ? ` · ${clase}` : ""} · ${cur.deviceName || cam?.name || "Cámara"}`} lineas={lineasCompartir}
                     onCerrar={() => setCompartir(false)} />}
                 {descarga && canalClip && ventanaClip && (
-                    <DescargaClip instante={momento.getTime()} ventana={ventanaClip} onClose={() => setDescarga(false)} deviceId={cur.deviceId} camara={cur.deviceName || cam?.name || undefined}
+                    <DescargaClip instante={momento.getTime()} ventana={ventanaClip} onClose={() => setDescarga(false)} deviceId={camId!} camara={(esCentral ? fotoC?.nombre : cur.deviceName || cam?.name) || undefined}
                         poster={captura || undefined}
                         href={(antes, despues, instante) => `/api/nvr/playback?ch=${canalClip.ch}&t=${Math.floor(instante)}&pre=${antes}&dur=${antes + despues}&download=1${canalClip.nvr ? `&nvr=${canalClip.nvr}` : ""}`} />
                 )}

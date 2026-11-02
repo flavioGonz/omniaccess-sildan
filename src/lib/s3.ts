@@ -73,7 +73,7 @@ export async function uploadToS3(
     fileBuffer: Buffer | ArrayBuffer,
     filename: string,
     contentType: string,
-    bucketType: "lpr" | "face" | "queue" = "lpr"
+    bucketType: "lpr" | "face" | "queue" | "alarmas" = "lpr"
 ) {
     const config = await getS3Config();
 
@@ -90,6 +90,11 @@ export async function uploadToS3(
     let bucketName = bucketType === "face" ? config.bucketFace : config.bucketLpr;
     if (bucketType === "queue") {
         try { const q = await prisma.setting.findUnique({ where: { key: "S3_BUCKET_QUEUE" } }); if (q?.value) bucketName = q.value; } catch {}
+    }
+    // Las fotos de las alarmas de central, en su bucket (el mismo nombre que usa lib-s3.js).
+    if (bucketType === "alarmas") {
+        bucketName = process.env.S3_BUCKET_ALARMAS || "alarmas";
+        try { const q = await prisma.setting.findUnique({ where: { key: "S3_BUCKET_ALARMAS" } }); if (q?.value) bucketName = q.value; } catch {}
     }
 
     try {
