@@ -41,3 +41,11 @@ test("serializar y volver a leer da lo mismo", () => {
     assert.deepEqual(b.avisos, a.avisos);
     assert.equal(b.horaCorte, "04:30");
 });
+
+test("merodeo: sin tocar, 4 rechazos en 24 h; acotado y guardado ida y vuelta", () => {
+    assert.deepEqual(normalizarAjustes({}).merodeo, { activo: true, denegadas: 4, horas: 24 });
+    const fuera = normalizarAjustes({ avisos: JSON.stringify({ merodeo: { activo: false, denegadas: 1, horas: 99 } }) });
+    assert.deepEqual(fuera.merodeo, { activo: false, denegadas: 2, horas: 24 });
+    const ida = { ...AJUSTES_POR_DEFECTO, merodeo: { activo: true, denegadas: 6, horas: 3 } };
+    assert.deepEqual(normalizarAjustes({ avisos: serializarAvisos(ida) }).merodeo, ida.merodeo);
+});

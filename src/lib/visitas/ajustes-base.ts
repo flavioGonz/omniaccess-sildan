@@ -94,6 +94,14 @@ export type Ajustes = {
     rutinaDesvioMaxMin: number;
     /** Cuántos días hacia atrás mira el perfil. */
     ventanaPerfilDias: number;
+    /**
+     * Merodeo en barrio cerrado: una matrícula que la barrera rechazó `denegadas` veces en las
+     * últimas `horas` (2/11, Nico: «me faltan las opciones de configuración de merodeo»; eran 4 en
+     * 24 h escritos en el código del Monitor LPR y de los atípicos). Marca la fila de atención del
+     * monitor y el atípico «Merodeo» de los vehículos adentro. El otro merodeo, «Da vueltas»
+     * (pasadas, sin barrera), es un aviso y se configura en su renglón.
+     */
+    merodeo: { activo: boolean; denegadas: number; horas: number };
 };
 
 export const AJUSTES_POR_DEFECTO: Ajustes = {
@@ -107,6 +115,8 @@ export const AJUSTES_POR_DEFECTO: Ajustes = {
     rutinaDiasMin: 4,
     rutinaDesvioMaxMin: 30,
     ventanaPerfilDias: 30,
+    // Lo que estaba fijo en el código hasta el 2/11: no cambia nada para quien no lo toque.
+    merodeo: { activo: true, denegadas: 4, horas: 24 },
 };
 
 /** Las claves en `Setting`. */
@@ -160,10 +170,12 @@ export function normalizarAjustes(raw: { modo?: string | null; tipos?: string | 
         rutinaDiasMin: entero(a.rutinaDiasMin, 3, 30, g.rutinaDiasMin),
         rutinaDesvioMaxMin: entero(a.rutinaDesvioMaxMin, 5, 180, g.rutinaDesvioMaxMin),
         ventanaPerfilDias: entero(a.ventanaPerfilDias, 7, 120, g.ventanaPerfilDias),
+        // Hasta 24 h: es la ventana que el Monitor LPR trae para su fila de atención.
+        merodeo: { activo: bool(a.merodeo?.activo, g.merodeo.activo), denegadas: entero(a.merodeo?.denegadas, 2, 50, g.merodeo.denegadas), horas: entero(a.merodeo?.horas, 1, 24, g.merodeo.horas) },
     };
 }
 
 /** Lo que se guarda en `AVISOS_GUARDIA`: los avisos más los parámetros generales. */
 export function serializarAvisos(aj: Ajustes): string {
-    return JSON.stringify({ ...aj.avisos, antirreboteMin: aj.antirreboteMin, horaCorte: aj.horaCorte, rutinaDiasMin: aj.rutinaDiasMin, rutinaDesvioMaxMin: aj.rutinaDesvioMaxMin, ventanaPerfilDias: aj.ventanaPerfilDias });
+    return JSON.stringify({ ...aj.avisos, antirreboteMin: aj.antirreboteMin, horaCorte: aj.horaCorte, rutinaDiasMin: aj.rutinaDiasMin, rutinaDesvioMaxMin: aj.rutinaDesvioMaxMin, ventanaPerfilDias: aj.ventanaPerfilDias, merodeo: aj.merodeo });
 }

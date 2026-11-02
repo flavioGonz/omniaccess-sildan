@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DoorOpen, DoorClosed, Plus, Trash2, Save, Loader2, Clock, BellRing, Timer } from "lucide-react";
+import { DoorOpen, DoorClosed, Plus, Trash2, Save, Loader2, Clock, BellRing, Timer, Footprints } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/avisos";
 import { Button } from "@/components/ui/button";
@@ -116,6 +116,19 @@ export default function VisitasSection() {
                             </div>
                         );
                     })}
+                </div>
+            </section>
+
+            {/* Merodeo (barrio cerrado): rechazos repetidos de la barrera */}
+            <section className={cn("rounded-[10px] border border-border bg-card p-4", aj.modo === "ABIERTO" && "opacity-60")}>
+                <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-3 inline-flex items-center gap-1.5"><Footprints size={12} /> Merodeo</h3>
+                <div className="flex items-start gap-4">
+                    <Switch checked={aj.merodeo.activo} onCheckedChange={(v) => set({ merodeo: { ...aj.merodeo, activo: v } })} disabled={aj.modo === "ABIERTO"} className="mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-[13px]">Rechazada varias veces{aj.modo === "ABIERTO" && <span className="text-muted-foreground font-normal"> · sólo en barrio cerrado</span>}</div>
+                        <p className="text-[12px] text-muted-foreground">Una matrícula que la barrera rechazó varias veces en poco tiempo: va a la fila de atención del Monitor LPR y, si entró, se marca «Merodeo» en los atípicos de adentro. No cuenta la lista negra ni la búsqueda, que ya tienen su propia marca. El que pasa muchas veces sin que haya barrera es «Da vueltas», en los avisos de arriba.</p>
+                        <Campo etiqueta="" sufijo="h"><Input type="number" min={2} max={50} value={aj.merodeo.denegadas} onChange={(e) => set({ merodeo: { ...aj.merodeo, denegadas: Number(e.target.value) } })} disabled={aj.modo === "ABIERTO"} className="w-16 h-8 tabular-nums" /><span className="text-[12px]">rechazos en las últimas</span><Input type="number" min={1} max={24} value={aj.merodeo.horas} onChange={(e) => set({ merodeo: { ...aj.merodeo, horas: Number(e.target.value) } })} disabled={aj.modo === "ABIERTO"} className="w-16 h-8 tabular-nums" /></Campo>
+                    </div>
                 </div>
             </section>
 

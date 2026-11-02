@@ -21,8 +21,6 @@ export const dynamic = "force-dynamic";
 const ULTIMAS_EN_TIRA = 30;
 /** Ventana de la fila de atención. */
 const ATENCION_HORAS = 24;
-/** Una matrícula denegada esta cantidad de veces en la ventana es merodeo: mismo umbral que el historial. */
-const MERODEO_DENEGADOS = 4;
 
 /** Lo que la cámara manda cuando NO leyó una chapa: no es una matrícula y no puede ser merodeo ni vigilancia. */
 const NO_ES_CHAPA = new Set(["", "NOLEIDA", "NOLEIDO", "UNKNOWN", "SINLECTURA", "SINMATRICULA", "NONE", "NULL"]);
@@ -114,14 +112,17 @@ export async function GET() {
     const vigiladas = chapas.length ? await prisma.plateWatch.findMany({ where: { active: true, plate: { in: chapas }, category: { in: ["BLACKLISTED", "SEARCH"] } }, select: { plate: true, category: true, motivo: true, label: true } }).catch(() => []) : [];
     const porChapa = new Map(vigiladas.map((v) => [normalizarMatricula(v.plate), v]));
     const denegadasPorChapa = new Map<string, number>();
-    for (const e of recientes) { const ch = normalizarMatricula(e.plateDetected); if (esChapa(ch) && e.decision === "DENY") denegadasPorChapa.set(ch, (denegadasPorChapa.get(ch) || 0) + 1); }
+    // Merodeo: las denegadas de cada chapa en la ventana de Ajustes → Visitas y patrones (lib/visitas/ajustes-base).
+    const merodeo = aj.merodeo;
+    const desdeMerodeo = Date.now() - merodeo.horas * 3600 * 1000;
+    for (const e of recientes) { const ch = normalizarMatricula(e.plateDetected); if (esChapa(ch) && e.decision === "DENY" && e.timestamp.getTime() >= desdeMerodeo) denegadasPorChapa.set(ch, (denegadasPorChapa.get(ch) || 0) + 1); }
     const vistas = new Set<string>();
     const atencion: { id: string | null; plate: string | null; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO" | "AVISO"; motivo: string; ts: string; camara: string | null; veces?: number; avisoId?: string; avisoTipo?: string }[] = [];
     for (const e of recientes) {
         const ch = normalizarMatricula(e.plateDetected); if (!esChapa(ch) || vistas.has(ch)) continue;
         const v = porChapa.get(ch);
         if (v) { vistas.add(ch); atencion.push({ id: e.id, plate: ch, tipo: v.category === "SEARCH" ? "EN_BUSQUEDA" : "LISTA_NEGRA", motivo: v.motivo || v.label || "sin motivo cargado", ts: e.timestamp.toISOString(), camara: e.device?.name || null }); continue; }
-        if (!abierto && (denegadasPorChapa.get(ch) || 0) >= MERODEO_DENEGADOS) { vistas.add(ch); atencion.push({ id: e.id, plate: ch, tipo: "MERODEO", motivo: `${denegadasPorChapa.get(ch)} lecturas denegadas en ${ATENCION_HORAS} h`, ts: e.timestamp.toISOString(), camara: e.device?.name || null, veces: denegadasPorChapa.get(ch) }); }
+        if (!abierto && merodeo.activo && (denegadasPorChapa.get(ch) || 0) >= merodeo.denegadas) { vistas.add(ch); atencion.push({ id: e.id, plate: ch, tipo: "MERODEO", motivo: `${denegadasPorChapa.get(ch)} lecturas denegadas en ${merodeo.horas} h`, ts: e.timestamp.toISOString(), camara: e.device?.name || null, veces: denegadasPorChapa.get(ch) }); }
     }
     // Los avisos de patrones a la guardia, arriba de todo (en los dos modos).
     atencion.unshift(...avisos.map((a) => ({ id: a.accessEventId, plate: a.plate, tipo: "AVISO" as const, motivo: a.motivo, ts: a.creado.toISOString(), camara: a.camara, avisoId: a.id, avisoTipo: a.tipo })));

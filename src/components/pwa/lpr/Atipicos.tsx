@@ -34,7 +34,7 @@ const ORDEN = ["lista_negra", "en_busqueda", "merodeo", "alta_frecuencia", "prim
 const EXPLICA: Record<string, string> = {
     lista_negra: "Está en la lista negra.",
     en_busqueda: "Tiene pedido de búsqueda.",
-    merodeo: "Pasó varias veces sin entrar o lo rebotaron en las últimas 24 h.",
+    merodeo: "Lo rebotó la barrera varias veces, o dio vueltas sin entrar (el umbral se ajusta en Ajustes → Visitas y patrones).",
     alta_frecuencia: "Cuatro entradas o más en las últimas 24 h, sin ser del barrio.",
     primera_vez: "Es la primera vez que se lo ve (en las últimas 24 h).",
 };

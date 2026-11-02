@@ -38,8 +38,6 @@ const ESTIMADO_VISITA_HORAS = 6;
 const PASADA_MIN = 10;
 /** Entradas en 24 h a partir de las cuales un vehículo que no es del barrio es «alta frecuencia». */
 export const ALTA_FRECUENCIA_ENTRADAS_24H = 4;
-/** Denegadas en 24 h que hacen merodeo en barrio cerrado: el mismo umbral que el monitor (MERODEO_DENEGADOS). */
-const MERODEO_DENEGADAS_24H = 4;
 /** Hasta dónde se mira para saber si una chapa se vio antes («primera vez»). */
 const PRIMERA_VEZ_HISTORIA_DIAS = 90;
 /** Los avisos de patrones que son merodeo. */
@@ -227,7 +225,7 @@ async function calcular(): Promise<Presencia> {
         });
     }
     autos.sort((a, b) => (a.entrada < b.entrada ? 1 : -1));
-    await marcarAtipicos(autos, vigiladas, abierto);
+    await marcarAtipicos(autos, vigiladas, abierto, aj.merodeo);
     const autosResidentes = autos.filter((a) => a.clase === "residente");
     const autosVisitas = autos.filter((a) => a.clase !== "residente");
 
@@ -291,7 +289,8 @@ async function calcular(): Promise<Presencia> {
  * alta frecuencia»). La lista negra y la búsqueda valen para cualquiera; lo demás, sólo para lo
  * que no es del barrio — un residente entra y sale diez veces por día y eso no es raro.
  */
-async function marcarAtipicos(autos: AutoAdentro[], vigiladas: { plate: string; category: string }[], abierto: boolean) {
+/** `umbral`: cuántas denegadas en cuántas horas, de Ajustes → Visitas y patrones (el mismo umbral que el monitor). */
+async function marcarAtipicos(autos: AutoAdentro[], vigiladas: { plate: string; category: string }[], abierto: boolean, umbral: { activo: boolean; denegadas: number; horas: number }) {
     const vig = new Map(vigiladas.map((v) => [normalizarMatricula(v.plate), v.category]));
     const ajenos = autos.filter((a) => a.clase !== "residente" && a.clase !== "personal");
     const chapas = ajenos.map((a) => a.plate);
@@ -305,11 +304,11 @@ async function marcarAtipicos(autos: AutoAdentro[], vigiladas: { plate: string; 
             SELECT "plateDetected" AS p, min(timestamp) AS primera FROM "AccessEvent"
              WHERE "plateDetected" = ANY(${chapas}) AND timestamp >= ${new Date(Date.now() - PRIMERA_VEZ_HISTORIA_DIAS * 86_400_000)}
              GROUP BY 1`.catch(() => []),
-        abierto ? Promise.resolve([] as { p: string; n: number }[]) : prisma.$queryRaw<{ p: string; n: number }[]>`
+        abierto || !umbral.activo ? Promise.resolve([] as { p: string; n: number }[]) : prisma.$queryRaw<{ p: string; n: number }[]>`
             SELECT "plateDetected" AS p, count(*)::int AS n FROM "AccessEvent"
-             WHERE "plateDetected" = ANY(${chapas}) AND decision = 'DENY' AND timestamp >= ${hace24} GROUP BY 1`.catch(() => []),
+             WHERE "plateDetected" = ANY(${chapas}) AND decision = 'DENY' AND timestamp >= ${new Date(Date.now() - umbral.horas * 3_600_000)} GROUP BY 1`.catch(() => []),
     ]) : [[], [], [], []];
-    const merodeo = new Set([...avisos.map((a) => a.plate!), ...denegadas.filter((d) => d.n >= MERODEO_DENEGADAS_24H).map((d) => d.p)]);
+    const merodeo = new Set([...avisos.map((a) => a.plate!), ...denegadas.filter((d) => d.n >= umbral.denegadas).map((d) => d.p)]);
     const perfil = new Map(perfiles.map((x) => [x.plate, x]));
     const primera = new Map(primeras.map((x) => [x.p, x.primera]));
     for (const a of autos) {
