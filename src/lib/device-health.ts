@@ -138,10 +138,15 @@ export async function ensureAlert(deviceId: string, name: string, type: string, 
     const icon = severity === "critical" ? "🔴" : "🟠";
     await avisar(aj, `${icon} <b>ALERTA · ${name}</b>\n${message}`, opc.foto);
 }
-export async function resolveAlert(deviceId: string, name: string, type: string, opc: Pick<OpcAlerta, "foto"> = {}) {
+/**
+ * Cierra la alerta activa de ese tipo. `silencioso`: se cierra sin avisar por Telegram; es para
+ * alertas que se reconocen falsas al cambiar un criterio (no «se normalizó»: nunca estuvo mal).
+ */
+export async function resolveAlert(deviceId: string, name: string, type: string, opc: Pick<OpcAlerta, "foto"> & { silencioso?: boolean } = {}) {
     const existing = await prisma.deviceAlert.findFirst({ where: { deviceId, type, active: true } });
     if (!existing) return;
     await prisma.deviceAlert.update({ where: { id: existing.id }, data: { active: false, resolvedAt: new Date() } });
+    if (opc.silencioso) return;
     await avisar(await ajusteAvisos(deviceId), `🟢 <b>NORMALIZADO · ${name}</b>\n${type === "offline" ? "Volvió a responder" : type === "imagen" ? "La imagen volvió a lo habitual" : "Condición resuelta (" + type + ")"}`, opc.foto);
 }
 

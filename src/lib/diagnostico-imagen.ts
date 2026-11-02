@@ -22,11 +22,33 @@ import { hora as horaDe } from "@/lib/fechas";
  *    cámara negra o un cuadro gris de error;
  *  · BORROSA / DESENFOCADA: la nitidez (varianza del laplaciano) cae por debajo de NITIDEZ_FRACCION
  *    de la habitual de esa cámara. También la da la lluvia o la niebla: es aviso, no crítica;
- *  · MOVIDA / GIRADA: los bordes del cuadro (Sobel, 64×36) se parecen poco a los de su referencia
- *    (correlación < ESCENA_MIN): la cámara apunta a otro lado.
+ *  · MOVIDA / GIRADA: ver «Cómo se decide que se movió», abajo.
  * Lo habitual se aprende por separado de día (color) y de noche (infrarrojo, sin color), y sólo con
  * cuadros sanos. Hace falta APRENDER_MIN cuadros antes de juzgar nitidez o escena, y que el mismo
  * problema se repita VECES seguidas para alertar (y otras tantas sanas para cerrar).
+ *
+ * Cómo se decide que se movió (2/11, Nico: «son bastante sensibles, parece que no se mueve y lo
+ * marca igual»). El criterio anterior era «los bordes se parecen menos de 0,45 a la referencia», y
+ * eso mide APARIENCIA, no encuadre: el sol y las sombras sobre la vegetación (Perimetral 36: 0,16),
+ * un auto distinto estacionado (Estacionamiento Frente 1: 0,25) o una referencia de otra hora bajan
+ * el parecido sin que la cámara se haya movido. Medido el 2/11 en el lab sobre 21 cámaras: 20 de ~60
+ * estaban en «movida» y en TODAS, buscando el mejor calce corriendo una imagen sobre la otra, el
+ * mejor calce era sin correr (0,0). Ninguna se había movido.
+ *
+ * Ahora la pregunta es geométrica: ¿la imagen de ahora calza mejor con la referencia si se la corre?
+ *  · Se comparan las ORIENTACIONES de los bordes (no su intensidad), en 128×72: una sombra cambia
+ *    cuánto contraste tiene un borde mucho más que hacia dónde apunta. En las mismas 21 cámaras
+ *    subió el parecido de las vegetadas (Perimetral 36: 0,23 → 0,54).
+ *  · Se busca el corrimiento que mejor calza, hasta ±12 px en x y ±8 en y (≈ ±10 %).
+ *  · CORRIDA: el mejor calce está a DESPLAZA_MIN px o más y gana GANANCIA_MIN sobre el calce sin
+ *    correr. Con corrimientos simulados del 5 % (cuadro real recortado), 20 de 21 cámaras lo dieron
+ *    con ganancia ≥ 0,09; con los cuadros reales, ninguna.
+ *  · GIRADA o apuntando a otro lado: no hay corrimiento que calce, pero el parecido sin correr cae a
+ *    menos de CAIDA de lo que es normal PARA ESA CÁMARA. Sólo se juzga en cámaras cuyo parecido
+ *    habitual es de HABITUAL_MIN o más: en una vegetada que se parece 0,3 a sí misma, una caída no
+ *    distingue un giro de una tarde de sol, y es mejor no avisar que avisar en falso.
+ * La referencia es una imagen en grises que se va mezclando con los cuadros sanos que calzan sin
+ * correr: acompaña la luz del día y las estaciones, y un golpe de la cámara sigue saltando.
  */
 const DIR = path.join(process.cwd(), "data", "diagnostico-imagen");
 const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
@@ -35,15 +57,33 @@ const CADA_MS = 15 * 60_000;
 const POR_VUELTA = 4;
 const DESVIO_TAPADA = 6;
 const NITIDEZ_FRACCION = 0.35;
-const ESCENA_MIN = 0.45;
-const ESCENA_ACTUALIZA = 0.65;
 const APRENDER_MIN = 3;
 const VECES = 2;
-const BORDES_W = 64, BORDES_H = 36;
+/** Tamaño de la imagen con la que se busca el corrimiento. */
+const RW = 128, RH = 72;
+/** Hasta dónde se busca: ±12 px de 128 y ±8 de 72, ≈ ±10 % del cuadro. */
+const RANGO_X = 12, RANGO_Y = 8;
+/** Un calce a 1 px es ruido de la compresión; desde 2 px (≈ 1,6 % del ancho) es un corrimiento. */
+const DESPLAZA_MIN = 2;
+/** Lo que tiene que ganar el calce corrido sobre el calce sin correr (medido: real 0,00; 5 % ≥ 0,09). */
+const GANANCIA_MIN = 0.08;
+/** Por debajo de este parecido habitual no se juzga el giro (ver arriba). */
+const HABITUAL_MIN = 0.6;
+/** El giro: el parecido sin correr cae a menos de esta fracción del habitual (4° simulados: 0,99 → 0,31-0,48). */
+const CAIDA = 0.55;
+/** Cuánto pesa cada cuadro sano en la referencia y en el parecido habitual una vez aprendidos. */
+const MEZCLA = 0.15;
 
 export type Problema = "tapada" | "borrosa" | "movida";
 export type Medida = { media: number; desvio: number; nitidez: number; color: number; momento: "dia" | "noche"; escena: number | null };
-type Base = { nitidez: number; n: number; bordes: number[] | null; nb: number };
+/**
+ * Lo habitual de una cámara para un momento (día o noche). `ref` es la imagen de referencia en
+ * grises (RW×RH) y `habitual` cuánto se parecen a ella sus cuadros sanos. `bordes`/`nb` son del
+ * criterio anterior: se ignoran y desaparecen al reaprender.
+ */
+type Base = { nitidez: number; n: number; ref?: number[]; nr?: number; habitual?: number; bordes?: number[] | null; nb?: number };
+/** El calce con la referencia: sin correr (`cero`) y el mejor corriendo (`mejor`, en dx/dy). */
+type Calce = { cero: number; mejor: number; dx: number; dy: number };
 type Estado = { id: string; ultima: number; base: { dia?: Base; noche?: Base }; racha: { problema: Problema | null; veces: number }; medida?: Medida; problema: Problema | null };
 
 const archivo = (id: string) => path.join(DIR, `${id.replace(/[^\w-]/g, "_")}.json`);
@@ -66,23 +106,47 @@ async function cuadro(id: string): Promise<Buffer | null> {
     return b.length > 2000 ? b : null;
 }
 
-function bordes(g: Uint8Array, w: number, h: number): number[] {
-    // Sobel sobre la imagen reducida; vector normalizado (media 0, norma 1) para correlacionar.
-    const out = new Array<number>(w * h).fill(0);
-    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
-        const p = (dx: number, dy: number) => g[(y + dy) * w + (x + dx)];
-        const gx = -p(-1, -1) - 2 * p(-1, 0) - p(-1, 1) + p(1, -1) + 2 * p(1, 0) + p(1, 1);
-        const gy = -p(-1, -1) - 2 * p(0, -1) - p(1, -1) + p(-1, 1) + 2 * p(0, 1) + p(1, 1);
-        out[y * w + x] = Math.hypot(gx, gy);
+type Gradiente = { gx: Float32Array; gy: Float32Array; m: Float32Array };
+function gradiente(g: ArrayLike<number>): Gradiente {
+    const gx = new Float32Array(RW * RH), gy = new Float32Array(RW * RH), m = new Float32Array(RW * RH);
+    for (let y = 1; y < RH - 1; y++) for (let x = 1; x < RW - 1; x++) {
+        const p = (dx: number, dy: number) => g[(y + dy) * RW + x + dx];
+        const a = -p(-1, -1) - 2 * p(-1, 0) - p(-1, 1) + p(1, -1) + 2 * p(1, 0) + p(1, 1);
+        const b = -p(-1, -1) - 2 * p(0, -1) - p(1, -1) + p(-1, 1) + 2 * p(0, 1) + p(1, 1);
+        const i = y * RW + x; gx[i] = a; gy[i] = b; m[i] = Math.hypot(a, b);
     }
-    const m = out.reduce((s, v) => s + v, 0) / out.length;
-    const c = out.map((v) => v - m);
-    const n = Math.sqrt(c.reduce((s, v) => s + v * v, 0)) || 1;
-    return c.map((v) => v / n);
+    return { gx, gy, m };
 }
-export const correlacion = (a: number[], b: number[]) => a.reduce((s, v, i) => s + v * (b[i] || 0), 0);
+/**
+ * Cuánto coinciden las orientaciones de los bordes de A y de B corrida (dx, dy), en la zona común:
+ * coseno del ángulo entre gradientes, al cuadrado con su signo, pesado por el borde más débil de
+ * los dos. 1 = mismos bordes en el mismo lugar; ~0 = nada que ver.
+ */
+function coincidencia(A: Gradiente, B: Gradiente, dx: number, dy: number): number {
+    let num = 0, den = 0;
+    for (let y = 2; y < RH - 2; y++) {
+        const yb = y + dy; if (yb < 2 || yb >= RH - 2) continue;
+        for (let x = 2; x < RW - 2; x++) {
+            const xb = x + dx; if (xb < 2 || xb >= RW - 2) continue;
+            const i = y * RW + x, j = yb * RW + xb, ma = A.m[i], mb = B.m[j];
+            if (ma < 1 || mb < 1) continue;
+            const c = (A.gx[i] * B.gx[j] + A.gy[i] * B.gy[j]) / (ma * mb);
+            const w = Math.min(ma, mb); num += w * c * Math.abs(c); den += w;
+        }
+    }
+    return den ? num / den : 0;
+}
+export function calce(ref: ArrayLike<number>, ahora: ArrayLike<number>): Calce {
+    const A = gradiente(ref), B = gradiente(ahora);
+    let mejor = -Infinity, mdx = 0, mdy = 0;
+    for (let dy = -RANGO_Y; dy <= RANGO_Y; dy++) for (let dx = -RANGO_X; dx <= RANGO_X; dx++) {
+        const v = coincidencia(A, B, dx, dy);
+        if (v > mejor) { mejor = v; mdx = dx; mdy = dy; }
+    }
+    return { cero: coincidencia(A, B, 0, 0), mejor, dx: mdx, dy: mdy };
+}
 
-export async function medir(jpeg: Buffer): Promise<{ medida: Omit<Medida, "escena">; bordes: number[] }> {
+export async function medir(jpeg: Buffer): Promise<{ medida: Omit<Medida, "escena">; gris: number[] }> {
     // Color: diferencia media entre canales (una cámara en infrarrojo da casi cero).
     const rgb = await sharp(jpeg).resize(160, 90, { fit: "fill" }).removeAlpha().raw().toBuffer();
     let color = 0;
@@ -101,32 +165,43 @@ export async function medir(jpeg: Buffer): Promise<{ medida: Omit<Medida, "escen
         ls += l; ls2 += l * l; n++;
     }
     const nitidez = ls2 / n - (ls / n) ** 2;
-    const chico = new Uint8Array(await sharp(jpeg).resize(BORDES_W, BORDES_H, { fit: "fill" }).grayscale().raw().toBuffer());
-    return { medida: { media: Math.round(media), desvio: Math.round(desvio * 10) / 10, nitidez: Math.round(nitidez), color: Math.round(color * 10) / 10, momento: color < 4 ? "noche" : "dia" }, bordes: bordes(chico, BORDES_W, BORDES_H) };
+    // Un desenfoque mínimo antes de los bordes: que el ruido de la compresión no cuente como borde.
+    const gris = Array.from(await sharp(jpeg).resize(RW, RH, { fit: "fill" }).grayscale().blur(0.6).raw().toBuffer());
+    return { medida: { media: Math.round(media), desvio: Math.round(desvio * 10) / 10, nitidez: Math.round(nitidez), color: Math.round(color * 10) / 10, momento: color < 4 ? "noche" : "dia" }, gris };
 }
 
-function juzgar(e: Estado, m: Omit<Medida, "escena">, b: number[]): { problema: Problema | null; escena: number | null } {
+/** La referencia está aprendida: tiene imagen y suficientes cuadros. */
+const conRef = (b?: Base): b is Base & { ref: number[] } => !!b?.ref && (b.nr || 0) >= APRENDER_MIN;
+
+function juzgar(e: Estado, m: Omit<Medida, "escena">, gris: number[]): { problema: Problema | null; calce: Calce | null; corrida: boolean } {
     const base = e.base[m.momento];
-    const escena = base?.bordes && base.nb >= APRENDER_MIN ? correlacion(b, base.bordes) : null;
-    if (m.desvio < DESVIO_TAPADA) return { problema: "tapada", escena };
-    if (base && base.n >= APRENDER_MIN && m.nitidez < base.nitidez * NITIDEZ_FRACCION) return { problema: "borrosa", escena };
-    if (escena != null && escena < ESCENA_MIN) return { problema: "movida", escena };
-    return { problema: null, escena };
+    const c = conRef(base) ? calce(base.ref, gris) : null;
+    if (m.desvio < DESVIO_TAPADA) return { problema: "tapada", calce: c, corrida: false };
+    if (base && base.n >= APRENDER_MIN && m.nitidez < base.nitidez * NITIDEZ_FRACCION) return { problema: "borrosa", calce: c, corrida: false };
+    if (c) {
+        const corrida = Math.max(Math.abs(c.dx), Math.abs(c.dy)) >= DESPLAZA_MIN && c.mejor - c.cero >= GANANCIA_MIN;
+        const girada = (base!.habitual ?? 0) >= HABITUAL_MIN && c.cero < (base!.habitual as number) * CAIDA;
+        if (corrida || girada) return { problema: "movida", calce: c, corrida };
+    }
+    return { problema: null, calce: c, corrida: false };
 }
 
-function aprender(e: Estado, m: Omit<Medida, "escena">, b: number[], escena: number | null) {
-    const base: Base = e.base[m.momento] || { nitidez: m.nitidez, n: 0, bordes: null, nb: 0 };
+function aprender(e: Estado, m: Omit<Medida, "escena">, gris: number[], c: Calce | null) {
+    const base: Base = e.base[m.momento] || { nitidez: m.nitidez, n: 0 };
     // Nitidez habitual: media móvil (los primeros cuadros pesan más).
     const k = Math.max(0.1, 1 / (base.n + 1));
     base.nitidez = base.n ? base.nitidez * (1 - k) + m.nitidez * k : m.nitidez;
     base.n++;
-    // Referencia de bordes: se arma con los primeros y después sólo se ajusta con cuadros muy parecidos.
-    if (!base.bordes) { base.bordes = b; base.nb = 1; }
-    else if (base.nb < APRENDER_MIN || (escena != null && escena > ESCENA_ACTUALIZA)) {
-        const kb = base.nb < APRENDER_MIN ? 1 / (base.nb + 1) : 0.1;
-        const mez = base.bordes.map((v, i) => v * (1 - kb) + b[i] * kb);
-        const nn = Math.sqrt(mez.reduce((s, v) => s + v * v, 0)) || 1;
-        base.bordes = mez.map((v) => v / nn); base.nb++;
+    // La referencia: se arma con los primeros cuadros y después sólo se mezcla un cuadro que calza
+    // SIN CORRER (si el mejor calce está corrido, no es «lo mismo con otra luz»).
+    delete base.bordes; delete base.nb;
+    const aprendiendo = (base.nr || 0) < APRENDER_MIN;
+    if (!base.ref) { base.ref = gris; base.nr = 1; }
+    else if (aprendiendo || (c && c.dx === 0 && c.dy === 0)) {
+        const kr = aprendiendo ? 1 / ((base.nr || 0) + 1) : MEZCLA;
+        base.ref = base.ref.map((v, i) => Math.round(v * (1 - kr) + gris[i] * kr));
+        base.nr = (base.nr || 0) + 1;
+        if (c && !aprendiendo) base.habitual = base.habitual == null ? c.cero : base.habitual * (1 - MEZCLA) + c.cero * MEZCLA;
     }
     e.base[m.momento] = base;
 }
@@ -134,7 +209,7 @@ function aprender(e: Estado, m: Omit<Medida, "escena">, b: number[], escena: num
 const TEXTO: Record<Problema, string> = {
     tapada: "Imagen tapada o sin imagen: el cuadro casi no tiene variación (lente tapado, cámara negra o cuadro de error).",
     borrosa: "Imagen borrosa o desenfocada: tiene mucha menos nitidez que lo habitual en esta cámara (foco, lente sucio, lluvia o niebla).",
-    movida: "Cámara movida o girada: lo que se ve ya no coincide con su encuadre habitual.",
+    movida: "Cámara movida o girada: el encuadre no es el habitual.",
 };
 
 const ROTULO: Record<Problema, string> = { tapada: "Tapada", borrosa: "Borrosa", movida: "Movida" };
@@ -171,26 +246,42 @@ export async function comparacion(id: string, momento: "dia" | "noche", ahora: B
         .composite([{ input: izquierda, top: 0, left: 0 }, { input: derecha, top: 0, left: W + SEP }]).jpeg({ quality: 82 }).toBuffer();
 }
 
+/** «la imagen se corrió un 6 % hacia la izquierda y arriba»: hacia dónde se fue lo que se ve. */
+function corrimiento(c: Calce): string {
+    const lados = [c.dx < 0 ? "la izquierda" : c.dx > 0 ? "la derecha" : "", c.dy < 0 ? "arriba" : c.dy > 0 ? "abajo" : ""].filter(Boolean);
+    const pct = Math.round(Math.max(Math.abs(c.dx) / RW, Math.abs(c.dy) / RH) * 100);
+    return ` La imagen se corrió un ${pct} % hacia ${lados.join(" y ")}.`;
+}
+
 /** Diagnostica una cámara ahora (usa y actualiza lo aprendido). */
 export async function diagnosticar(d: { id: string; name: string }): Promise<Estado | null> {
     const jpeg = await cuadro(d.id);
     const e = await leer(d.id);
     e.ultima = Date.now();
     if (!jpeg) { await guardar(e); return null; } // sin cuadro: eso lo dice la salud (offline), no la imagen
-    const { medida, bordes } = await medir(jpeg);
-    const { problema, escena } = juzgar(e, medida, bordes);
-    e.medida = { ...medida, escena: escena == null ? null : Math.round(escena * 100) / 100 };
+    const { medida, gris } = await medir(jpeg);
+    // Cambio de criterio (2/11): una «movida» abierta con el criterio anterior se cierra sin aviso.
+    // Eran falsas (ver arriba) y mandar un «normalizado» por cada una llenaba el grupo de Telegram.
+    if (e.problema === "movida" && !e.base[medida.momento]?.ref) {
+        await resolveAlert(d.id, d.name, "imagen", { silencioso: true });
+        e.problema = null; e.racha = { problema: null, veces: 0 };
+    }
+    const { problema, calce: c, corrida } = juzgar(e, medida, gris);
+    e.medida = { ...medida, escena: c == null ? null : Math.round(c.cero * 100) / 100 };
     if (!problema) {
-        aprender(e, medida, bordes, escena);
-        // Sólo un cuadro que se parece a la referencia (o mientras se aprende) pasa a ser «lo habitual».
-        if (escena == null || escena > ESCENA_ACTUALIZA) await fs.writeFile(archivoRef(d.id, medida.momento), jpeg).catch(() => null);
+        aprender(e, medida, gris, c);
+        // Sólo un cuadro que calza sin correr (o mientras se aprende) pasa a ser «lo habitual» de la foto.
+        if (c == null || (c.dx === 0 && c.dy === 0)) await fs.writeFile(archivoRef(d.id, medida.momento), jpeg).catch(() => null);
     }
     e.racha = e.racha.problema === problema ? { problema, veces: e.racha.veces + 1 } : { problema, veces: 1 };
     if (e.racha.veces >= VECES) {
         const foto = (titulo: string, ok: boolean) => () => comparacion(d.id, medida.momento, jpeg, titulo, ok);
         if (problema && e.problema !== problema) {
-            const pct = escena == null ? "" : ` Se parece un ${Math.max(0, Math.round(escena * 100))} % a su encuadre habitual.`;
-            await ensureAlert(d.id, d.name, "imagen", "warning", TEXTO[problema] + (problema === "movida" ? pct : ""), { clave: problema, foto: foto(ROTULO[problema], false) });
+            const habitual = e.base[medida.momento]?.habitual;
+            const detalle = problema !== "movida" || !c ? ""
+                : corrida ? corrimiento(c)
+                : ` Se parece un ${Math.max(0, Math.round(c.cero * 100))} % a su encuadre habitual${habitual != null ? `; lo normal en esta cámara es ${Math.round(habitual * 100)} %` : ""}.`;
+            await ensureAlert(d.id, d.name, "imagen", "warning", TEXTO[problema] + detalle, { clave: problema, foto: foto(ROTULO[problema], false) });
             e.problema = problema;
         }
         if (!problema && e.problema) { await resolveAlert(d.id, d.name, "imagen", { foto: foto("Normal", true) }); e.problema = null; }
@@ -214,5 +305,5 @@ export async function vueltaDiagnostico(): Promise<number> {
 export async function estadoImagen(id: string): Promise<{ problema: Problema | null; medida: Medida | null; ultima: number | null; aprendido: boolean }> {
     const e = await leer(id);
     const b = e.medida ? e.base[e.medida.momento] : undefined;
-    return { problema: e.problema, medida: e.medida || null, ultima: e.ultima || null, aprendido: !!b && b.n >= APRENDER_MIN && b.nb >= APRENDER_MIN };
+    return { problema: e.problema, medida: e.medida || null, ultima: e.ultima || null, aprendido: !!b && b.n >= APRENDER_MIN && conRef(b) };
 }
