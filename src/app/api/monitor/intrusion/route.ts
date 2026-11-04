@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { autorizarMonitor, SIN_CACHE } from "@/lib/monitor/servidor";
-import { getIntrusionCameras, getAnalyticsGeometryBatch, getRecentDetections, getDetectionHistory, getActiveAlarms, getAttendingIds } from "@/app/actions/detections";
-import { horariosDeTodas } from "@/lib/horarios-camaras";
+import { getIntrusionCameras, getAnalyticsGeometryBatch, getRecentDetections, getDetectionHistory, getActiveAlarms, getAttendingIds, geometriaRefrescando } from "@/app/actions/detections";
+import { horariosDeTodas, horariosRefrescando } from "@/lib/horarios-camaras";
 import { prisma } from "@/lib/prisma";
 import { inicioDelDia } from "@/lib/monitor/servidor";
 import { verificacionesDe } from "@/lib/verificacion";
@@ -48,9 +48,11 @@ export async function GET() {
     // Lo que vio omni-vision en cada captura, con su veredicto (lib/verificacion).
     const verif = await verificacionesDe([...franja.map((d: any) => d.id), ...Object.values(ultimaPorCamara).map((d: any) => d.id)], geom as any).catch(() => new Map());
     const conVerif = (d: any) => (d ? { ...d, verif: verif.get(d.id) || null } : d);
-    // Si la geometría o los horarios todavía se están leyendo en segundo plano, se avisa para que el
-    // monitor vuelva a preguntar enseguida (y no recién en 30 s) hasta tener los overlays completos.
-    const incompleto = Object.keys(geom).length < ids.length || Object.keys(horarios).length < ids.length;
+    // Si la geometría o los horarios todavía se están leyendo de las cámaras en segundo plano, se
+    // avisa para que el monitor vuelva a preguntar enseguida (y no recién en 15 s) hasta tenerlos.
+    // Se mira el barrido en vuelo, no la cuenta de claves: una cámara no-Hikvision no tiene horario
+    // y contar claves la daría por «faltante» para siempre.
+    const incompleto = geometriaRefrescando() || horariosRefrescando();
     return NextResponse.json({
         camaras: camaras.map((c) => ({ ...c, geom: (geom as any)[c.id] || null, horarios: (horarios as any)[c.id] || null, ultima: conVerif(ultimaPorCamara[c.id]) || null })),
         pendientes, atendiendo, franja: franja.map(conVerif), ahora: new Date().toISOString(),

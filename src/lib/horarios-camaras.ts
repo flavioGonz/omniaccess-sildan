@@ -35,6 +35,9 @@ const CACHE_MS = 5 * 60 * 1000;
 let cache: { ts: number; datos: Record<string, HorariosDeCamara> } | null = null;
 let enCurso: Promise<Record<string, HorariosDeCamara>> | null = null;
 
+/** Si hay una lectura de horarios corriendo en segundo plano (para que el monitor repregunte pronto). */
+export function horariosRefrescando(): boolean { return enCurso !== null; }
+
 /** El caché con `armadaAhora` recalculado a la hora de ahora (el horario no cambia; sí si está armada). */
 function conArmadoAhora(datos: Record<string, HorariosDeCamara>): Record<string, HorariosDeCamara> {
     const out: Record<string, HorariosDeCamara> = {};

@@ -173,6 +173,8 @@ const GEOM_TTL = 5 * 60 * 1000;
 // Un único refresco en vuelo: con `rapido`, varias cargas (y el repique del monitor) no disparan
 // dos barridos de las ~68 cámaras a la vez (cada uno pega por ISAPI a cada cámara).
 let geomEnCurso: Promise<void> | null = null;
+/** Si hay un barrido de geometría corriendo en segundo plano (para que el monitor repregunte pronto). */
+export function geometriaRefrescando(): boolean { return geomEnCurso !== null; }
 
 /** Geometría (línea/zona) de varias cámaras para dibujar overlays en la grilla.
  *  Sirve de cache lo fresco y sólo consulta los dispositivos vencidos; concurrencia limitada.
