@@ -346,18 +346,27 @@ export type FichaMatricula = {
     usuario: { name: string; unit: string | null } | null;
     pasadas: PasadaFicha[];
     detecciones: DeteccionRelacionada[];
+    /** Para el calendario de actividad (tipo git): cuántas pasadas por día en la ventana larga. */
+    porDia: { dia: string; n: number }[];
+    /** Para el comportamiento: pasadas por hora del día (0-23) y por día de la semana (0=Dom). */
+    porHora: number[];
+    porDiaSemana: number[];
+    /** Días que abarca `porDia` (la ventana del calendario). */
+    diasVentana: number;
 };
 
-/** Cuántos días mira atrás la ficha, y cuántas pasadas trae como mucho. */
+/** Cuántos días mira atrás la ficha (pasadas detalladas) y cuántas trae como mucho. */
 const FICHA_DIAS = 30;
 const FICHA_TOPE_PASADAS = 120;
 const FICHA_TOPE_DETECCIONES = 16;
+/** La ventana larga del calendario de actividad y del comportamiento (tipo git, ~26 semanas). */
+const FICHA_DIAS_CALENDARIO = 182;
 
 export async function getFichaMatricula(plate: string): Promise<FichaMatricula | null> {
     const { getSession } = await import("@/app/actions/auth");
     if (!(await getSession().catch(() => null))) return null;
     const norm = String(plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    const vacia: FichaMatricula = { plate: norm, total: 0, entries: 0, exits: 0, grants: 0, denies: 0, primera: null, ultima: null, camaras: [], watch: null, usuario: null, pasadas: [], detecciones: [] };
+    const vacia: FichaMatricula = { plate: norm, total: 0, entries: 0, exits: 0, grants: 0, denies: 0, primera: null, ultima: null, camaras: [], watch: null, usuario: null, pasadas: [], detecciones: [], porDia: [], porHora: Array(24).fill(0), porDiaSemana: Array(7).fill(0), diasVentana: FICHA_DIAS_CALENDARIO };
     if (!norm) return vacia;
     try {
         const desde = new Date(Date.now() - FICHA_DIAS * 24 * 60 * 60 * 1000);
@@ -420,7 +429,30 @@ export async function getFichaMatricula(plate: string): Promise<FichaMatricula |
             } catch { /* sin detecciones la ficha anda igual */ }
         }
 
-        return { plate: norm, total: pasadas.length, entries, exits, grants, denies, primera, ultima, camaras, watch, usuario, pasadas, detecciones };
+        // Serie larga para el calendario de actividad (tipo git) y el comportamiento: por día, por
+        // hora del día y por día de la semana. upper("plateDetected")=norm aprovecha el índice y no
+        // depende de que las pasadas detalladas (30 días) alcancen la ventana larga (182 días).
+        let porDia: { dia: string; n: number }[] = [];
+        const porHora = Array(24).fill(0);
+        const porDiaSemana = Array(7).fill(0);
+        try {
+            const filas = await prisma.$queryRaw<{ dia: Date; n: number }[]>`
+                SELECT date_trunc('day', timestamp) AS dia, count(*)::int AS n
+                FROM "AccessEvent"
+                WHERE "accessType" = 'PLATE' AND "sinVehiculo" = false AND upper("plateDetected") = ${norm}
+                  AND timestamp > now() - make_interval(days => ${FICHA_DIAS_CALENDARIO})
+                GROUP BY 1 ORDER BY 1`;
+            porDia = filas.map((f) => ({ dia: new Date(f.dia).toISOString().slice(0, 10), n: Number(f.n) }));
+            const horas = await prisma.$queryRaw<{ h: number; dow: number; n: number }[]>`
+                SELECT extract(hour from timestamp)::int AS h, extract(dow from timestamp)::int AS dow, count(*)::int AS n
+                FROM "AccessEvent"
+                WHERE "accessType" = 'PLATE' AND "sinVehiculo" = false AND upper("plateDetected") = ${norm}
+                  AND timestamp > now() - make_interval(days => ${FICHA_DIAS_CALENDARIO})
+                GROUP BY 1, 2`;
+            for (const r of horas) { porHora[r.h] = (porHora[r.h] || 0) + Number(r.n); porDiaSemana[r.dow] = (porDiaSemana[r.dow] || 0) + Number(r.n); }
+        } catch { /* sin serie el resto de la ficha anda igual */ }
+
+        return { plate: norm, total: pasadas.length, entries, exits, grants, denies, primera, ultima, camaras, watch, usuario, pasadas, detecciones, porDia, porHora, porDiaSemana, diasVentana: FICHA_DIAS_CALENDARIO };
     } catch (error) {
         console.error("Error in getFichaMatricula:", error);
         return vacia;
