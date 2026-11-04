@@ -28,8 +28,12 @@ export async function GET() {
     const ids = camaras.map((c) => c.id);
     const hoy = { timestamp: { gte: inicioDelDia() }, type: { not: "MOTION" } };
     const [geom, horarios, recientes, franja, pendientes, atendiendo, hoyTotal, hoyReales, hoyFalsas] = await Promise.all([
-        getAnalyticsGeometryBatch(ids).catch(() => ({})),
-        horariosDeTodas().catch(() => ({})),
+        // `rapido`: la geometría (línea/zona) y los horarios se leen de las cámaras por ISAPI (hasta
+        // 68 cámaras, 8-12 s de tope cada una). Son overlays secundarios: no se espera el barrido
+        // frío —se sirve lo cacheado y se refresca en segundo plano—, así el monitor pinta al toque
+        // y lo demás entra en la vuelta siguiente (abajo se avisa `incompleto` para repreguntar pronto).
+        getAnalyticsGeometryBatch(ids, false, true).catch(() => ({})),
+        horariosDeTodas(false, true).catch(() => ({})),
         getRecentDetections(80, false).catch(() => []),
         getDetectionHistory({ pageSize: ULTIMAS_EN_FRANJA, type: "ANALYTIC" }).then((r) => r.items).catch(() => []),
         getActiveAlarms().catch(() => []),
@@ -44,9 +48,12 @@ export async function GET() {
     // Lo que vio omni-vision en cada captura, con su veredicto (lib/verificacion).
     const verif = await verificacionesDe([...franja.map((d: any) => d.id), ...Object.values(ultimaPorCamara).map((d: any) => d.id)], geom as any).catch(() => new Map());
     const conVerif = (d: any) => (d ? { ...d, verif: verif.get(d.id) || null } : d);
+    // Si la geometría o los horarios todavía se están leyendo en segundo plano, se avisa para que el
+    // monitor vuelva a preguntar enseguida (y no recién en 30 s) hasta tener los overlays completos.
+    const incompleto = Object.keys(geom).length < ids.length || Object.keys(horarios).length < ids.length;
     return NextResponse.json({
         camaras: camaras.map((c) => ({ ...c, geom: (geom as any)[c.id] || null, horarios: (horarios as any)[c.id] || null, ultima: conVerif(ultimaPorCamara[c.id]) || null })),
         pendientes, atendiendo, franja: franja.map(conVerif), ahora: new Date().toISOString(),
-        hoy: { total: hoyTotal, reales: hoyReales, falsas: hoyFalsas },
+        hoy: { total: hoyTotal, reales: hoyReales, falsas: hoyFalsas }, incompleto,
     }, { headers: SIN_CACHE });
 }

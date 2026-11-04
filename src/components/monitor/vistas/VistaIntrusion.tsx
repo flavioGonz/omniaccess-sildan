@@ -124,7 +124,7 @@ function Veredicto({ d, grande }: { d: Det; grande?: boolean }) {
 type Cam = { id: string; name: string; nvrName: string | null; ch: number | null; geom: Geom | null; horarios: any; ultima: Det | null };
 type Alarma = { deviceId: string; id: string; type: string; ts: string };
 type Hoy = { total: number; reales: number; falsas: number };
-type Datos = { camaras: Cam[]; pendientes: Alarma[]; atendiendo: string[]; franja: Det[]; ahora: string; hoy?: Hoy };
+type Datos = { camaras: Cam[]; pendientes: Alarma[]; atendiendo: string[]; franja: Det[]; ahora: string; hoy?: Hoy; incompleto?: boolean };
 type Filtro = "todas" | "pendientes" | "reales" | "falsas" | "vision";
 
 const FILTROS: { v: Filtro; l: string }[] = [{ v: "todas", l: "Todas" }, { v: "pendientes", l: "Sin confirmar" }, { v: "vision", l: "Con alguien" }, { v: "reales", l: "Reales" }, { v: "falsas", l: "Falsas" }];
@@ -217,6 +217,14 @@ export function VistaIntrusion() {
     const [det, setDet] = useState<Det | null>(null);
     const [ampliada, setAmpliada] = useState<string | null>(null);
     useEffect(() => { if (datos) { setVivas(datos.pendientes); setNuevas([]); } }, [datos]);
+    // La geometría y los horarios se leen de las cámaras en segundo plano (ISAPI): mientras falten,
+    // el servidor avisa `incompleto` y se vuelve a preguntar pronto para que los overlays entren en
+    // segundos, sin esperar la vuelta de 15 s. El primer pintado ya tiene cámaras, detecciones y alarmas.
+    useEffect(() => {
+        if (!datos?.incompleto) return;
+        const t = setTimeout(() => recargar(), 2500);
+        return () => clearTimeout(t);
+    }, [datos?.incompleto, datos?.ahora, recargar]);
     // El socket adelanta la alarma: no se espera a la próxima consulta para ponerse rojo.
     useTiempoReal("general_detection", (d: any) => {
         if (!d?.id || !d.deviceId || d.type === "MOTION") return;

@@ -35,23 +35,30 @@ const CACHE_MS = 5 * 60 * 1000;
 let cache: { ts: number; datos: Record<string, HorariosDeCamara> } | null = null;
 let enCurso: Promise<Record<string, HorariosDeCamara>> | null = null;
 
-/** Todas las cámaras, con caché de 5 min y una sola lectura en curso aunque pregunten varios monitores a la vez. */
-export async function horariosDeTodas(forzar = false): Promise<Record<string, HorariosDeCamara>> {
-    if (!forzar && cache && Date.now() - cache.ts < CACHE_MS) {
-        // `armadaAhora` depende de la hora: se recalcula sobre el horario cacheado, que no cambia.
-        const out: Record<string, HorariosDeCamara> = {};
-        for (const [id, h] of Object.entries(cache.datos)) out[id] = { name: h.name, linea: h.linea && { ...h.linea, armadaAhora: armadaAhora(h.linea.horario) }, zona: h.zona && { ...h.zona, armadaAhora: armadaAhora(h.zona.horario) } };
-        return out;
+/** El caché con `armadaAhora` recalculado a la hora de ahora (el horario no cambia; sí si está armada). */
+function conArmadoAhora(datos: Record<string, HorariosDeCamara>): Record<string, HorariosDeCamara> {
+    const out: Record<string, HorariosDeCamara> = {};
+    for (const [id, h] of Object.entries(datos)) out[id] = { name: h.name, linea: h.linea && { ...h.linea, armadaAhora: armadaAhora(h.linea.horario) }, zona: h.zona && { ...h.zona, armadaAhora: armadaAhora(h.zona.horario) } };
+    return out;
+}
+
+/** Todas las cámaras, con caché de 5 min y una sola lectura en curso aunque pregunten varios monitores a la vez.
+ *  `rapido`: no espera la lectura ISAPI de las ~68 cámaras —devuelve lo cacheado (o vacío la primera
+ *  vez) y la deja corriendo en segundo plano—, para que el monitor no se trabe en la carga fría. */
+export async function horariosDeTodas(forzar = false, rapido = false): Promise<Record<string, HorariosDeCamara>> {
+    if (!forzar && cache && Date.now() - cache.ts < CACHE_MS) return conArmadoAhora(cache.datos);
+    if (!enCurso) {
+        enCurso = (async () => {
+            const cams = await camarasDeIntrusion();
+            const datos: Record<string, HorariosDeCamara> = {};
+            await Promise.all(cams.map(async (c) => { datos[c.id] = { name: c.name, ...(await leerDeCamara(c)) }; }));
+            cache = { ts: Date.now(), datos };
+            enCurso = null;
+            return datos;
+        })();
     }
-    if (enCurso) return enCurso;
-    enCurso = (async () => {
-        const cams = await camarasDeIntrusion();
-        const datos: Record<string, HorariosDeCamara> = {};
-        await Promise.all(cams.map(async (c) => { datos[c.id] = { name: c.name, ...(await leerDeCamara(c)) }; }));
-        cache = { ts: Date.now(), datos };
-        enCurso = null;
-        return datos;
-    })();
+    // Con `rapido` no se espera el barrido: lo cacheado al momento (o vacío), y la próxima vuelta ya lo tiene.
+    if (rapido) return cache ? conArmadoAhora(cache.datos) : {};
     return enCurso;
 }
 

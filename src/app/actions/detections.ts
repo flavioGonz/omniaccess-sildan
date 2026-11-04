@@ -170,10 +170,15 @@ const camToScreen = (p: { x: number; y: number }) => ({ x: p.x / 10, y: (1000 - 
 type GeomCacheEntry = { geom: Geom; ts: number };
 const GEOM_CACHE = new Map<string, GeomCacheEntry>();
 const GEOM_TTL = 5 * 60 * 1000;
+// Un único refresco en vuelo: con `rapido`, varias cargas (y el repique del monitor) no disparan
+// dos barridos de las ~68 cámaras a la vez (cada uno pega por ISAPI a cada cámara).
+let geomEnCurso: Promise<void> | null = null;
 
 /** Geometría (línea/zona) de varias cámaras para dibujar overlays en la grilla.
- *  Sirve de cache lo fresco y sólo consulta los dispositivos vencidos; concurrencia limitada. */
-export async function getAnalyticsGeometryBatch(ids: string[], fresco = false): Promise<Record<string, Geom>> {
+ *  Sirve de cache lo fresco y sólo consulta los dispositivos vencidos; concurrencia limitada.
+ *  `rapido`: no espera el barrido ISAPI de los vencidos —devuelve lo cacheado al instante y los
+ *  refresca en segundo plano—, para que el monitor pinte sin trabarse en la primera carga fría. */
+export async function getAnalyticsGeometryBatch(ids: string[], fresco = false, rapido = false): Promise<Record<string, Geom>> {
     const out: Record<string, Geom> = {};
     const list = [...new Set((ids || []).filter(Boolean))];
     if (!list.length) return out;
@@ -185,35 +190,43 @@ export async function getAnalyticsGeometryBatch(ids: string[], fresco = false): 
         if (!fresco && c && now - c.ts < GEOM_TTL) out[id] = c.geom; else stale.push(id);
     }
     if (!stale.length) return out;
-    const devs = await prisma.device.findMany({ where: { id: { in: stale } }, select: { id: true, ip: true, username: true, password: true, authType: true, brand: true } });
     const empty: Geom = { line: [], field: [], supported: false };
-    const one = async (d: any) => {
-        const store = (g: Geom) => { out[d.id] = g; GEOM_CACHE.set(d.id, { geom: g, ts: Date.now() }); };
-        try {
-            // Canal detrás de una NVR Dahua: leer IVS por configManager (ya viene en 0–1000)
-            const cam = await resolveForCamera(d.id);
-            if (cam && String((cam.nvr as any).brand).toUpperCase() === "DAHUA") {
-                const r = await readDahuaIvs({ ip: cam.nvr.ip, user: cam.nvr.user, pass: cam.nvr.pass }, cam.ch);
-                store((r.line.length || r.field.length)
-                    ? { supported: true, line: r.line.map(camToScreen), field: r.field.map(camToScreen) }
-                    : empty);
-                return;
-            }
-            if (String(d.brand) !== "HIKVISION") { store(empty); return; }
-            const dev = { ip: d.ip, username: d.username, password: d.password, authType: d.authType || "DIGEST" } as any;
-            const sup = await getSmartSupport(dev);
-            if (!sup.line && !sup.field) { store(empty); return; }
-            const lineas = sup.line ? await leerTodas(dev, "linea", 1).catch(() => null) : null;
-            const zonas = sup.field ? await leerTodas(dev, "zona", 1).catch(() => null) : null;
-            // Sólo lo que está PRENDIDO: una regla apagada conserva sus coordenadas en la cámara, y
-            // dibujarlas en el vivo hacía creer que la línea seguía vigilando (9/10: la de la LPR
-            // Interior se quitó y seguía apareciendo en el vivo del monitor de intrusión).
-            const lines = (lineas?.reglas || []).filter((r) => r.enabled).map((r) => r.points.map(camToScreen));
-            const fields = (zonas?.reglas || []).filter((r) => r.enabled).map((r) => r.points.map(camToScreen));
-            store({ supported: true, line: lines[0] || [], field: fields[0] || [], lines, fields });
-        } catch { /* transitorio: no cachear, reintentar en la próxima carga */ }
+    const refrescar = async (pendientes: string[]) => {
+        const devs = await prisma.device.findMany({ where: { id: { in: pendientes } }, select: { id: true, ip: true, username: true, password: true, authType: true, brand: true } });
+        const one = async (d: any) => {
+            const store = (g: Geom) => { out[d.id] = g; GEOM_CACHE.set(d.id, { geom: g, ts: Date.now() }); };
+            try {
+                // Canal detrás de una NVR Dahua: leer IVS por configManager (ya viene en 0–1000)
+                const cam = await resolveForCamera(d.id);
+                if (cam && String((cam.nvr as any).brand).toUpperCase() === "DAHUA") {
+                    const r = await readDahuaIvs({ ip: cam.nvr.ip, user: cam.nvr.user, pass: cam.nvr.pass }, cam.ch);
+                    store((r.line.length || r.field.length)
+                        ? { supported: true, line: r.line.map(camToScreen), field: r.field.map(camToScreen) }
+                        : empty);
+                    return;
+                }
+                if (String(d.brand) !== "HIKVISION") { store(empty); return; }
+                const dev = { ip: d.ip, username: d.username, password: d.password, authType: d.authType || "DIGEST" } as any;
+                const sup = await getSmartSupport(dev);
+                if (!sup.line && !sup.field) { store(empty); return; }
+                const lineas = sup.line ? await leerTodas(dev, "linea", 1).catch(() => null) : null;
+                const zonas = sup.field ? await leerTodas(dev, "zona", 1).catch(() => null) : null;
+                // Sólo lo que está PRENDIDO: una regla apagada conserva sus coordenadas en la cámara, y
+                // dibujarlas en el vivo hacía creer que la línea seguía vigilando (9/10: la de la LPR
+                // Interior se quitó y seguía apareciendo en el vivo del monitor de intrusión).
+                const lines = (lineas?.reglas || []).filter((r) => r.enabled).map((r) => r.points.map(camToScreen));
+                const fields = (zonas?.reglas || []).filter((r) => r.enabled).map((r) => r.points.map(camToScreen));
+                store({ supported: true, line: lines[0] || [], field: fields[0] || [], lines, fields });
+            } catch { /* transitorio: no cachear, reintentar en la próxima carga */ }
+        };
+        for (let i = 0; i < devs.length; i += 6) await Promise.all(devs.slice(i, i + 6).map(one));
     };
-    for (let i = 0; i < devs.length; i += 6) await Promise.all(devs.slice(i, i + 6).map(one));
+    if (rapido) {
+        // Devolver ya lo cacheado; refrescar los vencidos en segundo plano (uno solo a la vez).
+        if (!geomEnCurso) geomEnCurso = refrescar(stale).catch(() => { }).finally(() => { geomEnCurso = null; });
+        return out;
+    }
+    await refrescar(stale);
     return out;
 }
 
