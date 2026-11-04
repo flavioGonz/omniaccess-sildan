@@ -408,11 +408,13 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     cuando el auto es de alguien conocido, lo que importa es QUIÉN es —no la chapa—, así
                     que su identidad manda en el centro. Sólo con lectura buena y usuario reconocido. */}
                 {!anomalous && ev.user?.name && (
-                    <div className="absolute inset-x-0 top-[38%] -translate-y-1/2 z-[15] flex justify-center px-6 pointer-events-none">
-                        <div className="flex flex-col items-center gap-1 px-6 py-3.5 rounded-2xl bg-black/50 ring-1 ring-white/15 shadow-xl backdrop-blur-md text-center max-w-[86%]">
-                            {ev.user?.unit?.name && <div className={cn("inline-flex items-center gap-1.5 text-[clamp(15px,1.7vw,26px)] font-black uppercase tracking-wide leading-none", tipo?.key === "blanca" ? "text-amber-300" : "text-[var(--accion-en-oscuro)]")}><Home size={18} className="shrink-0" />Lote {ev.user.unit.name}</div>}
-                            <div className="text-[clamp(20px,2.4vw,38px)] font-bold text-white leading-tight drop-shadow">{ev.user.name}</div>
-                            {tipo && <span className={cn("mt-0.5 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow-sm", tipo.badge)}>{tipo.label}</span>}
+                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 z-[15] flex justify-center px-4 pointer-events-none">
+                        {/* Ancho acotado y el nombre que ENVUELVE (no se corta): antes a 38px en una sola
+                            línea se cortaba («Valentina Góm…») y la tarjeta tapaba la patente. */}
+                        <div className="flex flex-col items-center gap-1.5 px-5 py-3 rounded-2xl bg-black/55 ring-1 ring-white/15 shadow-xl backdrop-blur-md text-center max-w-[80%]">
+                            {tipo && <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-[0.12em] px-2 py-0.5 rounded-full shadow-sm", tipo.badge)}>{tipo.label}</span>}
+                            <div className="font-bold text-white leading-[1.08] drop-shadow break-words [overflow-wrap:anywhere] text-[clamp(17px,2vw,30px)]">{ev.user.name}</div>
+                            {ev.user?.unit?.name && <div className={cn("inline-flex items-center gap-1.5 text-[clamp(13px,1.4vw,20px)] font-black uppercase tracking-wide leading-none", tipo?.key === "blanca" ? "text-amber-300" : "text-[var(--accion-en-oscuro)]")}><Home size={16} className="shrink-0" />Lote {ev.user.unit.name}</div>}
                         </div>
                     </div>
                 )}
