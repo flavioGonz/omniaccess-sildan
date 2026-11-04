@@ -52,7 +52,7 @@ export async function GET() {
     // avisa para que el monitor vuelva a preguntar enseguida (y no recién en 15 s) hasta tenerlos.
     // Se mira el barrido en vuelo, no la cuenta de claves: una cámara no-Hikvision no tiene horario
     // y contar claves la daría por «faltante» para siempre.
-    const incompleto = geometriaRefrescando() || horariosRefrescando();
+    const incompleto = (await geometriaRefrescando()) || horariosRefrescando();
     return NextResponse.json({
         camaras: camaras.map((c) => ({ ...c, geom: (geom as any)[c.id] || null, horarios: (horarios as any)[c.id] || null, ultima: conVerif(ultimaPorCamara[c.id]) || null })),
         pendientes, atendiendo, franja: franja.map(conVerif), ahora: new Date().toISOString(),
