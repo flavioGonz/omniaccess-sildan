@@ -110,9 +110,14 @@ const TEXTO_COMP: Record<Comparacion["estado"], (c: Comparacion) => string> = {
     sin: () => "Sin verificar",
 };
 
-/** La marca de la doble verificación, pegada a la chapa que leyó la cámara. */
-export function MarcaVerificacion({ plate, r, oscuro, tamano = "sm", soloIcono, className }: {
+/** La marca de la doble verificación, pegada a la chapa que leyó la cámara.
+ *
+ * `onCorregir`: cuando OmniVision leyó otra chapa (difiere/casi), la leyenda pasa a ser un botón —
+ * tocarla ofrece corregir el registro con la lectura de OmniVision. Sin este callback es sólo un
+ * aviso, como siempre (la pared, el historial). No aplica con `soloIcono` (no hay leyenda que tocar). */
+export function MarcaVerificacion({ plate, r, oscuro, tamano = "sm", soloIcono, className, onCorregir }: {
     plate: string | null | undefined; r: ReleidaMin; oscuro?: boolean; tamano?: "xs" | "sm" | "md" | "lg"; soloIcono?: boolean; className?: string;
+    onCorregir?: (omni: string) => void;
 }) {
     const c = compararLectura(plate, r);
     if (!c) return null;
@@ -123,10 +128,25 @@ export function MarcaVerificacion({ plate, r, oscuro, tamano = "sm", soloIcono, 
     const titulo = c.estado === "coincide" ? `Doble verificación: OmniVision releyó la foto y leyó la misma chapa${r?.confianza != null ? ` (${Math.round(r.confianza * 100)} %)` : ""}.`
         : c.estado === "sin" ? "Doble verificación: OmniVision releyó la foto y no pudo leer la chapa. Vale la lectura de la cámara."
         : `Doble verificación: la cámara leyó ${plate} y OmniVision ${c.omni}${c.estado === "casi" ? " (un carácter de diferencia)" : ""}. La barrera decidió con la de la cámara: mirá la foto.`;
+    const contenido = <>
+        <I size={ico} className="shrink-0" />
+        {!soloIcono && TEXTO_COMP[c.estado](c)}
+    </>;
+    // Corregible sólo cuando OmniVision leyó OTRA chapa y hay leyenda visible donde tocar.
+    const puedeCorregir = !!onCorregir && !soloIcono && !!c.omni && (c.estado === "difiere" || c.estado === "casi");
+    if (puedeCorregir) {
+        return (
+            <button type="button"
+                title={`${titulo}  ·  Tocá para corregir el registro a ${c.omni}.`}
+                onClick={(e) => { e.stopPropagation(); e.preventDefault(); onCorregir!(c.omni!); }}
+                className={cn("inline-flex items-center gap-1 font-semibold whitespace-nowrap align-middle rounded-md cursor-pointer underline decoration-dotted underline-offset-2 px-1 -mx-1 transition-[filter,background-color] hover:brightness-110", oscuro ? "hover:bg-white/10" : "hover:bg-black/5", texto, tono, className)}>
+                {contenido}
+            </button>
+        );
+    }
     return (
         <span title={titulo} className={cn("inline-flex items-center gap-1 font-semibold whitespace-nowrap align-middle", texto, tono, className)}>
-            <I size={ico} className="shrink-0" />
-            {!soloIcono && TEXTO_COMP[c.estado](c)}
+            {contenido}
         </span>
     );
 }

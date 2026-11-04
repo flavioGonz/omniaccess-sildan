@@ -920,31 +920,38 @@ video::-webkit-media-controls { display: none !important; }
 /* Hide the skeleton shimmer once a media element inside has loaded (data-ready=1). */
 .vid-surface:has([data-ready="1"])::before { opacity: 0; animation: none; }
 
-/* ===== Camera shutter / iris capture animation (live video tiles) ===== */
+/* ===== Obturador de cámara — animación de captura (tiles de video) =====
+   Nico: «que se parezca más a una captura de cámara de foto, que se cierra el obturador».
+   El iris se cierra RÁPIDO del borde al centro (ease-in, como el resorte del obturador),
+   toca negro total, retiene un instante el «clac», y reabre un poco más lento. Al cierre,
+   un destello corto y un anillo nítido en el filo del iris, para que se lea el mecanismo. */
 @property --iris { syntax: "<percentage>"; inherits: false; initial-value: 80%; }
 @keyframes irisShot {
-    0%   { --iris: 82%; }
-    40%  { --iris: 0%; }
-    56%  { --iris: 0%; }
-    100% { --iris: 82%; }
+    0%   { --iris: 85%; }
+    28%  { --iris: 0%; }   /* cierre veloz hasta negro total */
+    44%  { --iris: 0%; }   /* retiene cerrado: el «clac» del obturador */
+    100% { --iris: 85%; }  /* reapertura */
 }
 @keyframes irisSnap {
-    0%, 34% { background-color: rgba(255,255,255,0); }
-    46%     { background-color: rgba(255,255,255,0.55); }
-    66%,100%{ background-color: rgba(255,255,255,0); }
+    0%, 20% { background-color: rgba(255,255,255,0); }
+    30%     { background-color: rgba(255,255,255,0.78); }  /* el flash, al instante del cierre */
+    50%,100%{ background-color: rgba(255,255,255,0); }
 }
 .iris-shot {
     position: absolute; inset: 0; z-index: 30; pointer-events: none; border-radius: inherit; overflow: hidden;
     background: radial-gradient(circle at 50% 50%,
-        transparent calc(var(--iris) - 1.5%),
-        rgba(255,255,255,0.85) var(--iris),
-        rgba(0,0,0,0.62) calc(var(--iris) + 1.5%));
-    animation: irisShot 0.72s ease-in-out;
+        transparent calc(var(--iris) - 2%),
+        rgba(255,255,255,0.92) var(--iris),              /* filo nítido de la hoja del iris */
+        rgba(0,0,0,0.97) calc(var(--iris) + 2.2%));      /* negro casi total al cerrar */
+    animation: irisShot 0.82s cubic-bezier(0.5, 0, 0.3, 1);
 }
 .iris-shot::after {
     content: ""; position: absolute; inset: 0; border-radius: inherit;
     background-color: rgba(255,255,255,0);
-    animation: irisSnap 0.72s ease-out;
+    animation: irisSnap 0.82s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+    .iris-shot, .iris-shot::after { animation-duration: 0.3s; }
 }
 
 @keyframes vidshimmer { 0% { background-position: 220% 0; } 100% { background-position: -220% 0; } }

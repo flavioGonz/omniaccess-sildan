@@ -13,6 +13,7 @@ import { getDevices, getAvailableStreams, getEquiposApagados } from "@/app/actio
 import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
 import { SugerenciaRelectura } from "@/components/monitor/SugerenciaRelectura";
+import { CorregirOmniDialog } from "@/components/monitor/CorregirOmniDialog";
 import { IntrusionPanel } from "@/components/IntrusionPanel";
 import { logosPorMatricula } from "@/app/actions/empresas";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
@@ -330,6 +331,8 @@ function PlateCommandBar() {
 function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: any; onRegister?: (plate?: string) => void; dir?: "ENTRY" | "EXIT"; className?: string; watchMap?: Record<string, any>; logos?: LogosMatricula }) {
     const router = useRouter();
     const [flash, setFlash] = useState(false);
+    /** La chapa de OmniVision a confirmar cuando el guardia toca la leyenda «OmniVision leyó X». */
+    const [corregirOmni, setCorregirOmni] = useState<string | null>(null);
     const last = useRef<string | undefined>(undefined);
     useEffect(() => {
         if (ev?.id && ev.id !== last.current) {
@@ -366,14 +369,23 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                 <SmartThumb src={img} w={960} className="absolute inset-0 w-full h-full" />
                 {flash && <div className="iris-shot" />}
                 <div className="absolute top-3 left-3 z-10 flex flex-col items-start gap-1.5">
-                    {/* En la columna de su sentido el cartel ENTRADA/SALIDA sobra: lo dice la columna. Se deja la cámara. */}
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur text-[10.5px] font-semibold text-white/90">{ev.device?.name || "Cámara"} · <TimeAgo timestamp={ev.timestamp} /></span>
-                    {tipo && <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow-lg backdrop-blur", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
+                    {/* En la columna de su sentido el cartel ENTRADA/SALIDA sobra: lo dice la columna. Se deja la
+                        cámara. El contador de captura se movió abajo a la derecha, más destacado. */}
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/55 backdrop-blur-md ring-1 ring-white/10 text-[11px] font-semibold text-white/90 shadow-sm"><Camera size={12} className="text-white/70 shrink-0" />{ev.device?.name || "Cámara"}</span>
+                    {tipo && <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg shadow-sm backdrop-blur-md", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
                     {/* El motivo de la lista viaja con la captura: en búsqueda es lo que el guardia tiene que saber. */}
-                    {watch?.motivo && <span className={cn("max-w-[60%] text-[11px] font-semibold px-2 py-1 rounded shadow-lg backdrop-blur leading-snug", tipo?.badge || "bg-black/60 text-white")}>{watch.motivo}</span>}
-                    {rotuloLectura(ev.details) && <span className="text-[10px] tabular-nums px-2 py-0.5 rounded bg-black/55 text-white/85 backdrop-blur">{rotuloLectura(ev.details)}</span>}
+                    {watch?.motivo && <span className={cn("max-w-[60%] text-[11px] font-semibold px-2 py-1 rounded-lg shadow-sm backdrop-blur-md leading-snug", tipo?.badge || "bg-black/60 text-white")}>{watch.motivo}</span>}
+                    {rotuloLectura(ev.details) && <span className="text-[10px] tabular-nums px-2 py-1 rounded-lg bg-black/55 ring-1 ring-white/10 text-white/85 backdrop-blur-md">{rotuloLectura(ev.details)}</span>}
                 </div>
-                <div className="absolute top-3 right-3 z-10"><Badge className={cn("text-xs shadow-lg", ok ? "bg-emerald-600" : "bg-red-600")}>{ok ? "PERMITIDO" : "DENEGADO"}</Badge></div>
+                <div className="absolute top-3 right-3 z-10"><span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider text-white shadow-lg ring-1 backdrop-blur-md", ok ? "bg-emerald-600/90 ring-emerald-300/30" : "bg-red-600/90 ring-red-300/30")}>{ok ? <CheckCircle2 size={13} /> : <Ban size={13} />}{ok ? "Permitido" : "Denegado"}</span></div>
+                {/* El contador de captura: abajo a la derecha, destacado — lo primero que el guardia mira para
+                    saber cuán fresca es la captura. «Hace 30s» dicho en grande. */}
+                <div className="absolute bottom-3 right-3 z-20 pointer-events-none">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/60 ring-1 ring-white/15 text-white shadow-lg backdrop-blur-md">
+                        <Clock size={13} className="text-white/70 shrink-0" />
+                        <span className="text-[13px] font-bold tabular-nums tracking-tight"><TimeAgo timestamp={ev.timestamp} /></span>
+                    </span>
+                </div>
                 {crop && (
                     /* Proporcional al recuadro: con 160 px fijos, en una pantalla de 1366 el recorte
                        de la patente tapaba la matrícula leída, que es lo que se vino a ver. */
@@ -408,7 +420,7 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     ) : (
                         <div className="flex flex-col items-center gap-1">
                             <div className="inline-block px-4 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm"><span className="font-mono text-[clamp(18px,1.9vw,30px)] font-bold tracking-[0.2em] text-white drop-shadow">{plate}</span></div>
-                            <MarcaVerificacion plate={plate} r={relHero} oscuro tamano="md" />
+                            <MarcaVerificacion plate={plate} r={relHero} oscuro tamano="md" onCorregir={ev.id && !ev.sinEvento ? (omni) => setCorregirOmni(omni) : undefined} />
                         </div>
                     )}
                     <div className="mt-1.5 text-[11px] text-white/80 flex items-center gap-2">
@@ -424,6 +436,17 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     )}
                 </div>
             </div>
+            {corregirOmni && ev.id && (
+                <CorregirOmniDialog
+                    abierto={!!corregirOmni}
+                    onCerrar={() => setCorregirOmni(null)}
+                    eventId={ev.id}
+                    plateCamara={plate}
+                    plateOmni={corregirOmni}
+                    confianza={relHero?.confianza ?? null}
+                    onSaved={() => { setCorregirOmni(null); router.refresh(); }}
+                />
+            )}
         </div>
     );
 }
@@ -496,6 +519,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     const tipo = tipoDeteccion(event, watch, comp);
     const [nvrCh, setNvrCh] = useState<number | null>(null);
     const [showVid, setShowVid] = useState(false);
+    const [corregirOmni, setCorregirOmni] = useState<string | null>(null);
     useEffect(() => { let alive = true; const dev = (event as any).device; if (dev?.id) fetchNvrChannel(dev.id).then((ch) => { if (alive) setNvrCh(ch); }); return () => { alive = false; }; }, [(event as any).device?.id]);
     return (
       <>
@@ -527,7 +551,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                                     {relCard && <MarcaOmniVision r={relCard} tamano="xs" soloIcono />}
                                 </div>
                             ) : (
-                                <span className="inline-flex items-center gap-1.5"><span className="font-mono text-sm font-bold text-foreground tracking-wider">{event.plateDetected}</span><MarcaFormatoChapa plate={event.plateDetected} /><MarcaVerificacion plate={event.plateDetected} r={relCard} tamano="xs" /></span>
+                                <span className="inline-flex items-center gap-1.5"><span className="font-mono text-sm font-bold text-foreground tracking-wider">{event.plateDetected}</span><MarcaFormatoChapa plate={event.plateDetected} /><MarcaVerificacion plate={event.plateDetected} r={relCard} tamano="xs" onCorregir={event.id ? (omni) => setCorregirOmni(omni) : undefined} /></span>
                             )}
                             <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0", event.decision === "GRANT" ? "border-emerald-500/50 text-emerald-400" : "border-red-500/50 text-red-400")}>{event.decision === "GRANT" ? "OK" : "DENY"}</Badge>
                             {watchStyle && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchStyle.badge)} title={watch?.label || ""}><ShieldAlert size={9} /> {watchStyle.label}</span>}
@@ -562,6 +586,17 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
         </VisorEventoAcceso>
         {/* El visor único (vivo · grabación · evidencias), abierto en Grabación en el instante de la lectura. */}
         {showVid && nvrCh != null && (event as any).device?.id && <VerGrabacion deviceId={(event as any).device.id} nombre={(event as any).device?.name} canal={nvrCh} instanteMs={new Date(event.timestamp).getTime()} onClose={() => setShowVid(false)} />}
+        {corregirOmni && event.id && (
+            <CorregirOmniDialog
+                abierto={!!corregirOmni}
+                onCerrar={() => setCorregirOmni(null)}
+                eventId={event.id}
+                plateCamara={event.plateDetected}
+                plateOmni={corregirOmni}
+                confianza={relCard?.confianza ?? null}
+                onSaved={() => { setCorregirOmni(null); router.refresh(); }}
+            />
+        )}
       </>
     );
 });
