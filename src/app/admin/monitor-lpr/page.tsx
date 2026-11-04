@@ -375,7 +375,6 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     {tipo && <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg shadow-sm backdrop-blur-md", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
                     {/* El motivo de la lista viaja con la captura: en búsqueda es lo que el guardia tiene que saber. */}
                     {watch?.motivo && <span className={cn("max-w-[60%] text-[11px] font-semibold px-2 py-1 rounded-lg shadow-sm backdrop-blur-md leading-snug", tipo?.badge || "bg-black/60 text-white")}>{watch.motivo}</span>}
-                    {rotuloLectura(ev.details) && <span className="text-[10px] tabular-nums px-2 py-1 rounded-lg bg-black/55 ring-1 ring-white/10 text-white/85 backdrop-blur-md">{rotuloLectura(ev.details)}</span>}
                 </div>
                 <div className="absolute top-3 right-3 z-10"><span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider text-white shadow-lg ring-1 backdrop-blur-md", ok ? "bg-emerald-600/90 ring-emerald-300/30" : "bg-red-600/90 ring-red-300/30")}>{ok ? <CheckCircle2 size={13} /> : <Ban size={13} />}{ok ? "Permitido" : "Denegado"}</span></div>
                 {/* El contador de captura: abajo a la derecha, destacado — lo primero que el guardia mira para
@@ -386,12 +385,20 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                         <span className="text-[13px] font-bold tabular-nums tracking-tight"><TimeAgo timestamp={ev.timestamp} /></span>
                     </span>
                 </div>
-                {crop && (
-                    /* Proporcional al recuadro: con 160 px fijos, en una pantalla de 1366 el recorte
-                       de la patente tapaba la matrícula leída, que es lo que se vino a ver. */
-                    <div className="absolute top-12 right-3 z-20 w-[26%] max-w-40 rounded-lg overflow-hidden border-2 border-white/70 shadow-lg bg-black/50">
-                        <div className="px-1.5 py-0.5 bg-black/70 text-[8px] font-bold text-white/90 uppercase tracking-wide">Patente</div>
-                        <ThumbImg src={crop} className="w-full h-auto object-contain bg-black" />
+                {/* Columna derecha bajo el badge: el recorte de la patente y, debajo, CÓMO se leyó
+                    (ANPR de la cámara o RTSP Detect del contenedor). El método va pegado al recorte —
+                    es el dato de calidad de esa lectura— y no mezclado con cámara/tipo a la izquierda. */}
+                {(crop || rotuloLectura(ev.details)) && (
+                    <div className="absolute top-12 right-3 z-20 flex flex-col items-end gap-1.5 w-[26%] max-w-40">
+                        {crop && (
+                            /* Proporcional al recuadro: con 160 px fijos, en una pantalla de 1366 el recorte
+                               de la patente tapaba la matrícula leída, que es lo que se vino a ver. */
+                            <div className="w-full rounded-lg overflow-hidden border-2 border-white/70 shadow-lg bg-black/50">
+                                <div className="px-1.5 py-0.5 bg-black/70 text-[8px] font-bold text-white/90 uppercase tracking-wide">Patente</div>
+                                <ThumbImg src={crop} className="w-full h-auto object-contain bg-black" />
+                            </div>
+                        )}
+                        {rotuloLectura(ev.details) && <span className="inline-flex items-center px-2 py-1 rounded-lg bg-black/60 ring-1 ring-white/15 text-[10px] font-semibold tabular-nums text-white/85 backdrop-blur-md shadow-sm whitespace-nowrap">{rotuloLectura(ev.details)}</span>}
                     </div>
                 )}
                 {/* El logo de la empresa (delivery, taxi) incrustado en la foto: abajo a la izquierda,
