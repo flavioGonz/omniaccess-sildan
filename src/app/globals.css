@@ -957,6 +957,23 @@ video::-webkit-media-controls { display: none !important; }
 @keyframes vidshimmer { 0% { background-position: 220% 0; } 100% { background-position: -220% 0; } }
 
 
+/* ── Cajón Investigar (ficha de matrícula) ─────────────────────────────────
+   El radar de «buscando», las filas del grafo tipo git que entran escalonadas
+   y la ficha que aparece. Todo respeta prefers-reduced-motion. */
+@keyframes fichaRadarBarrido { to { transform: rotate(360deg); } }
+@keyframes fichaRadarPulso { 0% { opacity: 0.15; } 50% { opacity: 0.5; } 100% { opacity: 0.15; } }
+@keyframes fichaFila { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes fichaEntra { from { opacity: 0; } to { opacity: 1; } }
+.ficha-radar-barrido { animation: fichaRadarBarrido 1.6s linear infinite; }
+.ficha-radar-pulso { animation: fichaRadarPulso 1.8s ease-in-out infinite; }
+.ficha-fila { animation: fichaFila 0.4s ease-out both; }
+.ficha-entra { animation: fichaEntra 0.3s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+    .ficha-radar-barrido, .ficha-radar-pulso { animation-duration: 3s; }
+    .ficha-fila, .ficha-entra { animation: none; }
+}
+
+
 /* ══ Los globos de aviso (sileo) ═══════════════════════════════════════════
 
    QUÉ ESTABA MAL

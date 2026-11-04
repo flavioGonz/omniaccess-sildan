@@ -14,6 +14,7 @@ import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
 import { SugerenciaRelectura } from "@/components/monitor/SugerenciaRelectura";
 import { CorregirOmniDialog } from "@/components/monitor/CorregirOmniDialog";
+import { FichaMatriculaDrawer } from "@/components/monitor/FichaMatriculaDrawer";
 import { IntrusionPanel } from "@/components/IntrusionPanel";
 import { logosPorMatricula } from "@/app/actions/empresas";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
@@ -333,6 +334,8 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
     const [flash, setFlash] = useState(false);
     /** La chapa de OmniVision a confirmar cuando el guardia toca la leyenda «OmniVision leyó X». */
     const [corregirOmni, setCorregirOmni] = useState<string | null>(null);
+    /** La matrícula a investigar: abre el cajón-ficha (antes «Investigar» iba al módulo de Historial). */
+    const [investigar, setInvestigar] = useState<string | null>(null);
     const last = useRef<string | undefined>(undefined);
     useEffect(() => {
         if (ev?.id && ev.id !== last.current) {
@@ -401,6 +404,18 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                         {rotuloLectura(ev.details) && <span className="inline-flex items-center px-2 py-1 rounded-lg bg-black/60 ring-1 ring-white/15 text-[10px] font-semibold tabular-nums text-white/85 backdrop-blur-md shadow-sm whitespace-nowrap">{rotuloLectura(ev.details)}</span>}
                     </div>
                 )}
+                {/* Registrado: el Lote y el nombre, grandes y centrados sobre la foto. Para el guardia,
+                    cuando el auto es de alguien conocido, lo que importa es QUIÉN es —no la chapa—, así
+                    que su identidad manda en el centro. Sólo con lectura buena y usuario reconocido. */}
+                {!anomalous && ev.user?.name && (
+                    <div className="absolute inset-x-0 top-[38%] -translate-y-1/2 z-[15] flex justify-center px-6 pointer-events-none">
+                        <div className="flex flex-col items-center gap-1 px-6 py-3.5 rounded-2xl bg-black/50 ring-1 ring-white/15 shadow-xl backdrop-blur-md text-center max-w-[86%]">
+                            {ev.user?.unit?.name && <div className={cn("inline-flex items-center gap-1.5 text-[clamp(15px,1.7vw,26px)] font-black uppercase tracking-wide leading-none", tipo?.key === "blanca" ? "text-amber-300" : "text-[var(--accion-en-oscuro)]")}><Home size={18} className="shrink-0" />Lote {ev.user.unit.name}</div>}
+                            <div className="text-[clamp(20px,2.4vw,38px)] font-bold text-white leading-tight drop-shadow">{ev.user.name}</div>
+                            {tipo && <span className={cn("mt-0.5 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow-sm", tipo.badge)}>{tipo.label}</span>}
+                        </div>
+                    </div>
+                )}
                 {/* El logo de la empresa (delivery, taxi) incrustado en la foto: abajo a la izquierda,
                     donde no tapa ni la patente ni la matrícula leída. */}
                 {empresa && <div className="absolute left-3 bottom-3 z-20"><LogoSobreFoto empresa={empresa} className="h-[clamp(20px,2.6vw,40px)] max-w-[9vw]" /></div>}
@@ -432,11 +447,12 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     )}
                     <div className="mt-1.5 text-[11px] text-white/80 flex items-center gap-2">
                         {marca && <span className="font-semibold">{marca}</span>}
-                        {ev.user?.name && <span className="text-white/90">{ev.user.name}{ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
+                        {/* El nombre ya va grande y centrado cuando es registrado; acá sólo en el caso raro anómalo. */}
+                        {ev.user?.name && anomalous && <span className="text-white/90">{ev.user.name}{ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
                     </div>
                     {plate && !anomalous && (
                         <div className="mt-2 flex gap-2">
-                            <button onClick={(e) => { e.stopPropagation(); router.push(`/admin/history?search=${encodeURIComponent(plate)}`); }} className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur transition-colors">Investigar</button>
+                            <button onClick={(e) => { e.stopPropagation(); setInvestigar(plate); }} className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur transition-colors">Investigar</button>
                             <MinInteriorButton plate={plate} label className="!bg-white/15 hover:!bg-white/25 !text-white uppercase tracking-wide backdrop-blur" />
                             {!ok && <button onClick={(e) => { e.stopPropagation(); onRegister?.(plate); }} className="px-3 py-1 rounded-md bg-emerald-500/80 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wide transition-colors">Registrar</button>}
                         </div>
@@ -454,6 +470,7 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     onSaved={() => { setCorregirOmni(null); router.refresh(); }}
                 />
             )}
+            <FichaMatriculaDrawer plate={investigar} abierto={!!investigar} onCerrar={() => setInvestigar(null)} />
         </div>
     );
 }
@@ -527,6 +544,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     const [nvrCh, setNvrCh] = useState<number | null>(null);
     const [showVid, setShowVid] = useState(false);
     const [corregirOmni, setCorregirOmni] = useState<string | null>(null);
+    const [investigar, setInvestigar] = useState<string | null>(null);
     useEffect(() => { let alive = true; const dev = (event as any).device; if (dev?.id) fetchNvrChannel(dev.id).then((ch) => { if (alive) setNvrCh(ch); }); return () => { alive = false; }; }, [(event as any).device?.id]);
     return (
       <>
@@ -581,7 +599,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                     </div>
                     <div className="flex items-center gap-1 shrink-0 self-center">
                         {event.plateDetected && !isAnomalous && (<>
-                            <button onClick={(e) => { e.stopPropagation(); router.push(`/admin/history?search=${encodeURIComponent(event.plateDetected!)}`); }} title="Investigar" className="p-2 rounded-lg text-blue-500 hover:bg-blue-500/15 transition-colors"><Search size={17} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); setInvestigar(event.plateDetected!); }} title="Investigar" className="p-2 rounded-lg text-blue-500 hover:bg-blue-500/15 transition-colors"><Search size={17} /></button>
                             <MinInteriorButton plate={event.plateDetected} className="!p-2 rounded-lg" />
                             {event.decision !== "GRANT" && <button onClick={(e) => { e.stopPropagation(); onRegister(event.plateDetected!); }} title="Registrar" className="p-2 rounded-lg text-emerald-500 hover:bg-emerald-500/15 transition-colors"><UserPlus size={17} /></button>}
                         </>)}
@@ -604,6 +622,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                 onSaved={() => { setCorregirOmni(null); router.refresh(); }}
             />
         )}
+        <FichaMatriculaDrawer plate={investigar} abierto={!!investigar} onCerrar={() => setInvestigar(null)} />
       </>
     );
 });

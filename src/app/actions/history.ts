@@ -322,6 +322,111 @@ export async function getPlateAnalysis(plate: string) {
     }
 }
 
+/* ── Ficha de matrícula (Investigar) ───────────────────────────────────────────────────────
+ * Lo que alimenta el cajón de Investigar del Monitor LPR. Antes «Investigar» llevaba al módulo
+ * de Historial con un ?search=; ahora abre una ficha de ESTA matrícula sin salir del monitor:
+ * la última captura, todas las pasadas (entradas/salidas, con su foto y método) y las detecciones
+ * de analítica que ocurrieron en las mismas cámaras mientras el auto estuvo. Una sola llamada.
+ */
+export type PasadaFicha = {
+    id: string; timestamp: string; direction: string | null; decision: string | null;
+    deviceId: string | null; deviceName: string | null; img: string | null; details: string | null;
+    userName: string | null; unitName: string | null;
+};
+export type DeteccionRelacionada = {
+    id: string; deviceId: string | null; deviceName: string | null; type: string;
+    eventType: string | null; snapshotPath: string | null; timestamp: string; label: string | null;
+};
+export type FichaMatricula = {
+    plate: string;
+    total: number; entries: number; exits: number; grants: number; denies: number;
+    primera: string | null; ultima: string | null;
+    camaras: { id: string; name: string }[];
+    watch: { label: string; category: string; motivo: string | null } | null;
+    usuario: { name: string; unit: string | null } | null;
+    pasadas: PasadaFicha[];
+    detecciones: DeteccionRelacionada[];
+};
+
+/** Cuántos días mira atrás la ficha, y cuántas pasadas trae como mucho. */
+const FICHA_DIAS = 30;
+const FICHA_TOPE_PASADAS = 120;
+const FICHA_TOPE_DETECCIONES = 16;
+
+export async function getFichaMatricula(plate: string): Promise<FichaMatricula | null> {
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession().catch(() => null))) return null;
+    const norm = String(plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const vacia: FichaMatricula = { plate: norm, total: 0, entries: 0, exits: 0, grants: 0, denies: 0, primera: null, ultima: null, camaras: [], watch: null, usuario: null, pasadas: [], detecciones: [] };
+    if (!norm) return vacia;
+    try {
+        const desde = new Date(Date.now() - FICHA_DIAS * 24 * 60 * 60 * 1000);
+        const eventos = await prisma.accessEvent.findMany({
+            where: { accessType: "PLATE", sinVehiculo: false, plateDetected: { equals: norm, mode: "insensitive" }, timestamp: { gte: desde } },
+            orderBy: { timestamp: "desc" },
+            take: FICHA_TOPE_PASADAS,
+            select: {
+                id: true, direction: true, timestamp: true, decision: true, details: true,
+                snapshotPath: true, imagePath: true, deviceId: true,
+                device: { select: { id: true, name: true } },
+                user: { select: { name: true, unit: { select: { name: true } } } },
+            },
+        });
+
+        const pasadas: PasadaFicha[] = eventos.map((e) => ({
+            id: e.id, timestamp: e.timestamp.toISOString(), direction: e.direction, decision: e.decision,
+            deviceId: e.deviceId, deviceName: e.device?.name || null,
+            img: e.snapshotPath || e.imagePath || null, details: e.details || null,
+            userName: e.user?.name || null, unitName: e.user?.unit?.name || null,
+        }));
+
+        const entries = pasadas.filter((p) => p.direction === "ENTRY").length;
+        const exits = pasadas.filter((p) => p.direction === "EXIT").length;
+        const grants = pasadas.filter((p) => p.decision === "GRANT").length;
+        const denies = pasadas.filter((p) => p.decision !== "GRANT").length;
+        const primera = pasadas.length ? pasadas[pasadas.length - 1].timestamp : null;
+        const ultima = pasadas.length ? pasadas[0].timestamp : null;
+        const camMap = new Map<string, string>();
+        for (const p of pasadas) if (p.deviceId && p.deviceName) camMap.set(p.deviceId, p.deviceName);
+        const camaras = [...camMap].map(([id, name]) => ({ id, name }));
+
+        // Vigilancia (lista de la matrícula o rol): el motivo es lo que cambia lo que hace el guardia.
+        let watch: FichaMatricula["watch"] = null;
+        try {
+            const w = await prisma.plateWatch.findFirst({ where: { active: true, plate: norm }, select: { label: true, category: true, motivo: true } });
+            if (w) watch = { label: w.label, category: w.category, motivo: w.motivo };
+        } catch { /* sin vigilancia la ficha anda igual */ }
+
+        const usuario = eventos.find((e) => e.user?.name)?.user
+            ? { name: eventos.find((e) => e.user?.name)!.user!.name, unit: eventos.find((e) => e.user?.name)!.user!.unit?.name || null }
+            : null;
+
+        // Detecciones relacionadas: lo que las analíticas vieron en las MISMAS cámaras, dentro de la
+        // ventana en que el auto apareció. Correlación por cámara y tiempo, no un vínculo directo.
+        let detecciones: DeteccionRelacionada[] = [];
+        const camIds = camaras.map((c) => c.id);
+        if (camIds.length && primera) {
+            try {
+                const rows = await prisma.detection.findMany({
+                    where: { deviceId: { in: camIds }, type: { not: "MOTION" }, timestamp: { gte: new Date(primera) } },
+                    orderBy: { timestamp: "desc" }, take: FICHA_TOPE_DETECCIONES,
+                    select: { id: true, deviceId: true, type: true, eventType: true, snapshotPath: true, timestamp: true, label: true },
+                });
+                const nombre = new Map(camaras.map((c) => [c.id, c.name]));
+                detecciones = rows.map((r) => ({
+                    id: r.id, deviceId: r.deviceId, deviceName: r.deviceId ? nombre.get(r.deviceId) || null : null,
+                    type: r.type, eventType: r.eventType, snapshotPath: r.snapshotPath, timestamp: r.timestamp.toISOString(), label: r.label,
+                }));
+            } catch { /* sin detecciones la ficha anda igual */ }
+        }
+
+        return { plate: norm, total: pasadas.length, entries, exits, grants, denies, primera, ultima, camaras, watch, usuario, pasadas, detecciones };
+    } catch (error) {
+        console.error("Error in getFichaMatricula:", error);
+        return vacia;
+    }
+}
+
 /**
  * Batch-compute stayDuration for a list of events using a single raw SQL query.
  * Replaces the N+1 pattern where each event triggered its own findFirst query.
