@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendTelegramMessage } from "@/lib/telegram";
 import { fecha } from "@/lib/fechas";
+import { exigirTokenInterno } from "@/lib/token-interno";
 
 /**
  * GET /api/queue/report/send?period=daily|weekly[&deviceId=]
@@ -9,6 +10,7 @@ import { fecha } from "@/lib/fechas";
  * Intended to be triggered by a system cron (e.g. daily at 20:00).
  */
 export async function GET(req: NextRequest) {
+    const no = await exigirTokenInterno(req); if (no) return no;
     try {
         const period = (req.nextUrl.searchParams.get("period") || "daily").toLowerCase();
         const deviceId = req.nextUrl.searchParams.get("deviceId") || undefined;

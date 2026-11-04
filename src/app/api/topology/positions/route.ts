@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
 
 export async function GET() {
     try {
@@ -19,8 +20,15 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+    // Mover un nodo del mapa es una acción del panel (lo hace el dashboard con la sesión). Estaba
+    // en la lista pública del middleware, así que cualquiera podía crear/mover filas (4/11).
+    const a = await verifyApiAuth();
+    if (!a.authenticated || a.pantalla) return unauthorizedResponse();
     try {
         const { id, x, y } = await req.json();
+        if (typeof id !== "string" || !id || id.length > 200 || typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) {
+            return NextResponse.json({ success: false, error: "Datos inválidos" }, { status: 400 });
+        }
 
         await prisma.topologyNode.upsert({
             where: { id },

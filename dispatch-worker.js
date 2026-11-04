@@ -364,9 +364,10 @@ function toChatId(raw) {
     return digits ? `${digits}@c.us` : null;
 }
 
-function getInternal(path) {
+async function getInternal(path) {
+    const token = await trackingToken();
     return new Promise((resolve) => {
-        const req = http.request({ hostname: "127.0.0.1", port: 10001, path, method: "GET", timeout: 60000 },
+        const req = http.request({ hostname: "127.0.0.1", port: 10001, path, method: "GET", timeout: 60000, headers: { "x-tracking-token": token || "" } },
             (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body: d })); });
         req.on("error", (e) => resolve({ ok: false, body: e.message }));
         req.on("timeout", () => { req.destroy(); resolve({ ok: false, body: "timeout" }); });
@@ -398,10 +399,11 @@ function postJson(url, cuerpo, secreto) {
     });
 }
 
-function postInternal(path, bodyObj) {
+async function postInternal(path, bodyObj) {
+    const token = await trackingToken();
     return new Promise((resolve) => {
         const data = JSON.stringify(bodyObj || {});
-        const req = http.request({ hostname: "127.0.0.1", port: 10001, path, method: "POST", timeout: 30000, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) } },
+        const req = http.request({ hostname: "127.0.0.1", port: 10001, path, method: "POST", timeout: 30000, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data), "x-tracking-token": token || "" } },
             (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body: d })); });
         req.on("error", (e) => resolve({ ok: false, body: e.message }));
         req.on("timeout", () => { req.destroy(); resolve({ ok: false, body: "timeout" }); });

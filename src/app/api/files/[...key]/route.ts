@@ -3,6 +3,7 @@ import { getS3Client } from "@/lib/s3";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import fs from "fs/promises";
 import { rutaMiniatura, guardarMiniatura } from "@/lib/miniaturas";
+import { prisma } from "@/lib/prisma";
 
 const BUCKET_NAME = process.env.S3_BUCKET || "lpr-prod";
 // Alias de buckets legacy: paths viejos guardaron /api/files/lpr/... cuando el
@@ -10,6 +11,25 @@ const BUCKET_NAME = process.env.S3_BUCKET || "lpr-prod";
 const BUCKET_ALIASES: Record<string, string> = {
     lpr: process.env.S3_BUCKET || "lpr-prod",
 };
+
+/**
+ * El bucket salía del path sin restricción: quien pasara la puerta de medios podía leer CUALQUIER
+ * bucket del MinIO nombrándolo (4/11). Ahora sólo se sirven los buckets propios de OmniAccess. La
+ * lista se arma de env + los Setting (queue/alarmas/intrusion pueden tener nombre propio) y se
+ * cachea un minuto, para no consultar la base en cada una de las 200 fotos del explorador.
+ */
+let bucketsOk: { set: Set<string>; hasta: number } | null = null;
+async function bucketsPermitidos(): Promise<Set<string>> {
+    if (bucketsOk && bucketsOk.hasta > Date.now()) return bucketsOk.set;
+    const s = new Set<string>(["lpr", "lpr-prod", "face", "intrusion", "alarmas", "queue"]);
+    for (const v of [process.env.S3_BUCKET, process.env.S3_BUCKET_FACE, process.env.S3_BUCKET_QUEUE, process.env.S3_BUCKET_INTRUSION, process.env.S3_BUCKET_ALARMAS]) if (v) s.add(v);
+    try {
+        const filas = await prisma.setting.findMany({ where: { key: { in: ["S3_BUCKET_LPR", "S3_BUCKET_FACE", "S3_BUCKET_QUEUE", "S3_BUCKET_INTRUSION", "S3_BUCKET_ALARMAS"] } }, select: { value: true } });
+        for (const f of filas) if (f.value) s.add(f.value);
+    } catch { /* sin base: queda el conjunto por defecto */ }
+    bucketsOk = { set: s, hasta: Date.now() + 60_000 };
+    return s;
+}
 
 export async function GET(
     req: NextRequest,
@@ -29,8 +49,11 @@ export async function GET(
             return new NextResponse("Invalid file path", { status: 400 });
         }
 
-        let bucketName = keyParts[0] || BUCKET_NAME;
-        bucketName = BUCKET_ALIASES[bucketName] || bucketName;
+        const bucketPedido = keyParts[0] || BUCKET_NAME;
+        if (!(await bucketsPermitidos()).has(bucketPedido)) {
+            return new NextResponse("Not found", { status: 404 });
+        }
+        let bucketName = BUCKET_ALIASES[bucketPedido] || bucketPedido;
         const fileKey = keyParts.slice(1).join("/");
 
         // Miniatura ya hecha: se sirve del disco sin ir a MinIO ni a sharp. Es lo que hace que la

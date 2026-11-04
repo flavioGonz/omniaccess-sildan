@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resetQueueCounters } from "@/lib/onvif-polling";
+import { exigirTokenInterno } from "@/lib/token-interno";
 
 // GET /api/queue/reset?deviceId=  → reset queue counters (in-memory + emit 0 events)
 export async function GET(req: NextRequest) {
+    const no = await exigirTokenInterno(req); if (no) return no;
     try {
         const deviceId = req.nextUrl.searchParams.get("deviceId");
         const devices = deviceId
@@ -23,3 +25,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ status: "error", message: e.message }, { status: 500 });
     }
 }
+
+// Poner en cero cambia estado: se acepta también por POST (lo recomendado). El GET queda por
+// compatibilidad, con el mismo token.
+export const POST = GET;
