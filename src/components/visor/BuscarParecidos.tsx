@@ -126,7 +126,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
     const [motor, setMotor] = useState<"omni" | "nvr">("omni");
     const [conNvr, setConNvr] = useState(false);
     const [recorte, setRecorte] = useState<{ blob: Blob; miniatura: string } | null>(null);
-    const [res, setRes] = useState<{ resultados: Resultado[]; comparados: number; ms: number } | null>(null);
+    const [res, setRes] = useState<{ resultados: Resultado[]; comparados: number; sinHuella?: number; ms: number } | null>(null);
     const [buscando, setBuscando] = useState(false);
     const [error, setError] = useState<string | null>(null);
     /** El resultado abierto, por posición en la lista: así ← y → pasan al anterior y al siguiente. */
@@ -444,7 +444,26 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                                     </div>
                                 </div>
                             ) : !res.resultados.length ? (
-                                <div className="h-full grid place-items-center text-center text-muted-foreground text-[13px] px-6">Nada parecido en {RANGOS.find((r) => r.h === h)?.r}. Probá un rango más largo o un recorte más ajustado.</div>
+                                <div className="h-full grid place-items-center px-6">
+                                    <div className="text-center text-muted-foreground text-[13px] max-w-sm space-y-1.5">
+                                        {res.comparados === 0 ? (
+                                            // Nada CON QUÉ comparar: el recorte está bien, pero OmniVision no tiene objetos
+                                            // en este alcance. Casi siempre es el filtro de área (una sin cámaras analizadas).
+                                            (res.sinHuella ?? 0) > 0 ? (
+                                                <p>OmniVision vio {(res.sinHuella ?? 0).toLocaleString("es-UY")} objeto{res.sinHuella === 1 ? "" : "s"}{fa.nombre ? ` en ${fa.nombre}` : ""}, pero todavía sin huella para comparar. Probá de nuevo en un rato.</p>
+                                            ) : fa.filtrando ? (
+                                                <>
+                                                    <p className="text-foreground font-semibold">Sin objetos de OmniVision en «{fa.nombre}».</p>
+                                                    <p>Esa área no tiene cámaras analizadas por OmniVision en {RANGOS.find((r) => r.h === h)?.r}. Elegí otra área o «Todas», o sumá sus cámaras a OmniVision.</p>
+                                                </>
+                                            ) : (
+                                                <p>OmniVision no registró objetos en {RANGOS.find((r) => r.h === h)?.r}. Mandá cámaras a OmniVision (el ícono del ojo en cada baldosa) o probá un rango más largo.</p>
+                                            )
+                                        ) : (
+                                            <p>Nada parecido en {RANGOS.find((r) => r.h === h)?.r} <span className="opacity-70">(se comparó con {res.comparados.toLocaleString("es-UY")}{fa.nombre ? ` en ${fa.nombre}` : ""})</span>. Probá un rango más largo o un recorte más ajustado.</p>
+                                        )}
+                                    </div>
+                                </div>
                             ) : (
                                 /* Sin marco (18/10, Nico: «las mini capturas de parecidos deben ser sin marcos, con
                                    controles y datos overlay»): la foto ocupa la tarjeta entera y los datos van encima. */
