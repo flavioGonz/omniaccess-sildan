@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FolderTree, Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera, ScanEye, Crosshair, ScanSearch } from "lucide-react";
+import { FolderTree, Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Zap, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera, ScanEye, Crosshair, ScanSearch } from "lucide-react";
 import { useMarco, BarraDelMarco } from "@/components/monitor/MarcoMonitor";
 import { fondoDe, type TonoFondo } from "@/lib/monitor/fondos";
 import { BuscarEnPared, canalesParaBuscar } from "@/components/monitor/camaras/BuscarEnPared";
@@ -132,10 +132,12 @@ function OpcionMenu({ children, onClick, elegida, className }: { children: React
     );
 }
 
-const MODO_ROTULO: Record<Modo, { t: string; Ic: any; titulo: string }> = {
-    directo: { t: "Vivo", Ic: null, titulo: "En vivo, directo desde la cámara (H.265 en este equipo)" },
-    convertido: { t: "Convertido", Ic: Cpu, titulo: "En vivo, convertido a H.264 por el servidor" },
-    foto: { t: `Foto c/${FOTO_MS / 1000} s`, Ic: ImageIcon, titulo: "Foto que se renueva: este equipo no reproduce H.265 y el servidor ya convierte el máximo de canales" },
+/** El modo de cada baldosa dice quién decodifica el video: la GPU del cliente (directo) o la CPU
+ *  del servidor (convertido). El códec de origen va aparte (lo trae /codecs). */
+const MODO_ROTULO: Record<Modo, { t: string; Ic: any; titulo: string; tono: string }> = {
+    directo: { t: "GPU", Ic: Zap, titulo: "Render en la GPU de este equipo: el video va directo desde la cámara, sin convertir (no le cuesta CPU al servidor)", tono: "text-emerald-300" },
+    convertido: { t: "CPU", Ic: Cpu, titulo: "Render con CPU del servidor: este navegador no reproduce H.265, así que el servidor lo convierte a H.264 (comparte CPU con la lectura de matrículas)", tono: "text-amber-300" },
+    foto: { t: `Foto c/${FOTO_MS / 1000} s`, Ic: ImageIcon, titulo: "Foto que se renueva: este equipo no reproduce H.265 y el servidor ya convierte el máximo de canales", tono: "text-white/70" },
 };
 
 function ChapaMini({ l, nueva }: { l: Lectura; nueva?: boolean }) {
@@ -191,10 +193,12 @@ const PASO_VISION_MIN_MS = 1400;
 const PASO_VISION_LISTO_MS = 2600;
 const PASO_VISION_ERROR_MS = 9000;
 
-function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, pasoVision = null, alCerrarPaso, enlaces = [], editandoSeg = false, alSeguir, alSoltarCanal, alCambiarEnlaces }: {
+function Baldosa({ celda, modo, codec, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, pasoVision = null, alCerrarPaso, enlaces = [], editandoSeg = false, alSeguir, alSoltarCanal, alCambiarEnlaces }: {
     celda: Celda; modo: Modo; alerta: Alerta | null; lecturas: Lectura[]; destello: Lectura | null;
     alTocar: () => void; alResultado: (c: Canal, modo: Modo, ok: boolean) => void;
     hls: boolean;
+    /** El códec de origen del canal (H.265/H.264), de go2rtc. Se muestra junto al modo GPU/CPU. */
+    codec?: string | null;
     /** En el celular: la baldosa no va en una casilla de la cuadrícula sino en una lista, a 16:9. */
     libre?: boolean;
     /** Fuera de la pantalla del celular: no abre video (datos y batería). */
@@ -318,8 +322,10 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
                     {lecturas.slice(0, grande ? CHAPAS_GRANDE : CHAPAS_CHICA).map((l) => <ChapaMini key={l.id} l={l} nueva={destello?.id === l.id} />)}
                 </div>
                 {!caido && (
-                    <span title={r.titulo} className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white/75 shrink-0">
-                        {r.Ic ? <r.Ic size={11} /> : <span className="h-1.5 w-1.5 rounded-full bg-[var(--mal)]" />} {r.t}
+                    <span title={`${codec ? `Códec de origen: ${codec}. ` : ""}${r.titulo}`} className="inline-flex items-center gap-1.5 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-semibold shrink-0 backdrop-blur-sm">
+                        {codec && <span className="text-white/85 tabular-nums">{codec}</span>}
+                        {codec && <span className="h-0.5 w-0.5 rounded-full bg-white/35" />}
+                        <span className={cn("inline-flex items-center gap-1", r.tono)}>{r.Ic ? <r.Ic size={11} /> : <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />} {r.t}</span>
                     </span>
                 )}
             </div>
@@ -341,6 +347,17 @@ export function VistaCamaras() {
     const [canalSolo, setCanalSolo] = useState<string | null>(null);
     const [hls, setHls] = useState(false);
     useEffect(() => { setH265(reproduceH265()); setHls(usaHls()); const l = leerPrefs(); setPrefsState(l.prefs); setCanalSolo(l.canalSolo); }, []);
+
+    // El códec de origen de cada stream (de go2rtc), para que cada baldosa diga qué trae la cámara.
+    // El modo GPU/CPU lo decide este navegador; el códec no se puede saber del lado del cliente.
+    const [codecs, setCodecs] = useState<Record<string, string | null>>({});
+    useEffect(() => {
+        let vivo = true;
+        const cargar = () => fetch("/api/monitor/camaras/codecs", { cache: "no-store" }).then((r) => r.ok ? r.json() : {}).then((j) => { if (vivo) setCodecs(j || {}); }).catch(() => { });
+        cargar();
+        const iv = setInterval(cargar, INTERVALO_MS);
+        return () => { vivo = false; clearInterval(iv); };
+    }, []);
     // Celular: menos de 768 px de ancho. La pared pasa a ser una lista con un menú abajo.
     const [movil, setMovil] = useState(false);
     useEffect(() => {
@@ -682,7 +699,7 @@ export function VistaCamaras() {
     const baldosa = (celda: Celda, i: number, libre = false) => !celda.canal && esClaveWeb(celda.claveFaltante) ? (
         <CasillaWeb key={`${celda.claveFaltante}-${i}`} casilla={celda.casilla} clave={celda.claveFaltante} libre={libre} fuente={fuentesPorId.get(idDeClaveWeb(celda.claveFaltante)) || null} />
     ) : (
-        <Baldosa key={celda.canal?.clave || `vacia-${i}`} celda={celda} modo={celda.canal ? modos.get(celda.canal.clave) || "foto" : "foto"} hls={hls} libre={libre}
+        <Baldosa key={celda.canal?.clave || `vacia-${i}`} celda={celda} modo={celda.canal ? modos.get(celda.canal.clave) || "foto" : "foto"} codec={celda.canal ? (codecs[celda.canal.stream] ?? null) : null} hls={hls} libre={libre}
             dormida={libre && !!celda.canal && !aLaVista.has(celda.canal.clave)}
             alerta={celda.canal ? alertaDe(celda.canal) : null} lecturas={celda.canal ? lecturasDe(celda.canal) : []}
             destello={celda.canal?.equipoId ? destellos[celda.canal.equipoId] || null : null}
