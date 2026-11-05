@@ -71,6 +71,23 @@ const UMBRAL_MIN = 0.5, UMBRAL_MAX = 0.99;
 /** Hasta cuándo se relee hacia atrás: al arrancar se pone al día con el último día. */
 const VENTANA_MS = 24 * 3600_000;
 /**
+ * Tope por cámara contra las «capturas fantasma». Una lectora que de noche dispara sobre reflejos
+ * y faros manda NO_LEIDA sin parar (medido en MATRICULA SALIDA: ~6/min, casi todas sin vehículo).
+ * Como la relectura es de a una y ordena por la más nueva, esa cámara monopoliza el único turno
+ * —le roba la relectura a los autos reales de las otras cámaras— y gasta GPU en fotos vacías.
+ *
+ * Cuando una cámara viene releyendo casi todo «sin vehículo», entra en modo «inundando» y su
+ * excedente de NO_LEIDA se marca sin vehículo SIN releer (sin GPU). Para no esconder un auto real,
+ * igual se relee 1 de cada MUESTREO; si esa muestra encuentra un vehículo, la cámara SALE del modo
+ * (histéresis por puntaje). El arranque no presume nada: necesita ~FANTASMA_ON relecturas reales
+ * «sin vehículo» seguidas para entrar, y un solo auto real la empuja rápido hacia la salida.
+ */
+const FANTASMA_ON = 10;      // puntaje para ENTRAR en modo fantasma
+const FANTASMA_OFF = 4;      // puntaje para SALIR (histéresis)
+const FANTASMA_MAX = 20;     // tope del puntaje
+const FANTASMA_BAJA = 3;     // cuánto baja el puntaje una relectura CON vehículo
+const FANTASMA_MUESTREO = 5; // en modo fantasma, 1 de cada 5 se relee igual
+/**
  * Doble verificación (cámaras con «lprVerifica»): además de las NO_LEIDA se relee CADA lectura,
  * para confirmar o marcar la diferencia. Sirve mientras el auto está en la pantalla del guardia;
  * hacia atrás alcanza con dos horas — ponerse al día con un día entero de lecturas buenas sería
@@ -166,14 +183,34 @@ async function leerRecorte(jpeg) {
 const esDoble = (ev) => !!ev.chapa && !NO_LEIDAS.includes(ev.chapa);
 
 function iniciar({ prisma, subir, ajuste, log, vision, activa, permitidas = () => null }) {
-    const contadores = { hechas: 0, leidas: 0, dudosas: 0, sinChapa: 0, sinVehiculo: 0, sinFoto: 0, errores: 0, ultimoError: null, msUltima: null };
+    const contadores = { hechas: 0, leidas: 0, dudosas: 0, sinChapa: 0, sinVehiculo: 0, sinFoto: 0, errores: 0, ultimoError: null, msUltima: null, presumidos: 0 };
+
+    // Puntaje de «fantasma» por cámara (ver FANTASMA_*). Sólo las relecturas REALES lo mueven; los
+    // presumidos no, para que la cámara pueda salir del modo cuando las muestras encuentran autos.
+    const fant = new Map(); // deviceId -> { score, modo, cont }
+    const camF = (dev) => { let c = fant.get(dev); if (!c) { c = { score: 0, modo: false, cont: 0 }; fant.set(dev, c); } return c; };
+    function trasReal(dev, sinVeh) {
+        if (!dev) return;
+        const c = camF(dev);
+        c.score = sinVeh ? Math.min(FANTASMA_MAX, c.score + 1) : Math.max(0, c.score - FANTASMA_BAJA);
+        if (!c.modo && c.score >= FANTASMA_ON) c.modo = true;
+        else if (c.modo && c.score <= FANTASMA_OFF) c.modo = false;
+    }
+    /** true = presumir fantasma (no relee, no gasta GPU); false = releer de verdad (fuera de modo, o la muestra 1/N). */
+    function presumir(dev) {
+        if (!dev) return false;
+        const c = camF(dev);
+        if (!c.modo) return false;
+        c.cont = (c.cont + 1) % FANTASMA_MUESTREO;
+        return c.cont !== 0;
+    }
 
     async function pendientes() {
         // Primero las que nunca se miraron; después las que fallaron por un corte (ver REINTENTO_MS).
         // «createdAt» es la hora UTC sin zona: se compara contra now() en UTC, no contra un Date de
         // JS (la sesión está en hora de Montevideo y lo correría tres horas).
         return prisma.$queryRaw`
-            SELECT e.id, e."snapshotPath" AS foto, e.timestamp, e."plateDetected" AS chapa, r.id AS rid,
+            SELECT e.id, e."snapshotPath" AS foto, e.timestamp, e."plateDetected" AS chapa, e."deviceId" AS "deviceId", r.id AS rid,
                    COALESCE((r.candidatos->>'intentos')::int, 1) AS intentos
             FROM "AccessEvent" e LEFT JOIN "Relectura" r ON r."accessEventId" = e.id
                  LEFT JOIN "Device" d ON d.id = e."deviceId"
@@ -232,7 +269,7 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa, permitidas = () =
         if (f.falta) {
             if (Date.now() - new Date(ev.timestamp).getTime() < FOTO_ESPERA_MS) return false; // todavía puede llegar
             await guardar(ev.id, { estado: "SIN_FOTO" }, ev.rid, esDoble(ev)); contadores.sinFoto++;
-            return true;
+            return "SIN_FOTO";
         }
         const jpeg = f.jpeg;
         const meta = await sharp(jpeg).metadata();
@@ -299,7 +336,7 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa, permitidas = () =
         contadores.hechas++; contadores.msUltima = Date.now() - t0;
         if (estado === "LEIDA") contadores.leidas++; else if (estado === "DUDOSA") contadores.dudosas++;
         else if (estado === "SIN_CHAPA") contadores.sinChapa++; else contadores.sinVehiculo++;
-        return true;
+        return estado;
     }
 
     let corriendo = true;
@@ -313,7 +350,17 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa, permitidas = () =
                 if (activa() && lectorPrendido) {
                     for (const ev of await pendientes()) {
                         if (!corriendo) break;
-                        try { if (await relectura(ev)) { hizo = true; break; } }
+                        const noLeida = NO_LEIDAS.includes(ev.chapa);
+                        // Cámara inundando de fantasmas: el excedente se da por «sin vehículo» sin releer
+                        // (sin GPU). Deja la fila de relectura marcada `presumido` para poder auditarlo.
+                        if (noLeida && presumir(ev.deviceId)) {
+                            await guardar(ev.id, { estado: "SIN_VEHICULO", candidatos: { presumido: true } }, ev.rid, false).catch(() => null);
+                            contadores.presumidos++; hizo = true; break;
+                        }
+                        try {
+                            const est = await relectura(ev);
+                            if (est) { if (noLeida) trasReal(ev.deviceId, est === "SIN_VEHICULO"); hizo = true; break; }
+                        }
                         catch (e) {
                             contadores.errores++; contadores.ultimoError = e.message;
                             // Se reintenta hasta INTENTOS_MAX veces (cada REINTENTO_MS); después queda registrado.
