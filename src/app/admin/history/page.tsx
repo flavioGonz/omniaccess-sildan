@@ -356,7 +356,7 @@ export default function HistoryPage() {
 
             <ExportHistoryDialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}
                 filters={{ search: searchTerm, decision: filterDecision, type: filterType, direction: filterDirection }}
-                rango={rango} camaras={camList} camarasElegidas={selectedCams} />
+                rango={rango} camaras={camList} camarasElegidas={selectedCams} modo={activeMode} />
             <ImportHistoryDialog open={isImportOpen} onOpenChange={setIsImportOpen} onDone={recargar} />
             <ReactTooltip id={TT} place="bottom" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[60]" />
         </div>

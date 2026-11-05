@@ -10,7 +10,7 @@ import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Campo, Bloque, Etiqueta, Heroe, chipHeroe } from "@/components/ui/cajon-campos";
 import { RangoFechaHora, RANGO_VACIO, rotuloRango, type Rango } from "@/components/history/RangoFechaHora";
-import { getAccessEvents } from "@/app/actions/history";
+import { getAccessEvents, getLprCameras } from "@/app/actions/history";
 import { getReportBranding } from "@/app/actions/settings";
 import { parseVehicleMeta } from "@/lib/vehicle-details";
 import { cn } from "@/lib/utils";
@@ -54,15 +54,19 @@ interface ExportHistoryDialogProps {
     /** Cámaras conocidas y las que estaban elegidas en el historial. */
     camaras?: string[];
     camarasElegidas?: Set<string>;
+    /** Modo activo de la instancia: en LPR no se ofrece «Rostros». */
+    modo?: "LPR" | "FACE" | "QUEUE" | null;
 }
 
-export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoInicial, camaras = [], camarasElegidas }: ExportHistoryDialogProps) {
+export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoInicial, camaras = [], camarasElegidas, modo = null }: ExportHistoryDialogProps) {
     const [rango, setRango] = useState<Rango>(RANGO_VACIO);
     const [busqueda, setBusqueda] = useState("");
     const [tipo, setTipo] = useState<"ALL" | "PLATE" | "FACE" | "TAG">("ALL");
     const [decision, setDecision] = useState<"ALL" | "GRANT" | "DENY">("ALL");
     const [sentido, setSentido] = useState<"ALL" | "ENTRY" | "EXIT">("ALL");
     const [cams, setCams] = useState<Set<string>>(new Set());
+    // Todas las cámaras LPR de Dispositivos (no sólo las que aparecen en lo que ya cargó el historial).
+    const [lista, setLista] = useState<{ name: string; direction: "ENTRY" | "EXIT" | null }[]>([]);
     const [formato, setFormato] = useState<Formato>("xlsx");
     const [cols, setCols] = useState<Set<string>>(new Set(POR_DEFECTO));
     const [cuenta, setCuenta] = useState<number | null>(null);
@@ -75,14 +79,20 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
         setRango(rangoInicial && (rangoInicial.desde || rangoInicial.hasta) ? rangoInicial : { desde: hoy(), hasta: hoy(), horaDesde: "", horaHasta: "" });
         setBusqueda(filters?.search || ""); setTipo(filters?.type || "ALL"); setDecision(filters?.decision || "ALL"); setSentido(filters?.direction || "ALL");
         setCams(new Set(camarasElegidas || []));
+        if (modo === "LPR" && filters?.type === "FACE") setTipo("ALL");
+        getLprCameras().then((r: any[]) => {
+            const m = new Map<string, any>((r || []).map((d) => [d.name, d.direction]));
+            camaras.forEach((c) => { if (!m.has(c)) m.set(c, null); });
+            setLista([...m].map(([name, direction]) => ({ name, direction })).sort((a, b) => a.name.localeCompare(b.name)));
+        }).catch(() => setLista(camaras.map((name) => ({ name, direction: null }))));
     }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const desde = rango.desde ? new Date(`${rango.desde}T${rango.horaDesde || "00:00"}:00`) : undefined;
     const hasta = rango.hasta ? new Date(`${rango.hasta}T${rango.horaHasta || "23:59"}:59`) : undefined;
-    const consulta = useMemo(() => ({ from: desde, to: hasta, search: busqueda || undefined, decision, type: tipo, direction: sentido }),
-        [rango, busqueda, decision, tipo, sentido]); // eslint-disable-line react-hooks/exhaustive-deps
+    const consulta = useMemo(() => ({ from: desde, to: hasta, search: busqueda || undefined, decision, type: tipo, deviceDirection: sentido, deviceNames: cams.size ? [...cams] : undefined }),
+        [rango, busqueda, decision, tipo, sentido, cams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Cuántos van a salir (sin cámaras: ese filtro se aplica al generar).
+    // Cuántos van a salir, con todos los filtros (cámaras incluidas).
     useEffect(() => {
         if (!open) return;
         let vivo = true; setContando(true);
@@ -103,7 +113,6 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
         try {
             const r: any = await getAccessEvents({ ...consulta, take: LIMITE, skip: 0, omitEnrichment: true, conTotal: false } as any);
             let eventos: any[] = r.events || [];
-            if (cams.size) eventos = eventos.filter((e) => cams.has(e.device?.name));
             if (!eventos.length) { toast.error({ title: "No hay eventos con esos filtros" }); return; }
             setGenerando(`Armando ${eventos.length.toLocaleString("es-UY")} filas…`);
 
@@ -138,7 +147,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
         if (busqueda) f.push(`Búsqueda: "${busqueda}"`);
         if (tipo !== "ALL") f.push(`Tipo: ${tipo === "PLATE" ? "LPR" : tipo === "FACE" ? "Facial" : "RFID"}`);
         if (decision !== "ALL") f.push(`Resultado: ${decision === "GRANT" ? "Permitidos" : "Denegados"}`);
-        if (sentido !== "ALL") f.push(`Sentido: ${sentido === "ENTRY" ? "Entrada" : "Salida"}`);
+        if (sentido !== "ALL") f.push(`Cámaras de ${sentido === "ENTRY" ? "entrada" : "salida"}`);
         if (cams.size) f.push(`Cámaras: ${[...cams].join(", ")}`);
         if (f.length) ws.addRow([`Filtros: ${f.join(" | ")}`]);
         ws.addRow([]);
@@ -166,6 +175,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
         bajar(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${nombreBase}.xlsx`);
     };
 
+    const visibles = lista.filter((c) => sentido === "ALL" || c.direction === sentido);
     const alternarCol = (k: string) => setCols((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
     const excede = (cuenta ?? 0) > LIMITE;
 
@@ -173,7 +183,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
         <Cajon open={open} onOpenChange={(v) => !generando && onOpenChange(v)}>
             <CajonContenido ancho="intermedio" tituloOculto titulo="Exportar reporte" descripcion="Historial de accesos en Excel, CSV o JSON"
                 pie={<div className="flex items-center gap-2 w-full">
-                    <span className="flex-1 text-[12px] text-muted-foreground truncate">{generando || (cuenta != null ? `${cuenta.toLocaleString("es-UY")} eventos con estos filtros${cams.size ? " (antes de filtrar cámaras)" : ""}` : "")}</span>
+                    <span className="flex-1 text-[12px] text-muted-foreground truncate">{generando || (cuenta != null ? `${cuenta.toLocaleString("es-UY")} eventos con estos filtros` : "")}</span>
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={!!generando}>Cancelar</Button>
                     <Button onClick={generar} disabled={!!generando || cuenta === 0} className="gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white">
                         {generando ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Descargar .{formato}
@@ -206,7 +216,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
                         ayuda="Opcional. Busca en matrícula, nombre, lote, cámara y detalles." />
                     <div>
                         <Etiqueta texto="Tipo" tt={TT} />
-                        <Opciones valor={tipo} alCambiar={setTipo as any} opciones={[{ v: "ALL", l: "Todos", I: Layers }, { v: "PLATE", l: "LPR", I: Car }, { v: "FACE", l: "Rostros", I: ScanFace }, { v: "TAG", l: "RFID", I: CreditCard }]} />
+                        <Opciones valor={tipo} alCambiar={setTipo as any} opciones={[{ v: "ALL", l: "Todos", I: Layers }, { v: "PLATE", l: "LPR", I: Car }, ...(modo === "LPR" ? [] : [{ v: "FACE", l: "Rostros", I: ScanFace }]), { v: "TAG", l: "RFID", I: CreditCard }]} />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div>
@@ -214,19 +224,19 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
                             <Opciones valor={decision} alCambiar={setDecision as any} opciones={[{ v: "ALL", l: "Todos" }, { v: "GRANT", l: "Permitidos", I: CheckCircle2 }, { v: "DENY", l: "Denegados", I: XCircle }]} />
                         </div>
                         <div>
-                            <Etiqueta texto="Sentido" tt={TT} />
-                            <Opciones valor={sentido} alCambiar={setSentido as any} opciones={[{ v: "ALL", l: "Ambos" }, { v: "ENTRY", l: "Entrada", I: ArrowDownLeft }, { v: "EXIT", l: "Salida", I: ArrowUpRight }]} />
+                            <Etiqueta texto="Cámaras de" tt={TT} ayuda="Según cómo está clasificada cada cámara en Dispositivos (entrada o salida)." />
+                            <Opciones valor={sentido} alCambiar={(v: any) => { setSentido(v); if (v !== "ALL") setCams((s) => new Set([...s].filter((n) => lista.find((c) => c.name === n)?.direction === v))); }} opciones={[{ v: "ALL", l: "Todas" }, { v: "ENTRY", l: "Entrada", I: ArrowDownLeft }, { v: "EXIT", l: "Salida", I: ArrowUpRight }]} />
                         </div>
                     </div>
-                    {camaras.length > 0 && (
+                    {visibles.length > 0 && (
                         <div>
-                            <Etiqueta texto={`Cámaras${cams.size ? ` · ${cams.size}` : " · todas"}`} ayuda="Sin ninguna marcada salen todas. Ej.: sólo «P1 - Entrada (207)» para el reporte de una garita." tt={TT} />
+                            <Etiqueta texto={`Cámaras · ${cams.size ? `${cams.size} de ${visibles.length}` : `todas (${visibles.length})`}`} ayuda="Sin ninguna marcada salen todas. Ej.: sólo «P1 - Entrada (207)» para el reporte de una garita." tt={TT} />
                             <div className="flex flex-wrap gap-1.5">
-                                {camaras.map((c) => {
+                                {visibles.map(({ name: c, direction: dir }) => {
                                     const on = cams.has(c); return (
                                         <button key={c} type="button" onClick={() => setCams((s) => { const n = new Set(s); on ? n.delete(c) : n.add(c); return n; })}
                                             className={cn("h-8 px-2.5 rounded-lg border text-[12px] inline-flex items-center gap-1.5 transition-colors", on ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)] font-semibold" : "border-border hover:bg-accent text-muted-foreground")}>
-                                            {on ? <Check size={12} /> : <Camera size={12} />} {c}
+                                            {on ? <Check size={12} /> : dir === "EXIT" ? <ArrowUpRight size={12} className="text-orange-500" /> : dir === "ENTRY" ? <ArrowDownLeft size={12} className="text-emerald-500" /> : <Camera size={12} />} {c}
                                         </button>
                                     );
                                 })}

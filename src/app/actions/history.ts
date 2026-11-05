@@ -9,6 +9,10 @@ export async function getAccessEvents(options?: {
     decision?: "GRANT" | "DENY" | "ALL",
     type?: "PLATE" | "FACE" | "TAG" | "ALL",
     direction?: "ENTRY" | "EXIT" | "ALL",
+    /** Sentido según la clasificación de la cámara (Dispositivos), no del evento. */
+    deviceDirection?: "ENTRY" | "EXIT" | "ALL",
+    /** Sólo estas cámaras (por nombre). */
+    deviceNames?: string[],
     unit?: string,
     userId?: string,
     name?: string,
@@ -41,6 +45,13 @@ export async function getAccessEvents(options?: {
 
     if (options?.direction && options.direction !== "ALL") {
         whereClause.direction = options.direction;
+    }
+
+    if ((options?.deviceDirection && options.deviceDirection !== "ALL") || options?.deviceNames?.length) {
+        whereClause.device = {
+            ...(options?.deviceDirection && options.deviceDirection !== "ALL" ? { direction: options.deviceDirection } : {}),
+            ...(options?.deviceNames?.length ? { name: { in: options.deviceNames } } : {}),
+        };
     }
 
     if (options?.unit) {
@@ -469,4 +480,9 @@ export async function setEventPlate(eventId: string, rawPlate: string) {
     } catch (e: any) {
         return { ok: false as const, error: e?.message || String(e) };
     }
+}
+
+/** Todas las cámaras LPR dadas de alta, con su clasificación de entrada o salida (para filtros y reportes). */
+export async function getLprCameras() {
+    return prisma.device.findMany({ where: { deviceType: "LPR_CAMERA" }, select: { name: true, direction: true }, orderBy: { name: "asc" } });
 }
