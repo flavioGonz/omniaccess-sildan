@@ -89,7 +89,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
 
     const desde = rango.desde ? new Date(`${rango.desde}T${rango.horaDesde || "00:00"}:00`) : undefined;
     const hasta = rango.hasta ? new Date(`${rango.hasta}T${rango.horaHasta || "23:59"}:59`) : undefined;
-    const consulta = useMemo(() => ({ from: desde, to: hasta, search: busqueda || undefined, decision, type: tipo, deviceDirection: sentido, deviceNames: cams.size ? [...cams] : undefined }),
+    const consulta = useMemo(() => ({ from: desde, to: hasta, search: busqueda || undefined, decision, type: tipo, deviceDirection: sentido, soloFlujo: true, deviceNames: cams.size ? [...cams] : undefined }),
         [rango, busqueda, decision, tipo, sentido, cams]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Cuántos van a salir, con todos los filtros (cámaras incluidas).

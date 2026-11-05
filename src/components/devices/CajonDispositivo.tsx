@@ -8,6 +8,7 @@ import {
     LogIn, LogOut, KeyRound, User, Cpu, Fingerprint, Clock, BellRing, ScanLine, Film, Video, ListChecks, Server,
     ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users,
 } from "lucide-react";
+import { ScanEye as ApoyoIco } from "lucide-react";
 import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -454,11 +455,13 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     );
 
     const bloqueSentido = (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
             <Opcion activa={f.direction === "ENTRY"} onClick={() => set("direction", "ENTRY")} icono={LogIn} titulo="Entrada" detalle="Lee a los que entran al barrio" color="bg-emerald-500/15 text-emerald-500"
                 ayuda="Aparece en la columna de entradas del monitor y suma a «adentro ahora». Ej.: carril de ingreso de la garita P1." />
             <Opcion activa={f.direction === "EXIT"} onClick={() => set("direction", "EXIT")} icono={LogOut} titulo="Salida" detalle="Lee a los que salen; cierra visitas" color="bg-orange-500/15 text-orange-500"
                 ayuda="Aparece en la columna de salidas y cierra las visitas abiertas de esa matrícula. Ej.: carril de egreso de la garita P1." />
+            <Opcion activa={f.direction === "NONE"} onClick={() => set("direction", "NONE")} icono={ApoyoIco} titulo="Apoyo" detalle="Lee matrículas, no cuenta en entradas ni salidas" color="bg-sky-500/15 text-sky-500"
+                ayuda="Sus lecturas quedan en el historial y en las búsquedas, pero no suman en entradas/salidas, ni en «adentro ahora», ni en los reportes de flujo. Ej.: cámara de contexto que mira la garita." />
         </div>
     );
 

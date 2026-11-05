@@ -64,6 +64,7 @@ import {
     Play,
     ScanLine
 } from "lucide-react";
+import { ScanEye as ApoyoIco } from "lucide-react";
 import { sileo } from "sileo";
 // Adaptador estilo sonner (title, {description}) → sileo ({title, description})
 const toast = {
@@ -612,8 +613,8 @@ export default function DevicesPage() {
                                                 <div className="flex items-center gap-1.5 min-w-0">
                                                     <p className={cn("font-semibold text-foreground text-[13px] leading-none truncate max-w-[200px]", claseNombreConAlerta(alertasDe[dev.id]))} data-tooltip-id="tt-grab" data-tooltip-content={dev.name}>{dev.name}</p>
                                                     {dev.deviceType === "LPR_CAMERA" && dev.direction && (
-                                                        <span className={cn("h-[16px] px-1 rounded text-[9px] font-black grid place-items-center", dev.direction === "ENTRY" ? "bg-emerald-500/15 text-emerald-500" : "bg-orange-500/15 text-orange-500")}
-                                                            data-tooltip-id="tt-grab" data-tooltip-content={dev.direction === "ENTRY" ? "Entrada" : "Salida"}>{dev.direction === "ENTRY" ? <LogInIco size={10} /> : <LogOutIco size={10} />}</span>
+                                                        <span className={cn("h-[16px] px-1 rounded text-[9px] font-black grid place-items-center", dev.direction === "ENTRY" ? "bg-emerald-500/15 text-emerald-500" : dev.direction === "NONE" ? "bg-sky-500/15 text-sky-500" : "bg-orange-500/15 text-orange-500")}
+                                                            data-tooltip-id="tt-grab" data-tooltip-content={dev.direction === "ENTRY" ? "Entrada" : dev.direction === "NONE" ? "Apoyo · no cuenta en entradas/salidas" : "Salida"}>{dev.direction === "ENTRY" ? <LogInIco size={10} /> : dev.direction === "NONE" ? <ApoyoIco size={10} /> : <LogOutIco size={10} />}</span>
                                                     )}
                                                     {analyticsIds.has(dev.id) && <span className="h-[16px] w-[16px] rounded bg-red-500/15 text-red-500 grid place-items-center" data-tooltip-id="tt-grab" data-tooltip-content="Con analíticas configuradas"><Radar size={10} /></span>}
                                                 </div>

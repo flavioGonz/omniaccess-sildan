@@ -7,6 +7,7 @@ import {
     Camera, Network, MapPin, HardDrive, Rocket, ScanSearch, Loader2, Check, X, AlertTriangle, Info,
     LogIn, LogOut, KeyRound, Cpu, Fingerprint, Clock, BellRing, ScanLine, Film, Video, ListChecks, Server, ChevronRight, ChevronLeft,
 } from "lucide-react";
+import { ScanEye as ApoyoIco } from "lucide-react";
 import { Cajon, CajonDisparador, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -286,11 +287,11 @@ export function CajonCamaraLpr({ groups = [], onSuccess, children, open: abierto
                     {clave === "lugar" && (
                         <div className="space-y-6">
                             <CajonSeccion titulo="Sentido" icono={MapPin} pista="Decide en qué columna del monitor aparece, si cuenta como entrada o salida para «adentro ahora» y si cierra visitas.">
-                                <div className="grid grid-cols-2 gap-3">
-                                    {[{ v: "ENTRY", t: "Entrada", I: LogIn, d: "Lee a los que entran al barrio" }, { v: "EXIT", t: "Salida", I: LogOut, d: "Lee a los que salen; cierra visitas" }].map((o) => (
+                                <div className="grid grid-cols-3 gap-3">
+                                    {[{ v: "ENTRY", t: "Entrada", I: LogIn, d: "Lee a los que entran al barrio" }, { v: "EXIT", t: "Salida", I: LogOut, d: "Lee a los que salen; cierra visitas" }, { v: "NONE", t: "Apoyo", I: ApoyoIco, d: "Lee matrículas, no cuenta en entradas ni salidas" }].map((o) => (
                                         <button key={o.v} type="button" onClick={() => set("direction", o.v)}
                                             className={cn("rounded-xl border p-4 text-left flex items-center gap-3 transition", f.direction === o.v ? "border-[var(--accion)] ring-2 ring-[var(--accion)]/30 bg-[var(--accion)]/5" : "border-border hover:bg-accent")}>
-                                            <span className={cn("grid h-11 w-11 place-items-center rounded-full", o.v === "ENTRY" ? "bg-emerald-500/15 text-emerald-500" : "bg-orange-500/15 text-orange-500")}><o.I size={20} /></span>
+                                            <span className={cn("grid h-11 w-11 place-items-center rounded-full", o.v === "ENTRY" ? "bg-emerald-500/15 text-emerald-500" : o.v === "NONE" ? "bg-sky-500/15 text-sky-500" : "bg-orange-500/15 text-orange-500")}><o.I size={20} /></span>
                                             <span><span className="block font-bold">{o.t}</span><span className="block text-[12px] text-muted-foreground">{o.d}</span></span>
                                         </button>
                                     ))}

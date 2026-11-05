@@ -11,6 +11,8 @@ export async function getAccessEvents(options?: {
     direction?: "ENTRY" | "EXIT" | "ALL",
     /** Sentido según la clasificación de la cámara (Dispositivos), no del evento. */
     deviceDirection?: "ENTRY" | "EXIT" | "ALL",
+    /** Sólo cámaras de entrada o salida: deja fuera las de apoyo (sentido NONE). */
+    soloFlujo?: boolean,
     /** Sólo estas cámaras (por nombre). */
     deviceNames?: string[],
     unit?: string,
@@ -49,9 +51,9 @@ export async function getAccessEvents(options?: {
         whereClause.direction = options.direction;
     }
 
-    if ((options?.deviceDirection && options.deviceDirection !== "ALL") || options?.deviceNames?.length) {
+    if ((options?.deviceDirection && options.deviceDirection !== "ALL") || options?.deviceNames?.length || options?.soloFlujo) {
         whereClause.device = {
-            ...(options?.deviceDirection && options.deviceDirection !== "ALL" ? { direction: options.deviceDirection } : {}),
+            ...(options?.deviceDirection && options.deviceDirection !== "ALL" ? { direction: options.deviceDirection } : options?.soloFlujo ? { direction: { in: ["ENTRY", "EXIT"] } } : {}),
             ...(options?.deviceNames?.length ? { name: { in: options.deviceNames } } : {}),
         };
     }
@@ -492,5 +494,5 @@ export async function setEventPlate(eventId: string, rawPlate: string) {
 
 /** Todas las cámaras LPR dadas de alta, con su clasificación de entrada o salida (para filtros y reportes). */
 export async function getLprCameras() {
-    return prisma.device.findMany({ where: { deviceType: "LPR_CAMERA" }, select: { name: true, direction: true }, orderBy: { name: "asc" } });
+    return prisma.device.findMany({ where: { deviceType: "LPR_CAMERA", direction: { in: ["ENTRY", "EXIT"] } }, select: { name: true, direction: true }, orderBy: { name: "asc" } });
 }

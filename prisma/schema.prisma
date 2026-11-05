@@ -425,6 +425,7 @@ enum DoorStatus {
 enum DeviceDirection {
   ENTRY
   EXIT
+  NONE // cámara de apoyo: lee matrículas pero no cuenta en entradas/salidas
 }
 
 enum AccessDecision {
