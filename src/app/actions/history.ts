@@ -13,6 +13,8 @@ export async function getAccessEvents(options?: {
     deviceDirection?: "ENTRY" | "EXIT" | "ALL",
     /** Sólo cámaras de entrada o salida: deja fuera las de apoyo (sentido NONE). */
     soloFlujo?: boolean,
+    /** Deja afuera las dobles capturas (misma pasada leída otra vez por la misma cámara). */
+    sinDobles?: boolean,
     /** Sólo estas cámaras (por nombre). */
     deviceNames?: string[],
     unit?: string,
@@ -51,6 +53,7 @@ export async function getAccessEvents(options?: {
         whereClause.direction = options.direction;
     }
 
+    if (options?.sinDobles) whereClause.isDuplicate = false;
     if ((options?.deviceDirection && options.deviceDirection !== "ALL") || options?.deviceNames?.length || options?.soloFlujo) {
         whereClause.device = {
             ...(options?.deviceDirection && options.deviceDirection !== "ALL" ? { direction: options.deviceDirection } : options?.soloFlujo ? { direction: { in: ["ENTRY", "EXIT"] } } : {}),
@@ -93,7 +96,7 @@ export async function getAccessEvents(options?: {
                 orderBy: { timestamp: "desc" },
                 ...(options?.lean ? { select: {
                     id: true, timestamp: true, createdAt: true, accessType: true, credentialId: true, decision: true, direction: true,
-                    plateDetected: true, plateNumber: true, location: true, snapshotPath: true, imagePath: true, details: true,
+                    plateDetected: true, plateNumber: true, location: true, snapshotPath: true, imagePath: true, details: true, isDuplicate: true, duplicateOfId: true,
                     user: { select: { name: true, unit: { select: { name: true } } } },
                     device: { select: { name: true, direction: true } },
                 } } : {}),
@@ -412,7 +415,7 @@ export async function getHourlyStats(type?: "PLATE" | "FACE" | "TAG") {
 
 export async function getLprCounters() {
     const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
-    const base: any = { timestamp: { gte: startOfDay }, accessType: "PLATE" };
+    const base: any = { timestamp: { gte: startOfDay }, accessType: "PLATE", isDuplicate: false };
     try {
         const [entradas, salidas] = await Promise.all([
             prisma.accessEvent.count({ where: { ...base, direction: "ENTRY", decision: "GRANT" } }),
@@ -495,4 +498,11 @@ export async function setEventPlate(eventId: string, rawPlate: string) {
 /** Todas las cámaras LPR dadas de alta, con su clasificación de entrada o salida (para filtros y reportes). */
 export async function getLprCameras() {
     return prisma.device.findMany({ where: { deviceType: "LPR_CAMERA", direction: { in: ["ENTRY", "EXIT"] } }, select: { name: true, direction: true }, orderBy: { name: "asc" } });
+}
+
+/** Cuántas dobles capturas hay en el período (para mostrarlo junto al filtro). */
+export async function getDoblesCount(opts?: { from?: Date; to?: Date }) {
+    const where: any = { isDuplicate: true };
+    if (opts?.from || opts?.to) { where.timestamp = {}; if (opts.from) where.timestamp.gte = opts.from; if (opts.to) where.timestamp.lte = opts.to; }
+    try { return await prisma.accessEvent.count({ where }); } catch { return 0; }
 }

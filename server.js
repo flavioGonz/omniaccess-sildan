@@ -657,6 +657,7 @@ const fetchAkuvoxFaceImage = async (device, options = {}) => {
     return await fetchCameraSnapshot(device);
 };
 
+const { marcarDoble } = require("./lib-dobles");
 const debounceCache = new Map();
 const DEBOUNCE_TIME = 5000;
 // Antirrebote LPR por la HORA DEL EVENTO (la de la cámara), por cámara + matrícula. Medido el
@@ -1468,6 +1469,8 @@ const handleWebhook = async (req, res, logPrefix) => {
         });
 
         console.log(`${logPrefix} Event created: ${event.id} (${accessDecision}) - Plate: ${finalPlate}`);
+        // Antirrebote fino: si repite una pasada reciente de esta cámara queda marcado como doble captura.
+        marcarDoble(prisma, event).then((orig) => { if (orig) console.log(`${logPrefix} Doble captura de ${orig}: ${finalPlate}`); }).catch((e) => console.error(`${logPrefix} marcarDoble`, e.message));
 
         // ---- MERODEO (loitering) detection — LPR only ----
         // Visitas y patrones: abrir/cerrar visitas de proveedores e invitados, avisos de patrones.

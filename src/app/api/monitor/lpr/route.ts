@@ -61,8 +61,8 @@ export async function GET(req: Request) {
     const soloPermitidas = abierto ? {} : { decision: "GRANT" as any };
     const [ultimas, entradas, salidas, denegados, recientes, visitas, avisos] = await Promise.all([
         prisma.accessEvent.findMany({ where: deCamaras, orderBy: { timestamp: "desc" }, take: ULTIMAS_EN_TIRA + 1, include: inc }),
-        prisma.accessEvent.count({ where: { timestamp: { gte: hoy }, direction: "ENTRY", ...soloPermitidas } }),
-        prisma.accessEvent.count({ where: { timestamp: { gte: hoy }, direction: "EXIT", ...soloPermitidas } }),
+        prisma.accessEvent.count({ where: { timestamp: { gte: hoy }, direction: "ENTRY", isDuplicate: false, ...soloPermitidas } }),
+        prisma.accessEvent.count({ where: { timestamp: { gte: hoy }, direction: "EXIT", isDuplicate: false, ...soloPermitidas } }),
         abierto ? Promise.resolve(0) : prisma.accessEvent.count({ where: { timestamp: { gte: hoy }, decision: "DENY" } }),
         prisma.accessEvent.findMany({ where: { timestamp: { gte: desdeAtencion } }, orderBy: { timestamp: "desc" }, take: 500, select: { id: true, timestamp: true, plateDetected: true, decision: true, details: true, direction: true, device: { select: { name: true } } } }),
         prisma.visita.findMany({ where: { sale: null }, orderBy: { vence: "asc" }, take: 200 }).catch(() => []),

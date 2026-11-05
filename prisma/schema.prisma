@@ -185,6 +185,9 @@ model AccessEvent {
   plateNumber   String?
   details       String?
   createdAt     DateTime        @default(now())
+  // Doble captura: la misma pasada leída otra vez por la misma cámara (ver lib-dobles.js).
+  isDuplicate   Boolean         @default(false)
+  duplicateOfId String?
   device        Device?         @relation(fields: [deviceId], references: [id], map: "AccessEvent_deviceId_fkey_v2")
   user          User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
   bitacora      Bitacora?
@@ -192,6 +195,8 @@ model AccessEvent {
   // La presencia por lote y el historial de una matrícula consultan por estos campos.
   @@index([plateDetected, timestamp])
   @@index([timestamp])
+  @@index([deviceId, timestamp])
+  @@index([isDuplicate, timestamp])
 }
 
 model Bitacora {

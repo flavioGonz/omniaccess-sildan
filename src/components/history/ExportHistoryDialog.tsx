@@ -10,7 +10,8 @@ import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Campo, Bloque, Etiqueta, Heroe, chipHeroe } from "@/components/ui/cajon-campos";
 import { RangoFechaHora, RANGO_VACIO, rotuloRango, type Rango } from "@/components/history/RangoFechaHora";
-import { getAccessEvents, getLprCameras } from "@/app/actions/history";
+import { getAccessEvents, getLprCameras, getDoblesCount } from "@/app/actions/history";
+import { Copy as DobleIco } from "lucide-react";
 import { getReportBranding } from "@/app/actions/settings";
 import { parseVehicleMeta } from "@/lib/vehicle-details";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,7 @@ const COLUMNAS: Col[] = [
     { k: "resultado", t: "Resultado", ancho: 12, v: (e) => (e.decision === "GRANT" ? "PERMITIDO" : "DENEGADO") },
     { k: "vehiculo", t: "Vehículo", ancho: 24, v: (e) => { const m: any = parseVehicleMeta(e.details); return [m.brand, m.model, m.typeLabel, m.color].filter(Boolean).join(" · "); } },
     { k: "detalles", t: "Detalles", ancho: 40, v: (e) => e.details || "" },
+    { k: "doble", t: "Doble captura", ancho: 14, v: (e) => (e.isDuplicate ? "Sí" : "") },
     { k: "id", t: "ID de evento", ancho: 26, v: (e) => e.id },
 ];
 const POR_DEFECTO = new Set(["fecha", "hora", "matricula", "tipo", "persona", "unidad", "camara", "sentido", "resultado", "vehiculo"]);
@@ -56,15 +58,19 @@ interface ExportHistoryDialogProps {
     camarasElegidas?: Set<string>;
     /** Modo activo de la instancia: en LPR no se ofrece «Rostros». */
     modo?: "LPR" | "FACE" | "QUEUE" | null;
+    /** Si el historial estaba ocultando las dobles capturas. */
+    sinDobles?: boolean;
 }
 
-export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoInicial, camaras = [], camarasElegidas, modo = null }: ExportHistoryDialogProps) {
+export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoInicial, camaras = [], camarasElegidas, modo = null, sinDobles: sinDoblesInicial = true }: ExportHistoryDialogProps) {
     const [rango, setRango] = useState<Rango>(RANGO_VACIO);
     const [busqueda, setBusqueda] = useState("");
     const [tipo, setTipo] = useState<"ALL" | "PLATE" | "FACE" | "TAG">("ALL");
     const [decision, setDecision] = useState<"ALL" | "GRANT" | "DENY">("ALL");
     const [sentido, setSentido] = useState<"ALL" | "ENTRY" | "EXIT">("ALL");
     const [cams, setCams] = useState<Set<string>>(new Set());
+    const [sinDobles, setSinDobles] = useState(true);
+    const [dobles, setDobles] = useState<number | null>(null);
     // Todas las cámaras LPR de Dispositivos (no sólo las que aparecen en lo que ya cargó el historial).
     const [lista, setLista] = useState<{ name: string; direction: "ENTRY" | "EXIT" | null }[]>([]);
     const [formato, setFormato] = useState<Formato>("xlsx");
@@ -79,6 +85,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
         setRango(rangoInicial && (rangoInicial.desde || rangoInicial.hasta) ? rangoInicial : { desde: hoy(), hasta: hoy(), horaDesde: "", horaHasta: "" });
         setBusqueda(filters?.search || ""); setTipo(filters?.type || "ALL"); setDecision(filters?.decision || "ALL"); setSentido(filters?.direction || "ALL");
         setCams(new Set(camarasElegidas || []));
+        setSinDobles(sinDoblesInicial);
         if (modo === "LPR" && filters?.type === "FACE") setTipo("ALL");
         getLprCameras().then((r: any[]) => {
             const m = new Map<string, any>((r || []).map((d) => [d.name, d.direction]));
@@ -89,8 +96,8 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
 
     const desde = rango.desde ? new Date(`${rango.desde}T${rango.horaDesde || "00:00"}:00`) : undefined;
     const hasta = rango.hasta ? new Date(`${rango.hasta}T${rango.horaHasta || "23:59"}:59`) : undefined;
-    const consulta = useMemo(() => ({ from: desde, to: hasta, search: busqueda || undefined, decision, type: tipo, deviceDirection: sentido, soloFlujo: true, deviceNames: cams.size ? [...cams] : undefined }),
-        [rango, busqueda, decision, tipo, sentido, cams]); // eslint-disable-line react-hooks/exhaustive-deps
+    const consulta = useMemo(() => ({ from: desde, to: hasta, search: busqueda || undefined, decision, type: tipo, deviceDirection: sentido, soloFlujo: true, sinDobles, deviceNames: cams.size ? [...cams] : undefined }),
+        [rango, busqueda, decision, tipo, sentido, cams, sinDobles]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Cuántos van a salir, con todos los filtros (cámaras incluidas).
     useEffect(() => {
@@ -98,7 +105,8 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
         let vivo = true; setContando(true);
         const t = setTimeout(() => {
             getAccessEvents({ ...consulta, take: 1, skip: 0, omitEnrichment: true, conTotal: true } as any)
-                .then((r: any) => vivo && setCuenta(r?.total ?? null)).catch(() => vivo && setCuenta(null)).finally(() => vivo && setContando(false));
+                .then((r: any) => vivo && setCuenta(r?.total ?? null))
+                .then(() => getDoblesCount({ from: desde, to: hasta }).then((n) => vivo && setDobles(n))).catch(() => vivo && setCuenta(null)).finally(() => vivo && setContando(false));
         }, 400);
         return () => { vivo = false; clearTimeout(t); };
     }, [open, consulta]);
@@ -161,6 +169,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
             if (decision !== "ALL") f.push(`Resultado: ${decision === "GRANT" ? "Permitidos" : "Denegados"}`);
             if (sentido !== "ALL") f.push(`Cámaras de ${sentido === "ENTRY" ? "entrada" : "salida"}`);
             if (cams.size) f.push(`Cámaras: ${[...cams].join(", ")}`);
+            f.push(sinDobles ? "Sin dobles capturas" : "Incluye dobles capturas");
             if (f.length) ws.addRow([`Filtros: ${f.join(" | ")}`]);
             ws.addRow([]);
             let ent = 0, sal = 0, ok = 0, no = 0;
@@ -247,6 +256,15 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
                             <Opciones valor={sentido} alCambiar={(v: any) => { setSentido(v); if (v !== "ALL") setCams((s) => new Set([...s].filter((n) => lista.find((c) => c.name === n)?.direction === v))); }} opciones={[{ v: "ALL", l: "Todas" }, { v: "ENTRY", l: "Entrada", I: ArrowDownLeft }, { v: "EXIT", l: "Salida", I: ArrowUpRight }]} />
                         </div>
                     </div>
+                    <button type="button" onClick={() => setSinDobles((v) => !v)}
+                        className={cn("w-full rounded-xl border p-3 text-left flex items-center gap-3 transition-colors", sinDobles ? "border-amber-500/50 bg-amber-500/10" : "border-border hover:bg-accent/50")}>
+                        <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-lg", sinDobles ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground")}><DobleIco size={17} /></span>
+                        <span className="flex-1 min-w-0">
+                            <span className="block text-[13px] font-bold">{sinDobles ? "Sin dobles capturas" : "Con dobles capturas"}{dobles ? ` · ${dobles.toLocaleString("es-UY")} detectadas en el período` : ""}</span>
+                            <span className="block text-[11.5px] text-muted-foreground">La misma pasada leída otra vez por la misma cámara: misma matrícula en 2 min, o lectura casi igual / sin leer en 5 s. {sinDobles ? "Quedan afuera del reporte." : "Salen marcadas en la columna «Doble captura»."}</span>
+                        </span>
+                        <span className={cn("h-5 w-9 rounded-full p-0.5 transition-colors", sinDobles ? "bg-amber-500" : "bg-muted")}><span className={cn("block h-4 w-4 rounded-full bg-white shadow transition-transform", sinDobles ? "translate-x-4" : "")} /></span>
+                    </button>
                     {visibles.length > 0 && (
                         <div>
                             <Etiqueta texto={`Cámaras · ${cams.size ? `${cams.size} de ${visibles.length}` : `todas (${visibles.length})`}`} ayuda="Sin ninguna marcada salen todas. Ej.: sólo «P1 - Entrada (207)» para el reporte de una garita." tt={TT} />

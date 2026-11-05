@@ -1,7 +1,8 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getAccessEvents } from "@/app/actions/history";
+import { getAccessEvents, getDoblesCount } from "@/app/actions/history";
+import { Copy as DobleIco } from "lucide-react";
 import { getEnabledModules } from "@/app/actions/modules";
 import { logosPorMatricula } from "@/app/actions/empresas";
 import {
@@ -75,6 +76,9 @@ export default function HistoryPage() {
     const [merodeoSet, setMerodeoSet] = useState<Set<string>>(new Set());
     const [mapped, setMapped] = useState<{ ids: Set<string>; names: Set<string>; ips: Set<string> }>({ ids: new Set(), names: new Set(), ips: new Set() });
     const [filterMerodeo, setFilterMerodeo] = useState(false);
+    // Dobles capturas: ocultas por defecto; el botón las vuelve a mostrar marcadas.
+    const [ocultarDobles, setOcultarDobles] = useState(true);
+    const [dobles, setDobles] = useState(0);
     const [selectedCams, setSelectedCams] = useState<Set<string>>(new Set());
     const [logos, setLogos] = useState<Record<string, any>>({});
     /** La ficha: una sola instancia para todo el historial. */
@@ -125,7 +129,7 @@ export default function HistoryPage() {
     const paginaRef = useRef(0);
     const cargandoRef = useRef(false);
     const pedidoRef = useRef(0);
-    const filtros = { searchTerm, filterDecision, filterType, filterDirection, rango };
+    const filtros = { searchTerm, filterDecision, filterType, filterDirection, rango, ocultarDobles };
     const filtrosRef = useRef(filtros);
     filtrosRef.current = filtros;
     const tam = PAGINA[vista];
@@ -141,8 +145,9 @@ export default function HistoryPage() {
                 take: tam, skip: reset ? 0 : events.length, search: f.searchTerm, decision: f.filterDecision, type: f.filterType, direction: f.filterDirection,
                 from: f.rango.desde ? new Date(`${f.rango.desde}T${f.rango.horaDesde || "00:00"}:00`) : undefined,
                 to: f.rango.hasta ? new Date(`${f.rango.hasta}T${f.rango.horaHasta || "23:59"}:59`) : undefined,
-                conTotal: reset,
-            });
+                conTotal: reset, sinDobles: f.ocultarDobles,
+            } as any);
+            if (reset) getDoblesCount({ from: f.rango.desde ? new Date(`${f.rango.desde}T${f.rango.horaDesde || "00:00"}:00`) : undefined, to: f.rango.hasta ? new Date(`${f.rango.hasta}T${f.rango.horaHasta || "23:59"}:59`) : undefined }).then(setDobles).catch(() => {});
             if (yo !== pedidoRef.current) return; // llegó tarde: hubo otro pedido después
             paginaRef.current = pagina;
             if (total >= 0) setTotalEvents(total);
@@ -160,7 +165,7 @@ export default function HistoryPage() {
     useEffect(() => {
         const t = setTimeout(() => loadData(true), 350);
         return () => clearTimeout(t);
-    }, [searchTerm, filterDecision, filterType, filterDirection, rango, vista]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [searchTerm, filterDecision, filterType, filterDirection, rango, vista, ocultarDobles]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Scroll infinito con un centinela al final (no un observer por fila).
     const centinela = useRef<HTMLDivElement>(null);
@@ -298,6 +303,11 @@ export default function HistoryPage() {
                     className={cn("h-9 inline-flex items-center gap-1.5 rounded-lg border px-3 text-[12.5px] font-semibold transition-colors", filterMerodeo ? "bg-red-600 text-white border-red-600" : "border-border bg-card text-muted-foreground hover:bg-accent")}>
                     <ShieldAlert size={14} /> Merodeo{merodeoSet.size > 0 ? ` · ${merodeoSet.size}` : ""}
                 </button>
+                <button onClick={() => setOcultarDobles((v) => !v)} data-tooltip-id={TT}
+                    data-tooltip-content={ocultarDobles ? "Dobles capturas ocultas: la misma pasada leída otra vez por la misma cámara (misma matrícula en 2 min, o lectura casi igual / sin leer en 5 s). Clic para verlas marcadas." : "Mostrando las dobles capturas, marcadas en amarillo. Clic para ocultarlas."}
+                    className={cn("h-9 inline-flex items-center gap-1.5 rounded-lg border px-3 text-[12.5px] font-semibold transition-colors", ocultarDobles ? "border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400" : "border-border bg-card text-muted-foreground hover:bg-accent")}>
+                    <DobleIco size={14} /> {ocultarDobles ? "Sin dobles" : "Con dobles"}{dobles > 0 ? ` · ${dobles.toLocaleString("es-UY")}` : ""}
+                </button>
 
                 <div className="ml-auto flex items-center gap-2">
                     <span className="text-[12px] text-muted-foreground tabular-nums">{displayEvents.length.toLocaleString("es-UY")} de {totalEvents.toLocaleString("es-UY")}</span>
@@ -356,7 +366,7 @@ export default function HistoryPage() {
 
             <ExportHistoryDialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}
                 filters={{ search: searchTerm, decision: filterDecision, type: filterType, direction: filterDirection }}
-                rango={rango} camaras={camList} camarasElegidas={selectedCams} modo={activeMode} />
+                rango={rango} camaras={camList} camarasElegidas={selectedCams} modo={activeMode} sinDobles={ocultarDobles} />
             <ImportHistoryDialog open={isImportOpen} onOpenChange={setIsImportOpen} onDone={recargar} />
             <ReactTooltip id={TT} place="bottom" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[60]" />
         </div>
@@ -478,7 +488,7 @@ const Fila = memo(function Fila({ evt, merodeo, nvr, empresa, abrir, recargar }:
             <td className="px-3 py-2">
                 <span className={cn("inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border", ok ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-red-500/10 text-red-500 border-red-500/20")}>{ok ? "Autorizado" : "Denegado"}</span>
             </td>
-            <td className="px-3 py-2">{merodeo ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-500/10 text-red-500 border border-red-500/20"><ShieldAlert size={11} /> Merodeo</span> : <span className="text-xs text-muted-foreground/50">—</span>}</td>
+            <td className="px-3 py-2">{(evt as any).isDuplicate && <span className="inline-flex items-center gap-1 px-2 py-0.5 mr-1 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25" title="Doble captura de la misma pasada"><DobleIco size={11} /> Doble</span>}{merodeo ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-500/10 text-red-500 border border-red-500/20"><ShieldAlert size={11} /> Merodeo</span> : <span className="text-xs text-muted-foreground/50">—</span>}</td>
             <td className="px-3 py-2">
                 {evt.direction === "EXIT" && evt.stayDuration && evt.previousDirection === "ENTRY"
                     ? <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">{fmtDur(evt.stayDuration)}</span>
@@ -527,6 +537,7 @@ const Tarjeta = memo(function Tarjeta({ evt, vista, grande, merodeo, nvr, empres
                     {ok ? <CheckCircle2 size={10} /> : <XCircle size={10} />}{bento && !grande ? "" : ok ? "Autorizado" : "Denegado"}
                 </span>
                 <span className="flex items-center gap-1">
+                    {(evt as any).isDuplicate && <span className="grid h-5 w-5 place-items-center rounded-md bg-amber-500 text-white" title="Doble captura"><DobleIco size={11} /></span>}
                     {merodeo && <span className="grid h-5 w-5 place-items-center rounded-md bg-red-600 text-white" title="Merodeo"><ShieldAlert size={11} /></span>}
                     {empresa && <LogoSobreFoto empresa={empresa} className={grande || !bento ? "h-6 max-w-[80px]" : "h-4 max-w-[54px]"} />}
                 </span>
