@@ -261,7 +261,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
                         <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-lg", sinDobles ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground")}><DobleIco size={17} /></span>
                         <span className="flex-1 min-w-0">
                             <span className="block text-[13px] font-bold">{sinDobles ? "Sin dobles capturas" : "Con dobles capturas"}{dobles ? ` · ${dobles.toLocaleString("es-UY")} detectadas en el período` : ""}</span>
-                            <span className="block text-[11.5px] text-muted-foreground">La misma pasada leída otra vez por la misma cámara: misma matrícula en 2 min, o lectura casi igual / sin leer en 5 s. {sinDobles ? "Quedan afuera del reporte." : "Salen marcadas en la columna «Doble captura»."}</span>
+                            <span className="block text-[11.5px] text-muted-foreground">La misma pasada leída otra vez por la misma cámara: misma matrícula en 2 min, o lectura casi igual en 10 s, o sin leer en 5 s. {sinDobles ? "Quedan afuera del reporte." : "Salen marcadas en la columna «Doble captura»."}</span>
                         </span>
                         <span className={cn("h-5 w-9 rounded-full p-0.5 transition-colors", sinDobles ? "bg-amber-500" : "bg-muted")}><span className={cn("block h-4 w-4 rounded-full bg-white shadow transition-transform", sinDobles ? "translate-x-4" : "")} /></span>
                     </button>

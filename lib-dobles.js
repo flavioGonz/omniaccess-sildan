@@ -2,11 +2,12 @@
 // No se borra nada: el evento repetido queda marcado (isDuplicate) y apunta al original,
 // así el historial, los conteos y la exportación lo pueden dejar afuera.
 //   1) Misma matrícula, misma cámara, a menos de 2 min  → doble.
-//   2) A menos de 5 s: matrícula que difiere en un carácter (lectura de la cámara y del
+//   2) A menos de 10 s: matrícula que difiere en un carácter (lectura de la cámara y del
 //      servidor de la misma pasada: SBX7527 / SBX7522) → doble.
 //   3) A menos de 5 s: una NO_LEIDA junto a una lectura buena → la NO_LEIDA es la doble.
 const VENTANA_MISMA_MS = 120000;
-const VENTANA_CERCA_MS = 5000;
+const VENTANA_CERCA_MS = 5000;   // NO_LEIDA junto a una lectura buena
+const VENTANA_PARECIDA_MS = 10000; // lectura casi igual (un carácter distinto)
 const NL = "NO_LEIDA";
 
 function distanciaUno(a, b) {
@@ -26,9 +27,8 @@ const chapa = (x) => (x && String(x).trim()) || NL;
 function repite(e, p) {
     const dt = Math.abs(e.t - p.t), a = chapa(e.plate), b = chapa(p.plate);
     if (a !== NL && a === b) return dt <= VENTANA_MISMA_MS;
-    if (dt > VENTANA_CERCA_MS) return false;
-    if (a === NL) return true;                                   // NO_LEIDA después de una lectura
-    if (b !== NL && a.length >= 5 && b.length >= 5) return distanciaUno(a, b);
+    if (a === NL) return dt <= VENTANA_CERCA_MS;                 // NO_LEIDA después de una lectura
+    if (b !== NL && a.length >= 5 && b.length >= 5) return dt <= VENTANA_PARECIDA_MS && distanciaUno(a, b);
     return false;
 }
 
@@ -37,7 +37,7 @@ async function marcarDoble(prisma, ev) {
     if (!ev || !ev.deviceId || !ev.timestamp) return null;
     const t = new Date(ev.timestamp).getTime();
     const previos = await prisma.accessEvent.findMany({
-        where: { deviceId: ev.deviceId, id: { not: ev.id }, timestamp: { gte: new Date(t - VENTANA_MISMA_MS), lte: new Date(t + VENTANA_CERCA_MS) } },
+        where: { deviceId: ev.deviceId, id: { not: ev.id }, timestamp: { gte: new Date(t - VENTANA_MISMA_MS), lte: new Date(t + VENTANA_PARECIDA_MS) } },
         select: { id: true, timestamp: true, plateDetected: true, isDuplicate: true }, orderBy: { timestamp: "asc" },
     });
     const yo = { t, plate: ev.plateDetected };

@@ -304,7 +304,7 @@ export default function HistoryPage() {
                     <ShieldAlert size={14} /> Merodeo{merodeoSet.size > 0 ? ` · ${merodeoSet.size}` : ""}
                 </button>
                 <button onClick={() => setOcultarDobles((v) => !v)} data-tooltip-id={TT}
-                    data-tooltip-content={ocultarDobles ? "Dobles capturas ocultas: la misma pasada leída otra vez por la misma cámara (misma matrícula en 2 min, o lectura casi igual / sin leer en 5 s). Clic para verlas marcadas." : "Mostrando las dobles capturas, marcadas en amarillo. Clic para ocultarlas."}
+                    data-tooltip-content={ocultarDobles ? "Dobles capturas ocultas: la misma pasada leída otra vez por la misma cámara (misma matrícula en 2 min, o lectura casi igual en 10 s, o sin leer en 5 s). Clic para verlas marcadas." : "Mostrando las dobles capturas, marcadas en amarillo. Clic para ocultarlas."}
                     className={cn("h-9 inline-flex items-center gap-1.5 rounded-lg border px-3 text-[12.5px] font-semibold transition-colors", ocultarDobles ? "border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400" : "border-border bg-card text-muted-foreground hover:bg-accent")}>
                     <DobleIco size={14} /> {ocultarDobles ? "Sin dobles" : "Con dobles"}{dobles > 0 ? ` · ${dobles.toLocaleString("es-UY")}` : ""}
                 </button>
