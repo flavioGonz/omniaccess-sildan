@@ -26,7 +26,7 @@ import ExcelJS from "exceljs";
 type Formato = "xlsx" | "csv" | "json";
 type Col = { k: string; t: string; ancho: number; v: (e: any) => any };
 const TT = "tt-exportar";
-const LIMITE = 100000;
+const LOTE = 10000;
 
 const COLUMNAS: Col[] = [
     { k: "fecha", t: "Fecha", ancho: 13, v: (e) => new Date(e.timestamp).toLocaleDateString("es-UY") },
@@ -36,7 +36,7 @@ const COLUMNAS: Col[] = [
     { k: "persona", t: "Persona", ancho: 28, v: (e) => e.user?.name || "Sin registro" },
     { k: "unidad", t: "Lote / unidad", ancho: 16, v: (e) => e.user?.unit?.name || "" },
     { k: "camara", t: "Punto de acceso", ancho: 24, v: (e) => e.device?.name || "" },
-    { k: "sentido", t: "Sentido", ancho: 10, v: (e) => (e.direction === "EXIT" ? "Salida" : "Entrada") },
+    { k: "sentido", t: "Sentido", ancho: 10, v: (e) => ((e.device?.direction || e.direction) === "EXIT" ? "Salida" : "Entrada") },
     { k: "resultado", t: "Resultado", ancho: 12, v: (e) => (e.decision === "GRANT" ? "PERMITIDO" : "DENEGADO") },
     { k: "vehiculo", t: "Vehículo", ancho: 24, v: (e) => { const m: any = parseVehicleMeta(e.details); return [m.brand, m.model, m.typeLabel, m.color].filter(Boolean).join(" · "); } },
     { k: "detalles", t: "Detalles", ancho: 40, v: (e) => e.details || "" },
@@ -111,8 +111,16 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
         if (!columnas.length && formato !== "json") { toast.error({ title: "Elegí al menos una columna" }); return; }
         setGenerando("Leyendo eventos…");
         try {
-            const r: any = await getAccessEvents({ ...consulta, take: LIMITE, skip: 0, omitEnrichment: true, conTotal: false } as any);
-            let eventos: any[] = r.events || [];
+            // Todo el período, por lotes (sin tope): cada lote es una consulta liviana.
+            const vistos = new Set<string>();
+            let eventos: any[] = [];
+            for (let skip = 0; ; skip += LOTE) {
+                const r: any = await getAccessEvents({ ...consulta, take: LOTE, skip, omitEnrichment: true, conTotal: false, lean: true } as any);
+                const lote: any[] = r?.events || [];
+                for (const e of lote) if (!vistos.has(e.id)) { vistos.add(e.id); eventos.push(e); }
+                setGenerando(`Leyendo eventos… ${eventos.length.toLocaleString("es-UY")}${cuenta ? ` de ${cuenta.toLocaleString("es-UY")}` : ""}`);
+                if (lote.length < LOTE) break;
+            }
             if (!eventos.length) { toast.error({ title: "No hay eventos con esos filtros" }); return; }
             setGenerando(`Armando ${eventos.length.toLocaleString("es-UY")} filas…`);
 
@@ -139,45 +147,57 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
         const argb = (hex: string, fb: string) => { const h = (hex || "").replace("#", ""); return /^[0-9a-fA-F]{6}$/.test(h) ? "FF" + h.toUpperCase() : fb; };
         const cHeader = argb(rb?.tableHeader, "FFC52828"), cStripe = argb(rb?.tableStripe, "FFF9FAFB"), cPrimary = argb(rb?.primary, "FF6366F1");
         const wb = new ExcelJS.Workbook();
-        const ws = wb.addWorksheet("Historial de accesos");
-        ws.addRow([`REPORTE DE HISTORIAL - ${(rb?.company || "OmniAccess").toUpperCase()}`]).font = { bold: true, size: 14 };
-        ws.addRow([`Generado: ${new Date().toLocaleString("es-UY")}`]);
-        ws.addRow([`Período: ${rotuloRango(rango)}`]);
-        const f: string[] = [];
-        if (busqueda) f.push(`Búsqueda: "${busqueda}"`);
-        if (tipo !== "ALL") f.push(`Tipo: ${tipo === "PLATE" ? "LPR" : tipo === "FACE" ? "Facial" : "RFID"}`);
-        if (decision !== "ALL") f.push(`Resultado: ${decision === "GRANT" ? "Permitidos" : "Denegados"}`);
-        if (sentido !== "ALL") f.push(`Cámaras de ${sentido === "ENTRY" ? "entrada" : "salida"}`);
-        if (cams.size) f.push(`Cámaras: ${[...cams].join(", ")}`);
-        if (f.length) ws.addRow([`Filtros: ${f.join(" | ")}`]);
-        ws.addRow([]);
-        const n = (p: (e: any) => boolean) => eventos.filter(p).length;
-        ws.addRow(["RESUMEN DEL PERÍODO"]).font = { bold: true, size: 12, color: { argb: cPrimary } };
-        ws.addRow([`Eventos: ${eventos.length}`]);
-        ws.addRow([`Entradas: ${n((e) => e.direction === "ENTRY")} | Salidas: ${n((e) => e.direction === "EXIT")}`]);
-        ws.addRow([`Permitidos: ${n((e) => e.decision === "GRANT")} | Denegados: ${n((e) => e.decision === "DENY")}`]);
-        ws.addRow([]);
-        ws.columns = columnas.map((c) => ({ key: c.k, width: c.ancho }));
-        const cab = ws.addRow(columnas.map((c) => c.t));
-        cab.font = { bold: true, color: { argb: "FFFFFFFF" } };
-        cab.fill = { type: "pattern", pattern: "solid", fgColor: { argb: cHeader } };
-        cab.alignment = { vertical: "middle", horizontal: "center" }; cab.height = 24;
-        eventos.forEach((e, i) => {
-            const fila = ws.addRow(Object.fromEntries(columnas.map((c) => [c.k, c.v(e)])));
-            fila.height = 19; fila.alignment = { vertical: "middle" };
-            if (i % 2 === 0) fila.fill = { type: "pattern", pattern: "solid", fgColor: { argb: cStripe } };
-            if (cols.has("resultado")) fila.getCell("resultado").font = { bold: true, color: { argb: e.decision === "GRANT" ? "FF059669" : "FFDC2626" } };
-        });
-        const ultima = String.fromCharCode(64 + Math.min(columnas.length, 26));
-        ws.autoFilter = `A${cab.number}:${ultima}${cab.number}`;
-        ws.views = [{ state: "frozen", ySplit: cab.number }];
+        // Sentido según la clasificación de la cámara en Dispositivos (si no tiene, el del evento).
+        const dirDe = (e: any) => e.device?.direction || e.direction;
+        const rayado = eventos.length <= 60000; // el rayado por fila en libros enormes hace lento el armado
+        const hoja = (nombre: string, evs: any[], titulo: string) => {
+            const ws = wb.addWorksheet(nombre);
+            ws.addRow([`${titulo} - ${(rb?.company || "OmniAccess").toUpperCase()}`]).font = { bold: true, size: 14 };
+            ws.addRow([`Generado: ${new Date().toLocaleString("es-UY")}`]);
+            ws.addRow([`Período: ${rotuloRango(rango)}`]);
+            const f: string[] = [];
+            if (busqueda) f.push(`Búsqueda: "${busqueda}"`);
+            if (tipo !== "ALL") f.push(`Tipo: ${tipo === "PLATE" ? "LPR" : tipo === "FACE" ? "Facial" : "RFID"}`);
+            if (decision !== "ALL") f.push(`Resultado: ${decision === "GRANT" ? "Permitidos" : "Denegados"}`);
+            if (sentido !== "ALL") f.push(`Cámaras de ${sentido === "ENTRY" ? "entrada" : "salida"}`);
+            if (cams.size) f.push(`Cámaras: ${[...cams].join(", ")}`);
+            if (f.length) ws.addRow([`Filtros: ${f.join(" | ")}`]);
+            ws.addRow([]);
+            let ent = 0, sal = 0, ok = 0, no = 0;
+            for (const e of evs) { dirDe(e) === "EXIT" ? sal++ : ent++; e.decision === "GRANT" ? ok++ : no++; }
+            ws.addRow(["RESUMEN"]).font = { bold: true, size: 12, color: { argb: cPrimary } };
+            ws.addRow([`Eventos: ${evs.length.toLocaleString("es-UY")}`]);
+            ws.addRow([`Entradas: ${ent.toLocaleString("es-UY")} | Salidas: ${sal.toLocaleString("es-UY")}`]);
+            ws.addRow([`Permitidos: ${ok.toLocaleString("es-UY")} | Denegados: ${no.toLocaleString("es-UY")}`]);
+            ws.addRow([]);
+            ws.columns = columnas.map((c) => ({ key: c.k, width: c.ancho }));
+            const cab = ws.addRow(columnas.map((c) => c.t));
+            cab.font = { bold: true, color: { argb: "FFFFFFFF" } };
+            cab.fill = { type: "pattern", pattern: "solid", fgColor: { argb: cHeader } };
+            cab.alignment = { vertical: "middle", horizontal: "center" }; cab.height = 24;
+            evs.forEach((e, i) => {
+                const fila = ws.addRow(Object.fromEntries(columnas.map((c) => [c.k, c.k === "sentido" ? (dirDe(e) === "EXIT" ? "Salida" : "Entrada") : c.v(e)])));
+                if (rayado) {
+                    fila.height = 19; fila.alignment = { vertical: "middle" };
+                    if (i % 2 === 0) fila.fill = { type: "pattern", pattern: "solid", fgColor: { argb: cStripe } };
+                }
+                if (cols.has("resultado")) fila.getCell("resultado").font = { bold: true, color: { argb: e.decision === "GRANT" ? "FF059669" : "FFDC2626" } };
+            });
+            const ultima = String.fromCharCode(64 + Math.min(columnas.length, 26));
+            ws.autoFilter = `A${cab.number}:${ultima}${cab.number}`;
+            ws.views = [{ state: "frozen", ySplit: cab.number }];
+        };
+        hoja("Historial de accesos", eventos, "REPORTE DE HISTORIAL");
+        if (sentido === "ALL") {
+            hoja("Entradas", eventos.filter((e) => dirDe(e) !== "EXIT"), "ENTRADAS");
+            hoja("Salidas", eventos.filter((e) => dirDe(e) === "EXIT"), "SALIDAS");
+        }
         const buf = await wb.xlsx.writeBuffer();
         bajar(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${nombreBase}.xlsx`);
     };
 
     const visibles = lista.filter((c) => sentido === "ALL" || c.direction === sentido);
     const alternarCol = (k: string) => setCols((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
-    const excede = (cuenta ?? 0) > LIMITE;
 
     return (
         <Cajon open={open} onOpenChange={(v) => !generando && onOpenChange(v)}>
@@ -201,7 +221,6 @@ export function ExportHistoryDialog({ open, onOpenChange, filters, rango: rangoI
                             <div className="text-[10px] uppercase tracking-[0.14em] text-white/60">Eventos a exportar</div>
                             <div className="text-[24px] font-black tabular-nums leading-tight flex items-center gap-2">
                                 {contando ? <Loader2 size={18} className="animate-spin text-white/70" /> : (cuenta ?? "—").toLocaleString("es-UY")}
-                                {excede && <span className="text-[11px] font-semibold text-amber-300 inline-flex items-center gap-1"><AlertTriangle size={12} /> sólo los primeros {LIMITE.toLocaleString("es-UY")}</span>}
                             </div>
                         </div>
                     </div>

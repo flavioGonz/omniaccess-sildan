@@ -18,6 +18,8 @@ export async function getAccessEvents(options?: {
     name?: string,
     from?: Date,
     to?: Date,
+    /** Sólo los campos que usa la exportación (sin usuario completo, contraseñas de dispositivo, bitácora). */
+    lean?: boolean,
     omitEnrichment?: boolean,
     /** Contar el total (COUNT sobre todo el filtro). Por defecto sólo en la primera página: al hacer scroll no hace falta repetirlo. */
     conTotal?: boolean
@@ -87,7 +89,13 @@ export async function getAccessEvents(options?: {
                 take: options?.take ?? 50,
                 skip: options?.skip ?? 0,
                 orderBy: { timestamp: "desc" },
-                include: {
+                ...(options?.lean ? { select: {
+                    id: true, timestamp: true, createdAt: true, accessType: true, credentialId: true, decision: true, direction: true,
+                    plateDetected: true, plateNumber: true, location: true, snapshotPath: true, imagePath: true, details: true,
+                    user: { select: { name: true, unit: { select: { name: true } } } },
+                    device: { select: { name: true, direction: true } },
+                } } : {}),
+                include: options?.lean ? undefined : {
                     user: {
                         select: {
                             id: true,
