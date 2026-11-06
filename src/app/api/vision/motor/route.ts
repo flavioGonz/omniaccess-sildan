@@ -6,6 +6,7 @@ import { leerInterruptores, VISION_URL } from "@/lib/vision";
 import { camarasVision, CANAL_NVR, TOPE_POR_SEG_DEFECTO } from "@/lib/vision-camaras";
 import { CLAVE_REGLAS, TIPOS_REGLA, validarReglas, type ReglaVision } from "@/lib/vision-reglas";
 import { probarCamara, TEXTO_PRUEBA, type ResultadoPrueba } from "@/lib/probar-camara";
+import { lectorCanalesApagados } from "@/lib/apagado";
 
 /**
  * El diagnóstico de las cámaras que no entregan cuadro, guardado un rato: cada prueba con una
@@ -43,7 +44,7 @@ export async function GET() {
 
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
     const semana = new Date(Date.now() - FUNCION_DIAS * 86_400_000);
-    const [enVision, equipos, inter, crudoReglas, estadoCrudo, topeCrudo, nombresCrudo, zonas, pistasHoy, eventosHoy, leen, detectan, salud] = await Promise.all([
+    const [enVision, equipos, inter, crudoReglas, estadoCrudo, topeCrudo, nombresCrudo, zonas, pistasHoy, eventosHoy, leen, detectan, salud, apagados] = await Promise.all([
         camarasVision(),
         prisma.device.findMany({ where: { deviceType: { not: "NVR" as any } }, select: { id: true, name: true, deviceType: true, location: true, ip: true, username: true, password: true }, orderBy: { name: "asc" } }),
         leerInterruptores(),
@@ -57,6 +58,10 @@ export async function GET() {
         prisma.accessEvent.groupBy({ by: ["deviceId"], where: { timestamp: { gte: semana } } }).catch(() => []),
         prisma.detection.groupBy({ by: ["deviceId"], where: { timestamp: { gte: semana }, type: { not: "MOTION" } } }).catch(() => []),
         fetch(`${VISION_URL()}/salud`, { cache: "no-store", signal: AbortSignal.timeout(2000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        // Qué cámaras tienen su área apagada en Dispositivos: el motor las saca de la vuelta, así que
+        // nunca tienen estado y caían en «esperando el primer cuadro» —que nunca iba a llegar—. Ahora
+        // se dicen «desactivadas» con su porqué (pedido de Nico, 6/11). Cubre equipos y canales de NVR.
+        lectorCanalesApagados().catch(() => ({ equipos: new Set<string>(), apagado: () => false })),
     ]);
 
     let reglas: ReglaVision[] = [];
@@ -90,24 +95,29 @@ export async function GET() {
         const funcion: "lpr" | "intrusion" | null = lee.has(id) ? "lpr" : detecta.has(id) ? "intrusion" : null;
         const rapido = !!est?.rapido;
         const porSeg = fresco && typeof est?.porSeg === "number" ? est.porSeg : null;
+        // Apagada en Dispositivos (su área o su tipo): el motor no la toma. No hace nada aunque esté
+        // en la lista, así que los «hace» van apagados y la fuente lo dice —no «esperando» un cuadro
+        // que no va a venir.
+        const desactivada = dentro && (canal ? apagados.apagado(canal[1], Number(canal[2])) : apagados.equipos.has(id));
+        const activa = dentro && !desactivada;
         return {
-            id, dentro,
+            id, dentro, desactivada,
             nombre: eq?.name || nombres[id] || (canal ? `NVR ${canal[1]} · CH ${canal[2]}` : id),
             origen: canal ? "canal" as const : "equipo" as const,
             ubicacion: eq?.location || null,
             funcion,
             hace: {
-                registro: dentro && registro,
+                registro: activa && registro,
                 reglas: rs.filter(prendida).length, reglasApagadas: rs.filter((r) => !prendida(r)).length,
-                rapido,
-                verificacion: dentro && funcion === "intrusion" && a["verif-intrusion"] !== false,
-                lecturas: dentro && funcion === "lpr" && a["tipo-vehiculo"] !== false,
-                relectura: dentro && funcion === "lpr" && a.relectura !== false,
+                rapido: activa && rapido,
+                verificacion: activa && funcion === "intrusion" && a["verif-intrusion"] !== false,
+                lecturas: activa && funcion === "lpr" && a["tipo-vehiculo"] !== false,
+                relectura: activa && funcion === "lpr" && a.relectura !== false,
                 zonas: zonasDe.get(id) || 0,
-                busqueda: dentro && registro && a.busqueda !== false,
+                busqueda: activa && registro && a.busqueda !== false,
             },
             // Cómo le llega la imagen al motor.
-            fuente: !dentro ? "nada" as const : rapido ? "video" as const : est ? "cuadros" as const : registro ? "esperando" as const : funcion ? "eventos" as const : "nada" as const,
+            fuente: !dentro ? "nada" as const : desactivada ? "desactivada" as const : rapido ? "video" as const : est ? "cuadros" as const : registro ? "esperando" as const : funcion ? "eventos" as const : "nada" as const,
             porSeg, parte: porSeg != null && total > 0 ? porSeg / total : null,
             ms: est?.ms ?? null, ultimo: est?.ultimo || null, error: est?.error || null,
             analizados: est?.analizados ?? null, saltados: est?.saltados ?? null,

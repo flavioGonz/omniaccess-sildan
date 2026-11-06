@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Activity, Camera, Car, Cpu, Film, Gauge, Image as ImageIcon, Loader2, PawPrint, Plus, ScanEye, Server, ShieldAlert, TriangleAlert, User, Video } from "lucide-react";
+import { Activity, Camera, Car, Cpu, Film, Gauge, Image as ImageIcon, Loader2, PawPrint, Plus, PowerOff, ScanEye, Server, ShieldAlert, TriangleAlert, User, Video } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { hace } from "@/lib/fechas";
@@ -17,9 +17,9 @@ import { Pista } from "@/components/ui/pista";
  * pero no qué se hacía con ella, si el motor la estaba mirando de verdad, ni cuánto pesaba.
  */
 type Fila = {
-    id: string; dentro: boolean; nombre: string; origen: "equipo" | "canal"; ubicacion: string | null; funcion: "lpr" | "intrusion" | null;
+    id: string; dentro: boolean; desactivada?: boolean; nombre: string; origen: "equipo" | "canal"; ubicacion: string | null; funcion: "lpr" | "intrusion" | null;
     hace: { registro: boolean; reglas: number; reglasApagadas: number; rapido: boolean; verificacion: boolean; lecturas: boolean; relectura: boolean; zonas: number; busqueda: boolean };
-    fuente: "video" | "cuadros" | "eventos" | "esperando" | "nada";
+    fuente: "video" | "cuadros" | "eventos" | "esperando" | "desactivada" | "nada";
     porSeg: number | null; parte: number | null; ms: number | null; ultimo: string | null; error: string | null;
     analizados: number | null; saltados: number | null; cambio: number | null;
     hoy: { pistas: number; grupos: Record<string, number>; eventos: number };
@@ -53,8 +53,9 @@ function Fuente({ f, d }: { f: Fila; d: Datos }) {
         f.fuente === "video" ? [Film, `Video continuo · ${d.motor.rapidoFps} c/s`, "Carril rápido (regla de línea): mientras algo se mueve"]
             : f.fuente === "cuadros" ? [ImageIcon, `Un cuadro cada ~${num(vuelta, 1)} s`, `Se analiza si la escena cambió; quieta, uno por minuto`]
                 : f.fuente === "eventos" ? [Camera, "Fotos de los eventos", "Sólo cuando la cámara avisa o lee"]
-                    : f.fuente === "esperando" ? [Loader2, "Esperando el primer cuadro", "El motor la toma en su próxima vuelta"]
-                        : [TriangleAlert, "No la mira", f.dentro ? "Registro apagado y sin reglas" : "Fuera de OmniVision"];
+                    : f.fuente === "desactivada" ? [PowerOff, "Desactivada", "Su área está apagada en Dispositivos; no se procesa"]
+                        : f.fuente === "esperando" ? [Loader2, "Esperando el primer cuadro", "El motor la toma en su próxima vuelta"]
+                            : [TriangleAlert, "No la mira", f.dentro ? "Registro apagado y sin reglas" : "Fuera de OmniVision"];
     return (
         <span className="flex items-start gap-2 min-w-0">
             <Ico size={15} className={cn("mt-0.5 shrink-0", f.fuente === "video" ? "text-[var(--accion)]" : f.fuente === "nada" ? "tono-aviso" : "text-muted-foreground", f.fuente === "esperando" && "animate-spin")} />
@@ -123,7 +124,11 @@ export function MotorCamaras() {
                     {f.hace.lecturas && <Etiqueta titulo="Tipo y color del vehículo de cada lectura">Lecturas</Etiqueta>}
                     {f.hace.relectura && <Etiqueta titulo="Lee de nuevo las chapas que la cámara no leyó">Relectura</Etiqueta>}
                     {f.hace.zonas > 0 && <Etiqueta>{f.hace.zonas} {f.hace.zonas === 1 ? "zona" : "zonas"}</Etiqueta>}
-                    {!f.hace.registro && !f.hace.reglas && !f.hace.verificacion && !f.hace.lecturas && !f.hace.zonas && <span className="text-[12px] text-muted-foreground">Nada todavía</span>}
+                    {!f.hace.registro && !f.hace.reglas && !f.hace.verificacion && !f.hace.lecturas && !f.hace.zonas && (
+                        f.desactivada
+                            ? <Etiqueta apagada titulo="El área de esta cámara está apagada en Dispositivos">Desactivada</Etiqueta>
+                            : <span className="text-[12px] text-muted-foreground">Nada todavía</span>
+                    )}
                 </span>
             ),
         },
