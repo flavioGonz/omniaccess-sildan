@@ -435,9 +435,9 @@ export const ANALITICAS: Analitica[] = [
     {
         id: "permanencia", nombre: "Tiempo de permanencia", icono: "Timer", modo: "Conteo",
         queHace: "Cuánto se quedó cada persona o vehículo en una zona; avisa a la guardia cuando pasa del tiempo indicado (autos estacionados donde no se puede, alguien parado en la garita). Se configura en Visión → Reglas.",
-        // Retirada el 21/10 (TIPOS_RETIRADOS en lib/vision-reglas): no corre aunque esté prendida.
-        necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle"], estado: "desarrollo", porDefecto: false,
-        limite: "Retirada el 21/10: tomaba autos ya estacionados como recién llegados. No corre hasta rehacerla.",
+        // Reactivada el 6/11 (Nico): vuelve a correr. Estuvo retirada del 21/10 al 6/11.
+        necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle"], estado: "corre", porDefecto: true,
+        limite: "Reactivada el 6/11. Un objeto ya quieto cuando el motor empieza a mirarlo cuenta desde que lo tomó, no desde que llegó: se mide y se ajusta.",
     },
     {
         id: "aforo", nombre: "Conteo por línea", icono: "ArrowLeftRight", modo: "Conteo",

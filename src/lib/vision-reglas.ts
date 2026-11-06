@@ -344,13 +344,13 @@ export const TIPOS_FILA_DATOS = ["FILA", "FILA_ENTRA", "FILA_SALE"];
 /**
  * Analíticas retiradas: no corren (vision-reglas.js, RETIRADAS), no se ofrecen al crear una regla y
  * sus avisos no saltan ni figuran en Gestión de alarmas. Las reglas ya creadas quedan guardadas.
- *  · permanencia («Se quedó en la zona»), 21/10, Nico: «no está funcionando bien, retirala». Tomaba
- *    autos ya estacionados como recién llegados y el detector los perdía de a ratos (ver
- *    claude/lab-2026-10-21-permanencia-y-comportamientos.md).
+ *  · permanencia («Se quedó en la zona») estuvo retirada del 21/10 al 6/11. Se retiró el clip/modal
+ *    animado de la maniobra; la detección (estadía del lugar con reenganche) quedó sana. Reactivada
+ *    el 6/11 (Nico) para medirla y ajustarla (ver claude/lab-2026-10-21-permanencia-y-comportamientos.md).
  */
-export const TIPOS_RETIRADOS: TipoRegla[] = ["permanencia"];
+export const TIPOS_RETIRADOS: TipoRegla[] = [];
 /** El tipo de aviso a la guardia de cada analítica retirada (lib/visitas/presentacion). */
-export const AVISOS_RETIRADOS = ["VISION_PERMANENCIA"];
+export const AVISOS_RETIRADOS: string[] = [];
 
 export const CON_HORARIO: TipoRegla[] = ["cruce", "intrusion", "merodeo", "retirado", "fila", "animal", "dejado", "suelo", "trepar", "epp"];
 

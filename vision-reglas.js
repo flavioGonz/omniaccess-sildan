@@ -25,8 +25,10 @@ const sharp = require("sharp");
 /** Las analíticas del laboratorio que prenden cada tipo, y su valor si nadie las tocó. */
 const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion", fila: "fila", cruce: "linea-propia", intrusion: "zona-propia", merodeo: "merodeo", retirado: "retirado", animal: "animal", dejado: "dejados", suelo: "persona-suelo", trepar: "trepar", epp: "epp" };
 const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, aglomeracion: true, fila: true, "linea-propia": true, "zona-propia": true, merodeo: true, retirado: true, animal: true, dejados: true, "persona-suelo": true, trepar: true, epp: true };
-/** Las analíticas retiradas (copia de TIPOS_RETIRADOS en src/lib/vision-reglas.ts: si cambia allá, cambia acá). */
-const RETIRADAS = new Set(["permanencia"]);
+/** Las analíticas retiradas (copia de TIPOS_RETIRADOS en src/lib/vision-reglas.ts: si cambia allá, cambia acá).
+ *  6/11: permanencia reactivada (Nico). La detección quedó sana desde el 21/10 (estadía del lugar con
+ *  reenganche); lo que se había retirado era el clip/modal animado, no el conteo. Se mide y se ajusta. */
+const RETIRADAS = new Set();
 /** Cuánto tiene que correrse el pie (fracción del cuadro) para contar como movimiento. */
 const MOVIMIENTO_MIN = 0.01;
 /** Una pista que no se ve hace esto deja de existir para las reglas. */
