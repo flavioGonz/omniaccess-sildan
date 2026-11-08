@@ -63,6 +63,7 @@ import StorageBrowser from "@/components/settings/StorageBrowser";
 import { Button } from "@/components/ui/button";
 const SystemFlow = nextDynamic(() => import("@/components/dashboard/SystemFlow"), { ssr: false, loading: _SLoad });
 const TrackingSection = nextDynamic(() => import("./TrackingSection"), { ssr: false, loading: _SLoad });
+const MotorRostrosSection = nextDynamic(() => import("./MotorRostrosSection"), { ssr: false, loading: _SLoad });
 const PlaybackSection = nextDynamic(() => import("./PlaybackSection"), { ssr: false, loading: _SLoad });
 const AccesosSection = nextDynamic(() => import("./AccesosSection"), { ssr: false, loading: _SLoad });
 const OmniLprToggle = nextDynamic(() => import("./OmniLprToggle"), { ssr: false });
@@ -224,6 +225,7 @@ const NAV_GROUPS = [
     )) },
     { id: "modos", label: "Modos", icon: Layers, items: [
         { sec: "modo", btab: "", label: "Modos (LPR / Face / Cola)", icon: Layers },
+        { sec: "motor_rostros", btab: "", label: "Motor de rostros (CompreFace)", icon: ScanFace },
         { sec: "visitas", btab: "", label: "Visitas y patrones", icon: Clock },
         { sec: "empresas", btab: "", label: "Empresas (delivery, taxis)", icon: Building2 },
         // Prioridad de los eventos de las centrales de alarma (22/10, Nico): la edita un administrador.
@@ -693,6 +695,7 @@ export default function SettingsPage() {
                     )}
 
                     {activeSection === "tracking" && <TrackingSection />}
+                    {activeSection === "motor_rostros" && <MotorRostrosSection />}
                     {activeSection === "playback" && <PlaybackSection />}
                     {activeSection === "notificaciones" && <CentroNotificaciones tab={notifTab} />}
                     {activeSection === "visitas" && <VisitasSection />}

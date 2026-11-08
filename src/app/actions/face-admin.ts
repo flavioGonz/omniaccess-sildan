@@ -1,12 +1,69 @@
 "use server";
 
 import axios from "axios";
-import { getCompreFace } from "@/lib/compareface";
+import NodeFormData from "form-data";
+import { prisma } from "@/lib/prisma";
+import { getCompreFace, invalidarConfigRostros } from "@/lib/compareface";
 
 // Config del motor: fuente única en lib/compareface.ts (Settings).
 async function getCompareFaceConfig() {
     const { url, recoKey } = await getCompreFace();
     return { url, apiKey: recoKey };
+}
+
+// Umbral de similitud (0..1) sobre el que un match cuenta como identidad.
+// Medido en el lab: ~0.89 deja separados los impostores. Configurable acá.
+const CLAVE_UMBRAL = "FACE_UMBRAL";
+const UMBRAL_POR_DEFECTO = 0.89;
+
+export async function getFaceUmbral(): Promise<number> {
+    const s = await prisma.setting.findUnique({ where: { key: CLAVE_UMBRAL } });
+    const v = s ? parseFloat(s.value) : NaN;
+    return Number.isFinite(v) ? v : UMBRAL_POR_DEFECTO;
+}
+
+export async function setFaceUmbral(valor: number) {
+    // Acotar a un rango sano: por debajo de 0.5 el motor empieza a confundir personas.
+    const v = Math.min(0.99, Math.max(0.5, valor));
+    await prisma.setting.upsert({
+        where: { key: CLAVE_UMBRAL },
+        update: { value: String(v) },
+        create: { key: CLAVE_UMBRAL, value: String(v) }
+    });
+    return { success: true, value: v };
+}
+
+// Probar el motor: subir una foto y ver qué reconoce, sin tocar la base de usuarios.
+// Devuelve, por cada cara, el mejor match y su similitud (para comparar contra el umbral).
+export async function recognizeTestAction(formData: FormData) {
+    try {
+        const file = formData.get("photo") as File | null;
+        if (!file || file.size === 0) return { success: false, error: "Falta la foto" };
+        const buf = Buffer.from(await file.arrayBuffer());
+        const { url, recoKey } = await getCompreFace();
+
+        const form = new NodeFormData();
+        form.append("file", buf, { filename: "test.jpg", contentType: file.type || "image/jpeg" });
+        const res = await axios.post(
+            `${url}/api/v1/recognition/recognize?det_prob_threshold=0.7&prediction_count=3`,
+            form,
+            { headers: { ...form.getHeaders(), "x-api-key": recoKey }, timeout: 12000 }
+        );
+        const result = res.data.result || [];
+        const caras = result.map((f: any) => ({
+            box: f.box || null,
+            matches: (f.subjects || []).map((s: any) => ({ subject: s.subject, similarity: s.similarity }))
+        }));
+        return { success: true, caras };
+    } catch (error: any) {
+        return { success: false, error: error.response?.data?.message || error.message || "Motor no disponible" };
+    }
+}
+
+// Releer la config del motor tras cambiarla en los Settings.
+export async function refrescarConfigRostros() {
+    invalidarConfigRostros();
+    return { success: true };
 }
 
 export async function testCompareFaceConnection() {
