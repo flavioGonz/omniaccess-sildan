@@ -162,6 +162,7 @@ const BRAND_CONFIG: Record<string, { label: string, color: string, bg: string, l
     UNIFI: { label: "UniFi", color: "#0559C9", bg: "bg-blue-600/10", logoUrl: "https://upload.wikimedia.org/wikipedia/commons/e/e0/Ubiquiti_Networks_logo.svg" },
     UNIVIEW: { label: "Uniview", color: "#005EB8", bg: "bg-blue-700/10", logoUrl: "https://www.uniview.com/etc/designs/uniview/logo.png" },
     BOSCH: { label: "Bosch", color: "#E20015", bg: "bg-red-500/10", logoUrl: "https://upload.wikimedia.org/wikipedia/commons/0/0e/Bosch-brand.svg" },
+    GRANDSTREAM: { label: "Grandstream", color: "#F47920", bg: "bg-orange-500/10", logoUrl: "" },
 };
 
 

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { AkuvoxDriver } from "@/lib/drivers/AkuvoxDriver";
+import { GrandstreamDriver } from "@/lib/drivers/GrandstreamDriver";
 import { soporteDe } from "@/lib/drivers/catalogo";
 import type { Credential, Device } from "@prisma/client";
 
@@ -64,6 +65,7 @@ function driverDe(device: Device) {
     // Sin `default`: ver el comentario de arriba. Agregar una marca acá sin agregarla en
     // `catalogo.ts` no la habilita, y es a propósito — el catálogo es el que manda.
     if (device.brand === "AKUVOX") return new AkuvoxDriver();
+    if (device.brand === "GRANDSTREAM") return new GrandstreamDriver();
     return null;
 }
 

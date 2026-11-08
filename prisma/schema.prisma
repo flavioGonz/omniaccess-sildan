@@ -563,6 +563,7 @@ enum DeviceBrand {
   UNIVIEW
   BOSCH
   AXIS
+  GRANDSTREAM
 }
 
 enum AuthType {

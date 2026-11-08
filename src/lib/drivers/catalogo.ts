@@ -61,6 +61,11 @@ export const SOPORTE: Soporte[] = [
         nota: "Porteros y terminales de rostro andando. No lee matrículas.",
     },
     {
+        marca: "GRANDSTREAM", rotulo: "Grandstream (portero GDS)", estado: "parcial",
+        hace: ["video"],
+        nota: "Portero IP GDS (GDS3710/37xx). Hoy anda su video por RTSP, y el reconocimiento facial lo hace OmniVision+CompreFace sobre ese stream (modo face). El driver tiene la autenticación challenge/response verificada contra el equipo real y el manejo de tarjetas/usuarios escrito según la API de Grandstream. Falta probar con credenciales: abrir la puerta (hay que habilitar «HTTP API Remote Open Door» en el equipo), su base de rostros nativa y la bitácora. No simula lo que no probó: esas acciones avisan en vez de hacer de cuenta que funcionaron.",
+    },
+    {
         marca: "BOSCH", rotulo: "Bosch", estado: "parcial",
         hace: ["conteo", "video"],
         nota: "Sólo para contar gente: lee el aforo y los cruces por ONVIF. No maneja credenciales.",
