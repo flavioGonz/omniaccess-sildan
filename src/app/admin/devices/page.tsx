@@ -149,6 +149,9 @@ const TYPE_META: Record<string, { label: string; color: string; activeClass: str
     // Alarm Hub (21/10): centrales de alarma que reportan por SIA DC-09.
     ALARM_HUB: { label: "Centrales de alarma", color: "text-red-400", activeClass: "bg-red-500/15 text-red-300 border-red-500/30" },
     LPR_INTERIOR: { label: "LPR interior", color: "text-amber-400", activeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+    // Porteros IP (GDS3710, Akuvox E16…): cámara + cara + relé + intercom. Clase propia.
+    DOOR_INTERCOM: { label: "Porteros", color: "text-cyan-400", activeClass: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30" },
+    ACCESS_CONTROL: { label: "Control de acceso", color: "text-indigo-400", activeClass: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30" },
 };
 
 const BRAND_CONFIG: Record<string, { label: string, color: string, bg: string, logoUrl: string }> = {

@@ -63,7 +63,7 @@ export const SOPORTE: Soporte[] = [
     {
         marca: "GRANDSTREAM", rotulo: "Grandstream (portero GDS)", estado: "parcial",
         hace: ["video"],
-        nota: "Portero IP GDS (GDS3710/37xx). Hoy anda su video por RTSP, y el reconocimiento facial lo hace OmniVision+CompreFace sobre ese stream (modo face). El driver tiene la autenticación challenge/response verificada contra el equipo real y el manejo de tarjetas/usuarios escrito según la API de Grandstream. Falta probar con credenciales: abrir la puerta (hay que habilitar «HTTP API Remote Open Door» en el equipo), su base de rostros nativa y la bitácora. No simula lo que no probó: esas acciones avisan en vez de hacer de cuenta que funcionaron.",
+        nota: "Portero IP GDS (GDS3710/37xx). Hoy anda su video por RTSP, y el reconocimiento facial lo hace OmniVision+CompreFace sobre ese stream (modo face). El driver tiene la autenticación challenge/response VERIFICADA contra el equipo real (login con credenciales: ResCode 0) y lee su configuración. El manejo de tarjetas usa /goform/config según la API; falta una tarjeta cargada para confirmar el formato de la lista. Falta probar: abrir la puerta (hay que habilitar «HTTP API Remote Open Door» en el equipo y hacer una prueba controlada), su base de rostros nativa y la bitácora. No simula lo que no probó: esas acciones avisan en vez de hacer de cuenta que funcionaron.",
     },
     {
         marca: "BOSCH", rotulo: "Bosch", estado: "parcial",
