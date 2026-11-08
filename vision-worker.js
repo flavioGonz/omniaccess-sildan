@@ -253,6 +253,12 @@ async function leerAjustes() {
     const canalesNvr = (Array.isArray(elegidasCrudas(cams)) ? elegidasCrudas(cams) : []).filter((id) => CANAL_NVR.test(id) && !canalApagado(id)).map((id) => ({ id, name: nombresCanal[id] || id }));
     const dispositivos = [...equiposDb, ...canalesNvr];
     await asegurarCanales(canalesNvr.map((x) => x.id)).catch(() => null);
+    // Modo face (CompreFace): sólo en las cámaras faciales elegidas y con el módulo prendido.
+    // Config del motor en los mismos Settings que usa la app (lib/compareface.ts).
+    const [mFace, fCams, fUmbral, fUrl, fKey] = await Promise.all([
+        ajuste("MODULE_FACE"), ajuste("FACE_CAMARAS"), ajuste("FACE_UMBRAL"),
+        ajuste("COMPAREFACE_URL"), ajuste("COMPAREFACE_KEY"),
+    ]);
     ajustes = {
         activo: analiticas.registro !== false,
         apagadas,
@@ -287,6 +293,12 @@ async function leerAjustes() {
         // rápido, verificación de intrusión, lecturas, relectura y zonas. Vacía = todos los equipos.
         todas: !(Array.isArray(elegidas) && elegidas.length),
         permitidas: new Set((Array.isArray(elegidas) && elegidas.length ? elegidas.map(String) : equiposDb.map((d) => d.id)).filter((id) => !apagados.has(id))),
+        // Reconocimiento facial: cámaras marcadas como faciales (FACE_CAMARAS) con MODULE_FACE on.
+        moduloFace: mFace === "true",
+        faceCamaras: new Set(json(fCams, []).map(String)),
+        faceUmbral: Number(fUmbral) || 0.89,
+        faceUrl: (fUrl || "http://127.0.0.1:8001").replace(/\/$/, ""),
+        faceKey: fKey || "",
         leidos: Date.now(),
     };
     reglero?.cargar(json(reglas, []), analiticas);
@@ -477,6 +489,54 @@ async function leerRotulo(p) {
     return textos.length ? textos.slice(0, 12) : [];
 }
 
+/**
+ * Modo face: al cerrar la pista de una PERSONA en una cámara facial, se reconoce su rostro
+ * contra el padrón del motor (CompreFace) y se escribe UN acceso FACE por pista — igual que
+ * `leerRotulo` lee la chapa de un vehículo al cerrar. Reconoce sobre el mejor cuadro ya
+ * guardado (`foto`): el motor detecta la cara dentro del cuadro. Si no hay cara en el cuadro,
+ * no escribe evento (así el volumen queda acotado a las pasadas con cara frontal). Va
+ * aislado y disparado sin await desde `cerrar`: un fallo o una demora del motor nunca frena
+ * el cierre de la pista ni el camino de matrículas.
+ */
+async function reconocerRostro(p) {
+    try {
+        const jpeg = await bajar(p.foto);
+        const fd = new FormData();
+        fd.append("file", new Blob([jpeg]), "f.jpg");
+        const r = await fetch(`${ajustes.faceUrl}/api/v1/recognition/recognize?det_prob_threshold=0.7&prediction_count=1`, {
+            method: "POST", headers: { "x-api-key": ajustes.faceKey }, body: fd, signal: AbortSignal.timeout(12000),
+        });
+        const j = await r.json().catch(() => ({}));
+        const cara = (j.result || [])[0];
+        if (!cara) return; // sin cara usable en el cuadro: no es un acceso FACE
+        const top = (cara.subjects || [])[0];
+        const sim = top ? top.similarity : 0;
+        const reconocido = !!top && sim >= ajustes.faceUmbral;
+        let userId = null;
+        if (reconocido) {
+            const u = await prisma.user.findFirst({ where: { name: top.subject }, select: { id: true } }).catch(() => null);
+            userId = u?.id || null;
+        }
+        const details = [
+            reconocido ? `Persona: ${top.subject}` : "Persona: Desconocido",
+            top ? `Confianza: ${Math.round(sim * 100)}%` : null,
+            "Source: OmniVision",
+        ].filter(Boolean).join(", ");
+        await prisma.accessEvent.create({
+            data: {
+                deviceId: p.deviceId,
+                userId,
+                timestamp: p.ultimaVez || new Date(),
+                accessType: "FACE",
+                decision: "GRANT", // es una pasada registrada, no una barrera; el rol decide el resaltado
+                snapshotPath: p.foto,
+                details,
+            },
+        });
+        contadores.rostros = (contadores.rostros || 0) + 1;
+    } catch (e) { contadores.errores++; }
+}
+
 async function cerrar(clave, p) {
     abiertas.delete(clave);
     if (p.hd && ajustes.rotulado) {
@@ -486,6 +546,10 @@ async function cerrar(clave, p) {
     }
     await prisma.objetoVisto.update({ where: { id: p.id }, data: fila(p) }).catch((e) => log("no se pudo cerrar", p.id, e.message));
     contadores.cerradas++;
+    // Modo face: una vez por pista, sin await (nunca bloquea el cierre ni el camino de matrículas).
+    if (p.grupo === "persona" && ajustes.moduloFace && ajustes.faceCamaras.has(p.deviceId)) {
+        reconocerRostro(p).catch(() => { });
+    }
 }
 
 const round = (v) => Math.round(v * 10000) / 10000;
@@ -501,7 +565,7 @@ function fila(p) {
 // ─────────────────────────── ciclo ───────────────────────────
 
 const porCamara = {};   // estado para la pantalla
-const contadores = { ciclos: 0, analizados: 0, saltados: 0, errores: 0, abiertas: 0, cerradas: 0, rotulos: 0, conTexto: 0 };
+const contadores = { ciclos: 0, analizados: 0, saltados: 0, errores: 0, abiertas: 0, cerradas: 0, rotulos: 0, conTexto: 0, rostros: 0 };
 const huellas = {};
 const ultimoAnalisis = {};
 let ultimoErrorLog = 0;
