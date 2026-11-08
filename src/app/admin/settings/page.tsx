@@ -64,13 +64,13 @@ import { Button } from "@/components/ui/button";
 const SystemFlow = nextDynamic(() => import("@/components/dashboard/SystemFlow"), { ssr: false, loading: _SLoad });
 const TrackingSection = nextDynamic(() => import("./TrackingSection"), { ssr: false, loading: _SLoad });
 const MotorRostrosSection = nextDynamic(() => import("./MotorRostrosSection"), { ssr: false, loading: _SLoad });
+const DriversSection = nextDynamic(() => import("./DriversSection"), { ssr: false, loading: _SLoad });
 const PlaybackSection = nextDynamic(() => import("./PlaybackSection"), { ssr: false, loading: _SLoad });
 const AccesosSection = nextDynamic(() => import("./AccesosSection"), { ssr: false, loading: _SLoad });
 const OmniLprToggle = nextDynamic(() => import("./OmniLprToggle"), { ssr: false });
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { DriverDetailsDialog } from "@/components/DriverDetailsDialog";
 import { DRIVER_MODELS, type DeviceBrand } from "@/lib/driver-models";
 import { updateSetting, getSetting, testS3Connection, getBucketLifecycle, updateBucketLifecycle, testDbConnection, getBucketStats, getDbStats, downloadBackup, restoreBackup, populateDatabase, testWahaConnection, getWahaHistory, uploadBrandingFile, testExternalDbConnection, updateDatabaseUrl, runDatabaseMigrations, getLearnedPlates, clearLearnedPlates, testFaceEngineConnection } from "@/app/actions/settings";
 import { getAvisosWhatsApp, setAvisoWhatsApp, agregarDestinatarioWhatsApp, quitarDestinatarioWhatsApp, getRemitentesDelBot, type TipoAviso } from "@/app/actions/whatsapp-avisos";
@@ -289,7 +289,6 @@ export default function SettingsPage() {
         setActiveSection(it.sec); if (it.btab) setBrandingTab(it.btab); if (it.ntab) setNotifTab(it.ntab);
     };
     const [storageTab, setStorageTab] = useState("explorador");
-    const [selectedBrand, setSelectedBrand] = useState<string | null>(null);
     const [modelSearch, setModelSearch] = useState("");
     const [enabledModules, setEnabledModules] = useState<Record<string, boolean>>({});
     const [pendingMode, setPendingMode] = useState<{ moduleId: string; label: string } | null>(null);
@@ -580,72 +579,7 @@ export default function SettingsPage() {
                     )}
 
                     {/* Drivers Section */}
-                    {activeSection === "drivers" && (
-                        <div className="space-y-6">
-                            <div className="bg-card/50 backdrop-blur-xl border border-border rounded-2xl p-8">
-                                <div className="flex items-center justify-between mb-6">
-                                    <div>
-                                        <h2 className="text-2xl font-bold text-foreground">Drivers & Protocolos</h2>
-                                        <p className="text-sm text-muted-foreground mt-1">Gestiona los controladores de dispositivos compatibles</p>
-                                    </div>
-                                    <div className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                        <span className="text-xs font-bold text-emerald-400">SISTEMA ACTIVO</span>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                    {DRIVERS.map((driver, idx) => (
-                                        <button
-                                            key={idx}
-                                            onClick={() => driver.active && setSelectedBrand(driver.brand)}
-                                            disabled={!driver.active}
-                                            className={cn(
-                                                "relative p-6 rounded-xl border transition-all group",
-                                                driver.active
-                                                    ? "bg-background/50 border-border hover:border-blue-500/50 hover:bg-background cursor-pointer hover:scale-105"
-                                                    : "bg-background/20 border-border opacity-40 cursor-not-allowed"
-                                            )}
-                                        >
-                                            {driver.active && (
-                                                <div className="absolute top-3 right-3">
-                                                    <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
-                                                </div>
-                                            )}
-
-                                            <div className="flex flex-col items-center gap-3">
-                                                <div className={cn(
-                                                    "w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden transition-all",
-                                                    (driver as { logo?: string }).logo ? "bg-white p-1" : (driver.active ? "bg-blue-500/10" : "bg-muted/50")
-                                                )}>
-                                                    {(driver as { logo?: string }).logo ? (
-                                                        <img src={(driver as { logo?: string }).logo} alt={driver.brand} className="w-full h-full object-contain" />
-                                                    ) : (
-                                                        <Camera size={24} className={driver.active ? "text-blue-400" : "text-muted-foreground"} />
-                                                    )}
-                                                </div>
-
-                                                <div className="text-center">
-                                                    <p className="font-bold text-sm text-foreground mb-1">{driver.brand}</p>
-                                                    <div className="px-2 py-1 bg-card/80 rounded-md">
-                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{driver.tech}</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {!driver.active && (
-                                                <div className="absolute inset-x-0 bottom-3 text-center">
-                                                    <span className="text-[8px] font-bold text-amber-500/70 bg-amber-500/10 px-2 py-1 rounded-full uppercase">
-                                                        En desarrollo
-                                                    </span>
-                                                </div>
-                                            )}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                    {activeSection === "drivers" && <DriversSection />}
 
                     {/* Users Section */}
                     {activeSection === "users" && <AccesosSection />}
@@ -708,12 +642,6 @@ export default function SettingsPage() {
             </div>
 
 
-            {/* Driver Details Dialog */}
-            <DriverDetailsDialog
-                brand={selectedBrand}
-                isOpen={selectedBrand !== null}
-                onClose={() => setSelectedBrand(null)}
-            />
         </div>
     );
 }
