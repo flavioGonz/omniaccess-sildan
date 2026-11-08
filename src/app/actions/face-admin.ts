@@ -4,6 +4,7 @@ import axios from "axios";
 import NodeFormData from "form-data";
 import { prisma } from "@/lib/prisma";
 import { getCompreFace, invalidarConfigRostros } from "@/lib/compareface";
+import { estadoCapturasLocales } from "./settings";
 
 // Config del motor: fuente única en lib/compareface.ts (Settings).
 async function getCompareFaceConfig() {
@@ -103,6 +104,62 @@ export async function recognizeTestAction(formData: FormData) {
 export async function refrescarConfigRostros() {
     invalidarConfigRostros();
     return { success: true };
+}
+
+// ─── Recursos y estado del modo face (fila tipo "manejo de LPR") ───
+
+const CLAVE_CAMARAS = "FACE_CAMARAS";
+const CLAVE_MODULO = "MODULE_FACE";
+
+function parseIds(v?: string | null): string[] {
+    try { const a = JSON.parse(v || "[]"); return Array.isArray(a) ? a.map(String) : []; } catch { return []; }
+}
+
+// Un solo golpe: módulo on/off, rostros de hoy, último, capturas locales y cámaras faciales.
+export async function getEstadoMotorFace() {
+    const inicioDia = new Date(); inicioDia.setHours(0, 0, 0, 0);
+    const [mod, camsSet, rostrosHoy, ultimo, capturas] = await Promise.all([
+        prisma.setting.findUnique({ where: { key: CLAVE_MODULO } }),
+        prisma.setting.findUnique({ where: { key: CLAVE_CAMARAS } }),
+        prisma.accessEvent.count({ where: { accessType: "FACE", createdAt: { gte: inicioDia } } }),
+        prisma.accessEvent.findFirst({ where: { accessType: "FACE" }, orderBy: { createdAt: "desc" }, select: { createdAt: true, userId: true } }),
+        estadoCapturasLocales().catch(() => ({ ok: false, archivos: 0, bytes: 0, masViejo: null })),
+    ]);
+    const ids = parseIds(camsSet?.value);
+    const cams = ids.length ? await prisma.device.findMany({ where: { id: { in: ids } }, select: { name: true } }) : [];
+    return {
+        moduloFace: mod?.value === "true",
+        rostrosHoy,
+        ultimoRostro: ultimo ? { cuando: ultimo.createdAt.toISOString(), reconocido: !!ultimo.userId } : null,
+        capturas,
+        camaras: cams.map(c => c.name.replace(/&gt;/g, ">")),
+        camarasCount: ids.length,
+    };
+}
+
+// Las cámaras para elegir cuáles son faciales (todas menos NVR), con su estado actual.
+export async function getCamarasParaFace() {
+    const camsSet = await prisma.setting.findUnique({ where: { key: CLAVE_CAMARAS } });
+    const faciales = new Set(parseIds(camsSet?.value));
+    const devs = await prisma.device.findMany({
+        where: { deviceType: { not: "NVR" } },
+        select: { id: true, name: true, deviceType: true },
+        orderBy: { name: "asc" },
+    });
+    return devs.map(d => ({ id: d.id, name: d.name.replace(/&gt;/g, ">"), tipo: d.deviceType || "", facial: faciales.has(d.id) }));
+}
+
+export async function setFaceCamaras(ids: string[]) {
+    const val = JSON.stringify([...new Set(ids.map(String))]);
+    await prisma.setting.upsert({ where: { key: CLAVE_CAMARAS }, update: { value: val }, create: { key: CLAVE_CAMARAS, value: val } });
+    invalidarConfigRostros();
+    return { success: true, count: JSON.parse(val).length };
+}
+
+export async function setModuloFace(on: boolean) {
+    await prisma.setting.upsert({ where: { key: CLAVE_MODULO }, update: { value: on ? "true" : "false" }, create: { key: CLAVE_MODULO, value: on ? "true" : "false" } });
+    invalidarConfigRostros();
+    return { success: true, on };
 }
 
 export async function testCompareFaceConnection() {
