@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Pista } from "@/components/ui/pista";
+import { ProtocoloAnimado } from "./ProtocoloAnimado";
 import { SOPORTE, QUE_ES, NECESITA, evaluar, type Soporte, type Capacidad } from "@/lib/drivers/catalogo";
 import { cn } from "@/lib/utils";
 
@@ -139,6 +140,9 @@ function DriverDrawer({ soporte, onClose }: { soporte: Soporte | null; onClose: 
                 ) : undefined}>
                 {soporte && (
                     <div className="space-y-5">
+                        {/* Cómo trabaja OmniAccess con este equipo, animado y simple */}
+                        <ProtocoloAnimado soporte={soporte} />
+
                         <CajonSeccion titulo="En qué está" icono={AlertTriangle}>
                             <p className="text-[13px] text-foreground leading-[1.55]">{soporte.nota}</p>
                         </CajonSeccion>

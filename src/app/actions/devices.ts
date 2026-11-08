@@ -411,6 +411,24 @@ export async function probeDeviceInfo(input: { ip: string; username?: string; pa
         } catch { /* sin NVR Dahua o no respondió: queda el error original */ }
         return r1;
     }
+    if (brand === "GRANDSTREAM") {
+        // Portero IP Grandstream GDS: la detección hace el login challenge/response de su
+        // HTTP API. Si entra, las credenciales y la IP son correctas y el servidor lo alcanza.
+        // El GDS devuelve su config por P-parámetros (no por tags con nombre), así que no se
+        // autocompleta modelo/MAC acá; el modelo queda como el del equipo (GDS37xx).
+        try {
+            const { GrandstreamDriver } = await import("@/lib/drivers/GrandstreamDriver");
+            const drv = new GrandstreamDriver();
+            const dev: any = { ip, username: input.username || "admin", password: input.password || "", deviceModel: null };
+            const r = await drv.probarConexion(dev);
+            if (r.ok) return { ok: true, online: true, authType: "NONE", model: r.modelo || "Grandstream GDS", firmwareVersion: r.version || "", macAddress: "" };
+            const m = String(r.error || "");
+            const authError = /rechazad|credencial|ResCode|usuario|contrase/i.test(m);
+            return { ok: false, online: false, authError, error: authError ? "El equipo respondió pero no acepta ese usuario y contraseña" : (m || "Sin respuesta (revisá IP/credenciales)") };
+        } catch (e: any) {
+            return { ok: false, error: e?.message || "Sin respuesta" };
+        }
+    }
     if (brand !== "HIKVISION") return { ok: false, error: `Autodetección no disponible para ${brand}` };
     const driver = new HikvisionDriver();
     const order = (input.authType || "DIGEST").toUpperCase() === "BASIC" ? ["BASIC", "DIGEST"] : ["DIGEST", "BASIC"];
