@@ -33,8 +33,35 @@ export async function setFaceUmbral(valor: number) {
     return { success: true, value: v };
 }
 
+// El padrón con la foto de cada enrolado. Los sujetos del motor son usuarios de OmniAccess
+// (se enrola con subject = nombre): se cruza con User para traer su cara y su rol. Los
+// sujetos sin usuario (p. ej. los famosos del demo) vienen sin foto.
+export async function getPadronEnriquecido() {
+    try {
+        const { url, recoKey } = await getCompreFace();
+        const res = await axios.get(`${url}/api/v1/recognition/subjects`, {
+            headers: { "x-api-key": recoKey }, timeout: 10000
+        });
+        const subjects: string[] = res.data.subjects || [];
+        const users = subjects.length
+            ? await prisma.user.findMany({ where: { name: { in: subjects } }, select: { id: true, name: true, cara: true, role: true } })
+            : [];
+        const porNombre = new Map(users.map(u => [u.name, u]));
+        const items = subjects.map(s => {
+            const u = porNombre.get(s);
+            return { subject: s, userId: u?.id || null, cara: u?.cara || null, role: (u?.role as string) || null, matched: !!u };
+        });
+        // enrolados reales primero, después los que no tienen usuario (demo)
+        items.sort((a, b) => (b.matched ? 1 : 0) - (a.matched ? 1 : 0) || a.subject.localeCompare(b.subject));
+        return { success: true, items, count: subjects.length };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
 // Probar el motor: subir una foto y ver qué reconoce, sin tocar la base de usuarios.
-// Devuelve, por cada cara, el mejor match y su similitud (para comparar contra el umbral).
+// Devuelve, por cada cara, los mejores matches y —si el match es un usuario— su foto y rol,
+// para mostrar la cara enrolada al lado y comparar la similitud contra el umbral.
 export async function recognizeTestAction(formData: FormData) {
     try {
         const file = formData.get("photo") as File | null;
@@ -52,8 +79,20 @@ export async function recognizeTestAction(formData: FormData) {
         const result = res.data.result || [];
         const caras = result.map((f: any) => ({
             box: f.box || null,
-            matches: (f.subjects || []).map((s: any) => ({ subject: s.subject, similarity: s.similarity }))
+            matches: (f.subjects || []).map((s: any) => ({ subject: s.subject, similarity: s.similarity })),
+            user: null as null | { name: string; cara: string | null; role: string | null }
         }));
+
+        const bestNames = caras.map((c: any) => c.matches[0]?.subject).filter(Boolean);
+        if (bestNames.length) {
+            const users = await prisma.user.findMany({ where: { name: { in: bestNames } }, select: { name: true, cara: true, role: true } });
+            const um = new Map(users.map(u => [u.name, u]));
+            caras.forEach((c: any) => {
+                const b = c.matches[0];
+                const u = b ? um.get(b.subject) : null;
+                c.user = u ? { name: u.name, cara: u.cara, role: u.role as string } : null;
+            });
+        }
         return { success: true, caras };
     } catch (error: any) {
         return { success: false, error: error.response?.data?.message || error.message || "Motor no disponible" };
