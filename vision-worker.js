@@ -498,6 +498,22 @@ async function leerRotulo(p) {
  * aislado y disparado sin await desde `cerrar`: un fallo o una demora del motor nunca frena
  * el cierre de la pista ni el camino de matrículas.
  */
+/** Empuja un evento al socket (lo sirve el proceso de webhooks), como la ruta LPR
+ *  (lib/avisar.ts). Es lo que hace que el monitor/face muestre la captura en vivo. */
+function emitirSocket(evento, datos) {
+    try {
+        const http = require("http");
+        const cuerpo = JSON.stringify({ __event: evento, ...datos });
+        const req = http.request({
+            hostname: "127.0.0.1", port: Number(process.env.WEBHOOK_PORT || 10000),
+            path: "/internal/emit", method: "POST",
+            headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(cuerpo) }, timeout: 2000,
+        });
+        req.on("error", () => { }); req.on("timeout", () => req.destroy());
+        req.write(cuerpo); req.end();
+    } catch { /* sin socket el evento igual quedó escrito en la base */ }
+}
+
 async function reconocerRostro(p) {
     try {
         const jpeg = await bajar(p.foto);
@@ -512,20 +528,24 @@ async function reconocerRostro(p) {
         const top = (cara.subjects || [])[0];
         const sim = top ? top.similarity : 0;
         const reconocido = !!top && sim >= ajustes.faceUmbral;
-        let userId = null;
+        // Usuario reconocido (para el monitor: cara enrolada, lote, rol). Sólo si pasa el umbral.
+        let usuario = null;
         if (reconocido) {
-            const u = await prisma.user.findFirst({ where: { name: top.subject }, select: { id: true } }).catch(() => null);
-            userId = u?.id || null;
+            usuario = await prisma.user.findFirst({
+                where: { name: top.subject },
+                select: { id: true, name: true, cara: true, role: true, unit: true },
+            }).catch(() => null);
         }
+        // Claves que parsea el monitor/face: `Rostro` y `Similitud`.
         const details = [
-            reconocido ? `Persona: ${top.subject}` : "Persona: Desconocido",
-            top ? `Confianza: ${Math.round(sim * 100)}%` : null,
+            reconocido ? `Rostro: ${top.subject}` : "Rostro: Desconocido",
+            top ? `Similitud: ${Math.round(sim * 100)}%` : null,
             "Source: OmniVision",
         ].filter(Boolean).join(", ");
-        await prisma.accessEvent.create({
+        const ev = await prisma.accessEvent.create({
             data: {
                 deviceId: p.deviceId,
-                userId,
+                userId: usuario?.id || null,
                 timestamp: p.ultimaVez || new Date(),
                 accessType: "FACE",
                 decision: "GRANT", // es una pasada registrada, no una barrera; el rol decide el resaltado
@@ -534,6 +554,15 @@ async function reconocerRostro(p) {
             },
         });
         contadores.rostros = (contadores.rostros || 0) + 1;
+        // En vivo al monitor/face (mismo shape que la ruta LPR: evento + device + user).
+        emitirSocket("access_event", {
+            ...ev,
+            device: { id: p.deviceId, name: p.camara },
+            user: usuario ? { id: usuario.id, name: usuario.name, cara: usuario.cara, role: usuario.role, unit: usuario.unit } : null,
+            direction: ev.direction,
+            watch: reconocido && usuario?.role === "BLACKLISTED" ? { category: "BLACKLISTED" } : null,
+            guest: null,
+        });
     } catch (e) { contadores.errores++; }
 }
 
