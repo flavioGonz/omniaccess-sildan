@@ -249,7 +249,7 @@ export function FaceMatchModal({ event, verification, isOpen, onClose }: FaceMat
             onDelete={async () => {
                 setIsPurging(true);
                 try {
-                    const res = await purgeSubjectFacesAction(aQuien, verifState?.collection === 'Visitors');
+                    const res = await purgeSubjectFacesAction(aQuien);
                     if (!res.success) return { success: false, error: "El motor neural rechazó la limpieza." };
                     return { success: true };
                 } finally { setIsPurging(false); }

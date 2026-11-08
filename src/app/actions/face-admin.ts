@@ -1,17 +1,12 @@
 "use server";
 
 import axios from "axios";
-import { prisma } from "@/lib/prisma";
+import { getCompreFace } from "@/lib/compareface";
 
+// Config del motor: fuente única en lib/compareface.ts (Settings).
 async function getCompareFaceConfig() {
-    const [urlSet, keySet] = await Promise.all([
-        prisma.setting.findUnique({ where: { key: "COMPAREFACE_URL" } }),
-        prisma.setting.findUnique({ where: { key: "COMPAREFACE_KEY" } })
-    ]);
-    return {
-        url: urlSet?.value || process.env.COMPARE_FACE_URL || "https://compareface.infratec.com.uy",
-        apiKey: keySet?.value || process.env.COMPAREFACE_API_KEY || ""
-    };
+    const { url, recoKey } = await getCompreFace();
+    return { url, apiKey: recoKey };
 }
 
 export async function testCompareFaceConnection() {
@@ -61,7 +56,7 @@ export async function deleteCompareFaceSubject(subject: string) {
 
 export async function clearAllVisitorFaces() {
     const targets = [
-        { url: (await getCompareFaceConfig()).url, key: "d7bdb468-26af-4306-b35d-499e5373ac4a" },
+        { url: (await getCompareFaceConfig()).url, key: (await getCompareFaceConfig()).apiKey },
         ...(process.env.FACE_ENGINE_2_URL ? [{ url: process.env.FACE_ENGINE_2_URL, key: process.env.FACE_ENGINE_2_KEY || "" }] : [])
     ];
 

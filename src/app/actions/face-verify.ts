@@ -6,15 +6,10 @@ import FormData from "form-data";
 import { getImagePath } from "@/lib/image-path";
 import { leerAjuste as getSetting } from "@/lib/ajustes-db";
 import { revalidatePath } from "next/cache";
+import { getCompreFace } from "@/lib/compareface";
 
-const COMPARE_FACE_URL = process.env.COMPARE_FACE_URL || "https://compareface.infratec.com.uy";
-
-const API_KEYS = {
-    RECO: "a0986800-8c5b-4583-9146-49281cf02e53",
-    DETECT: "3e92c632-8770-4d37-a615-18b0f7ea30bf",
-    VERIFY: "60bfa16a-efb9-4c71-8dd2-4264e8965a96",
-    VISITORS: "d7bdb468-26af-4306-b35d-499e5373ac4a"
-};
+// La URL y las keys del motor de rostros vienen de `lib/compareface.ts` (Settings).
+// Antes estaban hardcodeadas al servidor `infratec` que está caído: ver ese archivo.
 
 export async function verifyFaceAction(
     eventSnapshot: string,
@@ -99,38 +94,29 @@ export async function searchByPhotoAction(photoData: Uint8Array | Buffer) {
     const start = Date.now();
 
     try {
+        const { url, recoKey } = await getCompreFace();
 
-        const search = async (apiKey: string) => {
-            const form = new FormData();
-            form.append('file', photoBuffer, { filename: 'search.jpg', contentType: 'image/jpeg' });
-            return axios.post(`${COMPARE_FACE_URL}/api/v1/recognition/recognize`, form, {
-                headers: { ...form.getHeaders(), "x-api-key": apiKey },
-                timeout: 8000 // Faster timeout for guard live feedback
-            });
-        };
-
-        const results = await Promise.allSettled([
-            search(API_KEYS.RECO),
-            search(API_KEYS.VISITORS)
-        ]);
+        // Un solo padrón (collection) en el motor del lab. El rol (blacklist/visita/VIP)
+        // lo decide el User en nuestra base, no una collection aparte del motor.
+        const form = new FormData();
+        form.append('file', photoBuffer, { filename: 'search.jpg', contentType: 'image/jpeg' });
+        const res = await axios.post(`${url}/api/v1/recognition/recognize?prediction_count=1`, form, {
+            headers: { ...form.getHeaders(), "x-api-key": recoKey },
+            timeout: 8000 // respuesta rápida para el guardia
+        });
 
         let bestMatch: any = null;
-        let usedCollection = 'None';
+        const usedCollection = 'Padrón';
 
-        results.forEach((res, idx) => {
-            if (res.status === 'fulfilled' && res.value.data.result) {
-                const faces = res.value.data.result;
-                for (const face of faces) {
-                    if (face.subjects && face.subjects.length > 0) {
-                        const top = face.subjects[0];
-                        if (!bestMatch || top.similarity > bestMatch.similarity) {
-                            bestMatch = top;
-                            usedCollection = idx === 0 ? 'Residents' : 'Visitors';
-                        }
-                    }
+        const faces = res.data.result || [];
+        for (const face of faces) {
+            if (face.subjects && face.subjects.length > 0) {
+                const top = face.subjects[0];
+                if (!bestMatch || top.similarity > bestMatch.similarity) {
+                    bestMatch = top;
                 }
             }
-        });
+        }
 
         if (!bestMatch) {
             return { success: true, match: null, user: null, duration: Date.now() - start };
@@ -157,12 +143,13 @@ export async function searchByPhotoAction(photoData: Uint8Array | Buffer) {
 
 export async function registerFaceInCompereFace(subjectName: string, photoBuffer: Buffer, apiKey?: string) {
     try {
-        const actualKey = apiKey || API_KEYS.RECO;
+        const { url, recoKey } = await getCompreFace();
+        const actualKey = apiKey || recoKey;
 
-        // Limit check: Don't over-train if profile already robust
-        const countRes = await axios.get(`${COMPARE_FACE_URL}/api/v1/recognition/faces?subject=${encodeURIComponent(subjectName)}`, {
+        // No sobre-entrenar si el perfil ya es robusto
+        const countRes = await axios.get(`${url}/api/v1/recognition/faces?subject=${encodeURIComponent(subjectName)}`, {
             headers: { "x-api-key": actualKey }, timeout: 5000
-        }).catch(() => ({ data: { faces: new Array(100) } })); // If error, assume full
+        }).catch(() => ({ data: { faces: new Array(100) } })); // ante error, asumir lleno
 
         if ((countRes.data.faces || []).length >= 15) {
             return { success: true, message: "Profile already robust" };
@@ -170,8 +157,8 @@ export async function registerFaceInCompereFace(subjectName: string, photoBuffer
 
         const form = new FormData();
         form.append('file', photoBuffer, { filename: 'subject.jpg', contentType: 'image/jpeg' });
-        const url = `${COMPARE_FACE_URL}/api/v1/recognition/faces?subject=${encodeURIComponent(subjectName)}`;
-        const response = await axios.post(url, form, {
+        const enrollUrl = `${url}/api/v1/recognition/faces?subject=${encodeURIComponent(subjectName)}&det_prob_threshold=0.7`;
+        const response = await axios.post(enrollUrl, form, {
             headers: { ...form.getHeaders(), "x-api-key": actualKey },
             timeout: 10000
         });
@@ -184,10 +171,11 @@ export async function registerFaceInCompereFace(subjectName: string, photoBuffer
 export async function detectFaceAction(photoData: Uint8Array | Buffer) {
     const photoBuffer = Buffer.from(photoData);
     try {
+        const { url, detKey } = await getCompreFace();
         const form = new FormData();
         form.append('file', photoBuffer, { filename: 'detect.jpg', contentType: 'image/jpeg' });
-        const response = await axios.post(`${COMPARE_FACE_URL}/api/v1/detection/detect`, form, {
-            headers: { ...form.getHeaders(), "x-api-key": API_KEYS.DETECT },
+        const response = await axios.post(`${url}/api/v1/detection/detect?det_prob_threshold=0.7`, form, {
+            headers: { ...form.getHeaders(), "x-api-key": detKey },
             timeout: 10000
         });
         return { success: true, faces: response.data.result || [] };
@@ -198,11 +186,12 @@ export async function detectFaceAction(photoData: Uint8Array | Buffer) {
 
 export async function verifyIdentityAction(sourcePhoto: Buffer, targetPhoto: Buffer) {
     try {
+        const { url, recoKey } = await getCompreFace();
         const form = new FormData();
         form.append('source_image', sourcePhoto, { filename: 'source.jpg', contentType: 'image/jpeg' });
         form.append('target_image', targetPhoto, { filename: 'target.jpg', contentType: 'image/jpeg' });
-        const response = await axios.post(`${COMPARE_FACE_URL}/api/v1/verification/verify`, form, {
-            headers: { ...form.getHeaders(), "x-api-key": API_KEYS.VERIFY },
+        const response = await axios.post(`${url}/api/v1/verification/verify`, form, {
+            headers: { ...form.getHeaders(), "x-api-key": recoKey },
             timeout: 15000
         });
         const result = response.data.result?.[0];
@@ -212,11 +201,11 @@ export async function verifyIdentityAction(sourcePhoto: Buffer, targetPhoto: Buf
     }
 }
 
-export async function purgeSubjectFacesAction(subjectName: string, useVisitors = false) {
+export async function purgeSubjectFacesAction(subjectName: string) {
     try {
-        const apiKey = useVisitors ? API_KEYS.VISITORS : API_KEYS.RECO;
-        await axios.delete(`${COMPARE_FACE_URL}/api/v1/recognition/faces?subject=${encodeURIComponent(subjectName)}`, {
-            headers: { "x-api-key": apiKey }, timeout: 10000
+        const { url, recoKey } = await getCompreFace();
+        await axios.delete(`${url}/api/v1/recognition/faces?subject=${encodeURIComponent(subjectName)}`, {
+            headers: { "x-api-key": recoKey }, timeout: 10000
         });
         return { success: true };
     } catch (error: any) {
