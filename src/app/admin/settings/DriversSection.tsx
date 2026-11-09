@@ -9,18 +9,22 @@
 // Diseño (claude/DESIGN.md): un solo azul de acción; los tonos sólo dicen estado; jerarquía
 // por superficie + línea, sin sombras en tarjetas; el cajón es la única superficie que flota.
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
     BadgeCheck, AlertTriangle, CircleSlash, Car, ScanFace, Nfc, ScrollText,
     DoorOpen, Users as UsersIcon, Video, UserCog, Wifi, Cpu, Check, X, Blocks,
+    Upload, Loader2, Trash2, ImageIcon,
 } from "lucide-react";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Pista } from "@/components/ui/pista";
+import { sileo as toast } from "sileo";
 import { ProtocoloAnimado } from "./ProtocoloAnimado";
+import { getDriverLogos, saveDriverLogo, deleteDriverLogo } from "@/app/actions/devices";
 import { SOPORTE, QUE_ES, NECESITA, evaluar, type Soporte, type Capacidad } from "@/lib/drivers/catalogo";
 import { cn } from "@/lib/utils";
 
-const LOGOS: Record<string, string> = {
+// Logos por defecto; el usuario puede subir el suyo por driver (se guarda en Settings).
+const LOGOS_DEFAULT: Record<string, string> = {
     HIKVISION: "/logos/hikvision.png",
     AKUVOX: "/logos/akuvox.png",
 };
@@ -49,6 +53,10 @@ const TIPO_ROTULO: Record<string, string> = {
 
 export default function DriversSection() {
     const [abierta, setAbierta] = useState<Soporte | null>(null);
+    const [logos, setLogos] = useState<Record<string, string>>({});
+    const cargarLogos = useCallback(async () => { try { setLogos(await getDriverLogos()); } catch { /* queda el default */ } }, []);
+    useEffect(() => { cargarLogos(); }, [cargarLogos]);
+    const logoDe = (marca: string) => logos[marca] || LOGOS_DEFAULT[marca] || null;
     const andando = SOPORTE.filter(s => s.estado === "andando").length;
 
     return (
@@ -66,7 +74,7 @@ export default function DriversSection() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {SOPORTE.map((s) => {
                     const e = ESTADO[s.estado];
-                    const logo = LOGOS[s.marca];
+                    const logo = logoDe(s.marca);
                     return (
                         <button key={s.marca} type="button" onClick={() => setAbierta(s)}
                             className="text-left rounded-[10px] border border-border bg-card hover:bg-muted/40 transition-colors p-4 flex flex-col gap-3">
@@ -107,14 +115,13 @@ export default function DriversSection() {
                 })}
             </div>
 
-            <DriverDrawer soporte={abierta} onClose={() => setAbierta(null)} />
+            <DriverDrawer soporte={abierta} onClose={() => setAbierta(null)} logo={abierta ? logoDe(abierta.marca) : null} onLogoChange={cargarLogos} />
         </div>
     );
 }
 
-function DriverDrawer({ soporte, onClose }: { soporte: Soporte | null; onClose: () => void }) {
+function DriverDrawer({ soporte, onClose, logo, onLogoChange }: { soporte: Soporte | null; onClose: () => void; logo: string | null; onLogoChange: () => void }) {
     const e = soporte ? ESTADO[soporte.estado] : null;
-    const logo = soporte ? LOGOS[soporte.marca] : null;
     const tiposQueSirve = soporte
         ? Object.keys(NECESITA).map(t => ({ tipo: t, ...evaluar(soporte.marca, t) }))
         : [];
@@ -142,6 +149,10 @@ function DriverDrawer({ soporte, onClose }: { soporte: Soporte | null; onClose: 
                     <div className="space-y-5">
                         {/* Cómo trabaja OmniAccess con este equipo, animado y simple */}
                         <ProtocoloAnimado soporte={soporte} />
+
+                        <CajonSeccion titulo="Logo del fabricante" icono={ImageIcon}>
+                            <LogoUploader soporte={soporte} logo={logo} onChange={onLogoChange} />
+                        </CajonSeccion>
 
                         <CajonSeccion titulo="En qué está" icono={AlertTriangle}>
                             <p className="text-[13px] text-foreground leading-[1.55]">{soporte.nota}</p>
@@ -184,5 +195,58 @@ function DriverDrawer({ soporte, onClose }: { soporte: Soporte | null; onClose: 
                 )}
             </CajonContenido>
         </Cajon>
+    );
+}
+
+function LogoUploader({ soporte, logo, onChange }: { soporte: Soporte; logo: string | null; onChange: () => void }) {
+    const [subiendo, setSubiendo] = useState(false);
+    const [borrando, setBorrando] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    const elegir = async (f: File) => {
+        setSubiendo(true);
+        const fd = new FormData();
+        fd.append("file", f);
+        const r = await saveDriverLogo(soporte.marca, fd);
+        setSubiendo(false);
+        if (r.success) { toast.success({ title: "Logo actualizado" }); onChange(); }
+        else toast.error({ title: "No se pudo subir", description: r.error });
+        if (inputRef.current) inputRef.current.value = "";
+    };
+    const borrar = async () => {
+        setBorrando(true);
+        await deleteDriverLogo(soporte.marca);
+        setBorrando(false);
+        toast.success({ title: "Logo quitado" });
+        onChange();
+    };
+
+    return (
+        <div className="flex items-center gap-4">
+            <div className={cn("w-16 h-16 rounded-[10px] flex items-center justify-center shrink-0 overflow-hidden border border-border", logo ? "bg-white p-1.5" : "bg-muted")}>
+                {logo
+                    // eslint-disable-next-line @next/next/no-img-element
+                    ? <img src={logo} alt={soporte.rotulo} className="w-full h-full object-contain" />
+                    : <Cpu size={22} className="text-muted-foreground" />}
+            </div>
+            <div className="min-w-0">
+                <p className="text-[12.5px] text-muted-foreground leading-[1.5]">PNG, JPG o WebP. Se muestra en la grilla de drivers y en la ficha del equipo.</p>
+                <div className="mt-2 flex items-center gap-2">
+                    <button onClick={() => inputRef.current?.click()} disabled={subiendo}
+                        className="inline-flex items-center gap-1.5 h-8 px-3 rounded-[6px] text-[12px] font-semibold text-[var(--accion-texto,#fff)] bg-[color:var(--accion)] hover:opacity-90 transition-opacity disabled:opacity-50">
+                        {subiendo ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                        {logo ? "Cambiar logo" : "Subir logo"}
+                    </button>
+                    {logo && (
+                        <button onClick={borrar} disabled={borrando}
+                            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-[6px] text-[12px] font-semibold text-muted-foreground border border-border hover:bg-muted transition-colors disabled:opacity-50">
+                            {borrando ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                        </button>
+                    )}
+                </div>
+                <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+                    onChange={(ev) => ev.target.files?.[0] && elegir(ev.target.files[0])} />
+            </div>
+        </div>
     );
 }

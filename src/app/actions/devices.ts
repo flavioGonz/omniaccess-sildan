@@ -1147,3 +1147,32 @@ export async function detectarCapacidadesCanales(input: { canales: { ip: string;
     const m = await capacidadesDeVarias(lista.map((c) => ({ ip: c.ip, username: input.username, password: input.password, authType: input.authType, brand: c.brand || "HIKVISION", deviceModel: c.model })));
     return Object.fromEntries(m);
 }
+
+// ─── Logo por driver/marca (lo sube el usuario desde la sección Drivers) ───
+
+export async function getDriverLogos(): Promise<Record<string, string>> {
+    const rows = await prisma.setting.findMany({ where: { key: { startsWith: "DRIVER_LOGO_" } } });
+    const m: Record<string, string> = {};
+    for (const r of rows) if (r.value) m[r.key.replace("DRIVER_LOGO_", "")] = r.value;
+    return m;
+}
+
+export async function saveDriverLogo(brand: string, formData: FormData) {
+    try {
+        const { uploadBrandingFile } = await import("./settings");
+        const up = await uploadBrandingFile(formData);
+        if (!up.success || !up.url) return { success: false, error: up.message || "No se pudo subir el logo" };
+        const key = "DRIVER_LOGO_" + brand.toUpperCase();
+        await prisma.setting.upsert({ where: { key }, update: { value: up.url }, create: { key, value: up.url } });
+        revalidatePath("/admin/settings");
+        return { success: true, url: up.url };
+    } catch (e: any) {
+        return { success: false, error: e?.message || "No se pudo subir el logo" };
+    }
+}
+
+export async function deleteDriverLogo(brand: string) {
+    await prisma.setting.deleteMany({ where: { key: "DRIVER_LOGO_" + brand.toUpperCase() } });
+    revalidatePath("/admin/settings");
+    return { success: true };
+}
