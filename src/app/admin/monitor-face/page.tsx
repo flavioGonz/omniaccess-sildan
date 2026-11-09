@@ -128,7 +128,11 @@ function LiveCam({ deviceId, label, pulseId, cap }: { deviceId: string | null; l
             {shown && (
                 <div className="absolute bottom-2 left-2 right-2 z-20 flex items-center gap-2 p-1.5 rounded-lg bg-black/80 backdrop-blur border border-emerald-400/50 shadow-lg animate-in fade-in slide-in-from-bottom-3 zoom-in-95 duration-300">
                     {shown.img ? (
-                        <Image src={shown.img} alt="" width={48} height={48} className="w-12 h-12 rounded-md object-cover border border-border shrink-0" />
+                        // unoptimized: estas fotos salen de /api/vision/imagen (pide sesión).
+                        // El optimizador de next/image las busca desde el servidor, sin la cookie
+                        // del navegador, y recibe 401 -> imagen rota. Sin optimizar, la pide el
+                        // navegador directo y viaja la cookie.
+                        <Image src={shown.img} alt="" width={48} height={48} unoptimized className="w-12 h-12 rounded-md object-cover border border-border shrink-0" />
                     ) : (
                         <div className="w-12 h-12 rounded-md bg-zinc-800 flex items-center justify-center shrink-0"><Camera size={16} className="text-white/40" /></div>
                     )}
@@ -242,6 +246,7 @@ export default function MonitorFace() {
                                 alt={personName || "Rostro"}
                                 fill
                                 sizes={size === "lg" ? "300px" : size === "md" ? "180px" : "120px"}
+                                unoptimized
                                 className="object-cover transition-transform duration-300 group-hover:scale-110"
                             />
                         ) : (
@@ -326,6 +331,7 @@ export default function MonitorFace() {
                                 alt={personName || "Rostro"}
                                 fill
                                 sizes="600px"
+                                unoptimized
                                 className="object-cover transition-transform duration-500 group-hover:scale-105"
                             />
                         ) : (
@@ -351,7 +357,7 @@ export default function MonitorFace() {
                         {/* Rostro recortado superpuesto */}
                         {faceUrl && (
                             <div className="absolute bottom-3 right-3 w-[92px] h-[116px] rounded-md overflow-hidden border-2 border-emerald-400/70 shadow-xl z-20">
-                                <Image src={faceUrl} alt="rostro" fill sizes="92px" className="object-cover" />
+                                <Image src={faceUrl} alt="rostro" fill sizes="92px" unoptimized className="object-cover" />
                                 <div className="absolute inset-x-0 bottom-0 bg-black/70 text-[7px] text-white/80 text-center py-px font-bold tracking-wider">ROSTRO</div>
                             </div>
                         )}
