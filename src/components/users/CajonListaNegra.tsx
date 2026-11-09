@@ -169,7 +169,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
               * sobre rojo sin reescribirlas.
               */}
             <CajonContenido ancho="intermedio" titulo={titulo} descripcion={descripcion} sinCabecera
-                className="tema-rojo !bg-[var(--mal)] text-white !border-l-0"
+                className={cn(nivel === "SEARCH" ? "tema-ambar !bg-[var(--ambar-cajon)]" : "tema-rojo !bg-[var(--mal)]", "text-white !border-l-0")}
                 pie={
                     <>
                         {ficha && ficha.origen !== "rol" && (

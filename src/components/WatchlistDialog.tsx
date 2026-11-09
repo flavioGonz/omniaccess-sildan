@@ -148,10 +148,15 @@ export function WatchlistDialog({ onClose, plateInicial }: {
      * Lo que dice arriba es lo que el sistema HACE (WATCH_EFECTOS), no lo que uno desearía.
      */
     const TT = "tt-lista-negra";
-    const efectos = [
+    // La Lista Amarilla (SEARCH) no deniega: es seguimiento. Los efectos cambian según la categoría.
+    const efectos = negra ? [
         { Ic: ShieldX, t: "Barrera", d: WATCH_EFECTOS.BLACKLISTED.barrera },
         { Ic: Cctv, t: "Lectoras LPR", d: WATCH_EFECTOS.BLACKLISTED.camaras },
         { Ic: Siren, t: "Monitor", d: "Cada vez que una cámara la lee salta como alerta crítica, en rojo y con sonido, hasta que alguien decida si es real." },
+        { Ic: Bell, t: "Avisos", d: "Con «Avisa» prendido, además se manda a la guardia por Telegram y dispara las reglas de Notificaciones (WATCHLIST)." },
+    ] : [
+        { Ic: Cctv, t: "Lectoras LPR", d: "Pasa normalmente: la Lista Amarilla no deniega el paso. Se registra la lectura como siempre." },
+        { Ic: Siren, t: "Monitor", d: "Cada vez que una cámara la lee salta en amarillo con el motivo, para que la guardia la siga." },
         { Ic: Bell, t: "Avisos", d: "Con «Avisa» prendido, además se manda a la guardia por Telegram y dispara las reglas de Notificaciones (WATCHLIST)." },
     ];
     const campo = "w-full h-10 rounded-[8px] bg-white/12 border border-white/20 text-white placeholder:text-white/55 px-3 text-[13px] outline-none focus:border-white focus:bg-white/18";
@@ -159,25 +164,26 @@ export function WatchlistDialog({ onClose, plateInicial }: {
     return (
         <>
             <Cajon open={!abierta} onOpenChange={(o) => { if (!o && !abierta) onClose(); }}>
-                <CajonContenido ancho="intermedio" titulo="Lista negra" sinCabecera
-                    descripcion="Cargar una matrícula para que la barrera la deniegue siempre y salte como alerta."
-                    className="tema-rojo !bg-[var(--mal)] text-white !border-l-0">
+                <CajonContenido ancho="intermedio" titulo={negra ? "Lista negra" : "Lista Amarilla"} sinCabecera
+                    descripcion={negra ? "Cargar una matrícula para que la barrera la deniegue siempre y salte como alerta." : "Cargar una matrícula sospechosa para seguirla: pasa, pero cada lectura avisa con el motivo."}
+                    className={cn(negra ? "tema-rojo !bg-[var(--mal)]" : "tema-ambar !bg-[var(--ambar-cajon)]", "text-white !border-l-0")}>
                     <Tooltip id={TT} place="bottom" positionStrategy="fixed" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[9999]" />
 
                     {/* ── Qué es esto ── */}
                     <header className="px-6 pt-6 pb-5 border-b border-white/15">
                         <div className="flex items-start gap-3">
-                            <span className="grid h-11 w-11 place-items-center rounded-full bg-white/15 shrink-0"><Ban size={22} /></span>
+                            <span className="grid h-11 w-11 place-items-center rounded-full bg-white/15 shrink-0">{negra ? <Ban size={22} /> : <Search size={22} />}</span>
                             <div className="min-w-0 flex-1">
-                                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/75">Alerta máxima</div>
-                                <h2 className="text-[24px] font-extrabold leading-none tracking-[-0.02em] mt-1">Lista negra</h2>
+                                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/75">{negra ? "Alerta máxima" : "Seguimiento"}</div>
+                                <h2 className="text-[24px] font-extrabold leading-none tracking-[-0.02em] mt-1">{negra ? "Lista negra" : "Lista Amarilla"}</h2>
                             </div>
                             <span className="h-7 px-2.5 rounded-full bg-white/15 text-[12px] font-bold tabular-nums inline-flex items-center shrink-0"
                                 data-tooltip-id={TT} data-tooltip-content="Matrículas activas en la lista negra">{activas} activa{activas === 1 ? "" : "s"}</span>
                             <button type="button" onClick={onClose} aria-label="Cerrar" className="h-8 w-8 rounded-full grid place-items-center hover:bg-white/15 shrink-0"><X size={17} /></button>
                         </div>
                         <p className="mt-4 text-[13.5px] leading-relaxed text-white/95">
-                            Acá se carga una matrícula para <b>negarle el paso</b>. Desde que se agrega, en cada lectura:
+                            {negra ? <>Acá se carga una matrícula para <b>negarle el paso</b>. Desde que se agrega, en cada lectura:</>
+                                : <>Acá se carga una matrícula sospechosa para <b>seguirla</b> (no se le niega el paso). Desde que se agrega, en cada lectura:</>}
                         </p>
                         <ul className="mt-3 space-y-2">
                             {efectos.map(({ Ic, t, d }) => (
