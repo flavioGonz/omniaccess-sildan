@@ -549,7 +549,8 @@ async function reconocerRostro(p) {
                 timestamp: p.ultimaVez || new Date(),
                 accessType: "FACE",
                 decision: "GRANT", // es una pasada registrada, no una barrera; el rol decide el resaltado
-                snapshotPath: p.foto,
+                // Ruta SERVIBLE del bucket objetos (no la clave cruda): así el monitor la muestra.
+                snapshotPath: "/api/vision/imagen/" + p.foto,
                 details,
             },
         });

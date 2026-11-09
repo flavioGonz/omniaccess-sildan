@@ -121,33 +121,16 @@ export default function DriversSection() {
 }
 
 function DriverDrawer({ soporte, onClose, logo, onLogoChange }: { soporte: Soporte | null; onClose: () => void; logo: string | null; onLogoChange: () => void }) {
-    const e = soporte ? ESTADO[soporte.estado] : null;
     const tiposQueSirve = soporte
         ? Object.keys(NECESITA).map(t => ({ tipo: t, ...evaluar(soporte.marca, t) }))
         : [];
 
     return (
         <Cajon open={!!soporte} onOpenChange={(o: boolean) => { if (!o) onClose(); }}>
-            <CajonContenido ancho="intermedio" titulo={soporte ? `Driver ${soporte.rotulo}` : "Driver"}
-                encabezado={soporte && e ? (
-                    <div className="flex items-center gap-3">
-                        <div className={cn("w-11 h-11 rounded-[8px] flex items-center justify-center shrink-0 overflow-hidden border border-border", logo ? "bg-white p-1" : "bg-muted")}>
-                            {logo
-                                // eslint-disable-next-line @next/next/no-img-element
-                                ? <img src={logo} alt={soporte.rotulo} className="w-full h-full object-contain" />
-                                : <Cpu size={20} className="text-muted-foreground" />}
-                        </div>
-                        <div className="min-w-0">
-                            <div className="text-[18px] font-bold text-foreground truncate">{soporte.rotulo}</div>
-                            <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border mt-0.5", e.chip)}>
-                                <e.icono size={11} /> {e.rotulo}
-                            </span>
-                        </div>
-                    </div>
-                ) : undefined}>
+            <CajonContenido ancho="intermedio" titulo={soporte ? `Driver ${soporte.rotulo}` : "Driver"}>
                 {soporte && (
                     <div className="space-y-5">
-                        {/* Cómo trabaja OmniAccess con este equipo, animado y simple */}
+                        {/* El protocolo, animado, arriba de todo y sin marco */}
                         <ProtocoloAnimado soporte={soporte} />
 
                         <CajonSeccion titulo="Logo del fabricante" icono={ImageIcon}>

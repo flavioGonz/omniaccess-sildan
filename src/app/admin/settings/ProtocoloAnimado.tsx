@@ -71,7 +71,7 @@ export function ProtocoloAnimado({ soporte }: { soporte: Soporte }) {
 @media (prefers-reduced-motion: reduce){ .seq .msg{opacity:1;animation:none} .seq .pkt{display:none} .seq .vida{animation:none} }`;
 
     return (
-        <div className="rounded-[10px] border border-border bg-[color:var(--muted,#f5f5f5)]/50 overflow-hidden">
+        <div className="-mt-1">
             <style dangerouslySetInnerHTML={{ __html: css }} />
             <svg viewBox={`0 0 366 ${H}`} className="w-full h-auto block seq" role="img"
                 aria-label={`Protocolo ${d.protocolo}. Diálogo entre OmniAccess (azul) y el equipo (violeta): ${d.pasos.map(p => p.txt).join("; ")}.`}>
