@@ -351,6 +351,9 @@ export default function DevicesPage() {
     // las ya dadas de alta se siguen viendo y editando.
     // Las centrales de alarma, sólo si hay alguna (se agregan desde «Agregar»).
     if (devices.some((d) => d.deviceType === "ALARM_HUB")) allowedTypes.push("ALARM_HUB");
+    // Porteros IP y control de acceso: su propia vista cuando hay al menos uno (como ALARM_HUB).
+    if (devices.some((d) => vistaDe(d) === "DOOR_INTERCOM")) allowedTypes.push("DOOR_INTERCOM");
+    if (devices.some((d) => vistaDe(d) === "ACCESS_CONTROL")) allowedTypes.push("ACCESS_CONTROL");
     const pedido = searchParams.get('type');
     const typeFilter = pedido && allowedTypes.includes(pedido) ? pedido : (allowedTypes[0] || "LPR_CAMERA");
     // Alta: un solo botón que pregunta qué se agrega (LPR, intrusión o NVR) e importar canales de un NVR.
