@@ -15,7 +15,8 @@ import { cn } from "@/lib/utils";
 
 /**
  * Monitor Face (openspec pared-vms; 23/10, Nico: «falta el Monitor Face, nos falta desarrollo en
- * este modo»). Es el Control LPR con caras, y sólo de las terminales faciales (decisión de Nico).
+ * este modo»). Es el Control LPR con caras: las terminales faciales y, desde el 9/11 (Nico revierte
+ * la decisión del 23/10), también lo que OmniVision reconoce sobre el stream, marcado como tal.
  *
  * Lo grande es la comparación: la foto que tomó la terminal y la del padrón, lado a lado, porque
  * lo que el guardia tiene que decidir de un vistazo es «¿es esa persona?». Al lado, quién es, de
@@ -29,11 +30,12 @@ import { cn } from "@/lib/utils";
 
 type Acceso = {
     id: string; ts: string; decision: "GRANT" | "DENY"; sentido: "ENTRY" | "EXIT" | string;
+    origen: "omnivision" | "terminal";
     persona: string | null; unidad: string | null; rol: string | null;
     padron: string | null; foto: string | null; recorte: string | null;
     nombreTerminal: string | null; similitud: number | null; terminal: string | null; motivo: MotivoRostro;
 };
-type Datos = { ultimas: Acceso[]; atencion: Acceso[]; hoy: { permitidos: number; denegados: number; desconocidos: number }; terminales: number; ahora: string };
+type Datos = { ultimas: Acceso[]; atencion: Acceso[]; hoy: { permitidos: number; denegados: number; desconocidos: number }; fuentes: number; ahora: string };
 
 const INTERVALO_MS = 20_000;
 /** Cuánto dura el color de un acceso en la pared. */
@@ -46,12 +48,16 @@ const ICONO: Record<MotivoRostro, typeof ShieldCheck> = { permitido: ShieldCheck
 
 /** El acceso tal como llega por el socket (server.js emite access_event con el evento, la persona y la terminal). */
 function desdeEvento(e: any): Acceso | null {
-    if (!e || e.accessType !== "FACE" || (e.device && e.device.deviceType && e.device.deviceType !== "FACE_TERMINAL")) return null;
+    if (!e || e.accessType !== "FACE") return null;
     const d = leerDetalleRostro(e.details);
+    const origen = /Source:\s*OmniVision/i.test(e.details || "") || (e.device && e.device.deviceType && e.device.deviceType !== "FACE_TERMINAL") ? "omnivision" as const : "terminal" as const;
+    // La foto de OmniVision se pide por el endpoint que abre a la pantalla (ver /api/monitor/face).
+    const foto = e.snapshotPath || e.imagePath || null;
     return {
-        id: e.id, ts: new Date(e.timestamp || Date.now()).toISOString(), decision: e.decision, sentido: e.direction,
+        id: e.id, ts: new Date(e.timestamp || Date.now()).toISOString(), decision: e.decision, sentido: e.direction, origen,
         persona: e.user?.name || null, unidad: null, rol: e.user?.role || null, padron: e.user?.cara || null,
-        foto: e.snapshotPath || e.imagePath || null, recorte: d.recorte, nombreTerminal: d.nombre, similitud: d.similitud,
+        foto: foto && foto.startsWith("/api/vision/imagen/") ? foto.replace("/api/vision/imagen/", "/api/monitor/camaras/imagen/") : foto,
+        recorte: d.recorte, nombreTerminal: d.nombre, similitud: d.similitud,
         terminal: e.device?.name || null, motivo: motivoDeRostro({ decision: e.decision, userId: e.userId, rol: e.user?.role, detalles: e.details }),
     };
 }
@@ -84,7 +90,7 @@ export function VistaFace() {
     const [ahora, setAhora] = useState(Date.now());
     useEffect(() => { const t = setInterval(() => setAhora(Date.now()), 1000); return () => clearInterval(t); }, []);
     const reciente = !!grande && ahora - +new Date(grande.ts) < TINTE_MS;
-    const tono = reciente && grande && datos?.terminales !== 0 ? TONO[grande.motivo] : null;
+    const tono = reciente && grande && datos?.fuentes !== 0 ? TONO[grande.motivo] : null;
     useEffect(() => { setFondo(fondoDe(tono, grande?.motivo === "lista-negra")); }, [tono, grande?.motivo, setFondo]);
     useEffect(() => () => setFondo(null), [setFondo]);
 
@@ -104,7 +110,7 @@ export function VistaFace() {
             </div>
         );
     }
-    if (datos && datos.terminales === 0) return <SinTerminales />;
+    if (datos && datos.fuentes === 0) return <SinFuentes />;
 
     return (
         <div className="absolute inset-0 flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_380px] gap-3 lg:gap-4 p-3 lg:p-4">
@@ -120,7 +126,7 @@ export function VistaFace() {
                         ) : (
                             <motion.div key="vacio" className="absolute inset-0 grid place-items-center text-center px-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                                 <div className="text-muted-foreground">
-                                    {datos ? <><ScanFace size={46} className="mx-auto opacity-60" /><div className="mt-3 text-[22px] font-semibold text-foreground/80">Todavía no hay accesos por rostro</div><div className="mt-1 text-[15px]">Aparecen acá en el momento en que una terminal reconoce a alguien.</div></>
+                                    {datos ? <><ScanFace size={46} className="mx-auto opacity-60" /><div className="mt-3 text-[22px] font-semibold text-foreground/80">Todavía no hay accesos por rostro</div><div className="mt-1 text-[15px]">Aparecen acá en el momento en que una terminal o una cámara con OmniVision reconoce a alguien.</div></>
                                         : <div className="text-[20px]">Cargando…</div>}
                                 </div>
                             </motion.div>
@@ -156,7 +162,7 @@ export function VistaFace() {
                             {datos?.atencion.map((a) => (
                                 <motion.div key={a.id} layout initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={SUAVE}
                                     className="flex items-center gap-3 px-4 py-2.5 border-b border-border/60 last:border-0">
-                                    <Cara src={a.recorte || a.foto} className="h-12 w-12 rounded-[10px]" />
+                                    <Cara src={a.recorte || a.foto} ov={a.origen === "omnivision"} className="h-12 w-12 rounded-[10px]" />
                                     <div className="min-w-0 flex-1 leading-tight">
                                         <div className="text-[14.5px] font-semibold truncate">{a.persona || "Desconocido"}</div>
                                         <div className="text-[12.5px] text-muted-foreground truncate">{a.terminal || "Terminal"} · {hace(a.ts)}</div>
@@ -194,6 +200,10 @@ function Protagonista({ a }: { a: Acceso }) {
                         {a.sentido === "EXIT" ? <LogOut size={14} /> : <LogIn size={14} />} {a.sentido === "EXIT" ? "Salida" : "Entrada"} · {a.terminal || "Terminal"}
                     </span>
                     <span className="h-8 px-3 rounded-full bg-black/55 backdrop-blur-md border border-white/15 text-[13px] font-semibold inline-flex items-center gap-1.5 tabular-nums"><Clock size={14} /> {horaCorta(a.ts)}</span>
+                    {a.origen === "omnivision" && (
+                        // No es un estado (verde/rojo es la decisión), es el origen: chip neutro.
+                        <span className="h-8 px-3 rounded-full bg-black/55 backdrop-blur-md border border-white/15 text-[13px] font-semibold inline-flex items-center gap-1.5"><ScanFace size={14} /> OmniVision</span>
+                    )}
                 </div>
             </div>
 
@@ -221,7 +231,7 @@ function Protagonista({ a }: { a: Acceso }) {
                     <div className="text-[34px] lg:text-[44px] font-bold tracking-[-0.025em] leading-[1.05] break-words">{nombre}</div>
                     <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[16px] text-muted-foreground">
                         {a.unidad && <span className="inline-flex items-center gap-1.5"><Home size={16} /> {a.unidad}</span>}
-                        {!a.persona && a.nombreTerminal && a.motivo !== "desconocido" && <span className="inline-flex items-center gap-1.5"><UserRound size={16} /> la terminal lo nombró «{a.nombreTerminal}»</span>}
+                        {!a.persona && a.nombreTerminal && a.nombreTerminal.toLowerCase() !== "desconocido" && a.motivo !== "desconocido" && <span className="inline-flex items-center gap-1.5"><UserRound size={16} /> {a.origen === "omnivision" ? "OmniVision lo reconoció como" : "la terminal lo nombró"} «{a.nombreTerminal}»</span>}
                     </div>
                 </motion.div>
                 <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: "spring", stiffness: 420, damping: 26, delay: 0.26 }}
@@ -238,7 +248,7 @@ function TarjetaTira({ a }: { a: Acceso }) {
     return (
         <motion.div layout initial={{ opacity: 0, x: -24, scale: 0.96 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={SUAVE}
             className="snap-start shrink-0 w-[244px] rounded-xl bg-card border border-border overflow-hidden flex">
-            <Cara src={a.recorte || a.foto} className="w-[92px] h-full" />
+            <Cara src={a.recorte || a.foto} ov={a.origen === "omnivision"} className="w-[92px] h-full" />
             <div className="min-w-0 flex-1 p-3 flex flex-col justify-between">
                 <div className="min-w-0">
                     <div className="text-[14.5px] font-semibold truncate">{a.persona || "Desconocido"}</div>
@@ -253,8 +263,8 @@ function TarjetaTira({ a }: { a: Acceso }) {
     );
 }
 
-/** Una cara: la foto, o el ícono si no hay o no carga. */
-function Cara({ src, className }: { src: string | null; className?: string }) {
+/** Una cara: la foto, o el ícono si no hay o no carga. `ov` marca, chiquito, que la tomó OmniVision. */
+function Cara({ src, className, ov }: { src: string | null; className?: string; ov?: boolean }) {
     const [mal, setMal] = useState(false);
     useEffect(() => setMal(false), [src]);
     return (
@@ -263,6 +273,7 @@ function Cara({ src, className }: { src: string | null; className?: string }) {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={getImagePath(src) || undefined} alt="" onError={() => setMal(true)} className="absolute inset-0 w-full h-full object-cover" />
             ) : <span className="absolute inset-0 grid place-items-center text-muted-foreground"><ScanFace size={26} /></span>}
+            {ov && <span title="OmniVision" className="absolute bottom-1 left-1 grid place-items-center h-5 w-5 rounded-full bg-black/60 backdrop-blur-sm text-white/90 border border-white/15"><ScanFace size={11} /></span>}
         </span>
     );
 }
@@ -279,7 +290,7 @@ function Contador({ rotulo, valor, Icono, tono }: { rotulo: string; valor: numbe
     );
 }
 
-function SinTerminales() {
+function SinFuentes() {
     return (
         <div className="absolute inset-0 grid place-items-center text-center px-6">
             <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 300, damping: 30 }}>
@@ -287,8 +298,8 @@ function SinTerminales() {
                     animate={{ boxShadow: ["0 0 0 0 rgba(59,130,246,0)", "0 0 0 14px rgba(59,130,246,0.08)", "0 0 0 0 rgba(59,130,246,0)"] }} transition={{ duration: 3, repeat: Infinity }}>
                     <ScanFace size={44} className="text-[var(--accion-en-oscuro)]" />
                 </motion.span>
-                <div className="mt-5 text-[26px] font-bold tracking-[-0.02em]">No hay terminales faciales dadas de alta</div>
-                <p className="mt-2 text-[16px] text-muted-foreground max-w-[520px] mx-auto">Esta pantalla muestra los accesos por reconocimiento facial. Cuando se dé de alta una terminal en Dispositivos, sus accesos aparecen acá en vivo.</p>
+                <div className="mt-5 text-[26px] font-bold tracking-[-0.02em]">Todavía no hay fuentes de rostro</div>
+                <p className="mt-2 text-[16px] text-muted-foreground max-w-[520px] mx-auto">Esta pantalla muestra los accesos por reconocimiento facial. Aparecen cuando se da de alta una terminal facial, o cuando una cámara con OmniVision reconoce rostros sobre su stream.</p>
             </motion.div>
         </div>
     );
