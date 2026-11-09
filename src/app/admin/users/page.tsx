@@ -99,7 +99,7 @@ export default function UsersPage() {
 
     // Lista negra
     const [fichas, setFichas] = useState<FichaListaNegra[]>([]);
-    // Sin «En búsqueda» (función de LPR, apagada en San Nicolás): la pestaña es sólo lista negra.
+    // Sin «Lista Amarilla» (función de LPR, apagada en San Nicolás): la pestaña es sólo lista negra.
     const busquedaOn = useFuncion("LPR_BUSQUEDA");
     const fichasLN = useMemo(() => (busquedaOn ? fichas : fichas.filter((f) => f.nivel !== "SEARCH")), [fichas, busquedaOn]);
     const [cargandoFichas, setCargandoFichas] = useState(true);
@@ -322,7 +322,7 @@ export default function UsersPage() {
                                     busqueda={searchQuery} alBuscar={setSearchQuery}
                                     placeholder="Nombre, matrícula, motivo o quién cargó"
                                     grupos={[
-                                        ...(busquedaOn ? [{ clave: "nivel", titulo: "Nivel", valor: filtroNivel, alElegir: setFiltroNivel, opciones: [{ valor: "todos", rotulo: "Todos" }, { valor: "BLACKLISTED", rotulo: "Alerta máxima" }, { valor: "SEARCH", rotulo: "En búsqueda" }] }] : []),
+                                        ...(busquedaOn ? [{ clave: "nivel", titulo: "Nivel", valor: filtroNivel, alElegir: setFiltroNivel, opciones: [{ valor: "todos", rotulo: "Todos" }, { valor: "BLACKLISTED", rotulo: "Alerta máxima" }, { valor: "SEARCH", rotulo: "Lista Amarilla" }] }] : []),
                                         { clave: "estado", titulo: "Estado", valor: filtroEstado, alElegir: setFiltroEstado, opciones: [{ valor: "activas", rotulo: "Activas" }, { valor: "baja", rotulo: "Dadas de baja" }, { valor: "todas", rotulo: "Todas" }] },
                                     ]}
                                     acciones={comportaEnBarra}

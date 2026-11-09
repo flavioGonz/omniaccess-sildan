@@ -259,7 +259,7 @@ function AjustesAvisos({ alCerrar, abajo }: { alCerrar: () => void; abajo?: bool
         return () => { window.removeEventListener("pointerdown", fuera); window.removeEventListener("keydown", esc); };
     }, [alCerrar]);
     const alternar = (t: TipoAviso) => cambiarPrefs({ apagados: prefs.apagados.includes(t) ? prefs.apagados.filter((x) => x !== t) : [...prefs.apagados, t] });
-    // «En búsqueda» es una función de LPR que se apaga (Ajustes → Modos): apagada, no hay nada que silenciar.
+    // «Lista Amarilla» es una función de LPR que se apaga (Ajustes → Modos): apagada, no hay nada que silenciar.
     const busqueda = useFuncion("LPR_BUSQUEDA");
     const tipos = TIPOS_APAGABLES.filter((t) => t !== "busqueda" || busqueda === true);
     return (

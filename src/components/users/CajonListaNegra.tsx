@@ -190,7 +190,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
                     <div className="flex items-start gap-3">
                         <span className="grid h-11 w-11 place-items-center rounded-full bg-white/15 shrink-0">{nivel === "SEARCH" ? <Search size={21} /> : <Ban size={22} />}</span>
                         <div className="min-w-0 flex-1">
-                            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/75">{nivel === "SEARCH" ? "En búsqueda" : "Alerta máxima · lista negra"}</div>
+                            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/75">{nivel === "SEARCH" ? "Lista Amarilla" : "Alerta máxima · lista negra"}</div>
                             <h2 className="text-[22px] font-extrabold leading-tight tracking-[-0.02em] mt-1 truncate">{titulo}</h2>
                             <p className="text-[12.5px] text-white/80 mt-0.5">{descripcion}</p>
                         </div>
@@ -238,7 +238,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
 
                 {/* ── Nivel y motivo ── */}
                 <CajonSeccion titulo="Qué pasa cuando se la lee" icono={ShieldAlert}>
-                    {/* Sin «En búsqueda» (función de LPR) hay un solo nivel: se dice qué hace, sin elegir. */}
+                    {/* Sin «Lista Amarilla» (función de LPR) hay un solo nivel: se dice qué hace, sin elegir. */}
                     {!busquedaOn && nivel === "BLACKLISTED" ? (
                         <div className="rounded-[10px] chip-mal p-3 space-y-1.5">
                             <span className="flex items-center gap-1.5 text-[13px] font-bold"><Ban size={14} /> {NIVELES.BLACKLISTED.titulo}: {NIVELES.BLACKLISTED.resumen}</span>

@@ -98,14 +98,14 @@ export function ComportamientoPestania({ pestania, comportamiento, alCambiar, gu
     guardando?: boolean;
     /** Lista negra: las reglas de Notificaciones que escuchan WATCHLIST. */
     avisos?: { activas: number; total: number; canales: string[] } | null;
-    /** Sin «En búsqueda» (función de LPR, apagada en San Nicolás) no se muestra ni su sonido. */
+    /** Sin «Lista Amarilla» (función de LPR, apagada en San Nicolás) no se muestra ni su sonido. */
     conBusqueda?: boolean;
 }) {
     if (pestania === "listanegra") {
         const b = comportamiento.busqueda;
         const ayudas: Record<string, Ayuda> = {
             alerta: { titulo: "Alerta máxima", cuerpo: <div className="space-y-2"><Muestra clase="alerta" color /><ExplicacionCategoria cat="BLACKLISTED" /></div> },
-            busqueda: { titulo: "En búsqueda", cuerpo: <div className="space-y-2"><Muestra clase="busqueda" color /><ExplicacionCategoria cat="SEARCH" /></div> },
+            busqueda: { titulo: "Lista Amarilla", cuerpo: <div className="space-y-2"><Muestra clase="busqueda" color /><ExplicacionCategoria cat="SEARCH" /></div> },
             sonido: { titulo: "Sonido al pasar alguien en búsqueda", cuerpo: <>{estado(b.sonido)}. Suena el aviso corto cuando una cámara lee una matrícula en búsqueda, en el monitor LPR y en Control LPR (si tienen el sonido prendido). La alerta máxima suena siempre. Tocá para cambiarlo.</> },
             // Dos caminos distintos, y se dicen los dos: el servidor manda SIEMPRE un Telegram al
             // grupo de la guardia (server.js → notifyWatchTelegram), y además están las reglas de
@@ -120,7 +120,7 @@ export function ComportamientoPestania({ pestania, comportamiento, alCambiar, gu
             <div className="flex items-center gap-1.5">
                 <Grupo>
                     <Dato clave="alerta" icono={Ban} rotulo="Alerta máxima" className="tono-mal hover:text-[inherit]" />
-                    {conBusqueda && <Dato clave="busqueda" icono={Search} rotulo="En búsqueda" className="tono-aviso hover:text-[inherit]" />}
+                    {conBusqueda && <Dato clave="busqueda" icono={Search} rotulo="Lista Amarilla" className="tono-aviso hover:text-[inherit]" />}
                     {conBusqueda && <Llave clave="sonido" icono={Volume2} iconoApagado={VolumeX} rotulo="Sonido al pasar" valor={b.sonido} deshabilitado={guardando}
                         alCambiar={(v) => alCambiar("busqueda", { sonido: v })} />}
                 </Grupo>

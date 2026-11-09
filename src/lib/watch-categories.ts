@@ -38,7 +38,7 @@ export const WATCH_CATEGORIES: Record<WatchCategory, WatchCatMeta> = {
     },
     SEARCH: {
         value: "SEARCH",
-        label: "En búsqueda",
+        label: "Lista Amarilla",
         iconKey: "search",
         ring: "ring-2 ring-amber-500/70 shadow-[0_0_0_2px_rgba(245,158,11,0.35)]",
         badge: "chip-aviso",

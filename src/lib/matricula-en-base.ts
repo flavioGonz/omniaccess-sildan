@@ -34,7 +34,7 @@ const ROL: Record<string, string> = {
     SECURITY: "Seguridad", OPERATOR: "Operador", ADMIN: "Administrador", WHITELISTED: "Lista blanca", BLACKLISTED: "Lista negra",
 };
 const VIGILANCIA: Record<string, { nombre: string; tono: RegistroMatricula["tono"] }> = {
-    BLACKLISTED: { nombre: "Lista negra", tono: "mal" }, SEARCH: { nombre: "En búsqueda", tono: "mal" },
+    BLACKLISTED: { nombre: "Lista negra", tono: "mal" }, SEARCH: { nombre: "Lista Amarilla", tono: "aviso" },
     VIP: { nombre: "VIP", tono: "info" }, WHITELISTED: { nombre: "Lista blanca", tono: "info" },
 };
 

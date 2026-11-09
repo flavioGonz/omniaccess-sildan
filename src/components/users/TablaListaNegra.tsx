@@ -26,7 +26,7 @@ const ORIGEN: Record<FichaListaNegra["origen"], string> = {
 
 export function TablaListaNegra({ fichas, cargando, error, alReintentar, alAbrir, barra, conBusqueda = true }: {
     fichas: FichaListaNegra[];
-    /** Sin «En búsqueda» (función de LPR) todas son alerta máxima: la columna «Si aparece» no dice nada. */
+    /** Sin «Lista Amarilla» (función de LPR) todas son alerta máxima: la columna «Si aparece» no dice nada. */
     conBusqueda?: boolean;
     cargando?: boolean;
     error?: string | null;
@@ -49,7 +49,7 @@ export function TablaListaNegra({ fichas, cargando, error, alReintentar, alAbrir
         {
             clave: "nivel", titulo: "Si aparece", ancho: 150, ordenable: true,
             tituloAyuda: "Qué pasa cuando una cámara la lee",
-            ayuda: "Alerta máxima: la barrera la deniega siempre, se carga en la lista negra de las lectoras y suena la alarma. En búsqueda: pasa, pero se avisa con el motivo.",
+            ayuda: "Alerta máxima: la barrera la deniega siempre, se carga en la lista negra de las lectoras y suena la alarma. Lista Amarilla: pasa, pero se avisa con el motivo.",
             valor: (f) => NIVELES[f.nivel].titulo,
             celda: (f) => <Estado tono={f.activa ? NIVELES[f.nivel].tono : "quieto"} icono={f.nivel === "BLACKLISTED" ? Ban : Search}>{NIVELES[f.nivel].corto}</Estado>,
         },

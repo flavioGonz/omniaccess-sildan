@@ -142,7 +142,7 @@ function Relectura({ r, grande }: { r?: RelecturaEvento | null; grande?: boolean
     return (
         <span className={cn("inline-flex items-center gap-2 flex-wrap", grande ? "text-[17px]" : "text-[11px]")}>
             {negra && <span className="px-2 py-0.5 rounded-md pleno-mal font-black uppercase tracking-wider text-[0.8em]">Lista negra</span>}
-            {busqueda && <span className="px-2 py-0.5 rounded-md pleno-aviso font-black uppercase tracking-wider text-[0.8em]">En búsqueda</span>}
+            {busqueda && <span className="px-2 py-0.5 rounded-md pleno-aviso font-black uppercase tracking-wider text-[0.8em]">Lista Amarilla</span>}
             {!r.vigilancia && r.quien && <span className="text-white/90 truncate">{r.quien.name}{r.quien.unidad ? ` · ${r.quien.unidad}` : ""}</span>}
         </span>
     );
@@ -175,10 +175,13 @@ const chapaEnFoto = (l: Lectura) => (l.relectura?.plate && l.relectura.caja ? { 
  * MarcoMonitor.setFondo—, el borde de la lectura grande y el de cada lectura de la tira.
  * Sin lectura, la pantalla queda como siempre.
  */
-type Tinte = "autorizado" | "proveedor" | "visita" | "negra" | "denegado" | "desconocido";
+type Tinte = "autorizado" | "proveedor" | "visita" | "negra" | "busqueda" | "denegado" | "desconocido";
 const tinteDe = (l: Lectura | null | undefined, conEmpresa?: boolean): Tinte => {
     if (!l) return "desconocido";
-    if (esListaNegra(l) || l.clase === "alerta" || l.clase === "busqueda") return "negra";
+    // La Lista Amarilla (SEARCH) tiñe de amarillo, no de rojo: es seguimiento, no alerta máxima.
+    // Va antes que la negra para que una chapa en seguimiento no caiga en el tinte rojo.
+    if (l.clase === "busqueda") return "busqueda";
+    if (esListaNegra(l) || l.clase === "alerta") return "negra";
     if (l.decision !== "GRANT") return "denegado";
     if (l.clase === "proveedores" || conEmpresa) return "proveedor";
     if (l.clase === "visitas") return "visita";
@@ -192,10 +195,11 @@ const TINTE: Record<Tinte, { tono: TonoFondo | null; anillo: string }> = {
     visita: { tono: "visita", anillo: "ring-violet-400" },
     denegado: { tono: "mal", anillo: "ring-red-500" },
     negra: { tono: "mal", anillo: "ring-red-500" },
+    busqueda: { tono: "aviso", anillo: "ring-amber-400" },
     desconocido: { tono: null, anillo: "ring-white/25" },
 };
-/** La lista negra lleva más color: tiene que gritar. */
-const fondoLpr = (t: Tinte) => fondoDe(TINTE[t].tono, t === "negra");
+/** La lista negra y la Lista Amarilla llevan más color: tienen que gritar (roja y amarilla). */
+const fondoLpr = (t: Tinte) => fondoDe(TINTE[t].tono, t === "negra" || t === "busqueda");
 /**
  * El motivo del denegado, sacado de `details`. Ese campo mezcla el motivo con la ficha del
  * vehículo que leyó la cámara ("Marca: …, Modelo: …, Color: …"): se descartan esos pares y
@@ -432,7 +436,7 @@ export function VistaLpr() {
                         {(datos?.atencion || []).map((a) => {
                             const av = a.tipo === "AVISO" ? ETIQUETA_AVISO[a.avisoTipo as TipoAviso] : null;
                             const est = av ? { t: av.titulo, Ic: AlertTriangle, c: av.tono === "mal" ? "pleno-mal" : av.tono === "aviso" ? "pleno-aviso" : av.tono === "info" ? "pleno-info" : "bg-neutral-700 text-white" }
-                                : a.tipo === "LISTA_NEGRA" ? { t: "Lista negra", Ic: ShieldAlert, c: "pleno-mal" } : a.tipo === "EN_BUSQUEDA" ? { t: "En búsqueda", Ic: Search, c: "pleno-aviso" } : { t: "Merodeo", Ic: Repeat, c: "pleno-info" };
+                                : a.tipo === "LISTA_NEGRA" ? { t: "Lista negra", Ic: ShieldAlert, c: "pleno-mal" } : a.tipo === "EN_BUSQUEDA" ? { t: "Lista Amarilla", Ic: Search, c: "pleno-aviso" } : { t: "Merodeo", Ic: Repeat, c: "pleno-info" };
                             return (
                                 <button key={a.avisoId || (a.plate || "") + a.tipo} type="button" disabled={!a.id} onClick={() => a.id && setFichaId(a.id)}
                                     className={cn("flex items-center gap-3 rounded-xl bg-muted/40 border border-border px-3 py-2.5 min-h-[60px] text-left", a.id && tocable)}>
@@ -553,7 +557,7 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
                     <div>
                         <div className="text-[clamp(22px,2.6vw,34px)] font-black uppercase tracking-[0.08em] leading-none">{est.t}</div>
                         {conMotivo && <div className="text-[16px] font-semibold opacity-90 mt-1 max-w-[420px] truncate">{motivoDenegado(l)}</div>}
-                        {/* En búsqueda no deniega, así que no hay «motivo del rechazo»: el motivo de la ficha es lo que hay que leer. */}
+                        {/* Lista Amarilla no deniega, así que no hay «motivo del rechazo»: el motivo de la ficha es lo que hay que leer. */}
                         {!conMotivo && l.ficha?.nivel === "SEARCH" && l.ficha.motivo && <div className="text-[16px] font-semibold opacity-90 mt-1 max-w-[420px] truncate">{l.ficha.motivo}</div>}
                     </div>
                 </div>
@@ -930,7 +934,7 @@ function FichaLectura({ id, modo, alCerrar, alVerOtra, alAmpliar, alFijar }: { i
                                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                                     {l.relectura.chapa && <img src={l.relectura.chapa} alt="" className="h-16 rounded-md border border-border bg-black" />}
                                                     <div className="text-[24px] font-bold tabular-nums tracking-[0.12em]">¿{l.relectura.plate}? <span className="text-[15px] font-normal text-muted-foreground tracking-normal">{l.relectura.confianza != null ? `${Math.round(l.relectura.confianza * 100)} %` : ""}{l.relectura.estado === "DUDOSA" ? " · dudosa" : ""}</span></div>
-                                                    {l.relectura.vigilancia && <div className="text-[16px] tono-mal font-semibold">{String(l.relectura.vigilancia.category).toUpperCase() === "SEARCH" ? "En búsqueda" : "Lista negra"}: {l.relectura.vigilancia.motivo || l.relectura.vigilancia.label || "sin motivo"}</div>}
+                                                    {l.relectura.vigilancia && <div className="text-[16px] tono-mal font-semibold">{String(l.relectura.vigilancia.category).toUpperCase() === "SEARCH" ? "Lista Amarilla" : "Lista negra"}: {l.relectura.vigilancia.motivo || l.relectura.vigilancia.label || "sin motivo"}</div>}
                                                     {l.relectura.quien && <div className="text-[16px]">{l.relectura.quien.name} · {ROL[l.relectura.quien.role] || l.relectura.quien.role}{l.relectura.quien.unidad ? ` · ${l.relectura.quien.unidad}` : ""}</div>}
                                                     <div className="text-[14px] text-muted-foreground">La lectora no leyó la chapa; omni-vision recortó el vehículo y la volvió a leer. Es una sugerencia: la confirma el guardia en el monitor LPR.</div>
                                                 </div>

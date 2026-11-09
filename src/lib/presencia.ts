@@ -63,7 +63,7 @@ export const NOMBRE_CLASE_PRESENCIA: Record<ClasePresencia, string> = {
 /** Por qué un vehículo adentro es atípico. */
 export type Atipico = "lista_negra" | "en_busqueda" | "merodeo" | "primera_vez" | "alta_frecuencia";
 export const NOMBRE_ATIPICO: Record<Atipico, string> = {
-    lista_negra: "Lista negra", en_busqueda: "En búsqueda", merodeo: "Merodeo", primera_vez: "Primera vez visto", alta_frecuencia: "Alta frecuencia",
+    lista_negra: "Lista negra", en_busqueda: "Lista Amarilla", merodeo: "Merodeo", primera_vez: "Primera vez visto", alta_frecuencia: "Alta frecuencia",
 };
 
 export type AutoAdentro = {

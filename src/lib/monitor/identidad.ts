@@ -8,7 +8,7 @@ import { relecturasDe, esNoLeida, type RelecturaEvento } from "@/lib/relectura";
  * Quién es cada lectura en una pantalla de Control LPR, con el mismo criterio que el monitor
  * LPR del panel (lib/padron → claseDeLectura): lista negra > VIP > la pestaña del rol.
  *
- *  · `clase` y `etiqueta`: «Residente», «Proveedor», «VIP», «Lista negra», «En búsqueda».
+ *  · `clase` y `etiqueta`: «Residente», «Proveedor», «VIP», «Lista negra», «Lista Amarilla».
  *  · `ficha`: si la matrícula está en la lista negra, el nombre de su ficha («Sin identificar»
  *    si no se sabe), el nivel y el motivo.
  *  · `relectura`: en una NO_LEIDA, la chapa que sugirió la relectura del vehículo. Los
