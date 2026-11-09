@@ -28,6 +28,7 @@ import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getImagePath } from "@/lib/image-path";
+import { calidadRostro } from "@/lib/monitor/rostro";
 import { getSocketUrl } from "@/lib/socket-config";
 
 interface FullAccessEvent extends AccessEvent {
@@ -313,106 +314,92 @@ export default function MonitorFace() {
     // ─── SPOTLIGHT — latest detection, large format ───
     const SpotlightTile = useMemo(() => ({ event }: { event: FullAccessEvent }) => {
         const meta = parseMeta(event.details);
-        const faceUrl = getImg(meta.FaceImage) || getImg(event.user?.cara);
-        const snapUrl = getImg(event.snapshotPath || event.imagePath);
-        const imgSrc = snapUrl || faceUrl;
+        const tomada = getImg(meta.FaceImage);                        // el recorte real de la captura
+        const scene = getImg(event.snapshotPath || event.imagePath);  // el cuadro completo
+        const padron = getImg(event.user?.cara);                      // la foto del padrón
+        const hero = tomada || scene;                                 // el recorte es el protagonista
         const similarity = meta.Similitud ? parseInt(meta.Similitud) : null;
+        const deteccion = meta.Deteccion ? parseInt(meta.Deteccion) : null;
+        const caraFrac = meta.CaraFrac ? parseInt(meta.CaraFrac) : null;
+        const tamano = caraFrac != null ? Math.max(0, Math.min(100, Math.round((caraFrac / 22) * 100))) : null;
+        const calidad = calidadRostro(deteccion, caraFrac);
         const personName = event.user?.name || meta.Rostro;
-        const isRecognized = !!personName;
+        const isRecognized = !!personName && personName.toLowerCase() !== "desconocido";
         const isDenied = event.decision !== "GRANT";
+        const reticula = isDenied ? "border-red-500/50" : "border-emerald-500/50";
+        const colCal = calidad == null ? "text-muted-foreground" : calidad >= 70 ? "text-emerald-400" : calidad >= 45 ? "text-amber-400" : "text-red-400";
+        const bgCal = (v: number) => v >= 70 ? "bg-emerald-500" : v >= 45 ? "bg-amber-500" : "bg-red-500";
+        const txtCal = calidad == null ? "Sin datos" : calidad >= 70 ? "Rostro nítido" : calidad >= 45 ? "Aceptable" : "Rostro pobre";
 
         return (
             <VisorEventoAcceso event={event} timeStatus={null}>
-                <div className="relative group cursor-pointer overflow-hidden rounded-lg">
-                    <div className="relative w-full aspect-[16/10] overflow-hidden">
-                        {imgSrc ? (
-                            <Image
-                                src={imgSrc}
-                                alt={personName || "Rostro"}
-                                fill
-                                sizes="600px"
-                                unoptimized
-                                className="object-cover transition-transform duration-500 group-hover:scale-105"
-                            />
-                        ) : (
-                            <div className="w-full h-full bg-card flex items-center justify-center">
-                                <ScanFace size={48} className="text-muted-foreground" />
-                            </div>
-                        )}
-
-                        {/* Red pulsing overlay for DENIED */}
-                        {isDenied && (
-                            <>
-                                <div className="absolute inset-0 bg-red-600/15 animate-pulse pointer-events-none" />
-                                <div className="absolute inset-0 border-2 border-red-500/50 rounded-lg pointer-events-none" />
-                            </>
-                        )}
-
-                        {/* Reticle corners */}
-                        <div className="absolute top-3 left-3 w-5 h-5 border-t-2 border-l-2 border-emerald-500/50 z-10" />
-                        <div className="absolute top-3 right-3 w-5 h-5 border-t-2 border-r-2 border-emerald-500/50 z-10" />
-                        <div className="absolute bottom-3 left-3 w-5 h-5 border-b-2 border-l-2 border-emerald-500/50 z-10" />
-                        <div className="absolute bottom-3 right-3 w-5 h-5 border-b-2 border-r-2 border-emerald-500/50 z-10" />
-
-                        {/* Rostro recortado superpuesto */}
-                        {faceUrl && (
-                            <div className="absolute bottom-3 right-3 w-[92px] h-[116px] rounded-md overflow-hidden border-2 border-emerald-400/70 shadow-xl z-20">
-                                <Image src={faceUrl} alt="rostro" fill sizes="92px" unoptimized className="object-cover" />
-                                <div className="absolute inset-x-0 bottom-0 bg-black/70 text-[7px] text-white/80 text-center py-px font-bold tracking-wider">ROSTRO</div>
-                            </div>
-                        )}
-                        {/* Match badge */}
-                        {similarity != null && similarity > 0 && (
-                            <div className="absolute top-3 right-10 z-10">
-                                <span className={cn(
-                                    "text-[11px] font-bold px-2 py-0.5 rounded backdrop-blur-sm",
-                                    similarity >= 80 ? "bg-emerald-500/90 text-foreground" : similarity >= 60 ? "bg-amber-500/90 text-foreground" : "bg-red-500/90 text-foreground"
-                                )}>
-                                    {similarity}% MATCH
+                <div className="relative group cursor-pointer overflow-hidden rounded-xl border border-border/50 bg-card">
+                    <div className="grid grid-cols-[1.15fr_1fr] min-h-[260px]">
+                        {/* HERO: el recorte del rostro es la captura (el producto del monitor). */}
+                        <div className="relative bg-neutral-950 overflow-hidden">
+                            {hero ? (
+                                <Image src={hero} alt={personName || "Rostro"} fill sizes="520px" unoptimized className="object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+                            ) : <div className="w-full h-full grid place-items-center"><ScanFace size={48} className="text-white/25" /></div>}
+                            <div className="absolute inset-0 bg-[radial-gradient(130%_90%_at_50%_0%,transparent_45%,rgba(0,0,0,.6))]" />
+                            {isDenied && <div className="absolute inset-0 bg-red-600/15 animate-pulse pointer-events-none" />}
+                            <div className={cn("absolute top-3 left-3 w-5 h-5 border-t-2 border-l-2 z-10", reticula)} />
+                            <div className={cn("absolute top-3 right-3 w-5 h-5 border-t-2 border-r-2 z-10", reticula)} />
+                            <div className={cn("absolute bottom-3 left-3 w-5 h-5 border-b-2 border-l-2 z-10", reticula)} />
+                            <div className={cn("absolute bottom-3 right-3 w-5 h-5 border-b-2 border-r-2 z-10", reticula)} />
+                            <span aria-hidden className="absolute inset-x-0 top-0 h-[2px] bg-teal-400 shadow-[0_0_20px_3px_rgba(45,212,191,.7)] animate-[spotscan_1.6s_ease-out_infinite]" />
+                            {/* La escena completa, de contexto, cuando hay recorte. */}
+                            {tomada && scene && scene !== tomada && (
+                                <div className="absolute top-3 right-3 w-[108px] aspect-video rounded-md overflow-hidden ring-1 ring-white/20 shadow-lg z-20">
+                                    <Image src={scene} alt="escena" fill sizes="108px" unoptimized className="object-cover" />
+                                    <span className="absolute inset-x-0 bottom-0 bg-black/60 text-[7px] text-white/85 text-center py-px font-bold tracking-wider uppercase">Escena</span>
+                                </div>
+                            )}
+                            <div className="absolute left-3 bottom-3 flex flex-wrap items-center gap-1.5 z-10 text-white [text-shadow:0_1px_6px_rgba(0,0,0,.8)]">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/55 backdrop-blur-md border border-white/15 text-[10px] font-semibold">
+                                    {event.direction === "ENTRY" ? <LogIn size={10} /> : <LogOut size={10} />} {event.direction === "ENTRY" ? "Entrada" : "Salida"}
                                 </span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/55 backdrop-blur-md border border-white/15 text-[10px] font-semibold tabular-nums"><Clock size={10} /> <TimeAgo timestamp={event.timestamp} /></span>
                             </div>
-                        )}
+                        </div>
 
-                        {/* Large bottom overlay */}
-                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent pt-12 pb-4 px-4 z-10">
-                            <div className="flex items-end justify-between">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className={cn(
-                                            "inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider",
-                                            isDenied
-                                                ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                                                : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                        )}>
-                                            {isDenied ? "Denegado" : "Autorizado"}
-                                        </span>
-                                        <span className={cn(
-                                            "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-semibold",
-                                            event.direction === "ENTRY"
-                                                ? "bg-blue-500/15 text-blue-400"
-                                                : "bg-orange-500/15 text-orange-400"
-                                        )}>
-                                            {event.direction === "ENTRY" ? <LogIn size={9} /> : <LogOut size={9} />}
-                                            {event.direction === "ENTRY" ? "Entrada" : "Salida"}
-                                        </span>
-                                    </div>
-                                    <h2 className={cn(
-                                        "text-2xl font-bold leading-tight",
-                                        isRecognized ? "text-foreground" : "text-amber-400"
-                                    )}>
-                                        {personName || "Desconocido"}
-                                    </h2>
-                                    {event.user?.unit?.name && (
-                                        <p className="text-xs text-blue-400/80 font-medium mt-0.5">{event.user.unit.name}</p>
-                                    )}
+                        {/* PANEL: quién es, comparación con el padrón y calidad de la captura. */}
+                        <div className="relative p-4 flex flex-col gap-3 min-w-0">
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className={cn("inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border", isDenied ? "bg-red-500/15 text-red-400 border-red-500/30" : "bg-emerald-500/15 text-emerald-400 border-emerald-500/30")}>{isDenied ? "Denegado" : "Autorizado"}</span>
+                                    <span className="ml-auto text-[10px] text-muted-foreground truncate max-w-[45%]">{event.device?.name}</span>
                                 </div>
-                                <div className="text-right">
-                                    <p className="text-xs text-muted-foreground font-mono">
-                                        <TimeAgo timestamp={event.timestamp} />
-                                    </p>
-                                    <p className="text-[10px] text-muted-foreground mt-0.5">{event.device?.name}</p>
+                                <h2 className={cn("text-xl font-bold leading-tight truncate", isRecognized ? "text-foreground" : "text-amber-400")}>{personName || "Desconocido"}</h2>
+                                {event.user?.unit?.name && <p className="text-[11px] text-blue-400/80 font-medium mt-0.5 truncate">{event.user.unit.name}</p>}
+                            </div>
+
+                            <div className="rounded-lg bg-muted/30 border border-border/50 p-3">
+                                <div className="text-[8px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Comparación con el padrón</div>
+                                <div className="flex items-center justify-center gap-3">
+                                    <CaraRot label="Tomada" src={tomada || scene} />
+                                    <div className="flex flex-col items-center min-w-[62px]">
+                                        {similarity != null && similarity > 0
+                                            ? <><div className={cn("text-2xl font-bold leading-none tabular-nums", similarity >= 80 ? "text-emerald-400" : similarity >= 60 ? "text-amber-400" : "text-red-400")}>{similarity}<span className="text-sm text-muted-foreground">%</span></div><div className="text-[9px] text-muted-foreground mt-0.5">parecido</div></>
+                                            : <div className="text-[10px] text-muted-foreground text-center leading-tight">Sin<br />coincidencia</div>}
+                                    </div>
+                                    {padron ? <CaraRot label="Padrón" src={padron} />
+                                        : <div className="flex flex-col items-center gap-1"><div className="text-[8px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Padrón</div><div className="h-[72px] w-[58px] rounded-lg border border-dashed border-border grid place-items-center text-muted-foreground/50"><UserX size={18} /></div></div>}
                                 </div>
                             </div>
+
+                            {(calidad != null || deteccion != null || tamano != null) && (
+                                <div className="rounded-lg bg-muted/30 border border-border/50 p-3">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-[8px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Calidad de la captura</span>
+                                        {calidad != null && <span className={cn("text-[11px] font-bold", colCal)}>{txtCal}</span>}
+                                    </div>
+                                    {calidad != null && <div className={cn("text-[28px] font-bold leading-none tabular-nums mb-2", colCal)}>{calidad}<span className="text-sm text-muted-foreground font-semibold">/100</span></div>}
+                                    <div className="space-y-2">
+                                        {deteccion != null && <BarraCal rotulo="Confianza de detección" valor={deteccion} color={bgCal(deteccion)} />}
+                                        {tamano != null && <BarraCal rotulo="Tamaño del rostro" valor={tamano} color={bgCal(tamano)} />}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -558,6 +545,7 @@ export default function MonitorFace() {
             </div>
 
             <style jsx global>{`
+                @keyframes spotscan { 0% { top: 0; opacity: .9; } 85% { opacity: .9; } 100% { top: 100%; opacity: 0; } }
                 .custom-scrollbar::-webkit-scrollbar {
                     width: 3px;
                 }
@@ -572,6 +560,36 @@ export default function MonitorFace() {
                     background: rgba(255,255,255,0.15);
                 }
             `}</style>
+        </div>
+    );
+}
+
+/** Una foto rotulada (Tomada / Padrón) para la comparación del SpotlightTile. `src` ya resuelto. */
+function CaraRot({ label, src }: { label: string; src: string | null }) {
+    return (
+        <div className="flex flex-col items-center gap-1 shrink-0">
+            <div className="text-[8px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
+            <div className="relative h-[72px] w-[58px] rounded-lg overflow-hidden ring-1 ring-border bg-muted">
+                {src ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <Image src={src} alt={label} fill sizes="58px" unoptimized className="object-cover" />
+                ) : <span className="absolute inset-0 grid place-items-center text-muted-foreground/50"><ScanFace size={16} /></span>}
+            </div>
+        </div>
+    );
+}
+
+/** Una barra de una componente de la calidad (detección / tamaño). */
+function BarraCal({ rotulo, valor, color }: { rotulo: string; valor: number; color: string }) {
+    return (
+        <div>
+            <div className="flex items-center justify-between text-[10px] mb-0.5">
+                <span className="text-muted-foreground">{rotulo}</span>
+                <span className="font-bold tabular-nums">{valor}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                <div className={cn("h-full rounded-full", color)} style={{ width: `${valor}%` }} />
+            </div>
         </div>
     );
 }
