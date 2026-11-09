@@ -1,125 +1,190 @@
 "use client";
 
-// SVG animado premium para la cabecera del cajón de un driver. Explica en cuatro pasos,
-// simple, cómo trabaja OmniAccess con ese equipo por su protocolo:
-//   Recibe (el equipo manda datos por su protocolo) → Ve (lee el cuadro) →
-//   Busca (compara contra el padrón) → Describe (devuelve el resultado).
-// Los paquetes fluyen por la tubería; los nodos se encienden en secuencia. Adaptado por
-// marca (protocolo) y por lo que el driver sabe hacer (qué describe). Respeta
-// prefers-reduced-motion. Diseño: un solo azul de acción, superficie + línea, sin sombras.
+// Diagrama de secuencia ANIMADO del protocolo de cada driver, para la cabecera del cajón.
+// Muestra el diálogo real entre OmniAccess y el equipo según su protocolo:
+//   ISAPI (digest), GDS HTTP API (challenge/response), ONVIF (SOAP), RTSP (DESCRIBE/PLAY),
+//   webhook/push (el equipo avisa), CGI, etc. Los mensajes "disparan" en secuencia y el
+//   ciclo se repite. Respeta prefers-reduced-motion.
+// Diseño (claude/DESIGN.md): un solo azul de acción, superficie + línea, sin sombras.
 
 import type { Soporte } from "@/lib/drivers/catalogo";
 
-const PROTOCOLO: Record<string, string> = {
-    HIKVISION: "ISAPI", AKUVOX: "HTTP API", GRANDSTREAM: "GDS HTTP API", BOSCH: "ONVIF",
-    DAHUA: "CGI", UNIFI: "Protect API", UNIVIEW: "SDK", INTELBRAS: "CGI",
-    MILESIGHT: "HTTP", AVICAM: "HTTP", ZKTECO: "Push HTTP", AXIS: "VAPIX", GENERICA: "RTSP",
-};
-function describeDe(s: Soporte): string {
-    if (s.hace.includes("lpr")) return "Matrícula";
-    if (s.hace.includes("rostro")) return "Rostro";
-    if (s.hace.includes("conteo")) return "Aforo";
-    if (s.hace.includes("rfid")) return "Tarjeta";
-    return "Evento";
-}
+type Lado = "oa" | "eq";
+type Msg = { de: Lado; txt: string };
+type Dialogo = { protocolo: string; pasos: Msg[] };
 
-const CSS = `
-.proto-svg .flujo { animation: proto-dash 1s linear infinite; }
-.proto-svg .paquete { opacity: 0; animation: proto-viaje 3.3s cubic-bezier(.45,.05,.55,.95) infinite; }
-.proto-svg .anillo { opacity: 0; transform-box: fill-box; transform-origin: center; animation: proto-latido 3.2s ease-in-out infinite; }
-.proto-svg .glifo { animation: proto-vivo 3.2s ease-in-out infinite; }
-@keyframes proto-dash { to { stroke-dashoffset: -14; } }
-@keyframes proto-viaje {
-  0% { transform: translateX(0); opacity: 0; }
-  6% { opacity: 1; }
-  94% { opacity: 1; }
-  100% { transform: translateX(378px); opacity: 0; }
-}
-@keyframes proto-latido {
-  0%, 100% { opacity: 0; transform: scale(1); }
-  8% { opacity: .95; transform: scale(1); }
-  24% { opacity: 0; transform: scale(1.3); }
-}
-@keyframes proto-vivo {
-  0%, 100% { opacity: .55; }
-  12%, 20% { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .proto-svg .flujo, .proto-svg .paquete, .proto-svg .anillo, .proto-svg .glifo { animation: none; }
-  .proto-svg .paquete { opacity: 0; }
-  .proto-svg .glifo { opacity: 1; }
-}
-`;
+// Familia de protocolo por marca.
+const FAMILIA: Record<string, string> = {
+    HIKVISION: "isapi", GRANDSTREAM: "gds", BOSCH: "onvif", GENERICA: "rtsp",
+    DAHUA: "cgi", INTELBRAS: "cgi", UNIFI: "protect", AXIS: "vapix", UNIVIEW: "sdk",
+    MILESIGHT: "http", AVICAM: "push", AKUVOX: "push", ZKTECO: "push",
+};
+
+// El diálogo real de cada protocolo (de = quién manda el mensaje).
+const DIALOGOS: Record<string, Dialogo> = {
+    isapi: {
+        protocolo: "ISAPI · HTTP digest",
+        pasos: [
+            { de: "oa", txt: "GET /ISAPI/Event…" },
+            { de: "eq", txt: "401 · nonce digest" },
+            { de: "oa", txt: "GET + Authorization" },
+            { de: "eq", txt: "200 · XML (evento)" },
+        ],
+    },
+    gds: {
+        protocolo: "GDS HTTP API · challenge/response",
+        pasos: [
+            { de: "oa", txt: "login (cmd=login)" },
+            { de: "eq", txt: "ChallengeCode" },
+            { de: "oa", txt: "md5(challenge·sal·clave)" },
+            { de: "eq", txt: "ResCode 0 · cookie" },
+            { de: "oa", txt: "config / abrir puerta" },
+            { de: "eq", txt: "datos · OK" },
+        ],
+    },
+    onvif: {
+        protocolo: "ONVIF · SOAP/WS",
+        pasos: [
+            { de: "oa", txt: "GetProfiles (SOAP)" },
+            { de: "eq", txt: "perfiles de media" },
+            { de: "oa", txt: "Subscribe (PullPoint)" },
+            { de: "eq", txt: "PullMessages · eventos" },
+        ],
+    },
+    rtsp: {
+        protocolo: "RTSP · streaming",
+        pasos: [
+            { de: "oa", txt: "DESCRIBE" },
+            { de: "eq", txt: "SDP (códec, pistas)" },
+            { de: "oa", txt: "SETUP · PLAY" },
+            { de: "eq", txt: "RTP · video →→→" },
+        ],
+    },
+    push: {
+        protocolo: "HTTP push · el equipo avisa",
+        pasos: [
+            { de: "eq", txt: "POST /webhook · evento" },
+            { de: "oa", txt: "200 OK" },
+            { de: "oa", txt: "pide la foto" },
+            { de: "eq", txt: "JPEG · snapshot" },
+        ],
+    },
+    cgi: {
+        protocolo: "CGI · HTTP",
+        pasos: [
+            { de: "oa", txt: "GET /cgi-bin/…" },
+            { de: "eq", txt: "200 · texto" },
+        ],
+    },
+    protect: {
+        protocolo: "UniFi Protect API",
+        pasos: [
+            { de: "oa", txt: "GET /proxy/protect" },
+            { de: "eq", txt: "JSON · eventos" },
+        ],
+    },
+    vapix: {
+        protocolo: "VAPIX · HTTP",
+        pasos: [
+            { de: "oa", txt: "GET /axis-cgi/…" },
+            { de: "eq", txt: "200 · datos" },
+        ],
+    },
+    sdk: {
+        protocolo: "SDK (proxy)",
+        pasos: [
+            { de: "oa", txt: "consulta SDK" },
+            { de: "eq", txt: "respuesta" },
+        ],
+    },
+    http: {
+        protocolo: "HTTP",
+        pasos: [
+            { de: "oa", txt: "GET /api" },
+            { de: "eq", txt: "200 · JSON" },
+        ],
+    },
+};
+
+const OA_X = 66, EQ_X = 300, TOP = 62, ROW = 30;
+const HEAD_Y = 26, LIFE_TOP = 50;
 
 export function ProtocoloAnimado({ soporte }: { soporte: Soporte }) {
-    const proto = PROTOCOLO[soporte.marca] || "HTTP";
-    const salida = describeDe(soporte);
-    const xs = [70, 196, 322, 448];
-    const yLine = 66;
+    const fam = FAMILIA[soporte.marca] || "http";
+    const d = DIALOGOS[fam];
+    const N = d.pasos.length;
+    const H = TOP + N * ROW + 14;
+    const slotPct = 100 / N; // fracción del ciclo por mensaje
+    const DUR = (N * 0.95).toFixed(2); // ~0.95s por mensaje
+
+    const css = `
+.seq { --dur: ${DUR}s; }
+.seq .msg { opacity: .22; animation: seqMsg var(--dur) linear infinite; }
+.seq .pkt { opacity: 0; animation: seqPkt var(--dur) cubic-bezier(.4,0,.6,1) infinite; }
+.seq .vida { stroke-dasharray: 3 5; animation: seqVida 1s linear infinite; }
+@keyframes seqVida { to { stroke-dashoffset: -8; } }
+@keyframes seqMsg {
+  0% { opacity: .22; } 2% { opacity: 1; }
+  ${slotPct.toFixed(2)}% { opacity: 1; }
+  ${(slotPct + 6).toFixed(2)}% { opacity: .22; } 100% { opacity: .22; }
+}
+@keyframes seqPkt {
+  0% { transform: translateX(0); opacity: 0; }
+  1% { opacity: 1; }
+  ${slotPct.toFixed(2)}% { transform: translateX(var(--dx)); opacity: 1; }
+  ${(slotPct + 0.5).toFixed(2)}% { opacity: 0; }
+  100% { transform: translateX(var(--dx)); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seq .msg { opacity: 1; animation: none; }
+  .seq .pkt { display: none; }
+  .seq .vida { animation: none; }
+}`;
 
     return (
         <div className="rounded-[10px] border border-border bg-[color:var(--muted,#f5f5f5)]/50 overflow-hidden">
-            <style dangerouslySetInnerHTML={{ __html: CSS }} />
-            <svg viewBox="0 0 518 132" className="w-full h-auto block proto-svg" role="img"
-                aria-label={`El equipo manda datos por ${proto}; OmniAccess ve el cuadro, busca en el padrón y describe: ${salida}.`}>
-                {/* tubería base + flujo punteado */}
-                <line x1={xs[0]} y1={yLine} x2={xs[3]} y2={yLine} stroke="var(--border,#e5e5e5)" strokeWidth="2" />
-                <line x1={xs[0]} y1={yLine} x2={xs[3]} y2={yLine} stroke="var(--accion)" strokeWidth="2"
-                    strokeDasharray="4 10" opacity="0.5" className="flujo" />
+            <style dangerouslySetInnerHTML={{ __html: css }} />
+            <svg viewBox={`0 0 366 ${H}`} className="w-full h-auto block seq" role="img"
+                aria-label={`Protocolo ${d.protocolo}. Diálogo entre OmniAccess y el equipo: ${d.pasos.map(p => p.txt).join("; ")}.`}>
+                {/* protocolo (arriba de todo) */}
+                <text x={183} y={15} textAnchor="middle" fontSize="10.5" fontWeight="700" fill="var(--accion)" letterSpacing="0.02em">{d.protocolo}</text>
 
-                {/* paquetes que viajan (translateX desde el nodo 0) */}
-                {[0, 1, 2].map((i) => (
-                    <circle key={i} cx={xs[0]} cy={yLine} r="3.5" fill="var(--accion)" className="paquete"
-                        style={{ animationDelay: `${i * 1.1}s` }} />
-                ))}
+                {/* cabeceras de carril */}
+                <LaneHead x={OA_X} label="OmniAccess" />
+                <LaneHead x={EQ_X} label="Equipo" />
+                {/* líneas de vida */}
+                <line x1={OA_X} y1={LIFE_TOP} x2={OA_X} y2={H - 6} stroke="var(--border,#e5e5e5)" strokeWidth="1.5" className="vida" />
+                <line x1={EQ_X} y1={LIFE_TOP} x2={EQ_X} y2={H - 6} stroke="var(--border,#e5e5e5)" strokeWidth="1.5" className="vida" />
 
-                {/* etiqueta del protocolo sobre el primer tramo */}
-                <rect x={(xs[0] + xs[1]) / 2 - 42} y={yLine - 30} width="84" height="19" rx="9.5"
-                    fill="var(--card,#fff)" stroke="var(--border,#e5e5e5)" />
-                <text x={(xs[0] + xs[1]) / 2} y={yLine - 17} textAnchor="middle"
-                    fontSize="10" fontWeight="700" fill="var(--accion)" letterSpacing="0.03em">{proto}</text>
-
-                {/* nodos */}
-                <Nodo x={xs[0]} y={yLine} i={0} label="Recibe" sub={corto(soporte.rotulo)}><GlifoEquipo /></Nodo>
-                <Nodo x={xs[1]} y={yLine} i={1} label="Ve" sub="el cuadro"><GlifoOjo /></Nodo>
-                <Nodo x={xs[2]} y={yLine} i={2} label="Busca" sub="en el padrón"><GlifoLupa /></Nodo>
-                <Nodo x={xs[3]} y={yLine} i={3} label="Describe" sub={salida}><GlifoLineas /></Nodo>
+                {/* mensajes */}
+                {d.pasos.map((p, i) => {
+                    const y = TOP + i * ROW + 14;
+                    const sx = p.de === "oa" ? OA_X : EQ_X;
+                    const rx = p.de === "oa" ? EQ_X : OA_X;
+                    const dir = p.de === "oa" ? 1 : -1;
+                    const delay = `calc(var(--dur) / ${N} * ${i})`;
+                    return (
+                        <g key={i} className="msg" style={{ animationDelay: delay }}>
+                            <text x={183} y={y - 5} textAnchor="middle" fontSize="9.5" fontWeight="600" fill="var(--foreground,#111)">{p.txt}</text>
+                            <line x1={sx + 6 * dir} y1={y} x2={rx - 7 * dir} y2={y} stroke="var(--accion)" strokeWidth="1.6" />
+                            {/* punta de flecha */}
+                            <path d={`M ${rx - 7 * dir} ${y} l ${-7 * dir} -3.5 l 0 7 z`} fill="var(--accion)" />
+                            {/* paquete que viaja */}
+                            <circle cx={sx + 6 * dir} cy={y} r="3" fill="var(--accion)" className="pkt"
+                                style={{ animationDelay: delay, ["--dx" as any]: `${(rx - sx) - 13 * dir}px` }} />
+                        </g>
+                    );
+                })}
             </svg>
         </div>
     );
 }
 
-function corto(s: string): string { return s.length > 16 ? s.slice(0, 15) + "…" : s; }
-
-function Nodo({ x, y, i, label, sub, children }: { x: number; y: number; i: number; label: string; sub: string; children: React.ReactNode }) {
+function LaneHead({ x, label }: { x: number; label: string }) {
     return (
         <g>
-            <circle cx={x} cy={y} r="22" fill="var(--card,#fff)" stroke="var(--border,#e5e5e5)" strokeWidth="1.5" />
-            <circle cx={x} cy={y} r="22" fill="none" stroke="var(--accion)" strokeWidth="2" className="anillo"
-                style={{ animationDelay: `${i * 0.8}s` }} />
-            <g transform={`translate(${x - 11}, ${y - 11})`} className="glifo" style={{ color: "var(--accion)", animationDelay: `${i * 0.8}s` }}>
-                {children}
-            </g>
-            <text x={x} y={y + 40} textAnchor="middle" fontSize="11.5" fontWeight="700" fill="var(--foreground,#111)">{label}</text>
-            <text x={x} y={y + 54} textAnchor="middle" fontSize="9.5" fill="var(--muted-foreground,#888)">{sub}</text>
+            <rect x={x - 46} y={HEAD_Y} width="92" height="22" rx="7" fill="var(--card,#fff)" stroke="var(--border,#e5e5e5)" />
+            <text x={x} y={HEAD_Y + 15} textAnchor="middle" fontSize="11" fontWeight="700" fill="var(--foreground,#111)">{label}</text>
         </g>
     );
-}
-
-/* Glifos 22×22, color por currentColor (via style color en el <g className="glifo">). */
-function GlifoEquipo() {
-    return (<g fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="2.5" y="5" width="17" height="12" rx="2" /><circle cx="11" cy="11" r="3.2" /></g>);
-}
-function GlifoOjo() {
-    return (<g fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M1.5 11 C4 6, 18 6, 20.5 11 C18 16, 4 16, 1.5 11 Z" /><circle cx="11" cy="11" r="2.6" /></g>);
-}
-function GlifoLupa() {
-    return (<g fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="9" cy="9" r="6.2" /><line x1="13.6" y1="13.6" x2="19" y2="19" /></g>);
-}
-function GlifoLineas() {
-    return (<g fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-        <line x1="3" y1="6" x2="19" y2="6" /><line x1="3" y1="11" x2="19" y2="11" /><line x1="3" y1="16" x2="13" y2="16" /></g>);
 }
