@@ -9,7 +9,7 @@ import { useTiempoReal } from "@/lib/tiempo-real";
 import { sonar } from "@/lib/sonido-monitor";
 import { getImagePath } from "@/lib/image-path";
 import { fondoDe, type TonoFondo } from "@/lib/monitor/fondos";
-import { leerDetalleRostro, motivoDeRostro, TEXTO_MOTIVO, type MotivoRostro } from "@/lib/monitor/rostro";
+import { leerDetalleRostro, motivoDeRostro, calidadRostro, TEXTO_MOTIVO, type MotivoRostro } from "@/lib/monitor/rostro";
 import { SUAVE, tocable } from "@/components/monitor/tactil";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +34,8 @@ type Acceso = {
     persona: string | null; unidad: string | null; rol: string | null;
     padron: string | null; foto: string | null; recorte: string | null;
     nombreTerminal: string | null; similitud: number | null; terminal: string | null; motivo: MotivoRostro;
+    // Calidad de la captura del rostro: puntaje 0–100 y sus dos componentes (detección y tamaño).
+    calidad: number | null; deteccion: number | null; caraFrac: number | null;
 };
 type Datos = { ultimas: Acceso[]; atencion: Acceso[]; hoy: { permitidos: number; denegados: number; desconocidos: number }; fuentes: number; ahora: string };
 
@@ -52,12 +54,12 @@ function desdeEvento(e: any): Acceso | null {
     const d = leerDetalleRostro(e.details);
     const origen = /Source:\s*OmniVision/i.test(e.details || "") || (e.device && e.device.deviceType && e.device.deviceType !== "FACE_TERMINAL") ? "omnivision" as const : "terminal" as const;
     // La foto de OmniVision se pide por el endpoint que abre a la pantalla (ver /api/monitor/face).
-    const foto = e.snapshotPath || e.imagePath || null;
+    const aPared = (r: string | null) => r && r.startsWith("/api/vision/imagen/") ? r.replace("/api/vision/imagen/", "/api/monitor/camaras/imagen/") : r;
     return {
         id: e.id, ts: new Date(e.timestamp || Date.now()).toISOString(), decision: e.decision, sentido: e.direction, origen,
         persona: e.user?.name || null, unidad: null, rol: e.user?.role || null, padron: e.user?.cara || null,
-        foto: foto && foto.startsWith("/api/vision/imagen/") ? foto.replace("/api/vision/imagen/", "/api/monitor/camaras/imagen/") : foto,
-        recorte: d.recorte, nombreTerminal: d.nombre, similitud: d.similitud,
+        foto: aPared(e.snapshotPath || e.imagePath || null), recorte: aPared(d.recorte), nombreTerminal: d.nombre, similitud: d.similitud,
+        calidad: calidadRostro(d.deteccion, d.caraFrac), deteccion: d.deteccion, caraFrac: d.caraFrac,
         terminal: e.device?.name || null, motivo: motivoDeRostro({ decision: e.decision, userId: e.userId, rol: e.user?.role, detalles: e.details }),
     };
 }
@@ -178,67 +180,141 @@ export function VistaFace() {
     );
 }
 
-/** Lo grande: la foto tomada y la del padrón, lado a lado, y quién es. */
+/** El puntaje de calidad a tono de estado: verde buena, ámbar media, rojo pobre. */
+const tonoCalidad = (q: number | null) => q == null ? "quieto" : q >= 70 ? "bien" : q >= 45 ? "aviso" : "mal";
+const textoCalidad = (q: number | null) => q == null ? "Sin datos" : q >= 70 ? "Rostro nítido" : q >= 45 ? "Rostro aceptable" : "Rostro pobre";
+
+/**
+ * Lo grande: EL RECORTE DEL ROSTRO es la captura (el producto del monitor facial). A la derecha,
+ * quién es, la comparación con el padrón (tomada ↔ padrón + parecido) y la calidad de la captura
+ * —detección y tamaño, lo único que es medible de verdad—. La escena completa queda de contexto,
+ * chica, en una esquina.
+ */
 function Protagonista({ a }: { a: Acceso }) {
     const Icono = ICONO[a.motivo];
-    const tomada = a.foto || a.recorte;
+    const heroCara = a.recorte || a.foto;
     const nombre = a.persona || (a.motivo === "desconocido" ? "Desconocido" : a.nombreTerminal || "Sin nombre");
     return (
-        <div className="absolute inset-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-            {/* La escena: la foto entera de la terminal, a sangre, con el recorte de la cara encima. */}
-            <div className="relative min-h-[200px] bg-black overflow-hidden">
-                {tomada ? (
+        <div className="absolute inset-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1.02fr)_minmax(0,0.98fr)]">
+            {/* HERO: el recorte del rostro, a sangre, con retícula y barrido de lectura. */}
+            <div className="relative min-h-[240px] bg-neutral-950 overflow-hidden">
+                {heroCara ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={getImagePath(tomada) || undefined} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                ) : <span className="absolute inset-0 grid place-items-center text-white/30"><ScanFace size={64} /></span>}
-                <div className="absolute inset-0 bg-[linear-gradient(to_right,transparent_55%,rgba(0,0,0,.65)),linear-gradient(to_top,rgba(0,0,0,.7),transparent_40%)]" />
-                {/* La línea de lectura: baja una vez, como la terminal mirando la cara. */}
+                    <img src={getImagePath(heroCara) || undefined} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                ) : <span className="absolute inset-0 grid place-items-center text-white/25"><ScanFace size={72} /></span>}
+                <div className="absolute inset-0 bg-[radial-gradient(130%_90%_at_50%_0%,transparent_42%,rgba(0,0,0,.72))]" />
+                {/* retícula de lectura */}
+                <span className="pointer-events-none absolute left-4 top-4 h-7 w-7 border-t-2 border-l-2 border-[var(--accion-en-oscuro)]/70" />
+                <span className="pointer-events-none absolute right-4 top-4 h-7 w-7 border-t-2 border-r-2 border-[var(--accion-en-oscuro)]/70" />
+                <span className="pointer-events-none absolute left-4 bottom-4 h-7 w-7 border-b-2 border-l-2 border-[var(--accion-en-oscuro)]/70" />
+                <span className="pointer-events-none absolute right-4 bottom-4 h-7 w-7 border-b-2 border-r-2 border-[var(--accion-en-oscuro)]/70" />
                 <motion.span aria-hidden className="absolute inset-x-0 h-[2px] bg-[var(--accion-en-oscuro)] shadow-[0_0_24px_4px_var(--accion-en-oscuro)]"
                     initial={{ top: "0%", opacity: 0.9 }} animate={{ top: "100%", opacity: 0 }} transition={{ duration: 1.1, ease: [0.32, 0.72, 0, 1] }} />
-                <div className="absolute left-5 bottom-4 flex items-center gap-2 text-white [text-shadow:0_2px_10px_rgba(0,0,0,.7)]">
+                {/* La escena completa, de contexto, cuando hay recorte Y foto distinta. */}
+                {a.recorte && a.foto && (
+                    <div className="absolute top-3 right-3 w-[132px] aspect-video rounded-lg overflow-hidden ring-1 ring-white/20 shadow-[var(--sombra-flotante)]">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={getImagePath(a.foto) || undefined} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                        <span className="absolute bottom-0 inset-x-0 bg-black/60 text-[8px] text-white/85 text-center py-px font-bold tracking-wider uppercase">Escena</span>
+                    </div>
+                )}
+                <div className="absolute left-5 bottom-4 flex flex-wrap items-center gap-2 text-white [text-shadow:0_2px_10px_rgba(0,0,0,.7)]">
                     <span className="h-8 px-3 rounded-full bg-black/55 backdrop-blur-md border border-white/15 text-[13px] font-semibold inline-flex items-center gap-1.5">
                         {a.sentido === "EXIT" ? <LogOut size={14} /> : <LogIn size={14} />} {a.sentido === "EXIT" ? "Salida" : "Entrada"} · {a.terminal || "Terminal"}
                     </span>
                     <span className="h-8 px-3 rounded-full bg-black/55 backdrop-blur-md border border-white/15 text-[13px] font-semibold inline-flex items-center gap-1.5 tabular-nums"><Clock size={14} /> {horaCorta(a.ts)}</span>
-                    {a.origen === "omnivision" && (
-                        // No es un estado (verde/rojo es la decisión), es el origen: chip neutro.
-                        <span className="h-8 px-3 rounded-full bg-black/55 backdrop-blur-md border border-white/15 text-[13px] font-semibold inline-flex items-center gap-1.5"><ScanFace size={14} /> OmniVision</span>
-                    )}
+                    {a.origen === "omnivision" && <span className="h-8 px-3 rounded-full bg-black/55 backdrop-blur-md border border-white/15 text-[13px] font-semibold inline-flex items-center gap-1.5"><ScanFace size={14} /> OmniVision</span>}
                 </div>
             </div>
 
-            {/* Quién es. */}
-            <div className="relative p-6 lg:p-8 flex flex-col justify-center gap-5 bg-[linear-gradient(160deg,rgba(255,255,255,.05),transparent_60%)]">
-                <div className="flex items-end gap-4">
-                    <motion.div initial={{ opacity: 0, x: -14, scale: 0.94 }} animate={{ opacity: 1, x: 0, scale: 1 }} transition={{ type: "spring", stiffness: 320, damping: 28, delay: 0.12 }} className="relative">
-                        <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Tomada</div>
-                        <Cara src={a.recorte || a.foto} className="h-[132px] w-[110px] lg:h-[168px] lg:w-[140px] rounded-[16px] ring-1 ring-white/15" />
-                    </motion.div>
-                    {a.padron && (
-                        <motion.div initial={{ opacity: 0, x: 14, scale: 0.94 }} animate={{ opacity: 1, x: 0, scale: 1 }} transition={{ type: "spring", stiffness: 320, damping: 28, delay: 0.2 }}>
-                            <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Padrón</div>
-                            <Cara src={a.padron} className="h-[132px] w-[110px] lg:h-[168px] lg:w-[140px] rounded-[16px] ring-1 ring-white/15" />
-                        </motion.div>
-                    )}
-                    {a.similitud != null && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }} className="pb-2">
-                            <div className="text-[34px] font-bold leading-none tabular-nums">{Math.round(a.similitud)}<span className="text-[18px] text-muted-foreground">%</span></div>
-                            <div className="text-[12px] text-muted-foreground mt-1">parecido</div>
-                        </motion.div>
-                    )}
-                </div>
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ ...SUAVE, delay: 0.18 }} className="min-w-0">
-                    <div className="text-[34px] lg:text-[44px] font-bold tracking-[-0.025em] leading-[1.05] break-words">{nombre}</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[16px] text-muted-foreground">
+            {/* PANEL: quién es, comparación y calidad. */}
+            <div className="relative p-5 lg:p-7 flex flex-col justify-center gap-4 bg-[linear-gradient(160deg,rgba(255,255,255,.05),transparent_60%)] min-h-0 overflow-y-auto">
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={SUAVE} className="min-w-0">
+                    <div className="text-[28px] lg:text-[38px] font-bold tracking-[-0.025em] leading-[1.05] break-words">{nombre}</div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[15px] text-muted-foreground">
                         {a.unidad && <span className="inline-flex items-center gap-1.5"><Home size={16} /> {a.unidad}</span>}
                         {!a.persona && a.nombreTerminal && a.nombreTerminal.toLowerCase() !== "desconocido" && a.motivo !== "desconocido" && <span className="inline-flex items-center gap-1.5"><UserRound size={16} /> {a.origen === "omnivision" ? "OmniVision lo reconoció como" : "la terminal lo nombró"} «{a.nombreTerminal}»</span>}
                     </div>
+                    <div className={cn("mt-3 h-11 pl-2.5 pr-5 rounded-full inline-flex items-center gap-2.5 text-[18px] font-bold", PLENO[a.motivo])}>
+                        <span className="grid place-items-center h-8 w-8 rounded-full bg-black/15"><Icono size={18} /></span>
+                        {a.decision === "GRANT" ? "Permitido" : a.motivo === "denegado" ? "Denegado" : `Denegado · ${TEXTO_MOTIVO[a.motivo]}`}
+                    </div>
                 </motion.div>
-                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: "spring", stiffness: 420, damping: 26, delay: 0.26 }}
-                    className={cn("self-start h-14 pl-3 pr-6 rounded-full inline-flex items-center gap-3 text-[22px] font-bold", PLENO[a.motivo])}>
-                    <span className="grid place-items-center h-9 w-9 rounded-full bg-black/15"><Icono size={20} /></span>
-                    {a.decision === "GRANT" ? "Permitido" : a.motivo === "denegado" ? "Denegado" : `Denegado · ${TEXTO_MOTIVO[a.motivo]}`}
-                </motion.div>
+
+                <Comparacion a={a} />
+                <CalidadCaptura a={a} />
+            </div>
+        </div>
+    );
+}
+
+/** Tomada ↔ padrón, con el parecido en el medio. Si no hay padrón, lo dice (no inventa una coincidencia). */
+function Comparacion({ a }: { a: Acceso }) {
+    return (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ...SUAVE, delay: 0.1 }}
+            className="rounded-2xl bg-black/15 border border-white/10 p-4">
+            <div className="text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground mb-3">Comparación con el padrón</div>
+            <div className="flex items-center justify-center gap-4">
+                <FotoRotulo rotulo="Tomada" src={a.recorte || a.foto} />
+                <div className="flex flex-col items-center gap-0.5 shrink-0 min-w-[92px]">
+                    {a.similitud != null ? (
+                        <>
+                            <div className="text-[30px] font-bold leading-none tabular-nums">{Math.round(a.similitud)}<span className="text-[16px] text-muted-foreground">%</span></div>
+                            <div className="text-[11px] text-muted-foreground">parecido</div>
+                        </>
+                    ) : <div className="text-[12.5px] text-muted-foreground text-center leading-snug">Sin coincidencia<br />en el padrón</div>}
+                </div>
+                {a.padron ? <FotoRotulo rotulo="Padrón" src={a.padron} /> : (
+                    <div className="flex flex-col items-center gap-1.5 shrink-0">
+                        <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Padrón</div>
+                        <div className="h-[100px] w-[82px] rounded-[14px] border border-dashed border-white/20 grid place-items-center text-white/30"><UserX size={24} /></div>
+                    </div>
+                )}
+            </div>
+        </motion.div>
+    );
+}
+function FotoRotulo({ rotulo, src }: { rotulo: string; src: string | null }) {
+    return (
+        <div className="flex flex-col items-center gap-1.5 shrink-0">
+            <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{rotulo}</div>
+            <Cara src={src} className="h-[100px] w-[82px] rounded-[14px] ring-1 ring-white/15" />
+        </div>
+    );
+}
+
+/** La calidad de la captura: puntaje + detección + tamaño del rostro. Si no hay métricas, no se muestra. */
+function CalidadCaptura({ a }: { a: Acceso }) {
+    if (a.calidad == null && a.deteccion == null && a.caraFrac == null) return null;
+    const tono = tonoCalidad(a.calidad);
+    const tam = a.caraFrac != null ? Math.max(0, Math.min(100, Math.round((a.caraFrac / 22) * 100))) : null;
+    return (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ...SUAVE, delay: 0.18 }}
+            className="rounded-2xl bg-black/15 border border-white/10 p-4">
+            <div className="flex items-center justify-between mb-3">
+                <span className="text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Calidad de la captura</span>
+                {a.calidad != null && <span className={cn("h-6 px-2.5 rounded-full text-[11px] font-bold inline-flex items-center", `pleno-${tono}`)}>{textoCalidad(a.calidad)}</span>}
+            </div>
+            {a.calidad != null && (
+                <div className={cn("text-[36px] font-bold leading-none tabular-nums mb-3", `tono-${tono}`)}>{a.calidad}<span className="text-[16px] text-muted-foreground font-semibold">/100</span></div>
+            )}
+            <div className="space-y-2.5">
+                {a.deteccion != null && <BarraCalidad rotulo="Confianza de detección" valor={a.deteccion} />}
+                {tam != null && <BarraCalidad rotulo="Tamaño del rostro" valor={tam} />}
+            </div>
+        </motion.div>
+    );
+}
+function BarraCalidad({ rotulo, valor }: { rotulo: string; valor: number }) {
+    const tono = tonoCalidad(valor);
+    return (
+        <div>
+            <div className="flex items-center justify-between text-[12px] mb-1">
+                <span className="text-muted-foreground">{rotulo}</span>
+                <span className={cn("font-bold tabular-nums", `tono-${tono}`)}>{valor}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-white/12 overflow-hidden">
+                <motion.div className={cn("h-full rounded-full", `pleno-${tono}`)} initial={{ width: 0 }} animate={{ width: `${valor}%` }} transition={{ ...SUAVE, delay: 0.2 }} />
             </div>
         </div>
     );
@@ -255,7 +331,10 @@ function TarjetaTira({ a }: { a: Acceso }) {
                     <div className="text-[12px] text-muted-foreground truncate">{a.unidad || a.terminal || ""}</div>
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                    <span className="text-[13px] tabular-nums text-muted-foreground">{horaCorta(a.ts).slice(0, 5)}</span>
+                    <span className="inline-flex items-center gap-1.5 text-[13px] tabular-nums text-muted-foreground">
+                        {a.calidad != null && <span title={`Calidad ${a.calidad}/100`} className={cn("h-2 w-2 rounded-full shrink-0", `pleno-${tonoCalidad(a.calidad)}`)} />}
+                        {horaCorta(a.ts).slice(0, 5)}
+                    </span>
                     <span className={cn("h-5 px-1.5 rounded-full text-[10.5px] font-bold inline-flex items-center whitespace-nowrap", PLENO[a.motivo])}>{a.decision === "GRANT" ? "Permitido" : TEXTO_MOTIVO[a.motivo]}</span>
                 </div>
             </div>

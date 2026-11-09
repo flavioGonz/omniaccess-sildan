@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { autorizarMonitor, inicioDelDia, SIN_CACHE } from "@/lib/monitor/servidor";
-import { leerDetalleRostro, motivoDeRostro } from "@/lib/monitor/rostro";
+import { leerDetalleRostro, motivoDeRostro, calidadRostro } from "@/lib/monitor/rostro";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { forbiddenResponse } from "@/lib/api-auth";
@@ -41,8 +41,11 @@ const forma = (e: any) => {
         id: e.id, ts: e.timestamp.toISOString(), decision: e.decision, sentido: e.direction, origen,
         persona: e.user?.name || null, unidad: e.user?.unit?.name || null, rol: e.user?.role || null,
         // La foto del padrón y la que tomó la terminal/cámara (entera y el recorte de la cara).
-        padron: e.user?.cara || null, foto: paraPared(e.snapshotPath || e.imagePath || null), recorte: d.recorte,
+        // El recorte, como la foto, se reencauza para que cargue también en una pantalla de pared.
+        padron: e.user?.cara || null, foto: paraPared(e.snapshotPath || e.imagePath || null), recorte: paraPared(d.recorte),
         nombreTerminal: d.nombre, similitud: d.similitud, terminal: e.device?.name || e.location || null,
+        // Calidad de la captura del rostro (sólo OmniVision la trae): puntaje + sus dos componentes.
+        calidad: calidadRostro(d.deteccion, d.caraFrac), deteccion: d.deteccion, caraFrac: d.caraFrac,
         motivo: motivoDeRostro({ decision: e.decision, userId: e.userId, rol: e.user?.role, detalles: e.details }),
     };
 };

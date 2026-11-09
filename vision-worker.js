@@ -536,10 +536,37 @@ async function reconocerRostro(p) {
                 select: { id: true, name: true, cara: true, role: true, unit: true },
             }).catch(() => null);
         }
-        // Claves que parsea el monitor/face: `Rostro` y `Similitud`.
+        // Recorte de la cara + calidad, con el `box` que devuelve CompreFace (en px del cuadro).
+        // El recorte ES «la captura» del monitor facial; la calidad (confianza de detección y qué
+        // tan grande entró el rostro) valida si esa cara sirve para reconocer o es basura.
+        let faceImg = null, deteccion = null, caraFrac = null;
+        try {
+            const box = cara.box || {};
+            if (box.probability != null) deteccion = Math.round(box.probability * 100);
+            if (box.x_min != null && box.x_max != null) {
+                const meta = await sharp(jpeg).metadata();
+                const fw = meta.width || 0, fh = meta.height || 0;
+                const bw = box.x_max - box.x_min, bh = box.y_max - box.y_min;
+                if (fh) caraFrac = Math.round(100 * bh / fh); // alto del rostro sobre el alto del cuadro
+                const pad = 0.3;
+                const left = Math.max(0, Math.floor(box.x_min - bw * pad));
+                const top0 = Math.max(0, Math.floor(box.y_min - bh * pad));
+                const width = Math.max(1, Math.min(fw - left, Math.ceil(bw * (1 + 2 * pad))));
+                const height = Math.max(1, Math.min(fh - top0, Math.ceil(bh * (1 + 2 * pad))));
+                const crop = await sharp(jpeg).extract({ left, top: top0, width, height })
+                    .resize(320, 320, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
+                const claveCara = p.foto.replace(/-f\.jpg$/, "-cara.jpg");
+                await subir(claveCara, crop);
+                faceImg = "/api/vision/imagen/" + claveCara;
+            }
+        } catch (e) { /* si el recorte falla, el acceso igual se registra sin él */ }
+        // Claves que parsea el monitor/face: `Rostro`, `Similitud`, `FaceImage`, `Deteccion`, `CaraFrac`.
         const details = [
             reconocido ? `Rostro: ${top.subject}` : "Rostro: Desconocido",
             top ? `Similitud: ${Math.round(sim * 100)}%` : null,
+            faceImg ? `FaceImage: ${faceImg}` : null,
+            deteccion != null ? `Deteccion: ${deteccion}%` : null,
+            caraFrac != null ? `CaraFrac: ${caraFrac}` : null,
             "Source: OmniVision",
         ].filter(Boolean).join(", ");
         const ev = await prisma.accessEvent.create({
