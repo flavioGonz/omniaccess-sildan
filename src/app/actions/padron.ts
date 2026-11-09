@@ -195,8 +195,8 @@ export async function guardarFichaListaNegra(datos: {
         const chapas = [...new Set((datos.matriculas || []).map(norm).filter(Boolean))];
         if (!chapas.length) return { ok: false, error: "Falta al menos una matrícula: es lo que leen las cámaras." };
         const motivo = (datos.motivo || "").trim();
-        // En búsqueda el motivo ES el aviso: lo que el guardia lee en la captura.
-        if (nivel === "SEARCH" && !motivo) return { ok: false, error: "En búsqueda hace falta el motivo: es lo que el guardia lee en la captura." };
+        // Lista Amarilla el motivo ES el aviso: lo que el guardia lee en la captura.
+        if (nivel === "SEARCH" && !motivo) return { ok: false, error: "Lista Amarilla hace falta el motivo: es lo que el guardia lee en la captura." };
         const nombre = (datos.nombre || "").trim();
 
         const clave = datos.clave || null;

@@ -111,7 +111,7 @@ const NOMBRE_CLASE: Record<ClasePresencia, string> = {
     residente: "Residente", personal: "Personal", proveedor: "Proveedor", visita: "Visita", invitado: "Invitado", lista_blanca: "Lista blanca", no_registrado: "No registrado",
 };
 const TONO_CLASE: Record<ClasePresencia, Tono> = { residente: "bien", personal: "info", proveedor: "info", visita: "aviso", invitado: "aviso", lista_blanca: "bien", no_registrado: "neutro" };
-const NOMBRE_ATIPICO: Record<Atipico, string> = { lista_negra: "Lista negra", en_busqueda: "En búsqueda", merodeo: "Merodeo", primera_vez: "Primera vez", alta_frecuencia: "Alta frecuencia" };
+const NOMBRE_ATIPICO: Record<Atipico, string> = { lista_negra: "Lista negra", en_busqueda: "Lista Amarilla", merodeo: "Merodeo", primera_vez: "Primera vez", alta_frecuencia: "Alta frecuencia" };
 const TONO_ATIPICO: Record<Atipico, Tono> = { lista_negra: "mal", en_busqueda: "mal", merodeo: "aviso", primera_vez: "info", alta_frecuencia: "aviso" };
 const tonoTexto = (t: string) => (t === "mal" ? "tono-mal" : t === "aviso" ? "tono-aviso" : t === "info" ? "tono-info" : "text-muted-foreground");
 

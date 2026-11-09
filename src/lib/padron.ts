@@ -67,7 +67,7 @@ export type NivelListaNegra = "BLACKLISTED" | "SEARCH";
 
 export const NIVELES: Record<NivelListaNegra, { titulo: string; corto: string; tono: Tono; resumen: string }> = {
     BLACKLISTED: { titulo: "Alerta máxima", corto: "alerta máxima", tono: "mal", resumen: "Se deniega siempre y suena la alarma." },
-    SEARCH: { titulo: "En búsqueda", corto: "en búsqueda", tono: "aviso", resumen: "Pasa, pero se avisa con el motivo." },
+    SEARCH: { titulo: "Lista Amarilla", corto: "lista amarilla", tono: "aviso", resumen: "Pasa, pero se avisa con el motivo." },
 };
 
 /** Cómo se llama a una ficha sin nombre: el vehículo existe, la persona no se sabe. */
@@ -94,7 +94,7 @@ export const ESTILO_MONITOR: Record<ClaseMonitor, { etiqueta: string; badge: str
     // VIP en verde: es PERMITIDO. Se distingue del personal por la etiqueta y por el anillo doble.
     vip: { etiqueta: "VIP", badge: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40", ring: "ring-2 ring-emerald-400/70", dot: "bg-emerald-400" },
     alerta: { etiqueta: "Lista negra", badge: "bg-red-500/15 text-red-300 border border-red-500/40", ring: "ring-2 ring-red-500/70", dot: "bg-red-500" },
-    busqueda: { etiqueta: "En búsqueda", badge: "bg-amber-500/20 text-amber-200 border border-amber-500/50", ring: "ring-2 ring-amber-400/70", dot: "bg-amber-400" },
+    busqueda: { etiqueta: "Lista Amarilla", badge: "bg-amber-500/20 text-amber-200 border border-amber-500/50", ring: "ring-2 ring-amber-400/70", dot: "bg-amber-400" },
 };
 
 /** Sin color propio: la etiqueta se sigue viendo (el guardia necesita saber quién es), en gris. */

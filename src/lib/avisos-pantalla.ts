@@ -71,7 +71,7 @@ export const FONDO_TIPO: Record<TipoAviso, { fondo: string; texto: string; nombr
     "lista-negra": { fondo: "var(--mal)", texto: "#fff", nombre: "Lista negra" },
     "intrusion-real": { fondo: "var(--mal)", texto: "#fff", nombre: "Intrusión real" },
     intrusion: { fondo: "color-mix(in oklab, var(--mal) 82%, black)", texto: "#fff", nombre: "Intrusión" },
-    busqueda: { fondo: "var(--aviso)", texto: "#16120a", nombre: "En búsqueda" },
+    busqueda: { fondo: "var(--aviso)", texto: "#16120a", nombre: "Lista Amarilla" },
     merodeo: { fondo: "var(--aviso)", texto: "#16120a", nombre: "Merodeo" },
     vision: { fondo: "var(--quieto)", texto: "#fff", nombre: "OmniVision" },
     patron: { fondo: "var(--info)", texto: "#fff", nombre: "Patrones" },

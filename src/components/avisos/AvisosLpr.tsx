@@ -18,7 +18,7 @@ import { FichaDeEvento } from "@/components/eventos/FichaDeEvento";
  * alarmas a buscarlos.
  *
  *   - Lista negra (crítico): no se cierra sin decidir real o falsa.
- *   - En búsqueda y merodeo (alerta, ámbar).
+ *   - Lista Amarilla y merodeo (alerta, ámbar).
  *   - Patrones (alerta, azul) y OmniVision (alerta, violeta): los avisos de la guardia que
  *     Gestión de alarmas ya lista. «Sin registrar» no: son decenas por día y no son alarmas.
  *
@@ -61,7 +61,7 @@ export function AvisosLpr({ soloLectura = false }: {
     const [ficha, setFicha] = useState<string | null>(null);
     const [ops, setOps] = useState<Record<string, OperadorVista>>({});
     const [pulso, setPulso] = useState(0);
-    // Sin «En búsqueda» (función de LPR, apagada en San Nicolás) no salta ese aviso.
+    // Sin «Lista Amarilla» (función de LPR, apagada en San Nicolás) no salta ese aviso.
     const busquedaOn = useFuncion("LPR_BUSQUEDA");
 
     /*
@@ -108,7 +108,7 @@ export function AvisosLpr({ soloLectura = false }: {
             id: `l:${ev.id}`, tipo: negra ? "lista-negra" : "busqueda", nivel: negra ? "critico" : "alerta",
             ts: ev.timestamp ? new Date(ev.timestamp).toISOString() : new Date().toISOString(),
             foto: getImagePath(ev.snapshotPath || ev.imagePath) || null,
-            rotulo: negra ? "Lista negra" : "En búsqueda", titulo: plate || "Sin lectura",
+            rotulo: negra ? "Lista negra" : "Lista Amarilla", titulo: plate || "Sin lectura",
             detalle: [camara, SENTIDO[ev.direction], ev.watch?.motivo || ev.watch?.label].filter(Boolean).join(" · ") || null,
             grupo: `${negra ? "negra" : "busqueda"}:${plate || camara}`, claves: [`l:${ev.id}`], eventoId: ev.id, plate, deviceId: ev.device?.id || ev.deviceId || null,
         });

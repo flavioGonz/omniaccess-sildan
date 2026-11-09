@@ -57,7 +57,7 @@ export function SugerenciaRelectura({ r, sobreFoto, soloContexto, className }: {
         return (
             <span className={cn("inline-flex items-center gap-1.5 flex-wrap", sobreFoto ? "text-[12px]" : "text-[10.5px]", className)}>
                 {cat === "BLACKLISTED" && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-red-500/20 text-red-300 border border-red-500/50"><Ban size={9} /> Lista negra</span>}
-                {cat === "SEARCH" && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-200 border border-amber-500/50"><Search size={9} /> En búsqueda</span>}
+                {cat === "SEARCH" && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-200 border border-amber-500/50"><Search size={9} /> Lista Amarilla</span>}
                 {!r.vigilancia && r.quien && <span className={sobreFoto ? "text-white/90" : "text-foreground/80"}>{r.quien.name} · {ROL[r.quien.role] || r.quien.role}{r.quien.unidad ? ` · ${r.quien.unidad}` : ""}</span>}
             </span>
         );
@@ -82,7 +82,7 @@ export function SugerenciaRelectura({ r, sobreFoto, soloContexto, className }: {
                 </span>
                 <span className={cn("tabular-nums", sobreFoto ? "text-white/80" : "text-muted-foreground")}>{r.confianza != null ? `${Math.round(r.confianza * 100)} %` : ""}{dudosa ? " · dudosa" : ""}</span>
                 {negra && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-red-500/20 text-red-300 border border-red-500/50"><Ban size={9} /> Lista negra</span>}
-                {busqueda && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-200 border border-amber-500/50"><Search size={9} /> En búsqueda</span>}
+                {busqueda && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-200 border border-amber-500/50"><Search size={9} /> Lista Amarilla</span>}
                 {!r.vigilancia && r.quien && <span className={sobreFoto ? "text-white/90" : "text-foreground/80"}>{r.quien.name} · {ROL[r.quien.role] || r.quien.role}{r.quien.unidad ? ` · ${r.quien.unidad}` : ""}</span>}
             </span>
         </Pista>

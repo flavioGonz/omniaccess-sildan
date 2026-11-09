@@ -212,7 +212,7 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
         const at = atendida.get(`l:${l.id}`);
         out.push({
             id: `l:${l.id}`, fuente: "lpr", tipo: v?.category === "SEARCH" ? "EN_BUSQUEDA" : "LISTA_NEGRA",
-            titulo: v?.category === "SEARCH" ? "En búsqueda" : "Lista negra",
+            titulo: v?.category === "SEARCH" ? "Lista Amarilla" : "Lista negra",
             detalle: [v?.motivo || v?.label, l.direction === "EXIT" ? "salida" : "entrada"].filter(Boolean).join(" · ") || null,
             ts: l.timestamp.toISOString(), camara: l.device?.name || null, deviceId: l.deviceId, plate: ch,
             foto: l.snapshotPath || l.imagePath || null, tono: v?.category === "SEARCH" ? "aviso" : "mal",

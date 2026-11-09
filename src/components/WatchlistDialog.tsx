@@ -27,7 +27,7 @@ import { NIVELES } from "@/lib/padron";
  *  - La matrícula se ve como una matrícula (placa), no como un texto en negrita.
  *  - Cada categoría con su ícono y su tono: lista negra en rojo con prohibido, VIP en verde
  *    con estrella (es PERMITIDO: el violeta no decía nada), en búsqueda en ámbar con lupa.
- *  - En búsqueda, el motivo es lo importante —qué se busca y por qué— y es lo que se muestra
+ *  - Lista Amarilla, el motivo es lo importante —qué se busca y por qué— y es lo que se muestra
  *    en la captura del monitor cuando la cámara la lee: se pide así desde la carga.
  *  - Ninguna marca: «lectoras LPR», no el fabricante.
  *  - Cada fila abre el expediente (FichaVigilancia): desde cuándo, quién, dónde se la vio,
@@ -111,7 +111,7 @@ export function WatchlistDialog({ onClose, plateInicial }: {
     async function onAdd(force = false) {
         const p = plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
         if (!p) return;
-        if (category === "SEARCH" && !motivo.trim()) { toast.warning({ title: "Falta el motivo", description: "En búsqueda, el motivo es lo que ve el guardia en la captura: qué se busca y por qué." }); return; }
+        if (category === "SEARCH" && !motivo.trim()) { toast.warning({ title: "Falta el motivo", description: "Lista Amarilla, el motivo es lo que ve el guardia en la captura: qué se busca y por qué." }); return; }
         setSaving(true);
         try {
             const r = await addWatch({ plate: p, label: motivo.trim(), motivo: motivo.trim() || undefined, category, notify, force });
@@ -127,7 +127,7 @@ export function WatchlistDialog({ onClose, plateInicial }: {
     // La misma chapa, activa en la misma lista: cargarla otra vez sólo pisaba el motivo sin avisar.
     const enBase = useMatriculasEnBase([plate]);
     const yaEnEsta = (enBase.datos[plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")] || []).some((r) => r.donde === "vigilancia" && r.activa && r.categoria === category);
-    // Sin «En búsqueda» (función de LPR, apagada en San Nicolás) queda sólo la lista negra.
+    // Sin «Lista Amarilla» (función de LPR, apagada en San Nicolás) queda sólo la lista negra.
     const busquedaOn = useFuncion("LPR_BUSQUEDA");
     const categorias = WATCH_CATEGORY_LIST.filter((c) => busquedaOn || c.value !== "SEARCH");
     useEffect(() => { if (!busquedaOn && category === "SEARCH") setCategory("BLACKLISTED"); }, [busquedaOn, category]);
@@ -247,8 +247,8 @@ export function WatchlistDialog({ onClose, plateInicial }: {
                                 <Switch checked={notify} onCheckedChange={setNotify} aria-label="Avisar por Telegram y Notificaciones" />
                             </label>
                             <button onClick={() => onAdd()} disabled={saving || !plate.trim() || yaEnEsta}
-                                className="flex-1 h-11 rounded-[8px] bg-white text-[var(--mal)] text-[14px] font-extrabold flex items-center justify-center gap-1.5 disabled:opacity-50 hover:bg-white/90">
-                                {saving ? <Loader2 size={15} className="animate-spin" /> : <Ban size={15} />} {yaEnEsta ? (negra ? "Ya está en la lista negra" : "Ya está en búsqueda") : negra ? "Cargar en la lista negra" : "Cargar en búsqueda"}
+                                className={cn("flex-1 h-11 rounded-[8px] bg-white text-[14px] font-extrabold flex items-center justify-center gap-1.5 disabled:opacity-50 hover:bg-white/90", negra ? "text-[var(--mal)]" : "text-[var(--aviso)]")}>
+                                {saving ? <Loader2 size={15} className="animate-spin" /> : (negra ? <Ban size={15} /> : <Search size={15} />)} {yaEnEsta ? (negra ? "Ya está en la lista negra" : "Ya está en la Lista Amarilla") : negra ? "Cargar en la lista negra" : "Cargar en la Lista Amarilla"}
                             </button>
                         </div>
                     </section>
@@ -287,7 +287,7 @@ export function WatchlistDialog({ onClose, plateInicial }: {
                                                 className={cn("group flex items-center gap-3 px-6 py-3 cursor-pointer bg-black/0 hover:bg-black/15 transition-colors", !r.active && "opacity-55")}>
                                                 <Placa p={r.plate} />
                                                 <div className="min-w-0 flex-1">
-                                                    {busqueda && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/15 text-[10.5px] font-bold mb-1"><Search size={11} /> En búsqueda</span>}
+                                                    {busqueda && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/15 text-[10.5px] font-bold mb-1"><Search size={11} /> Lista Amarilla</span>}
                                                     <p className="text-[13px] font-semibold truncate">
                                                         {r.motivo || r.label || <span className="italic font-normal text-white/70">Sin motivo</span>}
                                                         {r.userName ? <span className="text-white/70 font-normal"> · {r.userName}</span> : null}
