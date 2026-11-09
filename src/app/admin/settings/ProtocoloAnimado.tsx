@@ -22,9 +22,10 @@ const FAMILIA: Record<string, string> = {
 const PORTERO = new Set(["gds", "push"]);
 
 const DIALOGOS: Record<string, Dialogo> = {
-    isapi: { protocolo: "ISAPI · HTTP digest", pasos: [
-        { de: "oa", txt: "GET /ISAPI/Event…" }, { de: "eq", txt: "401 · nonce digest" },
-        { de: "oa", txt: "GET + Authorization" }, { de: "eq", txt: "200 · XML (evento)" }] },
+    isapi: { protocolo: "ISAPI · alertStream (conexión persistente)", pasos: [
+        { de: "oa", txt: "GET /ISAPI/…/alertStream" }, { de: "eq", txt: "401 · nonce digest" },
+        { de: "oa", txt: "GET + Authorization" }, { de: "eq", txt: "stream abierto ↔ (queda vivo)" },
+        { de: "eq", txt: "⚡ evento (matrícula / rostro)" }, { de: "eq", txt: "⚡ evento… (en vivo)" }] },
     gds: { protocolo: "GDS HTTP API · challenge/response", pasos: [
         { de: "oa", txt: "login (cmd=login)" }, { de: "eq", txt: "ChallengeCode" },
         { de: "oa", txt: "md5(challenge·sal·clave)" }, { de: "eq", txt: "ResCode 0 · cookie" },
