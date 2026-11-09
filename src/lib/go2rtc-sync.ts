@@ -3,6 +3,10 @@ import net from "net";
 import yaml from "js-yaml";
 import { prisma } from "@/lib/prisma";
 import { getChannelMap, resolveNvrById } from "@/lib/nvr-resolve";
+import { tieneGpu } from "@/lib/clip-nvr";
+
+/** Transcode a H.264 del vivo: con GPU por VAAPI; sin GPU (p. ej. SST) por software, para que go2rtc no falle. */
+const TX = () => (tieneGpu() ? "#video=h264#hardware=vaapi" : "#video=h264");
 
 /** ¿Responde el puerto RTSP de este host? (para decidir directo-a-cámara vs NVR). */
 function tcpReachable(ip: string, port = 554, ms = 1500): Promise<boolean> {
@@ -79,8 +83,8 @@ async function writeStreams(name: string, nameHd: string, sd: string, hd: string
         let doc: any = {};
         if (fs.existsSync(CONFIG)) doc = (yaml.load(fs.readFileSync(CONFIG, "utf8")) as any) || {};
         if (!doc.streams || typeof doc.streams !== "object") doc.streams = {};
-        doc.streams[name] = [sd, `ffmpeg:${name}#video=h264#hardware=vaapi`];
-        doc.streams[nameHd] = [hd, `ffmpeg:${nameHd}#video=h264#hardware=vaapi`];
+        doc.streams[name] = [sd, `ffmpeg:${name}${TX()}`];
+        doc.streams[nameHd] = [hd, `ffmpeg:${nameHd}${TX()}`];
         try { fs.copyFileSync(CONFIG, `${CONFIG}.bak.auto.${Date.now()}`); } catch { }
         fs.writeFileSync(CONFIG, yaml.dump(doc, { lineWidth: 400 }), "utf8");
     } catch (e) { console.error("[go2rtc-sync] yaml:", (e as any)?.message); }
@@ -94,8 +98,8 @@ async function writeStreams(name: string, nameHd: string, sd: string, hd: string
             clearTimeout(t);
         } catch { }
     };
-    await put(name, sd, `ffmpeg:${name}#video=h264#hardware=vaapi`);
-    await put(nameHd, hd, `ffmpeg:${nameHd}#video=h264#hardware=vaapi`);
+    await put(name, sd, `ffmpeg:${name}${TX()}`);
+    await put(nameHd, hd, `ffmpeg:${nameHd}${TX()}`);
 }
 
 /**
@@ -158,7 +162,7 @@ export async function registrarCanalNvr(nvrId: string, ch: number): Promise<stri
     const put = async (n: string, src: string) => {
         try {
             const c = new AbortController(); const t = setTimeout(() => c.abort(), 5000);
-            await fetch(`${GO2RTC}/api/streams?name=${enc(n)}&src=${enc(src)}&src=${enc(`ffmpeg:${n}#video=h264#hardware=vaapi`)}`, { method: "PUT", signal: c.signal });
+            await fetch(`${GO2RTC}/api/streams?name=${enc(n)}&src=${enc(src)}&src=${enc(`ffmpeg:${n}${TX()}`)}`, { method: "PUT", signal: c.signal });
             clearTimeout(t);
         } catch { }
     };

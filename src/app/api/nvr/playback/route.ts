@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest } from "next/server";
 import { spawn } from "child_process";
 import { resolveNvrById } from "@/lib/nvr-resolve";
+import { tieneGpu } from "@/lib/clip-nvr";
 
 // El NVR Hikvision (DS-7732NXI, Sildan) interpreta starttime/endtime como HORA LOCAL
 // del equipo aunque lleven sufijo Z (verificado: ContentMgmt/search devuelve los
@@ -100,9 +101,12 @@ export async function GET(req: NextRequest) {
     // Decode por codec (solo ruta transcode): Dahua = H.264 -> GPU (VAAPI);
     // Hik HEVC -> decode por SOFTWARE (el VAAPI de HEVC de estos NVR corrompe: verde/gris).
     const isDahua = String(conn.brand || "").toUpperCase().includes("DAHUA");
-    const DEC = isDahua ? ["-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi"] : [];
-    const SWUP = isDahua ? [] : ["-vaapi_device", "/dev/dri/renderD128"];
-    const VF = isDahua ? "scale_vaapi=w=-2:h=720" : "scale=-2:720,format=nv12,hwupload";
+    // Sin GPU (no hay /dev/dri, p. ej. SST) los argumentos VAAPI hacen morir a ffmpeg: se codifica por software.
+    const hayGpu = tieneGpu();
+    const DEC = isDahua && hayGpu ? ["-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi"] : [];
+    const SWUP = isDahua || !hayGpu ? [] : ["-vaapi_device", "/dev/dri/renderD128"];
+    const VF = !hayGpu ? "scale=-2:720" : isDahua ? "scale_vaapi=w=-2:h=720" : "scale=-2:720,format=nv12,hwupload";
+    const ENC = (qp: string) => hayGpu ? ["-c:v", "h264_vaapi", "-qp", qp] : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-crf", qp, "-threads", "4"];
 
     // Modo "clip completo": genera un MP4 completo (faststart) a un archivo temporal y lo sirve
     // con Content-Length + soporte de rangos. Necesario para que el <video> reproduzca en el
@@ -116,7 +120,7 @@ export async function GET(req: NextRequest) {
             ? ["-allowed_media_types", "video", "-timeout", "10000000", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
                "-an", "-c:v", "copy", "-movflags", "+faststart", "-y", tmp]
             : [...DEC, "-allowed_media_types", "video", "-timeout", "10000000", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
-               "-an", ...SWUP, "-vf", VF, "-c:v", "h264_vaapi", "-qp", "23", "-movflags", "+faststart", "-y", tmp];
+               "-an", ...SWUP, "-vf", VF, ...ENC("23"), "-movflags", "+faststart", "-y", tmp];
         const ok = await new Promise<boolean>((resolve) => {
             const ff2 = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "ignore"] });
             const killer = setTimeout(() => { try { ff2.kill("SIGKILL"); } catch { } resolve(false); }, 45000);
@@ -162,7 +166,7 @@ export async function GET(req: NextRequest) {
             "-probesize", "500000", "-analyzeduration", "500000",
             ...DEC,
             "-timeout", "10000000", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
-            "-an", ...SWUP, "-vf", VF, "-c:v", "h264_vaapi", "-qp", "24",
+            "-an", ...SWUP, "-vf", VF, ...ENC("24"),
             "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000",
             "-f", "mp4", "pipe:1",
         ];
