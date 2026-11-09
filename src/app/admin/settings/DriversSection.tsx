@@ -121,7 +121,7 @@ function DriverDrawer({ soporte, onClose }: { soporte: Soporte | null; onClose: 
 
     return (
         <Cajon open={!!soporte} onOpenChange={(o: boolean) => { if (!o) onClose(); }}>
-            <CajonContenido ancho="medio" titulo={soporte ? `Driver ${soporte.rotulo}` : "Driver"}
+            <CajonContenido ancho="intermedio" titulo={soporte ? `Driver ${soporte.rotulo}` : "Driver"}
                 encabezado={soporte && e ? (
                     <div className="flex items-center gap-3">
                         <div className={cn("w-11 h-11 rounded-[8px] flex items-center justify-center shrink-0 overflow-hidden border border-border", logo ? "bg-white p-1" : "bg-muted")}>
