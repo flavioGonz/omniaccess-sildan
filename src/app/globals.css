@@ -1742,6 +1742,9 @@ video::-webkit-media-controls { display: none !important; }
   --aviso:       oklch(0.706 0.150 70);
   --aviso-texto: oklch(0.556 0.130 62);
   --aviso-suave: oklch(0.706 0.150 70 / 0.14);
+  /* Fondo del cajón de la Lista Amarilla (seguimiento): un ámbar lo bastante hondo para que el
+     texto blanco del cajón —el mismo diseño que el de la lista negra— se lea bien encima. */
+  --ambar-cajon: oklch(0.56 0.145 64);
 
   --mal:         oklch(0.597 0.216 17);
   --mal-texto:   oklch(0.540 0.200 17);
@@ -2402,6 +2405,32 @@ html:not(.dark) .visor-raiz .visor-zona .oa-ajuste-pop { background: var(--card)
   background: rgba(0, 0, 0, 0.2); color: #fff; border-color: rgba(255, 255, 255, 0.28);
 }
 .tema-rojo input:not(.bg-white)::placeholder { color: rgba(255, 255, 255, 0.55); }
+
+/* Gemelo ámbar de .tema-rojo para el cajón de la Lista Amarilla: mismo diseño (texto blanco
+   sobre color pleno), pero ámbar en vez de rojo, para distinguir seguimiento de alerta máxima. */
+.tema-ambar {
+  --background: var(--ambar-cajon);
+  --foreground: #fff;
+  --card: rgba(255, 255, 255, 0.08);
+  --card-foreground: #fff;
+  --muted: rgba(255, 255, 255, 0.12);
+  --muted-foreground: rgba(255, 255, 255, 0.78);
+  --border: rgba(255, 255, 255, 0.22);
+  --input: rgba(255, 255, 255, 0.3);
+  --ring: rgba(255, 255, 255, 0.7);
+  --accent: rgba(255, 255, 255, 0.14);
+  --accent-foreground: #fff;
+  --primary: #fff;
+  --primary-foreground: var(--ambar-cajon);
+  --accion: #fff;
+  background: var(--ambar-cajon);
+  color: #fff;
+}
+.tema-ambar .tono-mal, .tema-ambar .tono-aviso, .tema-ambar .tono-accion { color: #fff; }
+.tema-ambar .chip-mal, .tema-ambar .chip-aviso, .tema-ambar .chip-info, .tema-ambar .chip-bien {
+  background: rgba(0, 0, 0, 0.2); color: #fff; border-color: rgba(255, 255, 255, 0.28);
+}
+.tema-ambar input:not(.bg-white)::placeholder { color: rgba(255, 255, 255, 0.55); }
 
 /*
  * Un evento P1 de una central de alarma (22/10, Nico: «cuando son P1 la fila entera se pinta de rojo,
