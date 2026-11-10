@@ -506,3 +506,8 @@ export async function getDoblesCount(opts?: { from?: Date; to?: Date }) {
     if (opts?.from || opts?.to) { where.timestamp = {}; if (opts.from) where.timestamp.gte = opts.from; if (opts.to) where.timestamp.lte = opts.to; }
     try { return await prisma.accessEvent.count({ where }); } catch { return 0; }
 }
+
+/** Todas las cámaras LPR de Dispositivos (entrada, salida y apoyo), para el filtro del historial. */
+export async function getCamarasHistorial() {
+    return prisma.device.findMany({ where: { deviceType: "LPR_CAMERA" }, select: { name: true, direction: true }, orderBy: { name: "asc" } });
+}

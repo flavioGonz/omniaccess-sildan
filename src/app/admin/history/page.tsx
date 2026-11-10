@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getAccessEvents, getDoblesCount } from "@/app/actions/history";
+import { getAccessEvents, getDoblesCount, getCamarasHistorial } from "@/app/actions/history";
 import { Copy as DobleIco } from "lucide-react";
 import { getEnabledModules } from "@/app/actions/modules";
 import { logosPorMatricula } from "@/app/actions/empresas";
@@ -80,6 +80,9 @@ export default function HistoryPage() {
     const [ocultarDobles, setOcultarDobles] = useState(true);
     const [dobles, setDobles] = useState(0);
     const [selectedCams, setSelectedCams] = useState<Set<string>>(new Set());
+    // Cámaras LPR de Dispositivos (todas, no sólo las que aparecen en lo ya cargado), con su clasificación.
+    const [camsDisp, setCamsDisp] = useState<{ name: string; direction: string | null }[]>([]);
+    useEffect(() => { getCamarasHistorial().then((r: any) => setCamsDisp(r || [])).catch(() => {}); }, []);
     const [logos, setLogos] = useState<Record<string, any>>({});
     /** La ficha: una sola instancia para todo el historial. */
     const [ficha, setFicha] = useState<{ evt: Ev; auto: boolean; n: number } | null>(null);
@@ -117,7 +120,7 @@ export default function HistoryPage() {
 
     const exportJson = async () => {
         try {
-            const resp: any = await getAccessEvents({ take: 100000, skip: 0, search: searchTerm, decision: filterDecision, type: filterType, direction: filterDirection, from: fromDT(), to: toDT(), omitEnrichment: true });
+            const resp: any = await getAccessEvents({ take: 100000, skip: 0, search: searchTerm, decision: filterDecision, type: filterType, deviceDirection: filterDirection, deviceNames: selectedCams.size ? [...selectedCams] : undefined, from: fromDT(), to: toDT(), omitEnrichment: true } as any);
             const evs = (resp.events || []).map((e: any) => ({ id: e.id, timestamp: e.timestamp, createdAt: e.createdAt, accessType: e.accessType, credentialId: e.credentialId, decision: e.decision, direction: e.direction, plateDetected: e.plateDetected, plateNumber: e.plateNumber, location: e.location, snapshotPath: e.snapshotPath, imagePath: e.imagePath, details: e.details, deviceName: e.device?.name || null }));
             const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), count: evs.length, events: evs }, null, 2)], { type: "application/json" });
             const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `omniaccess-historial-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url);
@@ -129,7 +132,7 @@ export default function HistoryPage() {
     const paginaRef = useRef(0);
     const cargandoRef = useRef(false);
     const pedidoRef = useRef(0);
-    const filtros = { searchTerm, filterDecision, filterType, filterDirection, rango, ocultarDobles };
+    const filtros = { searchTerm, filterDecision, filterType, filterDirection, rango, ocultarDobles, selectedCams };
     const filtrosRef = useRef(filtros);
     filtrosRef.current = filtros;
     const tam = PAGINA[vista];
@@ -142,7 +145,10 @@ export default function HistoryPage() {
         cargandoRef.current = true; setLoading(true);
         try {
             const { events: nuevos, total }: any = await getAccessEvents({
-                take: tam, skip: reset ? 0 : events.length, search: f.searchTerm, decision: f.filterDecision, type: f.filterType, direction: f.filterDirection,
+                take: tam, skip: reset ? 0 : events.length, search: f.searchTerm, decision: f.filterDecision, type: f.filterType,
+                // Entrada / Salida según la clasificación de la cámara en Dispositivos, y las cámaras elegidas, en el servidor
+                // (antes se filtraban sólo las filas ya cargadas: con scroll faltaban eventos).
+                deviceDirection: f.filterDirection, deviceNames: f.selectedCams.size ? [...f.selectedCams] : undefined,
                 from: f.rango.desde ? new Date(`${f.rango.desde}T${f.rango.horaDesde || "00:00"}:00`) : undefined,
                 to: f.rango.hasta ? new Date(`${f.rango.hasta}T${f.rango.horaHasta || "23:59"}:59`) : undefined,
                 conTotal: reset, sinDobles: f.ocultarDobles,
@@ -165,7 +171,7 @@ export default function HistoryPage() {
     useEffect(() => {
         const t = setTimeout(() => loadData(true), 350);
         return () => clearTimeout(t);
-    }, [searchTerm, filterDecision, filterType, filterDirection, rango, vista, ocultarDobles]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [searchTerm, filterDecision, filterType, filterDirection, rango, vista, ocultarDobles, selectedCams]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Scroll infinito con un centinela al final (no un observer por fila).
     const centinela = useRef<HTMLDivElement>(null);
@@ -180,10 +186,12 @@ export default function HistoryPage() {
     useEffect(() => {
         const socket = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
         socket.on("access_event", (event: Ev) => {
-            const { searchTerm: q, filterDecision: fd, filterType: ft, filterDirection: fdir, rango: r } = filtrosRef.current;
+            const { searchTerm: q, filterDecision: fd, filterType: ft, filterDirection: fdir, rango: r, selectedCams: sc } = filtrosRef.current;
+            const dirCam = (event as any).device?.direction || event.direction;
             const s = q.toLowerCase();
             const ok = (!q || event.plateDetected?.toLowerCase().includes(s) || event.user?.name?.toLowerCase().includes(s) || event.device?.name?.toLowerCase().includes(s))
-                && (fd === "ALL" || event.decision === fd) && (ft === "ALL" || event.accessType === ft) && (fdir === "ALL" || event.direction === fdir);
+                && (fd === "ALL" || event.decision === fd) && (ft === "ALL" || event.accessType === ft) && (fdir === "ALL" || dirCam === fdir)
+                && (sc.size === 0 || sc.has(event.device?.name || ""));
             const ts = new Date(event.timestamp);
             const desde = r.desde ? new Date(`${r.desde}T${r.horaDesde || "00:00"}:00`) : null;
             const hasta = r.hasta ? new Date(`${r.hasta}T${r.horaHasta || "23:59"}:59`) : null;
@@ -197,7 +205,11 @@ export default function HistoryPage() {
     }, []);
 
     const vehFacets = useMemo(() => collectVehicleFacets(events), [events]);
-    const camList = useMemo(() => { const set = new Set<string>(); events.forEach((e: any) => { const nm = e.device?.name || e.deviceName; if (e.accessType === "PLATE" && nm) set.add(nm); }); return Array.from(set).sort((a, b) => a.localeCompare(b)); }, [events]);
+    const camList = useMemo(() => { const set = new Set<string>(camsDisp.map((c) => c.name)); events.forEach((e: any) => { const nm = e.device?.name || e.deviceName; if (e.accessType === "PLATE" && nm) set.add(nm); }); return Array.from(set).sort((a, b) => a.localeCompare(b)); }, [events, camsDisp]);
+    const dirDeCam = useMemo(() => new Map(camsDisp.map((c) => [c.name, c.direction])), [camsDisp]);
+    // Al elegir Entrada o Salida, sólo se ofrecen (y quedan marcadas) las cámaras de ese sentido.
+    const camsVisibles = useMemo(() => camList.filter((n) => filterDirection === "ALL" || dirDeCam.get(n) === filterDirection), [camList, dirDeCam, filterDirection]);
+    useEffect(() => { if (filterDirection === "ALL") return; setSelectedCams((s) => { const n = new Set([...s].filter((c) => dirDeCam.get(c) === filterDirection)); return n.size === s.size ? s : n; }); }, [filterDirection, dirDeCam]);
     const displayEvents = useMemo(() => events
         .filter((e) => !filterMerodeo || merodeoSet.has(cleanPlate(e.plateDetected)))
         .filter((e) => {
@@ -283,7 +295,7 @@ export default function HistoryPage() {
                 <span className="h-6 w-px bg-border mx-0.5" />
 
                 {(activeMode === null || activeMode === "LPR") && (
-                    <SelectorCamaras lista={camList} sel={selectedCams} alCambiar={setSelectedCams} />
+                    <SelectorCamaras lista={camsVisibles} dirs={dirDeCam} sel={selectedCams} alCambiar={setSelectedCams} />
                 )}
                 {(vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
                     <Popover>
@@ -408,7 +420,7 @@ function Chips({ titulo, opciones, valor, alCambiar }: { titulo: string; opcione
     );
 }
 
-function SelectorCamaras({ lista, sel, alCambiar }: { lista: string[]; sel: Set<string>; alCambiar: (s: Set<string>) => void }) {
+function SelectorCamaras({ lista, dirs, sel, alCambiar }: { lista: string[]; dirs?: Map<string, string | null>; sel: Set<string>; alCambiar: (s: Set<string>) => void }) {
     return (
         <Popover>
             <PopoverTrigger asChild>
@@ -422,13 +434,14 @@ function SelectorCamaras({ lista, sel, alCambiar }: { lista: string[]; sel: Set<
                     {sel.size > 0 && <button onClick={() => alCambiar(new Set())} className="text-[11px] text-blue-500 hover:underline">Limpiar</button>}
                 </div>
                 <div className="max-h-72 overflow-y-auto">
-                    {lista.length === 0 && <div className="text-xs text-muted-foreground px-2 py-2">Sin cámaras en lo cargado.</div>}
+                    {lista.length === 0 && <div className="text-xs text-muted-foreground px-2 py-2">No hay cámaras LPR con ese sentido.</div>}
                     {lista.map((name) => {
                         const on = sel.has(name); return (
                             <button key={name} onClick={() => { const s = new Set(sel); if (on) s.delete(name); else s.add(name); alCambiar(s); }}
                                 className={cn("w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[12.5px] text-left transition-colors", on ? "bg-blue-500/12 text-foreground" : "hover:bg-accent text-muted-foreground")}>
                                 <span className={cn("w-4 h-4 rounded border grid place-items-center shrink-0", on ? "bg-blue-600 border-blue-600" : "border-border")}>{on && <Check size={11} className="text-white" />}</span>
-                                <span className="truncate">{name}</span>
+                                <span className="truncate flex-1">{name}</span>
+                                {dirs?.get(name) === "ENTRY" ? <ArrowDownLeft size={12} className="text-emerald-500 shrink-0" /> : dirs?.get(name) === "EXIT" ? <ArrowUpRight size={12} className="text-orange-500 shrink-0" /> : dirs?.get(name) === "NONE" ? <span className="text-[9px] font-bold text-sky-500 shrink-0">APOYO</span> : null}
                             </button>
                         );
                     })}
@@ -481,8 +494,8 @@ const Fila = memo(function Fila({ evt, merodeo, nvr, empresa, abrir, recargar }:
             </td>
             <td className="px-3 py-2">
                 <p className="text-[12px] text-muted-foreground font-medium truncate max-w-[180px]">{evt.device?.name || "Terminal"}</p>
-                <div className={cn("flex items-center gap-1 text-[10px] font-semibold mt-0.5", evt.direction === "ENTRY" ? "text-emerald-500" : "text-orange-500")}>
-                    {evt.direction === "ENTRY" ? <ArrowDownLeft size={10} /> : <ArrowUpRight size={10} />}{evt.direction === "ENTRY" ? "Entrada" : "Salida"}
+                <div className={cn("flex items-center gap-1 text-[10px] font-semibold mt-0.5", evt.direction === "ENTRY" ? "text-emerald-500" : (evt.direction as any) === "NONE" ? "text-sky-500" : "text-orange-500")}>
+                    {evt.direction === "ENTRY" ? <ArrowDownLeft size={10} /> : (evt.direction as any) === "NONE" ? null : <ArrowUpRight size={10} />}{evt.direction === "ENTRY" ? "Entrada" : (evt.direction as any) === "NONE" ? "Apoyo" : "Salida"}
                 </div>
             </td>
             <td className="px-3 py-2">
@@ -547,7 +560,7 @@ const Tarjeta = memo(function Tarjeta({ evt, vista, grande, merodeo, nvr, empres
                 <span className="min-w-0">
                     <span className={cn("block font-mono font-bold tracking-wider text-white truncate", grande || !bento ? "text-[17px]" : "text-[12.5px]")}>{placa}</span>
                     <span className={cn("block text-white/75 truncate tabular-nums", bento && !grande ? "text-[9.5px]" : "text-[11px]")}>
-                        {hora(evt.timestamp).slice(0, 5)} · {evt.direction === "EXIT" ? "Salida" : "Entrada"}{(!bento || grande) && evt.user?.name ? ` · ${evt.user.name}` : ""}
+                        {hora(evt.timestamp).slice(0, 5)} · {evt.direction === "EXIT" ? "Salida" : (evt.direction as any) === "NONE" ? "Apoyo" : "Entrada"}{(!bento || grande) && evt.user?.name ? ` · ${evt.user.name}` : ""}
                     </span>
                     {(!bento || grande) && <span className="block text-[10px] text-white/55 truncate">{fecha(evt.timestamp)} · {evt.device?.name || "—"}</span>}
                 </span>
