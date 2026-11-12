@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, Check, ClipboardPaste, ImagePlus, Link2, Loader2, Upload, Video, X } from "lucide-react";
+import { CalendarClock, Camera, Check, ClipboardPaste, ImagePlus, Link2, Loader2, Upload, Video, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CURVA_SUAVE } from "@/components/ui/entrada";
 import type { FotoFila } from "@/lib/detector-propio";
+import { CapturasProgramadas } from "@/components/vision/entrenar/CapturasProgramadas";
 
 /**
  * Agregar fotos al conjunto: soltarlas, elegirlas, o sacarle una foto a una cámara.
@@ -93,6 +94,15 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
         }).catch(() => { });
     }, []);
     const grupos = canales ? [...new Set(canales.map((c) => c.grupo))] : [];
+    /**
+     * Capturas programadas (12/11, Nico: «sacar capturas de las escenas cada x tiempo»). El cajón
+     * avisa cuando entraron o se descartaron fotos; el aviso es estable entre renders porque el
+     * cajón lo usa en su refresco, y `alAgregar` llega nuevo cada vez.
+     */
+    const [programar, setProgramar] = useState(false);
+    const alAgregarAhora = useRef(alAgregar);
+    alAgregarAhora.current = alAgregar;
+    const fotosCambiaron = useCallback(() => alAgregarAhora.current([], false), []);
     const [sacando, setSacando] = useState(false);
     const archivos = useRef<HTMLInputElement>(null);
     const [texto, setTexto] = useState("");
@@ -290,11 +300,17 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
                         <span className="pointer-events-none absolute right-2 text-[9px] opacity-70">▼</span>
                     </label>
                     <Button onClick={sacarFoto} disabled={!camara || sacando}>{sacando ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />} Sacar foto ahora</Button>
-                    <p className="text-[11px] text-muted-foreground leading-snug">El cuadro de este momento en máxima resolución. Volvé a la mañana, a la tarde y de noche.</p>
+                    <p className="text-[11px] text-muted-foreground leading-snug">El cuadro de este momento en máxima resolución. Para la mañana, la tarde y la noche, que las junte sola:</p>
+                    <Button variant="outline" onClick={() => setProgramar(true)}><CalendarClock size={14} /> Programar capturas</Button>
                 </div>
             </div>
 
             <p className="text-[11px] text-muted-foreground px-1">También: <kbd className="px-1 rounded bg-muted">Ctrl</kbd>+<kbd className="px-1 rounded bg-muted">V</kbd> en cualquier parte de esta página pega una imagen copiada o un link, y se puede arrastrar una imagen desde otra pestaña. Una sola foto se abre para dibujar; una tanda queda en «Sin dibujar».</p>
+
+            {programar && (
+                <CapturasProgramadas alCerrar={() => setProgramar(false)} alCambiarFotos={fotosCambiaron}
+                    canales={canales || camaras.map((c) => ({ id: c.id, nombre: c.name, grupo: "Cámaras" }))} />
+            )}
 
             {/* La tanda que sube: total arriba, cada foto con su avance. */}
             <AnimatePresence initial={false}>

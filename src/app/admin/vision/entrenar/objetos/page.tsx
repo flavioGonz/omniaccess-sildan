@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Boxes, ChevronDown, ImagePlus, Info, Pencil, Plus, Trash2, Thermometer } from "lucide-react";
+import { ArrowLeft, ArrowRight, Boxes, CalendarClock, ChevronDown, ImagePlus, Info, Pencil, Plus, Trash2, Thermometer } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
+import { fechaHora, hora } from "@/lib/fechas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Filtros } from "@/components/ui/filtros";
@@ -281,6 +282,8 @@ export default function ObjetosPropios() {
                                         </div>
                                         <div className="px-2.5 py-1.5 text-[11.5px] text-muted-foreground flex items-center gap-1.5">
                                             <span className="truncate">{f.camara || (f.origen === "SUBIDA" ? "Subida" : "Registro")}</span>
+                                            {/* La tomó una programación: a qué hora importa (de día y de noche son dos imágenes distintas). */}
+                                            {f.programada && <span title={`Programada: la tomó una programación de capturas el ${fechaHora(f.createdAt)}`} className="inline-flex items-center gap-1 shrink-0 tabular-nums"><CalendarClock size={11} /> {hora(f.createdAt)}</span>}
                                             <span className={cn("ml-auto tabular-nums", !f.revisada && "font-semibold text-foreground")}>{f.revisada ? (f.cajas.length ? `${f.cajas.length} ${f.cajas.length === 1 ? "recuadro" : "recuadros"}` : "sin el objeto") : "sin dibujar"}</span>
                                         </div>
                                     </button>
