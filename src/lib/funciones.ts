@@ -93,8 +93,8 @@ export const FUNCIONES: Funcion[] = [
         alcance: "modulo",
         modulo: "MODULE_LPR",
         nombre: "Matrículas «Lista Amarilla»",
-        que: "Un segundo nivel de la lista negra: la matrícula pasa, pero al leerla se avisa con el motivo (ámbar en el monitor y en los avisos).",
-        siSeApaga: "Queda sólo la lista negra (alerta máxima): se deja de ofrecer «Lista Amarilla» al cargar, desaparece de las listas y de los filtros, y no salta ningún aviso de búsqueda (20/10: San Nicolás no la usa). Las cargadas no se borran.",
+        que: "Una lista aparte de la lista negra, para vehículos en seguimiento: la matrícula pasa, pero al leerla se avisa con el motivo (ámbar en el monitor y en los avisos). Tiene su pestaña en Usuarios y su entrada en el menú.",
+        siSeApaga: "Queda sólo la lista negra (alerta máxima): desaparecen la pestaña y la entrada del menú «Lista Amarilla», se deja de ofrecer al cargar y no salta ningún aviso de seguimiento. Las cargadas no se borran.",
         porDefecto: true,
     },
     {
