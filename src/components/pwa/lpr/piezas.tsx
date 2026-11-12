@@ -16,6 +16,7 @@ import { Camera, Car } from "lucide-react";
 import { AnimatePresence, motion, useDragControls } from "framer-motion";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+import { codecsVivo } from "@/lib/codec-vivo";
 
 /** Lo que la cámara manda cuando no hay chapa: no es una matrícula. */
 const ANOMALAS = ["NO_LEIDA", "NOLEIDA", "UNKNOWN", "S/P", "SP", "DOOR_OPEN", "DOOR_CLOSE", ""];
@@ -67,7 +68,7 @@ export function VivoCanal({ deviceId, className, alEstado }: { deviceId: string;
         const v = ref.current; if (!v) return;
         let fin = false; let timer: any;
         reintentos.current = 0; setListo(false); setFallo(false); alEstado?.("cargando");
-        const src = `/go2rtc/api/stream.mp4?src=lpr_${deviceId}&video=h264`;
+        const src = `/go2rtc/api/stream.mp4?src=lpr_${deviceId}&video=${codecsVivo()}`;
         const arrancar = () => { if (fin) return; v.src = src; v.play().catch(() => {}); };
         const enVivo = () => { if (!fin) { setListo(true); alEstado?.("vivo"); } };
         const error = () => {

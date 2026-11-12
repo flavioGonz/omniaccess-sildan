@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PtzControls } from "@/components/PtzControls";
+import { codecsVivo } from "@/lib/codec-vivo";
 
 /**
  * Calibrador de INTRUSIÓN, calcado del calibrador LPR (CameraCalibrator): el video en vivo arriba,
@@ -56,7 +57,7 @@ function LiveVideo({ streamName, deviceId }: { streamName: string; deviceId: str
     useEffect(() => {
         const video = videoRef.current; if (!video || !streamName) { setFailed(true); return; }
         let tries = 0, stopped = false, wd: any = null;
-        const src = () => `/go2rtc/api/stream.mp4?src=${encodeURIComponent(streamName)}&video=h264&t=${Date.now()}`;
+        const src = () => `/go2rtc/api/stream.mp4?src=${encodeURIComponent(streamName)}&video=${codecsVivo()}&t=${Date.now()}`;
         const arm = () => { clearTimeout(wd); wd = setTimeout(() => { if (stopped) return; if ((video.readyState < 3 || video.paused) && tries++ < 6) start(); else if (tries >= 6) setFailed(true); }, 3500); };
         const start = () => { if (stopped) return; setFailed(false); try { video.src = src(); video.play().catch(() => { }); } catch { } arm(); };
         const onErr = () => { if (stopped) return; if (tries++ < 6) setTimeout(start, 1300); else setFailed(true); };

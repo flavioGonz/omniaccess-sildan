@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { DurationPicker } from "@/components/ui/duration-picker";
 import { fecha, fechaCorta, hora, horaSeg } from "@/lib/fechas";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
+import { codecsVivo } from "@/lib/codec-vivo";
 
 type Tab = "grabacion" | "vivo" | "evidencia";
 
@@ -71,7 +72,7 @@ const glassBtn = "bg-white/[0.07] hover:bg-white/[0.14] backdrop-blur-xl border 
 function LiveMp4({ deviceId, className }: { deviceId: string; className?: string }) {
     const ref = useRef<HTMLVideoElement>(null);
     const tries = useRef(0);
-    const src = `/go2rtc/api/stream.mp4?src=lpr_${deviceId}_hd&video=h264`;
+    const src = `/go2rtc/api/stream.mp4?src=lpr_${deviceId}_hd&video=${codecsVivo()}`;
     useEffect(() => {
         const v = ref.current; if (!v) return; tries.current = 0;
         v.src = src; v.play().catch(() => {});

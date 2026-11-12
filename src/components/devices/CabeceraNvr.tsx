@@ -7,6 +7,7 @@ import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
 import { TIPOS_REGLA, TIPOS_RETIRADOS, type ReglaVision } from "@/lib/vision-reglas";
 import { CajonCerrar } from "@/components/ui/cajon";
 import { cn } from "@/lib/utils";
+import { codecsVivo } from "@/lib/codec-vivo";
 
 /**
  * La cabecera de la ficha de un NVR: el grabador dibujado como un switch (Nico, 14/10).
@@ -372,7 +373,7 @@ export function CabeceraNvr({ device, titulo, subtitulo, ip, mac, detectando, pu
                                                 className={cn("absolute inset-0 w-full h-full object-cover transition-opacity", vivo.listo ? "opacity-0" : "opacity-100")}
                                                 onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
                                             {vivo.stream && !vivo.falla && (
-                                                <video key={vivo.stream} src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(vivo.stream)}&video=h264`} autoPlay muted playsInline
+                                                <video key={vivo.stream} src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(vivo.stream)}&video=${codecsVivo()}`} autoPlay muted playsInline
                                                     onPlaying={() => setVivo((v) => (v ? { ...v, listo: true } : v))} onError={() => setVivo((v) => (v ? { ...v, falla: true } : v))}
                                                     className={cn("absolute inset-0 w-full h-full object-cover transition-opacity", vivo.listo ? "opacity-100" : "opacity-0")} />
                                             )}

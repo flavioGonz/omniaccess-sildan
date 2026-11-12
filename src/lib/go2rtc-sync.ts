@@ -1,3 +1,4 @@
+import path from "path";
 import fs from "fs";
 import net from "net";
 import { spawn } from "child_process";
@@ -190,11 +191,36 @@ async function nvrRtspResponde(nvr: { ip: string; user: string; pass: string; rt
     _rtspNvr.set(k, { ok, al: Date.now() });
     return ok;
 }
-/** Origen go2rtc del vivo de un canal de NVR Dahua por HTTP (MJPEG del sub-stream → H.264). */
-async function vivoHttpDahua(nvr: { ip: string; user: string; pass: string }, ch: number): Promise<string> {
+/*
+ * Vivo de un canal de NVR Dahua sin RTSP publicado (sólo el puerto 80, p. ej. por internet).
+ * Antes iba por el MJPEG del sub-stream (/cgi-bin/mjpg/video.cgi) y ffmpeg lo pasaba a H.264 por
+ * CPU: ~12 s al primer cuadro y un proceso ffmpeg por cámara. Ahora va por el RTSP que el NVR
+ * ofrece dentro de un WebSocket en el 80 (`/rtspoverwebsocket`, el del web V5), a través del
+ * puente local `dahua-puente.js` (PM2 `dahua-puente`): go2rtc recibe el H.265/H.264 original
+ * y lo entrega tal cual al navegador que lo reproduce. El transcode a H.264 queda sólo como
+ * respaldo para el navegador que no decodifica H.265.
+ * Change openspec nvr-dahua-wizsense, tarea 2.2.
+ */
+const PUERTO_PUENTE = Number(process.env.DAHUA_PUENTE_PUERTO || 8556);
+const ARCHIVO_PUENTE = path.join(process.cwd(), "data", "dahua-puente.json");
+function registrarEnPuente(id: string, nvr: { ip: string; user: string; pass: string }, hostPuerto: string) {
+    try {
+        const [host, puerto] = hostPuerto.split(":");
+        fs.mkdirSync(path.dirname(ARCHIVO_PUENTE), { recursive: true });
+        let doc: any = {};
+        try { doc = JSON.parse(fs.readFileSync(ARCHIVO_PUENTE, "utf8")); } catch { }
+        const nuevo = { host, port: Number(puerto) || 80, user: nvr.user || "admin", pass: nvr.pass || "" };
+        if (JSON.stringify(doc[id]) === JSON.stringify(nuevo)) return;
+        doc[id] = nuevo;
+        fs.writeFileSync(ARCHIVO_PUENTE, JSON.stringify(doc, null, 2), { mode: 0o600 });
+        try { fs.chmodSync(ARCHIVO_PUENTE, 0o600); } catch { }
+    } catch (e) { console.error("[go2rtc-sync] puente dahua:", (e as any)?.message); }
+}
+async function vivoPuenteDahua(nvrId: string, nvr: { ip: string; user: string; pass: string }, ch: number): Promise<{ sd: string; hd: string }> {
     const { hostHttp } = await import("@/lib/host-http");
-    const h = await hostHttp(nvr.ip);
-    return `ffmpeg:http://${enc(nvr.user || "admin")}:${enc(nvr.pass || "")}@${h}/cgi-bin/mjpg/video.cgi?channel=${ch}&subtype=1#video=h264`;
+    registrarEnPuente(nvrId, nvr, await hostHttp(nvr.ip));
+    const base = `rtsp://127.0.0.1:${PUERTO_PUENTE}/${nvrId}/cam/realmonitor?channel=${ch}`;
+    return { sd: `${base}&subtype=1`, hd: `${base}&subtype=0` };
 }
 
 export async function syncLprStream(dev: Dev): Promise<void> {
@@ -247,13 +273,11 @@ export async function syncLprStream(dev: Dev): Promise<void> {
                         // «Responde» es que entrega video, no que el puerto esté abierto (ver rtspResponde).
                         const direct = (await tcpReachable(dev.ip, 554, 1500)) && (await rtspResponde(rtspDirect(dev, "102")));
                         // NVR Dahua sin el RTSP publicado (sólo el 80, p. ej. por internet): el vivo va por el
-                        // MJPEG del sub-stream por HTTP (/cgi-bin/mjpg/video.cgi), que ffmpeg lee con digest
-                        // y go2rtc pasa a H.264. Change openspec nvr-dahua-wizsense.
-                        if (!direct && String(nvr.brand).toUpperCase() === "DAHUA" && !(await nvrRtspResponde(nvr, entry.ch))) {
-                            const http = await vivoHttpDahua(nvr, entry.ch);
-                            console.log(`[go2rtc-sync] ${dev.ip} vivo por HTTP (MJPEG del NVR Dahua, sin RTSP)`);
-                            await writeStreamSolo(name, http);
-                            await writeStreamSolo(nameHd, http);
+                        // RTSP que el NVR ofrece dentro de un WebSocket en el 80 (ver vivoPuenteDahua).
+                        if (!direct && entry.nvrId && String(nvr.brand).toUpperCase() === "DAHUA" && !(await nvrRtspResponde(nvr, entry.ch))) {
+                            const { sd, hd } = await vivoPuenteDahua(entry.nvrId, nvr, entry.ch);
+                            console.log(`[go2rtc-sync] ${dev.ip} vivo por el puente RTSP-WebSocket del NVR Dahua (sin 554)`);
+                            await writeStreams(name, nameHd, sd, hd);
                             return;
                         }
                         const sd = direct ? rtspDirect(dev, "102") : rtspViaNvr(nvr, entry.ch, false);

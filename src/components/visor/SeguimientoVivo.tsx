@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Camera, Crosshair } from "lucide-react";
 import { getIntrusionCameras, getVisualTrackLinks, type IntrusionCam, type TrackLink } from "@/app/actions/detections";
+import { codecsVivo } from "@/lib/codec-vivo";
 
 /**
  * El seguimiento visual sobre el vivo del visor: los íconos de cámara que se cargaron en el
@@ -41,7 +42,7 @@ export function SeguimientoVivo({ deviceId, onSeguir }: { deviceId: string; onSe
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src={`/api/snapshot/${c.id}?w=320&t=hover`} alt="" className="absolute inset-0 w-full h-full object-cover" />
                                     {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                                    <video autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${c.id}`)}&video=h264`} className="absolute inset-0 w-full h-full object-cover" />
+                                    <video autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${c.id}`)}&video=${codecsVivo()}`} className="absolute inset-0 w-full h-full object-cover" />
                                     <span className="absolute top-1 left-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/55 text-[8px] font-extrabold uppercase tracking-wide text-amber-300"><Crosshair size={7} /> Seguir</span>
                                 </div>
                                 <div className="px-2 py-1.5 text-white text-[11px] font-bold truncate text-left">{c.name}</div>

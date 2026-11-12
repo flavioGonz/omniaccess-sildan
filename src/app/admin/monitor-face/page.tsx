@@ -29,6 +29,7 @@ import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getImagePath } from "@/lib/image-path";
 import { getSocketUrl } from "@/lib/socket-config";
+import { codecsVivo } from "@/lib/codec-vivo";
 
 interface FullAccessEvent extends AccessEvent {
     user: {
@@ -85,7 +86,7 @@ function FLiveVideo({ deviceId, className }: { deviceId: string; className?: str
     useEffect(() => {
         const video = videoRef.current; if (!video) return;
         let destroyed = false; let timer: any;
-        const src = `/go2rtc/api/stream.mp4?src=face_${deviceId}&video=h264`;
+        const src = `/go2rtc/api/stream.mp4?src=face_${deviceId}&video=${codecsVivo()}`;
         const start = () => { if (destroyed || !video) return; video.src = src; video.play().catch(() => {}); };
         const onPlaying = () => { if (!destroyed) setReady(true); };
         const onError = () => { if (destroyed) return; setReady(false); retry.current++; if (retry.current > 3) { setFailed(true); return; } timer = setTimeout(start, Math.min(900 * retry.current, 4000)); };

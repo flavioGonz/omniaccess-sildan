@@ -1,181 +1,188 @@
 {
-    "apps": [
-        {
-            "name": "omniaccess-web",
-            "script": "npm",
-            "args": "start",
-            "cwd": "./",
-            "instances": 1,
-            "exec_mode": "fork",
-            "autorestart": true,
-            "watch": false,
-            "max_memory_restart": "1G",
-            "env": {
-                "NODE_ENV": "production",
-                "PORT": "10001"
-            },
-            "error_file": "./logs/web-error.log",
-            "out_file": "./logs/web-out.log",
-            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
-            "merge_logs": true
-        },
-        {
-            "name": "omniaccess-webhooks",
-            "script": "server.js",
-            "cwd": "./",
-            "instances": 1,
-            "exec_mode": "fork",
-            "autorestart": true,
-            "watch": false,
-            "max_memory_restart": "512M",
-            "env": {
-                "NODE_ENV": "production",
-                "WEBHOOK_PORT": "10000",
-                "HOST": "0.0.0.0"
-            },
-            "error_file": "./logs/webhooks-error.log",
-            "out_file": "./logs/webhooks-out.log",
-            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
-            "merge_logs": true
-        },
-        {
-            "name": "tracking-worker",
-            "script": "tracking-worker.js",
-            "cwd": "./",
-            "instances": 1,
-            "exec_mode": "fork",
-            "autorestart": true,
-            "watch": false,
-            "max_memory_restart": "768M",
-            "env": {
-                "NODE_ENV": "production"
-            },
-            "error_file": "./logs/tracking-error.log",
-            "out_file": "./logs/tracking-out.log",
-            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
-            "merge_logs": true
-        },
-        {
-            "name": "dispatch-worker",
-            "script": "dispatch-worker.js",
-            "cwd": "./",
-            "instances": 1,
-            "exec_mode": "fork",
-            "autorestart": true,
-            "watch": false,
-            "max_memory_restart": "512M",
-            "env": {
-                "NODE_ENV": "production"
-            },
-            "error_file": "./logs/dispatch-worker-error.log",
-            "out_file": "./logs/dispatch-worker-out.log",
-            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
-            "merge_logs": true
-        },
-        {
-            "name": "omniaccess-vigia",
-            "script": "vigia.js",
-            "cwd": "./",
-            "instances": 1,
-            "exec_mode": "fork",
-            "autorestart": true,
-            "watch": false,
-            "max_memory_restart": "256M",
-            "env": {
-                "NODE_ENV": "production"
-            },
-            "error_file": "./logs/vigia-error.log",
-            "out_file": "./logs/vigia-out.log",
-            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
-            "merge_logs": true
-        },
-        {
-            "name": "vision-worker",
-            "script": "vision-worker.js",
-            "cwd": "./",
-            "instances": 1,
-            "exec_mode": "fork",
-            "autorestart": true,
-            "watch": false,
-            "max_memory_restart": "384M",
-            "env": {
-                "NODE_ENV": "production"
-            },
-            "error_file": "./logs/vision-error.log",
-            "out_file": "./logs/vision-out.log",
-            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
-            "merge_logs": true
-        },
-        {
-            "name": "omniaccess-entrenador",
-            "script": "scripts/entrenador.js",
-            "cwd": "./",
-            "instances": 1,
-            "exec_mode": "fork",
-            "autorestart": true,
-            "watch": false,
-            "max_memory_restart": "256M",
-            "env": {
-                "NODE_ENV": "production"
-            },
-            "error_file": "./logs/entrenador-error.log",
-            "out_file": "./logs/entrenador-out.log",
-            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
-            "merge_logs": true
-        },
-        {
-            "name": "telegram-bot",
-            "script": "telegram-bot.js",
-            "cwd": "./",
-            "instances": 1,
-            "exec_mode": "fork",
-            "autorestart": true,
-            "watch": false,
-            "max_memory_restart": "300M",
-            "env": {
-                "NODE_ENV": "production"
-            },
-            "error_file": "./logs/telegram-error.log",
-            "out_file": "./logs/telegram-out.log",
-            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
-            "merge_logs": true
-        },
-        {
-            "name": "escucha-eventos",
-            "script": "escucha-eventos.js",
-            "cwd": "./",
-            "instances": 1,
-            "exec_mode": "fork",
-            "autorestart": true,
-            "watch": false,
-            "max_memory_restart": "256M",
-            "env": {
-                "NODE_ENV": "production",
-                "WEBHOOK_PORT": "10000"
-            },
-            "error_file": "./logs/escucha-error.log",
-            "out_file": "./logs/escucha-out.log",
-            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
-            "merge_logs": true
-        },
-        {
-            "name": "alarm-receiver",
-            "script": "alarm-receiver.js",
-            "cwd": "./",
-            "instances": 1,
-            "exec_mode": "fork",
-            "autorestart": true,
-            "watch": false,
-            "max_memory_restart": "256M",
-            "env": {
-                "NODE_ENV": "production",
-                "WEBHOOK_PORT": "10000",
-                "ALARMAS_PUERTO": "10010"
-            },
-            "error_file": "./logs/alarmas-error.log",
-            "out_file": "./logs/alarmas-out.log",
-            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
-            "merge_logs": true
-        }
-    ]
+  "apps": [
+    {
+      "name": "omniaccess-web",
+      "script": "npm",
+      "args": "start",
+      "cwd": "./",
+      "instances": 1,
+      "exec_mode": "fork",
+      "autorestart": true,
+      "watch": false,
+      "max_memory_restart": "1G",
+      "env": {
+        "NODE_ENV": "production",
+        "PORT": "10001"
+      },
+      "error_file": "./logs/web-error.log",
+      "out_file": "./logs/web-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true
+    },
+    {
+      "name": "omniaccess-webhooks",
+      "script": "server.js",
+      "cwd": "./",
+      "instances": 1,
+      "exec_mode": "fork",
+      "autorestart": true,
+      "watch": false,
+      "max_memory_restart": "512M",
+      "env": {
+        "NODE_ENV": "production",
+        "WEBHOOK_PORT": "10000",
+        "HOST": "0.0.0.0"
+      },
+      "error_file": "./logs/webhooks-error.log",
+      "out_file": "./logs/webhooks-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true
+    },
+    {
+      "name": "tracking-worker",
+      "script": "tracking-worker.js",
+      "cwd": "./",
+      "instances": 1,
+      "exec_mode": "fork",
+      "autorestart": true,
+      "watch": false,
+      "max_memory_restart": "768M",
+      "env": {
+        "NODE_ENV": "production"
+      },
+      "error_file": "./logs/tracking-error.log",
+      "out_file": "./logs/tracking-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true
+    },
+    {
+      "name": "dispatch-worker",
+      "script": "dispatch-worker.js",
+      "cwd": "./",
+      "instances": 1,
+      "exec_mode": "fork",
+      "autorestart": true,
+      "watch": false,
+      "max_memory_restart": "512M",
+      "env": {
+        "NODE_ENV": "production"
+      },
+      "error_file": "./logs/dispatch-worker-error.log",
+      "out_file": "./logs/dispatch-worker-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true
+    },
+    {
+      "name": "omniaccess-vigia",
+      "script": "vigia.js",
+      "cwd": "./",
+      "instances": 1,
+      "exec_mode": "fork",
+      "autorestart": true,
+      "watch": false,
+      "max_memory_restart": "256M",
+      "env": {
+        "NODE_ENV": "production"
+      },
+      "error_file": "./logs/vigia-error.log",
+      "out_file": "./logs/vigia-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true
+    },
+    {
+      "name": "vision-worker",
+      "script": "vision-worker.js",
+      "cwd": "./",
+      "instances": 1,
+      "exec_mode": "fork",
+      "autorestart": true,
+      "watch": false,
+      "max_memory_restart": "384M",
+      "env": {
+        "NODE_ENV": "production"
+      },
+      "error_file": "./logs/vision-error.log",
+      "out_file": "./logs/vision-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true
+    },
+    {
+      "name": "omniaccess-entrenador",
+      "script": "scripts/entrenador.js",
+      "cwd": "./",
+      "instances": 1,
+      "exec_mode": "fork",
+      "autorestart": true,
+      "watch": false,
+      "max_memory_restart": "256M",
+      "env": {
+        "NODE_ENV": "production"
+      },
+      "error_file": "./logs/entrenador-error.log",
+      "out_file": "./logs/entrenador-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true
+    },
+    {
+      "name": "telegram-bot",
+      "script": "telegram-bot.js",
+      "cwd": "./",
+      "instances": 1,
+      "exec_mode": "fork",
+      "autorestart": true,
+      "watch": false,
+      "max_memory_restart": "300M",
+      "env": {
+        "NODE_ENV": "production"
+      },
+      "error_file": "./logs/telegram-error.log",
+      "out_file": "./logs/telegram-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true
+    },
+    {
+      "name": "escucha-eventos",
+      "script": "escucha-eventos.js",
+      "cwd": "./",
+      "instances": 1,
+      "exec_mode": "fork",
+      "autorestart": true,
+      "watch": false,
+      "max_memory_restart": "256M",
+      "env": {
+        "NODE_ENV": "production",
+        "WEBHOOK_PORT": "10000"
+      },
+      "error_file": "./logs/escucha-error.log",
+      "out_file": "./logs/escucha-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true
+    },
+    {
+      "name": "alarm-receiver",
+      "script": "alarm-receiver.js",
+      "cwd": "./",
+      "instances": 1,
+      "exec_mode": "fork",
+      "autorestart": true,
+      "watch": false,
+      "max_memory_restart": "256M",
+      "env": {
+        "NODE_ENV": "production",
+        "WEBHOOK_PORT": "10000",
+        "ALARMAS_PUERTO": "10010"
+      },
+      "error_file": "./logs/alarmas-error.log",
+      "out_file": "./logs/alarmas-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true
+    },
+    {
+      "name": "dahua-puente",
+      "script": "dahua-puente.js",
+      "cwd": "/opt/OmniAccess",
+      "autorestart": true,
+      "max_memory_restart": "200M"
+    }
+  ]
 }

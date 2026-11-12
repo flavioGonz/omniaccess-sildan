@@ -1,3 +1,4 @@
+import { codecsVivo, olvidarH265 } from "@/lib/codec-vivo";
 /**
  * El vivo de una cámara, montado sobre un <video> ya existente.
  *
@@ -13,7 +14,7 @@
  * mismo par que ofrece el visor de intrusión con su botón HD/SD (streams lpr_<id>_hd y lpr_<id>).
  */
 export const srcVivo = (deviceId: string, calidad: "hd" | "sd" = "hd") =>
-    `/go2rtc/api/stream.mp4?src=lpr_${deviceId}${calidad === "hd" ? "_hd" : ""}&video=h264`;
+    `/go2rtc/api/stream.mp4?src=lpr_${deviceId}${calidad === "hd" ? "_hd" : ""}&video=${codecsVivo()}`;
 
 /**
  * Arranca el flujo y devuelve la función que lo corta.
@@ -23,7 +24,7 @@ export const srcVivo = (deviceId: string, calidad: "hd" | "sd" = "hd") =>
  * para que una cámara caída no reintente sin fin en segundo plano.
  */
 export function montarVivo(video: HTMLVideoElement, deviceId: string, intentos = 4, calidad: "hd" | "sd" = "hd") {
-    const src = srcVivo(deviceId, calidad);
+    let src = srcVivo(deviceId, calidad);
     let restantes = intentos;
     let temporizador: any = null;
 
@@ -32,6 +33,8 @@ export function montarVivo(video: HTMLVideoElement, deviceId: string, intentos =
         video.play().catch(() => { });
     };
     const alFallar = () => {
+        // Un H.265 que el navegador dijo aceptar pero no pudo mostrar: el resto de la sesión, H.264.
+        if (video.src.includes("h265")) { olvidarH265(); src = srcVivo(deviceId, calidad); }
         if (restantes-- <= 0) return;
         temporizador = setTimeout(() => { if (video.isConnected) arrancar(); }, 1400);
     };

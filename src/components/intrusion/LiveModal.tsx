@@ -15,6 +15,7 @@ import { Tooltip as RTooltip } from "react-tooltip";
 import "react-tooltip/dist/react-tooltip.css";
 
 import { GeomOverlay, type Geom } from "@/components/intrusion/comun";
+import { codecsVivo } from "@/lib/codec-vivo";
 
 /**
  * Cuánto video se pide al NVR al navegar la línea de tiempo.
@@ -282,7 +283,7 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
     useEffect(() => {
         const video = videoRef.current; if (!video || !vivoVisto) return;
         let stopped = false, tries = 0; let wd: any = null, st: any = null;
-        const base = `/go2rtc/api/stream.mp4?src=${encodeURIComponent(streamName)}&video=h264`;
+        const base = `/go2rtc/api/stream.mp4?src=${encodeURIComponent(streamName)}&video=${codecsVivo()}`;
         setReadyV(false); setStalled(false);
         const watchdog = () => { clearTimeout(wd); wd = setTimeout(() => { if (stopped) return; if (!readyRef.current && tries++ < 10) start(); }, 10000); };
         const start = () => { if (stopped) return; try { video.src = `${base}&t=${Date.now()}`; video.play().catch(() => { }); } catch { } watchdog(); };
@@ -386,7 +387,7 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
                 {tab === "live" && fromCam && (
                     <MovablePip defaultW={208} ring="ring-amber-400/40">
                         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                        <video key={`from_${fromCam.id}`} autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${fromCam.id}`)}&video=h264`} className="absolute inset-0 w-full h-full object-cover" />
+                        <video key={`from_${fromCam.id}`} autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${fromCam.id}`)}&video=${codecsVivo()}`} className="absolute inset-0 w-full h-full object-cover" />
                         <span className="absolute top-1 left-1 z-[2] inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/60 text-[8.5px] font-extrabold uppercase tracking-wide text-amber-300 pointer-events-none"><Crosshair size={7} /> Origen · {fromCam.name}</span>
                         <button onClick={() => onSwitchCam?.(fromCam)} data-tooltip-id="mi-tip" data-tooltip-content={`Volver a ${fromCam.name}`}
                             className="absolute bottom-1 left-1 z-[2] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/90 hover:bg-amber-500 text-white text-[9px] font-extrabold uppercase tracking-wide"><ChevronLeft size={11} /> Volver</button>
@@ -423,7 +424,7 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
                                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                                     <img src={`/api/snapshot/${c!.id}?w=320&t=hover`} alt="" className="absolute inset-0 w-full h-full object-cover" />
                                                     {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                                                    <video autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${c!.id}`)}&video=h264`} className="absolute inset-0 w-full h-full object-cover" />
+                                                    <video autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${c!.id}`)}&video=${codecsVivo()}`} className="absolute inset-0 w-full h-full object-cover" />
                                                     <span className="absolute top-1 left-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/55 text-[8px] font-extrabold uppercase tracking-wide text-amber-300"><Crosshair size={7} /> Seguir</span>
                                                 </div>
                                                 <div className="px-2 py-1.5 flex items-center gap-1.5">
@@ -511,7 +512,7 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
                         {recSeen && showPip && (
                             <MovablePip defaultW={208} ring="ring-white/15">
                                 {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                                <video key={`pip_${cam.id}`} autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${cam.id}`)}&video=h264`} className="absolute inset-0 w-full h-full object-cover" />
+                                <video key={`pip_${cam.id}`} autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${cam.id}`)}&video=${codecsVivo()}`} className="absolute inset-0 w-full h-full object-cover" />
                                 <span className="absolute top-1 left-1 z-[2] inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/55 text-[8.5px] font-extrabold uppercase tracking-wide text-red-300"><Circle size={6} className="fill-red-500 text-red-500 animate-pulse" /> Vivo</span>
                                 <button onClick={() => setShowPip(false)} data-tooltip-id="mi-tip" data-tooltip-content="Cerrar ventana de vivo"
                                     className="absolute top-1 right-1 z-[2] w-6 h-6 grid place-items-center rounded-full bg-black/55 hover:bg-black/80 text-white/80 hover:text-white transition"><X size={13} /></button>

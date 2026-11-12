@@ -17,6 +17,7 @@ import {
     X, Check, Loader2, RefreshCw, Maximize2, Volume2, AlertTriangle, Sparkles,
     SquareDashed, Save, RotateCcw, Crosshair,
 } from "lucide-react";
+import { codecsVivo } from "@/lib/codec-vivo";
 
 /* ─────────────────────────── Video en vivo (go2rtc) ─────────────────────────── */
 function LiveVideo({ streamName, deviceId }: { streamName: string; deviceId: string }) {
@@ -25,7 +26,7 @@ function LiveVideo({ streamName, deviceId }: { streamName: string; deviceId: str
     useEffect(() => {
         const video = videoRef.current; if (!video || !streamName) { setFailed(true); return; }
         let tries = 0, stopped = false, wd: any = null;
-        const src = () => `/go2rtc/api/stream.mp4?src=${encodeURIComponent(streamName)}&video=h264&t=${Date.now()}`;
+        const src = () => `/go2rtc/api/stream.mp4?src=${encodeURIComponent(streamName)}&video=${codecsVivo()}&t=${Date.now()}`;
         const arm = () => { clearTimeout(wd); wd = setTimeout(() => { if (stopped) return; if ((video.readyState < 3 || video.paused) && tries++ < 8) start(); else if (tries >= 8) setFailed(true); }, 3500); };
         const start = () => { if (stopped) return; setFailed(false); try { video.src = src(); video.play().catch(() => { }); } catch { } arm(); };
         const onErr = () => { if (stopped) return; if (tries++ < 8) setTimeout(start, 1300); else setFailed(true); };

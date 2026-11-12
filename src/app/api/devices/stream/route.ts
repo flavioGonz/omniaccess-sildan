@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     let frameOk = false; let ms: number | null = null;
     const t0 = Date.now();
     try {
-        const fr = await fetch(`${GO2RTC}/api/frame.jpeg?src=lpr_${id}&video=h264`, { cache: "no-store", signal: AbortSignal.timeout(9000) }); // &video=h264 pre-calienta el transcode HW
+        const fr = await fetch(`${GO2RTC}/api/frame.jpeg?src=lpr_${id}`, { cache: "no-store", signal: AbortSignal.timeout(9000) }); // sin video=h264: go2rtc saca el cuadro del original (H.265 incluido) sin dejar un transcode HW
         if (fr.ok) { const b = await fr.arrayBuffer(); frameOk = b.byteLength > 1000; ms = Date.now() - t0; }
     } catch { }
     return NextResponse.json({ ok: true, restarted: true, frameOk, ms });

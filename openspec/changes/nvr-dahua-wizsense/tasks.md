@@ -10,7 +10,7 @@
 ## 2. Vivo y playback
 
 - [x] 2.1 Detectar si el RTSP es alcanzable; si no, vivo por fotos del sub-stream con aviso.
-- [ ] 2.2 Investigar `rtspoverwebsocket` (web V5) como vivo real por el puerto 80.
+- [x] 2.2 Vivo real por el puerto 80: puente `dahua-puente.js` (RTSP ↔ `ws://<nvr>/rtspoverwebsocket`) para go2rtc, H.265/H.264 original sin convertir.
 - [x] 2.3 Playback por HTTP: `mediaFileFind` + `RPC_Loadfile` + ffmpeg (dhav → mp4), con caché y sub-stream.
   - Verificación: la ficha de un evento reproduce el tramo y descarga el clip, con y sin 554.
 
@@ -41,3 +41,11 @@
 - [x] 5.2 Retención: `mediaFileFind` (canal 1-based) — 4 días en las 39 cámaras (desde 08/11).
 - [x] 5.3 Clips y reproducción por HTTP: copia H.265 cuando el visor la acepta (`hevc=1`: 10 s en 0,6 s), libx264 más rápido (`skip_loop_filter`, `fast_bilinear`, hilos auto), marca de agua en el corte para clips enviados, caché de 10 min por tramo (repetición en ~50 ms). Probado: 10 s H.264 720p en 7,3 s (4K H.265 por CPU, sin GPU); clip con logo e intro en 2,8 s.
 - Hallazgo en campo (no es del driver): 7 canales devuelven 400 en tramos recientes (huecos de grabación: 4, 7, 9, 11, 20, 21, 23) y unos 17 canales graban sólo cuadros I (0,1–0,5 cuadros/s; p. ej. 3, 5, 8, 10, 16, 22, 24–30, 35–37) con la misma configuración de codificación que los sanos → pérdida de paquetes en el enlace cámara-NVR o ancho de banda de entrada del NVR. Los clips de esos canales salen "a saltos".
+
+## Vivo sin CPU (12/11, noche)
+
+- Puente `dahua-puente.js` (PM2 `dahua-puente`, 127.0.0.1:8556): RTSP local ↔ `ws://<nvr>/rtspoverwebsocket`, con Digest hecho por el puente; credenciales en `data/dahua-puente.json` (600, fuera de git), escritas por `lib/go2rtc-sync`.
+- go2rtc: `lpr_<id>` = sub-stream (subtype=1), `lpr_<id>_hd` = principal (subtype=0), ambos copiados tal cual; el transcode a H.264 queda de respaldo.
+- Navegador: `lib/codec-vivo.ts` pide `video=h264,h265` si el navegador decodifica H.265 (MediaSource), así go2rtc no convierte; si un H.265 falla, `montarVivo` pasa a H.264.
+- NVR de Nicolás: sub-stream de los 39 canales pasado de MJPEG a H.265 (misma resolución, GOP = 1 s). Copia de la configuración anterior en `/root/backups/nicolas-encode-*.txt` del CT106. Ojo: `/cgi-bin/mjpg/video.cgi` le vuelve a poner MJPEG al sub-stream; ya no se usa.
+- Medido: primer cuadro sub 0,2–1,6 s (antes ~12 s), HD 4K 3,5–6,5 s (lo marca el GOP de 2 s del principal); sin ffmpeg por cámara.

@@ -14,6 +14,7 @@ import { updateDevice } from "@/app/actions/devices";
 import { fichaContadorFila, ajustesContadorFila, type FichaContadorFila } from "@/app/actions/contador-fila";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
+import { codecsVivo } from "@/lib/codec-vivo";
 
 /*
  * La ficha de un contador de filas (21/10, Nico: «tiene el modal viejo, revisá esto, debe tener su
@@ -207,7 +208,7 @@ function CabeceraContador({ id, titulo, subtitulo, ip, http, bosch }: { id?: str
         <div className="sticky top-0 z-20">
             <div className="relative w-full aspect-video overflow-hidden bg-black">
                 {id && !falla && (
-                    <video key={id} src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${id}`)}&video=h264`} autoPlay muted playsInline
+                    <video key={id} src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${id}`)}&video=${codecsVivo()}`} autoPlay muted playsInline
                         onPlaying={() => setListo(true)} onError={() => setFalla(true)}
                         className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-500", listo ? "opacity-100" : "opacity-0")} />
                 )}

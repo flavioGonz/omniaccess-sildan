@@ -37,6 +37,7 @@ import { ElegirModoIntrusion, ElegirModoLpr, ModoEnFila, OPCIONES_INTRUSION_FILA
 import { ponerModoCamara } from "@/app/actions/modo-camara";
 import { rolesDeCamaras } from "@/app/actions/roles-camaras";
 import { MODOS_INTRUSION, MODOS_LPR, modoIntrusionDe, modoLprDe, type ModoIntrusion, type ModoLpr } from "@/lib/modo-camara";
+import { codecsVivo } from "@/lib/codec-vivo";
 
 /**
  * Alta y edición de equipos en un único cajón, como en San Nicolás.
@@ -1427,7 +1428,7 @@ function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNo
             {esVideo && (<>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={`/api/snapshot/${device.id}?w=960`} alt="" className={cn("absolute inset-0 w-full h-full object-cover transition-all duration-500", listo ? "opacity-0" : "opacity-100 blur-[2px] scale-105")} onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
-                {!falla && <video key={device.id} src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${device.id}`)}&video=h264`} autoPlay muted playsInline
+                {!falla && <video key={device.id} src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${device.id}`)}&video=${codecsVivo()}`} autoPlay muted playsInline
                     onPlaying={() => setListo(true)} onError={() => setFalla(true)} className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-500", listo ? "opacity-100" : "opacity-0")} />}
                 {!listo && !falla && <span className="absolute inset-0 grid place-items-center"><span className="flex items-center gap-2 text-white/80 text-[12px] font-semibold"><Loader2 size={15} className="animate-spin" /> Conectando el vivo…</span></span>}
             </>)}

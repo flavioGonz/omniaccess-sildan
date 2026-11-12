@@ -10,6 +10,7 @@ import { getAccessEvents } from "@/app/actions/history";
 import { registerFace } from "@/app/actions/users";
 import io from "socket.io-client";
 import { horaSeg } from "@/lib/fechas";
+import { codecsVivo } from "@/lib/codec-vivo";
 
 function urlB64ToUint8(base64: string) {
     const padding = "=".repeat((4 - (base64.length % 4)) % 4);
@@ -45,7 +46,7 @@ function LiveVideo({ deviceId, className }: { deviceId: string; className?: stri
         const video = videoRef.current; if (!video) return;
         let destroyed = false; let timer: any;
         const lowQ = typeof navigator !== "undefined" && (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (typeof window !== "undefined" && window.innerWidth <= 820));
-        const src = `/go2rtc/api/stream.mp4?src=face_${deviceId}${lowQ ? "_low" : ""}&video=h264`;
+        const src = `/go2rtc/api/stream.mp4?src=face_${deviceId}${lowQ ? "_low" : ""}&video=${codecsVivo()}`;
         const start = () => { if (destroyed || !video) return; video.src = src; video.play().catch(() => {}); };
         const onPlaying = () => { if (!destroyed) setReady(true); };
         const onError = () => { if (destroyed) return; setReady(false); retry.current++; if (retry.current > 4) { setFailed(true); return; } timer = setTimeout(start, Math.min(800 * retry.current, 4000)); };

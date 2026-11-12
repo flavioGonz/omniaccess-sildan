@@ -126,6 +126,7 @@ import { VistaArea } from "@/components/devices/VistaArea";
 import { BotonCuentas } from "@/components/devices/usuarios/CuentasEquipos";
 import { ArbolAreas, arrastrarEquipos, enArea, IconoTipo, SIN_AREA, TODAS, TODOS_LOS_TIPOS } from "@/components/devices/ArbolAreas";
 import { leerAreas, type EstadoAreas } from "@/app/actions/areas";
+import { codecsVivo } from "@/lib/codec-vivo";
 
 // Inline SVG data URIs for fallback images (avoid 404s for missing placeholder files)
 const PLACEHOLDER_DEVICE = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="8" fill="%23262626"/><path d="M24 14a4 4 0 100 8 4 4 0 000-8zm-6 14c0-2 4-3.1 6-3.1S30 26 30 28v1H18v-1z" fill="%23525252"/><rect x="14" y="32" width="20" height="3" rx="1.5" fill="%23525252"/></svg>')}`;
@@ -203,7 +204,7 @@ function LiveVideo({ streamName, deviceId }: { streamName: string; deviceId?: st
     useEffect(() => {
         const video = videoRef.current; if (!video || !streamName) { setFailed(true); return; }
         let tries = 0; let stopped = false; let wd: any = null;
-        const src = () => `/go2rtc/api/stream.mp4?src=${encodeURIComponent(streamName)}&video=h264&t=${Date.now()}`;
+        const src = () => `/go2rtc/api/stream.mp4?src=${encodeURIComponent(streamName)}&video=${codecsVivo()}&t=${Date.now()}`;
         const arm = () => { clearTimeout(wd); wd = setTimeout(() => { if (stopped) return; if ((video.readyState < 3 || video.paused) && tries++ < 8) start(); else if (tries >= 8) setFailed(true); }, 3500); };
         const start = () => { if (stopped) return; setFailed(false); try { video.src = src(); video.play().catch(() => {}); } catch {} arm(); };
         const onErr = () => { if (stopped) return; if (tries++ < 8) setTimeout(start, 1300); else setFailed(true); };
