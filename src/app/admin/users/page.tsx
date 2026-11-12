@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 import { TablaUsuarios } from "@/components/users/TablaUsuarios";
 import { Filtros } from "@/components/ui/filtros";
 import {
-    PESTANIAS, pestaniaDeRol, normalizarComportamiento, COMPORTAMIENTO_DEFECTO, SIN_IDENTIFICAR, esPestaniaDeFichas, NIVEL_DE_PESTANIA,
+    PESTANIAS, pestaniaDeRol, normalizarComportamiento, COMPORTAMIENTO_DEFECTO, SIN_IDENTIFICAR, esPestaniaDeFichas, NIVEL_DE_PESTANIA, estadoRevision,
     type NivelListaNegra, type ClavePestania, type ClaveComportamiento, type Comportamiento, type Interruptores,
 } from "@/lib/padron";
 
@@ -109,6 +109,11 @@ export default function UsersPage() {
     const [fichaAbierta, setFichaAbierta] = useState<FichaListaNegra | null>(null);
     const [altaFicha, setAltaFicha] = useState<{ plate?: string; nivel?: NivelListaNegra } | null>(null);
     const [filtroEstado, setFiltroEstado] = useState("activas");
+    // Lista Amarilla: sólo las que hay que volver a mirar (por vencer y vencidas).
+    const [filtroRevision, setFiltroRevision] = useState("todas");
+    // Una ficha que acaba de pasar de la amarilla a la negra: se abre en su pestaña nueva cuando
+    // la lista termina de recargar.
+    const [abrirClave, setAbrirClave] = useState<string | null>(null);
 
     // Cómo se comporta cada pestaña
     const [comportamiento, setComportamiento] = useState<Comportamiento>(normalizarComportamiento(COMPORTAMIENTO_DEFECTO));
@@ -230,9 +235,20 @@ export default function UsersPage() {
         return fichasLN.filter((f) =>
             (filtroEstado === "todas" || (filtroEstado === "activas" ? f.activa : !f.activa)) &&
             (!nivel || f.nivel === nivel) &&
+            (pestania !== "listaamarilla" || filtroRevision === "todas" || (f.activa && estadoRevision(f.revisarEl).estado !== "al-dia")) &&
             (!q || (f.nombre || SIN_IDENTIFICAR).toUpperCase().includes(q) || (f.motivo || "").toUpperCase().includes(q)
                 || f.matriculas.some((m) => m.includes(q.replace(/[^A-Z0-9]/g, ""))) || (f.cargo || "").toUpperCase().includes(q)));
-    }, [fichasLN, searchQuery, filtroEstado, pestania]);
+    }, [fichasLN, searchQuery, filtroEstado, filtroRevision, pestania]);
+
+    /** Cuántas amarillas activas hay para revisar: el número que acompaña al filtro. */
+    const paraRevisar = useMemo(() => fichasLN.filter((f) => f.nivel === "SEARCH" && f.activa && estadoRevision(f.revisarEl).estado !== "al-dia").length, [fichasLN]);
+    useEffect(() => {
+        if (!abrirClave) return;
+        // Hasta que la lista recargue, la ficha sigue figurando amarilla: se espera a verla negra,
+        // o se abriría con los datos viejos.
+        const f = fichas.find((x) => x.clave === abrirClave && x.nivel === "BLACKLISTED");
+        if (f) { setFichaAbierta(f); setAbrirClave(null); }
+    }, [fichas, abrirClave]);
 
     const elegirPestania = (k: ClavePestania) => {
         setPestania(k);
@@ -324,6 +340,7 @@ export default function UsersPage() {
                         <TablaListaNegra
                             fichas={fichasVisibles}
                             conBusqueda={false}
+                            amarilla={pestania === "listaamarilla"}
                             cargando={cargandoFichas}
                             error={errorFichas}
                             alReintentar={cargarFichas}
@@ -334,6 +351,7 @@ export default function UsersPage() {
                                     placeholder="Nombre, matrícula, motivo o quién cargó"
                                     grupos={[
                                         { clave: "estado", titulo: "Estado", valor: filtroEstado, alElegir: setFiltroEstado, opciones: [{ valor: "activas", rotulo: "Activas" }, { valor: "baja", rotulo: "Dadas de baja" }, { valor: "todas", rotulo: "Todas" }] },
+                                        ...(pestania === "listaamarilla" ? [{ clave: "revision", titulo: "Revisión", valor: filtroRevision, alElegir: setFiltroRevision, opciones: [{ valor: "todas", rotulo: "Todas" }, { valor: "revisar", rotulo: paraRevisar ? `Para revisar (${paraRevisar})` : "Para revisar" }] }] : []),
                                     ]}
                                     acciones={comportaEnBarra}
                                 />
@@ -382,6 +400,7 @@ export default function UsersPage() {
                 alCerrar={() => { setFichaAbierta(null); setAltaFicha(null); }}
                 alCambiar={() => { cargarFichas(); loadData(); }}
                 alAbrirPersona={abrirPersona}
+                alPasarANegra={(clave) => { setAbrirClave(clave); elegirPestania("listanegra"); }}
             />
 
             <DeleteConfirmDialog

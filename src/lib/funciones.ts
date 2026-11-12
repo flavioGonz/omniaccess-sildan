@@ -93,8 +93,8 @@ export const FUNCIONES: Funcion[] = [
         alcance: "modulo",
         modulo: "MODULE_LPR",
         nombre: "Matrículas «Lista Amarilla»",
-        que: "Una lista aparte de la lista negra, para vehículos en seguimiento: la matrícula pasa, pero al leerla se avisa con el motivo (ámbar en el monitor y en los avisos). Tiene su pestaña en Usuarios y su entrada en el menú.",
-        siSeApaga: "Queda sólo la lista negra (alerta máxima): desaparecen la pestaña y la entrada del menú «Lista Amarilla», se deja de ofrecer al cargar y no salta ningún aviso de seguimiento. Las cargadas no se borran.",
+        que: "Una lista aparte de la lista negra, para vehículos en seguimiento: la matrícula pasa, pero al leerla se avisa con el motivo y con cuánto se la vio en la semana (ámbar en el monitor y en los avisos). Cada ficha lleva su bitácora y una fecha de revisión a 30 días. Tiene su pestaña en Usuarios y su entrada en el menú.",
+        siSeApaga: "Queda sólo la lista negra (alerta máxima): desaparecen la pestaña y la entrada del menú «Lista Amarilla», se deja de ofrecer al cargar y no salta ningún aviso de seguimiento. Las fichas cargadas, sus bitácoras y sus fechas de revisión no se borran: vuelven como estaban al prenderla.",
         porDefecto: true,
     },
     {

@@ -85,7 +85,7 @@ No hay acción nueva para el cambio de nivel: el botón llama a `guardarFichaLis
 
 ### 7. Permisos: los de la ficha
 
-Leer el resumen y la bitácora, escribir notas, renovar y cambiar de nivel exigen lo mismo que hoy editar una ficha (`exigirSesion()` en `actions/padron.ts`). No se crea un permiso nuevo en esta etapa; cuando `roles-y-permisos` cierre, estas acciones quedan bajo la clave de Usuarios como el resto.
+Escribir notas, renovar y cambiar de nivel piden el permiso `vigilancia`, el mismo que hoy pide guardar o dar de baja una ficha (`lib/permisos-acciones` › `padron`). Leer el resumen y la bitácora pide sólo la sesión del panel, como leer la lista. Las acciones nuevas se declaran en esa tabla: la prueba `permisos-acciones` falla si una acción queda sin clase, y falló al escribirlas, que es para lo que está.
 
 ## Risks / Trade-offs
 

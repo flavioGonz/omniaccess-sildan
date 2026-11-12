@@ -55,7 +55,7 @@
 
 ## 6. Acciones de la ficha
 
-- [ ] 6.1 En la ficha amarilla, la fila de revisión con su estado y los tres botones: **Renovar**, **Pasar a lista negra**, **Dar de baja**. «Pasar a lista negra» usa `guardarFichaListaNegra` con el nivel nuevo y el diálogo de avisos que ya existe; al terminar lleva a la pestaña Lista negra con la ficha abierta.
+- [ ] 6.1 En la ficha amarilla, la fila de revisión con su estado y los botones **Renovar** y **Pasar a lista negra** (**Dar de baja** sigue en el pie del cajón, donde ya estaba: duplicar una acción destructiva en dos lugares es pedir que se toque por error). «Pasar a lista negra» usa `guardarFichaListaNegra` con el nivel nuevo y el diálogo de avisos que ya existe; al terminar lleva a la pestaña Lista negra con la ficha abierta.
   - Verificación en el lab: con una matrícula de alguien del padrón, pide la confirmación de la barrera; cancelada, no cambia nada; confirmada, la ficha queda en Lista negra con su bitácora y el asiento `NIVEL`.
 - [ ] 6.2 La carga rápida del monitor (`WatchlistDialog`) dice, al cargar una amarilla, que se revisa en 30 días.
   - Verificación en el lab: el texto aparece sólo en el modo amarillo.

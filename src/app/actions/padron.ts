@@ -7,9 +7,10 @@ import { getSession } from "@/app/actions/auth";
 import { normalizeWatchCat } from "@/lib/watch-categories";
 import { aplicarListaNegraEnCamaras, normalizarMatricula, type ResultadoCamaras } from "@/lib/lista-negra";
 import {
-    COMPORTAMIENTO_DEFECTO, NIVELES, SETTING_COMPORTAMIENTO, SIN_IDENTIFICAR, normalizarComportamiento,
+    COMPORTAMIENTO_DEFECTO, NIVELES, SETTING_COMPORTAMIENTO, SIN_IDENTIFICAR, normalizarComportamiento, proximaRevision,
     type Comportamiento, type NivelListaNegra,
 } from "@/lib/padron";
+import { anotar, claveDeFila, dondeDeClave, mudarBitacora, tieneBitacora } from "@/lib/lista-amarilla";
 
 /**
  * Las acciones del padrón: la pestaña Lista negra (fichas) y los interruptores de cada pestaña.
@@ -67,28 +68,27 @@ export type FichaListaNegra = {
     /** La última vez que alguna lectora leyó alguna de sus matrículas. */
     vistaUltima: string | null;
     vecesVista: number;
+    /** Lista Amarilla: cuándo toca revisarla (la más próxima de sus matrículas). Null en lista negra. */
+    revisarEl: string | null;
+    /** Lecturas de los últimos 7 días, sumando sus matrículas. */
+    vistas7: number;
 };
 
 type Fila = Awaited<ReturnType<typeof prisma.plateWatch.findMany>>[number];
 
-function claveDe(f: Fila): string {
-    if (f.ficha) return `f:${f.ficha}`;
-    if (f.userId) return `u:${f.userId}`;
-    return `p:${f.id}`;
-}
+const claveDe = (f: Fila): string => claveDeFila(f);
 
 /** Qué filas son de una ficha, según su clave. */
-function dondeDe(clave: string): any | null {
-    const [tipo, id] = [clave.slice(0, 1), clave.slice(2)];
-    if (!id) return null;
-    if (tipo === "f") return { ficha: id };
-    if (tipo === "p") return { id };
-    if (tipo === "u") return { userId: id, ficha: null };
-    return null;
-}
+const dondeDe = (clave: string): any | null => dondeDeClave(clave);
 
 const nivelDe = (cats: (string | null)[]): NivelListaNegra =>
     cats.some((c) => normalizeWatchCat(c) === "BLACKLISTED") ? "BLACKLISTED" : "SEARCH";
+
+/** La revisión de una ficha: la más próxima de sus matrículas (deberían coincidir). Null si alguna no tiene. */
+function revisionDe(filas: Fila[]): string | null {
+    if (!filas.length || filas.some((f) => !f.revisarEl)) return null;
+    return new Date(Math.min(...filas.map((f) => f.revisarEl!.getTime()))).toISOString();
+}
 
 export async function getFichasListaNegra(): Promise<FichaListaNegra[]> {
     const todas = await prisma.plateWatch.findMany({ orderBy: { updatedAt: "desc" } });
@@ -131,7 +131,8 @@ export async function getFichasListaNegra(): Promise<FichaListaNegra[]> {
             cargo: cabeza.createdBy || null,
             userId: cabeza.userId || null,
             unidad: p?.unit?.name || null,
-            vistaUltima: null, vecesVista: 0,
+            vistaUltima: null, vecesVista: 0, vistas7: 0,
+            revisarEl: activas.length && nivelDe(vigentes.map((f) => f.category)) === "SEARCH" ? revisionDe(activas) : null,
         });
     }
     // Las del módulo facial: personas con el rol «Lista negra», con o sin fila propia.
@@ -142,7 +143,7 @@ export async function getFichasListaNegra(): Promise<FichaListaNegra[]> {
             clave: `r:${u.id}`, origen: "rol", nombre: u.name, nivel: "BLACKLISTED", motivo: u.blacklistReason || null,
             fotoUrl: u.cara ? (u.cara.startsWith("http") || u.cara.startsWith("/") ? u.cara : "/" + u.cara) : null,
             activa: true, matriculas: chapas, desde: u.createdAt.toISOString(), bajaEn: null, cargo: null,
-            userId: u.id, unidad: u.unit?.name || null, vistaUltima: null, vecesVista: 0,
+            userId: u.id, unidad: u.unit?.name || null, vistaUltima: null, vecesVista: 0, vistas7: 0, revisarEl: null,
         });
     }
 
@@ -162,6 +163,19 @@ export async function getFichasListaNegra(): Promise<FichaListaNegra[]> {
                 }
             }
         } catch { /* sin la última vista la lista se muestra igual */ }
+        // Lista Amarilla: lecturas de la última semana, la misma cuenta que lleva el aviso
+        // (lecturas de matrícula, sin las «sin vehículo»).
+        const amarillas = [...new Set(out.filter((f) => f.nivel === "SEARCH" && f.activa).flatMap((f) => f.matriculas))];
+        if (amarillas.length) {
+            try {
+                const semana = await prisma.accessEvent.groupBy({
+                    by: ["plateDetected"], _count: { _all: true },
+                    where: { plateDetected: { in: amarillas }, accessType: "PLATE", sinVehiculo: false, timestamp: { gte: new Date(Date.now() - 7 * 86_400_000) } },
+                });
+                const n = new Map(semana.map((v) => [v.plateDetected, v._count._all]));
+                for (const f of out) if (f.nivel === "SEARCH") for (const m of f.matriculas) f.vistas7 += n.get(m) || 0;
+            } catch { /* igual que arriba: la tabla se muestra sin la cuenta */ }
+        }
     }
 
     // Activas primero, y adentro las de alerta máxima; después lo más reciente.
@@ -229,12 +243,19 @@ export async function guardarFichaListaNegra(datos: {
         const yo = await quienSoy();
         const camaras: ResultadoCamaras = { ok: [], fallo: [] };
         const porChapa = new Map(previas.map((f) => [norm(f.plate), f]));
+        // Lista Amarilla: la revisión es de la FICHA, igual en todas sus matrículas. Editar una
+        // amarilla no la renueva (para eso está «Renovar»); un alta, o venir de la negra, arranca
+        // el plazo. En alerta máxima no hay revisión.
+        const activasAntes = antes.filter((f) => f.active);
+        const nivelAntes: NivelListaNegra | null = activasAntes.length ? nivelDe(activasAntes.map((f) => f.category)) : null;
+        const revisarEl = nivel !== "SEARCH" ? null
+            : nivelAntes === "SEARCH" && revisionDe(activasAntes) ? new Date(revisionDe(activasAntes)!) : proximaRevision();
         for (const p of chapas) {
             const prev = porChapa.get(p);
             const eraNegra = !!prev?.active && normalizeWatchCat(prev.category) === "BLACKLISTED";
             const mismaFicha = !!prev && idsAntes.has(prev.id);
             const comunes = {
-                label: nombre, category: nivel, motivo: motivo || null, ficha: id, active: true, deactivatedAt: null,
+                label: nombre, category: nivel, motivo: motivo || null, ficha: id, active: true, deactivatedAt: null, revisarEl,
                 notify: prev?.notify ?? true,
                 // «Quién la cargó» es de quien la puso en esta ficha, no del último que la editó.
                 createdBy: mismaFicha && prev?.active ? (prev.createdBy || yo) : yo,
@@ -250,8 +271,17 @@ export async function guardarFichaListaNegra(datos: {
             await prisma.plateWatch.update({ where: { id: f.id }, data: { active: false, deactivatedAt: new Date() } });
             if (normalizeWatchCat(f.category) === "BLACKLISTED") juntar(camaras, await aplicarListaNegraEnCamaras(f.plate, false));
         }
+        // La bitácora. Una matrícula suelta (p:<fila>) guardada desde acá se vuelve ficha y cambia
+        // de clave: sus asientos se mudan con ella ANTES de anotar nada nuevo. No va en una
+        // transacción con las filas porque entre medio se habla con las lectoras, y una
+        // transacción abierta esperando a una cámara es como se agotan las conexiones.
+        const claveNueva = `f:${id}`;
+        if (clave && clave !== claveNueva) await mudarBitacora(clave, claveNueva);
+        if (!nivelAntes && nivel === "SEARCH") await anotar(claveNueva, "ALTA", `Alta en la Lista Amarilla: ${motivo}`, yo);
+        else if (nivelAntes === "SEARCH" && nivel === "BLACKLISTED") await anotar(claveNueva, "NIVEL", "Pasó a lista negra (alerta máxima).", yo);
+        else if (nivelAntes === "BLACKLISTED" && nivel === "SEARCH") await anotar(claveNueva, "NIVEL", `Pasó de lista negra a la Lista Amarilla: ${motivo}`, yo);
         revalidar();
-        return { ok: true, clave: `f:${id}`, camaras };
+        return { ok: true, clave: claveNueva, camaras };
     } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 }
 
@@ -269,6 +299,8 @@ export async function bajaFichaListaNegra(clave: string): Promise<ResultadoFicha
             await prisma.plateWatch.update({ where: { id: f.id }, data: { active: false, deactivatedAt: ahora } });
             if (normalizeWatchCat(f.category) === "BLACKLISTED") juntar(camaras, await aplicarListaNegraEnCamaras(f.plate, false));
         }
+        // Se anota si es amarilla, o si lo fue (ya tiene bitácora): la historia sigue aunque cambie de nivel.
+        if (filas.length && (filas.some((f) => normalizeWatchCat(f.category) === "SEARCH") || await tieneBitacora(clave))) await anotar(clave, "BAJA", "Dada de baja.", await quienSoy());
         revalidar();
         return { ok: true, clave, camaras };
     } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
@@ -289,10 +321,14 @@ export async function reactivarFichaListaNegra(clave: string, confirmar = false)
             if (enUso.length) return { ok: false, avisos: enUso.map((f) => `${f.plate} está activa en otra entrada.`) };
         }
         const camaras: ResultadoCamaras = { ok: [], fallo: [] };
+        // Una amarilla que vuelve arranca el plazo de revisión de nuevo: reactivarla ES haberla mirado.
+        const revisarEl = proximaRevision();
         for (const f of vuelven) {
-            await prisma.plateWatch.update({ where: { id: f.id }, data: { active: true, deactivatedAt: null } });
+            const amarilla = normalizeWatchCat(f.category) === "SEARCH";
+            await prisma.plateWatch.update({ where: { id: f.id }, data: { active: true, deactivatedAt: null, revisarEl: amarilla ? revisarEl : null } });
             if (normalizeWatchCat(f.category) === "BLACKLISTED") juntar(camaras, await aplicarListaNegraEnCamaras(f.plate, true));
         }
+        if (vuelven.some((f) => normalizeWatchCat(f.category) === "SEARCH") || await tieneBitacora(clave)) await anotar(clave, "REACTIVACION", "Activa otra vez.", await quienSoy());
         revalidar();
         return { ok: true, clave, camaras };
     } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }

@@ -130,6 +130,50 @@ export function claseDeLectura(user: { role?: string | null; vip?: boolean | nul
     return p === "listanegra" ? "alerta" : p === "listaamarilla" ? "busqueda" : p;
 }
 
+// ── La revisión de la Lista Amarilla ───────────────────────────────────────────────────────
+
+/**
+ * Cada cuánto hay que volver a mirar una ficha amarilla, y con cuánta anticipación se avisa
+ * (openspec seguimiento-lista-amarilla). Fijos en esta etapa: si un barrio pide otro plazo, se
+ * vuelve ajuste; hasta entonces un número con nombre vale más que una opción que nadie tocó.
+ */
+export const REVISION_DIAS = 30;
+export const REVISION_AVISO_DIAS = 5;
+const DIA_MS = 86_400_000;
+
+export const proximaRevision = (ahora: Date = new Date()) => new Date(ahora.getTime() + REVISION_DIAS * DIA_MS);
+
+export type EstadoRevision = {
+    estado: "al-dia" | "por-vencer" | "vencida";
+    /** Los días que faltan (0 = vence hoy) o, vencida, los que pasaron (0 = venció hoy). */
+    dias: number;
+};
+
+/**
+ * El estado de la revisión NO se guarda: se calcula al leer. Vencer no da de baja ni apaga el
+ * aviso — es un recordatorio —, así que no hay nada que un proceso tenga que cambiar de noche.
+ * Sin fecha (no debería pasar en una amarilla activa) cuenta como vencida: es el lado seguro,
+ * pide que alguien la mire.
+ */
+export function estadoRevision(revisarEl: string | Date | null | undefined, ahora: Date = new Date()): EstadoRevision {
+    const t = revisarEl ? new Date(revisarEl).getTime() : NaN;
+    if (!Number.isFinite(t)) return { estado: "vencida", dias: 0 };
+    const falta = t - ahora.getTime();
+    if (falta < 0) return { estado: "vencida", dias: Math.floor(-falta / DIA_MS) };
+    const dias = Math.ceil(falta / DIA_MS);
+    return { estado: dias <= REVISION_AVISO_DIAS ? "por-vencer" : "al-dia", dias };
+}
+
+/** Cómo se dice en la tabla y en la ficha. */
+export function textoRevision(e: EstadoRevision): string {
+    const d = (n: number) => `${n} día${n === 1 ? "" : "s"}`;
+    if (e.estado === "vencida") return e.dias === 0 ? "vencida hoy" : `vencida hace ${d(e.dias)}`;
+    if (e.estado === "por-vencer") return e.dias === 0 ? "vence hoy" : `vence en ${d(e.dias)}`;
+    return `en ${d(e.dias)}`;
+}
+
+export const TONO_REVISION: Record<EstadoRevision["estado"], Tono> = { "al-dia": "quieto", "por-vencer": "aviso", vencida: "mal" };
+
 // ── Los interruptores ─────────────────────────────────────────────────────────────────────
 
 /**

@@ -3,7 +3,8 @@
 import { Switch } from "@/components/ui/switch";
 import { MatriculaEnBase, useMatriculasEnBase } from "@/components/registro/MatriculaEnBase";
 import { useEffect, useMemo, useState } from "react";
-import { Ban, Bell, BellOff, ChevronRight, Loader2, Plus, RotateCcw, Search, ShieldAlert, ShieldX, Siren, Cctv, Star, X } from "lucide-react";
+import { Ban, Bell, BellOff, CalendarClock, ChevronRight, Loader2, Plus, RotateCcw, Search, ShieldAlert, ShieldX, Siren, Cctv, Star, X } from "lucide-react";
+import { REVISION_DIAS } from "@/lib/padron";
 import { Tooltip } from "react-tooltip";
 import "react-tooltip/dist/react-tooltip.css";
 import { useFuncion } from "@/lib/funciones-cliente";
@@ -156,8 +157,9 @@ export function WatchlistDialog({ onClose, plateInicial }: {
         { Ic: Bell, t: "Avisos", d: "Con «Avisa» prendido, además se manda a la guardia por Telegram y dispara las reglas de Notificaciones (WATCHLIST)." },
     ] : [
         { Ic: Cctv, t: "Lectoras LPR", d: "Pasa normalmente: la Lista Amarilla no deniega el paso. Se registra la lectura como siempre." },
-        { Ic: Siren, t: "Monitor", d: "Cada vez que una cámara la lee salta en amarillo con el motivo, para que la guardia la siga." },
+        { Ic: Siren, t: "Monitor", d: "Cada vez que una cámara la lee salta en amarillo con el motivo y con cuánto se la vio: «3.ª lectura en 7 días · anterior: ayer 22:14»." },
         { Ic: Bell, t: "Avisos", d: "Con «Avisa» prendido, además se manda a la guardia por Telegram y dispara las reglas de Notificaciones (WATCHLIST)." },
+        { Ic: CalendarClock, t: "Revisión", d: `Se revisa a los ${REVISION_DIAS} días: desde su ficha se renueva, se pasa a lista negra o se da de baja. Vencida sigue avisando.` },
     ];
     const campo = "w-full h-10 rounded-[8px] bg-white/12 border border-white/20 text-white placeholder:text-white/55 px-3 text-[13px] outline-none focus:border-white focus:bg-white/18";
 

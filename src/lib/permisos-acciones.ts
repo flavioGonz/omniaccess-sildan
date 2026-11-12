@@ -97,6 +97,9 @@ export const ACCIONES: Record<string, Archivo> = {
     notifications: { defecto: P("notificaciones") },
     nvr: { defecto: P("dispositivos.editar") },
     padron: { defecto: P("vigilancia"), por: { guardarComportamientoPadron: P("vigilancia", "usuarios.editar") } },
+    // El seguimiento de la Lista Amarilla: anotar y renovar piden lo mismo que editar la ficha
+    // (vigilancia); leer la bitácora, la sesión, como leer la lista. `resumenSeguimiento` ya es lectura por nombre.
+    "lista-amarilla": { defecto: P("vigilancia"), por: { bitacoraDe: S } },
     parking: { defecto: P("plazas.config") },
     plazas: { defecto: P("plazas.config") },
     procesos: { defecto: P("mantenimiento"), por: { auditoriaProcesos: P("mantenimiento") } },

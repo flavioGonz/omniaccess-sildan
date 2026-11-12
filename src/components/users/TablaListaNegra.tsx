@@ -6,7 +6,7 @@ import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Estado, Identidad, Matricula, Momento, Nada } from "@/components/ui/celdas";
 import { Pista } from "@/components/ui/pista";
 import type { FichaListaNegra } from "@/app/actions/padron";
-import { NIVELES, SIN_IDENTIFICAR } from "@/lib/padron";
+import { NIVELES, SIN_IDENTIFICAR, estadoRevision, textoRevision, TONO_REVISION, REVISION_DIAS } from "@/lib/padron";
 
 /**
  * La pestaña Lista negra: una fila por FICHA (persona o vehículo), no por matrícula.
@@ -24,8 +24,13 @@ const ORIGEN: Record<FichaListaNegra["origen"], string> = {
     rol: "Tiene el rol «Lista negra» del módulo facial",
 };
 
-export function TablaListaNegra({ fichas, cargando, error, alReintentar, alAbrir, barra, conBusqueda = true }: {
+export function TablaListaNegra({ fichas, cargando, error, alReintentar, alAbrir, barra, conBusqueda = true, amarilla = false }: {
     fichas: FichaListaNegra[];
+    /**
+     * La pestaña Lista Amarilla: suma la columna «Revisión», cuenta las lecturas de la última
+     * semana (lo mismo que dice el aviso) y guarda sus columnas aparte de las de la lista negra.
+     */
+    amarilla?: boolean;
     /** Sin «Lista Amarilla» (función de LPR) todas son alerta máxima: la columna «Si aparece» no dice nada. */
     conBusqueda?: boolean;
     cargando?: boolean;
@@ -70,8 +75,20 @@ export function TablaListaNegra({ fichas, cargando, error, alReintentar, alAbrir
             clave: "vista", titulo: "Vista por última vez", ancho: 150, ordenable: true,
             valor: (f) => f.vistaUltima || "",
             celda: (f) => f.vistaUltima
-                ? <div className="leading-tight"><Momento t={f.vistaUltima} /><div className="text-[10.5px] text-muted-foreground tabular-nums">{f.vecesVista} lectura{f.vecesVista === 1 ? "" : "s"}</div></div>
+                ? <div className="leading-tight"><Momento t={f.vistaUltima} /><div className="text-[10.5px] text-muted-foreground tabular-nums">{amarilla ? `${f.vistas7} en 7 días` : `${f.vecesVista} lectura${f.vecesVista === 1 ? "" : "s"}`}</div></div>
                 : <span className="text-[11.5px] text-muted-foreground">Nunca</span>,
+        },
+        {
+            clave: "revision", titulo: "Revisión", ancho: 150, ordenable: true,
+            tituloAyuda: "Cuándo toca volver a mirarla",
+            ayuda: `Cada ficha amarilla se revisa cada ${REVISION_DIAS} días: ¿sigue valiendo la pena seguirla? Vencer no la apaga —sigue avisando—; es un recordatorio. Se renueva desde la ficha.`,
+            // Las dadas de baja van al final al ordenar, y no muestran nada: no hay qué revisar.
+            valor: (f) => f.activa ? (f.revisarEl || "0") : "9",
+            celda: (f) => {
+                if (!f.activa) return <Nada />;
+                const e = estadoRevision(f.revisarEl);
+                return <Estado tono={TONO_REVISION[e.estado]}>{textoRevision(e)}</Estado>;
+            },
         },
         {
             clave: "desde", titulo: "Desde", ancho: 130, ordenable: true,
@@ -82,17 +99,17 @@ export function TablaListaNegra({ fichas, cargando, error, alReintentar, alAbrir
             clave: "estado", titulo: "Estado", ancho: 110,
             valor: (f) => f.activa ? "activa" : "baja",
             celda: (f) => f.activa
-                ? <Estado tono="mal">activa</Estado>
+                ? <Estado tono={amarilla ? "aviso" : "mal"}>activa</Estado>
                 : <Pista titulo="Dada de baja" texto={f.bajaEn ? `El ${new Date(f.bajaEn).toLocaleString("es-UY", { timeZone: "America/Montevideo" })}. Desde su ficha se la vuelve a activar.` : "Desde su ficha se la vuelve a activar."}><span><Estado tono="quieto">baja</Estado></span></Pista>,
         },
     ];
-        return todas.filter((c) => conBusqueda || c.clave !== "nivel");
-    }, [conBusqueda]);
+        return todas.filter((c) => (conBusqueda || c.clave !== "nivel") && (amarilla || c.clave !== "revision"));
+    }, [conBusqueda, amarilla]);
 
     return (
         <Tabla<FichaListaNegra>
-            id="lista-negra"
-            nombreArchivo="lista-negra"
+            id={amarilla ? "lista-amarilla" : "lista-negra"}
+            nombreArchivo={amarilla ? "lista-amarilla" : "lista-negra"}
             filas={fichas}
             clave={(f) => f.clave}
             columnas={columnas}
@@ -101,7 +118,9 @@ export function TablaListaNegra({ fichas, cargando, error, alReintentar, alAbrir
             error={error}
             alReintentar={alReintentar}
             alClickFila={alAbrir}
-            vacio={{ icono: ShieldAlert, titulo: "Sin fichas", ayuda: "Lo que se cargue acá, desde el monitor o por el bot, aparece en esta lista." }}
+            vacio={{ icono: amarilla ? Search : ShieldAlert, titulo: "Sin fichas", ayuda: amarilla
+                ? "Acá van los vehículos a los que conviene seguirles el paso: pasan, pero cada lectura avisa con el motivo y con cuánto se los vio."
+                : "Lo que se cargue acá, desde el monitor o por el bot, aparece en esta lista." }}
             alto="calc(100vh - 300px)"
             pie={<span className="tabular-nums">{fichas.length} ficha{fichas.length === 1 ? "" : "s"}</span>}
         />

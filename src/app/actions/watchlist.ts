@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { normalizeWatchCat, type WatchCategory } from "@/lib/watch-categories";
 import { getSession } from "@/app/actions/auth";
 import { getImagePath } from "@/lib/image-path";
+import { proximaRevision } from "@/lib/padron";
+import { anotar, claveDeFila } from "@/lib/lista-amarilla";
 import {
     aplicarListaNegraEnCamaras, normalizarMatricula, vigilanciaDe,
     type ResultadoCamaras, type OrigenVigilancia,
@@ -144,7 +146,10 @@ export async function addWatch(data: {
             return { ok: false, conflicto: { category: categoriaPrevia, label: previa!.label, motivo: previa!.motivo } };
         }
         const createdBy = data.createdBy || (await quienSoy());
+        // Lista Amarilla: nace con revisión; si ya era amarilla y activa, conserva la suya.
+        const revisarEl = category !== "SEARCH" ? null : categoriaPrevia === "SEARCH" && previa?.revisarEl ? previa.revisarEl : proximaRevision();
         const comunes = {
+            revisarEl,
             label: data.label ?? previa?.label ?? "", category, notify: data.notify ?? previa?.notify ?? true,
             color: data.color ?? previa?.color ?? null, motivo: data.motivo ?? previa?.motivo ?? null,
             userId: data.userId === undefined ? (previa?.userId ?? null) : data.userId,
@@ -156,6 +161,9 @@ export async function addWatch(data: {
         const eraNegra = categoriaPrevia === "BLACKLISTED";
         const esNegra = category === "BLACKLISTED";
         const camaras = eraNegra !== esNegra ? await aplicarListaNegraEnCamaras(plate, esNegra) : undefined;
+        const clave = claveDeFila(row);
+        if (category === "SEARCH" && categoriaPrevia !== "SEARCH") await anotar(clave, eraNegra ? "NIVEL" : "ALTA", eraNegra ? `Pasó de lista negra a la Lista Amarilla: ${row.motivo || "sin motivo"}` : `Alta en la Lista Amarilla: ${row.motivo || "sin motivo"}`, createdBy);
+        else if (esNegra && categoriaPrevia === "SEARCH") await anotar(clave, "NIVEL", "Pasó a lista negra (alerta máxima).", createdBy);
         revalidar();
         return { ok: true, row, camaras };
     } catch (e: any) { return { ok: false, error: e?.message }; }
@@ -170,8 +178,16 @@ export async function updateWatch(id: string, data: { label?: string; category?:
             const c = normalizeWatchCat(data.category);
             if (!c) return { ok: false, error: `Categoría desconocida: "${data.category}"` };
             patch.category = c;
+            // Cambió de nivel: la revisión es de la amarilla.
+            const antes = normalizeWatchCat(previa.category);
+            if (c !== antes) patch.revisarEl = c === "SEARCH" ? proximaRevision() : null;
         }
         const row = await prisma.plateWatch.update({ where: { id }, data: patch });
+        if (previa.active && patch.category && patch.category !== normalizeWatchCat(previa.category)) {
+            const era = normalizeWatchCat(previa.category);
+            if (patch.category === "BLACKLISTED" && era === "SEARCH") await anotar(claveDeFila(row), "NIVEL", "Pasó a lista negra (alerta máxima).", await quienSoy());
+            else if (patch.category === "SEARCH") await anotar(claveDeFila(row), "NIVEL", `Pasó a la Lista Amarilla: ${row.motivo || "sin motivo"}`, await quienSoy());
+        }
         let camaras: ResultadoCamaras | undefined;
         if (previa.active) {
             const eraNegra = normalizeWatchCat(previa.category) === "BLACKLISTED";
@@ -191,6 +207,7 @@ export async function deactivateWatch(id: string) {
         const row = await prisma.plateWatch.update({ where: { id }, data: { active: false, deactivatedAt: new Date() } });
         const camaras = normalizeWatchCat(previa.category) === "BLACKLISTED" && previa.active
             ? await aplicarListaNegraEnCamaras(previa.plate, false) : undefined;
+        if (previa.active && normalizeWatchCat(previa.category) === "SEARCH") await anotar(claveDeFila(row), "BAJA", "Dada de baja.", await quienSoy());
         revalidar();
         return { ok: true, row, camaras };
     } catch (e: any) { return { ok: false, error: e?.message }; }
@@ -199,8 +216,12 @@ export async function deactivateWatch(id: string) {
 /** Volver a activar una entrada dada de baja (misma categoría, mismo motivo). */
 export async function reactivateWatch(id: string) {
     try {
-        const row = await prisma.plateWatch.update({ where: { id }, data: { active: true, deactivatedAt: null } });
+        const previa = await prisma.plateWatch.findUnique({ where: { id } });
+        if (!previa) return { ok: false, error: "La entrada ya no existe" };
+        const amarilla = normalizeWatchCat(previa.category) === "SEARCH";
+        const row = await prisma.plateWatch.update({ where: { id }, data: { active: true, deactivatedAt: null, ...(amarilla ? { revisarEl: proximaRevision() } : {}) } });
         const camaras = normalizeWatchCat(row.category) === "BLACKLISTED" ? await aplicarListaNegraEnCamaras(row.plate, true) : undefined;
+        if (amarilla && !previa.active) await anotar(claveDeFila(row), "REACTIVACION", "Activa otra vez.", await quienSoy());
         revalidar();
         return { ok: true, row, camaras };
     } catch (e: any) { return { ok: false, error: e?.message }; }

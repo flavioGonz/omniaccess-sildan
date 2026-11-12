@@ -20,6 +20,7 @@ import {
 import { NIVELES, SIN_IDENTIFICAR, type NivelListaNegra } from "@/lib/padron";
 import { ExplicacionCategoria, Placa } from "@/components/WatchlistDialog";
 import { FotoRegistro, avisarCamaras, subirFoto } from "@/components/users/FichaVigilancia";
+import { BitacoraFicha, RevisionFicha, SeguimientoFicha } from "@/components/users/SeguimientoFicha";
 
 /**
  * El cajón de una ficha de la Lista negra: crear y editar, igual que el de una persona.
@@ -43,11 +44,17 @@ const SENTIDO: Record<string, string> = { ENTRY: "Entrada", EXIT: "Salida" };
  * cajón (para «Lista negra»), y un import directo cerraría el círculo entre los dos módulos.
  */
 const FichaDeEvento = dynamic(() => import("@/components/eventos/FichaDeEvento").then((m) => m.FichaDeEvento), { ssr: false });
+/**
+ * El cajón «Investigar» del Monitor LPR (actividad, hora pico y recorrido de una matrícula), para
+ * abrirlo desde la ficha amarilla sin salir de Usuarios. Aparte por la misma razón que el de arriba:
+ * vive en el monitor, y el monitor ya importa este cajón.
+ */
+const FichaMatriculaDrawer = dynamic(() => import("@/components/monitor/FichaMatriculaDrawer").then((m) => m.FichaMatriculaDrawer), { ssr: false });
 const limpiar = (v: string) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 type Deteccion = DeteccionFicha & { plate: string };
 
-export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, motivoInicial, nivelInicial, alCerrar, alCambiar, alAbrirPersona }: {
+export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, motivoInicial, nivelInicial, alCerrar, alCambiar, alAbrirPersona, alPasarANegra }: {
     abierta: boolean;
     /** Null = alta. */
     ficha: FichaListaNegra | null;
@@ -64,6 +71,8 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
     alCerrar: () => void;
     alCambiar: () => void;
     alAbrirPersona?: (userId: string) => void;
+    /** La ficha pasó de la Lista Amarilla a la negra: la pantalla la lleva a su pestaña nueva. */
+    alPasarANegra?: (clave: string) => void;
 }) {
     const esAlta = !ficha;
     const editable = esAlta || ficha!.origen === "ficha" || ficha!.origen === "suelta";
@@ -76,7 +85,13 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
     const [archivo, setArchivo] = useState<File | null>(null);
     const [guardando, setGuardando] = useState(false);
     /** Lo que hay que confirmar, y qué acción lo pidió (guardar o reactivar), para repetirla confirmada. */
-    const [avisos, setAvisos] = useState<{ lista: string[]; accion: "guardar" | "reactivar" } | null>(null);
+    const [avisos, setAvisos] = useState<{ lista: string[]; accion: "guardar" | "reactivar" | "negra" } | null>(null);
+    // Seguimiento de la Lista Amarilla: la matrícula abierta en Investigar (mientras, este cajón se
+    // corre, igual que con la ficha de un evento), la revisión recién renovada y el pulso que le
+    // dice a la bitácora que el sistema anotó algo.
+    const [investigar, setInvestigar] = useState<string | null>(null);
+    const [revisionNueva, setRevisionNueva] = useState<string | null>(null);
+    const [pulsoBitacora, setPulsoBitacora] = useState(0);
     const [det, setDet] = useState<{ detecciones: Deteccion[]; total: number } | null>(null);
     const [errorDet, setErrorDet] = useState<string | null>(null);
     /** La lectura abierta en su ficha. Mientras, el cajón se corre: el visor va encima de todo y el cajón le tomaría los clicks. */
@@ -98,6 +113,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
         setNombre(ficha?.nombre || ""); setNivel(ficha?.nivel || nivelInicial || "BLACKLISTED"); setMotivo(ficha?.motivo || (!ficha && motivoInicial) || "");
         const iniciales = ficha?.matriculas || (chapaInicial ? [limpiar(chapaInicial)].filter(Boolean) : []);
         setChapas(iniciales); setChapaNueva(""); setArchivo(!ficha ? fotoInicial || null : null); setAvisos(null);
+        setInvestigar(null); setRevisionNueva(null);
         if (ficha) cargarDet(ficha.matriculas); else setDet(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [abierta, ficha?.clave, chapaInicial, fotoInicial, nivelInicial]);
@@ -145,6 +161,28 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
         } finally { setGuardando(false); }
     }
 
+    /**
+     * Pasar a lista negra en un paso: es guardar la misma ficha con el otro nivel, así que pide
+     * la misma confirmación (a quién del padrón se le cierra la barrera) y avisa a las lectoras
+     * igual. Usa lo GUARDADO, no lo que haya a medio escribir en el formulario.
+     */
+    async function pasarANegra(confirmar = false) {
+        if (!ficha) return;
+        setGuardando(true);
+        try {
+            const r = await guardarFichaListaNegra({ clave: ficha.clave, nombre: ficha.nombre, nivel: "BLACKLISTED", motivo: ficha.motivo || "", matriculas: ficha.matriculas, confirmar });
+            if (r.avisos?.length) { setAvisos({ lista: r.avisos, accion: "negra" }); return; }
+            if (!r.ok) { toast.error({ title: "No se pudo pasar a lista negra", description: r.error }); return; }
+            toast.success({ title: `${ficha.nombre || SIN_IDENTIFICAR} · ${NIVELES.BLACKLISTED.corto}`, description: `${NIVELES.BLACKLISTED.resumen} La bitácora sigue con la ficha.` });
+            avisarCamaras(r.camaras);
+            alCambiar(); alCerrar();
+            if (r.clave) alPasarANegra?.(r.clave);
+        } finally { setGuardando(false); }
+    }
+    /** El seguimiento va en una ficha amarilla que ya existe, con la función prendida. */
+    const conSeguimiento = !!ficha && !!busquedaOn && ficha.nivel === "SEARCH" && ficha.origen !== "rol";
+    const fichaAlDia = ficha && revisionNueva ? { ...ficha, revisarEl: revisionNueva } : ficha;
+
     const evidencias = (det?.detecciones || []).filter((d) => d.foto).slice(0, EVIDENCIAS_A_LA_VISTA);
     const columnas: ColumnaTabla<Deteccion>[] = [
         { clave: "ts", titulo: "Cuándo", ancho: 120, valor: (d) => d.ts, celda: (d) => <Momento t={d.ts} /> },
@@ -163,7 +201,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
 
     return (
         <>
-        <Cajon open={abierta && !evento} onOpenChange={(o) => { if (!o) alCerrar(); }}>
+        <Cajon open={abierta && !evento && !investigar} onOpenChange={(o) => { if (!o) alCerrar(); }}>
             {/*
               * En rojo, como el cajón de la lista negra del monitor (21/10, Nico: «el drawer de
               * ?tab=listanegra debe ser igual al que tenemos con fondo rojo»). El tema (.tema-rojo)
@@ -206,7 +244,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
                     <div className="mx-6 mt-5 rounded-[10px] bg-black/25 p-3 text-[12px] space-y-2">
                         <ul className="space-y-1">{avisos.lista.map((a) => <li key={a}>{a}</li>)}</ul>
                         <div className="flex gap-2">
-                            <Button size="sm" onClick={() => (avisos.accion === "reactivar" ? bajaOAlta(true) : guardar(true))} disabled={guardando}>Sí, seguir</Button>
+                            <Button size="sm" onClick={() => (avisos.accion === "reactivar" ? bajaOAlta(true) : avisos.accion === "negra" ? pasarANegra(true) : guardar(true))} disabled={guardando}>Sí, seguir</Button>
                             <Button size="sm" variant="outline" onClick={() => setAvisos(null)}>No</Button>
                         </div>
                     </div>
@@ -299,6 +337,21 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
                     {editable && <MatriculaEnBase className="mt-2" variante="rojo" plates={chapasFinales.filter((p) => !(ficha?.matriculas || []).includes(p))} />}
                 </CajonSeccion>
 
+                {/* ── Seguimiento (Lista Amarilla) ── cuándo revisarla, cuánto se la vio, qué se sabe */}
+                {conSeguimiento && fichaAlDia && (
+                    <>
+                        {fichaAlDia.activa && (
+                            <RevisionFicha ficha={fichaAlDia} ocupado={guardando}
+                                alRenovar={(f) => { setRevisionNueva(f); setPulsoBitacora((n) => n + 1); alCambiar(); }}
+                                alPasarANegra={() => pasarANegra()}
+                                puedePasar={editable && !cambios}
+                                motivoNoPasa={!editable ? "Es una persona del padrón: se pasa a lista negra desde su ficha de persona." : cambios ? "Hay cambios sin guardar: guardalos o cancelalos antes de pasarla a lista negra." : undefined} />
+                        )}
+                        <SeguimientoFicha clave={fichaAlDia.clave} alInvestigar={setInvestigar} />
+                        <BitacoraFicha clave={fichaAlDia.clave} pulso={pulsoBitacora} />
+                    </>
+                )}
+
                 {/* ── Dónde se la vio ── (sólo una ficha que ya existe) */}
                 {ficha && (
                     <>
@@ -344,6 +397,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
 
         </Cajon>
         {abierta && evento && <FichaDeEvento id={evento} alCerrar={() => setEvento(null)} />}
+        {abierta && investigar && <FichaMatriculaDrawer plate={investigar} abierto onCerrar={() => setInvestigar(null)} />}
         </>
     );
 }
