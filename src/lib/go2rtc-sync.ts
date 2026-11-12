@@ -179,6 +179,24 @@ async function writeStreams(name: string, nameHd: string, sd: string, hd: string
  *    robusto aunque la cámara física sea de otra marca.
  * Nombre del stream: lpr_<id> (SD) y lpr_<id>_hd (HD) — compatible con el visor.
  */
+/** ¿El RTSP del NVR entrega video? Se recuerda un rato por NVR (con 64 canales no se prueba 64 veces). */
+const _rtspNvr: Map<string, { ok: boolean; al: number }> = (globalThis as any).__rtspNvr ?? new Map();
+(globalThis as any).__rtspNvr = _rtspNvr;
+async function nvrRtspResponde(nvr: { ip: string; user: string; pass: string; rtspPort: string; brand: string }, ch: number): Promise<boolean> {
+    const k = `${nvr.ip}:${nvr.rtspPort || 554}`;
+    const c = _rtspNvr.get(k);
+    if (c && Date.now() - c.al < 10 * 60_000) return c.ok;
+    const ok = (await tcpReachable(nvr.ip, Number(nvr.rtspPort) || 554, 2000)) && (await rtspResponde(rtspViaNvr(nvr, ch, false)));
+    _rtspNvr.set(k, { ok, al: Date.now() });
+    return ok;
+}
+/** Origen go2rtc del vivo de un canal de NVR Dahua por HTTP (MJPEG del sub-stream → H.264). */
+async function vivoHttpDahua(nvr: { ip: string; user: string; pass: string }, ch: number): Promise<string> {
+    const { hostHttp } = await import("@/lib/host-http");
+    const h = await hostHttp(nvr.ip);
+    return `ffmpeg:http://${enc(nvr.user || "admin")}:${enc(nvr.pass || "")}@${h}/cgi-bin/mjpg/video.cgi?channel=${ch}&subtype=1#video=h264`;
+}
+
 export async function syncLprStream(dev: Dev): Promise<void> {
     try {
         if (!dev) return;
@@ -228,6 +246,16 @@ export async function syncLprStream(dev: Dev): Promise<void> {
                         // VIVO HD: siempre por el NVR (el main es H265 y se transcodifica igual).
                         // «Responde» es que entrega video, no que el puerto esté abierto (ver rtspResponde).
                         const direct = (await tcpReachable(dev.ip, 554, 1500)) && (await rtspResponde(rtspDirect(dev, "102")));
+                        // NVR Dahua sin el RTSP publicado (sólo el 80, p. ej. por internet): el vivo va por el
+                        // MJPEG del sub-stream por HTTP (/cgi-bin/mjpg/video.cgi), que ffmpeg lee con digest
+                        // y go2rtc pasa a H.264. Change openspec nvr-dahua-wizsense.
+                        if (!direct && String(nvr.brand).toUpperCase() === "DAHUA" && !(await nvrRtspResponde(nvr, entry.ch))) {
+                            const http = await vivoHttpDahua(nvr, entry.ch);
+                            console.log(`[go2rtc-sync] ${dev.ip} vivo por HTTP (MJPEG del NVR Dahua, sin RTSP)`);
+                            await writeStreamSolo(name, http);
+                            await writeStreamSolo(nameHd, http);
+                            return;
+                        }
                         const sd = direct ? rtspDirect(dev, "102") : rtspViaNvr(nvr, entry.ch, false);
                         console.log(`[go2rtc-sync] ${dev.ip} SD=${direct ? "directo-cámara" : "vía-NVR"}`);
                         await writeStreams(name, nameHd, sd, rtspViaNvr(nvr, entry.ch, true));

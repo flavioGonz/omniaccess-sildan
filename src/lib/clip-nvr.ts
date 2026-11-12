@@ -158,6 +158,7 @@ export const CORTE_TOPE_MS = 45_000;
  * quedó un archivo; no inventa nada si el NVR no tiene ese tramo.
  */
 export async function cortarDesdeNvr(conn: NvrConn, ch: string, startMs: number, durSeg: number, destino: string, opciones: { forceTx?: boolean; cfg?: ConfigClip; topeMs?: number; marcaAgua?: string | null } = {}): Promise<boolean> {
+    if (await soloHttpDahua(conn)) return cortarPorHttpDahua(conn, ch, startMs, durSeg, destino, opciones.cfg || await configClips(), opciones.topeMs ?? CORTE_TOPE_MS * 2);
     const r = await cortarUnaVez(conn, ch, startMs, durSeg, destino, opciones);
     if (r.ok || r.corregido || !esSdpCambiado(r.salida)) return r.ok;
     // El SDP del canal mentía (anuncia H.265, manda H.264): se aprende y se corta otra vez por el pasamanos.
@@ -204,4 +205,54 @@ async function cortarUnaVez(conn: NvrConn, ch: string, startMs: number, durSeg: 
         ff.on("close", (code) => { clearTimeout(killer); resolve({ ok: code === 0, salida, corregido }); });
         ff.on("error", () => { clearTimeout(killer); resolve({ ok: false, salida, corregido }); });
     });
+}
+
+
+/*
+ * NVR Dahua alcanzable sólo por HTTP (el RTSP no está publicado; change openspec nvr-dahua-wizsense).
+ * Lo grabado se baja con /cgi-bin/loadfile.cgi (startLoad por canal y rango de hora local) y se
+ * pasa a MP4 H.264 con ffmpeg. Se recuerda un rato por NVR si su RTSP responde o no.
+ */
+const _rtspDahua: Map<string, { ok: boolean; al: number }> = (globalThis as any).__rtspDahua ?? new Map();
+(globalThis as any).__rtspDahua = _rtspDahua;
+export async function soloHttpDahua(conn: NvrConn): Promise<boolean> {
+    if (String((conn as any).brand || "").toUpperCase() !== "DAHUA") return false;
+    const puerto = Number((conn as any).rtspPort) || 554;
+    const k = `${conn.ip}:${puerto}`;
+    const c = _rtspDahua.get(k);
+    if (c && Date.now() - c.al < 10 * 60_000) return !c.ok;
+    const net = await import("net");
+    const ok = await new Promise<boolean>((res) => {
+        const so = new net.Socket(); let fin = false;
+        const listo = (v: boolean) => { if (fin) return; fin = true; try { so.destroy(); } catch { } res(v); };
+        so.setTimeout(2500); so.once("connect", () => listo(true)); so.once("timeout", () => listo(false)); so.once("error", () => listo(false));
+        try { so.connect(puerto, conn.ip); } catch { listo(false); }
+    });
+    _rtspDahua.set(k, { ok, al: Date.now() });
+    return !ok;
+}
+
+async function cortarPorHttpDahua(conn: NvrConn, ch: string, startMs: number, durSeg: number, destino: string, cfg: ConfigClip, topeMs: number): Promise<boolean> {
+    const fs = await import("fs");
+    const { authenticatedRequest } = await import("@/lib/digest-auth");
+    const local = (ms: number) => fmtDahua(ms).replace(/^(\d{4})_(\d{2})_(\d{2})_(\d{2})_(\d{2})_(\d{2})$/, "$1-$2-$3 $4:$5:$6");
+    const q = (x: string) => encodeURIComponent(x);
+    const tmp = `${destino}.dav`;
+    try {
+        const dav: ArrayBuffer = await authenticatedRequest("GET", `/cgi-bin/loadfile.cgi?action=startLoad&channel=${ch}&startTime=${q(local(startMs))}&endTime=${q(local(startMs + durSeg * 1000))}`,
+            { ip: conn.ip, username: conn.user, password: conn.pass, authType: "DIGEST" } as any, { responseType: "arraybuffer", timeout: Math.max(30000, topeMs) });
+        if (!dav || (dav as any).byteLength < 2000) return false;
+        fs.writeFileSync(tmp, Buffer.from(dav));
+        const alto = Math.min(cfg.altura || 720, 1080);
+        const args = ["-v", "error", "-i", tmp, "-t", String(durSeg), "-an", "-vf", `scale=-2:${alto}`, "-c:v", "libx264", "-preset", "ultrafast", "-crf", String(CRF_POR_CALIDAD[cfg.calidad]), "-threads", "4", "-movflags", "+faststart", "-y", destino];
+        return await new Promise<boolean>((resolve) => {
+            const ff = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "ignore"] });
+            const tope = setTimeout(() => { try { ff.kill("SIGKILL"); } catch { } resolve(false); }, topeMs);
+            ff.on("close", (code) => { clearTimeout(tope); resolve(code === 0); });
+            ff.on("error", () => { clearTimeout(tope); resolve(false); });
+        });
+    } catch (e) {
+        console.error("[clip-nvr] HTTP Dahua:", (e as any)?.message || e);
+        return false;
+    } finally { try { fs.unlinkSync(tmp); } catch { } }
 }

@@ -6,7 +6,7 @@ import { spawn } from "child_process";
 import { resolveNvrById, getChannelMap } from "@/lib/nvr-resolve";
 import { prisma } from "@/lib/prisma";
 import { configClips, nombreDeClip } from "@/lib/clips";
-import { planDeCorte, cortarDesdeNvr } from "@/lib/clip-nvr";
+import { planDeCorte, cortarDesdeNvr, soloHttpDahua } from "@/lib/clip-nvr";
 import { esSdpCambiado, marcarSdpCambiado } from "@/lib/rtsp-sdp";
 import type { NvrConn } from "@/lib/nvr-resolve";
 import { ventanaPlayback, acotarVentana, ANTES_MAX, DESPUES_MAX } from "@/lib/ventana-playback";
@@ -39,7 +39,8 @@ export async function GET(req: NextRequest) {
     // Modo "clip completo": genera un MP4 completo (faststart) a un archivo temporal y lo sirve
     // con Content-Length + soporte de rangos. Necesario para que el <video> reproduzca en el
     // WebView de Android (el fMP4 por pipe queda sin reproducir → solo se ve el póster).
-    if (sp.get("whole") === "1") {
+    // NVR Dahua sin RTSP publicado: lo grabado sólo se baja entero por HTTP (lib/clip-nvr).
+    if (sp.get("whole") === "1" || await soloHttpDahua(conn)) {
         const os = await import("os");
         const fs = await import("fs");
         const path = await import("path");

@@ -14,9 +14,17 @@ export async function rpc2Sesion(dev: { ip: string; username?: string | null; pa
     const base = `http://${await hostHttp(dev.ip)}`;
     const user = dev.username || "admin";
     let id = 1;
+    // El firmware V5 (NVR5464-EI de Nicolás, 12/11) exige además la cookie de sesión
+    // (WebClientHttpSessionID) en cada /RPC2: sin ella la llamada queda colgada hasta el timeout.
+    let cookie = "";
     const post = async (path: string, body: any) => {
-        const r = await fetch(base + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs), cache: "no-store" });
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        const sesionBody = body?.session;
+        if (cookie || sesionBody) headers.Cookie = cookie || `WebClientHttpSessionID=${sesionBody}`;
+        const r = await fetch(base + path, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs), cache: "no-store" });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const sc = r.headers.get("set-cookie");
+        if (sc) { const m = sc.match(/WebClientHttpSessionID=([^;,\s]+)/); if (m) cookie = `WebClientHttpSessionID=${m[1]}`; }
         return r.json();
     };
     const a = await post("/RPC2_Login", { method: "global.login", params: { userName: user, password: "", clientType: "Web3.0", loginType: "Direct" }, id: id++ });

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { camarasDelNvr } from "@/lib/acuseek-nvr";
 import { hikvision } from "./hikvision";
+import { dahua } from "./dahua";
 import type { CapacidadesBusqueda, ConexionGrabador, DriverBusqueda } from "./tipos";
 export type * from "./tipos";
 
@@ -10,6 +11,7 @@ export type * from "./tipos";
  */
 const DRIVERS: Record<string, DriverBusqueda> = {
     HIKVISION: hikvision,
+    DAHUA: dahua,
 };
 export const driverDe = (marca: string | null | undefined): DriverBusqueda | null => DRIVERS[String(marca || "").toUpperCase()] || null;
 
