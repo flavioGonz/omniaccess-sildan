@@ -29,6 +29,7 @@ const https = require("https");
 const crypto = require("crypto");
 const { uploadToS3 } = require("./lib-s3");
 const { estaEnListaNegra, detalleListaNegra } = require("./lib-lista-negra");
+const { contextoDeLectura, busquedaPrendida } = require("./lib-contexto-vigilancia");
 const { captureForDevice: captureIntrusion } = require("./lib-intrusion-capture");
 const { getVehicleColorName, getVehicleBrandName } = require("./hikvision-codes");
 const { handleWahaWebhook } = require("./waha-handler");
@@ -1607,12 +1608,21 @@ const handleWebhook = async (req, res, logPrefix) => {
         // Se avisa igual venga la lista negra de una fila manual, de una persona marcada o del
         // rol: antes la regla WATCHLIST sólo disparaba para el rol y Telegram sólo para lo manual.
         try {
+            // Lista Amarilla: cuánto se la vio antes (openspec seguimiento-lista-amarilla). Sólo
+            // para las amarillas y con la función prendida; si la consulta falla o tarda, el
+            // aviso sale igual, sin la línea. Va en `watchHit` porque de ahí lo toman los cuatro
+            // destinos: el socket (monitor y Control LPR), el Telegram y las reglas.
+            if (watchHit && watchHit.category === 'SEARCH' && await busquedaPrendida(prisma)) {
+                try { watchHit.contexto = await contextoDeLectura(prisma, { plate: finalPlate, eventId: event.id, ahora: event.timestamp || new Date() }); }
+                catch (e) { console.error(`${logPrefix} [WATCHLIST] sin contexto para ${finalPlate}:`, (e && e.message) || e); }
+            }
             if (watchHit) {
                 const cat = watchHit.category;
                 const quien = watchHit.label || '';
                 const etiqueta = watchCatLabel(cat);
+                const contexto = (watchHit.contexto && watchHit.contexto.frase) || '';
                 if (watchHit.motivo || listaNegra.watch?.notify !== false) {
-                    notifyWatchTelegram(`🚨 <b>${etiqueta}</b> · ${finalPlate}\n${quien}${watchHit.motivo ? `\n${watchHit.motivo}` : ''}\nCámara: ${(device && device.name) || 'N/D'} (${event.direction === 'ENTRY' ? 'Entrada' : 'Salida'})`);
+                    notifyWatchTelegram(`🚨 <b>${etiqueta}</b> · ${finalPlate}\n${quien}${watchHit.motivo ? `\n${watchHit.motivo}` : ''}${contexto ? `\n📍 ${contexto}` : ''}\nCámara: ${(device && device.name) || 'N/D'} (${event.direction === 'ENTRY' ? 'Entrada' : 'Salida'})`);
                 }
                 if (cat === 'BLACKLISTED' || cat === 'SEARCH') {
                     notificarPorReglas({
@@ -1622,10 +1632,10 @@ const handleWebhook = async (req, res, logPrefix) => {
                         plate: finalPlate,
                         direction: event.direction || "ENTRY",
                         snapshotPath: relativeImagePath || null,
-                        extra: { categoria: etiqueta, motivo: watchHit.motivo || null, origen: listaNegra.origen || watchHit.source },
+                        extra: { categoria: etiqueta, motivo: watchHit.motivo || null, origen: listaNegra.origen || watchHit.source, contexto: contexto || null, lecturas7: watchHit.contexto ? watchHit.contexto.lecturas7 : null, dias7: watchHit.contexto ? watchHit.contexto.dias7 : null },
                     }).catch(() => { });
                 }
-                console.log(`${logPrefix} [WATCHLIST] ${finalPlate} (${cat}, ${watchHit.source})`);
+                console.log(`${logPrefix} [WATCHLIST] ${finalPlate} (${cat}, ${watchHit.source})${contexto ? ` · ${contexto}` : ''}`);
             }
         } catch (e) { console.error(`${logPrefix} Watchlist notify error:`, (e && e.message) || e); }
 

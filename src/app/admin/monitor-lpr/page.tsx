@@ -378,6 +378,8 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     {tipo && <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg shadow-sm backdrop-blur-md", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
                     {/* El motivo de la lista viaja con la captura: en búsqueda es lo que el guardia tiene que saber. */}
                     {watch?.motivo && <span className={cn("max-w-[60%] text-[11px] font-semibold px-2 py-1 rounded-lg shadow-sm backdrop-blur-md leading-snug", tipo?.badge || "bg-black/60 text-white")}>{watch.motivo}</span>}
+                    {/* Y, en la Lista Amarilla, cuánto se la vio antes (viene con la lectura en vivo). */}
+                    {watch?.contexto?.frase && <span className="max-w-[72%] text-[11px] font-semibold px-2 py-1 rounded-lg shadow-sm backdrop-blur-md leading-snug bg-black/60 text-white">{watch.contexto.frase}</span>}
                 </div>
                 <div className="absolute top-3 right-3 z-10"><span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider text-white shadow-lg ring-1 backdrop-blur-md", ok ? "bg-emerald-600/90 ring-emerald-300/30" : "bg-red-600/90 ring-red-300/30")}>{ok ? <CheckCircle2 size={13} /> : <Ban size={13} />}{ok ? "Permitido" : "Denegado"}</span></div>
                 {/* El contador de captura: abajo a la derecha, destacado — lo primero que el guardia mira para
@@ -587,6 +589,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                             {empresa && <img src={empresa.logo} alt={empresa.nombre} title={empresa.nombre} className="h-4 w-auto max-w-16 object-contain" />}
                         </div>
                         {watch?.motivo && <p className={cn("text-[11px] font-semibold mt-1 truncate", watchMeta?.text)} title={watch.motivo}>{watch.motivo}</p>}
+                        {watch?.contexto?.frase && <p className="text-[11px] mt-0.5 truncate text-muted-foreground" title={watch.contexto.frase}>{watch.contexto.frase}</p>}
                         {isAnomalous && relCard?.plate && <div className="mt-1"><SugerenciaRelectura r={relCard} soloContexto /></div>}
                         <div className="flex items-center gap-2 mt-1">
                             {(marcaEv || meta.Tipo) && <span className="text-[10px] text-muted-foreground font-semibold">{[marcaEv?.marca, marcaEv ? (datoDeCamara(meta.Modelo) || meta.Tipo) : meta.Tipo].filter(Boolean).join(" · ")}</span>}

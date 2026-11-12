@@ -45,6 +45,8 @@ const limpiar = (p: unknown) => String(p || "").toUpperCase().replace(/[^A-Z0-9]
 type Item = {
     id: string; tipo: TipoAviso; nivel: "critico" | "alerta"; ts: string; foto: string | null;
     rotulo: string; titulo: string; detalle: string | null; grupo: string;
+    /** Lista Amarilla: cuánto se la vio antes, ya redactado por el servidor de eventos. */
+    contexto?: string | null;
     /** Las claves de gestión del grupo (l:<evento> | a:<aviso>); la primera es la más nueva. */
     claves: string[];
     /** El evento LPR para «Ver evento» (la ficha del Monitor LPR). */
@@ -88,7 +90,7 @@ export function AvisosLpr({ soloLectura = false }: {
         if (i < 0) return [{ ...n, id: `${n.grupo}|${n.claves[0]}` }, ...vivos].slice(0, 40);
         const g = vivos[i];
         if (g.claves.includes(n.claves[0])) return vivos;
-        const unido: Item = { ...g, ts: n.ts, foto: n.foto || g.foto, detalle: n.detalle || g.detalle, eventoId: n.eventoId || g.eventoId, claves: [...n.claves, ...g.claves] };
+        const unido: Item = { ...g, ts: n.ts, foto: n.foto || g.foto, detalle: n.detalle || g.detalle, contexto: n.contexto || g.contexto, eventoId: n.eventoId || g.eventoId, claves: [...n.claves, ...g.claves] };
         return [unido, ...vivos.filter((_, j) => j !== i)];
     }), []);
     const quitarClaves = useCallback((claves: string[]) => setItems((prev) => prev
@@ -110,6 +112,7 @@ export function AvisosLpr({ soloLectura = false }: {
             foto: getImagePath(ev.snapshotPath || ev.imagePath) || null,
             rotulo: negra ? "Lista negra" : "Lista Amarilla", titulo: plate || "Sin lectura",
             detalle: [camara, SENTIDO[ev.direction], ev.watch?.motivo || ev.watch?.label].filter(Boolean).join(" · ") || null,
+            contexto: busqueda ? ev.watch?.contexto?.frase || null : null,
             grupo: `${negra ? "negra" : "busqueda"}:${plate || camara}`, claves: [`l:${ev.id}`], eventoId: ev.id, plate, deviceId: ev.device?.id || ev.deviceId || null,
         });
     });
@@ -198,7 +201,7 @@ export function AvisosLpr({ soloLectura = false }: {
             }
         }
         return {
-            id: it.id, tipo: it.tipo, nivel: it.nivel, ts: it.ts, foto: it.foto, rotulo: it.rotulo, titulo: it.titulo, detalle: it.detalle,
+            id: it.id, tipo: it.tipo, nivel: it.nivel, ts: it.ts, foto: it.foto, rotulo: it.rotulo, titulo: it.titulo, detalle: it.detalle, contexto: it.contexto,
             veces: it.claves.length, acciones,
             operador: gestionable && !soloLectura ? (o?.soyYo ? "La atendés vos" : o?.operador ? `La atiende ${o.operador}` : null) : undefined,
             // Lo crítico no se quita sin decidir; en la pared (que no decide) sí, para no quedar tapada.

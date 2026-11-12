@@ -90,6 +90,9 @@ function armarTexto(plantilla: string | null, ev: EventoNotificable, ahora: Date
         "{tipo}": leerChapa(ev.plate)?.frase || "—",
         // Por qué se escaló un evento de central: «Nadie lo tomó en 2 min».
         "{motivo}": String(ev.extra?.motivo ?? ""),
+        // Lista Amarilla: cuánto se la vio antes («5.ª lectura en 7 días… · anterior: ayer 22:14 en
+        // Portón Sur»). La frase ya viene armada del servidor de eventos (lib-contexto-vigilancia).
+        "{contexto}": String(ev.extra?.contexto ?? ""),
     };
     const base = plantilla || (ev.modulo === "FACE"
         ? "👤 {evento}\n{persona}\n{device} · {channel}\n{date} {time}"
@@ -103,7 +106,10 @@ function armarTexto(plantilla: string | null, ev: EventoNotificable, ahora: Date
             // Una chapa especial dice qué es al lado («SAM1234 · Ambulancia de Montevideo»).
             : tipoDeChapa(ev.plate) ? "🚗 {evento}\n{plate} · {tipo}\n{device} · {channel}\n{date} {time}"
             : "🚗 {evento}\n{plate}\n{device} · {channel}\n{date} {time}");
-    return Object.entries(vars).reduce((t, [k, v]) => t.split(k).join(v), base);
+    // Sin plantilla propia, una lectura de la Lista Amarilla suma su contexto al final. Una
+    // plantilla escrita a mano no se toca: quien la quiera, pone {contexto}.
+    const conContexto = !plantilla && ev.evento === "WATCHLIST" && ev.extra?.contexto ? `${base}\n📍 {contexto}` : base;
+    return Object.entries(vars).reduce((t, [k, v]) => t.split(k).join(v), conContexto);
 }
 
 /** ¿La regla está dentro de su ventana de días y horas? */

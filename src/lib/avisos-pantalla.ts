@@ -50,6 +50,8 @@ export type Aviso = {
     titulo: string;
     /** «Cámara · sentido · motivo». */
     detalle?: string | null;
+    /** Lista Amarilla: cuánto se la vio antes, ya redactado (lib-contexto-vigilancia). */
+    contexto?: string | null;
     /** Quién la atiende, si alguien la tomó. */
     operador?: string | null;
     /** Veces que se repitió (misma matrícula o cámara en pocos minutos). */

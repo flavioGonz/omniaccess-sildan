@@ -168,6 +168,9 @@ function BarraAviso({ a }: { a: Aviso }) {
                 <div className="text-[15px] font-extrabold leading-tight truncate">
                     {a.titulo}<span className="font-semibold opacity-85">{a.detalle ? ` · ${a.detalle}` : ""} · {hace(a.ts)}</span>
                 </div>
+                {/* Lista Amarilla: cuánto se la vio antes. Es lo que convierte «pasó un auto de la
+                    lista» en «es la quinta vez esta semana». */}
+                {a.contexto && <div className="text-[11.5px] font-semibold opacity-95 inline-flex items-center gap-1 truncate max-w-full"><Repeat size={12} className="shrink-0" /> {a.contexto}</div>}
                 {a.activa ? (
                     <div className="text-[11.5px] font-semibold opacity-95 inline-flex items-center gap-1 truncate max-w-full">
                         <ShieldAlert size={12} /> Confirmada real por <b className="font-extrabold">{a.activa.por || "la guardia"}</b> · {hora(a.activa.desde)} ({hace(a.activa.desde)})

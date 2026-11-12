@@ -36,6 +36,8 @@ Ver `proposal.md` para el porqué. Lo que condiciona el cómo:
 - *Por qué no en cada pantalla:* serían cuatro lugares calculando lo mismo, y el Telegram y las reglas no tienen pantalla.
 - *Por qué no guardarlo en la lectura (`AccessEvent.details`):* es derivable en cualquier momento de las propias lecturas; guardarlo lo congela con los valores de ese instante y obliga a explicar por qué no coincide con la ficha.
 
+**Control LPR no escucha el socket** (se vio al implementar): arma su franja de atención desde `/api/monitor/lpr`. Esa ruta calcula el contexto de las amarillas de la franja con la misma función (`contextoDeLectura`) y **el instante de esa lectura** como reloj, así que da la misma frase que el aviso original. Es la ventaja de que sea derivable: no hubo que guardarlo para mostrarlo después.
+
 La consulta es una sola agregación sobre `AccessEvent` con `plateDetected = <chapa>`, `accessType = PLATE`, `sinVehiculo = false` y `timestamp >= ahora − 7 días` (índice `(plateDetected, timestamp)`), más la lectura anterior (`orderBy timestamp desc`, `take 1`, excluyendo la actual). Los «días distintos» se cuentan en la zona horaria de la instalación (`America/Montevideo`), no en UTC: una pasada a las 22:00 y otra a las 02:00 son dos días para el guardia.
 
 ### 2. La frase la arma una función pura, en un módulo que usan los dos mundos

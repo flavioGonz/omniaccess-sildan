@@ -77,7 +77,9 @@ type Lectura = {
     /** Lo que omni-vision vio en la foto (vision-analisis.js): siluetas, color y carrocería. */
     analisis?: Analisis | null;
 };
-type Atencion = { id: string | null; plate: string | null; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO" | "AVISO"; motivo: string; ts: string; camara: string | null; avisoId?: string; avisoTipo?: string };
+type Atencion = { id: string | null; plate: string | null; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO" | "AVISO"; motivo: string; ts: string; camara: string | null; avisoId?: string; avisoTipo?: string;
+    /** Lista Amarilla: cuánto se la vio antes de esta lectura. */
+    contexto?: string | null };
 type VisitaEnBarrio = { tipo: "VISITA"; id: string; plate: string | null; tipoVisita?: string; tipoNombre: string; lote: string | null; nombre: string | null; empresa: string | null; origen: string; desde: string; vence: string; accessEventId: string | null };
 type NoRegistrada = { tipo: "NO_REGISTRADA"; plate: string; desde: string; estimado: true; camara: string | null; accessEventId: string };
 type Datos = {
@@ -444,6 +446,7 @@ export function VistaLpr() {
                                     <span className="min-w-0 flex-1">
                                         <span className="flex items-center gap-2">{a.plate && <span className="text-[18px] font-bold tabular-nums tracking-[0.1em]">{a.plate}</span>}<span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{est.t}</span></span>
                                         <span className={cn("block text-[13px] text-muted-foreground", av ? "line-clamp-2" : "truncate")}>{a.motivo} · {hace(a.ts)}{a.camara ? ` · ${a.camara}` : ""}</span>
+                                        {a.contexto && <span className="block text-[13px] font-semibold tono-aviso truncate">{a.contexto}</span>}
                                     </span>
                                     {a.id && <ChevronRight size={18} className="text-muted-foreground/60 shrink-0" />}
                                 </button>

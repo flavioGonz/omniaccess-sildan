@@ -10,6 +10,7 @@ import { identidadDeLecturas } from "@/lib/monitor/identidad";
 import { getComportamientoPadron } from "@/app/actions/padron";
 import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
 import { calcularPresencia } from "@/lib/presencia";
+import { contextoDeLectura, busquedaPrendida } from "@/lib/contexto-vigilancia";
 
 export const dynamic = "force-dynamic";
 
@@ -117,12 +118,25 @@ export async function GET() {
     const desdeMerodeo = Date.now() - merodeo.horas * 3600 * 1000;
     for (const e of recientes) { const ch = normalizarMatricula(e.plateDetected); if (esChapa(ch) && e.decision === "DENY" && e.timestamp.getTime() >= desdeMerodeo) denegadasPorChapa.set(ch, (denegadasPorChapa.get(ch) || 0) + 1); }
     const vistas = new Set<string>();
-    const atencion: { id: string | null; plate: string | null; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO" | "AVISO"; motivo: string; ts: string; camara: string | null; veces?: number; avisoId?: string; avisoTipo?: string }[] = [];
+    const atencion: { id: string | null; plate: string | null; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO" | "AVISO"; motivo: string; ts: string; camara: string | null; veces?: number; avisoId?: string; avisoTipo?: string; contexto?: string | null }[] = [];
+    // Las amarillas de la franja llevan su contexto (openspec seguimiento-lista-amarilla). Esta
+    // pantalla no escucha el socket: lee de acá. Se calcula con la MISMA función que usó el
+    // servidor de eventos al avisar y con el instante de esa lectura, así dice lo mismo.
+    const amarillas: { item: (typeof atencion)[number]; plate: string; ts: Date }[] = [];
     for (const e of recientes) {
         const ch = normalizarMatricula(e.plateDetected); if (!esChapa(ch) || vistas.has(ch)) continue;
         const v = porChapa.get(ch);
-        if (v) { vistas.add(ch); atencion.push({ id: e.id, plate: ch, tipo: v.category === "SEARCH" ? "EN_BUSQUEDA" : "LISTA_NEGRA", motivo: v.motivo || v.label || "sin motivo cargado", ts: e.timestamp.toISOString(), camara: e.device?.name || null }); continue; }
+        if (v) {
+            vistas.add(ch);
+            const item: (typeof atencion)[number] = { id: e.id, plate: ch, tipo: v.category === "SEARCH" ? "EN_BUSQUEDA" : "LISTA_NEGRA", motivo: v.motivo || v.label || "sin motivo cargado", ts: e.timestamp.toISOString(), camara: e.device?.name || null };
+            atencion.push(item);
+            if (item.tipo === "EN_BUSQUEDA" && e.plateDetected) amarillas.push({ item, plate: e.plateDetected, ts: e.timestamp });
+            continue;
+        }
         if (!abierto && merodeo.activo && (denegadasPorChapa.get(ch) || 0) >= merodeo.denegadas) { vistas.add(ch); atencion.push({ id: e.id, plate: ch, tipo: "MERODEO", motivo: `${denegadasPorChapa.get(ch)} lecturas denegadas en ${merodeo.horas} h`, ts: e.timestamp.toISOString(), camara: e.device?.name || null, veces: denegadasPorChapa.get(ch) }); }
+    }
+    if (amarillas.length && await busquedaPrendida(prisma)) {
+        await Promise.all(amarillas.map(async (a) => { a.item.contexto = (await contextoDeLectura(prisma, { plate: a.plate, eventId: a.item.id, ahora: a.ts }))?.frase || null; }));
     }
     // Los avisos de patrones a la guardia, arriba de todo (en los dos modos).
     atencion.unshift(...avisos.map((a) => ({ id: a.accessEventId, plate: a.plate, tipo: "AVISO" as const, motivo: a.motivo, ts: a.creado.toISOString(), camara: a.camara, avisoId: a.id, avisoTipo: a.tipo })));
