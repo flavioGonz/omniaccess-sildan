@@ -46,6 +46,7 @@ import {
     MonitorPlay,
     Ban,
     FileSearch,
+    Search,
     ScanEye, ClipboardList,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -68,7 +69,7 @@ interface SidebarItemProps {
     collapsed: boolean;
 }
 
-function SidebarItem({ icon, label, href, active, collapsed, insignia }: SidebarItemProps & { insignia?: number }) {
+function SidebarItem({ icon, label, href, active, collapsed, insignia, tonoInsignia = "mal" }: SidebarItemProps & { insignia?: number; tonoInsignia?: "mal" | "aviso" }) {
     return (
         <Link
             href={href}
@@ -84,10 +85,11 @@ function SidebarItem({ icon, label, href, active, collapsed, insignia }: Sidebar
             {!collapsed && (
                 <span className="whitespace-nowrap transition-opacity duration-300">{label}</span>
             )}
-            {/* Una cuenta que importa (lista negra): a la derecha, en rojo; plegado, un punto sobre el ícono. */}
+            {/* Una cuenta que importa: a la derecha, en el tono de su lista (rojo la negra, ámbar la
+                amarilla); plegado, un punto sobre el ícono. */}
             {!!insignia && (collapsed
-                ? <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-[var(--mal)]" />
-                : <span className="ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full pleno-mal text-[10px] font-bold tabular-nums grid place-items-center">{insignia > 99 ? "99+" : insignia}</span>)}
+                ? <span className={cn("absolute top-1 right-1 h-2 w-2 rounded-full", tonoInsignia === "aviso" ? "bg-[var(--aviso)]" : "bg-[var(--mal)]")} />
+                : <span className={cn("ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full text-[10px] font-bold tabular-nums grid place-items-center", tonoInsignia === "aviso" ? "pleno-aviso" : "pleno-mal")}>{insignia > 99 ? "99+" : insignia}</span>)}
             {collapsed && (
                 <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-popover border border-border text-popover-foreground text-[10px] uppercase font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 whitespace-nowrap">
                     {label}
@@ -98,7 +100,7 @@ function SidebarItem({ icon, label, href, active, collapsed, insignia }: Sidebar
 }
 
 import { getSetting } from "@/app/actions/settings";
-import { contarListaNegra } from "@/app/actions/watchlist";
+import { contarListaNegra, contarListaAmarilla } from "@/app/actions/watchlist";
 
 export default function AdminLayout({
     children,
@@ -116,6 +118,9 @@ export default function AdminLayout({
     const searchParams = useSearchParams();
     // La pestaña Lista negra tiene su entrada en el menú: las dos viven en /admin/users.
     const enListaNegra = pathname === "/admin/users" && searchParams?.get("tab") === "listanegra";
+    // Y la Lista Amarilla la suya (12/11, Nico), sólo con la función de LPR prendida.
+    const amarillaOn = useFuncion("LPR_BUSQUEDA") === true;
+    const enListaAmarilla = pathname === "/admin/users" && searchParams?.get("tab") === "listaamarilla";
     const router = useRouter();
     const [collapsed, setCollapsed] = useState(false);
     const { role: sessionRole, loaded: roleLoaded, tiene, puede } = useSessionRole();
@@ -140,8 +145,12 @@ export default function AdminLayout({
     // La insignia de Lista negra: se relee al cambiar de pantalla (marcar o sacar una matrícula
     // pasa en Usuarios, y al volver al menú ya se ve) y cada minuto.
     const [enListaNegraN, setEnListaNegraN] = useState(0);
+    const [enListaAmarillaN, setEnListaAmarillaN] = useState(0);
     useEffect(() => {
-        const leer = () => contarListaNegra().then(setEnListaNegraN).catch(() => { });
+        const leer = () => {
+            contarListaNegra().then(setEnListaNegraN).catch(() => { });
+            contarListaAmarilla().then(setEnListaAmarillaN).catch(() => { });
+        };
         leer();
         const iv = setInterval(leer, 60_000);
         return () => clearInterval(iv);
@@ -243,13 +252,14 @@ export default function AdminLayout({
                         <>
                             {!collapsed && <div className="pt-3 pb-1 px-3 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider transition-opacity">Gestión</div>}
                             {collapsed && <div className="my-2 border-t border-border" />}
-                            {puede("/admin/users") && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users" && !enListaNegra} collapsed={collapsed} />)}
+                            {puede("/admin/users") && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users" && !enListaNegra && !enListaAmarilla} collapsed={collapsed} />)}
                             {/* Monitores y Mapa pasaron a Gestión (21/10, Nico): arriba quedan sólo los monitores en vivo. */}
                             {puede("/admin/monitores") && (<SidebarItem icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />)}
                             {puede("/admin/mapa") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapa" href="/admin/mapa" active={pathname === "/admin/mapa"} collapsed={collapsed} />)}
                             {/* Entrada propia (San Nicolás, 15/10): desde que la «Lista de vigilancia» pasó a ser una pestaña
                                 de Usuarios, la guardia no la encontraba. Es lo que más se busca con apuro. */}
                             {puede("/admin/users") && (<SidebarItem icon={<Ban size={18} />} label="Lista negra" href="/admin/users?tab=listanegra" active={enListaNegra} collapsed={collapsed} insignia={enListaNegraN} />)}
+                            {amarillaOn && puede("/admin/users") && (<SidebarItem icon={<Search size={18} />} label="Lista Amarilla" href="/admin/users?tab=listaamarilla" active={enListaAmarilla} collapsed={collapsed} insignia={enListaAmarillaN} tonoInsignia="aviso" />)}
                             {puede("/admin/units") && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
                             {/* Una sola entrada para toda la flota.
                                 Antes había tres —una por módulo—, y cada una llevaba su propio

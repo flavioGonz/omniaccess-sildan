@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { ExplicacionCategoria } from "@/components/WatchlistDialog";
 import {
     ESTILO_APAGADO, ESTILO_MONITOR, LO_FIJO, PESTANIAS_CON_VIP,
-    type ClaseMonitor, type ClavePestania, type ClaveComportamiento, type Comportamiento, type Interruptores,
+    esPestaniaDeFichas, type PestaniaDeFichas, type ClaseMonitor, type ClavePestania, type ClaveComportamiento, type Comportamiento, type Interruptores,
 } from "@/lib/padron";
 
 /**
@@ -101,12 +101,13 @@ export function ComportamientoPestania({ pestania, comportamiento, alCambiar, gu
     /** Sin «Lista Amarilla» (función de LPR, apagada en San Nicolás) no se muestra ni su sonido. */
     conBusqueda?: boolean;
 }) {
-    if (pestania === "listanegra") {
+    if (esPestaniaDeFichas(pestania)) {
         const b = comportamiento.busqueda;
+        const amarilla = pestania === "listaamarilla";
         const ayudas: Record<string, Ayuda> = {
             alerta: { titulo: "Alerta máxima", cuerpo: <div className="space-y-2"><Muestra clase="alerta" color /><ExplicacionCategoria cat="BLACKLISTED" /></div> },
             busqueda: { titulo: "Lista Amarilla", cuerpo: <div className="space-y-2"><Muestra clase="busqueda" color /><ExplicacionCategoria cat="SEARCH" /></div> },
-            sonido: { titulo: "Sonido al pasar alguien en búsqueda", cuerpo: <>{estado(b.sonido)}. Suena el aviso corto cuando una cámara lee una matrícula en búsqueda, en el monitor LPR y en Control LPR (si tienen el sonido prendido). La alerta máxima suena siempre. Tocá para cambiarlo.</> },
+            sonido: { titulo: "Sonido al pasar alguien de la Lista Amarilla", cuerpo: <>{estado(b.sonido)}. Suena el aviso corto cuando una cámara lee una matrícula de la Lista Amarilla, en el monitor LPR y en Control LPR (si tienen el sonido prendido). La alerta máxima suena siempre. Tocá para cambiarlo.</> },
             // Dos caminos distintos, y se dicen los dos: el servidor manda SIEMPRE un Telegram al
             // grupo de la guardia (server.js → notifyWatchTelegram), y además están las reglas de
             // Notificaciones que escuchan WATCHLIST. Decir «ninguna regla avisa» a secas hacía
@@ -119,9 +120,11 @@ export function ComportamientoPestania({ pestania, comportamiento, alCambiar, gu
         return (
             <div className="flex items-center gap-1.5">
                 <Grupo>
-                    <Dato clave="alerta" icono={Ban} rotulo="Alerta máxima" className="tono-mal hover:text-[inherit]" />
-                    {conBusqueda && <Dato clave="busqueda" icono={Search} rotulo="Lista Amarilla" className="tono-aviso hover:text-[inherit]" />}
-                    {conBusqueda && <Llave clave="sonido" icono={Volume2} iconoApagado={VolumeX} rotulo="Sonido al pasar" valor={b.sonido} deshabilitado={guardando}
+                    {/* Cada lista explica lo suyo: desde que la amarilla tiene pestaña, el sonido «al pasar
+                        alguien en seguimiento» vive en la amarilla y no en la negra. */}
+                    {!amarilla && <Dato clave="alerta" icono={Ban} rotulo="Alerta máxima" className="tono-mal hover:text-[inherit]" />}
+                    {amarilla && conBusqueda && <Dato clave="busqueda" icono={Search} rotulo="Lista Amarilla" className="tono-aviso hover:text-[inherit]" />}
+                    {amarilla && conBusqueda && <Llave clave="sonido" icono={Volume2} iconoApagado={VolumeX} rotulo="Sonido al pasar" valor={b.sonido} deshabilitado={guardando}
                         alCambiar={(v) => alCambiar("busqueda", { sonido: v })} />}
                 </Grupo>
                 <Grupo>
@@ -140,7 +143,7 @@ export function ComportamientoPestania({ pestania, comportamiento, alCambiar, gu
         );
     }
 
-    const clave = pestania as Exclude<ClavePestania, "listanegra">;
+    const clave = pestania as Exclude<ClavePestania, PestaniaDeFichas>;
     const c = comportamiento[clave];
     const fijo = LO_FIJO[clave];
     const conVip = PESTANIAS_CON_VIP.includes(pestania);
