@@ -92,9 +92,12 @@ import { permisoDeRuta } from "@/lib/permisos";
 import { vistaPorClave } from "@/lib/monitor/vistas";
 
 test("monitor face: lo que deja la terminal en el detalle", () => {
-    assert.deepEqual(leerDetalleRostro("Rostro: Ana Pérez, FaceImage: face/abc.jpg, Similitud: 87.5% (Modo: WHITELIST)"), { nombre: "Ana Pérez", recorte: "face/abc.jpg", similitud: 87.5 });
-    assert.deepEqual(leerDetalleRostro("Rostro: Juan, Similitud: 90% (Modo: BLACKLIST)"), { nombre: "Juan", recorte: null, similitud: 90 });
-    assert.deepEqual(leerDetalleRostro(null), { nombre: null, recorte: null, similitud: null });
+    // Sin los datos de calidad (lo que deja una terminal): van en null, no se inventan.
+    assert.deepEqual(leerDetalleRostro("Rostro: Ana Pérez, FaceImage: face/abc.jpg, Similitud: 87.5% (Modo: WHITELIST)"), { nombre: "Ana Pérez", recorte: "face/abc.jpg", similitud: 87.5, deteccion: null, caraFrac: null });
+    assert.deepEqual(leerDetalleRostro("Rostro: Juan, Similitud: 90% (Modo: BLACKLIST)"), { nombre: "Juan", recorte: null, similitud: 90, deteccion: null, caraFrac: null });
+    assert.deepEqual(leerDetalleRostro(null), { nombre: null, recorte: null, similitud: null, deteccion: null, caraFrac: null });
+    // Con ellos (lo que deja OmniVision desde el 9/11): confianza de detección y tamaño del rostro.
+    assert.deepEqual(leerDetalleRostro("Rostro: Ana, FaceImage: face/a-cara.jpg, Similitud: 91% Deteccion: 99.2% CaraFrac: 18.5"), { nombre: "Ana", recorte: "face/a-cara.jpg", similitud: 91, deteccion: 99.2, caraFrac: 18.5 });
 });
 
 test("monitor face: el motivo de cada acceso", () => {

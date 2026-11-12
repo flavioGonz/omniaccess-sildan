@@ -2,14 +2,14 @@
 
 ## 1. Base de datos
 
-- [ ] 1.1 Agregar al schema `PlateWatch.revisarEl DateTime?` y el modelo `NotaVigilancia { id, fichaClave, tipo, texto, autor?, createdAt }` con `@@index([fichaClave, createdAt])`. Sólo comentarios `//` y `///`.
+- [x] 1.1 Agregar al schema `PlateWatch.revisarEl DateTime?` y el modelo `NotaVigilancia { id, fichaClave, tipo, texto, autor?, createdAt }` con `@@index([fichaClave, createdAt])`. Sólo comentarios `//` y `///`.
   - Verificación: `npx prisma validate` y `npx tsc --noEmit` limpios.
 - [ ] 1.2 Migración aditiva `…_seguimiento_lista_amarilla`: la columna, la tabla y un `UPDATE` que pone `revisarEl = now() + 30 días` a las filas `SEARCH` con `active = true`.
   - Verificación en el lab (`prisma migrate deploy`): `SELECT count(*) FROM "PlateWatch" WHERE category='SEARCH' AND active AND "revisarEl" IS NULL` da 0, y ninguna fila `BLACKLISTED` cambió (`revisarEl` en null).
 
 ## 2. Contexto en el aviso
 
-- [ ] 2.1 `lib-contexto-vigilancia.js` (CommonJS): `contextoDe(lecturas, ahora, zona)` devuelve `{ lecturas7, dias7, anterior }` y `fraseDeContexto(contexto, ahora, zona)` devuelve el texto. Puras, con el reloj y la zona por parámetro; días contados en `America/Montevideo`.
+- [x] 2.1 `lib-contexto-vigilancia.js` (CommonJS): `contextoDe(lecturas, ahora, zona)` devuelve `{ lecturas7, dias7, anterior }` y `fraseDeContexto(contexto, ahora, zona)` devuelve el texto. Puras, con el reloj y la zona por parámetro; días contados en `America/Montevideo`.
   - Prueba (`tests/contexto-vigilancia.test.ts`, entra en `npm run test:libs`): primera vez; 5.ª lectura en 4 días con la anterior «ayer 22:14»; única anterior de hace más de 7 días (lleva fecha); dos lecturas a las 23:50 y 00:10 cuentan como dos días; lista vacía no rompe.
 - [ ] 2.2 En `server.js`, tras calcular `watchHit` y sólo si la categoría es `SEARCH` y la función `LPR_BUSQUEDA` está prendida: consultar las lecturas de 7 días de esa matrícula (`accessType PLATE`, `sinVehiculo false`, sin la actual) y agregar `contexto` a `watchHit`. En `try/catch` con tope de 1,5 s: si falla, se registra y el aviso sigue sin contexto.
   - Verificación en el lab: con una matrícula amarilla de prueba, el log de la lectura muestra el contexto; forzando el error (matar la consulta con un tope de 1 ms en una corrida de prueba) el aviso sale igual.

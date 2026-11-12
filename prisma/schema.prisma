@@ -787,10 +787,33 @@ model PlateWatch {
   /// La ficha de la pestaña Lista negra a la que pertenece: las matriculas de una misma ficha
   /// (una persona, o un vehiculo sin identificar) comparten este id. Null = entrada suelta.
   ficha         String?
+  /// Lista Amarilla: cuando hay que volver a mirar si sigue valiendo la pena seguirla. Vencer
+  /// NO da de baja ni apaga el aviso: es un recordatorio para quien administra (el estado se
+  /// calcula al leer, lib/padron › estadoRevision). Null en lista negra y en VIP.
+  revisarEl     DateTime?
 
   @@index([userId])
   @@index([active, category])
   @@index([ficha])
+}
+
+/// La bitacora de una ficha de la Lista Amarilla: lo que se fue sabiendo y lo que se hizo con
+/// ella, en orden. Un asiento no se corrige ni se borra: se agrega otro.
+/// `fichaClave` es la clave de la ficha en pantalla (f:<id> | p:<filaId> | u:<userId>). Guardar
+/// una matricula suelta desde la pestana la convierte en ficha y le CAMBIA la clave: ese es el
+/// unico lugar donde los asientos se mudan (actions/padron › guardarFichaListaNegra).
+model NotaVigilancia {
+  id         String   @id @default(cuid())
+  fichaClave String
+  // NOTA (la escribe el operador) | ALTA | RENOVACION | NIVEL | BAJA | REACTIVACION
+  tipo       String   @default("NOTA")
+  texto      String
+  /// Nombre del operador o numero de WhatsApp: el mismo texto que PlateWatch.createdBy. No es
+  /// una relacion porque quien carga por el bot no es un usuario del panel.
+  autor      String?
+  createdAt  DateTime @default(now())
+
+  @@index([fichaClave, createdAt])
 }
 
 /// Avistamiento de una matricula en una camara, con la posicion de esa camara
