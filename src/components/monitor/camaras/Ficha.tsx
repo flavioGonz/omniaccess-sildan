@@ -211,7 +211,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                 {grabacion == null && verSiluetas && sil.estado !== "apagado" && (<>
                                     <span className="text-white/30">·</span>
                                     <span className={cn(sil.estado === "ocupado" || sil.estado === "error" ? "text-[var(--aviso-texto)]" : "")}>
-                                        {sil.estado === "vivo" ? "siluetas en vivo" : sil.estado === "conectando" ? "buscando siluetas…" : sil.estado === "ocupado" ? "siluetas ocupadas (2 canales a la vez)" : "siluetas sin respuesta"}
+                                        {sil.estado === "vivo" ? "siluetas en vivo" : sil.estado === "conectando" ? "buscando siluetas…" : sil.estado === "ocupado" ? "siluetas ocupadas (2 canales a la vez)" : sil.estado === "sin-vision" ? "siluetas no disponibles en este servidor" : "siluetas sin respuesta"}
                                     </span>
                                 </>)}
                             </p>

@@ -41,6 +41,30 @@ async function conexion(id: string): Promise<{ ip: string; user: string; pass: s
     return { ip: d.ip, user: d.username || "admin", pass: d.password || "", brand: String(d.brand || "").toUpperCase(), ch: 1 };
 }
 
+/*
+ * Modelo de la cámara de cada canal de un NVR Dahua (RemoteDevice, INFO_<canal-1>.DeviceType),
+ * guardado por NVR un rato. Hace falta porque el NVR contesta getCurrentProtocolCaps con Pan=true
+ * para cualquier canal: el 12/11 la «Frente Oficinas» (DH-IPC-PDW3849P-A180, panorámica fija de
+ * 180°) mostraba el joystick, el NVR respondía OK a cada orden y la cámara no se movía.
+ */
+const modelosNvr = new Map<string, { t: number; tipos: Record<number, string> }>();
+async function modeloDahua(dev: any, ch: number): Promise<string | null> {
+    const k = dev.ip;
+    let m = modelosNvr.get(k);
+    if (!m || Date.now() - m.t > CAPACIDAD_MS) {
+        const tipos: Record<number, string> = {};
+        try {
+            const t = String(await authenticatedRequest("GET", `/cgi-bin/configManager.cgi?action=getConfig&name=RemoteDevice`, dev, { responseType: "text", timeout: 8000 }));
+            for (const r of t.matchAll(/NETCAMERA_INFO_(\d+)\.DeviceType=([^\r\n]*)/g)) tipos[Number(r[1]) + 1] = r[2].trim();
+        } catch { }
+        m = { t: Date.now(), tipos };
+        modelosNvr.set(k, m);
+    }
+    return m.tipos[ch] || null;
+}
+/** Domos y PTZ Dahua: SD…, SDT…, PTZ…, PSD… (multisensor con PTZ). Fijas, panorámicas, fisheye: no. */
+const MODELO_PTZ_DAHUA = /(^|[-\s])(SD|SDT|SDZ|PTZ|PSD)[\dA-Z]/i;
+
 /** Si la cámara es PTZ, preguntado al equipo y guardado un rato (no cambia). */
 const CAPACIDAD_MS = 30 * 60_000;
 const capacidades = new Map<string, { ptz: boolean; t: number }>();
@@ -64,6 +88,8 @@ export async function GET(req: NextRequest) {
         if (c.brand === "DAHUA") {
             const t = String(await authenticatedRequest("GET", `/cgi-bin/ptz.cgi?action=getCurrentProtocolCaps&channel=${c.ch}`, dev, { responseType: "text", timeout: 6000 }));
             ptz = /Pan\s*=\s*true|SupportPan/i.test(t);
+            // Detrás de un NVR, el modelo de la cámara decide (el NVR dice Pan=true para todos).
+            if (ptz) { const modelo = await modeloDahua(dev, c.ch); if (modelo) ptz = MODELO_PTZ_DAHUA.test(modelo); }
         } else {
             const t = String(await authenticatedRequest("GET", `/ISAPI/PTZCtrl/channels/${c.ch}/capabilities`, dev, { responseType: "text", accept: "application/xml", timeout: 6000 } as any));
             ptz = /ContinuousPanTiltSpace/i.test(t);

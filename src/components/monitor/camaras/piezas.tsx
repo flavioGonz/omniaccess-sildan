@@ -181,7 +181,7 @@ const SILUETAS_VIEJAS_MS = 2000;
 export function useSiluetasEnVivo(stream: string | null, activo: boolean) {
     const [analisis, setAnalisis] = useState<any | null>(null);
     const [ms, setMs] = useState<number | null>(null);
-    const [estado, setEstado] = useState<"apagado" | "conectando" | "vivo" | "ocupado" | "error">("apagado");
+    const [estado, setEstado] = useState<"apagado" | "conectando" | "vivo" | "ocupado" | "error" | "sin-vision">("apagado");
     useEffect(() => {
         if (!stream || !activo) { setAnalisis(null); setEstado("apagado"); return; }
         setEstado("conectando");
@@ -192,6 +192,8 @@ export function useSiluetasEnVivo(stream: string | null, activo: boolean) {
             // Sin lugar (tope de canales a la vez): el servidor lo dice y se cierra; sin cerrar acá,
             // EventSource reintentaría solo para siempre.
             es.addEventListener("ocupado", () => { es?.close(); setEstado("ocupado"); });
+            // Este servidor no tiene OmniVision: no se reintenta.
+            es.addEventListener("sin-vision", () => { es?.close(); setEstado("sin-vision"); });
             es.addEventListener("cuadro", (e: MessageEvent) => {
                 const d = JSON.parse(e.data);
                 setAnalisis(d.analisis); setMs(d.ms); setEstado("vivo");

@@ -42,6 +42,20 @@ const NOMBRE_STREAM = /^(lpr|face)_[\w-]{1,100}$/;
 
 let sesiones = 0;
 
+/*
+ * ¿Hay OmniVision en este servidor? Se pregunta antes de abrir nada y se recuerda un minuto. Sin
+ * esto, en una instalación sin el servicio (SST, sin GPU) la ficha reabría el flujo para siempre
+ * y la consola se llenaba de 502.
+ */
+let visionHay: { ok: boolean; t: number } | null = null;
+async function hayVision(): Promise<boolean> {
+    if (visionHay && Date.now() - visionHay.t < 60_000) return visionHay.ok;
+    let ok = false;
+    try { const r = await fetch(`${VISION}/`, { signal: AbortSignal.timeout(1500) }); ok = r.status < 500; } catch { ok = false; }
+    visionHay = { ok, t: Date.now() };
+    return ok;
+}
+
 const r4 = (v: number) => Math.round(v * 10000) / 10000;
 function aligerar(poli: number[][]): number[][] {
     if (poli.length <= PUNTOS_SILUETA_MAX) return poli;
@@ -54,6 +68,9 @@ export async function GET(req: NextRequest) {
     if (p.error) return p.error;
     const stream = req.nextUrl.searchParams.get("stream") || "";
     if (!NOMBRE_STREAM.test(stream) || stream.endsWith("_hd")) return NextResponse.json({ error: "stream inválido" }, { status: 400 });
+    if (!(await hayVision())) {
+        return new Response(`event: sin-vision\ndata: {}\n\n`, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store" } });
+    }
     // Sin lugar se contesta igual con un flujo de eventos que dice «ocupado» y se cierra: un 429 no
     // lo puede leer EventSource, que sólo reintentaría para siempre.
     if (sesiones >= SESIONES_MAX) {

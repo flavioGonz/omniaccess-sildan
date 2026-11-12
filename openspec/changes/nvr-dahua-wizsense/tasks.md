@@ -49,3 +49,8 @@
 - Navegador: `lib/codec-vivo.ts` pide `video=h264,h265` si el navegador decodifica H.265 (MediaSource), así go2rtc no convierte; si un H.265 falla, `montarVivo` pasa a H.264.
 - NVR de Nicolás: sub-stream de los 39 canales pasado de MJPEG a H.265 (misma resolución, GOP = 1 s). Copia de la configuración anterior en `/root/backups/nicolas-encode-*.txt` del CT106. Ojo: `/cgi-bin/mjpg/video.cgi` le vuelve a poner MJPEG al sub-stream; ya no se usa.
 - Medido: primer cuadro sub 0,2–1,6 s (antes ~12 s), HD 4K 3,5–6,5 s (lo marca el GOP de 2 s del principal); sin ffmpeg por cámara.
+- GOP del principal = 1 s en los 39 canales (copia previa en `/root/backups/nicolas-encode-antes-gop-*.txt`): el HD arranca más rápido.
+- PTZ: detrás de un NVR Dahua el joystick sólo aparece si el modelo de la cámara (RemoteDevice.DeviceType) es domo/PTZ (SD, SDT, SDZ, PTZ, PSD); el NVR dice Pan=true para todos los canales.
+- Siluetas: sin OmniVision en el servidor se avisa una vez («no disponibles en este servidor») y no se reintenta.
+- Foto de canal (/api/snapshot) para marcas no Hikvision: primero el vivo de go2rtc, luego el NVR, luego la cámara; foto compartida 1,5 s y falla recordada 30 s (antes ~20 s por pedido y 502 en bucle).
+- Vivo por defecto en grillas y burbujas = subflujo; la alta calidad sólo en la ficha de una cámara (y en la verificación de un equipo).

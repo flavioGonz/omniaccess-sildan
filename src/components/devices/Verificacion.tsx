@@ -105,7 +105,7 @@ function Vivo({ deviceId, linea, zona }: { deviceId: string; linea: Linea | null
         v.addEventListener("playing", bien);
         v.addEventListener("loadedmetadata", medir);
         v.addEventListener("error", mal);
-        const cortar = montarVivo(v, deviceId);
+        const cortar = montarVivo(v, deviceId, 4, "hd");
         /* Si a los diez segundos no empezó, no empezó: go2rtc reintenta unas pocas veces
            y después se queda esperando en silencio, que en pantalla es una caja negra
            indistinguible de una cámara apuntando a una pared oscura. */

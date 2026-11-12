@@ -125,7 +125,44 @@ export async function GET(
             });
         }
 
-        // Otras marcas: fetch directo
+        /*
+         * Otras marcas (Dahua detrás del NVR de Nicolás, 12/11): la foto sale primero del vivo que
+         * go2rtc ya tiene abierto (instantáneo), después del NVR y por último de la cámara. Una
+         * cámara que no da foto se recuerda FALLA_MS: antes cada pedido de la grilla esperaba ~20 s
+         * a la cámara, al NVR y a go2rtc, y terminaba igual en 502.
+         */
+        const falla = fallas.get(deviceId);
+        if (falla && Date.now() - falla < FALLA_MS) return new NextResponse("No snapshot available", { status: 502, headers: { "Retry-After": "30" } });
+        const claveOtra = `${deviceId}:otra`;
+        const yaOtra = fotos.get(claveOtra);
+        if (yaOtra && Date.now() - yaOtra.t < FOTO_VIGENTE_MS) return new NextResponse(new Uint8Array(yaOtra.buf), { status: 200, headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-cache, no-store, must-revalidate" } });
+        let pOtra = enCurso.get(claveOtra);
+        if (!pOtra) {
+            pOtra = (async () => {
+                let b = await go2rtcFrame(deviceId);
+                if (!b) b = await nvrSnapshot(deviceId);
+                if (!b) b = await fotoDirecta(device);
+                if (b) { fotos.set(claveOtra, { buf: b, t: Date.now() }); fallas.delete(deviceId); } else fallas.set(deviceId, Date.now());
+                return b;
+            })().finally(() => enCurso.delete(claveOtra));
+            enCurso.set(claveOtra, pOtra);
+        }
+        const bOtra = await pOtra;
+        if (!bOtra) return new NextResponse("No snapshot available", { status: 502, headers: { "Retry-After": "30" } });
+        return new NextResponse(new Uint8Array(bOtra), { status: 200, headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-cache, no-store, must-revalidate" } });
+    } catch (err: any) {
+        console.error(`[Snapshot] Error for device ${deviceId}:`, err.message);
+        return new NextResponse("Error fetching snapshot", { status: 500 });
+    }
+}
+
+/** Una cámara que no dio foto por ningún camino: se vuelve a intentar pasado este tiempo. */
+const FALLA_MS = 30_000;
+const fallas = new Map<string, number>();
+
+/** La foto pedida a la cámara misma (lo de siempre para marcas que no son Hikvision). */
+async function fotoDirecta(device: { ip: string; username: string | null; password: string | null; brand: any }): Promise<Buffer | null> {
+    try {
         const headers: Record<string, string> = {};
         if (device.username && device.password) {
             headers["Authorization"] = `Basic ${Buffer.from(`${device.username}:${device.password}`).toString("base64")}`;
@@ -139,21 +176,8 @@ export async function GET(
             default:
                 snapshotUrl = `http://${await hostHttp(device.ip)}/snap.jpg`;
         }
-        let imageBuffer = await fetchSnapshot(snapshotUrl, headers);
-        if (!imageBuffer) imageBuffer = await nvrSnapshot(deviceId);
-        if (!imageBuffer) imageBuffer = await go2rtcFrameRetry(deviceId);
-        if (!imageBuffer) return new NextResponse("No snapshot available", { status: 502 });
-        return new NextResponse(new Uint8Array(imageBuffer), {
-            status: 200,
-            headers: {
-                "Content-Type": "image/jpeg",
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-            },
-        });
-    } catch (err: any) {
-        console.error(`[Snapshot] Error for device ${deviceId}:`, err.message);
-        return new NextResponse("Error fetching snapshot", { status: 500 });
-    }
+        return await fetchSnapshot(snapshotUrl, headers);
+    } catch { return null; }
 }
 
 function fetchSnapshot(url: string, headers: Record<string, string>): Promise<Buffer | null> {

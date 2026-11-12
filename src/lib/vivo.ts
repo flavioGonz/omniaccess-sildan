@@ -13,7 +13,7 @@ import { codecsVivo, olvidarH265 } from "@/lib/codec-vivo";
  * El flujo de una cámara. HD es el principal (el de siempre acá); SD el secundario, liviano: el
  * mismo par que ofrece el visor de intrusión con su botón HD/SD (streams lpr_<id>_hd y lpr_<id>).
  */
-export const srcVivo = (deviceId: string, calidad: "hd" | "sd" = "hd") =>
+export const srcVivo = (deviceId: string, calidad: "hd" | "sd" = "sd") =>
     `/go2rtc/api/stream.mp4?src=lpr_${deviceId}${calidad === "hd" ? "_hd" : ""}&video=${codecsVivo()}`;
 
 /**
@@ -23,7 +23,7 @@ export const srcVivo = (deviceId: string, calidad: "hd" | "sd" = "hd") =>
  * dormido, y sin reintento la primera carga queda en negro para siempre. El tope existe
  * para que una cámara caída no reintente sin fin en segundo plano.
  */
-export function montarVivo(video: HTMLVideoElement, deviceId: string, intentos = 4, calidad: "hd" | "sd" = "hd") {
+export function montarVivo(video: HTMLVideoElement, deviceId: string, intentos = 4, calidad: "hd" | "sd" = "sd") {
     let src = srcVivo(deviceId, calidad);
     let restantes = intentos;
     let temporizador: any = null;
