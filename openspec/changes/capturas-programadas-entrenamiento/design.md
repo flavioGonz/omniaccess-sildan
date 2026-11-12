@@ -29,13 +29,13 @@ Ver `proposal.md` para el porqué. Lo que hay hoy y condiciona el cómo:
 
 ### El reloj está en `vision-worker`; la foto la toma la aplicación
 
-Un módulo nuevo `vision-capturas.js` se despierta una vez por minuto, busca las programaciones a las que les toca y, por cada una, llama a una ruta interna de la aplicación (`POST /api/vision/objetos/capturas/<id>/vuelta`, con token interno). La ruta hace todo lo demás.
+Un módulo nuevo `vision-capturas.js` se despierta una vez por minuto, busca las programaciones a las que les toca y, por cada una, llama a una ruta interna de la aplicación (`POST /api/vision/objetos/capturas/vuelta` con `{ id }`, con token interno; va en la lista de rutas sin sesión del middleware, como las demás que llama un proceso). La ruta hace todo lo demás.
 
 - *Por qué:* tomar el cuadro (principal antes que secundario, registrar el canal del grabador, guardar con el tope de tamaño) ya está escrito en la aplicación, en TypeScript. Repetirlo en el proceso sería tener dos caminos que se van a separar — el día que cambie cómo se elige el stream, uno de los dos queda viejo.
 - *Alternativa descartada:* que el proceso pida el cuadro a go2rtc y escriba en el bucket por su cuenta. Más directo, pero duplica la lógica y las constantes (`LADO_MAX`, calidad, clave en el bucket).
 - *Alternativa descartada:* un `setInterval` dentro de Next. No hay un lugar que viva una sola vez: con más de un proceso de la aplicación se tomarían fotos dobles.
 
-La toma del cuadro sale de la ruta actual a una función compartida (`cuadroDeCamara(id)` en `src/lib/detector-propio-servidor.ts`); «Sacar foto ahora» y la vuelta programada llaman a la misma.
+La toma del cuadro sale de la ruta actual a una función compartida (`cuadroDeCamara(id)` en `src/lib/detector-propio-servidor.ts`); «Sacar foto ahora» y la vuelta programada llaman a la misma. Medido el 12/11 en el lab: un cuadro del stream principal tarda entre 0,3 y 0,7 s.
 
 ### Datos
 
@@ -83,14 +83,34 @@ La franja horaria se evalúa en `America/Montevideo`, como el horario de las ana
 
 ### «Repetida»: huella chica del cuadro, umbral medido
 
-De cada cuadro se guarda una huella: la imagen en gris a 32×18, como 576 números. Dos cuadros son «la misma escena» si la diferencia absoluta media entre huellas queda por debajo de un umbral, y además ninguna celda de una grilla de 4×3 supera un segundo umbral (para que un objeto chico que aparece en una esquina no se pierda en el promedio).
+De cada cuadro se guarda una huella: la imagen en gris a 64×36 (2.304 números; cada celda son unos 30×30 px de un cuadro de 1920). Entre dos huellas se miran dos cosas: la diferencia absoluta **media** de todo el cuadro (la mueve la luz) y la mayor diferencia media por **bloque** de 6×6 celdas (la mueve algo que aparece o se va en un lugar, aunque el promedio casi no cambie). Es «la misma escena» sólo si las dos quedan por debajo de su umbral.
 
-La huella de la última foto **guardada** de cada cámara vive en `estado`; se compara contra esa, no contra el último cuadro visto: así un cambio lento (una sombra que avanza) termina sumando y se guarda.
+La huella de la última foto **guardada** de cada cámara vive en `estado`; se compara contra esa, no contra el último cuadro visto: así un cambio lento (una sombra que avanza) termina sumando y se guarda. Cada cámara guarda además sus últimas 24 comparaciones, para revisar los umbrales con datos del lugar.
 
-**Los dos umbrales no se eligen ahora.** Antes de fijarlos se mide en el lab, sobre cámaras reales: la diferencia entre cuadros consecutivos de una escena quieta (de día y de noche, que tiene más ruido) y la diferencia cuando entra un vehículo o una persona. El umbral va entre las dos distribuciones y queda como constante con nombre y con la medición escrita al lado. Si las distribuciones se pisan, se avisa antes de seguir.
+**Medición (12/11/2026, 20:28 a 20:33, de noche; 8 cámaras del lab, 15 cuadros por cámara cada 20 s, stream principal).** Diferencia entre cuadros consecutivos:
+
+| Cámara | Qué pasa en la escena | media | bloque |
+|---|---|---|---|
+| Rotonda 1 | quieta | 0,4 – 0,8 | 0,6 – 2,7 |
+| Rotonda 1 | pasa un auto | 3,3 – 3,6 | 27 |
+| Baycurú | quieta | 0,9 – 1,1 | 3,1 – 5,1 |
+| Baycurú | un farol entre ramas titila | 1,1 – 1,5 | 7 – 13 |
+| Baycurú | pasa un auto, lejos | 2,9 – 3,0 | 13 – 16 |
+| Entrada Proveedores 1 | quieta | 0,8 – 1,9 | 2,9 – 5,6 |
+| Entrada Proveedores 1 | entra o sale un vehículo | 5 – 15 | 48 – 110 |
+| Matrícula Salida | tránsito al fondo, siempre | 1,0 – 3,5 | 7 – 29 |
+| Puesto 7 cam 2 | reflejos que se mueven; un auto | 1,4 – 3,8; 16 | 7 – 25; 71 |
+| Arapey | árboles al viento con infrarrojo, sin nadie | 2,6 – 18,6 | 9 – 68 |
+
+**Umbrales elegidos:** `DIF_MEDIA_MAX = 2,5` y `DIF_BLOQUE_MAX = 6`. Lo quieto de verdad queda debajo (bloque ≤ 5,6); el vehículo más chico medido queda arriba (bloque 13).
+
+**Lo que la medición mostró y cambia lo prometido:** las dos distribuciones se separan sólo en escenas quietas de verdad. En una cámara con árboles al viento (Arapey) o con tránsito al fondo (Matrícula Salida) los píxeles cambian siempre, y ningún umbral las da por «repetidas» sin perder también los autos. Se probó además una comparación más gruesa y con signo (16×9, para que las hojas se compensen): Arapey sigue dando 14–29 % de bloques cambiados. Por eso el filtro es **conservador a propósito**: saltea cuando no cambió nada y, ante la duda, guarda. Para las cámaras movidas el freno es el tope de la programación y la cola. La spec lo dice así.
+
+De día no se midió todavía (la medición fue de noche, que es el caso con más ruido de sensor). Las comparaciones que guarda cada cámara permiten revisarlo con la programación de prueba.
 
 - *Alternativa descartada:* comparar los vectores SigLIP de omni-vision. Distingue mejor el contenido, pero usa la GPU y deja de andar mientras el entrenador tiene parado omni-vision — justo cuando más se quieren fotos nuevas.
-- *Alternativa descartada:* no deduplicar y confiar en el tope. Doscientas fotos iguales de una calle vacía agotan la programación sin enseñar nada.
+- *Alternativa descartada:* decidir por lo que ve el detector (cambió la cantidad de objetos). El detector no conoce los objetos que se le quieren enseñar: es exactamente lo que no puede juzgar.
+- *Alternativa descartada:* no deduplicar y confiar en el tope. Una cámara quieta de noche agota la programación con la misma foto.
 
 ### Frenos
 
@@ -108,11 +128,11 @@ Las cámaras de una vuelta se toman **de a una**, en fila. Si una vuelta sigue c
 ### Rutas y permisos
 
 - `GET/POST /api/vision/objetos/capturas` y `PUT/DELETE /api/vision/objetos/capturas/<id>`: listar, crear, editar (incluye pausar/reanudar y «tomar ahora»), borrar. `DELETE …/<id>/fotos` descarta las sin dibujar de esa programación. Mismos permisos que el resto del conjunto (`puedeMirar` / `puedeCambiar`).
-- `POST /api/vision/objetos/capturas/<id>/vuelta`: sólo token interno. Clasificada `propio` en `permisos-api.ts`.
+- `POST /api/vision/objetos/capturas/vuelta` (`{ id }`): sólo token interno. Clasificada `propio` en `permisos-api.ts`. Camino fijo y no `<id>/vuelta` para que el middleware la deje pasar por igualdad exacta.
 
 ### Pantalla
 
-En `SoltarFotos`, junto a «Sacar foto ahora», un botón «Programar capturas» que abre un diálogo (`ui/dialog`) con la lista de programaciones y el formulario. Piezas compartidas del sistema de diseño: `Button`, `Chip` con los tonos de estado (activa = bien, esperando = aviso, pausada/terminada = quieto, cámara sin imagen = mal), `ConfirmarAccion` para borrar y descartar, y los cuatro estados (cargando, vacío, error con reintento, datos). El selector de cámaras reutiliza la lista agrupada por grabador que `SoltarFotos` ya arma.
+En `SoltarFotos`, junto a «Sacar foto ahora», un botón «Programar capturas» que abre un cajón (`ui/cajon`, como el resto de los formularios de OmniVision) con la lista de programaciones y, en la misma ventana, el formulario. Piezas compartidas del sistema de diseño: `Button`, `Chip` con los tonos de estado (activa = bien, esperando = aviso, pausada/terminada = quieto, cámara sin imagen = mal), `ConfirmarAccion` para borrar y descartar, y los cuatro estados (cargando, vacío, error con reintento, datos). El selector de cámaras reutiliza la lista agrupada por grabador que `SoltarFotos` ya arma.
 
 En la grilla de fotos, la programada lleva una marca chica («Programada») junto al nombre de la cámara. Sin filtro nuevo en esta vuelta: el descarte en bloque cubre el caso de «me llenó la cola».
 

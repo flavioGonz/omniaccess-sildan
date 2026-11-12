@@ -33,15 +33,19 @@ Cada foto tomada por una programación SHALL guardarse en el conjunto sin dibuja
 - **THEN** no se toma ninguna foto y la programación muestra cuándo es la próxima
 
 ### Requirement: No se guardan escenas repetidas
-El sistema SHALL comparar cada cuadro con la última foto guardada de esa misma cámara por esa programación y, si la escena no cambió, SHALL saltearlo sin guardarlo y contarlo como salteado. Un cambio de iluminación entre día y noche SHALL contar como cambio.
+El sistema SHALL comparar cada cuadro con la última foto guardada de esa misma cámara por esa programación y, si la imagen no cambió, SHALL saltearlo sin guardarlo y contarlo como salteado. Un cambio de iluminación entre día y noche SHALL contar como cambio. El criterio SHALL ser conservador: ante la duda, guarda. En una escena que se mueve sola (vegetación al viento, tránsito al fondo, luces que titilan) la imagen cambia siempre y el sistema SHALL NOT prometer que la saltea; la pantalla SHALL decirlo.
 
 #### Scenario: Escena quieta
-- **WHEN** una cámara muestra la misma escena, sin nada nuevo, en dos vueltas seguidas
+- **WHEN** una cámara muestra exactamente la misma escena, sin nada que se mueva, en dos vueltas seguidas
 - **THEN** la segunda no agrega foto y el contador de salteadas de la programación sube en uno
 
 #### Scenario: Algo cambió
 - **WHEN** entre dos vueltas aparece o se va un vehículo, una persona o un objeto de tamaño apreciable, o la cámara pasó a visión nocturna
 - **THEN** la segunda vuelta guarda la foto
+
+#### Scenario: Escena que se mueve sola
+- **WHEN** una cámara mira árboles que se mueven con el viento, sin que pase nadie
+- **THEN** cada vuelta puede guardar una foto, y lo que la frena es el tope de la programación
 
 ### Requirement: Las programaciones se frenan solas
 Una programación SHALL terminar al alcanzar su tope de fotos guardadas o su fecha de fin, y SHALL quedar visible como terminada, con el motivo. Mientras la cantidad de fotos sin dibujar del conjunto supere el máximo de la cola (500), todas las programaciones SHALL esperar sin tomar fotos y SHALL reanudar solas cuando la cola baje. El sistema SHALL NOT borrar fotos por su cuenta para hacer lugar.
