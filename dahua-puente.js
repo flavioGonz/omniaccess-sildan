@@ -27,17 +27,28 @@ function leerEquipos() {
     try { return JSON.parse(fs.readFileSync(ARCHIVO, "utf8")); } catch { return {}; }
 }
 
+/*
+ * La firma Digest de cada NVR, recordada entre conexiones: el primer pedido de un canal nuevo ya
+ * va firmado y se ahorra la ida y vuelta del 401. Con 16 canales abriéndose a la vez por internet
+ * esa vuelta de más alargaba el primer cuadro. Si el NVR cambió el nonce, contesta 401 y se firma
+ * de nuevo como siempre.
+ */
+const firmas = new Map();
+
 function atender(sock) {
     sock.setNoDelay(true);
     let buf = Buffer.alloc(0);
+    const t0 = Date.now(); let tAbre = 0, tDato = 0, bytes = 0, canalLog = '';
     let ws = null, abierto = false, cerrado = false;
     let equipo = null, base = "", prefijoLocal = "";
-    let auth = null;                 // { realm, nonce }
+    let auth = null;                 // { realm, nonce } (arranca con la recordada del NVR)
     const pendientes = [];           // pedidos hechos antes de que abra el WebSocket
     const enVuelo = new Map();       // CSeq → pedido original (para reintentar con Digest)
+    const pedidoDe = new Map();
 
-    const cerrar = () => {
+    const cerrar = (quien = '?') => {
         if (cerrado) return; cerrado = true;
+        if (process.env.DAHUA_PUENTE_DEBUG) console.log(`[dahua-puente] cierre[${quien}] ${canalLog} ws=${tAbre}ms dato=${tDato}ms vida=${Date.now() - t0}ms ${Math.round(bytes / 1024)}KB`);
         try { sock.destroy(); } catch { }
         try { ws && ws.terminate(); } catch { }
     };
@@ -64,18 +75,20 @@ function atender(sock) {
             const eq = m && leerEquipos()[m[1]];
             if (!eq) { sock.end("RTSP/1.0 404 Not Found\r\nCSeq: 0\r\n\r\n"); return; }
             equipo = eq;
+            auth = firmas.get(eq.host) || null;
             prefijoLocal = uriLocal.slice(0, uriLocal.indexOf("/", 7) + 1) + m[1] + "/";
             const hp = `${eq.host}${eq.port && eq.port !== 80 ? `:${eq.port}` : ""}`;
             base = `rtsp://${eq.host}:${eq.port || 80}/`;
             ws = new WS(`ws://${hp}/rtspoverwebsocket`, { perMessageDeflate: false, handshakeTimeout: 8000 });
-            ws.on("open", () => { abierto = true; pendientes.splice(0).forEach(enviar); });
+            ws.on("open", () => { tAbre = Date.now() - t0; abierto = true; pendientes.splice(0).forEach(enviar); });
             ws.on("message", (d) => recibir(Buffer.isBuffer(d) ? d : Buffer.from(d)));
-            ws.on("close", cerrar);
+            ws.on("close", (c, r) => cerrar(`nvr ${c} ${r || ""}`));
             ws.on("error", (e) => { console.error(`[dahua-puente] ${eq.host}: ${e.message}`); cerrar(); });
         }
         const cseq = (lineas.find((l) => /^cseq:/i.test(l)) || "").split(":")[1]?.trim();
+        if (!canalLog) canalLog = ((/channel=(\d+)&subtype=(\d)/.exec(uriLocal) || []).slice(1).join('/'));
         const p = { metodo, uri: uriLocal.split(prefijoLocal).join(base), cabeceras: lineas.slice(1).filter(Boolean), cuerpo, intentos: 0 };
-        if (cseq) enVuelo.set(cseq, p);
+        if (cseq) { enVuelo.set(cseq, p); pedidoDe.set(cseq, p); }
         enviar(p);
     };
 
@@ -84,7 +97,7 @@ function atender(sock) {
     const recibir = (d) => {
         let b = resto.length ? Buffer.concat([resto, d]) : d; resto = Buffer.alloc(0);
         while (b.length) {
-            if (b[0] === 0x24) { sock.write(b); return; }          // video/RTCP: va derecho
+            if (b[0] === 0x24) { if (!tDato) tDato = Date.now() - t0; bytes += b.length; sock.write(b); return; }          // video/RTCP: va derecho
             const fin = b.indexOf("\r\n\r\n");
             if (fin < 0) { resto = b; return; }
             const cab = b.slice(0, fin).toString("latin1");
@@ -97,9 +110,10 @@ function atender(sock) {
             if (/ 401 /.test(estado)) {
                 const m = /realm="([^"]+)",\s*nonce="([^"]+)"/i.exec(cab);
                 const p = enVuelo.get(cseq);
-                if (m && p && p.intentos++ < 1) { auth = { realm: m[1], nonce: m[2] }; enviar(p); continue; }
+                if (m && p && p.intentos++ < 3) { auth = { realm: m[1], nonce: m[2] }; firmas.set(equipo.host, auth); enviar(p); continue; }
             }
             enVuelo.delete(cseq);
+            if (process.env.DAHUA_PUENTE_DEBUG && !/ 200 /.test(estado)) console.log(`[dahua-puente] ${estado} cseq ${cseq} ${(p0 => p0 ? p0.metodo + ' ' + p0.uri : '')(pedidoDe.get(cseq))}`);
             // La URL del NVR vuelve a ser la local (Content-Base, controles del SDP).
             let cabLocal = cab.split(base).join(prefijoLocal);
             cuerpo = cuerpo.split(base).join(prefijoLocal);
@@ -129,7 +143,7 @@ function atender(sock) {
             try { pedido(texto, cuerpo); } catch (e) { console.error("[dahua-puente]", e.message); cerrar(); return; }
         }
     });
-    sock.on("close", cerrar);
+    sock.on("close", () => cerrar("go2rtc"));
     sock.on("error", cerrar);
 }
 

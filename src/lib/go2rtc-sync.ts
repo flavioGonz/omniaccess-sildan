@@ -216,11 +216,29 @@ function registrarEnPuente(id: string, nvr: { ip: string; user: string; pass: st
         try { fs.chmodSync(ARCHIVO_PUENTE, 0o600); } catch { }
     } catch (e) { console.error("[go2rtc-sync] puente dahua:", (e as any)?.message); }
 }
+/*
+ * El subflujo de un canal Dahua por el puente queda abierto siempre (`preload` de go2rtc): armar
+ * una sesión contra el NVR por internet tarda, y con la pared entera abriéndose a la vez los
+ * últimos canales tardaban más de 10 s. Abierto de antemano, la baldosa arranca en el acto.
+ * Costo: el ancho de banda del subflujo de cada canal, constante, del NVR a este servidor.
+ */
+function precargar(name: string) {
+    try {
+        const doc: any = (yaml.load(fs.readFileSync(CONFIG, "utf8")) as any) || {};
+        if (!doc.preload || typeof doc.preload !== "object") doc.preload = {};
+        if (doc.preload[name]) return;
+        doc.preload[name] = "video";
+        fs.writeFileSync(CONFIG, yaml.dump(doc, { lineWidth: 400 }), "utf8");
+    } catch (e) { console.error("[go2rtc-sync] preload:", (e as any)?.message); }
+}
 async function vivoPuenteDahua(nvrId: string, nvr: { ip: string; user: string; pass: string }, ch: number): Promise<{ sd: string; hd: string }> {
     const { hostHttp } = await import("@/lib/host-http");
     registrarEnPuente(nvrId, nvr, await hostHttp(nvr.ip));
     const base = `rtsp://127.0.0.1:${PUERTO_PUENTE}/${nvrId}/cam/realmonitor?channel=${ch}`;
-    return { sd: `${base}&subtype=1`, hd: `${base}&subtype=0` };
+    // #timeout=30: el NVR atiende el armado de cada sesión de a una; con muchos canales abriéndose a
+    // la vez, los últimos tardan más que los 5 s que go2rtc espera por defecto y entraban en un
+    // bucle de cortar y reintentar (12/11: sólo 16 de 35 canales fluían).
+    return { sd: `${base}&subtype=1#timeout=30`, hd: `${base}&subtype=0#timeout=30` };
 }
 
 export async function syncLprStream(dev: Dev): Promise<void> {
@@ -278,6 +296,7 @@ export async function syncLprStream(dev: Dev): Promise<void> {
                             const { sd, hd } = await vivoPuenteDahua(entry.nvrId, nvr, entry.ch);
                             console.log(`[go2rtc-sync] ${dev.ip} vivo por el puente RTSP-WebSocket del NVR Dahua (sin 554)`);
                             await writeStreams(name, nameHd, sd, hd);
+                            precargar(name);
                             return;
                         }
                         const sd = direct ? rtspDirect(dev, "102") : rtspViaNvr(nvr, entry.ch, false);

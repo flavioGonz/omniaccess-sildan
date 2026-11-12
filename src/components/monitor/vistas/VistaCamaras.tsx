@@ -220,6 +220,9 @@ function Baldosa({ celda, modo, codec, alerta, lecturas, destello, alTocar, alRe
 }) {
     const [aspecto, setAspecto] = useState(16 / 9);
     const [encima, setEncima] = useState(false);
+    // Directo: hasta que el video da su primer cuadro (o mientras se reconecta) se ve la foto del canal.
+    const [vivoListo, setVivoListo] = useState(false);
+    useEffect(() => { setVivoListo(false); }, [celda.canal?.clave, modo]);
     const ocupadoVision = pasoVision?.fase === "enviando" || pasoVision?.fase === "retirando";
     const c = celda.canal;
     const grande = celda.casilla.w > 1;
@@ -247,9 +250,12 @@ function Baldosa({ celda, modo, codec, alerta, lecturas, destello, alTocar, alRe
                 </span>
             ) : dormida ? null : modo === "foto" ? (
                 foto ? <Foto src={foto} ms={FOTO_MS} className="absolute inset-0 w-full h-full object-cover" /> : null
-            ) : (
-                <Vivo src={vivoDe(c.stream, modo === "convertido", hls)} alResultado={(ok) => alResultado(c, modo, ok)} alMedir={(w, h) => { if (w && h) setAspecto(w / h); }} className="absolute inset-0 w-full h-full object-cover" />
-            )}
+            ) : (<>
+                {modo === "directo" && !vivoListo && foto && <Foto src={foto} ms={FOTO_MS} className="absolute inset-0 w-full h-full object-cover" />}
+                <Vivo src={vivoDe(c.stream, modo === "convertido", hls)} reintentar={modo === "directo"}
+                    alResultado={(ok) => { setVivoListo(ok); alResultado(c, modo, ok); }} alMedir={(w, h) => { if (w && h) setAspecto(w / h); }}
+                    className={cn("absolute inset-0 w-full h-full object-cover", modo === "directo" && !vivoListo && "opacity-0")} />
+            </>)}
             {c.geom && !caido && <Geometria geom={c.geom} alerta={!!alerta} ajuste="cover" />}
             {captura && <CapturaConSiluetas key={captura.id} a={captura} geom={c.geom} ancho={grande ? 960 : 640} />}
             {/* Editando el seguimiento: la baldosa entera se arrastra (lleva su canal) y recibe a las
@@ -492,7 +498,10 @@ export function VistaCamaras() {
         let convertidos = 0;
         const orden = movil ? lista.filter((c) => aLaVista.has(c.clave)) : [...celdas].filter((x) => x.canal).sort((a, b) => b.casilla.w - a.casilla.w).map((x) => x.canal!);
         for (const c of orden) {
-            if (h265 && resultados[`${c.clave}|directo`] !== false) { m.set(c.clave, "directo"); continue; }
+            // Con un navegador que reproduce H.265 la baldosa va SIEMPRE directa (GPU de este equipo):
+            // si tarda o se corta se reintenta, nunca se pasa a convertir en la CPU del servidor,
+            // que es el mismo flujo y sólo agrega carga (12/11, «no queremos CPU»).
+            if (h265 && c.online !== false) { m.set(c.clave, "directo"); continue; }
             if (convertidos < MAX_CONVERTIDOS && c.online !== false && resultados[`${c.clave}|convertido`] !== false) { m.set(c.clave, "convertido"); convertidos++; continue; }
             m.set(c.clave, "foto");
         }

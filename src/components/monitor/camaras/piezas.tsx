@@ -26,8 +26,14 @@ export type Modo = "directo" | "convertido" | "foto";
 
 /** Cadencia de la foto en las baldosas que no van en vivo. */
 export const FOTO_MS = 8000;
-/** Sin imagen en este tiempo, el vivo se da por fallido. */
-const VIVO_ESPERA_MS = 12_000;
+/**
+ * Sin imagen en este tiempo, el vivo se da por fallido. 20 s y no 12: abrir 16 canales a la vez
+ * contra un NVR por internet (Nicolás, 12/11) tardaba hasta ~12 s en dar el último primer cuadro,
+ * y los que llegaban tarde quedaban marcados como fallidos y caían a CPU o a foto.
+ */
+const VIVO_ESPERA_MS = 20_000;
+/** Reintentos de un vivo que no arrancó (cuando se piden): de a poco, hasta este tope. */
+const REINTENTO_MAX_MS = 20_000;
 /** El códec que se pregunta: H.265 Main, nivel 3.1 (alcanza para 640×360 y sobra). */
 const TIPOS_H265 = ['video/mp4; codecs="hvc1.1.6.L93.B0"', 'video/mp4; codecs="hev1.1.6.L93.B0"'];
 
@@ -68,26 +74,38 @@ export const grupoDe = (c: Canal) => c.nvr || "Cámaras sueltas";
 export const idCanal = (c: Pick<Canal, "equipoId" | "nvrId" | "ch">) => c.equipoId || `nvrch-${c.nvrId}-${c.ch}`;
 
 /** Un <video> de go2rtc que avisa si arrancó o no, y suelta la conexión al desmontarse. */
-export function Vivo({ src, alResultado, className, alMedir }: { src: string; alResultado?: (ok: boolean) => void; className?: string;
+export function Vivo({ src, alResultado, className, alMedir, reintentar = false }: { src: string; alResultado?: (ok: boolean) => void; className?: string;
     /** El tamaño real del video, cuando se sabe: lo usan las siluetas para caer donde van. */
-    alMedir?: (ancho: number, alto: number) => void }) {
+    alMedir?: (ancho: number, alto: number) => void;
+    /**
+     * Si no arranca o se corta, volver a abrirlo solo (5 s, 10 s… hasta 20 s) en lugar de rendirse.
+     * La pared lo usa en modo directo: un canal que tarda no pasa a convertirse por CPU.
+     */
+    reintentar?: boolean }) {
     const ref = useRef<HTMLVideoElement>(null);
     const avisar = useRef(alResultado); avisar.current = alResultado;
     const medir = useRef(alMedir); medir.current = alMedir;
+    const [intento, setIntento] = useState(0);
     useEffect(() => {
         const v = ref.current; if (!v) return;
         let listo = false;
+        let otra: ReturnType<typeof setTimeout> | null = null;
+        const volver = () => { if (reintentar && !otra) otra = setTimeout(() => setIntento((n) => n + 1), Math.min(REINTENTO_MAX_MS, 5000 * (intento + 1))); };
         const ok = () => { if (v.videoWidth) medir.current?.(v.videoWidth, v.videoHeight); if (!listo) { listo = true; avisar.current?.(true); } };
-        const mal = () => { if (!listo) { listo = true; avisar.current?.(false); } };
+        const mal = () => { if (!listo) { listo = true; avisar.current?.(false); } volver(); };
         const to = setTimeout(mal, VIVO_ESPERA_MS);
-        v.addEventListener("loadeddata", ok); v.addEventListener("error", mal);
+        // Un vivo que ya andaba y se cortó (el NVR cerró, se cayó internet) también vuelve solo.
+        const corte = () => { if (listo) { avisar.current?.(false); volver(); } };
+        v.addEventListener("loadeddata", ok); v.addEventListener("error", mal); v.addEventListener("ended", corte);
         v.src = src; v.play().catch(() => { });
         return () => {
+            if (otra) clearTimeout(otra);
+            v.removeEventListener("ended", corte);
             clearTimeout(to); v.removeEventListener("loadeddata", ok); v.removeEventListener("error", mal);
             // Sin esto el navegador mantiene la descarga abierta y go2rtc sigue sirviendo el canal.
             try { v.pause(); v.removeAttribute("src"); v.load(); } catch { }
         };
-    }, [src]);
+    }, [src, intento]); // eslint-disable-line react-hooks/exhaustive-deps
     return <video ref={ref} muted playsInline autoPlay disablePictureInPicture className={className} />;
 }
 
