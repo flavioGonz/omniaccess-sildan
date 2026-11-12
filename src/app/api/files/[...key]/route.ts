@@ -21,7 +21,9 @@ const BUCKET_ALIASES: Record<string, string> = {
 let bucketsOk: { set: Set<string>; hasta: number } | null = null;
 async function bucketsPermitidos(): Promise<Set<string>> {
     if (bucketsOk && bucketsOk.hasta > Date.now()) return bucketsOk.set;
-    const s = new Set<string>(["lpr", "lpr-prod", "face", "intrusion", "alarmas", "queue"]);
+    // `marcas` es el bucket de los logos de empresas (actions/empresas): al cerrar la lista el 4/11
+    // quedó afuera, y desde entonces todo logo daba 404 (12/11, consola de Chrome de Nico).
+    const s = new Set<string>(["lpr", "lpr-prod", "face", "intrusion", "alarmas", "queue", "marcas"]);
     for (const v of [process.env.S3_BUCKET, process.env.S3_BUCKET_FACE, process.env.S3_BUCKET_QUEUE, process.env.S3_BUCKET_INTRUSION, process.env.S3_BUCKET_ALARMAS]) if (v) s.add(v);
     try {
         const filas = await prisma.setting.findMany({ where: { key: { in: ["S3_BUCKET_LPR", "S3_BUCKET_FACE", "S3_BUCKET_QUEUE", "S3_BUCKET_INTRUSION", "S3_BUCKET_ALARMAS"] } }, select: { value: true } });

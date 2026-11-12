@@ -37,6 +37,15 @@ const OCULTAR_MS = 3500;
 const CIERRA_SOLA_MS = 3 * 60_000;
 /** Cuánto antes de "ahora" arranca la grabación si no hay detección de referencia. */
 const GRABACION_ANTES_MS = 60_000;
+/**
+ * Los canales cuya alta calidad no abrió hace poco. Sin esto, cada vez que se abría la cámara se
+ * volvía a esperar por un flujo que no iba a llegar (12/11: los canales del NVR 02 de Otto Villa
+ * no entregan H.265 estándar y go2rtc nunca saca el primer cuadro). Se reintenta sola a los diez
+ * minutos, o al tocar el botón HD.
+ */
+const HD_CAIDOS = new Map<string, number>();
+const HD_REINTENTO_MS = 10 * 60_000;
+const hdCaido = (clave: string) => { const t = HD_CAIDOS.get(clave); return !!t && Date.now() - t < HD_REINTENTO_MS; };
 /** Con una detección en curso, la grabación arranca un poco antes de ella: se ve llegar al que la causó. */
 const GRABACION_ANTES_ALERTA_MS = 5_000;
 
@@ -86,6 +95,11 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     const { pantalla } = useMarco();
     const [fallo, setFallo] = useState(false);
     const [hd, setHd] = useState(true);
+    // Cuál de los dos vivos ya tiene imagen: el subflujo arranca siempre y la alta calidad lo tapa
+    // recién cuando llegó (ver más abajo). `hdListoRef` es para el tamaño: manda el del que se ve.
+    const [sdListo, setSdListo] = useState(false);
+    const [hdListo, setHdListo] = useState(false);
+    const hdListoRef = useRef(false); hdListoRef.current = hdListo;
     const [verGeom, setVerGeom] = useState(true);
     // Siluetas de OmniVision sobre el vivo (pedido 15/10: «pretendo que sea la silueta»). Prendidas
     // al abrir; sólo mientras se mira el vivo de ESTE canal (la GPU no trabaja para nadie más).
@@ -123,7 +137,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     const [visibles, setVisibles] = useState(true);
     const [lleno, setLleno] = useState(false);
     const entreYo = useRef(false);
-    useEffect(() => { setGrabacionDesde(grabacionInicial); setFallo(false); }, [c?.clave]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => { setGrabacionDesde(grabacionInicial); setFallo(!!c && hdCaido(c.clave)); setSdListo(false); setHdListo(false); }, [c?.clave]); // eslint-disable-line react-hooks/exhaustive-deps
     const grabacionRef = useRef(grabacion != null); grabacionRef.current = grabacion != null;
     const alCerrarRef = useRef(alCerrar); alCerrarRef.current = alCerrar;
 
@@ -171,7 +185,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     const m = alerta ? metaDe(alerta.tipo) : null;
     const ult = c?.ultima ? metaDe(c.ultima.tipo) : null;
     const foto = c ? fotoDe(c, 1280) : null;
-    const calidad = c?.online === false ? "sin señal en el NVR" : enHd ? "alta calidad, directo" : h265 ? "subflujo, directo" : fallo ? "subflujo convertido (la alta calidad no abrió)" : "subflujo convertido (este equipo no reproduce H.265 en alta)";
+    const calidad = c?.online === false ? "sin señal en el NVR" : enHd ? (hdListo ? "alta calidad, directo" : "subflujo · abriendo la alta calidad…")
+        : h265 ? (fallo && hd ? "subflujo, directo (la alta calidad no abrió)" : "subflujo, directo") : "subflujo convertido (este equipo no reproduce H.265 en alta)";
     const alternarLleno = () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => { }); else document.documentElement.requestFullscreen?.().then(() => { entreYo.current = true; }).catch(() => { }); };
 
     return (
@@ -188,8 +203,26 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                             <span className="absolute inset-0 grid place-items-center text-white/60"><span className="flex flex-col items-center gap-2"><VideoOff size={40} /><span className="text-[18px] font-semibold">El NVR no ve este canal</span></span></span>
                         </>
                     ) : (
-                        <Vivo key={`${c.clave}-${enHd ? "hd" : "sd"}`} src={enHd ? vivoDe(`${c.stream}_hd`, false, hls) : vivoDe(c.stream, !h265, hls)}
-                            alResultado={(ok) => { if (!ok && enHd) setFallo(true); }} alMedir={(w, h) => setTamVideo({ w, h })} className="absolute inset-0 w-full h-full object-contain" />
+                        <>
+                            {/* Nunca en negro (12/11, Nico: «queda un rato largo en negro»). Antes se
+                                pedía sólo la alta calidad y, si no abría, se esperaban 12 s mirando
+                                nada antes de caer al subflujo. Ahora: la foto del canal al instante,
+                                el subflujo siempre (un par de segundos), y la alta calidad se abre
+                                por detrás y lo tapa cuando ya tiene imagen. Si no llega, se sigue
+                                viendo el subflujo, sin corte. */}
+                            {!sdListo && !hdListo && foto && <Foto src={foto} ms={FOTO_MS} className="absolute inset-0 w-full h-full object-contain" />}
+                            {!(enHd && hdListo) && (
+                                <Vivo key={`${c.clave}-sd`} src={vivoDe(c.stream, !h265, hls)}
+                                    alResultado={(ok) => { if (ok) setSdListo(true); }} alMedir={(w, h) => { if (!hdListoRef.current) setTamVideo({ w, h }); }}
+                                    className={cn("absolute inset-0 w-full h-full object-contain", !sdListo && "opacity-0")} />
+                            )}
+                            {enHd && (
+                                <Vivo key={`${c.clave}-hd`} src={vivoDe(`${c.stream}_hd`, false, hls)}
+                                    alResultado={(ok) => { if (ok) setHdListo(true); else { HD_CAIDOS.set(c.clave, Date.now()); setFallo(true); } }}
+                                    alMedir={(w, h) => setTamVideo({ w, h })}
+                                    className={cn("absolute inset-0 w-full h-full object-contain", !hdListo && "opacity-0")} />
+                            )}
+                        </>
                     )}
                     {c.geom && verGeom && !(sil.analisis && grabacion == null) && <Geometria geom={c.geom} alerta={!!alerta} ajuste="contain" />}
                     {/* Las siluetas van sobre el vivo con el mismo ajuste (contain): el análisis es del
@@ -240,7 +273,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                             )}
                             <span className="visor-panel rounded-full p-1 flex items-center gap-0.5">
                                 {h265 && c.online !== false && grabacion == null && (
-                                    <Icono onClick={() => { setHd((x) => !x); setFallo(false); }} activo={enHd} titulo={enHd ? "Alta calidad · cambiar al subflujo, más liviano" : "Subflujo · cambiar a alta calidad"}>
+                                    <Icono onClick={() => { HD_CAIDOS.delete(c.clave); if (hdListoRef.current) setSdListo(false); setHd((x) => !x); setFallo(false); setHdListo(false); }} activo={enHd} titulo={enHd ? "Alta calidad · cambiar al subflujo, más liviano" : "Subflujo · cambiar a alta calidad"}>
                                         <span className="text-[11px] font-bold tracking-wide">{enHd ? "HD" : "SD"}</span>
                                     </Icono>
                                 )}
