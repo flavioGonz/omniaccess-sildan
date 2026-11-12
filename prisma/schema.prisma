@@ -1478,10 +1478,45 @@ model FotoEntrenamiento {
   /// La miró una persona y dibujó todo lo que había (o dijo que no había nada).
   revisada  Boolean  @default(false)
   revisadaPor String?
+  /// La programación de capturas que la tomó (CapturaProgramada.id), o null si entró a mano.
+  /// Sin relación: borrar la programación no borra sus fotos, y la marca queda.
+  programaId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([revisada, createdAt])
+  @@index([programaId, revisada])
+}
+
+/// Una programación de capturas para el conjunto de entrenamiento (openspec
+/// capturas-programadas-entrenamiento): cada `cadaMin` minutos, una foto de cada cámara, que entra
+/// a «Sin dibujar» si la escena cambió. El reloj es vision-capturas.js; la foto la toma la aplicación.
+model CapturaProgramada {
+  id        String    @id @default(cuid())
+  nombre    String
+  /// Ids de equipo o de canal de grabador («nvrch-<nvr>-<ch>»), como FotoEntrenamiento.deviceId
+  camaras   String[]
+  cadaMin   Int       @default(30)
+  /// { desde: "HH:MM", hasta: "HH:MM" } o null = todo el día. Hora de Uruguay.
+  horario   Json?
+  /// Cuántas fotos toma como mucho. Cuenta las tomadas, no las que quedan: descartar no devuelve cupo.
+  tope      Int       @default(200)
+  hasta     DateTime?
+  activa    Boolean   @default(true)
+  /// «Tomar ahora»: el reloj la toma en su próxima pasada, sin esperar a `proximaAt`
+  forzarAt  DateTime?
+  proximaAt DateTime  @default(now())
+  guardadas Int       @default(0)
+  salteadas Int       @default(0)
+  /// Lo que escribe la vuelta: { enVueltaDesde, camaras: { [id]: { huella, ultimaAt, guardadas, salteadas, fallos, error, errorDesde, dif } } }
+  estado    Json      @default("{}")
+  /// Por qué terminó: "tope" | "fecha"; null mientras sigue
+  terminada String?
+  creadaPor String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([activa, proximaAt])
 }
 
 /// Un entrenamiento del detector propio. Lo corre scripts/entrenador.js (pm2) en el contenedor
