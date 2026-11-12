@@ -115,7 +115,7 @@ export async function GET(
                 }
                 buf = await p;
             }
-            if (!buf) return new NextResponse("No snapshot available", { status: 502 });
+            if (!buf) return new NextResponse(null, { status: 204, headers: { "X-Sin-Foto": "1" } });
             return new NextResponse(buf as any, {
                 status: 200,
                 headers: {
@@ -132,7 +132,7 @@ export async function GET(
          * a la cámara, al NVR y a go2rtc, y terminaba igual en 502.
          */
         const falla = fallas.get(deviceId);
-        if (falla && Date.now() - falla < FALLA_MS) return new NextResponse("No snapshot available", { status: 502, headers: { "Retry-After": "30" } });
+        if (falla && Date.now() - falla < FALLA_MS) return new NextResponse(null, { status: 204, headers: { "X-Sin-Foto": "1", "Retry-After": "30" } });
         const claveOtra = `${deviceId}:otra`;
         const yaOtra = fotos.get(claveOtra);
         if (yaOtra && Date.now() - yaOtra.t < FOTO_VIGENTE_MS) return new NextResponse(new Uint8Array(yaOtra.buf), { status: 200, headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-cache, no-store, must-revalidate" } });
@@ -148,7 +148,7 @@ export async function GET(
             enCurso.set(claveOtra, pOtra);
         }
         const bOtra = await pOtra;
-        if (!bOtra) return new NextResponse("No snapshot available", { status: 502, headers: { "Retry-After": "30" } });
+        if (!bOtra) return new NextResponse(null, { status: 204, headers: { "X-Sin-Foto": "1", "Retry-After": "30" } });
         return new NextResponse(new Uint8Array(bOtra), { status: 200, headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-cache, no-store, must-revalidate" } });
     } catch (err: any) {
         console.error(`[Snapshot] Error for device ${deviceId}:`, err.message);
@@ -156,6 +156,11 @@ export async function GET(
     }
 }
 
+/*
+ * Sin foto por ningún camino se contesta 204 y no 502 (12/11): una cámara que no manda video
+ * (canales 4, 11, 24 de Nicolás) llenaba la consola de errores cada 8 s. Para el <img> es lo
+ * mismo (dispara onError y la baldosa dice «Sin foto del canal»), pero no es un error del servidor.
+ */
 /** Una cámara que no dio foto por ningún camino: se vuelve a intentar pasado este tiempo. */
 const FALLA_MS = 30_000;
 const fallas = new Map<string, number>();
