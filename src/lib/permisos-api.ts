@@ -54,6 +54,8 @@ export const RUTAS_API: [RegExp, ClaseApi][] = [
     [/^\/api\/centrales\/eventos(\/|$)/, P("hub.tratar")],
     [/^\/api\/centrales(\/|$)/, P("hub.config")],
     // ── OmniVision ──
+    // La vuelta de las capturas programadas: la llama vision-worker con el token interno, no una persona.
+    [/^\/api\/vision\/objetos\/capturas\/vuelta$/, "propio"],
     [/^\/api\/vision\/(buscar|parecidos\/|vocabulario\/historial)/, P("vision")],
     [/^\/api\/vision\//, P("vision.config")],
     // ── Equipos, seguimiento ──

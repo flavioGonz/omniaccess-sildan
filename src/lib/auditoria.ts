@@ -39,6 +39,7 @@ const MODELOS: Record<string, string> = {
     Invitation: "invitación",
     ZonaEntrenable: "analítica entrenable",
     ClasePropia: "clase propia",
+    CapturaProgramada: "programación de capturas",
     EnlacePantalla: "enlace de pantalla",
 };
 

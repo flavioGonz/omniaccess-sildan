@@ -3,22 +3,11 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { prisma } from "@/lib/prisma";
 import { getS3Client } from "@/lib/s3";
 import { puedeMirar, puedeCambiar } from "@/lib/zona-entrenable-servidor";
-import { BUCKET, filaFoto, guardarFoto } from "@/lib/detector-propio-servidor";
+import { BUCKET, cuadroDeCamara, filaFoto, guardarFoto, nombresDeCamaras } from "@/lib/detector-propio-servidor";
 import { imagenDeLink, LinkInvalido } from "@/lib/ingesta-link";
-import { registrarCanalNvr } from "@/lib/go2rtc-sync";
 
 export const dynamic = "force-dynamic";
 
-const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
-const TIEMPO_CUADRO_MS = 8000;
-const CUADRO_MIN_BYTES = 1000;
-/**
- * Un canal de NVR que no es equipo, con el mismo nombre que su stream de go2rtc
- * (`lpr_nvrch-<nvr>-<ch>`). Pedido 15/10: «debo poder elegir las cámaras incluso de los NVR» —
- * el selector sólo listaba equipos, y en San Nicolás casi todas las cámaras son canales de NVR.
- * Se guarda así en FotoEntrenamiento.deviceId (texto libre) para saber de dónde salió la foto.
- */
-const CANAL_NVR = /^nvrch-([\w-]+)-(\d{1,4})$/;
 /** Una foto de celular pasa de 4 MB; más que esto no es una foto. */
 const SUBIDA_MAX_BYTES = 15 * 1024 * 1024;
 const LIMITE_DEFECTO = 120;
@@ -43,12 +32,7 @@ export async function GET(req: NextRequest) {
     const where: any = vista === "sin" ? { revisada: false } : vista === "revisadas" ? { revisada: true } : vista === "negativas" ? { revisada: true, cajas: { equals: [] } } : {};
     let filas = await prisma.fotoEntrenamiento.findMany({ where, orderBy: { createdAt: vista === "sin" ? "asc" : "desc" }, take: clase ? LIMITE_MAX * 5 : limite });
     if (clase) filas = filas.filter((f) => ((f.cajas as any[]) || []).some((c) => c.clase === clase)).slice(0, limite);
-    const ids = [...new Set(filas.map((f) => f.deviceId).filter(Boolean))] as string[];
-    // Los canales de NVR se nombran por su grabador y su número: «NVR 2 · CH 3».
-    const nvrDe = new Map(ids.map((id) => [id, CANAL_NVR.exec(id)]).filter(([, m]) => m) as [string, RegExpExecArray][]);
-    const buscar = [...new Set([...ids, ...[...nvrDe.values()].map((m) => m[1])])];
-    const nombres = new Map((buscar.length ? await prisma.device.findMany({ where: { id: { in: buscar } }, select: { id: true, name: true } }) : []).map((d) => [d.id, d.name]));
-    const camaras = new Map(ids.map((id) => { const m = nvrDe.get(id); return [id, m ? `${nombres.get(m[1]) || m[1]} · CH ${m[2]}` : nombres.get(id) || ""] as [string, string]; }).filter(([, n]) => n));
+    const camaras = await nombresDeCamaras([...new Set(filas.map((f) => f.deviceId).filter(Boolean))] as string[]);
     return NextResponse.json({ fotos: await Promise.all(filas.map((f) => filaFoto(f, camaras))) }, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -58,27 +42,9 @@ export async function POST(req: NextRequest) {
     try {
         const camara = sp.get("camara");
         if (camara) {
-            const canal = CANAL_NVR.exec(camara);
-            let id: string;
-            if (canal) {
-                // El stream del canal vive en la memoria de go2rtc: se asegura antes de pedir el cuadro.
-                if (!(await registrarCanalNvr(canal[1], Number(canal[2])))) return NextResponse.json({ error: "No existe ese NVR" }, { status: 404 });
-                id = camara;
-            } else {
-                const dev = await prisma.device.findUnique({ where: { id: camara }, select: { id: true } });
-                if (!dev) return NextResponse.json({ error: "No existe esa cámara" }, { status: 404 });
-                id = dev.id;
-            }
-            const dev = { id };
-            for (const src of [`lpr_${dev.id}_hd`, `lpr_${dev.id}`]) {
-                try {
-                    const r = await fetch(`${GO2RTC}/api/frame.jpeg?src=${encodeURIComponent(src)}`, { cache: "no-store", signal: AbortSignal.timeout(TIEMPO_CUADRO_MS) });
-                    if (!r.ok) continue;
-                    const b = Buffer.from(await r.arrayBuffer());
-                    if (b.length > CUADRO_MIN_BYTES) return NextResponse.json({ foto: await filaFoto(await guardarFoto(b, "CAMARA", dev.id)) });
-                } catch { /* la siguiente fuente */ }
-            }
-            return NextResponse.json({ error: "go2rtc no entregó un cuadro de esa cámara" }, { status: 502 });
+            const c = await cuadroDeCamara(camara);
+            if ("error" in c) return NextResponse.json({ error: c.error }, { status: c.status });
+            return NextResponse.json({ foto: await filaFoto(await guardarFoto(c.bytes, "CAMARA", c.deviceId)) });
         }
         const objeto = sp.get("objeto");
         if (objeto) {

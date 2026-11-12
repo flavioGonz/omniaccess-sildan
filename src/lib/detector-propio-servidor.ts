@@ -6,6 +6,7 @@ import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from "@aws-sd
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import { getS3Client } from "@/lib/s3";
+import { registrarCanalNvr } from "@/lib/go2rtc-sync";
 import { LADO_MAX, MODELOS_GUARDADOS, PARIDAD_MIN, type ArchivoModelo, type Caja, type ClaseResumen, type FotoFila } from "@/lib/detector-propio";
 
 /** Setting con el detector propio activo (quién, cuándo, qué clases). */
@@ -16,11 +17,11 @@ export const BUCKET = process.env.VISION_BUCKET || "objetos";
 const CALIDAD = 90;
 
 /** Guarda una foto (de cualquier formato) como JPEG con el lado mayor topado, y crea su fila. */
-export async function guardarFoto(datos: Buffer, origen: "CAMARA" | "SUBIDA" | "REGISTRO", deviceId: string | null) {
+export async function guardarFoto(datos: Buffer, origen: "CAMARA" | "SUBIDA" | "REGISTRO", deviceId: string | null, programaId: string | null = null) {
     const img = sharp(datos, { failOn: "error" }).rotate();
     const jpeg = await img.resize({ width: LADO_MAX, height: LADO_MAX, fit: "inside", withoutEnlargement: true }).jpeg({ quality: CALIDAD }).toBuffer();
     const meta = await sharp(jpeg).metadata();
-    const fila = await prisma.fotoEntrenamiento.create({ data: { clave: "", ancho: meta.width || 0, alto: meta.height || 0, origen, deviceId } });
+    const fila = await prisma.fotoEntrenamiento.create({ data: { clave: "", ancho: meta.width || 0, alto: meta.height || 0, origen, deviceId, programaId } });
     const clave = `entrenamiento/${new Date().toISOString().slice(0, 10)}/${fila.id}.jpg`;
     try {
         await (await getS3Client()).send(new PutObjectCommand({ Bucket: BUCKET, Key: clave, Body: jpeg, ContentType: "image/jpeg" }));
@@ -49,7 +50,54 @@ export async function filaFoto(f: any, camaras?: Map<string, string>): Promise<F
     return {
         id: f.id, url: `/api/vision/imagen/${f.clave}`, ancho: f.ancho, alto: f.alto, origen: f.origen, deviceId: f.deviceId,
         camara: f.deviceId ? camaras?.get(f.deviceId) ?? null : null, cajas: (f.cajas as Caja[]) || [], revisada: f.revisada, createdAt: f.createdAt.toISOString(),
+        programada: !!f.programaId,
     };
+}
+
+const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
+const TIEMPO_CUADRO_MS = 8000;
+const CUADRO_MIN_BYTES = 1000;
+/**
+ * Un canal de NVR que no es equipo, con el mismo nombre que su stream de go2rtc
+ * (`lpr_nvrch-<nvr>-<ch>`). Pedido 15/10: «debo poder elegir las cámaras incluso de los NVR» —
+ * el selector sólo listaba equipos, y en San Nicolás casi todas las cámaras son canales de NVR.
+ * Se guarda así en FotoEntrenamiento.deviceId (texto libre) para saber de dónde salió la foto.
+ */
+export const CANAL_NVR = /^nvrch-([\w-]+)-(\d{1,4})$/;
+
+/**
+ * El cuadro de este momento de una cámara, del stream PRINCIPAL (go2rtc «_hd») y, si no sale, del
+ * secundario: para entrenar se quiere la resolución entera, no el substream del registro.
+ *
+ * Es el único camino para tomar la foto de una cámara: lo usan «Sacar foto ahora» y la vuelta de
+ * una programación (capturas-programadas-servidor.ts). Estaba escrito adentro de la ruta; con dos
+ * que lo necesitan, dos copias se iban a separar el día que cambie cómo se elige el stream.
+ */
+export async function cuadroDeCamara(camara: string): Promise<{ bytes: Buffer; deviceId: string } | { error: string; status: number }> {
+    const canal = CANAL_NVR.exec(camara);
+    if (canal) {
+        // El stream del canal vive en la memoria de go2rtc: se asegura antes de pedir el cuadro.
+        if (!(await registrarCanalNvr(canal[1], Number(canal[2])))) return { error: "No existe ese NVR", status: 404 };
+    } else if (!(await prisma.device.findUnique({ where: { id: camara }, select: { id: true } }))) {
+        return { error: "No existe esa cámara", status: 404 };
+    }
+    for (const src of [`lpr_${camara}_hd`, `lpr_${camara}`]) {
+        try {
+            const r = await fetch(`${GO2RTC}/api/frame.jpeg?src=${encodeURIComponent(src)}`, { cache: "no-store", signal: AbortSignal.timeout(TIEMPO_CUADRO_MS) });
+            if (!r.ok) continue;
+            const b = Buffer.from(await r.arrayBuffer());
+            if (b.length > CUADRO_MIN_BYTES) return { bytes: b, deviceId: camara };
+        } catch { /* la siguiente fuente */ }
+    }
+    return { error: "go2rtc no entregó un cuadro de esa cámara", status: 502 };
+}
+
+/** El nombre de cada cámara por su id. Los canales de NVR se nombran por su grabador y su número: «NVR 2 · CH 3». */
+export async function nombresDeCamaras(ids: string[]): Promise<Map<string, string>> {
+    const nvrDe = new Map(ids.map((id) => [id, CANAL_NVR.exec(id)]).filter(([, m]) => m) as [string, RegExpExecArray][]);
+    const buscar = [...new Set([...ids, ...[...nvrDe.values()].map((m) => m[1])])];
+    const nombres = new Map((buscar.length ? await prisma.device.findMany({ where: { id: { in: buscar } }, select: { id: true, name: true } }) : []).map((d) => [d.id, d.name]));
+    return new Map(ids.map((id) => { const m = nvrDe.get(id); return [id, m ? `${nombres.get(m[1]) || m[1]} · CH ${m[2]}` : nombres.get(id) || ""] as [string, string]; }).filter(([, n]) => n));
 }
 
 /**

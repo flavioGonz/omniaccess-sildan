@@ -75,6 +75,8 @@ export type ClaseResumen = { id: string; nombre: string; descripcion: string | n
 export type FotoFila = {
     id: string; url: string; ancho: number; alto: number; origen: string; deviceId: string | null;
     camara: string | null; cajas: Caja[]; revisada: boolean; createdAt: string;
+    /** La tomó una programación de capturas (lib/capturas-programadas), no una persona. */
+    programada?: boolean;
 };
 
 /**

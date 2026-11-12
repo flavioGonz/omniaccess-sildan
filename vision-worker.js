@@ -36,6 +36,7 @@ const prisma = require("./lib-cifrado-datos").enPrisma(new PrismaClient());
 const relecturas = require("./vision-relectura");
 const reglasVision = require("./vision-reglas");
 const zonasEntrenables = require("./vision-zonas");
+const capturasProgramadas = require("./vision-capturas");
 const analisisFotos = require("./vision-analisis");
 const vocabIndice = require("./vision-vocab-indice");
 
@@ -747,7 +748,7 @@ async function escribirEstado() {
         carga: { registro: Math.round(registroPorSeg * 100) / 100, eventos: Math.round(cargaEventos * 100) / 100, total: Math.round((registroPorSeg + cargaEventos) * 100) / 100, tope: ajustes.topePorSeg || TOPE_POR_SEG_DEFECTO, ventanaMs: MEDICION_MS },
         relectura: relector ? { activa: ajustes.relectura, ...relector.contadores } : null,
         analisis: analista ? { verificar: ajustes.verificar, lpr: ajustes.analizarLpr, ...analista.contadores } : null,
-        reglas: reglero ? reglero.contadores : null, zonas: zonero ? zonero.contadores : null, rotulado: ajustes.rotulado,
+        reglas: reglero ? reglero.contadores : null, zonas: zonero ? zonero.contadores : null, capturas: capturero ? capturero.contadores : null, rotulado: ajustes.rotulado,
     });
     await prisma.setting.upsert({ where: { key: "VISION_REGISTRO_ESTADO" }, update: { value: valor }, create: { key: "VISION_REGISTRO_ESTADO", value: valor } }).catch(() => null);
 }
@@ -811,6 +812,7 @@ let relector = null;
 let analista = null;
 let reglero = null;
 let zonero = null;
+let capturero = null;
 
 // ─────────────────────────── carril rápido ───────────────────────────
 
@@ -909,6 +911,8 @@ async function principal() {
     // El índice de fotos del vocabulario abierto: corre aparte, con su propio ritmo y modo.
     vocabIndice.iniciar({ prisma, log, vision: VISION, apagado: () => ajustes.apagadas.has("vocabulario") });
     zonero = zonasEntrenables.iniciar({ prisma, log, vision: VISION, subir, borrar, activa: () => ajustes.zonas, segmentar: () => !ajustes.apagadas.has("segmentar"), permitidas });
+    // Las capturas programadas del conjunto de entrenamiento: sólo el reloj; la foto la toma la aplicación.
+    capturero = capturasProgramadas.iniciar({ prisma, log });
     let ultEstado = 0, ultLimpieza = 0, hayTrabajo = false;
     while (corriendo) {
         const t0 = Date.now();
