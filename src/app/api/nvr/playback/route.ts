@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
         const fs = await import("fs");
         const path = await import("path");
         const tmp = path.join(os.tmpdir(), `clip_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
-        const ok = await cortarDesdeNvr(conn, ch, startMs, dur, tmp, { forceTx, cfg });
+        const ok = await cortarDesdeNvr(conn, ch, startMs, dur, tmp, { forceTx, cfg, hevcOk });
         try {
             if (!ok || !fs.existsSync(tmp)) { try { fs.unlinkSync(tmp); } catch { } return new Response("clip no disponible", { status: 502 }); }
             const size = fs.statSync(tmp).size;

@@ -34,3 +34,10 @@
 - Playback sin 554: `/api/nvr/playback` → `loadfile.cgi` + libx264 720p (10 s en ~6 s).
 - 39 cámaras importadas con su nombre y mapeadas NVR/canal (`NVR_CHANNEL_MAP`).
 - Pendiente: 2.2 (vivo real por WebSocket), búsqueda por imagen/atributos (requiere IA de cámara/NVR habilitada por canal; hoy `intelli.getEnableInfo` vacío).
+
+## Pulido (12/11, tarde)
+
+- [x] 5.1 Salud del NVR Dahua por RPC2 (`lib/salud-dahua.ts`, caché 20 s): CPU (`magicBox.getCPUUsage`), memoria, hora y deriva (`global.getCurrentTime`), discos (`storage.getDeviceAllInfo`), estado de cada canal (`LogicDeviceManager.getCameraState`). Alimenta el panel del NVR, `/api/devices/health` y el tick de alertas (`device-health`). Las cámaras Dahua toman su estado del canal en el NVR; si el NVR no contesta no se las marca caídas (lo avisa el NVR). Probado: NVR 46 ms, CPU 41 %, memoria 86 %, deriva 0 s, disco sda 2,9 TB al 100 % (sobrescritura); 39/39 cámaras Connected.
+- [x] 5.2 Retención: `mediaFileFind` (canal 1-based) — 4 días en las 39 cámaras (desde 08/11).
+- [x] 5.3 Clips y reproducción por HTTP: copia H.265 cuando el visor la acepta (`hevc=1`: 10 s en 0,6 s), libx264 más rápido (`skip_loop_filter`, `fast_bilinear`, hilos auto), marca de agua en el corte para clips enviados, caché de 10 min por tramo (repetición en ~50 ms). Probado: 10 s H.264 720p en 7,3 s (4K H.265 por CPU, sin GPU); clip con logo e intro en 2,8 s.
+- Hallazgo en campo (no es del driver): 7 canales devuelven 400 en tramos recientes (huecos de grabación: 4, 7, 9, 11, 20, 21, 23) y unos 17 canales graban sólo cuadros I (0,1–0,5 cuadros/s; p. ej. 3, 5, 8, 10, 16, 22, 24–30, 35–37) con la misma configuración de codificación que los sanos → pérdida de paquetes en el enlace cámara-NVR o ancho de banda de entrada del NVR. Los clips de esos canales salen "a saltos".

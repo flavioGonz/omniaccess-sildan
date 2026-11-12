@@ -92,15 +92,33 @@ async function probe(d: any, viewers: Record<string, number>): Promise<HealthRes
     return res;
 }
 
+/** Dahua por RPC2: el NVR directo y sus cámaras por el estado del canal en el NVR (lib/salud-dahua). */
+async function probeDahua(d: any, viewers: Record<string, number>): Promise<HealthResult> {
+    const res: HealthResult = { id: d.id, name: d.name, deviceType: d.deviceType, ip: d.ip, reachable: false, latencyMs: null, memPct: null, uptimeSec: null, driftSec: null, disksOk: null, viewers: viewers[`lpr_${d.id}`] ?? 0, vcaMode: null };
+    const { saludDahua } = await import("@/lib/salud-dahua");
+    if (d.deviceType === "NVR") {
+        const s = await saludDahua(d);
+        return { ...res, reachable: s.reachable, latencyMs: s.latencyMs, memPct: s.memPct, uptimeSec: s.uptimeSec, driftSec: s.driftSec, disksOk: s.disksOk };
+    }
+    const { getChannelMap, resolveNvrById } = await import("@/lib/nvr-resolve");
+    const e = (await getChannelMap())[d.ip];
+    const nvr = e?.ch ? await resolveNvrById(e.nvrId) : null;
+    if (!nvr) return res;
+    const s = await saludDahua({ ip: nvr.ip, username: nvr.user, password: nvr.pass });
+    // Si el NVR no contesta no se sabe nada de la cámara: no se la marca caída por eso (lo avisa el NVR).
+    if (!s.reachable) return { ...res, reachable: true, latencyMs: null };
+    return { ...res, reachable: s.canales?.[e!.ch] === "Connected", latencyMs: s.latencyMs, driftSec: null };
+}
+
 export async function probeAllDevices(): Promise<HealthResult[]> {
     const devices = await prisma.device.findMany({
-        where: { brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "NVR"] as any } },
-        select: { id: true, name: true, ip: true, username: true, password: true, authType: true, deviceType: true },
+        where: { OR: [{ brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "NVR"] as any } }, { brand: "DAHUA" as any, deviceType: { in: ["NVR", "CAMERA", "LPR_CAMERA"] as any } }] },
+        select: { id: true, name: true, ip: true, username: true, password: true, authType: true, deviceType: true, brand: true },
     });
     const viewers = await go2rtcViewers();
     const { equiposApagados } = await import("@/lib/apagado");
     const apagados = await equiposApagados();
-    return Promise.all(devices.filter((d) => !apagados.has(d.id)).map((d) => probe(d, viewers).catch((): HealthResult => ({
+    return Promise.all(devices.filter((d) => !apagados.has(d.id)).map((d) => (String(d.brand) === "DAHUA" ? probeDahua(d, viewers) : probe(d, viewers)).catch((): HealthResult => ({
         id: d.id, name: d.name, deviceType: d.deviceType, ip: d.ip, reachable: false,
         latencyMs: null, memPct: null, uptimeSec: null, driftSec: null, disksOk: null, viewers: 0, vcaMode: null,
     }))));

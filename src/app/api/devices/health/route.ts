@@ -109,17 +109,40 @@ async function probe(d: any, streams: Record<string, { consumers: number; produc
     return res;
 }
 
+/**
+ * Dahua (change nvr-dahua-wizsense): el NVR por RPC2 (lib/salud-dahua) y cada cámara colgada de él
+ * por el estado de su canal en ese NVR — las cámaras están en la LAN del cliente y no se les puede
+ * preguntar directo. Una sola consulta al NVR sirve para todas (se recuerda unos segundos).
+ */
+async function probeDahua(d: any, streams: Record<string, { consumers: number; producers: number; configured: boolean }>) {
+    const st = streams[`lpr_${d.id}`];
+    const base: any = { id: d.id, reachable: false, latencyMs: null, viewers: st?.consumers ?? 0, streamConfigured: !!st?.configured, streamProducers: st?.producers ?? 0 };
+    const { saludDahua } = await import("@/lib/salud-dahua");
+    if (d.deviceType === "NVR") {
+        const s = await saludDahua(d);
+        return { ...base, reachable: s.reachable, latencyMs: s.latencyMs, memPct: s.memPct, memUsedMB: s.memUsedMB, memTotalMB: s.memTotalMB, cpuPct: s.cpuPct, uptimeSec: s.uptimeSec ?? undefined, localTime: s.localTime, driftSec: s.driftSec, disks: s.disks ?? [] };
+    }
+    const { getChannelMap, resolveNvrById } = await import("@/lib/nvr-resolve");
+    const e = (await getChannelMap())[d.ip];
+    if (!e?.ch) return base;
+    const nvr = await resolveNvrById(e.nvrId);
+    if (!nvr) return base;
+    const s = await saludDahua({ ip: nvr.ip, username: nvr.user, password: nvr.pass });
+    const estado = s.canales?.[e.ch] || null;
+    return { ...base, reachable: s.reachable && estado === "Connected", latencyMs: s.latencyMs, viaNvr: true, estadoCanal: estado, localTime: s.localTime, driftSec: s.driftSec };
+}
+
 export async function GET() {
     try {
         const devices = await prisma.device.findMany({
-            where: { brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "NVR", "LPR_INTERIOR", "CAMERA"] as any } },
-            select: { id: true, ip: true, username: true, password: true, authType: true, deviceType: true },
+            where: { brand: { in: ["HIKVISION", "DAHUA"] as any }, deviceType: { in: ["LPR_CAMERA", "NVR", "LPR_INTERIOR", "CAMERA"] as any } },
+            select: { id: true, ip: true, username: true, password: true, authType: true, deviceType: true, brand: true },
         });
         const streams = await go2rtcStreams();
         // Un equipo de un área apagada no se consulta: se informa como apagado (lib/apagado).
         const { equiposApagados } = await import("@/lib/apagado");
         const apagados = await equiposApagados();
-        const results = await Promise.all(devices.map((d) => apagados.has(d.id) ? Promise.resolve({ id: d.id, reachable: null, apagado: true } as any) : probe(d, streams).catch(() => ({ id: d.id, reachable: false }))));
+        const results = await Promise.all(devices.map((d) => apagados.has(d.id) ? Promise.resolve({ id: d.id, reachable: null, apagado: true } as any) : (String(d.brand) === "DAHUA" ? probeDahua(d, streams) : probe(d, streams)).catch(() => ({ id: d.id, reachable: false }))));
         const map: Record<string, any> = {};
         for (const r of results) map[r.id] = r;
         return NextResponse.json({ ok: true, ts: Date.now(), devices: map });

@@ -14,7 +14,15 @@ const TIEMPO_MS = 5000;
 export async function saludNvr(d: { ip: string; username?: string | null; password?: string | null; authType?: string | null; brand?: string | null }): Promise<SaludNvr> {
     const dev: any = { ip: d.ip, username: d.username || "admin", password: d.password || "", authType: d.authType || "DIGEST" };
     const out: SaludNvr = { alcanzable: false, latenciaMs: null, uptimeSec: null, memoriaPct: null, discos: null };
-    if (String(d.brand || "").toUpperCase() === "DAHUA") return out; // por CGI: pendiente
+    if (String(d.brand || "").toUpperCase() === "DAHUA") {
+        // Dahua por RPC2 (lib/salud-dahua): CPU, memoria, hora, discos y estado de cada canal.
+        const { saludDahua } = await import("@/lib/salud-dahua");
+        const s = await saludDahua({ ip: d.ip, username: d.username, password: d.password });
+        return {
+            alcanzable: s.reachable, latenciaMs: s.latencyMs, uptimeSec: s.uptimeSec, memoriaPct: s.memPct,
+            discos: s.disks ? s.disks.map((x) => ({ nombre: x.name, estado: x.status, capacidadGB: x.capacityGB, usadoPct: x.usedPct, modelo: x.model })) : null,
+        };
+    }
     const t0 = Date.now();
     let st = "";
     try {
