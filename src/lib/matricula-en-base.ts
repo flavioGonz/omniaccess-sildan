@@ -82,7 +82,7 @@ export async function dondeEstanMatriculas(plates: string[], opts: { excluirUser
         out[w.p].push({
             donde: "vigilancia", titulo: c.nombre,
             detalle: [w.active ? "activa" : "dada de baja", w.motivo || w.label || null].filter(Boolean).join(" · "),
-            tono: w.active ? c.tono : "quieto", href: "/admin/users?tab=listanegra", categoria: w.category, activa: w.active,
+            tono: w.active ? c.tono : "quieto", href: w.category === "SEARCH" ? "/admin/users?tab=listaamarilla" : "/admin/users?tab=listanegra", categoria: w.category, activa: w.active,
         });
     }
     for (const g of invitados) {

@@ -195,7 +195,7 @@ export function WatchlistDialog({ onClose, plateInicial }: {
                         </ul>
                         <p className="mt-3 text-[11.5px] text-white/75 leading-snug">
                             Es la carga rápida del monitor. La ficha completa (nombre, foto, varias matrículas, dónde se la vio) está en{" "}
-                            <Link href="/admin/users?tab=listanegra" className="font-bold underline underline-offset-2 hover:text-white">Usuarios → Lista negra</Link>.
+                            <Link href={negra ? "/admin/users?tab=listanegra" : "/admin/users?tab=listaamarilla"} className="font-bold underline underline-offset-2 hover:text-white">Usuarios → {negra ? "Lista negra" : "Lista Amarilla"}</Link>.
                         </p>
                     </header>
 

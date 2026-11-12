@@ -18,7 +18,11 @@
  * Este archivo no habla con la base: lo usan la página, el monitor y las acciones por igual.
  */
 
-export type ClavePestania = "residentes" | "personal" | "proveedores" | "visitas" | "listanegra";
+export type ClavePestania = "residentes" | "personal" | "proveedores" | "visitas" | "listanegra" | "listaamarilla";
+
+/** Las dos pestañas que no son gente del padrón sino fichas de vigilancia. */
+export type PestaniaDeFichas = "listanegra" | "listaamarilla";
+export const esPestaniaDeFichas = (k: ClavePestania): k is PestaniaDeFichas => k === "listanegra" || k === "listaamarilla";
 
 export type Tono = "neutro" | "bien" | "aviso" | "mal" | "info" | "quieto";
 
@@ -47,7 +51,14 @@ export const PESTANIAS: Pestania[] = [
     { clave: "proveedores", columna: "Proveedor",  nuevo: "Nuevo proveedor",  titulo: "Proveedores", singular: "proveedor", plural: "proveedores", roles: ["PROVIDER"], rolNuevo: "PROVIDER", tono: "aviso" },
     { clave: "visitas", columna: "Visita",  nuevo: "Nueva visita",  titulo: "Visitas", singular: "visita", plural: "visitas", roles: ["VISITOR", "TEMPORARY_VISITOR"], rolNuevo: "VISITOR", tono: "quieto" },
     { clave: "listanegra", columna: "Quién",  nuevo: "Nueva ficha",  titulo: "Lista negra", singular: "ficha", plural: "fichas", roles: [], rolNuevo: null, tono: "mal" },
+    // La Lista Amarilla tiene su pestaña (12/11, Nico): era un «nivel» escondido adentro de la
+    // lista negra, detrás de un filtro, y un vehículo en seguimiento no es uno prohibido: se
+    // buscan por separado y se cargan por separado. Sólo existe con la función LPR_BUSQUEDA.
+    { clave: "listaamarilla", columna: "Quién",  nuevo: "Nueva ficha amarilla",  titulo: "Lista Amarilla", singular: "ficha", plural: "fichas", roles: [], rolNuevo: null, tono: "aviso" },
 ];
+
+/** El nivel de vigilancia que muestra cada pestaña de fichas. */
+export const NIVEL_DE_PESTANIA: Record<PestaniaDeFichas, "BLACKLISTED" | "SEARCH"> = { listanegra: "BLACKLISTED", listaamarilla: "SEARCH" };
 
 /** La pestaña de una persona según su rol. Un rol desconocido cae en Residentes, que es el defecto del alta. */
 export function pestaniaDeRol(rol: string | null | undefined): ClavePestania {
@@ -115,7 +126,8 @@ export function claseDeLectura(user: { role?: string | null; vip?: boolean | nul
     if (rol === "BLACKLISTED") return "alerta";
     if (user.vip || rol === "WHITELISTED") return "vip";
     const p = pestaniaDeRol(rol);
-    return p === "listanegra" ? "alerta" : p;
+    // Por rol nunca se cae en la amarilla (sus fichas no son usuarios); se nombra para cerrar el tipo.
+    return p === "listanegra" ? "alerta" : p === "listaamarilla" ? "busqueda" : p;
 }
 
 // ── Los interruptores ─────────────────────────────────────────────────────────────────────
@@ -167,7 +179,7 @@ export function normalizarComportamiento(x: unknown): Comportamiento {
  * Lo que pasa siempre, sin interruptor. Tiene que decir lo que el sistema hace: si cambia el
  * comportamiento, cambia el texto en el mismo commit.
  */
-export const LO_FIJO: Record<Exclude<ClavePestania, "listanegra">, { barrera: string; monitores: string }> = {
+export const LO_FIJO: Record<Exclude<ClavePestania, PestaniaDeFichas>, { barrera: string; monitores: string }> = {
     residentes: {
         barrera: "Pasa con su credencial (matrícula, tag, PIN o rostro), según sus grupos y horarios.",
         monitores: "En Control LPR se ve con su nombre y su lote.",

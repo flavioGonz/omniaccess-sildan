@@ -18,7 +18,7 @@ import { getDevices, getLprSyncMap } from "@/app/actions/devices";
 import { UserRole } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Users, Plus, Camera, Home, Briefcase, Truck, DoorOpen, Ban } from "lucide-react";
+import { Users, Plus, Camera, Home, Briefcase, Truck, DoorOpen, Ban, Search } from "lucide-react";
 import { CajonUsuario } from "@/components/users/CajonUsuario";
 import { CajonListaNegra } from "@/components/users/CajonListaNegra";
 import { TablaListaNegra } from "@/components/users/TablaListaNegra";
@@ -31,8 +31,8 @@ import { cn } from "@/lib/utils";
 import { TablaUsuarios } from "@/components/users/TablaUsuarios";
 import { Filtros } from "@/components/ui/filtros";
 import {
-    PESTANIAS, pestaniaDeRol, normalizarComportamiento, COMPORTAMIENTO_DEFECTO, SIN_IDENTIFICAR,
-    type ClavePestania, type ClaveComportamiento, type Comportamiento, type Interruptores,
+    PESTANIAS, pestaniaDeRol, normalizarComportamiento, COMPORTAMIENTO_DEFECTO, SIN_IDENTIFICAR, esPestaniaDeFichas, NIVEL_DE_PESTANIA,
+    type NivelListaNegra, type ClavePestania, type ClaveComportamiento, type Comportamiento, type Interruptores,
 } from "@/lib/padron";
 
 interface UserWithRelations {
@@ -71,7 +71,7 @@ const PAGINA = 40;
 /** El ícono de cada pestaña: se reconoce de un vistazo antes de leer. La lista negra lleva el de
  *  prohibido, el mismo que la alerta máxima en la tabla y en el cajón. */
 const ICONO_PESTANIA: Record<ClavePestania, React.ComponentType<{ size?: number; className?: string }>> = {
-    residentes: Home, personal: Briefcase, proveedores: Truck, visitas: DoorOpen, listanegra: Ban,
+    residentes: Home, personal: Briefcase, proveedores: Truck, visitas: DoorOpen, listanegra: Ban, listaamarilla: Search,
 };
 
 const TAB_DE_URL = (v: string | null): ClavePestania | null => {
@@ -102,12 +102,13 @@ export default function UsersPage() {
     // Sin «Lista Amarilla» (función de LPR, apagada en San Nicolás): la pestaña es sólo lista negra.
     const busquedaOn = useFuncion("LPR_BUSQUEDA");
     const fichasLN = useMemo(() => (busquedaOn ? fichas : fichas.filter((f) => f.nivel !== "SEARCH")), [fichas, busquedaOn]);
+    // La Lista Amarilla es una pestaña sólo con su función prendida; sin ella, ni se ofrece.
+    const pestanias = useMemo(() => PESTANIAS.filter((p) => p.clave !== "listaamarilla" || busquedaOn), [busquedaOn]);
     const [cargandoFichas, setCargandoFichas] = useState(true);
     const [errorFichas, setErrorFichas] = useState<string | null>(null);
     const [fichaAbierta, setFichaAbierta] = useState<FichaListaNegra | null>(null);
-    const [altaFicha, setAltaFicha] = useState<{ plate?: string } | null>(null);
+    const [altaFicha, setAltaFicha] = useState<{ plate?: string; nivel?: NivelListaNegra } | null>(null);
     const [filtroEstado, setFiltroEstado] = useState("activas");
-    const [filtroNivel, setFiltroNivel] = useState("todos");
 
     // Cómo se comporta cada pestaña
     const [comportamiento, setComportamiento] = useState<Comportamiento>(normalizarComportamiento(COMPORTAMIENTO_DEFECTO));
@@ -132,10 +133,10 @@ export default function UsersPage() {
             setSelectedUser(null);
             setIsFormOpen(true);
             router.replace("/admin/users", { scroll: false });
-        } else if (action === "listanegra") {
-            setPestania("listanegra");
-            setAltaFicha({ plate: plateQ ? decodeURIComponent(plateQ).toUpperCase() : undefined });
-            router.replace("/admin/users?tab=listanegra", { scroll: false });
+        } else if (action === "listanegra" || action === "listaamarilla") {
+            setPestania(action);
+            setAltaFicha({ plate: plateQ ? decodeURIComponent(plateQ).toUpperCase() : undefined, nivel: NIVEL_DE_PESTANIA[action] });
+            router.replace(`/admin/users?tab=${action}`, { scroll: false });
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
@@ -198,12 +199,15 @@ export default function UsersPage() {
     };
 
     const tab = PESTANIAS.find((p) => p.clave === pestania)!;
+    // Con la función apagada no hay pestaña amarilla: quien llegó por un enlace viejo cae en la negra.
+    useEffect(() => { if (busquedaOn === false && pestania === "listaamarilla") setPestania("listanegra"); }, [busquedaOn, pestania]);
 
     /** Cuántos hay en cada pestaña, para el número de la pestaña. */
     const cuentas = useMemo(() => {
-        const c: Record<ClavePestania, number> = { residentes: 0, personal: 0, proveedores: 0, visitas: 0, listanegra: 0 };
-        for (const u of users) { const k = pestaniaDeRol(u.role); if (k !== "listanegra") c[k]++; }
-        c.listanegra = fichasLN.filter((f) => f.activa).length;
+        const c: Record<ClavePestania, number> = { residentes: 0, personal: 0, proveedores: 0, visitas: 0, listanegra: 0, listaamarilla: 0 };
+        for (const u of users) { const k = pestaniaDeRol(u.role); if (!esPestaniaDeFichas(k)) c[k]++; }
+        // Cada lista cuenta lo suyo: la negra, la alerta máxima; la amarilla, lo que está en seguimiento.
+        for (const f of fichasLN) if (f.activa) c[f.nivel === "SEARCH" ? "listaamarilla" : "listanegra"]++;
         return c;
     }, [users, fichasLN]);
 
@@ -221,12 +225,14 @@ export default function UsersPage() {
 
     const fichasVisibles = useMemo(() => {
         const q = searchQuery.trim().toUpperCase();
+        // El nivel lo decide la pestaña (antes era un filtro adentro de la lista negra).
+        const nivel = esPestaniaDeFichas(pestania) ? NIVEL_DE_PESTANIA[pestania] : null;
         return fichasLN.filter((f) =>
             (filtroEstado === "todas" || (filtroEstado === "activas" ? f.activa : !f.activa)) &&
-            (filtroNivel === "todos" || f.nivel === filtroNivel) &&
+            (!nivel || f.nivel === nivel) &&
             (!q || (f.nombre || SIN_IDENTIFICAR).toUpperCase().includes(q) || (f.motivo || "").toUpperCase().includes(q)
                 || f.matriculas.some((m) => m.includes(q.replace(/[^A-Z0-9]/g, ""))) || (f.cargo || "").toUpperCase().includes(q)));
-    }, [fichasLN, searchQuery, filtroEstado, filtroNivel]);
+    }, [fichasLN, searchQuery, filtroEstado, pestania]);
 
     const elegirPestania = (k: ClavePestania) => {
         setPestania(k);
@@ -234,7 +240,7 @@ export default function UsersPage() {
     };
 
     const nuevo = () => {
-        if (pestania === "listanegra") { setAltaFicha({}); return; }
+        if (esPestaniaDeFichas(pestania)) { setAltaFicha({ nivel: NIVEL_DE_PESTANIA[pestania] }); return; }
         setSelectedUser(null); setIsFormOpen(true);
     };
 
@@ -282,22 +288,27 @@ export default function UsersPage() {
                 {/* Las pestañas: una por clase. La pastilla es elección, el número cuántos hay. */}
                 <div className="px-8 pt-4 shrink-0 flex flex-col gap-3">
                     <div className="inline-flex self-start rounded-full border border-border bg-card p-0.5 flex-wrap">
-                        {PESTANIAS.map((p) => {
+                        {pestanias.map((p) => {
                             const Ic = ICONO_PESTANIA[p.clave];
                             const activa = pestania === p.clave;
                             // La lista negra se distingue de las demás aunque no esté elegida: fondo
                             // rojo suave siempre, rojo pleno cuando es la abierta. Es estado (mal),
                             // no acción, así que va con el tono y no con el azul.
+                            // La amarilla, igual pero en ámbar: es el mismo gesto con otro significado
+                            // (en seguimiento, no prohibido), y el color es lo que las separa de lejos.
                             const negra = p.clave === "listanegra";
+                            const amarilla = p.clave === "listaamarilla";
                             return (
                                 <button key={p.clave} type="button" onClick={() => elegirPestania(p.clave)} aria-pressed={activa}
                                     className={cn("h-8 px-3.5 rounded-full text-[12px] font-semibold inline-flex items-center gap-1.5 border border-transparent",
                                         negra ? (activa ? "pleno-mal" : "chip-mal ml-1 hover:brightness-110")
+                                            : amarilla ? (activa ? "pleno-aviso ml-1" : "chip-aviso ml-1 hover:brightness-110")
                                             : activa ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}>
                                     <Ic size={13} />
                                     {p.titulo}
                                     <span className={cn("tabular-nums text-[10px] px-1.5 py-0.5 rounded-md",
-                                        negra ? (activa ? "bg-white/20 text-white" : "pleno-mal") : "bg-muted text-muted-foreground")}>
+                                        negra ? (activa ? "bg-white/20 text-white" : "pleno-mal")
+                                            : amarilla ? (activa ? "bg-black/15" : "pleno-aviso") : "bg-muted text-muted-foreground")}>
                                         {cuentas[p.clave]}
                                     </span>
                                 </button>
@@ -309,10 +320,10 @@ export default function UsersPage() {
                 <main className="flex-1 overflow-hidden px-8 py-4 flex flex-col">
                     {/* «Cómo se comporta», en íconos a la derecha de los filtros (17/10, Nico): ni
                         franja arriba ni debajo de la tabla, que ocupaban un renglón entero. */}
-                    {pestania === "listanegra" ? (
+                    {esPestaniaDeFichas(pestania) ? (
                         <TablaListaNegra
                             fichas={fichasVisibles}
-                            conBusqueda={!!busquedaOn}
+                            conBusqueda={false}
                             cargando={cargandoFichas}
                             error={errorFichas}
                             alReintentar={cargarFichas}
@@ -322,7 +333,6 @@ export default function UsersPage() {
                                     busqueda={searchQuery} alBuscar={setSearchQuery}
                                     placeholder="Nombre, matrícula, motivo o quién cargó"
                                     grupos={[
-                                        ...(busquedaOn ? [{ clave: "nivel", titulo: "Nivel", valor: filtroNivel, alElegir: setFiltroNivel, opciones: [{ valor: "todos", rotulo: "Todos" }, { valor: "BLACKLISTED", rotulo: "Alerta máxima" }, { valor: "SEARCH", rotulo: "Lista Amarilla" }] }] : []),
                                         { clave: "estado", titulo: "Estado", valor: filtroEstado, alElegir: setFiltroEstado, opciones: [{ valor: "activas", rotulo: "Activas" }, { valor: "baja", rotulo: "Dadas de baja" }, { valor: "todas", rotulo: "Todas" }] },
                                     ]}
                                     acciones={comportaEnBarra}
@@ -368,6 +378,7 @@ export default function UsersPage() {
                 abierta={!!fichaAbierta || !!altaFicha}
                 ficha={fichaAbierta}
                 chapaInicial={altaFicha?.plate}
+                nivelInicial={altaFicha?.nivel}
                 alCerrar={() => { setFichaAbierta(null); setAltaFicha(null); }}
                 alCambiar={() => { cargarFichas(); loadData(); }}
                 alAbrirPersona={abrirPersona}

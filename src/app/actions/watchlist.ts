@@ -44,7 +44,13 @@ export type FilaVigilancia = {
  * negra» en el menú (16/10, Nico). Las de lista blanca no cuentan: no son una alerta.
  */
 export async function contarListaNegra(): Promise<number> {
-    try { return await prisma.plateWatch.count({ where: { active: true, category: { in: ["BLACKLISTED", "SEARCH"] } } }); } catch { return 0; }
+    // Sólo alerta máxima: la Lista Amarilla tiene su propia entrada y su propia cuenta.
+    try { return await prisma.plateWatch.count({ where: { active: true, category: "BLACKLISTED" } }); } catch { return 0; }
+}
+
+/** La insignia de «Lista Amarilla» en el menú: matrículas activas en seguimiento. */
+export async function contarListaAmarilla(): Promise<number> {
+    try { return await prisma.plateWatch.count({ where: { active: true, category: "SEARCH" } }); } catch { return 0; }
 }
 
 /** Toda la lista (activas e inactivas), con la persona vinculada, para la pestaña de Usuarios. */

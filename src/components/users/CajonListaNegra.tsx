@@ -47,7 +47,7 @@ const limpiar = (v: string) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/
 
 type Deteccion = DeteccionFicha & { plate: string };
 
-export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, motivoInicial, alCerrar, alCambiar, alAbrirPersona }: {
+export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, motivoInicial, nivelInicial, alCerrar, alCambiar, alAbrirPersona }: {
     abierta: boolean;
     /** Null = alta. */
     ficha: FichaListaNegra | null;
@@ -59,6 +59,8 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
      */
     fotoInicial?: File | null;
     motivoInicial?: string;
+    /** Alta desde la pestaña Lista Amarilla: nace en seguimiento, no en alerta máxima. */
+    nivelInicial?: NivelListaNegra;
     alCerrar: () => void;
     alCambiar: () => void;
     alAbrirPersona?: (userId: string) => void;
@@ -93,12 +95,12 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, mot
 
     useEffect(() => {
         if (!abierta) return;
-        setNombre(ficha?.nombre || ""); setNivel(ficha?.nivel || "BLACKLISTED"); setMotivo(ficha?.motivo || (!ficha && motivoInicial) || "");
+        setNombre(ficha?.nombre || ""); setNivel(ficha?.nivel || nivelInicial || "BLACKLISTED"); setMotivo(ficha?.motivo || (!ficha && motivoInicial) || "");
         const iniciales = ficha?.matriculas || (chapaInicial ? [limpiar(chapaInicial)].filter(Boolean) : []);
         setChapas(iniciales); setChapaNueva(""); setArchivo(!ficha ? fotoInicial || null : null); setAvisos(null);
         if (ficha) cargarDet(ficha.matriculas); else setDet(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [abierta, ficha?.clave, chapaInicial, fotoInicial]);
+    }, [abierta, ficha?.clave, chapaInicial, fotoInicial, nivelInicial]);
 
     const agregarChapa = () => {
         const p = limpiar(chapaNueva);
