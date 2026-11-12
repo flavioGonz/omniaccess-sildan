@@ -43,9 +43,13 @@ const diasEntre = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.pars
 function contextoDe(anteriores, ahora, zona = ZONA) {
     const t = ms(ahora);
     const lista = (anteriores || []).filter((l) => l && Number.isFinite(ms(l.ts)) && ms(l.ts) <= t);
-    const enVentana = lista.filter((l) => ms(l.ts) >= t - VENTANA_DIAS * DIA_MS);
+    // La semana son 7 días DE CALENDARIO del barrio (hoy y los seis anteriores), no 168 horas:
+    // con horas, un jueves a la tarde alcanzaba al jueves anterior y el aviso decía «en 7 días,
+    // en 8 días distintos» (visto en el lab el 12/11 con lecturas reales).
+    const hoy = diaEn(zona, t);
+    const enVentana = lista.filter((l) => diasEntre(diaEn(zona, l.ts), hoy) < VENTANA_DIAS);
     const dias = new Set(enVentana.map((l) => diaEn(zona, l.ts)));
-    dias.add(diaEn(zona, t));
+    dias.add(hoy);
     let ultima = null;
     for (const l of lista) if (!ultima || ms(l.ts) > ms(ultima.ts)) ultima = l;
     return {

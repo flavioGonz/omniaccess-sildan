@@ -68,3 +68,12 @@ test("una lectura con hora posterior al reloj se ignora (relojes de cámara adel
     const c = contextoDe([{ ts: mvd("2026-11-12T11:00"), camara: "A" }], ahora, Z);
     assert.equal(c.anterior, null);
 });
+
+test("la semana son 7 días de calendario: nunca «8 días distintos»", () => {
+    // Jueves 12/11 10:30. El jueves 5/11 a las 18:00 está a menos de 168 h, pero es el octavo día.
+    const antes = ["2026-11-05T18:00", "2026-11-06T09:00", "2026-11-07T09:00", "2026-11-08T09:00", "2026-11-09T09:00", "2026-11-10T09:00", "2026-11-11T09:00"]
+        .map((d) => ({ ts: mvd(d), camara: "A" }));
+    const c = contextoDe(antes, ahora, Z);
+    assert.equal(c.dias7, 7);
+    assert.equal(c.lecturas7, 7); // seis anteriores dentro de la semana + la de ahora
+});
