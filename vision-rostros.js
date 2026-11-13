@@ -27,6 +27,8 @@ const HD_CADA_MS = 3000;
 const MARGEN_PERSONA = 0.35;
 /** Cuánto aire se deja alrededor de la cara en el recorte que se guarda y se enrola. */
 const MARGEN_CARA = 0.3;
+/** Cuánto aire por lado (en caras) lleva el recorte con que se reintenta enrolar cuando el justo no alcanzó. */
+const AIRE_REINTENTO = 1;
 /** Lado máximo del recorte de cara que se guarda para mostrar. */
 const LADO_CARA = 320;
 /** Ancho máximo de la escena que se guarda del stream principal (<id>-e.jpg): la foto grande del monitor facial. */
@@ -37,7 +39,7 @@ const MOTOR_MS = 12_000;
 const LOTE = 200;
 
 function crear({ prisma, log, bajar, subir, borrar, emitir, sharp, go2rtc }) {
-    const contadores = { miradas: 0, sinRostro: 0, sinCalidad: 0, nuevas: 0, sumadas: 0, padron: 0, conHd: 0, errores: 0, ultimoError: null };
+    const contadores = { miradas: 0, sinRostro: 0, sinCalidad: 0, nuevas: 0, sumadas: 0, padron: 0, conHd: 0, conAire: 0, errores: 0, ultimoError: null };
     const falla = (e) => { contadores.errores++; contadores.ultimoError = String(e?.message || e).slice(0, 200); };
 
     /** ¿Esta pista es de una persona en una cámara donde se miran caras? */
@@ -106,7 +108,13 @@ function crear({ prisma, log, bajar, subir, borrar, emitir, sharp, go2rtc }) {
         const height = Math.max(1, Math.min(H - top, Math.ceil(bh * (1 + 2 * MARGEN_CARA))));
         const nativa = await sharp(jpeg).extract({ left, top, width, height }).jpeg({ quality: 92 }).toBuffer();
         const chica = await sharp(nativa).resize(LADO_CARA, LADO_CARA, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
-        return { nativa, chica };
+        // La misma cara con más aire (AIRE_REINTENTO por lado), para cuando el motor no la encuentra en el recorte justo. Se arma sólo si hace falta.
+        const amplia = () => {
+            const l = Math.max(0, Math.floor(caja.x_min - bw * AIRE_REINTENTO)), t = Math.max(0, Math.floor(caja.y_min - bh * AIRE_REINTENTO));
+            const w = Math.max(1, Math.min(W - l, Math.ceil(bw * (1 + 2 * AIRE_REINTENTO)))), h = Math.max(1, Math.min(H - t, Math.ceil(bh * (1 + 2 * AIRE_REINTENTO))));
+            return sharp(jpeg).extract({ left: l, top: t, width: w, height: h }).jpeg({ quality: 92 }).toBuffer();
+        };
+        return { nativa, chica, amplia };
     }
 
     const enrolar = (ajustes, sujeto, jpeg) => motor(ajustes, `/api/v1/recognition/faces?subject=${encodeURIComponent(sujeto)}&det_prob_threshold=0.5`, { jpeg });
@@ -134,7 +142,14 @@ function crear({ prisma, log, bajar, subir, borrar, emitir, sharp, go2rtc }) {
     async function fundar(ajustes, cara, recortes, cuando, camara, d) {
         const id = "r" + crypto.randomBytes(12).toString("hex");
         const sujeto = R.sujetoDe(id);
-        const r = await enrolar(ajustes, sujeto, recortes.nativa);
+        let r = await enrolar(ajustes, sujeto, recortes.nativa);
+        /*
+         * Al enrolar, el motor tiene que volver a encontrar la cara en el recorte que se le da, y
+         * con el 30 % de aire a veces no la ve aunque la acabe de detectar en el cuadro. Medido el
+         * 13/11: una cara de 119 px del portero quedó «sin identidad: el motor no la tomó como
+         * cara» por esto, y con una cara entera de aire por lado se enroló. Se le da otra vez así.
+         */
+        if (!r.ok && recortes.amplia) { r = await enrolar(ajustes, sujeto, await recortes.amplia()); if (r.ok) contadores.conAire++; }
         if (!r.ok) return null;
         await subir(claveFoto(id), recortes.chica);
         // La sugerencia de unir apunta a un Rostro: si el parecido era con alguien del padrón, al suyo.

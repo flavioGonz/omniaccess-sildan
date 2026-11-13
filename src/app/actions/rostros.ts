@@ -567,13 +567,16 @@ export async function usoCamarasRostros(): Promise<UsoCamaraRostros[]> {
         where: { accessType: "FACE", details: { contains: "Source: OmniVision" }, timestamp: { gte: new Date(Date.now() - USO_CAMARAS_DIAS * 86_400_000) } },
         select: { deviceId: true, details: true }, orderBy: { timestamp: "desc" }, take: 5000,
     }).catch(() => []);
-    const por = new Map<string, { n: number; con: number; px: number[] }>();
+    const por = new Map<string, { n: number; con: number; chicas: number; px: number[] }>();
     for (const e of evs) {
         if (!e.deviceId) continue;
         const d = leerDetalleRostro(e.details);
-        const c = por.get(e.deviceId) || { n: 0, con: 0, px: [] };
-        c.n++; if (d.identidad && d.identidad !== "sin-cara") c.con++; if (d.caraPx != null) c.px.push(d.caraPx);
+        // Las pasadas de antes del 13/11 no dicen qué se decidió ni cuánto medía la cara: contarlas daría «40 caras, ninguna alcanzó» de una cámara de la que no se sabe nada.
+        if (!d.identidad) continue;
+        const c = por.get(e.deviceId) || { n: 0, con: 0, chicas: 0, px: [] };
+        c.n++; if (d.identidad !== "sin-cara") c.con++; else if (/chica/.test(d.sinIdentidad || "")) c.chicas++;
+        if (d.caraPx != null) c.px.push(d.caraPx);
         por.set(e.deviceId, c);
     }
-    return [...por.entries()].map(([deviceId, c]) => { const o = c.px.sort((a, b) => a - b); return { deviceId, pasadas: c.n, conIdentidad: c.con, pxMediana: o.length ? o[Math.floor(o.length / 2)] : null }; });
+    return [...por.entries()].map(([deviceId, c]) => { const o = c.px.sort((a, b) => a - b); return { deviceId, pasadas: c.n, conIdentidad: c.con, chicas: c.chicas, pxMediana: o.length ? o[Math.floor(o.length / 2)] : null }; });
 }

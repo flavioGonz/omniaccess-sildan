@@ -106,7 +106,9 @@ export const pisoManual = (pxMin: number) => Math.round(pxMin * PISO_MANUAL_PART
 /* ── Qué da cada cámara ─────────────────────────────────────────────────────────── */
 
 /** Lo que dio una cámara al modo face en los últimos días: cuántas caras vio, de qué tamaño y cuántas alcanzaron. */
-export type UsoCamaraRostros = { deviceId: string; pasadas: number; conIdentidad: number; pxMediana: number | null };
+export type UsoCamaraRostros = { deviceId: string; pasadas: number; conIdentidad: number; pxMediana: number | null;
+    /** De las que quedaron sin identidad, cuántas fue por el tamaño de la cara (y no porque el motor dudó). */
+    chicas: number };
 /** Cuántos días para atrás se mira lo que dio cada cámara. */
 export const USO_CAMARAS_DIAS = 7;
 /** De cuántas caras para arriba se opina de una cámara (con dos caras no hay nada que decir). */
@@ -116,7 +118,8 @@ export function veredictoCamara(u: UsoCamaraRostros | undefined, pxMin: number):
     if (!u || !u.pasadas) return null;
     const base = `${u.pasadas === 1 ? "1 cara" : `${u.pasadas} caras`}${u.pxMediana != null ? ` · mediana ${u.pxMediana} px` : ""}`;
     if (u.pasadas < USO_CAMARAS_MINIMO) return { tono: "quieto", texto: base };
-    if (u.conIdentidad === 0) return { tono: "aviso", texto: `${base} · ninguna alcanzó los ${pxMin} px` };
+    // Sólo se avisa cuando el problema es el TAMAÑO: es lo que se arregla apagando la cámara o acercándola.
+    if (u.conIdentidad === 0) return u.chicas * 2 > u.pasadas ? { tono: "aviso", texto: `${base} · ninguna alcanzó los ${pxMin} px` } : { tono: "quieto", texto: `${base} · ninguna con identidad` };
     return { tono: u.conIdentidad * 2 >= u.pasadas ? "bien" : "quieto", texto: `${base} · ${u.conIdentidad} con identidad` };
 }
 

@@ -123,9 +123,11 @@ test("a mano se puede agregar hasta la mitad del mínimo; más chica, no", () =>
 
 test("de una cámara se opina con datos: si ninguna cara alcanzó, se avisa; con pocas, sólo se cuenta", () => {
     // Lo que dio una cámara de escena del lab el 13/11: nueve caras de 16 a 19 px, ninguna con identidad.
-    assert.deepEqual(veredictoCamara({ deviceId: "a", pasadas: 9, conIdentidad: 0, pxMediana: 17 }, 80), { tono: "aviso", texto: "9 caras · mediana 17 px · ninguna alcanzó los 80 px" });
-    assert.deepEqual(veredictoCamara({ deviceId: "b", pasadas: 12, conIdentidad: 9, pxMediana: 131 }, 80), { tono: "bien", texto: "12 caras · mediana 131 px · 9 con identidad" });
-    assert.equal(veredictoCamara({ deviceId: "c", pasadas: 2, conIdentidad: 0, pxMediana: 30 }, 80)?.tono, "quieto", "con dos caras no se opina");
+    assert.deepEqual(veredictoCamara({ deviceId: "a", pasadas: 9, conIdentidad: 0, chicas: 9, pxMediana: 17 }, 80), { tono: "aviso", texto: "9 caras · mediana 17 px · ninguna alcanzó los 80 px" });
+    assert.deepEqual(veredictoCamara({ deviceId: "b", pasadas: 12, conIdentidad: 9, chicas: 3, pxMediana: 131 }, 80), { tono: "bien", texto: "12 caras · mediana 131 px · 9 con identidad" });
+    assert.equal(veredictoCamara({ deviceId: "c", pasadas: 2, conIdentidad: 0, chicas: 2, pxMediana: 30 }, 80)?.tono, "quieto", "con dos caras no se opina");
     assert.equal(veredictoCamara(undefined, 80), null);
-    assert.equal(veredictoCamara({ deviceId: "d", pasadas: 0, conIdentidad: 0, pxMediana: null }, 80), null);
+    assert.equal(veredictoCamara({ deviceId: "d", pasadas: 0, conIdentidad: 0, chicas: 0, pxMediana: null }, 80), null);
+    // Caras grandes que igual quedaron sin identidad (el motor dudó): no es un problema de tamaño, no se avisa «no alcanzó».
+    assert.deepEqual(veredictoCamara({ deviceId: "e", pasadas: 6, conIdentidad: 0, chicas: 1, pxMediana: 119 }, 80), { tono: "quieto", texto: "6 caras · mediana 119 px · ninguna con identidad" });
 });
