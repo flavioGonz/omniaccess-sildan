@@ -368,7 +368,8 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
     const ring = sentido === "EXIT" ? "border-orange-400 shadow-[0_0_24px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.7)]";
     return (
         <div>
-            <div className={cn("relative w-full rounded-xl overflow-hidden vid-surface border transition-all duration-300", className || "aspect-video", flash ? ring : "border-border")}>
+            {/* `@container`: lo de adentro se acomoda al ancho de ESTA tarjeta (la columna), no al de la pantalla. */}
+            <div className={cn("@container relative w-full rounded-xl overflow-hidden vid-surface border transition-all duration-300", className || "aspect-video", flash ? ring : "border-border")}>
                 <SmartThumb src={img} w={960} className="absolute inset-0 w-full h-full" />
                 {flash && <div className="iris-shot" />}
                 <div className="absolute top-3 left-3 z-10 flex flex-col items-start gap-1.5">
@@ -382,48 +383,36 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     {watch?.contexto?.frase && <span className="max-w-[72%] text-[11px] font-semibold px-2 py-1 rounded-lg shadow-sm backdrop-blur-md leading-snug bg-black/60 text-white">{watch.contexto.frase}</span>}
                 </div>
                 <div className="absolute top-3 right-3 z-10"><span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider text-white shadow-lg ring-1 backdrop-blur-md", ok ? "bg-emerald-600/90 ring-emerald-300/30" : "bg-red-600/90 ring-red-300/30")}>{ok ? <CheckCircle2 size={13} /> : <Ban size={13} />}{ok ? "Permitido" : "Denegado"}</span></div>
-                {/* El contador de captura: abajo a la derecha, destacado — lo primero que el guardia mira para
-                    saber cuán fresca es la captura. «Hace 30s» dicho en grande. */}
-                <div className="absolute bottom-3 right-3 z-20 pointer-events-none">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/60 ring-1 ring-white/15 text-white shadow-lg backdrop-blur-md">
-                        <Clock size={13} className="text-white/70 shrink-0" />
-                        <span className="text-[13px] font-bold tabular-nums tracking-tight"><TimeAgo timestamp={ev.timestamp} /></span>
-                    </span>
-                </div>
-                {/* Columna derecha bajo el badge: el recorte de la patente y, debajo, CÓMO se leyó
-                    (ANPR de la cámara o RTSP Detect del contenedor). El método va pegado al recorte —
-                    es el dato de calidad de esa lectura— y no mezclado con cámara/tipo a la izquierda. */}
-                {(crop || rotuloLectura(ev.details)) && (
-                    <div className="absolute top-12 right-3 z-20 flex flex-col items-end gap-1.5 w-[26%] max-w-40">
+                {/* Columna derecha bajo el badge: el recorte de la patente. CÓMO se leyó (ANPR de la cámara
+                    o RTSP Detect del contenedor) va abajo, pegado a la matrícula leída: es el dato de
+                    calidad de esa lectura (13/11: debajo del recorte llegaba hasta la franja de abajo). */}
+                {crop && (
+                    // En una tarjeta angosta (menos de 440 px) no entra sin pisar la matrícula leída: no se muestra.
+                    <div className="absolute top-12 right-3 z-20 hidden @[440px]:flex flex-col items-end gap-1.5 w-[26%] max-w-40">
                         {crop && (
                             /* Proporcional al recuadro: con 160 px fijos, en una pantalla de 1366 el recorte
                                de la patente tapaba la matrícula leída, que es lo que se vino a ver. */
                             <div className="w-full rounded-lg overflow-hidden border-2 border-white/70 shadow-lg bg-black/50">
                                 <div className="px-1.5 py-0.5 bg-black/70 text-[8px] font-bold text-white/90 uppercase tracking-wide">Patente</div>
-                                <ThumbImg src={crop} className="w-full h-auto object-contain bg-black" />
+                                {/* Con tope de alto: un recorte casi cuadrado bajaba hasta la franja de abajo y pisaba la matrícula. */}
+                                <ThumbImg src={crop} className="w-full h-auto max-h-16 @[520px]:max-h-24 object-contain bg-black" />
                             </div>
                         )}
-                        {rotuloLectura(ev.details) && <span className="inline-flex items-center px-2 py-1 rounded-lg bg-black/60 ring-1 ring-white/15 text-[10px] font-semibold tabular-nums text-white/85 backdrop-blur-md shadow-sm whitespace-nowrap">{rotuloLectura(ev.details)}</span>}
                     </div>
                 )}
-                {/* Registrado: el Lote y el nombre, grandes y centrados sobre la foto. Para el guardia,
-                    cuando el auto es de alguien conocido, lo que importa es QUIÉN es —no la chapa—, así
-                    que su identidad manda en el centro. Sólo con lectura buena y usuario reconocido. */}
-                {!anomalous && ev.user?.name && (
-                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 z-[15] flex justify-center px-4 pointer-events-none">
-                        {/* Ancho acotado y el nombre que ENVUELVE (no se corta): antes a 38px en una sola
-                            línea se cortaba («Valentina Góm…») y la tarjeta tapaba la patente. */}
-                        <div className="flex flex-col items-center gap-1.5 px-5 py-3 rounded-2xl bg-black/55 ring-1 ring-white/15 shadow-xl backdrop-blur-md text-center max-w-[80%]">
-                            {tipo && <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-[0.12em] px-2 py-0.5 rounded-full shadow-sm", tipo.badge)}>{tipo.label}</span>}
-                            <div className="font-bold text-white leading-[1.08] drop-shadow break-words [overflow-wrap:anywhere] text-[clamp(17px,2vw,30px)]">{ev.user.name}</div>
-                            {ev.user?.unit?.name && <div className={cn("inline-flex items-center gap-1.5 text-[clamp(13px,1.4vw,20px)] font-black uppercase tracking-wide leading-none", tipo?.key === "blanca" ? "text-amber-300" : "text-[var(--accion-en-oscuro)]")}><Home size={16} className="shrink-0" />Lote {ev.user.unit.name}</div>}
-                        </div>
-                    </div>
-                )}
-                {/* El logo de la empresa (delivery, taxi) incrustado en la foto: abajo a la izquierda,
-                    donde no tapa ni la patente ni la matrícula leída. */}
-                {empresa && <div className="absolute left-3 bottom-3 z-20"><LogoSobreFoto empresa={empresa} className="h-[clamp(20px,2.6vw,40px)] max-w-[9vw]" /></div>}
-                <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-3 pt-14 flex flex-col items-center">
+                {/*
+                  * La franja de abajo: quién es, la matrícula, las acciones y hace cuánto. Todo en UNA
+                  * grilla, sin nada flotando por su cuenta (13/11, Nico, con un residente en pantalla:
+                  * «mirá cómo se ven las capturas… está todo desfasado»). Antes eran cinco capas sueltas
+                  * —la tarjeta del nombre en el centro, la matrícula abajo, el recorte a la derecha, el
+                  * reloj en una esquina, el logo en otra— y en una columna angosta se pisaban: el nombre
+                  * tapaba la matrícula y el medio de la foto, que es justo donde está el auto.
+                  *
+                  * Ahora el medio de la foto queda libre. Con alguien conocido, su nombre y su lote van
+                  * abajo a la izquierda y la matrícula a la derecha; sin nadie conocido, la matrícula sola
+                  * al centro. Debajo, una fila con las acciones y el tiempo.
+                  */}
+                <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/70 to-transparent px-3.5 pb-3 pt-16">
                     {anomalous ? (
                         <div className="flex flex-col items-center gap-2">
                             {/* La cámara no leyó: la chapa la leyó OmniVision (doble verificación) y va donde
@@ -441,26 +430,54 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                             )}
                             {/* De quién es la chapa sugerida y si está en una lista: es lo que cambia lo que hace el guardia. */}
                             <SugerenciaRelectura r={relHero} sobreFoto soloContexto />
-                            {ev.id && <PlateManualButton eventId={ev.id} currentPlate={plate} sugerida={relHero?.plate ? { plate: relHero.plate, confianza: relHero.confianza } : null} onSaved={() => router.refresh()} label className="!bg-white/15 hover:!bg-white/25 !text-amber-200 uppercase tracking-wide backdrop-blur" />}
+                            {(marca || ev.user?.name || rotuloLectura(ev.details)) && (
+                                <div className="text-[11px] text-white/80 flex items-center gap-2">
+                                    {rotuloLectura(ev.details) && <span className="tabular-nums text-white/70">{rotuloLectura(ev.details)}</span>}
+                                    {marca && <span className="font-semibold">{marca}</span>}
+                                    {ev.user?.name && <span className="text-white/90">{ev.user.name}{ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
+                                </div>
+                            )}
                         </div>
                     ) : (
-                        <div className="flex flex-col items-center gap-1">
-                            <div className="inline-block px-4 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm"><span className="font-mono text-[clamp(18px,1.9vw,30px)] font-bold tracking-[0.2em] text-white drop-shadow">{plate}</span></div>
-                            <MarcaVerificacion plate={plate} r={relHero} oscuro tamano="md" onCorregir={ev.id && !ev.sinEvento ? (omni) => setCorregirOmni(omni) : undefined} />
+                        <div className={cn("flex items-end gap-3", !ev.user?.name && "justify-center")}>
+                            {/* Quién es: lo que importa cuando el auto es de alguien conocido. Hasta dos renglones; el resto se corta. */}
+                            {ev.user?.name && (
+                                <div className="min-w-0 flex-1 text-left">
+                                    {empresa && <LogoSobreFoto empresa={empresa} className="h-[clamp(18px,2vw,30px)] max-w-[40%] mb-1.5" />}
+                                    <div className="font-bold text-white leading-[1.1] drop-shadow text-[clamp(16px,1.7vw,26px)] line-clamp-2 [overflow-wrap:anywhere]">{ev.user.name}</div>
+                                    <div className="mt-1 flex items-center gap-x-2.5 gap-y-0.5 flex-wrap text-[clamp(11px,1vw,14px)] leading-tight">
+                                        {ev.user?.unit?.name && <span className={cn("inline-flex items-center gap-1 font-black uppercase tracking-wide whitespace-nowrap", tipo?.key === "blanca" ? "text-amber-300" : "text-[var(--accion-en-oscuro)]")}><Home size={13} className="shrink-0" />Lote {ev.user.unit.name}</span>}
+                                        {marca && <span className="font-semibold text-white/75 truncate">{marca}</span>}
+                                    </div>
+                                </div>
+                            )}
+                            {/* La matrícula leída y si OmniVision la confirmó. */}
+                            <div className={cn("shrink-0 flex flex-col gap-1", ev.user?.name ? "items-end" : "items-center")}>
+                                {!ev.user?.name && empresa && <LogoSobreFoto empresa={empresa} className="h-[clamp(18px,2vw,30px)] max-w-[9vw]" />}
+                                <div className="inline-block px-3.5 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm"><span className="font-mono text-[clamp(17px,1.8vw,28px)] font-bold tracking-[0.18em] text-white drop-shadow whitespace-nowrap">{plate}</span></div>
+                                <span className="flex items-center gap-2 flex-wrap justify-end">
+                                    <MarcaVerificacion plate={plate} r={relHero} oscuro tamano="md" onCorregir={ev.id && !ev.sinEvento ? (omni) => setCorregirOmni(omni) : undefined} />
+                                    {rotuloLectura(ev.details) && <span className="text-[10.5px] font-semibold tabular-nums text-white/70 whitespace-nowrap">{rotuloLectura(ev.details)}</span>}
+                                </span>
+                                {!ev.user?.name && marca && <span className="text-[11px] font-semibold text-white/80">{marca}</span>}
+                            </div>
                         </div>
                     )}
-                    <div className="mt-1.5 text-[11px] text-white/80 flex items-center gap-2">
-                        {marca && <span className="font-semibold">{marca}</span>}
-                        {/* El nombre ya va grande y centrado cuando es registrado; acá sólo en el caso raro anómalo. */}
-                        {ev.user?.name && anomalous && <span className="text-white/90">{ev.user.name}{ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
+                    {/* Las acciones a la izquierda y, a la derecha, cuán fresca es la captura. */}
+                    <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+                        {anomalous && ev.id && <PlateManualButton eventId={ev.id} currentPlate={plate} sugerida={relHero?.plate ? { plate: relHero.plate, confianza: relHero.confianza } : null} onSaved={() => router.refresh()} label className="!bg-white/15 hover:!bg-white/25 !text-amber-200 uppercase tracking-wide backdrop-blur" />}
+                        {plate && !anomalous && (
+                            <>
+                                <button onClick={(e) => { e.stopPropagation(); setInvestigar(plate); }} className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur transition-colors">Investigar</button>
+                                <MinInteriorButton plate={plate} label className="!bg-white/15 hover:!bg-white/25 !text-white uppercase tracking-wide backdrop-blur" />
+                                {!ok && <button onClick={(e) => { e.stopPropagation(); onRegister?.(plate); }} className="px-3 py-1 rounded-md bg-emerald-500/80 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wide transition-colors">Registrar</button>}
+                            </>
+                        )}
+                        <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/60 ring-1 ring-white/15 text-white backdrop-blur-md shrink-0">
+                            <Clock size={13} className="text-white/70 shrink-0" />
+                            <span className="text-[13px] font-bold tabular-nums tracking-tight"><TimeAgo timestamp={ev.timestamp} /></span>
+                        </span>
                     </div>
-                    {plate && !anomalous && (
-                        <div className="mt-2 flex gap-2">
-                            <button onClick={(e) => { e.stopPropagation(); setInvestigar(plate); }} className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur transition-colors">Investigar</button>
-                            <MinInteriorButton plate={plate} label className="!bg-white/15 hover:!bg-white/25 !text-white uppercase tracking-wide backdrop-blur" />
-                            {!ok && <button onClick={(e) => { e.stopPropagation(); onRegister?.(plate); }} className="px-3 py-1 rounded-md bg-emerald-500/80 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wide transition-colors">Registrar</button>}
-                        </div>
-                    )}
                 </div>
             </div>
             {corregirOmni && ev.id && (

@@ -17,6 +17,15 @@ import { resolverIcono } from "@/components/vision/iconos-clase";
  */
 const MISMO_OBJETO_IOU = 0.3;
 const SOLTAR_SIN_VER_MS = 4000;
+/**
+ * El foco (13/11, Nico, el mismo día: «cuando presiono clic sobre un vehículo deben desaparecer el
+ * resto de analíticas para poder apreciar bien; desaparecer solas y volver a las de toda la escena.
+ * Si podés, un efecto de oscuridad sobre todo menos el objeto presionado»). Con uno tocado se
+ * oscurece la escena menos su silueta y se dejan de dibujar los demás objetos, la línea y la zona.
+ * A los FOCO_MS vuelve sola a mostrar todo; tocar lo oscuro (o el mismo objeto) vuelve antes.
+ */
+const FOCO_MS = 8000;
+const FOCO_OSCURO = 0.62;
 type Caja = number[];
 function iou(a: Caja, b: Caja): number {
     const w = Math.min(a[2], b[2]) - Math.max(a[0], b[0]), h = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
@@ -102,7 +111,15 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
             if (c.some((v, k) => Math.abs(v - elegido[k]) > 0.002)) setElegido(c);
         } else if (Date.now() - visto.current > SOLTAR_SIN_VER_MS) setElegido(null);
     }, [elegido, iSel, objetos]);
-    const tocar = (i: number) => { visto.current = Date.now(); setElegido(i === iSel ? null : objetos[i].caja); };
+    // Cuándo se tocó: de ahí corre el tiempo del foco (no de `elegido`, que cambia en cada cuadro al seguir al objeto).
+    const [tocadoEn, setTocadoEn] = useState(0);
+    const tocar = (i: number) => { visto.current = Date.now(); setTocadoEn(Date.now()); setElegido(i === iSel ? null : objetos[i].caja); };
+    useEffect(() => {
+        if (!tocadoEn) return;
+        const t = setTimeout(() => setElegido(null), FOCO_MS);
+        return () => clearTimeout(t);
+    }, [tocadoEn]);
+    const foco = interactiva && iSel >= 0;
     if (!W || !H) return null;
     const lado = Math.min(W, H);
     // Cuerpo de los rótulos, en píxeles de la imagen: 2,6 % del lado corto. El piso de 11 px era
@@ -142,15 +159,15 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 {bandas.length > 0 && <clipPath id={`banda-${uid}`}>{bandas.map((b, i) => <polygon key={i} points={ptsPx(b)} />)}</clipPath>}
             </defs>
 
-            {/* La zona: rayada, con borde punteado. */}
-            {geom && geom.zona.length >= 3 && (
+            {/* La zona: rayada, con borde punteado. (Con un objeto en foco, la línea y la zona no se dibujan.) */}
+            {!foco && geom && geom.zona.length >= 3 && (
                 <g filter={`url(#sombra-${uid})`}>
                     <polygon points={pts(geom.zona, W, H)} fill={`url(#rayas-${uid})`} />
                     <polygon points={pts(geom.zona, W, H)} fill="none" stroke={COLOR_GEOM} strokeWidth={2} strokeDasharray="8 6" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
                 </g>
             )}
             {/* La línea: una cinta (halo ancho y suave, centro firme) con sus extremos marcados. */}
-            {geom && geom.linea.length >= 2 && (
+            {!foco && geom && geom.linea.length >= 2 && (
                 <g filter={`url(#sombra-${uid})`}>
                     <polyline points={pts(geom.linea, W, H)} fill="none" stroke={COLOR_GEOM} strokeOpacity="0.25" strokeWidth={10} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
                     <polyline points={pts(geom.linea, W, H)} fill="none" stroke={COLOR_GEOM} strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
@@ -161,28 +178,36 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
             )}
 
             {/* Las demás líneas y zonas prendidas de la cámara (hasta 4 de cada una): más sobrias que la primera. */}
-            {geom?.otras?.zonas.map((z, i) => <polygon key={`oz${i}`} points={pts(z, W, H)} fill="none" stroke={COLOR_GEOM} strokeWidth={2} strokeDasharray="8 6" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />)}
-            {geom?.otras?.lineas.map((l, i) => <polyline key={`ol${i}`} points={pts(l, W, H)} fill="none" stroke={COLOR_GEOM} strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />)}
+            {!foco && geom?.otras?.zonas.map((z, i) => <polygon key={`oz${i}`} points={pts(z, W, H)} fill="none" stroke={COLOR_GEOM} strokeWidth={2} strokeDasharray="8 6" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />)}
+            {!foco && geom?.otras?.lineas.map((l, i) => <polyline key={`ol${i}`} points={pts(l, W, H)} fill="none" stroke={COLOR_GEOM} strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />)}
+
+            {/* El foco: todo oscuro menos la silueta tocada (un rectángulo con su forma calada). Tocar lo oscuro lo suelta. */}
+            {foco && (
+                <path fillRule="evenodd" fill="#020617" fillOpacity={FOCO_OSCURO} style={{ pointerEvents: "auto" }} onClick={() => setElegido(null)}
+                    d={`M0,0H${W}V${H}H0Z ${poligonos(objetos[iSel]).map((p) => `M${p.map(([x, y]) => `${(x * W).toFixed(1)},${(y * H).toFixed(1)}`).join("L")}Z`).join(" ")}`}>
+                    <animate attributeName="fill-opacity" from="0" to={FOCO_OSCURO} dur="0.28s" fill="freeze" />
+                </path>
+            )}
 
             {/* Las siluetas: relleno en degradé y borde con brillo, del color de su grupo. */}
             {objetos.map((o, i) => {
                 const k = COLOR_GRUPO[o.grupo] ? o.grupo : "otro";
                 const c = COLOR_GRUPO[o.grupo] || COLOR_OTRO;
                 const sel = i === iSel;
+                // Con uno en foco, los demás no se dibujan; y el del foco va sin relleno: se lo quiere VER.
+                if (foco && !sel) return null;
                 return (
-                    <g key={i} onClick={interactiva ? () => tocar(i) : undefined} style={interactiva ? { pointerEvents: "auto", cursor: "pointer" } : undefined}>
+                    <g key={i} onClick={interactiva ? () => tocar(i) : undefined} style={interactiva ? { pointerEvents: "all", cursor: "pointer" } : undefined}>
                         {poligonos(o).map((p, j) => (
-                            <polygon key={j} points={pts(p, W, H)} fill={`url(#rel-${k}-${uid})`} stroke={c} strokeWidth={sel ? 3.5 : 2} vectorEffect="non-scaling-stroke"
+                            <polygon key={j} points={pts(p, W, H)} fill={sel ? "transparent" : `url(#rel-${k}-${uid})`} stroke={c} strokeWidth={sel ? 3 : 2} vectorEffect="non-scaling-stroke"
                                 strokeLinejoin="round" filter={`url(#brillo-${uid})`} />
                         ))}
-                        {/* El tocado se llena un poco más: se ve cuál es sin leer nada. */}
-                        {sel && poligonos(o).map((p, j) => <polygon key={`s${j}`} points={pts(p, W, H)} fill={c} fillOpacity={0.2} stroke="none" />)}
                     </g>
                 );
             })}
 
             {/* Sólo la parte que toca: la misma silueta, recortada por la zona y por la franja de la línea. */}
-            {hayGeom && objetos.map((o, i) => tocan[i] && (
+            {hayGeom && !foco && objetos.map((o, i) => tocan[i] && (
                 <g key={`t${i}`}>
                     {[geom!.zona.length >= 3 ? `zona-${uid}` : null, bandas.length ? `banda-${uid}` : null].filter(Boolean).map((clip) => (
                         <g key={clip} clipPath={`url(#${clip})`}>
@@ -196,7 +221,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
 
             {/* La chapa: recuadro sobre la chapa y, debajo (o arriba si no entra), la matrícula dibujada. */}
             {/* Una o varias: la releída de la foto, y en el vivo la de cada auto estacionado (su estadía abierta). */}
-            {[chapa, ...objetos.map((o) => o.chapa)].filter((c): c is ChapaEnFoto => !!c).map((chapa, k) => {
+            {(foco ? [objetos[iSel].chapa] : [chapa, ...objetos.map((o) => o.chapa)]).filter((c): c is ChapaEnFoto => !!c).map((chapa, k) => {
                 const [x1, y1, x2, y2] = chapa.caja;
                 const bx = x1 * W, by = y1 * H, bw = Math.max(2, (x2 - x1) * W), bh = Math.max(2, (y2 - y1) * H);
                 const f = fuente * 1.15, pw = Math.max(bw, chapa.plate.length * f * 0.72 + f * 1.2), ph = f * 2.05, franja = ph * 0.26;
@@ -223,7 +248,9 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 la foto y se leía como un rótulo de sistema, no como lo que vio el análisis.
                 Medidas en píxeles de la IMAGEN (f = cuerpo del título), así escalan con la foto. */}
             {etiquetas && (() => { const puestos: [number, number, number, number][] = []; return objetos.map((o, i) => {
-                const c = tocan[i] ? COLOR_TOCA : COLOR_GRUPO[o.grupo] || COLOR_OTRO;
+                // Con uno en foco, sólo su rótulo.
+                if (foco && i !== iSel) return null;
+                const c = tocan[i] && !foco ? COLOR_TOCA : COLOR_GRUPO[o.grupo] || COLOR_OTRO;
                 /*
                  * El ícono de una clase entrenada es el que se le eligió (12/11, Nico: «el ícono al
                  * lado del nombre»): viene con el objeto en el vivo, y si no, de la lista de clases.
@@ -293,8 +320,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const ix = dir === 1 ? tx : tx - icono;
                 const tituloX = dir === 1 ? tx + icono + hueco : tx - icono - hueco;
                 return (
-                    // Con uno tocado, los demás rótulos se apagan: se lee el que se eligió.
-                    <g key={`e${i}`} opacity={iSel >= 0 && !sel ? 0.4 : 1}>
+                    <g key={`e${i}`}>
                         <defs>
                             {/* La línea se apaga hacia la punta: termina en el texto, no en un tope. */}
                             <linearGradient id={`guia-${i}-${uid}`} gradientUnits="userSpaceOnUse" x1={ex} y1={ey} x2={fx} y2={ey}>

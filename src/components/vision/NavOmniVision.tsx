@@ -29,6 +29,9 @@ export const ANALITICAS_OMNIVISION: Seccion[] = [
     { href: "/admin/vision/filas", rotulo: "Filas", menu: "Conteo de filas", icono: ListOrdered },
     { href: "/admin/vision/calor", rotulo: "Mapa de calor", menu: "Mapa de calor", icono: Flame },
     { href: "/admin/vision/estacionamiento", rotulo: "Estacionamiento", menu: "Estacionamiento", icono: SquareParking },
+    // Face (13/11, Nico: «ahí en Analíticas debe figurar un elemento de Face»): las caras que vio el
+    // modo face, cada una con su número y sus visitas. Nació como pestaña aparte; es una analítica más.
+    { href: "/admin/vision/rostros", rotulo: "Face", menu: "Face: rostros y visitas", icono: ScanFace },
     { href: "/admin/vision/entrenar", rotulo: "Entrenables", menu: "Analíticas entrenables", icono: GraduationCap },
     // El que era «Laboratorio», una pestaña propia al final de la barra (21/10, Nico: «debe estar
     // en Analíticas»): probar el detector sobre una cámara y ver qué clases reconoce es parte de
@@ -41,8 +44,6 @@ export const SECCIONES_OMNIVISION: Seccion[] = [
     { href: "/admin/vision/reglas", rotulo: "Reglas", menu: "Reglas analíticas", icono: Spline },
     { href: "/admin/vision/detecciones", rotulo: "Detecciones", menu: "Detecciones", icono: ListVideo },
     { href: "/admin/vision/buscar", rotulo: "Buscar", menu: "Búsqueda de objetos", icono: ScanSearch },
-    // Las caras que vio el modo face, cada una con su número y sus visitas (13/11).
-    { href: "/admin/vision/rostros", rotulo: "Rostros", menu: "Rostros", icono: ScanFace },
     { href: "/admin/vision/relecturas", rotulo: "Relecturas", menu: "Relecturas", icono: ScanLine },
     { href: "/admin/vision/verificacion", rotulo: "Verificación", menu: "Doble verificación", icono: ShieldCheck },
 ];
