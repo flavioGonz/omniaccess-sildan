@@ -1,11 +1,29 @@
 "use client";
 
-import { useId, useMemo } from "react";
-import { Backpack, Bike, Bird, Briefcase, Bus, Car, Cat, Dog, Luggage, Motorbike, PawPrint, ScanEye, Truck, User, type LucideIcon, Boxes } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Backpack, Bike, Bird, Briefcase, Bus, Car, Cat, Clock, Dog, Luggage, Motorbike, PawPrint, ScanEye, Truck, User, type LucideIcon, Boxes } from "lucide-react";
+import { RelojRodante } from "@/components/tracking/MarcaEstadia";
 import { bandasLinea, poligonos, veredicto, type Analisis, type GeomNorm, type Pt } from "@/lib/vision-capa";
 import { iconoPropio, useNombresPropios } from "@/lib/nombres-propios";
 import { resolverIcono } from "@/components/vision/iconos-clase";
-import { textoEstadia } from "@/lib/vision-estadia";
+
+/**
+ * Tocar un objeto en el vivo (13/11, Nico: «el tiempo de permanencia sólo debe mostrarse al tocar
+ * el objeto sobre el video; si no, satura toda la escena… debe animarse el tiempo, ícono de reloj
+ * solo»). Con ocho autos estacionados, ocho «HACE 2 h 39» tapaban la calle.
+ *
+ * Los objetos llegan de nuevo varias veces por segundo y sin identidad: el elegido se recuerda por
+ * su LUGAR (su caja) y en cada cuadro es el que más se le superpone. Si deja de verse un rato, se suelta.
+ */
+const MISMO_OBJETO_IOU = 0.3;
+const SOLTAR_SIN_VER_MS = 4000;
+type Caja = number[];
+function iou(a: Caja, b: Caja): number {
+    const w = Math.min(a[2], b[2]) - Math.max(a[0], b[0]), h = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+    if (w <= 0 || h <= 0) return 0;
+    const i = w * h;
+    return i / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i);
+}
 
 /**
  * Lo que vio omni-vision, dibujado encima de la foto: las siluetas, la línea y la zona de la
@@ -46,7 +64,7 @@ export const ICONO_GRUPO: Record<string, LucideIcon> = { persona: User, vehiculo
 const pts = (p: Pt[], w: number, h: number) => p.map(([x, y]) => `${(x * w).toFixed(1)},${(y * h).toFixed(1)}`).join(" ");
 const ptsPx = (p: Pt[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 
-export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = true, atributos = false, chapa, className }: {
+export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = true, atributos = false, chapa, interactiva = false, className }: {
     analisis: Analisis;
     /** La chapa que leyó OmniVision, con su caja en la foto (relectura). */
     chapa?: ChapaEnFoto | null;
@@ -56,6 +74,8 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
     etiquetas?: boolean;
     /** Sumar al rótulo el color o la carrocería (lecturas LPR). */
     atributos?: boolean;
+    /** El vivo: las siluetas se pueden tocar, y la que se toca muestra cuánto lleva en su lugar. */
+    interactiva?: boolean;
     className?: string;
 }) {
     const uid = useId().replace(/:/g, "");
@@ -64,6 +84,25 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
     const { ancho: W, alto: H, objetos } = analisis;
     const { tocan } = useMemo(() => veredicto(analisis, geom || null), [analisis, geom]);
     const bandas = useMemo(() => (geom?.linea.length ? bandasLinea(geom.linea, W, H) : []), [geom, W, H]);
+    // El objeto tocado: su caja (se va corriendo con él) y la última vez que se lo vio.
+    const [elegido, setElegido] = useState<Caja | null>(null);
+    const visto = useRef(0);
+    const iSel = useMemo(() => {
+        if (!interactiva || !elegido) return -1;
+        let mejor = -1, m = MISMO_OBJETO_IOU;
+        objetos.forEach((o, i) => { const v = iou(elegido, o.caja); if (v >= m) { m = v; mejor = i; } });
+        return mejor;
+    }, [interactiva, elegido, objetos]);
+    useEffect(() => {
+        if (!elegido) return;
+        if (iSel >= 0) {
+            visto.current = Date.now();
+            // Se sigue al objeto: la próxima vez se lo busca donde está ahora.
+            const c = objetos[iSel].caja;
+            if (c.some((v, k) => Math.abs(v - elegido[k]) > 0.002)) setElegido(c);
+        } else if (Date.now() - visto.current > SOLTAR_SIN_VER_MS) setElegido(null);
+    }, [elegido, iSel, objetos]);
+    const tocar = (i: number) => { visto.current = Date.now(); setElegido(i === iSel ? null : objetos[i].caja); };
     if (!W || !H) return null;
     const lado = Math.min(W, H);
     // Cuerpo de los rótulos, en píxeles de la imagen: 2,6 % del lado corto. El piso de 11 px era
@@ -129,12 +168,15 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
             {objetos.map((o, i) => {
                 const k = COLOR_GRUPO[o.grupo] ? o.grupo : "otro";
                 const c = COLOR_GRUPO[o.grupo] || COLOR_OTRO;
+                const sel = i === iSel;
                 return (
-                    <g key={i}>
+                    <g key={i} onClick={interactiva ? () => tocar(i) : undefined} style={interactiva ? { pointerEvents: "auto", cursor: "pointer" } : undefined}>
                         {poligonos(o).map((p, j) => (
-                            <polygon key={j} points={pts(p, W, H)} fill={`url(#rel-${k}-${uid})`} stroke={c} strokeWidth={2} vectorEffect="non-scaling-stroke"
+                            <polygon key={j} points={pts(p, W, H)} fill={`url(#rel-${k}-${uid})`} stroke={c} strokeWidth={sel ? 3.5 : 2} vectorEffect="non-scaling-stroke"
                                 strokeLinejoin="round" filter={`url(#brillo-${uid})`} />
                         ))}
+                        {/* El tocado se llena un poco más: se ve cuál es sin leer nada. */}
+                        {sel && poligonos(o).map((p, j) => <polygon key={`s${j}`} points={pts(p, W, H)} fill={c} fillOpacity={0.2} stroke="none" />)}
                     </g>
                 );
             })}
@@ -191,15 +233,18 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const Icono = propio?.dibujo || ICONO_CLASE[o.clase] || ICONO_GRUPO[o.grupo] || ScanEye;
                 const titulo = o.nombre ? o.nombre[0].toUpperCase() + o.nombre.slice(1) : o.clase;
                 const extra = atributos ? (o.atributos || []).filter((a) => !a.dudoso && (a.id === "color" || a.id === "carroceria" || a.id === "tipo")).map((a) => a.valor).slice(0, 2) : [];
-                // Cuánto lleva estacionado (12/11): primero en el renglón de abajo, que es el dato que se viene a leer.
-                const estadia = o.quietoDesde ? `HACE ${textoEstadia(Date.now() - o.quietoDesde)}` : null;
-                const meta = [estadia, ...extra.map((x) => x.toUpperCase())].filter(Boolean).join(" · ");
+                // Cuánto lleva en su lugar: sólo en el objeto que se tocó (ver arriba), con el reloj andando.
+                const sel = i === iSel;
+                const reloj = sel && o.quietoDesde ? o.quietoDesde : null;
+                const meta = extra.map((x) => x.toUpperCase()).join(" · ");
                 const conf = `${Math.round(o.confianza * 100)} %`;
                 const f = fuente * 1.05, fm = fuente * 0.74, icono = f * 1.15, hueco = f * 0.4;
                 // Anchos estimados con margen (la letra de reemplazo, si falta Outfit, es más ancha).
                 const anchoTitulo = icono + hueco + titulo.length * f * 0.56;
                 const anchoMeta = (meta.length + conf.length + (meta ? 3 : 0)) * fm * 0.78;
-                const largo = Math.max(anchoTitulo, anchoMeta) + f * 0.9;
+                // El reloj va en un cuerpo más grande que el renglón de datos: «2 d 03 h 15 min» es lo más largo.
+                const fr = f * 1.25, anchoReloj = fr * 9.5;
+                const largo = Math.max(anchoTitulo, anchoMeta, reloj ? anchoReloj : 0) + f * 0.9;
                 // El ancla: el punto más alto de la silueta (la cabeza, el techo), el más centrado si hay varios.
                 const [x1, y1, x2, y2] = o.caja;
                 const todos = poligonos(o).flat();
@@ -222,7 +267,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const y0 = Math.min(yMax, Math.max(yMin, ay - diag));
                 const caja = (d: number, y: number): [number, number, number, number] => {
                     const e = ax + d * diag;
-                    return [Math.min(e, e + d * largo), y - f * 1.6, largo, f * 1.6 + fm * 1.9];
+                    return [Math.min(e, e + d * largo), y - f * 1.6, largo, f * 1.6 + fm * 1.9 + (reloj ? fr * 1.6 : 0)];
                 };
                 const pisa = (b: [number, number, number, number]) => puestos.reduce((t, [px, py, pw, ph]) =>
                     t + Math.max(0, Math.min(b[0] + b[2], px + pw) - Math.max(b[0], px)) * Math.max(0, Math.min(b[1] + b[3], py + ph) - Math.max(b[1], py)), 0);
@@ -248,7 +293,8 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const ix = dir === 1 ? tx : tx - icono;
                 const tituloX = dir === 1 ? tx + icono + hueco : tx - icono - hueco;
                 return (
-                    <g key={`e${i}`}>
+                    // Con uno tocado, los demás rótulos se apagan: se lee el que se eligió.
+                    <g key={`e${i}`} opacity={iSel >= 0 && !sel ? 0.4 : 1}>
                         <defs>
                             {/* La línea se apaga hacia la punta: termina en el texto, no en un tope. */}
                             <linearGradient id={`guia-${i}-${uid}`} gradientUnits="userSpaceOnUse" x1={ex} y1={ey} x2={fx} y2={ey}>
@@ -275,6 +321,16 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                                 <tspan fill={c} dx={meta ? fm * 1.1 : 0}>{conf}</tspan>
                             </text>
                         </g>
+                        {/* El reloj: un ícono y el tiempo con las cifras rodando al segundo. Es HTML dentro del
+                            SVG para usar el mismo reloj que el visor de un estacionado; las medidas son px de la imagen. */}
+                        {reloj && (
+                            <foreignObject x={dir === 1 ? tx : tx - anchoReloj} y={ey + fm * 2.1} width={anchoReloj} height={fr * 1.7} style={{ overflow: "visible", pointerEvents: "none" }}>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: dir === 1 ? "flex-start" : "flex-end", gap: fr * 0.32, height: "100%", fontSize: fr, color: "#fff", fontFamily: "Outfit, system-ui, sans-serif" }}>
+                                    <Clock width={fr * 0.92} height={fr * 0.92} color={c} strokeWidth={2.4} style={{ flexShrink: 0, filter: "drop-shadow(0 1px 2px rgba(2,6,23,.95))" }} />
+                                    <RelojRodante desde={new Date(reloj)} />
+                                </div>
+                            </foreignObject>
+                        )}
                     </g>
                 );
             }); })()}

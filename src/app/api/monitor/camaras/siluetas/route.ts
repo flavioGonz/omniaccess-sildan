@@ -25,12 +25,27 @@ import { leerRecuadro } from "@/lib/deteccion";
  *    pantallas. Sólo se pide con la ficha de un canal abierta, no para la pared entera.
  *  · Una sesión dura a lo sumo SESION_MAX_MS: si la ficha sigue abierta, el navegador se vuelve a
  *    conectar solo (EventSource), y si quedó una pestaña olvidada, se corta.
+ *
+ * 13/11 (Nico: «lo veo aún un poco lento cuadro a cuadro el seguimiento de siluetas»). Medido en el
+ * lab sobre «03 - Entrada Proveedores 2» de Otto, con 8 vehículos en escena:
+ *  · El «subflujo» de ese canal no es de 640×360: es de 2688×1520. Cada cuadro salía como un JPEG
+ *    de 726 KB y omni-vision tardaba 75–80 ms en contestarlo. Achicado a 960 px de ancho antes de
+ *    mandarlo pesa 106 KB y tarda 34 ms, con las mismas siluetas (el modelo mira a menos que eso).
+ *  · Con eso entran 8 a 10 cuadros por segundo donde antes entraban 3. El ritmo ya no es fijo:
+ *    se pide el cuadro siguiente recién cuando pasó ESPERA_POR_MS veces lo que tardó el anterior,
+ *    así una sesión nunca ocupa más de un tercio del tiempo de omni-vision. En una GPU más lenta,
+ *    o con omni-vision ocupado, baja sola (a 100 ms por cuadro vuelve a los 3 por segundo de antes).
  */
 
 const VISION = (process.env.OMNI_VISION_URL || "http://127.0.0.1:8010").replace(/\/$/, "");
 /** El RTSP de go2rtc (en el mismo CT). */
 const GO2RTC_RTSP = process.env.GO2RTC_RTSP || "rtsp://127.0.0.1:8554";
-const CUADROS_POR_SEG = 3;
+/** Lo máximo que se analiza por segundo. El ritmo real lo pone lo que tarda omni-vision (ESPERA_POR_MS). */
+const CUADROS_POR_SEG = 10;
+/** El cuadro siguiente se toma cuando pasó esto por lo que tardó el anterior: 3 = a lo sumo un tercio del tiempo de omni-vision. */
+const ESPERA_POR_MS = 3;
+/** Ancho al que se achica el cuadro antes de analizarlo (nunca se agranda). */
+const ANCHO_ANALISIS = 960;
 const SESIONES_MAX = 2;
 const SESION_MAX_MS = 10 * 60_000;
 /**
@@ -166,20 +181,24 @@ export async function GET(req: NextRequest) {
             req.signal.addEventListener("abort", cerrar);
             fin = setTimeout(cerrar, SESION_MAX_MS);
 
-            ff = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", `${GO2RTC_RTSP}/${stream}`,
-                "-an", "-vf", `fps=${CUADROS_POR_SEG}`, "-q:v", "5", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"], { stdio: ["ignore", "pipe", "ignore"] });
+            // Sin búfer de entrada: lo que se analiza es lo más reciente que entregó la cámara, no lo de hace un rato.
+            ff = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", "-fflags", "nobuffer", "-flags", "low_delay", "-rtsp_transport", "tcp", "-i", `${GO2RTC_RTSP}/${stream}`,
+                "-an", "-vf", `fps=${CUADROS_POR_SEG},scale='min(${ANCHO_ANALISIS},iw)':-2`, "-q:v", "5", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"], { stdio: ["ignore", "pipe", "ignore"] });
             ff.on("close", cerrar);
             ff.on("error", cerrar);
 
             let buf = Buffer.alloc(0);
             let ocupado = false;
             let descartados = 0;
+            // Cuándo se puede tomar el próximo cuadro (ver ESPERA_POR_MS).
+            let proximo = 0;
             const camara = camaraDeStream(stream);
             const analizar = async (jpeg: Buffer, t: number) => {
                 ocupado = true;
                 try {
                     const r = await fetch(`${VISION}/detectar?tarea=segmentar&grupos=${GRUPOS}`, { method: "POST", body: new Uint8Array(jpeg), headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(5000) });
                     const j: any = await r.json().catch(() => ({}));
+                    proximo = t + Math.max(1000 / CUADROS_POR_SEG - 5, (Date.now() - t) * ESPERA_POR_MS);
                     if (!r.ok) { enviar("error", { error: j.error || `omni-vision respondió ${r.status}` }); return; }
                     enviar("cuadro", {
                         t, ms: Date.now() - t, descartados,
@@ -204,7 +223,7 @@ export async function GET(req: NextRequest) {
                     if (fin2 < 0) { if (ini > 0) buf = buf.subarray(ini); break; }
                     const jpeg = buf.subarray(ini, fin2 + 2);
                     buf = buf.subarray(fin2 + 2);
-                    if (ocupado) { descartados++; continue; }
+                    if (ocupado || Date.now() < proximo) { descartados++; continue; }
                     void analizar(Buffer.from(jpeg), Date.now());
                 }
             });

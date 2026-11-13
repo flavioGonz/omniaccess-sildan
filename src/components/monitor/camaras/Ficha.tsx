@@ -227,8 +227,10 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                     {c.geom && verGeom && !(sil.analisis && grabacion == null) && <Geometria geom={c.geom} alerta={!!alerta} ajuste="contain" />}
                     {/* Las siluetas van sobre el vivo con el mismo ajuste (contain): el análisis es del
                         subflujo 16:9, igual que el video. Si dejan de llegar cuadros, se borran solas. */}
+                    {/* `interactiva` (13/11): tocar un auto muestra cuánto lleva en su lugar; antes el tiempo
+                        iba escrito sobre todos y tapaba la escena. Sólo las siluetas reciben el toque. */}
                     {grabacion == null && sil.analisis && (
-                        <CapaAnalisis analisis={tamVideo ? { ...sil.analisis, ancho: tamVideo.w, alto: tamVideo.h } : sil.analisis} geom={verGeom ? geomDeIntrusion(c.geom) : null} ajuste="contain" className="pointer-events-none" />
+                        <CapaAnalisis analisis={tamVideo ? { ...sil.analisis, ancho: tamVideo.w, alto: tamVideo.h } : sil.analisis} geom={verGeom ? geomDeIntrusion(c.geom) : null} ajuste="contain" interactiva />
                     )}
 
                     {grabacion == null && <PasoVisionCanal paso={pasoVision} nombre={c.nombre} foto={foto} grande alCerrar={alCerrarPaso} capa="z-0" />}
