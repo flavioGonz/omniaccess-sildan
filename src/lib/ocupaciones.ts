@@ -3,6 +3,7 @@ import { promises as fs } from "fs";
 import { prisma } from "@/lib/prisma";
 import { notificarEvento } from "@/lib/reglas-notificacion";
 import { avisarPorSocket } from "@/lib/avisar";
+import { ganadora, leerVotos, votar, votosIniciales } from "@/lib/votos-chapa";
 import { capturarCuadro, CUADROS_A_TIRAR } from "@/lib/cuadro";
 import {
     ANCHO_MIRADA, VUELTAS_OCUPAR, VUELTAS_LIBERAR,
@@ -223,7 +224,8 @@ export async function cerrarOcupacion(fila: Fila, cameraName: string) {
  *
  * Esto es todo lo que la chapa hace ahora: nombrar. No abre la estadía, no la sostiene y
  * no la cierra — y por eso `SDM1707`, `SDH1707` y `5DH177` dejan de ser tres autos: son
- * tres lecturas del ocupante del mismo lugar, y se queda la de más confianza.
+ * tres lecturas del ocupante del mismo lugar, y se queda la MÁS LEÍDA (lib/votos-chapa; hasta el
+ * 13/11 era la de más confianza, que con la confianza siempre en el mismo techo era la primera).
  */
 export async function nombrarOcupante(
     deviceId: string, lugar: number, plate: string, confianza: number, sightingId: string,
@@ -232,10 +234,12 @@ export async function nombrarOcupante(
         where: { deviceId, lugar, cerrada: false }, orderBy: { desde: "desc" },
     });
     if (!viva) return null;
-    if (viva.plate && (viva.plateConf ?? 0) >= confianza) return viva;
+    const votos = votar(leerVotos(viva.votos) || (viva.plate ? votosIniciales(viva.plate, 1, viva.plateConf) : null), plate, 1, confianza);
+    const gana = ganadora(votos, viva.plate || plate);
     return prisma.ocupacion.update({
         where: { id: viva.id },
-        data: { plate, plateConf: confianza, sightingId },
+        // La confianza y el avistamiento que se guardan son los de la lectura que nombra al ocupante.
+        data: { votos, plate: gana, ...(gana === plate ? { plateConf: confianza, sightingId } : {}) },
     }).catch(() => null);
 }
 

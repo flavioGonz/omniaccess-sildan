@@ -16,6 +16,7 @@ import {
 import { registrarPasoPorAcceso } from "@/lib/paso-por-acceso";
 import { avisarPorSocket } from "@/lib/avisar";
 import { avisarListaNegraALaVista } from "@/lib/lista-negra-vista";
+import { ganadora, leerVotos, votar, votosIniciales } from "@/lib/votos-chapa";
 
 export const dynamic = "force-dynamic";
 
@@ -443,6 +444,9 @@ export async function POST(req: NextRequest) {
          * guarda, y pasa a ser la que corresponde a la hora que se muestra.
          */
         const fotoVencida = quieto && previo.estAvisado;
+        // Una fila anterior a los votos arranca con lo que se sabía de su chapa.
+        const votos = votar(leerVotos(previo.votos) || votosIniciales(previo.plate, previo.reads, previo.confidence), patente, lecturas, confianza);
+        const chapaVotada = ganadora(votos, previo.plate);
         const desdeCuando = quieto ? (previo.estDesde ?? previo.timestamp) : cuando;
         const actualizado = await prisma.plateSighting.update({
             where: { id: previo.id },
@@ -450,9 +454,10 @@ export async function POST(req: NextRequest) {
                 // El estado sale de cuanto lleva ahi, no de que se lo haya vuelto a ver.
                 // Mientras no llegue al minimo es VISTO: se lo vio, nada mas.
                 estado: estadoDeEstadia(desdeCuando, cuando),
-                // Si esta lectura es mejor, manda su ortografía: la fila se queda con la
-                // versión más segura de la matrícula y no con la primera que entró.
-                ...(mejorFoto ? { plate: patente } : {}),
+                // La chapa de la fila es la MÁS LEÍDA de la estadía (lib/votos-chapa). Antes mandaba
+                // la de mejor confianza; medido el 13/11, la confianza de todas las lecturas toca
+                // el mismo techo y «la mejor» era la primera en llegar.
+                plate: chapaVotada, votos,
                 estDesde: desdeCuando,
                 estHasta: cuando,
                 timestamp: cuando,
@@ -510,6 +515,7 @@ export async function POST(req: NextRequest) {
                 // Una sola lectura no prueba ninguna permanencia: nace en VISTO y sube a
                 // ESTACIONADO recien cuando una segunda lectura la sostenga en el tiempo.
                 estado: VISTO,
+                votos: votosIniciales(patente, lecturas, confianza),
                 estDesde: cuando,
                 estHasta: cuando,
             },

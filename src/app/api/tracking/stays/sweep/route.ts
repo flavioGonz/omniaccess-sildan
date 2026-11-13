@@ -359,6 +359,13 @@ export async function POST(req: NextRequest) {
         }
     }
 
+    /*
+     * Por qué se cerró cada una, al registro (13/11). El worker sólo escribía «se fue: X después de
+     * N min», y con eso no se puede saber si las estadías se cortan por el techo, por miradas sin
+     * verlo o porque la mirada vio un cambio. En el lab, un auto que la visión da por quieto tuvo
+     * cuatro «se fue» en un día; antes de tocar un umbral hay que saber cuál de los tres caminos fue.
+     */
+    for (const c of cerradas) console.log(`[estadias] cerrada ${c.plate} en ${c.camara || "una cámara"} tras ${c.minutos} min: ${c.motivo}`);
     return NextResponse.json({
         ok: true,
         franjas,

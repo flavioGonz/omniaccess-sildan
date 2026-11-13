@@ -859,6 +859,11 @@ model PlateSighting {
   // lectura: se nota por ausencia, y lo cierra el barrendero.
   estCerrada Boolean   @default(false)
 
+  /// Los votos de la chapa de una estadia: { "SDH1707": { n: lecturas, c: confianza acumulada } }.
+  /// La fila lleva la mas leida (src/lib/votos-chapa.ts); antes llevaba la de "mejor confianza",
+  /// que con la confianza siempre en el mismo techo era la primera en llegar.
+  votos Json?
+
   passId String?
   pass   VehiclePass? @relation(fields: [passId], references: [id], onDelete: SetNull)
 
@@ -1016,6 +1021,8 @@ model Ocupacion {
   plate      String?
   plateConf  Float?
   sightingId String?
+  /// Los votos de la chapa del ocupante, igual que PlateSighting.votos (src/lib/votos-chapa.ts).
+  votos      Json?
 
   desde   DateTime
   hasta   DateTime
