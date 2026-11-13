@@ -65,6 +65,21 @@ export const PARIDAD_MIN = 0.9;
  * puede volver a entrenar. Viven en el mismo bucket que el registro, pero la limpieza del
  * registro borra por fila (ObjetoVisto, EventoVision…), así que nunca las toca.
  */
+/**
+ * Desde qué confianza se DIBUJA en el vivo (y en la grabación) algo que encontró el detector
+ * entrenado acá. Sólo es lo que se muestra: las reglas, el registro y la búsqueda siguen con el
+ * umbral que se midió al entrenar el modelo (modelo.json), que es más bajo a propósito — ahí
+ * conviene no perderse un basurero dudoso; en la pantalla, un recuadro al 20 % sobre la espalda
+ * de un guardia es ruido.
+ *
+ * 12/11, Nico, con el vivo de Puesto 7 abierto y un «Basurero Lleno 20 %» sobre una persona:
+ * «deben mostrarse dinámicamente cuando superan el 59 % en adelante; mostrar cuadros con menos
+ * es ensuciar el live view».
+ */
+export const CONFIANZA_PROPIO_EN_PANTALLA = 0.59;
+/** El grupo con que omni-vision devuelve lo del detector propio (services/omni-vision/propio.py, GRUPO). */
+export const GRUPO_PROPIO = "propio";
+
 export const MODELOS_GUARDADOS = 5;
 export const MODELOS_PREFIJO = "modelos/";
 /** Lo que se guarda de un modelo en MinIO; `borradoAt` = lo sacó la retención (ya no se puede usar). */

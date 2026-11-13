@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import { spawn } from "child_process";
 import { NextRequest, NextResponse } from "next/server";
 import { autorizarMonitor } from "@/lib/monitor/servidor";
+import { CONFIANZA_PROPIO_EN_PANTALLA, GRUPO_PROPIO } from "@/lib/detector-propio";
 
 /**
  * GET /api/monitor/camaras/siluetas?stream=<nombre> → text/event-stream con lo que OmniVision ve
@@ -47,6 +48,22 @@ function aligerar(poli: number[][]): number[][] {
     if (poli.length <= PUNTOS_SILUETA_MAX) return poli;
     const paso = poli.length / PUNTOS_SILUETA_MAX;
     return Array.from({ length: PUNTOS_SILUETA_MAX }, (_, i) => poli[Math.floor(i * paso)]);
+}
+
+/**
+ * Lo que viaja al navegador de lo que vio omni-vision, para el vivo (GET) y la grabación (POST).
+ * Lo del detector entrenado acá sólo desde CONFIANZA_PROPIO_EN_PANTALLA: se decide cuadro a
+ * cuadro, así que el recuadro aparece cuando la supera y se va cuando baja. Lo de fábrica
+ * (personas, vehículos, animales) no cambia: ya sale con el umbral de omni-vision.
+ */
+function paraPantalla(objetos: any[] | undefined) {
+    return (objetos || [])
+        .filter((o) => o.grupo !== GRUPO_PROPIO || o.confianza >= CONFIANZA_PROPIO_EN_PANTALLA)
+        .map((o) => ({
+            clase: o.clase, nombre: o.nombre, grupo: o.grupo, confianza: Math.round(o.confianza * 1000) / 1000,
+            caja: (o.caja_norm || []).map(r4),
+            ...(Array.isArray(o.silueta) ? { silueta: o.silueta.map((q: number[][]) => aligerar(q).map(([x, y]) => [r4(x), r4(y)])) } : {}),
+        }));
 }
 
 export async function GET(req: NextRequest) {
@@ -96,11 +113,7 @@ export async function GET(req: NextRequest) {
                         t, ms: Date.now() - t, descartados,
                         analisis: {
                             ancho: j.ancho, alto: j.alto, tarea: "segmentar",
-                            objetos: (j.objetos || []).map((o: any) => ({
-                                clase: o.clase, nombre: o.nombre, grupo: o.grupo, confianza: Math.round(o.confianza * 1000) / 1000,
-                                caja: (o.caja_norm || []).map(r4),
-                                ...(Array.isArray(o.silueta) ? { silueta: o.silueta.map((q: number[][]) => aligerar(q).map(([x, y]) => [r4(x), r4(y)])) } : {}),
-                            })),
+                            objetos: paraPantalla(j.objetos),
                         },
                     });
                     descartados = 0;
@@ -167,11 +180,7 @@ export async function POST(req: NextRequest) {
             ms: Date.now() - ahora,
             analisis: {
                 ancho: j.ancho, alto: j.alto, tarea: "segmentar",
-                objetos: (j.objetos || []).map((o: any) => ({
-                    clase: o.clase, nombre: o.nombre, grupo: o.grupo, confianza: Math.round(o.confianza * 1000) / 1000,
-                    caja: (o.caja_norm || []).map(r4),
-                    ...(Array.isArray(o.silueta) ? { silueta: o.silueta.map((q: number[][]) => aligerar(q).map(([x, y]) => [r4(x), r4(y)])) } : {}),
-                })),
+                objetos: paraPantalla(j.objetos),
             },
         }, { headers: { "Cache-Control": "no-store" } });
     } catch (e: any) {
