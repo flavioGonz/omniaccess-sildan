@@ -66,7 +66,44 @@ export const grupoDe = (c: Canal) => c.nvr || "Cámaras sueltas";
  */
 export const idCanal = (c: Pick<Canal, "equipoId" | "nvrId" | "ch">) => c.equipoId || `nvrch-${c.nvrId}-${c.ch}`;
 
-/** Un <video> de go2rtc que avisa si arrancó o no, y suelta la conexión al desmontarse. */
+/**
+ * Lo que mantiene un vivo andando solo (12/11, Nico: «cada vez que abro una cámara y vuelvo atrás
+ * se loopean las cámaras, tengo que darle F5; debemos asegurar que se van a poder ver 24 hs en
+ * tiempo real»).
+ *
+ * El <video> abría la conexión una vez y nunca más miraba si seguía llegando imagen. Y el vivo es
+ * una descarga que no termina, que pasa por go2rtc y por la aplicación: cualquier corte en el
+ * medio (un reinicio de la aplicación —cada despliegue—, go2rtc que rearma el stream, el grabador
+ * que renegocia, la red) la deja colgada con el último cuadro, o repitiendo lo que tenía en el
+ * búfer, hasta apretar F5. En una pared que tiene que estar 24 horas eso pasa seguro.
+ *
+ *  · VIGIA_MS: cada cuánto se mira si el video avanzó.
+ *  · QUIETO_MS: sin avanzar este tiempo (y con la pestaña a la vista), se vuelve a conectar.
+ *    «Avanzar» es que llegue video nuevo, no que se mueva el reloj: cuando go2rtc rearma un stream
+ *    (el grabador cortó y volvió), el navegador puede quedarse repitiendo lo que tenía — el reloj
+ *    camina y en la pantalla se ve un loop. Por eso se mira hasta dónde llega lo descargado, y
+ *    también que el reloj no vuelva para atrás.
+ *  · ATRASO_MAX_S: si lo que se ve quedó más atrás que esto de lo último que llegó, se salta al
+ *    final: un vivo atrasado medio minuto no es un vivo.
+ *  · REINTENTO_*: la espera entre reconexiones crece hasta un tope, para no golpear a un
+ *    grabador caído, y vuelve al mínimo cuando el video arranca.
+ */
+const VIGIA_MS = 2000;
+const QUIETO_MS = 8000;
+const ATRASO_MAX_S = 6;
+const REINTENTO_MIN_MS = 1500;
+const REINTENTO_MAX_MS = 30_000;
+let serieVivo = 0;
+
+/**
+ * Un <video> de go2rtc que avisa si arrancó o no, se reconecta solo si se corta y suelta la
+ * conexión al desmontarse.
+ *
+ * Cada conexión pide una dirección propia (`_=<n>.<intento>`): al reconectar, el navegador no
+ * puede contestar con lo que le quedó guardado del intento anterior. go2rtc ignora el parámetro.
+ * (Se probó si dos <video> con la misma dirección —la baldosa y la ficha del mismo canal—
+ * compartían la descarga y se pisaban al cerrar una: no, cada uno abre la suya.)
+ */
 export function Vivo({ src, alResultado, className, alMedir }: { src: string; alResultado?: (ok: boolean) => void; className?: string;
     /** El tamaño real del video, cuando se sabe: lo usan las siluetas para caer donde van. */
     alMedir?: (ancho: number, alto: number) => void }) {
@@ -75,14 +112,68 @@ export function Vivo({ src, alResultado, className, alMedir }: { src: string; al
     const medir = useRef(alMedir); medir.current = alMedir;
     useEffect(() => {
         const v = ref.current; if (!v) return;
-        let listo = false;
-        const ok = () => { if (v.videoWidth) medir.current?.(v.videoWidth, v.videoHeight); if (!listo) { listo = true; avisar.current?.(true); } };
-        const mal = () => { if (!listo) { listo = true; avisar.current?.(false); } };
+        const id = ++serieVivo;
+        // HLS (Safari) se mantiene al día solo y carga por segmentos: no se le corrige el atraso a mano.
+        const hls = src.includes(".m3u8");
+        let avisado = false, vivo = true, intento = 0, espera = REINTENTO_MIN_MS, conImagen = false;
+        let ultimoT = -1, ultimoFin = -1, ultimoAvance = Date.now(), reintento: ReturnType<typeof setTimeout> | null = null;
+
+        const conectar = () => {
+            if (!vivo) return;
+            reintento = null; conImagen = false;
+            ultimoT = -1; ultimoFin = -1; ultimoAvance = Date.now();
+            v.src = `${src}${src.includes("?") ? "&" : "?"}_=${id}.${intento++}`;
+            v.play().catch(() => { });
+        };
+        /** Se cortó o no avanza: soltar la conexión vieja y abrir otra, esperando cada vez un poco más. */
+        const reconectar = () => {
+            if (!vivo || reintento) return;
+            try { v.pause(); v.removeAttribute("src"); v.load(); } catch { }
+            reintento = setTimeout(conectar, espera);
+            espera = Math.min(REINTENTO_MAX_MS, espera * 2);
+        };
+        const ok = () => {
+            if (v.videoWidth) medir.current?.(v.videoWidth, v.videoHeight);
+            espera = REINTENTO_MIN_MS; ultimoAvance = Date.now(); conImagen = true;
+            if (!avisado) { avisado = true; avisar.current?.(true); }
+        };
+        // Al padre se le avisa UNA vez (decide el modo de la baldosa con eso); reconectar, se sigue siempre.
+        const mal = () => { if (!avisado) { avisado = true; avisar.current?.(false); } };
+        const corte = () => { mal(); reconectar(); };
         const to = setTimeout(mal, VIVO_ESPERA_MS);
-        v.addEventListener("loadeddata", ok); v.addEventListener("error", mal);
-        v.src = src; v.play().catch(() => { });
+
+        const vigia = setInterval(() => {
+            // Con la pestaña oculta el navegador frena el video a propósito: eso no es un corte.
+            if (document.hidden || reintento) { ultimoAvance = Date.now(); return; }
+            const t = v.currentTime;
+            let fin = -1;
+            try { const b = v.buffered; if (b.length) fin = b.end(b.length - 1); } catch { }
+            // El reloj volvió para atrás sin que nadie lo pidiera: está repitiendo lo viejo.
+            if (conImagen && ultimoT > 1 && t < ultimoT - 1) { reconectar(); return; }
+            // HLS baja por segmentos de varios segundos: para él alcanza con que el reloj camine.
+            const llegoVideo = hls ? t !== ultimoT : fin > ultimoFin + 0.05;
+            ultimoT = t;
+            if (llegoVideo) {
+                ultimoFin = fin; ultimoAvance = Date.now();
+                // Atrasado respecto de lo que ya llegó: al final del búfer, que es el presente.
+                if (!hls && fin - t > ATRASO_MAX_S) { try { v.currentTime = fin - 0.3; ultimoT = fin - 0.3; } catch { } }
+                return;
+            }
+            // Antes del primer cuadro se espera lo mismo que para darlo por fallido: la alta calidad
+            // de un grabador tarda varios segundos en abrir, y cortarla a los 8 era no dejarla abrir nunca.
+            if (Date.now() - ultimoAvance > (conImagen ? QUIETO_MS : VIVO_ESPERA_MS + VIGIA_MS)) reconectar();
+        }, VIGIA_MS);
+        // Al volver a la pestaña, el reloj de «quieto» empieza de nuevo: se le da tiempo a retomar.
+        const visible = () => { ultimoAvance = Date.now(); if (!document.hidden && v.paused && !reintento) v.play().catch(() => { }); };
+
+        v.addEventListener("loadeddata", ok); v.addEventListener("error", corte); v.addEventListener("ended", corte);
+        document.addEventListener("visibilitychange", visible);
+        conectar();
         return () => {
-            clearTimeout(to); v.removeEventListener("loadeddata", ok); v.removeEventListener("error", mal);
+            vivo = false;
+            clearTimeout(to); clearInterval(vigia); if (reintento) clearTimeout(reintento);
+            v.removeEventListener("loadeddata", ok); v.removeEventListener("error", corte); v.removeEventListener("ended", corte);
+            document.removeEventListener("visibilitychange", visible);
             // Sin esto el navegador mantiene la descarga abierta y go2rtc sigue sirviendo el canal.
             try { v.pause(); v.removeAttribute("src"); v.load(); } catch { }
         };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FolderTree, Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Zap, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera, ScanEye, Crosshair, ScanSearch } from "lucide-react";
 import { useMarco, BarraDelMarco } from "@/components/monitor/MarcoMonitor";
@@ -59,6 +59,8 @@ const REPEDIR_INCOMPLETO_MS = 2500;
 const ESQUELETO_MAX = 16;
 /** Después de esto sin datos, el esqueleto dice qué se está esperando. */
 const ESQUELETO_AVISO_MS = 1500;
+/** Cuánto se recuerda que un vivo no arrancó antes de volver a probarlo (mientras tanto, convertido o foto). */
+const REINTENTAR_VIVO_MS = 5 * 60_000;
 /** Tope de baldosas convertidas por pantalla cuando el navegador no reproduce H.265. */
 const MAX_CONVERTIDOS = 4;
 const PAGINA_SEG = [10, 20, 40] as const;
@@ -382,7 +384,24 @@ export function VistaCamaras() {
 
     // Cuántos vivos arrancaron y cuántos no, por canal y modo: la prueba de verdad.
     const [resultados, setResultados] = useState<Record<string, boolean>>({});
-    const alResultado = useCallback((c: Canal, modo: Modo, ok: boolean) => setResultados((r) => { const k = `${c.clave}|${modo}`; return r[k] === ok ? r : { ...r, [k]: ok }; }), []);
+    /** Cuándo falló cada vivo: un fallo vale REINTENTAR_VIVO_MS y después se vuelve a probar. */
+    const fallos = useRef<Map<string, number>>(new Map());
+    const alResultado = useCallback((c: Canal, modo: Modo, ok: boolean) => {
+        const k = `${c.clave}|${modo}`;
+        if (ok) fallos.current.delete(k); else fallos.current.set(k, Date.now());
+        setResultados((r) => (r[k] === ok ? r : { ...r, [k]: ok }));
+    }, []);
+    // Un vivo que no arrancó una vez no queda en foto hasta el próximo F5 (12/11: la pared tiene que
+    // aguantar 24 horas). Pasado un rato se olvida el fallo y la baldosa vuelve a intentar en vivo.
+    useEffect(() => {
+        const iv = setInterval(() => {
+            const vencidos = [...fallos.current].filter(([, t]) => Date.now() - t > REINTENTAR_VIVO_MS).map(([k]) => k);
+            if (!vencidos.length) return;
+            for (const k of vencidos) fallos.current.delete(k);
+            setResultados((r) => { const n = { ...r }; for (const k of vencidos) delete n[k]; return n; });
+        }, 30_000);
+        return () => clearInterval(iv);
+    }, []);
 
     // Lo que llega por el socket, sin esperar la próxima vuelta.
     const [alertasVivas, setAlertasVivas] = useState<Record<string, Alerta>>({});
