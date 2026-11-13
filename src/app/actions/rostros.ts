@@ -11,7 +11,7 @@ import { frecuencia, SUGERIR, VENTANA_DIAS, type Frecuencia } from "@/lib/rostro
 import { detallesConIdentidad, leerDetalleRostro } from "@/lib/monitor/rostro";
 import {
     R, BUCKET_ROSTROS as BUCKET, imagenRostro as imagen, motorRostros, olvidarSujeto as olvidarEnMotor, enrolar, normalizarFoto, mirarCaras, recortesCara,
-    subirRostro, bajarRostro as bajar, umbralesVigentes, fundarRostro, claveFoto, caraDeEscena, type CaraVista,
+    subirRostro, bajarRostro as bajar, umbralesVigentes, fundarRostro, claveFoto, caraDeEscena, AIRE_CARA_CHICA, type CaraVista,
 } from "@/lib/rostros-servidor";
 
 /*
@@ -455,7 +455,7 @@ export async function rostroDesdeEvento(eventoId: string): Promise<RostroGuardad
     let r = top && idTop && top.similitud >= u.misma ? await prisma.rostro.findUnique({ where: { id: idTop } }) : null;
     const nueva = !r;
     const camara = ev.device?.name || null;
-    if (!r) r = await fundarRostro(await recortesCara(jpeg, cara.caja), { px: d.caraPx || cara.px, cuando: ev.timestamp, camara, ...(top && top.similitud >= u.parecida ? { parecidaA: top.sujeto, parecido: top.similitud } : {}) });
+    if (!r) r = await fundarRostro(await recortesCara(jpeg, cara.caja, AIRE_CARA_CHICA), { px: d.caraPx || cara.px, cuando: ev.timestamp, camara, ...(top && top.similitud >= u.parecida ? { parecidaA: top.sujeto, parecido: top.similitud } : {}) });
     const [fila] = await aFilas([r]);
     await prisma.accessEvent.update({ where: { id: ev.id }, data: { details: detallesConIdentidad(ev.details, { rostroId: r.id, nombre: fila.nombre || fila.codigo, veces: r.veces }), ...(r.userId ? { userId: r.userId } : {}) } });
     const cuadro = ev.snapshotPath?.startsWith("/api/vision/imagen/") ? ev.snapshotPath.slice("/api/vision/imagen/".length) : null;

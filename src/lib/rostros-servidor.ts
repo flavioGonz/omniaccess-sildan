@@ -79,16 +79,28 @@ export async function mirarCaras(jpeg: Buffer, detMin = 0.7): Promise<CaraVista[
         }));
 }
 
-/** El recorte de la cara con aire: `nativa` para el motor (sin achicar), `chica` para mostrar. */
-export async function recortesCara(jpeg: Buffer, caja: Caja): Promise<{ nativa: Buffer; chica: Buffer }> {
+/**
+ * El recorte de la cara con aire: `nativa` para el motor (sin achicar), `chica` para mostrar.
+ *
+ * `aireMotor` es cuánto aire lleva el que se le da al motor. Con una cara grande alcanza el mismo
+ * 30 % que se muestra. Con una chica no: al enrolar, el motor tiene que volver a encontrar la cara
+ * en ese recorte y con tan poco alrededor no la ve (13/11: 2 de 8 pasadas de 53 a 77 px se
+ * detectaban en la escena y fallaban al enrolar). Ahí se le da una cara entera de aire por lado.
+ */
+export const AIRE_CARA_CHICA = 1;
+export async function recortesCara(jpeg: Buffer, caja: Caja, aireMotor = MARGEN_CARA): Promise<{ nativa: Buffer; chica: Buffer }> {
     const meta = await sharp(jpeg).metadata();
     const W = meta.width || 0, H = meta.height || 0;
     const bw = caja.x_max - caja.x_min, bh = caja.y_max - caja.y_min;
-    const left = Math.max(0, Math.floor(caja.x_min - bw * MARGEN_CARA)), top = Math.max(0, Math.floor(caja.y_min - bh * MARGEN_CARA));
-    const width = Math.max(1, Math.min(W - left, Math.ceil(bw * (1 + 2 * MARGEN_CARA))));
-    const height = Math.max(1, Math.min(H - top, Math.ceil(bh * (1 + 2 * MARGEN_CARA))));
-    const nativa = await sharp(jpeg).extract({ left, top, width, height }).jpeg({ quality: 92 }).toBuffer();
-    const chica = await sharp(nativa).resize(LADO_CARA, LADO_CARA, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
+    const recorte = (aire: number) => {
+        const left = Math.max(0, Math.floor(caja.x_min - bw * aire)), top = Math.max(0, Math.floor(caja.y_min - bh * aire));
+        const width = Math.max(1, Math.min(W - left, Math.ceil(bw * (1 + 2 * aire))));
+        const height = Math.max(1, Math.min(H - top, Math.ceil(bh * (1 + 2 * aire))));
+        return sharp(jpeg).extract({ left, top, width, height }).jpeg({ quality: 92 }).toBuffer();
+    };
+    const justa = await recorte(MARGEN_CARA);
+    const nativa = aireMotor === MARGEN_CARA ? justa : await recorte(aireMotor);
+    const chica = await sharp(justa).resize(LADO_CARA, LADO_CARA, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
     return { nativa, chica };
 }
 
