@@ -52,7 +52,10 @@ export const esRequerida = (etiqueta?: string | null, motivo?: string | null) =>
 export function motivoRequerida(cuando: Date, quien: string | null, antes?: string | null): string {
     const f = new Intl.DateTimeFormat("es-UY", { timeZone: "America/Montevideo", day: "2-digit", month: "2-digit", year: "numeric" }).format(cuando);
     const h = new Intl.DateTimeFormat("es-UY", { timeZone: "America/Montevideo", hour: "2-digit", minute: "2-digit", hour12: false }).format(cuando);
-    const previo = antes && !antes.startsWith(INICIO_MOTIVO) ? ` Antes en la lista: ${antes.trim().replace(/\.$/, "")}.` : "";
+    // Los nombres de cámara están guardados con las entidades de HTML («Ext. -&gt; Cairoli») y el motivo
+    // viejo las arrastra: acá se escriben como se leen, porque esto se muestra tal cual.
+    const limpio = antes ? antes.replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&").trim().replace(/\.$/, "") : "";
+    const previo = limpio && !limpio.startsWith(INICIO_MOTIVO) ? ` Antes en la lista: ${limpio}.` : "";
     return `${INICIO_MOTIVO}. Confirmada en el sitio oficial el ${f} a las ${h}${quien ? ` por ${quien}` : ""}.${previo}`;
 }
 

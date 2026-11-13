@@ -47,7 +47,10 @@ export function elegirPorCaja<T extends { caja: number[] }>(objetos: T[], caja: 
  * después se lee en la captura cada vez que pasa, así que dice algo y el operador lo completa.
  */
 export function motivoDesdeVivo(camara: string, quietoDesde: number | null | undefined, ahora = Date.now()): string {
-    const base = `Sospechoso: marcado desde el vivo de ${camara.trim() || "una cámara"}`;
+    // El nombre viene de la base con las entidades de HTML («Ext. -&gt; Cairoli»): el motivo se lee tal
+    // cual en la captura y en los avisos, así que se escribe como se lee (13/11: salía «-&gt;» en el visor).
+    const nombre = camara.replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&").trim();
+    const base = `Sospechoso: marcado desde el vivo de ${nombre || "una cámara"}`;
     if (!quietoDesde || quietoDesde > ahora) return base;
     const d = new Date(quietoDesde), hoy = new Date(ahora);
     const hora = d.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Montevideo" });

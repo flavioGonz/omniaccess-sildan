@@ -242,7 +242,7 @@ export async function GET(req: NextRequest) {
  * la fecha de esta consulta). Usa la misma alta que el panel: avisa a las cámaras y deja la nota.
  * Si falla no se pierde la respuesta del Ministerio: se dice que no se pudo cargar.
  */
-async function altaEnListaNegra(matricula: string, quien: string): Promise<AltaRequerida> {
+async function altaEnListaNegra(matricula: string, quien: string, confirmada?: { cuando: Date; por: string | null }): Promise<AltaRequerida> {
   try {
     const previa = await prisma.plateWatch.findUnique({ where: { plate: matricula }, select: { active: true, category: true, label: true, motivo: true } });
     const activa = previa?.active ? previa : null;
@@ -250,7 +250,7 @@ async function altaEnListaNegra(matricula: string, quien: string): Promise<AltaR
     const { addWatch } = await import("@/app/actions/watchlist");
     const r = await addWatch({
       plate: matricula, category: "BLACKLISTED", force: true, notify: true, label: ETIQUETA_REQUERIDA, color: "#dc2626",
-      motivo: motivoRequerida(new Date(), quien, activa ? activa.motivo || activa.label : null), createdBy: `${quien} (consulta al Ministerio)`,
+      motivo: motivoRequerida(confirmada?.cuando || new Date(), confirmada ? confirmada.por : quien, activa ? activa.motivo || activa.label : null), createdBy: `${quien} (consulta al Ministerio)`,
     });
     console.log(`[min-interior] ${matricula} requerida → lista negra: ${r.ok ? (yaEstaba ? "ya estaba, fecha actualizada" : "alta") : `no se pudo (${r.error || "sin detalle"})`}`);
     return { ok: !!r.ok, yaEstaba, antes: activa && !yaEstaba ? (activa.category === "SEARCH" ? "Lista Amarilla" : activa.category === "WHITELISTED" ? "VIP" : "Lista negra") : null, error: r.ok ? undefined : r.error || "no se pudo cargar" };
@@ -301,9 +301,10 @@ export async function POST(req: NextRequest) {
     // Cargar en la lista negra una requerida YA confirmada (una consulta guardada y vigente): no vuelve al sitio.
     if (body.accion === "lista-negra") {
       const m = normalizarMatricula(body.matricula);
-      const u = m ? await prisma.consultaMinInterior.findFirst({ where: { matricula: m, creadoEn: { gte: new Date(Date.now() - ULTIMA_VIGENTE_MS) } }, orderBy: { creadoEn: "desc" }, select: { estado: true } }) : null;
+      const u = m ? await prisma.consultaMinInterior.findFirst({ where: { matricula: m, creadoEn: { gte: new Date(Date.now() - ULTIMA_VIGENTE_MS) } }, orderBy: { creadoEn: "desc" }, select: { estado: true, creadoEn: true, quien: true } }) : null;
       if (u?.estado !== "REQUERIDA") return NextResponse.json({ ok: false, error: "No hay una consulta vigente que la dé como requerida." }, { status: 409 });
-      return NextResponse.json({ ok: true, lista: await altaEnListaNegra(m, quien) });
+      // La fecha del cartel es la de ESA consulta (y quién la hizo), no la del momento en que se carga en la lista.
+      return NextResponse.json({ ok: true, lista: await altaEnListaNegra(m, quien, { cuando: u.creadoEn, por: u.quien }) });
     }
     const sid = String(body.sid || "");
     const matricula = normalizarMatricula(body.matricula);

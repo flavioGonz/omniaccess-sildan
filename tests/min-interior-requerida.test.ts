@@ -37,3 +37,8 @@ test("a la vista: el aviso dice quién la requiere, cuándo se confirmó y en qu
     assert.equal(motivoALaVista({ requerida: false, etiqueta: "Robo en el lote 12", motivo: null }, "Calle 21"),
         "En la lista negra: Robo en el lote 12. A la vista en Calle 21.");
 });
+
+test("lo que la lista decía antes se escribe como se lee, sin las entidades de HTML del nombre de la cámara", () => {
+    assert.equal(motivoRequerida(CUANDO, null, "Sospechoso: marcado desde el vivo de Ext. -&gt; Cairoli"),
+        "Requerida por el Ministerio del Interior. Confirmada en el sitio oficial el 13/11/2026 a las 17:16. Antes en la lista: Sospechoso: marcado desde el vivo de Ext. -> Cairoli.");
+});
