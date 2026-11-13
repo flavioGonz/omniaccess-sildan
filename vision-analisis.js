@@ -26,6 +26,22 @@ const APP = (process.env.APP_INTERNAL_URL || "http://127.0.0.1:10001").replace(/
 const TIPOS_INTRUSION = ["LINECROSS", "INTRUSION", "REGION_ENTER"];
 /** Lo que se busca en la foto: gente, vehículos y animales (un perro es la falsa alarma típica). */
 const GRUPOS = "persona,vehiculo,animal";
+/**
+ * En las capturas de EVENTOS (intrusión y centrales) se suma lo que encuentra el detector entrenado
+ * acá (12/11, Nico, con la ficha de un cruce de línea abierta: «en las capturas de eventos
+ * deberías mostrar también los objetos entrenados por nosotros, ¿no?»). Se pedían sólo los tres
+ * grupos de fábrica, así que un basurero o un cono no aparecían aunque estuvieran en la foto.
+ *
+ * Es sólo lo que se MUESTRA: el veredicto («hay alguien», «confirmada») lo siguen decidiendo
+ * personas y vehículos (src/lib/vision-capa.ts, GRUPOS_RELEVANTES) — un basurero no es un intruso.
+ * En las lecturas LPR no se suma: ahí se mira el vehículo.
+ */
+const GRUPO_PROPIO = "propio";
+const PREFIJO_PROPIO = "propio:";
+/** El mismo valor que UMBRAL_PANTALLA_DEFECTO en src/lib/detector-propio.ts: si cambia allá, cambia acá. */
+const UMBRAL_PANTALLA_DEFECTO = 0.59;
+/** Cada cuánto se releen de la base el umbral de pantalla y el ícono de cada clase entrenada. */
+const AJUSTES_PROPIOS_MS = 30_000;
 /** Hasta cuándo se mira hacia atrás al arrancar. La intrusión, un día; las lecturas, lo que muestra Control LPR. */
 const VENTANA_INTRUSION_MS = 24 * 3600_000;
 const VENTANA_LPR_MS = 2 * 3600_000;
@@ -213,22 +229,41 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
         } catch { return null; }
     }
 
-    /** Lo que omni-vision ve en la foto, compacto para guardar. */
-    async function analizar(jpeg, atributos) {
+    /**
+     * Desde qué confianza se dibuja cada clase entrenada, y con qué ícono (ClasePropia): lo mismo
+     * que usa el vivo. Sin esto las capturas traerían todo lo que pasa el umbral del modelo (20 %
+     * en el lab), que es justo el ruido que se sacó del vivo.
+     */
+    let propias = { al: 0, porClase: new Map() };
+    async function ajustesPropios() {
+        if (Date.now() - propias.al < AJUSTES_PROPIOS_MS) return propias.porClase;
+        try {
+            const cs = await prisma.clasePropia.findMany({ select: { id: true, icono: true, umbralPantalla: true } });
+            propias = { al: Date.now(), porClase: new Map(cs.map((c) => [`${PREFIJO_PROPIO}${c.id}`, { umbral: c.umbralPantalla, icono: c.icono }])) };
+        } catch { propias = { ...propias, al: Date.now() }; }
+        return propias.porClase;
+    }
+
+    /** Lo que omni-vision ve en la foto, compacto para guardar. `conPropio`: sumar lo del detector entrenado acá (capturas de eventos). */
+    async function analizar(jpeg, atributos, conPropio = false) {
         const e = estado();
         const tarea = e.segmentar ? "segmentar" : "detectar";
-        const q = new URLSearchParams({ tarea, grupos: GRUPOS, ...(atributos ? { atributos: "1" } : {}) });
+        const porClase = conPropio ? await ajustesPropios() : null;
+        const q = new URLSearchParams({ tarea, grupos: conPropio ? `${GRUPOS},${GRUPO_PROPIO}` : GRUPOS, ...(atributos ? { atributos: "1" } : {}) });
         const r = await fetch(`${vision}/detectar?${q}`, { method: "POST", body: jpeg, headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(30000) });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.error || `omni-vision respondió ${r.status}`);
         return {
             ancho: j.ancho, alto: j.alto, tarea,
-            objetos: (j.objetos || []).map((o) => ({
-                clase: o.clase, nombre: o.nombre, grupo: o.grupo, confianza: Math.round(o.confianza * 1000) / 1000,
-                caja: (o.caja_norm || []).map(r4),
-                ...(Array.isArray(o.silueta) ? { silueta: o.silueta.map((p) => aligerar(p).map(([x, y]) => [r4(x), r4(y)])) } : {}),
-                ...(Array.isArray(o.atributos) ? { atributos: o.atributos.map((a) => ({ id: a.id, nombre: a.nombre, valor: a.valor, prob: Math.round(a.prob * 100) / 100, dudoso: !!a.dudoso })) } : {}),
-            })),
+            objetos: (j.objetos || [])
+                .filter((o) => o.grupo !== GRUPO_PROPIO || o.confianza >= (porClase?.get(o.clase)?.umbral ?? UMBRAL_PANTALLA_DEFECTO))
+                .map((o) => ({
+                    clase: o.clase, nombre: o.nombre, grupo: o.grupo, confianza: Math.round(o.confianza * 1000) / 1000,
+                    caja: (o.caja_norm || []).map(r4),
+                    ...(Array.isArray(o.silueta) ? { silueta: o.silueta.map((p) => aligerar(p).map(([x, y]) => [r4(x), r4(y)])) } : {}),
+                    ...(Array.isArray(o.atributos) ? { atributos: o.atributos.map((a) => ({ id: a.id, nombre: a.nombre, valor: a.valor, prob: Math.round(a.prob * 100) / 100, dudoso: !!a.dudoso })) } : {}),
+                    ...(o.grupo === GRUPO_PROPIO && porClase?.get(o.clase)?.icono ? { icono: porClase.get(o.clase).icono } : {}),
+                })),
         };
     }
 
@@ -271,13 +306,13 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
             return true;
         }
         try {
-            const a = await analizar(f.jpeg, false);
+            const a = await analizar(f.jpeg, false, true);
             if (propio?.jpeg) {
                 // Se guarda en MinIO (bucket de visión): la ficha lo muestra al lado de la captura.
                 const clave = `verificacion/${new Date().toISOString().slice(0, 10)}/${d.id}.jpg`;
                 try {
                     await subir(clave, propio.jpeg);
-                    a.propio = { foto: clave, despuesMs: Date.now() - d.timestamp.getTime(), ...(await analizar(propio.jpeg, false)) };
+                    a.propio = { foto: clave, despuesMs: Date.now() - d.timestamp.getTime(), ...(await analizar(propio.jpeg, false, true)) };
                 } catch (e) { log("verificación: cuadro propio:", e.message); }
             }
             await prisma.detection.update({ where: { id: d.id }, data: { verifEstado: "OK", verifAnalisis: a, verifAt: new Date(), verifMs: Date.now() - t0, verifError: null } });
@@ -328,7 +363,7 @@ function iniciar({ prisma, log, vision, estado, bajar, subir, permitidas = () =>
                 const img = await foto(f.foto);
                 if (!img) return false; // la app no contestó: se reintenta en la próxima vuelta
                 if (img.falta) continue; // la retención ya la borró
-                central.push({ camara: String(f.camara), foto: String(f.foto), momento: f.momento, ...(await analizar(img.jpeg, false)) });
+                central.push({ camara: String(f.camara), foto: String(f.foto), momento: f.momento, ...(await analizar(img.jpeg, false, true)) });
                 await dormir(PAUSA_MS);
             }
             if (!central.length) { await fin({ verifEstado: fuera.length ? "FUERA" : "SIN_FOTO" }); contadores.sinFoto++; emitir("detection_verified", { id: d.id }); return true; }

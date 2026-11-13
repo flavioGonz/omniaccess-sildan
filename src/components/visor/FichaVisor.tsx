@@ -4,6 +4,8 @@ import { Loader2, Sparkles, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { COLOR_GRUPO, COLOR_OTRO, ICONO_CLASE, ICONO_GRUPO } from "@/components/vision/CapaAnalisis";
 import type { ObjetoAnalizado } from "@/lib/vision-capa";
+import { iconoPropio, useNombresPropios } from "@/lib/nombres-propios";
+import { IconoClase } from "@/components/vision/iconos-clase";
 
 /**
  * Las piezas de la ficha del visor del evento.
@@ -131,6 +133,8 @@ const OBJETOS_MAX = 8;
  * sin leer. La confianza va a la derecha, en columna, que es donde se compara.
  */
 export function ListaVision({ objetos }: { objetos: ObjetoAnalizado[] }) {
+    // Lo entrenado acá sale con el ícono que se le eligió, igual que sobre la foto.
+    useNombresPropios();
     const orden = (g: string) => { const i = ORDEN_GRUPO.indexOf(g); return i < 0 ? 99 : i; };
     const lista = [...objetos].sort((a, b) => orden(a.grupo) - orden(b.grupo) || b.confianza - a.confianza);
     return (
@@ -141,7 +145,9 @@ export function ListaVision({ objetos }: { objetos: ObjetoAnalizado[] }) {
                 const rasgos = rasgosDe(o);
                 return (
                     <li key={i} className="grid grid-cols-[16px_1fr_auto] items-baseline gap-2 py-[3px] text-[12.5px] leading-snug">
-                        <Ico size={13} className="self-center" style={{ color }} />
+                        {o.grupo === "propio"
+                            ? <span className="self-center inline-flex" style={{ color }}><IconoClase icono={o.icono || iconoPropio(o.clase)} size={13} /></span>
+                            : <Ico size={13} className="self-center" style={{ color }} />}
                         <span className="min-w-0">
                             <span className="font-semibold text-white/95 first-letter:uppercase inline-block">{o.nombre}</span>
                             {rasgos.length > 0 && <span className="text-white/65">{" — "}{rasgos.join(", ")}</span>}
