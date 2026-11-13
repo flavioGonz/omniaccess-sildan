@@ -250,3 +250,93 @@ export async function clipDeInstante(p: { deviceId: string; instante: number; an
     }
     return { ok: true, archivo: destino, nombre, url: `/api/clip/${nombre}`, fuente: fuente.tipo, ventana, bytes, ...edicion };
 }
+
+/** Un tramo de una grabación hecha desde el vivo: qué canal y de cuándo a cuándo. */
+export type TramoGrabado = { deviceId?: string | null; nvrId?: string | null; ch?: number | null; desde: number; hasta: number };
+/** Cuántos tramos lleva como mucho una grabación (cambios de cámara). */
+export const TRAMOS_MAX = 8;
+/** Un tramo más corto que esto no se corta: es el instante de pasar de una cámara a otra. */
+const TRAMO_MINIMO_SEG = 1;
+
+/**
+ * El clip de una grabación hecha desde el vivo que pasó por VARIAS cámaras (13/11, Nico: «el
+ * botón de grabación debe continuar grabando mientras cambiamos de cámara vía el ícono de visual
+ * track»). Cada tramo se corta de la grabación de su canal, en orden, y se unen en un solo MP4
+ * con UNA intro.
+ *
+ * - El total no pasa de ENVIO_MAX_SEG, como cualquier clip que se manda a mano: lo que sobra se
+ *   recorta del final. Los tramos se cortan de a uno (no se le abren varias reproducciones a la
+ *   vez al grabador), así que tarda lo mismo que un clip de ese largo de una sola cámara.
+ * - Un tramo que su grabador no entrega se saltea y se dice cuántos faltaron; si no sale ninguno,
+ *   no hay clip. Nunca se rellena.
+ * - Las cámaras pueden grabar en tamaños distintos: al unir se lleva todo al alto de Ajustes
+ *   (720 si está en «original»), con bandas si la proporción no coincide. Se recodifica una vez.
+ */
+export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | null): Promise<ResultadoClip & { tramos?: number; salteados?: number }> {
+    let resta = ENVIO_MAX_SEG;
+    const tramos: (TramoGrabado & { seg: number })[] = [];
+    for (const t of pedidos.slice(0, TRAMOS_MAX)) {
+        const seg = Math.min(resta, Math.round((t.hasta - t.desde) / 1000));
+        if (seg < TRAMO_MINIMO_SEG) continue;
+        tramos.push({ ...t, seg }); resta -= seg;
+        if (resta <= 0) break;
+    }
+    const total = tramos.reduce((x, t) => x + t.seg, 0);
+    const ventana: Ventana = { antes: 0, despues: total };
+    if (!tramos.length) return { ok: false, motivo: "la grabación es demasiado corta", ventana, fuente: null };
+
+    // El último tramo tiene que estar grabado (los anteriores lo están desde antes).
+    const falta = Math.max(...tramos.map((t) => t.desde + t.seg * 1000)) + MARGEN_GRABACION_SEG * 1000 - Date.now();
+    if (falta > ESPERA_TOPE_MS) return { ok: false, motivo: "ese tramo todavía no se grabó", ventana, fuente: null };
+    if (falta > 0) await esperar(falta);
+
+    try { fs.mkdirSync(DIR_CLIPS, { recursive: true }); } catch { }
+    purgarClips();
+    const cfg = await configClips();
+    const marca = await marcaAgua();
+    const primero = tramos[0];
+    const dev = primero.deviceId ? await prisma.device.findUnique({ where: { id: primero.deviceId }, select: { name: true } }).catch(() => null) : null;
+    const base = nombreDeClip(cfg.nombre, { camara: tramos.length > 1 ? "Recorrida" : dev?.name || rotulo || null, matricula: null, fecha: new Date(primero.desde), evento: "envio" });
+    const nombre = `${base}_${Date.now().toString(36)}.mp4`;
+    const destino = path.join(DIR_CLIPS, nombre);
+
+    const partes: string[] = [];
+    let fuente: "nvr" | "anillo" | null = null, salteados = 0;
+    for (const [i, t] of tramos.entries()) {
+        const f = await fuenteDeVideo(t.deviceId || "", { nvrId: t.nvrId, ch: t.ch });
+        const parte = `${destino}.t${i}.mp4`;
+        let ok = false;
+        if (f.tipo === "nvr") ok = await cortarDesdeNvr(f.conn, String(f.ch), t.desde, t.seg, parte, { cfg, marcaAgua: marca, topeMs: marca ? 75_000 : undefined });
+        else if (f.tipo === "anillo") ok = (await cortarDesdeAnillo(f.dir, t.desde, t.desde + t.seg * 1000, parte)).ok;
+        let bytes = 0; try { bytes = fs.statSync(parte).size; } catch { }
+        if (ok && bytes >= 1500) { partes.push(parte); fuente = fuente || f.tipo; }
+        else { salteados++; try { fs.unlinkSync(parte); } catch { } }
+    }
+    const limpiar = () => { for (const x of partes) try { fs.unlinkSync(x); } catch { } };
+    if (!partes.length) return { ok: false, motivo: "el grabador no entregó grabación de ese horario", ventana, fuente: null };
+
+    if (partes.length === 1) fs.renameSync(partes[0], destino);
+    else {
+        // Unir: todo al mismo tamaño y cadencia, y recodificar una vez (los tramos vienen de cámaras distintas).
+        const alto = cfg.altura || 720, ancho = Math.round((alto * 16) / 9 / 2) * 2;
+        const filtro = partes.map((_, i) => `[${i}:v]scale=${ancho}:${alto}:force_original_aspect_ratio=decrease,pad=${ancho}:${alto}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=25[v${i}]`).join(";")
+            + `;${partes.map((_, i) => `[v${i}]`).join("")}concat=n=${partes.length}:v=1:a=0[v]`;
+        const unido = await ffmpeg(["-y", "-loglevel", "error", ...partes.flatMap((x) => ["-i", x]), "-filter_complex", filtro, "-map", "[v]", "-an",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-movflags", "+faststart", destino], 90_000);
+        limpiar();
+        if (!unido) { try { fs.unlinkSync(destino); } catch { } return { ok: false, motivo: "no se pudieron unir los tramos", ventana, fuente }; }
+    }
+    let bytes = 0; try { bytes = fs.statSync(destino).size; } catch { }
+    if (bytes < 1500) { try { fs.unlinkSync(destino); } catch { } return { ok: false, motivo: "el clip salió vacío", ventana, fuente }; }
+
+    let edicion: { editado?: boolean; ancho?: number; alto?: number; segundos?: number } = {};
+    if (marca) {
+        const e = await editarClip(destino, {
+            titulo: partes.length > 1 ? "Recorrida" : dev?.name || rotulo || "Cámara",
+            lineas: [cuandoLargo(new Date(primero.desde)), partes.length > 1 ? `${partes.length} cámaras` : ""], conMarca: fuente === "anillo",
+        });
+        if (e.ok) { edicion = { editado: true, ancho: e.ancho, alto: e.alto, segundos: e.segundos }; try { bytes = fs.statSync(destino).size; } catch { } }
+        else console.warn(`[clip] grabación sin intro: ${e.motivo}`);
+    }
+    return { ok: true, archivo: destino, nombre, url: `/api/clip/${nombre}`, fuente: fuente || "nvr", ventana, bytes, ...edicion, tramos: partes.length, salteados };
+}

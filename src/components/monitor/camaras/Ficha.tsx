@@ -280,37 +280,67 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
      * marca de los demás clips. Por eso hace falta que el canal grabe, y por eso al detener hay que
      * esperar: el grabador entrega a tiempo real.
      */
+    /** Desde cuándo corre el tramo de ESTE canal (null = no se está grabando). */
     const [rec, setRec] = useState<number | null>(null);
     const [recSeg, setRecSeg] = useState(0);
     const [armando, setArmando] = useState(false);
-    const [clip, setClip] = useState<{ nombre: string; url: string; guardado: string | null; foto: string | null; segundos: number; desde: number } | null>(null);
+    const [clip, setClip] = useState<{ nombre: string; url: string; guardado: string | null; foto: string | null; segundos: number; desde: number; camaras: number; salteados: number } | null>(null);
     const [errorClip, setErrorClip] = useState<string | null>(null);
     const [compartiendo, setCompartiendo] = useState(false);
     const puedeGrabar = !pantalla && hayGrabacion;
     // Mientras se graba, se arma o se mira el clip, la ficha no se cierra sola.
     const ocupadaRef = useRef(false); ocupadaRef.current = rec != null || armando || !!clip;
-    const canalRec = useRef({ deviceId: c?.equipoId || null, nvrId: c?.nvrId || null, ch: c?.ch ?? null }); canalRec.current = { deviceId: c?.equipoId || null, nvrId: c?.nvrId || null, ch: c?.ch ?? null };
-    const detener = useCallback(async (desde: number) => {
+    /*
+     * La grabación SIGUE al cambiar de cámara (13/11, Nico: «debe continuar grabando mientras
+     * cambiamos de cámara vía el ícono de visual track»): es lo que hace falta para seguir a
+     * alguien de una cámara a la otra. Cada cámara es un tramo; al cambiar se cierra el de la que
+     * se deja y arranca el de la que llega, y al detener el clip los une en orden. Un canal que no
+     * graba no aporta tramo (y se dice mientras se está en él).
+     */
+    type TramoRec = { deviceId: string | null; nvrId: string | null; ch: number | null; desde: number; hasta: number };
+    const tramosRec = useRef<TramoRec[]>([]);
+    const canalAhora = { deviceId: c?.equipoId || null, nvrId: c?.nvrId || null, ch: c?.ch ?? null, graba: hayGrabacion, nombre: c?.nombre || "" };
+    /** El canal del tramo que está corriendo: al cambiar de cámara todavía es el anterior. */
+    const canalDeTramo = useRef(canalAhora);
+    const recRef = useRef<number | null>(null); recRef.current = rec;
+    const cerrarTramo = (hasta: number) => {
+        const k = canalDeTramo.current, desde = recRef.current;
+        if (desde != null && k.graba && hasta - desde >= 1000) tramosRec.current.push({ deviceId: k.deviceId, nvrId: k.nvrId, ch: k.ch, desde, hasta });
+    };
+    const yaGrabado = () => tramosRec.current.reduce((x, t) => x + (t.hasta - t.desde), 0);
+    const empezar = () => { tramosRec.current = []; canalDeTramo.current = canalAhora; setClip(null); setErrorClip(null); setRec(Date.now()); };
+    const detener = useCallback(async () => {
         const hasta = Date.now();
+        cerrarTramo(hasta);
+        const tramos = tramosRec.current; tramosRec.current = [];
+        const rotulo = canalDeTramo.current.nombre;
         setRec(null);
-        if (hasta - desde < REC_MINIMO_MS) { setErrorClip("Muy corto: mantené la grabación al menos un par de segundos."); return; }
+        const total = tramos.reduce((x, t) => x + (t.hasta - t.desde), 0);
+        if (total < REC_MINIMO_MS) { setErrorClip(tramos.length ? "Muy corto: mantené la grabación al menos un par de segundos." : "No quedó nada grabado: los canales por los que pasaste no graban."); return; }
         setArmando(true); setErrorClip(null);
         try {
-            const r = await fetch("/api/clip/grabar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...canalRec.current, desde, hasta }), signal: AbortSignal.timeout(170_000) });
+            const r = await fetch("/api/clip/grabar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tramos, rotulo }), signal: AbortSignal.timeout(170_000) });
             const j = await r.json().catch(() => null);
             if (!j?.ok) setErrorClip(`No se pudo armar el clip: ${j?.motivo || j?.error || `el servidor respondió ${r.status}`}.`);
-            else setClip({ nombre: j.nombre, url: j.url, guardado: j.guardado || null, foto: j.foto || null, segundos: Number(j.segundos) || Math.round((hasta - desde) / 1000), desde });
+            else setClip({ nombre: j.nombre, url: j.url, guardado: j.guardado || null, foto: j.foto || null, segundos: Number(j.segundos) || Math.round(total / 1000), desde: tramos[0].desde, camaras: Number(j.camaras) || 1, salteados: Number(j.salteados) || 0 });
         } catch { setErrorClip("No se pudo armar el clip: el servidor no contestó a tiempo."); }
         setArmando(false);
-    }, []);
-    // El cronómetro, y el tope: pasado REC_TOPE_MS se detiene sola (más largo no se puede mandar).
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // El cronómetro (de toda la grabación, no del tramo) y el tope: pasado REC_TOPE_MS se detiene sola.
     useEffect(() => {
         if (rec == null) { setRecSeg(0); return; }
-        const t = setInterval(() => { const ms = Date.now() - rec; setRecSeg(Math.floor(ms / 1000)); if (ms >= REC_TOPE_MS) void detener(rec); }, 250);
+        const t = setInterval(() => { const ms = yaGrabado() + (canalDeTramo.current.graba ? Date.now() - rec : 0); setRecSeg(Math.floor(ms / 1000)); if (ms >= REC_TOPE_MS) void detener(); }, 250);
         return () => clearInterval(t);
     }, [rec, detener]);
-    // Otro canal: lo que se estaba grabando o mostrando era del anterior.
-    useEffect(() => { setRec(null); setClip(null); setErrorClip(null); setCompartiendo(false); }, [c?.clave]);
+    // Otro canal. Grabando: se cierra el tramo del que se deja y arranca el del que llega. Si la
+    // ficha se cerró (sin canal), la grabación se descarta: no hay dónde mostrar el clip.
+    const claveRec = useRef<string | null>(c?.clave ?? null);
+    useEffect(() => {
+        if (claveRec.current === (c?.clave ?? null)) return;
+        claveRec.current = c?.clave ?? null;
+        if (recRef.current != null && c) { const ahora = Date.now(); cerrarTramo(ahora); canalDeTramo.current = canalAhora; setRec(ahora); return; }
+        tramosRec.current = []; setRec(null); setClip(null); setErrorClip(null); setCompartiendo(false);
+    }, [c?.clave]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => { if (!errorClip) return; const t = setTimeout(() => setErrorClip(null), 9000); return () => clearTimeout(t); }, [errorClip]);
     useEffect(() => {
         setPtz(false); setVerPtz(false);
@@ -508,9 +538,9 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                     <Icono onClick={() => setVerPtz((x) => !x)} activo={verPtz} titulo={verPtz ? "Ocultar el joystick" : "Mover la cámara (PTZ)"}><Joystick size={18} /></Icono>
                                 )}
                                 {c.geom && <Icono onClick={() => setVerGeom((x) => !x)} activo={verGeom} titulo={verGeom ? "Ocultar la línea y la zona" : "Mostrar la línea y la zona de la cámara"}><Spline size={18} /></Icono>}
-                                {puedeGrabar && grabacion == null && (
-                                    <Icono onClick={() => (rec != null ? void detener(rec) : (setClip(null), setErrorClip(null), setRec(Date.now())))} activo={rec != null}
-                                        titulo={rec != null ? "Detener y armar el clip" : armando ? "Armando el clip anterior…" : `Grabar un clip de lo que se ve (hasta ${REC_TOPE_MS / 1000} s)`}>
+                                {(puedeGrabar || rec != null) && grabacion == null && (
+                                    <Icono onClick={() => (rec != null ? void detener() : empezar())} activo={rec != null}
+                                        titulo={rec != null ? "Detener y armar el clip" : armando ? "Armando el clip anterior…" : `Grabar un clip de lo que se ve (hasta ${REC_TOPE_MS / 1000} s; sigue grabando si cambiás de cámara)`}>
                                         {rec != null ? <Square size={15} fill="currentColor" /> : <Circle size={17} className="text-[var(--mal)]" fill="currentColor" />}
                                     </Icono>
                                 )}
@@ -558,12 +588,14 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
 
                     {/* Grabando: el punto rojo y el cronómetro, siempre a la vista (no se van con los controles), y detener de un toque. */}
                     {rec != null && (
-                        <button type="button" data-capa-tocable onClick={() => void detener(rec)} {...tip("Detener y armar el clip")}
+                        <button type="button" data-capa-tocable onClick={() => void detener()} {...tip("Detener y armar el clip")}
                             className="absolute left-4 sm:left-7 bottom-5 sm:bottom-7 z-10 inline-flex items-center gap-2.5 h-11 pl-3.5 pr-4 rounded-full visor-panel text-white">
                             <span className="h-2.5 w-2.5 rounded-full bg-[var(--mal)] animate-pulse" />
                             <span className="text-[13px] font-bold tracking-[0.08em]">REC</span>
                             <span className="text-[14px] font-semibold tabular-nums">{String(Math.floor(recSeg / 60)).padStart(2, "0")}:{String(recSeg % 60).padStart(2, "0")}</span>
                             <span className="text-[11.5px] text-white/60 tabular-nums">/ {String(Math.floor(REC_TOPE_MS / 60_000)).padStart(2, "0")}:{String((REC_TOPE_MS / 1000) % 60).padStart(2, "0")}</span>
+                            {tramosRec.current.length + (hayGrabacion ? 1 : 0) > 1 && <span className="text-[11.5px] text-white/75 tabular-nums">· {tramosRec.current.length + (hayGrabacion ? 1 : 0)} cámaras</span>}
+                            {!hayGrabacion && <span className="text-[11.5px] text-[color-mix(in_oklab,var(--aviso)_70%,#fff)]">· este canal no graba</span>}
                             <Square size={13} fill="currentColor" className="ml-1" />
                         </button>
                     )}
@@ -580,7 +612,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                         <div data-capa-tocable className="absolute left-4 sm:left-7 bottom-5 sm:bottom-7 z-10 w-[320px] max-w-[86vw] rounded-[14px] visor-panel text-white overflow-hidden">
                             <video src={clip.url} controls muted playsInline preload="metadata" poster={getImagePath(clip.foto) || undefined} className="block w-full aspect-video bg-black" />
                             <div className="px-3 pt-2 pb-2.5">
-                                <div className="text-[13px] font-semibold">Clip de {clip.segundos} s · {horaCorta(new Date(clip.desde).toISOString())}</div>
+                                <div className="text-[13px] font-semibold">Clip de {clip.segundos} s{clip.camaras > 1 ? ` · ${clip.camaras} cámaras` : ""} · {horaCorta(new Date(clip.desde).toISOString())}</div>
+                                {clip.salteados > 0 && <div className="text-[11.5px] text-[color-mix(in_oklab,var(--aviso)_70%,#fff)]">{clip.salteados === 1 ? "Un tramo no salió" : `${clip.salteados} tramos no salieron`}: su grabador no entregó ese horario.</div>}
                                 <div className="text-[11.5px] text-white/65">{clip.guardado ? "Guardado en el almacén." : "No se pudo guardar en el almacén: bajalo ahora, en unos minutos se borra."}</div>
                                 <div className="mt-2 flex items-center gap-1.5">
                                     <a href={getImagePath(clip.guardado) || clip.url} download={clip.nombre} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-white text-black text-[12.5px] font-semibold"><Download size={14} /> Descargar</a>
@@ -592,7 +625,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                     )}
                     {clip && compartiendo && (
                         <CompartirEvento clipHecho={clip.nombre} foto={clip.foto} deviceId={c.equipoId} deviceName={c.nombre} instante={new Date(clip.desde)}
-                            titulo={`Clip de ${c.nombre}`} lineas={[`Grabado desde el vivo · ${clip.segundos} s`]} onCerrar={() => setCompartiendo(false)} />
+                            titulo={clip.camaras > 1 ? "Recorrida grabada desde el vivo" : `Clip de ${c.nombre}`} lineas={[`Grabado desde el vivo · ${clip.segundos} s${clip.camaras > 1 ? ` · ${clip.camaras} cámaras` : ""}`]} onCerrar={() => setCompartiendo(false)} />
                     )}
                     {/* Mientras se busca en el registro cuándo llegó (suele ser menos de un segundo). */}
                     {buscandoLlegada && (
