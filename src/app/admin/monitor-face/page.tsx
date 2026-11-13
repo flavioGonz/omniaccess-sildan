@@ -212,6 +212,12 @@ export default function MonitorFace() {
         }
         return meta;
     };
+    /*
+     * Una cara con número (R-0042) es alguien que el modo face ya vio pero nadie registró
+     * (vision-rostros.js, 13/11): no es «reconocido», va en ámbar, y se dice cuántas veces vino.
+     */
+    const esAnonimo = (event: any, meta: any) => !event.user && /^R-\d{4,}$/.test(meta.Rostro || "");
+    const conVeces = (meta: any) => (/^R-\d{4,}$/.test(meta.Rostro || "") && Number(meta.Veces) > 1 ? `${meta.Rostro} · ${meta.Veces} visitas` : meta.Rostro);
 
     // ─── FACE TILE — photo-first, no box, data overlaid ───
     const FaceTile = useMemo(() => ({ event, size = "sm" }: { event: FullAccessEvent; size?: "sm" | "md" | "lg" }) => {
@@ -220,8 +226,8 @@ export default function MonitorFace() {
         const snapUrl = getImg(event.snapshotPath || event.imagePath);
         const imgSrc = faceUrl || snapUrl;
         const similarity = meta.Similitud ? parseInt(meta.Similitud) : null;
-        const personName = event.user?.name || meta.Rostro;
-        const isRecognized = !!personName;
+        const personName = event.user?.name || conVeces(meta);
+        const isRecognized = !!personName && !esAnonimo(event, meta);
         const isDenied = event.decision !== "GRANT";
 
         const sizeClasses = {
@@ -323,8 +329,8 @@ export default function MonitorFace() {
         const caraFrac = meta.CaraFrac ? parseInt(meta.CaraFrac) : null;
         const tamano = caraFrac != null ? Math.max(0, Math.min(100, Math.round((caraFrac / 22) * 100))) : null;
         const calidad = calidadRostro(deteccion, caraFrac);
-        const personName = event.user?.name || meta.Rostro;
-        const isRecognized = !!personName && personName.toLowerCase() !== "desconocido";
+        const personName = event.user?.name || conVeces(meta);
+        const isRecognized = !!personName && personName.toLowerCase() !== "desconocido" && !esAnonimo(event, meta);
         const isDenied = event.decision !== "GRANT";
         const reticula = isDenied ? "border-red-500/50" : "border-emerald-500/50";
         const colCal = calidad == null ? "text-muted-foreground" : calidad >= 70 ? "text-emerald-400" : calidad >= 45 ? "text-amber-400" : "text-red-400";

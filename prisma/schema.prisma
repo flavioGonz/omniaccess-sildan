@@ -1262,6 +1262,68 @@ model AccionSistema {
   @@index([cuando])
 }
 
+/// Una persona vista por su cara (modo face, lib-rostros.js). Nace sola la primera vez que una cara
+/// nítida no se parece a ninguna conocida; cada vez que vuelve a aparecer se le suma. Mientras nadie
+/// la registra es anónima («R-0042») y se olvida sola a los FACE_ANONIMOS_DIAS sin verla.
+model Rostro {
+  id           String   @id @default(cuid())
+  /// El número corto con el que se la nombra en pantalla: R-0042.
+  numero       Int      @unique @default(autoincrement())
+  /// Cómo se llama esta identidad en el motor (CompreFace): «rostro-<id>» si nació sola, o el
+  /// nombre de la persona si se enroló a mano en el padrón.
+  sujeto       String   @unique
+  /// La persona del padrón, cuando alguien dijo quién es. Sin relación a propósito: borrar a la
+  /// persona no borra lo visto, la identidad vuelve a ser anónima (se limpia al leer).
+  userId       String?
+  /// Un nombre puesto a mano sin crear una persona («el del reparto de agua»).
+  apodo        String?
+  /// La mejor cara, en el bucket de visión (rostros/<id>.jpg): no vence con la retención.
+  foto         String?
+  /// Alto de la cara de esa foto, en px: con qué calidad se la conoce.
+  calidad      Int      @default(0)
+  primeraVez   DateTime
+  ultimaVez    DateTime
+  /// Visitas: verla de nuevo dentro de los 10 minutos es la misma visita.
+  veces        Int      @default(1)
+  /// El nombre de la cámara que la vio por última vez.
+  ultimaCamara String?
+  /// Cuántas caras suyas tiene el motor para compararla.
+  ejemplos     Int      @default(1)
+  /// La identidad a la que se pareció al nacer sin llegar al umbral: la sugerencia de unirlas.
+  parecidaA    String?
+  parecido     Float?
+  /// Alguien miró la sugerencia y dijo que no son la misma: no se vuelve a ofrecer.
+  noEs         String[] @default([])
+  createdAt    DateTime @default(now())
+  pasadas      RostroPasada[]
+
+  @@index([ultimaVez])
+  @@index([userId])
+}
+
+/// Cada vez que una cámara vio a un Rostro. Varias seguidas hacen una visita (Rostro.veces).
+model RostroPasada {
+  id        String   @id @default(cuid())
+  rostroId  String
+  rostro    Rostro   @relation(fields: [rostroId], references: [id], onDelete: Cascade)
+  deviceId  String?
+  camara    String?
+  cuando    DateTime
+  /// Cuánto se pareció a la identidad. Null en la pasada que la fundó.
+  similitud Float?
+  /// Alto de la cara en px y confianza de la detección, para volver a medir los umbrales.
+  px        Int?
+  prob      Float?
+  /// El recorte de la cara y el cuadro de esa pasada: viven lo que la retención de detecciones.
+  cara      String?
+  cuadro    String?
+  /// El acceso FACE que se escribió por esta pasada.
+  eventoId  String?
+
+  @@index([rostroId, cuando])
+  @@index([cuando])
+}
+
 /// Lo que vio el detector de objetos (omni-vision) en el registro de detecciones: UNA fila por
 /// pista de seguimiento, no por cuadro. Una persona que cruza la cámara en 12 s es una fila con
 /// su mejor recorte, el cuadro de ese momento, sus atributos y su recorrido; contarla doce veces

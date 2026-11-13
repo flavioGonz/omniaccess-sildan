@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, DoorOpen, Flame, ListOrdered, SquareParking, FlaskConical, GraduationCap, ListVideo, ScanEye, ScanLine, ScanSearch, ShieldCheck, Sparkles, Spline, type LucideIcon } from "lucide-react";
+import { ChevronDown, DoorOpen, Flame, ListOrdered, SquareParking, FlaskConical, GraduationCap, ListVideo, ScanEye, ScanFace, ScanLine, ScanSearch, ShieldCheck, Sparkles, Spline, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -41,6 +41,8 @@ export const SECCIONES_OMNIVISION: Seccion[] = [
     { href: "/admin/vision/reglas", rotulo: "Reglas", menu: "Reglas analíticas", icono: Spline },
     { href: "/admin/vision/detecciones", rotulo: "Detecciones", menu: "Detecciones", icono: ListVideo },
     { href: "/admin/vision/buscar", rotulo: "Buscar", menu: "Búsqueda de objetos", icono: ScanSearch },
+    // Las caras que vio el modo face, cada una con su número y sus visitas (13/11).
+    { href: "/admin/vision/rostros", rotulo: "Rostros", menu: "Rostros", icono: ScanFace },
     { href: "/admin/vision/relecturas", rotulo: "Relecturas", menu: "Relecturas", icono: ScanLine },
     { href: "/admin/vision/verificacion", rotulo: "Verificación", menu: "Doble verificación", icono: ShieldCheck },
 ];

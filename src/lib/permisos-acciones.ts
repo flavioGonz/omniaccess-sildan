@@ -71,6 +71,8 @@ export const ACCIONES: Record<string, Archivo> = {
         },
     },
     "driver-models": { defecto: P("dispositivos.editar") },
+    // Las identidades por rostro: nombrarlas, unirlas y olvidarlas (mirarlas es una lectura, se revisa por dentro).
+    rostros: { defecto: P("vision.config", "rostros.listas") },
     // Abrir una puerta desde la ficha del portero: quien opera el acceso o quien administra equipos.
     portero: { defecto: P("dispositivos.editar"), por: { abrirPuertaPortero: P("lpr.operar", "dispositivos.editar") } },
     empresas: { defecto: P("ajustes") },

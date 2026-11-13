@@ -37,6 +37,7 @@ const relecturas = require("./vision-relectura");
 const reglasVision = require("./vision-reglas");
 const zonasEntrenables = require("./vision-zonas");
 const capturasProgramadas = require("./vision-capturas");
+const rostros = require("./vision-rostros");
 const lugaresVehiculos = require("./lib-lugares-vehiculos");
 const analisisFotos = require("./vision-analisis");
 const vocabIndice = require("./vision-vocab-indice");
@@ -257,9 +258,11 @@ async function leerAjustes() {
     await asegurarCanales(canalesNvr.map((x) => x.id)).catch(() => null);
     // Modo face (CompreFace): sólo en las cámaras faciales elegidas y con el módulo prendido.
     // Config del motor en los mismos Settings que usa la app (lib/compareface.ts).
-    const [mFace, fCams, fUmbral, fUrl, fKey] = await Promise.all([
+    const [mFace, fCams, fUmbral, fUrl, fKey, fMisma, fParecida, fPx, fAnon] = await Promise.all([
         ajuste("MODULE_FACE"), ajuste("FACE_CAMARAS"), ajuste("FACE_UMBRAL"),
         ajuste("COMPAREFACE_URL"), ajuste("COMPAREFACE_KEY"),
+        // Identidad por rostro (lib-rostros.js): vacíos = los valores por defecto de ahí.
+        ajuste("FACE_UMBRAL_MISMA"), ajuste("FACE_UMBRAL_PARECIDA"), ajuste("FACE_CARA_PX_MIN"), ajuste("FACE_ANONIMOS_DIAS"),
     ]);
     ajustes = {
         activo: analiticas.registro !== false,
@@ -301,6 +304,7 @@ async function leerAjustes() {
         faceUmbral: Number(fUmbral) || 0.89,
         faceUrl: (fUrl || "http://127.0.0.1:8001").replace(/\/$/, ""),
         faceKey: fKey || "",
+        faceMisma: fMisma, faceParecida: fParecida, facePxMin: fPx, faceAnonDias: fAnon,
         leidos: Date.now(),
     };
     reglero?.cargar(json(reglas, []), analiticas);
@@ -411,6 +415,7 @@ async function abrir(cam, o, jpeg, r, ahora) {
     p.escrita = Date.now();
     abiertas.set(`${cam.id}:${o.pista}`, p);
     await cuadroParaRotulo(cam, p, o);
+    await rostrero?.cuadroPrincipal(cam, p, o, ajustes);
     contadores.abiertas++;
 }
 
@@ -426,6 +431,7 @@ async function seguir(p, o, jpeg, r, ahora) {
         await Promise.all([subir(p.recorte, await recortar(jpeg, o.caja_norm, r.ancho, r.alto)), subir(p.foto, jpeg)]);
         mejoro = true;
         await cuadroParaRotulo({ id: p.deviceId }, p, o);
+        await rostrero?.cuadroPrincipal({ id: p.deviceId }, p, o, ajustes);
     }
     if (mejoro || Date.now() - p.escrita > REFRESCO_PISTA_MS) {
         await prisma.objetoVisto.update({ where: { id: p.id }, data: fila(p) });
@@ -492,13 +498,12 @@ async function leerRotulo(p) {
 }
 
 /**
- * Modo face: al cerrar la pista de una PERSONA en una cámara facial, se reconoce su rostro
- * contra el padrón del motor (CompreFace) y se escribe UN acceso FACE por pista — igual que
- * `leerRotulo` lee la chapa de un vehículo al cerrar. Reconoce sobre el mejor cuadro ya
- * guardado (`foto`): el motor detecta la cara dentro del cuadro. Si no hay cara en el cuadro,
- * no escribe evento (así el volumen queda acotado a las pasadas con cara frontal). Va
- * aislado y disparado sin await desde `cerrar`: un fallo o una demora del motor nunca frena
- * el cierre de la pista ni el camino de matrículas.
+ * Modo face: al cerrar la pista de una PERSONA en una cámara facial, se mira su rostro y se
+ * escribe UN acceso FACE por pista — igual que `leerRotulo` lee la chapa de un vehículo al
+ * cerrar. Desde el 13/11 lo hace vision-rostros.js: mira el cuadro del stream principal, y una
+ * cara que no es de nadie conocido funda una identidad en vez de quedar como «Desconocido». Va
+ * disparado sin await desde `cerrar`: un fallo o una demora del motor nunca frena el cierre de
+ * la pista ni el camino de matrículas.
  */
 /** Empuja un evento al socket (lo sirve el proceso de webhooks), como la ruta LPR
  *  (lib/avisar.ts). Es lo que hace que el monitor/face muestre la captura en vivo. */
@@ -516,86 +521,6 @@ function emitirSocket(evento, datos) {
     } catch { /* sin socket el evento igual quedó escrito en la base */ }
 }
 
-async function reconocerRostro(p) {
-    try {
-        const jpeg = await bajar(p.foto);
-        const fd = new FormData();
-        fd.append("file", new Blob([jpeg]), "f.jpg");
-        const r = await fetch(`${ajustes.faceUrl}/api/v1/recognition/recognize?det_prob_threshold=0.7&prediction_count=1`, {
-            method: "POST", headers: { "x-api-key": ajustes.faceKey }, body: fd, signal: AbortSignal.timeout(12000),
-        });
-        const j = await r.json().catch(() => ({}));
-        const cara = (j.result || [])[0];
-        if (!cara) return; // sin cara usable en el cuadro: no es un acceso FACE
-        const top = (cara.subjects || [])[0];
-        const sim = top ? top.similarity : 0;
-        const reconocido = !!top && sim >= ajustes.faceUmbral;
-        // Usuario reconocido (para el monitor: cara enrolada, lote, rol). Sólo si pasa el umbral.
-        let usuario = null;
-        if (reconocido) {
-            usuario = await prisma.user.findFirst({
-                where: { name: top.subject },
-                select: { id: true, name: true, cara: true, role: true, unit: true },
-            }).catch(() => null);
-        }
-        // Recorte de la cara + calidad, con el `box` que devuelve CompreFace (en px del cuadro).
-        // El recorte ES «la captura» del monitor facial; la calidad (confianza de detección y qué
-        // tan grande entró el rostro) valida si esa cara sirve para reconocer o es basura.
-        let faceImg = null, deteccion = null, caraFrac = null;
-        try {
-            const box = cara.box || {};
-            if (box.probability != null) deteccion = Math.round(box.probability * 100);
-            if (box.x_min != null && box.x_max != null) {
-                const meta = await sharp(jpeg).metadata();
-                const fw = meta.width || 0, fh = meta.height || 0;
-                const bw = box.x_max - box.x_min, bh = box.y_max - box.y_min;
-                if (fh) caraFrac = Math.round(100 * bh / fh); // alto del rostro sobre el alto del cuadro
-                const pad = 0.3;
-                const left = Math.max(0, Math.floor(box.x_min - bw * pad));
-                const top0 = Math.max(0, Math.floor(box.y_min - bh * pad));
-                const width = Math.max(1, Math.min(fw - left, Math.ceil(bw * (1 + 2 * pad))));
-                const height = Math.max(1, Math.min(fh - top0, Math.ceil(bh * (1 + 2 * pad))));
-                const crop = await sharp(jpeg).extract({ left, top: top0, width, height })
-                    .resize(320, 320, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
-                const claveCara = p.foto.replace(/-f\.jpg$/, "-cara.jpg");
-                await subir(claveCara, crop);
-                faceImg = "/api/vision/imagen/" + claveCara;
-            }
-        } catch (e) { /* si el recorte falla, el acceso igual se registra sin él */ }
-        // Claves que parsea el monitor/face: `Rostro`, `Similitud`, `FaceImage`, `Deteccion`, `CaraFrac`.
-        const details = [
-            reconocido ? `Rostro: ${top.subject}` : "Rostro: Desconocido",
-            top ? `Similitud: ${Math.round(sim * 100)}%` : null,
-            faceImg ? `FaceImage: ${faceImg}` : null,
-            deteccion != null ? `Deteccion: ${deteccion}%` : null,
-            caraFrac != null ? `CaraFrac: ${caraFrac}` : null,
-            "Source: OmniVision",
-        ].filter(Boolean).join(", ");
-        const ev = await prisma.accessEvent.create({
-            data: {
-                deviceId: p.deviceId,
-                userId: usuario?.id || null,
-                timestamp: p.ultimaVez || new Date(),
-                accessType: "FACE",
-                decision: "GRANT", // es una pasada registrada, no una barrera; el rol decide el resaltado
-                // Ruta SERVIBLE del bucket objetos (no la clave cruda): así el monitor la muestra.
-                snapshotPath: "/api/vision/imagen/" + p.foto,
-                details,
-            },
-        });
-        contadores.rostros = (contadores.rostros || 0) + 1;
-        // En vivo al monitor/face (mismo shape que la ruta LPR: evento + device + user).
-        emitirSocket("access_event", {
-            ...ev,
-            device: { id: p.deviceId, name: p.camara },
-            user: usuario ? { id: usuario.id, name: usuario.name, cara: usuario.cara, role: usuario.role, unit: usuario.unit } : null,
-            direction: ev.direction,
-            watch: reconocido && usuario?.role === "BLACKLISTED" ? { category: "BLACKLISTED" } : null,
-            guest: null,
-        });
-    } catch (e) { contadores.errores++; }
-}
-
 async function cerrar(clave, p) {
     abiertas.delete(clave);
     if (p.hd && ajustes.rotulado) {
@@ -606,9 +531,8 @@ async function cerrar(clave, p) {
     await prisma.objetoVisto.update({ where: { id: p.id }, data: fila(p) }).catch((e) => log("no se pudo cerrar", p.id, e.message));
     contadores.cerradas++;
     // Modo face: una vez por pista, sin await (nunca bloquea el cierre ni el camino de matrículas).
-    if (p.grupo === "persona" && ajustes.moduloFace && ajustes.faceCamaras.has(p.deviceId)) {
-        reconocerRostro(p).catch(() => { });
-    }
+    if (rostrero) rostrero.reconocer(p, ajustes).catch(() => { });
+    else p.hdCara = null;
 }
 
 const round = (v) => Math.round(v * 10000) / 10000;
@@ -624,7 +548,7 @@ function fila(p) {
 // ─────────────────────────── ciclo ───────────────────────────
 
 const porCamara = {};   // estado para la pantalla
-const contadores = { ciclos: 0, analizados: 0, saltados: 0, errores: 0, abiertas: 0, cerradas: 0, rotulos: 0, conTexto: 0, rostros: 0 };
+const contadores = { ciclos: 0, analizados: 0, saltados: 0, errores: 0, abiertas: 0, cerradas: 0, rotulos: 0, conTexto: 0 };
 const huellas = {};
 const ultimoAnalisis = {};
 let ultimoErrorLog = 0;
@@ -763,7 +687,7 @@ async function escribirEstado() {
         carga: { registro: Math.round(registroPorSeg * 100) / 100, eventos: Math.round(cargaEventos * 100) / 100, total: Math.round((registroPorSeg + cargaEventos) * 100) / 100, tope: ajustes.topePorSeg || TOPE_POR_SEG_DEFECTO, ventanaMs: MEDICION_MS },
         relectura: relector ? { activa: ajustes.relectura, ...relector.contadores } : null,
         analisis: analista ? { verificar: ajustes.verificar, lpr: ajustes.analizarLpr, ...analista.contadores } : null,
-        reglas: reglero ? reglero.contadores : null, zonas: zonero ? zonero.contadores : null, capturas: capturero ? capturero.contadores : null, rotulado: ajustes.rotulado,
+        reglas: reglero ? reglero.contadores : null, zonas: zonero ? zonero.contadores : null, capturas: capturero ? capturero.contadores : null, rostros: rostrero ? rostrero.contadores : null, rotulado: ajustes.rotulado,
     });
     await prisma.setting.upsert({ where: { key: "VISION_REGISTRO_ESTADO" }, update: { value: valor }, create: { key: "VISION_REGISTRO_ESTADO", value: valor } }).catch(() => null);
 }
@@ -778,6 +702,7 @@ async function borrar(claves) {
 
 async function limpiar() {
     const limite = new Date(Date.now() - ajustes.retencionDias * 86_400_000);
+    await rostrero?.limpiar(ajustes).catch((e) => log("limpieza de rostros:", e.message));
     // Eventos de las reglas: los de foto viven lo que las detecciones; los cruces, más.
     for (;;) {
         const viejos = await prisma.eventoVision.findMany({ where: { tipo: { not: "CRUCE" }, ts: { lt: limite } }, select: { id: true, foto: true }, take: LIMPIEZA_LOTE });
@@ -810,7 +735,8 @@ async function limpiar() {
         const viejas = await prisma.objetoVisto.findMany({ where: { primeraVez: { lt: limite } }, select: { id: true, recorte: true, foto: true }, take: LIMPIEZA_LOTE });
         if (!viejas.length) return;
         // Con la silueta que el historial calcula a pedido (<id>-s.json, api/history/ov-siluetas): si no existe, S3 lo ignora.
-        const claves = viejas.flatMap((v) => [v.recorte, v.foto, v.foto && v.foto.endsWith("-f.jpg") ? v.foto.replace(/-f\.jpg$/, "-s.json") : null, v.recorte && v.recorte.endsWith("-r.jpg") ? v.recorte.replace(/-r\.jpg$/, "-c.jpg") : null]).filter(Boolean).map((Key) => ({ Key }));
+        // Y con la cara del modo face (<id>-cara.jpg): hasta el 13/11 no se borraba con su pista y quedaba en el bucket para siempre.
+        const claves = viejas.flatMap((v) => [v.recorte, v.foto, v.foto && v.foto.endsWith("-f.jpg") ? v.foto.replace(/-f\.jpg$/, "-s.json") : null, v.foto && v.foto.endsWith("-f.jpg") ? v.foto.replace(/-f\.jpg$/, "-cara.jpg") : null, v.recorte && v.recorte.endsWith("-r.jpg") ? v.recorte.replace(/-r\.jpg$/, "-c.jpg") : null]).filter(Boolean).map((Key) => ({ Key }));
         for (let i = 0; i < claves.length; i += 1000) {
             await (await cliente()).send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: claves.slice(i, i + 1000), Quiet: true } })).catch((e) => log("limpieza S3:", e.message));
         }
@@ -828,6 +754,8 @@ let analista = null;
 let reglero = null;
 let zonero = null;
 let capturero = null;
+/** Identidad por rostro (vision-rostros.js). */
+let rostrero = null;
 
 // ─────────────────────────── carril rápido ───────────────────────────
 
@@ -935,6 +863,7 @@ async function principal() {
     zonero = zonasEntrenables.iniciar({ prisma, log, vision: VISION, subir, borrar, activa: () => ajustes.zonas, segmentar: () => !ajustes.apagadas.has("segmentar"), permitidas });
     // Las capturas programadas del conjunto de entrenamiento: sólo el reloj; la foto la toma la aplicación.
     capturero = capturasProgramadas.iniciar({ prisma, log });
+    rostrero = rostros.crear({ prisma, log, bajar, subir, borrar, emitir: emitirSocket, sharp, go2rtc: GO2RTC });
     let ultEstado = 0, ultLimpieza = 0, hayTrabajo = false;
     while (corriendo) {
         const t0 = Date.now();

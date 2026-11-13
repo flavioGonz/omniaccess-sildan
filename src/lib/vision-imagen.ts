@@ -20,7 +20,9 @@ export async function imagenDeVision(clave: string[] | undefined, w: number): Pr
     if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+-(?:[rfc]|cara)\.jpg$/.test(key) && !/^relectura\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9-]+-[vc]\.jpg$/.test(key)
         && !/^eventos\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key)
         && !/^zonas\/[a-z0-9]+\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key)
-        && !/^entrenamiento\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key))
+        && !/^entrenamiento\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key)
+        // La mejor cara de cada identidad por rostro (rostros/<id>.jpg, vision-rostros.js).
+        && !/^rostros\/[a-z0-9]+\.jpg$/.test(key))
         return new NextResponse("Clave inválida", { status: 400 });
     try {
         const r = await (await getS3Client()).send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
