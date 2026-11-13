@@ -39,9 +39,13 @@ export function rtspDirect(dev: Dev, channel: string): string {
     const user = dev.username || "admin";
     const pass = dev.password || "";
     const cred = pass ? `${enc(user)}:${enc(pass)}@` : `${enc(user)}@`;
-    if (String(dev.brand || "").toUpperCase() === "DAHUA") {
+    const marca = String(dev.brand || "").toUpperCase();
+    // Intelbras usa las mismas rutas que Dahua.
+    if (marca === "DAHUA" || marca === "INTELBRAS") {
         return `rtsp://${cred}${dev.ip}:554/cam/realmonitor?channel=1&subtype=${channel === "102" ? 1 : 0}`;
     }
+    // Akuvox (porteros): una sola ruta, según su documentación; el RTSP hay que habilitarlo en el equipo.
+    if (marca === "AKUVOX") return `rtsp://${cred}${dev.ip}:554/live/ch00_0`;
     return `rtsp://${cred}${dev.ip}:554/Streaming/Channels/${channel}`;
 }
 
@@ -215,7 +219,10 @@ export async function syncLprStream(dev: Dev): Promise<void> {
             return;
         }
 
-        if (dev.deviceType === "CAMERA") {
+        // Un portero o un control de acceso con cámara tiene vivo como una cámara común (13/11: el
+        // portero de Otto es un canal de su NVR; al pasarlo de CAMERA a Portero, guardarlo dejaba de
+        // registrar su stream).
+        if (dev.deviceType === "CAMERA" || dev.deviceType === "DOOR_INTERCOM" || dev.deviceType === "ACCESS_CONTROL") {
             // resolver NVR + canal por el mapa
             try {
                 const map = await getChannelMap();

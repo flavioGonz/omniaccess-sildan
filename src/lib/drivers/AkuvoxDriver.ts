@@ -364,13 +364,14 @@ export class AkuvoxDriver implements IFaceDriver, IRfidDriver, ILogDriver, IStat
         throw new Error("no se pudo recorrer la lista del equipo para comprobar el borrado");
     }
 
-    async triggerRelay(device: Device): Promise<void> {
+    /** `rele`: 1 = relé A (el de siempre), 2 = relé B. Lo elige la ficha del portero (lib/aperturas). */
+    async triggerRelay(device: Device, rele: number = 1): Promise<void> {
         try {
             // Updated Open Door commands based on official API documentation
             // Using specific relay-only credentials fallback if provided: api / Api*2011
             const relayUser = "api";
             const relayPass = "Api*2011";
-            const doorNum = "1"; // Default to Relay A
+            const doorNum = String(Number.isInteger(rele) && rele >= 1 ? rele : 1);
 
 
             // Strategy 1: Unified JSON API (Android/Linux)

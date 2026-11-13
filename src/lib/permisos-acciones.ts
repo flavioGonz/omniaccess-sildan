@@ -71,6 +71,8 @@ export const ACCIONES: Record<string, Archivo> = {
         },
     },
     "driver-models": { defecto: P("dispositivos.editar") },
+    // Abrir una puerta desde la ficha del portero: quien opera el acceso o quien administra equipos.
+    portero: { defecto: P("dispositivos.editar"), por: { abrirPuertaPortero: P("lpr.operar", "dispositivos.editar") } },
     empresas: { defecto: P("ajustes") },
     estacionamiento: { defecto: P("ajustes") },
     "face-admin": { defecto: P("rostros.listas") },

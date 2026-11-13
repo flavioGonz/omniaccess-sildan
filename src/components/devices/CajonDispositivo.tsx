@@ -351,7 +351,7 @@ function TipoDeCamara({ tipo, original, caps, leyendo, modoLpr, modoIntr, onCamb
 
 /* ── El cajón ─────────────────────────────────────────────────────────────────── */
 
-export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenChange, alCalibrar, alCalibrarImagen, alCalibrarLectura, alImportar, alAgregarCentral }: {
+export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenChange, alCalibrar, alCalibrarImagen, alCalibrarLectura, alImportar, alAgregarCentral, alAgregarPortero }: {
     /** Con equipo: ficha de edición. Sin equipo: alta por pasos. */
     device?: any | null;
     groups?: any[];
@@ -368,6 +368,8 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     alImportar?: (d: any) => void;
     /** Alarm Hub: la central de alarma tiene su propio cajón (CajonCentral); el alta lo abre desde acá. */
     alAgregarCentral?: () => void;
+    /** Un portero o un control de acceso no sigue los pasos de una cámara: abre su propia ficha (CajonPortero). */
+    alAgregarPortero?: () => void;
 }) {
     const esEdicion = !!device;
     const [paso, setPaso] = useState(0);
@@ -1150,6 +1152,21 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                         <ChevronRight size={18} className="self-center text-muted-foreground group-hover:text-foreground transition-colors" />
                                     </button>
                                 ))}
+                                {alAgregarPortero && (
+                                    // Portero (13/11): se da de alta en su ficha, que le pregunta al equipo qué puertas tiene.
+                                    <button type="button" onClick={() => { onOpenChange(false); alAgregarPortero(); }}
+                                        className="group text-left rounded-2xl border p-4 flex gap-4 transition-colors border-border bg-card/40 hover:bg-accent/50">
+                                        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border text-cyan-500 bg-cyan-500/10 border-cyan-500/30"><BellRing size={22} /></span>
+                                        <span className="min-w-0 flex-1">
+                                            <span className="flex items-center gap-2 text-[14.5px] font-bold text-foreground">Portero o control de acceso<span {...tip("Ej.: un portero Hikvision DS-KB8113, un Akuvox E12, un Dahua VTO o un Intelbras XPE.")} className="text-muted-foreground/60 hover:text-[var(--accion)]"><Info size={13} /></span></span>
+                                            <span className="block text-[12.5px] text-muted-foreground leading-snug mt-0.5">El equipo del timbre o la lectora que abre una puerta o una barrera. Se le pregunta qué puertas tiene y se abren desde su ficha.</span>
+                                            <span className="mt-2 flex flex-wrap gap-1.5">
+                                                {["Equipo", "Conexión", "Puertas"].map((p, i) => <span key={p} className="px-2 py-0.5 rounded-full bg-muted/70 text-[10.5px] font-semibold text-muted-foreground">{i + 1}. {p}</span>)}
+                                            </span>
+                                        </span>
+                                        <ChevronRight size={18} className="self-center text-muted-foreground group-hover:text-foreground transition-colors" />
+                                    </button>
+                                )}
                                 {alAgregarCentral && (
                                     // Alarm Hub (21/10): no es una cámara, no sigue estos pasos: abre su propio cajón.
                                     <button type="button" onClick={() => { onOpenChange(false); alAgregarCentral(); }}

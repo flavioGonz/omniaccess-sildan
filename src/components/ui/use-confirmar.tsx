@@ -17,15 +17,21 @@ import { ConfirmarEnCajon } from "@/components/ui/cajon-confirmar";
  *
  * Por dentro es el cajón de confirmar de siempre (ConfirmarEnCajon): misma pieza, mismo aspecto.
  */
-type Pedido = { titulo: string; descripcion?: string; accion?: string; resolver: (ok: boolean) => void };
+type Opciones = {
+    titulo: string; descripcion?: string; accion?: string;
+    /** `accion`: confirmar algo que no borra nada (abrir una puerta). Ver ConfirmarEnCajon. */
+    variante?: "borrar" | "accion";
+    icono?: React.ComponentType<{ size?: number }>;
+};
+type Pedido = Opciones & { resolver: (ok: boolean) => void };
 
 export function useConfirmar() {
     const [pedido, setPedido] = useState<Pedido | null>(null);
     const confirmado = useRef(false);
-    const confirmar = useCallback((o: { titulo: string; descripcion?: string; accion?: string }) =>
+    const confirmar = useCallback((o: Opciones) =>
         new Promise<boolean>((resolver) => { confirmado.current = false; setPedido({ ...o, resolver }); }), []);
     const elemento = pedido ? (
-        <ConfirmarEnCajon id="confirmar" open title={pedido.titulo} description={pedido.descripcion} etiquetaAccion={pedido.accion || "Confirmar"}
+        <ConfirmarEnCajon id="confirmar" open title={pedido.titulo} description={pedido.descripcion} etiquetaAccion={pedido.accion || "Confirmar"} variante={pedido.variante} icono={pedido.icono}
             // El cajón cierra (onOpenChange false) antes de avisar el éxito: la respuesta sale de acá.
             onOpenChange={(v) => { if (!v) { pedido.resolver(confirmado.current); setPedido(null); } }}
             onDelete={async () => { confirmado.current = true; return { success: true }; }}

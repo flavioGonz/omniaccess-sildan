@@ -30,7 +30,7 @@ export type CifraConfirmar = { rotulo: string; valor: number | string; tono?: "m
 
 export function ConfirmarEnCajon({
     id, title, description, onDelete, onSuccess, children, escribir, etiquetaAccion,
-    open: abiertoControlado, onOpenChange, pasos, cifras, siFalla, vacio, onFallo,
+    open: abiertoControlado, onOpenChange, pasos, cifras, siFalla, vacio, onFallo, variante = "borrar", icono: Icono,
 }: {
     id: string;
     title: string;
@@ -60,7 +60,18 @@ export function ConfirmarEnCajon({
      * sí se hizo ya cambió la lista de atrás, y hay que refrescarla aunque haya error.
      */
     onFallo?: () => void;
+    /**
+     * `borrar` (lo de siempre): bloque rojo «Lo que se pierde», botón rojo con el tacho.
+     * `accion` (13/11): confirmar algo que no borra nada pero pesa —abrir una puerta—. El
+     * bloque dice «Qué va a pasar» en tono de aviso y el botón es el azul de acción. Antes
+     * abrir una puerta preguntaba «lo que se pierde» con un tacho de basura.
+     */
+    variante?: "borrar" | "accion";
+    /** El ícono del botón de confirmar (por defecto el tacho, o ninguno en `accion`). */
+    icono?: React.ComponentType<{ size?: number }>;
 }) {
+    const esAccion = variante === "accion";
+    const IconoBoton = Icono || (esAccion ? null : Trash2);
     const [abiertoPropio, setAbiertoPropio] = useState(false);
     const abierto = abiertoControlado !== undefined ? abiertoControlado : abiertoPropio;
     const setAbierto = onOpenChange !== undefined ? onOpenChange : setAbiertoPropio;
@@ -102,7 +113,7 @@ export function ConfirmarEnCajon({
     return (
         <Cajon open={abierto} onOpenChange={cambiar}>
             {children && <CajonDisparador asChild>{children}</CajonDisparador>}
-            <CajonContenido ancho="angosto" titulo={title} descripcion="Esta acción no se puede deshacer."
+            <CajonContenido ancho="angosto" titulo={title} descripcion={esAccion ? "Confirmá antes de seguir." : "Esta acción no se puede deshacer."}
                 onEscapeKeyDown={(e) => { if (corriendo) e.preventDefault(); }}
                 onPointerDownOutside={(e) => { if (corriendo) e.preventDefault(); }}
                 pie={
@@ -112,18 +123,18 @@ export function ConfirmarEnCajon({
                             Cancelar
                         </Button>
                         <Button onClick={ejecutar} disabled={corriendo || !habilitado}
-                            className="pleno-mal h-9 px-4 rounded-md text-[13px] font-semibold gap-1.5 hover:brightness-110 disabled:opacity-40">
+                            className={cn("h-9 px-4 rounded-md text-[13px] font-semibold gap-1.5 hover:brightness-110 disabled:opacity-40", !esAccion && "pleno-mal")}>
                             {corriendo ? <><Loader2 size={14} className="animate-spin" /> Trabajando…</>
-                                : fallo ? "Reintentar" : <><Trash2 size={14} /> {etiquetaAccion || "Eliminar"}</>}
+                                : fallo ? "Reintentar" : <>{IconoBoton && <IconoBoton size={14} />} {etiquetaAccion || (esAccion ? "Confirmar" : "Eliminar")}</>}
                         </Button>
                     </>
                 }>
 
                 <CajonSeccion titulo="" className="pt-6 pb-6">
-                    <div className="rounded-[10px] border chip-mal p-4 flex items-start gap-3">
+                    <div className={cn("rounded-[10px] border p-4 flex items-start gap-3", esAccion ? "chip-aviso" : "chip-mal")}>
                         <ShieldAlert size={18} className="shrink-0 mt-0.5" />
                         <div className="min-w-0">
-                            <p className="text-[13px] font-semibold">{vacio ? "No hay nada para eliminar" : "Lo que se pierde"}</p>
+                            <p className="text-[13px] font-semibold">{vacio ? (esAccion ? "No hay nada para hacer" : "No hay nada para eliminar") : esAccion ? "Qué va a pasar" : "Lo que se pierde"}</p>
                             <p className="text-[12.5px] leading-relaxed text-foreground/80 mt-1">{vacio || description}</p>
                         </div>
                     </div>

@@ -78,6 +78,7 @@ import { io } from "socket.io-client";
 import { Badge } from "@/components/ui/badge";
 import { DeviceFormDialog } from "@/components/DeviceFormDialog";
 import { CajonContadorFila } from "@/components/devices/CajonContadorFila";
+import { CajonPortero } from "@/components/devices/CajonPortero";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { DeviceMemoryDialog } from "@/components/DeviceMemoryDialog";
 import { DevicePlateListDialog } from "@/components/DevicePlateListDialog";
@@ -137,6 +138,8 @@ const PLACEHOLDER_BRAND = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="
  * seguimiento interior, que es donde nadie la buscaba.
  */
 const vistaDe = (d: any): string => (esLprDeAcceso(d) ? "LPR_CAMERA" : String(d.deviceType));
+/** Los tipos que se editan con la ficha de porteros (13/11): antes caían en el modal viejo de cuatro fases. */
+const ES_PORTERO = ["DOOR_INTERCOM", "ACCESS_CONTROL"];
 
 const TYPE_META: Record<string, { label: string; color: string; activeClass: string }> = {
     LPR_CAMERA: { label: "Cámaras LPR", color: "text-amber-400", activeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
@@ -364,7 +367,9 @@ export default function DevicesPage() {
     /** La ficha de una central de alarma (CajonCentral): `null` cerrada, "" alta nueva. */
     const [central, setCentral] = useState<string | null>(null);
     const [versionCentrales, setVersionCentrales] = useState(0);
-    const abrir = (d: any) => (d.deviceType === "ALARM_HUB" ? setCentral(d.id) : vistaDe(d) === "QUEUE_COUNTER" ? setContador(d) : ["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(d)) ? setEditando(d) : null);
+    /** La ficha de un portero o un control de acceso (CajonPortero): `null` cerrada, "nuevo" para dar de alta uno. */
+    const [portero, setPortero] = useState<any | "nuevo" | null>(null);
+    const abrir = (d: any) => (d.deviceType === "ALARM_HUB" ? setCentral(d.id) : vistaDe(d) === "QUEUE_COUNTER" ? setContador(d) : ES_PORTERO.includes(vistaDe(d)) ? setPortero(d) : ["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(d)) ? setEditando(d) : null);
     const [calibIntr, setCalibIntr] = useState<any>(null);
     /** El calibrador de la lectura de omni-lpr (disparo, zona, línea de pasada): antes sólo se llegaba desde el monitor de intrusión. */
     const [calibLect, setCalibLect] = useState<any>(null);
@@ -700,11 +705,12 @@ export default function DevicesPage() {
                                                     <span className="h-[17px] px-1.5 rounded bg-muted text-[9px] font-bold uppercase text-muted-foreground grid place-items-center" data-tooltip-id="tt-grab" data-tooltip-content={`${brand.label}${dev.deviceModel ? ` · ${dev.deviceModel}` : ""}`}>
                                                         {(brand.label || dev.brand || "").slice(0, 3)}{dev.deviceModel ? ` · ${String(dev.deviceModel).replace(/^i?DS-/i, "").slice(0, 12)}` : ""}
                                                     </span>
-                                                    <button onClick={() => handleTriggerRelay(dev.id)} disabled={isOpening}
-                                                        data-tooltip-id="tt-grab" data-tooltip-content={dev.doorStatus === "OPEN" ? "Barrera abierta · tocar para accionar el relé" : "Barrera cerrada · tocar para accionar el relé"}
+                                                    {/* Un portero puede tener más de una puerta, y abrir una pide confirmación: el chip lleva a su ficha. */}
+                                                    <button onClick={() => (ES_PORTERO.includes(vistaDe(dev)) ? abrir(dev) : handleTriggerRelay(dev.id))} disabled={isOpening}
+                                                        data-tooltip-id="tt-grab" data-tooltip-content={ES_PORTERO.includes(vistaDe(dev)) ? "Ver sus puertas y abrirlas" : dev.doorStatus === "OPEN" ? "Barrera abierta · tocar para accionar el relé" : "Barrera cerrada · tocar para accionar el relé"}
                                                         className={cn("h-[17px] px-1.5 rounded text-[9px] font-bold uppercase inline-flex items-center gap-1 border transition-colors",
                                                             isOpening ? "bg-emerald-500 text-white border-emerald-500" : dev.doorStatus === "OPEN" ? "bg-red-500/15 text-red-500 border-red-500/30 animate-pulse" : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20")}>
-                                                        {isOpening ? <RefreshCw size={9} className="animate-spin" /> : dev.doorStatus === "OPEN" ? <Unlock size={9} /> : <Zap size={9} />} {isOpening ? "..." : "Relé"}
+                                                        {isOpening ? <RefreshCw size={9} className="animate-spin" /> : dev.doorStatus === "OPEN" ? <Unlock size={9} /> : <Zap size={9} />} {isOpening ? "..." : ES_PORTERO.includes(vistaDe(dev)) ? "Puertas" : "Relé"}
                                                     </button>
                                                     {dev.deviceType === "LPR_CAMERA" && dev.brand === "HIKVISION" && (
                                                         <span className="h-[17px] px-1.5 rounded bg-blue-500/10 text-blue-500 text-[9px] font-bold font-mono inline-flex items-center gap-1" data-tooltip-id="tt-grab" data-tooltip-content="Matrículas cargadas en la lista de la cámara">
@@ -893,7 +899,7 @@ export default function DevicesPage() {
                                                         llamando a un modal viejo»): la lectura de OmniVision es una LPR_INTERIOR y caía en el
                                                         modal viejo. El modal viejo queda sólo para los tipos que la ficha no cubre (lector
                                                         facial, intercomunicador…). */}
-                                                    {["LPR_CAMERA", "CAMERA", "NVR", "QUEUE_COUNTER"].includes(vistaDe(dev)) || dev.deviceType === "QUEUE_COUNTER" ? (
+                                                    {["LPR_CAMERA", "CAMERA", "NVR", "QUEUE_COUNTER", ...ES_PORTERO].includes(vistaDe(dev)) || dev.deviceType === "QUEUE_COUNTER" ? (
                                                         <DropdownMenuItem onClick={() => abrir(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-blue-400 focus:bg-foreground/10 focus:text-blue-400">
                                                             <Settings2 size={14} /> Editar configuración
                                                         </DropdownMenuItem>
@@ -1127,9 +1133,11 @@ export default function DevicesPage() {
 
             {/* Altas desde el botón «Agregar» */}
             <CajonDispositivo groups={groups} open={alta === "lpr"} onOpenChange={(v) => !v && setAlta(null)} onSuccess={() => { loadData(); cargarGrab(); }}
-                alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} alAgregarCentral={recepcionOn ? () => { setAlta(null); setCentral(""); } : undefined} />
+                alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} alAgregarCentral={recepcionOn ? () => { setAlta(null); setCentral(""); } : undefined}
+                alAgregarPortero={() => { setAlta(null); setPortero("nuevo"); }} />
             <CajonCentral abierto={central !== null} centralId={central || null} alCerrar={() => setCentral(null)} alCambiar={() => { loadData(); setVersionCentrales((v) => v + 1); }} />
             <CajonContadorFila device={contador} open={!!contador} onOpenChange={(v) => !v && setContador(null)} onSuccess={() => { loadData(); }} />
+            <CajonPortero device={portero === "nuevo" ? null : portero} open={!!portero} onOpenChange={(v) => !v && setPortero(null)} onSuccess={() => { loadData(); }} />
             <CajonDispositivo device={editando} groups={groups} open={!!editando} onOpenChange={(v) => !v && setEditando(null)} onSuccess={() => { loadData(); cargarGrab(); }}
                 alCalibrar={(d) => setCalibIntr(d)} alCalibrarImagen={(d) => setCalibrating(d)} alCalibrarLectura={(d) => setCalibLect(d)} alImportar={(d) => setImportandoDe(d)} />
             <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "otro"} alCambiarAbierto={(v) => !v && setAlta(null)} />
