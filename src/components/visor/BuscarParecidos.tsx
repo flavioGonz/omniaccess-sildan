@@ -10,6 +10,7 @@ import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
 import { useClipEvento } from "@/lib/clip-evento";
 import { hace } from "@/lib/fechas";
+import { elegirPorCaja } from "@/lib/vivo-menu";
 import { cn } from "@/lib/utils";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { ICONO_GRUPO, nombreClase } from "@/components/vision/ObjetoRegistro";
@@ -95,13 +96,15 @@ function useImg() {
     return (k: string | null, w?: number) => (k ? `${imagen}/${k}${w ? `?w=${w}` : ""}` : "");
 }
 
-export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar, onVerGrabacion, rutas = RUTAS_PANEL, grupo = null, titulo, subtitulo, textoCerrar = "Volver al evento" }: {
+export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar, onVerGrabacion, rutas = RUTAS_PANEL, grupo = null, cajaInicial = null, titulo, subtitulo, textoCerrar = "Volver al evento" }: {
     foto: string;
     instanteMs: number;
     /** Por dónde busca y qué ofrece (ver RutasParecidos). */
     rutas?: RutasParecidos;
     /** Sólo esta clase (persona, vehiculo, animal, objeto): lo que se marca en la foto y lo que se busca. */
     grupo?: string | null;
+    /** Lo que ya se tocó en el vivo (su caja, en fracciones): de entrada se elige ese objeto, no el más grande. */
+    cajaInicial?: number[] | null;
     /** El título y la línea de abajo sobre la foto; por defecto, «Buscar parecidos» y el evento. */
     titulo?: string; subtitulo?: string;
     /** Lo que dice el botón de cerrar. */
@@ -228,7 +231,9 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                 const obs: Objeto[] = (j.objetos || []).filter((o: Objeto) => !grupo || o.grupo === grupo);
                 setObjetos(obs);
                 // De entrada, lo más grande: casi siempre es lo que se quiere buscar.
-                if (obs.length) {
+                const tocado = elegirPorCaja(obs, cajaInicial);
+                if (tocado) { setCaja(conMargen(tocado.caja)); setEtiqueta(nombreClase(tocado.clase)); }
+                else if (obs.length) {
                     const m = obs.reduce((a, o) => ((o.caja[2] - o.caja[0]) * (o.caja[3] - o.caja[1]) > (a.caja[2] - a.caja[0]) * (a.caja[3] - a.caja[1]) ? o : a));
                     setCaja(conMargen(m.caja)); setEtiqueta(nombreClase(m.clase));
                 }

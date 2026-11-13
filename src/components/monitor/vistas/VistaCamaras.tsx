@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { FolderTree, Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Zap, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera, ScanEye, Crosshair, ScanSearch } from "lucide-react";
 import { useMarco, BarraDelMarco } from "@/components/monitor/MarcoMonitor";
 import { fondoDe, type TonoFondo } from "@/lib/monitor/fondos";
+import type { ClaseBusqueda } from "@/lib/vivo-menu";
 import { BuscarEnPared, canalesParaBuscar } from "@/components/monitor/camaras/BuscarEnPared";
 import type { RutasParecidos } from "@/components/visor/BuscarParecidos";
 import { sembrarAreas } from "@/lib/use-areas";
@@ -474,7 +475,8 @@ export function VistaCamaras() {
     /** Editando el seguimiento visual (arrastrar cámaras unas sobre otras): la página no pasa sola. */
     const [editandoSeg, setEditandoSeg] = useState(false);
     /** «Buscar parecidos» abierto (y desde qué canal): mientras tanto la página no pasa sola. Ver más abajo. */
-    const [buscar, setBuscar] = useState<{ canal: Canal | null } | null>(null);
+    // `clase` y `caja`: abierto desde el menú de un objeto tocado en el vivo (ya se sabe qué es y dónde está).
+    const [buscar, setBuscar] = useState<{ canal: Canal | null; clase?: ClaseBusqueda; caja?: number[] } | null>(null);
     useEffect(() => { if (hayAlerta) setPagina(0); }, [hayAlerta]);
     // Mismo criterio de fondo que las demás paredes (lib/monitor/fondos): una detección en pantalla es
     // ámbar (hay que mirarla); si OmniVision confirmó que hay alguien, roja (hay que atenderla).
@@ -917,10 +919,10 @@ export function VistaCamaras() {
                 alSoltarOrigen={() => setOrigenClave(null)}
                 alVision={datos?.vision?.puedeCambiar && abierta ? () => ponerEnVision(abierta) : undefined}
                 pasoVision={abierta ? pasosVision[abierta.clave] || null : null} alCerrarPaso={abierta ? () => ponerPaso(abierta.clave, null) : undefined}
-                alBuscar={abierta ? () => setBuscar({ canal: abierta }) : undefined}
+                alBuscar={abierta ? (de) => setBuscar({ canal: abierta, clase: de?.clase, caja: de?.caja }) : undefined}
                 alVentana={!movil && abierta ? () => { if (!abrirVentana({ canal: abierta.clave }, `canal-${abierta.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined} />
 
-            <BuscarEnPared abierto={!!buscar} canalInicial={buscar?.canal || null} rutas={rutasBuscar} alCerrar={() => setBuscar(null)}
+            <BuscarEnPared abierto={!!buscar} canalInicial={buscar?.canal || null} claseInicial={buscar?.clase || null} cajaInicial={buscar?.caja || null} rutas={rutasBuscar} alCerrar={() => setBuscar(null)}
                 canales={canalesParaBuscar(enPantalla.length ? [...enPantalla, ...todos] : todos)} />
         </div>
     );

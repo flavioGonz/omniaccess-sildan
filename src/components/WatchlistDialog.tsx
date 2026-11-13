@@ -85,18 +85,24 @@ function avisarCamaras(camaras?: { ok: any[]; fallo: any[] }) {
     else toast.success({ title: "Lectoras LPR actualizadas", description: texto });
 }
 
-export function WatchlistDialog({ onClose, plateInicial }: {
+export function WatchlistDialog({ onClose, plateInicial, categoriaInicial = "BLACKLISTED", motivoInicial = "" }: {
     onClose: () => void;
     /** Viene del «Registrar» del monitor: la matrícula ya escrita, sólo falta el motivo y la categoría. */
     plateInicial?: string;
+    /**
+     * Con qué lista abre. El vivo de una cámara lo abre en la Lista Amarilla («etiquetar como
+     * sospechoso», 13/11) y con un motivo propuesto —dónde y desde cuándo—, que el operador completa.
+     */
+    categoriaInicial?: WatchCategory;
+    motivoInicial?: string;
 }) {
     const [rows, setRows] = useState<FilaVigilancia[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [plate, setPlate] = useState(plateInicial || "");
-    const [motivo, setMotivo] = useState("");
-    const [category, setCategory] = useState<WatchCategory>("BLACKLISTED");
+    const [motivo, setMotivo] = useState(motivoInicial);
+    const [category, setCategory] = useState<WatchCategory>(categoriaInicial);
     const [notify, setNotify] = useState(true);
     const [query, setQuery] = useState("");
     const [verInactivas, setVerInactivas] = useState(false);
@@ -235,6 +241,10 @@ export function WatchlistDialog({ onClose, plateInicial }: {
 
                         <input value={motivo} onChange={(e) => setMotivo(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onAdd(); }}
                             autoFocus={!!plateInicial} placeholder={MOTIVO_PISTA[category]} className={campo} />
+                        {/* Abierto desde el vivo sin chapa leída: lo que falta es la matrícula, y se dice. */}
+                        {motivoInicial && !plateInicial && !plate.trim() && (
+                            <p className="text-[12px] text-white/90 leading-snug">El sistema no leyó la matrícula de este vehículo: escribila como se ve en el video.</p>
+                        )}
 
                         {conflicto && (
                             <div className="rounded-[10px] bg-black/25 p-3 text-[12px] space-y-2">

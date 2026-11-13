@@ -53,12 +53,17 @@ const RESORTE = { type: "spring" as const, stiffness: 380, damping: 34, mass: 0.
 const ADELANTE = { initial: { opacity: 0, x: 48, filter: "blur(6px)" }, animate: { opacity: 1, x: 0, filter: "blur(0px)" }, exit: { opacity: 0, x: -36, filter: "blur(4px)" } };
 const ATRAS = { initial: { opacity: 0, x: -48, filter: "blur(6px)" }, animate: { opacity: 1, x: 0, filter: "blur(0px)" }, exit: { opacity: 0, x: 36, filter: "blur(4px)" } };
 
-export function BuscarEnPared({ abierto, canales, canalInicial = null, rutas, alCerrar }: {
+export function BuscarEnPared({ abierto, canales, canalInicial = null, claseInicial = null, cajaInicial = null, rutas, alCerrar }: {
     abierto: boolean;
     /** Los canales de la pared que se pueden usar para sacar el cuadro (los de video, no las fuentes web). */
     canales: Canal[];
     /** Abierto desde la ficha de un canal: el cuadro sale de ése. */
     canalInicial?: Canal | null;
+    /**
+     * Abierto desde el menú de un objeto tocado en el vivo (13/11): ya se sabe qué es y dónde está.
+     * No se pregunta la clase, se congela el cuadro y la búsqueda arranca con ESE objeto elegido.
+     */
+    claseInicial?: Clase | null; cajaInicial?: number[] | null;
     rutas: RutasParecidos;
     alCerrar: () => void;
 }) {
@@ -68,7 +73,11 @@ export function BuscarEnPared({ abierto, canales, canalInicial = null, rutas, al
     const ir = useCallback((p: Paso, haciaAtras = false) => { setAtras(haciaAtras); setPaso(p); }, []);
 
     // Cada vez que se abre, desde el principio.
-    useEffect(() => { if (abierto) { setClase(null); setAtras(false); setPaso({ id: "que" }); } }, [abierto]);
+    useEffect(() => {
+        if (!abierto) return;
+        const directo = !!claseInicial && !!canalInicial;
+        setClase(directo ? claseInicial : null); setAtras(false); setPaso(directo ? { id: "cuadro", canal: canalInicial! } : { id: "que" });
+    }, [abierto]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // La foto en memoria (cuadro o celular) se suelta al salir del paso de búsqueda.
     const fotoActual = paso.id === "buscar" ? paso.foto : null;
@@ -154,6 +163,8 @@ export function BuscarEnPared({ abierto, canales, canalInicial = null, rutas, al
                                     {paso.id === "cuadro" && <PasoCuadro canal={paso.canal} alListo={(foto, ms) => ir({ id: "buscar", foto, desde: paso.canal.nombre, instanteMs: ms })} alQr={() => ir({ id: "qr" })} />}
                                     {paso.id === "buscar" && c && (
                                         <BuscarParecidos foto={paso.foto} instanteMs={paso.instanteMs} rutas={rutas} grupo={c.id}
+                                            // El objeto tocado vale mientras se busque lo mismo que se tocó: si se cambió la clase, se elige de nuevo.
+                                            cajaInicial={c.id === claseInicial && paso.desde === canalInicial?.nombre ? cajaInicial : null}
                                             titulo={`Buscar ${c.nombre.toLowerCase()}`} subtitulo={paso.desde} textoCerrar="Volver a la pared" onCerrar={alCerrar} />
                                     )}
                                 </motion.div>

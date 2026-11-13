@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { Backpack, Bike, Bird, Briefcase, Bus, Car, Cat, Clock, Dog, Luggage, Motorbike, PawPrint, ScanEye, Truck, User, type LucideIcon, Boxes } from "lucide-react";
 import { RelojRodante } from "@/components/tracking/MarcaEstadia";
-import { bandasLinea, poligonos, veredicto, type Analisis, type GeomNorm, type Pt } from "@/lib/vision-capa";
+import { bandasLinea, poligonos, veredicto, type Analisis, type GeomNorm, type ObjetoAnalizado, type Pt } from "@/lib/vision-capa";
 import { iconoPropio, useNombresPropios } from "@/lib/nombres-propios";
 import { resolverIcono } from "@/components/vision/iconos-clase";
 
@@ -26,6 +27,23 @@ const SOLTAR_SIN_VER_MS = 4000;
  */
 const FOCO_MS = 8000;
 const FOCO_OSCURO = 0.62;
+/**
+ * El menú del objeto en foco (13/11, Nico: «al hacerle clic, cuando muestra el tiempo, que tenga
+ * menú contextual y pueda ejecutar opciones»). Va debajo del reloj, pegado al rótulo: viaja con
+ * el objeto y no tapa otra parte de la escena. Qué opciones hay lo decide quien usa la capa (la
+ * ficha del canal sabe si hay grabación, búsqueda o lista); acá sólo se dibujan.
+ *
+ * Una opción que no se puede usar no se esconde: se muestra apagada con el porqué, así no parece
+ * que el menú cambia solo de un auto a otro.
+ */
+export type OpcionObjeto = {
+    clave: string; rotulo: string; Icono: LucideIcon;
+    /** Sólo para lo que ES una alerta (la lista amarilla): el ícono en ámbar. Lo demás, sin color. */
+    tono?: "aviso";
+    /** Por qué no se puede ahora: la opción va apagada y esto se lee debajo. */
+    motivo?: string;
+    alElegir: () => void;
+};
 /**
  * Fluidez (13/11, Nico: «necesitamos afinar más los movimientos de los puntos y los datos; más
  * fluidez en el seguimiento»). El análisis llega unas 9 veces por segundo y cada vez se dibujaba
@@ -95,7 +113,7 @@ export const ICONO_GRUPO: Record<string, LucideIcon> = { persona: User, vehiculo
 const pts = (p: Pt[], w: number, h: number) => p.map(([x, y]) => `${(x * w).toFixed(1)},${(y * h).toFixed(1)}`).join(" ");
 const ptsPx = (p: Pt[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 
-export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = true, atributos = false, chapa, interactiva = false, className }: {
+export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = true, atributos = false, chapa, interactiva = false, opciones, className }: {
     analisis: Analisis;
     /** La chapa que leyó OmniVision, con su caja en la foto (relectura). */
     chapa?: ChapaEnFoto | null;
@@ -107,6 +125,8 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
     atributos?: boolean;
     /** El vivo: las siluetas se pueden tocar, y la que se toca muestra cuánto lleva en su lugar. */
     interactiva?: boolean;
+    /** El menú del objeto tocado (sólo en el vivo): qué se puede hacer con ESE objeto. Sin esto, no hay menú. */
+    opciones?: (o: ObjetoAnalizado) => OpcionObjeto[];
     className?: string;
 }) {
     const uid = useId().replace(/:/g, "");
@@ -318,6 +338,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 // Cuánto lleva en su lugar: sólo en el objeto que se tocó (ver arriba), con el reloj andando.
                 const sel = i === iSel;
                 const reloj = sel && o.quietoDesde ? o.quietoDesde : null;
+                const menu = sel && opciones ? opciones(o) : [];
                 const meta = extra.map((x) => x.toUpperCase()).join(" · ");
                 const conf = `${Math.round(o.confianza * 100)} %`;
                 const f = fuente * 1.05, fm = fuente * 0.74, icono = f * 1.15, hueco = f * 0.4;
@@ -326,6 +347,11 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const anchoMeta = (meta.length + conf.length + (meta ? 3 : 0)) * fm * 0.78;
                 // El reloj va en un cuerpo más grande que el renglón de datos: «2 d 03 h 15 min» es lo más largo.
                 const fr = f * 1.25, anchoReloj = fr * 9.5;
+                // El menú: un renglón por opción (dos si va apagada, con su porqué). Medidas en px de la imagen, como todo acá.
+                const fo = f * 0.8, altoOpcion = fo * 2.3, altoMotivo = fo * 1.05;
+                const anchoMenu = menu.length ? Math.max(...menu.map((m) => Math.max(m.rotulo.length * fo * 0.53, (m.motivo?.length || 0) * fo * 0.41))) + fo * 3.4 : 0;
+                const altoMenu = menu.length ? menu.reduce((t, m) => t + altoOpcion + (m.motivo ? altoMotivo : 0), fo * 0.7) : 0;
+                const altoReloj = reloj ? fr * 1.7 : 0;
                 const largo = Math.max(anchoTitulo, anchoMeta, reloj ? anchoReloj : 0) + f * 0.9;
                 // El ancla: el punto más alto de la silueta (la cabeza, el techo), el más centrado si hay varios.
                 const [x1, y1, x2, y2] = o.caja;
@@ -351,6 +377,16 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 }
                 const diag = f * 2.4, margen = f * 0.3;
                 /*
+                 * Con menú, el rótulo sale hasta AFUERA de la caja del objeto: si no, el menú colgaba
+                 * encima del auto que se acaba de tocar para verlo bien. Si no entra de ningún lado
+                 * (un ómnibus que ocupa media pantalla), queda como siempre y lo pisa.
+                 */
+                let alcance = diag;
+                if (menu.length) {
+                    const fuera = ((x2 - x1) * W) / 2 + f * 0.9, ancho = Math.max(largo, anchoMenu + margen);
+                    if (ax + fuera + ancho <= W - margen || ax - fuera - ancho >= margen) alcance = Math.max(diag, fuera);
+                }
+                /*
                  * Dónde va el rótulo: hacia el lado con lugar, arriba del ancla, y si pisa a otro se
                  * prueban renglones alternando abajo y arriba (y después el otro lado), dentro de la
                  * foto. Se queda el primero que no pisa a nadie; si ninguno, el que menos pisa.
@@ -360,15 +396,17 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                  * del otro rótulo («Camión o camioneta» tapando «Persona», 10/10).
                  */
                 const preferido = ax < W * 0.62 ? 1 : -1;
-                const yMin = f * 1.9, yMax = Math.max(yMin, H - fm * 2.2), paso = f * 2.9;
+                // Con el reloj y el menú colgando debajo, el rótulo sube lo necesario para que entren en la foto.
+                const yMin = f * 1.9, yMax = Math.max(yMin, H - fm * 2.2 - (altoReloj + altoMenu ? altoReloj + altoMenu + fm * 0.4 : 0)), paso = f * 2.9;
                 const y0 = Math.min(yMax, Math.max(yMin, ay - diag));
                 const caja = (d: number, y: number): [number, number, number, number] => {
-                    const e = ax + d * diag;
+                    const e = ax + d * alcance;
                     return [Math.min(e, e + d * largo), y - f * 1.6, largo, f * 1.6 + fm * 1.9 + (reloj ? fr * 1.6 : 0)];
                 };
                 const pisa = (b: [number, number, number, number]) => puestos.reduce((t, [px, py, pw, ph]) =>
                     t + Math.max(0, Math.min(b[0] + b[2], px + pw) - Math.max(b[0], px)) * Math.max(0, Math.min(b[1] + b[3], py + ph) - Math.max(b[1], py)), 0);
-                const entra = (d: number) => { const b = caja(d, y0); return b[0] >= margen && b[0] + b[2] <= W - margen; };
+                // (Con menú, además tiene que entrar su ancho: si no, del otro lado.)
+                const entra = (d: number) => { const b = caja(d, y0), e = ax + d * alcance; return b[0] >= margen && b[0] + b[2] <= W - margen && (!menu.length || (d === 1 ? e + margen + anchoMenu <= W - margen : e - margen - anchoMenu >= margen)); };
                 const lados = [preferido, -preferido].filter(entra);
                 if (!lados.length) lados.push(preferido);
                 let mejor = { dir: lados[0], ey: y0, pisa: Infinity };
@@ -376,7 +414,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const antes = pista?.lugar;
                 if (antes) {
                     const y = ay + antes.dy, b = caja(antes.dir, y);
-                    if (y >= yMin - 0.01 && y <= yMax + 0.01 && b[0] >= margen && b[0] + b[2] <= W - margen) {
+                    if (y >= yMin - 0.01 && y <= yMax + 0.01 && entra(antes.dir)) {
                         const solape = pisa(b);
                         if (solape <= b[2] * b[3] * PISA_TOLERADA) mejor = { dir: antes.dir, ey: y, pisa: -1 };
                     }
@@ -392,7 +430,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 }
                 const dir = mejor.dir, ey = mejor.ey;
                 if (pista) pista.lugar = { dir, dy: ey - ay };
-                const ex = ax + dir * diag;
+                const ex = ax + dir * alcance;
                 puestos.push(caja(dir, ey));
                 const fx = ex + dir * largo;
                 const tx = ex + dir * margen;
@@ -437,6 +475,32 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                                     <Clock width={fr * 0.92} height={fr * 0.92} color={c} strokeWidth={2.4} style={{ flexShrink: 0, filter: "drop-shadow(0 1px 2px rgba(2,6,23,.95))" }} />
                                     <RelojRodante desde={new Date(reloj)} />
                                 </div>
+                            </foreignObject>
+                        )}
+                        {/* El menú del objeto: debajo del reloj (o del renglón de datos, si no lleva reloj). Es lo
+                            único de la capa, además de las siluetas, que recibe el toque. */}
+                        {menu.length > 0 && (
+                            <foreignObject x={dir === 1 ? tx : tx - anchoMenu} y={ey + fm * 2.1 + altoReloj + fm * 0.3} width={anchoMenu} height={altoMenu} style={{ overflow: "visible" }}>
+                                <motion.div role="menu" aria-label={`Qué hacer con ${titulo}`}
+                                    initial={{ opacity: 0, y: -fo * 0.5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: "easeOut" }}
+                                    // Mientras el cursor (o el dedo) está encima, el foco no se suelta; al salir, vuelve a contar.
+                                    onPointerEnter={() => setTocadoEn(0)} onPointerLeave={() => setTocadoEn(Date.now())}
+                                    style={{ pointerEvents: "auto", width: anchoMenu, padding: fo * 0.35, borderRadius: fo * 0.75, fontFamily: "Outfit, system-ui, sans-serif",
+                                        background: "rgba(8,11,17,.86)", border: "1px solid rgba(248,250,252,.14)", boxShadow: "var(--sombra-flotante)" }}>
+                                    {menu.map((m) => (
+                                        <button key={m.clave} type="button" role="menuitem" disabled={!!m.motivo} aria-disabled={!!m.motivo}
+                                            onClick={(e) => { e.stopPropagation(); if (m.motivo) return; setElegido(null); m.alElegir(); }}
+                                            className={m.motivo ? "cursor-default" : "cursor-pointer hover:bg-white/[.12] active:bg-white/[.18] transition-colors"}
+                                            style={{ display: "flex", alignItems: "flex-start", gap: fo * 0.6, width: "100%", minHeight: altoOpcion + (m.motivo ? altoMotivo : 0), padding: `${fo * 0.62}px ${fo * 0.7}px`,
+                                                borderRadius: fo * 0.5, textAlign: "left", color: "#fff" }}>
+                                            <m.Icono width={fo * 1.15} height={fo * 1.15} strokeWidth={2.2} style={{ flexShrink: 0, marginTop: fo * 0.05, color: m.motivo ? "rgba(248,250,252,.38)" : m.tono === "aviso" ? "var(--aviso)" : "rgba(248,250,252,.82)" }} />
+                                            <span style={{ display: "block", minWidth: 0 }}>
+                                                <span style={{ display: "block", fontSize: fo, lineHeight: 1.26, fontWeight: 600, whiteSpace: "nowrap", color: m.motivo ? "rgba(248,250,252,.5)" : undefined }}>{m.rotulo}</span>
+                                                {m.motivo && <span style={{ display: "block", fontSize: fo * 0.76, lineHeight: 1.3, color: "rgba(248,250,252,.74)", whiteSpace: "nowrap" }}>{m.motivo}</span>}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </motion.div>
                             </foreignObject>
                         )}
                     </g>
