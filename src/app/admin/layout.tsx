@@ -1,7 +1,7 @@
 "use client";
 
 import { useFuncion } from "@/lib/funciones-cliente";
-import React, { useState, useEffect } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { pantallaInicio } from "@/lib/landing";
 import { useSessionRole } from "@/hooks/useSessionRole";
 import { OnlineUsersWidget } from "@/components/OnlineUsersWidget";
@@ -71,6 +71,10 @@ interface SidebarItemProps {
     collapsed: boolean;
 }
 
+/** El ancho del menú desplegado (w-64) y cuánto más allá puede irse el mouse sin que se esconda. */
+const MENU_ANCHO_PX = 256;
+const MENU_MARGEN_PX = 28;
+
 function SidebarItem({ icon, label, href, active, collapsed, insignia, tonoInsignia = "mal" }: SidebarItemProps & { insignia?: number; tonoInsignia?: "mal" | "aviso" }) {
     return (
         <Link
@@ -124,28 +128,50 @@ export default function AdminLayout({
     const amarillaOn = useFuncion("LPR_BUSQUEDA") === true;
     const enListaAmarilla = pathname === "/admin/users" && searchParams?.get("tab") === "listaamarilla";
     const router = useRouter();
-    const [collapsed, setCollapsed] = useState(false);
+    const [angosto, setCollapsed] = useState(false);
     /*
-     * Monitor CCTV como VMS (13/11, Nico: «el sidebar debe ocultarse sin bordes para poder usarlo
-     * como VMS más cómodo; algo flotante que llame el sidebar nuevamente, oculto, y premium»).
-     * En esa pantalla el menú sale del todo —sin la columna de 70 px ni su borde— y la pared ocupa
-     * el ancho entero. Una pestaña fina en el borde izquierdo lo trae FLOTANDO sobre la pared (no
-     * la empuja: los cuadros no se reacomodan ni se reconectan) y se va solo al sacarle el mouse.
-     * Quien lo prefiera fijo lo clava con el alfiler; se recuerda en este navegador.
-     * Sólo en Monitor CCTV: en el resto del panel el menú es la navegación y no molesta a nada.
+     * El menú lateral, oculto (13/11). Nació para Monitor CCTV («el sidebar debe ocultarse sin
+     * bordes para poder usarlo como VMS más cómodo; algo flotante que lo llame, oculto y premium»)
+     * y esa misma tarde Nico lo pidió para todo: «me encantó el sidebar que se oculta, debe ser así
+     * para todo OmniAccess».
+     *
+     * El menú sale del todo —sin la columna de 70 px ni su borde— y la pantalla ocupa el ancho
+     * entero. Se lo llama acercando el mouse al borde izquierdo (o tocando la pestaña): aparece
+     * FLOTANDO sobre la pantalla, sin empujarla (una pared de cámaras no se reacomoda ni
+     * reconecta), y se va al sacarle el mouse, al elegir adónde ir, con Esc o tocando afuera.
+     * Quien lo prefiera a la vista lo clava con el alfiler; se recuerda en este navegador.
      */
-    const enCctv = pathname === "/admin/monitor-cctv";
-    const [menuCctv, setMenuCctv] = useState<"oculto" | "fijo">("oculto");
+    const [menu, setMenu] = useState<"oculto" | "fijo">("oculto");
     const [asomado, setAsomado] = useState(false);
-    useEffect(() => { try { if (localStorage.getItem("oa.cctv.menu") === "fijo") setMenuCctv("fijo"); } catch { /* sin almacenamiento: oculto */ } }, []);
-    const fijarMenuCctv = (m: "oculto" | "fijo") => { setMenuCctv(m); setAsomado(false); try { localStorage.setItem("oa.cctv.menu", m); } catch { /* idem */ } };
-    const sinMenu = enCctv && menuCctv === "oculto";
+    // `oa.cctv.menu` era la clave cuando valía sólo para Monitor CCTV: quien lo había clavado ahí lo conserva.
+    useEffect(() => { try { if ((localStorage.getItem("oa.menu") ?? localStorage.getItem("oa.cctv.menu")) === "fijo") setMenu("fijo"); } catch { /* sin almacenamiento: oculto */ } }, []);
+    const fijarMenu = (m: "oculto" | "fijo") => { setMenu(m); setAsomado(false); try { localStorage.setItem("oa.menu", m); } catch { /* idem */ } };
+    const sinMenu = menu === "oculto";
+    // Oculto se muestra siempre entero: la versión de íconos solos es para cuando queda fijo.
+    const collapsed = angosto && !sinMenu;
+    /* Sacar el mouse lo esconde con una pausa: al rozar el borde de la ventana el navegador avisa
+       «salió», y sin pausa el menú se cerraba en la cara. Volver a entrar la cancela. */
+    const irse = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const quedarse = () => { if (irse.current) { clearTimeout(irse.current); irse.current = null; } };
+    const asomar = () => { quedarse(); setAsomado(true); };
+    const esconder = (ms = 260) => { quedarse(); irse.current = setTimeout(() => setAsomado(false), ms); };
+    useEffect(() => () => quedarse(), []);
     useEffect(() => { if (!sinMenu) setAsomado(false); }, [sinMenu]);
+    // Se eligió adónde ir: el menú ya cumplió.
+    useEffect(() => { quedarse(); setAsomado(false); }, [pathname, searchParams]);
+    /*
+     * Cuándo se va: por DÓNDE está el mouse, no por «entró / salió» del menú. El menú llega
+     * deslizándose debajo de un puntero que quizá está quieto, y el navegador no avisa «entró»
+     * hasta que el puntero se mueve; con entradas y salidas quedaba abierto para siempre si el
+     * mouse se iba antes de que el menú llegara (visto al probarlo). Lejos del menú, se va.
+     */
     useEffect(() => {
         if (!asomado) return;
         const k = (e: KeyboardEvent) => { if (e.key === "Escape") setAsomado(false); };
-        window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
-    }, [asomado]);
+        const m = (e: MouseEvent) => { if (e.clientX > MENU_ANCHO_PX + MENU_MARGEN_PX) { if (!irse.current) esconder(); } else quedarse(); };
+        window.addEventListener("keydown", k); window.addEventListener("mousemove", m);
+        return () => { window.removeEventListener("keydown", k); window.removeEventListener("mousemove", m); };
+    }, [asomado]); // eslint-disable-line react-hooks/exhaustive-deps
     const { role: sessionRole, loaded: roleLoaded, tiene, puede } = useSessionRole();
     const isAdmin = sessionRole === "ADMIN";
     // El menú se arma por permiso del rol de aplicación (lib/permisos), no por "es admin":
@@ -213,20 +239,25 @@ export default function AdminLayout({
         <VivoProvider>
         <div className="flex min-h-screen bg-background text-foreground font-sans">
             {/* Sidebar */}
-            {/* Monitor CCTV sin menú: la pestaña que lo llama. Fina y casi invisible hasta que se le acerca el mouse. */}
+            {/* El menú oculto: una franja invisible en el borde izquierdo lo llama al acercar el mouse, y una
+                pestaña fina a media altura dice que está (y sirve para el dedo, que no «pasa por encima»). */}
             {sinMenu && !asomado && (
-                <button type="button" onMouseEnter={() => setAsomado(true)} onClick={() => setAsomado(true)} aria-label="Mostrar el menú" title="Menú"
-                    className="group fixed left-0 top-1/2 -translate-y-1/2 z-30 h-20 w-3 hover:w-6 rounded-r-[10px] grid place-items-center bg-black/30 backdrop-blur-md border border-l-0 border-white/15 text-white/60 hover:text-white hover:bg-black/55 transition-[width,background-color,color] duration-200">
-                    <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
+                <>
+                    <div aria-hidden="true" onMouseEnter={asomar} className="fixed left-0 top-0 z-30 h-full w-1.5" />
+                    <button type="button" onMouseEnter={asomar} onClick={asomar} aria-label="Mostrar el menú" title="Menú"
+                        className="group fixed left-0 top-1/2 -translate-y-1/2 z-30 h-20 w-3.5 hover:w-6 rounded-r-[10px] grid place-items-center bg-card/70 backdrop-blur-md border border-l-0 border-border text-muted-foreground hover:text-foreground transition-[width,color] duration-200">
+                        <ChevronRight size={13} className="opacity-60 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                </>
             )}
+            {/* Con el dedo no hay «sacar el mouse»: tocar afuera lo cierra. */}
+            {sinMenu && asomado && <div aria-hidden="true" onClick={() => setAsomado(false)} className="fixed inset-0 z-[39]" />}
             <aside
-                onMouseLeave={() => { if (sinMenu) setAsomado(false); }}
                 className={cn(
                     "border-border flex flex-col fixed h-full bg-card/80 backdrop-blur-xl transition-all duration-300 ease-in-out",
                     collapsed ? "w-[70px]" : "w-64",
-                    // Oculto en Monitor CCTV: fuera de la pantalla, sin borde; asomado, flota sobre la pared.
-                    sinMenu ? cn("z-40 border-r-0", asomado ? "translate-x-0 shadow-[var(--sombra-flotante,0_18px_50px_rgba(0,0,0,.45))]" : "-translate-x-full pointer-events-none") : "z-20 border-r"
+                    // Oculto: fuera de la pantalla, sin borde; asomado, flota sobre lo que haya.
+                    sinMenu ? cn("z-40 border-r-0", asomado ? "translate-x-0 shadow-[var(--sombra-flotante)]" : "-translate-x-full pointer-events-none") : "z-20 border-r"
                 )}
             >
                 <div className="p-4 border-b border-border bg-foreground/[0.02] flex items-center justify-between h-[60px]">
@@ -242,22 +273,26 @@ export default function AdminLayout({
                         </div>
                     </div>
 
-                    {/* En Monitor CCTV: clavar el menú, o sacarlo para que la pared ocupe todo. */}
-                    {enCctv && !collapsed && (
-                        <button onClick={() => fijarMenuCctv(sinMenu ? "fijo" : "oculto")} title={sinMenu ? "Dejar el menú fijo" : "Ocultar el menú: la pared a todo el ancho"} aria-label={sinMenu ? "Dejar el menú fijo" : "Ocultar el menú"}
+                    {/* Clavarlo a la vista, o volver a esconderlo para que la pantalla ocupe todo. */}
+                    {!collapsed && (
+                        <button onClick={() => fijarMenu(sinMenu ? "fijo" : "oculto")} title={sinMenu ? "Dejar el menú fijo, a la vista" : "Ocultar el menú: la pantalla a todo el ancho"} aria-label={sinMenu ? "Dejar el menú fijo" : "Ocultar el menú"}
                             className="ml-auto mr-1 p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors">
                             {sinMenu ? <Pin size={15} /> : <PanelLeftClose size={16} />}
                         </button>
                     )}
-                    <button
-                        onClick={() => setCollapsed(!collapsed)}
-                        className={cn(
-                            "p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors",
-                            collapsed && "mx-auto"
-                        )}
-                    >
-                        {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-                    </button>
+                    {/* Achicarlo a íconos sólo tiene sentido cuando está fijo. */}
+                    {!sinMenu && (
+                        <button
+                            onClick={() => setCollapsed(!angosto)}
+                            title={collapsed ? "Mostrar los nombres" : "Dejar sólo los íconos"}
+                            className={cn(
+                                "p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors",
+                                collapsed && "mx-auto"
+                            )}
+                        >
+                            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+                        </button>
+                    )}
                 </div>
 
                 <nav className="flex-1 p-3 space-y-1 overflow-y-auto custom-scrollbar">
