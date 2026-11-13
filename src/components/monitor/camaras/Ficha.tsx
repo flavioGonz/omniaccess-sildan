@@ -15,7 +15,9 @@ import { Vivo, Foto, Geometria, fotoDe, vivoDe, ubicacion, idCanal, FOTO_MS, use
 import { CapaAnalisis, type OpcionObjeto } from "@/components/vision/CapaAnalisis";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { useFuncion } from "@/lib/funciones-cliente";
-import { claseDeBusqueda, grabacionDeLlegada, motivoDesdeVivo, type ClaseBusqueda } from "@/lib/vivo-menu";
+import { claseDeBusqueda, motivoDesdeVivo, type ClaseBusqueda } from "@/lib/vivo-menu";
+import { ANTES_DE, avisoDeLlegada, type Llegada } from "@/lib/vision-llegada";
+import { sileo as toast } from "sileo";
 import type { ObjetoAnalizado } from "@/lib/vision-capa";
 import { SeguimientoVisual } from "./Seguimiento";
 import type { TrackLink } from "@/app/actions/detections";
@@ -104,7 +106,9 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     /*
      * El menú del objeto tocado (13/11, Nico: «ver cuándo llegó, buscar parecidos, etiquetar como
      * sospechoso (alerta amarilla)»). La ficha sabe qué se puede hacer en ESTE canal; la capa lo dibuja.
-     *  · Ver cuándo llegó: la grabación de este mismo cuadro, un poco antes de la hora anotada.
+     *  · Ver cuándo llegó: la grabación de este mismo cuadro, desde un poco antes de que llegara.
+     *    Cuándo fue se le pregunta al servidor (lib/vision-llegada): la hora del reloj no siempre
+     *    es la de llegada. Si la pregunta falla, se usa la del reloj.
      *  · Buscar parecidos: la búsqueda de la pared, con este objeto ya elegido.
      *  · Sospechoso: el cajón de la Lista Amarilla con la matrícula y un motivo propuestos. La
      *    lista es por matrícula, así que es sólo para vehículos; no se guarda nada sin que el
@@ -116,11 +120,31 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     useEffect(() => { setSospechoso(null); }, [c?.clave]);
     const hayGrabacion = !!c?.nvrId && c?.ch != null;
     const nombreCanal = c?.nombre || "";
+    const [buscandoLlegada, setBuscandoLlegada] = useState(false);
+    const streamCanal = c?.stream || null;
+    const verLlegada = useCallback(async (o: ObjetoAnalizado) => {
+        if (!o.quietoDesde) return;
+        let abrir = o.quietoDesde - ANTES_DE.reloj, aviso: string | null = null;
+        setBuscandoLlegada(true);
+        try {
+            if (streamCanal) {
+                const r = await fetch(`/api/monitor/camaras/llegada?stream=${encodeURIComponent(streamCanal)}&caja=${o.caja.map((v) => v.toFixed(4)).join(",")}&reloj=${Math.round(o.quietoDesde)}`, { cache: "no-store", signal: AbortSignal.timeout(8000) });
+                const j = await r.json().catch(() => null);
+                if (r.ok && j && Number.isFinite(j.abrir)) {
+                    abrir = j.abrir;
+                    aviso = avisoDeLlegada(j as Llegada, (ms) => new Date(ms).toLocaleString("es-UY", { timeZone: "America/Montevideo", ...(Date.now() - ms > 20 * 3600_000 ? { day: "2-digit", month: "2-digit" } : {}), hour: "2-digit", minute: "2-digit", hour12: false }));
+                }
+            }
+        } catch { /* sin respuesta: queda la hora del reloj */ }
+        setBuscandoLlegada(false);
+        setGrabacionDesde(abrir);
+        if (aviso) toast.info({ title: "Ver cuándo llegó", description: aviso });
+    }, [streamCanal]);
     const opcionesDeObjeto = useCallback((o: ObjetoAnalizado): OpcionObjeto[] => {
         const ops: OpcionObjeto[] = [{
             clave: "llegada", rotulo: "Ver cuándo llegó", Icono: History,
             motivo: !hayGrabacion ? "Este canal no tiene grabación" : !o.quietoDesde ? "Todavía no se sabe desde cuándo está" : undefined,
-            alElegir: () => { if (o.quietoDesde) setGrabacionDesde(grabacionDeLlegada(o.quietoDesde)); },
+            alElegir: () => { void verLlegada(o); },
         }];
         if (alBuscar) ops.push({ clave: "parecidos", rotulo: "Buscar parecidos", Icono: ScanSearch, alElegir: () => alBuscar({ clase: claseDeBusqueda(o.grupo), caja: o.caja }) });
         // En una pantalla de pared (sin sesión de operador) no se escribe la lista.
@@ -130,7 +154,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
             alElegir: () => setSospechoso({ chapa: o.chapa?.plate || "", motivo: motivoDesdeVivo(nombreCanal, o.quietoDesde) }),
         });
         return ops;
-    }, [hayGrabacion, alBuscar, amarillaOn, pantalla, nombreCanal]);
+    }, [hayGrabacion, alBuscar, amarillaOn, pantalla, nombreCanal, verLlegada]);
     const [fallo, setFallo] = useState(false);
     const [hd, setHd] = useState(true);
     // Cuál de los dos vivos ya tiene imagen: el subflujo arranca siempre y la alta calidad lo tapa
@@ -387,6 +411,12 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                         </div>
                     )}
 
+                    {/* Mientras se busca en el registro cuándo llegó (suele ser menos de un segundo). */}
+                    {buscandoLlegada && (
+                        <div className="absolute left-1/2 top-20 -translate-x-1/2 z-10 h-9 px-3.5 rounded-full bg-black/65 backdrop-blur-md border border-white/15 text-white text-[13px] font-semibold inline-flex items-center gap-2 pointer-events-none">
+                            <History size={14} className="animate-pulse" /> Buscando cuándo llegó…
+                        </div>
+                    )}
                     <TipVisor />
                     {/* Marcar el vehículo tocado: el mismo cajón de la Lista Amarilla del monitor LPR, con lo que ya se sabe escrito. */}
                     {sospechoso && <WatchlistDialog categoriaInicial="SEARCH" plateInicial={sospechoso.chapa} motivoInicial={sospechoso.motivo} onClose={() => setSospechoso(null)} />}

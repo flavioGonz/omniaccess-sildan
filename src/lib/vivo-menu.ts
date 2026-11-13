@@ -1,8 +1,9 @@
 /**
  * El menú del objeto tocado en el vivo (13/11, Nico: «al hacerle clic, cuando muestra el tiempo,
  * que el auto tenga menú contextual: ver cuándo llegó, buscar parecidos, etiquetar como
- * sospechoso (alerta amarilla)»). Acá va lo que se puede probar sin pantalla: qué clase se busca,
- * desde dónde arranca la grabación y cuál objeto de una foto es el que se tocó.
+ * sospechoso (alerta amarilla)»). Acá va lo que se puede probar sin pantalla: qué clase se busca
+ * y cuál objeto de una foto es el que se tocó. (Desde dónde arranca la grabación de «ver cuándo
+ * llegó» está en lib/vision-llegada.)
  *
  * Sin base ni red: lo usan la ficha del canal, la búsqueda de parecidos y las pruebas.
  */
@@ -13,14 +14,6 @@ export type ClaseBusqueda = "persona" | "vehiculo" | "animal" | "objeto";
 export function claseDeBusqueda(grupo: string): ClaseBusqueda {
     return grupo === "persona" || grupo === "vehiculo" || grupo === "animal" ? grupo : "objeto";
 }
-
-/**
- * Cuánto antes de «desde cuándo está» arranca la grabación. La hora la anota vision-worker la
- * primera vez que ve el vehículo en su lugar, y mira cada cámara cada tanto (hasta un minuto):
- * el auto entró ANTES de esa hora. Con un minuto y medio se lo ve llegar y no ya estacionado.
- */
-export const LLEGADA_ANTES_MS = 90_000;
-export function grabacionDeLlegada(quietoDesde: number): number { return quietoDesde - LLEGADA_ANTES_MS; }
 
 type Caja = number[];
 function iou(a: Caja, b: Caja): number {

@@ -1,7 +1,7 @@
 /** El menú del objeto tocado en el vivo (lib/vivo-menu): qué se busca, desde dónde se ve la llegada y cuál objeto es. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { claseDeBusqueda, grabacionDeLlegada, LLEGADA_ANTES_MS, elegirPorCaja, motivoDesdeVivo } from "@/lib/vivo-menu";
+import { claseDeBusqueda, elegirPorCaja, motivoDesdeVivo } from "@/lib/vivo-menu";
 
 test("la clase de la búsqueda: los tres grupos conocidos, y lo demás es un objeto", () => {
     assert.equal(claseDeBusqueda("persona"), "persona");
@@ -9,12 +9,6 @@ test("la clase de la búsqueda: los tres grupos conocidos, y lo demás es un obj
     assert.equal(claseDeBusqueda("animal"), "animal");
     assert.equal(claseDeBusqueda("propio"), "objeto");
     assert.equal(claseDeBusqueda(""), "objeto");
-});
-
-test("la grabación de la llegada arranca antes de la hora anotada, no en ella", () => {
-    const desde = Date.UTC(2026, 10, 13, 12, 0, 0);
-    assert.equal(grabacionDeLlegada(desde), desde - LLEGADA_ANTES_MS);
-    assert.ok(LLEGADA_ANTES_MS >= 60_000, "el worker mira cada cámara cada tanto: menos de un minuto mostraría el auto ya estacionado");
 });
 
 test("el objeto tocado: el que más se pisa con la caja, aunque no sea el más grande", () => {

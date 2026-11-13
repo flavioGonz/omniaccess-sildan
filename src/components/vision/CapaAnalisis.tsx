@@ -110,6 +110,24 @@ export const ICONO_CLASE: Record<string, LucideIcon> = {
 };
 export const ICONO_GRUPO: Record<string, LucideIcon> = { persona: User, vehiculo: Car, animal: PawPrint, propio: Boxes };
 
+/**
+ * El borde de arriba de una silueta sobre una vertical: dónde la cruza su contorno, lo más alto.
+ *
+ * Antes se tomaba «el vértice más alto entre los que caen cerca del medio». Un techo recto no
+ * tiene vértices en el medio —sólo en las puntas—, así que en una camioneta el único vértice de
+ * esa franja era uno de ABAJO y el punto del rótulo caía sobre la rueda (13/11, captura de Nico).
+ * Lo que se quiere es el borde, no un vértice: se cortan los lados del contorno con la vertical.
+ */
+function techoEn(polis: Pt[][], x: number): number | null {
+    let y = Infinity;
+    for (const p of polis) for (let k = 0; k < p.length; k++) {
+        const a = p[k], b = p[(k + 1) % p.length];
+        if (a[0] === b[0] || (a[0] - x) * (b[0] - x) > 0) continue;
+        y = Math.min(y, a[1] + ((x - a[0]) / (b[0] - a[0])) * (b[1] - a[1]));
+    }
+    return Number.isFinite(y) ? y : null;
+}
+
 const pts = (p: Pt[], w: number, h: number) => p.map(([x, y]) => `${(x * w).toFixed(1)},${(y * h).toFixed(1)}`).join(" ");
 const ptsPx = (p: Pt[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 
@@ -175,13 +193,16 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
     }, [elegido, iSel, objetos]);
     // Cuándo se tocó: de ahí corre el tiempo del foco (no de `elegido`, que cambia en cada cuadro al seguir al objeto).
     const [tocadoEn, setTocadoEn] = useState(0);
-    const tocar = (i: number) => { visto.current = Date.now(); setTocadoEn(Date.now()); setElegido(i === iSel ? null : objetos[i].caja); };
+    // Dónde quedó el rótulo del objeto tocado mientras tiene el menú abierto (ver «quieto» más abajo).
+    const fijo = useRef<{ dir: number; ex: number; ey: number } | null>(null);
+    const tocar = (i: number) => { visto.current = Date.now(); fijo.current = null; setTocadoEn(Date.now()); setElegido(i === iSel ? null : objetos[i].caja); };
     useEffect(() => {
         if (!tocadoEn) return;
         const t = setTimeout(() => setElegido(null), FOCO_MS);
         return () => clearTimeout(t);
     }, [tocadoEn]);
     const foco = interactiva && iSel >= 0;
+    if (!elegido) fijo.current = null;
     if (!W || !H) return null;
     const lado = Math.min(W, H);
     // Cuerpo de los rótulos, en píxeles de la imagen: 2,6 % del lado corto. El piso de 11 px era
@@ -348,7 +369,8 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 // El reloj va en un cuerpo más grande que el renglón de datos: «2 d 03 h 15 min» es lo más largo.
                 const fr = f * 1.25, anchoReloj = fr * 9.5;
                 // El menú: un renglón por opción (dos si va apagada, con su porqué). Medidas en px de la imagen, como todo acá.
-                const fo = f * 0.8, altoOpcion = fo * 2.3, altoMotivo = fo * 1.05;
+                // (13/11, Nico con el menú en pantalla: «achicarlo en general un 20 %, es muy grande».)
+                const fo = f * 0.64, altoOpcion = fo * 2.3, altoMotivo = fo * 1.05;
                 const anchoMenu = menu.length ? Math.max(...menu.map((m) => Math.max(m.rotulo.length * fo * 0.53, (m.motivo?.length || 0) * fo * 0.41))) + fo * 3.4 : 0;
                 const altoMenu = menu.length ? menu.reduce((t, m) => t + altoOpcion + (m.motivo ? altoMotivo : 0), fo * 0.7) : 0;
                 const altoReloj = reloj ? fr * 1.7 : 0;
@@ -364,9 +386,8 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                  * saltaba de una punta a la otra del auto (medido: pasos de 11 a 31 px por cuadro de
                  * pantalla con el objeto quieto). El medio de la caja casi no se mueve.
                  */
-                const enMedio = interactiva ? todos.filter((q) => Math.abs(q[0] - cx) <= (x2 - x1) * 0.18) : [];
-                // (Una silueta sin puntos en el medio —un recuadro— usa su borde de arriba.)
-                const arriba = interactiva ? [cx, enMedio.length ? Math.min(...enMedio.map((q) => q[1])) : minY]
+                // Dónde corta el contorno a la vertical del medio, lo más arriba: ver `techoEn`.
+                const arriba = interactiva ? [cx, techoEn(poligonos(o), cx) ?? minY]
                     : todos.filter((q) => q[1] <= minY + (y2 - y1) * 0.03).sort((a, b) => Math.abs(a[0] - cx) - Math.abs(b[0] - cx))[0] || [cx, y1];
                 // En el vivo el punto no salta al nuevo «más alto»: se le acerca. Si el objeto se fue lejos, sí.
                 let ax = arriba[0] * W, ay = arriba[1] * H;
@@ -428,9 +449,17 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                         if (solape < 0.5) break buscar;
                     }
                 }
-                const dir = mejor.dir, ey = mejor.ey;
+                let dir = mejor.dir, ey = mejor.ey, ex = ax + dir * alcance;
+                /*
+                 * Con el menú abierto, el rótulo se queda DONDE APARECIÓ (13/11, Nico: «el menú se
+                 * mueve con la analítica, debería quedar estático para poder seleccionar»). El punto
+                 * del rótulo sigue al objeto —tiembla con cada cuadro, y si el vehículo arranca, se
+                 * va con él—, pero el texto, el reloj y el menú no: no se le puede apuntar a un botón
+                 * que se corre. La guía se estira del punto al rótulo quieto.
+                 */
+                const quieto = sel && menu.length > 0;
+                if (quieto) { const g = fijo.current; if (g) { dir = g.dir; ex = g.ex; ey = g.ey; } else fijo.current = { dir, ex, ey }; }
                 if (pista) pista.lugar = { dir, dy: ey - ay };
-                const ex = ax + dir * alcance;
                 puestos.push(caja(dir, ey));
                 const fx = ex + dir * largo;
                 const tx = ex + dir * margen;
@@ -439,8 +468,9 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const tituloX = dir === 1 ? tx + icono + hueco : tx - icono - hueco;
                 return (
                     // Igual que la silueta: afuera el lugar del punto (lo que se anima), adentro se lo deshace.
-                    <g key={`e${ids[i]}`} style={desliz(`translate(${ax.toFixed(1)}px, ${ay.toFixed(1)}px)`)}>
-                    <g transform={interactiva ? `translate(${-ax.toFixed(1)} ${-ay.toFixed(1)})` : undefined}>
+                    // (Con el menú abierto no se desliza: el rótulo está quieto y sólo el punto sigue al objeto.)
+                    <g key={`e${ids[i]}`} style={quieto ? undefined : desliz(`translate(${ax.toFixed(1)}px, ${ay.toFixed(1)}px)`)}>
+                    <g transform={interactiva && !quieto ? `translate(${-ax.toFixed(1)} ${-ay.toFixed(1)})` : undefined}>
                         <defs>
                             {/* La línea se apaga hacia la punta: termina en el texto, no en un tope. */}
                             <linearGradient id={`guia-${i}-${uid}`} gradientUnits="userSpaceOnUse" x1={ex} y1={ey} x2={fx} y2={ey}>
