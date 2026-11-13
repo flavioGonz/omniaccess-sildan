@@ -63,6 +63,8 @@ export type Seguimiento = {
 
 /** Dos estadías en la misma cámara separadas por menos que esto son la misma: el auto no se movió, lo releyeron. */
 export const UNION_ESTADIA_MS = 20 * 60_000;
+/** Una lectura hasta este tiempo antes o después de una estadía, en su misma cámara, es de esa estadía. */
+export const DENTRO_DE_ESTADIA_MS = 60_000;
 /** Dos pasos por la misma cámara separados por menos que esto son el mismo paso. */
 export const UNION_PASO_MS = 2 * 60_000;
 
@@ -89,6 +91,22 @@ export function armarSeguimiento(chapa: string, hechos: Hecho[]): Seguimiento {
             clave: `${h.tipo}:${h.id}`, tipo: h.tipo, deviceId: h.deviceId, camara: h.camara, desde: h.desde, hasta: h.hasta, abierta: !!h.abierta, porLugar: !!h.porLugar, primeraEnCamara: null,
             leidaComo: [], lecturas: 1, foto: h.foto || null, sentido: h.sentido || null, decision: h.decision || null, conteo: new Map([[h.plate, 1]]),
         });
+    }
+    /*
+     * Una lectura (de acceso o de paso) hecha por la misma cámara DURANTE una estadía es esa
+     * estadía releída, no otro hecho: una lectora que mira un auto estacionado lo vuelve a leer
+     * cada vez que algo se mueve. Visto en el lab el 13/11: 39 «accesos» en una semana de un auto
+     * que no se movió. Se suman a la estadía (cuentan como lecturas suyas) y salen de la lista.
+     */
+    const estadias = tramos.filter((t) => t.tipo === "estadia");
+    for (let i = tramos.length - 1; i >= 0; i--) {
+        const t = tramos[i];
+        if (t.tipo === "estadia") continue;
+        const de = estadias.find((e) => e.deviceId === t.deviceId && e.camara === t.camara && t.desde >= e.desde - DENTRO_DE_ESTADIA_MS && t.hasta <= e.hasta + DENTRO_DE_ESTADIA_MS);
+        if (!de) continue;
+        de.lecturas += t.lecturas;
+        for (const [c, n] of t.conteo) de.conteo.set(c, (de.conteo.get(c) || 0) + n);
+        tramos.splice(i, 1);
     }
     const variantes = new Map<string, number>();
     const listos: Tramo[] = tramos.map(({ conteo, ...t }) => {

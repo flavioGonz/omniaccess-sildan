@@ -26,6 +26,8 @@ import { cuantoDuro, puedeSerLaMisma, type Seguimiento, type Tramo } from "@/lib
 const REFRESCO_MS = 30_000;
 /** La grabación se abre un poco antes del momento: se ve llegar (o irse), no el instante ya pasado. */
 const ANTES_MS = 15_000;
+/** Cuántas malas lecturas se nombran; las demás se cuentan (una cámara puede leer el mismo auto de quince maneras). */
+const VARIANTES_A_LA_VISTA = 4;
 
 type Lista = { categoria: string; requerida: boolean; confirmada: string | null; motivo: string | null; etiqueta: string | null };
 type Datos = { chapa: string; dias: number; lista: Lista | null; seguimiento: Seguimiento };
@@ -95,7 +97,8 @@ export function SeguimientoChapa({ plate, alCerrar, alVer }: {
                         {a && <Estado s={s} a={a} ahora={ahora} alVer={alVer} />}
                         {s.variantes.length > 0 && (
                             <p className="text-[12px] text-muted-foreground leading-snug">
-                                En esas mismas cámaras también se leyó como {s.variantes.map((v, i) => <span key={v.chapa}>{i > 0 ? ", " : ""}<b className="text-foreground tabular-nums">{v.chapa}</b> (×{v.lecturas})</span>)}.
+                                En esas mismas cámaras también se leyó como {s.variantes.slice(0, VARIANTES_A_LA_VISTA).map((v, i) => <span key={v.chapa}>{i > 0 ? ", " : ""}<b className="text-foreground tabular-nums">{v.chapa}</b> (×{v.lecturas})</span>)}
+                                {s.variantes.length > VARIANTES_A_LA_VISTA ? ` y ${s.variantes.length - VARIANTES_A_LA_VISTA} lecturas más` : ""}.
                                 Se toman como la misma matrícula mal leída; puede no serlo.
                             </p>
                         )}

@@ -61,3 +61,12 @@ test("«se fue» sólo si lo midió el lugar; una estadía por chapa que se cier
     assert.equal(armarSeguimiento("SCH1707", [h("estadia", "1", "SCH1707", "cairoli", 0, 60)]).estado, "sin-lecturas");
     assert.equal(armarSeguimiento("SCH1707", [h("estadia", "o-1", "SCH1707", "cairoli", 0, 60, { porLugar: true })]).estado, "se-fue");
 });
+
+test("las relecturas de la misma cámara durante una estadía son esa estadía, no hechos aparte", () => {
+    const s = armarSeguimiento("SCH1707", [
+        h("estadia", "1", "SCH1707", "cairoli", 0, 300, { abierta: true }), h("acceso", "2", "SDH1707", "cairoli", 50), h("acceso", "3", "SCH1707", "cairoli", 120), h("paso", "4", "SCH1707", "cairoli", 200),
+        h("acceso", "5", "SCH1707", "entrada", 100),
+    ]);
+    assert.deepEqual(s.tramos.map((t) => `${t.tipo}@${t.camara}×${t.lecturas}`), ["estadia@cairoli×4", "acceso@entrada×1"]);
+    assert.deepEqual(s.tramos[0].leidaComo, [{ chapa: "SCH1707", lecturas: 3 }, { chapa: "SDH1707", lecturas: 1 }]);
+});
