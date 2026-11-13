@@ -27,7 +27,14 @@ function Digit({ d }: { d: string }) {
     );
 }
 
-function label(m: number, h24: boolean) {
+function label(m: number, h24: boolean, conSegundos = false) {
+    if (conSegundos) {
+        // Con segundos no se redondea al minuto: 16:20:40 es 16:20:40, no 16:21. El épsilon es por
+        // los minutos con decimales (un segundo es 0,01666… y 275,2833 × 60 da 16516,9999).
+        const seg = Math.floor(wrap(m) * 60 + 1e-3);
+        const h = Math.floor(seg / 3600), mm = String(Math.floor(seg / 60) % 60).padStart(2, "0"), ss = String(seg % 60).padStart(2, "0");
+        return h24 ? { time: `${String(h).padStart(2, "0")}:${mm}:${ss}`, mer: "" } : { time: `${h % 12 || 12}:${mm}:${ss}`, mer: h < 12 ? "AM" : "PM" };
+    }
     const t = wrap(Math.round(m));
     const h = Math.floor(t / 60);
     const mm = String(t % 60).padStart(2, "0");
@@ -62,7 +69,7 @@ export type BandaScrub = { a: number; b: number; tono: string; titulo?: string }
  */
 export type ScrubMando = { empezar: (clientX: number) => void; mover: (clientX: number) => void; soltar: () => void; /** Fue un toque, no un arrastre: se suelta sin asentar ni avisar. */ cancelar: () => void };
 
-export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca, difuminado = 22, tramos, sinEnvolver = false, rangoTramos, bandas, pxPorMinuto = PX, mando, alArrastrar }: {
+export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca, difuminado = 22, tramos, sinEnvolver = false, rangoTramos, bandas, pxPorMinuto = PX, mando, alArrastrar, conSegundos = false }: {
     step?: string; momentum?: number; format?: string; corner?: number; start?: number; width?: number;
     /**
      * Qué porcentaje de cada borde de la regla se esfuma. 22 es el del vivo, donde la regla es
@@ -101,6 +108,12 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
     mando?: React.MutableRefObject<ScrubMando | null>;
     /** Añadido de OmniAccess: mientras se arrastra, dónde está la regla (sin envolver si `sinEnvolver`); null al soltar. */
     alArrastrar?: (minutos: number | null) => void;
+    /**
+     * Añadido de OmniAccess (13/11, Nico: «la línea de tiempo y la hora central no se mueven mientras
+     * transcurre el video»): la hora del centro con segundos. Sin ellos, mientras se reproduce una
+     * grabación la hora queda quieta un minuto entero y parece que la regla no sigue al video.
+     */
+    conSegundos?: boolean;
 } = {}) {
     const PX = pxPorMinuto;
     const MINUTOS_POR_MARCA = PX_POR_MARCA / PX;
@@ -205,17 +218,26 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    /**
+     * Las rayas, según la escala (añadido de OmniAccess, 13/11). Hasta 12 px por minuto son las de
+     * siempre: una cada 5 min, larga en la hora. Más cerca, una raya cada 5 min quedaba a un palmo
+     * de la otra y la regla no decía nada: se pasa a una por minuto (larga y con su hora cada 10) y,
+     * más cerca todavía, a una cada 10 s (larga en cada minuto).
+     */
+    const rayas = PX < 12 ? { paso: 5, larga: 12, media: 3, margen: 10 } : PX < 60 ? { paso: 1, larga: 10, media: 5, margen: 2 } : { paso: 1 / 6, larga: 6, media: 3, margen: 0.5 };
+    const horaConMinutos = PX >= 12;
     const ticks: { m: number; x: number; f: number; kind: "hour" | "quarter" | "five" }[] = [];
-    const span = HALF / PX + 10;
-    for (let m = Math.ceil((pos - span) / 5) * 5; m <= pos + span; m += 5) {
-        const x = (m - pos) * PX;
+    const span = HALF / PX + rayas.margen;
+    // Por índice entero y no sumando el paso: con pasos de 10 s (un sexto de minuto) la suma se desvía.
+    for (let i = Math.ceil((pos - span) / rayas.paso); i * rayas.paso <= pos + span; i++) {
+        const m = i * rayas.paso, x = (m - pos) * PX;
         const f = clamp(1 - Math.pow(Math.abs(x) / HALF, 2), 0, 1);
-        const w = wrap(m);
-        ticks.push({ m, x, f, kind: w % 60 === 0 ? "hour" : w % 15 === 0 ? "quarter" : "five" });
+        const k = ((i % rayas.larga) + rayas.larga) % rayas.larga;
+        ticks.push({ m, x, f, kind: k === 0 ? "hour" : k % rayas.media === 0 ? "quarter" : "five" });
     }
 
     const h24 = format === "24h";
-    const { time, mer } = label(pos, h24);
+    const { time, mer } = label(pos, h24, conSegundos);
     const s = Number(step) || 15;
 
     /**
@@ -274,14 +296,14 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                         return <span key={`b${i}`} className="tms-tramo" data-tono={k.tono} style={{ transform: `translateX(${x1.toFixed(2)}px)`, width: Math.max(3, x2 - x1) }} />;
                     })}
                     {ticks.map((t) => (
-                        <span key={t.m} className="tms-tick" data-kind={t.kind}
+                        <span key={t.m.toFixed(3)} className="tms-tick" data-kind={t.kind}
                             style={{ transform: `translateX(${t.x.toFixed(2)}px) scaleY(${(0.55 + 0.45 * t.f).toFixed(3)})`, opacity: 0.18 + 0.82 * t.f }} />
                     ))}
                     {ticks.filter((t) => t.kind === "hour").map((t) => {
-                        const h = Math.floor(wrap(t.m) / 60);
+                        const w = Math.round(wrap(t.m)), h = Math.floor(w / 60), mm = String(w % 60).padStart(2, "0");
                         return (
-                            <span key={`l${t.m}`} className="tms-hour" style={{ transform: `translateX(${t.x.toFixed(2)}px) translateX(-50%)`, opacity: 0.15 + 0.85 * t.f }}>
-                                {h24 ? String(h).padStart(2, "0") : `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`}
+                            <span key={`l${t.m.toFixed(3)}`} className="tms-hour" style={{ transform: `translateX(${t.x.toFixed(2)}px) translateX(-50%)`, opacity: 0.15 + 0.85 * t.f }}>
+                                {horaConMinutos ? (h24 ? `${String(h).padStart(2, "0")}:${mm}` : `${h % 12 || 12}:${mm}`) : h24 ? String(h).padStart(2, "0") : `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`}
                             </span>
                         );
                     })}

@@ -11,6 +11,20 @@ import { esSdpCambiado, marcarSdpCambiado } from "@/lib/rtsp-sdp";
 import type { NvrConn } from "@/lib/nvr-resolve";
 import { ventanaPlayback, acotarVentana, ANTES_MAX, DESPUES_MAX } from "@/lib/ventana-playback";
 
+/**
+ * Un visor, una reproducción (13/11). Cada tramo que se sirve es un ffmpeg trayendo la grabación
+ * del NVR en tiempo real, y sigue hasta terminar el tramo aunque del otro lado ya nadie lea: sólo
+ * se corta si el navegador cierra la conexión. Un visor que salta por la grabación abre un tramo
+ * por salto, y el navegador no cierra el anterior en el acto (medido: seis saltos, seis descargas
+ * abiertas). Eran varias reproducciones a la vez contra el mismo NVR, por el enlace de los vivos.
+ *
+ * Con `v=<nombre del visor>` el servidor se hace cargo: al llegar un pedido, corta lo que ese
+ * mismo visor tuviera abierto. Sin `v` (los demás usos: descargas, miniaturas) no cambia nada.
+ * `n` ordena los pedidos: si dos se cruzan abriendo, gana el último que LLEGÓ, no el último que abrió.
+ */
+const DE_VISOR = new Map<string, { n: number; cortar: () => void }>();
+let seriePedidos = 0;
+
 // GET /api/nvr/playback?ch=8&t=<epochMs>&pre=10&dur=40
 // Streams recorded video from an NVR (RTSP time-based playback) as fragmented MP4.
 export async function GET(req: NextRequest) {
@@ -73,6 +87,9 @@ export async function GET(req: NextRequest) {
      * adivinaba «sin grabación» a los 9 s. Ahora, si no hay video, se contesta un error con el
      * MOTIVO, y si el SDP del canal miente se aprende y se pide otra vez por el pasamanos.
      */
+    const visor = /^[\w-]{6,40}$/.test(sp.get("v") || "") ? sp.get("v")! : null;
+    const pedido = ++seriePedidos;
+    if (visor) { const ant = DE_VISOR.get(visor); if (ant) { DE_VISOR.delete(visor); ant.cortar(); } }
     let abierto = await abrirTramo(conn, ch, startMs, dur, { forceTx, cfg, hevcOk });
     if ("motivo" in abierto && abierto.motivo === "sdp-cambiado") {
         marcarSdpCambiado(conn.ip, ch);
@@ -83,6 +100,15 @@ export async function GET(req: NextRequest) {
         return Response.json({ motivo: abierto.motivo, detalle: abierto.detalle }, { status, headers: { "X-Motivo": abierto.motivo, "Cache-Control": "no-store" } });
     }
     const stream = abierto.stream;
+    if (visor) {
+        const { cortar } = abierto, ya = DE_VISOR.get(visor);
+        // Mientras éste abría llegó otro pedido del mismo visor: el viejo es éste.
+        if (ya && ya.n > pedido) { cortar(); return new Response(null, { status: 409, headers: { "X-Motivo": "reemplazado", "Cache-Control": "no-store" } }); }
+        ya?.cortar();
+        const yo = { n: pedido, cortar };
+        DE_VISOR.set(visor, yo);
+        abierto.alTerminar(() => { if (DE_VISOR.get(visor) === yo) DE_VISOR.delete(visor); });
+    }
 
     const headers: Record<string, string> = { "Content-Type": "video/mp4", "Cache-Control": "no-store" };
     if (sp.get("download") === "1") {
@@ -114,7 +140,7 @@ function motivoDe(salida: string): Motivo {
 }
 
 async function abrirTramo(conn: NvrConn, ch: string, startMs: number, dur: number, o: { forceTx: boolean; cfg: Awaited<ReturnType<typeof configClips>>; hevcOk: boolean }):
-    Promise<{ stream: ReadableStream<Uint8Array> } | { motivo: Motivo; detalle: string }> {
+    Promise<{ stream: ReadableStream<Uint8Array>; cortar: () => void; alTerminar: (f: () => void) => void } | { motivo: Motivo; detalle: string }> {
     const { url, canCopy: copiaH264, codec, DEC, SWUP, VF, ENC, corregido } = await planDeCorte(conn, ch, startMs, dur, { forceTx: o.forceTx, cfg: o.cfg });
     /**
      * `hevc=1`: quien pide reproduce H.265 (lo comprobó con su vivo), así que un canal que graba
@@ -182,5 +208,5 @@ async function abrirTramo(conn: NvrConn, ch: string, startMs: number, dur: numbe
         },
         cancel() { try { ff.kill("SIGKILL"); } catch { } },
     });
-    return { stream };
+    return { stream, cortar: () => { try { ff.kill("SIGKILL"); } catch { } }, alTerminar: (f) => { if (ff.exitCode != null || ff.signalCode != null) f(); else ff.once("close", f); } };
 }

@@ -30,14 +30,22 @@ import { cn } from "@/lib/utils";
  * Por qué así (pedido 15/10): la primera versión abría el canal dentro de una ventana con
  * barra de título y bordes, y el video quedaba chico en medio de la pantalla. Ahora el video
  * ocupa todo y los controles son íconos sobre la imagen que se esconden solos a los
- * OCULTAR_MS sin mover el mouse — vuelven al moverlo o al tocar.
+ * OCULTAR_MS sin mover el mouse.
+ *
+ * En el vivo vuelven con un CLIC (o una tecla), no al mover el mouse (13/11, Nico: «cada vez que
+ * muevo el mouse sobre el video en vivo se muestran los controles, no quiero eso, que se muestren
+ * al hacer clic»). Desde que las siluetas se tocan —el reloj del auto y su menú—, el mouse se
+ * mueve sobre el video para apuntarle a algo, y cada movimiento le bajaba encima la barra de
+ * arriba y la tira de abajo. Mover el mouse sólo trae el puntero, y mantiene los controles
+ * mientras ya están a la vista (para llegar hasta ellos sin que se apaguen en el camino).
+ * En la grabación siguen volviendo al mover: ahí un clic sobre el cuadro es pausar.
  *
  * La grabación se ve en este mismo cuadro (Grabacion), con la regla encima: no abre otra ventana.
  * La pantalla completa es la del documento y no la de este elemento, para que los menús que
  * se montan en <body> se sigan viendo.
  */
 
-/** Sin mover el mouse este tiempo, los controles se apagan. */
+/** Sin mover el mouse este tiempo, los controles se apagan (y el puntero, con ellos). */
 const OCULTAR_MS = 3500;
 /** Sin tocar nada este tiempo, la ficha se cierra: una pared no puede quedar trabada en un canal. */
 const CIERRA_SOLA_MS = 3 * 60_000;
@@ -197,6 +205,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
         return () => { vivo = false; };
     }, [idPtz, pantalla]);
     const [visibles, setVisibles] = useState(true);
+    /** El puntero, aparte de los controles: en el vivo se mueve el mouse para tocar una silueta sin que aparezca nada más. */
+    const [conPuntero, setConPuntero] = useState(true);
     const [lleno, setLleno] = useState(false);
     const entreYo = useRef(false);
     useEffect(() => { setGrabacionDesde(grabacionInicial); setFallo(!!c && hdCaido(c.clave)); setSdListo(false); setHdListo(false); }, [c?.clave]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -206,15 +216,24 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     // Controles que se apagan solos, y la ficha que se cierra sola.
     useEffect(() => {
         if (!c) return;
-        let apagar = setTimeout(() => setVisibles(false), OCULTAR_MS);
+        // Al abrir se muestran un momento: así se sabe que están y dónde.
+        setVisibles(true); setConPuntero(true);
+        const quieto = () => { setVisibles(false); setConPuntero(false); };
+        let apagar = setTimeout(quieto, OCULTAR_MS);
         let cerrar = setTimeout(() => { if (!grabacionRef.current) alCerrarRef.current(); }, CIERRA_SOLA_MS);
-        const mover = () => {
-            setVisibles(true); clearTimeout(apagar); clearTimeout(cerrar);
-            apagar = setTimeout(() => setVisibles(false), OCULTAR_MS);
+        /** Hubo actividad: se posterga el apagado y el cierre solo. `mostrar`: además trae los controles. */
+        const actividad = (mostrar: boolean) => {
+            if (mostrar) setVisibles(true);
+            setConPuntero(true); clearTimeout(apagar); clearTimeout(cerrar);
+            apagar = setTimeout(quieto, OCULTAR_MS);
             cerrar = setTimeout(() => { if (!grabacionRef.current) alCerrarRef.current(); }, CIERRA_SOLA_MS);
         };
-        window.addEventListener("pointermove", mover); window.addEventListener("pointerdown", mover); window.addEventListener("keydown", mover);
-        return () => { clearTimeout(apagar); clearTimeout(cerrar); window.removeEventListener("pointermove", mover); window.removeEventListener("pointerdown", mover); window.removeEventListener("keydown", mover); };
+        // Mover el mouse trae los controles sólo en la grabación; en el vivo, el clic o una tecla.
+        const mover = () => actividad(grabacionRef.current);
+        // Tocar una silueta (o una opción de su menú) tampoco los trae: ese toque ya tiene a quién va.
+        const tocar = (e: Event) => actividad(!(e.target instanceof Element && e.target.closest("[data-capa-tocable]")));
+        window.addEventListener("pointermove", mover); window.addEventListener("pointerdown", tocar); window.addEventListener("keydown", tocar);
+        return () => { clearTimeout(apagar); clearTimeout(cerrar); window.removeEventListener("pointermove", mover); window.removeEventListener("pointerdown", tocar); window.removeEventListener("keydown", tocar); };
     }, [c?.clave]); // eslint-disable-line react-hooks/exhaustive-deps
     // (por clave y no por objeto: la lista se vuelve a pedir cada 30 s y el cierre solo se reiniciaba)
 
@@ -257,7 +276,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
         <AnimatePresence>
             {c && (
                 <motion.div key="ficha" role="dialog" aria-label={c.nombre} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={SUAVE}
-                    className={cn("fixed inset-0 z-[2900] bg-black", !visibles && "cursor-none")}>
+                    className={cn("fixed inset-0 z-[2900] bg-black", !conPuntero && "cursor-none")}>
                     {grabacion != null ? (
                         <Grabacion c={c} h265={h265} hls={hls} desdeMs={grabacion} visibles={visibles} alVivo={() => setGrabacionDesde(null)}
                             deviceIdEnvio={!pantalla && c.equipoId ? c.equipoId : undefined} />

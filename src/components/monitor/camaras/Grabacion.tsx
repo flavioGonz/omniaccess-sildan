@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car, User, PawPrint, Sparkles, Boxes } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car, User, PawPrint, Sparkles, Boxes, ZoomIn, ZoomOut, ChevronLeft } from "lucide-react";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { geomDeIntrusion } from "@/lib/vision-capa";
 import { Scrub, type MarcaScrub, type BandaScrub, type ScrubMando } from "@/components/Scrub";
@@ -10,6 +10,7 @@ import { nombrePropio, useNombresPropios } from "@/lib/nombres-propios";
 import { metaDe } from "@/components/intrusion/comun";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { ZONA } from "@/lib/fechas";
+import { useVideoQueSeSuelta } from "@/lib/video-soltar";
 import { Vivo, vivoDe, fotoDe, type Canal } from "./piezas";
 import { cn } from "@/lib/utils";
 
@@ -50,15 +51,28 @@ const SALTO_MS = 30_000;
 const SILUETAS_CADA_MS = 400;
 const SILUETAS_ANCHO = 640;
 /**
- * La escala de la regla en la grabación, en px por minuto (la del visor es 2). Arrastrar en
+ * Las escalas de la regla en la grabación, en px por minuto (la del visor es 2). Arrastrar en
  * cualquier parte del cuadro ES arrastrar la regla (pedido 15/10: «cuando arrastro la pantalla,
- * debe moverse también la barra de tiempo»): misma escala, mismo sentido, misma inercia. Antes el
- * cuadro tenía su propia escala (2 min por pantalla) y la regla se corría 4 px: parecía suelta.
- * A 6 px/min, 100 px son ~17 min y el paso de 15 s queda en 1,5 px; lo fino, con ← → y ±30 s.
+ * debe moverse también la barra de tiempo»): misma escala, mismo sentido, misma inercia.
+ *
+ * Por qué hay tres (13/11, Nico: «la línea de tiempo y la hora central no se mueven mientras
+ * transcurre el video»). La única que había era 6 px por minuto: la regla sí seguía al video, pero
+ * a una décima de píxel por segundo —un píxel cada diez segundos— y con la hora del centro sin
+ * segundos: a la vista, quieta. Ahora la hora lleva segundos y la regla abre en la escala del
+ * medio (24 px/min: en una pantalla entra más o menos una hora y se la ve correr); la de 6 queda
+ * para recorrer horas de un tirón, y la de 96 para buscar el segundo. `paso` es dónde se asienta
+ * la regla al soltarla, en minutos: siempre un par de píxeles.
  */
-const PX_POR_MINUTO = 6;
-/** El paso al soltar la regla: 15 s. Al minuto, un arrastre corto no se movía. */
-const PASO_REGLA = "0.25";
+const ESCALAS = [
+    { px: 6, paso: "0.25", rotulo: "horas" },
+    { px: 24, paso: "0.083333", rotulo: "una hora" },
+    { px: 96, paso: "0.016667", rotulo: "minutos" },
+] as const;
+const ESCALA_INICIAL = 1;
+/** Dónde recuerda este navegador la escala elegida (una comodidad de quien mira, no un dato). */
+const CLAVE_ESCALA = "oa.grabacion.escala";
+/** Cada cuánto se le avisa a la regla que el video avanzó. Con un segundo, en la escala fina saltaba de a dos píxeles. */
+const AVANCE_MS = 450;
 /**
  * Cuánto se pinta cada evento en la regla cuando no trae su fin (la cámara y el lector dicen
  * un instante). Y eventos de la misma clase a menos de JUNTAR_MS se pintan como un solo tramo.
@@ -125,7 +139,25 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
     const [convertir, setConvertir] = useState(!h265);
     const [intento, setIntento] = useState(0);
     const pausado = useRef(false);
-    const video = useRef<HTMLVideoElement>(null);
+    // Cada salto pone un <video> nuevo (lleva `key`): el anterior se suelta, o su descarga —y el
+    // ffmpeg que la alimenta desde el NVR— sigue abierta sin que nadie la mire (lib/video-soltar).
+    const [video, ponerVideo] = useVideoQueSeSuelta();
+    /**
+     * Quién pide: un nombre al azar de este visor, que va en cada pedido (`v`). El servidor corta el
+     * tramo anterior del mismo visor antes de abrir el nuevo: aunque el navegador tarde en soltar
+     * una descarga, al NVR se le pide una sola reproducción por pantalla.
+     */
+    const visor = useRef(`g${Math.random().toString(36).slice(2, 12)}`).current;
+    const [escala, setEscala] = useState(ESCALA_INICIAL);
+    useEffect(() => {
+        // Sin nada guardado no se toca: Number(null) es 0, y eso era abrir siempre en la escala más amplia.
+        try { const g = localStorage.getItem(CLAVE_ESCALA), n = g == null ? NaN : Number(g); if (Number.isInteger(n) && n >= 0 && n < ESCALAS.length) setEscala(n); } catch { /* sin almacenamiento: la del medio */ }
+    }, []);
+    const cambiarEscala = useCallback((paso: 1 | -1) => setEscala((e) => {
+        const n = Math.max(0, Math.min(ESCALAS.length - 1, e + paso));
+        try { localStorage.setItem(CLAVE_ESCALA, String(n)); } catch { /* no se recuerda, nada más */ }
+        return n;
+    }), []);
     // Siluetas sobre la grabación: el navegador manda el cuadro que muestra (ver POST de
     // /api/monitor/camaras/siluetas). Prendidas por defecto; se apagan con el ícono de abajo.
     const [verSiluetas, setVerSiluetas] = useState(true);
@@ -213,7 +245,7 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
     // Un tramo nuevo empieza invisible: el cuadro congelado queda arriba hasta su primer cuadro.
     useEffect(() => { setNuevoListo(false); }, [cargaT, intento]);
     const url = c.nvrId && c.ch != null && !sinGrabacionAhi
-        ? `/api/nvr/playback?ch=${c.ch}&nvr=${encodeURIComponent(c.nvrId)}&t=${Math.floor(cargaT)}&pre=0` + (hls ? `&whole=1&dur=${TRAMO_SAFARI_SEG}` : `&dur=${TRAMO_SEG}${convertir ? "" : "&hevc=1"}`)
+        ? `/api/nvr/playback?ch=${c.ch}&nvr=${encodeURIComponent(c.nvrId)}&t=${Math.floor(cargaT)}&pre=0` + (hls ? `&whole=1&dur=${TRAMO_SAFARI_SEG}` : `&dur=${TRAMO_SEG}${convertir ? "" : "&hevc=1"}&v=${visor}`)
         : null;
     useEffect(() => { if (sinGrabacionAhi) setEstado("sin"); }, [sinGrabacionAhi]);
 
@@ -276,19 +308,32 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
     const anterior = [...eventos].reverse().find((e) => e.ts - ANTES_DE_MARCA_MS < ahora - 3000) || null;
     const irAMarca = (e: Evento | null) => { if (e) saltar(e.ts - ANTES_DE_MARCA_MS, ahora); };
 
+    /**
+     * Las teclas. El oyente se pone UNA vez y llama a la versión de este render (por la referencia).
+     * Antes se sacaba y se volvía a poner en cada render, y eso se comía teclas (13/11, visto al
+     * probar la escala: el primer «+» con los controles apagados no hacía nada). La ficha también
+     * escucha el teclado —para volver a mostrar los controles— y está anotada antes: su cambio de
+     * estado redibuja EN MEDIO del reparto de esa misma tecla, el redibujo sacaba este oyente y
+     * ponía uno nuevo, y un oyente puesto durante el reparto no recibe la tecla en curso. Era la
+     * razón de que, con los controles apagados, la barra espaciadora pausara recién al segundo toque.
+     */
+    const tecla = useRef<(e: KeyboardEvent) => void>(() => { });
+    tecla.current = (e: KeyboardEvent) => {
+        const el = e.target as HTMLElement | null;
+        if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+        if (e.key === " ") { e.preventDefault(); alternarPlay(); }
+        else if (e.key === "ArrowLeft") { e.preventDefault(); saltar(ahora - 10_000, ahora); }
+        else if (e.key === "ArrowRight") { e.preventDefault(); saltar(ahora + 10_000, ahora); }
+        else if (e.key === ",") irAMarca(anterior);
+        else if (e.key === ".") irAMarca(siguiente);
+        else if (e.key === "+") cambiarEscala(1);
+        else if (e.key === "-") cambiarEscala(-1);
+    };
     useEffect(() => {
-        const k = (e: KeyboardEvent) => {
-            const el = e.target as HTMLElement | null;
-            if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
-            if (e.key === " ") { e.preventDefault(); alternarPlay(); }
-            else if (e.key === "ArrowLeft") { e.preventDefault(); saltar(ahora - 10_000, ahora); }
-            else if (e.key === "ArrowRight") { e.preventDefault(); saltar(ahora + 10_000, ahora); }
-            else if (e.key === ",") irAMarca(anterior);
-            else if (e.key === ".") irAMarca(siguiente);
-        };
+        const k = (e: KeyboardEvent) => tecla.current(e);
         window.addEventListener("keydown", k);
         return () => window.removeEventListener("keydown", k);
-    });
+    }, []);
 
     // ── La regla: la misma rueda del visor (Scrub), con los tramos y las marcas de este día ──
     const cajaRegla = useRef<HTMLDivElement>(null);
@@ -366,11 +411,11 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                         estado === "buscando" ? "blur-[6px] brightness-[0.75]" : estado === "sin" ? "blur-[10px] brightness-50" : "")} />
             )}
             {url && (
-                <video key={`${url}#${intento}`} ref={video} src={url} muted playsInline autoPlay preload="auto" disablePictureInPicture
+                <video key={`${url}#${intento}`} ref={ponerVideo} src={url} muted playsInline autoPlay preload="auto" disablePictureInPicture
                     onPlay={() => setJugando(true)} onPause={() => setJugando(false)}
                     onPlaying={() => { setEstado("viendo"); setJugando(true); setNuevoListo(true); }}
                     onLoadedData={() => { if (!pausado.current) video.current?.play().catch(() => { }); }}
-                    onTimeUpdate={(e) => { const ms = cargaT + e.currentTarget.currentTime * 1000; if (Math.abs(ms - (posMs ?? 0)) >= 900) setPosMs(ms); }}
+                    onTimeUpdate={(e) => { const ms = cargaT + e.currentTarget.currentTime * 1000; if (Math.abs(ms - (posMs ?? 0)) >= AVANCE_MS) setPosMs(ms); }}
                     onEnded={(e) => {
                         // Terminó el tramo: se sigue desde donde quedó, salvo pausa o que haya muerto enseguida.
                         const v = e.currentTarget;
@@ -438,16 +483,9 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                 );
             })()}
 
-            {/* El vivo, chico, en una esquina: un toque vuelve a él. */}
-            <button type="button" onClick={alVivo} {...tip("Volver al vivo")}
-                className={cn("absolute right-4 bottom-[200px] sm:bottom-[176px] w-[180px] sm:w-[240px] aspect-video rounded-[10px] overflow-hidden ring-1 ring-white/25 bg-black transition-opacity", !sigueVisible && "opacity-0 pointer-events-none")}>
-                <Vivo src={vivoDe(c.stream, !h265, hls)} className="absolute inset-0 w-full h-full object-cover" />
-                <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white"><Radio size={11} className="text-[var(--mal)] animate-pulse" /> Vivo</span>
-            </button>
-
             {/* Estado en el centro: buscando o sin grabación (con la salida). */}
             {estado !== "viendo" && (
-                <div className="absolute inset-x-0 top-0 bottom-[190px] grid place-items-center pointer-events-none">
+                <div className="absolute inset-x-0 top-0 bottom-[210px] grid place-items-center pointer-events-none">
                     {estado === "buscando" ? (
                         // Chico y sobre el cuadro congelado: un cartel grande en el medio cortaba la sensación de movimiento.
                         <span className="inline-flex items-center gap-2 rounded-full visor-panel px-3.5 py-1.5 text-white/90 text-[13px] font-semibold"><Loader2 size={14} className="animate-spin" /> Buscando en el NVR</span>
@@ -464,9 +502,11 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                 </div>
             )}
 
-            {/* Abajo, sobre el video: arriba los controles, y al pie la regla. */}
-            <div className={cn("absolute bottom-0 inset-x-0 px-3 sm:px-6 pb-2 pt-16 bg-gradient-to-t from-black/90 via-black/55 to-transparent transition-opacity duration-300", !sigueVisible && "opacity-0 pointer-events-none")}>
-                <div className="flex flex-wrap items-center justify-center gap-2">
+            {/* Abajo, sobre el video: arriba los controles, después la regla y, al pie, qué es cada color.
+                La franja no recibe el mouse (sólo sus controles): el degradé de arriba es cuadro, y
+                arrastrar ahí tiene que arrastrar la regla como en el resto. */}
+            <div className={cn("absolute bottom-0 inset-x-0 px-3 sm:px-6 pb-1.5 pt-16 bg-gradient-to-t from-black/90 via-black/55 to-transparent transition-opacity duration-300 pointer-events-none", !sigueVisible && "opacity-0")}>
+                <div className={cn("flex flex-wrap items-center justify-center gap-2", sigueVisible && "[&>*]:pointer-events-auto")}>
                     <button type="button" onClick={alVivo} {...tip("Volver al vivo  ( Esc )")}
                         className="h-10 px-3.5 rounded-full visor-panel text-white text-[13px] font-semibold inline-flex items-center gap-1.5"><Radio size={14} className="text-[var(--mal)]" /> Vivo</button>
 
@@ -501,21 +541,19 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                         <Boton onClick={() => setDescarga(true)} titulo="Exportar un clip de este momento"><Download size={17} /></Boton>
                     </span>
 
-                    <span className="hidden lg:inline-flex items-center gap-3 text-[12px] text-white/60 ml-1">
-                        {estado === "viendo" && !convertir && <span title="El servidor no la convierte: la pasa tal cual la grabó el NVR">H.265 directo</span>}
-                        {tramosMin && <span className="inline-flex items-center gap-1"><span className="w-3.5 h-1.5 bg-[var(--bien)]" /> grabación</span>}
-                        {tramosMin && <span className="inline-flex items-center gap-1"><span className="w-3.5 h-1.5 bg-[var(--mal)]" /> sin grabación</span>}
-                        {eventos.some((e) => e.clase === "deteccion") && <span className="inline-flex items-center gap-1"><span className="w-3.5 h-1.5 bg-[var(--aviso)]" /> cámara</span>}
-                        {eventos.some((e) => e.clase === "vision" && e.tipo !== "propio") && <span className="inline-flex items-center gap-1"><span className="w-3.5 h-1.5 bg-[var(--accion-en-oscuro)]" /> OmniVision</span>}
-                        {eventos.some((e) => e.clase === "vision" && e.tipo === "propio") && <span className="inline-flex items-center gap-1"><span className="w-3.5 h-1.5 bg-[#c084fc]" /> entrenado</span>}
-                        {eventos.some((e) => e.clase === "lectura") && <span className="inline-flex items-center gap-1"><span className="w-3.5 h-1.5 bg-white" /> lectura</span>}
+                    {/* La escala de la regla: más lejos para recorrer horas, más cerca para buscar el segundo. */}
+                    <span className="visor-panel rounded-full p-1 inline-flex items-center">
+                        <Boton onClick={() => cambiarEscala(-1)} disabled={escala === 0} titulo={escala === 0 ? "La línea de tiempo ya está en su escala más amplia" : `Alejar la línea de tiempo: ${ESCALAS[escala - 1].rotulo}  ( - )`}><ZoomOut size={17} /></Boton>
+                        <Boton onClick={() => cambiarEscala(1)} disabled={escala === ESCALAS.length - 1} titulo={escala === ESCALAS.length - 1 ? "La línea de tiempo ya está en su escala más fina" : `Acercar la línea de tiempo: ${ESCALAS[escala + 1].rotulo}  ( + )`}><ZoomIn size={17} /></Boton>
                     </span>
+
+                    {estado === "viendo" && !convertir && <span className="hidden lg:inline text-[12px] text-white/60 ml-1" title="El servidor no la convierte: la pasa tal cual la grabó el NVR">H.265 directo</span>}
                 </div>
 
                 {/* La regla de siempre (la del visor): la hora grande arriba, se arrastra, y las marcas se tocan. */}
-                <div ref={cajaRegla} className="mt-1">
-                    <Scrub step={PASO_REGLA} momentum={30} format="24h" width={ancho} difuminado={8} value={minRel(ahora)} start={minRel(ahora)}
-                        sinEnvolver pxPorMinuto={PX_POR_MINUTO} mando={mando}
+                <div ref={cajaRegla} className={cn("mt-1", sigueVisible && "pointer-events-auto")}>
+                    <Scrub step={ESCALAS[escala].paso} momentum={30} format="24h" width={ancho} difuminado={8} value={minRel(ahora)} start={minRel(ahora)}
+                        sinEnvolver pxPorMinuto={ESCALAS[escala].px} mando={mando} conSegundos
                         alArrastrar={(m) => setEnRegla(m == null ? null : medianoche + m * 60_000)}
                         onChange={(mins) => {
                             // Minutos desde la medianoche del día que se mira, sin envolver: negativos son
@@ -525,7 +563,33 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                         }}
                         marcas={marcas} onMarca={irAMarcaScrub} tramos={tramosMin || undefined} rangoTramos={rangoTramos} bandas={bandas} />
                 </div>
+
+                {/* Qué es cada color de la regla: al pie, centrado, pegado al borde (13/11, Nico). Antes iba
+                    al lado de los botones y sólo en pantallas anchas: lejos de la franja que explica. */}
+                {(tramosMin || eventos.length > 0) && (
+                    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-0.5 text-[11.5px] leading-none text-white/65 visor-sombra-texto">
+                        {tramosMin && <span className="inline-flex items-center gap-1.5"><span className="w-3.5 h-1.5 bg-[var(--bien)]" /> grabación</span>}
+                        {tramosMin && <span className="inline-flex items-center gap-1.5"><span className="w-3.5 h-1.5 bg-[var(--mal)]" /> sin grabación</span>}
+                        {eventos.some((e) => e.clase === "deteccion") && <span className="inline-flex items-center gap-1.5"><span className="w-3.5 h-1.5 bg-[var(--aviso)]" /> cámara</span>}
+                        {eventos.some((e) => e.clase === "vision" && e.tipo !== "propio") && <span className="inline-flex items-center gap-1.5"><span className="w-3.5 h-1.5 bg-[var(--accion-en-oscuro)]" /> OmniVision</span>}
+                        {eventos.some((e) => e.clase === "vision" && e.tipo === "propio") && <span className="inline-flex items-center gap-1.5"><span className="w-3.5 h-1.5 bg-[#c084fc]" /> entrenado</span>}
+                        {eventos.some((e) => e.clase === "lectura") && <span className="inline-flex items-center gap-1.5"><span className="w-3.5 h-1.5 bg-white" /> lectura</span>}
+                    </div>
+                )}
             </div>
+
+            {/* El vivo, chico, en una esquina: tocarlo vuelve a él, como quien vuelve atrás.
+                Va DESPUÉS de la franja de controles (13/11, Nico: «ese live view debe poder volver a la
+                cámara en vivo»): la franja mide más de lo que parece —su degradé sube 64 px por encima
+                de los botones— y, dibujada después, tapaba los dos tercios de abajo de este cuadro.
+                El toque caía en la franja y no pasaba nada; sólo andaba en una tira de arriba. */}
+            <button type="button" onClick={alVivo} aria-label="Volver al vivo" data-vivo-chico
+                className={cn("absolute right-4 bottom-[220px] sm:bottom-[196px] w-[180px] sm:w-[240px] aspect-video rounded-[10px] overflow-hidden ring-1 ring-white/25 bg-black transition-opacity hover:ring-2 hover:ring-white/70 focus-visible:ring-2 focus-visible:ring-[var(--accion-en-oscuro)] outline-none", !sigueVisible && "opacity-0 pointer-events-none")}>
+                <Vivo src={vivoDe(c.stream, !h265, hls)} className="absolute inset-0 w-full h-full object-cover" />
+                <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white"><Radio size={11} className="text-[var(--mal)] animate-pulse" /> Vivo</span>
+                {/* Lo que hace, escrito: el mismo «Volver» del cuadro de origen del seguimiento visual. */}
+                <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 h-7 pl-1.5 pr-2.5 rounded-full bg-[var(--accion)] text-white text-[12px] font-semibold"><ChevronLeft size={14} /> Volver al vivo</span>
+            </button>
 
             {descarga && <DescargaClip instante={ahora} ventana={ventana} href={hrefDescarga} onClose={() => setDescarga(false)} deviceId={deviceIdEnvio} camara={c.nombre} />}
         </>

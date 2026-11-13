@@ -213,7 +213,8 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
 
     return (
         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio={ajuste === "cover" ? "xMidYMid slice" : "xMidYMid meet"}
-            className={`absolute inset-0 w-full h-full pointer-events-none ${className || ""}`} aria-hidden>
+            // `data-capa-tocable`: quien la contiene distingue un toque sobre una silueta (o su menú) de uno sobre el video pelado.
+            className={`absolute inset-0 w-full h-full pointer-events-none ${className || ""}`} aria-hidden data-capa-tocable={interactiva ? "" : undefined}>
             <defs>
                 <filter id={`brillo-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
                     <feGaussianBlur stdDeviation={lado * 0.004} result="b" />

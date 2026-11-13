@@ -9,6 +9,7 @@
  * Antes la app sólo mostraba el vivo y la última chapa: para ver qué pasó hacía falta ir al panel.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useVideoQueSeSuelta } from "@/lib/video-soltar";
 import { ArrowLeft, Camera, Minus, Plus, Radio, Scissors } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAccessEvents } from "@/app/actions/history";
@@ -53,7 +54,8 @@ export function VistaCamara({ camara, abierta, alCerrar, desde }: {
     const tocando = useRef(false);
     const programado = useRef(false);
     const espera = useRef<any>(null);
-    const video = useRef<HTMLVideoElement>(null);
+    // Cada tramo es un <video> nuevo: el anterior se suelta o su descarga sigue abierta (lib/video-soltar).
+    const [video, ponerVideo] = useVideoQueSeSuelta();
 
     // El reloj de la línea: avanza solo, así el vivo siempre queda al final.
     useEffect(() => { if (!abierta) return; const iv = setInterval(() => setAhora(Date.now()), 5000); return () => clearInterval(iv); }, [abierta]);
@@ -178,7 +180,7 @@ export function VistaCamara({ camara, abierta, alCerrar, desde }: {
             <div className="shrink-0 relative w-full aspect-video bg-black">
                 {camara && enVivo && <VivoCanal deviceId={camara.id} className="absolute inset-0 w-full h-full" alEstado={(s) => setEstadoVideo(s === "foto" ? "Sin video: foto cada 4 s" : "")} />}
                 {camara && !enVivo && urlGrabacion && (
-                    <video key={urlGrabacion} ref={video} src={urlGrabacion} className="absolute inset-0 w-full h-full object-contain" autoPlay muted playsInline controls={false}
+                    <video key={urlGrabacion} ref={ponerVideo} src={urlGrabacion} className="absolute inset-0 w-full h-full object-contain" autoPlay muted playsInline controls={false}
                         onTimeUpdate={alAvanzar} onEnded={alTerminar}
                         onWaiting={() => setEstadoVideo("Pidiendo la grabación al grabador…")} onPlaying={() => setEstadoVideo("")}
                         onError={() => setEstadoVideo("El grabador no devolvió video para ese momento")} />

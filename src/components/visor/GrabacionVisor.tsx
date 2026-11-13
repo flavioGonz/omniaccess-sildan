@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useVideoQueSeSuelta } from "@/lib/video-soltar";
 import { AnimatePresence, motion } from "framer-motion";
 import { Car, Check, ChevronLeft, ChevronRight, Crosshair, Download, Film, Loader2, Pause, Play, RefreshCw, SkipBack, SkipForward, VideoOff } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -122,7 +123,10 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     const [eventos, setEventos] = useState<EventoCamara[]>([]);
     useEffect(() => { let vivo = true; eventosDeCamara(deviceId, instanteMs).then((e) => { if (vivo) setEventos(e); }).catch(() => { }); return () => { vivo = false; }; }, [deviceId, instanteMs]);
     const ancla = useRef<number | null>(null);
-    const video = useRef<HTMLVideoElement>(null);
+    // Cada tramo es un <video> nuevo: el anterior se suelta o su descarga sigue abierta (lib/video-soltar).
+    const [video, ponerVideo] = useVideoQueSeSuelta();
+    /** El nombre de este visor en los pedidos (`v`): el servidor corta su tramo anterior al abrir el nuevo (ver api/nvr/playback). */
+    const visor = useRef(`v${Math.random().toString(36).slice(2, 12)}`).current;
     const intentos = useRef(0);
     const arranco = useRef(false);
     const pausadoAMano = useRef(false);
@@ -155,7 +159,7 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     const pedir = canal?.ch != null && !!canal.nvr && tramos !== undefined && (cubierto !== false || forzado);
 
     const url = pedir
-        ? `/api/nvr/playback?ch=${canal!.ch}&t=${Math.floor(tramo)}&nvr=${canal!.nvr}&dur=${DUR_TRAMO_SEG}${tx ? "&tx=1" : ""}&r=${reintento}`
+        ? `/api/nvr/playback?ch=${canal!.ch}&t=${Math.floor(tramo)}&nvr=${canal!.nvr}&dur=${DUR_TRAMO_SEG}${tx ? "&tx=1" : ""}&r=${reintento}&v=${visor}`
         : null;
     /** El video empieza «antes» segundos antes del instante pedido (Ajustes → Video del evento). */
     const inicioTramo = tramo - ventana.antes * 1000;
@@ -319,7 +323,7 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
               */}
             <div className="absolute inset-0">
             {url && (
-                <video key={url} ref={video} src={url} muted playsInline preload="auto" onClick={alternar}
+                <video key={url} ref={ponerVideo} src={url} muted playsInline preload="auto" onClick={alternar}
                     onPlay={() => setReproduciendo(true)} onPause={() => setReproduciendo(false)}
                     onLoadStart={() => setRecibiendo(false)} onLoadedMetadata={() => setRecibiendo(true)}
                     onLoadedData={() => { intentos.current = 0; setFallo(null); try { video.current!.playbackRate = velocidad; } catch { } intentarPlay(); }}

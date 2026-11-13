@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useVideoQueSeSuelta } from "@/lib/video-soltar";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem, getEvidenciaCamara, type EvidenciaItem } from "@/app/actions/detections";
@@ -238,7 +239,8 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
     };
     const recMinutesOfDay = (() => { const d = new Date(recT); return d.getHours() * 60 + d.getMinutes(); })(); // no cargar el clip hasta que se abra Grabación al menos una vez
     const seekTo = (ms: number) => { const v = Math.max(Date.now() - 30 * 24 * 3600 * 1000, Math.min(Date.now(), ms)); pausadoPorUsuario.current = false; setPosMs(null); setRecT(v); setScrub(v); clearTimeout(scrubTO.current); scrubTO.current = setTimeout(() => setScrub(null), 1100); };
-    const recVideo = useRef<HTMLVideoElement>(null);
+    // Cada tramo es un <video> nuevo: el anterior se suelta o su descarga sigue abierta (lib/video-soltar).
+    const [recVideo, ponerRecVideo] = useVideoQueSeSuelta();
     // Arranca la grabación solo cuando hay ~2.5s de búfer por delante (el NVR entrega a 1x,
     // sin colchón el <video> se queda en buffering constante). Con cushion reproduce fluido.
     const tryPlayCushion = useCallback(() => {
@@ -483,7 +485,7 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
                             así que había play y pausa pero no se veían. Ahora el botón es nuestro, y el
                             video mismo se toca para pausar/seguir, como en cualquier reproductor. */}
                         {recSeen && playbackUrl ? (
-                            <video key={`${playbackUrl}#${recRetry}`} ref={recVideo} src={playbackUrl} muted playsInline preload="auto" poster={snap}
+                            <video key={`${playbackUrl}#${recRetry}`} ref={ponerRecVideo} src={playbackUrl} muted playsInline preload="auto" poster={snap}
                                 onClick={togglePlay}
                                 onPlay={() => setRecPlaying(true)} onPause={() => setRecPlaying(false)}
                                 onLoadedData={() => { recTriesRef.current = 0; setNoRec(false); try { recVideo.current!.playbackRate = recRate; } catch { } tryPlayCushion(); }} onCanPlay={() => tryPlayCushion()} onProgress={() => tryPlayCushion()}

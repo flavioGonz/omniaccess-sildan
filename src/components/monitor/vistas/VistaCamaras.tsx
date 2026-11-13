@@ -29,6 +29,7 @@ import { EnlacesBaldosa, cuadroCover, aCuadro, type Enlace } from "@/components/
 import { setVisualTrackLinks, type TrackLink } from "@/app/actions/detections";
 import { EditorVista } from "@/components/monitor/camaras/Editor";
 import { abrirVentana, listarPantallas, hayVariasPantallasApi, clavePrefs, type Pantalla } from "@/components/monitor/camaras/ventanas";
+import { proximoIntento, esCorteGeneral } from "@/lib/vivo-reintento";
 import { cn } from "@/lib/utils";
 
 /**
@@ -60,8 +61,8 @@ const REPEDIR_INCOMPLETO_MS = 2500;
 const ESQUELETO_MAX = 16;
 /** Después de esto sin datos, el esqueleto dice qué se está esperando. */
 const ESQUELETO_AVISO_MS = 1500;
-/** Cuánto se recuerda que un vivo no arrancó antes de volver a probarlo (mientras tanto, convertido o foto). */
-const REINTENTAR_VIVO_MS = 5 * 60_000;
+/** Cada cuánto se revisa si a algún vivo que falló ya le toca probar de nuevo (cuánto espera cada uno: lib/vivo-reintento). */
+const REVISAR_FALLOS_MS = 2_000;
 /** Tope de baldosas convertidas por pantalla cuando el navegador no reproduce H.265. */
 const MAX_CONVERTIDOS = 4;
 const PAGINA_SEG = [10, 20, 40] as const;
@@ -385,23 +386,43 @@ export function VistaCamaras() {
 
     // Cuántos vivos arrancaron y cuántos no, por canal y modo: la prueba de verdad.
     const [resultados, setResultados] = useState<Record<string, boolean>>({});
-    /** Cuándo falló cada vivo: un fallo vale REINTENTAR_VIVO_MS y después se vuelve a probar. */
-    const fallos = useRef<Map<string, number>>(new Map());
+    /**
+     * Los vivos que fallaron: cuándo, cuántas veces seguidas y con qué azar (de eso sale cuándo se
+     * prueba de nuevo: lib/vivo-reintento). `probando` = ya se lo está probando otra vez; la cuenta
+     * de veces se conserva hasta que arranque, para que la espera crezca.
+     */
+    const fallos = useRef<Map<string, { desde: number; veces: number; azar: number; probando: boolean }>>(new Map());
+    /** Si ahora mismo es un corte general (se calcula más abajo, con lo que hay en pantalla). */
+    const corteGeneralRef = useRef(false);
     const alResultado = useCallback((c: Canal, modo: Modo, ok: boolean) => {
         const k = `${c.clave}|${modo}`;
-        if (ok) fallos.current.delete(k); else fallos.current.set(k, Date.now());
+        if (ok) {
+            fallos.current.delete(k);
+            // Arrancó una en medio de un corte general: volvió el video. Las demás no esperan su turno
+            // (que tras un corte largo ya era de minutos): se prueban en la próxima revisión.
+            if (corteGeneralRef.current) for (const f of fallos.current.values()) if (!f.probando) { f.veces = 1; f.desde = 0; }
+        } else {
+            const veces = (fallos.current.get(k)?.veces || 0) + 1;
+            fallos.current.set(k, { desde: Date.now(), veces, azar: Math.random(), probando: false });
+        }
         setResultados((r) => (r[k] === ok ? r : { ...r, [k]: ok }));
     }, []);
     // Un vivo que no arrancó una vez no queda en foto hasta el próximo F5 (12/11: la pared tiene que
-    // aguantar 24 horas). Pasado un rato se olvida el fallo y la baldosa vuelve a intentar en vivo.
+    // aguantar 24 horas). Cumplida su espera se olvida el fallo y la baldosa vuelve a intentar en vivo.
     useEffect(() => {
         const iv = setInterval(() => {
-            const vencidos = [...fallos.current].filter(([, t]) => Date.now() - t > REINTENTAR_VIVO_MS).map(([k]) => k);
+            const ahora = Date.now();
+            const vencidos = [...fallos.current].filter(([, f]) => !f.probando && ahora > proximoIntento(f, corteGeneralRef.current)).map(([k]) => k);
             if (!vencidos.length) return;
-            for (const k of vencidos) fallos.current.delete(k);
+            for (const k of vencidos) fallos.current.get(k)!.probando = true;
             setResultados((r) => { const n = { ...r }; for (const k of vencidos) delete n[k]; return n; });
-        }, 30_000);
+        }, REVISAR_FALLOS_MS);
         return () => clearInterval(iv);
+    }, []);
+    /** Probar ya todos los vivos que fallaron (el botón del aviso de corte general): lo que antes se hacía recargando la página. */
+    const reintentarVivos = useCallback(() => {
+        fallos.current.clear();
+        setResultados((r) => Object.fromEntries(Object.entries(r).filter(([, ok]) => ok)));
     }, []);
 
     // Lo que llega por el socket, sin esperar la próxima vuelta.
@@ -477,6 +498,8 @@ export function VistaCamaras() {
     /** «Buscar parecidos» abierto (y desde qué canal): mientras tanto la página no pasa sola. Ver más abajo. */
     // `clase` y `caja`: abierto desde el menú de un objeto tocado en el vivo (ya se sabe qué es y dónde está).
     const [buscar, setBuscar] = useState<{ canal: Canal | null; clase?: ClaseBusqueda; caja?: number[] } | null>(null);
+    // La ficha a pantalla completa, por clave (así se actualiza con cada vuelta de datos).
+    const [abiertaClave, setAbiertaClave] = useState<string | null>(null);
     useEffect(() => { if (hayAlerta) setPagina(0); }, [hayAlerta]);
     // Mismo criterio de fondo que las demás paredes (lib/monitor/fondos): una detección en pantalla es
     // ámbar (hay que mirarla); si OmniVision confirmó que hay alguien, roja (hay que atenderla).
@@ -484,11 +507,14 @@ export function VistaCamaras() {
         : ordenados.some((c) => alertaDe(c)?.verif?.veredicto === VEREDICTO_CONFIRMADO) ? "mal" : "aviso";
     useEffect(() => { setFondo(fondoDe(tonoPared)); }, [tonoPared, setFondo]);
     useEffect(() => () => setFondo(null), [setFondo]);
+    // Con una ficha abierta la página tampoco pasa sola (13/11): la pared seguía rotando DEBAJO de la
+    // ficha —cada vuelta, una docena de vivos nuevos que nadie ve— y al cerrar se volvía a otra
+    // página, con todas las baldosas recién abiertas. La ficha se cierra sola a los 3 min sin tocar.
     useEffect(() => {
-        if (modoVista !== "auto" || paginas <= 1 || pausada || hayAlerta || editandoSeg || buscar) return;
+        if (modoVista !== "auto" || paginas <= 1 || pausada || hayAlerta || editandoSeg || buscar || abiertaClave) return;
         const iv = setInterval(() => setPagina((p) => (p + 1) % paginas), (prefs?.pagSeg || 20) * 1000);
         return () => clearInterval(iv);
-    }, [modoVista, paginas, pausada, hayAlerta, prefs?.pagSeg, editandoSeg, buscar]);
+    }, [modoVista, paginas, pausada, hayAlerta, prefs?.pagSeg, editandoSeg, buscar, abiertaClave]);
     const pag = Math.min(pagina, paginas - 1);
 
     const celdas: Celda[] = useMemo(() => {
@@ -520,12 +546,22 @@ export function VistaCamaras() {
         return m;
     }, [celdas, h265, resultados, movil, lista, aLaVista]);
 
+    // Cuántas baldosas de la pantalla están sin su vivo porque falló: las que tienen un fallo anotado
+    // y no están reproduciendo en el modo que les tocó. No cuentan las que van en foto por el tope de
+    // convertidas, ni la que no abre directo pero sí convertida. La que se está probando de nuevo
+    // sigue contando hasta que arranque: si no, el corte «se terminaba» cada vez que se reintentaba.
+    const sinVideo = enPantalla.filter((c) => {
+        if (c.online === false || !(fallos.current.has(`${c.clave}|directo`) || fallos.current.has(`${c.clave}|convertido`))) return false;
+        const m = modos.get(c.clave) || "foto";
+        return m === "foto" || resultados[`${c.clave}|${m}`] !== true;
+    }).length;
+    const corteGeneral = esCorteGeneral(sinVideo, enPantalla.length);
+    corteGeneralRef.current = corteGeneral;
+
     const directos = Object.entries(resultados).filter(([k]) => k.endsWith("|directo")).map(([, v]) => v);
     const directosOk = directos.filter(Boolean).length;
     const directosMal = directos.filter((x) => !x).length;
 
-    // La ficha a pantalla completa, por clave (así se actualiza con cada vuelta de datos).
-    const [abiertaClave, setAbiertaClave] = useState<string | null>(null);
     /** Si la ficha se abrió desde el control «grabación» de una baldosa: el instante donde arranca. */
     const [grabacionInicial, setGrabacionInicial] = useState<number | null>(null);
     /** De qué cámara se vino por el seguimiento visual (para volver). */
@@ -864,9 +900,17 @@ export function VistaCamaras() {
                     </div>
                 </div>
             )}
-            {(aviso || (datos && !datos.go2rtc) || (!canalSolo && prefs && prefs.vista !== AUTO && !guardada && datos)) && (
+            {(aviso || corteGeneral || (datos && !datos.go2rtc) || (!canalSolo && prefs && prefs.vista !== AUTO && !guardada && datos)) && (
                 <div className="shrink-0 px-3 pt-3 flex flex-col gap-2">
                     {aviso && <div className="rounded-[10px] chip-aviso border px-3 py-2 text-[13px]">{aviso}</div>}
+                    {/* Muchas a la vez no es una cámara: es el servidor de video sin llegar a ellas. Se dice, y se
+                        ofrece lo que antes se resolvía con F5. (Si go2rtc directamente no responde, lo dice el aviso de abajo.) */}
+                    {corteGeneral && !(datos && !datos.go2rtc) && (
+                        <div role="status" className="rounded-[10px] chip-aviso border px-3 py-2 text-[13px] flex items-center gap-3">
+                            <span className="flex-1">No llega el video de {sinVideo} de las {enPantalla.length} cámaras de esta pantalla. Se vuelve a probar solo cada 20 segundos; no hace falta recargar.</span>
+                            <button type="button" onClick={reintentarVivos} className="h-8 px-3 rounded-[6px] bg-[var(--accion)] text-white text-[12.5px] font-semibold shrink-0">Reintentar ahora</button>
+                        </div>
+                    )}
                     {datos && !datos.go2rtc && <div className="rounded-[10px] chip-mal border px-3 py-2 text-[13px]">El servidor de video (go2rtc) no responde: los vivos no van a abrir.</div>}
                     {!canalSolo && prefs && prefs.vista !== AUTO && !guardada && datos && <div className="rounded-[10px] chip-aviso border px-3 py-2 text-[13px]">Esa vista ya no existe: se muestra la automática.</div>}
                 </div>
