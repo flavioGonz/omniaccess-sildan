@@ -165,7 +165,7 @@ export function MenuCanal({ x, y, titulo, sub, opciones, alCerrar }: { x: number
     if (typeof document === "undefined") return null;
     return createPortal(
         <div ref={caja} role="menu" aria-label={`Acciones de ${titulo}`} onContextMenu={(e) => e.preventDefault()} onClick={(e) => e.stopPropagation()}
-            style={{ left: pos.x, top: pos.y }} className="fixed z-[80] w-[264px] rounded-[14px] visor-panel text-white p-1.5">
+            style={{ left: pos.x, top: pos.y }} className="fixed z-[var(--capa-menu)] w-[264px] rounded-[14px] visor-panel text-white p-1.5">
             <div className="px-2.5 pt-1.5 pb-2">
                 <div className="text-[13px] font-bold truncate">{titulo}</div>
                 {sub && <div className="text-[11px] text-white/60 truncate">{sub}</div>}

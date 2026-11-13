@@ -19,6 +19,10 @@ import { cuantoDuro, puedeSerLaMisma, type Seguimiento, type Tramo } from "@/lib
  * la historia sale de lo que el sistema ya guarda (api/seguimiento). Lo que sí es automático para
  * las de la lista negra son los avisos de llegada («a la vista») y de partida («se fue»).
  *
+ * Va en la capa de los paneles (--capa-panel), por encima del vivo de un canal: el 13/11 salió
+ * con una capa escrita a mano, más baja que la ficha del canal, y «Seguir este vehículo» desde el
+ * vivo no mostraba nada hasta salir (Nico: «debe abrirse en el live view»).
+ *
  * Se actualiza solo: con cada estadía que abre o cierra, con cada lectura de esa chapa, y cada
  * REFRESCO_MS por las dudas. Quien lo abre decide qué hacen «Ver ahora» y «Ver la grabación»
  * (`alVer`): la pared abre el canal; sin eso, los botones no se dibujan.
@@ -62,12 +66,20 @@ export function SeguimientoChapa({ plate, alCerrar, alVer }: {
     useTiempoReal("estadia_abierta", (e: any) => siEsEsta(e?.plate));
     useTiempoReal("estadia_cerrada", (e: any) => siEsEsta(e?.plate));
     useTiempoReal("access_event", (e: any) => siEsEsta(e?.plateDetected));
-    useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === "Escape") alCerrar(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [alCerrar]);
+    /*
+     * Esc cierra ESTE cajón y nada más. Se abre también sobre el vivo de un canal (la ficha de la
+     * pared), que cierra con Esc: sin frenar la tecla acá se cerraban los dos. Va en la fase de
+     * captura para llegar antes que quien esté debajo.
+     */
+    useEffect(() => {
+        const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); alCerrar(); } };
+        window.addEventListener("keydown", k, true); return () => window.removeEventListener("keydown", k, true);
+    }, [alCerrar]);
 
     if (typeof document === "undefined") return null;
     const s = datos?.seguimiento, a = s?.actual || null, lista = datos?.lista || null;
     return createPortal(
-        <aside role="dialog" aria-label={`Seguimiento de ${plate}`} className="fixed right-0 top-0 z-[70] h-full w-[420px] max-w-[94vw] flex flex-col bg-card text-foreground border-l border-border shadow-[var(--sombra-flotante)]">
+        <aside role="dialog" data-capa-tocable aria-label={`Seguimiento de ${plate}`} className="fixed right-0 top-0 z-[var(--capa-panel)] h-full w-[420px] max-w-[94vw] flex flex-col bg-card text-foreground border-l border-border shadow-[var(--sombra-flotante)]">
             <header className="shrink-0 px-5 pt-4 pb-3 border-b border-border">
                 <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">
