@@ -1294,6 +1294,11 @@ model ObjetoVisto {
   /// Texto que omni-vision leyó en el vehículo (rotulado): [{texto, confianza, tipo}]. La empresa
   /// se cruza con el catálogo al mostrarlo.
   textos     Json?
+  /// Una persona dijo que esta detección está mal (no era eso). Sale del registro y de la
+  /// búsqueda, pero la fila queda hasta que la venza la retención: se puede deshacer y contar.
+  falsa      Boolean  @default(false)
+  falsaPor   String?
+  falsaAt    DateTime?
   createdAt  DateTime @default(now())
 
   huella     HuellaObjeto?

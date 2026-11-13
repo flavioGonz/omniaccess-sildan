@@ -23,6 +23,8 @@ export type FilaObjeto = {
     /** Empresa por rotulado: el texto leído en el vehículo y la empresa del catálogo, si coincide. */
     textos: { texto: string; confianza: number; tipo?: string; empresa?: { nombre: string; logo: string | null } }[] | null;
     empresa: { nombre: string; logo: string | null } | null;
+    /** Una persona la marcó como falsa (no era eso): ver api/vision/detecciones/[id]/falsa. */
+    falsa?: boolean; falsaPor?: string | null; falsaAt?: string | null;
 };
 
 export const img = (clave: string | null, w?: number) => (clave ? `/api/vision/imagen/${clave}${w ? `?w=${w}` : ""}` : "");

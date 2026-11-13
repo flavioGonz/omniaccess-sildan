@@ -58,7 +58,7 @@ export async function objetosPorTexto(q: string, { desde, hasta, limite = 200 }:
     const filtro = Prisma.sql`${desde ? Prisma.sql`AND o."primeraVez" >= ${sinZona(desde)}::timestamp` : Prisma.empty} ${hasta ? Prisma.sql`AND o."primeraVez" <= ${sinZona(hasta)}::timestamp` : Prisma.empty}`;
     const huellas = await prisma.$queryRaw<{ id: string; vector: Buffer }[]>`
         SELECT h."objetoId" AS id, h.vector FROM "HuellaObjeto" h JOIN "ObjetoVisto" o ON o.id = h."objetoId"
-        WHERE true ${filtro} ORDER BY o."primeraVez" DESC LIMIT ${CANDIDATOS_MAX}`;
+        WHERE NOT o.falsa ${filtro} ORDER BY o."primeraVez" DESC LIMIT ${CANDIDATOS_MAX}`;
     const puntos = huellas.map((x) => {
         const q8 = new Int8Array(x.vector.buffer, x.vector.byteOffset, x.vector.byteLength);
         let d = 0, n = 0;

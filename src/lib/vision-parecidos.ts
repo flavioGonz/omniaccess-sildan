@@ -107,7 +107,7 @@ export async function comparar(consulta: Float32Array, escala: number | null, se
     const filtroArea = !enArea ? Prisma.empty
         : "en" in enArea ? (enArea.en.length ? Prisma.sql` AND o."deviceId" IN (${Prisma.join(enArea.en)})` : Prisma.sql` AND false`)
         : enArea.fuera.length ? Prisma.sql` AND (o."deviceId" IS NULL OR o."deviceId" NOT IN (${Prisma.join(enArea.fuera)}))` : Prisma.empty;
-    const filtros = Prisma.sql`o."primeraVez" >= ${desde}::timestamp${camara ? Prisma.sql` AND o."deviceId" = ${camara}` : Prisma.empty}${grupo ? Prisma.sql` AND o.grupo = ${grupo}` : Prisma.empty}${filtroArea}`;
+    const filtros = Prisma.sql`NOT o.falsa AND o."primeraVez" >= ${desde}::timestamp${camara ? Prisma.sql` AND o."deviceId" = ${camara}` : Prisma.empty}${grupo ? Prisma.sql` AND o.grupo = ${grupo}` : Prisma.empty}${filtroArea}`;
     const [huellas, sinHuella] = await Promise.all([
         prisma.$queryRaw<{ id: string; vector: Buffer; escala: number }[]>`
             SELECT h."objetoId" AS id, h.vector, h.escala FROM "HuellaObjeto" h JOIN "ObjetoVisto" o ON o.id = h."objetoId"

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Ban, CheckCircle2, Clock, Film, Info, LogIn, LogOut, Route, ScanLine, ScanSearch, Shapes, Type, UserPlus, Video, XCircle } from "lucide-react";
+import { ArrowUpRight, Ban, CheckCircle2, Clock, Film, Info, LogIn, LogOut, PencilLine, Route, ScanLine, ScanSearch, Shapes, ThumbsDown, Type, UserPlus, Video, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Pista } from "@/components/ui/pista";
@@ -28,14 +28,25 @@ import { QuienEs, type ResultadoBusqueda } from "@/components/vision/buscar/Mosa
  *  · Las acciones en el pie fijo: la grabación en azul (es lo que más se hace), parecidos, y la
  *    lista negra como acción de peligro discreta, no como una franja rosa que gana a todo.
  */
-export function CajonPista({ r, alCerrar, alRegistrar, alListaNegra, alParecidos }: {
+/** Lo que se le pide a `alFalsa`: marcar (y cómo suma al entrenamiento) o deshacer. */
+export type QueFalsa = { entrenar: "negativa" | "dibujar" | null } | { deshacer: true };
+
+export function CajonPista({ r, alCerrar, alRegistrar, alListaNegra, alParecidos, alFalsa }: {
     r: ResultadoBusqueda | null;
     alCerrar: () => void;
     alRegistrar: (plate: string) => void;
     alListaNegra: () => void;
     alParecidos?: () => void;
+    /**
+     * «Esto está mal» (12/11): marcar la detección como falsa, o deshacerlo. `entrenar` dice cómo
+     * entra su cuadro al conjunto del detector entrenado acá (ver api/vision/detecciones/[id]/falsa);
+     * null = sólo marcar. Sin esta prop, el cajón no ofrece nada (Buscar, por ahora).
+     */
+    alFalsa?: (que: QueFalsa) => Promise<void>;
 }) {
     const [grabacion, setGrabacion] = useState(false);
+    const [marcando, setMarcando] = useState(false);
+    const marcar = async (que: QueFalsa) => { if (!alFalsa || marcando) return; setMarcando(true); try { await alFalsa(que); } finally { setMarcando(false); } };
     if (!r) return null;
     const Ic = ICONO_GRUPO[r.grupo] || Shapes;
     const l = r.historial?.lectura || null;
@@ -177,6 +188,46 @@ export function CajonPista({ r, alCerrar, alRegistrar, alListaNegra, alParecidos
                                 </dl>
                             )}
                         </section>
+
+                        {/* ¿Está mal? Lo último del cajón: es la excepción, no lo que se viene a hacer. */}
+                        {alFalsa && (
+                            <section className="space-y-2">
+                                <Rotulo texto={r.falsa ? "Marcada como falsa" : `¿No era ${nombreClase(r.clase).toLowerCase()}?`}
+                                    pista="Una detección marcada como falsa sale del registro y de la búsqueda. Si la hizo el detector entrenado acá, además su foto entra al conjunto de entrenamiento: es el ejemplo que más enseña, justo la imagen donde se confundió. El detector de fábrica (personas, vehículos, animales) no se entrena acá." />
+                                {r.falsa ? (
+                                    <div className="flex items-center gap-3 flex-wrap text-[12.5px]">
+                                        <span className="text-muted-foreground">{r.falsaPor ? `La marcó ${r.falsaPor}` : "Alguien la marcó"}{r.falsaAt ? ` el ${fecha(r.falsaAt)} a las ${hora(r.falsaAt)}` : ""}.</span>
+                                        <button type="button" disabled={marcando} onClick={() => marcar({ deshacer: true })} className="font-semibold text-[var(--accion)] hover:underline disabled:opacity-50">Deshacer</button>
+                                    </div>
+                                ) : r.grupo === "propio" ? (
+                                    <>
+                                        <div className="flex flex-wrap gap-2">
+                                            <button type="button" disabled={marcando} onClick={() => marcar({ entrenar: "negativa" })}
+                                                className="h-8 px-3 rounded-[8px] border border-border text-[12.5px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent disabled:opacity-50">
+                                                <ThumbsDown size={14} /> Es falso, y en la foto no hay ninguno
+                                            </button>
+                                            <button type="button" disabled={marcando} onClick={() => marcar({ entrenar: "dibujar" })}
+                                                className="h-8 px-3 rounded-[8px] border border-border text-[12.5px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent disabled:opacity-50">
+                                                <PencilLine size={14} /> Es falso, pero hay otros que sí
+                                            </button>
+                                        </div>
+                                        <p className="text-[11.5px] text-muted-foreground leading-snug">
+                                            Las dos suman la foto al entrenamiento. La primera entra ya lista, como «No hay ninguno»; la segunda queda en «Sin dibujar» para marcar los que sí son. Aprende en el próximo entrenamiento.
+                                        </p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <button type="button" disabled={marcando} onClick={() => marcar({ entrenar: null })}
+                                            className="h-8 px-3 rounded-[8px] border border-border text-[12.5px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent disabled:opacity-50">
+                                            <ThumbsDown size={14} /> Marcar como falsa
+                                        </button>
+                                        <p className="text-[11.5px] text-muted-foreground leading-snug">
+                                            Sale del registro y de la búsqueda. No suma al entrenamiento: {nombreClase(r.clase).toLowerCase()} lo reconoce el detector de fábrica, que no se entrena acá.
+                                        </p>
+                                    </>
+                                )}
+                            </section>
+                        )}
                     </div>
                     {/* Adentro del cajón, como antes: afuera, el cajón modal le quitaba los clics. */}
                     {grabacion && r.deviceId && (

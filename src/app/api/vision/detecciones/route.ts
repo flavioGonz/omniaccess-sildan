@@ -17,7 +17,7 @@ const POR_PAGINA = 60;
 const RANGOS_H = new Set([1, 6, 24, 72, 168]);
 
 /**
- * GET /api/vision/detecciones?h=24&camara=&grupo=&clase=&antes=<iso>
+ * GET /api/vision/detecciones?h=24&camara=&grupo=&clase=&antes=<iso>&falsas=1
  *
  * Lo que guardó el registro de detecciones (vision-worker), más lo que hace falta para la
  * pantalla: el estado del proceso, las cámaras y cuáles se registran, y los conteos del rango
@@ -38,20 +38,23 @@ export async function GET(req: NextRequest) {
     const clase = q.get("clase") || undefined;
     const antes = q.get("antes") ? new Date(q.get("antes")!) : undefined;
 
-    const base = { primeraVez: { gte: desde }, ...(camara ? { deviceId: camara } : {}) };
+    // Las que una persona marcó como falsas no se muestran, salvo que se pidan (para revisarlas o deshacer).
+    const falsas = q.get("falsas") === "1";
+    const base = { primeraVez: { gte: desde }, falsa: falsas, ...(camara ? { deviceId: camara } : {}) };
     // «Con rotulado»: sólo las pistas donde se leyó texto (empresa por rotulado).
     const rotulo = q.get("rotulo") === "1";
     const filtro = { ...base, ...(grupo ? { grupo } : {}), ...(clase ? { clase } : {}), ...(rotulo ? { textos: { not: Prisma.AnyNull } } : {}) };
 
-    const [filas, porClase, porCamara, estadoCrudo, camarasCrudo, camaras, vision] = await Promise.all([
+    const [filas, porClase, porCamara, estadoCrudo, camarasCrudo, cuantasFalsas, camaras, vision] = await Promise.all([
         prisma.objetoVisto.findMany({
             where: { ...filtro, ...(antes && !isNaN(antes.getTime()) ? { primeraVez: { gte: desde, lt: antes } } : {}) },
             orderBy: { primeraVez: "desc" }, take: POR_PAGINA,
         }),
         prisma.objetoVisto.groupBy({ by: ["clase", "grupo"], where: base, _count: { _all: true } }),
-        prisma.objetoVisto.groupBy({ by: ["deviceId"], where: { primeraVez: { gte: desde } }, _count: { _all: true } }),
+        prisma.objetoVisto.groupBy({ by: ["deviceId"], where: { primeraVez: { gte: desde }, falsa: falsas }, _count: { _all: true } }),
         leerAjuste("VISION_REGISTRO_ESTADO"),
         leerAjuste("VISION_CAMARAS"),
+        prisma.objetoVisto.count({ where: { primeraVez: { gte: desde }, falsa: true } }),
         // (los nombres de los canales de NVR van en VISION_CAMARAS_NOMBRES, abajo)
         prisma.device.findMany({ where: { deviceType: { not: "NVR" as any } }, select: { id: true, name: true, deviceType: true }, orderBy: { name: "asc" } }),
         saludVision(),
@@ -83,7 +86,7 @@ export async function GET(req: NextRequest) {
         porCamara: Object.fromEntries(porCamara.map((x) => [x.deviceId || "", x._count._all])),
         // "Todas" se guarda como lista vacía: así una cámara nueva entra sola.
         camaras: [...camaras.map((c) => ({ ...c, registra: !elegidas.length || elegidas.includes(c.id) })), ...canales],
-        estado,
+        estado, falsas: cuantasFalsas,
         vision: { ok: !!vision.salud, error: vision.error || null },
     }, { headers: { "Cache-Control": "no-store" } });
 }

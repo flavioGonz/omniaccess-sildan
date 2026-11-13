@@ -4,13 +4,14 @@ import { ElegirCamara } from "@/components/devices/ElegirCamara";
 import { useAreas } from "@/lib/use-areas";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ListVideo, Loader2, User, Car, PawPrint, Backpack, Shapes, Sparkles, Video, Gauge, type LucideIcon, Boxes, Inbox } from "lucide-react";
+import { ListVideo, Loader2, User, Car, PawPrint, Backpack, Shapes, Sparkles, Video, Gauge, type LucideIcon, Boxes, Inbox, ThumbsDown } from "lucide-react";
+import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { ErrorEstado, Cargando, Vacio } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
 import { Pista } from "@/components/ui/pista";
 import { pct, nombreClase } from "@/components/vision/ObjetoRegistro";
-import { CajonPista } from "@/components/vision/CajonPista";
+import { CajonPista, type QueFalsa } from "@/components/vision/CajonPista";
 import { MosaicoBuscar, type ResultadoBusqueda as Fila } from "@/components/vision/buscar/MosaicoBuscar";
 import { useRegistrarDesdeCaptura } from "@/components/vision/buscar/RegistrarDesdeCaptura";
 import { useNombresPropios } from "@/lib/nombres-propios";
@@ -34,6 +35,8 @@ type Respuesta = {
     porClase: { clase: string; grupo: string; n: number }[];
     porCamara: Record<string, number>;
     camaras: { id: string; name: string; deviceType: string; registra: boolean }[];
+    /** Cuántas detecciones del rango marcó alguien como falsas (no se muestran salvo que se pidan). */
+    falsas?: number;
     estado: null | { t: string; activo: boolean; intervaloMs: number; cicloMs?: number | null; umbral: number; pistasAbiertas: number; retencionDias: number };
     vision: { ok: boolean; error: string | null };
 };
@@ -63,6 +66,8 @@ export default function DeteccionesVision() {
     const areasDisp = useAreas();
     const [clase, setClase] = useState("");
     const [conRotulo, setConRotulo] = useState(false);
+    /** Ver las marcadas como falsas en vez del registro: para revisarlas o deshacer. */
+    const [verFalsas, setVerFalsas] = useState(false);
     const [cargandoMas, setCargandoMas] = useState(false);
     const [noHayMas, setNoHayMas] = useState(false);
     const [abierta, setAbierta] = useState<Fila | null>(null);
@@ -77,9 +82,10 @@ export default function DeteccionesVision() {
         if (camara) q.set("camara", camara);
         if (clase) q.set("clase", clase);
         if (conRotulo) q.set("rotulo", "1");
+        if (verFalsas) q.set("falsas", "1");
         if (antes) q.set("antes", antes);
         return `/api/vision/detecciones?${q}`;
-    }, [h, grupo, camara, clase, conRotulo]);
+    }, [h, grupo, camara, clase, conRotulo, verFalsas]);
 
     const cargar = useCallback(async () => {
         try {
@@ -127,6 +133,29 @@ export default function DeteccionesVision() {
         io.observe(el);
         return () => io.disconnect();
     }, [cargarMas, datos, filas.length]);
+
+    /**
+     * «Esto está mal» desde la ficha (12/11, Nico: «permití indicar cuando es falso y que sume para
+     * el entrenamiento»). La tarjeta se va de la lista en el momento; el aviso dice qué pasó con la
+     * foto, porque «sumó al entrenamiento» y «no se pudo copiar» no se pueden confundir.
+     */
+    const marcarFalsa = useCallback(async (que: QueFalsa) => {
+        if (!abierta) return;
+        const id = abierta.id;
+        try {
+            const r = await fetch(`/api/vision/detecciones/${id}/falsa`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(que) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
+            const quitar = (l: Fila[]) => l.filter((f) => f.id !== id);
+            setDatos((d) => (d ? { ...d, filas: quitar(d.filas), falsas: Math.max(0, (d.falsas || 0) + ("deshacer" in que ? -1 : 1)) } : d));
+            setMas(quitar); setAbierta(null);
+            if ("deshacer" in que) toast.success({ title: "Vuelve al registro", description: "Ya no está marcada como falsa." });
+            else if (j.entrenamiento?.como === "negativa") toast.success({ title: "Marcada como falsa", description: "La foto entró al entrenamiento como «No hay ninguno». Aprende en el próximo entrenamiento." });
+            else if (j.entrenamiento?.como === "dibujar") toast.success({ title: "Marcada como falsa", description: "La foto quedó en Entrenar › Objetos › «Sin dibujar»: marcá ahí los que sí son." });
+            else if (j.motivo && que.entrenar) toast.error({ title: "Marcada como falsa, pero no sumó al entrenamiento", description: j.motivo });
+            else toast.success({ title: "Marcada como falsa", description: "Salió del registro y de la búsqueda." });
+        } catch (e: any) { toast.error({ title: "No se pudo marcar", description: e?.message }); }
+    }, [abierta]);
 
     if (!datos && error) return <div className="p-6 lg:p-8 max-w-[1500px] mx-auto"><ErrorEstado mensaje={error} alReintentar={cargar} /></div>;
     if (!datos) return <div className="p-6 lg:p-8 max-w-[1500px] mx-auto"><Cargando texto="Trayendo lo que vio el detector…" /></div>;
@@ -177,6 +206,15 @@ export default function DeteccionesVision() {
                         <Sparkles size={14} /> Siluetas
                     </button>
                 </Pista>
+                {((datos.falsas || 0) > 0 || verFalsas) && (
+                    <Pista titulo="Marcadas como falsas" texto="Las detecciones que alguien marcó como falsas desde su ficha. No aparecen en el registro ni en la búsqueda; acá se pueden revisar y deshacer.">
+                        <button type="button" onClick={() => setVerFalsas(!verFalsas)} aria-pressed={verFalsas}
+                            className={cn("h-[34px] px-2.5 rounded-lg border inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors",
+                                verFalsas ? "accion border-transparent" : "border-border text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                            <ThumbsDown size={14} /> Falsas <span className="tabular-nums opacity-75">{datos.falsas || 0}</span>
+                        </button>
+                    </Pista>
+                )}
             </div>
             {datos.porClase.length > 1 && (
                 <div className="flex flex-wrap gap-1.5">
@@ -205,7 +243,8 @@ export default function DeteccionesVision() {
 
             <CajonPista r={abierta} alCerrar={() => setAbierta(null)}
                 alRegistrar={(p) => { setAbierta(null); abrirRegistro(p); }}
-                alListaNegra={() => { if (abierta) void marcarNegra(abierta); setAbierta(null); }} />
+                alListaNegra={() => { if (abierta) void marcarNegra(abierta); setAbierta(null); }}
+                alFalsa={marcarFalsa} />
             {cajones}
         </div>
     );
