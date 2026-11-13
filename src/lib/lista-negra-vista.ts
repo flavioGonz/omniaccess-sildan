@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { avisarPorSocket } from "@/lib/avisar";
 import { crearAviso } from "@/lib/visitas/registro";
 import { esRequerida, motivoALaVista } from "@/lib/min-interior";
+import { nombreCamara } from "@/lib/rostros";
 
 /**
  * Una chapa de la lista negra leída por una cámara de SEGUIMIENTO.
@@ -51,10 +52,13 @@ async function negrasVigentes(): Promise<Map<string, Negra>> {
 export async function avisarListaNegraALaVista(v: { plate: string; camara: string | null; foto: string | null }): Promise<void> {
     try {
         const plate = limpia(v.plate);
-        const n = (await negrasVigentes()).get(plate);
-        if (!n) return;
+        const hallada = (await negrasVigentes()).get(plate);
+        if (!hallada) return;
+        // El nombre de la cámara y el rótulo viejo llegan con las entidades de HTML («Ext. -&gt; Cairoli»): el aviso se lee tal cual.
+        const camara = nombreCamara(v.camara);
+        const n = { ...hallada, etiqueta: nombreCamara(hallada.etiqueta) || "" };
         const creado = await crearAviso({
-            tipo: "LISTA_NEGRA_VISTA", plate, camara: v.camara, motivo: motivoALaVista(n, v.camara),
+            tipo: "LISTA_NEGRA_VISTA", plate, camara, motivo: motivoALaVista(n, camara),
             datos: { foto: v.foto || null, requerida: n.requerida, etiqueta: n.etiqueta, motivoLista: n.motivo },
         }, VENTANA_MIN);
         if (creado) { anunciado.set(plate, Date.now()); return; }

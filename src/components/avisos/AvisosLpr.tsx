@@ -11,6 +11,7 @@ import { usePublicarAvisos, type Aviso, type AccionAviso, type TipoAviso } from 
 import { getOperadores, tomarGestion, pasarGestion, type OperadorVista } from "@/app/actions/detections";
 import { FichaDeEvento } from "@/components/eventos/FichaDeEvento";
 import { ETIQUETA_REQUERIDA, esRequerida, confirmacionDe } from "@/lib/min-interior";
+import { nombreCamara } from "@/lib/rostros";
 
 /**
  * Lo que salta por LPR, patrones y OmniVision en la pila de avisos (lib/avisos-pantalla), en
@@ -108,7 +109,7 @@ export function AvisosLpr({ soloLectura = false }: {
         const busqueda = !negra && cat === "SEARCH" && busquedaOn !== false;
         if (!negra && !busqueda) return;
         const plate = limpiar(ev.plateDetected) || null;
-        const camara = ev.device?.name || null;
+        const camara = nombreCamara(ev.device?.name);
         const requerida = negra && esRequerida(ev.watch?.label, ev.watch?.motivo);
         const confirmada = requerida ? confirmacionDe(ev.watch?.motivo) : null;
         sumar({
@@ -118,7 +119,7 @@ export function AvisosLpr({ soloLectura = false }: {
             // Confirmada por el Ministerio: se dice eso, no «lista negra» a secas (el motivo trae la fecha de la consulta).
             rotulo: negra ? (requerida ? ETIQUETA_REQUERIDA : "Lista negra") : "Lista Amarilla", titulo: plate || "Sin lectura", sirena: requerida,
             // Requerida: la fecha de la confirmación, corta. El motivo entero («Requerida por el Ministerio…») repetía el rótulo y no entraba.
-            detalle: [camara, SENTIDO[ev.direction], requerida ? (confirmada ? `Confirmada el ${confirmada}` : "Confirmada en el sitio oficial") : ev.watch?.motivo || ev.watch?.label].filter(Boolean).join(" · ") || null,
+            detalle: [camara, SENTIDO[ev.direction], requerida ? (confirmada ? `Confirmada el ${confirmada}` : "Confirmada en el sitio oficial") : nombreCamara(ev.watch?.motivo || ev.watch?.label)].filter(Boolean).join(" · ") || null,
             contexto: busqueda ? ev.watch?.contexto?.frase || null : null,
             grupo: `${negra ? "negra" : "busqueda"}:${plate || camara}`, claves: [`l:${ev.id}`], eventoId: ev.id, plate, deviceId: ev.device?.id || ev.deviceId || null,
         });
@@ -155,7 +156,7 @@ export function AvisosLpr({ soloLectura = false }: {
                 id: `a:${a.id}`, tipo: "lista-negra", nivel: "critico", ts: a.creado || new Date().toISOString(),
                 foto: typeof f0 === "string" && f0 ? (f0.startsWith("/") ? f0 : getImagePath(f0) || null) : null,
                 rotulo: a.datos?.requerida ? ETIQUETA_REQUERIDA : "Lista negra", sirena: !!a.datos?.requerida, titulo: plate || "Sin lectura",
-                detalle: [a.camara, "a la vista", a.datos?.requerida ? (c ? `Confirmada el ${c}` : "Confirmada en el sitio oficial") : a.datos?.etiqueta].filter(Boolean).join(" · ") || null,
+                detalle: [nombreCamara(a.camara), "a la vista", a.datos?.requerida ? (c ? `Confirmada el ${c}` : "Confirmada en el sitio oficial") : nombreCamara(a.datos?.etiqueta)].filter(Boolean).join(" · ") || null,
                 grupo: `negra:${plate || a.camara}`, claves: [`a:${a.id}`], eventoId: null, plate, deviceId: null,
             });
             return;
