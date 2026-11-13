@@ -319,7 +319,9 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
             {(foco ? [objetos[iSel].chapa] : [chapa, ...objetos.map((o) => o.chapa)]).filter((c): c is ChapaEnFoto => !!c).map((chapa, k) => {
                 const [x1, y1, x2, y2] = chapa.caja;
                 const bx = x1 * W, by = y1 * H, bw = Math.max(2, (x2 - x1) * W), bh = Math.max(2, (y2 - y1) * H);
-                const f = fuente * 1.15, pw = Math.max(bw, chapa.plate.length * f * 0.72 + f * 1.2), ph = f * 2.05, franja = ph * 0.26;
+                // 13/11, Nico: «es muy grande la matrícula que dibujamos, ¿no?». Iba a 1,15 veces la letra de los
+                // rótulos y tapaba medio auto; a 0,8 se sigue leyendo de lejos y deja ver lo que tiene debajo.
+                const f = fuente * 0.8, pw = Math.max(bw, chapa.plate.length * f * 0.72 + f * 1.2), ph = f * 2.05, franja = ph * 0.26;
                 const px = Math.min(W - pw - 2, Math.max(2, bx + bw / 2 - pw / 2));
                 const debajo = by + bh + f * 0.5 + ph < H;
                 const py = debajo ? by + bh + f * 0.5 : Math.max(2, by - f * 0.5 - ph);

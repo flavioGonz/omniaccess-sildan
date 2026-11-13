@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car, User, PawPrint, Sparkles, Boxes, ZoomIn, ZoomOut, ChevronLeft } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car, User, PawPrint, Sparkles, Boxes, ZoomIn, ZoomOut, ChevronLeft, Server, History, VideoOff, GripHorizontal } from "lucide-react";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { geomDeIntrusion } from "@/lib/vision-capa";
 import { Scrub, type MarcaScrub, type BandaScrub, type ScrubMando } from "@/components/Scrub";
@@ -11,6 +11,7 @@ import { metaDe } from "@/components/intrusion/comun";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { ZONA } from "@/lib/fechas";
 import { useVideoQueSeSuelta } from "@/lib/video-soltar";
+import { RotuloVisor } from "./RotuloVisor";
 import { Vivo, vivoDe, fotoDe, type Canal } from "./piezas";
 import { cn } from "@/lib/utils";
 
@@ -71,6 +72,25 @@ const ESCALAS = [
 const ESCALA_INICIAL = 1;
 /** Dónde recuerda este navegador la escala elegida (una comodidad de quien mira, no un dato). */
 const CLAVE_ESCALA = "oa.grabacion.escala";
+/**
+ * El vivo chico sobre la grabación: cuánto mide y a qué distancia está del borde derecho y del de
+ * abajo. Por defecto va a la derecha y A LA ALTURA de la fila de botones (13/11, Nico: «por defecto
+ * colocala del lado derecho en la misma fila»): antes quedaba un renglón más arriba, sobre la imagen.
+ */
+type Pip = { der: number; abajo: number; ancho: number };
+const PIP_DEFECTO: Pip = { der: 16, abajo: 142, ancho: 200 };
+const PIP_ANCHO_MIN = 150, PIP_ANCHO_MAX = 720;
+const CLAVE_PIP = "oa.grabacion.vivo-chico";
+/** Dentro de la pantalla y entre los tamaños que tienen sentido. */
+function acotarPip(p: Pip): Pip {
+    const W = typeof window === "undefined" ? 1920 : window.innerWidth, H = typeof window === "undefined" ? 1080 : window.innerHeight;
+    const ancho = Math.round(Math.max(PIP_ANCHO_MIN, Math.min(PIP_ANCHO_MAX, W * 0.6, p.ancho))), alto = (ancho * 9) / 16;
+    return { ancho, der: Math.round(Math.max(4, Math.min(W - ancho - 4, p.der))), abajo: Math.round(Math.max(4, Math.min(H - alto - 4, p.abajo))) };
+}
+/** A cuántos píxeles de la marca de un evento la regla se le pega al soltarla (ver `iman` en Scrub). */
+const IMAN_PX = 16;
+/** Cuánto queda a la vista la nota de apertura una vez que el video arrancó. */
+const NOTA_MS = 7000;
 /** Cada cuánto se le avisa a la regla que el video avanzó. Con un segundo, en la escala fina saltaba de a dos píxeles. */
 const AVANCE_MS = 450;
 /**
@@ -121,13 +141,21 @@ function Boton({ children, onClick, titulo, disabled, grande, activo }: { childr
     );
 }
 
-export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnvio }: {
+export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnvio, nota = null, verSiluetas, alSiluetas }: {
     c: Canal; h265: boolean; hls: boolean;
     /** Dónde arranca (el instante de la alerta, o un minuto atrás). */
     desdeMs: number;
     /** Los controles del cuadro están a la vista (el mouse se movió hace poco). */
     visibles: boolean;
     alVivo: () => void;
+    /** Algo que decir al abrir (lo de «Ver cuándo llegó»): va en el centro, sobre el video, mientras busca y unos segundos más. */
+    nota?: string | null;
+    /**
+     * Las siluetas, prendidas o no: es EL MISMO interruptor que el del vivo (el ícono de arriba).
+     * Antes la grabación tenía el suyo, y el de arriba —que sigue a la vista— no hacía nada acá
+     * (13/11, Nico: «el botón de retirar las siluetas del playback creo que no anda»).
+     */
+    verSiluetas: boolean; alSiluetas: () => void;
     /** Con cámara (y sesión) el cajón de exportar ofrece WhatsApp; sin ella, sólo bajar. */
     deviceIdEnvio?: string;
 }) {
@@ -148,6 +176,21 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
      * una descarga, al NVR se le pide una sola reproducción por pantalla.
      */
     const visor = useRef(`g${Math.random().toString(36).slice(2, 12)}`).current;
+    // La nota de apertura se lee mientras busca y NOTA_MS más, desde que el video arranca; después se va sola.
+    const [verNota, setVerNota] = useState(true);
+    useEffect(() => { setVerNota(true); }, [nota]);
+    useEffect(() => { if (!nota || estado !== "viendo") return; const k = setTimeout(() => setVerNota(false), NOTA_MS); return () => clearTimeout(k); }, [nota, estado === "viendo"]); // eslint-disable-line react-hooks/exhaustive-deps
+    // El vivo chico: dónde está y cuánto mide (ver PIP_DEFECTO). `agarre` es el arrastre en curso.
+    const [pip, setPipEstado] = useState<Pip>(PIP_DEFECTO);
+    const pipRef = useRef(pip);
+    const setPip = useCallback((p: Pip) => { pipRef.current = p; setPipEstado(p); }, []);
+    const guardarPip = useCallback((p: Pip) => { try { localStorage.setItem(CLAVE_PIP, JSON.stringify(p)); } catch { /* no se recuerda, nada más */ } }, []);
+    const agarre = useRef<{ x: number; y: number; de: Pip; modo: "mover" | "tamano"; movido: boolean } | null>(null);
+    useEffect(() => {
+        try { const g = JSON.parse(localStorage.getItem(CLAVE_PIP) || "null"); if (g && [g.der, g.abajo, g.ancho].every((n: unknown) => typeof n === "number" && Number.isFinite(n))) { setPip(acotarPip(g)); return; } } catch { /* lo guardado no sirve: el de siempre */ }
+        // En una pantalla angosta los controles ocupan dos renglones: el cuadro va más arriba para no taparlos.
+        if (window.innerWidth < 640) setPip(acotarPip({ ...PIP_DEFECTO, ancho: 160, abajo: 230 }));
+    }, [setPip]);
     const [escala, setEscala] = useState(ESCALA_INICIAL);
     useEffect(() => {
         // Sin nada guardado no se toca: Number(null) es 0, y eso era abrir siempre en la escala más amplia.
@@ -160,7 +203,6 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
     }), []);
     // Siluetas sobre la grabación: el navegador manda el cuadro que muestra (ver POST de
     // /api/monitor/camaras/siluetas). Prendidas por defecto; se apagan con el ícono de abajo.
-    const [verSiluetas, setVerSiluetas] = useState(true);
     const [siluetas, setSiluetas] = useState<{ analisis: any; ms: number } | null>(null);
     const [linea, setLinea] = useState<Linea | null>(null);
     const [descarga, setDescarga] = useState(false);
@@ -483,21 +525,23 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                 );
             })()}
 
-            {/* Estado en el centro: buscando o sin grabación (con la salida). */}
-            {estado !== "viendo" && (
-                <div className="absolute inset-x-0 top-0 bottom-[210px] grid place-items-center pointer-events-none">
-                    {estado === "buscando" ? (
-                        // Chico y sobre el cuadro congelado: un cartel grande en el medio cortaba la sensación de movimiento.
-                        <span className="inline-flex items-center gap-2 rounded-full visor-panel px-3.5 py-1.5 text-white/90 text-[13px] font-semibold"><Loader2 size={14} className="animate-spin" /> Buscando en el NVR</span>
-                    ) : (
-                        <span className="flex flex-col items-center gap-2 text-center visor-sombra-texto pointer-events-auto">
-                            <span className="text-white text-[18px] font-bold">Sin grabación a esta hora</span>
+            {/* En el centro: buscando (y la nota de por qué se abrió acá), o sin grabación con su salida.
+                Con la letra de los rótulos de las detecciones, sin caja (ver RotuloVisor). */}
+            {(estado !== "viendo" || (nota && verNota)) && (
+                <div className="absolute inset-x-0 top-0 bottom-[210px] grid place-items-center pointer-events-none px-6">
+                    {estado === "sin" ? (
+                        <span className="flex flex-col items-center gap-3 pointer-events-auto">
+                            <RotuloVisor Icono={VideoOff} texto="Sin grabación a esta hora" />
                             {proximoTramo != null && (
                                 <button type="button" onClick={() => saltar(proximoTramo, ahora)} className="h-10 px-4 rounded-full bg-white/15 hover:bg-white/25 text-white text-[14px] font-semibold">
                                     Ir a la próxima grabación · {horaCorta(proximoTramo)}
                                 </button>
                             )}
                         </span>
+                    ) : estado === "buscando" ? (
+                        <RotuloVisor Icono={Server} texto="Buscando en el NVR" esperando nota={verNota ? nota : null} />
+                    ) : (
+                        <RotuloVisor Icono={History} texto="Ver cuándo llegó" nota={nota} />
                     )}
                 </div>
             )}
@@ -536,7 +580,7 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                     </span>
 
                     <span className="visor-panel rounded-full p-1 inline-flex items-center">
-                        <Boton onClick={() => setVerSiluetas((x) => !x)} activo={verSiluetas}
+                        <Boton onClick={alSiluetas} activo={verSiluetas}
                             titulo={verSiluetas ? `Siluetas de OmniVision sobre la grabación${siluetas ? ` · ${siluetas.ms} ms por cuadro` : ""} · tocar para apagar` : "Mostrar las siluetas de OmniVision sobre la grabación"}><Sparkles size={17} /></Boton>
                         <Boton onClick={() => setDescarga(true)} titulo="Exportar un clip de este momento"><Download size={17} /></Boton>
                     </span>
@@ -553,7 +597,7 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                 {/* La regla de siempre (la del visor): la hora grande arriba, se arrastra, y las marcas se tocan. */}
                 <div ref={cajaRegla} className={cn("mt-1", sigueVisible && "pointer-events-auto")}>
                     <Scrub step={ESCALAS[escala].paso} momentum={30} format="24h" width={ancho} difuminado={8} value={minRel(ahora)} start={minRel(ahora)}
-                        sinEnvolver pxPorMinuto={ESCALAS[escala].px} mando={mando} conSegundos
+                        sinEnvolver pxPorMinuto={ESCALAS[escala].px} mando={mando} conSegundos iman={IMAN_PX}
                         alArrastrar={(m) => setEnRegla(m == null ? null : medianoche + m * 60_000)}
                         onChange={(mins) => {
                             // Minutos desde la medianoche del día que se mira, sin envolver: negativos son
@@ -578,18 +622,35 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                 )}
             </div>
 
-            {/* El vivo, chico, en una esquina: tocarlo vuelve a él, como quien vuelve atrás.
-                Va DESPUÉS de la franja de controles (13/11, Nico: «ese live view debe poder volver a la
-                cámara en vivo»): la franja mide más de lo que parece —su degradé sube 64 px por encima
-                de los botones— y, dibujada después, tapaba los dos tercios de abajo de este cuadro.
-                El toque caía en la franja y no pasaba nada; sólo andaba en una tira de arriba. */}
-            <button type="button" onClick={alVivo} aria-label="Volver al vivo" data-vivo-chico
-                className={cn("absolute right-4 bottom-[220px] sm:bottom-[196px] w-[180px] sm:w-[240px] aspect-video rounded-[10px] overflow-hidden ring-1 ring-white/25 bg-black transition-opacity hover:ring-2 hover:ring-white/70 focus-visible:ring-2 focus-visible:ring-[var(--accion-en-oscuro)] outline-none", !sigueVisible && "opacity-0 pointer-events-none")}>
-                <Vivo src={vivoDe(c.stream, !h265, hls)} className="absolute inset-0 w-full h-full object-cover" />
-                <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white"><Radio size={11} className="text-[var(--mal)] animate-pulse" /> Vivo</span>
+            {/* El vivo, chico: tocarlo vuelve a él, como quien vuelve atrás. Se arrastra a donde moleste
+                menos y se agranda desde su esquina (13/11, Nico); el navegador recuerda dónde quedó.
+                Va DESPUÉS de la franja de controles: la franja mide más de lo que parece —su degradé sube
+                64 px por encima de los botones— y, dibujada después, tapaba los dos tercios de abajo de
+                este cuadro: el toque caía en la franja y no pasaba nada. */}
+            <div role="button" tabIndex={0} aria-label="Volver al vivo (se puede arrastrar)" data-vivo-chico
+                style={{ right: pip.der, bottom: pip.abajo, width: pip.ancho }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); alVivo(); } }}
+                onPointerDown={(e) => { if (e.button !== 0) return; try { e.currentTarget.setPointerCapture(e.pointerId); } catch { } agarre.current = { x: e.clientX, y: e.clientY, de: pip, modo: "mover", movido: false }; }}
+                onPointerMove={(e) => {
+                    const a = agarre.current; if (!a) return;
+                    const dx = e.clientX - a.x, dy = e.clientY - a.y;
+                    if (!a.movido && Math.abs(dx) + Math.abs(dy) < 6) return;
+                    a.movido = true;
+                    setPip(a.modo === "mover" ? acotarPip({ ...a.de, der: a.de.der - dx, abajo: a.de.abajo - dy }) : acotarPip({ ...a.de, ancho: a.de.ancho - dx }));
+                }}
+                onPointerUp={() => { const a = agarre.current; agarre.current = null; if (!a) return; if (a.movido) guardarPip(pipRef.current); else if (a.modo === "mover") alVivo(); }}
+                onPointerCancel={() => { agarre.current = null; }}
+                className={cn("group absolute aspect-video rounded-[10px] overflow-hidden ring-1 ring-white/25 bg-black transition-opacity cursor-grab active:cursor-grabbing touch-none select-none hover:ring-2 hover:ring-white/70 focus-visible:ring-2 focus-visible:ring-[var(--accion-en-oscuro)] outline-none", !sigueVisible && "opacity-0 pointer-events-none")}>
+                <Vivo src={vivoDe(c.stream, !h265, hls)} className="absolute inset-0 w-full h-full object-cover pointer-events-none" />
+                <span className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white pointer-events-none"><Radio size={11} className="text-[var(--mal)] animate-pulse" /> Vivo</span>
                 {/* Lo que hace, escrito: el mismo «Volver» del cuadro de origen del seguimiento visual. */}
-                <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 h-7 pl-1.5 pr-2.5 rounded-full bg-[var(--accion)] text-white text-[12px] font-semibold"><ChevronLeft size={14} /> Volver al vivo</span>
-            </button>
+                <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 h-7 pl-1.5 pr-2.5 rounded-full bg-[var(--accion)] text-white text-[12px] font-semibold pointer-events-none"><ChevronLeft size={14} /> Volver al vivo</span>
+                {/* La esquina de arriba a la izquierda cambia el tamaño (la de abajo a la derecha queda fija). */}
+                <span aria-hidden onPointerDown={(e) => { if (e.button !== 0) return; e.stopPropagation(); try { e.currentTarget.parentElement?.setPointerCapture(e.pointerId); } catch { } agarre.current = { x: e.clientX, y: e.clientY, de: pip, modo: "tamano", movido: false }; }}
+                    className="absolute top-0 left-0 w-8 h-8 grid place-items-center cursor-nwse-resize text-white/0 group-hover:text-white/85 transition-colors">
+                    <GripHorizontal size={14} className="rotate-45" />
+                </span>
+            </div>
 
             {descarga && <DescargaClip instante={ahora} ventana={ventana} href={hrefDescarga} onClose={() => setDescarga(false)} deviceId={deviceIdEnvio} camara={c.nombre} />}
         </>

@@ -69,7 +69,7 @@ export type BandaScrub = { a: number; b: number; tono: string; titulo?: string }
  */
 export type ScrubMando = { empezar: (clientX: number) => void; mover: (clientX: number) => void; soltar: () => void; /** Fue un toque, no un arrastre: se suelta sin asentar ni avisar. */ cancelar: () => void };
 
-export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca, difuminado = 22, tramos, sinEnvolver = false, rangoTramos, bandas, pxPorMinuto = PX, mando, alArrastrar, conSegundos = false }: {
+export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca, difuminado = 22, tramos, sinEnvolver = false, rangoTramos, bandas, pxPorMinuto = PX, mando, alArrastrar, conSegundos = false, iman = 0 }: {
     step?: string; momentum?: number; format?: string; corner?: number; start?: number; width?: number;
     /**
      * Qué porcentaje de cada borde de la regla se esfuma. 22 es el del vivo, donde la regla es
@@ -114,6 +114,14 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
      * grabación la hora queda quieta un minuto entero y parece que la regla no sigue al video.
      */
     conSegundos?: boolean;
+    /**
+     * Añadido de OmniAccess (13/11, Nico: «cuando hago drag y me acerco a un evento, debe tener un
+     * efecto magnet, así llego al momento de ese evento más fácilmente»): a cuántos píxeles de una
+     * marca la regla se le pega. Mientras se arrastra, la marca que la atraparía se agranda; al
+     * soltar ahí, la regla se asienta justo en ella y avisa con `onMarca`, como si se la hubiera
+     * tocado. 0 = sin imán (la regla de siempre).
+     */
+    iman?: number;
 } = {}) {
     const PX = pxPorMinuto;
     const MINUTOS_POR_MARCA = PX_POR_MARCA / PX;
@@ -132,6 +140,17 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
     const onMarcaRef = useRef(onMarca); onMarcaRef.current = onMarca;
     const alArrastrarRef = useRef(alArrastrar); alArrastrarRef.current = alArrastrar;
     const pxRef = useRef(PX); pxRef.current = PX;
+    // El imán: las marcas (para buscar la más cercana sin esperar al render), la que atraparía ahora y la que atrapó al soltar.
+    const marcasRef = useRef(marcas); marcasRef.current = marcas;
+    const imanRef = useRef(iman); imanRef.current = iman;
+    const [cerca, setCerca] = useState<string | null>(null);
+    const atrapada = useRef<MarcaScrub | null>(null);
+    const marcaCerca = (x: number): MarcaScrub | null => {
+        const r = imanRef.current / pxRef.current; if (!(r > 0) || !marcasRef.current?.length) return null;
+        let mejor: MarcaScrub | null = null, d = r;
+        for (const k of marcasRef.current) { const v = Math.abs(k.m - x); if (v <= d) { d = v; mejor = k; } }
+        return mejor;
+    };
 
     // seguir el reloj externo cuando NO se está arrastrando ni asentándose tras un arrastre.
     // El umbral es chico a propósito: `value` llega con decimales mientras el video avanza
@@ -158,7 +177,13 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
             const c = p.current;
             c.v += ((c.to - c.x) * 0.022 - c.v * 0.26) * dt;
             const x = c.x + c.v * dt;
-            if (Math.abs(c.to - x) < 0.01 && Math.abs(c.v) < 0.01) { c.v = 0; set(c.to); raf.current = 0; onChangeRef.current?.(envolverRef.current(redondear(c.to))); return; }
+            if (Math.abs(c.to - x) < 0.01 && Math.abs(c.v) < 0.01) {
+                c.v = 0; set(c.to); raf.current = 0;
+                // Se asentó sobre una marca que la atrapó: vale como haberla tocado.
+                const k = atrapada.current; atrapada.current = null;
+                if (k) onMarcaRef.current?.(k, [k]); else onChangeRef.current?.(envolverRef.current(redondear(c.to)));
+                return;
+            }
             set(x); raf.current = requestAnimationFrame(tick);
         };
         raf.current = requestAnimationFrame(tick);
@@ -170,7 +195,7 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
     const drag = useRef<null | { x: number; t: number; v: number; k: number }>(null);
     // El arrastre, separado del evento: lo usan la regla y, con `mando`, cualquier otro elemento.
     const empezar = (clientX: number, k = 1) => {
-        cancelAnimationFrame(raf.current); raf.current = 0; dragging.current = true;
+        cancelAnimationFrame(raf.current); raf.current = 0; dragging.current = true; atrapada.current = null;
         drag.current = { x: clientX, t: performance.now(), v: 0, k }; p.current.v = 0;
     };
     const mover = (clientX: number) => {
@@ -181,6 +206,8 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
         g.v = g.v * 0.5 + (dm / dt) * 0.5; g.x = clientX; g.t = now;
         set(p.current.x + dm);
         alArrastrarRef.current?.(envolverRef.current(p.current.x));
+        const k = marcaCerca(p.current.x)?.id ?? null;
+        setCerca((antes) => (antes === k ? antes : k));
     };
     const soltar = () => {
         const g = drag.current; drag.current = null; dragging.current = false;
@@ -190,9 +217,13 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
         const s = knobs.current.step;
         const carry = 6 + (clamp(knobs.current.momentum, 0, 100) / 100) * 30;
         const land = Math.round((p.current.x + v * carry) / s) * s;
+        // El imán: si donde iba a quedar hay una marca cerca, queda en ella.
+        const k = marcaCerca(land);
+        setCerca(null);
+        if (k) { atrapada.current = k; if (still) { atrapada.current = null; p.current.v = 0; p.current.to = k.m; set(k.m); onMarcaRef.current?.(k, [k]); return; } goTo(k.m, v * 0.6); return; }
         goTo(land, v * 0.6);
     };
-    const cancelar = () => { drag.current = null; dragging.current = false; alArrastrarRef.current?.(null); };
+    const cancelar = () => { drag.current = null; dragging.current = false; alArrastrarRef.current?.(null); setCerca(null); };
     if (mando) mando.current = { empezar: (x) => empezar(x), mover, soltar, cancelar };
     const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
         try { e.currentTarget.setPointerCapture(e.pointerId); } catch { }
@@ -317,7 +348,7 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                         const n = g.todas.length;
                         const texto = n > 1 ? `${n} eventos · ${g.lider.titulo} y ${n - 1} más` : g.lider.titulo;
                         return (
-                            <button key={g.lider.id} type="button" className="tms-marca" data-tono={g.lider.tono || "mal"}
+                            <button key={g.lider.id} type="button" className="tms-marca" data-tono={g.lider.tono || "mal"} data-cerca={cerca != null && g.todas.some((k) => k.id === cerca) ? "" : undefined}
                                 style={{ "--tx": `${g.x.toFixed(2)}px`, opacity: 0.25 + 0.75 * g.f } as React.CSSProperties}
                                 data-tooltip-id="mi-tip" data-tooltip-content={`${texto} · ir a la grabación`}
                                 aria-label={`${texto}, ir a la grabación`}
@@ -383,6 +414,8 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                 /* Contexto: otros eventos de la misma cámara. Grises y sin brillo, para no competir con el evento. */
                 .tms-marca[data-tono="quieto"] { background: #3f3f46; border-color: rgba(255,255,255,0.55); box-shadow: none; }
                 .tms-marca:hover { transform: translateX(var(--tx, 0px)) translateX(-50%) scale(1.18); box-shadow: 0 0 16px rgba(255,255,255,0.55); }
+                /* El imán: la marca que atraparía la regla si se soltara ahora. */
+                .tms-marca[data-cerca] { transform: translateX(var(--tx, 0px)) translateX(-50%) scale(1.35); box-shadow: 0 0 0 2px #fff, 0 0 18px rgba(255,255,255,0.7); transition: transform 120ms ease, box-shadow 120ms ease; }
                 .tms-marca-n { position: absolute; top: -7px; right: -7px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px; background: #fff; color: #991b1b; font-size: 9px; font-weight: 800; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums; }
                 @keyframes tms-blur-a { from { filter: blur(2px); } to { filter: blur(0); } }
                 @keyframes tms-blur-b { from { filter: blur(2px); } to { filter: blur(0); } }

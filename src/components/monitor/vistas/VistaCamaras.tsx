@@ -546,6 +546,8 @@ export function VistaCamaras() {
         return m;
     }, [celdas, h265, resultados, movil, lista, aLaVista]);
 
+    // Hay cámaras, pero los filtros de grabador y área no dejan ninguna.
+    const sinPorFiltro = modoVista === "auto" && !!datos && datos.canales.length > 0 && ordenados.length === 0 && (filtro !== "todos" || areaSel !== "todas");
     // Cuántas baldosas de la pantalla están sin su vivo porque falló: las que tienen un fallo anotado
     // y no están reproduciendo en el modo que les tocó. No cuentan las que van en foto por el tope de
     // convertidas, ni la que no abre directo pero sí convertida. La que se está probando de nuevo
@@ -900,7 +902,7 @@ export function VistaCamaras() {
                     </div>
                 </div>
             )}
-            {(aviso || corteGeneral || (datos && !datos.go2rtc) || (!canalSolo && prefs && prefs.vista !== AUTO && !guardada && datos)) && (
+            {(aviso || corteGeneral || sinPorFiltro || (datos && !datos.go2rtc) || (!canalSolo && prefs && prefs.vista !== AUTO && !guardada && datos)) && (
                 <div className="shrink-0 px-3 pt-3 flex flex-col gap-2">
                     {aviso && <div className="rounded-[10px] chip-aviso border px-3 py-2 text-[13px]">{aviso}</div>}
                     {/* Muchas a la vez no es una cámara: es el servidor de video sin llegar a ellas. Se dice, y se
@@ -912,6 +914,14 @@ export function VistaCamaras() {
                         </div>
                     )}
                     {datos && !datos.go2rtc && <div className="rounded-[10px] chip-mal border px-3 py-2 text-[13px]">El servidor de video (go2rtc) no responde: los vivos no van a abrir.</div>}
+                    {/* Los dos filtros juntos no dejan ninguna cámara (13/11: grabador de un barrio con el área de otro
+                        → la pared quedaba con todas las casillas vacías y sin una palabra; pareció que el módulo no andaba). */}
+                    {sinPorFiltro && (
+                        <div role="status" className="rounded-[10px] chip-aviso border px-3 py-2 text-[13px] flex items-center gap-3">
+                            <span className="flex-1">Ninguna cámara coincide con lo elegido arriba ({[filtro !== "todos" ? `grabador «${filtro}»` : null, areaSel !== "todas" ? `área «${areaSel === SIN_AREA ? "sin área" : areas.find((x) => x.id === areaSel)?.nombre || "elegida"}»` : null].filter(Boolean).join(" y ")}).</span>
+                            <button type="button" onClick={() => setPrefs({ nvr: "todos", area: "todas" })} className="h-8 px-3 rounded-[6px] bg-[var(--accion)] text-white text-[12.5px] font-semibold shrink-0">Ver todas las cámaras</button>
+                        </div>
+                    )}
                     {!canalSolo && prefs && prefs.vista !== AUTO && !guardada && datos && <div className="rounded-[10px] chip-aviso border px-3 py-2 text-[13px]">Esa vista ya no existe: se muestra la automática.</div>}
                 </div>
             )}

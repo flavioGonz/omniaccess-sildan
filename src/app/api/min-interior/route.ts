@@ -1,3 +1,4 @@
+import { variantesMasLeidas } from "@/lib/chapas-parecidas";
 import { NextRequest, NextResponse } from "next/server";
 import { exigirFuncion } from "@/lib/funcion-servidor";
 import { prisma } from "@/lib/prisma";
@@ -18,6 +19,8 @@ export const dynamic = "force-dynamic";
  */
 
 const BASE = "https://matriculas-requeridas.minterior.gub.uy";
+/** En cuántos días de lecturas se buscan chapas parecidas a la consultada. */
+const PARECIDAS_DIAS = 7;
 const HOST = new URL(BASE).host;
 const INDEX = BASE + "/index.php";
 const RELOAD = BASE + "/Captcha/RecargarCaptcha.php";
@@ -165,6 +168,19 @@ export async function GET(req: NextRequest) {
   gc();
   const action = req.nextUrl.searchParams.get("action") || "start";
   try {
+    if (action === "parecidas") {
+      // Las chapas parecidas que el lector leyó MÁS veces que ésta, en las mismas cámaras y en la última
+      // semana: si las hay, la consultada puede ser una mala lectura (ver lib/chapas-parecidas). No toca el sitio.
+      const matricula = normalizarMatricula(req.nextUrl.searchParams.get("matricula"));
+      if (!matricula) return NextResponse.json({ ok: true, propias: 0, parecidas: [] });
+      const desde = new Date(Date.now() - PARECIDAS_DIAS * 86_400_000).toISOString().replace("T", " ").replace("Z", "");
+      const conteos = await prisma.$queryRaw<{ chapa: string; lecturas: number }[]>`
+        SELECT "plateDetected" AS chapa, count(*)::int AS lecturas FROM "AccessEvent"
+        WHERE timestamp >= ${desde}::timestamp AND length("plateDetected") = ${matricula.length}
+          AND "deviceId" IN (SELECT DISTINCT "deviceId" FROM "AccessEvent" WHERE "plateDetected" = ${matricula} AND timestamp >= ${desde}::timestamp)
+        GROUP BY 1`;
+      return NextResponse.json({ ok: true, dias: PARECIDAS_DIAS, ...variantesMasLeidas(matricula, conteos) }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (action === "ultima") {
       // La última respuesta guardada de una matrícula: el botón la muestra sin volver a consultar.
       // No toca el sitio del Ministerio.

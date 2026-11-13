@@ -17,7 +17,7 @@ import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { claseDeBusqueda, motivoDesdeVivo, type ClaseBusqueda } from "@/lib/vivo-menu";
 import { ANTES_DE, avisoDeLlegada, type Llegada } from "@/lib/vision-llegada";
-import { sileo as toast } from "sileo";
+import { RotuloVisor } from "./RotuloVisor";
 import type { ObjetoAnalizado } from "@/lib/vision-capa";
 import { SeguimientoVisual } from "./Seguimiento";
 import type { TrackLink } from "@/app/actions/detections";
@@ -129,6 +129,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     const hayGrabacion = !!c?.nvrId && c?.ch != null;
     const nombreCanal = c?.nombre || "";
     const [buscandoLlegada, setBuscandoLlegada] = useState(false);
+    /** Lo que hay que decir de la llegada al abrir su grabación (p. ej. «se lo ve ahí desde las 10:47…»). */
+    const [notaLlegada, setNotaLlegada] = useState<string | null>(null);
     const streamCanal = c?.stream || null;
     const verLlegada = useCallback(async (o: ObjetoAnalizado) => {
         if (!o.quietoDesde) return;
@@ -145,8 +147,9 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
             }
         } catch { /* sin respuesta: queda la hora del reloj */ }
         setBuscandoLlegada(false);
+        // La nota va sobre la grabación, en el centro (Grabacion → RotuloVisor), no en un cartel aparte.
+        setNotaLlegada(aviso);
         setGrabacionDesde(abrir);
-        if (aviso) toast.info({ title: "Ver cuándo llegó", description: aviso });
     }, [streamCanal]);
     const opcionesDeObjeto = useCallback((o: ObjetoAnalizado): OpcionObjeto[] => {
         const ops: OpcionObjeto[] = [{
@@ -286,7 +289,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                 <motion.div key="ficha" role="dialog" aria-label={c.nombre} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={SUAVE}
                     className={cn("fixed inset-0 z-[2900] bg-black", !conPuntero && "cursor-none")}>
                     {grabacion != null ? (
-                        <Grabacion c={c} h265={h265} hls={hls} desdeMs={grabacion} visibles={visibles} alVivo={() => setGrabacionDesde(null)}
+                        <Grabacion c={c} h265={h265} hls={hls} desdeMs={grabacion} visibles={visibles} alVivo={() => { setNotaLlegada(null); setGrabacionDesde(null); }}
+                            nota={notaLlegada} verSiluetas={verSiluetas} alSiluetas={() => setVerSiluetas((x) => !x)}
                             deviceIdEnvio={!pantalla && c.equipoId ? c.equipoId : undefined} />
                     ) : c.online === false ? (
                         <>
@@ -441,8 +445,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
 
                     {/* Mientras se busca en el registro cuándo llegó (suele ser menos de un segundo). */}
                     {buscandoLlegada && (
-                        <div className="absolute left-1/2 top-20 -translate-x-1/2 z-10 h-9 px-3.5 rounded-full bg-black/65 backdrop-blur-md border border-white/15 text-white text-[13px] font-semibold inline-flex items-center gap-2 pointer-events-none">
-                            <History size={14} className="animate-pulse" /> Buscando cuándo llegó…
+                        <div className="absolute inset-0 z-10 grid place-items-center pointer-events-none">
+                            <RotuloVisor Icono={History} texto="Buscando cuándo llegó" esperando />
                         </div>
                     )}
                     <TipVisor />

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Pista } from "@/components/ui/pista";
 import { Chip } from "@/components/ui/estados";
-import { RotateCw, ShieldAlert, ShieldCheck, ShieldQuestion, Search, Check, ExternalLink, KeyRound, FileSearch } from "lucide-react";
+import { RotateCw, ShieldAlert, ShieldCheck, ShieldQuestion, Search, Check, ExternalLink, KeyRound, FileSearch, TriangleAlert } from "lucide-react";
 import { native } from "@/lib/guard-native";
 import { cn } from "@/lib/utils";
 import { MIN_INTERIOR_URL, normalizarMatricula, LARGO_CODIGO, type EstadoConsulta, type UltimaConsulta } from "@/lib/min-interior";
@@ -77,6 +77,18 @@ export function MinInteriorDialog({ plate, open, onOpenChange }: { plate?: strin
     }, []);
 
     const nuevaConsulta = useCallback(() => { setResultado(null); setAviso(""); setPaso("verificar"); startCaptcha(); }, [startCaptcha]);
+    // ¿La chapa del resultado puede ser otra, mal leída? Se pregunta con cada resultado (no toca el sitio del Ministerio).
+    const [dudas, setDudas] = useState<{ propias: number; dias: number; parecidas: { chapa: string; lecturas: number }[] } | null>(null);
+    const chapaDelResultado = resultado?.matricula || "";
+    useEffect(() => {
+        setDudas(null);
+        if (!chapaDelResultado) return;
+        let vivo = true;
+        fetch("/api/min-interior?action=parecidas&matricula=" + encodeURIComponent(chapaDelResultado), { cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : null)).then((d) => { if (vivo && d?.ok && Array.isArray(d.parecidas)) setDudas({ propias: d.propias || 0, dias: d.dias || 7, parecidas: d.parecidas }); })
+            .catch(() => { /* sin el dato no se avisa: el resultado se muestra igual */ });
+        return () => { vivo = false; };
+    }, [chapaDelResultado]);
 
     // Al abrir, primero lo que ya se sabe: si la matrícula se consultó en las últimas 24 h se muestra
     // esa respuesta y no se le pide nada al Ministerio ni al guardia. «Consultar de nuevo» sigue a
@@ -277,6 +289,30 @@ export function MinInteriorDialog({ plate, open, onOpenChange }: { plate?: strin
                         {paso === "resultado" && resultado && (
                             <motion.div key="resultado" className="space-y-4" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} transition={{ duration: 0.22 }}>
                                 <TarjetaResultado r={resultado} />
+                                {/* La respuesta es de la chapa que se ESCRIBIÓ. Si el lector leyó más veces otra parecida en
+                                    las mismas cámaras, la consultada puede ser una mala lectura: se dice antes de que nadie actúe. */}
+                                {dudas && dudas.parecidas.length > 0 && (
+                                    <div className="rounded-[10px] border chip-aviso px-3.5 py-3 text-[12.5px]">
+                                        <div className="flex items-start gap-2">
+                                            <TriangleAlert size={16} className="mt-0.5 shrink-0" />
+                                            <div className="min-w-0">
+                                                <div className="font-semibold text-foreground">Verificá la chapa en la foto antes de actuar</div>
+                                                <p className="mt-0.5 text-muted-foreground">
+                                                    <span className="font-semibold text-foreground tabular-nums">{resultado.matricula}</span> se leyó {dudas.propias === 1 ? "una sola vez" : `${dudas.propias} veces`} en {dudas.dias} días.
+                                                    En las mismas cámaras el lector leyó más veces {dudas.parecidas.length === 1 ? "otra muy parecida" : "otras muy parecidas"}: puede ser el mismo vehículo, mal leído, y entonces esta respuesta es de OTRO.
+                                                </p>
+                                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                                    {dudas.parecidas.map((p) => (
+                                                        <button key={p.chapa} type="button" onClick={() => { setMat(p.chapa); setDudas(null); nuevaConsulta(); }}
+                                                            className="h-8 px-2.5 rounded-[6px] border bg-background text-foreground text-[12px] font-semibold inline-flex items-center gap-1.5 hover:bg-muted">
+                                                            <Search size={12} /> Consultar <span className="tabular-nums tracking-[0.08em]">{p.chapa}</span> <span className="font-normal text-muted-foreground">· {p.lecturas} lecturas</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="flex items-center justify-between gap-2 pt-1">
                                     <span className="text-[11px] text-muted-foreground">
                                         {resultado.guardada !== undefined

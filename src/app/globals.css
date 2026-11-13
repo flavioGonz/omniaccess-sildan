@@ -1901,6 +1901,13 @@ video::-webkit-media-controls { display: none !important; }
   box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.65), inset 0 1px 1px rgba(255, 255, 255, 0.2);
 }
 
+/* Los tres puntos de «se está esperando» (RotuloVisor): se prenden de a uno. */
+.puntos-espera span { display: inline-block; animation: punto-espera 1.2s ease-in-out infinite both; }
+.puntos-espera span:nth-child(2) { animation-delay: 0.18s; }
+.puntos-espera span:nth-child(3) { animation-delay: 0.36s; }
+@keyframes punto-espera { 0%, 70%, 100% { opacity: 0.2; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-0.12em); } }
+@media (prefers-reduced-motion: reduce) { .puntos-espera span { animation: none; opacity: 0.7; } }
+
 /* Texto directamente sobre la imagen, sin caja. La sombra hace el trabajo
    que haria un fondo, sin tapar el cuadro. */
 .visor-sombra-texto {
