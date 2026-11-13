@@ -31,6 +31,12 @@ import { EditorVista } from "@/components/monitor/camaras/Editor";
 import { abrirVentana, listarPantallas, hayVariasPantallasApi, clavePrefs, type Pantalla } from "@/components/monitor/camaras/ventanas";
 import { proximoIntento, esCorteGeneral } from "@/lib/vivo-reintento";
 import { cn } from "@/lib/utils";
+import { useAlertasDeLista, CapaAlertaLista, MenuCanal, type AlertaLista, type ALaVista, type OpcionCanal } from "@/components/monitor/camaras/AlertaDeLista";
+import { IconoPolicia } from "@/components/IconoPolicia";
+import { MinInteriorDialog } from "@/components/MinInteriorDialog";
+import { retirarDeListaNegra } from "@/app/actions/watchlist";
+import { useFuncion } from "@/lib/funciones-cliente";
+import { BellOff, Ban, CircleCheck, CircleX } from "lucide-react";
 
 /**
  * La pared de video: los canales de los NVR y las cámaras sueltas, como en un NVR.
@@ -84,6 +90,8 @@ type Datos = {
     vision?: { total: number; tope: number; medido: boolean; cuantas: number; puedeCambiar: boolean };
     canales: Canal[]; errores: { nvr: string; error: string }[]; go2rtc: boolean;
     /** Las áreas de Dispositivos, en el orden del árbol. */
+    /** Chapas de la lista negra a la vista y sin atender (api/monitor/camaras). */
+    listaALaVista?: ALaVista[];
     areas?: { id: string; nombre: string; padre: string | null; color: string; nivel: number }[]; ventanaAlertaMs: number; ahora: string; vistas: VistaGuardada[]; puedeEditar: boolean;
     /** Las páginas web para las casillas `web:` (openspec pared-vms). */
     fuentes?: FuenteWeb[];
@@ -197,8 +205,12 @@ const PASO_VISION_MIN_MS = 1400;
 const PASO_VISION_LISTO_MS = 2600;
 const PASO_VISION_ERROR_MS = 9000;
 
-function Baldosa({ celda, modo, codec, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, pasoVision = null, alCerrarPaso, enlaces = [], editandoSeg = false, alSeguir, alSoltarCanal, alCambiarEnlaces }: {
+function Baldosa({ celda, modo, codec, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, pasoVision = null, alCerrarPaso, enlaces = [], editandoSeg = false, alSeguir, alSoltarCanal, alCambiarEnlaces, lista = null, alMenu }: {
     celda: Celda; modo: Modo; alerta: Alerta | null; lecturas: Lectura[]; destello: Lectura | null;
+    /** Una chapa de la lista negra en este canal: se resalta y se dibuja su vehículo en vivo (ver AlertaDeLista). */
+    lista?: AlertaLista | null;
+    /** El menú del canal (clic derecho): dónde se pidió. */
+    alMenu?: (x: number, y: number) => void;
     alTocar: () => void; alResultado: (c: Canal, modo: Modo, ok: boolean) => void;
     hls: boolean;
     /** El códec de origen del canal (H.265/H.264), de go2rtc. Se muestra junto al modo GPU/CPU. */
@@ -242,7 +254,8 @@ function Baldosa({ celda, modo, codec, alerta, lecturas, destello, alTocar, alRe
     const r = MODO_ROTULO[modo];
     const okDestello = destello ? destello.decision === "GRANT" && !destello.listaNegra : null;
     return (
-        <motion.div role="button" tabIndex={0} layout="position" onClick={alTocar} onKeyDown={(e) => { if (e.key === "Enter") alTocar(); }} transition={SUAVE} aria-label={`Abrir ${c.nombre}`} style={libre ? undefined : estiloCasilla(celda.casilla)}
+        <motion.div role="button" tabIndex={0} layout="position" onClick={alTocar} onKeyDown={(e) => { if (e.key === "Enter") alTocar(); }} transition={SUAVE}
+            onContextMenu={alMenu ? (e) => { e.preventDefault(); alMenu(e.clientX, e.clientY); } : undefined} aria-label={`Abrir ${c.nombre}`} style={libre ? undefined : estiloCasilla(celda.casilla)}
             className={cn("group relative rounded-[10px] overflow-hidden bg-neutral-950 text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion-en-oscuro)]", libre ? "aspect-video w-full" : "min-h-0", tocable,
                 alerta ? "ring-4 ring-[var(--mal)]" : destello ? (okDestello ? "ring-4 ring-[var(--bien)]" : "ring-4 ring-[var(--mal)]") : "ring-1 ring-white/10")}>
             {caido ? (
@@ -255,6 +268,7 @@ function Baldosa({ celda, modo, codec, alerta, lecturas, destello, alTocar, alRe
                 <Vivo src={vivoDe(c.stream, modo === "convertido", hls)} alResultado={(ok) => alResultado(c, modo, ok)} alMedir={(w, h) => { if (w && h) setAspecto(w / h); }} className="absolute inset-0 w-full h-full object-cover" />
             )}
             {c.geom && !caido && <Geometria geom={c.geom} alerta={!!alerta} ajuste="cover" />}
+            {lista && !caido && !dormida && <CapaAlertaLista stream={c.stream} a={lista} grande={grande} />}
             {captura && <CapturaConSiluetas key={captura.id} a={captura} geom={c.geom} ancho={grande ? 960 : 640} />}
             {/* Editando el seguimiento: la baldosa entera se arrastra (lleva su canal) y recibe a las
                 otras; donde se suelta, queda el ícono. Es una capa encima y no el motion.div, porque
@@ -441,7 +455,7 @@ export function VistaCamaras() {
     useTiempoReal("access_event", (e: any) => {
         const dev = e?.deviceId || e?.device?.id;
         if (!e?.id || !dev) return;
-        const l: Lectura = { id: e.id, ts: e.timestamp || new Date().toISOString(), plate: (e.plateDetected || e.plateNumber || "").toUpperCase() || null, decision: e.decision || "DENY", sentido: e.direction || "ENTRY", listaNegra: /lista negra/i.test(e.details || "") };
+        const l: Lectura = { id: e.id, ts: e.timestamp || new Date().toISOString(), plate: (e.plateDetected || e.plateNumber || "").toUpperCase() || null, decision: e.decision || "DENY", sentido: e.direction || "ENTRY", listaNegra: /lista negra/i.test(e.details || ""), foto: e.snapshotPath || e.imagePath || null };
         setLecturasVivas((p) => ({ ...p, [dev]: [l, ...(p[dev] || []).filter((x) => x.id !== l.id)].slice(0, CHAPAS_GRANDE * 2) }));
         setDestellos((p) => ({ ...p, [dev]: l }));
         setTimeout(() => setDestellos((p) => { if (p[dev]?.id !== l.id) return p; const n = { ...p }; delete n[dev]; return n; }), DESTELLO_MS);
@@ -462,6 +476,11 @@ export function VistaCamaras() {
     }, [lecturasVivas]);
 
     const todos = datos?.canales || [];
+    // Lista negra en un canal: cuál se resalta, y el menú del canal (clic derecho).
+    const { porEquipo: listas, quitar: quitarLista } = useAlertasDeLista(datos?.listaALaVista, todos);
+    const [menuCanal, setMenuCanal] = useState<{ x: number; y: number; clave: string } | null>(null);
+    const [consultaMin, setConsultaMin] = useState<string | null>(null);
+    const ministerioOn = useFuncion("LPR_MIN_INTERIOR") === true;
     const porClave = useMemo(() => new Map(todos.map((c) => [c.clave, c])), [todos]);
     const nvrs = useMemo(() => [...new Set(todos.map(grupoDe))], [todos]);
     const guardada = prefs && prefs.vista !== AUTO ? datos?.vistas.find((v) => v.id === prefs.vista) || null : null;
@@ -761,6 +780,8 @@ export function VistaCamaras() {
         <Baldosa key={celda.canal?.clave || `vacia-${i}`} celda={celda} modo={celda.canal ? modos.get(celda.canal.clave) || "foto" : "foto"} codec={celda.canal ? (codecs[celda.canal.stream] ?? null) : null} hls={hls} libre={libre}
             dormida={libre && !!celda.canal && !aLaVista.has(celda.canal.clave)}
             alerta={celda.canal ? alertaDe(celda.canal) : null} lecturas={celda.canal ? lecturasDe(celda.canal) : []}
+            lista={celda.canal?.equipoId ? listas[celda.canal.equipoId] || null : null}
+            alMenu={celda.canal && !editandoSeg ? (x, y) => setMenuCanal({ x, y, clave: celda.canal!.clave }) : undefined}
             destello={celda.canal?.equipoId ? destellos[celda.canal.equipoId] || null : null}
             alTocar={() => { if (celda.canal && !editandoSeg) { setGrabacionInicial(null); setAbiertaClave(celda.canal.clave); } }} alResultado={alResultado}
             enlaces={celda.canal ? enlacesDe(celda.canal) : []} editandoSeg={editandoSeg && !libre}
@@ -963,6 +984,55 @@ export function VistaCamaras() {
                 </Hoja>
             )}
 
+            {/* El menú del canal (clic derecho en un cuadro). Lo de la alerta primero; lo del canal, después. */}
+            {menuCanal && (() => {
+                const c = porClave.get(menuCanal.clave);
+                if (!c) return null;
+                const l = c.equipoId ? listas[c.equipoId] || null : null;
+                const a = alertaDe(c);
+                /** Decidir una alarma: lo mismo que en Gestión de alarmas (queda quién y cuándo en su bitácora). */
+                const gestionar = async (id: string, cuerpo: Record<string, unknown>) => {
+                    const r = await fetch("/api/alarmas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, atender: true, ...cuerpo }) }).catch(() => null);
+                    if (!r?.ok) setAviso("No se pudo guardar la decisión. Probá de nuevo o hacelo desde Gestión de alarmas.");
+                    return !!r?.ok;
+                };
+                const ops: OpcionCanal[] = [];
+                // Una pantalla de pared (sin sesión de operador) no decide nada: sólo navega.
+                if (!pantalla && l) {
+                    if (!l.real) ops.push({ clave: "aceptar", rotulo: "Aceptar la alerta: es real", Icono: CircleCheck, tono: "bien", alElegir: () => gestionar(l.clave, { resultado: "real" }) });
+                    ops.push({
+                        clave: "desactivar", rotulo: "Desactivar la alerta", Icono: BellOff,
+                        alElegir: async () => {
+                            // Ya aceptada como real: se desactiva la alarma activa. Si no, se da por atendida sin veredicto.
+                            const ok = l.real
+                                ? !!(await fetch("/api/avisos/activas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: l.clave }) }).catch(() => null))?.ok
+                                : await gestionar(l.clave, { nota: `Desactivada desde la pared de cámaras (${c.nombre})` });
+                            if (ok) quitarLista(l.clave); else if (l.real) setAviso("No se pudo desactivar la alarma.");
+                        },
+                    });
+                    ops.push({
+                        clave: "retirar", rotulo: `Retirar ${l.plate} de la lista negra`, Icono: Ban, tono: "mal", confirmar: `¿Sacar ${l.plate} de la lista negra? Confirmar`,
+                        alElegir: async () => {
+                            // La acción pide el permiso «vigilancia» (middleware): sin él no llega a correr y la llamada falla.
+                            const r = await retirarDeListaNegra(l.plate, `la pared de cámaras (${c.nombre})`).catch(() => ({ ok: false, error: "No se pudo retirar: tu rol no tiene permiso sobre las listas, o se cortó la conexión.", por: undefined as string | undefined }));
+                            if (!r.ok) { setAviso(r.error || "No se pudo retirar de la lista negra."); return; }
+                            await gestionar(l.clave, { nota: `Retirada de la lista negra por ${r.por || "el operador"}` });
+                            quitarLista(l.clave);
+                        },
+                    });
+                    if (ministerioOn) ops.push({ clave: "ministerio", rotulo: `Consultar ${l.plate} al Ministerio`, Icono: IconoPolicia, alElegir: () => setConsultaMin(l.plate) });
+                }
+                if (!pantalla && a) {
+                    const m = metaDe(a.tipo);
+                    ops.push({ clave: "real", rotulo: `${m.label}: es real`, Icono: CircleCheck, tono: "bien", separa: ops.length > 0, alElegir: () => gestionar(`d:${a.id}`, { resultado: "real" }) });
+                    ops.push({ clave: "falsa", rotulo: `${m.label}: falsa alarma`, Icono: CircleX, alElegir: () => gestionar(`d:${a.id}`, { resultado: "falsa" }) });
+                }
+                ops.push({ clave: "abrir", rotulo: "Abrir a pantalla completa", Icono: Maximize2, separa: ops.length > 0, alElegir: () => { setGrabacionInicial(null); setAbiertaClave(c.clave); } });
+                if (c.nvrId && c.ch != null) ops.push({ clave: "grabacion", rotulo: "Ver la grabación", Icono: History, alElegir: () => { setGrabacionInicial(a ? +new Date(a.ts) - 5000 : l ? +new Date(l.ts) - 15_000 : Date.now() - 60_000); setAbiertaClave(c.clave); } });
+                if (!movil) ops.push({ clave: "ventana", rotulo: "Abrir en otra ventana", Icono: AppWindow, alElegir: () => { if (!abrirVentana({ canal: c.clave }, `canal-${c.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } });
+                return <MenuCanal x={menuCanal.x} y={menuCanal.y} titulo={c.nombre} sub={l ? `${l.requerida ? "Requerida por la policía" : "Lista negra"} · ${l.plate}` : a ? metaDe(a.tipo).label : ubicacion(c)} opciones={ops} alCerrar={() => setMenuCanal(null)} />;
+            })()}
+            {consultaMin && <MinInteriorDialog plate={consultaMin} open onOpenChange={(o) => { if (!o) setConsultaMin(null); }} />}
             <FichaCanal c={abierta} grabacionInicial={grabacionInicial} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
                 alerta={abierta ? alertaDe(abierta) : null} lecturas={abierta ? lecturasDe(abierta) : []}
                 alCerrar={() => { setAbiertaClave(null); setOrigenClave(null); }} alMover={enPantalla.length > 1 ? mover : null}

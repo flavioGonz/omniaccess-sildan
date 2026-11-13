@@ -1907,7 +1907,11 @@ video::-webkit-media-controls { display: none !important; }
 /* El cartel de «matrícula requerida» del visor: un halo que late, no un parpadeo. */
 .cartel-requerida { animation: cartel-requerida 1.6s ease-in-out infinite; }
 @keyframes cartel-requerida { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--mal) 55%, transparent); } 50% { box-shadow: 0 0 0 7px color-mix(in oklab, var(--mal) 0%, transparent); } }
-@media (prefers-reduced-motion: reduce) { .capa-alerta, .cartel-requerida { animation: none; } }
+/* El cuadro de la pared de cámaras con una chapa de la lista negra: un marco por dentro que late.
+   Por dentro (inset) y no un anillo: los cuadros de la pared se tocan y un anillo se monta sobre el vecino. */
+.marco-alerta-lista { box-shadow: inset 0 0 0 4px var(--mal), inset 0 0 28px color-mix(in oklab, var(--mal) 55%, transparent); animation: marco-alerta-lista 1.4s ease-in-out infinite; }
+@keyframes marco-alerta-lista { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .capa-alerta, .cartel-requerida, .marco-alerta-lista { animation: none; } }
 
 /* Los tres puntos de «se está esperando» (RotuloVisor): se prenden de a uno. */
 .puntos-espera span { display: inline-block; animation: punto-espera 1.2s ease-in-out infinite both; }

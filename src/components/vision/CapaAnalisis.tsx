@@ -2,7 +2,9 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Backpack, Bike, Bird, Briefcase, Bus, Car, Cat, Clock, Dog, Luggage, Motorbike, PawPrint, ScanEye, Siren, Truck, User, type LucideIcon, Boxes } from "lucide-react";
+import { Backpack, Bike, Bird, Briefcase, Bus, Car, Cat, Clock, Dog, Luggage, Motorbike, PawPrint, ScanEye, Truck, User, type LucideIcon, Boxes, ShieldAlert } from "lucide-react";
+import { IconoPolicia } from "@/components/IconoPolicia";
+import { REQUERIDA_POLICIA } from "@/lib/min-interior";
 import { RelojRodante } from "@/components/tracking/MarcaEstadia";
 import { bandasLinea, poligonos, veredicto, type Analisis, type GeomNorm, type ObjetoAnalizado, type Pt } from "@/lib/vision-capa";
 import { iconoPropio, useNombresPropios } from "@/lib/nombres-propios";
@@ -317,7 +319,10 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                                 return (
                                     <g className="capa-alerta-rotulo">
                                         <rect x={x0} y={y0} width={ancho2} height={lado2} rx={lado2 / 2} fill={COLOR_ALERTA} />
-                                        <Siren x={x0 + fuente * 0.42} y={y0 + lado2 * 0.16} width={lado2 * 0.68} height={lado2 * 0.68} color="#fff" strokeWidth={2.4} />
+                                        {/* La placa sólo si lo dice la policía; la lista negra del barrio lleva su escudo de siempre. */}
+                                        {o.alerta === REQUERIDA_POLICIA
+                                            ? <IconoPolicia x={x0 + fuente * 0.42} y={y0 + lado2 * 0.16} width={lado2 * 0.68} height={lado2 * 0.68} color="#fff" strokeWidth={2.4} />
+                                            : <ShieldAlert x={x0 + fuente * 0.42} y={y0 + lado2 * 0.16} width={lado2 * 0.68} height={lado2 * 0.68} color="#fff" strokeWidth={2.4} />}
                                         <text x={x0 + lado2 + fuente * 0.2} y={y0 + lado2 * 0.68} fill="#fff" fontSize={fuente * 0.95} fontWeight={700} style={{ letterSpacing: "0.01em" }}>{o.alerta}</text>
                                     </g>
                                 );

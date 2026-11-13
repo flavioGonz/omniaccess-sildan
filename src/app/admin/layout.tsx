@@ -27,6 +27,8 @@ import {
     ScanFace,
     Calendar,
     ChevronLeft,
+    PanelLeftClose,
+    Pin,
     ChevronRight,
     Menu,
     Activity,
@@ -123,6 +125,27 @@ export default function AdminLayout({
     const enListaAmarilla = pathname === "/admin/users" && searchParams?.get("tab") === "listaamarilla";
     const router = useRouter();
     const [collapsed, setCollapsed] = useState(false);
+    /*
+     * Monitor CCTV como VMS (13/11, Nico: «el sidebar debe ocultarse sin bordes para poder usarlo
+     * como VMS más cómodo; algo flotante que llame el sidebar nuevamente, oculto, y premium»).
+     * En esa pantalla el menú sale del todo —sin la columna de 70 px ni su borde— y la pared ocupa
+     * el ancho entero. Una pestaña fina en el borde izquierdo lo trae FLOTANDO sobre la pared (no
+     * la empuja: los cuadros no se reacomodan ni se reconectan) y se va solo al sacarle el mouse.
+     * Quien lo prefiera fijo lo clava con el alfiler; se recuerda en este navegador.
+     * Sólo en Monitor CCTV: en el resto del panel el menú es la navegación y no molesta a nada.
+     */
+    const enCctv = pathname === "/admin/monitor-cctv";
+    const [menuCctv, setMenuCctv] = useState<"oculto" | "fijo">("oculto");
+    const [asomado, setAsomado] = useState(false);
+    useEffect(() => { try { if (localStorage.getItem("oa.cctv.menu") === "fijo") setMenuCctv("fijo"); } catch { /* sin almacenamiento: oculto */ } }, []);
+    const fijarMenuCctv = (m: "oculto" | "fijo") => { setMenuCctv(m); setAsomado(false); try { localStorage.setItem("oa.cctv.menu", m); } catch { /* idem */ } };
+    const sinMenu = enCctv && menuCctv === "oculto";
+    useEffect(() => { if (!sinMenu) setAsomado(false); }, [sinMenu]);
+    useEffect(() => {
+        if (!asomado) return;
+        const k = (e: KeyboardEvent) => { if (e.key === "Escape") setAsomado(false); };
+        window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
+    }, [asomado]);
     const { role: sessionRole, loaded: roleLoaded, tiene, puede } = useSessionRole();
     const isAdmin = sessionRole === "ADMIN";
     // El menú se arma por permiso del rol de aplicación (lib/permisos), no por "es admin":
@@ -190,10 +213,20 @@ export default function AdminLayout({
         <VivoProvider>
         <div className="flex min-h-screen bg-background text-foreground font-sans">
             {/* Sidebar */}
+            {/* Monitor CCTV sin menú: la pestaña que lo llama. Fina y casi invisible hasta que se le acerca el mouse. */}
+            {sinMenu && !asomado && (
+                <button type="button" onMouseEnter={() => setAsomado(true)} onClick={() => setAsomado(true)} aria-label="Mostrar el menú" title="Menú"
+                    className="group fixed left-0 top-1/2 -translate-y-1/2 z-30 h-20 w-3 hover:w-6 rounded-r-[10px] grid place-items-center bg-black/30 backdrop-blur-md border border-l-0 border-white/15 text-white/60 hover:text-white hover:bg-black/55 transition-[width,background-color,color] duration-200">
+                    <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+            )}
             <aside
+                onMouseLeave={() => { if (sinMenu) setAsomado(false); }}
                 className={cn(
-                    "border-r border-border flex flex-col fixed h-full bg-card/80 backdrop-blur-xl z-20 transition-all duration-300 ease-in-out",
-                    collapsed ? "w-[70px]" : "w-64"
+                    "border-border flex flex-col fixed h-full bg-card/80 backdrop-blur-xl transition-all duration-300 ease-in-out",
+                    collapsed ? "w-[70px]" : "w-64",
+                    // Oculto en Monitor CCTV: fuera de la pantalla, sin borde; asomado, flota sobre la pared.
+                    sinMenu ? cn("z-40 border-r-0", asomado ? "translate-x-0 shadow-[var(--sombra-flotante,0_18px_50px_rgba(0,0,0,.45))]" : "-translate-x-full pointer-events-none") : "z-20 border-r"
                 )}
             >
                 <div className="p-4 border-b border-border bg-foreground/[0.02] flex items-center justify-between h-[60px]">
@@ -209,6 +242,13 @@ export default function AdminLayout({
                         </div>
                     </div>
 
+                    {/* En Monitor CCTV: clavar el menú, o sacarlo para que la pared ocupe todo. */}
+                    {enCctv && !collapsed && (
+                        <button onClick={() => fijarMenuCctv(sinMenu ? "fijo" : "oculto")} title={sinMenu ? "Dejar el menú fijo" : "Ocultar el menú: la pared a todo el ancho"} aria-label={sinMenu ? "Dejar el menú fijo" : "Ocultar el menú"}
+                            className="ml-auto mr-1 p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors">
+                            {sinMenu ? <Pin size={15} /> : <PanelLeftClose size={16} />}
+                        </button>
+                    )}
                     <button
                         onClick={() => setCollapsed(!collapsed)}
                         className={cn(
@@ -388,7 +428,7 @@ export default function AdminLayout({
             <main
                 className={cn(
                     "flex-1 overflow-y-auto custom-scrollbar transition-all duration-300 ease-in-out font-sans h-screen",
-                    collapsed ? "ml-[70px]" : "ml-64"
+                    sinMenu ? "ml-0" : collapsed ? "ml-[70px]" : "ml-64"
                 )}
             >
                 {/* El corte real lo hace el middleware (redirige a /admin/sin-permiso); esto es

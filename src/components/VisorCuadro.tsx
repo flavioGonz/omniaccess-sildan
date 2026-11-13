@@ -12,7 +12,7 @@ import {
     Repeat, Loader2,
     Siren,
 } from "lucide-react";
-import { REQUERIDA_CORTA, esRequerida } from "@/lib/min-interior";
+import { REQUERIDA_CORTA, REQUERIDA_POLICIA, esRequerida } from "@/lib/min-interior";
 import { CartelRequerida } from "@/components/CartelRequerida";
 import { cn } from "@/lib/utils";
 import { ChapaMercosur } from "@/components/tracking/ChapaMercosur";
@@ -738,7 +738,7 @@ export function VisorCuadro({
      * En la lista negra, el vehículo de la chapa se pinta entero de rojo (13/11): también cuando se
      * están viendo las siluetas de OmniVision, que antes lo dejaban violeta como a cualquier otro.
      */
-    const alertaAuto = esNegra(vig?.categoria) ? (requerida ? REQUERIDA_CORTA : "Lista negra") : null;
+    const alertaAuto = esNegra(vig?.categoria) ? (requerida ? REQUERIDA_POLICIA : "Lista negra") : null;
     const visionConAlerta = useMemo(() => (vision && autoEstacionado && alertaAuto
         ? { ...vision, objetos: vision.objetos.map((o) => (o === autoEstacionado ? { ...o, alerta: alertaAuto } : o)) } : null), [vision, autoEstacionado, alertaAuto]);
     /**

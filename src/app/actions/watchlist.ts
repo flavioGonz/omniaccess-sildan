@@ -213,6 +213,30 @@ export async function deactivateWatch(id: string) {
     } catch (e: any) { return { ok: false, error: e?.message }; }
 }
 
+/**
+ * Sacar una matrícula de la lista negra desde fuera de la pantalla de la lista (la pared de
+ * cámaras, 13/11), por su chapa.
+ *
+ * Por qué es otra acción y no `deactivateWatch`: aquella no deja rastro para la lista negra (sólo
+ * anota las bajas de la Lista Amarilla), y sacar de la lista una matrícula —más una requerida por
+ * la policía— desde un menú contextual tiene que poder auditarse: queda en la bitácora de la
+ * ficha QUIÉN la sacó, CUÁNDO y DESDE DÓNDE. Sin sesión no hace nada.
+ */
+export async function retirarDeListaNegra(plateCruda: string, desde: string): Promise<{ ok: boolean; error?: string; por?: string }> {
+    const quien = await quienSoy();
+    if (!quien) return { ok: false, error: "Hace falta iniciar sesión para cambiar la lista negra." };
+    const plate = norm(plateCruda);
+    try {
+        const fila = await prisma.plateWatch.findUnique({ where: { plate } });
+        if (!fila || !fila.active || normalizeWatchCat(fila.category) !== "BLACKLISTED") return { ok: false, error: `${plate} no está en la lista negra.` };
+        const r = await deactivateWatch(fila.id);
+        if (!r.ok) return { ok: false, error: r.error || "No se pudo retirar." };
+        await anotar(claveDeFila(fila), "BAJA", `Retirada de la lista negra desde ${desde.slice(0, 80)}. Decía: ${(fila.motivo || fila.label || "sin motivo").slice(0, 300)}`, quien);
+        console.log(`[lista-negra] ${plate} retirada por ${quien} desde ${desde}`);
+        return { ok: true, por: quien };
+    } catch (e: any) { return { ok: false, error: e?.message || "No se pudo retirar." }; }
+}
+
 /** Volver a activar una entrada dada de baja (misma categoría, mismo motivo). */
 export async function reactivateWatch(id: string) {
     try {

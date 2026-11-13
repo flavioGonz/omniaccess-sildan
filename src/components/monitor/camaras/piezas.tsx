@@ -11,7 +11,8 @@ import { cn } from "@/lib/utils";
 export type Alerta = { id: string; tipo: string; ts: string;
     /** La captura de la detección y lo que OmniVision vio en ella (sólo las de la consulta, no las del socket). */
     foto?: string | null; verif?: { veredicto: string | null; analisis: any } | null };
-export type Lectura = { id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean };
+/** `foto`: la captura de esa lectura (la pila de la ficha del canal la muestra). */
+export type Lectura = { id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean; foto?: string | null };
 export type Punto = { x: number; y: number };
 export type Canal = {
     clave: string; nombre: string; nvrId: string | null; nvr: string | null; ch: number | null; online: boolean | null;

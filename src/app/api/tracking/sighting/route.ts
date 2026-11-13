@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
 
     // Lista negra a la vista: se avisa por la lectura, pase lo que pase después con ella (estadía,
     // pasada o descarte por estar lejos de la línea). No se espera: no demora la respuesta al worker.
-    void avisarListaNegraALaVista({ plate: patente, camara: body.cameraName || null, foto: body.snapshotUrl || null });
+    void avisarListaNegraALaVista({ plate: patente, camara: body.cameraName || null, foto: body.snapshotUrl || null, deviceId: body.deviceId ? String(body.deviceId) : null });
 
     const cuando = body.timestamp ? new Date(body.timestamp) : new Date();
     const lecturas = body.reads != null ? Number(body.reads) : null;

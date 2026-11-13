@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { GRUPO_PROPIO, UMBRAL_PANTALLA_DEFECTO } from "@/lib/detector-propio";
 import { conChapa, conEstadia, type EstadiaAbierta, type LugarVehiculo } from "@/lib/vision-estadia";
 import { leerRecuadro } from "@/lib/deteccion";
-import { REQUERIDA_CORTA, esRequerida } from "@/lib/min-interior";
+import { REQUERIDA_POLICIA, esRequerida } from "@/lib/min-interior";
 
 /**
  * GET /api/monitor/camaras/siluetas?stream=<nombre> → text/event-stream con lo que OmniVision ve
@@ -141,7 +141,7 @@ async function estadiasDe(camara: string): Promise<EstadiaAbierta[]> {
 }
 
 /**
- * Las matrículas en lista negra, y cómo nombrar a cada una sobre el vivo («Requerida · M. Interior»
+ * Las matrículas en lista negra, y cómo nombrar a cada una sobre el vivo («Requerida por la policía»
  * si la confirmó el Ministerio, «Lista negra» si no). Se lee a lo sumo cada NEGRAS_MS: el auto
  * estacionado con una de esas chapas se pinta entero en rojo (ver `alerta` en lib/vision-capa).
  */
@@ -151,7 +151,7 @@ async function negrasVigentes(): Promise<Map<string, string>> {
     if (Date.now() - negras.al < NEGRAS_MS) return negras.porChapa;
     try {
         const filas = await prisma.plateWatch.findMany({ where: { active: true, category: "BLACKLISTED" }, select: { plate: true, label: true, motivo: true } });
-        negras = { al: Date.now(), porChapa: new Map(filas.map((f) => [f.plate.toUpperCase().replace(/[^A-Z0-9]/g, ""), esRequerida(f.label, f.motivo) ? REQUERIDA_CORTA : "Lista negra"])) };
+        negras = { al: Date.now(), porChapa: new Map(filas.map((f) => [f.plate.toUpperCase().replace(/[^A-Z0-9]/g, ""), esRequerida(f.label, f.motivo) ? REQUERIDA_POLICIA : "Lista negra"])) };
     } catch { negras = { ...negras, al: Date.now() - NEGRAS_MS + 2000 }; }
     return negras.porChapa;
 }

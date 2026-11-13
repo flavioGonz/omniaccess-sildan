@@ -49,7 +49,7 @@ async function negrasVigentes(): Promise<Map<string, Negra>> {
 }
 
 /** Se llama con cada avistamiento válido. No tira: un aviso que falla no puede perder la lectura. */
-export async function avisarListaNegraALaVista(v: { plate: string; camara: string | null; foto: string | null }): Promise<void> {
+export async function avisarListaNegraALaVista(v: { plate: string; camara: string | null; foto: string | null; deviceId?: string | null }): Promise<void> {
     try {
         const plate = limpia(v.plate);
         const hallada = (await negrasVigentes()).get(plate);
@@ -59,7 +59,8 @@ export async function avisarListaNegraALaVista(v: { plate: string; camara: strin
         const n = { ...hallada, etiqueta: nombreCamara(hallada.etiqueta) || "" };
         const creado = await crearAviso({
             tipo: "LISTA_NEGRA_VISTA", plate, camara, motivo: motivoALaVista(n, camara),
-            datos: { foto: v.foto || null, requerida: n.requerida, etiqueta: n.etiqueta, motivoLista: n.motivo },
+            // `deviceId`: para que la pared de cámaras sepa en qué cuadro resaltarla.
+            datos: { foto: v.foto || null, requerida: n.requerida, etiqueta: n.etiqueta, motivoLista: n.motivo, deviceId: v.deviceId || null },
         }, VENTANA_MIN);
         if (creado) { anunciado.set(plate, Date.now()); return; }
         if (Date.now() - (anunciado.get(plate) || 0) < REANUNCIAR_MS) return;

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { esRequerida } from "@/lib/min-interior";
 import { autorizarMonitor, SIN_CACHE } from "@/lib/monitor/servidor";
 import { getNvrChannels, type CanalNvr } from "@/app/actions/nvr";
 import { registrarCanalNvr } from "@/lib/go2rtc-sync";
@@ -117,10 +118,27 @@ export type CanalPared = {
     geom: { line: { x: number; y: number }[]; field: { x: number; y: number }[] } | null;
     /** La última detección de las últimas 24 h, aunque ya no esté en alerta. */
     ultima: { id: string; tipo: string; ts: string; foto?: string | null } | null;
-    lecturas: { id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean }[];
+    lecturas: { id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean; foto: string | null }[];
     /** Si OmniVision analiza esta cámara (VISION_CAMARAS) y cuántos análisis por segundo le cuesta, medido. */
     vision?: { analiza: boolean; porSeg: number | null };
 };
+
+/**
+ * Los avisos «lista negra a la vista» sin atender (lib/lista-negra-vista), para que la pared
+ * resalte el cuadro aunque se haya abierto después del aviso. Son pocos: uno por chapa.
+ */
+async function listaALaVista(): Promise<{ clave: string; deviceId: string | null; camara: string | null; plate: string; requerida: boolean; ts: string }[]> {
+    const filas = await prisma.avisoGuardia.findMany({ where: { tipo: "LISTA_NEGRA_VISTA", atendidoAt: null }, orderBy: { creado: "desc" }, take: 20, select: { id: true, plate: true, camara: true, creado: true, datos: true } }).catch(() => []);
+    const conChapa = filas.filter((f) => f.plate);
+    if (!conChapa.length) return [];
+    // Si es requerida se mira AHORA en la lista, no en el aviso: pudo confirmarse en el Ministerio después de que saltó.
+    const lista = await prisma.plateWatch.findMany({ where: { active: true, category: "BLACKLISTED", plate: { in: conChapa.map((f) => f.plate as string) } }, select: { plate: true, label: true, motivo: true } }).catch(() => []);
+    const requeridas = new Set(lista.filter((w) => esRequerida(w.label, w.motivo)).map((w) => w.plate));
+    return conChapa.map((f) => {
+        const d = (f.datos || {}) as { deviceId?: string | null };
+        return { clave: `a:${f.id}`, deviceId: d.deviceId || null, camara: f.camara, plate: f.plate as string, requerida: requeridas.has(f.plate as string), ts: f.creado.toISOString() };
+    });
+}
 
 export async function GET() {
     const p = await autorizarMonitor("/api/monitor/camaras");
@@ -174,8 +192,8 @@ export async function GET() {
     const funcionDe = (id: string): CanalPared["funcion"] => (lee.has(id) ? "lpr" : detecta.has(id) || tieneGeom(id) ? "intrusion" : null);
     const lecturasPorEquipo = new Map<string, CanalPared["lecturas"]>();
     await Promise.all([...lee].map(async (id) => {
-        const filas = await prisma.accessEvent.findMany({ where: { deviceId: id }, orderBy: { timestamp: "desc" }, take: LECTURAS_POR_CAMARA, select: { id: true, timestamp: true, plateDetected: true, decision: true, direction: true, details: true } }).catch(() => []);
-        lecturasPorEquipo.set(id, filas.map((f) => ({ id: f.id, ts: f.timestamp.toISOString(), plate: f.plateDetected || null, decision: String(f.decision), sentido: String(f.direction), listaNegra: /lista negra/i.test(f.details || "") })));
+        const filas = await prisma.accessEvent.findMany({ where: { deviceId: id }, orderBy: { timestamp: "desc" }, take: LECTURAS_POR_CAMARA, select: { id: true, timestamp: true, plateDetected: true, decision: true, direction: true, details: true, snapshotPath: true, imagePath: true } }).catch(() => []);
+        lecturasPorEquipo.set(id, filas.map((f) => ({ id: f.id, ts: f.timestamp.toISOString(), plate: f.plateDetected || null, decision: String(f.decision), sentido: String(f.direction), listaNegra: /lista negra/i.test(f.details || ""), foto: f.snapshotPath || f.imagePath || null })));
     }));
     const extrasDe = (id: string) => {
         const funcion = funcionDe(id);
@@ -267,6 +285,8 @@ export async function GET() {
         puedeEditar,
         go2rtc: !!streams,
         ventanaAlertaMs: VENTANA_ALERTA_MS,
+        // Chapas de la lista negra a la vista en una cámara y todavía sin atender: la pared resalta ese cuadro.
+        listaALaVista: await listaALaVista(),
         ahora: new Date().toISOString(),
         // Faltan grabadores o líneas que se siguen leyendo de fondo: el cliente vuelve a pedir enseguida.
         incompleto,

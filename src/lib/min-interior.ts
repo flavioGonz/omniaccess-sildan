@@ -42,6 +42,12 @@ export type UltimaConsulta = { estado: Exclude<EstadoConsulta, "CAPTCHA">; cread
 export const ETIQUETA_REQUERIDA = "Requerida · Ministerio del Interior";
 /** Cómo se la nombra donde no entra la etiqueta entera (el rótulo sobre la foto, una cápsula). */
 export const REQUERIDA_CORTA = "Requerida · M. Interior";
+/**
+ * Lo que dice SOBRE EL VEHÍCULO (la silueta, el cuadro de la pared): «la policía», no el nombre del
+ * organismo (13/11, Nico: «genera más impacto»). Es lo que se lee de lejos y en un segundo; quién
+ * lo confirmó y cuándo lo dice el cartel (CartelRequerida), que sí nombra al Ministerio.
+ */
+export const REQUERIDA_POLICIA = "Requerida por la policía";
 const INICIO_MOTIVO = "Requerida por el Ministerio del Interior";
 
 /** ¿Esta entrada de la lista es una requerida confirmada? Por la etiqueta, o por cómo empieza el motivo. */

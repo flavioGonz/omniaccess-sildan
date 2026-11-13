@@ -11,11 +11,14 @@ import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { SUAVE } from "@/components/monitor/tactil";
 import { PasoVisionCanal, type PasoVision } from "./PasoVision";
 import { TipVisor, tip } from "./TipVisor";
+import { getImagePath } from "@/lib/image-path";
 import { Vivo, Foto, Geometria, fotoDe, vivoDe, ubicacion, idCanal, FOTO_MS, useSiluetasEnVivo, type Canal, type Alerta, type Lectura } from "./piezas";
 import { CapaAnalisis, type OpcionObjeto } from "@/components/vision/CapaAnalisis";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { claseDeBusqueda, motivoDesdeVivo, type ClaseBusqueda } from "@/lib/vivo-menu";
+import { IconoPolicia } from "@/components/IconoPolicia";
+import { MinInteriorDialog } from "@/components/MinInteriorDialog";
 import { ANTES_DE, avisoDeLlegada, type Llegada } from "@/lib/vision-llegada";
 import { RotuloVisor } from "./RotuloVisor";
 import type { ObjetoAnalizado } from "@/lib/vision-capa";
@@ -69,15 +72,63 @@ function Icono({ children, onClick, titulo, activo, href }: { children: React.Re
     return <button type="button" onClick={onClick} {...tip(titulo)} aria-pressed={activo} className={cls}>{children}</button>;
 }
 
-function ChapaChica({ l }: { l: Lectura }) {
-    const ok = l.decision === "GRANT" && !l.listaNegra;
+/** Cuántas lecturas entran en la pila: más tapan el video, que es lo que se vino a mirar. */
+const LECTURAS_EN_PILA = 4;
+const CLAVE_PILA = "oa.vivo.lecturas";
+/** Ancho con que se pide la captura de cada lectura: se ve a 176 px; la original pesa 1–2 MB. */
+const ANCHO_CAPTURA = 320;
+
+/**
+ * Las últimas lecturas de la cámara, cada una con su captura, apiladas a la derecha del video
+ * (13/11, Nico: «apiladas en vertical, al centro a la derecha, tipo overlay con transparencia,
+ * pudiendo ocultarlas»). Antes eran una fila de chapas abajo, sin foto, que aparecía y se iba con
+ * los controles y chocaba con la regla de la grabación.
+ *
+ * No se va con los controles: es información, no un control. Se oculta a mano con su pestaña, y
+ * eso se recuerda en este navegador. Escondida no pide ninguna foto.
+ */
+export function PilaLecturas({ lecturas }: { lecturas: Lectura[] }) {
+    const [abierta, setAbierta] = useState(true);
+    useEffect(() => { try { setAbierta(localStorage.getItem(CLAVE_PILA) !== "0"); } catch { /* sin almacenamiento: abierta */ } }, []);
+    const alternar = () => setAbierta((a) => { try { localStorage.setItem(CLAVE_PILA, a ? "0" : "1"); } catch { /* idem */ } return !a; });
+    const lista = lecturas.slice(0, LECTURAS_EN_PILA);
     return (
-        <span className={cn("inline-flex items-center gap-1.5 rounded-[8px] px-2 py-1 visor-panel text-white")}>
-            <span className={cn("h-2 w-2 rounded-full", ok ? "bg-[var(--bien)]" : "bg-[var(--mal)]")} />
-            {l.sentido === "EXIT" ? <LogOut size={13} className="text-white/60" /> : <LogIn size={13} className="text-white/60" />}
-            <span className="text-[15px] font-bold tabular-nums tracking-wide">{l.plate || "SIN LEER"}</span>
-            <span className="text-[12px] text-white/60 tabular-nums">{horaCorta(l.ts)}</span>
-        </span>
+        <div data-capa-tocable className="absolute right-0 top-1/2 -translate-y-1/2 z-[9] flex items-center pointer-events-none">
+            <button type="button" onClick={alternar} aria-expanded={abierta} {...tip(abierta ? "Ocultar las últimas lecturas" : `Últimas lecturas (${lecturas.length})`)}
+                className="pointer-events-auto h-14 w-5 rounded-l-[8px] grid place-items-center bg-black/35 backdrop-blur-md border border-r-0 border-white/15 text-white/70 hover:text-white hover:bg-black/55 transition-colors">
+                {abierta ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+            </button>
+            <AnimatePresence initial={false}>
+                {abierta && (
+                    <motion.div key="pila" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }} transition={{ duration: 0.18 }}
+                        className="pointer-events-auto mr-3 sm:mr-4 w-[176px] max-h-[74vh] overflow-y-auto [scrollbar-width:none] flex flex-col gap-1.5">
+                        <span className="px-1 text-[9px] font-bold uppercase tracking-[0.14em] text-white/70 [text-shadow:0_1px_4px_rgba(0,0,0,.8)]">Últimas lecturas</span>
+                        {lista.map((l) => <LecturaApilada key={l.id} l={l} />)}
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
+
+function LecturaApilada({ l }: { l: Lectura }) {
+    const ok = l.decision === "GRANT" && !l.listaNegra;
+    const foto = getImagePath(l.foto);
+    // Si la captura no llega (borrada por retención, o una pantalla sin permiso de fotos), queda la chapa sola.
+    const [rota, setRota] = useState(false);
+    return (
+        <div className={cn("relative overflow-hidden rounded-[10px] bg-black/45 backdrop-blur-md border", l.listaNegra ? "border-[var(--mal)]" : "border-white/15")}>
+            {foto && !rota && (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={`${foto}${foto.includes("?") ? "&" : "?"}w=${ANCHO_CAPTURA}`} alt="" loading="lazy" decoding="async" draggable={false} onError={() => setRota(true)} className="block w-full aspect-video object-cover opacity-90" />
+            )}
+            <div className="flex items-center gap-1.5 px-2 py-1.5 text-white">
+                <span className={cn("h-2 w-2 rounded-full shrink-0", ok ? "bg-[var(--bien)]" : "bg-[var(--mal)]")} />
+                {l.sentido === "EXIT" ? <LogOut size={12} className="text-white/60 shrink-0" /> : <LogIn size={12} className="text-white/60 shrink-0" />}
+                <span className="text-[13.5px] font-bold tabular-nums tracking-wide whitespace-nowrap">{l.plate || "SIN LEER"}</span>
+                <span className="ml-auto text-[10.5px] text-white/60 tabular-nums shrink-0">{horaCorta(l.ts)}</span>
+            </div>
+        </div>
     );
 }
 
@@ -123,9 +174,12 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
      *    operador lo confirme ahí (marcar a alguien avisa a la guardia cada vez que pasa).
      */
     const amarillaOn = useFuncion("LPR_BUSQUEDA") === true;
+    const ministerioOn = useFuncion("LPR_MIN_INTERIOR") === true;
+    /** La matrícula que se está consultando en el Ministerio desde el menú de un vehículo. */
+    const [consulta, setConsulta] = useState<string | null>(null);
     const [sospechoso, setSospechoso] = useState<{ chapa: string; motivo: string } | null>(null);
     const sospechosoRef = useRef(false); sospechosoRef.current = !!sospechoso;
-    useEffect(() => { setSospechoso(null); }, [c?.clave]);
+    useEffect(() => { setSospechoso(null); setConsulta(null); }, [c?.clave]);
     const hayGrabacion = !!c?.nvrId && c?.ch != null;
     const nombreCanal = c?.nombre || "";
     const [buscandoLlegada, setBuscandoLlegada] = useState(false);
@@ -164,8 +218,15 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
             motivo: o.grupo !== "vehiculo" ? "La Lista Amarilla es por matrícula: sólo vehículos" : undefined,
             alElegir: () => setSospechoso({ chapa: o.chapa?.plate || "", motivo: motivoDesdeVivo(nombreCanal, o.quietoDesde) }),
         });
+        // La consulta asistida al Ministerio, con la chapa de ESTE vehículo (13/11, Nico). Sólo con
+        // sesión de operador: el código de verificación lo escribe una persona.
+        if (ministerioOn && !pantalla && o.grupo === "vehiculo") ops.push({
+            clave: "ministerio", rotulo: "Consultar al Ministerio", Icono: IconoPolicia as unknown as OpcionObjeto["Icono"],
+            motivo: !o.chapa?.plate ? "Todavía no se le leyó la matrícula" : undefined,
+            alElegir: () => setConsulta(o.chapa?.plate || null),
+        });
         return ops;
-    }, [hayGrabacion, alBuscar, amarillaOn, pantalla, nombreCanal, verLlegada]);
+    }, [hayGrabacion, alBuscar, amarillaOn, ministerioOn, pantalla, nombreCanal, verLlegada]);
     const [fallo, setFallo] = useState(false);
     const [hd, setHd] = useState(true);
     // Cuál de los dos vivos ya tiene imagen: el subflujo arranca siempre y la alta calidad lo tapa
@@ -435,13 +496,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                         )}
                     </AnimatePresence>
 
-                    {/* Abajo: las últimas chapas, si la cámara lee. */}
-                    {lecturas.length > 0 && grabacion == null && (
-                        <div className={cn("absolute bottom-0 inset-x-0 p-5 md:px-7 flex items-center gap-2 flex-wrap bg-gradient-to-t from-black/70 to-transparent transition-opacity duration-300", !visibles && "opacity-0")}>
-                            <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-white/60 mr-1">Últimas lecturas</span>
-                            {lecturas.slice(0, 6).map((l) => <ChapaChica key={l.id} l={l} />)}
-                        </div>
-                    )}
+                    {/* Las últimas lecturas con su captura: una pila a la derecha, sobre el video (ver PilaLecturas). */}
+                    {lecturas.length > 0 && grabacion == null && <PilaLecturas lecturas={lecturas} />}
 
                     {/* Mientras se busca en el registro cuándo llegó (suele ser menos de un segundo). */}
                     {buscandoLlegada && (
@@ -452,6 +508,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                     <TipVisor />
                     {/* Marcar el vehículo tocado: el mismo cajón de la Lista Amarilla del monitor LPR, con lo que ya se sabe escrito. */}
                     {sospechoso && <WatchlistDialog categoriaInicial="SEARCH" plateInicial={sospechoso.chapa} motivoInicial={sospechoso.motivo} onClose={() => setSospechoso(null)} />}
+                    {consulta && <MinInteriorDialog plate={consulta} open onOpenChange={(o) => { if (!o) setConsulta(null); }} />}
                 </motion.div>
             )}
         </AnimatePresence>
