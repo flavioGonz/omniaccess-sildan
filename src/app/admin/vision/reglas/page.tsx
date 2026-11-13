@@ -1047,7 +1047,19 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
     const [buscar, setBuscar] = useState("");
     /** Lo que no está en las tarjetas: cualquiera de las 80 clases que reconoce OmniVision. */
     const [extras, setExtras] = useState<string[]>([]);
-    useEffect(() => { if (abierto) { setPaso(1); setSujetos([]); setSituacion(null); setNoche(false); setElegidas([]); setBuscar(""); setExtras([]); } }, [abierto]);
+    /**
+     * Lo elegido pliega su sección (12/11, Nico, con el cajón abierto: «cuando tenemos seleccionado
+     * uno, debe ocultar el resto… para no tener tanto scroll down»). El paso 1 mostraba siempre las
+     * catorce pastillas de atajos, las tarjetas de «Qué», el desplegable y las diez de «Qué pasa»:
+     * dos pantallas de scroll para dos decisiones. Ahora cada sección, una vez contestada, queda en
+     * lo elegido y «Cambiar» la vuelve a abrir; los atajos y la explicación de arriba se van con la
+     * primera elección y vuelven con «Empezar de nuevo».
+     */
+    const [abreQue, setAbreQue] = useState(false);
+    const [abreSit, setAbreSit] = useState(false);
+    const [verNoAplican, setVerNoAplican] = useState(false);
+    const limpiar = () => { setSujetos([]); setSituacion(null); setNoche(false); setExtras([]); setAbreQue(false); setAbreSit(false); setVerNoAplican(false); };
+    useEffect(() => { if (abierto) { setPaso(1); limpiar(); setElegidas([]); setBuscar(""); } }, [abierto]);
 
     // Lo entrenado acá (detector propio): cada clase es un «qué» más, con su nombre.
     const propias = listaPropias();
@@ -1063,6 +1075,9 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
         if (sit && porQueNo(sit, [...g, ...extras.map(grupoDeExtra)])) setSituacion(null);
         return n;
     });
+    /** Tocar una tarjeta de «Qué» elige y pliega; para sumar otra está «Agregar otro». */
+    const elegirSujeto = (id: string) => { alternar(id); setAbreQue(false); };
+    const elegirSituacion = (id: string) => { setSituacion(id); setAbreSit(false); };
     const cambiarExtras = (v: string[]) => {
         setExtras(v);
         if (sit && porQueNo(sit, [...sujetos.map((x) => (sujetosTodos.find((s) => s.id === x)?.propio ? "objetos" : x)), ...v.map(grupoDeExtra)])) setSituacion(null);
@@ -1070,11 +1085,19 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
     const usarAtajo = (p: Plantilla) => {
         const ids = SUJETOS_BASE.filter((b) => b.clases.some((c) => p.aplicar.clases?.includes(c))).map((b) => b.id);
         setSujetos(ids); setExtras([]); setSituacion(SITUACIONES.find((s) => s.tipo === p.tipo)?.id || null); setNoche(!!p.aplicar.horario);
+        setAbreQue(false); setAbreSit(false);
     };
     const clases = [...new Set([...sujetos.flatMap((x) => sujetosTodos.find((s) => s.id === x)?.clases || []), ...extras])];
     // «De noche» es para armar una vigilancia; el horario de una fila (atención) se elige en el editor.
     const conHorario = !!sit && CON_HORARIO.includes(sit.tipo) && sit.tipo !== "fila";
     const listoPaso1 = !!sit && clases.length > 0;
+    const hayQue = sujetos.length + extras.length > 0;
+    const queAbierto = !hayQue || abreQue;
+    const sitAbierta = !sit || abreSit;
+    const algoElegido = hayQue || !!sit;
+    const situaciones = SITUACIONES.filter((s) => !TIPOS_RETIRADOS.includes(s.tipo));
+    /** Las que no van con lo elegido: se guardan detrás de un renglón, no ocupan media pantalla en gris. */
+    const noAplican = situaciones.filter((s) => porQueNo(s, grupos));
     const nombresSujetos = [...sujetos.map((x) => sujetosTodos.find((s) => s.id === x)?.nombre), ...extras.map(nombreClase)].filter(Boolean).join(", ");
     const resumen = sit ? `${sit.nombre}${clases.length ? ` · ${nombresSujetos}` : ""}${conHorario && noche ? " · de 22 a 6" : ""}` : null;
 
@@ -1112,7 +1135,7 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
     const tarjetaSujeto = (s: Sujeto) => {
         const on = sujetos.includes(s.id);
         return (
-            <button key={s.id} type="button" aria-pressed={on} onClick={() => alternar(s.id)}
+            <button key={s.id} type="button" aria-pressed={on} onClick={() => elegirSujeto(s.id)} title={on && !queAbierto ? "Tocá para quitarlo" : undefined}
                 className={cn("flex items-center gap-2.5 rounded-[10px] border px-2.5 py-2 text-left transition-colors",
                     on ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent/50")}>
                 <span className={cn("grid h-9 w-9 place-items-center rounded-[9px] shrink-0", on ? "bg-[var(--accion)] text-white" : "bg-muted text-muted-foreground")}><s.icono size={17} /></span>
@@ -1123,6 +1146,42 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
             </button>
         );
     };
+
+    /** Una clase suelta del desplegable, con la misma forma que las tarjetas: plegado, todo lo elegido se ve igual. */
+    const tarjetaExtra = (c: string) => (
+        <button key={`x:${c}`} type="button" aria-pressed onClick={() => cambiarExtras(extras.filter((x) => x !== c))} title="Tocá para quitarlo"
+            className="flex items-center gap-2.5 rounded-[10px] border px-2.5 py-2 text-left transition-colors border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]">
+            <span className="grid h-9 w-9 place-items-center rounded-[9px] shrink-0 bg-[var(--accion)] text-white"><Boxes size={17} /></span>
+            <span className="min-w-0">
+                <span className="block text-[12.5px] font-semibold truncate" title={nombreClase(c)}>{nombreClase(c)}</span>
+                <span className="block text-[10.5px] text-muted-foreground truncate">De las {CLASES_CATALOGO.length} que reconoce</span>
+            </span>
+        </button>
+    );
+    const tarjetaSituacion = (s: Situacion) => {
+        const no = porQueNo(s, grupos);
+        const on = situacion === s.id;
+        const apagada = !analiticas[s.tipo];
+        return (
+            <button key={s.id} type="button" disabled={!!no} aria-pressed={on} onClick={() => (on && !sitAbierta ? setAbreSit(true) : elegirSituacion(s.id))}
+                title={on && !sitAbierta ? "Tocá para cambiarla" : undefined}
+                className={cn("flex items-start gap-2.5 rounded-[10px] border px-3 py-2.5 text-left transition-colors",
+                    on ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent/50",
+                    no && "opacity-45 cursor-not-allowed hover:bg-transparent")}>
+                <s.icono size={16} className={cn("mt-0.5 shrink-0", on ? "text-[var(--accion)]" : "text-muted-foreground")} />
+                <span className="min-w-0">
+                    <span className="block text-[12.5px] font-semibold">{s.nombre}</span>
+                    <span className="block text-[11px] text-muted-foreground leading-snug">{no || s.detalle}</span>
+                    {!no && s.enCamara && <span className="block text-[10.5px] text-muted-foreground/80 mt-0.5 italic">{s.enCamara}</span>}
+                    {!no && apagada && <span className="block text-[10.5px] tono-aviso mt-0.5">Apagada en Analíticas: se crea, pero no corre hasta prenderla.</span>}
+                </span>
+            </button>
+        );
+    };
+    /** El enlace de la derecha de cada título: abre o cierra la sección. Texto, no botón: no es la acción de la pantalla. */
+    const enlace = (texto: string, alTocar: () => void) => (
+        <button type="button" onClick={alTocar} className="ml-auto text-[12px] font-semibold text-[var(--accion)] hover:underline">{texto}</button>
+    );
 
     return (
         <Cajon open={abierto} onOpenChange={(o) => { if (!o) alCerrar(); }}>
@@ -1149,79 +1208,96 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
                     </>
                 }>
                 {paso === 1 ? (
-                    <div className="px-6 py-5 space-y-6">
-                        <QuienLoHace />
+                    <div className={cn("px-6 py-5", algoElegido ? "space-y-5" : "space-y-6")}>
+                        {/* La explicación y los atajos son para arrancar: con algo elegido ya no hacen falta. */}
+                        {!algoElegido && <QuienLoHace />}
 
                         {/* Atajos: los casos de siempre, de un toque. */}
-                        <div>
-                            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Atajos</div>
-                            <div className="flex flex-wrap gap-1.5">
-                                {PLANTILLAS.filter((p) => !TIPOS_RETIRADOS.includes(p.tipo)).map((p) => {
-                                    const Ic = ICONO[p.tipo];
-                                    return (
-                                        <Pista key={p.id} titulo={p.nombre} texto={`${p.que} Ej.: ${p.ejemplo}`} ancho={280}>
-                                            <button type="button" onClick={() => usarAtajo(p)}
-                                                className="h-8 pl-2 pr-3 rounded-full border border-border text-[12px] font-semibold inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:border-[var(--accion)] transition-colors">
-                                                <Ic size={13} /> {p.nombre}
-                                            </button>
-                                        </Pista>
-                                    );
-                                })}
+                        {!algoElegido && (
+                            <div>
+                                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Atajos</div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {PLANTILLAS.filter((p) => !TIPOS_RETIRADOS.includes(p.tipo)).map((p) => {
+                                        const Ic = ICONO[p.tipo];
+                                        return (
+                                            <Pista key={p.id} titulo={p.nombre} texto={`${p.que} Ej.: ${p.ejemplo}`} ancho={280}>
+                                                <button type="button" onClick={() => usarAtajo(p)}
+                                                    className="h-8 pl-2 pr-3 rounded-full border border-border text-[12px] font-semibold inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:border-[var(--accion)] transition-colors">
+                                                    <Ic size={13} /> {p.nombre}
+                                                </button>
+                                            </Pista>
+                                        );
+                                    })}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
-                        {/* 1. Qué: lo que OmniVision reconoce de fábrica, y lo que se le enseñó acá. */}
+                        {/* 1. Qué: lo que OmniVision reconoce de fábrica, y lo que se le enseñó acá. Elegido, queda en lo elegido. */}
                         <div className="space-y-3">
                             <div className="flex items-baseline gap-2">
                                 <span className="text-[13px] font-bold">Qué</span>
-                                <span className="text-[11.5px] text-muted-foreground">uno o varios · lo reconoce OmniVision, no la cámara</span>
+                                {queAbierto && <span className="text-[11.5px] text-muted-foreground">uno o varios · lo reconoce OmniVision, no la cámara</span>}
+                                {hayQue && (queAbierto ? enlace("Listo", () => setAbreQue(false)) : enlace("Cambiar", () => setAbreQue(true)))}
                             </div>
-                            <div>
-                                <div className="text-[11px] text-muted-foreground mb-1.5">Lo que OmniVision reconoce de fábrica</div>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{SUJETOS_BASE.map(tarjetaSujeto)}</div>
-                            </div>
-                            <div>
-                                <div className="text-[11px] text-muted-foreground mb-1.5">Lo que se le enseñó acá (Entrenar)</div>
-                                {sujetosPropios.length
-                                    ? <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{sujetosPropios.map(tarjetaSujeto)}</div>
-                                    : <p className="text-[11px] text-muted-foreground">Lo que entrenes en OmniVision › Entrenar (un contenedor, un cono) aparece acá como un «qué» más.</p>}
-                            </div>
-                            <div>
-                                <div className="text-[11px] text-muted-foreground mb-1.5">Otra cosa de las {CLASES_CATALOGO.length} que reconoce</div>
-                                <ElegirClases valor={extras} alCambiar={cambiarExtras} propias={[]} vacio="Un gato, una valija, una pelota, un banco…" />
-                            </div>
+                            {queAbierto ? (
+                                <>
+                                    <div>
+                                        <div className="text-[11px] text-muted-foreground mb-1.5">Lo que OmniVision reconoce de fábrica</div>
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{SUJETOS_BASE.map(tarjetaSujeto)}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-[11px] text-muted-foreground mb-1.5">Lo que se le enseñó acá (Entrenar)</div>
+                                        {sujetosPropios.length
+                                            ? <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{sujetosPropios.map(tarjetaSujeto)}</div>
+                                            : <p className="text-[11px] text-muted-foreground">Lo que entrenes en OmniVision › Entrenar (un contenedor, un cono) aparece acá como un «qué» más.</p>}
+                                    </div>
+                                    <div>
+                                        <div className="text-[11px] text-muted-foreground mb-1.5">Otra cosa de las {CLASES_CATALOGO.length} que reconoce</div>
+                                        <ElegirClases valor={extras} alCambiar={cambiarExtras} propias={[]} vacio="Un gato, una valija, una pelota, un banco…" />
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                    {sujetosTodos.filter((x) => sujetos.includes(x.id)).map(tarjetaSujeto)}
+                                    {extras.map(tarjetaExtra)}
+                                    <button type="button" onClick={() => setAbreQue(true)}
+                                        className="flex items-center gap-2.5 rounded-[10px] border border-dashed border-border px-2.5 py-2 text-left text-muted-foreground hover:text-foreground hover:border-[var(--accion)] transition-colors">
+                                        <span className="grid h-9 w-9 place-items-center rounded-[9px] shrink-0 bg-muted"><Plus size={17} /></span>
+                                        <span className="min-w-0">
+                                            <span className="block text-[12.5px] font-semibold truncate">Agregar otro</span>
+                                            <span className="block text-[10.5px] truncate">Puede vigilar varios a la vez</span>
+                                        </span>
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         {/* 2. Qué pasa */}
                         <div>
                             <div className="flex items-baseline gap-2 mb-2">
                                 <span className="text-[13px] font-bold">Qué pasa</span>
-                                <span className="text-[11.5px] text-muted-foreground">lo que dispara la regla</span>
+                                {sitAbierta && <span className="text-[11.5px] text-muted-foreground">lo que dispara la regla</span>}
+                                {sit && (sitAbierta ? enlace("Listo", () => setAbreSit(false)) : enlace("Cambiar", () => setAbreSit(true)))}
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {SITUACIONES.filter((s) => !TIPOS_RETIRADOS.includes(s.tipo)).map((s) => {
-                                    const no = porQueNo(s, grupos);
-                                    const on = situacion === s.id;
-                                    const apagada = !analiticas[s.tipo];
-                                    return (
-                                        <button key={s.id} type="button" disabled={!!no} aria-pressed={on} onClick={() => setSituacion(s.id)}
-                                            className={cn("flex items-start gap-2.5 rounded-[10px] border px-3 py-2.5 text-left transition-colors",
-                                                on ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent/50",
-                                                no && "opacity-45 cursor-not-allowed hover:bg-transparent")}>
-                                            <s.icono size={16} className={cn("mt-0.5 shrink-0", on ? "text-[var(--accion)]" : "text-muted-foreground")} />
-                                            <span className="min-w-0">
-                                                <span className="block text-[12.5px] font-semibold">{s.nombre}</span>
-                                                <span className="block text-[11px] text-muted-foreground leading-snug">{no || s.detalle}</span>
-                                                {!no && s.enCamara && <span className="block text-[10.5px] text-muted-foreground/80 mt-0.5 italic">{s.enCamara}</span>}
-                                                {!no && apagada && <span className="block text-[10.5px] tono-aviso mt-0.5">Apagada en Analíticas: se crea, pero no corre hasta prenderla.</span>}
-                                            </span>
+                            {sitAbierta ? (
+                                <>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        {situaciones.filter((s) => verNoAplican || !noAplican.includes(s)).map(tarjetaSituacion)}
+                                    </div>
+                                    {noAplican.length > 0 && (
+                                        <button type="button" onClick={() => setVerNoAplican((v) => !v)} className="mt-2 text-[11.5px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+                                            <ChevronDown size={13} className={cn("transition-transform", verNoAplican && "rotate-180")} />
+                                            {verNoAplican ? "Ocultar las que no van con lo elegido" : `${noAplican.length === 1 ? "Hay 1 más que no va" : `Hay ${noAplican.length} más que no van`} con ${nombresSujetos.toLowerCase().replace(/, ([^,]*)$/, " y $1")}`}
                                         </button>
-                                    );
-                                })}
-                            </div>
-                            {/* La elegida, animada y explicada: se ve qué tiene que pasar antes de dibujar nada (21/10).
-                                Debajo de la grilla y no arriba: arriba corría las tarjetas justo al tocar una. */}
-                            {sit && <ComoFunciona key={sit.id} clave={sit.tipo as ClaveComportamiento} className="mt-3 rounded-[10px] border border-border p-3" />}
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <div className="grid grid-cols-1">{tarjetaSituacion(sit!)}</div>
+                                    {/* La elegida, animada y explicada: se ve qué tiene que pasar antes de dibujar nada (21/10). */}
+                                    <ComoFunciona key={sit!.id} clave={sit!.tipo as ClaveComportamiento} className="mt-3 rounded-[10px] border border-border p-3" />
+                                </>
+                            )}
                         </div>
 
                         {/* 3. Cuándo */}
@@ -1234,6 +1310,13 @@ function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCe
                                 </span>
                                 <Switch checked={noche} onCheckedChange={setNoche} />
                             </label>
+                        )}
+
+                        {/* Los atajos y la explicación se fueron con la primera elección: por acá vuelven. */}
+                        {algoElegido && (
+                            <p className="text-[11.5px] text-muted-foreground">
+                                ¿Preferías un atajo? <button type="button" onClick={limpiar} className="font-semibold text-[var(--accion)] hover:underline">Empezar de nuevo</button> los vuelve a mostrar.
+                            </p>
                         )}
                     </div>
                 ) : (
