@@ -120,7 +120,14 @@ export function segmentosAnillo(dir: string): { fp: string; fin: number }[] {
 /** De dónde puede salir video de esta cámara. */
 export async function fuenteDeVideo(deviceId: string, canal?: { nvrId?: string | null; ch?: number | null }): Promise<FuenteVideo> {
     const dev = await prisma.device.findUnique({ where: { id: deviceId }, select: { ip: true, name: true } }).catch(() => null);
-    if (!dev) return { tipo: null, motivo: "la cámara no existe" };
+    if (!dev) {
+        // Un canal del grabador sin equipo en Dispositivos (los hay en la pared de cámaras): alcanza con saber grabador y canal.
+        if (canal?.nvrId && canal.ch && canal.ch > 0) {
+            const conn = await resolveNvrById(canal.nvrId);
+            if (conn) return { tipo: "nvr", conn, ch: canal.ch, nvrId: canal.nvrId };
+        }
+        return { tipo: null, motivo: "la cámara no existe" };
+    }
     if (dev.ip) {
         const mapa = await getChannelMap();
         const e = mapa[dev.ip];

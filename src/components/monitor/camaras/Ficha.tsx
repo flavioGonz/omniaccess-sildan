@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert, Route } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert, Route, Circle, Square, Clapperboard, Download, Share2 } from "lucide-react";
 import { JoystickPtz } from "./Joystick";
 import { metaDe } from "@/components/intrusion/comun";
 import { horaCorta, hace } from "@/lib/monitor/cliente";
@@ -19,6 +19,7 @@ import { useFuncion } from "@/lib/funciones-cliente";
 import { claseDeBusqueda, motivoDesdeVivo, type ClaseBusqueda } from "@/lib/vivo-menu";
 import { IconoPolicia } from "@/components/IconoPolicia";
 import { MinInteriorDialog } from "@/components/MinInteriorDialog";
+import { CompartirEvento } from "@/components/visor/CompartirEvento";
 import { ANTES_DE, avisoDeLlegada, type Llegada } from "@/lib/vision-llegada";
 import { RotuloVisor } from "./RotuloVisor";
 import type { ObjetoAnalizado } from "@/lib/vision-capa";
@@ -72,6 +73,9 @@ function Icono({ children, onClick, titulo, activo, href }: { children: React.Re
     return <button type="button" onClick={onClick} {...tip(titulo)} aria-pressed={activo} className={cls}>{children}</button>;
 }
 
+/** «Grabar»: el tope es el de un clip que se manda a mano (lib/clips ENVIO_MAX_SEG); menos que el mínimo es un doble clic. */
+const REC_TOPE_MS = 60_000;
+const REC_MINIMO_MS = 2000;
 /** Cuántas lecturas entran en la pila: más tapan el video, que es lo que se vino a mirar. */
 const LECTURAS_EN_PILA = 4;
 const CLAVE_PILA = "oa.vivo.lecturas";
@@ -268,6 +272,46 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     const [ptz, setPtz] = useState(false);
     const [verPtz, setVerPtz] = useState(false);
     const idPtz = c ? idCanal(c) : null;
+    /*
+     * «Grabar» (13/11, Nico: «un botón Grabar: comenzar un fragmento de video de lo que está viendo…
+     * poder descargarlo o enviarlo por Telegram o WhatsApp como el resto de clips»). El botón marca
+     * el inicio y el fin; el clip se corta de la GRABACIÓN del grabador (api/clip/grabar), no del
+     * video que llega al navegador: es la imagen original y sale con el nombre, la calidad y la
+     * marca de los demás clips. Por eso hace falta que el canal grabe, y por eso al detener hay que
+     * esperar: el grabador entrega a tiempo real.
+     */
+    const [rec, setRec] = useState<number | null>(null);
+    const [recSeg, setRecSeg] = useState(0);
+    const [armando, setArmando] = useState(false);
+    const [clip, setClip] = useState<{ nombre: string; url: string; guardado: string | null; foto: string | null; segundos: number; desde: number } | null>(null);
+    const [errorClip, setErrorClip] = useState<string | null>(null);
+    const [compartiendo, setCompartiendo] = useState(false);
+    const puedeGrabar = !pantalla && hayGrabacion;
+    // Mientras se graba, se arma o se mira el clip, la ficha no se cierra sola.
+    const ocupadaRef = useRef(false); ocupadaRef.current = rec != null || armando || !!clip;
+    const canalRec = useRef({ deviceId: c?.equipoId || null, nvrId: c?.nvrId || null, ch: c?.ch ?? null }); canalRec.current = { deviceId: c?.equipoId || null, nvrId: c?.nvrId || null, ch: c?.ch ?? null };
+    const detener = useCallback(async (desde: number) => {
+        const hasta = Date.now();
+        setRec(null);
+        if (hasta - desde < REC_MINIMO_MS) { setErrorClip("Muy corto: mantené la grabación al menos un par de segundos."); return; }
+        setArmando(true); setErrorClip(null);
+        try {
+            const r = await fetch("/api/clip/grabar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...canalRec.current, desde, hasta }), signal: AbortSignal.timeout(170_000) });
+            const j = await r.json().catch(() => null);
+            if (!j?.ok) setErrorClip(`No se pudo armar el clip: ${j?.motivo || j?.error || `el servidor respondió ${r.status}`}.`);
+            else setClip({ nombre: j.nombre, url: j.url, guardado: j.guardado || null, foto: j.foto || null, segundos: Number(j.segundos) || Math.round((hasta - desde) / 1000), desde });
+        } catch { setErrorClip("No se pudo armar el clip: el servidor no contestó a tiempo."); }
+        setArmando(false);
+    }, []);
+    // El cronómetro, y el tope: pasado REC_TOPE_MS se detiene sola (más largo no se puede mandar).
+    useEffect(() => {
+        if (rec == null) { setRecSeg(0); return; }
+        const t = setInterval(() => { const ms = Date.now() - rec; setRecSeg(Math.floor(ms / 1000)); if (ms >= REC_TOPE_MS) void detener(rec); }, 250);
+        return () => clearInterval(t);
+    }, [rec, detener]);
+    // Otro canal: lo que se estaba grabando o mostrando era del anterior.
+    useEffect(() => { setRec(null); setClip(null); setErrorClip(null); setCompartiendo(false); }, [c?.clave]);
+    useEffect(() => { if (!errorClip) return; const t = setTimeout(() => setErrorClip(null), 9000); return () => clearTimeout(t); }, [errorClip]);
     useEffect(() => {
         setPtz(false); setVerPtz(false);
         if (!idPtz || pantalla) return;
@@ -291,13 +335,13 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
         setVisibles(true); setConPuntero(true);
         const quieto = () => { setVisibles(false); setConPuntero(false); };
         let apagar = setTimeout(quieto, OCULTAR_MS);
-        let cerrar = setTimeout(() => { if (!grabacionRef.current) alCerrarRef.current(); }, CIERRA_SOLA_MS);
+        let cerrar = setTimeout(() => { if (!grabacionRef.current && !ocupadaRef.current) alCerrarRef.current(); }, CIERRA_SOLA_MS);
         /** Hubo actividad: se posterga el apagado y el cierre solo. `mostrar`: además trae los controles. */
         const actividad = (mostrar: boolean) => {
             if (mostrar) setVisibles(true);
             setConPuntero(true); clearTimeout(apagar); clearTimeout(cerrar);
             apagar = setTimeout(quieto, OCULTAR_MS);
-            cerrar = setTimeout(() => { if (!grabacionRef.current) alCerrarRef.current(); }, CIERRA_SOLA_MS);
+            cerrar = setTimeout(() => { if (!grabacionRef.current && !ocupadaRef.current) alCerrarRef.current(); }, CIERRA_SOLA_MS);
         };
         // Mover el mouse trae los controles sólo en la grabación; en el vivo, el clic o una tecla.
         const mover = () => actividad(grabacionRef.current);
@@ -464,6 +508,12 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                     <Icono onClick={() => setVerPtz((x) => !x)} activo={verPtz} titulo={verPtz ? "Ocultar el joystick" : "Mover la cámara (PTZ)"}><Joystick size={18} /></Icono>
                                 )}
                                 {c.geom && <Icono onClick={() => setVerGeom((x) => !x)} activo={verGeom} titulo={verGeom ? "Ocultar la línea y la zona" : "Mostrar la línea y la zona de la cámara"}><Spline size={18} /></Icono>}
+                                {puedeGrabar && grabacion == null && (
+                                    <Icono onClick={() => (rec != null ? void detener(rec) : (setClip(null), setErrorClip(null), setRec(Date.now())))} activo={rec != null}
+                                        titulo={rec != null ? "Detener y armar el clip" : armando ? "Armando el clip anterior…" : `Grabar un clip de lo que se ve (hasta ${REC_TOPE_MS / 1000} s)`}>
+                                        {rec != null ? <Square size={15} fill="currentColor" /> : <Circle size={17} className="text-[var(--mal)]" fill="currentColor" />}
+                                    </Icono>
+                                )}
                                 {c.nvrId && c.ch != null && (
                                     <Icono onClick={() => setGrabacionDesde((g) => (g != null ? null : alerta ? +new Date(alerta.ts) - GRABACION_ANTES_ALERTA_MS : Date.now() - GRABACION_ANTES_MS))}
                                         activo={grabacion != null} titulo={grabacion != null ? "Volver al vivo  ( Esc )" : "Ver la grabación sobre este mismo cuadro"}><History size={18} /></Icono>
@@ -506,6 +556,44 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                     {/* Las últimas lecturas con su captura: una pila a la derecha, sobre el video (ver PilaLecturas). */}
                     {lecturas.length > 0 && grabacion == null && <PilaLecturas lecturas={lecturas} />}
 
+                    {/* Grabando: el punto rojo y el cronómetro, siempre a la vista (no se van con los controles), y detener de un toque. */}
+                    {rec != null && (
+                        <button type="button" data-capa-tocable onClick={() => void detener(rec)} {...tip("Detener y armar el clip")}
+                            className="absolute left-4 sm:left-7 bottom-5 sm:bottom-7 z-10 inline-flex items-center gap-2.5 h-11 pl-3.5 pr-4 rounded-full visor-panel text-white">
+                            <span className="h-2.5 w-2.5 rounded-full bg-[var(--mal)] animate-pulse" />
+                            <span className="text-[13px] font-bold tracking-[0.08em]">REC</span>
+                            <span className="text-[14px] font-semibold tabular-nums">{String(Math.floor(recSeg / 60)).padStart(2, "0")}:{String(recSeg % 60).padStart(2, "0")}</span>
+                            <span className="text-[11.5px] text-white/60 tabular-nums">/ {String(Math.floor(REC_TOPE_MS / 60_000)).padStart(2, "0")}:{String((REC_TOPE_MS / 1000) % 60).padStart(2, "0")}</span>
+                            <Square size={13} fill="currentColor" className="ml-1" />
+                        </button>
+                    )}
+                    {armando && (
+                        <div className="absolute inset-0 z-10 grid place-items-center pointer-events-none">
+                            <RotuloVisor Icono={Clapperboard} texto="Armando el clip desde la grabación" esperando nota="El grabador lo entrega a tiempo real: tarda lo que dura el clip" />
+                        </div>
+                    )}
+                    {errorClip && (
+                        <div data-capa-tocable className="absolute left-4 sm:left-7 bottom-5 sm:bottom-7 z-10 max-w-[420px] rounded-[10px] visor-panel text-white px-3.5 py-2.5 text-[13px]" role="alert">{errorClip}</div>
+                    )}
+                    {/* El clip listo: mirarlo, bajarlo o mandarlo. Queda hasta que se cierra. */}
+                    {clip && !compartiendo && (
+                        <div data-capa-tocable className="absolute left-4 sm:left-7 bottom-5 sm:bottom-7 z-10 w-[320px] max-w-[86vw] rounded-[14px] visor-panel text-white overflow-hidden">
+                            <video src={clip.url} controls muted playsInline preload="metadata" poster={getImagePath(clip.foto) || undefined} className="block w-full aspect-video bg-black" />
+                            <div className="px-3 pt-2 pb-2.5">
+                                <div className="text-[13px] font-semibold">Clip de {clip.segundos} s · {horaCorta(new Date(clip.desde).toISOString())}</div>
+                                <div className="text-[11.5px] text-white/65">{clip.guardado ? "Guardado en el almacén." : "No se pudo guardar en el almacén: bajalo ahora, en unos minutos se borra."}</div>
+                                <div className="mt-2 flex items-center gap-1.5">
+                                    <a href={getImagePath(clip.guardado) || clip.url} download={clip.nombre} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-white text-black text-[12.5px] font-semibold"><Download size={14} /> Descargar</a>
+                                    <button type="button" onClick={() => setCompartiendo(true)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-white/15 hover:bg-white/25 text-[12.5px] font-semibold"><Share2 size={14} /> Enviar</button>
+                                    <button type="button" onClick={() => setClip(null)} {...tip("Cerrar")} className="ml-auto h-9 w-9 grid place-items-center rounded-full hover:bg-white/15"><X size={16} /></button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {clip && compartiendo && (
+                        <CompartirEvento clipHecho={clip.nombre} foto={clip.foto} deviceId={c.equipoId} deviceName={c.nombre} instante={new Date(clip.desde)}
+                            titulo={`Clip de ${c.nombre}`} lineas={[`Grabado desde el vivo · ${clip.segundos} s`]} onCerrar={() => setCompartiendo(false)} />
+                    )}
                     {/* Mientras se busca en el registro cuándo llegó (suele ser menos de un segundo). */}
                     {buscandoLlegada && (
                         <div className="absolute inset-0 z-10 grid place-items-center pointer-events-none">

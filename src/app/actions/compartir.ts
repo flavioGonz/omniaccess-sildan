@@ -132,6 +132,11 @@ export async function compartirEvento(p: {
     titulo: string;
     lineas: string[];
     nota?: string | null;
+    /**
+     * Un clip YA hecho (el botón «Grabar» del vivo, api/clip/grabar): su nombre en la carpeta de
+     * clips. El worker manda ese en vez de cortar uno alrededor del instante.
+     */
+    clipHecho?: string | null;
 }): Promise<ResultadoCompartir> {
     let s: any;
     try { s = await exigir(); } catch (e: any) { return { ok: false, error: e.message }; }
@@ -162,6 +167,8 @@ export async function compartirEvento(p: {
     const instante = new Date(p.instante);
     if (isNaN(+instante)) return { ok: false, error: "Falta el instante del evento." };
     const enviadoPor = s?.name || s?.sub || "—";
+    // Sólo un nombre de archivo de la carpeta de clips: nada de rutas.
+    const clipHecho = typeof p.clipHecho === "string" && /^[\w.\-]{1,200}\.mp4$/.test(p.clipHecho) ? p.clipHecho : null;
     const nota = String(p.nota || "").trim().slice(0, NOTA_MAX);
     const cuerpo = [String(p.titulo || "Evento").trim(), ...(p.lineas || []).map((l) => String(l).trim()).filter(Boolean), nota ? `\n${nota}` : null, `Compartido por ${enviadoPor}`]
         .filter(Boolean).join("\n").slice(0, TEXTO_MAX);
@@ -175,6 +182,7 @@ export async function compartirEvento(p: {
                 evento: "compartido", ruleName: "Compartido desde el panel", asunto: p.titulo,
                 deviceName: p.deviceName || null, snapshotPath: foto, instante: instante.toISOString(),
                 text: texto, enviadoPor,
+                ...(clipHecho ? { clipHecho } : {}),
                 ...(d ? { to: d, chatId: d } : {}),
             },
         });

@@ -437,7 +437,14 @@ async function handle(job) {
             let clip = null;
             let notaVideo = null;
             // Sin cámara (una prueba de canal, un aviso de sistema) no hay video que pedir ni nada que anotar.
-            if (animated && dj.deviceId && (dj.channel === "whatsapp" || dj.channel === "telegram")) {
+            // Un clip ya grabado por el operador (boton «Grabar» del vivo, api/clip/grabar): se manda
+            // ESE, este o no prendido el video de las alertas. Solo un nombre de archivo de la carpeta
+            // de clips. Si ya vencio (se guardan unos minutos) se dice, y sale con la foto.
+            const hecho = typeof p.clipHecho === "string" && /^[\w.\-]{1,200}\.mp4$/.test(p.clipHecho) ? p.clipHecho : null;
+            if (hecho && (dj.channel === "whatsapp" || dj.channel === "telegram")) {
+                if (fs.existsSync(path.join(DIR_CLIPS, hecho))) clip = { ok: true, nombre: hecho, fuente: "grabado" };
+                else notaVideo = "sin video: el clip grabado ya no esta (se guardan unos minutos para el envio)";
+            } else if (animated && dj.deviceId && (dj.channel === "whatsapp" || dj.channel === "telegram")) {
                 {
                     const inst = Date.parse(p.instante || p.timestamp || "") || Number(p.alertTs) || new Date(dj.createdAt).getTime();
                     const r = await pedirClip(dj.deviceId, inst);

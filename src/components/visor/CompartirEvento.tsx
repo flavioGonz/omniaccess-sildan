@@ -35,7 +35,9 @@ function IconoTelegram({ size = 15 }: { size?: number }) {
  * tapaba la ficha y la foto; el cajón deja ver el evento al costado y sigue el tema. Quien lo usa
  * lo monta ADENTRO de la ventana (va con `absolute`, como DescargaClip).
  */
-export function CompartirEvento({ foto, deviceId, deviceName, instante, titulo, lineas, onCerrar }: {
+export function CompartirEvento({ foto, deviceId, deviceName, instante, titulo, lineas, onCerrar, clipHecho = null }: {
+    /** Un clip ya grabado (el botón «Grabar» del vivo): se manda ESE, no uno cortado alrededor del instante. */
+    clipHecho?: string | null;
     foto: string | null;
     deviceId: string | null;
     deviceName: string | null;
@@ -106,7 +108,7 @@ export function CompartirEvento({ foto, deviceId, deviceName, instante, titulo, 
         setEnviando(true); setError(null);
         const r = await compartirEvento({
             canal, destinos: [...elegidos], foto, deviceId, deviceName,
-            instante: new Date(instante).toISOString(), titulo, lineas, nota,
+            instante: new Date(instante).toISOString(), titulo, lineas, nota, clipHecho,
         }).catch((e) => ({ ok: false as const, error: String(e?.message || e) }));
         setEnviando(false);
         if (!r.ok) { setError(r.error); return; }
