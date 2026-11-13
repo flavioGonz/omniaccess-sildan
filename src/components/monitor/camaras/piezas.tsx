@@ -87,13 +87,35 @@ export const idCanal = (c: Pick<Canal, "equipoId" | "nvrId" | "ch">) => c.equipo
  *    final: un vivo atrasado medio minuto no es un vivo.
  *  · REINTENTO_*: la espera entre reconexiones crece hasta un tope, para no golpear a un
  *    grabador caído, y vuelve al mínimo cuando el video arranca.
+ *
+ * 13/11 (Nico: «cada poco tiempo tengo estos pantallazos negros»). Reconectar vaciaba el <video>
+ * en el acto, y hasta que la conexión nueva traía su primer cuadro —un segundo y medio de espera
+ * más lo que tarda en abrir la alta calidad de un grabador— la pantalla quedaba en negro, con las
+ * siluetas dibujadas encima de nada. Ahora, antes de soltar la conexión, se guarda el último
+ * cuadro en un <canvas> que queda a la vista hasta que el video nuevo tiene imagen, con un aviso
+ * si tarda (un cuadro quieto que parece vivo sería peor que el negro). Y el primer reintento después
+ * de haber tenido imagen sale enseguida (REINTENTO_PRIMERO_MS). Cada corte queda anotado con su
+ * motivo en la consola y en `window.__vivoCortes`, para poder decir por qué se cortó.
  */
 const VIGIA_MS = 2000;
 const QUIETO_MS = 8000;
 const ATRASO_MAX_S = 6;
 const REINTENTO_MIN_MS = 1500;
 const REINTENTO_MAX_MS = 30_000;
+const REINTENTO_PRIMERO_MS = 400;
+/** Cuánto se muestra el cuadro guardado sin decir nada: un corte más corto que esto no se nota. */
+const AVISO_CONGELADO_MS = 1500;
 let serieVivo = 0;
+/** Los últimos cortes de los vivos de esta pestaña: cuándo, de qué stream y por qué. */
+function anotarCorte(src: string, motivo: string) {
+    try {
+        const stream = /[?&]src=([^&]+)/.exec(src)?.[1] || src;
+        const w = window as unknown as { __vivoCortes?: { t: string; stream: string; motivo: string }[] };
+        (w.__vivoCortes ||= []).push({ t: new Date().toISOString(), stream: decodeURIComponent(stream), motivo });
+        if (w.__vivoCortes.length > 100) w.__vivoCortes.shift();
+        console.info(`[vivo] ${decodeURIComponent(stream)}: se reconecta (${motivo})`);
+    } catch { /* anotar no puede romper el video */ }
+}
 
 /**
  * Un <video> de go2rtc que avisa si arrancó o no, se reconecta solo si se corta y suelta la
@@ -108,6 +130,9 @@ export function Vivo({ src, alResultado, className, alMedir }: { src: string; al
     /** El tamaño real del video, cuando se sabe: lo usan las siluetas para caer donde van. */
     alMedir?: (ancho: number, alto: number) => void }) {
     const ref = useRef<HTMLVideoElement>(null);
+    /** El último cuadro, mientras se reconecta, y el aviso de que eso no es el vivo. */
+    const lienzo = useRef<HTMLCanvasElement>(null);
+    const aviso = useRef<HTMLSpanElement>(null);
     const avisar = useRef(alResultado); avisar.current = alResultado;
     const medir = useRef(alMedir); medir.current = alMedir;
     useEffect(() => {
@@ -117,6 +142,23 @@ export function Vivo({ src, alResultado, className, alMedir }: { src: string; al
         const hls = src.includes(".m3u8");
         let avisado = false, vivo = true, intento = 0, espera = REINTENTO_MIN_MS, conImagen = false;
         let ultimoT = -1, ultimoFin = -1, ultimoAvance = Date.now(), reintento: ReturnType<typeof setTimeout> | null = null;
+        let avisoT: ReturnType<typeof setTimeout> | null = null;
+        const descongelar = () => {
+            if (avisoT) { clearTimeout(avisoT); avisoT = null; }
+            if (lienzo.current) lienzo.current.style.display = "none";
+            if (aviso.current) aviso.current.style.display = "none";
+        };
+        /** Guarda en el lienzo lo que el video está mostrando ahora, y lo deja a la vista. */
+        const congelar = () => {
+            const c = lienzo.current;
+            if (!c || !v.videoWidth || c.style.display === "block") return;
+            try {
+                c.width = v.videoWidth; c.height = v.videoHeight;
+                c.getContext("2d")?.drawImage(v, 0, 0, c.width, c.height);
+                c.style.display = "block";
+                avisoT = setTimeout(() => { if (aviso.current) aviso.current.style.display = "inline-flex"; }, AVISO_CONGELADO_MS);
+            } catch { /* sin cuadro guardado se ve el negro de antes */ }
+        };
 
         const conectar = () => {
             if (!vivo) return;
@@ -126,20 +168,25 @@ export function Vivo({ src, alResultado, className, alMedir }: { src: string; al
             v.play().catch(() => { });
         };
         /** Se cortó o no avanza: soltar la conexión vieja y abrir otra, esperando cada vez un poco más. */
-        const reconectar = () => {
+        const reconectar = (motivo: string) => {
             if (!vivo || reintento) return;
+            anotarCorte(src, motivo);
+            const teniaImagen = conImagen;
+            if (teniaImagen) congelar();
             try { v.pause(); v.removeAttribute("src"); v.load(); } catch { }
-            reintento = setTimeout(conectar, espera);
-            espera = Math.min(REINTENTO_MAX_MS, espera * 2);
+            // Venía andando: el primer reintento sale enseguida. Si ese también falla, ya se espera cada vez más.
+            reintento = setTimeout(conectar, teniaImagen ? REINTENTO_PRIMERO_MS : espera);
+            if (!teniaImagen) espera = Math.min(REINTENTO_MAX_MS, espera * 2);
         };
         const ok = () => {
             if (v.videoWidth) medir.current?.(v.videoWidth, v.videoHeight);
             espera = REINTENTO_MIN_MS; ultimoAvance = Date.now(); conImagen = true;
+            descongelar();
             if (!avisado) { avisado = true; avisar.current?.(true); }
         };
         // Al padre se le avisa UNA vez (decide el modo de la baldosa con eso); reconectar, se sigue siempre.
         const mal = () => { if (!avisado) { avisado = true; avisar.current?.(false); } };
-        const corte = () => { mal(); reconectar(); };
+        const corte = (e: Event) => { mal(); reconectar(e.type === "ended" ? "el stream terminó" : `error del video${v.error?.code ? ` ${v.error.code}` : ""}`); };
         const to = setTimeout(mal, VIVO_ESPERA_MS);
 
         const vigia = setInterval(() => {
@@ -149,7 +196,7 @@ export function Vivo({ src, alResultado, className, alMedir }: { src: string; al
             let fin = -1;
             try { const b = v.buffered; if (b.length) fin = b.end(b.length - 1); } catch { }
             // El reloj volvió para atrás sin que nadie lo pidiera: está repitiendo lo viejo.
-            if (conImagen && ultimoT > 1 && t < ultimoT - 1) { reconectar(); return; }
+            if (conImagen && ultimoT > 1 && t < ultimoT - 1) { reconectar("el reloj volvió para atrás"); return; }
             // HLS baja por segmentos de varios segundos: para él alcanza con que el reloj camine.
             const llegoVideo = hls ? t !== ultimoT : fin > ultimoFin + 0.05;
             ultimoT = t;
@@ -161,7 +208,7 @@ export function Vivo({ src, alResultado, className, alMedir }: { src: string; al
             }
             // Antes del primer cuadro se espera lo mismo que para darlo por fallido: la alta calidad
             // de un grabador tarda varios segundos en abrir, y cortarla a los 8 era no dejarla abrir nunca.
-            if (Date.now() - ultimoAvance > (conImagen ? QUIETO_MS : VIVO_ESPERA_MS + VIGIA_MS)) reconectar();
+            if (Date.now() - ultimoAvance > (conImagen ? QUIETO_MS : VIVO_ESPERA_MS + VIGIA_MS)) reconectar(conImagen ? `sin video nuevo en ${QUIETO_MS / 1000} s` : "no llegó a abrir");
         }, VIGIA_MS);
         // Al volver a la pestaña, el reloj de «quieto» empieza de nuevo: se le da tiempo a retomar.
         const visible = () => { ultimoAvance = Date.now(); if (!document.hidden && v.paused && !reintento) v.play().catch(() => { }); };
@@ -172,13 +219,23 @@ export function Vivo({ src, alResultado, className, alMedir }: { src: string; al
         return () => {
             vivo = false;
             clearTimeout(to); clearInterval(vigia); if (reintento) clearTimeout(reintento);
+            descongelar();
             v.removeEventListener("loadeddata", ok); v.removeEventListener("error", corte); v.removeEventListener("ended", corte);
             document.removeEventListener("visibilitychange", visible);
             // Sin esto el navegador mantiene la descarga abierta y go2rtc sigue sirviendo el canal.
             try { v.pause(); v.removeAttribute("src"); v.load(); } catch { }
         };
     }, [src]);
-    return <video ref={ref} muted playsInline autoPlay disablePictureInPicture className={className} />;
+    return (
+        <>
+            <video ref={ref} muted playsInline autoPlay disablePictureInPicture className={className} />
+            {/* El último cuadro mientras se reconecta: mismo lugar y mismo ajuste que el video. */}
+            <canvas ref={lienzo} className={className} style={{ display: "none" }} aria-hidden />
+            <span ref={aviso} style={{ display: "none" }} className="absolute left-1/2 -translate-x-1/2 bottom-[14%] z-[1] items-center gap-1.5 h-7 px-2.5 rounded-full bg-black/65 text-white/90 text-[11.5px] font-semibold whitespace-nowrap pointer-events-none">
+                <Loader2 size={12} className="animate-spin" /> Reconectando el video…
+            </span>
+        </>
+    );
 }
 
 /** Foto que se renueva sola. La nueva sólo reemplaza a la vieja cuando terminó de bajar. */

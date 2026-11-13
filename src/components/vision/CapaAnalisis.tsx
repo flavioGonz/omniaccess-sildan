@@ -26,6 +26,28 @@ const SOLTAR_SIN_VER_MS = 4000;
  */
 const FOCO_MS = 8000;
 const FOCO_OSCURO = 0.62;
+/**
+ * Fluidez (13/11, Nico: «necesitamos afinar más los movimientos de los puntos y los datos; más
+ * fluidez en el seguimiento»). El análisis llega unas 9 veces por segundo y cada vez se dibujaba
+ * todo de cero: las siluetas saltaban de un lugar al otro, el punto del rótulo bailaba sobre el
+ * techo del auto (se ancla al punto más alto de la silueta, que cambia de cuadro a cuadro) y el
+ * rótulo cambiaba de lado o de renglón cada vez que otro se le acercaba.
+ *
+ * Tres cosas, sólo en el vivo:
+ *  · Cada objeto conserva su identidad entre cuadros (el que más se superpone con el de antes):
+ *    con eso su silueta y su rótulo son el MISMO elemento que se mueve, y no uno nuevo.
+ *  · Ese movimiento se desliza en DESLIZ_MS en vez de saltar. La silueta toma su forma nueva y
+ *    viaja de la caja vieja a la nueva; el rótulo viaja con su punto.
+ *  · El punto se suaviza (ANCLA_SUAVE) y el rótulo se queda donde estaba mientras entre y no pise
+ *    a otro (PISA_TOLERADA): sólo se muda cuando hace falta.
+ */
+const DESLIZ_MS = 150;
+const ANCLA_SUAVE = 0.45;
+/** Cuánto de su propia superficie puede pisar un rótulo a otros antes de mudarse de lugar. */
+const PISA_TOLERADA = 0.12;
+/** Sin verse este tiempo, la identidad de un objeto se olvida. */
+const PISTA_OLVIDO_MS = 1500;
+type Pista = { id: number; grupo: string; caja: Caja; ancla: [number, number] | null; lugar: { dir: number; dy: number } | null; visto: number };
 type Caja = number[];
 function iou(a: Caja, b: Caja): number {
     const w = Math.min(a[2], b[2]) - Math.max(a[0], b[0]), h = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
@@ -93,6 +115,26 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
     const { ancho: W, alto: H, objetos } = analisis;
     const { tocan } = useMemo(() => veredicto(analisis, geom || null), [analisis, geom]);
     const bandas = useMemo(() => (geom?.linea.length ? bandasLinea(geom.linea, W, H) : []), [geom, W, H]);
+    // La identidad de cada objeto entre un cuadro y el siguiente (ver DESLIZ_MS). Fuera del vivo, su posición en la lista.
+    const pistas = useRef<Pista[]>([]);
+    const serie = useRef(0);
+    const ids = useMemo(() => {
+        if (!interactiva) return objetos.map((_, i) => i);
+        const ahora = Date.now(), ps = pistas.current, out: number[] = new Array(objetos.length).fill(-1), usadas = new Set<number>();
+        // De la pareja que más se superpone a la que menos: cada objeto y cada pista, una sola vez.
+        const pares: [number, number, number][] = [];
+        objetos.forEach((o, i) => ps.forEach((q, j) => { if (q.grupo !== o.grupo) return; const v = iou(o.caja, q.caja); if (v >= MISMO_OBJETO_IOU) pares.push([v, i, j]); }));
+        pares.sort((a, b) => b[0] - a[0]);
+        for (const [, i, j] of pares) { if (out[i] !== -1 || usadas.has(j)) continue; out[i] = ps[j].id; usadas.add(j); ps[j].caja = objetos[i].caja; ps[j].visto = ahora; }
+        objetos.forEach((o, i) => { if (out[i] === -1) { const id = ++serie.current; ps.push({ id, grupo: o.grupo, caja: o.caja, ancla: null, lugar: null, visto: ahora }); out[i] = id; } });
+        pistas.current = ps.filter((q) => ahora - q.visto < PISTA_OLVIDO_MS);
+        return out;
+    }, [objetos, interactiva]);
+    // Siempre en el mismo orden (el más viejo primero): mover un elemento de lugar en el documento le corta el deslizamiento.
+    const orden = useMemo(() => objetos.map((_, i) => i).sort((a, b) => ids[a] - ids[b]), [objetos, ids]);
+    const pistaDe = (id: number) => (interactiva ? pistas.current.find((q) => q.id === id) || null : null);
+    const desliz = (transform: string): React.CSSProperties | undefined => (interactiva ? { transform, transformOrigin: "0 0", transition: `transform ${DESLIZ_MS}ms linear` } : undefined);
+
     // El objeto tocado: su caja (se va corriendo con él) y la última vez que se lo vio.
     const [elegido, setElegido] = useState<Caja | null>(null);
     const visto = useRef(0);
@@ -190,18 +232,29 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
             )}
 
             {/* Las siluetas: relleno en degradé y borde con brillo, del color de su grupo. */}
-            {objetos.map((o, i) => {
+            {orden.map((i) => {
+                const o = objetos[i];
                 const k = COLOR_GRUPO[o.grupo] ? o.grupo : "otro";
                 const c = COLOR_GRUPO[o.grupo] || COLOR_OTRO;
                 const sel = i === iSel;
                 // Con uno en foco, los demás no se dibujan; y el del foco va sin relleno: se lo quiere VER.
                 if (foco && !sel) return null;
+                /*
+                 * En el vivo la silueta se desliza de su caja anterior a la nueva: el grupo de afuera
+                 * lleva la caja como transformación (y eso es lo que el navegador anima), y el de
+                 * adentro la deshace, así los puntos se siguen escribiendo en las coordenadas de la
+                 * imagen. Quieta, las dos se anulan; en movimiento, se ve la forma nueva viajando.
+                 */
+                const bx = o.caja[0] * W, by = o.caja[1] * H, bw = Math.max(1, (o.caja[2] - o.caja[0]) * W), bh = Math.max(1, (o.caja[3] - o.caja[1]) * H);
                 return (
-                    <g key={i} onClick={interactiva ? () => tocar(i) : undefined} style={interactiva ? { pointerEvents: "all", cursor: "pointer" } : undefined}>
-                        {poligonos(o).map((p, j) => (
-                            <polygon key={j} points={pts(p, W, H)} fill={sel ? "transparent" : `url(#rel-${k}-${uid})`} stroke={c} strokeWidth={sel ? 3 : 2} vectorEffect="non-scaling-stroke"
-                                strokeLinejoin="round" filter={`url(#brillo-${uid})`} />
-                        ))}
+                    <g key={ids[i]} style={desliz(`translate(${bx.toFixed(1)}px, ${by.toFixed(1)}px) scale(${bw.toFixed(2)}, ${bh.toFixed(2)})`)}>
+                        <g transform={interactiva ? `scale(${1 / bw} ${1 / bh}) translate(${-bx.toFixed(1)} ${-by.toFixed(1)})` : undefined}
+                            onClick={interactiva ? () => tocar(i) : undefined} style={interactiva ? { pointerEvents: "all", cursor: "pointer" } : undefined}>
+                            {poligonos(o).map((p, j) => (
+                                <polygon key={j} points={pts(p, W, H)} fill={sel ? "transparent" : `url(#rel-${k}-${uid})`} stroke={c} strokeWidth={sel ? 3 : 2} vectorEffect="non-scaling-stroke"
+                                    strokeLinejoin="round" filter={`url(#brillo-${uid})`} />
+                            ))}
+                        </g>
                     </g>
                 );
             })}
@@ -247,7 +300,9 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 y la confianza en versalitas. Antes era una pastilla oscura encima de la caja: tapaba
                 la foto y se leía como un rótulo de sistema, no como lo que vio el análisis.
                 Medidas en píxeles de la IMAGEN (f = cuerpo del título), así escalan con la foto. */}
-            {etiquetas && (() => { const puestos: [number, number, number, number][] = []; return objetos.map((o, i) => {
+            {etiquetas && (() => { const puestos: [number, number, number, number][] = []; return orden.map((i) => {
+                const o = objetos[i];
+                const pista = pistaDe(ids[i]);
                 // Con uno en foco, sólo su rótulo.
                 if (foco && i !== iSel) return null;
                 const c = tocan[i] && !foco ? COLOR_TOCA : COLOR_GRUPO[o.grupo] || COLOR_OTRO;
@@ -277,8 +332,23 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const todos = poligonos(o).flat();
                 const minY = Math.min(...todos.map((q) => q[1]));
                 const cx = (x1 + x2) / 2;
-                const arriba = todos.filter((q) => q[1] <= minY + (y2 - y1) * 0.03).sort((a, b) => Math.abs(a[0] - cx) - Math.abs(b[0] - cx))[0] || [cx, y1];
-                const ax = arriba[0] * W, ay = arriba[1] * H;
+                /*
+                 * En el vivo, el punto va al medio del objeto, sobre su borde de arriba. «El más alto»
+                 * en un techo plano son muchos puntos casi iguales y cada cuadro ganaba otro: el punto
+                 * saltaba de una punta a la otra del auto (medido: pasos de 11 a 31 px por cuadro de
+                 * pantalla con el objeto quieto). El medio de la caja casi no se mueve.
+                 */
+                const enMedio = interactiva ? todos.filter((q) => Math.abs(q[0] - cx) <= (x2 - x1) * 0.18) : [];
+                // (Una silueta sin puntos en el medio —un recuadro— usa su borde de arriba.)
+                const arriba = interactiva ? [cx, enMedio.length ? Math.min(...enMedio.map((q) => q[1])) : minY]
+                    : todos.filter((q) => q[1] <= minY + (y2 - y1) * 0.03).sort((a, b) => Math.abs(a[0] - cx) - Math.abs(b[0] - cx))[0] || [cx, y1];
+                // En el vivo el punto no salta al nuevo «más alto»: se le acerca. Si el objeto se fue lejos, sí.
+                let ax = arriba[0] * W, ay = arriba[1] * H;
+                if (pista) {
+                    const a = pista.ancla;
+                    if (a && Math.hypot(ax - a[0], ay - a[1]) < lado * 0.12) { ax = a[0] + (ax - a[0]) * ANCLA_SUAVE; ay = a[1] + (ay - a[1]) * ANCLA_SUAVE; }
+                    pista.ancla = [ax, ay];
+                }
                 const diag = f * 2.4, margen = f * 0.3;
                 /*
                  * Dónde va el rótulo: hacia el lado con lugar, arriba del ancla, y si pisa a otro se
@@ -302,7 +372,16 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const lados = [preferido, -preferido].filter(entra);
                 if (!lados.length) lados.push(preferido);
                 let mejor = { dir: lados[0], ey: y0, pisa: Infinity };
-                buscar: for (const d of lados) {
+                // Donde estaba, si todavía entra en la foto y casi no pisa a nadie: un rótulo que se muda en cada cuadro no se puede leer.
+                const antes = pista?.lugar;
+                if (antes) {
+                    const y = ay + antes.dy, b = caja(antes.dir, y);
+                    if (y >= yMin - 0.01 && y <= yMax + 0.01 && b[0] >= margen && b[0] + b[2] <= W - margen) {
+                        const solape = pisa(b);
+                        if (solape <= b[2] * b[3] * PISA_TOLERADA) mejor = { dir: antes.dir, ey: y, pisa: -1 };
+                    }
+                }
+                if (mejor.pisa !== -1) buscar: for (const d of lados) {
                     for (const k of [0, 1, -1, 2, -2, 3, -3, 4, -4]) {
                         const y = y0 + k * paso;
                         if (y < yMin - 0.01 || y > yMax + 0.01) continue;
@@ -312,6 +391,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                     }
                 }
                 const dir = mejor.dir, ey = mejor.ey;
+                if (pista) pista.lugar = { dir, dy: ey - ay };
                 const ex = ax + dir * diag;
                 puestos.push(caja(dir, ey));
                 const fx = ex + dir * largo;
@@ -320,7 +400,9 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const ix = dir === 1 ? tx : tx - icono;
                 const tituloX = dir === 1 ? tx + icono + hueco : tx - icono - hueco;
                 return (
-                    <g key={`e${i}`}>
+                    // Igual que la silueta: afuera el lugar del punto (lo que se anima), adentro se lo deshace.
+                    <g key={`e${ids[i]}`} style={desliz(`translate(${ax.toFixed(1)}px, ${ay.toFixed(1)}px)`)}>
+                    <g transform={interactiva ? `translate(${-ax.toFixed(1)} ${-ay.toFixed(1)})` : undefined}>
                         <defs>
                             {/* La línea se apaga hacia la punta: termina en el texto, no en un tope. */}
                             <linearGradient id={`guia-${i}-${uid}`} gradientUnits="userSpaceOnUse" x1={ex} y1={ey} x2={fx} y2={ey}>
@@ -357,6 +439,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                                 </div>
                             </foreignObject>
                         )}
+                    </g>
                     </g>
                 );
             }); })()}
