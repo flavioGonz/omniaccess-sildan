@@ -25,7 +25,7 @@ test("se fue: la estadía cerrada, y después el paso por otra cámara", () => {
         h("estadia", "1", "SCH1707", "cairoli", 0, 300), h("paso", "2", "SCH1707", "calle21", 304), h("paso", "3", "SCH1707", "calle21", 305),
         h("acceso", "4", "SCH1707", "salida", 309, 309, { sentido: "EXIT", decision: "DENY" }),
     ]);
-    assert.equal(s.estado, "se-fue");
+    assert.equal(s.estado, "sin-lecturas");
     assert.deepEqual(s.tramos.map((t) => `${t.tipo}@${t.camara}×${t.lecturas}`), ["acceso@salida×1", "paso@calle21×2", "estadia@cairoli×1"]);
     assert.equal(s.actual?.sentido, "EXIT");
 });
@@ -34,6 +34,9 @@ test("volvió horas después al mismo lugar: son dos estadías, no una", () => {
     const s = armarSeguimiento("SCH1707", [h("estadia", "1", "SCH1707", "cairoli", 0, 60), h("estadia", "2", "SCH1707", "cairoli", 300, 360, { abierta: true })]);
     assert.equal(s.tramos.length, 2);
     assert.equal(s.actual?.clave, "estadia:2");
+    // …y la de ahora dice cuándo se la leyó por primera vez en esa cámara: con estadías por chapa, puede no haberse movido.
+    assert.equal(s.actual?.primeraEnCamara, T0);
+    assert.equal(s.tramos[1].primeraEnCamara, null);
 });
 
 test("otra chapa no entra; una con otro largo tampoco", () => {
@@ -52,4 +55,9 @@ test("el aviso de partida dice de dónde, a qué hora, cuánto estuvo, y si la e
     const desde = Date.UTC(2026, 10, 13, 1, 57), hasta = Date.UTC(2026, 10, 13, 21, 21); // 22:57 del 12 → 18:21 del 13, hora de Montevideo
     assert.equal(motivoDePartida("Ext. -> Cairoli", desde, hasta), "Se fue de Ext. -> Cairoli a las 18:21. Estuvo 19 h 24 min.");
     assert.equal(motivoDePartida(null, null, hasta, "SDH1707"), "Se fue a las 18:21. La estadía estaba a nombre de SDH1707 (misma cámara, lectura parecida).");
+});
+
+test("«se fue» sólo si lo midió el lugar; una estadía por chapa que se cierra es «dejó de leerse»", () => {
+    assert.equal(armarSeguimiento("SCH1707", [h("estadia", "1", "SCH1707", "cairoli", 0, 60)]).estado, "sin-lecturas");
+    assert.equal(armarSeguimiento("SCH1707", [h("estadia", "o-1", "SCH1707", "cairoli", 0, 60, { porLugar: true })]).estado, "se-fue");
 });

@@ -196,8 +196,13 @@ export async function cerrarEstadia(fila: {
     }).catch(() => { });
 
     avisarPorSocket("estadia_cerrada", { id: fila.id, plate: fila.plate, deviceId: fila.deviceId });
-    // Si era una chapa de la lista negra, se avisa que se fue («Seguirlo», 13/11). Import tardío: ese módulo usa este.
-    void import("@/lib/lista-negra-vista").then((m) => m.avisarPartidaDeListaNegra({ id: fila.id, plate: fila.plate, camara: fila.cameraName, deviceId: fila.deviceId, desde: fila.estDesde, hasta: fila.estHasta, foto: fila.snapshotUrl })).catch(() => { });
+    /*
+     * Acá NO se avisa «se fue» de una chapa de la lista negra (13/11). Se probó y se sacó el mismo
+     * día: esta estadía es por CHAPA y se cierra cuando la dejan de leer, no cuando el lugar queda
+     * vacío. En el lab, el auto que no se movió en una semana tenía 27 estadías cerradas entre sus
+     * tres lecturas: habrían sido 27 «se fue» falsos. El aviso de partida sale sólo de las
+     * ocupaciones (lib/ocupaciones), que miden el lugar.
+     */
 
     return true;
 }

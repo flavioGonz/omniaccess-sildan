@@ -55,7 +55,7 @@ export async function seguimientoDeChapa(cruda: string, diasPedidos?: number): P
             hechos.push({ tipo: "estadia", id: s.id, plate: s.plate, deviceId: s.deviceId, camara, desde: s.estDesde.getTime(), hasta: (s.estHasta || s.timestamp).getTime(), abierta: !s.estCerrada, foto: s.snapshotUrl });
         } else hechos.push({ tipo: "paso", id: s.id, plate: s.plate, deviceId: s.deviceId, camara, desde: t, hasta: t, foto: s.snapshotUrl });
     }
-    for (const o of ocupaciones) if (o.plate) hechos.push({ tipo: "estadia", id: `o-${o.id}`, plate: o.plate, deviceId: o.deviceId, camara: nombreCamara(o.device?.name), desde: o.desde.getTime(), hasta: o.hasta.getTime(), abierta: !o.cerrada });
+    for (const o of ocupaciones) if (o.plate) hechos.push({ tipo: "estadia", id: `o-${o.id}`, plate: o.plate, deviceId: o.deviceId, camara: nombreCamara(o.device?.name), desde: o.desde.getTime(), hasta: o.hasta.getTime(), abierta: !o.cerrada, porLugar: true });
     for (const a of accesos) {
         const t = a.timestamp.getTime();
         hechos.push({ tipo: "acceso", id: a.id, plate: normalizarMatricula(a.plateDetected) || chapa, deviceId: a.deviceId, camara: nombreCamara(a.device?.name), desde: t, hasta: t, foto: a.snapshotPath || a.imagePath, sentido: String(a.direction), decision: String(a.decision) });

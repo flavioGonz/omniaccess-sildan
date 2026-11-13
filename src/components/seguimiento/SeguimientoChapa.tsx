@@ -112,23 +112,31 @@ export function SeguimientoChapa({ plate, alCerrar, alVer }: {
 
 /** Lo que importa primero: está o se fue, dónde, desde cuándo, cuánto. */
 function Estado({ s, a, ahora, alVer }: { s: Seguimiento; a: Tramo; ahora: number; alVer?: (deviceId: string, instante: number | null) => void }) {
-    const esta = s.estado === "esta";
+    const esta = s.estado === "esta", seFue = s.estado === "se-fue";
+    const estadia = a.tipo === "estadia";
     return (
         <section className={cn("rounded-[10px] border px-4 py-3", esta ? "chip-mal" : "bg-muted border-border")}>
             <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.1em]">
-                {esta ? <><span className="h-2 w-2 rounded-full bg-[var(--mal)] animate-pulse" /> Está ahí ahora</> : <><MoveRight size={14} /> Se fue</>}
+                {esta ? <><span className="h-2 w-2 rounded-full bg-[var(--mal)] animate-pulse" /> Está ahí ahora</> : seFue ? <><MoveRight size={14} /> Se fue</> : <><History size={14} /> {estadia ? "Dejó de leerse ahí" : "Última vez que se la vio"}</>}
             </div>
             <div className="mt-1 text-[17px] font-bold leading-snug text-foreground">{a.camara || "Cámara sin nombre"}</div>
             <div className="text-[13px] text-foreground/80 tabular-nums">
-                {esta ? <>Llegó {fechaHora(a.desde)} · lleva {cuantoDuro(ahora - a.desde)}</>
-                    : a.tipo === "estadia" ? <>Estuvo de {fechaHora(a.desde)} a {fechaHora(a.hasta)} · {cuantoDuro(a.hasta - a.desde)}</>
-                    : <>Última vez {fechaHora(a.hasta)}{a.tipo === "acceso" ? ` · ${a.sentido === "EXIT" ? "saliendo" : "entrando"}` : " · de paso"} · hace {cuantoDuro(ahora - a.hasta)}</>}
+                {esta ? <>Se la lee ahí desde {fechaHora(a.desde)} · lleva {cuantoDuro(ahora - a.desde)}</>
+                    : estadia ? <>Estuvo de {fechaHora(a.desde)} a {fechaHora(a.hasta)} · {cuantoDuro(a.hasta - a.desde)}</>
+                    : <>{fechaHora(a.hasta)}{a.tipo === "acceso" ? ` · ${a.sentido === "EXIT" ? "saliendo" : "entrando"}` : " · de paso"} · hace {cuantoDuro(ahora - a.hasta)}</>}
             </div>
+            {/* Una estadía por chapa se corta cuando dejan de leerla: lo que se sabe es desde cuándo se la lee, no cuándo llegó. */}
+            {estadia && a.primeraEnCamara != null && (
+                <div className="mt-1 text-[12px] text-foreground/70 tabular-nums">En esta cámara se la leyó por primera vez el {fechaHora(a.primeraEnCamara)}{!a.porLugar ? " (con cortes: puede no haberse movido)" : ""}.</div>
+            )}
+            {!esta && !seFue && estadia && (
+                <div className="mt-1 text-[12px] text-foreground/70">No se la volvió a leer desde entonces: pudo irse, o no pasó nadie que la hiciera releer. «Ver ahora» lo confirma.</div>
+            )}
             {alVer && a.deviceId && (
                 <div className="mt-3 flex flex-wrap gap-2">
-                    {esta && <Button size="sm" onClick={() => alVer(a.deviceId!, null)}><Radio size={14} /> Ver ahora</Button>}
-                    <Button size="sm" variant={esta ? "outline" : "default"} onClick={() => alVer(a.deviceId!, a.desde - ANTES_MS)}><History size={14} /> {a.tipo === "estadia" ? "Ver la llegada" : "Ver ese momento"}</Button>
-                    {!esta && a.tipo === "estadia" && <Button size="sm" variant="outline" onClick={() => alVer(a.deviceId!, a.hasta - ANTES_MS)}><History size={14} /> Ver la partida</Button>}
+                    {(esta || (!seFue && estadia)) && <Button size="sm" variant={esta ? "default" : "outline"} onClick={() => alVer(a.deviceId!, null)}><Radio size={14} /> Ver ahora</Button>}
+                    <Button size="sm" variant={esta ? "outline" : "default"} onClick={() => alVer(a.deviceId!, (a.primeraEnCamara ?? a.desde) - ANTES_MS)}><History size={14} /> {estadia ? "Ver la llegada" : "Ver ese momento"}</Button>
+                    {!esta && estadia && <Button size="sm" variant="outline" onClick={() => alVer(a.deviceId!, a.hasta - ANTES_MS)}><History size={14} /> {seFue ? "Ver la partida" : "Ver la última lectura"}</Button>}
                 </div>
             )}
         </section>

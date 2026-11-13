@@ -25,12 +25,22 @@ export type Hecho = {
     desde: number; hasta: number;
     /** Sólo estadías: sigue ahí. */
     abierta?: boolean;
+    /**
+     * Sólo estadías: la midió el LUGAR (franja / analítica de estacionamiento) y no la chapa. Una
+     * estadía por chapa se cierra cuando dejan de leerla —de noche, sin tránsito que la haga
+     * releer— aunque el auto siga ahí; una por lugar se cierra cuando el lugar queda vacío.
+     */
+    porLugar?: boolean;
     foto?: string | null; sentido?: string | null; decision?: string | null;
 };
 
 export type Tramo = {
     clave: string; tipo: Hecho["tipo"]; deviceId: string | null; camara: string | null;
     desde: number; hasta: number; abierta: boolean;
+    /** La midió el lugar: su cierre es una partida de verdad (ver Hecho.porLugar). */
+    porLugar: boolean;
+    /** Estadías: la primera vez que se la leyó en esta cámara dentro del rango, si es anterior a este tramo. */
+    primeraEnCamara: number | null;
     /** Con qué chapas se la leyó en este tramo, de la más leída a la menos. */
     leidaComo: { chapa: string; lecturas: number }[];
     lecturas: number; foto: string | null; sentido: string | null; decision: string | null;
@@ -38,8 +48,12 @@ export type Tramo = {
 
 export type Seguimiento = {
     chapa: string;
-    /** esta: hay una estadía abierta · se-fue: lo último que se sabe terminó · sin-datos. */
-    estado: "esta" | "se-fue" | "sin-datos";
+    /**
+     * esta: hay una estadía abierta · se-fue: su lugar quedó vacío (medido) · sin-lecturas: lo
+     * último que se sabe terminó y no se la volvió a leer (pudo irse, o no pasó nadie que la
+     * hiciera releer) · sin-datos.
+     */
+    estado: "esta" | "se-fue" | "sin-lecturas" | "sin-datos";
     /** El tramo que define el estado: donde está, o lo último que se supo. */
     actual: Tramo | null;
     tramos: Tramo[];
@@ -65,13 +79,14 @@ export function armarSeguimiento(chapa: string, hechos: Hecho[]): Seguimiento {
         if (previo && h.desde - previo.hasta <= union) {
             previo.hasta = Math.max(previo.hasta, h.hasta);
             previo.abierta = previo.abierta || !!h.abierta;
+            previo.porLugar = previo.porLugar || !!h.porLugar;
             previo.lecturas++;
             previo.conteo.set(h.plate, (previo.conteo.get(h.plate) || 0) + 1);
             if (h.foto) previo.foto = h.foto;
             continue;
         }
         tramos.push({
-            clave: `${h.tipo}:${h.id}`, tipo: h.tipo, deviceId: h.deviceId, camara: h.camara, desde: h.desde, hasta: h.hasta, abierta: !!h.abierta,
+            clave: `${h.tipo}:${h.id}`, tipo: h.tipo, deviceId: h.deviceId, camara: h.camara, desde: h.desde, hasta: h.hasta, abierta: !!h.abierta, porLugar: !!h.porLugar, primeraEnCamara: null,
             leidaComo: [], lecturas: 1, foto: h.foto || null, sentido: h.sentido || null, decision: h.decision || null, conteo: new Map([[h.plate, 1]]),
         });
     }
@@ -80,10 +95,16 @@ export function armarSeguimiento(chapa: string, hechos: Hecho[]): Seguimiento {
         for (const [c, n] of conteo) if (c !== chapa) variantes.set(c, (variantes.get(c) || 0) + n);
         return { ...t, leidaComo: [...conteo].map(([c, n]) => ({ chapa: c, lecturas: n })).sort((a, b) => b.lecturas - a.lecturas) };
     }).sort((a, b) => b.hasta - a.hasta);
+    for (const t of listos) {
+        if (t.tipo !== "estadia") continue;
+        const primera = Math.min(...listos.filter((x) => x.tipo === "estadia" && x.deviceId === t.deviceId && x.camara === t.camara).map((x) => x.desde));
+        t.primeraEnCamara = primera < t.desde ? primera : null;
+    }
     // Dónde está: la estadía abierta más reciente. Si no hay, lo último que se supo.
     const abierta = listos.find((t) => t.tipo === "estadia" && t.abierta) || null;
+    const ultimo = listos[0] || null;
     return {
-        chapa, estado: abierta ? "esta" : listos.length ? "se-fue" : "sin-datos", actual: abierta || listos[0] || null, tramos: listos,
+        chapa, estado: abierta ? "esta" : !ultimo ? "sin-datos" : ultimo.tipo === "estadia" && ultimo.porLugar ? "se-fue" : "sin-lecturas", actual: abierta || ultimo, tramos: listos,
         variantes: [...variantes].map(([c, n]) => ({ chapa: c, lecturas: n })).sort((a, b) => b.lecturas - a.lecturas),
     };
 }

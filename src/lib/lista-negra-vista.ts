@@ -76,7 +76,9 @@ export async function avisarListaNegraALaVista(v: { plate: string; camara: strin
 const VENTANA_SE_FUE_MIN = 10;
 
 /**
- * La partida de una chapa de la lista negra: se cerró su estadía (lib/estadias, lib/ocupaciones).
+ * La partida de una chapa de la lista negra: quedó vacío su lugar (lib/ocupaciones — la franja o
+ * la analítica de estacionamiento, que miden el LUGAR). No se llama desde las estadías por chapa
+ * (lib/estadias): esas se cierran cuando dejan de leerla, que no es lo mismo que irse.
  *
  * Dos cuidados, los dos por el mismo defecto conocido —un auto quieto leído con dos o tres chapas—:
  *  - la estadía que se cierra puede estar a nombre de una mala lectura (SDH1707 por SCH1707): vale
