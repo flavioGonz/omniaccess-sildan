@@ -3,6 +3,8 @@ import { avisarPorSocket } from "@/lib/avisar";
 import { crearAviso } from "@/lib/visitas/registro";
 import { esRequerida, motivoALaVista } from "@/lib/min-interior";
 import { nombreCamara } from "@/lib/rostros";
+import { ESTADOS_DE_ESTADIA } from "@/lib/estadias";
+import { motivoDePartida, puedeSerLaMisma } from "@/lib/seguimiento-chapa";
 
 /**
  * Una chapa de la lista negra leída por una cámara de SEGUIMIENTO.
@@ -68,4 +70,44 @@ export async function avisarListaNegraALaVista(v: { plate: string; camara: strin
         anunciado.set(plate, Date.now());
         if (pendiente) avisarPorSocket("aviso_guardia", { accion: "nuevo", aviso: pendiente });
     } catch { /* la lectura sigue su camino */ }
+}
+
+/** Atendido un «se fue», la misma chapa no vuelve a avisar su partida antes de esto (la estadía pudo reabrirse y cerrarse). */
+const VENTANA_SE_FUE_MIN = 10;
+
+/**
+ * La partida de una chapa de la lista negra: se cerró su estadía (lib/estadias, lib/ocupaciones).
+ *
+ * Dos cuidados, los dos por el mismo defecto conocido —un auto quieto leído con dos o tres chapas—:
+ *  - la estadía que se cierra puede estar a nombre de una mala lectura (SDH1707 por SCH1707): vale
+ *    si en esa cámara, durante esa estadía, también se leyó la chapa de la lista;
+ *  - y que se cierre una de esas estadías no quiere decir que el auto se fue: si en la misma cámara
+ *    queda abierta otra a nombre de una lectura parecida, sigue ahí y no se avisa nada.
+ * No tira: un aviso que falla no puede romper el cierre de la estadía.
+ */
+export async function avisarPartidaDeListaNegra(v: { id: string; plate: string | null; camara: string | null; deviceId: string | null; desde: Date | null; hasta: Date | null; foto?: string | null }): Promise<void> {
+    try {
+        if (!v.plate) return;
+        const negras = await negrasVigentes();
+        if (!negras.size) return;
+        const leida = limpia(v.plate), hasta = v.hasta || new Date();
+        let chapa: string | null = negras.has(leida) ? leida : null;
+        if (!chapa && v.deviceId && v.desde) {
+            for (const n of negras.keys()) {
+                if (!puedeSerLaMisma(n, leida)) continue;
+                if (await prisma.plateSighting.count({ where: { plate: n, deviceId: v.deviceId, timestamp: { gte: v.desde, lte: hasta } } })) { chapa = n; break; }
+            }
+        }
+        if (!chapa) return;
+        if (v.deviceId) {
+            const abiertas = await prisma.plateSighting.findMany({ where: { deviceId: v.deviceId, estCerrada: false, estado: { in: [...ESTADOS_DE_ESTADIA] }, estDesde: { not: null }, id: { not: v.id } }, select: { plate: true }, take: 50 });
+            if (abiertas.some((a) => puedeSerLaMisma(chapa!, limpia(a.plate)))) return;
+        }
+        const n = negras.get(chapa)!, camara = nombreCamara(v.camara);
+        await crearAviso({
+            tipo: "LISTA_NEGRA_SE_FUE", plate: chapa, camara,
+            motivo: motivoDePartida(camara, v.desde ? v.desde.getTime() : null, hasta.getTime(), leida !== chapa ? leida : null),
+            datos: { foto: v.foto || null, requerida: n.requerida, deviceId: v.deviceId || null, desde: v.desde?.toISOString() || null, hasta: hasta.toISOString() },
+        }, VENTANA_SE_FUE_MIN);
+    } catch { /* el cierre de la estadía sigue su camino */ }
 }

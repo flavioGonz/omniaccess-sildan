@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert, Route } from "lucide-react";
 import { JoystickPtz } from "./Joystick";
 import { metaDe } from "@/components/intrusion/comun";
 import { horaCorta, hace } from "@/lib/monitor/cliente";
@@ -132,7 +132,9 @@ function LecturaApilada({ l }: { l: Lectura }) {
     );
 }
 
-export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision, pasoVision = null, alCerrarPaso, alGuardarSeguimiento, alBuscar }: {
+export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision, pasoVision = null, alCerrarPaso, alGuardarSeguimiento, alBuscar, alSeguirChapa }: {
+    /** «Seguirlo»: abrir el seguimiento de la matrícula de un vehículo tocado (dónde está, cuándo llegó, por dónde pasó). */
+    alSeguirChapa?: (plate: string) => void;
     c: Canal | null; h265: boolean; hls?: boolean; alerta: Alerta | null; lecturas: Lectura[];
     /** Todas las cámaras de la pared y los enlaces del seguimiento visual (por idCanal). */
     canales?: Canal[]; seguimiento?: Record<string, TrackLink[]>; puedeEditar?: boolean;
@@ -218,6 +220,11 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
             motivo: o.grupo !== "vehiculo" ? "La Lista Amarilla es por matrícula: sólo vehículos" : undefined,
             alElegir: () => setSospechoso({ chapa: o.chapa?.plate || "", motivo: motivoDesdeVivo(nombreCanal, o.quietoDesde) }),
         });
+        if (alSeguirChapa && o.grupo === "vehiculo") ops.push({
+            clave: "seguir", rotulo: "Seguir este vehículo", Icono: Route,
+            motivo: !o.chapa?.plate ? "Todavía no se le leyó la matrícula" : undefined,
+            alElegir: () => { if (o.chapa?.plate) alSeguirChapa(o.chapa.plate); },
+        });
         // La consulta asistida al Ministerio, con la chapa de ESTE vehículo (13/11, Nico). Sólo con
         // sesión de operador: el código de verificación lo escribe una persona.
         if (ministerioOn && !pantalla && o.grupo === "vehiculo") ops.push({
@@ -226,7 +233,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
             alElegir: () => setConsulta(o.chapa?.plate || null),
         });
         return ops;
-    }, [hayGrabacion, alBuscar, amarillaOn, ministerioOn, pantalla, nombreCanal, verLlegada]);
+    }, [hayGrabacion, alBuscar, alSeguirChapa, amarillaOn, ministerioOn, pantalla, nombreCanal, verLlegada]);
     const [fallo, setFallo] = useState(false);
     const [hd, setHd] = useState(true);
     // Cuál de los dos vivos ya tiene imagen: el subflujo arranca siempre y la alta calidad lo tapa

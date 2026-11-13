@@ -12,6 +12,7 @@ import { getOperadores, tomarGestion, pasarGestion, type OperadorVista } from "@
 import { FichaDeEvento } from "@/components/eventos/FichaDeEvento";
 import { ETIQUETA_REQUERIDA, esRequerida, confirmacionDe } from "@/lib/min-interior";
 import { nombreCamara } from "@/lib/rostros";
+import { SeguimientoChapa } from "@/components/seguimiento/SeguimientoChapa";
 
 /**
  * Lo que salta por LPR, patrones y OmniVision en la pila de avisos (lib/avisos-pantalla), en
@@ -65,6 +66,7 @@ export function AvisosLpr({ soloLectura = false }: {
     const router = useRouter();
     const [items, setItems] = useState<Item[]>([]);
     const [ficha, setFicha] = useState<string | null>(null);
+    const [siguiendo, setSiguiendo] = useState<string | null>(null);
     const [ops, setOps] = useState<Record<string, OperadorVista>>({});
     const [pulso, setPulso] = useState(0);
     // Sin «Lista Amarilla» (función de LPR, apagada en San Nicolás) no salta ese aviso.
@@ -161,6 +163,17 @@ export function AvisosLpr({ soloLectura = false }: {
             });
             return;
         }
+        // Se fue una chapa de la lista negra (se cerró su estadía): alerta, no crítica — ya no está.
+        if (a.tipo === "LISTA_NEGRA_SE_FUE") {
+            const plate = limpiar(a.plate) || null;
+            sumar({
+                id: `a:${a.id}`, tipo: "lista-negra", nivel: "alerta", ts: a.creado || new Date().toISOString(),
+                foto: typeof f0 === "string" && f0 ? (f0.startsWith("/") ? f0 : getImagePath(f0) || null) : null,
+                rotulo: `Se fue · ${a.datos?.requerida ? "Requerida por la policía" : "Lista negra"}`, sirena: !!a.datos?.requerida, titulo: plate || "Sin lectura",
+                detalle: a.motivo || null, grupo: `se-fue:${plate || a.camara}`, claves: [`a:${a.id}`], eventoId: null, plate, deviceId: null,
+            });
+            return;
+        }
         const vision = String(a.tipo).startsWith("VISION_");
         const et = ETIQUETA_AVISO[a.tipo as TipoAvisoGuardia];
         const f = a.datos?.foto;
@@ -216,6 +229,8 @@ export function AvisosLpr({ soloLectura = false }: {
             if (it.eventoId) acciones.push({ clave: "ver", etiqueta: "Ver evento", icono: "ver", ayuda: "La ficha del evento, acá mismo", correr: () => setFicha(it.eventoId) });
             else if (gestionable) acciones.push({ clave: "ver", etiqueta: "Ver", icono: "ver", ayuda: "Abrirla en Gestión de alarmas", correr: () => router.push(`/admin/alarmas?ver=todo&id=${encodeURIComponent(clave)}`) });
             else if (it.plate) acciones.push({ clave: "hist", etiqueta: "Historial", icono: "historial", correr: () => router.push(`/admin/history?search=${encodeURIComponent(it.plate!)}`) });
+            // Lista negra con chapa: dónde está o cuándo se fue, y su recorrido (components/seguimiento).
+            if (it.tipo === "lista-negra" && it.plate) acciones.push({ clave: "seguir", etiqueta: "Seguir", icono: "historial", ayuda: "Dónde está ahora o cuándo se fue, y por dónde pasó", correr: () => setSiguiendo(it.plate) });
             if (gestionable) {
                 acciones.push(o?.soyYo
                     ? { clave: "pasar", etiqueta: "Pasar", icono: "pasar", ayuda: "Queda libre para que la tome otro compañero", correr: () => pasarGestion(clave, null, it.deviceId).then(() => setPulso((n) => n + 1)) }
@@ -255,5 +270,10 @@ export function AvisosLpr({ soloLectura = false }: {
     }), [activas, soloLectura, router, pedirActivas]);
     usePublicarAvisos("lpr", useMemo(() => [...avisosActivos, ...avisos.filter((x) => !activas.some((a: any) => x.id.endsWith(`|${a.id}`)))], [avisosActivos, avisos, activas]));
 
-    return ficha ? <FichaDeEvento id={ficha} alCerrar={() => setFicha(null)} /> : null;
+    return (
+        <>
+            {ficha && <FichaDeEvento id={ficha} alCerrar={() => setFicha(null)} />}
+            {siguiendo && <SeguimientoChapa plate={siguiendo} alCerrar={() => setSiguiendo(null)} />}
+        </>
+    );
 }

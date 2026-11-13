@@ -213,6 +213,8 @@ export async function cerrarOcupacion(fila: Fila, cameraName: string) {
     }).catch(() => { });
 
     avisarPorSocket("estadia_cerrada", { id: fila.id, plate: fila.plate, deviceId: fila.deviceId });
+    // Lista negra: se avisa que se fue (lib/lista-negra-vista).
+    void import("@/lib/lista-negra-vista").then((m) => m.avisarPartidaDeListaNegra({ id: `o-${fila.id}`, plate: fila.plate, camara: cameraName, deviceId: fila.deviceId, desde: fila.desde, hasta: fila.hasta })).catch(() => { });
     return true;
 }
 

@@ -36,7 +36,8 @@ import { IconoPolicia } from "@/components/IconoPolicia";
 import { MinInteriorDialog } from "@/components/MinInteriorDialog";
 import { retirarDeListaNegra } from "@/app/actions/watchlist";
 import { useFuncion } from "@/lib/funciones-cliente";
-import { BellOff, Ban, CircleCheck, CircleX } from "lucide-react";
+import { BellOff, Ban, CircleCheck, CircleX, Route } from "lucide-react";
+import { SeguimientoChapa } from "@/components/seguimiento/SeguimientoChapa";
 
 /**
  * La pared de video: los canales de los NVR y las cámaras sueltas, como en un NVR.
@@ -480,6 +481,8 @@ export function VistaCamaras() {
     const { porEquipo: listas, quitar: quitarLista } = useAlertasDeLista(datos?.listaALaVista, todos);
     const [menuCanal, setMenuCanal] = useState<{ x: number; y: number; clave: string } | null>(null);
     const [consultaMin, setConsultaMin] = useState<string | null>(null);
+    /** «Seguirlo»: la matrícula cuyo seguimiento está abierto (components/seguimiento). */
+    const [siguiendo, setSiguiendo] = useState<string | null>(null);
     const ministerioOn = useFuncion("LPR_MIN_INTERIOR") === true;
     const porClave = useMemo(() => new Map(todos.map((c) => [c.clave, c])), [todos]);
     const nvrs = useMemo(() => [...new Set(todos.map(grupoDe))], [todos]);
@@ -1022,6 +1025,9 @@ export function VistaCamaras() {
                     });
                     if (ministerioOn) ops.push({ clave: "ministerio", rotulo: `Consultar ${l.plate} al Ministerio`, Icono: IconoPolicia, alElegir: () => setConsultaMin(l.plate) });
                 }
+                // Seguir: la chapa en alerta o, si no hay, la última que leyó este canal.
+                const chapaParaSeguir = l?.plate || lecturasDe(c).find((x) => x.plate)?.plate || null;
+                if (chapaParaSeguir) ops.push({ clave: "seguir", rotulo: `Seguir ${chapaParaSeguir}`, Icono: Route, alElegir: () => setSiguiendo(chapaParaSeguir) });
                 if (!pantalla && a) {
                     const m = metaDe(a.tipo);
                     ops.push({ clave: "real", rotulo: `${m.label}: es real`, Icono: CircleCheck, tono: "bien", separa: ops.length > 0, alElegir: () => gestionar(`d:${a.id}`, { resultado: "real" }) });
@@ -1033,7 +1039,15 @@ export function VistaCamaras() {
                 return <MenuCanal x={menuCanal.x} y={menuCanal.y} titulo={c.nombre} sub={l ? `${l.requerida ? "Requerida por la policía" : "Lista negra"} · ${l.plate}` : a ? metaDe(a.tipo).label : ubicacion(c)} opciones={ops} alCerrar={() => setMenuCanal(null)} />;
             })()}
             {consultaMin && <MinInteriorDialog plate={consultaMin} open onOpenChange={(o) => { if (!o) setConsultaMin(null); }} />}
-            <FichaCanal c={abierta} grabacionInicial={grabacionInicial} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
+            {siguiendo && (
+                <SeguimientoChapa plate={siguiendo} alCerrar={() => setSiguiendo(null)}
+                    alVer={(deviceId, instante) => {
+                        const k = todos.find((x) => x.equipoId === deviceId);
+                        if (!k) { setAviso("Esa cámara no está entre los canales de la pared."); return; }
+                        setGrabacionInicial(instante); setAbiertaClave(k.clave);
+                    }} />
+            )}
+            <FichaCanal alSeguirChapa={setSiguiendo} c={abierta} grabacionInicial={grabacionInicial} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
                 alerta={abierta ? alertaDe(abierta) : null} lecturas={abierta ? lecturasDe(abierta) : []}
                 alCerrar={() => { setAbiertaClave(null); setOrigenClave(null); }} alMover={enPantalla.length > 1 ? mover : null}
                 canales={todos} seguimiento={seguimiento} alGuardarSeguimiento={(id, n) => setSegLocal((s) => ({ ...s, [id]: n }))} puedeEditar={!!datos?.puedeEditar} alertaDe={alertaDe}

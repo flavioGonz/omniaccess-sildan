@@ -196,6 +196,8 @@ export async function cerrarEstadia(fila: {
     }).catch(() => { });
 
     avisarPorSocket("estadia_cerrada", { id: fila.id, plate: fila.plate, deviceId: fila.deviceId });
+    // Si era una chapa de la lista negra, se avisa que se fue («Seguirlo», 13/11). Import tardío: ese módulo usa este.
+    void import("@/lib/lista-negra-vista").then((m) => m.avisarPartidaDeListaNegra({ id: fila.id, plate: fila.plate, camara: fila.cameraName, deviceId: fila.deviceId, desde: fila.estDesde, hasta: fila.estHasta, foto: fila.snapshotUrl })).catch(() => { });
 
     return true;
 }
