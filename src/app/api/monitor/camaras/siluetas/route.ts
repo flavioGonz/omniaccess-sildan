@@ -31,10 +31,13 @@ import { leerRecuadro } from "@/lib/deteccion";
  *  · El «subflujo» de ese canal no es de 640×360: es de 2688×1520. Cada cuadro salía como un JPEG
  *    de 726 KB y omni-vision tardaba 75–80 ms en contestarlo. Achicado a 960 px de ancho antes de
  *    mandarlo pesa 106 KB y tarda 34 ms, con las mismas siluetas (el modelo mira a menos que eso).
- *  · Con eso entran 8 a 10 cuadros por segundo donde antes entraban 3. El ritmo ya no es fijo:
- *    se pide el cuadro siguiente recién cuando pasó ESPERA_POR_MS veces lo que tardó el anterior,
- *    así una sesión nunca ocupa más de un tercio del tiempo de omni-vision. En una GPU más lenta,
- *    o con omni-vision ocupado, baja sola (a 100 ms por cuadro vuelve a los 3 por segundo de antes).
+ *  · Con eso entran hasta 10 cuadros por segundo donde antes entraban 3. El ritmo ya no es fijo:
+ *    se toma el cuadro siguiente recién cuando pasó ESPERA_POR_MS veces lo que tardó el anterior,
+ *    por la cantidad de fichas abiertas: entre todas nunca ocupan más de la mitad del tiempo de
+ *    omni-vision. En una GPU más lenta, o con omni-vision ocupado, baja sola.
+ *  · Los cuadros llegan de ffmpeg cada 100 ms, así que la espera se redondea para arriba a esa
+ *    grilla: con un factor 3 y 38 ms por cuadro (114 ms de espera) se tomaba uno de cada dos y
+ *    quedaba en 5 por segundo, medido. Con 2 quedan 76 ms y entran los diez.
  */
 
 const VISION = (process.env.OMNI_VISION_URL || "http://127.0.0.1:8010").replace(/\/$/, "");
@@ -42,8 +45,8 @@ const VISION = (process.env.OMNI_VISION_URL || "http://127.0.0.1:8010").replace(
 const GO2RTC_RTSP = process.env.GO2RTC_RTSP || "rtsp://127.0.0.1:8554";
 /** Lo máximo que se analiza por segundo. El ritmo real lo pone lo que tarda omni-vision (ESPERA_POR_MS). */
 const CUADROS_POR_SEG = 10;
-/** El cuadro siguiente se toma cuando pasó esto por lo que tardó el anterior: 3 = a lo sumo un tercio del tiempo de omni-vision. */
-const ESPERA_POR_MS = 3;
+/** El cuadro siguiente se toma cuando pasó esto por lo que tardó el anterior (y por las fichas abiertas): 2 = a lo sumo la mitad del tiempo de omni-vision. */
+const ESPERA_POR_MS = 2;
 /** Ancho al que se achica el cuadro antes de analizarlo (nunca se agranda). */
 const ANCHO_ANALISIS = 960;
 const SESIONES_MAX = 2;
@@ -198,7 +201,8 @@ export async function GET(req: NextRequest) {
                 try {
                     const r = await fetch(`${VISION}/detectar?tarea=segmentar&grupos=${GRUPOS}`, { method: "POST", body: new Uint8Array(jpeg), headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(5000) });
                     const j: any = await r.json().catch(() => ({}));
-                    proximo = t + Math.max(1000 / CUADROS_POR_SEG - 5, (Date.now() - t) * ESPERA_POR_MS);
+                    // -15 ms: el cuadro siguiente de la grilla de ffmpeg no llega justo a los 100, y perderlo por 3 ms es perder medio ritmo.
+                    proximo = t + Math.max(1000 / CUADROS_POR_SEG - 15, (Date.now() - t) * ESPERA_POR_MS * Math.max(1, sesiones));
                     if (!r.ok) { enviar("error", { error: j.error || `omni-vision respondió ${r.status}` }); return; }
                     enviar("cuadro", {
                         t, ms: Date.now() - t, descartados,
