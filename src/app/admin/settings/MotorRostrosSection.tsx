@@ -11,10 +11,10 @@ import { useConfirmar } from "@/components/ui/use-confirmar";
 import { cn } from "@/lib/utils";
 import { getEstadoMotorFace, getCamarasParaFace, setFaceCamaras, setModuloFace } from "@/app/actions/face-admin";
 import {
-    listarRostros, listarCapturasSinIdentidad, leerAjustesRostros, guardarAjustesRostros, estadoMotorRostros, limpiarHuerfanosRostros, rostroDesdeEvento,
+    listarRostros, listarCapturasSinIdentidad, leerAjustesRostros, guardarAjustesRostros, estadoMotorRostros, limpiarHuerfanosRostros, rostroDesdeEvento, usoCamarasRostros,
     type ListaRostros, type CapturaSinIdentidad,
 } from "@/app/actions/rostros";
-import { ROSTROS_POR_PAGINA, type EstadoAjustesRostros, type FiltroRostro, type OrdenRostro } from "@/lib/rostros";
+import { ROSTROS_POR_PAGINA, type EstadoAjustesRostros, type FiltroRostro, type OrdenRostro, type UsoCamaraRostros } from "@/lib/rostros";
 import { CajonRostro, ACCIONES_ROSTRO } from "@/components/vision/rostros/CajonRostro";
 import { CajonSubirRostro, ACCIONES_SUBIR } from "@/components/vision/rostros/CajonSubirRostro";
 import { GrillaBento } from "@/components/vision/rostros/GrillaBento";
@@ -44,7 +44,7 @@ import { PropiedadesAciertos, PropiedadesCamaras, PropiedadesMotor, type CamaraF
 export const ACCIONES_MOTOR = {
     lista: listarRostros, sinIdentidad: listarCapturasSinIdentidad, ajustes: leerAjustesRostros, guardarAjustes: guardarAjustesRostros,
     motor: estadoMotorRostros, limpiar: limpiarHuerfanosRostros, estado: getEstadoMotorFace, camaras: getCamarasParaFace, ponerCamaras: setFaceCamaras,
-    modulo: setModuloFace, desdeEvento: rostroDesdeEvento,
+    modulo: setModuloFace, desdeEvento: rostroDesdeEvento, uso: usoCamarasRostros,
     gpu: async (): Promise<Gpu> => { try { const r = await fetch("/api/gpu/vivo", { cache: "no-store" }); return r.ok ? await r.json() : { hay: false }; } catch { return { hay: false }; } },
 };
 type Gpu = { hay: boolean; uso?: number; watts?: number | null; temp?: number | null; memUsada?: number; memTotal?: number; enGpu?: boolean | null };
@@ -71,6 +71,7 @@ export default function MotorRostrosSection({ acciones, accionesRostro, acciones
     const [estado, setEstado] = useState<EstadoFace | null>(null);
     const [camaras, setCamaras] = useState<CamaraFacial[] | null>(null);
     const [gpu, setGpu] = useState<Gpu | null>(null);
+    const [uso, setUso] = useState<UsoCamaraRostros[] | null>(null);
     const [abierta, setAbierta] = useState<{ id: string; registrar?: boolean } | null>(null);
     const [subiendo, setSubiendo] = useState(false);
     const [moduloOcupado, setModuloOcupado] = useState(false);
@@ -97,6 +98,7 @@ export default function MotorRostrosSection({ acciones, accionesRostro, acciones
         cargarMotor();
         servidor.ajustes().then(setAjustes).catch(() => { });
         servidor.camaras().then(setCamaras).catch(() => setCamaras([]));
+        servidor.uso().then(setUso).catch(() => { });
         const i = setInterval(cargarMotor, REFRESCO_MS);
         return () => clearInterval(i);
     }, [servidor, cargarMotor]);
@@ -200,7 +202,7 @@ export default function MotorRostrosSection({ acciones, accionesRostro, acciones
 
                 <aside className="space-y-4">
                     <PropiedadesAciertos estado={ajustes} puedeCambiar alGuardar={async (a) => { const r = await servidor.guardarAjustes(a); setAjustes(r); return r; }} />
-                    <PropiedadesCamaras camaras={camaras} puedeCambiar
+                    <PropiedadesCamaras camaras={camaras} puedeCambiar uso={uso} pxMin={ajustes?.pxMin}
                         alCambiar={async (ids) => { await servidor.ponerCamaras(ids); setCamaras((cs) => (cs || []).map((x) => ({ ...x, facial: ids.includes(x.id) }))); cargarMotor(); }} />
                     <PropiedadesMotor motor={motor} gpu={gpuTexto} puedeCambiar
                         alLimpiar={async () => { try { const r = await servidor.limpiar(); toast.success({ title: r.borrados === 1 ? "Se sacó una cara del motor" : `Se sacaron ${r.borrados} caras del motor` }); cargarMotor(); } catch (e: any) { toast.error({ title: "No se pudo limpiar", description: e?.message }); } }} />

@@ -54,7 +54,9 @@ type Acceso = {
 type Anterior = { id: string; ts: string; camara: string | null; cara: string | null; similitud: number | null };
 type Datos = { ultimas: Acceso[]; atencion: Acceso[]; anteriores?: { de: string | null; pasadas: Anterior[] }; hoy: { permitidos: number; denegados: number; desconocidos: number }; fuentes: number; ahora: string;
     /** Quien mira tiene sesión y permiso para registrar caras. En una pantalla de pared, no. */
-    puedeRegistrar?: boolean };
+    puedeRegistrar?: boolean;
+    /** Con menos px que esto, una cara sin identidad no se puede agregar ni a mano. */
+    pisoManual?: number | null };
 
 /**
  * El monitor con acciones (13/11, Nico, con la pantalla abierta: «este panel debe ser interactivo,
@@ -203,7 +205,7 @@ export function VistaFace({ acciones, accionesRostro }: { acciones?: Partial<typ
                                 initial={{ opacity: 0, scale: 1.02, filter: "blur(8px)" }} animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }} exit={{ opacity: 0, scale: 0.99 }}
                                 transition={{ type: "spring", stiffness: 300, damping: 32 }}>
                                 <Protagonista a={grande} anteriores={datos?.anteriores?.de === grande.id ? datos.anteriores.pasadas : null}
-                                    acciones={puede ? <AccionesRostro a={grande} ocupado={agregando} alAbrir={(id, registrar) => { setFijada({ id: grande.id, t: Date.now() }); setCajon({ id, registrar }); }} alAgregar={() => agregar(grande)} /> : null} />
+                                    acciones={puede ? <AccionesRostro a={grande} piso={datos?.pisoManual ?? null} ocupado={agregando} alAbrir={(id, registrar) => { setFijada({ id: grande.id, t: Date.now() }); setCajon({ id, registrar }); }} alAgregar={() => agregar(grande)} /> : null} />
                             </motion.div>
                         ) : (
                             <motion.div key="vacio" className="absolute inset-0 grid place-items-center text-center px-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -275,7 +277,7 @@ export function VistaFace({ acciones, accionesRostro }: { acciones?: Partial<typ
  * pasada sin identidad vista por OmniVision: agregarla igual, en dos pasos — el segundo dice a qué
  * se expone quien la agrega (una cara chica se confunde), porque eso no se deshace solo.
  */
-function AccionesRostro({ a, ocupado, alAbrir, alAgregar }: { a: Acceso; ocupado: boolean; alAbrir: (rostroId: string, registrar: boolean) => void; alAgregar: () => void }) {
+function AccionesRostro({ a, piso, ocupado, alAbrir, alAgregar }: { a: Acceso; piso: number | null; ocupado: boolean; alAbrir: (rostroId: string, registrar: boolean) => void; alAgregar: () => void }) {
     const [confirmando, setConfirmando] = useState(false);
     useEffect(() => setConfirmando(false), [a.id]);
     const rostroId = a.rostro?.id || a.rostroId;
@@ -292,6 +294,10 @@ function AccionesRostro({ a, ocupado, alAbrir, alAgregar }: { a: Acceso; ocupado
         );
     }
     if (a.identidad !== "sin-cara" || a.origen !== "omnivision" || !a.recorte) return null;
+    // Por debajo del piso no se ofrece: se dice por qué, para que no parezca que falta el botón.
+    if (piso != null && a.caraPx != null && a.caraPx < piso) {
+        return <p className="text-[13px] leading-snug text-muted-foreground">No se puede agregar ni a mano: la cara mide {a.caraPx} px y con menos de {piso} el motor confunde personas distintas.</p>;
+    }
     return (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ...SUAVE, delay: 0.1 }}>
             {!confirmando ? (

@@ -112,3 +112,20 @@ test("darle identidad a mano a una pasada: cambia quién es, conserva la foto y 
     assert.equal(d.escena, "/api/vision/imagen/2026-11-13/abc-e.jpg");
     assert.match(detallesConIdentidad(antes, { rostroId: "r1", nombre: "Pérez, Ana", veces: 2 }), /^Rostro: Pérez  Ana, /);
 });
+
+/* ── El piso para agregar a mano, y qué se dice de cada cámara ── */
+import { pisoManual, veredictoCamara } from "@/lib/rostros";
+
+test("a mano se puede agregar hasta la mitad del mínimo; más chica, no", () => {
+    assert.equal(pisoManual(80), 40);
+    assert.equal(pisoManual(100), 50);
+});
+
+test("de una cámara se opina con datos: si ninguna cara alcanzó, se avisa; con pocas, sólo se cuenta", () => {
+    // Lo que dio una cámara de escena del lab el 13/11: nueve caras de 16 a 19 px, ninguna con identidad.
+    assert.deepEqual(veredictoCamara({ deviceId: "a", pasadas: 9, conIdentidad: 0, pxMediana: 17 }, 80), { tono: "aviso", texto: "9 caras · mediana 17 px · ninguna alcanzó los 80 px" });
+    assert.deepEqual(veredictoCamara({ deviceId: "b", pasadas: 12, conIdentidad: 9, pxMediana: 131 }, 80), { tono: "bien", texto: "12 caras · mediana 131 px · 9 con identidad" });
+    assert.equal(veredictoCamara({ deviceId: "c", pasadas: 2, conIdentidad: 0, pxMediana: 30 }, 80)?.tono, "quieto", "con dos caras no se opina");
+    assert.equal(veredictoCamara(undefined, 80), null);
+    assert.equal(veredictoCamara({ deviceId: "d", pasadas: 0, conIdentidad: 0, pxMediana: null }, 80), null);
+});

@@ -88,6 +88,38 @@ export function normalizarAjustesRostros(a: Partial<AjustesRostros>, base: Ajust
     };
 }
 
+/* ── Agregar a mano una cara que no alcanzó ─────────────────────────────────────── */
+
+/**
+ * Hasta qué tamaño se deja agregar A MANO una cara que la compuerta dejó sin identidad: la mitad
+ * del mínimo (40 px con el mínimo en 80). Por debajo no se guarda ni queriendo.
+ *
+ * Por qué hay un piso: medido el 13/11 con caras de 14 a 20 px, personas DISTINTAS se parecían
+ * hasta 0,82 —por encima del 0,80 de «misma persona»—. Una identidad fundada con una cara así se
+ * come las pasadas de cualquiera que se le parezca. Entre 20 y 80 px no hay medición todavía: la
+ * mitad del mínimo es un criterio, no un número medido. Ese mismo día, de 17 pasadas sin
+ * identidad, 7 tenían entre 53 y 77 px (se pueden agregar) y 10 entre 16 y 33 (no).
+ */
+export const PISO_MANUAL_PARTE = 0.5;
+export const pisoManual = (pxMin: number) => Math.round(pxMin * PISO_MANUAL_PARTE);
+
+/* ── Qué da cada cámara ─────────────────────────────────────────────────────────── */
+
+/** Lo que dio una cámara al modo face en los últimos días: cuántas caras vio, de qué tamaño y cuántas alcanzaron. */
+export type UsoCamaraRostros = { deviceId: string; pasadas: number; conIdentidad: number; pxMediana: number | null };
+/** Cuántos días para atrás se mira lo que dio cada cámara. */
+export const USO_CAMARAS_DIAS = 7;
+/** De cuántas caras para arriba se opina de una cámara (con dos caras no hay nada que decir). */
+export const USO_CAMARAS_MINIMO = 5;
+/** Qué decir de una cámara: si sus caras alcanzan, si llegan chicas, o si todavía no hay datos. */
+export function veredictoCamara(u: UsoCamaraRostros | undefined, pxMin: number): { tono: "bien" | "aviso" | "quieto"; texto: string } | null {
+    if (!u || !u.pasadas) return null;
+    const base = `${u.pasadas === 1 ? "1 cara" : `${u.pasadas} caras`}${u.pxMediana != null ? ` · mediana ${u.pxMediana} px` : ""}`;
+    if (u.pasadas < USO_CAMARAS_MINIMO) return { tono: "quieto", texto: base };
+    if (u.conIdentidad === 0) return { tono: "aviso", texto: `${base} · ninguna alcanzó los ${pxMin} px` };
+    return { tono: u.conIdentidad * 2 >= u.pasadas ? "bien" : "quieto", texto: `${base} · ${u.conIdentidad} con identidad` };
+}
+
 /* ── Subir una foto ─────────────────────────────────────────────────────────────── */
 
 /** A quién se parece la cara de una foto: una identidad, o alguien enrolado a mano en el padrón. */

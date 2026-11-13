@@ -4,14 +4,14 @@ import { DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { prisma } from "@/lib/prisma";
 import { getS3Client } from "@/lib/s3";
 import {
-    codigoRostro, nombreCamara, FRECUENTE_DESDE, ROSTROS_POR_PAGINA, PASADAS_EN_FICHA, normalizarAjustesRostros, ROLES_PERSONA_DESDE_ROSTRO,
+    codigoRostro, nombreCamara, FRECUENTE_DESDE, ROSTROS_POR_PAGINA, PASADAS_EN_FICHA, normalizarAjustesRostros, ROLES_PERSONA_DESDE_ROSTRO, pisoManual, USO_CAMARAS_DIAS, type UsoCamaraRostros,
     type FilaRostro, type FichaRostro, type FiltroRostro, type OrdenRostro, type AjustesRostros, type EstadoAjustesRostros, type AnalisisFoto, type ParecidoRostro, type RostroGuardado, type RolPersonaDesdeRostro,
 } from "@/lib/rostros";
 import { frecuencia, SUGERIR, VENTANA_DIAS, type Frecuencia } from "@/lib/rostros-frecuencia";
 import { detallesConIdentidad, leerDetalleRostro } from "@/lib/monitor/rostro";
 import {
     R, BUCKET_ROSTROS as BUCKET, imagenRostro as imagen, motorRostros, olvidarSujeto as olvidarEnMotor, enrolar, normalizarFoto, mirarCaras, recortesCara,
-    subirRostro, bajarRostro as bajar, umbralesVigentes, fundarRostro, claveFoto, type CaraVista,
+    subirRostro, bajarRostro as bajar, umbralesVigentes, fundarRostro, claveFoto, caraDeEscena, type CaraVista,
 } from "@/lib/rostros-servidor";
 
 /*
@@ -430,13 +430,26 @@ export async function rostroDesdeEvento(eventoId: string): Promise<RostroGuardad
     if (!ev || ev.accessType !== "FACE") throw new Error("Ese acceso ya no está.");
     const d = leerDetalleRostro(ev.details);
     if (d.rostroId && (await prisma.rostro.findUnique({ where: { id: d.rostroId }, select: { id: true } }))) throw new Error("Esa pasada ya tiene una cara: abrila para registrarla.");
-    const clave = d.recorte?.startsWith("/api/vision/imagen/") ? d.recorte.slice("/api/vision/imagen/".length) : null;
-    const jpeg = clave ? await bajar(clave) : null;
-    if (!jpeg) throw new Error("El recorte de esa cara ya no está guardado (las fotos de cada pasada viven lo que las detecciones).");
-    // Ya se sabe que ahí hay una cara: el piso de detección baja para que el motor la tome.
-    const cara = (await mirarCaras(jpeg, 0.5))[0];
-    if (!cara) throw new Error("El motor no encuentra una cara en ese recorte: es demasiado chico o está de perfil.");
     const u = await umbralesVigentes();
+    // Hay un piso que no se pasa ni a mano (lib/rostros › pisoManual, con su porqué).
+    if (d.caraPx != null && d.caraPx < pisoManual(u.pxMin)) throw new Error(`Esa cara mide ${d.caraPx} px: con menos de ${pisoManual(u.pxMin)} px no se guarda ni a mano, porque el motor confunde personas distintas.`);
+    const aClave = (r: string | null | undefined) => (r?.startsWith("/api/vision/imagen/") ? r.slice("/api/vision/imagen/".length) : null);
+    const clave = aClave(d.recorte);
+    /*
+     * La cara se vuelve a sacar de la escena, agrandada: en el recorte guardado el motor no la
+     * encuentra (lib/rostros-servidor › caraDeEscena, con la medición). El recorte guardado queda
+     * de último recurso, para una pasada vieja sin escena o sin caja.
+     */
+    const escena = d.caja ? await bajar(aClave(d.escena) || aClave(ev.snapshotPath) || "") : null;
+    const candidatas: Buffer[] = [];
+    if (escena && d.caja) candidatas.push(await caraDeEscena(escena, d.caja));
+    const guardado = clave ? await bajar(clave) : null;
+    if (guardado) candidatas.push(guardado);
+    if (!candidatas.length) throw new Error("Ya no están guardadas ni la escena ni el recorte de esa pasada (viven lo que las detecciones).");
+    let jpeg = candidatas[0], cara: CaraVista | undefined;
+    // Ya se sabe que ahí hay una cara: el piso de detección baja para que el motor la tome.
+    for (const c of candidatas) { cara = (await mirarCaras(c, 0.5))[0]; if (cara) { jpeg = c; break; } }
+    if (!cara) throw new Error("El motor no encuentra la cara en esa pasada: está de perfil, tapada o demasiado lejos.");
     // Si a esta altura se parece de sobra a alguien conocido, se le suma a ése en vez de partirlo en dos.
     const top = cara.vecinos[0], idTop = top ? R.idDeSujeto(top.sujeto) : null;
     let r = top && idTop && top.similitud >= u.misma ? await prisma.rostro.findUnique({ where: { id: idTop } }) : null;
@@ -514,7 +527,9 @@ export async function limpiarHuerfanosRostros(): Promise<{ borrados: number }> {
 }
 
 /** Una pasada de hoy que quedó sin identidad: la cara no alcanzó para comparar. */
-export type CapturaSinIdentidad = { eventoId: string; cara: string; px: number | null; motivo: string | null; camara: string | null; cuando: string };
+export type CapturaSinIdentidad = { eventoId: string; cara: string; px: number | null; motivo: string | null; camara: string | null; cuando: string;
+    /** Si se puede agregar a mano: su cara llega al piso (lib/rostros › pisoManual). */
+    agregable: boolean };
 /** Cuántas capturas sin identidad se muestran (las últimas). */
 const CAPTURAS_SIN_IDENTIDAD = 18;
 
@@ -529,12 +544,36 @@ export async function listarCapturasSinIdentidad(): Promise<CapturaSinIdentidad[
         where: { accessType: "FACE", details: { contains: "Identidad: sin-cara" }, timestamp: { gte: new Date(Date.now() - 48 * 3600_000) } },
         orderBy: { timestamp: "desc" }, take: CAPTURAS_SIN_IDENTIDAD * 2, select: { id: true, details: true, timestamp: true, device: { select: { name: true } } },
     }).catch(() => []);
+    const piso = pisoManual((await umbralesVigentes()).pxMin);
     const out: CapturaSinIdentidad[] = [];
     for (const e of evs) {
         const d = leerDetalleRostro(e.details);
         if (!d.recorte || d.rostroId) continue;
-        out.push({ eventoId: e.id, cara: d.recorte, px: d.caraPx, motivo: d.sinIdentidad, camara: nombreCamara(e.device?.name), cuando: e.timestamp.toISOString() });
+        out.push({ eventoId: e.id, cara: d.recorte, px: d.caraPx, motivo: d.sinIdentidad, camara: nombreCamara(e.device?.name), cuando: e.timestamp.toISOString(), agregable: d.caraPx == null || d.caraPx >= piso });
         if (out.length >= CAPTURAS_SIN_IDENTIDAD) break;
     }
     return out;
+}
+
+/**
+ * Lo que dio cada cámara al modo face en los últimos días: cuántas caras vio, de qué tamaño
+ * (la mediana) y cuántas alcanzaron para tener identidad. Es el dato para decidir qué cámaras
+ * sirven para mirar caras: el 13/11 había 17 elegidas y 17 de las 20 pasadas del día quedaron sin
+ * identidad, casi todas de cámaras de escena donde la cara mide 16 a 33 px.
+ */
+export async function usoCamarasRostros(): Promise<UsoCamaraRostros[]> {
+    await sesionCon(...VER);
+    const evs = await prisma.accessEvent.findMany({
+        where: { accessType: "FACE", details: { contains: "Source: OmniVision" }, timestamp: { gte: new Date(Date.now() - USO_CAMARAS_DIAS * 86_400_000) } },
+        select: { deviceId: true, details: true }, orderBy: { timestamp: "desc" }, take: 5000,
+    }).catch(() => []);
+    const por = new Map<string, { n: number; con: number; px: number[] }>();
+    for (const e of evs) {
+        if (!e.deviceId) continue;
+        const d = leerDetalleRostro(e.details);
+        const c = por.get(e.deviceId) || { n: 0, con: 0, px: [] };
+        c.n++; if (d.identidad && d.identidad !== "sin-cara") c.con++; if (d.caraPx != null) c.px.push(d.caraPx);
+        por.set(e.deviceId, c);
+    }
+    return [...por.entries()].map(([deviceId, c]) => { const o = c.px.sort((a, b) => a - b); return { deviceId, pasadas: c.n, conIdentidad: c.con, pxMediana: o.length ? o[Math.floor(o.length / 2)] : null }; });
 }

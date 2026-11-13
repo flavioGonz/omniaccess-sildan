@@ -6,7 +6,7 @@ import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { LIMITES_ROSTROS, normalizarAjustesRostros, type AjustesRostros, type EstadoAjustesRostros } from "@/lib/rostros";
+import { LIMITES_ROSTROS, normalizarAjustesRostros, veredictoCamara, USO_CAMARAS_DIAS, type AjustesRostros, type EstadoAjustesRostros, type UsoCamaraRostros } from "@/lib/rostros";
 
 /*
  * Las propiedades del motor de rostros, en la columna de la derecha (13/11, Nico: «debo poder
@@ -125,9 +125,15 @@ function Perilla({ rotulo, valor, texto, min, max, paso, alCambiar, ayuda, defec
 
 export type CamaraFacial = { id: string; name: string; tipo: string; facial: boolean };
 
-/** Qué cámaras miran caras: una lista con interruptores, las elegidas primero. */
-export function PropiedadesCamaras({ camaras, alCambiar, puedeCambiar }: {
+/**
+ * Qué cámaras miran caras: una lista con interruptores, las elegidas primero. Debajo de cada una,
+ * lo que dio en la última semana (13/11: había 17 elegidas y casi todas entregaban caras de 16 a
+ * 33 px, que no alcanzan nunca: se elegía a ciegas). Con eso a la vista se sabe cuál apagar.
+ */
+export function PropiedadesCamaras({ camaras, alCambiar, puedeCambiar, uso, pxMin }: {
     camaras: CamaraFacial[] | null; alCambiar: (ids: string[]) => Promise<void>; puedeCambiar: boolean;
+    /** Lo que dio cada cámara (por id) y el mínimo vigente, para decir si sus caras alcanzan. */
+    uso?: UsoCamaraRostros[] | null; pxMin?: number;
 }) {
     const [q, setQ] = useState("");
     const [ocupada, setOcupada] = useState<string | null>(null);
@@ -136,6 +142,8 @@ export function PropiedadesCamaras({ camaras, alCambiar, puedeCambiar }: {
         const t = q.trim().toLowerCase();
         return (camaras || []).filter((c) => !t || c.name.toLowerCase().includes(t)).sort((a, b) => Number(b.facial) - Number(a.facial) || a.name.localeCompare(b.name, "es", { numeric: true }));
     }, [camaras, q]);
+    const usoDe = useMemo(() => new Map((uso || []).map((u) => [u.deviceId, u])), [uso]);
+    const chicas = elegidas.filter((c) => veredictoCamara(usoDe.get(c.id), pxMin || 80)?.tono === "aviso").length;
     const alternar = async (c: CamaraFacial) => {
         setOcupada(c.id);
         try { await alCambiar(c.facial ? elegidas.filter((x) => x.id !== c.id).map((x) => x.id) : [...elegidas.map((x) => x.id), c.id]); }
@@ -153,15 +161,21 @@ export function PropiedadesCamaras({ camaras, alCambiar, puedeCambiar }: {
                             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar una cámara" className="h-[34px] w-full rounded-md border border-border bg-background pl-8 pr-3 text-[12.5px] outline-none focus:border-[var(--accion)]" />
                         </label>
                     )}
-                    <div className="max-h-[300px] overflow-y-auto -mx-1.5 px-1.5 divide-y divide-border/60">
+                    {chicas > 0 && (
+                        <p className="rounded-[10px] border chip-aviso px-3 py-2 text-[12px] leading-snug"><span className="text-foreground">{chicas === 1 ? "Una cámara elegida entrega" : `${chicas} cámaras elegidas entregan`} caras que nunca alcanzan: conviene apagarlas acá, o acercarlas.</span></p>
+                    )}
+                    <div className="max-h-[340px] overflow-y-auto -mx-1.5 px-1.5 divide-y divide-border/60">
                         {visibles.length === 0 && <p className="py-4 text-[12.5px] text-muted-foreground text-center">Ninguna cámara con ese nombre.</p>}
-                        {visibles.map((c) => (
-                            <label key={c.id} className={cn("flex items-center gap-2.5 h-10 cursor-pointer", !puedeCambiar && "cursor-default")}>
-                                <span className={cn("min-w-0 flex-1 truncate text-[12.5px]", c.facial ? "font-semibold" : "text-foreground/80")}>{c.name}</span>
+                        {visibles.map((c) => { const v = veredictoCamara(usoDe.get(c.id), pxMin || 80); return (
+                            <label key={c.id} className={cn("flex items-center gap-2.5 min-h-10 py-1.5 cursor-pointer", !puedeCambiar && "cursor-default")}>
+                                <span className="min-w-0 flex-1">
+                                    <span className={cn("block truncate text-[12.5px] leading-tight", c.facial ? "font-semibold" : "text-foreground/80")}>{c.name}</span>
+                                    {v && <span className={cn("block truncate text-[11px] leading-tight mt-0.5 tabular-nums", v.tono === "aviso" ? "tono-aviso" : v.tono === "bien" ? "tono-bien" : "text-muted-foreground")} title={`Últimos ${USO_CAMARAS_DIAS} días`}>{v.texto}</span>}
+                                </span>
                                 {ocupada === c.id && <Loader2 size={12} className="animate-spin text-muted-foreground shrink-0" />}
                                 <Switch checked={c.facial} disabled={!puedeCambiar || !!ocupada} onCheckedChange={() => alternar(c)} aria-label={`${c.name}: mirar caras`} />
                             </label>
-                        ))}
+                        ); })}
                     </div>
                 </>
             )}

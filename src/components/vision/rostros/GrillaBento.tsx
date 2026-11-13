@@ -65,12 +65,12 @@ export function GrillaBento({ rostros, sinIdentidad, alAbrir, alSubir, alAgregar
                 <section>
                     <div className="flex items-baseline gap-2 mb-2.5 flex-wrap">
                         <h3 className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Capturas sin identidad</h3>
-                        <span className="text-[11.5px] text-muted-foreground">Pasaron, pero la cara no alcanzó para comparar. {puedeCambiar ? "Si sabés quién es, tocala para agregarla igual." : ""}</span>
+                        <span className="text-[11.5px] text-muted-foreground">Pasaron, pero la cara no alcanzó para comparar. {puedeCambiar ? "Si sabés quién es, tocala para agregarla igual; las más chicas no se pueden guardar ni a mano." : ""}</span>
                     </div>
                     <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(84px,1fr))]">
                         {sinIdentidad.map((c) => (
-                            <button key={c.eventoId} type="button" disabled={!puedeCambiar || !alAgregarCaptura} onClick={() => alAgregarCaptura?.(c)}
-                                title={`${c.camara || "Cámara"} · ${hace(c.cuando)}${c.motivo ? ` · ${c.motivo}` : ""}`}
+                            <button key={c.eventoId} type="button" disabled={!puedeCambiar || !alAgregarCaptura || !c.agregable} onClick={() => alAgregarCaptura?.(c)}
+                                title={`${c.camara || "Cámara"} · ${hace(c.cuando)}${c.motivo ? ` · ${c.motivo}` : ""}${c.agregable ? "" : " · demasiado chica para guardarla, ni a mano"}`}
                                 className="group relative aspect-[5/6] overflow-hidden rounded-[6px] bg-muted text-left enabled:cursor-pointer">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={c.cara} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-75 [filter:saturate(.6)] transition-[opacity,filter] group-enabled:group-hover:opacity-100 group-enabled:group-hover:[filter:none]" />

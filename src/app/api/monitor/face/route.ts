@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { autorizarMonitor, inicioDelDia, SIN_CACHE } from "@/lib/monitor/servidor";
 import { leerDetalleRostro, motivoDeRostro, calidadRostro } from "@/lib/monitor/rostro";
+import { pisoManual } from "@/lib/rostros";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { forbiddenResponse } from "@/lib/api-auth";
@@ -112,5 +113,7 @@ export async function GET() {
         ultimas: ultimas.map((e) => forma(e, rostros)), atencion: atencion.map((e) => forma(e, rostros)),
         anteriores: { de: ultimas[0]?.id || null, pasadas: anteriores.map((p) => ({ id: p.id, ts: p.cuando.toISOString(), camara: nombreCamara(p.camara), cara: paraPared(p.cara ? `/api/vision/imagen/${p.cara}` : null), similitud: p.similitud })) },
         hoy: { permitidos, denegados, desconocidos }, fuentes, ahora: new Date().toISOString(), puedeRegistrar,
+        // Hasta qué tamaño de cara se deja agregar a mano una pasada sin identidad (lib/rostros › pisoManual).
+        pisoManual: puedeRegistrar ? pisoManual(Number((await prisma.setting.findUnique({ where: { key: "FACE_CARA_PX_MIN" } }).catch(() => null))?.value) || 80) : null,
     }, { headers: SIN_CACHE });
 }

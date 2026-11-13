@@ -92,6 +92,27 @@ export async function recortesCara(jpeg: Buffer, caja: Caja): Promise<{ nativa: 
     return { nativa, chica };
 }
 
+/**
+ * La cara de una pasada, vuelta a sacar de su ESCENA (el cuadro guardado) y de dónde estaba la
+ * cara (fracciones del cuadro), agrandada `k` veces. Es para volver a mirar una pasada que quedó
+ * sin identidad.
+ *
+ * Por qué no se usa el recorte de cara que ya está guardado: medido el 13/11 en el lab con las 17
+ * pasadas sin identidad del día, el motor encontró la cara en 0 de 13 recortes guardados (son la
+ * cara sola, de 21 a 132 px de lado: sin hombros ni fondo el detector no la ve), en 13 de 17
+ * sacándola de la escena a tamaño real, y en 17 de 17 agrandándola al doble. Al triple, 16.
+ */
+export const AGRANDAR_ESCENA = 2;
+export async function caraDeEscena(escena: Buffer, caja: [number, number, number, number], k = AGRANDAR_ESCENA): Promise<Buffer> {
+    const m = await sharp(escena).metadata();
+    const W = m.width || 0, H = m.height || 0;
+    const bw = (caja[2] - caja[0]) * W, bh = (caja[3] - caja[1]) * H, cx = ((caja[0] + caja[2]) / 2) * W;
+    // Dos caras y media a cada lado, una y media arriba y el resto abajo: la cabeza con los hombros.
+    const left = Math.max(0, Math.round(cx - bw * 2.5)), top = Math.max(0, Math.round(caja[1] * H - bh * 1.5));
+    const width = Math.max(1, Math.min(W - left, Math.round(bw * 5))), height = Math.max(1, Math.min(H - top, Math.round(bh * 5)));
+    return sharp(escena).extract({ left, top, width, height }).resize({ width: Math.round(width * k), kernel: "lanczos3" }).jpeg({ quality: 92 }).toBuffer();
+}
+
 export async function subirRostro(clave: string, jpeg: Buffer) {
     await (await getS3Client()).send(new PutObjectCommand({ Bucket: BUCKET_ROSTROS, Key: clave, Body: jpeg, ContentType: "image/jpeg" }));
 }
