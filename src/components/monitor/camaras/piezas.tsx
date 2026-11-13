@@ -4,6 +4,7 @@ import { lineasDe, zonasDe } from "@/lib/geom-intrusion";
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { Disposicion } from "@/lib/monitor/disposiciones";
+import { colaDeSiluetas, ritmoParaAtraso, primerDatoDeVideo, relojDeAtraso } from "@/lib/siluetas-sincronia";
 import { cn } from "@/lib/utils";
 
 /** Lo que trae /api/monitor/camaras de cada canal (ver la ruta para el porqué de cada campo). */
@@ -99,7 +100,8 @@ export const idCanal = (c: Pick<Canal, "equipoId" | "nvrId" | "ch">) => c.equipo
  */
 const VIGIA_MS = 2000;
 const QUIETO_MS = 8000;
-const ATRASO_MAX_S = 6;
+/** Cuántas revisiones seguidas (una cada VIGIA_MS) acelerado sin que el atraso baje, para darlo por no recuperable. */
+const SIN_PROGRESO_VUELTAS = 5;
 const REINTENTO_MIN_MS = 1500;
 const REINTENTO_MAX_MS = 30_000;
 const REINTENTO_PRIMERO_MS = 400;
@@ -126,15 +128,22 @@ function anotarCorte(src: string, motivo: string) {
  * (Se probó si dos <video> con la misma dirección —la baldosa y la ficha del mismo canal—
  * compartían la descarga y se pisaban al cerrar una: no, cada uno abre la suya.)
  */
-export function Vivo({ src, alResultado, className, alMedir }: { src: string; alResultado?: (ok: boolean) => void; className?: string;
+export function Vivo({ src, alResultado, className, alMedir, alAtraso }: { src: string; alResultado?: (ok: boolean) => void; className?: string;
     /** El tamaño real del video, cuando se sabe: lo usan las siluetas para caer donde van. */
-    alMedir?: (ancho: number, alto: number) => void }) {
+    alMedir?: (ancho: number, alto: number) => void;
+    /**
+     * Cómo preguntarle a este video cuánto atrasa (null al desmontar). La función contesta en ms;
+     * null si no se sabe, Infinity si está detenido (abriendo, reconectando o sin datos). La ficha
+     * la usa para mostrar las siluetas a la hora del video (lib/siluetas-sincronia).
+     */
+    alAtraso?: (medir: (() => number | null) | null) => void }) {
     const ref = useRef<HTMLVideoElement>(null);
     /** El último cuadro, mientras se reconecta, y el aviso de que eso no es el vivo. */
     const lienzo = useRef<HTMLCanvasElement>(null);
     const aviso = useRef<HTMLSpanElement>(null);
     const avisar = useRef(alResultado); avisar.current = alResultado;
     const medir = useRef(alMedir); medir.current = alMedir;
+    const darAtraso = useRef(alAtraso); darAtraso.current = alAtraso;
     useEffect(() => {
         const v = ref.current; if (!v) return;
         const id = ++serieVivo;
@@ -160,11 +169,38 @@ export function Vivo({ src, alResultado, className, alMedir }: { src: string; al
             } catch { /* sin cuadro guardado se ve el negro de antes */ }
         };
 
+        // Cuánto atrasa lo que se ve respecto del presente: se saca de cada cuadro que se presenta
+        // (ver relojDeAtraso: lo que informa el <video> de su colchón no dice la verdad).
+        const reloj = relojDeAtraso();
+        type ConCuadros = HTMLVideoElement & { requestVideoFrameCallback?: (f: (ahora: number, m: { mediaTime: number; presentationTime?: number }) => void) => number; cancelVideoFrameCallback?: (n: number) => void };
+        const vc = v as ConCuadros;
+        let pedido = 0;
+        const alCuadro = (ahora: number, m: { mediaTime: number; presentationTime?: number }) => {
+            if (!vivo) return;
+            reloj.cuadro(m.presentationTime ?? ahora, m.mediaTime);
+            pedido = vc.requestVideoFrameCallback!(alCuadro);
+        };
+        // Sin esa función (navegadores viejos) o en HLS no se mide: todo sigue como antes, sin sincronizar.
+        const mide = !hls && typeof vc.requestVideoFrameCallback === "function";
+        if (mide) pedido = vc.requestVideoFrameCallback!(alCuadro);
+        const atrasoMs = (): number | null => (!mide ? null : reintento || v.readyState < 2 ? Infinity : reloj.atrasoMs(performance.now()));
+        darAtraso.current?.(atrasoMs);
+        let sonda: AbortController | null = null;
+        let sobraAntes: number | null = null, sinProgreso = 0;
+
         const conectar = () => {
             if (!vivo) return;
+            reloj.reiniciar();
             reintento = null; conImagen = false;
             ultimoT = -1; ultimoFin = -1; ultimoAvance = Date.now();
-            v.src = `${src}${src.includes("?") ? "&" : "?"}_=${id}.${intento++}`;
+            const direccion = `${src}${src.includes("?") ? "&" : "?"}_=${id}.${intento++}`;
+            // Sólo si alguien va a usar el atraso total (la ficha, para las siluetas): cuándo llega el
+            // primer cuadro, leído aparte y en el mismo instante (ver primerDatoDeVideo). Unos KB por apertura.
+            if (mide && darAtraso.current) {
+                sonda?.abort(); const s = sonda = new AbortController();
+                void primerDatoDeVideo(`${direccion}&sonda=1`, s.signal).then((t) => { if (t != null && vivo && sonda === s) reloj.abrio(t); });
+            }
+            v.src = direccion;
             v.play().catch(() => { });
         };
         /** Se cortó o no avanza: soltar la conexión vieja y abrir otra, esperando cada vez un poco más. */
@@ -202,8 +238,24 @@ export function Vivo({ src, alResultado, className, alMedir }: { src: string; al
             ultimoT = t;
             if (llegoVideo) {
                 ultimoFin = fin; ultimoAvance = Date.now();
-                // Atrasado respecto de lo que ya llegó: al final del búfer, que es el presente.
-                if (!hls && fin - t > ATRASO_MAX_S) { try { v.currentTime = fin - 0.3; ultimoT = fin - 0.3; } catch { } }
+                // Al día (lib/siluetas-sincronia): si atrasa, se reproduce un poco más rápido hasta
+                // recuperarlo. Antes había un salto al presente «con más de 6 s de colchón» que no se
+                // disparaba nunca (ese colchón, como lo informa el navegador, no dice el atraso): el
+                // vivo perdía un poco en cada tirón de la red y no lo recuperaba.
+                if (mide) {
+                    // Sólo se persigue lo que atrasa DE MÁS que al arrancar (lo que dejó un tirón de la red):
+                    // el atraso de arranque no se gasta (ver relojDeAtraso).
+                    const sobra = reloj.sobraMs(performance.now());
+                    // Acelerado y sin bajar en SIN_PROGRESO_VUELTAS revisiones: ese atraso no era de lo guardado
+                    // (cambió el camino). Se acepta, para no quedar acelerando contra nada.
+                    if (sobra != null && v.playbackRate > 1) { sinProgreso = sobraAntes != null && sobraAntes - sobra < 50 ? sinProgreso + 1 : 0; if (sinProgreso >= SIN_PROGRESO_VUELTAS) { reloj.aceptar(); sinProgreso = 0; } } else sinProgreso = 0;
+                    sobraAntes = sobra;
+                    const s2 = reloj.sobraMs(performance.now());
+                    const ritmo = s2 == null ? v.playbackRate : ritmoParaAtraso(s2 / 1000, v.playbackRate);
+                    // Demasiado atrás para perseguirlo: se abre de nuevo, que arranca en el presente.
+                    if (ritmo == null) { reconectar(`quedó ${Math.round((sobra || 0) / 1000)} s atrás del presente`); return; }
+                    try { if (v.playbackRate !== ritmo) { v.playbackRate = ritmo; reloj.ritmo(ritmo); } } catch { /* un video que no deja cambiar el ritmo sigue como estaba */ }
+                }
                 return;
             }
             // Antes del primer cuadro se espera lo mismo que para darlo por fallido: la alta calidad
@@ -218,6 +270,9 @@ export function Vivo({ src, alResultado, className, alMedir }: { src: string; al
         conectar();
         return () => {
             vivo = false;
+            darAtraso.current?.(null);
+            sonda?.abort();
+            if (pedido) try { vc.cancelVideoFrameCallback?.(pedido); } catch { }
             clearTimeout(to); clearInterval(vigia); if (reintento) clearTimeout(reintento);
             descongelar();
             v.removeEventListener("loadeddata", ok); v.removeEventListener("error", corte); v.removeEventListener("ended", corte);
@@ -317,22 +372,26 @@ export function Flotante({ abierto, alCerrar, children, className, lado = "izqui
     );
 }
 
-/** Si no llega un cuadro analizado en este tiempo, las siluetas se borran: dibujar las viejas sería mentir. */
-const SILUETAS_VIEJAS_MS = 2000;
-
 /**
  * Las siluetas del canal en vivo (/api/monitor/camaras/siluetas, por EventSource). Devuelve el
- * último análisis, lo que tardó y si el servidor no dio lugar (tope de canales a la vez).
- * `activo` en false no abre nada: la GPU no trabaja para una ficha que no las muestra.
+ * análisis que corresponde a lo que el video está mostrando, lo que tardó y si el servidor no dio
+ * lugar (tope de canales a la vez). `activo` en false no abre nada: la GPU no trabaja para una
+ * ficha que no las muestra.
+ *
+ * `atrasoMs`: cuánto colchón lleva el video que se ve (lo recibido y todavía no mostrado). Con eso
+ * cada análisis se muestra cuando el video llega a su instante, y no apenas llega: si no, las
+ * siluetas van adelantadas al video por todo su colchón (lib/siluetas-sincronia). Sin análisis
+ * para ese instante no se devuelve ninguno: dibujar los viejos sería mentir.
  */
-export function useSiluetasEnVivo(stream: string | null, activo: boolean) {
+export function useSiluetasEnVivo(stream: string | null, activo: boolean, atrasoMs?: () => number | null) {
     const [analisis, setAnalisis] = useState<any | null>(null);
     const [ms, setMs] = useState<number | null>(null);
     const [estado, setEstado] = useState<"apagado" | "conectando" | "vivo" | "ocupado" | "error">("apagado");
+    const atraso = useRef(atrasoMs); atraso.current = atrasoMs;
     useEffect(() => {
         if (!stream || !activo) { setAnalisis(null); setEstado("apagado"); return; }
         setEstado("conectando");
-        let viejo: ReturnType<typeof setTimeout> | null = null;
+        const cola = colaDeSiluetas<{ analisis: any; ms: number }>();
         let es: EventSource | null = null;
         const abrir = () => {
             es = new EventSource(`/api/monitor/camaras/siluetas?stream=${encodeURIComponent(stream)}`);
@@ -341,14 +400,24 @@ export function useSiluetasEnVivo(stream: string | null, activo: boolean) {
             es.addEventListener("ocupado", () => { es?.close(); setEstado("ocupado"); });
             es.addEventListener("cuadro", (e: MessageEvent) => {
                 const d = JSON.parse(e.data);
-                setAnalisis(d.analisis); setMs(d.ms); setEstado("vivo");
-                if (viejo) clearTimeout(viejo);
-                viejo = setTimeout(() => setAnalisis(null), SILUETAS_VIEJAS_MS);
+                cola.llegar(Number(d.t) || Date.now(), Number(d.ms) || 0, { analisis: d.analisis, ms: d.ms }, Date.now());
+                setEstado("vivo");
             });
             es.onerror = () => { if (es?.readyState === EventSource.CLOSED) { setEstado("error"); } };
         };
         abrir();
-        return () => { if (viejo) clearTimeout(viejo); es?.close(); };
+        // En cada cuadro de pantalla se mira cuál toca; el estado cambia sólo cuando cambia el análisis
+        // (a lo sumo diez veces por segundo, igual que antes). Con la pestaña oculta el navegador no
+        // llama y no se gasta nada.
+        let raf = 0, mostrado: { analisis: any; ms: number } | null = null;
+        const paso = () => {
+            const e = cola.elegir(Date.now(), atraso.current?.() ?? null);
+            const toca = e ? e.dato : null;
+            if (toca !== mostrado) { mostrado = toca; setAnalisis(toca ? toca.analisis : null); if (toca) setMs(toca.ms); }
+            raf = requestAnimationFrame(paso);
+        };
+        raf = requestAnimationFrame(paso);
+        return () => { cancelAnimationFrame(raf); cola.vaciar(); es?.close(); };
     }, [stream, activo]);
     return { analisis, ms, estado };
 }

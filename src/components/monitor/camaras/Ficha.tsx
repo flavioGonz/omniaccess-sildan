@@ -262,7 +262,15 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     }, [alCerrar, alMover]);
     useEffect(() => { if (!c) return; window.addEventListener("keydown", teclas); return () => window.removeEventListener("keydown", teclas); }, [!!c, teclas]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const sil = useSiluetasEnVivo(c && c.online !== false ? c.stream : null, !!c && verSiluetas && grabacion == null);
+    // Cuánto atrasa el video que se ve (la alta calidad cuando ya tapó al subflujo): las siluetas se
+    // muestran a la hora de ESE video, no apenas llegan (lib/siluetas-sincronia). Cada Vivo da su medida.
+    const atrasoSd = useRef<(() => number | null) | null>(null), atrasoHd = useRef<(() => number | null) | null>(null);
+    const atrasoDelVideo = useCallback((): number | null => {
+        const medir = (hdListoRef.current && atrasoHd.current) || atrasoSd.current;
+        // Todavía sin video (se ve la foto del canal): no hay con qué sincronizar.
+        return medir ? medir() : null;
+    }, []);
+    const sil = useSiluetasEnVivo(c && c.online !== false ? c.stream : null, !!c && verSiluetas && grabacion == null, atrasoDelVideo);
     // HD convertido es varias veces más caro que el subflujo: sin H.265 se ve el subflujo convertido.
     const enHd = h265 && hd && !fallo;
     const m = alerta ? metaDe(alerta.tipo) : null;
@@ -297,12 +305,13 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                             {!(enHd && hdListo) && (
                                 <Vivo key={`${c.clave}-sd`} src={vivoDe(c.stream, !h265, hls)}
                                     alResultado={(ok) => { if (ok) setSdListo(true); }} alMedir={(w, h) => { if (!hdListoRef.current) setTamVideo({ w, h }); }}
+                                    alAtraso={(m) => { atrasoSd.current = m; }}
                                     className={cn("absolute inset-0 w-full h-full object-contain", !sdListo && "opacity-0")} />
                             )}
                             {enHd && (
                                 <Vivo key={`${c.clave}-hd`} src={vivoDe(`${c.stream}_hd`, false, hls)}
                                     alResultado={(ok) => { if (ok) setHdListo(true); else { HD_CAIDOS.set(c.clave, Date.now()); setFallo(true); } }}
-                                    alMedir={(w, h) => setTamVideo({ w, h })}
+                                    alMedir={(w, h) => setTamVideo({ w, h })} alAtraso={(m) => { atrasoHd.current = m; }}
                                     className={cn("absolute inset-0 w-full h-full object-contain", !hdListo && "opacity-0")} />
                             )}
                         </>
