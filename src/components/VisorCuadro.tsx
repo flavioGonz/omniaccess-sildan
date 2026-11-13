@@ -12,8 +12,6 @@ import {
     Repeat, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ActividadEnVivo } from "@/components/tracking/ActividadEnVivo";
-import { leerDuracion } from "@/components/tracking/Cronometro";
 import { ChapaMercosur } from "@/components/tracking/ChapaMercosur";
 import { ContornoDeteccion } from "@/components/tracking/ContornoDeteccion";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,6 +24,8 @@ import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
 import { useSiluetas } from "@/lib/use-siluetas";
+import { useSiluetaDeFoto } from "@/lib/use-silueta-foto";
+import { MarcaEstadia, RelojRodante, type AnclaEstadia } from "@/components/tracking/MarcaEstadia";
 import type { Analisis } from "@/lib/vision-capa";
 import { BotonVisor, Dato, ListaVision, Seccion } from "@/components/visor/FichaVisor";
 import { TiraPasos, type PasoVisor } from "@/components/visor/TiraPasos";
@@ -597,18 +597,6 @@ export function VisorCuadro({
      * nada falso.
      */
     const ALTURAS_SOBRE_EL_AUTO = 7;
-    const rotulo = (() => {
-        if (!recuadro) return null;
-        const cx = (recuadro.x + recuadro.w / 2) * 100;
-        const arriba = (recuadro.y - ALTURAS_SOBRE_EL_AUTO * recuadro.h) * 100;
-        // Si no entra arriba, el marco la recortaría justo donde dice el tiempo.
-        const abajo = arriba < 6;
-        const y = abajo
-            ? (recuadro.y + recuadro.h) * 100 + ALTURAS_SOBRE_EL_AUTO * recuadro.h * 100
-            : arriba;
-        const ancla = abajo ? (recuadro.y + recuadro.h) * 100 : recuadro.y * 100;
-        return { cx, y, abajo, guiaDesde: Math.min(y, ancla), guiaAlto: Math.abs(y - ancla) };
-    })();
 
     const conf = typeof fila.confidence === "number" ? Math.round(fila.confidence * 100) : null;
     const momento = new Date(fila.timestamp);
@@ -720,31 +708,29 @@ export function VisorCuadro({
             {enListaNegra ? "Quitar de la lista" : "Lista negra"}
         </BotonVisor>
     ) : null;
-    const capsula = (
-        <motion.div
-            initial={{ opacity: 0, y: 6, scale: 0.94 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ type: "spring", stiffness: 420, damping: 26, delay: 0.12 }}>
-            <ActividadEnVivo
-                desde={estacionado ? fila.estDesde : null}
-                hasta={estacionado && cerrada ? fila.estHasta : null}
-                limiteMin={estacionado && !cerrada ? limiteMin : null}
-                /*
-                 * Un acceso no tiene duración: tiene hora. Salvo cuando es una SALIDA y se
-                 * pudo calcular cuánto estuvo adentro — ahí el número que importa no es la
-                 * hora de salida sino la permanencia, que es la pregunta que alguien se
-                 * hace mirando una salida: "¿cuánto estuvo?".
-                 */
-                texto={estacionado ? undefined
-                    : (salida && fila.permanenciaMs ? leerDuracion(fila.permanenciaMs) : horaSeg(momento))}
-                icono={esAcceso ? (salida ? LogOut : LogIn) : momentoEst.icono}
-                etiqueta={esAcceso ? (salida ? "Salió" : "Entró") : momentoEst.etiqueta}
-                sub={vig?.etiqueta
-                    || (fila.decision === "DENY" ? "No abrió" : fila.decision === "GRANT" ? "Abrió" : "")
-                    || (cargandoFicha ? "" : conocida ? "En el padrón" : "Sin registrar")}
-            />
-        </motion.div>
-    );
+    /** Lo que acompaña al tiempo: la lista de vigilancia si está, o si figura en el padrón. */
+    const subEstadia = vig?.etiqueta || (cargandoFicha ? "" : conocida ? "En el padrón" : "Sin registrar");
+    /**
+     * El auto de la estadía: el vehículo cuya caja contiene el centro de la chapa. Sale del análisis
+     * guardado si la foto lo trae; si no, se le pide a OmniVision al abrir (una vez por foto).
+     */
+    const analisisPedido = useSiluetaDeFoto(fotoUrl, estacionado && !vision && !!recuadro && modo === "foto" && !enPaso);
+    const analisisAuto = vision || analisisPedido;
+    const autoEstacionado = useMemo(() => {
+        if (!recuadro || !analisisAuto) return null;
+        const cx = recuadro.x + recuadro.w / 2, cy = recuadro.y + recuadro.h / 2;
+        return analisisAuto.objetos.filter((o) => o.grupo === "vehiculo" && o.caja?.length === 4 && cx >= o.caja[0] && cx <= o.caja[2] && cy >= o.caja[1] && cy <= o.caja[3])
+            .sort((a, b) => (a.caja[2] - a.caja[0]) * (a.caja[3] - a.caja[1]) - (b.caja[2] - b.caja[0]) * (b.caja[3] - b.caja[1]))[0] || null;
+    }, [recuadro?.x, recuadro?.y, recuadro?.w, recuadro?.h, analisisAuto]); // eslint-disable-line react-hooks/exhaustive-deps
+    /**
+     * De dónde sale la guía (la chapa) y hasta dónde llega el auto: con su caja si se sabe, y si no
+     * a ojo desde la chapa (unas alturas de chapa hacia arriba: el rótulo cae sobre el techo).
+     */
+    const anclaEstadia: AnclaEstadia | null = recuadro ? {
+        x: (recuadro.x + recuadro.w / 2) * 100, y: (recuadro.y + recuadro.h / 2) * 100,
+        techo: autoEstacionado ? autoEstacionado.caja[1] * 100 : (recuadro.y - ALTURAS_SOBRE_EL_AUTO * recuadro.h) * 100 + 3.2,
+        piso: autoEstacionado ? autoEstacionado.caja[3] * 100 : (recuadro.y + recuadro.h * 2.5) * 100,
+    } : null;
 
     /** En vivo manda la proporción del video (cuando ya se conoce); en la foto, la de la foto. */
     const cajaProporcion = modo === "vivo" && proporcionVivo ? proporcionVivo : proporcion;
@@ -920,30 +906,19 @@ export function VisorCuadro({
                                 chapa={datos?.relectura?.plate && datos.relectura.caja ? { plate: datos.relectura.plate, caja: datos.relectura.caja } : null} />
                         )}
 
-                        {/* La cápsula va DENTRO del transform para seguir al auto mientras
-                            se acerca, pero con la escala invertida: si creciera con el zoom,
-                            a 8x taparía media foto. */}
-                        {rotulo && conCapsula && !enPaso && !limpio && (
-                            <>
-                                <div className="visor-guia absolute z-[19] pointer-events-none"
-                                    style={{
-                                        left: `${rotulo.cx}%`,
-                                        top: `${rotulo.guiaDesde}%`,
-                                        height: `${rotulo.guiaAlto}%`,
-                                        width: `${1 / escala}px`,
-                                        marginLeft: `${-0.5 / escala}px`,
-                                        transform: rotulo.abajo ? "scaleY(-1)" : undefined,
-                                    }} />
-                                <div className="absolute z-20"
-                                    style={{
-                                        left: `${rotulo.cx}%`,
-                                        top: `${rotulo.y}%`,
-                                        transform: `translate(-50%, ${rotulo.abajo ? "0" : "-100%"}) scale(${1 / escala})`,
-                                        transformOrigin: rotulo.abajo ? "top center" : "bottom center",
-                                    }}>
-                                    {capsula}
-                                </div>
-                            </>
+                        {/* El auto estacionado, con su silueta (12/11). Si ya se están viendo las
+                            siluetas de OmniVision, la suya está entre ellas y no se dibuja dos veces. */}
+                        {conCapsula && autoEstacionado && analisisAuto && modo === "foto" && !enPaso && !limpio && !enVideo && !(verSiluetas && vision) && (
+                            <CapaAnalisis analisis={{ ancho: analisisAuto.ancho, alto: analisisAuto.alto, objetos: [autoEstacionado] }} etiquetas={false} className="z-[6]" />
+                        )}
+
+                        {/* El tiempo estacionado: un punto en la chapa, la guía hasta arriba del auto
+                            y el reloj sin fondo. Va DENTRO del transform para seguir al auto al
+                            acercar; el texto se achica al revés para no crecer con la foto. */}
+                        {anclaEstadia && conCapsula && !enPaso && !limpio && (
+                            <MarcaEstadia ancla={anclaEstadia} escala={escala}
+                                desde={fila.estDesde} hasta={cerrada ? fila.estHasta : null}
+                                etiqueta={momentoEst.etiqueta} sub={subEstadia} />
                         )}
                     </div>
 
@@ -973,10 +948,13 @@ export function VisorCuadro({
 
                 {/* Sin recuadro no hay a qué anclarla, pero el estado sigue siendo un
                     dato: va arriba al centro, donde no tapa la ficha ni los controles. */}
-                {!rotulo && conCapsula && !enPaso && modo !== "grabacion" && (
-                    <div className={cn("absolute top-24 left-1/2 -translate-x-1/2 z-20 transition-opacity duration-200",
-                        (acercado || limpio) && "opacity-0 pointer-events-none")}>
-                        {capsula}
+                {!anclaEstadia && conCapsula && !enPaso && modo !== "grabacion" && (
+                    <div className={cn("absolute top-24 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1.5 text-white pointer-events-none transition-opacity duration-200",
+                        (acercado || limpio) && "opacity-0")}>
+                        <RelojRodante desde={fila.estDesde} hasta={cerrada ? fila.estHasta : null} className="text-[26px]" />
+                        <span className="text-[10.5px] font-bold uppercase tracking-[0.14em] whitespace-nowrap [text-shadow:0_1px_2px_rgba(2,6,23,0.95)]">
+                            {momentoEst.etiqueta}{subEstadia && <span className="text-white/75"> · {subEstadia}</span>}
+                        </span>
                     </div>
                 )}
 

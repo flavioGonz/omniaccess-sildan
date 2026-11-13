@@ -6,7 +6,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { autorizarMonitor } from "@/lib/monitor/servidor";
 import { prisma } from "@/lib/prisma";
 import { GRUPO_PROPIO, UMBRAL_PANTALLA_DEFECTO } from "@/lib/detector-propio";
-import { conEstadia, type LugarVehiculo } from "@/lib/vision-estadia";
+import { conChapa, conEstadia, type EstadiaAbierta, type LugarVehiculo } from "@/lib/vision-estadia";
+import { leerRecuadro } from "@/lib/deteccion";
 
 /**
  * GET /api/monitor/camaras/siluetas?stream=<nombre> → text/event-stream con lo que OmniVision ve
@@ -92,6 +93,30 @@ async function lugaresDe(camara: string): Promise<LugarVehiculo[] | undefined> {
     }
     return lugares.camaras[camara];
 }
+/**
+ * Las estadías abiertas de una cámara (PlateSighting ESTACIONADO sin cerrar): la matrícula de cada
+ * auto estacionado y dónde quedó su chapa en el cuadro. Las lleva el seguimiento de matrículas;
+ * acá sólo se leen, a lo sumo cada ESTADIAS_MS por cámara, mientras alguien mira el vivo.
+ */
+const ESTADIAS_MS = 5000;
+const estadias = new Map<string, { al: number; lista: EstadiaAbierta[] }>();
+async function estadiasDe(camara: string): Promise<EstadiaAbierta[]> {
+    const e = estadias.get(camara);
+    if (e && Date.now() - e.al < ESTADIAS_MS) return e.lista;
+    let lista: EstadiaAbierta[] = e?.lista || [];
+    try {
+        const filas = await prisma.plateSighting.findMany({
+            where: { deviceId: camara, estado: "ESTACIONADO", estCerrada: false, bbox: { not: null } },
+            select: { plate: true, bbox: true, estDesde: true }, orderBy: { timestamp: "desc" }, take: 30,
+        });
+        lista = filas.map((f) => ({ plate: f.plate, chapa: leerRecuadro(f.bbox), desde: f.estDesde ? f.estDesde.getTime() : null }))
+            .filter((x): x is EstadiaAbierta => !!x.chapa && !!x.plate);
+    } catch { /* sin base un momento: lo último que se leyó */ }
+    estadias.set(camara, { al: Date.now(), lista });
+    if (estadias.size > 200) for (const [k, v] of estadias) if (Date.now() - v.al > 60_000) estadias.delete(k);
+    return lista;
+}
+
 /** `lpr_<id>` o `face_<id>` → el id de la cámara, que es como la conoce vision-worker. */
 const camaraDeStream = (stream: string) => stream.replace(/^(lpr|face)_/, "");
 
@@ -149,6 +174,7 @@ export async function GET(req: NextRequest) {
             let buf = Buffer.alloc(0);
             let ocupado = false;
             let descartados = 0;
+            const camara = camaraDeStream(stream);
             const analizar = async (jpeg: Buffer, t: number) => {
                 ocupado = true;
                 try {
@@ -160,7 +186,7 @@ export async function GET(req: NextRequest) {
                         analisis: {
                             ancho: j.ancho, alto: j.alto, tarea: "segmentar",
                             // El tiempo en el lugar sólo en el vivo: en la grabación el cuadro es de otro momento.
-                            objetos: conEstadia(paraPantalla(j.objetos, await ajustesDePantalla()), await lugaresDe(camaraDeStream(stream))),
+                            objetos: conChapa(conEstadia(paraPantalla(j.objetos, await ajustesDePantalla()), await lugaresDe(camara)), await estadiasDe(camara)),
                         },
                     });
                     descartados = 0;

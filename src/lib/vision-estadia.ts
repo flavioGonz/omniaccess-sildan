@@ -34,6 +34,39 @@ export function conEstadia<T extends { grupo: string; caja: number[] }>(objetos:
     return objetos.map((o, i) => (desde.has(i) ? { ...o, quietoDesde: desde.get(i)! } : o));
 }
 
+/** Una estadía abierta de la cámara: la matrícula, dónde está la chapa en el cuadro (fracciones) y desde cuándo. */
+export type EstadiaAbierta = { plate: string; chapa: { x: number; y: number; w: number; h: number }; desde: number | null };
+
+/**
+ * La matrícula sobre su auto (12/11, Nico: «si detectamos la matrícula, dibujársela sobre el
+ * auto»). No se lee nada: las cámaras que siguen estacionados ya guardan, por estadía abierta, la
+ * chapa y dónde estaba en el cuadro. El auto es el vehículo cuya caja contiene el centro de esa
+ * chapa (el más chico, si hay dos encimados). De paso el reloj toma el de la estadía, que es más
+ * viejo y más cierto que el del lugar: cuenta desde que estacionó, no desde que se lo empezó a mirar.
+ */
+export function conChapa<T extends { grupo: string; caja: number[]; quietoDesde?: number }>(objetos: T[], estadias: EstadiaAbierta[] | undefined): (T & { chapa?: { plate: string; caja: [number, number, number, number] } })[] {
+    if (!estadias?.length) return objetos;
+    const de = new Map<number, EstadiaAbierta>();
+    for (const e of estadias) {
+        const cx = e.chapa.x + e.chapa.w / 2, cy = e.chapa.y + e.chapa.h / 2;
+        let mejor = -1, area = Infinity;
+        objetos.forEach((o, i) => {
+            if (o.grupo !== "vehiculo" || o.caja?.length !== 4 || de.has(i)) return;
+            const [x1, y1, x2, y2] = o.caja;
+            if (cx < x1 || cx > x2 || cy < y1 || cy > y2) return;
+            const a = (x2 - x1) * (y2 - y1);
+            if (a < area) { mejor = i; area = a; }
+        });
+        if (mejor >= 0) de.set(mejor, e);
+    }
+    return objetos.map((o, i) => {
+        const e = de.get(i);
+        if (!e) return o;
+        const desde = e.desde != null ? Math.min(e.desde, o.quietoDesde ?? Infinity) : o.quietoDesde;
+        return { ...o, ...(desde != null ? { quietoDesde: desde } : {}), chapa: { plate: e.plate, caja: [e.chapa.x, e.chapa.y, e.chapa.x + e.chapa.w, e.chapa.y + e.chapa.h] as [number, number, number, number] } };
+    });
+}
+
 /** «14 min», «2 h 05», «1 d 3 h»: cuánto lleva, corto, para leerlo sobre el video. */
 export function textoEstadia(ms: number): string {
     const min = Math.floor(ms / 60_000);

@@ -153,7 +153,8 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
             ))}
 
             {/* La chapa: recuadro sobre la chapa y, debajo (o arriba si no entra), la matrícula dibujada. */}
-            {chapa && (() => {
+            {/* Una o varias: la releída de la foto, y en el vivo la de cada auto estacionado (su estadía abierta). */}
+            {[chapa, ...objetos.map((o) => o.chapa)].filter((c): c is ChapaEnFoto => !!c).map((chapa, k) => {
                 const [x1, y1, x2, y2] = chapa.caja;
                 const bx = x1 * W, by = y1 * H, bw = Math.max(2, (x2 - x1) * W), bh = Math.max(2, (y2 - y1) * H);
                 const f = fuente * 1.15, pw = Math.max(bw, chapa.plate.length * f * 0.72 + f * 1.2), ph = f * 2.05, franja = ph * 0.26;
@@ -161,7 +162,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const debajo = by + bh + f * 0.5 + ph < H;
                 const py = debajo ? by + bh + f * 0.5 : Math.max(2, by - f * 0.5 - ph);
                 return (
-                    <g>
+                    <g key={`ch${k}`}>
                         <rect x={bx} y={by} width={bw} height={bh} rx={lado * 0.004} fill={COLOR_CHAPA} fillOpacity={0.08} stroke={COLOR_CHAPA} strokeWidth={2.25} vectorEffect="non-scaling-stroke" filter={`url(#brillo-${uid})`} />
                         <line x1={bx + bw / 2} y1={debajo ? by + bh : by} x2={bx + bw / 2} y2={debajo ? py : py + ph} stroke={COLOR_CHAPA} strokeOpacity={0.7} strokeWidth={1.4} vectorEffect="non-scaling-stroke" />
                         <g filter={`url(#sombra-${uid})`}>
@@ -172,7 +173,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                             fontFamily="Outfit, system-ui, sans-serif" letterSpacing={0.06 * f} style={{ fontVariantNumeric: "tabular-nums" }}>{chapa.plate}</text>
                     </g>
                 );
-            })()}
+            })}
 
             {/* Rótulos: un punto anillado sobre lo más alto de la silueta, una línea guía con codo, y
                 el texto sin fondo apoyado sobre la línea: arriba el ícono y qué es, abajo los atributos

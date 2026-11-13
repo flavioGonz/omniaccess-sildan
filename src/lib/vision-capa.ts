@@ -22,6 +22,8 @@ export type ObjetoAnalizado = {
     icono?: string | null;
     /** Desde cuándo (ms) este vehículo está en su lugar: lo suma el servidor en el vivo (lib/vision-estadia). */
     quietoDesde?: number;
+    /** La matrícula de este vehículo y dónde está su chapa (normalizada): de su estadía abierta, en el vivo. */
+    chapa?: { plate: string; caja: [number, number, number, number] };
 };
 export type Analisis = { ancho: number; alto: number; objetos: ObjetoAnalizado[]; tarea?: string;
     /** Doble verificación: el cuadro propio del canal, sacado unos segundos después (clave en MinIO). */
