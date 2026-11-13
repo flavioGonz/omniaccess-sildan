@@ -375,6 +375,7 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver, IUs
      * evento si la barrera se accionó o no: un «abrió» que no abrió es peor que no decir nada.
      */
     async abrirRele(device: Device): Promise<{ ok: boolean; error?: string }> {
+        if (HikvisionDriver.abrePorCerradura(device)) return this.abrirCerradura(device);
         try {
             await this.request("PUT", `/ISAPI/System/IO/outputs/1/trigger?format=json`, { IOPortData: { outputState: "high" } }, device);
             return { ok: true };
@@ -383,7 +384,35 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver, IUs
         }
     }
 
+    /**
+     * Un portero o un control de acceso Hikvision no abre por la salida de alarma de una cámara
+     * (System/IO/outputs): abre por su CERRADURA, con el comando de puerta. Visto el 12/11 en el
+     * portero de Otto (DS-KB8113-IME1(B), V2.2.60), sólo leyendo: RemoteControl/door acepta
+     * `open`, `alwaysOpen` y `resume` sobre la puerta 1, y su salida 1 está declarada `electricLock`.
+     * El comando de apertura NO se probó contra el equipo: es la puerta de un cliente.
+     */
+    static abrePorCerradura(device: Pick<Device, "deviceType">): boolean {
+        return device.deviceType === "DOOR_INTERCOM" || device.deviceType === "ACCESS_CONTROL";
+    }
+
+    /** Abre la cerradura (la puerta 1) y dice si el equipo lo aceptó. El tiempo abierto lo pone el equipo (Door/param). */
+    async abrirCerradura(device: Device, puerta = 1): Promise<{ ok: boolean; error?: string }> {
+        const d: DigestAuthDevice = { ip: device.ip, username: device.username || "admin", password: device.password || "", authType: device.authType, httpPort: device.httpPort };
+        const cuerpo = `<?xml version="1.0" encoding="UTF-8"?><RemoteControlDoor version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema"><cmd>open</cmd></RemoteControlDoor>`;
+        try {
+            await authenticatedRequest("PUT", `/ISAPI/AccessControl/RemoteControl/door/${puerta}`, d, { data: cuerpo, contentType: "application/xml", accept: "application/xml", responseType: "text", timeout: 8000 });
+            return { ok: true };
+        } catch (e: any) {
+            return { ok: false, error: e?.response?.status ? `el equipo respondió ${e.response.status}` : (e?.message || "sin respuesta") };
+        }
+    }
+
     async triggerRelay(device: Device): Promise<void> {
+        if (HikvisionDriver.abrePorCerradura(device)) {
+            const r = await this.abrirCerradura(device);
+            if (!r.ok) console.error(`[Hikvision] no abrió la cerradura de ${device.ip}: ${r.error}`);
+            return;
+        }
         try {
             await this.request(
                 "PUT",

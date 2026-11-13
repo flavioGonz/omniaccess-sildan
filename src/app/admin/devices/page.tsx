@@ -536,7 +536,9 @@ export default function DevicesPage() {
 
     async function handleTriggerRelay(id: string) {
         setTriggeringRelay(id);
-        await triggerDeviceRelay(id);
+        // Se dice qué contestó el equipo: antes el botón se animaba igual, abriera o no.
+        const r = await triggerDeviceRelay(id);
+        if (r?.success) toast.success("Abrió", { description: r.message }); else toast.error("No abrió", { description: r?.message });
         setTimeout(() => setTriggeringRelay(null), 3000); // Animation duration
     }
 

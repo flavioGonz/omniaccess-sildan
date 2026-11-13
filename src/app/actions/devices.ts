@@ -461,8 +461,11 @@ export async function triggerDeviceRelay(id: string) {
 
         if (device.brand === "HIKVISION") {
             const driver = new HikvisionDriver();
-            await driver.triggerRelay(device);
-            return { success: true, message: "Comando de apertura enviado a Hikvision" };
+            // abrirRele dice si el equipo aceptó (triggerRelay se traga el error): «enviado» a una
+            // puerta que no abrió es peor que decir que no se pudo.
+            const r = await driver.abrirRele(device);
+            const que = HikvisionDriver.abrePorCerradura(device) ? "la cerradura" : "el relé";
+            return r.ok ? { success: true, message: `El equipo aceptó abrir ${que}` } : { success: false, message: `No abrió ${que}: ${r.error}` };
         }
 
         return { success: false, message: "Marca no compatible con disparo remoto" };
