@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { autorizarMonitor } from "@/lib/monitor/servidor";
 import { prisma } from "@/lib/prisma";
 import { GRUPO_PROPIO, UMBRAL_PANTALLA_DEFECTO } from "@/lib/detector-propio";
+import { conEstadia, type LugarVehiculo } from "@/lib/vision-estadia";
 
 /**
  * GET /api/monitor/camaras/siluetas?stream=<nombre> → text/event-stream con lo que OmniVision ve
@@ -73,6 +74,28 @@ async function ajustesDePantalla(): Promise<Map<string, AjustePantalla>> {
 }
 
 /**
+ * Los vehículos que están en su lugar y desde cuándo, por cámara: lo publica vision-worker cada
+ * 15 s (VISION_LUGARES, ver lib-lugares-vehiculos.js). Se lee a lo sumo cada LUGARES_MS. Es lo que
+ * permite escribir «2 h 05» sobre un auto sin pedirle nada a la GPU.
+ */
+const CLAVE_LUGARES = "VISION_LUGARES";
+const LUGARES_MS = 5000;
+/** Una publicación más vieja que esto no se usa: el worker está parado y los relojes mentirían. */
+const LUGARES_VIEJOS_MS = 3 * 60_000;
+let lugares: { al: number; camaras: Record<string, LugarVehiculo[]> } = { al: 0, camaras: {} };
+async function lugaresDe(camara: string): Promise<LugarVehiculo[] | undefined> {
+    if (Date.now() - lugares.al > LUGARES_MS) {
+        try {
+            const j = JSON.parse((await prisma.setting.findUnique({ where: { key: CLAVE_LUGARES } }))?.value || "null");
+            lugares = { al: Date.now(), camaras: j?.t && Date.now() - Date.parse(j.t) < LUGARES_VIEJOS_MS ? j.camaras || {} : {} };
+        } catch { lugares = { al: Date.now(), camaras: {} }; }
+    }
+    return lugares.camaras[camara];
+}
+/** `lpr_<id>` o `face_<id>` → el id de la cámara, que es como la conoce vision-worker. */
+const camaraDeStream = (stream: string) => stream.replace(/^(lpr|face)_/, "");
+
+/**
  * Lo que viaja al navegador de lo que vio omni-vision, para el vivo (GET) y la grabación (POST).
  * Lo del detector entrenado acá sólo desde el umbral de pantalla de su clase: se decide cuadro a
  * cuadro, así que el recuadro aparece cuando lo supera y se va cuando baja. Lo de fábrica
@@ -136,7 +159,8 @@ export async function GET(req: NextRequest) {
                         t, ms: Date.now() - t, descartados,
                         analisis: {
                             ancho: j.ancho, alto: j.alto, tarea: "segmentar",
-                            objetos: paraPantalla(j.objetos, await ajustesDePantalla()),
+                            // El tiempo en el lugar sólo en el vivo: en la grabación el cuadro es de otro momento.
+                            objetos: conEstadia(paraPantalla(j.objetos, await ajustesDePantalla()), await lugaresDe(camaraDeStream(stream))),
                         },
                     });
                     descartados = 0;

@@ -20,6 +20,8 @@ export type ObjetoAnalizado = {
     atributos?: { id: string; nombre: string; valor: string; prob: number; dudoso: boolean }[] | null;
     /** El ícono elegido para una clase entrenada (ClasePropia.icono): lo suma el servidor en el vivo. */
     icono?: string | null;
+    /** Desde cuándo (ms) este vehículo está en su lugar: lo suma el servidor en el vivo (lib/vision-estadia). */
+    quietoDesde?: number;
 };
 export type Analisis = { ancho: number; alto: number; objetos: ObjetoAnalizado[]; tarea?: string;
     /** Doble verificación: el cuadro propio del canal, sacado unos segundos después (clave en MinIO). */

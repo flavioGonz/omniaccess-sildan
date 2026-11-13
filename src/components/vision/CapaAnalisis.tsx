@@ -5,6 +5,7 @@ import { Backpack, Bike, Bird, Briefcase, Bus, Car, Cat, Dog, Luggage, Motorbike
 import { bandasLinea, poligonos, veredicto, type Analisis, type GeomNorm, type Pt } from "@/lib/vision-capa";
 import { iconoPropio, useNombresPropios } from "@/lib/nombres-propios";
 import { resolverIcono } from "@/components/vision/iconos-clase";
+import { textoEstadia } from "@/lib/vision-estadia";
 
 /**
  * Lo que vio omni-vision, dibujado encima de la foto: las siluetas, la línea y la zona de la
@@ -189,7 +190,9 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const Icono = propio?.dibujo || ICONO_CLASE[o.clase] || ICONO_GRUPO[o.grupo] || ScanEye;
                 const titulo = o.nombre ? o.nombre[0].toUpperCase() + o.nombre.slice(1) : o.clase;
                 const extra = atributos ? (o.atributos || []).filter((a) => !a.dudoso && (a.id === "color" || a.id === "carroceria" || a.id === "tipo")).map((a) => a.valor).slice(0, 2) : [];
-                const meta = extra.join(" · ").toUpperCase();
+                // Cuánto lleva estacionado (12/11): primero en el renglón de abajo, que es el dato que se viene a leer.
+                const estadia = o.quietoDesde ? `HACE ${textoEstadia(Date.now() - o.quietoDesde)}` : null;
+                const meta = [estadia, ...extra.map((x) => x.toUpperCase())].filter(Boolean).join(" · ");
                 const conf = `${Math.round(o.confianza * 100)} %`;
                 const f = fuente * 1.05, fm = fuente * 0.74, icono = f * 1.15, hueco = f * 0.4;
                 // Anchos estimados con margen (la letra de reemplazo, si falta Outfit, es más ancha).

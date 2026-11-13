@@ -37,6 +37,7 @@ const relecturas = require("./vision-relectura");
 const reglasVision = require("./vision-reglas");
 const zonasEntrenables = require("./vision-zonas");
 const capturasProgramadas = require("./vision-capturas");
+const lugaresVehiculos = require("./lib-lugares-vehiculos");
 const analisisFotos = require("./vision-analisis");
 const vocabIndice = require("./vision-vocab-indice");
 
@@ -685,6 +686,8 @@ async function analizarCuadro(cam, jpeg, registra, rapido = null) {
     ultimoAnalisis[cam.id] = Date.now();
     est.analizados++; contadores.analizados++;
     est.ms = Date.now() - t0; est.ultimo = ahora.toISOString(); est.error = null;
+    // Cuánto lleva cada vehículo en su lugar (para el vivo): con las cajas de este mismo análisis, sin pedir nada más.
+    lugares[cam.id] = lugaresVehiculos.actualizar(lugares[cam.id] || [], (r.objetos || []).filter((o) => o.grupo === "vehiculo" && Array.isArray(o.caja_norm) && o.caja_norm.length === 4).map((o) => o.caja_norm), Date.now());
     // Las reglas miran todo lo que vio (cada una elige sus clases); el registro, sólo las clases prendidas.
     try { await reglero?.procesar(cam, r.objetos || [], jpeg, ahora); } catch (e) { est.error = `reglas: ${e.message}`; }
     if (esEstacionamiento(cam.id)) mandarEstacionamiento(cam.id, ahora, r.objetos || []);
@@ -699,6 +702,18 @@ async function analizarCuadro(cam, jpeg, registra, rapido = null) {
             else await seguir(p, o, jpeg, r, ahora);
         } catch (e) { est.error = `guardar: ${e.message}`; contadores.errores++; }
     }
+}
+
+/** Por cámara, los vehículos que están en su lugar y desde cuándo (lib-lugares-vehiculos). En memoria; se publica con el estado. */
+let lugares = {};
+/** La misma clave que lee src/lib/vision-estadia-servidor.ts: si cambia allá, cambia acá. */
+const CLAVE_LUGARES = "VISION_LUGARES";
+async function publicarLugares() {
+    const ahora = Date.now();
+    const camaras = {};
+    for (const [id, lista] of Object.entries(lugares)) { const l = lugaresVehiculos.publicar(lista, ahora); if (l.length) camaras[id] = l; }
+    const valor = JSON.stringify({ t: new Date(ahora).toISOString(), camaras });
+    await prisma.setting.upsert({ where: { key: CLAVE_LUGARES }, update: { value: valor }, create: { key: CLAVE_LUGARES, value: valor } }).catch(() => null);
 }
 
 const esEstacionamiento = (id) => !!(ajustes.estacionamiento && ajustes.franjas?.has(id) && ajustes.mira && ajustes.permitidas?.has(id));
@@ -897,6 +912,13 @@ async function principal() {
         },
     });
     await leerAjustes().catch((e) => log("ajustes:", e.message));
+    // Los vehículos que ya estaban en su lugar antes del reinicio siguen con su reloj.
+    try {
+        const foto = JSON.parse((await prisma.setting.findUnique({ where: { key: CLAVE_LUGARES } }))?.value || "null");
+        lugares = lugaresVehiculos.heredar(foto, Date.now());
+        const n = Object.values(lugares).reduce((t, l) => t + l.length, 0);
+        if (n) log(`vehículos en su lugar heredados del arranque anterior: ${n}`);
+    } catch { lugares = {}; }
     const permitidas = () => ({ todas: ajustes.todas !== false, ids: [...(ajustes.permitidas || [])] });
     relector = relecturas.iniciar({ prisma, subir, ajuste, log, vision: VISION, activa: () => ajustes.relectura, permitidas });
     analista = analisisFotos.iniciar({
@@ -961,7 +983,7 @@ async function principal() {
             // Con el registro apagado, las pistas abiertas por el carril rápido también se cierran.
             await cerrarVencidas(!ajustes.activo || !ajustes.mira);
             contadores.ciclos++;
-            if (Date.now() - ultEstado > ESTADO_MS) { await escribirEstado(); ultEstado = Date.now(); }
+            if (Date.now() - ultEstado > ESTADO_MS) { await escribirEstado(); await publicarLugares(); ultEstado = Date.now(); }
             if (Date.now() - ultLimpieza > LIMPIEZA_MS) { ultLimpieza = Date.now(); await limpiar().catch((e) => log("limpieza:", e.message)); }
         } catch (e) {
             log("ciclo:", e.message);
