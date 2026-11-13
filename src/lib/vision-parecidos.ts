@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client";
 import { equiposDeArea } from "@/lib/areas-historial";
 import { historialDePistas, pareceChapa, pasosDeChapa, pistasDePasos, type PasoChapa } from "@/lib/vision-historial";
 import { agruparRepetidos } from "@/lib/parecidos-agrupar";
+import { esLprDeAcceso } from "@/lib/modo-camara";
 
 /**
  * GET /api/vision/buscar?q=camioneta blanca con escalera  ·  ?parecido=<objetoId>
@@ -113,18 +114,23 @@ export async function comparar(consulta: Float32Array, escala: number | null, se
         : enArea.fuera.length ? Prisma.sql` AND (o."deviceId" IS NULL OR o."deviceId" NOT IN (${Prisma.join(enArea.fuera)}))` : Prisma.empty;
     const filtros = Prisma.sql`NOT o.falsa AND o."primeraVez" >= ${desde}::timestamp${camara ? Prisma.sql` AND o."deviceId" = ${camara}` : Prisma.empty}${grupo ? Prisma.sql` AND o.grupo = ${grupo}` : Prisma.empty}${filtroArea}`;
     const [huellas, sinHuella] = await Promise.all([
-        prisma.$queryRaw<{ id: string; vector: Buffer; escala: number; camara: string | null }[]>`
-            SELECT h."objetoId" AS id, h.vector, h.escala, o."deviceId" AS camara FROM "HuellaObjeto" h JOIN "ObjetoVisto" o ON o.id = h."objetoId"
+        prisma.$queryRaw<{ id: string; vector: Buffer; escala: number; camara: string | null; caja: unknown }[]>`
+            SELECT h."objetoId" AS id, h.vector, h.escala, o."deviceId" AS camara, o.caja FROM "HuellaObjeto" h JOIN "ObjetoVisto" o ON o.id = h."objetoId"
             WHERE ${filtros} LIMIT ${CANDIDATOS_MAX}`,
         prisma.$queryRaw<{ n: number }[]>`
             SELECT count(*)::int AS n FROM "ObjetoVisto" o LEFT JOIN "HuellaObjeto" h ON h."objetoId" = o.id
             WHERE h."objetoId" IS NULL AND o.recorte IS NOT NULL AND ${filtros}`,
     ]);
+    // Las cámaras de acceso: ahí no se agrupa lo repetido (cada pista es otro vehículo; ver lib/parecidos-agrupar).
+    const idsCam = [...new Set(huellas.map((x) => x.camara).filter(Boolean))] as string[];
+    const deAcceso = new Set(idsCam.length ? (await prisma.device.findMany({ where: { id: { in: idsCam } }, select: { id: true, deviceType: true, trackAcceso: true } }).catch(() => []))
+        .filter((d) => esLprDeAcceso(d as any)).map((d) => d.id) : []);
     const orden = huellas.map((x) => {
         const q8 = new Int8Array(x.vector.buffer, x.vector.byteOffset, x.vector.byteLength);
         let d = 0, n = 0;
         for (let i = 0; i < q8.length; i++) { d += q8[i] * consulta[i]; n += q8[i] * q8[i]; }
-        return { id: x.id, coseno: d / (Math.sqrt(n) || 1), camara: x.camara, v: q8 };
+        const caja = Array.isArray(x.caja) && x.caja.length === 4 ? (x.caja as unknown[]).map(Number) : null;
+        return { id: x.id, coseno: d / (Math.sqrt(n) || 1), camara: x.camara, v: q8, caja, fija: !!x.camara && !deAcceso.has(x.camara) };
     }).filter((x) => x.id !== parecido).sort((a, b) => b.coseno - a.coseno);
 
     /*
@@ -143,7 +149,7 @@ export async function comparar(consulta: Float32Array, escala: number | null, se
     }
     const yaEstan = new Set(deChapa.map((f) => f.id));
 
-    // Lo repetido (misma cámara, huella casi idéntica) en una sola tarjeta: ver lib/parecidos-agrupar.
+    // Lo repetido (misma cámara, misma caja, huella casi idéntica) en una sola tarjeta: ver lib/parecidos-agrupar.
     const puntos = agruparRepetidos(orden.filter((x) => !yaEstan.has(x.id)), RESULTADOS);
     const agrupados = puntos.reduce((s, p) => s + p.veces - 1, 0);
 

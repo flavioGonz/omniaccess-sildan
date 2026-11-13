@@ -435,7 +435,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                                 <p className="text-[11.5px] text-muted-foreground tabular-nums min-h-[17px]">
                                     {buscando ? "Buscando…" : res ? <>{res.resultados.length - (res.porChapa || 0)} más parecidos de {res.comparados.toLocaleString("es-UY")}{fa.nombre ? ` en ${fa.nombre}` : ""} · {res.ms} ms
                                         {res.porChapa ? <><br />{res.porChapa} {res.porChapa === 1 ? "paso" : "pasos"} de {chapaEvento} por las lectoras, arriba</> : null}
-                                        {res.agrupados ? <><br />{res.agrupados} {res.agrupados === 1 ? "repetido agrupado" : "repetidos agrupados"} (misma cámara, casi la misma foto)</> : null}</> : null}
+                                        {res.agrupados ? <><br />{res.agrupados} {res.agrupados === 1 ? "repetido agrupado" : "repetidos agrupados"} (mismo lugar de la misma cámara)</> : null}</> : null}
                                 </p>
                             )}
                         </div>
@@ -860,7 +860,7 @@ function Miniatura({ r, i, rel, chapa, leyendo, chapaEvento, onAbrir }: {
                     // No se parece «mucho» o «poco»: es la misma matrícula, leída por una lectora. Eso vale más que el parecido.
                     ? <span className="h-5 px-2 rounded-full text-[10px] font-bold inline-flex items-center gap-1 pleno-bien" title="Otro paso de la misma matrícula por una lectora: no vino por parecido"><Check size={10} strokeWidth={3} /> Misma matrícula</span>
                     : <span className={cn("h-5 px-2 rounded-full text-[10px] font-bold inline-flex items-center", `pleno-${p.tono}`)}>{p.texto}</span>}
-                {(r.veces || 1) > 1 && <span className="h-5 px-1.5 rounded-full bg-black/55 backdrop-blur-md text-white text-[10.5px] font-bold tabular-nums inline-flex items-center" title={`Visto ${r.veces} veces casi igual en esta cámara: los repetidos van en esta tarjeta`}>× {r.veces}</span>}
+                {(r.veces || 1) > 1 && <span className="h-5 px-1.5 rounded-full bg-black/55 backdrop-blur-md text-white text-[10.5px] font-bold tabular-nums inline-flex items-center" title={`Visto ${r.veces} veces en el mismo lugar de esta cámara: los repetidos van en esta tarjeta`}>× {r.veces}</span>}
             </div>
             {/* Los controles, abajo a la derecha al pasar el mouse: arriba a la derecha de la grilla va la cruz. */}
             <span className="absolute right-2 bottom-3 z-[2] flex items-center gap-1 opacity-0 translate-y-[2px] group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 transition-[opacity,transform] duration-150">
