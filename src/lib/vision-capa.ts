@@ -24,6 +24,12 @@ export type ObjetoAnalizado = {
     quietoDesde?: number;
     /** La matrícula de este vehículo y dónde está su chapa (normalizada): de su estadía abierta, en el vivo. */
     chapa?: { plate: string; caja: [number, number, number, number] };
+    /**
+     * Este vehículo está en la lista negra: se pinta ENTERO del color de alerta, latiendo, con la
+     * sirena encima y este texto («Requerida · M. Interior», «Lista negra»). Lo suma el servidor en
+     * el vivo, y el visor en la foto de la estadía.
+     */
+    alerta?: string | null;
 };
 export type Analisis = { ancho: number; alto: number; objetos: ObjetoAnalizado[]; tarea?: string;
     /** Doble verificación: el cuadro propio del canal, sacado unos segundos después (clave en MinIO). */

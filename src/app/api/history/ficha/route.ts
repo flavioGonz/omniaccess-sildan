@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
         prisma.credential.findFirst({ where: { type: "PLATE", value: plate }, select: { user: { select: SEL_USUARIO } } }).catch(() => null),
         // Quién recibió el acceso manda, salvo si la ficha es de una relectura (el evento no lo tenía).
         evento?.userId && !porRelectura ? prisma.user.findUnique({ where: { id: evento.userId }, select: SEL_USUARIO }).catch(() => null) : null,
-        prisma.plateWatch.findFirst({ where: { plate, active: true }, select: { label: true, category: true, color: true } }).catch(() => null),
+        prisma.plateWatch.findFirst({ where: { plate, active: true }, select: { label: true, category: true, color: true, motivo: true } }).catch(() => null),
         prisma.visita.findMany({
             where: { plate, entra: { lte: new Date(+momento + MARGEN_VISITA_MS) } }, orderBy: { entra: "desc" }, take: 5,
             select: { tipo: true, loteNombre: true, nombre: true, empresa: true, entra: true, vence: true, sale: true },
@@ -113,7 +113,7 @@ export async function GET(req: NextRequest) {
             id: u.id, nombre: u.name, telefono: u.phone || null, unidad: u.unit?.name || null,
             apartamento: u.apartment || null, cochera: u.parkingSlot?.label || null, rol: String(u.role),
         } : null,
-        vigilancia: vigilancia ? { etiqueta: vigilancia.label, categoria: normalizeWatchCat(vigilancia.category) || vigilancia.category, color: vigilancia.color } : null,
+        vigilancia: vigilancia ? { etiqueta: vigilancia.label, categoria: normalizeWatchCat(vigilancia.category) || vigilancia.category, color: vigilancia.color, motivo: vigilancia.motivo } : null,
         visita: v ? {
             tipo: tipos?.find((t) => t.clave === v.tipo)?.nombre || v.tipo, lote: v.loteNombre, nombre: v.nombre, empresa: v.empresa,
             entra: v.entra.toISOString(), vence: v.vence.toISOString(), sale: v.sale ? v.sale.toISOString() : null,

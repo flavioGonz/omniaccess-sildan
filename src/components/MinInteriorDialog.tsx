@@ -10,7 +10,7 @@ import { Chip } from "@/components/ui/estados";
 import { RotateCw, ShieldAlert, ShieldCheck, ShieldQuestion, Search, Check, ExternalLink, KeyRound, FileSearch, TriangleAlert } from "lucide-react";
 import { native } from "@/lib/guard-native";
 import { cn } from "@/lib/utils";
-import { MIN_INTERIOR_URL, normalizarMatricula, LARGO_CODIGO, type EstadoConsulta, type UltimaConsulta } from "@/lib/min-interior";
+import { MIN_INTERIOR_URL, normalizarMatricula, LARGO_CODIGO, type EstadoConsulta, type UltimaConsulta, type AltaRequerida } from "@/lib/min-interior";
 
 /**
  * Consulta asistida de "Matrículas Requeridas" del Ministerio del Interior.
@@ -28,7 +28,9 @@ import { MIN_INTERIOR_URL, normalizarMatricula, LARGO_CODIGO, type EstadoConsult
 
 type Paso = "verificar" | "consultando" | "resultado";
 /** `guardada`: la respuesta salió de una consulta anterior (quién la hizo), no de recién. */
-type Resultado = { status: EstadoConsulta; matricula: string; excerpt: string; hora: Date; guardada?: string | null };
+type Resultado = { status: EstadoConsulta; matricula: string; excerpt: string; hora: Date; guardada?: string | null;
+    /** Requerida: cómo fue su entrada automática a la lista negra (null = todavía cargando). */
+    lista?: AltaRequerida | null };
 
 const PASOS: { clave: Paso; rotulo: string; Icono: React.ComponentType<{ size?: number; className?: string }> }[] = [
     { clave: "verificar", rotulo: "Verificación", Icono: KeyRound },
@@ -102,11 +104,17 @@ export function MinInteriorDialog({ plate, open, onOpenChange }: { plate?: strin
         setResultado(null); setAviso(""); setError(""); setPaso("verificar"); setLoading(true);
         fetch("/api/min-interior?action=ultima&matricula=" + encodeURIComponent(m), { cache: "no-store" })
             .then((r) => r.json())
-            .then((d: { ok: boolean; ultima: UltimaConsulta | null }) => {
+            .then((d: { ok: boolean; ultima: UltimaConsulta | null; enNegra?: boolean }) => {
                 if (!vivo) return;
                 if (d?.ok && d.ultima) {
                     setLoading(false);
-                    setResultado({ status: d.ultima.estado, matricula: m, excerpt: d.ultima.extracto || "", hora: new Date(d.ultima.creadoEn), guardada: d.ultima.quien || "" });
+                    const base: Resultado = { status: d.ultima.estado, matricula: m, excerpt: d.ultima.extracto || "", hora: new Date(d.ultima.creadoEn), guardada: d.ultima.quien || "" };
+                    // Requerida confirmada que todavía no está en la lista negra (se consultó antes de que la carga fuera sola): se carga ahora, y se avisa.
+                    const falta = d.ultima.estado === "REQUERIDA" && d.enNegra === false;
+                    setResultado(d.ultima.estado === "REQUERIDA" ? { ...base, lista: falta ? null : { ok: true, yaEstaba: true, antes: null } } : base);
+                    if (falta) fetch("/api/min-interior", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accion: "lista-negra", matricula: m }) })
+                        .then((r) => r.json()).then((j) => { if (vivo) setResultado((x) => (x && x.matricula === m ? { ...x, lista: j?.lista || { ok: false, yaEstaba: false, antes: null, error: j?.error || "no se pudo cargar" } } : x)); })
+                        .catch(() => { if (vivo) setResultado((x) => (x && x.matricula === m ? { ...x, lista: { ok: false, yaEstaba: false, antes: null, error: "no se pudo cargar" } } : x)); });
                     setPaso("resultado");
                 } else nuevaConsulta();
             })
@@ -157,7 +165,7 @@ export function MinInteriorDialog({ plate, open, onOpenChange }: { plate?: strin
                 // El código no era el de la imagen: no es un resultado, es volver a la verificación.
                 setPaso("verificar"); setAviso("El código no coincidió con la imagen. Hay una nueva."); startCaptcha(); return;
             }
-            setResultado({ status: d.status, matricula: d.matricula, excerpt: d.excerpt, hora: new Date() });
+            setResultado({ status: d.status, matricula: d.matricula, excerpt: d.excerpt, hora: new Date(), lista: d.lista });
             setPaso("resultado");
         } catch (e: any) {
             setPaso("verificar"); setError(e?.message || String(e));
@@ -342,6 +350,18 @@ function TarjetaResultado({ r }: { r: Resultado }) {
                 <div className="mt-3 text-[24px] font-bold leading-none tracking-[-0.01em]">MATRÍCULA REQUERIDA</div>
                 <div className="mt-2 text-[15px] font-semibold tracking-[0.2em] tabular-nums">{r.matricula}</div>
                 <p className="mt-2 text-[13px] opacity-90">Figura con requerimiento en el Ministerio del Interior. Actuá según el protocolo del barrio.</p>
+                {/* La entrada a la lista negra es automática: acá se cuenta cómo salió, en el momento. */}
+                {r.lista !== undefined && (
+                    <div role="status" className="mt-4 rounded-[10px] bg-black/20 px-3.5 py-2.5 text-left text-[12.5px] leading-snug flex items-start gap-2">
+                        {r.lista === null ? <RotateCw size={15} className="mt-0.5 shrink-0 animate-spin" /> : r.lista.ok ? <ShieldCheck size={16} className="mt-0.5 shrink-0" /> : <TriangleAlert size={16} className="mt-0.5 shrink-0" />}
+                        <span>
+                            {r.lista === null ? <>Cargándola en la Lista negra<span className="puntos-espera" aria-hidden><span>.</span><span>.</span><span>.</span></span></>
+                                : !r.lista.ok ? <><b>No se pudo cargar en la Lista negra</b> ({r.lista.error}). Cargala a mano desde Lista negra.</>
+                                : r.lista.yaEstaba ? <><b>Está en la Lista negra</b> como requerida. Cada lectura de esta chapa salta como alerta crítica en los monitores y la barrera la deniega.</>
+                                : <><b>Se cargó sola en la Lista negra</b>{r.lista.antes ? ` (estaba en ${r.lista.antes})` : ""}, con la fecha de esta consulta. Desde ahora cada lectura de esta chapa salta como alerta crítica en los monitores y la barrera la deniega.</>}
+                        </span>
+                    </div>
+                )}
             </motion.div>
         );
     if (r.status === "NO")

@@ -92,7 +92,7 @@ export async function GET() {
             }),
             prisma.plateWatch.findMany({
                 where: { plate: { in: patentes }, active: true },
-                select: { plate: true, label: true, category: true, color: true },
+                select: { plate: true, label: true, category: true, color: true, motivo: true },
             }),
         ]);
         for (const v of vehiculos) {
@@ -107,7 +107,7 @@ export async function GET() {
         }
         for (const w of vigiladas) {
             // Categoría canónica (BLACKLISTED | WHITELISTED | SEARCH): el visor pinta por ella.
-            fichas[w.plate] = { ...(fichas[w.plate] || {}), vigilancia: { etiqueta: w.label, categoria: normalizeWatchCat(w.category) || w.category, color: w.color } };
+            fichas[w.plate] = { ...(fichas[w.plate] || {}), vigilancia: { etiqueta: w.label, categoria: normalizeWatchCat(w.category) || w.category, color: w.color, motivo: w.motivo } };
         }
     }
 

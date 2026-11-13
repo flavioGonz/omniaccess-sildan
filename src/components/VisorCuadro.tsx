@@ -10,7 +10,10 @@ import {
     UserPlus, Radio, LogIn, LogOut, Image as IconoFoto, Video, Eye, EyeOff,
     PlayCircle, Download, Archive, ShieldBan, ScanFace, Sparkles, Activity, GalleryHorizontal, Cctv, Undo2, Share2, ScanSearch,
     Repeat, Loader2,
+    Siren,
 } from "lucide-react";
+import { REQUERIDA_CORTA, esRequerida } from "@/lib/min-interior";
+import { CartelRequerida } from "@/components/CartelRequerida";
 import { cn } from "@/lib/utils";
 import { ChapaMercosur } from "@/components/tracking/ChapaMercosur";
 import { ContornoDeteccion } from "@/components/tracking/ContornoDeteccion";
@@ -114,7 +117,7 @@ export type FichaMatricula = {
         id?: string; nombre?: string | null; telefono?: string | null;
         unidad?: string | null; apartamento?: string | null; cochera?: string | null; rol?: string | null;
     } | null;
-    vigilancia?: { etiqueta?: string | null; categoria?: string | null; color?: string | null } | null;
+    vigilancia?: { etiqueta?: string | null; categoria?: string | null; color?: string | null; motivo?: string | null } | null;
     /** La visita que estaba abierta a esa hora: a qué lote iba y hasta cuándo. */
     visita?: { tipo?: string | null; lote?: string | null; nombre?: string | null; empresa?: string | null; entra?: string; vence?: string; sale?: string | null } | null;
 };
@@ -709,7 +712,16 @@ export function VisorCuadro({
         </BotonVisor>
     ) : null;
     /** Lo que acompaña al tiempo: la lista de vigilancia si está, o si figura en el padrón. */
-    const subEstadia = vig?.etiqueta || (cargandoFicha ? "" : conocida ? "En el padrón" : "Sin registrar");
+    // Confirmada por el Ministerio (entra sola a la lista negra con esa etiqueta: lib/min-interior).
+    const requerida = esNegra(vig?.categoria) && esRequerida(vig?.etiqueta, vig?.motivo);
+    /**
+     * En el rótulo sobre la foto va el NOMBRE de la lista, no su etiqueta (13/11, Nico: «el mensaje
+     * está repetido, y en la foto dibujado desfasado, no se lee completo»). La etiqueta de una
+     * entrada puede ser una frase entera («Sospechoso: marcado desde el vivo de…») que ya está
+     * escrita arriba, en la cápsula; repetida en el rótulo se salía del cuadro.
+     */
+    const subEstadia = vig ? (requerida ? REQUERIDA_CORTA : esNegra(vig.categoria) ? "Lista negra" : esBusca(vig.categoria) ? "Lista Amarilla" : esVip(vig.categoria) ? "VIP" : vig.etiqueta || "")
+        : cargandoFicha ? "" : conocida ? "En el padrón" : "Sin registrar";
     /**
      * El auto de la estadía: el vehículo cuya caja contiene el centro de la chapa. Sale del análisis
      * guardado si la foto lo trae; si no, se le pide a OmniVision al abrir (una vez por foto).
@@ -722,6 +734,13 @@ export function VisorCuadro({
         return analisisAuto.objetos.filter((o) => o.grupo === "vehiculo" && o.caja?.length === 4 && cx >= o.caja[0] && cx <= o.caja[2] && cy >= o.caja[1] && cy <= o.caja[3])
             .sort((a, b) => (a.caja[2] - a.caja[0]) * (a.caja[3] - a.caja[1]) - (b.caja[2] - b.caja[0]) * (b.caja[3] - b.caja[1]))[0] || null;
     }, [recuadro?.x, recuadro?.y, recuadro?.w, recuadro?.h, analisisAuto]); // eslint-disable-line react-hooks/exhaustive-deps
+    /**
+     * En la lista negra, el vehículo de la chapa se pinta entero de rojo (13/11): también cuando se
+     * están viendo las siluetas de OmniVision, que antes lo dejaban violeta como a cualquier otro.
+     */
+    const alertaAuto = esNegra(vig?.categoria) ? (requerida ? REQUERIDA_CORTA : "Lista negra") : null;
+    const visionConAlerta = useMemo(() => (vision && autoEstacionado && alertaAuto
+        ? { ...vision, objetos: vision.objetos.map((o) => (o === autoEstacionado ? { ...o, alerta: alertaAuto } : o)) } : null), [vision, autoEstacionado, alertaAuto]);
     /**
      * De dónde sale la guía (la chapa) y hasta dónde llega el auto: con su caja si se sabe, y si no
      * a ojo desde la chapa (unas alturas de chapa hacia arriba: el rótulo cae sobre el techo).
@@ -902,14 +921,14 @@ export function VisorCuadro({
                         {/* Lo que vio OmniVision: siluetas y rótulos. La caja es exactamente la
                             foto (misma proporción), así que el ajuste «contain» cae justo. */}
                         {modo === "foto" && !enPaso && !limpio && verSiluetas && vision && !enVideo && (
-                            <CapaAnalisis analisis={vision} atributos className="z-[6]"
+                            <CapaAnalisis analisis={visionConAlerta || vision} atributos className="z-[6]" rotuloAlerta={!conCapsula}
                                 chapa={datos?.relectura?.plate && datos.relectura.caja ? { plate: datos.relectura.plate, caja: datos.relectura.caja } : null} />
                         )}
 
                         {/* El auto estacionado, con su silueta (12/11). Si ya se están viendo las
                             siluetas de OmniVision, la suya está entre ellas y no se dibuja dos veces. */}
                         {conCapsula && autoEstacionado && analisisAuto && modo === "foto" && !enPaso && !limpio && !enVideo && !(verSiluetas && vision) && (
-                            <CapaAnalisis analisis={{ ancho: analisisAuto.ancho, alto: analisisAuto.alto, objetos: [autoEstacionado] }} etiquetas={false} className="z-[6]" />
+                            <CapaAnalisis analisis={{ ancho: analisisAuto.ancho, alto: analisisAuto.alto, objetos: [alertaAuto ? { ...autoEstacionado, alerta: alertaAuto } : autoEstacionado] }} etiquetas={false} className="z-[6]" />
                         )}
 
                         {/* El tiempo estacionado: un punto en la chapa, la guía hasta arriba del auto
@@ -979,7 +998,11 @@ export function VisorCuadro({
                                 <span>{horaSeg(momento)}</span>
                             </p>
                         </div>
-                        {vig && (
+                        {vig && requerida && (
+                            // El cartel: qué es, quién lo dice y cuándo se confirmó (pieza compartida con los monitores).
+                            <CartelRequerida motivo={vig.motivo} className="shrink-0" />
+                        )}
+                        {vig && !requerida && (
                             <span className="visor-vig shrink-0 h-8 px-3 rounded-[8px] border flex items-center gap-1.5 text-[11.5px] font-bold"
                                 style={{
                                     background: "color-mix(in oklab, var(--visor-tono) 22%, transparent)",

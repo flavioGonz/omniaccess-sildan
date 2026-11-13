@@ -27,3 +27,53 @@ export type EstadoConsulta = "REQUERIDA" | "NO" | "CAPTCHA" | "UNKNOWN";
 
 /** La última consulta guardada de una matrícula, como la devuelve `?action=ultima`. */
 export type UltimaConsulta = { estado: Exclude<EstadoConsulta, "CAPTCHA">; creadoEn: string; quien: string | null; extracto: string | null };
+
+/**
+ * Una matrícula que el Ministerio confirmó como REQUERIDA (13/11, Nico: «una vez detectada una
+ * matrícula requerida por el Ministerio, en todas las búsquedas, estados, fotos, debe indicar la
+ * fecha de consulta y la confirmación de requerida: cartel visual claro … debe ingresarse
+ * automáticamente a listas negras y avisar de ese proceso»).
+ *
+ * No se inventó otra lista: al confirmarse, la matrícula entra a la LISTA NEGRA con esta etiqueta
+ * y un motivo que dice cuándo se consultó y quién. Así vale todo lo que la lista negra ya hace
+ * —la barrera la deniega, salta el aviso crítico en toda la app y en la pared, avisa el bot— y lo
+ * único que se agrega es reconocerla por la etiqueta para mostrarla como lo que es.
+ */
+export const ETIQUETA_REQUERIDA = "Requerida · Ministerio del Interior";
+/** Cómo se la nombra donde no entra la etiqueta entera (el rótulo sobre la foto, una cápsula). */
+export const REQUERIDA_CORTA = "Requerida · M. Interior";
+const INICIO_MOTIVO = "Requerida por el Ministerio del Interior";
+
+/** ¿Esta entrada de la lista es una requerida confirmada? Por la etiqueta, o por cómo empieza el motivo. */
+export const esRequerida = (etiqueta?: string | null, motivo?: string | null) =>
+    String(etiqueta || "").trim() === ETIQUETA_REQUERIDA || String(motivo || "").startsWith(INICIO_MOTIVO);
+
+/** El motivo que queda en la lista negra: qué, cuándo se consultó y quién. `antes`: lo que ya decía la lista de esa matrícula. */
+export function motivoRequerida(cuando: Date, quien: string | null, antes?: string | null): string {
+    const f = new Intl.DateTimeFormat("es-UY", { timeZone: "America/Montevideo", day: "2-digit", month: "2-digit", year: "numeric" }).format(cuando);
+    const h = new Intl.DateTimeFormat("es-UY", { timeZone: "America/Montevideo", hour: "2-digit", minute: "2-digit", hour12: false }).format(cuando);
+    const previo = antes && !antes.startsWith(INICIO_MOTIVO) ? ` Antes en la lista: ${antes.trim().replace(/\.$/, "")}.` : "";
+    return `${INICIO_MOTIVO}. Confirmada en el sitio oficial el ${f} a las ${h}${quien ? ` por ${quien}` : ""}.${previo}`;
+}
+
+/** Cuándo se confirmó, sacado del motivo («13/11/2026 17:16»), para el cartel. Null si el motivo no lo trae. */
+export function confirmacionDe(motivo?: string | null): string | null {
+    const m = /el (\d{2}\/\d{2}\/\d{4}) a las (\d{2}:\d{2})/.exec(String(motivo || ""));
+    return m ? `${m[1]} ${m[2]}` : null;
+}
+
+/** Lo que la ruta cuenta de la entrada automática a la lista negra, para avisarlo en el momento. */
+export type AltaRequerida = { ok: boolean; yaEstaba: boolean; antes: string | null; error?: string };
+
+/**
+ * La frase del aviso de «lista negra a la vista» (lib/lista-negra-vista): quién lo dice y dónde se
+ * la vio. Sin la hora: el aviso ya tiene la suya.
+ */
+export function motivoALaVista(n: { requerida: boolean; etiqueta: string; motivo: string | null }, camara: string | null): string {
+    const donde = camara ? ` A la vista en ${camara}.` : " A la vista en una cámara de seguimiento.";
+    if (n.requerida) {
+        const c = confirmacionDe(n.motivo);
+        return `Requerida por el Ministerio del Interior${c ? ` (confirmada el ${c})` : ""}.${donde}`;
+    }
+    return `En la lista negra${n.etiqueta ? `: ${n.etiqueta}` : ""}.${donde}`;
+}

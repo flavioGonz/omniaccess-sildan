@@ -1,3 +1,4 @@
+import { ETIQUETA_REQUERIDA, esRequerida, motivoRequerida, type AltaRequerida } from "@/lib/min-interior";
 import { variantesMasLeidas } from "@/lib/chapas-parecidas";
 import { NextRequest, NextResponse } from "next/server";
 import { exigirFuncion } from "@/lib/funcion-servidor";
@@ -191,7 +192,13 @@ export async function GET(req: NextRequest) {
         orderBy: { creadoEn: "desc" },
         select: { estado: true, creadoEn: true, quien: true, extracto: true },
       });
-      return NextResponse.json({ ok: true, ultima: u ? { ...u, creadoEn: u.creadoEn.toISOString() } : null }, { headers: { "Cache-Control": "no-store" } });
+      // Si la última dio requerida: ¿ya está en la lista negra como tal? (Las confirmadas antes de que la carga fuera automática, no.)
+      let enNegra: boolean | undefined;
+      if (u?.estado === "REQUERIDA") {
+        const w = await prisma.plateWatch.findUnique({ where: { plate: matricula }, select: { active: true, category: true, label: true, motivo: true } }).catch(() => null);
+        enNegra = !!w?.active && w.category === "BLACKLISTED" && esRequerida(w.label, w.motivo);
+      }
+      return NextResponse.json({ ok: true, ultima: u ? { ...u, creadoEn: u.creadoEn.toISOString() } : null, enNegra }, { headers: { "Cache-Control": "no-store" } });
     }
     if (action === "start") {
       const { cookie, csrf, image, falla } = await start();
@@ -227,6 +234,29 @@ export async function GET(req: NextRequest) {
       { ok: false, error: tiempo ? `El sitio del Ministerio no contestó en ${ESPERA_MS / 1000} s. Reintentá o consultá en el sitio oficial.` : "Sin conexión al sitio del Ministerio: " + (e?.message || String(e)) },
       { status: 502 }
     );
+  }
+}
+
+/**
+ * La matrícula confirmada como requerida entra a la lista negra (o se actualiza si ya estaba, con
+ * la fecha de esta consulta). Usa la misma alta que el panel: avisa a las cámaras y deja la nota.
+ * Si falla no se pierde la respuesta del Ministerio: se dice que no se pudo cargar.
+ */
+async function altaEnListaNegra(matricula: string, quien: string): Promise<AltaRequerida> {
+  try {
+    const previa = await prisma.plateWatch.findUnique({ where: { plate: matricula }, select: { active: true, category: true, label: true, motivo: true } });
+    const activa = previa?.active ? previa : null;
+    const yaEstaba = !!activa && activa.category === "BLACKLISTED" && esRequerida(activa.label, activa.motivo);
+    const { addWatch } = await import("@/app/actions/watchlist");
+    const r = await addWatch({
+      plate: matricula, category: "BLACKLISTED", force: true, notify: true, label: ETIQUETA_REQUERIDA, color: "#dc2626",
+      motivo: motivoRequerida(new Date(), quien, activa ? activa.motivo || activa.label : null), createdBy: `${quien} (consulta al Ministerio)`,
+    });
+    console.log(`[min-interior] ${matricula} requerida → lista negra: ${r.ok ? (yaEstaba ? "ya estaba, fecha actualizada" : "alta") : `no se pudo (${r.error || "sin detalle"})`}`);
+    return { ok: !!r.ok, yaEstaba, antes: activa && !yaEstaba ? (activa.category === "SEARCH" ? "Lista Amarilla" : activa.category === "WHITELISTED" ? "VIP" : "Lista negra") : null, error: r.ok ? undefined : r.error || "no se pudo cargar" };
+  } catch (e: any) {
+    console.error(`[min-interior] no se pudo cargar ${matricula} en la lista negra: ${e?.message || e}`);
+    return { ok: false, yaEstaba: false, antes: null, error: e?.message || "no se pudo cargar" };
   }
 }
 
@@ -268,6 +298,13 @@ export async function POST(req: NextRequest) {
   gc();
   try {
     const body: any = await req.json().catch(() => ({}));
+    // Cargar en la lista negra una requerida YA confirmada (una consulta guardada y vigente): no vuelve al sitio.
+    if (body.accion === "lista-negra") {
+      const m = normalizarMatricula(body.matricula);
+      const u = m ? await prisma.consultaMinInterior.findFirst({ where: { matricula: m, creadoEn: { gte: new Date(Date.now() - ULTIMA_VIGENTE_MS) } }, orderBy: { creadoEn: "desc" }, select: { estado: true } }) : null;
+      if (u?.estado !== "REQUERIDA") return NextResponse.json({ ok: false, error: "No hay una consulta vigente que la dé como requerida." }, { status: 409 });
+      return NextResponse.json({ ok: true, lista: await altaEnListaNegra(m, quien) });
+    }
     const sid = String(body.sid || "");
     const matricula = normalizarMatricula(body.matricula);
     const captcha = String(body.captcha_code || "").trim();
@@ -295,7 +332,9 @@ export async function POST(req: NextRequest) {
       await prisma.consultaMinInterior.create({ data: { matricula, estado: status, extracto: excerpt.slice(0, 700) || null, quien } })
         .catch((e) => console.error(`[min-interior] no se pudo guardar la consulta: ${e?.message || e}`));
     }
-    return NextResponse.json({ ok: true, status, matricula, excerpt });
+    // Requerida: entra sola a la lista negra, y se cuenta (ver ETIQUETA_REQUERIDA en lib/min-interior).
+    const lista = status === "REQUERIDA" ? await altaEnListaNegra(matricula, quien) : undefined;
+    return NextResponse.json({ ok: true, status, matricula, excerpt, lista });
   } catch (e: any) {
     const tiempo = e?.name === "TimeoutError";
     console.error(`[min-interior] consulta: ${tiempo ? `sin respuesta en ${ESPERA_MS / 1000} s` : e?.message || e}`);

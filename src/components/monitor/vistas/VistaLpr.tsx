@@ -16,6 +16,8 @@ import { getImagePath } from "@/lib/image-path";
 import { metodoDeLectura } from "@/lib/lectura-metodo";
 import { watchCatMeta } from "@/lib/watch-categories";
 import { presentarLectura, ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
+import { esRequerida } from "@/lib/min-interior";
+import { CartelRequerida } from "@/components/CartelRequerida";
 import { describirRutina, duracion, NOMBRE_CLASE, type Rutina, type Clase } from "@/lib/visitas/calculos";
 import { cn } from "@/lib/utils";
 import { chapaDe, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
@@ -123,6 +125,8 @@ function EtiquetaClase({ l, comp, grande }: { l: Lectura; comp: Comportamiento; 
     const e = ESTILO_MONITOR[l.clase];
     const conColor = l.clase === "alerta" || (comp[l.clase as ClaveComportamiento]?.color ?? true);
     const texto = l.ficha ? `${NIVELES[l.ficha.nivel].titulo} · ${l.ficha.nombre}` : e.etiqueta;
+    // Requerida: en la tira va el sello; en la lectura grande el cartel va aparte, sobre la chapa (Protagonista).
+    if (requeridaDe(l)) return grande ? null : <CartelRequerida tam="sello" motivo={l.ficha?.motivo} />;
     return (
         <span className={cn("inline-flex items-center rounded-md font-black uppercase tracking-wider whitespace-nowrap max-w-full truncate",
             grande ? "px-3 py-1 text-[15px]" : "px-1.5 py-0.5 text-[10px]", conColor ? e.badge : ESTILO_APAGADO.badge)}>{texto}</span>
@@ -134,6 +138,9 @@ function EtiquetaClase({ l, comp, grande }: { l: Lectura; comp: Comportamiento; 
  * confirmar (eso es del guardia, en el monitor LPR con «Cargar matrícula»); acá se informa,
  * sobre todo si la chapa sugerida está en la lista negra o es de alguien del padrón.
  */
+/** La lectura es de una matrícula que el Ministerio del Interior confirmó como requerida (la ficha de la lista lo dice). */
+const requeridaDe = (l: Lectura) => l.ficha?.nivel === "BLACKLISTED" && esRequerida(l.ficha.nombre, l.ficha.motivo);
+
 function Relectura({ r, grande }: { r?: RelecturaEvento | null; grande?: boolean }) {
     if (!r?.plate) return null;
     const cat = String(r.vigilancia?.category || "").toUpperCase();
@@ -525,6 +532,8 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
             </div>
             <div className="absolute bottom-0 inset-x-0 p-4 lg:p-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pointer-events-none">
                 <div className="min-w-0">
+                    {/* Requerida por el Ministerio: el cartel arriba de la chapa, que es donde se mira primero. */}
+                    {requeridaDe(l) && <div className="mb-3"><CartelRequerida tam="pared" motivo={l.ficha?.motivo} /></div>}
                     <div className="flex items-center gap-4">
                         {(() => {
                             /* La cámara no leyó: va la chapa que leyó OmniVision (doble verificación), con borde
@@ -559,7 +568,7 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
                     <est.Ic size={40} />
                     <div>
                         <div className="text-[clamp(22px,2.6vw,34px)] font-black uppercase tracking-[0.08em] leading-none">{est.t}</div>
-                        {conMotivo && <div className="text-[16px] font-semibold opacity-90 mt-1 max-w-[420px] truncate">{motivoDenegado(l)}</div>}
+                        {conMotivo && <div className="text-[16px] font-semibold opacity-90 mt-1 max-w-[420px] truncate">{requeridaDe(l) ? "Requerida · avisar al 9-1-1" : motivoDenegado(l)}</div>}
                         {/* Lista Amarilla no deniega, así que no hay «motivo del rechazo»: el motivo de la ficha es lo que hay que leer. */}
                         {!conMotivo && l.ficha?.nivel === "SEARCH" && l.ficha.motivo && <div className="text-[16px] font-semibold opacity-90 mt-1 max-w-[420px] truncate">{l.ficha.motivo}</div>}
                     </div>

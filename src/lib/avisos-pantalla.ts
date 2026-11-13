@@ -46,6 +46,11 @@ export type Aviso = {
     foto?: string | null;
     /** Rótulo chico, en mayúsculas espaciadas: «Lista negra», «Intrusión real en curso». */
     rotulo: string;
+    /**
+     * La sirena en vez del ícono del tipo: una matrícula que el Ministerio del Interior confirmó
+     * como requerida. Sigue siendo «lista negra» (mismo color, mismas decisiones); cambia quién lo dice.
+     */
+    sirena?: boolean;
     /** Lo que se reconoce: la matrícula o la cámara. */
     titulo: string;
     /** «Cámara · sentido · motivo». */

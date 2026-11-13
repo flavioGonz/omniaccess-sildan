@@ -1,7 +1,8 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import { Ban, Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Loader2, Server, ShieldAlert, Sparkles, XCircle } from "lucide-react";
+import { Ban, Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Loader2, Server, ShieldAlert, Sparkles, XCircle, Siren } from "lucide-react";
+import { CartelRequerida } from "@/components/CartelRequerida";
 import { cn } from "@/lib/utils";
 import { chapaDe, esSinVehiculo, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 import { getImagePath } from "@/lib/image-path";
@@ -144,6 +145,10 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
                 <span className="flex items-center gap-1">
                     {f.empresa && <LogoSobreFoto empresa={f.empresa} className={chica ? "h-4 max-w-[54px]" : "h-6 max-w-[84px]"} />}
                     {merodea && <span className="grid h-5 w-5 place-items-center rounded-md pleno-mal" title="Merodeo"><ShieldAlert size={11} /></span>}
+                    {/* Requerida por el Ministerio del Interior: en la tarjeta chica no entra el texto, va la sirena sola. */}
+                    {f.lista?.requerida && (chica
+                        ? <span className="grid h-5 w-5 place-items-center rounded-md pleno-mal" title="Matrícula requerida por el Ministerio del Interior"><Siren size={11} /></span>
+                        : <CartelRequerida tam="sello" motivo={f.lista.motivo} />)}
                 </span>
             </span>
 

@@ -27,6 +27,8 @@ export function rotulosContadores(modo: "ABIERTO" | "CERRADO") {
 }
 
 export type TipoAviso = "VISITA_EXCEDIDA" | "FUERA_DE_RUTINA" | "PERMANENCIA_INUSUAL" | "PRIMERA_VEZ_NOCHE" | "DA_VUELTAS" | "SIN_REGISTRAR"
+    // Una chapa de la lista negra leída por una cámara de seguimiento (api/tracking/sighting): no pasó por un acceso, está a la vista.
+    | "LISTA_NEGRA_VISTA"
     // Los de las reglas de visión (vision-worker → vision-reglas.js), con su foto en `datos.foto`.
     | "VISION_SENTIDO" | "VISION_PERMANENCIA" | "VISION_AGLOMERACION" | "VISION_CRUCE" | "VISION_INTRUSION" | "VISION_MERODEO" | "VISION_RETIRADO" | "VISION_ZONA" | "VISION_FILA" | "VISION_ANIMAL" | "VISION_DEJADO" | "VISION_SUELO" | "VISION_TREPA" | "VISION_EPP";
 
@@ -37,6 +39,7 @@ export const ETIQUETA_AVISO: Record<TipoAviso, { titulo: string; tono: Tono }> =
     PRIMERA_VEZ_NOCHE: { titulo: "Primera vez, de noche", tono: "aviso" },
     DA_VUELTAS: { titulo: "Da vueltas", tono: "info" },
     SIN_REGISTRAR: { titulo: "Entró sin registrarse", tono: "neutro" },
+    LISTA_NEGRA_VISTA: { titulo: "Lista negra a la vista", tono: "mal" },
     VISION_SENTIDO: { titulo: "Sentido contrario", tono: "mal" },
     VISION_PERMANENCIA: { titulo: "Se quedó en la zona", tono: "aviso" },
     VISION_AGLOMERACION: { titulo: "Aglomeración", tono: "aviso" },

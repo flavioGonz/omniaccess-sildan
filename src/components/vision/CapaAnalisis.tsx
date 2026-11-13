@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Backpack, Bike, Bird, Briefcase, Bus, Car, Cat, Clock, Dog, Luggage, Motorbike, PawPrint, ScanEye, Truck, User, type LucideIcon, Boxes } from "lucide-react";
+import { Backpack, Bike, Bird, Briefcase, Bus, Car, Cat, Clock, Dog, Luggage, Motorbike, PawPrint, ScanEye, Siren, Truck, User, type LucideIcon, Boxes } from "lucide-react";
 import { RelojRodante } from "@/components/tracking/MarcaEstadia";
 import { bandasLinea, poligonos, veredicto, type Analisis, type GeomNorm, type ObjetoAnalizado, type Pt } from "@/lib/vision-capa";
 import { iconoPropio, useNombresPropios } from "@/lib/nombres-propios";
@@ -101,6 +101,8 @@ const COLOR_TOCA = "#f43f5e";
  * Mercosur —franja azul arriba, letras negras— para que se lea como matrícula y no como rótulo.
  */
 const COLOR_CHAPA = "#f8fafc";
+/** El rojo de alerta (--mal sobre imagen): la silueta entera de un vehículo en la lista negra. */
+const COLOR_ALERTA = "#ef4444";
 const AZUL_MERCOSUR = "#1d4ed8";
 export type ChapaEnFoto = { plate: string; caja: [number, number, number, number] };
 /** El ícono dice QUÉ es antes de leer: la clase si la conocemos, si no el grupo. */
@@ -131,7 +133,7 @@ function techoEn(polis: Pt[][], x: number): number | null {
 const pts = (p: Pt[], w: number, h: number) => p.map(([x, y]) => `${(x * w).toFixed(1)},${(y * h).toFixed(1)}`).join(" ");
 const ptsPx = (p: Pt[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 
-export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = true, atributos = false, chapa, interactiva = false, opciones, className }: {
+export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = true, atributos = false, chapa, interactiva = false, opciones, rotuloAlerta = true, className }: {
     analisis: Analisis;
     /** La chapa que leyó OmniVision, con su caja en la foto (relectura). */
     chapa?: ChapaEnFoto | null;
@@ -141,6 +143,12 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
     etiquetas?: boolean;
     /** Sumar al rótulo el color o la carrocería (lecturas LPR). */
     atributos?: boolean;
+    /**
+     * La píldora con la sirena sobre un objeto en alerta (`alerta`). Se apaga donde otra pieza ya
+     * lo dice en ese mismo lugar: el visor de una estadía, que pone su cápsula sobre el techo.
+     * La silueta roja se dibuja igual. Tampoco sale sin `etiquetas` (miniaturas).
+     */
+    rotuloAlerta?: boolean;
     /** El vivo: las siluetas se pueden tocar, y la que se toca muestra cuánto lleva en su lugar. */
     interactiva?: boolean;
     /** El menú del objeto tocado (sólo en el vivo): qué se puede hacer con ESE objeto. Sin esto, no hay menú. */
@@ -293,9 +301,27 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                         <g transform={interactiva ? `scale(${1 / bw} ${1 / bh}) translate(${-bx.toFixed(1)} ${-by.toFixed(1)})` : undefined}
                             onClick={interactiva ? () => tocar(i) : undefined} style={interactiva ? { pointerEvents: "all", cursor: "pointer" } : undefined}>
                             {poligonos(o).map((p, j) => (
-                                <polygon key={j} points={pts(p, W, H)} fill={sel ? "transparent" : `url(#rel-${k}-${uid})`} stroke={c} strokeWidth={sel ? 3 : 2} vectorEffect="non-scaling-stroke"
+                                o.alerta
+                                    // En la lista negra: toda la silueta del color de alerta, latiendo (13/11, Nico: «el color
+                                    // completo de la silueta se debe animar, con color alerta»). Una sola animación de opacidad
+                                    // por silueta: no cuesta, y con «reducir movimiento» queda fija.
+                                    ? <polygon key={j} points={pts(p, W, H)} fill={COLOR_ALERTA} stroke={COLOR_ALERTA} strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinejoin="round"
+                                        filter={`url(#brillo-${uid})`} className="capa-alerta" />
+                                    : <polygon key={j} points={pts(p, W, H)} fill={sel ? "transparent" : `url(#rel-${k}-${uid})`} stroke={c} strokeWidth={sel ? 3 : 2} vectorEffect="non-scaling-stroke"
                                     strokeLinejoin="round" filter={`url(#brillo-${uid})`} />
                             ))}
+                            {/* La sirena y el porqué, sobre el techo: se lee sin tocar nada. */}
+                            {o.alerta && etiquetas && rotuloAlerta && (() => {
+                                const cx = ((o.caja[0] + o.caja[2]) / 2) * W, arriba = o.caja[1] * H, lado2 = fuente * 1.9, ancho2 = o.alerta.length * fuente * 0.43 + lado2 + fuente * 0.9;
+                                const x0 = Math.min(W - ancho2 - 2, Math.max(2, cx - ancho2 / 2)), y0 = Math.max(2, arriba - lado2 - fuente * 0.5);
+                                return (
+                                    <g className="capa-alerta-rotulo">
+                                        <rect x={x0} y={y0} width={ancho2} height={lado2} rx={lado2 / 2} fill={COLOR_ALERTA} />
+                                        <Siren x={x0 + fuente * 0.42} y={y0 + lado2 * 0.16} width={lado2 * 0.68} height={lado2 * 0.68} color="#fff" strokeWidth={2.4} />
+                                        <text x={x0 + lado2 + fuente * 0.2} y={y0 + lado2 * 0.68} fill="#fff" fontSize={fuente * 0.95} fontWeight={700} style={{ letterSpacing: "0.01em" }}>{o.alerta}</text>
+                                    </g>
+                                );
+                            })()}
                         </g>
                     </g>
                 );
@@ -349,6 +375,9 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const pista = pistaDe(ids[i]);
                 // Con uno en foco, sólo su rótulo.
                 if (foco && i !== iSel) return null;
+                // En alerta: su rótulo es la píldora de la sirena (o la cápsula del visor). «Auto 90 %»
+                // encima quedaba pisado con ella y no era lo que había que leer.
+                if (o.alerta && !foco) return null;
                 const c = tocan[i] && !foco ? COLOR_TOCA : COLOR_GRUPO[o.grupo] || COLOR_OTRO;
                 /*
                  * El ícono de una clase entrenada es el que se le eligió (12/11, Nico: «el ícono al

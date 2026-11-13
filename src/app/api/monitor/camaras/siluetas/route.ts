@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { GRUPO_PROPIO, UMBRAL_PANTALLA_DEFECTO } from "@/lib/detector-propio";
 import { conChapa, conEstadia, type EstadiaAbierta, type LugarVehiculo } from "@/lib/vision-estadia";
 import { leerRecuadro } from "@/lib/deteccion";
+import { REQUERIDA_CORTA, esRequerida } from "@/lib/min-interior";
 
 /**
  * GET /api/monitor/camaras/siluetas?stream=<nombre> → text/event-stream con lo que OmniVision ve
@@ -139,6 +140,27 @@ async function estadiasDe(camara: string): Promise<EstadiaAbierta[]> {
     return lista;
 }
 
+/**
+ * Las matrículas en lista negra, y cómo nombrar a cada una sobre el vivo («Requerida · M. Interior»
+ * si la confirmó el Ministerio, «Lista negra» si no). Se lee a lo sumo cada NEGRAS_MS: el auto
+ * estacionado con una de esas chapas se pinta entero en rojo (ver `alerta` en lib/vision-capa).
+ */
+const NEGRAS_MS = 15_000;
+let negras: { al: number; porChapa: Map<string, string> } = { al: 0, porChapa: new Map() };
+async function negrasVigentes(): Promise<Map<string, string>> {
+    if (Date.now() - negras.al < NEGRAS_MS) return negras.porChapa;
+    try {
+        const filas = await prisma.plateWatch.findMany({ where: { active: true, category: "BLACKLISTED" }, select: { plate: true, label: true, motivo: true } });
+        negras = { al: Date.now(), porChapa: new Map(filas.map((f) => [f.plate.toUpperCase().replace(/[^A-Z0-9]/g, ""), esRequerida(f.label, f.motivo) ? REQUERIDA_CORTA : "Lista negra"])) };
+    } catch { negras = { ...negras, al: Date.now() - NEGRAS_MS + 2000 }; }
+    return negras.porChapa;
+}
+/** A los vehículos cuya chapa está en lista negra se les pone la alerta. */
+function conAlerta<T extends { chapa?: { plate: string } }>(objetos: T[], porChapa: Map<string, string>): T[] {
+    if (!porChapa.size) return objetos;
+    return objetos.map((o) => { const a = o.chapa ? porChapa.get(o.chapa.plate.toUpperCase().replace(/[^A-Z0-9]/g, "")) : undefined; return a ? { ...o, alerta: a } : o; });
+}
+
 /** `lpr_<id>` o `face_<id>` → el id de la cámara, que es como la conoce vision-worker. */
 const camaraDeStream = (stream: string) => stream.replace(/^(lpr|face)_/, "");
 
@@ -226,7 +248,7 @@ export async function GET(req: NextRequest) {
                         analisis: {
                             ancho: j.ancho, alto: j.alto, tarea: "segmentar",
                             // El tiempo en el lugar sólo en el vivo: en la grabación el cuadro es de otro momento.
-                            objetos: conChapa(conEstadia(paraPantalla(j.objetos, await ajustesDePantalla()), await lugaresDe(camara)), await estadiasDe(camara)),
+                            objetos: conAlerta(conChapa(conEstadia(paraPantalla(j.objetos, await ajustesDePantalla()), await lugaresDe(camara)), await estadiasDe(camara)), await negrasVigentes()),
                         },
                     });
                     descartados = 0;

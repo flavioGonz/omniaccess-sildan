@@ -129,7 +129,7 @@ export function PilaAvisos({ soloCriticos = false }: {
 /** Una barra: foto, qué es, de quién, y las decisiones. Translúcidos sobre el color del tipo (sirve con texto claro u oscuro). */
 function BarraAviso({ a }: { a: Aviso }) {
     const t = FONDO_TIPO[a.tipo];
-    const I = ICONO_TIPO[a.tipo];
+    const I = a.sirena ? Siren : ICONO_TIPO[a.tipo];
     const [confirmando, setConfirmando] = useState<string | null>(null);
     const [corriendo, setCorriendo] = useState<string | null>(null);
     const [foto, setFoto] = useState(true);

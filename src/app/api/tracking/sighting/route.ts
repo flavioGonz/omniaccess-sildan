@@ -15,6 +15,7 @@ import {
 } from "@/lib/recuadros";
 import { registrarPasoPorAcceso } from "@/lib/paso-por-acceso";
 import { avisarPorSocket } from "@/lib/avisar";
+import { avisarListaNegraALaVista } from "@/lib/lista-negra-vista";
 
 export const dynamic = "force-dynamic";
 
@@ -155,6 +156,10 @@ export async function POST(req: NextRequest) {
     if (confianza != null && confianza < minimo) {
         return NextResponse.json({ ok: true, ignorado: "confianza baja", confianza }, { status: 202 });
     }
+
+    // Lista negra a la vista: se avisa por la lectura, pase lo que pase después con ella (estadía,
+    // pasada o descarte por estar lejos de la línea). No se espera: no demora la respuesta al worker.
+    void avisarListaNegraALaVista({ plate: patente, camara: body.cameraName || null, foto: body.snapshotUrl || null });
 
     const cuando = body.timestamp ? new Date(body.timestamp) : new Date();
     const lecturas = body.reads != null ? Number(body.reads) : null;

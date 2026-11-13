@@ -8,6 +8,7 @@ import { limiteDeFiltro } from "@/lib/fechas";
 import { Prisma } from "@prisma/client";
 import { clasesDe, RELECTURA_CON_CHAPA, VISION_IDS_MAX, type EmpresaFila, type VisionFila } from "@/lib/historial-vision";
 import { empresasDeLecturas } from "@/lib/empresas-servidor";
+import { esRequerida } from "@/lib/min-interior";
 import { esNoLeida } from "@/lib/relectura";
 import { accesosDeObjetos, objetosPorTexto, type ObjetoParecido } from "@/lib/busqueda-vision";
 import { NOMBRE_CLASE_REGLA } from "@/lib/vision-reglas";
@@ -68,7 +69,10 @@ type Fila = {
     vision?: VisionFila | null;
     /** La empresa (delivery, taxi…) de esa matrícula a esa hora, con su logo. */
     empresa?: EmpresaFila | null;
+    /** La lista en que está HOY esa matrícula (negra o amarilla), y si la confirmó el Ministerio del Interior. */
+    lista?: ListaFila | null;
 };
+export type ListaFila = { categoria: "BLACKLISTED" | "SEARCH"; requerida: boolean; motivo: string | null };
 
 /**
  * Las columnas de fecha son `timestamp` sin zona y guardan UTC, pero la sesión de Postgres está
@@ -586,6 +590,24 @@ export async function GET(req: NextRequest) {
     const conChapa = pagina.filter((f) => f.plate && !esNoLeida(f.plate));
     const empresas = await empresasDeLecturas(conChapa.map((f) => ({ clave: f.id, plate: f.plate as string, momento: new Date(f.momento) }))).catch(() => new Map());
     for (const f of conChapa) f.empresa = empresas.get(f.id) || null;
+
+    /*
+     * La lista de cada matrícula de la página (13/11): una requerida por el Ministerio tiene que
+     * verse en TODOS sus registros, no sólo en el visor del que se abre. Es el estado de HOY, no
+     * el del momento del registro: lo que importa al mirar el historial de una requerida es que
+     * lo es. Una consulta por página.
+     */
+    if (conChapa.length) {
+        const vigiladas = await prisma.plateWatch.findMany({
+            where: { active: true, category: { in: ["BLACKLISTED", "SEARCH"] }, plate: { in: [...new Set(conChapa.map((f) => norm(f.plate as string)))] } },
+            select: { plate: true, category: true, label: true, motivo: true },
+        }).catch(() => []);
+        const porChapa = new Map(vigiladas.map((w) => [norm(w.plate), w]));
+        for (const f of conChapa) {
+            const w = porChapa.get(norm(f.plate as string));
+            if (w) f.lista = { categoria: w.category as ListaFila["categoria"], requerida: w.category === "BLACKLISTED" && esRequerida(w.label, w.motivo), motivo: w.motivo };
+        }
+    }
 
     /**
      * Permanencia de las salidas: cuánto estuvo adentro ese mismo vehículo.

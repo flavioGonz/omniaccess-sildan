@@ -10,6 +10,7 @@ import { ETIQUETA_AVISO, type TipoAviso as TipoAvisoGuardia } from "@/lib/visita
 import { usePublicarAvisos, type Aviso, type AccionAviso, type TipoAviso } from "@/lib/avisos-pantalla";
 import { getOperadores, tomarGestion, pasarGestion, type OperadorVista } from "@/app/actions/detections";
 import { FichaDeEvento } from "@/components/eventos/FichaDeEvento";
+import { ETIQUETA_REQUERIDA, esRequerida, confirmacionDe } from "@/lib/min-interior";
 
 /**
  * Lo que salta por LPR, patrones y OmniVision en la pila de avisos (lib/avisos-pantalla), en
@@ -45,6 +46,8 @@ const limpiar = (p: unknown) => String(p || "").toUpperCase().replace(/[^A-Z0-9]
 type Item = {
     id: string; tipo: TipoAviso; nivel: "critico" | "alerta"; ts: string; foto: string | null;
     rotulo: string; titulo: string; detalle: string | null; grupo: string;
+    /** Requerida por el Ministerio del Interior: la barra lleva la sirena. */
+    sirena?: boolean;
     /** Lista Amarilla: cuánto se la vio antes, ya redactado por el servidor de eventos. */
     contexto?: string | null;
     /** Las claves de gestión del grupo (l:<evento> | a:<aviso>); la primera es la más nueva. */
@@ -90,7 +93,7 @@ export function AvisosLpr({ soloLectura = false }: {
         if (i < 0) return [{ ...n, id: `${n.grupo}|${n.claves[0]}` }, ...vivos].slice(0, 40);
         const g = vivos[i];
         if (g.claves.includes(n.claves[0])) return vivos;
-        const unido: Item = { ...g, ts: n.ts, foto: n.foto || g.foto, detalle: n.detalle || g.detalle, contexto: n.contexto || g.contexto, eventoId: n.eventoId || g.eventoId, claves: [...n.claves, ...g.claves] };
+        const unido: Item = { ...g, ts: n.ts, sirena: g.sirena || n.sirena, rotulo: n.sirena ? n.rotulo : g.rotulo, foto: n.foto || g.foto, detalle: n.detalle || g.detalle, contexto: n.contexto || g.contexto, eventoId: n.eventoId || g.eventoId, claves: [...n.claves, ...g.claves] };
         return [unido, ...vivos.filter((_, j) => j !== i)];
     }), []);
     const quitarClaves = useCallback((claves: string[]) => setItems((prev) => prev
@@ -106,12 +109,16 @@ export function AvisosLpr({ soloLectura = false }: {
         if (!negra && !busqueda) return;
         const plate = limpiar(ev.plateDetected) || null;
         const camara = ev.device?.name || null;
+        const requerida = negra && esRequerida(ev.watch?.label, ev.watch?.motivo);
+        const confirmada = requerida ? confirmacionDe(ev.watch?.motivo) : null;
         sumar({
             id: `l:${ev.id}`, tipo: negra ? "lista-negra" : "busqueda", nivel: negra ? "critico" : "alerta",
             ts: ev.timestamp ? new Date(ev.timestamp).toISOString() : new Date().toISOString(),
             foto: getImagePath(ev.snapshotPath || ev.imagePath) || null,
-            rotulo: negra ? "Lista negra" : "Lista Amarilla", titulo: plate || "Sin lectura",
-            detalle: [camara, SENTIDO[ev.direction], ev.watch?.motivo || ev.watch?.label].filter(Boolean).join(" · ") || null,
+            // Confirmada por el Ministerio: se dice eso, no «lista negra» a secas (el motivo trae la fecha de la consulta).
+            rotulo: negra ? (requerida ? ETIQUETA_REQUERIDA : "Lista negra") : "Lista Amarilla", titulo: plate || "Sin lectura", sirena: requerida,
+            // Requerida: la fecha de la confirmación, corta. El motivo entero («Requerida por el Ministerio…») repetía el rótulo y no entraba.
+            detalle: [camara, SENTIDO[ev.direction], requerida ? (confirmada ? `Confirmada el ${confirmada}` : "Confirmada en el sitio oficial") : ev.watch?.motivo || ev.watch?.label].filter(Boolean).join(" · ") || null,
             contexto: busqueda ? ev.watch?.contexto?.frase || null : null,
             grupo: `${negra ? "negra" : "busqueda"}:${plate || camara}`, claves: [`l:${ev.id}`], eventoId: ev.id, plate, deviceId: ev.device?.id || ev.deviceId || null,
         });
@@ -137,6 +144,22 @@ export function AvisosLpr({ soloLectura = false }: {
         if (x.accion === "atendido") { quitarClaves([`a:${a.id}`]); return; }
         if (AVISOS_QUE_NO_SALTAN.has(a.tipo)) return;
         if (x.accion !== "nuevo") return;
+        const f0 = a.datos?.foto;
+        // Una chapa de la lista negra leída por una cámara de seguimiento (lib/lista-negra-vista):
+        // es lista negra, crítica, igual que si hubiera pasado por un acceso. Mismo grupo, así una
+        // lectura en el acceso y otra en la calle de la misma chapa van en una sola barra.
+        if (a.tipo === "LISTA_NEGRA_VISTA") {
+            const plate = limpiar(a.plate) || null;
+            const c = a.datos?.requerida ? confirmacionDe(a.datos?.motivoLista) : null;
+            sumar({
+                id: `a:${a.id}`, tipo: "lista-negra", nivel: "critico", ts: a.creado || new Date().toISOString(),
+                foto: typeof f0 === "string" && f0 ? (f0.startsWith("/") ? f0 : getImagePath(f0) || null) : null,
+                rotulo: a.datos?.requerida ? ETIQUETA_REQUERIDA : "Lista negra", sirena: !!a.datos?.requerida, titulo: plate || "Sin lectura",
+                detalle: [a.camara, "a la vista", a.datos?.requerida ? (c ? `Confirmada el ${c}` : "Confirmada en el sitio oficial") : a.datos?.etiqueta].filter(Boolean).join(" · ") || null,
+                grupo: `negra:${plate || a.camara}`, claves: [`a:${a.id}`], eventoId: null, plate, deviceId: null,
+            });
+            return;
+        }
         const vision = String(a.tipo).startsWith("VISION_");
         const et = ETIQUETA_AVISO[a.tipo as TipoAvisoGuardia];
         const f = a.datos?.foto;
@@ -201,7 +224,7 @@ export function AvisosLpr({ soloLectura = false }: {
             }
         }
         return {
-            id: it.id, tipo: it.tipo, nivel: it.nivel, ts: it.ts, foto: it.foto, rotulo: it.rotulo, titulo: it.titulo, detalle: it.detalle, contexto: it.contexto,
+            id: it.id, tipo: it.tipo, nivel: it.nivel, ts: it.ts, foto: it.foto, rotulo: it.rotulo, sirena: it.sirena, titulo: it.titulo, detalle: it.detalle, contexto: it.contexto,
             veces: it.claves.length, acciones,
             operador: gestionable && !soloLectura ? (o?.soyYo ? "La atendés vos" : o?.operador ? `La atiende ${o.operador}` : null) : undefined,
             // Lo crítico no se quita sin decidir; en la pared (que no decide) sí, para no quedar tapada.
@@ -210,7 +233,7 @@ export function AvisosLpr({ soloLectura = false }: {
     }), [items, ops, soloLectura, decidir, router]);
 
     const avisosActivos: Aviso[] = useMemo(() => activas.map((a: any) => {
-        const tipo: TipoAviso = a.fuente === "lpr" ? (a.tipo === "EN_BUSQUEDA" ? "busqueda" : "lista-negra") : a.fuente === "vision" ? "vision" : "patron";
+        const tipo: TipoAviso = a.fuente === "lpr" ? (a.tipo === "EN_BUSQUEDA" ? "busqueda" : "lista-negra") : a.tipo === "LISTA_NEGRA_VISTA" ? "lista-negra" : a.fuente === "vision" ? "vision" : "patron";
         const acciones: AccionAviso[] = [];
         if (!soloLectura) {
             acciones.push(a.accessEventId

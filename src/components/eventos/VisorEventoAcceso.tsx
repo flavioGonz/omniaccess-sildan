@@ -1,5 +1,6 @@
 "use client";
 
+import { ETIQUETA_REQUERIDA, esRequerida } from "@/lib/min-interior";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
@@ -278,7 +279,8 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
     const ficha = useMemo(() => {
         const u = event?.user;
         const vig = vigilada?.category === "BLACKLISTED"
-            ? { etiqueta: "Lista negra", categoria: "BLACKLISTED" }
+            // Con su etiqueta y su motivo: de ahí el visor sabe si es una requerida del Ministerio y cuándo se confirmó.
+            ? { etiqueta: esRequerida((vigilada as any).label, (vigilada as any).motivo) ? ETIQUETA_REQUERIDA : "Lista negra", categoria: "BLACKLISTED", motivo: (vigilada as any).motivo || null }
             : null;
         if (!u && !meta.Marca && !vig) return null;
         return {

@@ -83,6 +83,8 @@ import {
     type ClaseMonitor, type ClaveComportamiento, type Comportamiento,
 } from "@/lib/padron";
 import { watchCatMeta } from "@/lib/watch-categories";
+import { esRequerida } from "@/lib/min-interior";
+import { CartelRequerida } from "@/components/CartelRequerida";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
 import { RegistrarMatricula } from "@/components/registro/RegistrarMatricula";
@@ -378,7 +380,10 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/55 backdrop-blur-md ring-1 ring-white/10 text-[11px] font-semibold text-white/90 shadow-sm"><Camera size={12} className="text-white/70 shrink-0" />{ev.device?.name || "Cámara"}</span>
                     {tipo && <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg shadow-sm backdrop-blur-md", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
                     {/* El motivo de la lista viaja con la captura: en búsqueda es lo que el guardia tiene que saber. */}
-                    {watch?.motivo && <span className={cn("max-w-[60%] text-[11px] font-semibold px-2 py-1 rounded-lg shadow-sm backdrop-blur-md leading-snug", tipo?.badge || "bg-black/60 text-white")}>{watch.motivo}</span>}
+                    {/* Requerida por el Ministerio: el cartel con la fecha de la confirmación, no el motivo en letra chica. */}
+                    {esRequerida(watch?.label, watch?.motivo)
+                        ? <CartelRequerida motivo={watch?.motivo} />
+                        : watch?.motivo && <span className={cn("max-w-[60%] text-[11px] font-semibold px-2 py-1 rounded-lg shadow-sm backdrop-blur-md leading-snug", tipo?.badge || "bg-black/60 text-white")}>{watch.motivo}</span>}
                     {/* Y, en la Lista Amarilla, cuánto se la vio antes (viene con la lectura en vivo). */}
                     {watch?.contexto?.frase && <span className="max-w-[72%] text-[11px] font-semibold px-2 py-1 rounded-lg shadow-sm backdrop-blur-md leading-snug bg-black/60 text-white">{watch.contexto.frase}</span>}
                 </div>
@@ -600,7 +605,9 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                                 <span className="inline-flex items-center gap-1.5"><span className="font-mono text-sm font-bold text-foreground tracking-wider">{event.plateDetected}</span><MarcaFormatoChapa plate={event.plateDetected} /><MarcaVerificacion plate={event.plateDetected} r={relCard} tamano="xs" onCorregir={event.id ? (omni) => setCorregirOmni(omni) : undefined} /></span>
                             )}
                             <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0", event.decision === "GRANT" ? "border-emerald-500/50 text-emerald-400" : "border-red-500/50 text-red-400")}>{event.decision === "GRANT" ? "OK" : "DENY"}</Badge>
-                            {watchStyle && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchStyle.badge)} title={watch?.label || ""}><ShieldAlert size={9} /> {watchStyle.label}</span>}
+                            {watchStyle && (esRequerida(watch?.label, watch?.motivo)
+                                ? <CartelRequerida tam="sello" motivo={watch?.motivo} />
+                                : <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchStyle.badge)} title={watch?.label || ""}><ShieldAlert size={9} /> {watchStyle.label}</span>)}
                             {!watchStyle && tipo && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", tipo.badge)}>{tipo.label}{tipo.key === "residente" && event.user?.unit?.name ? ` · ${event.user.unit.name}` : ""}</span>}
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             {empresa && <img src={empresa.logo} alt={empresa.nombre} title={empresa.nombre} className="h-4 w-auto max-w-16 object-contain" />}

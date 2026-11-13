@@ -1901,6 +1901,14 @@ video::-webkit-media-controls { display: none !important; }
   box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.65), inset 0 1px 1px rgba(255, 255, 255, 0.2);
 }
 
+/* Un vehículo en la lista negra sobre la imagen (CapaAnalisis): la silueta entera late en rojo. */
+.capa-alerta { fill-opacity: 0.42; animation: capa-alerta 1.4s ease-in-out infinite; }
+@keyframes capa-alerta { 0%, 100% { fill-opacity: 0.22; } 50% { fill-opacity: 0.6; } }
+/* El cartel de «matrícula requerida» del visor: un halo que late, no un parpadeo. */
+.cartel-requerida { animation: cartel-requerida 1.6s ease-in-out infinite; }
+@keyframes cartel-requerida { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--mal) 55%, transparent); } 50% { box-shadow: 0 0 0 7px color-mix(in oklab, var(--mal) 0%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .capa-alerta, .cartel-requerida { animation: none; } }
+
 /* Los tres puntos de «se está esperando» (RotuloVisor): se prenden de a uno. */
 .puntos-espera span { display: inline-block; animation: punto-espera 1.2s ease-in-out infinite both; }
 .puntos-espera span:nth-child(2) { animation-delay: 0.18s; }

@@ -22,6 +22,7 @@ import { parseVehicleMeta } from "@/lib/vehicle-details";
 import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
 import { Cronometro, useTranscurrido, leerDuracion } from "@/components/tracking/Cronometro";
 import { Timer } from "lucide-react";
+import { CartelRequerida } from "@/components/CartelRequerida";
 import { MosaicoHistorial, type Vista } from "@/components/history/MosaicoHistorial";
 import type { EmpresaFila, VisionFila } from "@/lib/historial-vision";
 import type { DatosVisor } from "@/components/VisorCuadro";
@@ -58,6 +59,8 @@ export type FilaHistorial = {
     vision?: VisionFila | null;
     /** La empresa (delivery, taxi…) de esa matrícula a esa hora, con su logo. */
     empresa?: EmpresaFila | null;
+    /** La lista en que está hoy la matrícula, y si la confirmó el Ministerio del Interior (api/history/unified). */
+    lista?: { categoria: "BLACKLISTED" | "SEARCH"; requerida: boolean; motivo: string | null } | null;
     /**
      * Un resultado de la búsqueda por IA (tipo «IA»): lo que OmniVision vio PARECIDO a lo escrito,
      * con cuánto se parece (0-1) y la búsqueda, para abrirlo en OmniVision › Buscar.
@@ -819,6 +822,9 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                         <img src={f.empresa.logo} alt={f.empresa.nombre} title={f.empresa.nombre}
                             className={cn("h-5 w-auto max-w-[64px] object-contain shrink-0", !f.empresa.transparente && "rounded bg-white px-1")} />
                     )}
+                    {/* La lista en que está hoy: una requerida por el Ministerio se tiene que ver en cada uno de sus registros. */}
+                    {f.lista?.requerida ? <CartelRequerida tam="sello" motivo={f.lista.motivo} className="shrink-0" />
+                        : f.lista && <span className={cn("shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]", f.lista.categoria === "BLACKLISTED" ? "chip-mal" : "chip-aviso")} title={f.lista.motivo || undefined}>{f.lista.categoria === "BLACKLISTED" ? "Lista negra" : "Lista Amarilla"}</span>}
                     {f.plate && f.persona && <span className="text-[11px] text-muted-foreground truncate max-w-[150px]">{f.persona}</span>}
                     {f.plate && (
                         <ChevronRight className={cn("w-3.5 h-3.5 text-muted-foreground/45 shrink-0 transition-transform", abierta === f.id && "rotate-90")} />
