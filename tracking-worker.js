@@ -415,7 +415,9 @@ async function camaras() {
     try {
         const ubic = await ubicacionesDelMapa();
         const devs = await prisma.device.findMany({
-            where: { deviceType: "LPR_INTERIOR", trackEnabled: true, NOT: { rtspUrl: null } },
+            // Y los porteros a los que se les prendió «Leer matrículas» en su ficha (13/11): su cámara
+            // suele mirar un portón de servicio. Entran por el mismo camino que una LPR interior.
+            where: { deviceType: { in: ["LPR_INTERIOR", "DOOR_INTERCOM", "ACCESS_CONTROL"] }, trackEnabled: true, NOT: { rtspUrl: null } },
             select: {
                 id: true, name: true, rtspUrl: true, ip: true, username: true, password: true,
                 trackScene: true, trackRoi: true, trackMinConf: true, trackFps: true, trackTrigger: true,

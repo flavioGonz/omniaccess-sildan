@@ -29,7 +29,7 @@ export async function GET() {
         let camaras = 0, lecturas24 = 0;
         try {
             camaras = await prisma.device.count({
-                where: { deviceType: "LPR_INTERIOR" as any, trackEnabled: true, NOT: { rtspUrl: null } },
+                where: { deviceType: { in: ["LPR_INTERIOR", "DOOR_INTERCOM", "ACCESS_CONTROL"] as any }, trackEnabled: true, NOT: { rtspUrl: null } },
             });
             lecturas24 = await prisma.plateSighting.count({
                 where: { source: "TRACK", timestamp: { gte: new Date(Date.now() - 86400000) } },

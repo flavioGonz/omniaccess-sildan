@@ -5,15 +5,16 @@ import Link from "next/link";
 import { Tooltip } from "react-tooltip";
 import {
     DoorOpen, DoorClosed, Zap, Tag, Type, MapPin, Plug, Network, User, KeyRound, ShieldCheck, Loader2, Save, X, AlertTriangle, Check,
-    ListChecks, History, LogIn, LogOut, Hash, RefreshCw, BellRing, Lock, ExternalLink, PlugZap, Fingerprint,
+    ListChecks, History, LogIn, LogOut, Hash, RefreshCw, BellRing, Lock, ExternalLink, PlugZap, Fingerprint, ScanFace, Sparkles,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Estado } from "@/components/ui/celdas";
 import { useConfirmar } from "@/components/ui/use-confirmar";
 import { Bloque, Campo, Etiqueta, Opcion, TT_FICHA } from "@/components/devices/CajonDispositivo";
 import { createDevice, updateDevice } from "@/app/actions/devices";
-import { fichaPortero, abrirPuertaPortero, probarPortero, type FichaPortero } from "@/app/actions/portero";
+import { fichaPortero, abrirPuertaPortero, probarPortero, ajustesVisionPortero, compararCaraPortero, type FichaPortero, type ComparacionPortero, type CaraComparada } from "@/app/actions/portero";
 import { comoAbre, MARCAS_PORTERO, ROTULO_MARCA, textoSegundos, type Puerta } from "@/lib/aperturas";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
@@ -47,7 +48,7 @@ const hace = (iso: string | null) => {
 
 type Resultado = { ok: boolean; mensaje: string; cuando: number };
 /** Lo que la ficha le pide al servidor. Va junto para poder mostrar la ficha con datos de prueba, sin equipo ni sesión. */
-const ACCIONES = { ficha: fichaPortero, abrir: abrirPuertaPortero, probar: probarPortero, crear: createDevice, actualizar: updateDevice };
+const ACCIONES = { ficha: fichaPortero, abrir: abrirPuertaPortero, probar: probarPortero, crear: createDevice, actualizar: updateDevice, vision: ajustesVisionPortero, comparar: compararCaraPortero };
 const VACIO = { name: "", location: "", ip: "", httpPort: "", username: "admin", password: "", authType: "DIGEST", brand: "HIKVISION", deviceType: "DOOR_INTERCOM", direction: "ENTRY" };
 
 export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }: {
@@ -64,6 +65,9 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
     const [abriendo, setAbriendo] = useState<number | null>(null);
     const [resultados, setResultados] = useState<Record<number, Resultado>>({});
     const [prueba, setPrueba] = useState<{ corriendo: boolean; ok?: boolean; texto?: string } | null>(null);
+    /** OmniVision y rostros: se guardan con «Guardar cambios», como el resto. */
+    const [vis, setVis] = useState({ enOmniVision: false, miraCaras: false, leeMatriculas: false });
+    const [comparacion, setComparacion] = useState<ComparacionPortero | "corriendo" | null>(null);
     const { confirmar, elemento } = useConfirmar();
     const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
 
@@ -71,6 +75,7 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
         try {
             const r = await servidor.ficha(cual);
             setFicha(r); setError(null);
+            if (primera) setVis({ enOmniVision: r.vision.enOmniVision, miraCaras: r.vision.miraCaras, leeMatriculas: r.vision.leeMatriculas });
             if (primera) setF({ name: r.name, location: r.location || "", ip: r.ip, httpPort: r.httpPort ? String(r.httpPort) : "", username: r.username || "", password: "", authType: r.authType || "DIGEST", brand: r.brand, deviceType: r.deviceType, direction: r.direction });
         } catch (e: any) { setError(e?.message || "No se pudo leer el equipo"); }
         // `servidor` se arma en cada render con las mismas funciones: no es una dependencia real.
@@ -78,7 +83,7 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
     }, []);
     useEffect(() => {
         if (!open) return;
-        setFicha(null); setError(null); setResultados({}); setPrueba(null);
+        setFicha(null); setError(null); setResultados({}); setPrueba(null); setComparacion(null);
         setId(device?.id || null);
         if (device?.id) traer(device.id, true); else setF({ ...VACIO });
     }, [open, device?.id, traer]);
@@ -110,6 +115,7 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
                 if (r?.id) { setId(r.id); setFicha(null); traer(r.id, true); } else onOpenChange(false);
             } else {
                 await servidor.actualizar(id!, fd);
+                if (ficha && visCambio) await servidor.vision(id!, vis);
                 toast.success({ title: "Cambios guardados", description: f.name });
                 onSuccess(); onOpenChange(false);
             }
@@ -143,6 +149,14 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
             traer(ficha.id, false);
         } catch (e: any) { setResultados((x) => ({ ...x, [p.n]: { ok: false, mensaje: e?.message || "No se pudo pedir", cuando: Date.now() } })); }
         finally { setAbriendo(null); }
+    };
+
+    const visCambio = !!ficha && (vis.enOmniVision !== ficha.vision.enOmniVision || vis.miraCaras !== ficha.vision.miraCaras || vis.leeMatriculas !== ficha.vision.leeMatriculas);
+    const comparar = async () => {
+        if (!ficha) return;
+        setComparacion("corriendo");
+        try { setComparacion(await servidor.comparar(ficha.id)); }
+        catch (e: any) { setComparacion({ ok: false, error: e?.message || "No se pudo comparar", foto: null, caras: [], ms: 0 }); }
     };
 
     const pie = (
@@ -214,6 +228,33 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
                                         </div>
                                     </div>
                                 )}
+                            </Bloque>
+                        )}
+
+                        {ficha && (
+                            <Bloque titulo="Analíticas sobre su video" icono={ScanFace} ayuda="A qué se manda el video del portero. OmniVision detecta personas y vehículos y aplica las reglas; el lector propio lee las matrículas; el modo face le pone un número a cada cara y cuenta cuántas veces vuelve. La cámara de un portero mira de cerca: es donde mejor anda el reconocimiento de rostros."
+                                accion={<Link href="/admin/vision/rostros" className="inline-flex items-center gap-1 text-[12px] font-semibold text-[var(--accion)] hover:underline">Rostros <ExternalLink size={12} /></Link>}>
+                                <div className="rounded-lg border border-border divide-y divide-border">
+                                    <FilaInterruptor titulo="OmniVision analiza su video" detalle={ficha.vision.todas ? "OmniVision mira todos los equipos: no hay una lista de cámaras elegidas." : "Detecta personas y vehículos frente al portero, y aplica las reglas."}
+                                        valor={vis.enOmniVision || vis.miraCaras || vis.leeMatriculas} bloqueado={ficha.vision.todas || vis.miraCaras || vis.leeMatriculas} alCambiar={(v) => setVis((x) => ({ ...x, enOmniVision: v }))} />
+                                    <FilaInterruptor titulo="Leer matrículas (LPR)" detalle={ficha.vision.lectorPrendido ? `El lector propio lee las chapas de los vehículos que ve OmniVision frente al portero.${ficha.vision.lecturas7d ? ` Leyó ${ficha.vision.lecturas7d} en 7 días.` : ""}` : "El lector de matrículas propio está apagado en el sistema: prenderlo acá no lee nada hasta que se prenda."}
+                                        valor={vis.leeMatriculas} alCambiar={(v) => setVis((x) => ({ ...x, enOmniVision: v ? true : x.enOmniVision, leeMatriculas: v }))} />
+                                    <FilaInterruptor titulo="Reconocer rostros (Face)" detalle={ficha.vision.moduloFace ? "Cada persona que pasa queda con su cara, su número y sus visitas." : "El modo face está apagado en el sistema: se prende en Ajustes › Modos › Motor de rostros."}
+                                        valor={vis.miraCaras} alCambiar={(v) => setVis((x) => ({ ...x, enOmniVision: v ? true : x.enOmniVision, miraCaras: v }))} />
+                                </div>
+                                {visCambio && <p className="text-[11.5px] tono-aviso">Se aplica al guardar los cambios.</p>}
+                                <p className="text-[12px] text-muted-foreground">
+                                    {ficha.vision.caras7d > 0
+                                        ? <>En 7 días: <b className="text-foreground font-semibold tabular-nums">{ficha.vision.caras7d}</b> {ficha.vision.caras7d === 1 ? "pasada con cara" : "pasadas con cara"}{ficha.vision.personas7d > 0 && <>, <b className="text-foreground font-semibold tabular-nums">{ficha.vision.personas7d}</b> {ficha.vision.personas7d === 1 ? "persona distinta" : "personas distintas"}</>}. La última, {hace(ficha.vision.ultimaCara)}.</>
+                                        : ficha.vision.miraCaras ? "Todavía no vio ninguna cara en este portero." : "No se le están mirando las caras."}
+                                </p>
+                                <div>
+                                    <Button variant="outline" size="sm" onClick={comparar} disabled={comparacion === "corriendo"} className="gap-1.5">
+                                        {comparacion === "corriendo" ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} {comparacion === "corriendo" ? "Comparando…" : "Comparar un rostro ahora"}
+                                    </Button>
+                                    <span className="ml-2 text-[11.5px] text-muted-foreground">Toma un cuadro y dice a quién reconocería. No guarda nada.</span>
+                                </div>
+                                {comparacion && comparacion !== "corriendo" && <ResultadoComparacion r={comparacion} />}
                             </Bloque>
                         )}
 
@@ -321,6 +362,66 @@ function FilaPuerta({ p, abriendo, bloqueada, resultado, onAbrir }: { p: Puerta;
                     <span>{resultado.ok ? "El equipo aceptó abrir." : `No abrió: ${resultado.mensaje}`}</span>
                 </p>
             )}
+        </div>
+    );
+}
+
+/** Una fila con su interruptor: qué es, qué hace, y prendido o apagado. */
+function FilaInterruptor({ titulo, detalle, valor, bloqueado, alCambiar }: { titulo: string; detalle: string; valor: boolean; bloqueado?: boolean; alCambiar: (v: boolean) => void }) {
+    return (
+        <label className={cn("flex items-center gap-3 px-3 py-2.5", !bloqueado && "cursor-pointer")}>
+            <span className="min-w-0 flex-1">
+                <span className="block font-semibold text-[13px]">{titulo}</span>
+                <span className="block text-[11.5px] text-muted-foreground leading-snug">{detalle}</span>
+            </span>
+            <Switch checked={valor} disabled={bloqueado} onCheckedChange={alCambiar} className="data-[state=checked]:bg-[var(--accion)]" />
+        </label>
+    );
+}
+
+const pct = (v: number) => `${Math.round(v * 100)} %`;
+/** Qué diría el modo face de esa cara, en una frase. */
+function fraseDe(c: CaraComparada): { texto: string; tono: "bien" | "aviso" | "mal" | "neutro" } {
+    const p = c.parecido;
+    if (c.que === "padron" && p) return { texto: `Es ${p.nombre}, del padrón (${pct(p.similitud)}).`, tono: "bien" };
+    if (c.que === "misma" && p) return { texto: `Es ${p.nombre}${p.veces ? `, visto ${p.veces === 1 ? "1 vez" : `${p.veces} veces`}` : ""} (${pct(p.similitud)}).`, tono: "bien" };
+    if (c.que === "sin-cara") return { texto: `No alcanza para comparar: ${c.motivo}.`, tono: "mal" };
+    return { texto: p ? `Nadie conocido: quedaría como una cara nueva. Lo más parecido es ${p.nombre} (${pct(p.similitud)}).` : "Nadie conocido: quedaría como una cara nueva.", tono: "aviso" };
+}
+
+/** El cuadro que se comparó, con cada cara marcada, y qué diría el modo face de cada una. */
+function ResultadoComparacion({ r }: { r: ComparacionPortero }) {
+    if (!r.ok) return <p className="text-[12px] tono-mal flex items-start gap-1.5"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> {r.error}</p>;
+    return (
+        <div className="space-y-2.5">
+            {r.foto && (
+                <div className="relative overflow-hidden rounded-[6px] bg-black [box-shadow:var(--sombra-captura)]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={r.foto} alt="El cuadro del portero que se comparó" className="block w-full" />
+                    {r.caras.map((c, i) => (
+                        <span key={i} className="absolute rounded-[4px] border-2 border-[var(--accion-en-oscuro)]" style={{ left: `${c.caja[0] * 100}%`, top: `${c.caja[1] * 100}%`, width: `${(c.caja[2] - c.caja[0]) * 100}%`, height: `${(c.caja[3] - c.caja[1]) * 100}%` }}>
+                            <span className="absolute -top-[19px] left-[-2px] h-[17px] min-w-[17px] px-1 rounded-[4px] bg-[var(--accion-en-oscuro)] text-black text-[10.5px] font-bold grid place-items-center tabular-nums">{i + 1}</span>
+                        </span>
+                    ))}
+                </div>
+            )}
+            {r.caras.length === 0 ? <p className="text-[12.5px] text-muted-foreground">No hay ninguna cara en el cuadro en este momento. Probá con alguien parado frente al portero.</p> : (
+                <div className="space-y-1.5">
+                    {r.caras.map((c, i) => {
+                        const f = fraseDe(c);
+                        return (
+                            <div key={i} className="flex items-start gap-2.5 text-[12.5px]">
+                                <span className="mt-px h-[18px] min-w-[18px] px-1 rounded-[4px] bg-muted text-[11px] font-bold grid place-items-center tabular-nums shrink-0">{i + 1}</span>
+                                <span className="min-w-0 flex-1">
+                                    <span className={cn(f.tono === "bien" && "tono-bien", f.tono === "mal" && "tono-mal", f.tono === "aviso" && "text-foreground", "font-semibold")}>{f.texto}</span>
+                                    <span className="block text-[11.5px] text-muted-foreground tabular-nums">Cara de {c.px} px · detección {pct(c.prob)}</span>
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+            <p className="text-[11px] text-muted-foreground tabular-nums">Comparado en {(r.ms / 1000).toFixed(1).replace(".", ",")} s.</p>
         </div>
     );
 }

@@ -5,6 +5,7 @@ import { leerDetalleRostro, motivoDeRostro, calidadRostro } from "@/lib/monitor/
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { forbiddenResponse } from "@/lib/api-auth";
+import { codigoRostro, nombreCamara } from "@/lib/rostros";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,13 @@ const INCLUIR = { user: { select: { name: true, role: true, cara: true, unit: { 
 const paraPared = (ruta: string | null): string | null =>
     ruta && ruta.startsWith("/api/vision/imagen/") ? ruta.replace("/api/vision/imagen/", "/api/monitor/camaras/imagen/") : ruta;
 
-const forma = (e: any) => {
+/** Cuántas pasadas anteriores de la misma cara se muestran junto al acceso grande. */
+const ANTERIORES = 4;
+
+/** La identidad por rostro de un acceso (lib-rostros.js), con lo que la pared necesita para mostrarla. */
+type RostroDe = { id: string; codigo: string; nombre: string | null; veces: number; primeraVez: string; foto: string | null; calidad: number };
+
+const forma = (e: any, rostros?: Map<string, RostroDe>) => {
     const d = leerDetalleRostro(e.details);
     // OmniVision deja «Source: OmniVision» en el detalle; una terminal facial, no.
     const origen = /Source:\s*OmniVision/i.test(e.details || "") || e.device?.deviceType !== "FACE_TERMINAL" ? "omnivision" : "terminal";
@@ -47,8 +54,19 @@ const forma = (e: any) => {
         // Calidad de la captura del rostro (sólo OmniVision la trae): puntaje + sus dos componentes.
         calidad: calidadRostro(d.deteccion, d.caraFrac), deteccion: d.deteccion, caraFrac: d.caraFrac,
         motivo: motivoDeRostro({ decision: e.decision, userId: e.userId, rol: e.user?.role, detalles: e.details }),
+        // Identidad por rostro (13/11): qué se decidió con esta cara, quién es para el sistema y cuántas visitas llevaba.
+        identidad: d.identidad, rostro: d.rostroId ? rostros?.get(d.rostroId) || null : null, rostroId: d.rostroId, visita: d.veces,
+        caraPx: d.caraPx, sinIdentidad: d.sinIdentidad, caja: d.caja, escena: paraPared(d.escena),
     };
 };
+
+/** Los Rostros de esos accesos, de una sola consulta. */
+async function rostrosDe(eventos: { details: string | null }[]): Promise<Map<string, RostroDe>> {
+    const ids = [...new Set(eventos.map((e) => leerDetalleRostro(e.details).rostroId).filter(Boolean) as string[])];
+    if (!ids.length) return new Map();
+    const filas = await prisma.rostro.findMany({ where: { id: { in: ids } }, select: { id: true, numero: true, apodo: true, veces: true, primeraVez: true, foto: true, calidad: true } }).catch(() => []);
+    return new Map(filas.map((r) => [r.id, { id: r.id, codigo: codigoRostro(r.numero), nombre: r.apodo, veces: r.veces, primeraVez: r.primeraVez.toISOString(), foto: paraPared(r.foto ? `/api/vision/imagen/${r.foto}` : null), calidad: r.calidad }]));
+}
 
 /**
  * GET /api/monitor/face → el Monitor Face (openspec pared-vms): el último acceso, la tira, los
@@ -78,8 +96,16 @@ export async function GET() {
     // Fuentes de rostro = terminales faciales + dispositivos distintos que produjeron rostro. Sólo se
     // usa como «¿hay algo que mostrar?»: si es 0, la pared muestra el estado vacío.
     const fuentes = terminales + new Set(conRostro.map((r) => r.deviceId).filter(Boolean)).size;
+    const rostros = await rostrosDe([...ultimas, ...atencion]);
+    // Del acceso grande, cuándo se vio antes a esa misma cara: es lo que contesta «¿viene seguido?».
+    const idGrande = ultimas[0] ? leerDetalleRostro(ultimas[0].details).rostroId : null;
+    const anteriores = idGrande ? await prisma.rostroPasada.findMany({
+        where: { rostroId: idGrande, cuando: { lt: ultimas[0].timestamp }, NOT: { eventoId: ultimas[0].id } }, orderBy: { cuando: "desc" }, take: ANTERIORES,
+        select: { id: true, cuando: true, camara: true, cara: true, similitud: true },
+    }).catch(() => []) : [];
     return NextResponse.json({
-        ultimas: ultimas.map(forma), atencion: atencion.map(forma),
+        ultimas: ultimas.map((e) => forma(e, rostros)), atencion: atencion.map((e) => forma(e, rostros)),
+        anteriores: { de: ultimas[0]?.id || null, pasadas: anteriores.map((p) => ({ id: p.id, ts: p.cuando.toISOString(), camara: nombreCamara(p.camara), cara: paraPared(p.cara ? `/api/vision/imagen/${p.cara}` : null), similitud: p.similitud })) },
         hoy: { permitidos, denegados, desconocidos }, fuentes, ahora: new Date().toISOString(),
     }, { headers: SIN_CACHE });
 }

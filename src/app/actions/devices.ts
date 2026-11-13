@@ -212,7 +212,8 @@ export async function updateDevice(id: string, formData: FormData) {
     }
     const seguimiento = camposSeguimiento(formData);
     // Sólo la cámara de seguimiento le pide cuadros a la pasarela: al dejar de serlo, se apaga.
-    if (deviceType && String(deviceType) !== "LPR_INTERIOR") (seguimiento as any).trackEnabled = false;
+    // (Un portero también puede leer matrículas: se prende en su ficha, actions/portero.ts, y guardar no se lo apaga.)
+    if (deviceType && !["LPR_INTERIOR", "DOOR_INTERCOM", "ACCESS_CONTROL"].includes(String(deviceType))) (seguimiento as any).trackEnabled = false;
 
     await prisma.device.update({
         where: { id },

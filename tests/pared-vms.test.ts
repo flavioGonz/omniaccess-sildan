@@ -92,12 +92,24 @@ import { permisoDeRuta } from "@/lib/permisos";
 import { vistaPorClave } from "@/lib/monitor/vistas";
 
 test("monitor face: lo que deja la terminal en el detalle", () => {
+    // Lo de identidad por rostro (13/11) no lo deja una terminal: va todo en null.
+    const SIN = { rostroId: null, veces: null, identidad: null, caraPx: null, sinIdentidad: null, caja: null, escena: null };
     // Sin los datos de calidad (lo que deja una terminal): van en null, no se inventan.
-    assert.deepEqual(leerDetalleRostro("Rostro: Ana Pérez, FaceImage: face/abc.jpg, Similitud: 87.5% (Modo: WHITELIST)"), { nombre: "Ana Pérez", recorte: "face/abc.jpg", similitud: 87.5, deteccion: null, caraFrac: null });
-    assert.deepEqual(leerDetalleRostro("Rostro: Juan, Similitud: 90% (Modo: BLACKLIST)"), { nombre: "Juan", recorte: null, similitud: 90, deteccion: null, caraFrac: null });
-    assert.deepEqual(leerDetalleRostro(null), { nombre: null, recorte: null, similitud: null, deteccion: null, caraFrac: null });
+    assert.deepEqual(leerDetalleRostro("Rostro: Ana Pérez, FaceImage: face/abc.jpg, Similitud: 87.5% (Modo: WHITELIST)"), { nombre: "Ana Pérez", recorte: "face/abc.jpg", similitud: 87.5, deteccion: null, caraFrac: null, ...SIN });
+    assert.deepEqual(leerDetalleRostro("Rostro: Juan, Similitud: 90% (Modo: BLACKLIST)"), { nombre: "Juan", recorte: null, similitud: 90, deteccion: null, caraFrac: null, ...SIN });
+    assert.deepEqual(leerDetalleRostro(null), { nombre: null, recorte: null, similitud: null, deteccion: null, caraFrac: null, ...SIN });
     // Con ellos (lo que deja OmniVision desde el 9/11): confianza de detección y tamaño del rostro.
-    assert.deepEqual(leerDetalleRostro("Rostro: Ana, FaceImage: face/a-cara.jpg, Similitud: 91% Deteccion: 99.2% CaraFrac: 18.5"), { nombre: "Ana", recorte: "face/a-cara.jpg", similitud: 91, deteccion: 99.2, caraFrac: 18.5 });
+    assert.deepEqual(leerDetalleRostro("Rostro: Ana, FaceImage: face/a-cara.jpg, Similitud: 91% Deteccion: 99.2% CaraFrac: 18.5"), { nombre: "Ana", recorte: "face/a-cara.jpg", similitud: 91, deteccion: 99.2, caraFrac: 18.5, ...SIN });
+});
+
+test("monitor face: la identidad por rostro que deja OmniVision", () => {
+    const d = leerDetalleRostro("Rostro: R-0042, Similitud: 93%, FaceImage: /api/vision/imagen/2026-11-13/abc-cara.jpg, Deteccion: 99%, CaraFrac: 18, CaraPx: 131, RostroId: r7b48d4bb9d24, Veces: 7, Identidad: misma, CaraCaja: 0.412-0.2-0.455-0.287, Escena: /api/vision/imagen/2026-11-13/abc-e.jpg, Source: OmniVision");
+    assert.equal(d.nombre, "R-0042"); assert.equal(d.rostroId, "r7b48d4bb9d24"); assert.equal(d.veces, 7); assert.equal(d.identidad, "misma");
+    assert.equal(d.caraPx, 131); assert.deepEqual(d.caja, [0.412, 0.2, 0.455, 0.287]); assert.equal(d.escena, "/api/vision/imagen/2026-11-13/abc-e.jpg");
+    assert.equal(d.similitud, 93); assert.equal(d.sinIdentidad, null);
+    // Sin identidad: dice por qué, y una caja imposible no se dibuja.
+    const s = leerDetalleRostro("Rostro: Desconocido, Deteccion: 82%, CaraPx: 18, Identidad: sin-cara, SinIdentidad: cara chica (18 px), CaraCaja: 0.5-0.5-0.4-0.6, Source: OmniVision");
+    assert.equal(s.identidad, "sin-cara"); assert.equal(s.sinIdentidad, "cara chica (18 px)"); assert.equal(s.caja, null); assert.equal(s.rostroId, null);
 });
 
 test("monitor face: el motivo de cada acceso", () => {

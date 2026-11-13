@@ -735,8 +735,8 @@ async function limpiar() {
         const viejas = await prisma.objetoVisto.findMany({ where: { primeraVez: { lt: limite } }, select: { id: true, recorte: true, foto: true }, take: LIMPIEZA_LOTE });
         if (!viejas.length) return;
         // Con la silueta que el historial calcula a pedido (<id>-s.json, api/history/ov-siluetas): si no existe, S3 lo ignora.
-        // Y con la cara del modo face (<id>-cara.jpg): hasta el 13/11 no se borraba con su pista y quedaba en el bucket para siempre.
-        const claves = viejas.flatMap((v) => [v.recorte, v.foto, v.foto && v.foto.endsWith("-f.jpg") ? v.foto.replace(/-f\.jpg$/, "-s.json") : null, v.foto && v.foto.endsWith("-f.jpg") ? v.foto.replace(/-f\.jpg$/, "-cara.jpg") : null, v.recorte && v.recorte.endsWith("-r.jpg") ? v.recorte.replace(/-r\.jpg$/, "-c.jpg") : null]).filter(Boolean).map((Key) => ({ Key }));
+        // Y con la cara y la escena del modo face (<id>-cara.jpg, <id>-e.jpg): hasta el 13/11 la cara no se borraba con su pista y quedaba en el bucket para siempre.
+        const claves = viejas.flatMap((v) => [v.recorte, v.foto, v.foto && v.foto.endsWith("-f.jpg") ? v.foto.replace(/-f\.jpg$/, "-s.json") : null, v.foto && v.foto.endsWith("-f.jpg") ? v.foto.replace(/-f\.jpg$/, "-cara.jpg") : null, v.foto && v.foto.endsWith("-f.jpg") ? v.foto.replace(/-f\.jpg$/, "-e.jpg") : null, v.recorte && v.recorte.endsWith("-r.jpg") ? v.recorte.replace(/-r\.jpg$/, "-c.jpg") : null]).filter(Boolean).map((Key) => ({ Key }));
         for (let i = 0; i < claves.length; i += 1000) {
             await (await cliente()).send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: claves.slice(i, i + 1000), Quiet: true } })).catch((e) => log("limpieza S3:", e.message));
         }

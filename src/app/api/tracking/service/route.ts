@@ -45,7 +45,7 @@ export async function GET() {
     let camaras = 0;
     try {
         camaras = await prisma.device.count({
-            where: { deviceType: "LPR_INTERIOR" as any, trackEnabled: true, NOT: { rtspUrl: null } },
+            where: { deviceType: { in: ["LPR_INTERIOR", "DOOR_INTERCOM", "ACCESS_CONTROL"] as any }, trackEnabled: true, NOT: { rtspUrl: null } },
         });
         if (camaras === 0) {
             const s = await prisma.setting.findUnique({ where: { key: "TRACK_CAMERAS" } });

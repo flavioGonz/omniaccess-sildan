@@ -29,6 +29,8 @@ const MARGEN_PERSONA = 0.35;
 const MARGEN_CARA = 0.3;
 /** Lado máximo del recorte de cara que se guarda para mostrar. */
 const LADO_CARA = 320;
+/** Ancho máximo de la escena que se guarda del stream principal (<id>-e.jpg): la foto grande del monitor facial. */
+const ANCHO_ESCENA = 1920;
 /** Dos pistas de la misma persona en la misma cámara dentro de esto son el mismo momento: una sola pasada. */
 const MISMA_PASADA_MS = 30_000;
 const MOTOR_MS = 12_000;
@@ -57,18 +59,22 @@ function crear({ prisma, log, bajar, subir, borrar, emitir, sharp, go2rtc }) {
         } catch { /* la cámara no entregó el principal a tiempo */ }
     }
 
-    /** El recorte de la persona, con margen, sin achicar: el alto de la cara se mide en estos px. */
+    /**
+     * El recorte de la persona, con margen, sin achicar: el alto de la cara se mide en estos px.
+     * Devuelve también dónde cae el recorte en el cuadro (x0, y0, W, H), para poder decir después
+     * dónde está la cara en la escena.
+     */
     async function recortePersona(jpeg, caja) {
         const meta = await sharp(jpeg).metadata();
         const W = meta.width || 0, H = meta.height || 0;
-        if (!W || !H || !Array.isArray(caja)) return jpeg;
+        if (!W || !H || !Array.isArray(caja)) return { jpeg, x0: 0, y0: 0, W, H };
         const [x1, y1, x2, y2] = caja;
         const mw = (x2 - x1) * MARGEN_PERSONA, mh = (y2 - y1) * MARGEN_PERSONA;
         const left = Math.max(0, Math.floor((x1 - mw) * W)), top = Math.max(0, Math.floor((y1 - mh) * H));
         const width = Math.max(1, Math.min(W - left, Math.ceil((x2 - x1 + 2 * mw) * W)));
         // Hacia abajo no hace falta margen: la cara está arriba.
         const height = Math.max(1, Math.min(H - top, Math.ceil((y2 - y1 + mh) * H)));
-        return sharp(jpeg).extract({ left, top, width, height }).jpeg({ quality: 92 }).toBuffer();
+        return { jpeg: await sharp(jpeg).extract({ left, top, width, height }).jpeg({ quality: 92 }).toBuffer(), x0: left, y0: top, W, H };
     }
 
     async function motor(ajustes, ruta, { metodo = "POST", jpeg } = {}) {
@@ -155,11 +161,23 @@ function crear({ prisma, log, bajar, subir, borrar, emitir, sharp, go2rtc }) {
         try {
             contadores.miradas++;
             // Primero el cuadro principal; si ahí no hay cara (llegó tarde, la persona ya giró), el chico.
-            let jpeg = null, cara = null, conHd = false;
-            if (hd) { jpeg = await recortePersona(hd.jpeg, hd.caja); cara = await mirar(ajustes, jpeg); conHd = !!cara; }
-            if (!cara) { jpeg = await recortePersona(await bajar(p.foto), p.caja); cara = await mirar(ajustes, jpeg); }
+            let rec = null, cara = null, conHd = false;
+            if (hd) { rec = await recortePersona(hd.jpeg, hd.caja); cara = await mirar(ajustes, rec.jpeg); conHd = !!cara; }
+            if (!cara) { rec = await recortePersona(await bajar(p.foto), p.caja); cara = await mirar(ajustes, rec.jpeg); }
             if (!cara) { contadores.sinRostro++; return; } // sin cara a la vista no es un acceso FACE
-            if (conHd) contadores.conHd++;
+            const jpeg = rec.jpeg;
+            // Dónde está la cara en la escena, en fracciones del cuadro: el monitor la marca sobre la foto.
+            const f3 = (v) => Math.max(0, Math.min(1, Math.round(v * 1000) / 1000));
+            const cajaEscena = rec.W && rec.H ? [f3((rec.x0 + cara.caja.x_min) / rec.W), f3((rec.y0 + cara.caja.y_min) / rec.H), f3((rec.x0 + cara.caja.x_max) / rec.W), f3((rec.y0 + cara.caja.y_max) / rec.H)] : null;
+            // La escena del stream principal, para la foto grande del monitor: vive lo que su pista.
+            let claveEscena = null;
+            if (conHd) {
+                contadores.conHd++;
+                try {
+                    claveEscena = p.foto.replace(/-f\.jpg$/, "-e.jpg");
+                    await subir(claveEscena, await sharp(hd.jpeg).resize({ width: ANCHO_ESCENA, withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer());
+                } catch { claveEscena = null; }
+            }
             const cuando = p.ultimaVez || new Date();
             const recortes = await recortesCara(jpeg, cara.caja);
             const claveCara = p.foto.replace(/-f\.jpg$/, "-cara.jpg");
@@ -191,24 +209,28 @@ function crear({ prisma, log, bajar, subir, borrar, emitir, sharp, go2rtc }) {
                 if (rostro) contadores.nuevas++; else d = { que: "sin-cara", motivo: "el motor no la tomó como cara" };
             }
             if (d.que === "sin-cara") contadores.sinCalidad++;
+            const identidad = d.que; // lo que se decidió con esta cara: padron | misma | nueva | sin-cara
 
             // Registrada a mano después de nacer sola: el acceso sale a nombre de esa persona.
             if (rostro?.userId && !usuario) usuario = await prisma.user.findUnique({ where: { id: rostro.userId }, select: { id: true, name: true, cara: true, role: true, unit: true } }).catch(() => null);
 
             const nombre = usuario?.name || rostro?.apodo || (rostro ? R.codigo(rostro.numero) : "Desconocido");
             const sim = d.similitud ?? cara.vecinos[0]?.similitud ?? null;
-            const meta = await sharp(jpeg).metadata();
             // Claves que parsea el monitor/face: `Rostro`, `Similitud`, `FaceImage`, `Deteccion`, `CaraFrac`; y las nuevas.
             const details = [
                 `Rostro: ${nombre}`,
                 sim != null ? `Similitud: ${Math.round(sim * 100)}%` : null,
                 `FaceImage: /api/vision/imagen/${claveCara}`,
                 `Deteccion: ${Math.round(cara.prob * 100)}%`,
-                meta.height ? `CaraFrac: ${Math.round(100 * cara.px / meta.height)}` : null,
+                // Alto de la cara sobre el alto de la ESCENA (no del recorte de la persona), en %.
+                cajaEscena ? `CaraFrac: ${Math.round(100 * (cajaEscena[3] - cajaEscena[1]))}` : null,
                 `CaraPx: ${cara.px}`,
                 rostro ? `RostroId: ${rostro.id}` : null,
                 rostro ? `Veces: ${rostro.veces}` : null,
+                `Identidad: ${identidad}`,
                 d.que === "sin-cara" ? `SinIdentidad: ${d.motivo}` : null,
+                cajaEscena ? `CaraCaja: ${cajaEscena.join("-")}` : null,
+                claveEscena ? `Escena: /api/vision/imagen/${claveEscena}` : null,
                 "Source: OmniVision",
             ].filter(Boolean).join(", ");
             const ev = await prisma.accessEvent.create({

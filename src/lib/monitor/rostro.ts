@@ -9,16 +9,36 @@
 
 export type MotivoRostro = "permitido" | "desconocido" | "lista-negra" | "denegado";
 
-export function leerDetalleRostro(d: string | null | undefined): { nombre: string | null; recorte: string | null; similitud: number | null; deteccion: number | null; caraFrac: number | null } {
+/** Qué decidió el modo face con una cara (vision-rostros.js): alguien del padrón, alguien ya visto, una cara nueva, o no alcanzó. */
+export type IdentidadRostro = "padron" | "misma" | "nueva" | "sin-cara";
+
+export type DetalleRostro = {
+    nombre: string | null; recorte: string | null; similitud: number | null; deteccion: number | null; caraFrac: number | null;
+    /** Identidad por rostro (desde el 13/11): el id del Rostro, las visitas que llevaba en ese momento y qué se decidió. */
+    rostroId: string | null; veces: number | null; identidad: IdentidadRostro | null;
+    /** Alto de la cara en px del cuadro que miró el motor, y por qué quedó sin identidad cuando no alcanzó. */
+    caraPx: number | null; sinIdentidad: string | null;
+    /** Dónde está la cara en la escena, en fracciones [x1, y1, x2, y2], y la escena del stream principal si se guardó. */
+    caja: [number, number, number, number] | null; escena: string | null;
+};
+
+export function leerDetalleRostro(d: string | null | undefined): DetalleRostro {
     const t = d || "";
-    const nombre = /Rostro:\s*([^,]+)/.exec(t)?.[1]?.trim() || null;
-    const recorte = /FaceImage:\s*([^,\s]+)/.exec(t)?.[1] || null;
-    const s = /Similitud:\s*([\d.]+)\s*%/.exec(t)?.[1];
-    // Calidad de la captura (OmniVision): confianza de detección de CompreFace y qué tan grande
-    // entró el rostro en el cuadro (alto del box sobre el alto del cuadro, en %).
-    const det = /Deteccion:\s*([\d.]+)\s*%/.exec(t)?.[1];
-    const cf = /CaraFrac:\s*([\d.]+)/.exec(t)?.[1];
-    return { nombre, recorte, similitud: s != null ? Number(s) : null, deteccion: det != null ? Number(det) : null, caraFrac: cf != null ? Number(cf) : null };
+    const uno = (re: RegExp) => re.exec(t)?.[1]?.trim() || null;
+    const num = (re: RegExp) => { const v = re.exec(t)?.[1]; return v != null && Number.isFinite(Number(v)) ? Number(v) : null; };
+    const identidad = uno(/Identidad:\s*([a-z-]+)/);
+    const c = uno(/CaraCaja:\s*([\d.-]+)/)?.split("-").map(Number);
+    return {
+        nombre: uno(/Rostro:\s*([^,]+)/), recorte: uno(/FaceImage:\s*([^,\s]+)/), similitud: num(/Similitud:\s*([\d.]+)\s*%/),
+        // Calidad de la captura (OmniVision): confianza de detección de CompreFace y qué tan grande
+        // entró el rostro en el cuadro (alto del box sobre el alto del cuadro, en %).
+        deteccion: num(/Deteccion:\s*([\d.]+)\s*%/), caraFrac: num(/CaraFrac:\s*([\d.]+)/),
+        rostroId: uno(/RostroId:\s*([a-z0-9]+)/), veces: num(/Veces:\s*(\d+)/),
+        identidad: identidad === "padron" || identidad === "misma" || identidad === "nueva" || identidad === "sin-cara" ? identidad : null,
+        caraPx: num(/CaraPx:\s*(\d+)/), sinIdentidad: uno(/SinIdentidad:\s*([^,]+)/),
+        caja: c && c.length === 4 && c.every((x) => Number.isFinite(x) && x >= 0 && x <= 1) && c[2] > c[0] && c[3] > c[1] ? (c as [number, number, number, number]) : null,
+        escena: uno(/Escena:\s*([^,\s]+)/),
+    };
 }
 
 /**

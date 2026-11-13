@@ -14,10 +14,10 @@ const ANCHOS = new Set([160, 320, 640, 960]);
  */
 export async function imagenDeVision(clave: string[] | undefined, w: number): Promise<Response> {
     const key = (clave || []).join("/");
-    // Las del registro (día/id-r|f|c.jpg: recorte, cuadro y chapa), las de la relectura de NO_LEIDA (relectura/día/evento-v|c.jpg)
+    // Las del registro (día/id-r|f|c|e|cara.jpg: recorte, cuadro, chapa, y la escena y la cara del modo face), las de la relectura de NO_LEIDA (relectura/día/evento-v|c.jpg)
     // las de los eventos de las reglas (eventos/día/id.jpg) y las muestras de las analíticas
     // entrenables (zonas/zona/día/id.jpg) y las fotos del detector propio (entrenamiento/día/id.jpg).
-    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+-(?:[rfc]|cara)\.jpg$/.test(key) && !/^relectura\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9-]+-[vc]\.jpg$/.test(key)
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+-(?:[rfce]|cara)\.jpg$/.test(key) && !/^relectura\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9-]+-[vc]\.jpg$/.test(key)
         && !/^eventos\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key)
         && !/^zonas\/[a-z0-9]+\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key)
         && !/^entrenamiento\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key)
