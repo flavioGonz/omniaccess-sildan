@@ -3,6 +3,8 @@
 import { useId, useMemo } from "react";
 import { Backpack, Bike, Bird, Briefcase, Bus, Car, Cat, Dog, Luggage, Motorbike, PawPrint, ScanEye, Truck, User, type LucideIcon, Boxes } from "lucide-react";
 import { bandasLinea, poligonos, veredicto, type Analisis, type GeomNorm, type Pt } from "@/lib/vision-capa";
+import { iconoPropio, useNombresPropios } from "@/lib/nombres-propios";
+import { resolverIcono } from "@/components/vision/iconos-clase";
 
 /**
  * Lo que vio omni-vision, dibujado encima de la foto: las siluetas, la línea y la zona de la
@@ -56,6 +58,8 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
     className?: string;
 }) {
     const uid = useId().replace(/:/g, "");
+    // Los íconos elegidos para las clases entrenadas: se vuelve a dibujar cuando llega la lista.
+    useNombresPropios();
     const { ancho: W, alto: H, objetos } = analisis;
     const { tocan } = useMemo(() => veredicto(analisis, geom || null), [analisis, geom]);
     const bandas = useMemo(() => (geom?.linea.length ? bandasLinea(geom.linea, W, H) : []), [geom, W, H]);
@@ -176,7 +180,13 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 Medidas en píxeles de la IMAGEN (f = cuerpo del título), así escalan con la foto. */}
             {etiquetas && (() => { const puestos: [number, number, number, number][] = []; return objetos.map((o, i) => {
                 const c = tocan[i] ? COLOR_TOCA : COLOR_GRUPO[o.grupo] || COLOR_OTRO;
-                const Icono = ICONO_CLASE[o.clase] || ICONO_GRUPO[o.grupo] || ScanEye;
+                /*
+                 * El ícono de una clase entrenada es el que se le eligió (12/11, Nico: «el ícono al
+                 * lado del nombre»): viene con el objeto en el vivo, y si no, de la lista de clases.
+                 * Una imagen subida se dibuja tal cual; un dibujo de la lista, en el color del grupo.
+                 */
+                const propio = o.grupo === "propio" ? resolverIcono(o.icono || iconoPropio(o.clase)) : null;
+                const Icono = propio?.dibujo || ICONO_CLASE[o.clase] || ICONO_GRUPO[o.grupo] || ScanEye;
                 const titulo = o.nombre ? o.nombre[0].toUpperCase() + o.nombre.slice(1) : o.clase;
                 const extra = atributos ? (o.atributos || []).filter((a) => !a.dudoso && (a.id === "color" || a.id === "carroceria" || a.id === "tipo")).map((a) => a.valor).slice(0, 2) : [];
                 const meta = extra.join(" · ").toUpperCase();
@@ -252,7 +262,9 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                             <circle cx={ex} cy={ey} r={f * 0.14} fill={c} />
                         </g>
                         <g filter={`url(#texto-${uid})`} fontFamily="Outfit, system-ui, sans-serif">
-                            <Icono x={ix} y={ey - f * 0.42 - icono} width={icono} height={icono} color={c} strokeWidth={2.25} absoluteStrokeWidth={false} />
+                            {propio?.imagen
+                                ? <image href={propio.imagen} x={ix} y={ey - f * 0.42 - icono} width={icono} height={icono} preserveAspectRatio="xMidYMid meet" />
+                                : <Icono x={ix} y={ey - f * 0.42 - icono} width={icono} height={icono} color={c} strokeWidth={2.25} absoluteStrokeWidth={false} />}
                             <text x={tituloX} y={ey - f * 0.5} textAnchor={anchor} fontSize={f} fontWeight={700} fill="#ffffff" letterSpacing={-0.01 * f}>{titulo}</text>
                             <text x={tx} y={ey + fm * 1.45} textAnchor={anchor} fontSize={fm} fontWeight={700} letterSpacing={0.12 * fm} style={{ fontVariantNumeric: "tabular-nums" }}>
                                 {meta && <tspan fill="rgba(248,250,252,0.86)">{meta}</tspan>}

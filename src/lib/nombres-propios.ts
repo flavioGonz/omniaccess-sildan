@@ -11,13 +11,15 @@ import { useEffect, useState } from "react";
  * `useNombresPropios()` para volver a dibujarse cuando llegan los nombres.
  */
 const nombres = new Map<string, string>();
+/** El ícono elegido para cada clase (ClasePropia.icono), para dibujarlo donde no lo trae el análisis. */
+const iconos = new Map<string, string>();
 let pedido: Promise<void> | null = null;
 export const PREFIJO_PROPIO = "propio:";
 
 function cargar(): Promise<void> {
     return (pedido ||= fetch("/api/vision/objetos", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
-        .then((j) => { for (const c of j?.clases || []) nombres.set(c.id, c.nombre); })
+        .then((j) => { for (const c of j?.clases || []) { nombres.set(c.id, c.nombre); if (c.icono) iconos.set(c.id, c.icono); else iconos.delete(c.id); } })
         .catch(() => { pedido = null; }));
 }
 
@@ -28,6 +30,13 @@ export function nombrePropio(clase: string): string | null {
     if (!esPropia(clase)) return null;
     return nombres.get(clase.slice(PREFIJO_PROPIO.length)) || "Objeto propio";
 }
+
+/** El ícono guardado de una clase propia, o null (no es propia, no eligió ninguno o todavía no llegó la lista). */
+export function iconoPropio(clase: string): string | null {
+    return esPropia(clase) ? iconos.get(clase.slice(PREFIJO_PROPIO.length)) || null : null;
+}
+/** Tras cambiar una clase (nombre, ícono): la próxima pantalla que pregunte vuelve a pedir la lista. */
+export function olvidarPropias() { pedido = null; }
 
 export function listaPropias(): { clase: string; nombre: string }[] {
     return [...nombres].map(([id, nombre]) => ({ clase: `${PREFIJO_PROPIO}${id}`, nombre }));

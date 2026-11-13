@@ -74,11 +74,38 @@ export const PARIDAD_MIN = 0.9;
  *
  * 12/11, Nico, con el vivo de Puesto 7 abierto y un «Basurero Lleno 20 %» sobre una persona:
  * «deben mostrarse dinámicamente cuando superan el 59 % en adelante; mostrar cuadros con menos
- * es ensuciar el live view».
+ * es ensuciar el live view». Y enseguida: «permití que sea configurable el % de acierto para que
+ * se vea en liveview» — va por clase (ClasePropia.umbralPantalla): un basurero lleno real ronda
+ * el 57-62 % y un cono pasa el 90 %; un solo número para todas deja a una titilando.
  */
-export const CONFIANZA_PROPIO_EN_PANTALLA = 0.59;
+export const UMBRAL_PANTALLA_DEFECTO = 0.59;
+export const UMBRAL_PANTALLA_MIN = 0.05;
+export const UMBRAL_PANTALLA_MAX = 0.99;
 /** El grupo con que omni-vision devuelve lo del detector propio (services/omni-vision/propio.py, GRUPO). */
 export const GRUPO_PROPIO = "propio";
+
+/**
+ * Los íconos que se pueden elegir para una clase (12/11, Nico: «permití subirle un ícono o
+ * seleccionar uno, el ícono al lado del nombre»). Acá sólo las claves y cómo se llaman: el dibujo
+ * de cada una está en components/vision/iconos-clase.tsx, que no se importa del lado del servidor.
+ * Una clave que se saque de acá deja a las clases que la usaban con el ícono de siempre.
+ */
+export const ICONOS_CLASE = [
+    ["tacho", "Tacho"], ["reciclaje", "Reciclaje"], ["cono", "Cono"], ["obra", "Valla de obra"], ["caja", "Caja"], ["paquete", "Paquete"],
+    ["contenedor", "Contenedor"], ["barril", "Tambor"], ["cilindro", "Garrafa"], ["carretilla", "Autoelevador"], ["camion", "Camión"], ["tractor", "Tractor"],
+    ["casilla", "Casilla rodante"], ["carro", "Carrito"], ["pala", "Pala"], ["martillo", "Herramienta"], ["cerco", "Cerco"], ["puerta", "Portón"],
+    ["cartel", "Cartel"], ["farol", "Farol"], ["fuego", "Fuego"], ["agua", "Agua"], ["rayo", "Electricidad"], ["combustible", "Combustible"],
+    ["arbol", "Árbol"], ["hoja", "Ramas y hojas"], ["sillon", "Mueble"], ["buzon", "Buzón"], ["candado", "Candado"], ["camara", "Cámara"],
+    ["casco", "Casco"], ["pelota", "Juguete"], ["bandera", "Bandera"], ["aviso", "Advertencia"], ["estrella", "Destacado"], ["etiqueta", "Etiqueta"],
+] as const;
+export type ClaveIcono = (typeof ICONOS_CLASE)[number][0];
+export const esClaveIcono = (x: unknown): x is ClaveIcono => typeof x === "string" && ICONOS_CLASE.some(([k]) => k === x);
+/** Un ícono subido se guarda como «img:<url>»; el resto es una clave de ICONOS_CLASE. */
+export const PREFIJO_ICONO_IMAGEN = "img:";
+/** Una imagen de ícono pesa poco: más que esto no es un ícono. */
+export const ICONO_MAX_BYTES = 1024 * 1024;
+/** Lado con que se guarda el ícono subido: en el vivo se dibuja a unos 30 px. */
+export const ICONO_LADO = 96;
 
 export const MODELOS_GUARDADOS = 5;
 export const MODELOS_PREFIJO = "modelos/";
@@ -86,7 +113,7 @@ export const MODELOS_PREFIJO = "modelos/";
 export type ArchivoModelo = { clave: string; bytes: number; guardadoAt: string; borradoAt?: string };
 
 export type Caja = { clase: string; caja: [number, number, number, number] };
-export type ClaseResumen = { id: string; nombre: string; descripcion: string | null; cajas: number; fotos: number };
+export type ClaseResumen = { id: string; nombre: string; descripcion: string | null; cajas: number; fotos: number; icono: string | null; umbralPantalla: number };
 export type FotoFila = {
     id: string; url: string; ancho: number; alto: number; origen: string; deviceId: string | null;
     camara: string | null; cajas: Caja[]; revisada: boolean; createdAt: string;

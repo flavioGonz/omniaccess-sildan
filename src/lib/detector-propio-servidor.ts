@@ -43,7 +43,7 @@ export async function resumenClases(): Promise<ClaseResumen[]> {
         for (const c of (f.cajas as Caja[]) || []) { cajas.set(c.clase, (cajas.get(c.clase) || 0) + 1); vistas.add(c.clase); }
         for (const k of vistas) conFoto.set(k, (conFoto.get(k) || 0) + 1);
     }
-    return clases.map((c) => ({ id: c.id, nombre: c.nombre, descripcion: c.descripcion, cajas: cajas.get(c.id) || 0, fotos: conFoto.get(c.id) || 0 }));
+    return clases.map((c) => ({ id: c.id, nombre: c.nombre, descripcion: c.descripcion, cajas: cajas.get(c.id) || 0, fotos: conFoto.get(c.id) || 0, icono: c.icono, umbralPantalla: c.umbralPantalla }));
 }
 
 export async function filaFoto(f: any, camaras?: Map<string, string>): Promise<FotoFila> {

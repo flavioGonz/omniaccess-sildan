@@ -1457,6 +1457,12 @@ model ClasePropia {
   nombre      String
   /// Cómo reconocerla, para quien dibuja: qué entra en el recuadro y qué no.
   descripcion String?
+  /// El ícono al lado del nombre en el vivo: una clave de ICONOS_CLASE (lib/detector-propio),
+  /// «img:<url>» si se subió una imagen, o null = el de siempre.
+  icono       String?
+  /// Desde qué confianza (0-1) se DIBUJA en el vivo y la grabación. Sólo pantalla: las reglas y
+  /// el registro siguen con el umbral medido del modelo.
+  umbralPantalla Float @default(0.59)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

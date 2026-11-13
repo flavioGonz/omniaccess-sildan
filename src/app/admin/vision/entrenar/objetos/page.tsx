@@ -22,7 +22,10 @@ import { ProbarModelo } from "@/components/vision/entrenar/ProbarModelo";
 import { GuiaDibujo, UnModeloVariasClases } from "@/components/vision/entrenar/GuiaDibujo";
 import { AlCelular } from "@/components/vision/entrenar/AlCelular";
 import { CaminoDetector, type PasoCamino } from "@/components/vision/entrenar/CaminoDetector";
-import { CAJAS_META, CAJAS_MINIMO, LARGO_NOMBRE, NEGATIVAS_FRACCION, type Caja, type ClaseResumen, type FotoFila } from "@/lib/detector-propio";
+import { ElegirIcono } from "@/components/vision/entrenar/ElegirIcono";
+import { IconoClase } from "@/components/vision/iconos-clase";
+import { olvidarPropias } from "@/lib/nombres-propios";
+import { CAJAS_META, CAJAS_MINIMO, LARGO_NOMBRE, NEGATIVAS_FRACCION, UMBRAL_PANTALLA_MAX, UMBRAL_PANTALLA_MIN, type Caja, type ClaseResumen, type FotoFila } from "@/lib/detector-propio";
 
 /**
  * OmniVision › Entrenar › Objetos nuevos: el conjunto de fotos para enseñarle al detector cosas
@@ -91,7 +94,7 @@ export default function ObjetosPropios() {
         catch (e: any) { toast.error({ title: "No se creó", description: e?.message }); }
     }
     async function guardarClase(c: ClaseResumen) {
-        try { await pedir(`/api/vision/objetos/${c.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ nombre: c.nombre, descripcion: c.descripcion }) }); setEditando(null); await cargar(); }
+        try { await pedir(`/api/vision/objetos/${c.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ nombre: c.nombre, descripcion: c.descripcion, icono: c.icono, umbralPantalla: c.umbralPantalla }) }); setEditando(null); olvidarPropias(); await cargar(); }
         catch (e: any) { toast.error({ title: "No se guardó", description: e?.message }); }
     }
     const guardarFoto = async (id: string, cajas: Caja[]) => {
@@ -166,17 +169,30 @@ export default function ObjetosPropios() {
                                     <span className="grid h-9 w-9 place-items-center rounded-full bg-foreground text-background text-[13px] font-bold tabular-nums shrink-0" title={`Tecla ${k + 1} al dibujar`}>{k + 1}</span>
                                     <div className="min-w-0 flex-1">
                                         {editando?.id === c.id ? (
-                                            <div className="flex gap-2 flex-wrap">
-                                                <Input value={editando.nombre} maxLength={LARGO_NOMBRE} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} className="h-8 w-56" />
-                                                <Input value={editando.descripcion || ""} onChange={(e) => setEditando({ ...editando, descripcion: e.target.value })} placeholder="Qué entra en el recuadro" className="h-8 flex-1 min-w-[180px]" />
-                                                <Button size="sm" onClick={() => guardarClase(editando)}>Guardar</Button>
-                                                <Button size="sm" variant="ghost" onClick={() => setEditando(null)}>Cancelar</Button>
+                                            <div className="space-y-2">
+                                                <div className="flex gap-2 flex-wrap">
+                                                    <ElegirIcono claseId={c.id} valor={editando.icono} alCambiar={(icono) => setEditando((x) => (x ? { ...x, icono } : x))} />
+                                                    <Input value={editando.nombre} maxLength={LARGO_NOMBRE} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} className="h-8 w-56" />
+                                                    <Input value={editando.descripcion || ""} onChange={(e) => setEditando({ ...editando, descripcion: e.target.value })} placeholder="Qué entra en el recuadro" className="h-8 flex-1 min-w-[180px]" />
+                                                    <Button size="sm" onClick={() => guardarClase(editando)}>Guardar</Button>
+                                                    <Button size="sm" variant="ghost" onClick={() => { setEditando(null); cargar(); }}>Cancelar</Button>
+                                                </div>
+                                                {/* Sólo lo que se dibuja: las reglas y el registro siguen con el umbral medido del modelo. */}
+                                                <label className="flex items-center gap-2 flex-wrap text-[12px]">
+                                                    <span className="font-semibold">Se dibuja en el vivo desde</span>
+                                                    <span className="relative">
+                                                        <Input type="number" min={Math.round(UMBRAL_PANTALLA_MIN * 100)} max={Math.round(UMBRAL_PANTALLA_MAX * 100)} step={1}
+                                                            value={Math.round(editando.umbralPantalla * 100)} onChange={(e) => setEditando({ ...editando, umbralPantalla: Number(e.target.value) / 100 })} className="h-8 w-[76px] pr-6 tabular-nums" />
+                                                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
+                                                    </span>
+                                                    <span className="text-muted-foreground">de confianza. Más alto, menos recuadros dudosos; si el recuadro bueno titila, bajalo un poco. No cambia cuándo avisan las reglas.</span>
+                                                </label>
                                             </div>
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)] items-center gap-x-5 gap-y-2">
                                                 <div className="min-w-0">
-                                                    <div className="text-[14.5px] font-bold truncate">{c.nombre}</div>
-                                                    {c.descripcion && <div className="text-[11.5px] text-muted-foreground truncate">{c.descripcion}</div>}
+                                                    <div className="text-[14.5px] font-bold truncate flex items-center gap-1.5"><IconoClase icono={c.icono} size={15} className="shrink-0 text-muted-foreground" /><span className="truncate">{c.nombre}</span></div>
+                                                    <div className="text-[11.5px] text-muted-foreground truncate">{c.descripcion ? `${c.descripcion} · ` : ""}en el vivo desde <span className="tabular-nums">{Math.round(c.umbralPantalla * 100)} %</span></div>
                                                 </div>
                                                 <Medidor n={c.cajas} fotos={c.fotos} />
                                             </div>
@@ -184,7 +200,7 @@ export default function ObjetosPropios() {
                                     </div>
                                     {editando?.id !== c.id && (
                                         <div className="flex items-center shrink-0">
-                                            <button type="button" onClick={() => setEditando(c)} aria-label="Cambiar el nombre" title="Cambiar el nombre" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><Pencil size={14} /></button>
+                                            <button type="button" onClick={() => setEditando(c)} aria-label="Cambiar nombre, ícono y porcentaje" title="Cambiar el nombre, el ícono y desde qué porcentaje se dibuja en el vivo" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><Pencil size={14} /></button>
                                             <button type="button" onClick={() => setABorrar(c)} aria-label="Borrar la clase" title="Borrar la clase" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-[var(--mal-suave)] hover:text-[var(--mal-texto)]"><Trash2 size={14} /></button>
                                         </div>
                                     )}

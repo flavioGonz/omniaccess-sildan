@@ -4,7 +4,8 @@ export const dynamic = "force-dynamic";
 import { spawn } from "child_process";
 import { NextRequest, NextResponse } from "next/server";
 import { autorizarMonitor } from "@/lib/monitor/servidor";
-import { CONFIANZA_PROPIO_EN_PANTALLA, GRUPO_PROPIO } from "@/lib/detector-propio";
+import { prisma } from "@/lib/prisma";
+import { GRUPO_PROPIO, UMBRAL_PANTALLA_DEFECTO } from "@/lib/detector-propio";
 
 /**
  * GET /api/monitor/camaras/siluetas?stream=<nombre> → text/event-stream con lo que OmniVision ve
@@ -51,18 +52,40 @@ function aligerar(poli: number[][]): number[][] {
 }
 
 /**
+ * Lo que cada clase entrenada tiene configurado para la pantalla: desde qué confianza se dibuja y
+ * con qué ícono. Se lee de la base a lo sumo cada AJUSTES_MS (el vivo manda tres cuadros por
+ * segundo): un cambio en Entrenar › Objetos se ve en el vivo en ese tiempo, sin volver a abrirlo.
+ */
+type AjustePantalla = { umbral: number; icono: string | null };
+const AJUSTES_MS = 15_000;
+const PREFIJO_PROPIO = "propio:";
+let ajustes: { al: number; porClase: Map<string, AjustePantalla> } = { al: 0, porClase: new Map() };
+async function ajustesDePantalla(): Promise<Map<string, AjustePantalla>> {
+    if (Date.now() - ajustes.al < AJUSTES_MS) return ajustes.porClase;
+    try {
+        const cs = await prisma.clasePropia.findMany({ select: { id: true, icono: true, umbralPantalla: true } });
+        ajustes = { al: Date.now(), porClase: new Map(cs.map((c) => [`${PREFIJO_PROPIO}${c.id}`, { umbral: c.umbralPantalla, icono: c.icono }])) };
+    } catch {
+        // Sin base un momento: se sigue con lo último que se leyó, y se vuelve a intentar en la próxima.
+        ajustes = { ...ajustes, al: Date.now() - AJUSTES_MS + 2000 };
+    }
+    return ajustes.porClase;
+}
+
+/**
  * Lo que viaja al navegador de lo que vio omni-vision, para el vivo (GET) y la grabación (POST).
- * Lo del detector entrenado acá sólo desde CONFIANZA_PROPIO_EN_PANTALLA: se decide cuadro a
- * cuadro, así que el recuadro aparece cuando la supera y se va cuando baja. Lo de fábrica
+ * Lo del detector entrenado acá sólo desde el umbral de pantalla de su clase: se decide cuadro a
+ * cuadro, así que el recuadro aparece cuando lo supera y se va cuando baja. Lo de fábrica
  * (personas, vehículos, animales) no cambia: ya sale con el umbral de omni-vision.
  */
-function paraPantalla(objetos: any[] | undefined) {
+function paraPantalla(objetos: any[] | undefined, porClase: Map<string, AjustePantalla>) {
     return (objetos || [])
-        .filter((o) => o.grupo !== GRUPO_PROPIO || o.confianza >= CONFIANZA_PROPIO_EN_PANTALLA)
+        .filter((o) => o.grupo !== GRUPO_PROPIO || o.confianza >= (porClase.get(o.clase)?.umbral ?? UMBRAL_PANTALLA_DEFECTO))
         .map((o) => ({
             clase: o.clase, nombre: o.nombre, grupo: o.grupo, confianza: Math.round(o.confianza * 1000) / 1000,
             caja: (o.caja_norm || []).map(r4),
             ...(Array.isArray(o.silueta) ? { silueta: o.silueta.map((q: number[][]) => aligerar(q).map(([x, y]) => [r4(x), r4(y)])) } : {}),
+            ...(o.grupo === GRUPO_PROPIO && porClase.get(o.clase)?.icono ? { icono: porClase.get(o.clase)!.icono } : {}),
         }));
 }
 
@@ -113,7 +136,7 @@ export async function GET(req: NextRequest) {
                         t, ms: Date.now() - t, descartados,
                         analisis: {
                             ancho: j.ancho, alto: j.alto, tarea: "segmentar",
-                            objetos: paraPantalla(j.objetos),
+                            objetos: paraPantalla(j.objetos, await ajustesDePantalla()),
                         },
                     });
                     descartados = 0;
@@ -180,7 +203,7 @@ export async function POST(req: NextRequest) {
             ms: Date.now() - ahora,
             analisis: {
                 ancho: j.ancho, alto: j.alto, tarea: "segmentar",
-                objetos: paraPantalla(j.objetos),
+                objetos: paraPantalla(j.objetos, await ajustesDePantalla()),
             },
         }, { headers: { "Cache-Control": "no-store" } });
     } catch (e: any) {
