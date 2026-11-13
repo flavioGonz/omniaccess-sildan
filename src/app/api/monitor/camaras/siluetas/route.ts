@@ -35,9 +35,11 @@ import { leerRecuadro } from "@/lib/deteccion";
  *    se toma el cuadro siguiente recién cuando pasó ESPERA_POR_MS veces lo que tardó el anterior,
  *    por la cantidad de fichas abiertas: entre todas nunca ocupan más de la mitad del tiempo de
  *    omni-vision. En una GPU más lenta, o con omni-vision ocupado, baja sola.
- *  · Los cuadros llegan de ffmpeg cada 100 ms, así que la espera se redondea para arriba a esa
- *    grilla: con un factor 3 y 38 ms por cuadro (114 ms de espera) se tomaba uno de cada dos y
- *    quedaba en 5 por segundo, medido. Con 2 quedan 76 ms y entran los diez.
+ *  · Los cuadros no llegan parejos (ese canal viene por una VPN: de a ráfagas, con huecos de hasta
+ *    0,8 s). Descartando el que llega «antes de tiempo» se perdía la mitad y quedaba en 5 por
+ *    segundo, medido. Ahora el último que llegó se guarda y se analiza apenas se puede: 8,7 a 9,3
+ *    por segundo, uno cada 86 ms de mediana. ffmpeg entrega más cuadros (FFMPEG_POR_SEG) de los
+ *    que se analizan, para que el siguiente permitido nunca quede lejos.
  */
 
 const VISION = (process.env.OMNI_VISION_URL || "http://127.0.0.1:8010").replace(/\/$/, "");
@@ -47,6 +49,8 @@ const GO2RTC_RTSP = process.env.GO2RTC_RTSP || "rtsp://127.0.0.1:8554";
 const CUADROS_POR_SEG = 10;
 /** El cuadro siguiente se toma cuando pasó esto por lo que tardó el anterior (y por las fichas abiertas): 2 = a lo sumo la mitad del tiempo de omni-vision. */
 const ESPERA_POR_MS = 2;
+/** Los cuadros que saca ffmpeg por segundo: más que los que se analizan, para tener siempre uno reciente a mano. */
+const FFMPEG_POR_SEG = 15;
 /** Ancho al que se achica el cuadro antes de analizarlo (nunca se agranda). */
 const ANCHO_ANALISIS = 960;
 const SESIONES_MAX = 2;
@@ -171,6 +175,8 @@ export async function GET(req: NextRequest) {
     let cerrado = false;
     let ff: ReturnType<typeof spawn> | null = null;
     let fin: ReturnType<typeof setTimeout> | null = null;
+    /** El aviso para analizar el cuadro guardado cuando llegue su momento. */
+    let reloj: ReturnType<typeof setTimeout> | null = null;
 
     const body = new ReadableStream({
         start(controller) {
@@ -178,6 +184,7 @@ export async function GET(req: NextRequest) {
             const cerrar = () => {
                 if (cerrado) return; cerrado = true; sesiones = Math.max(0, sesiones - 1);
                 if (fin) clearTimeout(fin);
+                if (reloj) clearTimeout(reloj);
                 try { ff?.kill("SIGKILL"); } catch { }
                 try { controller.close(); } catch { }
             };
@@ -186,7 +193,7 @@ export async function GET(req: NextRequest) {
 
             // Sin búfer de entrada: lo que se analiza es lo más reciente que entregó la cámara, no lo de hace un rato.
             ff = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", "-fflags", "nobuffer", "-flags", "low_delay", "-rtsp_transport", "tcp", "-i", `${GO2RTC_RTSP}/${stream}`,
-                "-an", "-vf", `fps=${CUADROS_POR_SEG},scale='min(${ANCHO_ANALISIS},iw)':-2`, "-q:v", "5", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"], { stdio: ["ignore", "pipe", "ignore"] });
+                "-an", "-vf", `fps=${FFMPEG_POR_SEG},scale='min(${ANCHO_ANALISIS},iw)':-2`, "-q:v", "5", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"], { stdio: ["ignore", "pipe", "ignore"] });
             ff.on("close", cerrar);
             ff.on("error", cerrar);
 
@@ -195,14 +202,24 @@ export async function GET(req: NextRequest) {
             let descartados = 0;
             // Cuándo se puede tomar el próximo cuadro (ver ESPERA_POR_MS).
             let proximo = 0;
+            // El último cuadro que llegó y todavía no se pudo analizar. Uno solo: si llega otro, lo reemplaza.
+            let pendiente: { jpeg: Buffer; t: number } | null = null;
             const camara = camaraDeStream(stream);
+            /** Analiza el cuadro guardado si omni-vision está libre y ya pasó la espera; si falta, se avisa solo. */
+            const intentar = () => {
+                if (cerrado || ocupado || !pendiente) return;
+                const falta = proximo - Date.now();
+                if (falta > 0) { if (!reloj) reloj = setTimeout(() => { reloj = null; intentar(); }, falta); return; }
+                const p = pendiente; pendiente = null;
+                void analizar(p.jpeg, p.t);
+            };
             const analizar = async (jpeg: Buffer, t: number) => {
                 ocupado = true;
+                const inicio = Date.now();
                 try {
                     const r = await fetch(`${VISION}/detectar?tarea=segmentar&grupos=${GRUPOS}`, { method: "POST", body: new Uint8Array(jpeg), headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(5000) });
                     const j: any = await r.json().catch(() => ({}));
-                    // -15 ms: el cuadro siguiente de la grilla de ffmpeg no llega justo a los 100, y perderlo por 3 ms es perder medio ritmo.
-                    proximo = t + Math.max(1000 / CUADROS_POR_SEG - 15, (Date.now() - t) * ESPERA_POR_MS * Math.max(1, sesiones));
+                    proximo = inicio + Math.max(1000 / CUADROS_POR_SEG - 15, (Date.now() - inicio) * ESPERA_POR_MS * Math.max(1, sesiones));
                     if (!r.ok) { enviar("error", { error: j.error || `omni-vision respondió ${r.status}` }); return; }
                     enviar("cuadro", {
                         t, ms: Date.now() - t, descartados,
@@ -215,7 +232,7 @@ export async function GET(req: NextRequest) {
                     descartados = 0;
                 } catch (e: any) {
                     enviar("error", { error: e?.message || "omni-vision no contestó" });
-                } finally { ocupado = false; }
+                } finally { ocupado = false; intentar(); }
             };
             // Los JPEG llegan pegados por el pipe: se cortan por sus marcas de inicio y fin.
             ff.stdout?.on("data", (d: Buffer) => {
@@ -227,14 +244,15 @@ export async function GET(req: NextRequest) {
                     if (fin2 < 0) { if (ini > 0) buf = buf.subarray(ini); break; }
                     const jpeg = buf.subarray(ini, fin2 + 2);
                     buf = buf.subarray(fin2 + 2);
-                    if (ocupado || Date.now() < proximo) { descartados++; continue; }
-                    void analizar(Buffer.from(jpeg), Date.now());
+                    if (pendiente) descartados++;
+                    pendiente = { jpeg: Buffer.from(jpeg), t: Date.now() };
+                    intentar();
                 }
             });
             enviar("hola", { cuadrosPorSeg: CUADROS_POR_SEG });
         },
         cancel() {
-            if (!cerrado) { cerrado = true; sesiones = Math.max(0, sesiones - 1); if (fin) clearTimeout(fin); try { ff?.kill("SIGKILL"); } catch { } }
+            if (!cerrado) { cerrado = true; sesiones = Math.max(0, sesiones - 1); if (fin) clearTimeout(fin); if (reloj) clearTimeout(reloj); try { ff?.kill("SIGKILL"); } catch { } }
         },
     });
 
