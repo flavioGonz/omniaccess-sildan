@@ -59,7 +59,13 @@ const PASO_ATRAS = { initial: { x: "-6%", opacity: 0 }, animate: { x: 0, opacity
 
 type Caja = [number, number, number, number];
 type Objeto = { caja: Caja; clase: string; grupo: string; confianza: number };
-type Resultado = { id: string; camara: string; deviceId: string | null; clase: string; grupo: string; primeraVez: string; recorte: string | null; foto: string | null; caja: Caja | null; coseno: number };
+type Resultado = {
+    id: string; camara: string; deviceId: string | null; clase: string; grupo: string; primeraVez: string; recorte: string | null; foto: string | null; caja: Caja | null; coseno: number;
+    /** Cuántas veces se lo vio casi igual en esa cámara: los repetidos van dentro de esta tarjeta (lib/parecidos-agrupar). */
+    veces?: number;
+    /** No vino por parecido: es otro paso de la MISMA matrícula por una lectora (lib/vision-parecidos, «la chapa primero»). */
+    porChapa?: boolean;
+};
 /** La matrícula de un resultado (api/vision/parecidos/chapas): la del registro o la leída a pedido. */
 type Chapa = { texto: string; confianza: number; recorte: string | null; fuente: "registro" | "foto" };
 /** Cómo se abre un resultado desde su miniatura: la ficha, o directo en la grabación o en compartir. */
@@ -129,7 +135,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
     const [motor, setMotor] = useState<"omni" | "nvr">("omni");
     const [conNvr, setConNvr] = useState(false);
     const [recorte, setRecorte] = useState<{ blob: Blob; miniatura: string } | null>(null);
-    const [res, setRes] = useState<{ resultados: Resultado[]; comparados: number; sinHuella?: number; ms: number } | null>(null);
+    const [res, setRes] = useState<{ resultados: Resultado[]; comparados: number; sinHuella?: number; ms: number; agrupados?: number; porChapa?: number } | null>(null);
     const [buscando, setBuscando] = useState(false);
     const [error, setError] = useState<string | null>(null);
     /** El resultado abierto, por posición en la lista: así ← y → pasan al anterior y al siguiente. */
@@ -257,7 +263,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
         if (!recorte || motor !== "omni" || objetos === null) return;
         let vivo = true;
         setBuscando(true); setError(null);
-        fetch(`${rutas.buscar}?h=${h}${grupo ? `&grupo=${encodeURIComponent(grupo)}` : ""}${fa.filtrando ? `&area=${encodeURIComponent(fa.area)}` : ""}`, { method: "POST", body: recorte.blob, headers: { "content-type": "image/jpeg" }, cache: "no-store" })
+        fetch(`${rutas.buscar}?h=${h}${grupo ? `&grupo=${encodeURIComponent(grupo)}` : ""}${fa.filtrando ? `&area=${encodeURIComponent(fa.area)}` : ""}${chapaEvento ? `&chapa=${encodeURIComponent(chapaEvento)}` : ""}`, { method: "POST", body: recorte.blob, headers: { "content-type": "image/jpeg" }, cache: "no-store" })
             .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`); return j; })
             .then((j) => { if (vivo) setRes(j); })
             .catch((e) => { if (vivo) setError(e?.message || "No se pudo buscar"); })
@@ -270,9 +276,17 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
         return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) };
     };
     const cajaArrastre: Caja | null = arrastre ? [Math.min(arrastre.x0, arrastre.x), Math.min(arrastre.y0, arrastre.y), Math.max(arrastre.x0, arrastre.x), Math.max(arrastre.y0, arrastre.y)] : null;
-    const max = res?.resultados[0]?.coseno || 1;
-    const min = res?.resultados[res.resultados.length - 1]?.coseno ?? 0;
+    // La escala de «cuánto se parece» sale sólo de lo que vino por parecido: los pasos de la misma
+    // matrícula van arriba aunque se parezcan poco (otra cámara, otro ángulo) y la torcerían.
+    const cosenos = (res?.resultados || []).filter((r) => !r.porChapa).map((r) => r.coseno);
+    const max = cosenos.length ? Math.max(...cosenos) : 1;
+    const min = cosenos.length ? Math.min(...cosenos) : 0;
     const elegidoEs = useMemo(() => (o: Objeto) => !!caja && JSON.stringify(conMargen(o.caja)) === JSON.stringify(caja), [caja]);
+    /** Lo elegido en la foto es una persona: el grabador busca con su motor de personas (antes iba siempre el de vehículos). */
+    const eligioPersona = grupo === "persona" || (!grupo && !!objetos?.find((o) => elegidoEs(o) && o.grupo === "persona"));
+    /** El motor del grabador: sale de lo elegido, y se puede cambiar a mano en el panel («Qué»). */
+    const [motorNvr, setMotorNvr] = useState<"vehicle" | "human" | null>(null);
+    useEffect(() => setMotorNvr(null), [caja]);
 
     /*
      * Sigue el tema (18/10, Nico: «lo mismo para buscar parecidos», tras el visor en claro).
@@ -419,7 +433,9 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                             )}
                             {motor === "omni" && (
                                 <p className="text-[11.5px] text-muted-foreground tabular-nums min-h-[17px]">
-                                    {buscando ? "Buscando…" : res ? <>{res.resultados.length} más parecidos de {res.comparados.toLocaleString("es-UY")}{fa.nombre ? ` en ${fa.nombre}` : ""} · {res.ms} ms</> : null}
+                                    {buscando ? "Buscando…" : res ? <>{res.resultados.length - (res.porChapa || 0)} más parecidos de {res.comparados.toLocaleString("es-UY")}{fa.nombre ? ` en ${fa.nombre}` : ""} · {res.ms} ms
+                                        {res.porChapa ? <><br />{res.porChapa} {res.porChapa === 1 ? "paso" : "pasos"} de {chapaEvento} por las lectoras, arriba</> : null}
+                                        {res.agrupados ? <><br />{res.agrupados} {res.agrupados === 1 ? "repetido agrupado" : "repetidos agrupados"} (misma cámara, casi la misma foto)</> : null}</> : null}
                                 </p>
                             )}
                         </div>
@@ -435,7 +451,7 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                         </button>
                         <div className={cn("h-full overflow-y-auto p-3", motor === "nvr" && "pt-14 px-5")}>
                             {motor === "nvr" ? (
-                                recorte && <AcuSearchPanel image={recorte.blob} previewUrl={recorte.miniatura} engine="vehicle" centerTimeMs={instanteMs} onBack={() => setMotor("omni")} title="Búsqueda en el NVR" />
+                                recorte && <AcuSearchPanel image={recorte.blob} previewUrl={recorte.miniatura} engine={motorNvr || (eligioPersona ? "human" : "vehicle")} onEngineChange={setMotorNvr} centerTimeMs={instanteMs} onBack={() => setMotor("omni")} title="Búsqueda en el NVR" />
                             ) : error ? (
                                 <div className="h-full grid place-items-center px-6"><div className="rounded-[10px] border border-[var(--mal)]/30 bg-[var(--mal)]/10 tono-mal px-4 py-3 text-[12.5px] max-w-md">{error}</div></div>
                             ) : buscando || !res ? (
@@ -831,7 +847,7 @@ function Miniatura({ r, i, rel, chapa, leyendo, chapaEvento, onAbrir }: {
         <div role="button" tabIndex={0} onClick={() => onAbrir("foto")} onKeyDown={(e) => { if (e.key === "Enter") onAbrir("foto"); }}
             title={`${i + 1} · ${nombreClase(r.clase)} · ${r.camara} · ${horaSeg(r.primeraVez)}`}
             className={cn("group relative aspect-[4/3] rounded-[10px] overflow-hidden bg-black cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                coincide && "ring-2 ring-[var(--bien)]")}>
+                (coincide || r.porChapa) && "ring-2 ring-[var(--bien)]")}>
             {/* La foto entra con el marco que se afina (components/ui/marco-refinado): mientras llega, la
                 tarjeta ya ocupa su lugar y dice en qué está; no salta la grilla. */}
             <MarcoRefinado src={r.recorte ? img(r.recorte, 320) : null} etapa={r.recorte ? undefined : "error"} retardo={i}
@@ -840,7 +856,11 @@ function Miniatura({ r, i, rel, chapa, leyendo, chapaEvento, onAbrir }: {
 
             <div className="absolute left-2 right-2 top-2 flex items-center gap-1.5">
                 <span className="h-5 min-w-5 px-1.5 rounded-full bg-black/55 backdrop-blur-md text-white text-[10.5px] font-bold tabular-nums grid place-items-center">{i + 1}</span>
-                <span className={cn("h-5 px-2 rounded-full text-[10px] font-bold inline-flex items-center", `pleno-${p.tono}`)}>{p.texto}</span>
+                {r.porChapa
+                    // No se parece «mucho» o «poco»: es la misma matrícula, leída por una lectora. Eso vale más que el parecido.
+                    ? <span className="h-5 px-2 rounded-full text-[10px] font-bold inline-flex items-center gap-1 pleno-bien" title="Otro paso de la misma matrícula por una lectora: no vino por parecido"><Check size={10} strokeWidth={3} /> Misma matrícula</span>
+                    : <span className={cn("h-5 px-2 rounded-full text-[10px] font-bold inline-flex items-center", `pleno-${p.tono}`)}>{p.texto}</span>}
+                {(r.veces || 1) > 1 && <span className="h-5 px-1.5 rounded-full bg-black/55 backdrop-blur-md text-white text-[10.5px] font-bold tabular-nums inline-flex items-center" title={`Visto ${r.veces} veces casi igual en esta cámara: los repetidos van en esta tarjeta`}>× {r.veces}</span>}
             </div>
             {/* Los controles, abajo a la derecha al pasar el mouse: arriba a la derecha de la grilla va la cruz. */}
             <span className="absolute right-2 bottom-3 z-[2] flex items-center gap-1 opacity-0 translate-y-[2px] group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 transition-[opacity,transform] duration-150">

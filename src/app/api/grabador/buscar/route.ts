@@ -13,11 +13,40 @@ import { NextRequest, NextResponse } from "next/server";
 import { conSesion } from "@/lib/acuseek-nvr";
 import { grabadoresConBusqueda, grabadorPorId, driverDe, camarasDeGrabador } from "@/lib/grabador-busqueda";
 
-type Tarea = { n: string; t: string; k: "texto" | "imagen"; o?: "persona" | "vehiculo" };
+/** `s`: la similitud mínima pedida (0-100), para no mostrar lo que el grabador devuelva por debajo. */
+type Tarea = { n: string; t: string; k: "texto" | "imagen"; o?: "persona" | "vehiculo"; s?: number };
 const aToken = (x: Tarea[]) => Buffer.from(JSON.stringify(x)).toString("base64url");
 const deToken = (s: string): Tarea[] => { try { const j = JSON.parse(Buffer.from(s, "base64url").toString()); return Array.isArray(j) ? j.slice(0, 16) : []; } catch { return []; } };
 const MAX_DEFECTO = 80;
 const SIN_GRABADOR = "Ningún grabador de esta instalación hace esa búsqueda.";
+
+/**
+ * El puntaje de cada hallazgo, en 0-100, y fuera lo que no llega a la similitud pedida.
+ *
+ * Por qué (13/11, Nico: la búsqueda en el NVR «trae cualquier cosa»). Leyendo el código se vio que
+ * la similitud elegida en la barra se le mandaba al grabador al crear la búsqueda, pero lo que
+ * volvía se mostraba ENTERO: si el grabador devolvía algo por debajo, salía igual.
+ * Un hallazgo sin puntaje se deja: no hay con qué descartarlo.
+ *
+ * La escala: la búsqueda por imagen ya llega en 0-100 (lib/acuseek la convierte). La de texto
+ * llega como la manda el equipo y NO está verificada contra uno: si todos los puntajes son ≤ 1 se
+ * toman como fracción. Es una defensa, no una medición.
+ */
+function conPuntaje<T extends { puntaje?: number | null }>(hallazgos: T[], minimo?: number): T[] {
+    const con = hallazgos.filter((h) => h.puntaje != null);
+    const fraccion = con.length > 0 && con.every((h) => (h.puntaje as number) <= 1);
+    const lista = fraccion ? hallazgos.map((h) => (h.puntaje != null ? { ...h, puntaje: Math.round(h.puntaje * 100) } : h)) : hallazgos;
+    return minimo ? lista.filter((h) => h.puntaje == null || h.puntaje >= minimo) : lista;
+}
+/**
+ * El orden: por momento (lo más nuevo primero), que es lo que espera el Historial; o por parecido
+ * (`orden=parecido`), que es lo que espera quien busca «lo que más se le parece». Antes iba siempre
+ * por momento, y en una búsqueda por foto lo más parecido quedaba perdido en el medio.
+ */
+function ordenar<T extends { momento: string; puntaje?: number | null }>(h: T[], porParecido: boolean): T[] {
+    const porMomento = (a: T, b: T) => (a.momento < b.momento ? 1 : -1);
+    return porParecido ? h.sort((a, b) => (b.puntaje ?? -1) - (a.puntaje ?? -1) || porMomento(a, b)) : h.sort(porMomento);
+}
 
 export async function POST(req: NextRequest) {
     const no = await conSesion(); if (no) return no;
@@ -44,7 +73,7 @@ export async function POST(req: NextRequest) {
         const d = driverDe(gr.marca)!;
         try {
             const t = k === "texto" ? await d.buscarTexto!(gr.c, texto, { desde, hasta, similitud }) : await d.buscarImagen!(gr.c, imagen!, { desde, hasta, similitud, objeto });
-            tareas.push({ n: gr.id, t, k, ...(k === "imagen" ? { o: objeto } : {}) });
+            tareas.push({ n: gr.id, t, k, ...(k === "imagen" ? { o: objeto } : {}), ...(similitud ? { s: similitud } : {}) });
         } catch (e: any) { errores.push(`${gr.nombre}: ${e?.message || e}`); }
     }));
     if (!tareas.length) return NextResponse.json({ ok: false, error: errores.join(" · ") || "No se pudo buscar." }, { status: 502 });
@@ -65,7 +94,7 @@ export async function GET(req: NextRequest) {
             const cams = await camarasDeGrabador(gr.id).catch(() => ({} as Record<number, any>));
             return {
                 ...a,
-                hallazgos: a.hallazgos.map((h) => {
+                hallazgos: conPuntaje(a.hallazgos, t.s).map((h) => {
                     const cam = cams[h.canal];
                     const px = (u: string | null) => (u ? `/api/grabador/imagen?nvr=${encodeURIComponent(gr.id)}&u=${encodeURIComponent(u)}` : null);
                     return { ...h, id: `${gr.id}-${h.id}`, foto: px(h.foto), recorte: px(h.recorte), nvrId: gr.id, grabador: gr.nombre, deviceId: cam?.id || null, camara: cam?.nombre || `${gr.nombre} · canal ${h.canal}`, tipoCamara: cam?.tipo || null };
@@ -84,6 +113,6 @@ export async function GET(req: NextRequest) {
         progreso: Math.round(partes.reduce((s, p) => s + (p.progreso || 0), 0) / partes.length),
         total: partes.reduce((s, p) => s + (p.total || 0), 0),
         errores: partes.map((p) => p.error).filter(Boolean),
-        hallazgos: partes.flatMap((p) => p.hallazgos).sort((a: any, b: any) => (a.momento < b.momento ? 1 : -1)),
+        hallazgos: ordenar(partes.flatMap((p) => p.hallazgos) as any[], req.nextUrl.searchParams.get("orden") === "parecido"),
     }, { headers: { "Cache-Control": "no-store" } });
 }

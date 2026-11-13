@@ -6,6 +6,7 @@ import { normalizarNombre } from "@/lib/empresas";
 import { Prisma } from "@prisma/client";
 import { equiposDeArea } from "@/lib/areas-historial";
 import { historialDePistas, pareceChapa, pasosDeChapa, pistasDePasos, type PasoChapa } from "@/lib/vision-historial";
+import { agruparRepetidos } from "@/lib/parecidos-agrupar";
 
 /**
  * GET /api/vision/buscar?q=camioneta blanca con escalera  ·  ?parecido=<objetoId>
@@ -33,6 +34,8 @@ import { historialDePistas, pareceChapa, pasosDeChapa, pistasDePasos, type PasoC
 const RANGOS_H = new Set([24, 168, 720]);
 /** Cuántos resultados se devuelven: lo que se mira de una vez en la grilla. */
 const RESULTADOS = 60;
+/** Cuántos pasos de la misma matrícula van arriba de lo parecido. */
+const POR_CHAPA_MAX = 12;
 /** Tope de huellas que se comparan: un rango de 30 días con todo el barrio no pasa de esto. */
 const CANDIDATOS_MAX = 80_000;
 const PLANTILLAS = (q: string) => [q, `una foto de ${q}`];
@@ -64,7 +67,8 @@ export const deInt8 = (b: Uint8Array | Buffer, escala: number) => { const q = ne
 
 export function rango(sp: URLSearchParams) {
     const hq = Number(sp.get("h"));
-    return { h: RANGOS_H.has(hq) ? hq : 168, camara: sp.get("camara") || null, grupo: sp.get("grupo") || null, area: sp.get("area") || null };
+    // `chapa`: la matrícula del evento desde el que se busca (ver «la chapa primero» en comparar).
+    return { h: RANGOS_H.has(hq) ? hq : 168, camara: sp.get("camara") || null, grupo: sp.get("grupo") || null, area: sp.get("area") || null, chapa: pareceChapa(sp.get("chapa") || "") };
 }
 
 /**
@@ -97,7 +101,7 @@ export async function buscarConFoto(req: NextRequest): Promise<NextResponse> {
     }
 }
 
-export async function comparar(consulta: Float32Array, escala: number | null, sesgo: number | null, { h, camara, grupo, area }: { h: number; camara: string | null; grupo: string | null; area?: string | null },
+export async function comparar(consulta: Float32Array, escala: number | null, sesgo: number | null, { h, camara, grupo, area, chapa }: { h: number; camara: string | null; grupo: string | null; area?: string | null; chapa?: string | null },
     parecido: string | null, modo: "texto" | "parecido" | "foto", t0: number) {
     // Texto UTC sin zona: la columna es `timestamp` y la sesión está en hora local; un Date
     // corría el rango 3 h (ver sinZona en vision-analisis.js).
@@ -109,34 +113,57 @@ export async function comparar(consulta: Float32Array, escala: number | null, se
         : enArea.fuera.length ? Prisma.sql` AND (o."deviceId" IS NULL OR o."deviceId" NOT IN (${Prisma.join(enArea.fuera)}))` : Prisma.empty;
     const filtros = Prisma.sql`NOT o.falsa AND o."primeraVez" >= ${desde}::timestamp${camara ? Prisma.sql` AND o."deviceId" = ${camara}` : Prisma.empty}${grupo ? Prisma.sql` AND o.grupo = ${grupo}` : Prisma.empty}${filtroArea}`;
     const [huellas, sinHuella] = await Promise.all([
-        prisma.$queryRaw<{ id: string; vector: Buffer; escala: number }[]>`
-            SELECT h."objetoId" AS id, h.vector, h.escala FROM "HuellaObjeto" h JOIN "ObjetoVisto" o ON o.id = h."objetoId"
+        prisma.$queryRaw<{ id: string; vector: Buffer; escala: number; camara: string | null }[]>`
+            SELECT h."objetoId" AS id, h.vector, h.escala, o."deviceId" AS camara FROM "HuellaObjeto" h JOIN "ObjetoVisto" o ON o.id = h."objetoId"
             WHERE ${filtros} LIMIT ${CANDIDATOS_MAX}`,
         prisma.$queryRaw<{ n: number }[]>`
             SELECT count(*)::int AS n FROM "ObjetoVisto" o LEFT JOIN "HuellaObjeto" h ON h."objetoId" = o.id
             WHERE h."objetoId" IS NULL AND o.recorte IS NOT NULL AND ${filtros}`,
     ]);
-    const puntos = huellas.map((x) => {
+    const orden = huellas.map((x) => {
         const q8 = new Int8Array(x.vector.buffer, x.vector.byteOffset, x.vector.byteLength);
         let d = 0, n = 0;
         for (let i = 0; i < q8.length; i++) { d += q8[i] * consulta[i]; n += q8[i] * q8[i]; }
-        return { id: x.id, coseno: d / (Math.sqrt(n) || 1) };
-    }).filter((x) => x.id !== parecido).sort((a, b) => b.coseno - a.coseno).slice(0, RESULTADOS);
+        return { id: x.id, coseno: d / (Math.sqrt(n) || 1), camara: x.camara, v: q8 };
+    }).filter((x) => x.id !== parecido).sort((a, b) => b.coseno - a.coseno);
+
+    /*
+     * La chapa primero (13/11). Buscando desde un evento con matrícula, lo más seguro que hay del
+     * mismo vehículo NO es lo que se le parece: son sus otros pasos por las lectoras, que tienen
+     * la chapa leída. Medido ese día: el mismo vehículo en OTRA cámara aparecía entre los sesenta
+     * más parecidos sólo el 9 % de las veces (otro ángulo, otra luz, otra distancia). Así que esos
+     * pasos van arriba, marcados (`porChapa`), y lo parecido sigue después, sin repetirlos.
+     * Sólo pasos por accesos: en una cámara de calle hay varios autos a la vez y no se sabría cuál.
+     */
+    const porCoseno = new Map(orden.map((x) => [x.id, x.coseno]));
+    let deChapa: any[] = [], pasos: PasoChapa[] | undefined;
+    if (chapa && (!grupo || grupo === "vehiculo")) {
+        pasos = await pasosDeChapa(chapa, new Date(Date.now() - h * 3600_000)).catch(() => []);
+        deChapa = (await pistasDePasos(pasos).catch(() => [])).filter((f) => f.id !== parecido && !f.falsa).slice(0, POR_CHAPA_MAX);
+    }
+    const yaEstan = new Set(deChapa.map((f) => f.id));
+
+    // Lo repetido (misma cámara, huella casi idéntica) en una sola tarjeta: ver lib/parecidos-agrupar.
+    const puntos = agruparRepetidos(orden.filter((x) => !yaEstan.has(x.id)), RESULTADOS);
+    const agrupados = puntos.reduce((s, p) => s + p.veces - 1, 0);
 
     const filas = puntos.length ? await prisma.objetoVisto.findMany({ where: { id: { in: puntos.map((p) => p.id) } } }) : [];
     const porId = new Map(filas.map((f) => [f.id, f]));
-    const lista = puntos.map((p) => {
-        const f = porId.get(p.id);
-        // La probabilidad de SigLIP (sigmoide de escala·coseno + sesgo) sólo tiene sentido texto↔imagen.
-        const prob = escala != null && sesgo != null ? 1 / (1 + Math.exp(-(escala * p.coseno + sesgo))) : null;
-        return f ? { f, coseno: p.coseno, prob } : null;
-    }).filter((x): x is NonNullable<typeof x> => !!x);
-    return responder(lista, { comparados: huellas.length, sinHuella: sinHuella[0]?.n ?? 0, h, t0, modo });
+    const lista = [
+        ...deChapa.map((f) => ({ f, coseno: porCoseno.get(f.id) ?? 0, prob: null as number | null, extra: { porChapa: true, veces: 1 } })),
+        ...puntos.map((p) => {
+            const f = porId.get(p.id);
+            // La probabilidad de SigLIP (sigmoide de escala·coseno + sesgo) sólo tiene sentido texto↔imagen.
+            const prob = escala != null && sesgo != null ? 1 / (1 + Math.exp(-(escala * p.coseno + sesgo))) : null;
+            return f ? { f, coseno: p.coseno, prob, extra: { veces: p.veces, repetidos: p.repetidos } } : null;
+        }).filter((x): x is NonNullable<typeof x> => !!x),
+    ];
+    return responder(lista, { comparados: huellas.length, sinHuella: sinHuella[0]?.n ?? 0, h, t0, modo, pasos: deChapa.length ? pasos : undefined, agrupados, porChapa: deChapa.length });
 }
 
 /** Arma la respuesta: el rotulado con su empresa y lo que el historial sabe de cada pista. */
-export async function responder(lista: { f: any; coseno: number; prob: number | null }[],
-    m: { comparados: number; sinHuella: number; h: number; t0: number; modo: "texto" | "parecido" | "foto" | "chapa"; pasos?: PasoChapa[] }) {
+export async function responder(lista: { f: any; coseno: number; prob: number | null; extra?: Record<string, unknown> }[],
+    m: { comparados: number; sinHuella: number; h: number; t0: number; modo: "texto" | "parecido" | "foto" | "chapa"; pasos?: PasoChapa[]; agrupados?: number; porChapa?: number }) {
     const filas = lista.map((x) => x.f);
     // El tipo de cámara: decide si el resultado se abre en la ficha de intrusión o en el visor (Historial, 21/10).
     const idsCam = [...new Set(filas.map((f) => f.deviceId).filter(Boolean))] as string[];
@@ -145,7 +172,7 @@ export async function responder(lista: { f: any; coseno: number; prob: number | 
         filas.some((f) => Array.isArray(f.textos) && (f.textos as any[]).length) ? leerCatalogo().catch(() => []) : Promise.resolve([]),
         historialDePistas(filas).catch(() => new Map()),
     ]);
-    const resultados = lista.map(({ f, coseno, prob }) => {
+    const resultados = lista.map(({ f, coseno, prob, extra }) => {
         const textos = Array.isArray(f.textos) ? (f.textos as any[]).map((t) => ({ ...t, sobreimpreso: false })) : null;
         const marcados = textos?.length ? empresasEnTextos(textos, catalogo as any, normalizarNombre) : null;
         return {
@@ -153,10 +180,13 @@ export async function responder(lista: { f: any; coseno: number; prob: number | 
             coseno: Math.round(coseno * 1000) / 1000, prob: prob != null ? Math.round(prob * 1000) / 1000 : null,
             historial: historial.get(f.id) || null,
             tipoCamara: f.deviceId ? tipoCam.get(f.deviceId) || null : null,
+            ...extra,
         };
     });
     return NextResponse.json({
         resultados, comparados: m.comparados, sinHuella: m.sinHuella, h: m.h, ms: Date.now() - m.t0, modo: m.modo, pasos: m.pasos || null,
+        // Cuántos repetidos quedaron dentro de otra tarjeta, y cuántos resultados vienen por la matrícula y no por parecido.
+        agrupados: m.agrupados || 0, porChapa: m.porChapa || 0,
     }, { headers: { "Cache-Control": "no-store" } });
 }
 

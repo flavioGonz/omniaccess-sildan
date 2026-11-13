@@ -171,7 +171,7 @@ export function AcuSearchPanel({ image, previewUrl, engine, onEngineChange, cent
             let vueltas = 0;
             poll.current = setInterval(async () => {
                 vueltas++;
-                const pr = await fetch(`/api/grabador/buscar?tareas=${encodeURIComponent(j.tareas)}&max=60`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
+                const pr = await fetch(`/api/grabador/buscar?tareas=${encodeURIComponent(j.tareas)}&max=60&orden=parecido`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
                 if (!pr || mia !== corrida.current) return;
                 if (!pr.ok) { clearInterval(poll.current); setBuscando(false); setAviso({ texto: `El grabador cortó la búsqueda: ${pr.error || "sin respuesta"}.`, sinGrabador: true }); return; }
                 if (pr.progreso != null) setProgreso(Number(pr.progreso));
