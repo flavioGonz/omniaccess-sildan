@@ -77,9 +77,14 @@ export async function GET() {
     const p = await autorizarMonitor("/api/monitor/face");
     if (p.error) return p.error;
     // Con sesión, el mismo permiso que la página (las rutas de /api/monitor pasan con cualquier sesión).
+    // Registrar una cara desde el monitor (13/11): sólo con sesión y el permiso de las acciones de
+    // rostros. Una pantalla de pared mira y no toca: ahí los botones ni se dibujan.
+    let puedeRegistrar = false;
     if (!p.auth.pantalla) {
         const s: any = await getSession().catch(() => null);
-        if (!permisosDeSesion(s).includes("rostros")) return forbiddenResponse("Hace falta el permiso Monitor facial.");
+        const permisos = permisosDeSesion(s);
+        if (!permisos.includes("rostros")) return forbiddenResponse("Hace falta el permiso Monitor facial.");
+        puedeRegistrar = permisos.includes("vision.config") || permisos.includes("rostros.listas");
     }
     const hoy = inicioDelDia();
     const [ultimas, permitidos, denegados, desconocidos, atencion, terminales, conRostro] = await Promise.all([
@@ -106,6 +111,6 @@ export async function GET() {
     return NextResponse.json({
         ultimas: ultimas.map((e) => forma(e, rostros)), atencion: atencion.map((e) => forma(e, rostros)),
         anteriores: { de: ultimas[0]?.id || null, pasadas: anteriores.map((p) => ({ id: p.id, ts: p.cuando.toISOString(), camara: nombreCamara(p.camara), cara: paraPared(p.cara ? `/api/vision/imagen/${p.cara}` : null), similitud: p.similitud })) },
-        hoy: { permitidos, denegados, desconocidos }, fuentes, ahora: new Date().toISOString(),
+        hoy: { permitidos, denegados, desconocidos }, fuentes, ahora: new Date().toISOString(), puedeRegistrar,
     }, { headers: SIN_CACHE });
 }

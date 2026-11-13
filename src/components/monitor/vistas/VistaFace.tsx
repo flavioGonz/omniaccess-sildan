@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, Clock, Fingerprint, History, Home, LogIn, LogOut, RefreshCw, ScanFace, ShieldCheck, ShieldX, Sparkles, UserCheck, UserRound, UserX } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Clock, Fingerprint, History, Home, IdCard, Loader2, LogIn, LogOut, RefreshCw, ScanFace, ShieldCheck, ShieldX, Sparkles, UserCheck, UserPlus, UserRound, UserX } from "lucide-react";
+import { sileo as toast } from "sileo";
+import { CajonRostro, ACCIONES_ROSTRO } from "@/components/vision/rostros/CajonRostro";
+import { rostroDesdeEvento } from "@/app/actions/rostros";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
@@ -49,7 +52,23 @@ type Acceso = {
     caraPx: number | null; sinIdentidad: string | null; caja: [number, number, number, number] | null; escena: string | null;
 };
 type Anterior = { id: string; ts: string; camara: string | null; cara: string | null; similitud: number | null };
-type Datos = { ultimas: Acceso[]; atencion: Acceso[]; anteriores?: { de: string | null; pasadas: Anterior[] }; hoy: { permitidos: number; denegados: number; desconocidos: number }; fuentes: number; ahora: string };
+type Datos = { ultimas: Acceso[]; atencion: Acceso[]; anteriores?: { de: string | null; pasadas: Anterior[] }; hoy: { permitidos: number; denegados: number; desconocidos: number }; fuentes: number; ahora: string;
+    /** Quien mira tiene sesión y permiso para registrar caras. En una pantalla de pared, no. */
+    puedeRegistrar?: boolean };
+
+/**
+ * El monitor con acciones (13/11, Nico, con la pantalla abierta: «este panel debe ser interactivo,
+ * poder agregar un rostro conocido; actualmente no puedo ejecutar acciones, sólo muestra»). Tres:
+ *  · Tocar una cara de la tira la trae al grande (se queda FIJADA_MS, o hasta «Volver al último»):
+ *    antes sólo se podía mirar la última.
+ *  · «Registrar» / «Ver ficha»: el mismo cajón de OmniVision › Rostros, sin salir del monitor.
+ *  · «Agregar como rostro conocido»: una pasada que quedó sin identidad (cara chica) se guarda
+ *    igual porque quien mira SABE quién es; nace su número y se abre para ponerle el nombre.
+ * Sólo con sesión y permiso: una pantalla de pared sigue siendo sólo para mirar.
+ */
+const FIJADA_MS = 45_000;
+/** Lo que el monitor le pide al servidor para actuar. Junto, para poder mostrarlo con datos de prueba. */
+export const ACCIONES_FACE = { desdeEvento: rostroDesdeEvento };
 
 const INTERVALO_MS = 20_000;
 /** Cuánto dura el color de un acceso en la pared. */
@@ -100,8 +119,12 @@ function desdeEvento(e: any): Acceso | null {
     };
 }
 
-export function VistaFace() {
+export function VistaFace({ acciones, accionesRostro }: { acciones?: Partial<typeof ACCIONES_FACE>; accionesRostro?: Partial<typeof ACCIONES_ROSTRO> } = {}) {
     const { latir, setTitulo, setFondo, ajustes, silencio } = useMarco();
+    const servidor = { ...ACCIONES_FACE, ...acciones };
+    const [fijada, setFijada] = useState<{ id: string; t: number } | null>(null);
+    const [cajon, setCajon] = useState<{ id: string; registrar: boolean } | null>(null);
+    const [agregando, setAgregando] = useState(false);
     useEffect(() => { setTitulo("Monitor Face"); }, [setTitulo]);
     usarReloj();
     const { datos, error, recargar } = usarDatos<Datos>("/api/monitor/face", INTERVALO_MS, latir);
@@ -121,13 +144,32 @@ export function VistaFace() {
 
     // El grande: lo último entre lo que llegó por el socket y lo que trae la consulta.
     const ultimas = datos?.ultimas || [];
-    const grande = vivo && (!ultimas[0] || vivo.ts > ultimas[0].ts) ? vivo : ultimas[0] || null;
-    const tira = useMemo(() => ultimas.filter((x) => x.id !== grande?.id).slice(0, EN_TIRA), [ultimas, grande?.id]);
+    const ultimo = vivo && (!ultimas[0] || vivo.ts > ultimas[0].ts) ? vivo : ultimas[0] || null;
+    // La fijada, mientras siga entre las últimas; si no, lo último.
+    const elegida = fijada ? ultimas.find((x) => x.id === fijada.id) || null : null;
+    const grande = elegida || ultimo;
+    const tira = useMemo(() => [...(elegida && ultimo && ultimo.id !== elegida.id && !ultimas.some((x) => x.id === ultimo.id) ? [ultimo] : []), ...ultimas].filter((x) => x.id !== grande?.id).slice(0, EN_TIRA), [ultimas, grande?.id, elegida, ultimo]);
+    // La fijada se suelta sola: un monitor no puede quedar mirando una cara vieja. Con el cajón abierto, espera.
+    useEffect(() => {
+        if (!fijada || cajon) return;
+        const t = setTimeout(() => setFijada(null), Math.max(1000, FIJADA_MS - (Date.now() - fijada.t)));
+        return () => clearTimeout(t);
+    }, [fijada, cajon]);
+    const puede = !!datos?.puedeRegistrar;
+    const agregar = async (a: Acceso) => {
+        setAgregando(true);
+        try {
+            const r = await servidor.desdeEvento(a.id);
+            toast.success({ title: r.nueva ? `Nació ${r.codigo}` : `Era ${r.nombre || r.codigo}`, description: r.nueva ? "Ahora decile quién es." : "El motor la reconoció: se le sumó esta pasada." });
+            setFijada({ id: a.id, t: Date.now() }); recargar(); setCajon({ id: r.id, registrar: r.nueva });
+        } catch (e: any) { toast.error({ title: "No se pudo agregar", description: e?.message }); }
+        finally { setAgregando(false); }
+    };
 
     // El color: el del acceso grande, mientras sea reciente.
     const [ahora, setAhora] = useState(Date.now());
     useEffect(() => { const t = setInterval(() => setAhora(Date.now()), 1000); return () => clearInterval(t); }, []);
-    const reciente = !!grande && ahora - +new Date(grande.ts) < TINTE_MS;
+    const reciente = !!grande && !elegida && ahora - +new Date(grande.ts) < TINTE_MS;
     const claseGrande = grande ? claseDe(grande) : null;
     const tono = reciente && claseGrande && datos?.fuentes !== 0 ? TONO[claseGrande] : null;
     useEffect(() => { setFondo(fondoDe(tono, claseGrande === "lista-negra")); }, [tono, claseGrande, setFondo]);
@@ -160,7 +202,8 @@ export function VistaFace() {
                             <motion.div key={grande.id} className="absolute inset-0"
                                 initial={{ opacity: 0, scale: 1.02, filter: "blur(8px)" }} animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }} exit={{ opacity: 0, scale: 0.99 }}
                                 transition={{ type: "spring", stiffness: 300, damping: 32 }}>
-                                <Protagonista a={grande} anteriores={datos?.anteriores?.de === grande.id ? datos.anteriores.pasadas : null} />
+                                <Protagonista a={grande} anteriores={datos?.anteriores?.de === grande.id ? datos.anteriores.pasadas : null}
+                                    acciones={puede ? <AccionesRostro a={grande} ocupado={agregando} alAbrir={(id, registrar) => { setFijada({ id: grande.id, t: Date.now() }); setCajon({ id, registrar }); }} alAgregar={() => agregar(grande)} /> : null} />
                             </motion.div>
                         ) : (
                             <motion.div key="vacio" className="absolute inset-0 grid place-items-center text-center px-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -171,13 +214,22 @@ export function VistaFace() {
                             </motion.div>
                         )}
                     </AnimatePresence>
+                    {/* Mirando una cara de la tira: se dice, y se vuelve a lo último de un toque. */}
+                    <AnimatePresence>
+                        {elegida && (
+                            <motion.button key="volver" type="button" onClick={() => setFijada(null)} initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={SUAVE}
+                                className={cn("absolute left-4 top-4 h-10 pl-3 pr-3.5 rounded-full bg-black/65 backdrop-blur-md border border-white/20 text-white text-[13.5px] font-semibold inline-flex items-center gap-1.5 hover:bg-black/80", tocable)}>
+                                <ArrowUpRight size={16} /> Volver al último
+                            </motion.button>
+                        )}
+                    </AnimatePresence>
                 </div>
 
                 {/* La tira de los anteriores. */}
                 <div className="shrink-0 h-[132px] flex gap-3 overflow-x-auto overscroll-x-contain snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                     {tira.length === 0 && <div className="grid place-items-center w-full rounded-xl border border-dashed border-border text-[15px] text-muted-foreground">Sin accesos anteriores</div>}
                     <AnimatePresence initial={false}>
-                        {tira.map((a) => <TarjetaTira key={a.id} a={a} />)}
+                        {tira.map((a) => <TarjetaTira key={a.id} a={a} alElegir={() => setFijada({ id: a.id, t: Date.now() })} />)}
                     </AnimatePresence>
                 </div>
             </div>
@@ -213,7 +265,50 @@ export function VistaFace() {
                     </div>
                 </div>
             </aside>
+            {puede && <CajonRostro tema="oscuro" id={cajon?.id || null} panelInicial={cajon?.registrar ? "registrar" : null} alCerrar={() => setCajon(null)} alCambiar={recargar} alAbrir={(id) => setCajon({ id, registrar: false })} acciones={accionesRostro} />}
         </div>
+    );
+}
+
+/**
+ * Lo que se puede hacer con la cara del grande. Una identidad: registrarla, o ver su ficha. Una
+ * pasada sin identidad vista por OmniVision: agregarla igual, en dos pasos — el segundo dice a qué
+ * se expone quien la agrega (una cara chica se confunde), porque eso no se deshace solo.
+ */
+function AccionesRostro({ a, ocupado, alAbrir, alAgregar }: { a: Acceso; ocupado: boolean; alAbrir: (rostroId: string, registrar: boolean) => void; alAgregar: () => void }) {
+    const [confirmando, setConfirmando] = useState(false);
+    useEffect(() => setConfirmando(false), [a.id]);
+    const rostroId = a.rostro?.id || a.rostroId;
+    const boton = cn("h-11 px-4 rounded-xl text-[14.5px] font-semibold inline-flex items-center gap-2 transition-colors disabled:opacity-60", tocable);
+    if (rostroId) {
+        const sinNombre = !a.persona && !a.rostro?.nombre;
+        return (
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ...SUAVE, delay: 0.1 }} className="flex flex-wrap gap-2">
+                {sinNombre
+                    ? <button type="button" onClick={() => alAbrir(rostroId, true)} className={cn(boton, "bg-[var(--accion)] text-white hover:brightness-110")}><UserPlus size={17} /> Registrar: decir quién es</button>
+                    : null}
+                <button type="button" onClick={() => alAbrir(rostroId, false)} className={cn(boton, "border border-white/15 bg-white/[.06] hover:bg-white/[.12]")}><IdCard size={17} /> Ver su ficha</button>
+            </motion.div>
+        );
+    }
+    if (a.identidad !== "sin-cara" || a.origen !== "omnivision" || !a.recorte) return null;
+    return (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ...SUAVE, delay: 0.1 }}>
+            {!confirmando ? (
+                <button type="button" onClick={() => setConfirmando(true)} className={cn(boton, "bg-[var(--accion)] text-white hover:brightness-110")}><UserPlus size={17} /> Agregar como rostro conocido</button>
+            ) : (
+                <div className="rounded-xl border border-white/15 bg-white/[.05] p-3.5">
+                    <p className="text-[13.5px] leading-snug text-foreground/90">
+                        Se guarda con su número aunque {a.sinIdentidad ? `quedó sin comparar por ${a.sinIdentidad}` : "no alcanzó para comparar"}, y después le ponés el nombre.
+                        Con una cara así el motor puede sumarle pasadas de alguien parecido: conviene mirar su ficha cada tanto.
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                        <button type="button" disabled={ocupado} onClick={alAgregar} className={cn(boton, "bg-[var(--accion)] text-white hover:brightness-110")}>{ocupado ? <Loader2 size={17} className="animate-spin" /> : <UserPlus size={17} />} Agregarla</button>
+                        <button type="button" disabled={ocupado} onClick={() => setConfirmando(false)} className={cn(boton, "border border-white/15 hover:bg-white/[.08]")}>Cancelar</button>
+                    </div>
+                </div>
+            )}
+        </motion.div>
     );
 }
 
@@ -262,7 +357,7 @@ function Escena({ src, caja, rotulo }: { src: string; caja: Acceso["caja"]; rotu
  * o el número del rostro), contra qué se comparó, cuántas veces vino y la calidad de la captura.
  * Sin escena (una terminal que sólo manda el recorte), el recorte ocupa el lugar.
  */
-function Protagonista({ a, anteriores }: { a: Acceso; anteriores: Anterior[] | null }) {
+function Protagonista({ a, anteriores, acciones }: { a: Acceso; anteriores: Anterior[] | null; acciones?: React.ReactNode }) {
     const clase = claseDe(a);
     const Icono = ICONO[clase];
     const escena = a.escena || (a.recorte && a.foto ? a.foto : null);
@@ -321,6 +416,7 @@ function Protagonista({ a, anteriores }: { a: Acceso; anteriores: Anterior[] | n
                     </div>
                 </motion.div>
 
+                {acciones}
                 <Comparacion a={a} />
                 {a.rostro && <Visitas a={a} anteriores={anteriores} />}
                 <CalidadCaptura a={a} />
@@ -442,10 +538,10 @@ function BarraCalidad({ rotulo, valor }: { rotulo: string; valor: number }) {
     );
 }
 
-function TarjetaTira({ a }: { a: Acceso }) {
+function TarjetaTira({ a, alElegir }: { a: Acceso; alElegir: () => void }) {
     return (
-        <motion.div layout initial={{ opacity: 0, x: -24, scale: 0.96 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={SUAVE}
-            className="snap-start shrink-0 w-[244px] rounded-xl bg-card border border-border overflow-hidden flex">
+        <motion.button type="button" onClick={alElegir} title="Traerla al grande" layout initial={{ opacity: 0, x: -24, scale: 0.96 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={SUAVE}
+            className="snap-start shrink-0 w-[244px] rounded-xl bg-card border border-border overflow-hidden flex text-left hover:border-[var(--accion-en-oscuro)] transition-colors">
             <Cara src={a.recorte || a.foto} ov={a.origen === "omnivision"} className="w-[92px] h-full" />
             <div className="min-w-0 flex-1 p-3 flex flex-col justify-between">
                 <div className="min-w-0">
@@ -460,7 +556,7 @@ function TarjetaTira({ a }: { a: Acceso }) {
                     <span className={cn("h-5 px-1.5 rounded-full text-[10.5px] font-bold inline-flex items-center whitespace-nowrap", PLENO[claseDe(a)])}>{a.identidad ? TEXTO_CLASE[claseDe(a)] : a.decision === "GRANT" ? "Permitido" : TEXTO_MOTIVO[a.motivo]}</span>
                 </div>
             </div>
-        </motion.div>
+        </motion.button>
     );
 }
 

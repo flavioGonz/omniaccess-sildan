@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ScanFace, UserCheck, UserPlus, Merge, Trash2, Loader2, Check, X, Video, Clock, ExternalLink, Search, Tag } from "lucide-react";
+import { ScanFace, UserCheck, UserPlus, Merge, Trash2, Loader2, Check, X, Video, Clock, ExternalLink, Search, Tag, Sparkles, CalendarDays } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,9 @@ import { Cargando, ErrorEstado } from "@/components/ui/estados";
 import { Estado } from "@/components/ui/celdas";
 import { ConfirmarEnCajon } from "@/components/ui/cajon-confirmar";
 import { cn } from "@/lib/utils";
-import { fichaRostro, registrarRostro, unirRostros, descartarParecido, olvidarRostro, buscarPersonasParaRostro, listarRostros } from "@/app/actions/rostros";
-import { textoVeces, type FichaRostro, type FilaRostro } from "@/lib/rostros";
+import { fichaRostro, registrarRostro, unirRostros, descartarParecido, olvidarRostro, buscarPersonasParaRostro, listarRostros, crearPersonaDesdeRostro } from "@/app/actions/rostros";
+import { textoVeces, ROLES_PERSONA_DESDE_ROSTRO, type FichaRostro, type FilaRostro, type RolPersonaDesdeRostro } from "@/lib/rostros";
+import { TEXTO_PATRON, SUGERIR, type Frecuencia } from "@/lib/rostros-frecuencia";
 
 /*
  * La ficha de una cara vista por el modo face (13/11, Nico: «guardar el rostro, asignarle un id,
@@ -21,7 +22,7 @@ import { textoVeces, type FichaRostro, type FilaRostro } from "@/lib/rostros";
  */
 
 /** Lo que la ficha le pide al servidor. Junto, para poder mostrarla con datos de prueba. */
-export const ACCIONES_ROSTRO = { ficha: fichaRostro, registrar: registrarRostro, unir: unirRostros, descartar: descartarParecido, olvidar: olvidarRostro, personas: buscarPersonasParaRostro, lista: listarRostros };
+export const ACCIONES_ROSTRO = { ficha: fichaRostro, registrar: registrarRostro, unir: unirRostros, descartar: descartarParecido, olvidar: olvidarRostro, personas: buscarPersonasParaRostro, lista: listarRostros, crearPersona: crearPersonaDesdeRostro };
 
 const fecha = (iso: string) => new Date(iso).toLocaleString("es-UY", { timeZone: "America/Montevideo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 const hace = (iso: string) => {
@@ -44,7 +45,7 @@ export function CaraRostro({ src, alt, className }: { src: string | null; alt: s
     );
 }
 
-export function CajonRostro({ id, alCerrar, alCambiar, alAbrir, puedeCambiar = true, acciones }: {
+export function CajonRostro({ id, alCerrar, alCambiar, alAbrir, puedeCambiar = true, acciones, tema, panelInicial = null }: {
     /** La cara abierta; null = cerrado. */
     id: string | null; alCerrar: () => void;
     /** Algo cambió (nombre, unión, olvido): la grilla de atrás se refresca. */
@@ -53,6 +54,10 @@ export function CajonRostro({ id, alCerrar, alCambiar, alAbrir, puedeCambiar = t
     alAbrir: (id: string) => void;
     puedeCambiar?: boolean;
     acciones?: Partial<typeof ACCIONES_ROSTRO>;
+    /** Abierto desde un monitor (que es siempre oscuro, sea cual sea el tema del panel). */
+    tema?: "oscuro";
+    /** Abrir ya en «¿Quién es?»: se llegó acá para registrarla. */
+    panelInicial?: "registrar" | null;
 }) {
     const servidor = { ...ACCIONES_ROSTRO, ...acciones };
     const [f, setF] = useState<FichaRostro | null>(null);
@@ -68,7 +73,8 @@ export function CajonRostro({ id, alCerrar, alCambiar, alAbrir, puedeCambiar = t
         // `servidor` se arma en cada render con las mismas funciones.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
-    useEffect(() => { setF(null); setError(null); setPanel(null); if (id) traer(); }, [id, traer]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { setF(null); setError(null); setPanel(id ? panelInicial : null); if (id) traer(); }, [id, traer]);
 
     const hacer = async (que: () => Promise<unknown>, listo: string, cerrar = false) => {
         setOcupado(true);
@@ -91,7 +97,7 @@ export function CajonRostro({ id, alCerrar, alCambiar, alAbrir, puedeCambiar = t
     const titulo = f ? f.nombre || f.codigo : "Rostro";
     return (
         <Cajon open={!!id} onOpenChange={(v) => { if (!v && !ocupado) alCerrar(); }}>
-            <CajonContenido ancho="intermedio" titulo={titulo} descripcion={f ? (f.nombre ? `${f.codigo} · ${f.registro === "persona" ? "persona del padrón" : "nombre puesto a mano"}` : "Sin registrar") : "Modo face"}
+            <CajonContenido ancho="intermedio" className={tema === "oscuro" ? "dark text-foreground" : undefined} titulo={titulo} descripcion={f ? (f.nombre ? `${f.codigo} · ${f.registro === "persona" ? "persona del padrón" : "nombre puesto a mano"}` : "Sin registrar") : "Modo face"}
                 pie={f && puedeCambiar ? (
                     <div className="flex items-center gap-2 w-full">
                         <Button variant="ghost" onClick={() => setOlvidando(true)} disabled={ocupado} className="gap-1.5 text-muted-foreground hover:text-[var(--mal-texto)] mr-auto"><Trash2 size={14} /> Olvidar esta cara</Button>
@@ -118,6 +124,20 @@ export function CajonRostro({ id, alCerrar, alCambiar, alAbrir, puedeCambiar = t
                             </div>
                         </div>
 
+                        <FrecuenciaRostro fr={f.frecuencia} veces={f.veces} />
+
+                        {/* Viene seguido y nadie dijo quién es: se propone registrarla (lib/rostros-frecuencia). */}
+                        {f.frecuencia.conviene && puedeCambiar && panel !== "registrar" && (
+                            <div className="rounded-[10px] border chip-info p-3.5 flex items-center gap-3">
+                                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full pleno-info"><Sparkles size={16} /></span>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[13px] font-semibold text-foreground">Conviene registrarla</p>
+                                    <p className="text-[12px] text-foreground/75 leading-snug">Vino {f.frecuencia.visitas14} veces en {f.frecuencia.dias14} días distintos de las últimas dos semanas y sigue sin nombre.</p>
+                                </div>
+                                <Button size="sm" onClick={() => setPanel("registrar")} disabled={ocupado} className="gap-1.5 shrink-0"><UserPlus size={13} /> Registrar</Button>
+                            </div>
+                        )}
+
                         {f.sugerencia && (
                             <div className="rounded-[10px] border chip-aviso p-3.5 flex items-center gap-3.5">
                                 <CaraRostro src={f.sugerencia.foto} alt={f.sugerencia.codigo} className="h-16 w-14 shrink-0" />
@@ -135,7 +155,8 @@ export function CajonRostro({ id, alCerrar, alCambiar, alAbrir, puedeCambiar = t
                         )}
 
                         {panel === "registrar" && <Registrar f={f} ocupado={ocupado} buscar={servidor.personas}
-                            alElegir={(q, listo) => hacer(() => servidor.registrar(f.id, q), listo)} />}
+                            alElegir={(q, listo) => hacer(() => servidor.registrar(f.id, q), listo)}
+                            alCrear={(nombre, rol) => hacer(() => servidor.crearPersona(f.id, { nombre, rol }), `${nombre} ya está en el padrón, con esta cara`)} />}
                         {panel === "unir" && <ElegirOtra f={f} ocupado={ocupado} listar={servidor.lista} alElegir={(o) => unirCon(o.id, o.nombre || o.codigo)} />}
 
                         <section>
@@ -187,11 +208,16 @@ function Dato({ rotulo, valor, detalle, grande }: { rotulo: string; valor: strin
 }
 
 /** Decir quién es: alguien del padrón, o sólo un nombre. */
-function Registrar({ f, ocupado, buscar, alElegir }: {
+function Registrar({ f, ocupado, buscar, alElegir, alCrear }: {
     f: FichaRostro; ocupado: boolean; buscar: typeof buscarPersonasParaRostro;
     alElegir: (quien: { userId?: string | null; apodo?: string | null }, listo: string) => void;
+    /** Crear a la persona en el padrón con esta cara (13/11: «permite registrar personas»). */
+    alCrear: (nombre: string, rol: RolPersonaDesdeRostro) => void;
 }) {
     const [q, setQ] = useState("");
+    const [rol, setRol] = useState<RolPersonaDesdeRostro>("RESIDENT");
+    const nombre = q.trim().replace(/\s+/g, " ");
+    // Si ya hay alguien con ese nombre exacto, no se ofrece crearla de nuevo: se la elige de la lista.
     const [gente, setGente] = useState<Awaited<ReturnType<typeof buscarPersonasParaRostro>> | null>(null);
     useEffect(() => {
         const t = q.trim();
@@ -220,6 +246,19 @@ function Registrar({ f, ocupado, buscar, alElegir }: {
                     ))}
                 </div>
             )}
+            {nombre.length >= 2 && gente && !gente.some((u) => u.name.toLowerCase() === nombre.toLowerCase()) && (
+                <div className="rounded-lg border border-border p-3 space-y-2.5">
+                    <p className="text-[13px] flex items-center gap-2"><UserPlus size={15} className="text-[var(--accion)] shrink-0" /> <span>Crear a <b className="font-semibold">«{nombre}»</b> como persona nueva</span></p>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                        {ROLES_PERSONA_DESDE_ROSTRO.map((r) => (
+                            <button key={r.valor} type="button" aria-pressed={rol === r.valor} onClick={() => setRol(r.valor)}
+                                className={cn("h-7 px-3 rounded-full border text-[12px] font-semibold transition-colors", rol === r.valor ? "bg-foreground text-background border-foreground" : "border-border text-muted-foreground hover:text-foreground")}>{r.rotulo}</button>
+                        ))}
+                        <Button size="sm" disabled={ocupado} onClick={() => alCrear(nombre, rol)} className="ml-auto gap-1.5"><Check size={13} /> Crear y registrar</Button>
+                    </div>
+                    <p className="text-[11.5px] text-muted-foreground leading-snug">Queda en Usuarios con esta cara como su foto. La unidad, las matrículas y los grupos de acceso se completan en su ficha.</p>
+                </div>
+            )}
             {q.trim().length >= 2 && (
                 <button type="button" disabled={ocupado} onClick={() => alElegir({ apodo: q.trim() }, `${f.codigo} ahora se llama ${q.trim()}`)}
                     className="w-full flex items-center gap-3 px-3 h-11 rounded-lg border border-dashed border-border text-left hover:bg-accent/60 disabled:opacity-60">
@@ -229,8 +268,7 @@ function Registrar({ f, ocupado, buscar, alElegir }: {
                 </button>
             )}
             <p className="text-[11.5px] text-muted-foreground leading-snug">
-                Con alguien del padrón, sus pasadas salen a su nombre en el monitor y en el historial. Si la persona no existe todavía, creala en{" "}
-                <Link href="/admin/users" className="font-semibold text-[var(--accion)] hover:underline">Usuarios</Link> y volvé a elegirla acá.
+                Con alguien del padrón, sus pasadas salen a su nombre en el monitor y en el historial.
                 {f.nombre && <> <button type="button" disabled={ocupado} onClick={() => alElegir({}, `${f.codigo} volvió a quedar sin registrar`)} className="font-semibold text-[var(--accion)] hover:underline">Quitarle el nombre</button>.</>}
             </p>
         </section>
@@ -266,6 +304,35 @@ function ElegirOtra({ f, ocupado, listar, alElegir }: { f: FichaRostro; ocupado:
                     </div>
                 )}
             <p className="text-[11.5px] text-muted-foreground leading-snug">Queda una sola cara con las pasadas de las dos. No se puede deshacer.</p>
+        </section>
+    );
+}
+
+/**
+ * Con qué frecuencia viene: en palabras, y una tira con las visitas de cada uno de los últimos
+ * días (hoy a la derecha). La tira es lo que deja ver de un vistazo si es «todos los días» o «tres
+ * veces el martes».
+ */
+export function FrecuenciaRostro({ fr, veces, compacta }: { fr: Frecuencia; veces: number; compacta?: boolean }) {
+    const tope = Math.max(1, ...fr.tira);
+    const tono = fr.patron === "habitual" ? "bien" : fr.patron === "recurrente" ? "info" : "quieto";
+    return (
+        <section className={cn(!compacta && "rounded-[10px] border border-border p-3.5")}>
+            <div className="flex items-center gap-2 flex-wrap">
+                {!compacta && <h3 className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mr-1 inline-flex items-center gap-1.5"><CalendarDays size={11} /> Frecuencia</h3>}
+                <Estado tono={tono}>{veces <= 0 && fr.visitas === 0 ? "Sin verla aún" : TEXTO_PATRON[fr.patron]}</Estado>
+                <span className="text-[12.5px] text-foreground/80 min-w-0">{veces <= 0 && fr.visitas === 0 ? "Cargada a mano: ninguna cámara la vio todavía." : fr.texto}</span>
+            </div>
+            <div className="mt-3 flex items-end gap-[3px] h-9" role="img" aria-label={`Visitas por día en los últimos ${fr.tira.length} días: ${fr.tira.join(", ")}`}>
+                {fr.tira.map((n, i) => (
+                    <span key={i} title={`${i === fr.tira.length - 1 ? "Hoy" : `Hace ${fr.tira.length - 1 - i} ${fr.tira.length - 1 - i === 1 ? "día" : "días"}`}: ${n === 1 ? "1 visita" : `${n} visitas`}`}
+                        className={cn("flex-1 rounded-[2px]", n ? `pleno-${tono === "quieto" ? "info" : tono}` : "bg-muted")} style={{ height: n ? `${Math.max(22, (n / tope) * 100)}%` : 3 }} />
+                ))}
+            </div>
+            <div className="mt-1 flex justify-between text-[10.5px] text-muted-foreground"><span>hace {fr.tira.length - 1} días</span><span>hoy</span></div>
+            {!compacta && fr.visitas > 0 && !fr.conviene && fr.patron !== "habitual" && (
+                <p className="mt-2 text-[11.5px] text-muted-foreground leading-snug">Se sugiere registrar una cara sin nombre cuando viene {SUGERIR.visitas} veces o más en {SUGERIR.dias} días distintos dentro de {SUGERIR.enDias} días.</p>
+            )}
         </section>
     );
 }

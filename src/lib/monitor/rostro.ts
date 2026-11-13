@@ -69,3 +69,17 @@ export function motivoDeRostro(e: { decision: string; userId?: string | null; ro
 export const TEXTO_MOTIVO: Record<MotivoRostro, string> = {
     permitido: "Permitido", desconocido: "Desconocido", "lista-negra": "Lista negra", denegado: "Denegado",
 };
+
+/**
+ * El `details` de un acceso FACE después de que alguien le dio identidad A MANO (13/11: «agregar un
+ * rostro conocido» desde el monitor, sobre una pasada que la compuerta había dejado sin identidad).
+ * Cambia quién es y qué se decidió, suma el Rostro y saca el «no se pudo comparar». Lo demás —la
+ * foto, la calidad, dónde estaba la cara— queda como lo escribió el proceso de visión.
+ */
+export function detallesConIdentidad(details: string | null | undefined, r: { rostroId: string; nombre: string; veces: number }): string {
+    const fuera = /^(Rostro|RostroId|Veces|Identidad|SinIdentidad):/;
+    const partes = String(details || "").split(/,\s+(?=[A-Za-z]+:\s)/).map((x) => x.trim()).filter((x) => x && !fuera.test(x));
+    // «Source» queda al final, como lo escribe vision-rostros.js.
+    const fuente = partes.filter((x) => /^Source:/.test(x)), resto = partes.filter((x) => !/^Source:/.test(x));
+    return [`Rostro: ${r.nombre.replace(/,/g, " ")}`, ...resto, `RostroId: ${r.rostroId}`, `Veces: ${r.veces}`, "Identidad: nueva", ...fuente].join(", ");
+}

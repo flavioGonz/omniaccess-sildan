@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ScanFace, Settings2, UserCheck, GitMerge } from "lucide-react";
+import { ScanFace, Settings2, UserCheck, GitMerge, ImagePlus, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { CajonSubirRostro } from "@/components/vision/rostros/CajonSubirRostro";
 import { Filtros } from "@/components/ui/filtros";
 import { Cargando, ErrorEstado, Vacio } from "@/components/ui/estados";
 import { cn } from "@/lib/utils";
@@ -33,6 +35,7 @@ export function VistaRostros({ acciones }: { acciones?: Partial<typeof ACCIONES_
     const [datos, setDatos] = useState<ListaRostros | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [abierta, setAbierta] = useState<string | null>(null);
+    const [subiendo, setSubiendo] = useState(false);
 
     const cargar = useCallback(async () => {
         try { setDatos(await listar({ filtro, orden, q, pagina })); setError(null); }
@@ -70,11 +73,13 @@ export function VistaRostros({ acciones }: { acciones?: Partial<typeof ACCIONES_
                 <Link href="/admin/settings?seccion=motor_rostros" className="h-8 px-3 rounded-md border border-border text-[12.5px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent">
                     <Settings2 size={14} /> Motor y cámaras
                 </Link>
+                <Button size="sm" onClick={() => setSubiendo(true)} className="gap-1.5"><ImagePlus size={14} /> Agregar un rostro</Button>
             </div>
 
             <Filtros solido busqueda={q} alBuscar={(v) => { setQ(v); setPagina(0); }} placeholder="Número o nombre" grupos={[
                 { clave: "filtro", titulo: "Cuáles", valor: filtro, alElegir: elegir<FiltroRostro>(setFiltro), opciones: [
                     { valor: "todos", rotulo: "Todos", cuenta: c.todos },
+                    { valor: "para-registrar", rotulo: "Para registrar", cuenta: c["para-registrar"], titulo: "Sin nombre y vienen seguido: conviene decir quiénes son" },
                     { valor: "sin-registrar", rotulo: "Sin registrar", cuenta: c["sin-registrar"] },
                     { valor: "registrados", rotulo: "Registrados", cuenta: c.registrados },
                     { valor: "frecuentes", rotulo: `${FRECUENTE_DESDE} visitas o más`, cuenta: c.frecuentes },
@@ -106,6 +111,7 @@ export function VistaRostros({ acciones }: { acciones?: Partial<typeof ACCIONES_
             )}
 
             <CajonRostro id={abierta} alCerrar={() => setAbierta(null)} alCambiar={cargar} alAbrir={setAbierta} acciones={acciones} />
+            <CajonSubirRostro abierto={subiendo} alCerrar={() => setSubiendo(false)} alGuardar={cargar} alAbrirRostro={setAbierta} />
         </div>
     );
 }
@@ -117,6 +123,7 @@ function Tarjeta({ r, alAbrir }: { r: FilaRostro; alAbrir: () => void }) {
             <span className="relative block">
                 <CaraRostro src={r.foto} alt={r.nombre || r.codigo} className="aspect-[5/6] w-full transition-transform duration-200 group-hover:scale-[1.02]" />
                 {r.veces > 1 && <span className="absolute right-1.5 top-1.5 h-[22px] min-w-[22px] px-1.5 rounded-full bg-black/70 text-white text-[11.5px] font-bold tabular-nums grid place-items-center backdrop-blur-sm" title={textoVeces(r.veces)}>{r.veces}</span>}
+                {r.frecuencia.conviene && !r.sugerencia && <span className="absolute left-1.5 top-1.5 h-[22px] w-[22px] rounded-full pleno-info grid place-items-center" title="Viene seguido y no tiene nombre: conviene registrarla"><Sparkles size={12} /></span>}
                 {r.sugerencia && <span className="absolute left-1.5 top-1.5 h-[22px] w-[22px] rounded-full pleno-aviso grid place-items-center" title={`Se parece a ${r.sugerencia.nombre || r.sugerencia.codigo}: para revisar`}><GitMerge size={12} /></span>}
             </span>
             <span className="mt-2 flex items-center gap-1.5 min-w-0">
