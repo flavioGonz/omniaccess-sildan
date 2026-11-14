@@ -56,8 +56,9 @@ async function leer(): Promise<Record<string, any>> {
         const streams: Record<string, any> = await r.json();
         for (const [id, s] of Object.entries(streams)) {
             const prods: any[] = (s?.producers || []).filter((p: any) => p?.medias?.length);
-            // Precargado (preload) pero sin video: go2rtc lo está reintentando y la cámara no contesta.
-            if (!prods.length) { if ((s?.producers || []).some((p: any) => /127\.0\.0\.1:8556/.test(String(p?.url || "")))) sinVideo.add(id); continue; }
+            // Precargado (preload, sólo el subflujo) pero sin video: go2rtc lo reintenta y la cámara no contesta.
+            // El _hd no se precarga: sin consumidores está quieto, no caído.
+            if (!prods.length) { if (!id.endsWith("_hd") && (s?.producers || []).some((p: any) => /127\.0\.0\.1:8556/.test(String(p?.url || "")))) sinVideo.add(id); continue; }
             // El códec de ORIGEN está en el productor que no es la conversión (`ffmpeg:`).
             const fuente = prods.find((p) => !String(p.url || "").startsWith("ffmpeg:")) || prods[0];
             const medias: string[] = (fuente?.medias || []).filter((m: any) => /video/i.test(String(m)));
