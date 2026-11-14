@@ -134,14 +134,30 @@ export async function GET(
         const falla = fallas.get(deviceId);
         if (falla && Date.now() - falla < FALLA_MS) return new NextResponse(null, { status: 204, headers: { "X-Sin-Foto": "1", "Retry-After": "30" } });
         const claveOtra = `${deviceId}:otra`;
+        // Miniaturas (listas de dispositivos, áreas): una foto de hasta 30 s alcanza y evita que 40
+        // miniaturas a la vez saquen 40 cuadros del video (un ffmpeg cada uno en este servidor sin GPU).
+        const wPedido = Number(req.nextUrl.searchParams.get("w") || 0);
+        const miniatura = wPedido > 0 && wPedido <= 320;
+        const vigencia = miniatura ? 30_000 : FOTO_VIGENTE_MS;
+        const responder = async (buf: Buffer) => {
+            let out = buf;
+            if (wPedido >= 80 && wPedido <= 1920) {
+                try { const sharp = (await import("sharp")).default; out = await sharp(buf).resize({ width: wPedido, withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer(); } catch { }
+            }
+            return new NextResponse(new Uint8Array(out), { status: 200, headers: { "Content-Type": "image/jpeg", "Cache-Control": miniatura ? "private, max-age=20" : "no-cache, no-store, must-revalidate" } });
+        };
         const yaOtra = fotos.get(claveOtra);
-        if (yaOtra && Date.now() - yaOtra.t < FOTO_VIGENTE_MS) return new NextResponse(new Uint8Array(yaOtra.buf), { status: 200, headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-cache, no-store, must-revalidate" } });
+        if (yaOtra && Date.now() - yaOtra.t < vigencia) return responder(yaOtra.buf);
         let pOtra = enCurso.get(claveOtra);
         if (!pOtra) {
             pOtra = (async () => {
-                let b = await go2rtcFrame(deviceId);
-                if (!b) b = await nvrSnapshot(deviceId);
-                if (!b) b = await fotoDirecta(device);
+                await turno();
+                let b: Buffer | null = null;
+                try {
+                    b = await go2rtcFrame(deviceId);
+                    if (!b) b = await nvrSnapshot(deviceId);
+                    if (!b) b = await fotoDirecta(device);
+                } finally { soltarTurno(); }
                 if (b) { fotos.set(claveOtra, { buf: b, t: Date.now() }); fallas.delete(deviceId); } else fallas.set(deviceId, Date.now());
                 return b;
             })().finally(() => enCurso.delete(claveOtra));
@@ -149,7 +165,7 @@ export async function GET(
         }
         const bOtra = await pOtra;
         if (!bOtra) return new NextResponse(null, { status: 204, headers: { "X-Sin-Foto": "1", "Retry-After": "30" } });
-        return new NextResponse(new Uint8Array(bOtra), { status: 200, headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-cache, no-store, must-revalidate" } });
+        return responder(bOtra);
     } catch (err: any) {
         console.error(`[Snapshot] Error for device ${deviceId}:`, err.message);
         return new NextResponse("Error fetching snapshot", { status: 500 });
@@ -161,6 +177,17 @@ export async function GET(
  * (canales 4, 11, 24 de Nicolás) llenaba la consola de errores cada 8 s. Para el <img> es lo
  * mismo (dispara onError y la baldosa dice «Sin foto del canal»), pero no es un error del servidor.
  */
+/*
+ * A lo sumo FOTOS_A_LA_VEZ fotos sacándose al mismo tiempo (cada una puede ser un ffmpeg de go2rtc o
+ * un pedido al NVR por internet). Antes una lista con 40 miniaturas lanzaba 40 a la vez: la CPU se
+ * iba al techo y el navegador cortaba pedidos (net::ERR_FAILED).
+ */
+const FOTOS_A_LA_VEZ = 3;
+let enUso = 0;
+const espera: Array<() => void> = [];
+function turno(): Promise<void> { if (enUso < FOTOS_A_LA_VEZ) { enUso++; return Promise.resolve(); } return new Promise((r) => espera.push(() => { enUso++; r(); })); }
+function soltarTurno() { enUso = Math.max(0, enUso - 1); const sig = espera.shift(); if (sig) sig(); }
+
 /** Una cámara que no dio foto por ningún camino: se vuelve a intentar pasado este tiempo. */
 const FALLA_MS = 30_000;
 const fallas = new Map<string, number>();
