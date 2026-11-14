@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getChannelMap, resolveNvrById, type NvrConn } from "@/lib/nvr-resolve";
 import { configClips, nombreDeClip, type ConfigClip } from "@/lib/clips";
 import { cortarDesdeNvr } from "@/lib/clip-nvr";
-import { editarClip, cuandoLargo } from "@/lib/clip-editado";
+import { editarClip, cuandoLargo, unirEscenas, type EscenaDeClip } from "@/lib/clip-editado";
 import { ventanaPlayback } from "@/lib/ventana-playback";
 import {
     AJUSTE_ALERTA_ANTES, AJUSTE_ALERTA_DESPUES, ALERTA_ANTES_POR_DEFECTO, ALERTA_DESPUES_POR_DEFECTO,
@@ -252,7 +252,9 @@ export async function clipDeInstante(p: { deviceId: string; instante: number; an
 }
 
 /** Un tramo de una grabación hecha desde el vivo: qué canal y de cuándo a cuándo. */
-export type TramoGrabado = { deviceId?: string | null; nvrId?: string | null; ch?: number | null; desde: number; hasta: number };
+export type TramoGrabado = { deviceId?: string | null; nvrId?: string | null; ch?: number | null; desde: number; hasta: number;
+    /** Cómo se llama la cámara: en una recorrida se escribe sobre su tramo. */
+    nombre?: string | null };
 /** Cuántos tramos lleva como mucho una grabación (cambios de cámara). */
 export const TRAMOS_MAX = 8;
 /** Un tramo más corto que esto no se corta: es el instante de pasar de una cámara a otra. */
@@ -333,7 +335,7 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
     const nombre = `${base}_${Date.now().toString(36)}.mp4`;
     const destino = path.join(DIR_CLIPS, nombre);
 
-    const partes: string[] = [];
+    const partes: string[] = [], nombres: string[] = [];
     let fuente: "nvr" | "anillo" | null = null, salteados = 0;
     for (const [i, t] of tramos.entries()) {
         const f = await fuenteDeVideo(t.deviceId || "", { nvrId: t.nvrId, ch: t.ch });
@@ -349,7 +351,9 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
                 if (aun > 0) await esperar(aun);
                 intentos++;
                 const t0 = Date.now();
-                ok = await cortarDesdeNvr(f.conn, String(f.ch), t.desde + reloj * 1000, t.seg, parte, { cfg, marcaAgua: marca, topeMs: marca ? 75_000 : undefined });
+                // Sin el logo acá: lo pone la edición, una vez, sobre el clip ya unido (si viniera en cada
+                // tramo, el pase entre cámaras lo barrería con la imagen). Y sin logo el corte puede ir por copia.
+                ok = await cortarDesdeNvr(f.conn, String(f.ch), t.desde + reloj * 1000, t.seg, parte, { cfg, marcaAgua: null });
                 bytes = 0; try { bytes = fs.statSync(parte).size; } catch { }
                 if ((ok && bytes >= 1500) || Date.now() - t0 > RECHAZO_RAPIDO_MS) break;
             }
@@ -358,20 +362,18 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
             ok = (await cortarDesdeAnillo(f.dir, t.desde, t.desde + t.seg * 1000, parte)).ok;
             try { bytes = fs.statSync(parte).size; } catch { }
         } else console.warn(`[clip] grabación: tramo ${i + 1} sin fuente de video: ${f.motivo}`);
-        if (ok && bytes >= 1500) { partes.push(parte); fuente = fuente || f.tipo; }
+        if (ok && bytes >= 1500) { partes.push(parte); nombres.push(String(t.nombre || "").trim()); fuente = fuente || f.tipo; }
         else { salteados++; try { fs.unlinkSync(parte); } catch { } }
     }
     const limpiar = () => { for (const x of partes) try { fs.unlinkSync(x); } catch { } };
     if (!partes.length) return { ok: false, motivo: "el grabador todavía no tiene disponible ese tramo (se insistió durante un minuto y medio). Probá de nuevo en un rato, o cortalo desde la grabación", ventana, fuente: null };
 
+    /** Dónde empieza cada cámara en el clip unido (s) y cómo se llama: la edición escribe el nombre. */
+    let escenas: EscenaDeClip[] = [];
     if (partes.length === 1) fs.renameSync(partes[0], destino);
     else {
-        // Unir: todo al mismo tamaño y cadencia, y recodificar una vez (los tramos vienen de cámaras distintas).
-        const alto = cfg.altura || 720, ancho = Math.round((alto * 16) / 9 / 2) * 2;
-        const filtro = partes.map((_, i) => `[${i}:v]scale=${ancho}:${alto}:force_original_aspect_ratio=decrease,pad=${ancho}:${alto}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=25[v${i}]`).join(";")
-            + `;${partes.map((_, i) => `[v${i}]`).join("")}concat=n=${partes.length}:v=1:a=0[v]`;
-        const unido = await ffmpeg(["-y", "-loglevel", "error", ...partes.flatMap((x) => ["-i", x]), "-filter_complex", filtro, "-map", "[v]", "-an",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-movflags", "+faststart", destino], 90_000);
+        const unido = await unirEscenas(partes, nombres, destino, cfg.altura || 720);
+        if (unido) escenas = unido;
         limpiar();
         if (!unido) { try { fs.unlinkSync(destino); } catch { } return { ok: false, motivo: "no se pudieron unir los tramos", ventana, fuente }; }
     }
@@ -382,7 +384,9 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
     if (marca) {
         const e = await editarClip(destino, {
             titulo: partes.length > 1 ? "Recorrida" : dev?.name || rotulo || "Cámara",
-            lineas: [cuandoLargo(new Date(primero.desde)), partes.length > 1 ? `${partes.length} cámaras` : ""], conMarca: fuente === "anillo",
+            lineas: [cuandoLargo(new Date(primero.desde)), partes.length > 1 ? `${partes.length} cámaras` : ""],
+            // El logo lo pone la edición (los tramos se cortaron sin él), y en una recorrida, el nombre de cada cámara.
+            conMarca: true, escenas,
         });
         if (e.ok) { edicion = { editado: true, ancho: e.ancho, alto: e.alto, segundos: e.segundos }; try { bytes = fs.statSync(destino).size; } catch { } }
         else console.warn(`[clip] grabación sin intro: ${e.motivo}`);

@@ -2,7 +2,7 @@ import { spawn } from "child_process";
 import { hostHttp } from "@/lib/host-http";
 import type { NvrConn } from "@/lib/nvr-resolve";
 import { pasamanosSdpH264, sdpCambiado, marcarSdpCambiado, esSdpCambiado } from "@/lib/rtsp-sdp";
-import { configClips, filtroEscala, CRF_POR_CALIDAD, MARCA_AGUA_ANCHO, MARCA_AGUA_MARGEN, type ConfigClip } from "@/lib/clips";
+import { configClips, filtroEscala, CRF_POR_CALIDAD, MARCA_AGUA_ANCHO, MARCA_AGUA_MARGEN, marcaEnEsquina, type ConfigClip } from "@/lib/clips";
 
 /**
  * Cortar video de la grabación de un NVR: la URL RTSP de playback, el códec del canal y los
@@ -184,7 +184,7 @@ async function cortarUnaVez(conn: NvrConn, ch: string, startMs: number, durSeg: 
            // a un 8 % y aplastado (visto el 7/10 en el primer clip enviado).
            `[1:v]scale=${logoAncho}:-1[m];` +
            `[0:v]scale=-2:${altoSalida},format=yuv420p[v];` +
-           `[v][m]overlay=x=W-w-${logoMargen}:y=H-h-${logoMargen},format=yuv420p`,
+           `[v][m]overlay=${marcaEnEsquina(logoMargen)},format=yuv420p`,
            "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", String(CRF_POR_CALIDAD[cfg.calidad]), "-threads", "4",
            "-movflags", "+faststart", "-y", destino]
         : canCopy

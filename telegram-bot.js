@@ -171,13 +171,14 @@ async function bajar(url, ms = 15_000) {
 }
 /**
  * El logo de OmniAccess (20/10, Nico: «agregá el logo de OmniAccess»): el mismo de WhatsApp
- * (public/marca-agua-omniaccess.png, con placa oscura, abajo a la derecha, 18 % del ancho, 2 % de
- * margen: lib/clips.ts MARCA_AGUA_*), sobre toda foto y todo clip que manda el bot. La intro del
+ * (public/marca-omniaccess-v2.png —la marca vigente, con su sombra—, 18 % del ancho, 2 % de
+ * margen: lib/clips.ts MARCA_AGUA_*), sobre toda foto y todo clip que manda el bot. En el VIDEO va
+ * arriba a la derecha (14/11, como en lib/clips marcaEnEsquina); en la foto, abajo a la derecha. La intro del
  * clip usa el logo blanco (public/logo-omniaccess-white.png) sobre el fondo de la marca.
  */
 const path = require("path"), fs = require("fs");
 const PUBLICO = process.env.OMNI_PUBLICO || path.join(__dirname, "public");
-const ARCHIVO_MARCA = path.join(PUBLICO, "marca-agua-omniaccess.png");
+const ARCHIVO_MARCA = path.join(PUBLICO, "marca-omniaccess-v2.png");
 const ARCHIVO_LOGO_BLANCO = path.join(PUBLICO, "logo-omniaccess-white.png");
 const MARCA_ANCHO = 0.18, MARCA_MARGEN = 0.02;
 /** El fondo de la marca (og-omniaccess.png) y el gris de su bajada. */
@@ -290,7 +291,7 @@ async function aH264(buf, camara = "OmniAccess") {
                 "-filter_complex",
                 `[0:v]scale=${ancho}:${alto},setsar=1,format=yuv420p,fade=t=in:st=0:d=${FUNDIDO_SEG},fade=t=out:st=${INTRO_SEG - FUNDIDO_SEG}:d=${FUNDIDO_SEG}[intro];` +
                 `[1:v]setpts=PTS-STARTPTS,scale=${ancho}:${alto},setsar=1,fps=${CLIP_FPS},format=yuv420p,fade=t=in:st=0:d=${FUNDIDO_SEG}[cam];` +
-                `[2:v]scale=${logoAncho}:-1[marca];[cam][marca]overlay=x=W-w-${margen}:y=H-h-${margen},format=yuv420p[video];` +
+                `[2:v]scale=${logoAncho}:-1[marca];[cam][marca]overlay=x=W-w-${margen}:y=${margen},format=yuv420p[video];` +
                 `[intro][video]concat=n=2:v=1:a=0[salida]`,
                 "-map", "[salida]", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-movflags", "+faststart", `${base}.mp4`];
         } else {

@@ -73,7 +73,8 @@ function imagePathFor(snapshotPath, deviceId) {
 // El logo para la foto de las alertas por WhatsApp, o null si está apagado (MARCA_AGUA_WHATSAPP=false).
 async function marcaAguaFoto() {
     if ((await getSetting("MARCA_AGUA_WHATSAPP", "true")) === "false") return null;
-    const fp = require("path").join(__dirname, "public", "marca-agua-omniaccess.png");
+    // El logo de la marca vigente (= ARCHIVO_MARCA_AGUA de src/lib/clips.ts; el anterior era marca-agua-omniaccess.png).
+    const fp = require("path").join(__dirname, "public", "marca-omniaccess-v2.png");
     return fs.existsSync(fp) ? fp : null;
 }
 
@@ -94,7 +95,7 @@ function fetchLocalBase64(path) {
                         const sharp = require("sharp");
                         let img = sharp(await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).toBuffer());
                         // Logo de OmniAccess (Ajustes → Video del evento; = AJUSTE_MARCA_AGUA y
-                        // MARCA_AGUA_ANCHO/MARGEN de lib/clips). Con placa oscura: se lee sobre cualquier fondo.
+                        // MARCA_AGUA_ANCHO/MARGEN de lib/clips). Trae su sombra: se lee sobre cualquier fondo.
                         const marca = await marcaAguaFoto();
                         if (marca) {
                             const { width = 1280, height = 720 } = await img.metadata();

@@ -17,6 +17,7 @@ import { CapaAnalisis, type OpcionObjeto } from "@/components/vision/CapaAnalisi
 import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { claseDeBusqueda, motivoDesdeVivo, type ClaseBusqueda } from "@/lib/vivo-menu";
+import { nombreCamara } from "@/lib/rostros";
 import { IconoPolicia } from "@/components/IconoPolicia";
 import { MinInteriorDialog } from "@/components/MinInteriorDialog";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
@@ -297,7 +298,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
      * se deja y arranca el de la que llega, y al detener el clip los une en orden. Un canal que no
      * graba no aporta tramo (y se dice mientras se está en él).
      */
-    type TramoRec = { deviceId: string | null; nvrId: string | null; ch: number | null; desde: number; hasta: number };
+    type TramoRec = { deviceId: string | null; nvrId: string | null; ch: number | null; desde: number; hasta: number; /** El nombre de la cámara: el clip lo escribe sobre su tramo. */ nombre: string };
     const tramosRec = useRef<TramoRec[]>([]);
     const canalAhora = { deviceId: c?.equipoId || null, nvrId: c?.nvrId || null, ch: c?.ch ?? null, graba: hayGrabacion, nombre: c?.nombre || "" };
     /** El canal del tramo que está corriendo: al cambiar de cámara todavía es el anterior. */
@@ -305,7 +306,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     const recRef = useRef<number | null>(null); recRef.current = rec;
     const cerrarTramo = (hasta: number) => {
         const k = canalDeTramo.current, desde = recRef.current;
-        if (desde != null && k.graba && hasta - desde >= 1000) tramosRec.current.push({ deviceId: k.deviceId, nvrId: k.nvrId, ch: k.ch, desde, hasta });
+        if (desde != null && k.graba && hasta - desde >= 1000) tramosRec.current.push({ deviceId: k.deviceId, nvrId: k.nvrId, ch: k.ch, desde, hasta, nombre: nombreCamara(k.nombre) || k.nombre });
     };
     const yaGrabado = () => tramosRec.current.reduce((x, t) => x + (t.hasta - t.desde), 0);
     const empezar = () => { tramosRec.current = []; canalDeTramo.current = canalAhora; setClip(null); setErrorClip(null); setRec(Date.now()); };

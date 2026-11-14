@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
         if (!Number.isFinite(desde) || !Number.isFinite(hasta) || hasta <= desde) continue;
         if (!deviceId && !(nvrId && ch)) continue;
         if (hasta > Date.now() + 5000) return NextResponse.json({ ok: false, motivo: "Ese tramo todavía no pasó." }, { status: 400 });
-        tramos.push({ deviceId, nvrId, ch, desde, hasta });
+        tramos.push({ deviceId, nvrId, ch, desde, hasta, nombre: typeof t?.nombre === "string" ? t.nombre.slice(0, 80) : null });
     }
     if (!tramos.length) return NextResponse.json({ ok: false, motivo: "Falta la cámara, o desde cuándo y hasta cuándo." }, { status: 400 });
     tramos.sort((x, y) => x.desde - y.desde);

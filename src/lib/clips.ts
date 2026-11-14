@@ -128,8 +128,23 @@ export const TIPOS_POR_MODULO: Record<string, string[]> = {
  * llevan: son evidencia y salen tal cual las entrega el grabador.
  */
 export const AJUSTE_MARCA_AGUA = "MARCA_AGUA_WHATSAPP";
-/** El logo con placa oscura translúcida (public/): se lee igual sobre cielo, pasto o asfalto. */
-export const ARCHIVO_MARCA_AGUA = "marca-agua-omniaccess.png";
+/**
+ * El logo que va sobre lo que sale (public/). Es el de la marca vigente —el recuadro de detección
+ * con la lente y el punto— en blanco, sin la bajada (a ese tamaño no se lee) y con su sombra
+ * hecha, para leerse igual sobre cielo, pasto o asfalto sin placa detrás.
+ *
+ * Hasta el 14/11 era `marca-agua-omniaccess.png`: el isotipo ANTERIOR (la C azul) en una píldora
+ * oscura. La marca se cambió el 26/10 en la aplicación y este archivo quedó afuera (Nico: «el clip
+ * exportado debe tener el nuevo branding y logo»). El archivo viejo queda en public por si alguna
+ * instancia sin actualizar lo pide; nada de este repo lo usa.
+ */
+export const ARCHIVO_MARCA_AGUA = "marca-omniaccess-v2.png";
 /** Ancho del logo respecto del ancho de la imagen, y margen al borde: visible sin tapar la escena. */
 export const MARCA_AGUA_ANCHO = 0.18;
 export const MARCA_AGUA_MARGEN = 0.02;
+/**
+ * Dónde va el logo en un VIDEO, para el `overlay` de ffmpeg: arriba a la derecha (14/11, Nico:
+ * «ubicarlo ángulo superior derecho del video»). Abajo a la derecha, donde estaba, es donde las
+ * cámaras escriben su nombre; arriba a la derecha suele estar libre (la fecha va a la izquierda).
+ */
+export const marcaEnEsquina = (margen: number) => `x=W-w-${margen}:y=${margen}`;
