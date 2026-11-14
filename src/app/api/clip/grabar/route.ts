@@ -74,8 +74,40 @@ export async function POST(req: NextRequest) {
     const deviceId = tramos[0].deviceId || "", nvrId = tramos[0].nvrId, ch = tramos[0].ch;
     const segundos = Math.min(ENVIO_MAX_SEG, Math.round(pedidos));
 
-    const r = await clipDeTramos(tramos, typeof b?.rotulo === "string" ? b.rotulo.slice(0, 80) : null);
-    if (!r.ok) return NextResponse.json({ ok: false, motivo: r.motivo });
+    const rotulo = typeof b?.rotulo === "string" ? b.rotulo.slice(0, 80) : null;
+    return conLatido(() => armar(tramos, rotulo, { desde, deviceId, nvrId, ch, segundos, quien: s?.name || s?.sub || "?" }));
+}
+
+/** Cada cuánto se manda un espacio mientras se arma el clip. */
+const LATIDO_MS = 15_000;
+
+/**
+ * Contesta de a poco: un espacio cada LATIDO_MS y, al final, el JSON de siempre.
+ *
+ * Por qué (14/11). Armar el clip puede llevar más de dos minutos: se espera a que el grabador
+ * tenga lo último (ver EDAD_DEL_FIN_SEG en lib/clip-instante) y después entrega a tiempo real. Un
+ * pedido que no manda un solo byte en todo ese tiempo lo corta el proxy que publica el sitio
+ * (nginx espera 60 s entre lecturas, salvo que se le diga otra cosa), y quien grabó vería un error
+ * con el clip a medio armar. Los espacios adelante de un JSON no lo cambian: `r.json()` los ignora.
+ * `no-transform` es para que nadie en el camino los junte para comprimirlos.
+ */
+function conLatido(trabajo: () => Promise<object>): Response {
+    const cod = new TextEncoder();
+    const cuerpo = new ReadableStream<Uint8Array>({
+        start(ctl) {
+            const latido = setInterval(() => { try { ctl.enqueue(cod.encode(" ")); } catch { /* ya se cerró */ } }, LATIDO_MS);
+            trabajo()
+                .catch((e: any) => { console.error(`[clip/grabar] falló: ${e?.message || e}`); return { ok: false, motivo: "falló al armarlo" }; })
+                .then((j) => { clearInterval(latido); try { ctl.enqueue(cod.encode(JSON.stringify(j))); ctl.close(); } catch { /* quien pidió ya se fue */ } });
+        },
+    });
+    return new Response(cuerpo, { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store, no-transform", "x-accel-buffering": "no" } });
+}
+
+async function armar(tramos: TramoGrabado[], rotulo: string | null, d: { desde: number; deviceId: string; nvrId: string | null | undefined; ch: number | null | undefined; segundos: number; quien: string }): Promise<object> {
+    const { desde, deviceId, nvrId, ch, segundos } = d;
+    const r = await clipDeTramos(tramos, rotulo);
+    if (!r.ok) { console.warn(`[clip/grabar] ${d.quien} no obtuvo el clip de ${deviceId || `${nvrId}/${ch}`}: ${r.motivo}`); return { ok: false, motivo: r.motivo }; }
 
     // A MinIO: el clip y su portada. Si el depósito falla, el clip igual se puede bajar y mandar
     // durante unos minutos, y se dice que no quedó guardado.
@@ -85,6 +117,6 @@ export async function POST(req: NextRequest) {
     catch (e: any) { console.error(`[clip/grabar] no se pudo guardar ${r.nombre} en el almacén: ${e?.message || e}`); }
     const jpg = await portada(r.archivo);
     if (jpg) { try { foto = await uploadToS3(jpg, `clips/${mes}/${r.nombre.replace(/\.mp4$/, ".jpg")}`, "image/jpeg", "lpr"); } catch { /* sin portada: se comparte igual, sin foto */ } }
-    console.log(`[clip/grabar] ${s?.name || s?.sub || "?"} grabó ${segundos} s de ${deviceId || `${nvrId}/${ch}`} (${r.fuente}, ${Math.round(r.bytes / 1024)} KB)${guardado ? "" : " · SIN guardar en el almacén"}`);
-    return NextResponse.json({ ok: true, nombre: r.nombre, url: r.url, guardado, foto, segundos: r.segundos ?? segundos, bytes: r.bytes, fuente: r.fuente, editado: !!r.editado, camaras: r.tramos ?? 1, salteados: r.salteados ?? 0 });
+    console.log(`[clip/grabar] ${d.quien} grabó ${segundos} s de ${deviceId || `${nvrId}/${ch}`} (${r.fuente}, ${Math.round(r.bytes / 1024)} KB)${guardado ? "" : " · SIN guardar en el almacén"}`);
+    return { ok: true, nombre: r.nombre, url: r.url, guardado, foto, segundos: r.segundos ?? segundos, bytes: r.bytes, fuente: r.fuente, editado: !!r.editado, camaras: r.tramos ?? 1, salteados: r.salteados ?? 0 };
 }

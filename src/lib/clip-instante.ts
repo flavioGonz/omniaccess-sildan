@@ -257,6 +257,38 @@ export type TramoGrabado = { deviceId?: string | null; nvrId?: string | null; ch
 export const TRAMOS_MAX = 8;
 /** Un tramo más corto que esto no se corta: es el instante de pasar de una cámara a otra. */
 const TRAMO_MINIMO_SEG = 1;
+/**
+ * Cuánto tiene que haber pasado desde el FIN de un tramo en cada intento de cortarlo.
+ *
+ * Por qué hay intentos (14/11, el primer clip que grabó Nico: «el grabador no entregó grabación de
+ * ese horario»). Se esperaban 4 s fijos después del fin y se pedía. Medido ese día contra los
+ * grabadores del lab, pidiendo tramos de 3 s: uno entrega lo que terminó hace 15 s; otro contesta
+ * 400 a todo lo que terminó hace menos de un minuto y recién entrega lo de hace 75 s. Cada
+ * grabador tarda lo suyo en tener disponible lo último que grabó, y un clip «de lo que estoy
+ * viendo» pide justo eso.
+ *
+ * El rechazo llega al instante (0,2 s), así que insistir no cuesta: se reintenta cuando el fin del
+ * tramo tiene esta antigüedad (una edad que ya pasó no se repite: un tramo viejo se pide una vez).
+ * Un corte que falla después de varios segundos NO se reintenta: ese no es «todavía no lo tengo».
+ */
+const EDAD_DEL_FIN_SEG = [0, 20, 40, 65, 90];
+/** Un corte que falla en menos que esto fue un rechazo del grabador (no un corte que se cayó a mitad). */
+const RECHAZO_RAPIDO_MS = 5000;
+/** Diferencia de reloj que se corrige: menos es ruido; más no es un reloj corrido sino la zona horaria mal puesta. */
+const RELOJ_MIN_SEG = 3, RELOJ_MAX_SEG = 300;
+
+/**
+ * Cuánto está corrido el reloj de un grabador respecto del servidor, en segundos (negativo =
+ * atrasado), según la última muestra de salud. El grabador guarda lo que pasó a las 10:00:00 con
+ * SU hora: si atrasa 24 s, eso está en sus 09:59:36, y pedirle las 10:00:00 trae lo que pasó 24 s
+ * después. Medido el 14/11: un grabador del lab atrasa 24 s; los otros, 2 s.
+ */
+async function relojDelGrabador(nvrId: string | null): Promise<number> {
+    if (!nvrId) return 0;
+    const m = await prisma.deviceHealthSample.findFirst({ where: { deviceId: nvrId, driftSec: { not: null }, ts: { gte: new Date(Date.now() - 3600_000) } }, orderBy: { ts: "desc" }, select: { driftSec: true } }).catch(() => null);
+    const d = m?.driftSec ?? 0;
+    return Math.abs(d) >= RELOJ_MIN_SEG && Math.abs(d) <= RELOJ_MAX_SEG ? d : 0;
+}
 
 /**
  * El clip de una grabación hecha desde el vivo que pasó por VARIAS cámaras (13/11, Nico: «el
@@ -285,7 +317,8 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
     const ventana: Ventana = { antes: 0, despues: total };
     if (!tramos.length) return { ok: false, motivo: "la grabación es demasiado corta", ventana, fuente: null };
 
-    // El último tramo tiene que estar grabado (los anteriores lo están desde antes).
+    // El último tramo tiene que haber terminado (más el margen de siempre); cuánto más hay que
+    // esperar para que el grabador lo tenga se resuelve tramo por tramo, abajo.
     const falta = Math.max(...tramos.map((t) => t.desde + t.seg * 1000)) + MARGEN_GRABACION_SEG * 1000 - Date.now();
     if (falta > ESPERA_TOPE_MS) return { ok: false, motivo: "ese tramo todavía no se grabó", ventana, fuente: null };
     if (falta > 0) await esperar(falta);
@@ -305,15 +338,31 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
     for (const [i, t] of tramos.entries()) {
         const f = await fuenteDeVideo(t.deviceId || "", { nvrId: t.nvrId, ch: t.ch });
         const parte = `${destino}.t${i}.mp4`;
-        let ok = false;
-        if (f.tipo === "nvr") ok = await cortarDesdeNvr(f.conn, String(f.ch), t.desde, t.seg, parte, { cfg, marcaAgua: marca, topeMs: marca ? 75_000 : undefined });
-        else if (f.tipo === "anillo") ok = (await cortarDesdeAnillo(f.dir, t.desde, t.desde + t.seg * 1000, parte)).ok;
-        let bytes = 0; try { bytes = fs.statSync(parte).size; } catch { }
+        let ok = false, bytes = 0, intentos = 0;
+        if (f.tipo === "nvr") {
+            // Con la hora del grabador (ver relojDelGrabador), y las veces que haga falta (ver EDAD_DEL_FIN_SEG).
+            const reloj = await relojDelGrabador(f.nvrId);
+            const fin = t.desde + t.seg * 1000;
+            for (const edad of EDAD_DEL_FIN_SEG) {
+                const aun = fin + edad * 1000 - Date.now();
+                if (aun <= 0 && intentos > 0) continue;
+                if (aun > 0) await esperar(aun);
+                intentos++;
+                const t0 = Date.now();
+                ok = await cortarDesdeNvr(f.conn, String(f.ch), t.desde + reloj * 1000, t.seg, parte, { cfg, marcaAgua: marca, topeMs: marca ? 75_000 : undefined });
+                bytes = 0; try { bytes = fs.statSync(parte).size; } catch { }
+                if ((ok && bytes >= 1500) || Date.now() - t0 > RECHAZO_RAPIDO_MS) break;
+            }
+            if (!(ok && bytes >= 1500)) console.warn(`[clip] grabación: el grabador no entregó el tramo ${i + 1} (canal ${f.ch}, ${t.seg} s, terminó hace ${Math.round((Date.now() - fin) / 1000)} s) tras ${intentos} ${intentos === 1 ? "intento" : "intentos"}${reloj ? `; reloj del grabador ${reloj} s` : ""}`);
+        } else if (f.tipo === "anillo") {
+            ok = (await cortarDesdeAnillo(f.dir, t.desde, t.desde + t.seg * 1000, parte)).ok;
+            try { bytes = fs.statSync(parte).size; } catch { }
+        } else console.warn(`[clip] grabación: tramo ${i + 1} sin fuente de video: ${f.motivo}`);
         if (ok && bytes >= 1500) { partes.push(parte); fuente = fuente || f.tipo; }
         else { salteados++; try { fs.unlinkSync(parte); } catch { } }
     }
     const limpiar = () => { for (const x of partes) try { fs.unlinkSync(x); } catch { } };
-    if (!partes.length) return { ok: false, motivo: "el grabador no entregó grabación de ese horario", ventana, fuente: null };
+    if (!partes.length) return { ok: false, motivo: "el grabador todavía no tiene disponible ese tramo (se insistió durante un minuto y medio). Probá de nuevo en un rato, o cortalo desde la grabación", ventana, fuente: null };
 
     if (partes.length === 1) fs.renameSync(partes[0], destino);
     else {

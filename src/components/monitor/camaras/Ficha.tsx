@@ -321,7 +321,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
         try {
             const r = await fetch("/api/clip/grabar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tramos, rotulo }), signal: AbortSignal.timeout(170_000) });
             const j = await r.json().catch(() => null);
-            if (!j?.ok) setErrorClip(`No se pudo armar el clip: ${j?.motivo || j?.error || `el servidor respondió ${r.status}`}.`);
+            if (!j?.ok) setErrorClip(`No se pudo armar el clip: ${String(j?.motivo || j?.error || `el servidor respondió ${r.status}`).replace(/\.$/, "")}.`);
             else setClip({ nombre: j.nombre, url: j.url, guardado: j.guardado || null, foto: j.foto || null, segundos: Number(j.segundos) || Math.round(total / 1000), desde: tramos[0].desde, camaras: Number(j.camaras) || 1, salteados: Number(j.salteados) || 0 });
         } catch { setErrorClip("No se pudo armar el clip: el servidor no contestó a tiempo."); }
         setArmando(false);
@@ -601,7 +601,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                     )}
                     {armando && (
                         <div className="absolute inset-0 z-10 grid place-items-center pointer-events-none">
-                            <RotuloVisor Icono={Clapperboard} texto="Armando el clip desde la grabación" esperando nota="El grabador lo entrega a tiempo real: tarda lo que dura el clip" />
+                            <RotuloVisor Icono={Clapperboard} texto="Armando el clip desde la grabación" esperando nota="Tarda lo que dura el clip, y hasta un minuto y medio más si el grabador todavía no tiene lo último" />
                         </div>
                     )}
                     {errorClip && (
