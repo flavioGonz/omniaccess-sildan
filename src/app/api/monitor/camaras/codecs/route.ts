@@ -87,6 +87,9 @@ async function leer(): Promise<Record<string, any>> {
 }
 
 export async function GET() {
+    // Recién arrancado no hay muestra anterior: se toman dos con unos segundos de diferencia para
+    // que la primera respuesta ya traiga la señal (la pared espera esto para abrir los videos).
+    if (!muestra) { await leer().catch(() => null); await new Promise((r) => setTimeout(r, VENTANA_MIN_MS)); cache = null; }
     const p = await autorizarMonitor("/api/monitor/camaras/codecs");
     if (p.error) return p.error;
     if (cache && Date.now() - cache.t < VIGENCIA_MS) return NextResponse.json(cache.r, { headers: SIN_CACHE });

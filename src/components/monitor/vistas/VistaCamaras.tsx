@@ -362,9 +362,12 @@ export function VistaCamaras() {
     // El modo GPU/CPU lo decide este navegador; el códec no se puede saber del lado del cliente.
     const [codecs, setCodecs] = useState<Record<string, string | null>>({});
     const [senales, setSenales] = useState<Record<string, { estado: "ok" | "debil" | "sin"; kbps: number }>>({});
+    // Hasta saber la señal de cada cámara no se abre ningún video: así una cámara que no manda nada
+    // no alcanza a pedir su video (500 de go2rtc) en los primeros segundos de la pared.
+    const [senalLista, setSenalLista] = useState(false);
     useEffect(() => {
         let vivo = true;
-        const cargar = () => fetch("/api/monitor/camaras/codecs", { cache: "no-store" }).then((r) => r.ok ? r.json() : {}).then((j) => { if (!vivo) return; const { _senal, ...c } = (j || {}) as any; setCodecs(c); setSenales(_senal || {}); }).catch(() => { });
+        const cargar = () => fetch("/api/monitor/camaras/codecs", { cache: "no-store" }).then((r) => r.ok ? r.json() : {}).then((j) => { if (!vivo) return; const { _senal, ...c } = (j || {}) as any; setCodecs(c); setSenales(_senal || {}); setSenalLista(true); }).catch(() => { });
         cargar();
         const iv = setInterval(cargar, INTERVALO_MS);
         return () => { vivo = false; clearInterval(iv); };
@@ -714,7 +717,7 @@ export function VistaCamaras() {
         <CasillaWeb key={`${celda.claveFaltante}-${i}`} casilla={celda.casilla} clave={celda.claveFaltante} libre={libre} fuente={fuentesPorId.get(idDeClaveWeb(celda.claveFaltante)) || null} />
     ) : (
         <Baldosa key={celda.canal?.clave || `vacia-${i}`} celda={celda} modo={celda.canal ? modos.get(celda.canal.clave) || "foto" : "foto"} codec={celda.canal ? (codecs[celda.canal.stream] ?? null) : null} senal={celda.canal ? senales[celda.canal.stream] : undefined} hls={hls} libre={libre}
-            dormida={libre && !!celda.canal && !aLaVista.has(celda.canal.clave)}
+            dormida={!senalLista || (libre && !!celda.canal && !aLaVista.has(celda.canal.clave))}
             alerta={celda.canal ? alertaDe(celda.canal) : null} lecturas={celda.canal ? lecturasDe(celda.canal) : []}
             destello={celda.canal?.equipoId ? destellos[celda.canal.equipoId] || null : null}
             alTocar={() => { if (celda.canal && !editandoSeg) { setGrabacionInicial(null); setAbiertaClave(celda.canal.clave); } }} alResultado={alResultado}
@@ -902,7 +905,7 @@ export function VistaCamaras() {
                 </Hoja>
             )}
 
-            <FichaCanal c={abierta} grabacionInicial={grabacionInicial} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
+            <FichaCanal c={abierta && senales[abierta.stream]?.estado === "sin" ? { ...abierta, sinVideo: true } as any : abierta} grabacionInicial={grabacionInicial} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
                 alerta={abierta ? alertaDe(abierta) : null} lecturas={abierta ? lecturasDe(abierta) : []}
                 alCerrar={() => { setAbiertaClave(null); setOrigenClave(null); }} alMover={enPantalla.length > 1 ? mover : null}
                 canales={todos} seguimiento={seguimiento} alGuardarSeguimiento={(id, n) => setSegLocal((s) => ({ ...s, [id]: n }))} puedeEditar={!!datos?.puedeEditar} alertaDe={alertaDe}

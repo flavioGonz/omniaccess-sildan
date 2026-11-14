@@ -184,10 +184,10 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                     {grabacion != null ? (
                         <Grabacion c={c} h265={h265} hls={hls} desdeMs={grabacion} visibles={visibles} alVivo={() => setGrabacionDesde(null)}
                             deviceIdEnvio={!pantalla && c.equipoId ? c.equipoId : undefined} />
-                    ) : c.online === false ? (
+                    ) : (c.online === false || (c as any).sinVideo) ? (
                         <>
                             {foto && <Foto src={foto} ms={FOTO_MS} className="absolute inset-0 w-full h-full object-contain opacity-60" />}
-                            <span className="absolute inset-0 grid place-items-center text-white/60"><span className="flex flex-col items-center gap-2"><VideoOff size={40} /><span className="text-[18px] font-semibold">El NVR no ve este canal</span></span></span>
+                            <span className="absolute inset-0 grid place-items-center text-white/60"><span className="flex flex-col items-center gap-2"><VideoOff size={40} /><span className="text-[18px] font-semibold">{c.online === false ? "El NVR no ve este canal" : "La cámara no envía video al NVR"}</span></span></span>
                         </>
                     ) : (
                         <>
