@@ -141,7 +141,9 @@ export type OpcionCanal = {
  * El menú contextual de un canal de la pared (clic derecho; con el dedo, mantener apretado).
  * Flota donde se tocó, sin salirse de la pantalla, y se cierra con Esc, al elegir o al tocar afuera.
  */
-export function MenuCanal({ x, y, titulo, sub, opciones, alCerrar }: { x: number; y: number; titulo: string; sub?: string | null; opciones: OpcionCanal[]; alCerrar: () => void }) {
+export function MenuCanal({ x, y, titulo, sub, opciones, alCerrar, solido = false }: { x: number; y: number; titulo: string; sub?: string | null; opciones: OpcionCanal[]; alCerrar: () => void;
+    /** Casi opaco: para abrirlo sobre una ficha con botones debajo, donde el vidrio deja ver lo de atrás mezclado con las opciones. */
+    solido?: boolean }) {
     const caja = useRef<HTMLDivElement>(null);
     const [pos, setPos] = useState({ x, y });
     const [confirmando, setConfirmando] = useState<string | null>(null);
@@ -165,7 +167,7 @@ export function MenuCanal({ x, y, titulo, sub, opciones, alCerrar }: { x: number
     if (typeof document === "undefined") return null;
     return createPortal(
         <div ref={caja} role="menu" aria-label={`Acciones de ${titulo}`} onContextMenu={(e) => e.preventDefault()} onClick={(e) => e.stopPropagation()}
-            style={{ left: pos.x, top: pos.y }} className="fixed z-[var(--capa-menu)] w-[264px] rounded-[14px] visor-panel text-white p-1.5">
+            style={{ left: pos.x, top: pos.y, ...(solido ? { background: "rgba(14, 19, 28, 0.94)" } : null) }} className="fixed z-[var(--capa-menu)] w-[264px] rounded-[14px] visor-panel text-white p-1.5">
             <div className="px-2.5 pt-1.5 pb-2">
                 <div className="text-[13px] font-bold truncate">{titulo}</div>
                 {sub && <div className="text-[11px] text-white/60 truncate">{sub}</div>}

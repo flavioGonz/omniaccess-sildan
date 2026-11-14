@@ -2389,6 +2389,11 @@ html:not(.dark) .regla-tema .tms-tramo[data-tono="lectura"] { background: var(--
 @keyframes oa-caja-late { 0% { opacity: 0.9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.35); } }
 .oa-caja-late { animation: oa-caja-late 1.8s ease-out infinite; }
 @media (prefers-reduced-motion: reduce) { .oa-zona-camina, .oa-caja-entra, .oa-caja-late { animation: none; } .oa-caja-late { display: none; } }
+/* La zona de una analítica entrenable sobre la foto de su aviso (CapaEscena): el borde ancho se
+   enciende y se apaga, sin moverse — es una zona fija, no algo que camina. */
+@keyframes oa-escena-late { 0%, 100% { opacity: 0; } 50% { opacity: 0.38; } }
+.oa-escena-late { animation: oa-escena-late 2.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .oa-escena-late { animation: none; opacity: 0; } }
 
 /* El popover del ajuste del video (AjusteVideoFicha): oscuro sobre la foto, y en la ventana del
    evento en tema claro, la tarjeta clara como el resto de los paneles del visor. El texto blanco ya

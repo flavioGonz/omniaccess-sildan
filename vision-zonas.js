@@ -149,8 +149,12 @@ function iniciar({ prisma, log, vision, subir, borrar, activa, segmentar, permit
         // Sostenido con histéresis, y un solo aviso hasta que vuelva a lo normal.
         const antes = z.estado || {};
         let positivoDesde = antes.positivoDesde || null, avisado = !!antes.avisado, eventoId = antes.eventoId || null;
-        if (prob >= z.umbral) positivoDesde = positivoDesde || ahora.toISOString();
-        else if (prob < z.umbral - HISTERESIS) { positivoDesde = null; avisado = false; eventoId = null; }
+        // La última mirada antes de entrar al estado que avisa: el cambio pasó entre esa y `positivoDesde`.
+        // Se guarda con el aviso (14/11): el aviso sale `sostenerSeg` después y la ficha tiene que poder
+        // decir cuándo se llenó, aunque las muestras ya hayan vencido (src/lib/zona-evento.ts).
+        let normalHasta = antes.normalHasta || null;
+        if (prob >= z.umbral) { if (!positivoDesde) { normalHasta = antes.al || null; positivoDesde = ahora.toISOString(); } }
+        else if (prob < z.umbral - HISTERESIS) { positivoDesde = null; normalHasta = null; avisado = false; eventoId = null; }
         const armada = enHorario(z.horario, ahora);
         if (armada && positivoDesde && !avisado && ahora - Date.parse(positivoDesde) >= z.sostenerSeg * 1000) {
             avisado = true;
@@ -160,14 +164,14 @@ function iniciar({ prisma, log, vision, subir, borrar, activa, segmentar, permit
             const ev = await prisma.eventoVision.create({ data: { tipo: "ZONA", reglaId: z.id, deviceId: z.deviceId, camara: cam, valor: prob, foto: claveCuadro } });
             eventoId = ev.id;
             if (z.avisar) {
-                const aviso = await prisma.avisoGuardia.create({ data: { tipo: "VISION_ZONA", motivo: `${z.positivo} · ${z.nombre}`, camara: cam, datos: { zonaId: z.id, zona: z.nombre, eventoId: ev.id, foto: claveCuadro, prob } } });
+                const aviso = await prisma.avisoGuardia.create({ data: { tipo: "VISION_ZONA", motivo: `${z.positivo} · ${z.nombre}`, camara: cam, datos: { zonaId: z.id, zona: z.nombre, eventoId: ev.id, foto: claveCuadro, prob, poligono: z.zona, umbral: z.umbral, positivoDesde, normalHasta, muestraId: muestra.id } } });
                 await prisma.eventoVision.update({ where: { id: ev.id }, data: { avisoId: aviso.id } }).catch(() => null);
                 emitir("aviso_guardia", { accion: "nuevo", aviso });
                 contadores.avisos++;
             }
             log(`zona «${z.nombre}»: ${z.positivo} sostenido ${Math.round((ahora - Date.parse(positivoDesde)) / 60000)} min (prob ${prob.toFixed(2)})${z.avisar ? " · aviso a la guardia" : ""}`);
         }
-        const estado = { prob: +prob.toFixed(4), fuente, al: ahora.toISOString(), muestra: clave, muestraId: muestra.id, analisis, positivoDesde, avisado, eventoId, armada, error: null };
+        const estado = { prob: +prob.toFixed(4), fuente, al: ahora.toISOString(), muestra: clave, muestraId: muestra.id, analisis, positivoDesde, normalHasta, avisado, eventoId, armada, error: null };
         await prisma.zonaEntrenable.update({ where: { id: z.id }, data: { estado } });
         emitir("zona_estado", { id: z.id, estado });
     }

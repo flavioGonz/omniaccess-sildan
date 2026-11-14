@@ -6,7 +6,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Check, ChevronLeft, ChevronRight, Clock, Cctv, Eye, EyeOff, ImageOff, Loader2, PlayCircle, Radar,
     ScanEye, ScanSearch, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen, Repeat, UserRound, Download, Image as IconoFoto, Radio, RefreshCw,
+    History, Images, ThumbsUp, ThumbsDown, SlidersHorizontal,
 } from "lucide-react";
+import { useZoomFoto } from "@/components/visor/useZoomFoto";
+import { CapaEscena } from "@/components/vision/CapaEscena";
+// El menú flotante de la pared de cámaras: el mismo para lo que se toca sobre una foto.
+import { MenuCanal, type OpcionCanal } from "@/components/monitor/camaras/AlertaDeLista";
+import type { RolEnTira } from "@/lib/zona-evento";
 import { AnimatePresence } from "framer-motion";
 import { BuscarParecidos } from "@/components/visor/BuscarParecidos";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
@@ -18,7 +24,7 @@ import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip"
 import { BotonVisor, Dato, ListaVision, Seccion, describirObjeto } from "@/components/visor/FichaVisor";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { cn } from "@/lib/utils";
-import { fechaCorta, horaSeg, hace } from "@/lib/fechas";
+import { fechaCorta, hora, horaSeg, hace, duracion } from "@/lib/fechas";
 import { useSiluetas } from "@/lib/use-siluetas";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { geomDeIntrusion, VEREDICTOS } from "@/lib/vision-capa";
@@ -66,6 +72,22 @@ export type FichaVision = {
  */
 
 const CLASE: Record<string, string> = { human: "Persona", vehicle: "Vehículo" };
+
+/**
+ * Lo de un aviso de analítica entrenable de escena (GET /api/vision/zonas/evento/<id>): dónde está
+ * la zona en la foto, entre qué miradas cambió de estado, las miradas que lo cuentan y cómo está ahora.
+ */
+type Escena = {
+    zona: { id: string; nombre: string; positivo: string; negativo: string; poligono: [number, number][] | null; poligonoDeHoy: boolean; umbral: number; sostenerSeg: number; cadaSeg: number; activa: boolean };
+    evento: { ts: string; prob: number | null; muestraId: string | null; etiqueta: string | null };
+    cambio: { antes: string | null; desde: string | null };
+    tira: { id: string; ts: string; prob: number | null; url: string | null; etiqueta: string | null; rol: RolEnTira }[];
+    ahora: { prob: number; al: string; positivo: boolean; desde: string | null } | null;
+    puedeEnsenar: boolean;
+};
+/** La grabación se abre este tanto antes de la mirada elegida: lo que pasó, pasó antes de la foto. */
+const ANTES_DE_LA_MIRADA_MS = 20_000;
+const ROL_TIRA: Record<RolEnTira, string | null> = { antes: null, cambio: "cambió", durante: null, evento: "avisó" };
 /** La proporción de la ventana; la misma que `.visor-ventana` en globals.css. */
 const AR_VENTANA = 16 / 9;
 /** Un análisis tarda unos segundos (cola de vision-worker): antes de esto se dice «verificando». */
@@ -140,6 +162,28 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
      * botón o con Esc. En esos modos la ficha se oculta; para decidir se vuelve a la foto.
      */
     const [modo, setModo] = useState<"foto" | "grabacion" | "vivo">("foto");
+    /** La ruedita acerca la foto (y lo dibujado encima) hacia el puntero; arrastrando se mueve. */
+    const zoom = useZoomFoto({ activo: modo === "foto", clave: String(cur.id) });
+    /*
+     * Un aviso de analítica entrenable de escena (14/11, Nico: «debés resaltar el objeto detectado…
+     * no me trae el video del momento que se llenó… permití que el evento tenga menú contextual»).
+     * La ficha lo pregunta por cualquier aviso de OmniVision (`vision-<evento>`); si no es de una
+     * analítica entrenable el servidor contesta 404 y acá no cambia nada.
+     */
+    const eventoEscena = String(cur.id).startsWith("vision-") ? String(cur.id).slice(7) : null;
+    const [escena, setEscena] = useState<Escena | null>(null);
+    const [menuEscena, setMenuEscena] = useState<{ x: number; y: number } | null>(null);
+    const [avisoEscena, setAvisoEscena] = useState<string | null>(null);
+    /** La grabación abierta en OTRO momento que el del aviso (el del cambio, o el de una mirada de la tira). */
+    const [instanteGrab, setInstanteGrab] = useState<number | null>(null);
+    const tiraRef = useRef<HTMLDivElement>(null);
+    const pedirEscena = useCallback(() => {
+        if (!eventoEscena) return;
+        fetch(`/api/vision/zonas/evento/${encodeURIComponent(eventoEscena)}`, { cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : null)).then((j) => setEscena(j?.zona ? (j as Escena) : null)).catch(() => { /* sin esto la ficha es la de siempre */ });
+    }, [eventoEscena]);
+    useEffect(() => { setEscena(null); setMenuEscena(null); setAvisoEscena(null); setInstanteGrab(null); pedirEscena(); }, [pedirEscena]);
+    useEffect(() => { if (!avisoEscena) return; const t = setTimeout(() => setAvisoEscena(null), 7000); return () => clearTimeout(t); }, [avisoEscena]);
     /** El cajón del clip de la grabación: mientras está abierto, la barrita de arriba no lo tapa. */
     const [clipGrab, setClipGrab] = useState(false);
     const vivoRef = useRef<HTMLVideoElement>(null);
@@ -254,7 +298,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
             if (modo !== "foto") { if (e.key === "Escape" && !clipGrab) { e.preventDefault(); setModo("foto"); } return; }
             if (e.key === "ArrowLeft") { e.preventDefault(); go(1); }
             else if (e.key === "ArrowRight") { e.preventDefault(); go(-1); }
-            else if (e.key === "Escape") { e.preventDefault(); if (verNota) setVerNota(false); else if (limpio) setLimpio(false); else if (enPropio && !fotoEsPropio) setFoto("captura"); else onClose(); }
+            else if (e.key === "Escape") { e.preventDefault(); if (menuEscena) setMenuEscena(null); else if (zoom.acercado) zoom.reiniciar(); else if (verNota) setVerNota(false); else if (limpio) setLimpio(false); else if (enPropio && !fotoEsPropio) setFoto("captura"); else onClose(); }
             else if (e.key === "h" || e.key === "H") setLimpio((v) => !v);
             else if ((e.key === "o" || e.key === "O") && capa) setVerSiluetas(!verSiluetas);
             else if ((e.key === "c" || e.key === "C") && real) cambiarClip(!clipOn);
@@ -314,15 +358,15 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
             {hasNext && <button onClick={(e) => { e.stopPropagation(); go(-1); }} title="Evento siguiente (más nuevo)  ( → )" aria-label="Evento siguiente"
                 className="absolute right-2 md:right-5 top-1/2 -translate-y-1/2 z-[5] w-11 h-11 grid place-items-center rounded-full bg-card/70 hover:bg-card text-foreground border border-border backdrop-blur-md"><ChevronRight size={22} /></button>}
 
-            <div onClick={(e) => e.stopPropagation()}
+            <div onClick={(e) => e.stopPropagation()} ref={zoom.marco}
                 style={{ ["--visor-tono" as any]: tono, borderRadius: "var(--radio-ventana)" }}
                 className="visor-ventana visor-marco relative overflow-hidden border border-white/15 shadow-[0_25px_70px_rgba(0,0,0,0.85)] bg-[#05070b] text-white">
 
                 {/* ── La foto, que CUBRE la ventana; lo que se dibuja encima va en su misma caja. ── */}
-                <div className="absolute inset-0 overflow-hidden flex items-center justify-center">
-                    <div className="relative" style={{
+                <div className={cn("absolute inset-0 overflow-hidden flex items-center justify-center", zoom.acercado && (zoom.arrastrando ? "cursor-grabbing" : "cursor-grab"))}>
+                    <div className="relative" ref={zoom.contenido} style={{
                         height: proporcion >= AR_VENTANA ? "100%" : "auto", width: proporcion >= AR_VENTANA ? "auto" : "100%",
-                        aspectRatio: String(proporcion),
+                        aspectRatio: String(proporcion), ...zoom.estilo,
                     }}>
                         {src ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
@@ -344,6 +388,11 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                 style={{ left: `${hallazgo.caja.x * 100}%`, top: `${hallazgo.caja.y * 100}%`, width: `${hallazgo.caja.w * 100}%`, height: `${hallazgo.caja.h * 100}%` }} />
                         )}
                         {!oculto && conCapa && <CapaComportamiento m={enVideo ? { zona: vision!.marcas.zona, linea: vision!.marcas.linea } : vision!.marcas} className="z-[6]" />}
+                        {/* La zona de una analítica entrenable: lo que avisó, resaltado; se toca para ver qué hacer. */}
+                        {!oculto && escena?.zona.poligono && (
+                            <CapaEscena className="z-[6]" poligono={escena.zona.poligono} rotulo={escena.zona.positivo} prob={escena.evento.prob} escala={zoom.escala}
+                                elegida={!!menuEscena} alTocar={(x, y) => setMenuEscena({ x, y })} />
+                        )}
                         {/* Las siluetas son de la foto: sobre el video no coinciden. */}
                         {!oculto && verSiluetas && capa && !enVideo && <CapaAnalisis analisis={capa} geom={g} className="z-[6]" />}
                     </div>
@@ -355,7 +404,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
 
                 {/* La grabación del NVR, en el lugar de la foto, con su regla y sus controles (como en LPR). */}
                 {modo === "grabacion" && camId && (
-                    <GrabacionVisor deviceId={camId} camara={esCentral ? fotoC?.nombre : cur.deviceName || cam?.name} instanteMs={momento.getTime()} poster={captura} clip={clipGrab} onClip={setClipGrab} />
+                    <GrabacionVisor deviceId={camId} camara={esCentral ? fotoC?.nombre : cur.deviceName || cam?.name} key={instanteGrab ?? "aviso"} instanteMs={instanteGrab ?? momento.getTime()} poster={captura} clip={clipGrab} onClip={setClipGrab} />
                 )}
                 {/* El vivo de la cámara, en la misma ventana. */}
                 {modo === "vivo" && vivoId && (
@@ -440,6 +489,58 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                         <Eye size={14} /> Mostrar controles
                     </button>
                 )}
+
+                {/* Acercada: cuánto, y cómo volver. */}
+                {zoom.acercado && modo === "foto" && (
+                    <button type="button" data-sin-zoom onClick={zoom.reiniciar} title="Volver a la foto entera  ( Esc, o doble clic )"
+                        className="visor-vidrio absolute left-1/2 -translate-x-1/2 bottom-[96px] z-30 h-8 px-3 rounded-[8px] text-white/90 text-[11.5px] font-semibold tabular-nums flex items-center gap-1.5">
+                        × {zoom.escala.toFixed(1).replace(".", ",")} <span className="font-normal text-white/60">· ver entera</span>
+                    </button>
+                )}
+                {avisoEscena && !oculto && (
+                    <div role="status" className="visor-zona absolute top-[92px] left-1/2 -translate-x-1/2 z-30 visor-panel rounded-[10px] px-3.5 py-2 text-[12.5px] text-white/90 max-w-[min(520px,80%)]">{avisoEscena}</div>
+                )}
+                {/* El menú de la zona tocada (la analítica entrenable): lo que se puede hacer con lo que avisó. */}
+                {menuEscena && escena && (() => {
+                    const z = escena.zona, c = escena.cambio;
+                    const irA = (ms: number) => { setInstanteGrab(ms); setModo("grabacion"); };
+                    const ensenar = async (etiqueta: "pos" | "neg") => {
+                        const r = await fetch(`/api/vision/zonas/${encodeURIComponent(z.id)}/muestras`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [escena.evento.muestraId], etiqueta }) }).catch(() => null);
+                        const j = await r?.json().catch(() => null);
+                        if (!r?.ok || !j?.cambiadas) { setAvisoEscena(j?.error || "No se pudo anotar. Probá de nuevo."); return; }
+                        setAvisoEscena(`Anotado como «${etiqueta === "pos" ? z.positivo : z.negativo}». La analítica lo usa la próxima vez que se entrene.`);
+                        pedirEscena();
+                    };
+                    const ya = escena.evento.etiqueta;
+                    const ops: OpcionCanal[] = [
+                        {
+                            clave: "cambio", Icono: History,
+                            rotulo: "Ver cuándo cambió",
+                            motivo: !camId ? "Este aviso no tiene una cámara con grabación" : !c.desde ? "No quedó guardado cuándo cambió" : undefined,
+                            // Desde la última mirada normal (o, si no se sabe, un rato antes de la primera que avisó): el cambio está después.
+                            alElegir: () => irA(c.antes ? Date.parse(c.antes) - ANTES_DE_LA_MIRADA_MS : Date.parse(c.desde!) - z.cadaSeg * 1000),
+                        },
+                        ...(escena.tira.length > 1 ? [{
+                            clave: "tira", Icono: Images, rotulo: "Ver las miradas, una por una",
+                            alElegir: () => { const t = tiraRef.current; if (!t) return; t.scrollIntoView({ block: "center", behavior: "smooth" }); t.animate([{ boxShadow: "0 0 0 2px var(--aviso)" }, { boxShadow: "0 0 0 2px transparent" }], { duration: 1600 }); },
+                        } as OpcionCanal] : []),
+                        {
+                            clave: "ahora", Icono: Radio,
+                            rotulo: "Ver cómo está ahora",
+                            motivo: !vivoId ? "Este aviso no tiene una cámara para ver en vivo" : undefined,
+                            alElegir: () => setModo("vivo"),
+                        },
+                    ];
+                    // Enseñarle con este mismo aviso: sólo quien puede entrenar (una etiqueta mal puesta enseña mal).
+                    if (escena.puedeEnsenar) {
+                        const sinMuestra = !escena.evento.muestraId ? "La mirada de este aviso ya no está guardada" : undefined;
+                        ops.push({ clave: "si", Icono: ThumbsUp, tono: "bien", separa: true, rotulo: `${ya === "pos" ? "✓ " : ""}Enseñarle: sí, es «${z.positivo}»`, motivo: sinMuestra, alElegir: () => ensenar("pos") });
+                        ops.push({ clave: "no", Icono: ThumbsDown, rotulo: `${ya === "neg" ? "✓ " : ""}Enseñarle: no, es «${z.negativo}»`, motivo: sinMuestra, alElegir: () => ensenar("neg") });
+                        ops.push({ clave: "abrir", Icono: SlidersHorizontal, separa: true, rotulo: "Abrir las analíticas entrenables", alElegir: () => { window.open("/admin/vision/analiticas", "_blank", "noopener"); } });
+                    }
+                    const sub = `${z.positivo}${escena.evento.prob != null ? ` · ${Math.round(escena.evento.prob * 100)} %` : ""}${c.desde ? ` · cambió ${c.antes ? `${hora(c.antes)}–` : "antes de "}${hora(c.desde)}` : ""}`;
+                    return <MenuCanal x={menuEscena.x} y={menuEscena.y} titulo={z.nombre} sub={sub} opciones={ops} solido alCerrar={() => setMenuEscena(null)} />;
+                })()}
 
                 {enPropio && !oculto && (
                     <div className="visor-zona absolute top-[92px] left-1/2 -translate-x-1/2 z-30 visor-panel rounded-[10px] pl-3.5 pr-1.5 py-1.5 flex items-center gap-3 text-[12px] text-white/85">
@@ -560,8 +661,44 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                 {cur.eventType && <Dato rotulo="Evento" valor={cur.eventType} />}
                                 <Dato rotulo="Estado" valor={estado}
                                     tono={cn("font-semibold", alarmaPendiente || atencionAbierta || (cur.acknowledged && cur.ackKind !== "false") ? "visor-mal" : !cur.acknowledged ? "visor-aviso" : "text-white/80")} />
+                                {escena && <>
+                                    {/* El aviso sale cuando el estado se sostuvo; el hecho fue antes, entre dos miradas. */}
+                                    {escena.cambio.desde && (
+                                        <Dato rotulo="Cambió" valor={escena.cambio.antes ? `entre ${hora(escena.cambio.antes)} y ${hora(escena.cambio.desde)}` : `a las ${hora(escena.cambio.desde)} o antes`} sufijo={hace(escena.cambio.desde)} />
+                                    )}
+                                    {escena.cambio.desde && <Dato rotulo="Avisó" valor={`después de ${duracion(Math.max(0, Math.round((momento.getTime() - Date.parse(escena.cambio.desde)) / 1000)))} así`} />}
+                                    {escena.evento.prob != null && <Dato rotulo="Seguridad" valor={`${Math.round(escena.evento.prob * 100)} %`} sufijo={`avisa desde ${Math.round(escena.zona.umbral * 100)} %`} />}
+                                    {escena.ahora && (
+                                        <Dato rotulo="Ahora" valor={escena.ahora.positivo ? `Sigue «${escena.zona.positivo}»` : `Volvió a «${escena.zona.negativo}»`} sufijo={`mirado ${hace(escena.ahora.al)}`}
+                                            tono={cn("font-semibold", escena.ahora.positivo ? "visor-aviso" : "text-white/80")} />
+                                    )}
+                                </>}
                             </dl>
                         </Seccion>
+
+                        {/* Las miradas que cuentan cómo se llegó al aviso: de normal a lo que avisó. Cada una abre la grabación un poco antes. */}
+                        {escena && escena.tira.length > 1 && (
+                            <Seccion titulo="Cómo llegó a esto" icono={Images}>
+                                <div ref={tiraRef} className="flex gap-1.5 overflow-x-auto [scrollbar-width:none] pb-1 rounded-[8px] transition-shadow">
+                                    {escena.tira.map((mu) => {
+                                        const avisa = (mu.prob ?? 0) >= escena.zona.umbral;
+                                        return (
+                                            <button key={mu.id} type="button" disabled={!camId}
+                                                onClick={() => { setInstanteGrab(Date.parse(mu.ts) - ANTES_DE_LA_MIRADA_MS); setModo("grabacion"); }}
+                                                title={`${horaSeg(mu.ts)} · ${avisa ? escena.zona.positivo : escena.zona.negativo}${mu.prob != null ? ` (${Math.round(mu.prob * 100)} %)` : ""}${camId ? ". Tocá para ver la grabación desde un poco antes." : ""}`}
+                                                className={cn("shrink-0 w-[62px] text-left rounded-[6px] overflow-hidden bg-white/[.06] hover:bg-white/[.14] transition-colors", mu.rol === "cambio" && "ring-2 ring-[var(--aviso)]")}>
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                {mu.url ? <img src={mu.url} alt="" loading="lazy" className="block w-full h-[46px] object-cover" /> : <span className="grid place-items-center w-full h-[46px] text-white/30"><ImageOff size={14} /></span>}
+                                                <span className="block h-[3px]" style={{ background: avisa ? "var(--aviso)" : "rgba(255,255,255,.28)" }} />
+                                                <span className="block px-1 pt-[3px] text-[10.5px] font-semibold tabular-nums leading-none text-white/90">{hora(mu.ts)}</span>
+                                                <span className={cn("block px-1 pb-1 pt-[2px] text-[9.5px] leading-none", ROL_TIRA[mu.rol] ? "visor-aviso font-semibold" : "text-white/45")}>{ROL_TIRA[mu.rol] || (avisa ? "sigue" : "normal")}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                {escena.zona.poligonoDeHoy && <p className="text-[11px] text-white/45 mt-1">La zona marcada en la foto es la de hoy: este aviso es anterior a que se guardara con él.</p>}
+                            </Seccion>
+                        )}
 
                         {/* Quién la opera y lo que se hizo (16/10): tomarla, pasarla a un compañero, la bitácora. */}
                         {real && !soloVer && (
@@ -662,7 +799,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                 <div className={cn("visor-zona absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5 transition-opacity",
                     oculto && "opacity-0 pointer-events-none")}>
                     {vivoId && <BotonRiel onClick={() => setModo("vivo")} title={esCentral ? `Ver ${fotoC?.nombre || "la cámara"} en vivo, acá` : "Ver la cámara en vivo, acá"}><Cctv size={15} /></BotonRiel>}
-                    {camId && real && <BotonRiel onClick={() => setModo("grabacion")} title="Ver la grabación de este momento, acá (con su regla y los eventos de la cámara)"><PlayCircle size={15} /></BotonRiel>}
+                    {camId && real && <BotonRiel onClick={() => { setInstanteGrab(null); setModo("grabacion"); }} title="Ver la grabación de este momento, acá (con su regla y los eventos de la cámara)"><PlayCircle size={15} /></BotonRiel>}
                     {real && camId && (
                         <>
                             <span className="w-4 h-px bg-white/15" />
