@@ -2,6 +2,7 @@
 
 import { cookies, headers } from 'next/headers'
 import { inicioPara } from '@/lib/landing'
+import { getEnabledModules } from '@/app/actions/modules'
 import { ACCION_ACCESOS } from '@/lib/auditoria-accesos'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
@@ -189,11 +190,19 @@ export async function login(formData: FormData) {
     const volver = String(formData.get('volver') || '')
     if (/^\/(?!\/)[\w\-\/.?=&%]*$/.test(volver) && !volver.startsWith('/login')) redirect(volver)
 
-    // Entrar directo al monitor del modo activo: es la pantalla de trabajo real,
-    // y la misma que abre "Monitor en Vivo" en el menú.
-    const modos = await prisma.setting.findMany({ where: { key: { in: ['MODULE_QUEUE', 'MODULE_FACE', 'MODULE_LPR'] } } })
-    const activo = (k: string) => modos.find(m => m.key === k)?.value === 'true'
-    redirect(inicioPara({ MODULE_QUEUE: activo('MODULE_QUEUE'), MODULE_FACE: activo('MODULE_FACE'), MODULE_LPR: activo('MODULE_LPR') }, roleSesion === 'ADMIN' ? CLAVES_PERMISOS : perms))
+    /*
+     * Entrar directo al monitor del modo activo: la pantalla de trabajo real, y la misma que abre el
+     * primer ítem del menú.
+     *
+     * El modo se lee con getEnabledModules, igual que el menú (14/11, Nico: «apenas entro a
+     * OmniAccess me lleva a Monitor Facial, y no quiero eso»). Acá se leían los ajustes crudos: en
+     * el lab habían quedado guardados Rostros Y Matrículas en «true», y como este orden prueba
+     * Rostros antes que Matrículas, el ingreso caía en Monitor Facial mientras el menú —que aplica
+     * la regla de que el modo es uno solo y gana el primero de la lista— mostraba el de LPR. Dos
+     * lecturas del mismo dato, dos respuestas. Ahora es una.
+     */
+    const modulos = await getEnabledModules()
+    redirect(inicioPara(modulos, roleSesion === 'ADMIN' ? CLAVES_PERMISOS : perms))
 }
 
 export async function resetPassword(formData: FormData) {

@@ -31,6 +31,8 @@ import { useSiluetaDeFoto } from "@/lib/use-silueta-foto";
 import { MarcaEstadia, RelojRodante, type AnclaEstadia } from "@/components/tracking/MarcaEstadia";
 import type { Analisis } from "@/lib/vision-capa";
 import { BotonVisor, Dato, ListaVision, Seccion } from "@/components/visor/FichaVisor";
+import { leerDetalleRostro, calidadRostro } from "@/lib/monitor/rostro";
+import { nombreCamara } from "@/lib/rostros";
 import { TiraPasos, type PasoVisor } from "@/components/visor/TiraPasos";
 import { PanelComportamiento, type ComportamientoVisor } from "@/components/visor/PanelComportamiento";
 import { PerfilChapa } from "@/components/visor/PerfilChapa";
@@ -637,6 +639,19 @@ export function VisorCuadro({
     const esAcceso = !!fila.decision;
     const salida = fila.direccion === "EXIT";
     const rostro = fila.rostroUrl || meta.FaceImage || null;
+    /*
+     * Un evento de ROSTRO (14/11, Nico: «es una ventana modal que muestra el evento face, pero con
+     * temática LPR»). El visor nació para matrículas y a un acceso por cara le dibujaba igual la
+     * chapa («SIN LEER»), la marca («SIN MARCA») y «esta matrícula no está en el padrón»: tres
+     * cosas que no existen en ese evento, y la cara —que es el evento— en un cuadrito al lado.
+     * Con un acceso por rostro la ficha es la de una PERSONA: su cara en grande, quién es o cómo la
+     * conoce el sistema, cuánto se parece al padrón y qué tan buena salió la captura.
+     */
+    const esRostro = String(fila.tipoAcceso || "").toUpperCase() === "FACE";
+    const dr = useMemo(() => (esRostro ? leerDetalleRostro(fila.detalles) : null), [esRostro, fila.detalles]);
+    const calidadCara = dr ? calidadRostro(dr.deteccion, dr.caraFrac) : null;
+    /** El nombre de la cámara como se lee: en la base está con las entidades de HTML («Ext. -&gt; Cairoli»). */
+    const camNombre = nombreCamara(fila.cameraName);
 
     /**
      * Los pasos anteriores, de las dos fuentes: los que trajo quien abrió el visor (en el
@@ -682,7 +697,7 @@ export function VisorCuadro({
             vig ? `Lista: ${vig.etiqueta || vig.categoria}` : "",
             vision ? `OmniVision: ${vision.objetos.slice(0, 4).map((o) => describirObjeto(o)).join("; ")}` : "",
         ].filter(Boolean);
-        return { titulo: `📷 ${fila.cameraName || "Cámara"}`, lineas };
+        return { titulo: `📷 ${nombreCamara(fila.cameraName) || "Cámara"}`, lineas };
     }, [datos, fila, sentido, momento, marca, color, dueno, cargandoFicha, ficha, vig, vision, chapaVisor]);
 
     /**
@@ -986,7 +1001,7 @@ export function VisorCuadro({
                     <div className={cn("flex items-center gap-4 min-w-0", !limpio && "pointer-events-auto")}>
                         <div className="min-w-0 visor-sombra-texto">
                             <h1 className="text-[20px] md:text-[22px] font-bold tracking-[-0.015em] text-white leading-tight truncate max-w-[46vw]">
-                                {fila.cameraName || fila.deviceId || "Cámara desconocida"}
+                                {camNombre || fila.deviceId || "Cámara desconocida"}
                             </h1>
                             <p className="flex items-center gap-2 mt-0.5 text-[12.5px] text-white/70 tabular-nums">
                                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "var(--visor-tono)" }} />
@@ -1046,7 +1061,7 @@ export function VisorCuadro({
                                 {modo === "vivo"
                                     ? <Radio size={14} className="animate-pulse text-[var(--mal)] shrink-0" />
                                     : <PlayCircle size={14} className="text-[var(--accion-en-oscuro)] shrink-0" />}
-                                <span className="truncate">{modo === "vivo" ? (camVivo?.nombre || fila.cameraName || "Cámara") : (fila.cameraName || "Cámara")}</span>
+                                <span className="truncate">{modo === "vivo" ? (camVivo?.nombre || camNombre || "Cámara") : (camNombre || "Cámara")}</span>
                             </span>
                         )}
                         <span className="h-9 rounded-full bg-black/50 backdrop-blur-xl border border-white/15 p-0.5 flex items-center gap-0.5">
@@ -1094,6 +1109,26 @@ export function VisorCuadro({
                     (acercado || limpio) && "opacity-0 pointer-events-none",
                 )}>
                 <div className="my-auto flex flex-col gap-3 py-2 visor-sombra-texto">
+                    {esRostro ? (
+                        /* Acceso por rostro: la cara y quién es. Ni chapa ni marca: en este evento no hay vehículo. */
+                        <div className="flex items-center gap-4">
+                            {rostro
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                ? <img src={rostro} alt="" width={104} height={104} className="w-[104px] h-[104px] rounded-[14px] object-cover border border-white/25 bg-black shrink-0" />
+                                : <span className="w-[104px] h-[104px] rounded-[14px] grid place-items-center bg-white/10 border border-white/20 text-white/60 shrink-0"><ScanFace size={36} /></span>}
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-white/60"><ScanFace size={12} /> Reconocimiento facial</div>
+                                <h2 className="mt-1 text-2xl md:text-[28px] font-bold text-white leading-tight truncate">{dueno?.nombre || dr?.nombre || "Desconocido"}</h2>
+                                <p className="mt-1 text-[12.5px] text-white/70 tabular-nums">
+                                    {fila.similitud != null
+                                        ? <><span className={cn("font-bold", fila.similitud >= 85 ? "visor-bien" : fila.similitud >= 65 ? "visor-aviso" : "visor-mal")}>{Math.round(fila.similitud)} %</span> de parecido con {dueno ? "su foto del padrón" : "lo más parecido del padrón"}</>
+                                        : "Sin comparación con el padrón"}
+                                </p>
+                                {/* Una cara que el sistema ya vio sin que nadie la registrara (R-0008): cuántas veces. */}
+                                {!dueno && dr?.veces != null && dr.veces > 1 && <p className="text-[12px] text-white/55 tabular-nums">Vista {dr.veces} veces por las cámaras</p>}
+                            </div>
+                        </div>
+                    ) : (<>
                     <div className="flex items-center gap-3">
                         {/* Una NO_LEIDA lleva la chapa que leyó OmniVision, con su marca en la banda. */}
                         <ChapaMercosur plate={chapaVisor.plate ? textoChapa(chapaVisor) : esSinLectura(fila.plate) ? "SIN LEER" : fila.plate}
@@ -1158,6 +1193,8 @@ export function VisorCuadro({
                         </div>
                     </div>
 
+                    </>)}
+
                     {/* ── El padrón: quién es y a dónde va ── */}
                     <Seccion titulo="Padrón" icono={Home}
                         extra={<span className={cn("text-[11px] font-semibold", cargandoFicha ? "text-white/45" : conocida ? "visor-bien" : "text-white/55")}>
@@ -1179,7 +1216,8 @@ export function VisorCuadro({
                             <div className="flex items-center justify-between gap-3 py-0.5">
                                 {/* Lo que dice la chapa sola (18/10, Nico: «dar una mejor descripción a desconocidos»). */}
                                 <span className="text-[12.5px] text-white/60">
-                                    {(() => { const l = chapaVisor.plate ? leerChapa(chapaVisor.plate) : null; return l && (l.categoria || l.extranjera) ? <>No está en el padrón. <b className="text-white/90">{l.frase}</b>{l.confianza === "probable" ? " (probable)" : ""}.</> : "Esta matrícula no está en el padrón."; })()}
+                                    {esRostro ? (dr?.nombre && dr.identidad !== "padron" ? <>No está en el padrón. El sistema la conoce como <b className="text-white/90">{dr.nombre}</b>.</> : "Esta persona no está en el padrón.") : null}
+                                    {!esRostro && (() => { const l = chapaVisor.plate ? leerChapa(chapaVisor.plate) : null; return l && (l.categoria || l.extranjera) ? <>No está en el padrón. <b className="text-white/90">{l.frase}</b>{l.confianza === "probable" ? " (probable)" : ""}.</> : "Esta matrícula no está en el padrón."; })()}
                                 </span>
                                 {/* Con la chapa que se ve (la releída, en una NO_LEIDA). Sin chapa no hay qué dar de alta. */}
                                 {/* Lista negra al lado de Registrar (19/10, Nico): son las dos decisiones sobre
@@ -1189,6 +1227,10 @@ export function VisorCuadro({
                                     {listaNegraBoton}
                                     {onRegistrar && chapaVisor.plate && (
                                         <BotonVisor icono={UserPlus} destacada onClick={() => onRegistrar(chapaVisor.plate!)}>Registrar</BotonVisor>
+                                    )}
+                                    {/* Por rostro: el alta arranca con esta cara (quien abrió el visor sabe cómo). */}
+                                    {onRegistrar && esRostro && !chapaVisor.plate && rostro && (
+                                        <BotonVisor icono={UserPlus} destacada onClick={() => onRegistrar("")}>Registrar</BotonVisor>
                                     )}
                                 </span>
                             </div>
@@ -1213,7 +1255,19 @@ export function VisorCuadro({
 
                     {/* ── Lo que dijo la cámara LPR ── separado de OmniVision: son dos equipos distintos
                         mirando la misma foto, y cuando no coinciden hay que poder ver quién dijo qué. */}
-                    {(conf != null || fila.reads != null || recuadro || vehiculoCamara) && (
+                    {/* ── Rostro: qué tan buena salió la captura (lo medible: detección y tamaño de la cara) ── */}
+                    {esRostro && dr && (dr.deteccion != null || dr.caraFrac != null) && (
+                        <Seccion titulo="Calidad de la captura" icono={ScanFace}
+                            extra={calidadCara != null ? <span className={cn("text-[11px] font-semibold", calidadCara >= 70 ? "visor-bien" : calidadCara >= 45 ? "visor-aviso" : "visor-mal")}>{calidadCara >= 70 ? "Rostro nítido" : calidadCara >= 45 ? "Aceptable" : "Rostro pobre"}</span> : null}>
+                            <dl>
+                                {calidadCara != null && <Dato rotulo="Puntaje" tono="font-bold tabular-nums" valor={`${calidadCara} / 100`} />}
+                                {dr.deteccion != null && <Dato rotulo="Detección" tono="tabular-nums" valor={`${Math.round(dr.deteccion)} %`} sufijo="de confianza" />}
+                                {dr.caraFrac != null && <Dato rotulo="Tamaño" tono="tabular-nums" valor={`${Math.round(dr.caraFrac)} % del alto`} sufijo={dr.caraFrac < 8 ? "chico: puede no reconocer" : null} />}
+                            </dl>
+                        </Seccion>
+                    )}
+
+                    {!esRostro && (conf != null || fila.reads != null || recuadro || vehiculoCamara) && (
                         <Seccion titulo="Según la cámara" icono={Camera}>
                             <dl>
                                 {(conf != null || fila.reads != null) && (
