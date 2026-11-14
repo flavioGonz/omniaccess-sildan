@@ -168,6 +168,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     const sil = useSiluetasEnVivo(c && c.online !== false ? c.stream : null, !!c && verSiluetas && grabacion == null);
     // HD convertido es varias veces más caro que el subflujo: sin H.265 se ve el subflujo convertido.
     const enHd = h265 && hd && !fallo;
+    const [hdListo, setHdListo] = useState(false);
+    useEffect(() => { setHdListo(false); }, [c?.clave, enHd]);
     const m = alerta ? metaDe(alerta.tipo) : null;
     const ult = c?.ultima ? metaDe(c.ultima.tipo) : null;
     const foto = c ? fotoDe(c, 1280) : null;
@@ -188,8 +190,15 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                             <span className="absolute inset-0 grid place-items-center text-white/60"><span className="flex flex-col items-center gap-2"><VideoOff size={40} /><span className="text-[18px] font-semibold">El NVR no ve este canal</span></span></span>
                         </>
                     ) : (
-                        <Vivo key={`${c.clave}-${enHd ? "hd" : "sd"}`} src={enHd ? vivoDe(`${c.stream}_hd`, false, hls) : vivoDe(c.stream, !h265, hls)}
-                            alResultado={(ok) => { if (!ok && enHd) setFallo(true); }} alMedir={(w, h) => setTamVideo({ w, h })} className="absolute inset-0 w-full h-full object-contain" />
+                        <>
+                            {/* Alta calidad: mientras el principal arranca (sesión nueva contra el NVR, puede
+                                tardar unos segundos) se ve el subflujo, que ya está abierto; cuando el HD da su
+                                primer cuadro, lo reemplaza sin pantalla negra ni salto. */}
+                            {enHd && !hdListo && <Vivo key={`${c.clave}-sd-previo`} src={vivoDe(c.stream, !h265, hls)} className="absolute inset-0 w-full h-full object-contain" />}
+                            <Vivo key={`${c.clave}-${enHd ? "hd" : "sd"}`} src={enHd ? vivoDe(`${c.stream}_hd`, false, hls) : vivoDe(c.stream, !h265, hls)}
+                                alResultado={(ok) => { if (ok && enHd) setHdListo(true); if (!ok && enHd) setFallo(true); }} alMedir={(w, h) => setTamVideo({ w, h })}
+                                className={cn("absolute inset-0 w-full h-full object-contain", enHd && !hdListo && "opacity-0")} />
+                        </>
                     )}
                     {c.geom && verGeom && !(sil.analisis && grabacion == null) && <Geometria geom={c.geom} alerta={!!alerta} ajuste="contain" />}
                     {/* Las siluetas van sobre el vivo con el mismo ajuste (contain): el análisis es del

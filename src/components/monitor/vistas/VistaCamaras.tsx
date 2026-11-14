@@ -193,12 +193,14 @@ const PASO_VISION_MIN_MS = 1400;
 const PASO_VISION_LISTO_MS = 2600;
 const PASO_VISION_ERROR_MS = 9000;
 
-function Baldosa({ celda, modo, codec, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, pasoVision = null, alCerrarPaso, enlaces = [], editandoSeg = false, alSeguir, alSoltarCanal, alCambiarEnlaces }: {
+function Baldosa({ celda, modo, codec, senal, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, pasoVision = null, alCerrarPaso, enlaces = [], editandoSeg = false, alSeguir, alSoltarCanal, alCambiarEnlaces }: {
     celda: Celda; modo: Modo; alerta: Alerta | null; lecturas: Lectura[]; destello: Lectura | null;
     alTocar: () => void; alResultado: (c: Canal, modo: Modo, ok: boolean) => void;
     hls: boolean;
     /** El códec de origen del canal (H.265/H.264), de go2rtc. Se muestra junto al modo GPU/CPU. */
     codec?: string | null;
+    /** Lo que llega de verdad desde la cámara (medido en go2rtc): sin señal no se abre el video. */
+    senal?: { estado: "ok" | "debil" | "sin"; kbps: number };
     /** En el celular: la baldosa no va en una casilla de la cuadrícula sino en una lista, a 16:9. */
     libre?: boolean;
     /** Fuera de la pantalla del celular: no abre video (datos y batería). */
@@ -248,10 +250,12 @@ function Baldosa({ celda, modo, codec, alerta, lecturas, destello, alTocar, alRe
                 <span className="absolute inset-0 grid place-items-center text-white/45">
                     <span className="flex flex-col items-center gap-2"><VideoOff size={grande ? 36 : 26} /><span className="text-[13px] font-semibold">Sin señal en el NVR</span></span>
                 </span>
-            ) : dormida ? null : modo === "foto" ? (
-                foto ? <Foto src={foto} ms={FOTO_MS} className="absolute inset-0 w-full h-full object-cover" /> : null
-            ) : (<>
+            ) : dormida ? null : (modo === "foto" || (modo === "directo" && senal?.estado === "sin")) ? (<>
+                {foto ? <Foto src={foto} ms={FOTO_MS} className="absolute inset-0 w-full h-full object-cover" /> : null}
+                {modo === "directo" && <span className="absolute left-2 bottom-2 z-[5] rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-semibold text-amber-300">La cámara no envía video</span>}
+            </>) : (<>
                 {modo === "directo" && !vivoListo && foto && <Foto src={foto} ms={FOTO_MS} className="absolute inset-0 w-full h-full object-cover" />}
+                {modo === "directo" && senal?.estado === "debil" && <span title={`Llegan ${senal.kbps} kbps desde la cámara: pocos cuadros por segundo. Es la cámara o su enlace al NVR.`} className="absolute left-2 bottom-2 z-[5] rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-semibold text-amber-300">Señal débil en origen</span>}
                 <Vivo src={vivoDe(c.stream, modo === "convertido", hls)} reintentar={modo === "directo"}
                     alResultado={(ok) => { setVivoListo(ok); alResultado(c, modo, ok); }} alMedir={(w, h) => { if (w && h) setAspecto(w / h); }}
                     className={cn("absolute inset-0 w-full h-full object-cover", modo === "directo" && !vivoListo && "opacity-0")} />
@@ -357,9 +361,10 @@ export function VistaCamaras() {
     // El códec de origen de cada stream (de go2rtc), para que cada baldosa diga qué trae la cámara.
     // El modo GPU/CPU lo decide este navegador; el códec no se puede saber del lado del cliente.
     const [codecs, setCodecs] = useState<Record<string, string | null>>({});
+    const [senales, setSenales] = useState<Record<string, { estado: "ok" | "debil" | "sin"; kbps: number }>>({});
     useEffect(() => {
         let vivo = true;
-        const cargar = () => fetch("/api/monitor/camaras/codecs", { cache: "no-store" }).then((r) => r.ok ? r.json() : {}).then((j) => { if (vivo) setCodecs(j || {}); }).catch(() => { });
+        const cargar = () => fetch("/api/monitor/camaras/codecs", { cache: "no-store" }).then((r) => r.ok ? r.json() : {}).then((j) => { if (!vivo) return; const { _senal, ...c } = (j || {}) as any; setCodecs(c); setSenales(_senal || {}); }).catch(() => { });
         cargar();
         const iv = setInterval(cargar, INTERVALO_MS);
         return () => { vivo = false; clearInterval(iv); };
@@ -708,7 +713,7 @@ export function VistaCamaras() {
     const baldosa = (celda: Celda, i: number, libre = false) => !celda.canal && esClaveWeb(celda.claveFaltante) ? (
         <CasillaWeb key={`${celda.claveFaltante}-${i}`} casilla={celda.casilla} clave={celda.claveFaltante} libre={libre} fuente={fuentesPorId.get(idDeClaveWeb(celda.claveFaltante)) || null} />
     ) : (
-        <Baldosa key={celda.canal?.clave || `vacia-${i}`} celda={celda} modo={celda.canal ? modos.get(celda.canal.clave) || "foto" : "foto"} codec={celda.canal ? (codecs[celda.canal.stream] ?? null) : null} hls={hls} libre={libre}
+        <Baldosa key={celda.canal?.clave || `vacia-${i}`} celda={celda} modo={celda.canal ? modos.get(celda.canal.clave) || "foto" : "foto"} codec={celda.canal ? (codecs[celda.canal.stream] ?? null) : null} senal={celda.canal ? senales[celda.canal.stream] : undefined} hls={hls} libre={libre}
             dormida={libre && !!celda.canal && !aLaVista.has(celda.canal.clave)}
             alerta={celda.canal ? alertaDe(celda.canal) : null} lecturas={celda.canal ? lecturasDe(celda.canal) : []}
             destello={celda.canal?.equipoId ? destellos[celda.canal.equipoId] || null : null}

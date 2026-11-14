@@ -18,8 +18,22 @@ import { autorizarMonitor, SIN_CACHE } from "@/lib/monitor/servidor";
 const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
 const VIGENCIA_MS = 5000;
 
-let cache: { t: number; r: Record<string, string | null> } | null = null;
-let enCurso: Promise<Record<string, string | null>> | null = null;
+let cache: { t: number; r: Record<string, any> } | null = null;
+let enCurso: Promise<Record<string, any>> | null = null;
+
+/*
+ * Señal de origen de cada stream (14/11, NVR Dahua de Nicolás): cuánto llega de verdad desde la
+ * cámara, medido entre dos lecturas de go2rtc. Hay cámaras que el NVR dice «conectadas» pero que
+ * mandan menos de un cuadro por segundo o nada: la baldosa abría el video, no arrancaba, reintentaba
+ * y llenaba la consola de 500. Con esto la baldosa sabe de antemano qué esperar.
+ *   sin   → nada en la ventana medida (o el productor no tiene video): foto, sin abrir video
+ *   debil → llega, pero muy poco (menos de KBPS_DEBIL): video igual, avisado
+ *   ok    → normal
+ */
+const KBPS_DEBIL = 400;
+const VENTANA_MIN_MS = 4000;
+let muestra: { t: number; bytes: Record<string, number> } | null = null;
+let senalPrev: Record<string, { estado: "ok" | "debil" | "sin"; kbps: number }> = {};
 
 /** El nombre del códec, normalizado a lo que entiende el guardia. */
 function normCodec(media: string): string | null {
@@ -30,8 +44,10 @@ function normCodec(media: string): string | null {
     return mm ? mm[1] : null;
 }
 
-async function leer(): Promise<Record<string, string | null>> {
-    const out: Record<string, string | null> = {};
+async function leer(): Promise<Record<string, any>> {
+    const out: Record<string, any> = {};
+    const bytesAhora: Record<string, number> = {};
+    const sinVideo = new Set<string>();
     try {
         const c = new AbortController(); const t = setTimeout(() => c.abort(), 3000);
         const r = await fetch(`${GO2RTC}/api/streams`, { cache: "no-store", signal: c.signal });
@@ -40,14 +56,31 @@ async function leer(): Promise<Record<string, string | null>> {
         const streams: Record<string, any> = await r.json();
         for (const [id, s] of Object.entries(streams)) {
             const prods: any[] = (s?.producers || []).filter((p: any) => p?.medias?.length);
-            if (!prods.length) continue;
+            // Precargado (preload) pero sin video: go2rtc lo está reintentando y la cámara no contesta.
+            if (!prods.length) { if ((s?.producers || []).some((p: any) => /127\.0\.0\.1:8556/.test(String(p?.url || "")))) sinVideo.add(id); continue; }
             // El códec de ORIGEN está en el productor que no es la conversión (`ffmpeg:`).
             const fuente = prods.find((p) => !String(p.url || "").startsWith("ffmpeg:")) || prods[0];
             const medias: string[] = (fuente?.medias || []).filter((m: any) => /video/i.test(String(m)));
             let codec: string | null = null;
             for (const m of medias) { codec = normCodec(String(m)); if (codec) break; }
             out[id] = codec;
+            const rec = (fuente?.receivers || [])[0];
+            if (rec && typeof rec.bytes === "number") bytesAhora[id] = rec.bytes;
         }
+        const ahora = Date.now();
+        if (muestra && ahora - muestra.t >= VENTANA_MIN_MS) {
+            const s: typeof senalPrev = {};
+            for (const [id, b] of Object.entries(bytesAhora)) {
+                const antes = muestra.bytes[id];
+                if (antes == null || b < antes) continue;
+                const kbps = Math.round(((b - antes) * 8) / (ahora - muestra.t));
+                s[id] = { kbps, estado: kbps === 0 ? "sin" : kbps < KBPS_DEBIL ? "debil" : "ok" };
+            }
+            for (const id of sinVideo) s[id] = { kbps: 0, estado: "sin" };
+            senalPrev = s;
+            muestra = { t: ahora, bytes: bytesAhora };
+        } else if (!muestra) muestra = { t: ahora, bytes: bytesAhora };
+        out._senal = senalPrev;
     } catch { /* sin go2rtc, sin códecs: la baldosa anda igual */ }
     return out;
 }
