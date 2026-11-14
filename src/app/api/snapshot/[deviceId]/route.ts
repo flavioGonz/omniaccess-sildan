@@ -154,7 +154,9 @@ export async function GET(
                 await turno();
                 let b: Buffer | null = null;
                 try {
-                    b = await go2rtcFrame(deviceId);
+                    // El vivo precargado da el cuadro en el acto; si go2rtc no tiene video de esa cámara
+                    // (no manda nada), se va directo al NVR sin esperar los 8 s del cuadro.
+                    if (await tieneVideo(deviceId)) b = await go2rtcFrame(deviceId);
                     if (!b) b = await nvrSnapshot(deviceId);
                     if (!b) b = await fotoDirecta(device);
                 } finally { soltarTurno(); }
@@ -182,14 +184,26 @@ export async function GET(
  * un pedido al NVR por internet). Antes una lista con 40 miniaturas lanzaba 40 a la vez: la CPU se
  * iba al techo y el navegador cortaba pedidos (net::ERR_FAILED).
  */
-const FOTOS_A_LA_VEZ = 3;
+const FOTOS_A_LA_VEZ = 4;
+
+/** ¿go2rtc está recibiendo video de esta cámara? Una consulta a su API, sin abrir nada. */
+async function tieneVideo(deviceId: string): Promise<boolean> {
+    try {
+        const r = await fetch(`${GO2RTC}/api/streams?src=lpr_${deviceId}`, { cache: "no-store", signal: AbortSignal.timeout(1500) });
+        if (!r.ok) return true;
+        const j: any = await r.json();
+        const ps: any[] = j?.producers || [];
+        if (!ps.length) return true; // sin productor abierto todavía: que lo intente go2rtc
+        return ps.some((p) => (p?.receivers || []).length > 0 || (p?.medias || []).length > 0);
+    } catch { return true; }
+}
 let enUso = 0;
 const espera: Array<() => void> = [];
 function turno(): Promise<void> { if (enUso < FOTOS_A_LA_VEZ) { enUso++; return Promise.resolve(); } return new Promise((r) => espera.push(() => { enUso++; r(); })); }
 function soltarTurno() { enUso = Math.max(0, enUso - 1); const sig = espera.shift(); if (sig) sig(); }
 
 /** Una cámara que no dio foto por ningún camino: se vuelve a intentar pasado este tiempo. */
-const FALLA_MS = 30_000;
+const FALLA_MS = 120_000;
 const fallas = new Map<string, number>();
 
 /** La foto pedida a la cámara misma (lo de siempre para marcas que no son Hikvision). */
