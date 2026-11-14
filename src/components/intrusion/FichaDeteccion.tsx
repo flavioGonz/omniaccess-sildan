@@ -85,6 +85,13 @@ type Escena = {
     ahora: { prob: number; al: string; positivo: boolean; desde: string | null } | null;
     puedeEnsenar: boolean;
 };
+/**
+ * A menos de esto del umbral, la analítica avisó sin estar segura. Se dice (14/11): en el lab, los
+ * ocho últimos avisos de «Vigía Contenedor 02» salieron con 46 a 63 % contra un umbral de 60 % —el
+ * estado se sostiene por histéresis aunque la mirada del aviso quede por debajo—, y la ficha los
+ * mostraba igual que a uno de 97 %. Un aviso al límite pide mirar la foto y enseñarle, no creerle.
+ */
+const MARGEN_AL_LIMITE = 0.1;
 /** La grabación se abre este tanto antes de la mirada elegida: lo que pasó, pasó antes de la foto. */
 const ANTES_DE_LA_MIRADA_MS = 20_000;
 const ROL_TIRA: Record<RolEnTira, string | null> = { antes: null, cambio: "cambió", durante: null, evento: "avisó" };
@@ -667,7 +674,11 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                         <Dato rotulo="Cambió" valor={escena.cambio.antes ? `entre ${hora(escena.cambio.antes)} y ${hora(escena.cambio.desde)}` : `a las ${hora(escena.cambio.desde)} o antes`} sufijo={hace(escena.cambio.desde)} />
                                     )}
                                     {escena.cambio.desde && <Dato rotulo="Avisó" valor={`después de ${duracion(Math.max(0, Math.round((momento.getTime() - Date.parse(escena.cambio.desde)) / 1000)))} así`} />}
-                                    {escena.evento.prob != null && <Dato rotulo="Seguridad" valor={`${Math.round(escena.evento.prob * 100)} %`} sufijo={`avisa desde ${Math.round(escena.zona.umbral * 100)} %`} />}
+                                    {escena.evento.prob != null && (() => {
+                                        const justo = escena.evento.prob - escena.zona.umbral < MARGEN_AL_LIMITE;
+                                        return <Dato rotulo="Seguridad" valor={`${Math.round(escena.evento.prob * 100)} %${justo ? " · al límite" : ""}`} sufijo={`avisa desde ${Math.round(escena.zona.umbral * 100)} %`}
+                                            tono={justo ? "visor-aviso font-semibold" : undefined} />;
+                                    })()}
                                     {escena.ahora && (
                                         <Dato rotulo="Ahora" valor={escena.ahora.positivo ? `Sigue «${escena.zona.positivo}»` : `Volvió a «${escena.zona.negativo}»`} sufijo={`mirado ${hace(escena.ahora.al)}`}
                                             tono={cn("font-semibold", escena.ahora.positivo ? "visor-aviso" : "text-white/80")} />
@@ -682,16 +693,18 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                 <div ref={tiraRef} className="flex gap-1.5 overflow-x-auto [scrollbar-width:none] pb-1 rounded-[8px] transition-shadow">
                                     {escena.tira.map((mu) => {
                                         const avisa = (mu.prob ?? 0) >= escena.zona.umbral;
+                                        // Bajo el umbral pero dentro del tramo: el estado se sostuvo igual (histéresis). No es «normal».
+                                        const enDuda = !avisa && (mu.rol === "durante" || mu.rol === "evento");
                                         return (
                                             <button key={mu.id} type="button" disabled={!camId}
                                                 onClick={() => { setInstanteGrab(Date.parse(mu.ts) - ANTES_DE_LA_MIRADA_MS); setModo("grabacion"); }}
-                                                title={`${horaSeg(mu.ts)} · ${avisa ? escena.zona.positivo : escena.zona.negativo}${mu.prob != null ? ` (${Math.round(mu.prob * 100)} %)` : ""}${camId ? ". Tocá para ver la grabación desde un poco antes." : ""}`}
+                                                title={`${horaSeg(mu.ts)} · ${avisa ? escena.zona.positivo : enDuda ? `en duda (bajo el umbral, sin llegar a «${escena.zona.negativo}»)` : escena.zona.negativo}${mu.prob != null ? ` (${Math.round(mu.prob * 100)} %)` : ""}${camId ? ". Tocá para ver la grabación desde un poco antes." : ""}`}
                                                 className={cn("shrink-0 w-[62px] text-left rounded-[6px] overflow-hidden bg-white/[.06] hover:bg-white/[.14] transition-colors", mu.rol === "cambio" && "ring-2 ring-[var(--aviso)]")}>
                                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                                 {mu.url ? <img src={mu.url} alt="" loading="lazy" className="block w-full h-[46px] object-cover" /> : <span className="grid place-items-center w-full h-[46px] text-white/30"><ImageOff size={14} /></span>}
-                                                <span className="block h-[3px]" style={{ background: avisa ? "var(--aviso)" : "rgba(255,255,255,.28)" }} />
+                                                <span className="block h-[3px]" style={{ background: avisa ? "var(--aviso)" : enDuda ? "color-mix(in oklab, var(--aviso) 45%, transparent)" : "rgba(255,255,255,.28)" }} />
                                                 <span className="block px-1 pt-[3px] text-[10.5px] font-semibold tabular-nums leading-none text-white/90">{hora(mu.ts)}</span>
-                                                <span className={cn("block px-1 pb-1 pt-[2px] text-[9.5px] leading-none", ROL_TIRA[mu.rol] ? "visor-aviso font-semibold" : "text-white/45")}>{ROL_TIRA[mu.rol] || (avisa ? "sigue" : "normal")}</span>
+                                                <span className={cn("block px-1 pb-1 pt-[2px] text-[9.5px] leading-none", ROL_TIRA[mu.rol] ? "visor-aviso font-semibold" : "text-white/45")}>{ROL_TIRA[mu.rol] || (avisa ? "sigue" : enDuda ? "en duda" : "normal")}</span>
                                             </button>
                                         );
                                     })}
