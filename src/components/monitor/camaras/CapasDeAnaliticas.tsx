@@ -20,8 +20,9 @@ import { estadoDeZona, hayCapas, type CapasCanal, type Pt } from "@/lib/capas-ca
  *     porcentaje (cambia solo cuando el servidor la vuelve a mirar);
  *   · lectura de matrículas: zona de rayas largas y la línea de pasada.
  *
- * No recibe toques: debajo están las siluetas, que sí. Se apaga con el mismo botón que la línea
- * y la zona de la cámara.
+ * No recibe toques: debajo están las siluetas, que sí. Arranca APAGADA y tiene su botón (15/11,
+ * Nico, al verla: «las reglas de analíticas dibujan un recuadro que no debe estar»): siempre
+ * encima, tapaba la escena y se confundía con las cajas de los objetos.
  */
 /** Por si un aviso del servidor se pierde: se vuelve a preguntar cada tanto. */
 const REFRESCO_MS = 120_000;
