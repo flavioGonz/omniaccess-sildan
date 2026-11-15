@@ -31,7 +31,7 @@ import type { Analisis } from "@/lib/vision-capa";
  */
 type Zona = ZonaLista & {
     zona: [number, number][]; frasesPositivo: string[]; frasesNegativo: string[]; horario: { desde: string; hasta: string } | null;
-    modelo: (ZonaLista["modelo"] & { matriz: { vp: number; fp: number; vn: number; fn: number } | null; pliegues: number; por: string | null; guia?: number }) | null;
+    modelo: (ZonaLista["modelo"] & { matriz: { vp: number; fp: number; vn: number; fn: number } | null; pliegues: number; por: string | null; guia?: number; metodo?: "prototipos" | "logistica"; validacion?: "dias" | "tramos" | "mezclada" }) | null;
     estado: (ZonaLista["estado"] & { analisis?: Analisis | null }) | null;
 };
 type Muestra = { id: string; url: string; prob: number | null; probTomada: number | null; fuente: string; etiqueta: "pos" | "neg" | null; etiquetadoPor: string | null; ts: string; analisis?: Analisis | null };
@@ -294,7 +294,7 @@ export default function ZonaEntrenable() {
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-md bg-muted p-4 space-y-2 h-full">
                             <div className="flex items-baseline gap-2">
                                 <span className="text-[30px] font-bold tabular-nums leading-none">{m.exactitud != null ? pct(m.exactitud) : "—"}</span>
-                                <Pista titulo="Cómo se mide" texto={`Validación cruzada en ${m.pliegues} partes: cada ejemplo se predice con un modelo que no lo vio. Es el promedio del acierto en «${zona.positivo}» y en «${zona.negativo}», para que tener muchos más de uno no lo infle.`}>
+                                <Pista titulo="Cómo se mide" texto={`Validación cruzada en ${m.pliegues} partes: cada ejemplo se predice con un modelo que no lo vio${m.validacion === "dias" ? ", ni a él ni a ningún otro de su mismo día (dos miradas seguidas son casi la misma foto)" : m.validacion === "tramos" ? ", ni a él ni a los de su mismo tramo de tiempo" : ""}. Es el promedio del acierto en «${zona.positivo}» y en «${zona.negativo}», para que tener muchos más de uno no lo infle.`}>
                                     <span className="text-[12px] text-muted-foreground underline decoration-dotted cursor-help">de acierto en ejemplos que no vio</span>
                                 </Pista>
                             </div>
@@ -306,7 +306,7 @@ export default function ZonaEntrenable() {
                             )}
                             <div className="text-[11px] text-muted-foreground">
                                 Entrenada {hora(m.entrenado)}{m.por ? ` por ${m.por}` : ""} con {m.n.pos} + {m.n.neg} ejemplos
-                                {m.guia != null && ` · ${m.guia >= 0.75 ? "se apoyó sobre todo en las frases" : m.guia > 0 ? "mezcló las frases con los ejemplos" : "sólo con los ejemplos"}`}
+                                {m.metodo === "logistica" ? " · aprendió de los ejemplos qué diferencias no importan (luz, sombras, día y noche)" : m.guia != null && ` · ${m.guia >= 0.75 ? "se apoyó sobre todo en las frases" : m.guia > 0 ? "mezcló las frases con los ejemplos" : "sólo con los ejemplos"}`}
                             </div>
                         </motion.div>
                     ) : (

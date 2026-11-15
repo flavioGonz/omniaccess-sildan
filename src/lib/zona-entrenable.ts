@@ -35,6 +35,9 @@ export type ModeloZona = {
     /** Matriz de la validación cruzada al umbral de la zona: verdaderos/falsos positivos y negativos. */
     matriz: { vp: number; fp: number; vn: number; fn: number } | null;
     pliegues: number;
+    /** Con qué se decidió (el que mejor acertó en la validación) y cómo se validó. Los modelos de antes del 15/11 no lo traen: eran prototipos, mezclada. */
+    metodo?: "prototipos" | "logistica";
+    validacion?: "dias" | "tramos" | "mezclada";
     entrenado: string; por: string | null;
 };
 
@@ -194,31 +197,138 @@ function platt(puntos: { s: number; y: number }[]) {
 }
 
 /**
- * Entrena con todas las muestras etiquetadas y mide con validación cruzada estratificada
- * (hasta 5 pliegues): cada muestra se predice con un modelo que no la vio. Ese número es el que
- * se muestra; el acierto sobre lo mismo que se entrenó siempre da cerca de 100 % y no dice nada.
+ * Regresión logística con L2 y pesos por clase, sobre el vector centrado. Devuelve lo mismo que
+ * `prototipos` (w y b sobre el vector tal cual), así el worker hace la cuenta de siempre.
+ *
+ * Por qué volvió (15/11, Nico, con el vigía diciendo «Desbordado 68 %» sobre un contenedor: «no sé
+ * cómo hacer para que sea acertada»). El 10/10 se descartó porque con 8 + 8 ejemplos era
+ * inestable, y eso sigue siendo cierto. Pero los vigías ya tienen CIENTOS de ejemplos, y ahí los
+ * prototipos son el techo. Medido ese día con lo etiquetado en el lab, validando por días enteros:
+ *
+ *                              prototipos                 logística
+ *   Vigía 01 (344 + 1583)   89 %, 264 falsas alarmas    96 %, 28-36 falsas alarmas
+ *   Vigía 02 (270 + 583)    66 %                        85 %
+ *
+ * La razón: el promedio de cada estado mezcla día y noche, sol y sombra (el vector distingue día
+ * de noche casi perfecto, AUC 0,98), y la diferencia de promedios carga con eso. La logística
+ * aprende qué direcciones NO importan. Por eso se la prueba recién con RECOMENDADO_POR_CLASE
+ * ejemplos de cada estado, y gana sólo si acierta más en la validación.
+ *
+ * Cede el paso cada pocas vueltas: entrena dentro del servidor web, y unos segundos de cuenta
+ * seguida le cortarían el video y los avisos a todos.
  */
-export function entrenar(ejemplos: { v: Float32Array; y: 0 | 1 }[], umbral: number, por: string | null, guia: Float64Array | null = null): ModeloZona {
+const LOGISTICA = { lambda: 0.01, vueltas: 150, paso: 0.05, escala: 12, cederCada: 6 };
+async function logistica(X: Float32Array[], y: number[]) {
+    const n = X.length, d = X[0].length, E = LOGISTICA.escala;
+    const mu = new Float64Array(d);
+    for (const x of X) for (let i = 0; i < d; i++) mu[i] += x[i] / n;
+    const Z = X.map((x) => Float32Array.from(x, (v, i) => (v - mu[i]) * E));
+    const np = y.filter(Boolean).length, nn = n - np, pp = n / (2 * np), pn = n / (2 * nn);
+    const w = new Float64Array(d), m = new Float64Array(d), v = new Float64Array(d), g = new Float64Array(d);
+    let b = 0, mb = 0, vb = 0;
+    const B1 = 0.9, B2 = 0.999;
+    for (let it = 1; it <= LOGISTICA.vueltas; it++) {
+        g.fill(0);
+        let gb = 0;
+        for (let k = 0; k < n; k++) {
+            const z = Z[k];
+            const e = (sigmoide(producto(w, z) + b) - y[k]) * (y[k] ? pp : pn) / n;
+            for (let i = 0; i < d; i++) g[i] += e * z[i];
+            gb += e;
+        }
+        const c1 = 1 - B1 ** it, c2 = 1 - B2 ** it;
+        for (let i = 0; i < d; i++) {
+            const gi = g[i] + LOGISTICA.lambda * w[i];
+            m[i] = B1 * m[i] + (1 - B1) * gi; v[i] = B2 * v[i] + (1 - B2) * gi * gi;
+            w[i] -= LOGISTICA.paso * (m[i] / c1) / (Math.sqrt(v[i] / c2) + 1e-8);
+        }
+        mb = B1 * mb + (1 - B1) * gb; vb = B2 * vb + (1 - B2) * gb * gb;
+        b -= LOGISTICA.paso * (mb / c1) / (Math.sqrt(vb / c2) + 1e-8);
+        if (it % LOGISTICA.cederCada === 0) await new Promise<void>((r) => setImmediate(r));
+    }
+    // De vuelta al vector sin centrar: w·(x − mu)·E + b = (w·E)·x + (b − E·w·mu).
+    const wf = Float64Array.from(w, (x) => x * E);
+    return { w: wf, b: b - producto(wf, mu) };
+}
+
+/** Montevideo no cambia la hora: el día de una muestra es el de UTC−3. */
+const DIA_LOCAL_MS = 3 * 3600_000;
+/** Con menos días distintos que esto no se puede dejar días enteros afuera: se parte por tramos de tiempo. */
+const DIAS_MIN = 3;
+
+/**
+ * En qué parte de la validación cae cada ejemplo.
+ *
+ * Hasta el 15/11 se repartían salteados (el 1.º a la parte 0, el 2.º a la 1…). Pero dos miradas
+ * seguidas de un contenedor son casi la misma foto (medido: 1.424 pares vecinos con coseno ≥ 0,97
+ * en el Vigía 01), así que cada ejemplo «que no vio» tenía a su gemelo del otro lado: el número
+ * salía inflado. En el Vigía 02 la pantalla decía 80 % y, dejando afuera días enteros, daba 66 %.
+ * Lo que importa es cómo va a andar MAÑANA: se dejan afuera días enteros. Con pocos días, tramos
+ * seguidos de tiempo; sin fechas (las pruebas viejas), salteado como antes.
+ */
+export function partesDeValidacion(ejemplos: { y: number; t?: number }[], max = 5): { parte: number[]; partes: number; como: NonNullable<ModeloZona["validacion"]> } {
+    const np = ejemplos.filter((e) => e.y === 1).length, nn = ejemplos.length - np;
+    const salteado = () => { const partes = Math.max(2, Math.min(max, np, nn)); const k = [0, 0]; return { parte: ejemplos.map((e) => k[e.y]++ % partes), partes, como: "mezclada" as const }; };
+    if (!ejemplos.every((e) => typeof e.t === "number" && Number.isFinite(e.t))) return salteado();
+    const dia = (t: number) => Math.floor((t - DIA_LOCAL_MS) / 86_400_000);
+    const dias = [...new Set(ejemplos.map((e) => dia(e.t!)))].sort((a, b) => a - b);
+    if (dias.length >= DIAS_MIN) {
+        const partes = Math.min(max, dias.length), deDia = new Map(dias.map((d, i) => [d, i % partes]));
+        return { parte: ejemplos.map((e) => deDia.get(dia(e.t!))!), partes, como: "dias" };
+    }
+    const orden = ejemplos.map((e, i) => ({ i, t: e.t! })).sort((a, b) => a.t - b.t);
+    const partes = Math.max(2, Math.min(max, np, nn)), parte = new Array<number>(ejemplos.length);
+    orden.forEach((o, k) => { parte[o.i] = Math.min(partes - 1, Math.floor((k * partes) / orden.length)); });
+    return { parte, partes, como: "tramos" };
+}
+
+type Ajuste = (X: Float32Array[], y: number[]) => Promise<{ w: Float64Array; b: number }> | { w: Float64Array; b: number };
+
+/**
+ * Entrena con todas las muestras etiquetadas y mide con validación cruzada: cada muestra se
+ * predice con un modelo que no la vio, ni a ella ni a las de su mismo día (ver
+ * `partesDeValidacion`). Ese número es el que se muestra; el acierto sobre lo mismo que se
+ * entrenó siempre da cerca de 100 % y no dice nada.
+ *
+ * Se prueban los prototipos (con cada mezcla de frases) y, con ejemplos suficientes, la logística;
+ * queda el que más acierta en la validación. A igual acierto, los prototipos: son más simples.
+ */
+export async function entrenar(ejemplos: { v: Float32Array; y: 0 | 1; t?: number }[], umbral: number, por: string | null, guia: Float64Array | null = null): Promise<ModeloZona> {
     const pos = ejemplos.filter((e) => e.y === 1), neg = ejemplos.filter((e) => e.y === 0);
     if (pos.length < MIN_POR_CLASE || neg.length < MIN_POR_CLASE) throw new Error(`Hacen falta al menos ${MIN_POR_CLASE} ejemplos de cada estado (hay ${pos.length} y ${neg.length}).`);
-    const pliegues = Math.min(5, pos.length, neg.length);
-    // Estratificado: cada pliegue lleva su parte de cada estado, así ninguno queda sin positivos.
-    const todos = [...pos.map((e, i) => ({ e, f: i % pliegues })), ...neg.map((e, i) => ({ e, f: i % pliegues }))];
-    const validar = (beta: number) => {
+    let reparto = partesDeValidacion(ejemplos);
+    const validar = async (ajuste: Ajuste) => {
         const puntos: { s: number; y: number }[] = [];
-        for (let f = 0; f < pliegues; f++) {
-            const tren = todos.filter((t) => t.f !== f);
-            const m = prototipos(tren.map((t) => t.e.v), tren.map((t) => t.e.y), guia, beta);
-            for (const t of todos) if (t.f === f) puntos.push({ s: producto(m.w, t.e.v) + m.b, y: t.e.y });
+        for (let f = 0; f < reparto.partes; f++) {
+            const tren = ejemplos.filter((_, i) => reparto.parte[i] !== f), prueba = ejemplos.filter((_, i) => reparto.parte[i] === f);
+            // Una parte que se lleva casi todos los de un estado no deja con qué entrenar: esos ejemplos quedan sin medir.
+            if (!prueba.length || tren.filter((e) => e.y === 1).length < MIN_POR_CLASE || tren.filter((e) => e.y === 0).length < MIN_POR_CLASE) continue;
+            const m = await ajuste(tren.map((e) => e.v), tren.map((e) => e.y));
+            for (const e of prueba) puntos.push({ s: producto(m.w, e.v) + m.b, y: e.y });
         }
+        return puntos;
+    };
+    const medir = (puntos: { s: number; y: number }[]) => {
         const { a, c } = platt(puntos);
         // El acierto se mide en el punto de equilibrio (0,5): es la calidad del modelo.
         const bien = (y: number) => puntos.filter((p) => p.y === y && (sigmoide(a * p.s + c) >= 0.5 ? 1 : 0) === y).length / puntos.filter((p) => p.y === y).length;
-        return { beta, puntos, a, c, exactitud: 0.5 * (bien(1) + bien(0)) };
+        return { puntos, a, c, exactitud: 0.5 * (bien(1) + bien(0)) };
     };
-    // La mezcla que mejor acierta en ejemplos que no vio; a igual acierto, la más cerca de la mitad.
-    const pruebas = (guia ? MEZCLAS : [0]).map(validar);
-    const mejor = pruebas.reduce((x, y) => (y.exactitud > x.exactitud + 1e-9 || (Math.abs(y.exactitud - x.exactitud) < 1e-9 && Math.abs(y.beta - 0.5) < Math.abs(x.beta - 0.5)) ? y : x));
+    const medible = (puntos: { y: number }[]) => puntos.some((p) => p.y === 1) && puntos.some((p) => p.y === 0);
+    type Candidato = { metodo: NonNullable<ModeloZona["metodo"]>; beta: number; ajuste: Ajuste };
+    const candidatos: Candidato[] = (guia ? MEZCLAS : [0]).map((beta) => ({ metodo: "prototipos" as const, beta, ajuste: (X: Float32Array[], y: number[]) => prototipos(X, y, guia, beta) }));
+    if (pos.length >= RECOMENDADO_POR_CLASE && neg.length >= RECOMENDADO_POR_CLASE) candidatos.push({ metodo: "logistica", beta: 0, ajuste: logistica });
+    // Si por días todos los de un estado caen del lado que no se pudo medir, se mide como antes: peor que nada no es.
+    if (reparto.como !== "mezclada" && !medible(await validar(candidatos[0].ajuste))) reparto = partesDeValidacion(ejemplos.map((e) => ({ y: e.y })));
+    const pruebas: (Candidato & ReturnType<typeof medir>)[] = [];
+    for (const c of candidatos) { const puntos = await validar(c.ajuste); if (medible(puntos)) pruebas.push({ ...c, ...medir(puntos) }); }
+    if (!pruebas.length) throw new Error("No se pudo validar: hacen falta ejemplos de los dos estados en momentos distintos.");
+    // El que mejor acierta en ejemplos que no vio. A igual acierto: prototipos antes que logística, y la mezcla más cerca de la mitad.
+    const mejor = pruebas.reduce((x, y) => {
+        if (y.exactitud > x.exactitud + 1e-9) return y;
+        if (Math.abs(y.exactitud - x.exactitud) >= 1e-9 || y.metodo !== x.metodo) return x;
+        return Math.abs(y.beta - 0.5) < Math.abs(x.beta - 0.5) ? y : x;
+    });
     // La matriz, en cambio, va al umbral de la zona: es lo que de verdad dispararía.
     const matriz = { vp: 0, fp: 0, vn: 0, fn: 0 };
     for (const p of mejor.puntos) {
@@ -226,10 +336,11 @@ export function entrenar(ejemplos: { v: Float32Array; y: 0 | 1 }[], umbral: numb
         if (p.y) dice ? matriz.vp++ : matriz.fn++;
         else dice ? matriz.fp++ : matriz.vn++;
     }
-    const final = prototipos(ejemplos.map((e) => e.v), ejemplos.map((e) => e.y), guia, mejor.beta);
+    const final = await mejor.ajuste(ejemplos.map((e) => e.v), ejemplos.map((e) => e.y));
     return {
         w: Array.from(final.w, (x) => +x.toFixed(6)), b: +final.b.toFixed(6), a: +mejor.a.toFixed(4), c: +mejor.c.toFixed(4), dim: final.w.length,
-        guia: guia ? mejor.beta : 0,
-        n: { pos: pos.length, neg: neg.length }, exactitud: +mejor.exactitud.toFixed(4), matriz, pliegues, entrenado: new Date().toISOString(), por,
+        guia: guia && mejor.metodo === "prototipos" ? mejor.beta : 0,
+        n: { pos: pos.length, neg: neg.length }, exactitud: +mejor.exactitud.toFixed(4), matriz, pliegues: reparto.partes,
+        metodo: mejor.metodo, validacion: reparto.como, entrenado: new Date().toISOString(), por,
     };
 }

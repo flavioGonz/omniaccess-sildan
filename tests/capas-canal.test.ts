@@ -49,3 +49,12 @@ test("sin nada dibujado no hay capas", () => {
     assert.equal(hayCapas(capasDelCanal("cam", { reglas: null, zonas: [zona()], equipo: null })), true);
     assert.equal(hayCapas(null), false);
 });
+
+test("los rótulos de figuras encimadas no se escriben uno arriba del otro", async () => {
+    const { ubicarRotulos } = await import("@/components/monitor/camaras/CapasDeAnaliticas");
+    // Tres zonas casi iguales sobre el mismo contenedor, abajo a la izquierda (la captura del 15/11).
+    const z = (d: number): [number, number][] => [[0 + d, 0.6 + d], [0.25 + d, 0.6 + d], [0.25 + d, 1 - d], [0 + d, 1 - d]];
+    const r = ubicarRotulos([{ clave: "a", texto: "Vigia Contenedor 01 · Desbordado 68 %", figura: z(0) }, { clave: "b", texto: "Deteccion de Contenedores", figura: z(0.01) }, { clave: "c", texto: "Basura en el piso", figura: z(0.02) }], 1600, 900);
+    for (let i = 0; i < r.length; i++) for (let j = i + 1; j < r.length; j++) assert.ok(Math.abs(r[i].y - r[j].y) >= 24, `${r[i].clave} y ${r[j].clave} en el mismo renglón`);
+    assert.ok(r.every((x) => x.y >= 25 && x.y <= 894 && x.x >= 8));
+});

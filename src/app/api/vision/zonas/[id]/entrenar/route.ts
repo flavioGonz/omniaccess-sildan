@@ -7,7 +7,7 @@ import { puedeCambiar, resumenModelo } from "@/lib/zona-entrenable-servidor";
 export const dynamic = "force-dynamic";
 
 /**
- * Tope de ejemplos por estado: los más recientes. Más que esto no mejora un promedio y sí
+ * Tope de ejemplos por estado: los más recientes. Más que esto no mejora el resultado y sí
  * arrastra la luz de otra estación del año.
  */
 const EJEMPLOS_MAX_POR_ESTADO = 2000;
@@ -18,9 +18,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     const { id } = await params;
     const z = await prisma.zonaEntrenable.findUnique({ where: { id }, select: { umbral: true, frasesPositivo: true, frasesNegativo: true } });
     if (!z) return NextResponse.json({ error: "No existe." }, { status: 404 });
-    const leer = (etiqueta: "pos" | "neg") => prisma.muestraZona.findMany({ where: { zonaId: id, etiqueta }, orderBy: { createdAt: "desc" }, take: EJEMPLOS_MAX_POR_ESTADO, select: { vector: true, escala: true } });
+    const leer = (etiqueta: "pos" | "neg") => prisma.muestraZona.findMany({ where: { zonaId: id, etiqueta }, orderBy: { createdAt: "desc" }, take: EJEMPLOS_MAX_POR_ESTADO, select: { vector: true, escala: true, createdAt: true } });
     const [pos, neg] = await Promise.all([leer("pos"), leer("neg")]);
-    const ejemplos = [...pos.map((m) => ({ v: deInt8(m.vector, m.escala), y: 1 as const })), ...neg.map((m) => ({ v: deInt8(m.vector, m.escala), y: 0 as const }))];
+    const ejemplos = [...pos.map((m) => ({ v: deInt8(m.vector, m.escala), y: 1 as const, t: m.createdAt.getTime() })), ...neg.map((m) => ({ v: deInt8(m.vector, m.escala), y: 0 as const, t: m.createdAt.getTime() }))];
     const t0 = Date.now();
     // Las frases como punto de partida (ver `prototipos`). Sin omni-vision se entrena igual, sólo
     // con los ejemplos, y se dice: no es lo mismo y quien entrena lo tiene que saber.
@@ -33,7 +33,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
         guia = guiaDeFrases(vs.slice(0, z.frasesPositivo.length), vs.slice(z.frasesPositivo.length));
     } catch (e: any) { sinFrases = e?.message || "omni-vision no contestó"; }
     let modelo;
-    try { modelo = entrenar(ejemplos, z.umbral, quien, guia); }
+    try { modelo = await entrenar(ejemplos, z.umbral, quien, guia); }
     catch (e: any) { return NextResponse.json({ error: e?.message || "No se pudo entrenar." }, { status: 400 }); }
     // La próxima muestra ya sale con el modelo nuevo: se pide una enseguida para que el estado lo refleje.
     await prisma.zonaEntrenable.update({ where: { id }, data: { modelo: modelo as any, forzarAt: new Date() } });

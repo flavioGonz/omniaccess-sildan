@@ -6,7 +6,7 @@
  *  · Sin modelo entrenado: con las frases de la zona (SigLIP texto↔imagen), la misma cuenta que
  *    los atributos: sigmoide(escala · (coseno con las frases del estado que avisa − coseno con
  *    las del normal)).
- *  · Con modelo: prototipos calibrados. LA MISMA CUENTA QUE `puntuar` en zona-entrenable.ts.
+ *  · Con modelo: una dirección calibrada (prototipos o logística, la que mejor validó). LA MISMA CUENTA QUE `puntuar` en zona-entrenable.ts.
  *
  * Cada mirada queda como muestra (recorte + vector) para etiquetar y entrenar. El aviso sale
  * cuando el estado que avisa se sostiene `sostenerSeg`, dentro del horario, una sola vez hasta
