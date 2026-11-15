@@ -147,6 +147,33 @@ export function distancia(a: Buffer, b: Buffer): number {
     return suma / n;
 }
 
+/**
+ * Cuánto se parecen dos huellas EN SU FORMA, sin importar cuánta luz hay: la correlación de sus
+ * píxeles después de sacarles el brillo y el contraste (de −1 a 1; 1 = el mismo dibujo).
+ *
+ * Por qué se mide (15/11). `distancia` es la diferencia media de gris, y con eso un cambio de luz
+ * de golpe —la cámara que pasa a infrarrojo al anochecer, un farol que se enciende— es «el lugar
+ * cambió», y como la luz nueva se queda, «se quedó cambiado»: se da por ido un auto que no se
+ * movió. En el registro del lab, del 13 al 15/11: 20 de 21 cierres fueron por esta regla, y un
+ * mismo auto estacionado acumuló 7 en la misma cámara.
+ *
+ * Todavía NO decide nada: se anota en el motivo del cierre junto a la diferencia. Con unos días
+ * de esos números —los cierres del auto que no se movió contra los de los que sí se fueron— se
+ * elige desde qué parecido de forma un «cambió» es sólo la luz. Sin esa medición, poner un número
+ * acá sería adivinar (y un auto que se va de noche también cambia la luz del lugar).
+ */
+export function parecidoDeForma(a: Buffer, b: Buffer): number {
+    const n = Math.min(a.length, b.length);
+    if (n < 2) return 0;
+    let ma = 0, mb = 0;
+    for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; }
+    ma /= n; mb /= n;
+    let ab = 0, aa = 0, bb = 0;
+    for (let i = 0; i < n; i++) { const x = a[i] - ma, y = b[i] - mb; ab += x * y; aa += x * x; bb += y * y; }
+    // Una huella lisa (noche cerrada, lente tapada) no tiene forma con qué comparar.
+    return aa < 1e-6 || bb < 1e-6 ? 0 : ab / Math.sqrt(aa * bb);
+}
+
 async function leerNota(id: string): Promise<Nota | null> {
     try { return JSON.parse(await fs.readFile(path.join(carpeta(), `${id}.json`), "utf8")); }
     catch { return null; }
@@ -234,7 +261,9 @@ export async function mirarSiSigue(
             const cuantas = fallas + 1;
             await guardarNota(estadia.id, { huella: previa.huella, huellaNueva: ahoraB64, fallas: cuantas, mirada: sello });
             if (cuantas >= VIGILIA_FALLAS) {
-                return { resultado: "se fue", gpu: false, detalle: `el lugar cambió y se quedó cambiado (${cuantas} miradas)`, distancia: d, fallas: cuantas };
+                // Con los dos números que hacen falta para afinar esta regla (ver parecidoDeForma): contra cómo estaba ANTES del cambio.
+                const forma = parecidoDeForma(ahora, Buffer.from(previa.huella, "base64"));
+                return { resultado: "se fue", gpu: false, detalle: `el lugar cambió y se quedó cambiado (${cuantas} miradas; diferencia ${d.toFixed(0)}, forma ${forma.toFixed(2)})`, distancia: d, fallas: cuantas };
             }
             return { resultado: "no se pudo", gpu: false, detalle: `el lugar sigue cambiado (${cuantas} de ${VIGILIA_FALLAS})`, distancia: d, fallas: cuantas };
         }
