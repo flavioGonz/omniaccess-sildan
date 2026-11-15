@@ -9,6 +9,7 @@ import { GRUPO_PROPIO, UMBRAL_PANTALLA_DEFECTO } from "@/lib/detector-propio";
 import { conChapa, conEstadia, type EstadiaAbierta, type LugarVehiculo } from "@/lib/vision-estadia";
 import { leerRecuadro } from "@/lib/deteccion";
 import { REQUERIDA_POLICIA, esRequerida } from "@/lib/min-interior";
+import { sostenedor, CONFIANZA_SIGUE } from "@/lib/siluetas-sosten";
 
 /**
  * GET /api/monitor/camaras/siluetas?stream=<nombre> → text/event-stream con lo que OmniVision ve
@@ -227,6 +228,8 @@ export async function GET(req: NextRequest) {
             // El último cuadro que llegó y todavía no se pudo analizar. Uno solo: si llega otro, lo reemplaza.
             let pendiente: { jpeg: Buffer; t: number } | null = null;
             const camara = camaraDeStream(stream);
+            // Entra con la confianza de fábrica y sigue con menos: en una escena llena, el corte fijo prendía y apagaba a los del fondo (lib/siluetas-sosten).
+            const sostener = sostenedor<ReturnType<typeof paraPantalla>[number]>((o) => o.grupo !== GRUPO_PROPIO);
             /** Analiza el cuadro guardado si omni-vision está libre y ya pasó la espera; si falta, se avisa solo. */
             const intentar = () => {
                 if (cerrado || ocupado || !pendiente) return;
@@ -239,7 +242,7 @@ export async function GET(req: NextRequest) {
                 ocupado = true;
                 const inicio = Date.now();
                 try {
-                    const r = await fetch(`${VISION}/detectar?tarea=segmentar&grupos=${GRUPOS}`, { method: "POST", body: new Uint8Array(jpeg), headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(5000) });
+                    const r = await fetch(`${VISION}/detectar?tarea=segmentar&grupos=${GRUPOS}&umbral=${CONFIANZA_SIGUE}`, { method: "POST", body: new Uint8Array(jpeg), headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(5000) });
                     const j: any = await r.json().catch(() => ({}));
                     proximo = inicio + Math.max(1000 / CUADROS_POR_SEG - 15, (Date.now() - inicio) * ESPERA_POR_MS * Math.max(1, sesiones));
                     if (!r.ok) { enviar("error", { error: j.error || `omni-vision respondió ${r.status}` }); return; }
@@ -248,7 +251,7 @@ export async function GET(req: NextRequest) {
                         analisis: {
                             ancho: j.ancho, alto: j.alto, tarea: "segmentar",
                             // El tiempo en el lugar sólo en el vivo: en la grabación el cuadro es de otro momento.
-                            objetos: conAlerta(conChapa(conEstadia(paraPantalla(j.objetos, await ajustesDePantalla()), await lugaresDe(camara)), await estadiasDe(camara)), await negrasVigentes()),
+                            objetos: conAlerta(conChapa(conEstadia(sostener(paraPantalla(j.objetos, await ajustesDePantalla()), Date.now()), await lugaresDe(camara)), await estadiasDe(camara)), await negrasVigentes()),
                         },
                     });
                     descartados = 0;
