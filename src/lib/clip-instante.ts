@@ -9,6 +9,7 @@ import { cortarDesdeNvr } from "@/lib/clip-nvr";
 import { tramosHik, diaLocal } from "@/lib/nvr-tramos";
 import { editarClip, cuandoLargo, unirEscenas, type EscenaDeClip } from "@/lib/clip-editado";
 import { ventanaPlayback } from "@/lib/ventana-playback";
+import { relojDelGrabador } from "@/lib/reloj-grabador";
 import {
     AJUSTE_ALERTA_ANTES, AJUSTE_ALERTA_DESPUES, ALERTA_ANTES_POR_DEFECTO, ALERTA_DESPUES_POR_DEFECTO,
     ALERTA_ANTES_MAX, ALERTA_DESPUES_MAX, ENVIO_MAX_SEG, SEG_ANILLO_SEG, MARGEN_GRABACION_SEG, CLIP_RETENCION_MIN,
@@ -302,22 +303,6 @@ export type AvanceDeClip = {
 const CREER_A_LA_LISTA_SEG = 60;
 /** Holgura al comparar un tramo pedido con los de la lista: los relojes y los cortes de archivo no son exactos. */
 const HOLGURA_LISTA_MS = 5000;
-/** Diferencia de reloj que se corrige: menos es ruido; más no es un reloj corrido sino la zona horaria mal puesta. */
-const RELOJ_MIN_SEG = 3, RELOJ_MAX_SEG = 300;
-
-/**
- * Cuánto está corrido el reloj de un grabador respecto del servidor, en segundos (negativo =
- * atrasado), según la última muestra de salud. El grabador guarda lo que pasó a las 10:00:00 con
- * SU hora: si atrasa 24 s, eso está en sus 09:59:36, y pedirle las 10:00:00 trae lo que pasó 24 s
- * después. Medido el 14/11: un grabador del lab atrasa 24 s; los otros, 2 s.
- */
-async function relojDelGrabador(nvrId: string | null): Promise<number> {
-    if (!nvrId) return 0;
-    const m = await prisma.deviceHealthSample.findFirst({ where: { deviceId: nvrId, driftSec: { not: null }, ts: { gte: new Date(Date.now() - 3600_000) } }, orderBy: { ts: "desc" }, select: { driftSec: true } }).catch(() => null);
-    const d = m?.driftSec ?? 0;
-    return Math.abs(d) >= RELOJ_MIN_SEG && Math.abs(d) <= RELOJ_MAX_SEG ? d : 0;
-}
-
 /**
  * El clip de una grabación hecha desde el vivo que pasó por VARIAS cámaras (13/11, Nico: «el
  * botón de grabación debe continuar grabando mientras cambiamos de cámara vía el ícono de visual
@@ -369,7 +354,7 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
         const parte = `${destino}.t${i}.mp4`;
         let ok = false, bytes = 0, intentos = 0;
         if (f.tipo === "nvr") {
-            // Con la hora del grabador (ver relojDelGrabador), y las veces que haga falta (ver EDAD_DEL_FIN_SEG).
+            // Con la hora del grabador (ver lib/reloj-grabador), y las veces que haga falta (ver EDAD_DEL_FIN_SEG).
             const reloj = await relojDelGrabador(f.nvrId);
             const fin = t.desde + t.seg * 1000;
             let sinGrabar = false;

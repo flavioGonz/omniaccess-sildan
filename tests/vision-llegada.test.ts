@@ -37,7 +37,7 @@ test("sin nada anterior en el registro, lo que vale es la hora del reloj, y se a
     const r = b.cerrar(AHORA - 7 * 86_400_000);
     assert.deepEqual({ ms: r.ms, como: r.como }, { ms: RELOJ, como: "reloj" });
     assert.equal(grabacionDesde(r), RELOJ - ANTES_DE.reloj);
-    assert.ok(ANTES_DE.reloj <= 15_000, "con 90 s se veía un minuto y medio de calle vacía: de eso fue la queja");
+    assert.ok(ANTES_DE.reloj >= 20_000 && ANTES_DE.reloj <= 45_000, "con 90 s se veía un minuto y medio de calle vacía; con 12 s no se lo veía entrar");
     assert.equal(avisoDeLlegada(r, String), null);
 });
 

@@ -59,11 +59,19 @@ export const MISMO_VEHICULO = 0.92;
 export const HUECO_MS = 6 * 60_000;
 /**
  * Cuánto antes de la llegada arranca la grabación, según qué tan cierta es: con la entrada
- * encontrada, unos segundos (se lo ve entrar); con la hora del reloj, un poco más (es cuando quedó
+ * encontrada, unos segundos (se lo ve entrar); con la hora del reloj, medio minuto (es cuando quedó
  * quieto en su lugar: venía entrando); con sólo «la primera vez que se lo ve» en el registro, un
  * minuto (una escena quieta se analiza cada minuto: entró en ese minuto anterior).
+ *
+ * El reloj: 12 s hasta el 15/11 (Nico: «no se ve la llegada ni el estacionamiento»). La causa
+ * mayor era otra —el reloj del grabador, ver lib/reloj-grabador— pero 12 s antes de quedar quieto
+ * tampoco alcanzan para ver entrar a un auto que maniobra. Medido ese día sobre 108 lugares: el
+ * registro casi nunca guarda el camino (96 sin ninguna pista en los 3 minutos previos); en los dos
+ * que sí, el vehículo apareció en la escena 34 y 46 s antes de la hora del reloj. Son dos casos:
+ * 30 s es un criterio, no una medida. El tope de la prueba (45 s) es para no volver al minuto y
+ * medio de calle vacía.
  */
-export const ANTES_DE = { llegada: 6_000, "primera-vez": 60_000, "antes-del-registro": 0, reloj: 12_000 } as const;
+export const ANTES_DE = { llegada: 6_000, "primera-vez": 60_000, "antes-del-registro": 0, reloj: 30_000 } as const;
 /** Menos que esto más atrás que el reloj no es «desde antes»: es la misma hora. */
 export const GANANCIA_MIN_MS = 20_000;
 /** Cuánto después de la hora del reloj puede terminar la pista de entrada y seguir siendo la suya. */

@@ -208,7 +208,7 @@ export default function HistoryPage() {
     const iconoAccion = "flex items-center justify-center w-9 h-9 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors";
 
     return (
-        <div className="p-6 lg:p-8 space-y-4 max-w-[1600px] mx-auto">
+        <div className="p-6 lg:p-8 space-y-4">
             {/* Renglón 1: qué es · buscador al centro · cómo se mira y acciones */}
             <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,640px)_minmax(0,1fr)] items-center gap-3">
                 <div className="flex items-center gap-3 min-w-0">

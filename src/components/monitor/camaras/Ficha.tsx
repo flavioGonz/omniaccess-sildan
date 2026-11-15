@@ -28,6 +28,7 @@ import { SeguimientoVisual } from "./Seguimiento";
 import type { TrackLink } from "@/app/actions/detections";
 import { geomDeIntrusion } from "@/lib/vision-capa";
 import { cn } from "@/lib/utils";
+import { CapasDeAnaliticas, useCapasDelCanal } from "./CapasDeAnaliticas";
 
 /**
  * Un canal a pantalla completa, con los controles flotando encima como en el visor de eventos.
@@ -373,6 +374,8 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
     const [ptz, setPtz] = useState(false);
     const [verPtz, setVerPtz] = useState(false);
     const idPtz = c ? idCanal(c) : null;
+    // Lo que las analíticas de este canal tienen dibujado (reglas, entrenables, lectura de matrículas).
+    const capas = useCapasDelCanal(idPtz);
     /*
      * «Grabar» (13/11, Nico: «un botón Grabar: comenzar un fragmento de video de lo que está viendo…
      * poder descargarlo o enviarlo por Telegram o WhatsApp como el resto de clips»). El botón marca
@@ -560,6 +563,8 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                             )}
                         </>
                     )}
+                    {/* Debajo de las siluetas, que son las que reciben el toque. Sólo en el vivo: el estado de una entrenable es el de AHORA. */}
+                    {capas && verGeom && grabacion == null && <CapasDeAnaliticas capas={capas} tam={tamVideo} />}
                     <SiluetasDelVivo stream={c.online !== false ? c.stream : null} activo={verSiluetas && grabacion == null} atraso={atrasoDelVideo} tam={tamVideo}
                         geom={c.geom} hayAlerta={!!alerta} verGeom={verGeom} opciones={opcionesDeObjeto} alEstado={setEstadoSil} msRef={msSil} />
 
@@ -629,7 +634,7 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                                 {ptz && grabacion == null && c.online !== false && (
                                     <Icono onClick={() => setVerPtz((x) => !x)} activo={verPtz} titulo={verPtz ? "Ocultar el joystick" : "Mover la cámara (PTZ)"}><Joystick size={18} /></Icono>
                                 )}
-                                {c.geom && <Icono onClick={() => setVerGeom((x) => !x)} activo={verGeom} titulo={verGeom ? "Ocultar la línea y la zona" : "Mostrar la línea y la zona de la cámara"}><Spline size={18} /></Icono>}
+                                {(c.geom || capas) && <Icono onClick={() => setVerGeom((x) => !x)} activo={verGeom} titulo={verGeom ? "Ocultar las zonas y las líneas" : "Mostrar las zonas y las líneas de las analíticas"}><Spline size={18} /></Icono>}
                                 {(puedeGrabar || rec != null) && grabacion == null && (
                                     <Icono onClick={() => (rec != null ? void detener() : empezar())} activo={rec != null}
                                         titulo={rec != null ? "Detener: el clip se arma en el servidor y queda en la bandeja" : `Grabar un clip de lo que se ve (hasta ${REC_TOPE_MS / 1000} s; sigue grabando si cambiás de cámara)`}>

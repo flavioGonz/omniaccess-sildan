@@ -9,6 +9,7 @@ import { configClips, nombreDeClip } from "@/lib/clips";
 import { planDeCorte, cortarDesdeNvr } from "@/lib/clip-nvr";
 import { esSdpCambiado, marcarSdpCambiado } from "@/lib/rtsp-sdp";
 import type { NvrConn } from "@/lib/nvr-resolve";
+import { relojDelGrabador } from "@/lib/reloj-grabador";
 import { ventanaPlayback, acotarVentana, ANTES_MAX, DESPUES_MAX } from "@/lib/ventana-playback";
 
 /**
@@ -43,7 +44,8 @@ export async function GET(req: NextRequest) {
     const conn = await resolveNvrById(sp.get("nvr"));
     if (!conn) return new Response("NVR not configured", { status: 404 });
 
-    const startMs = t - pre * 1000;
+    // Con la hora del grabador, no con la nuestra: uno que atrasa 26 s mostraba lo de 26 s después (lib/reloj-grabador).
+    const startMs = t - pre * 1000 + (await relojDelGrabador(conn.nvrId)) * 1000;
     // Cómo se corta (URL, copy o transcode, resolución y calidad de Ajustes): lib/clip-nvr,
     // compartido con el clip de las alertas y el envío por WhatsApp.
     const forceTx = sp.get("tx") === "1";
