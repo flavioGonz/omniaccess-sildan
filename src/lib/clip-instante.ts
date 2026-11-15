@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getChannelMap, resolveNvrById, type NvrConn } from "@/lib/nvr-resolve";
 import { configClips, nombreDeClip, type ConfigClip } from "@/lib/clips";
 import { cortarDesdeNvr } from "@/lib/clip-nvr";
+import { tramosHik, diaLocal } from "@/lib/nvr-tramos";
 import { editarClip, cuandoLargo, unirEscenas, type EscenaDeClip } from "@/lib/clip-editado";
 import { ventanaPlayback } from "@/lib/ventana-playback";
 import {
@@ -269,9 +270,16 @@ const TRAMO_MINIMO_SEG = 1;
  * grabador tarda lo suyo en tener disponible lo último que grabó, y un clip «de lo que estoy
  * viendo» pide justo eso.
  *
- * El rechazo llega al instante (0,2 s), así que insistir no cuesta: se reintenta cuando el fin del
- * tramo tiene esta antigüedad (una edad que ya pasó no se repite: un tramo viejo se pide una vez).
- * Un corte que falla después de varios segundos NO se reintenta: ese no es «todavía no lo tengo».
+ * Se reintenta cuando el fin del tramo tiene esta antigüedad (una edad que ya pasó no se repite:
+ * un tramo viejo se pide una vez).
+ *
+ * También se reintenta un corte que falla DESPUÉS de un rato (15/11). Hasta ese día sólo se
+ * insistía ante el rechazo inmediato (400 en 0,2 s), con la idea de que un corte que tarda y falla
+ * «no es todavía-no-lo-tengo». Medido con la cola nueva contra el NVR de IES: el tercer tramo de
+ * una recorrida, que terminaba en ese instante, no fue rechazado: el grabador aceptó el pedido, no
+ * mandó video y a los 44 s se cortó — y el clip salió con dos cámaras de tres. Es la misma falta
+ * con otra cara. Lo que distingue «todavía no» de «no hay» es la lista de tramos del grabador:
+ * pasado un minuto se le pregunta, y si dice que a esa hora no grabó, ahí sí se deja.
  */
 const EDAD_DEL_FIN_SEG = [0, 20, 40, 60, 75, 90, 105, 120, 150, 180, 240, 300];
 /*
@@ -290,8 +298,10 @@ export type AvanceDeClip = {
     /** Esperando: cuándo se le vuelve a pedir al grabador (ms). */
     proximo?: number;
 };
-/** Un corte que falla en menos que esto fue un rechazo del grabador (no un corte que se cayó a mitad). */
-const RECHAZO_RAPIDO_MS = 5000;
+/** Desde qué antigüedad del tramo se le cree a la lista de tramos del grabador (antes todavía la está escribiendo). */
+const CREER_A_LA_LISTA_SEG = 60;
+/** Holgura al comparar un tramo pedido con los de la lista: los relojes y los cortes de archivo no son exactos. */
+const HOLGURA_LISTA_MS = 5000;
 /** Diferencia de reloj que se corrige: menos es ruido; más no es un reloj corrido sino la zona horaria mal puesta. */
 const RELOJ_MIN_SEG = 3, RELOJ_MAX_SEG = 300;
 
@@ -362,20 +372,26 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
             // Con la hora del grabador (ver relojDelGrabador), y las veces que haga falta (ver EDAD_DEL_FIN_SEG).
             const reloj = await relojDelGrabador(f.nvrId);
             const fin = t.desde + t.seg * 1000;
+            let sinGrabar = false;
             for (const edad of EDAD_DEL_FIN_SEG) {
                 const aun = fin + edad * 1000 - Date.now();
                 if (aun <= 0 && intentos > 0) continue;
                 if (aun > 0) { avisar({ paso: "esperando", tramo: i + 1, de: tramos.length, proximo: fin + edad * 1000 }); await esperar(aun); }
                 avisar({ paso: "trayendo", tramo: i + 1, de: tramos.length });
                 intentos++;
-                const t0 = Date.now();
                 // Sin el logo acá: lo pone la edición, una vez, sobre el clip ya unido (si viniera en cada
                 // tramo, el pase entre cámaras lo barrería con la imagen). Y sin logo el corte puede ir por copia.
                 ok = await cortarDesdeNvr(f.conn, String(f.ch), t.desde + reloj * 1000, t.seg, parte, { cfg, marcaAgua: null });
                 bytes = 0; try { bytes = fs.statSync(parte).size; } catch { }
-                if ((ok && bytes >= 1500) || Date.now() - t0 > RECHAZO_RAPIDO_MS) break;
+                if (ok && bytes >= 1500) break;
+                // ¿Todavía no lo tiene, o a esa hora no grabó (un canal que graba por movimiento)? Se le pregunta una vez.
+                if (!sinGrabar && Date.now() - fin >= CREER_A_LA_LISTA_SEG * 1000 && String(f.conn.brand).toUpperCase() !== "DAHUA") {
+                    const d = t.desde + reloj * 1000, h = d + t.seg * 1000;
+                    const lista = await tramosHik(f.conn, f.ch, diaLocal(d)).catch(() => null);
+                    if (lista && !lista.some(([a, b]) => a < h + HOLGURA_LISTA_MS && b > d - HOLGURA_LISTA_MS)) { sinGrabar = true; break; }
+                }
             }
-            if (!(ok && bytes >= 1500)) console.warn(`[clip] grabación: el grabador no entregó el tramo ${i + 1} (canal ${f.ch}, ${t.seg} s, terminó hace ${Math.round((Date.now() - fin) / 1000)} s) tras ${intentos} ${intentos === 1 ? "intento" : "intentos"}${reloj ? `; reloj del grabador ${reloj} s` : ""}`);
+            if (!(ok && bytes >= 1500)) console.warn(`[clip] grabación: ${sinGrabar ? "el grabador no grabó a esa hora" : "el grabador no entregó"} el tramo ${i + 1} (canal ${f.ch}, ${t.seg} s, terminó hace ${Math.round((Date.now() - fin) / 1000)} s) tras ${intentos} ${intentos === 1 ? "intento" : "intentos"}${reloj ? `; reloj del grabador ${reloj} s` : ""}`);
         } else if (f.tipo === "anillo") {
             avisar({ paso: "trayendo", tramo: i + 1, de: tramos.length });
             ok = (await cortarDesdeAnillo(f.dir, t.desde, t.desde + t.seg * 1000, parte)).ok;
