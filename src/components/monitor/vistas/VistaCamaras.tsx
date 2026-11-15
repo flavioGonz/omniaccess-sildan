@@ -35,6 +35,7 @@ import { useAlertasDeLista, CapaAlertaLista, MenuCanal, type AlertaLista, type A
 import { IconoPolicia } from "@/components/IconoPolicia";
 import { MinInteriorDialog } from "@/components/MinInteriorDialog";
 import { retirarDeListaNegra } from "@/app/actions/watchlist";
+import { BandejaDeClips, useClipsGrabados } from "@/components/monitor/camaras/BandejaDeClips";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { BellOff, Ban, CircleCheck, CircleX, Route } from "lucide-react";
 import { SeguimientoChapa } from "@/components/seguimiento/SeguimientoChapa";
@@ -483,6 +484,8 @@ export function VistaCamaras() {
     const [consultaMin, setConsultaMin] = useState<string | null>(null);
     /** «Seguirlo»: la matrícula cuyo seguimiento está abierto (components/seguimiento). */
     const [siguiendo, setSiguiendo] = useState<string | null>(null);
+    // Los clips de «Grabar»: los arma el servidor y quedan en la bandeja de quien los pidió (una pantalla de pared no graba).
+    const grabados = useClipsGrabados(!pantalla);
     const ministerioOn = useFuncion("LPR_MIN_INTERIOR") === true;
     const porClave = useMemo(() => new Map(todos.map((c) => [c.clave, c])), [todos]);
     const nvrs = useMemo(() => [...new Set(todos.map(grupoDe))], [todos]);
@@ -1047,7 +1050,8 @@ export function VistaCamaras() {
                         setGrabacionInicial(instante); setAbiertaClave(k.clave);
                     }} />
             )}
-            <FichaCanal alSeguirChapa={setSiguiendo} c={abierta} grabacionInicial={grabacionInicial} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
+            {!pantalla && <BandejaDeClips clips={grabados.clips} alQuitar={grabados.quitar} alReintentar={grabados.reintentar} elevada={!!abierta} />}
+            <FichaCanal alSeguirChapa={setSiguiendo} alGrabado={pantalla ? undefined : grabados.encolar} c={abierta} grabacionInicial={grabacionInicial} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
                 alerta={abierta ? alertaDe(abierta) : null} lecturas={abierta ? lecturasDe(abierta) : []}
                 alCerrar={() => { setAbiertaClave(null); setOrigenClave(null); }} alMover={enPantalla.length > 1 ? mover : null}
                 canales={todos} seguimiento={seguimiento} alGuardarSeguimiento={(id, n) => setSegLocal((s) => ({ ...s, [id]: n }))} puedeEditar={!!datos?.puedeEditar} alertaDe={alertaDe}

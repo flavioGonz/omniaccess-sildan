@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert, Route, Circle, Square, Clapperboard, Download, Share2 } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert, Route, Circle, Square } from "lucide-react";
 import { JoystickPtz } from "./Joystick";
 import { metaDe } from "@/components/intrusion/comun";
 import { horaCorta, hace } from "@/lib/monitor/cliente";
@@ -20,7 +20,6 @@ import { claseDeBusqueda, motivoDesdeVivo, type ClaseBusqueda } from "@/lib/vivo
 import { nombreCamara } from "@/lib/rostros";
 import { IconoPolicia } from "@/components/IconoPolicia";
 import { MinInteriorDialog } from "@/components/MinInteriorDialog";
-import { CompartirEvento } from "@/components/visor/CompartirEvento";
 import { ANTES_DE, avisoDeLlegada, type Llegada } from "@/lib/vision-llegada";
 import { RotuloVisor } from "./RotuloVisor";
 import type { ObjetoAnalizado } from "@/lib/vision-capa";
@@ -137,9 +136,79 @@ function LecturaApilada({ l }: { l: Lectura }) {
     );
 }
 
-export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision, pasoVision = null, alCerrarPaso, alGuardarSeguimiento, alBuscar, alSeguirChapa }: {
+type EstadoSiluetas = "apagado" | "conectando" | "vivo" | "ocupado" | "error";
+/**
+ * Lo que OmniVision dibuja sobre el vivo, en su propia pieza.
+ *
+ * Por qué es una pieza aparte (15/11, Nico: «mejorar el rendimiento mientras se graba… un VMS
+ * profesional, fluido»). Medido ese día con el canal abierto: la ficha ENTERA —los dos videos, la
+ * barra, las lecturas, los seiscientos renglones— se volvía a calcular 20 veces por segundo, se
+ * grabara o no. El análisis llega unas diez veces por segundo y su estado vivía en la ficha, así
+ * que cada cuadro de análisis era un render de todo. El reloj del REC, que era el sospechoso, no
+ * sumaba nada medible. Acá adentro el análisis sólo vuelve a dibujar esta capa; hacia arriba
+ * avisa nada más que cuando cambia de estado (vivo, ocupado…), que es casi nunca.
+ */
+const SiluetasDelVivo = memo(function SiluetasDelVivo({ stream, activo, atraso, tam, geom, hayAlerta, verGeom, opciones, alEstado, msRef }: {
+    stream: string | null; activo: boolean; atraso: () => number | null;
+    tam: { w: number; h: number } | null; geom: Canal["geom"]; hayAlerta: boolean; verGeom: boolean;
+    opciones: (o: ObjetoAnalizado) => OpcionObjeto[];
+    alEstado: (e: EstadoSiluetas) => void;
+    /** Cuánto tardó el último cuadro: se lee al armar la ayuda del botón, no hace falta dibujar por eso. */
+    msRef: MutableRefObject<number | null>;
+}) {
+    const sil = useSiluetasEnVivo(stream, activo, atraso);
+    useEffect(() => { alEstado(sil.estado); }, [sil.estado, alEstado]);
+    useEffect(() => { msRef.current = sil.ms; }, [sil.ms, msRef]);
+    const g = useMemo(() => (verGeom ? geomDeIntrusion(geom) : null), [verGeom, geom]);
+    // Sin análisis (apagado, buscando, o la grabación): la línea y la zona de la cámara, quietas.
+    if (!activo || !sil.analisis) return geom && verGeom ? <Geometria geom={geom} alerta={hayAlerta} ajuste="contain" /> : null;
+    // Las siluetas van sobre el vivo con el mismo ajuste (contain): el análisis es del subflujo
+    // 16:9, igual que el video. Si dejan de llegar cuadros, se borran solas. `interactiva` (13/11):
+    // tocar un auto muestra cuánto lleva en su lugar; sólo las siluetas reciben el toque.
+    return <CapaAnalisis analisis={tam ? { ...sil.analisis, ancho: tam.w, alto: tam.h } : sil.analisis} geom={g} ajuste="contain" interactiva opciones={opciones} />;
+});
+
+/**
+ * Grabando: el punto rojo y el cronómetro, y detener de un toque. Tiene su propio reloj: el de la
+ * ficha la redibujaba entera cuatro veces por segundo para mover dos dígitos.
+ */
+function PildoraRec({ desde, acumulado, graba, camaras, alDetener }: {
+    /** Desde cuándo corre el tramo de este canal, y lo ya grabado en los canales anteriores (ms). */
+    desde: number; acumulado: number; graba: boolean; camaras: number; alDetener: () => void;
+}) {
+    const [seg, setSeg] = useState(() => Math.floor(acumulado / 1000));
+    const parar = useRef(alDetener);
+    useEffect(() => { parar.current = alDetener; }, [alDetener]);
+    useEffect(() => {
+        const paso = () => { const ms = acumulado + (graba ? Date.now() - desde : 0); setSeg(Math.floor(ms / 1000)); if (ms >= REC_TOPE_MS) parar.current(); };
+        paso();
+        const t = setInterval(paso, 250);
+        return () => clearInterval(t);
+    }, [desde, acumulado, graba]);
+    const mmss = (n: number) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
+    return (
+        <button type="button" data-capa-tocable onClick={alDetener} {...tip("Detener: el clip se arma en el servidor y queda en la bandeja")}
+            className="absolute left-4 sm:left-7 bottom-5 sm:bottom-7 z-10 inline-flex items-center gap-2.5 h-11 pl-3.5 pr-4 rounded-full visor-panel text-white">
+            <span className="h-2.5 w-2.5 rounded-full bg-[var(--mal)] animate-pulse" />
+            <span className="text-[13px] font-bold tracking-[0.08em]">REC</span>
+            <span className="text-[14px] font-semibold tabular-nums">{mmss(seg)}</span>
+            <span className="text-[11.5px] text-white/60 tabular-nums">/ {mmss(REC_TOPE_MS / 1000)}</span>
+            {camaras > 1 && <span className="text-[11.5px] text-white/75 tabular-nums">· {camaras} cámaras</span>}
+            {!graba && <span className="text-[11.5px] text-[color-mix(in_oklab,var(--aviso)_70%,#fff)]">· este canal no graba</span>}
+            <Square size={13} fill="currentColor" className="ml-1" />
+        </button>
+    );
+}
+
+export function FichaCanal({ alGrabado, c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision, pasoVision = null, alCerrarPaso, alGuardarSeguimiento, alBuscar, alSeguirChapa }: {
     /** «Seguirlo»: abrir el seguimiento de la matrícula de un vehículo tocado (dónde está, cuándo llegó, por dónde pasó). */
     alSeguirChapa?: (plate: string) => void;
+    /**
+     * «Grabar»: lo grabado (un tramo por cámara) se le entrega a quien arma los clips —la bandeja de
+     * la pared— y la ficha se desentiende. Devuelve null si quedó en la cola, o por qué no. Sin
+     * esto no hay botón de grabar.
+     */
+    alGrabado?: (tramos: { deviceId: string | null; nvrId: string | null; ch: number | null; desde: number; hasta: number; nombre: string }[], rotulo: string) => Promise<string | null>;
     c: Canal | null; h265: boolean; hls?: boolean; alerta: Alerta | null; lecturas: Lectura[];
     /** Todas las cámaras de la pared y los enlaces del seguimiento visual (por idCanal). */
     canales?: Canal[]; seguimiento?: Record<string, TrackLink[]>; puedeEditar?: boolean;
@@ -283,14 +352,11 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
      */
     /** Desde cuándo corre el tramo de ESTE canal (null = no se está grabando). */
     const [rec, setRec] = useState<number | null>(null);
-    const [recSeg, setRecSeg] = useState(0);
-    const [armando, setArmando] = useState(false);
-    const [clip, setClip] = useState<{ nombre: string; url: string; guardado: string | null; foto: string | null; segundos: number; desde: number; camaras: number; salteados: number } | null>(null);
     const [errorClip, setErrorClip] = useState<string | null>(null);
-    const [compartiendo, setCompartiendo] = useState(false);
-    const puedeGrabar = !pantalla && hayGrabacion;
-    // Mientras se graba, se arma o se mira el clip, la ficha no se cierra sola.
-    const ocupadaRef = useRef(false); ocupadaRef.current = rec != null || armando || !!clip;
+    const puedeGrabar = !pantalla && hayGrabacion && !!alGrabado;
+    // Mientras se graba, la ficha no se cierra sola.
+    const ocupadaRef = useRef(false); ocupadaRef.current = rec != null;
+    const alGrabadoRef = useRef(alGrabado); alGrabadoRef.current = alGrabado;
     /*
      * La grabación SIGUE al cambiar de cámara (13/11, Nico: «debe continuar grabando mientras
      * cambiamos de cámara vía el ícono de visual track»): es lo que hace falta para seguir a
@@ -309,7 +375,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
         if (desde != null && k.graba && hasta - desde >= 1000) tramosRec.current.push({ deviceId: k.deviceId, nvrId: k.nvrId, ch: k.ch, desde, hasta, nombre: nombreCamara(k.nombre) || k.nombre });
     };
     const yaGrabado = () => tramosRec.current.reduce((x, t) => x + (t.hasta - t.desde), 0);
-    const empezar = () => { tramosRec.current = []; canalDeTramo.current = canalAhora; setClip(null); setErrorClip(null); setRec(Date.now()); };
+    const empezar = () => { tramosRec.current = []; canalDeTramo.current = canalAhora; setErrorClip(null); setRec(Date.now()); };
     const detener = useCallback(async () => {
         const hasta = Date.now();
         cerrarTramo(hasta);
@@ -318,29 +384,21 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
         setRec(null);
         const total = tramos.reduce((x, t) => x + (t.hasta - t.desde), 0);
         if (total < REC_MINIMO_MS) { setErrorClip(tramos.length ? "Muy corto: mantené la grabación al menos un par de segundos." : "No quedó nada grabado: los canales por los que pasaste no graban."); return; }
-        setArmando(true); setErrorClip(null);
-        try {
-            const r = await fetch("/api/clip/grabar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tramos, rotulo }), signal: AbortSignal.timeout(170_000) });
-            const j = await r.json().catch(() => null);
-            if (!j?.ok) setErrorClip(`No se pudo armar el clip: ${String(j?.motivo || j?.error || `el servidor respondió ${r.status}`).replace(/\.$/, "")}.`);
-            else setClip({ nombre: j.nombre, url: j.url, guardado: j.guardado || null, foto: j.foto || null, segundos: Number(j.segundos) || Math.round(total / 1000), desde: tramos[0].desde, camaras: Number(j.camaras) || 1, salteados: Number(j.salteados) || 0 });
-        } catch { setErrorClip("No se pudo armar el clip: el servidor no contestó a tiempo."); }
-        setArmando(false);
+        // El clip lo arma el servidor (lib/clips-grabados) y aparece en la bandeja: acá no se espera nada.
+        setErrorClip(null);
+        const m = alGrabadoRef.current ? await alGrabadoRef.current(tramos, rotulo) : "no hay quién arme el clip.";
+        if (m) setErrorClip(`No se pudo pedir el clip: ${m}`);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
-    // El cronómetro (de toda la grabación, no del tramo) y el tope: pasado REC_TOPE_MS se detiene sola.
-    useEffect(() => {
-        if (rec == null) { setRecSeg(0); return; }
-        const t = setInterval(() => { const ms = yaGrabado() + (canalDeTramo.current.graba ? Date.now() - rec : 0); setRecSeg(Math.floor(ms / 1000)); if (ms >= REC_TOPE_MS) void detener(); }, 250);
-        return () => clearInterval(t);
-    }, [rec, detener]);
     // Otro canal. Grabando: se cierra el tramo del que se deja y arranca el del que llega. Si la
-    // ficha se cerró (sin canal), la grabación se descarta: no hay dónde mostrar el clip.
+    // ficha se cerró (sin canal), se da por terminada y el clip se pide igual: hasta el 14/11 se
+    // descartaba, porque el clip vivía en la ficha; ahora queda en la bandeja.
     const claveRec = useRef<string | null>(c?.clave ?? null);
     useEffect(() => {
         if (claveRec.current === (c?.clave ?? null)) return;
         claveRec.current = c?.clave ?? null;
         if (recRef.current != null && c) { const ahora = Date.now(); cerrarTramo(ahora); canalDeTramo.current = canalAhora; setRec(ahora); return; }
-        tramosRec.current = []; setRec(null); setClip(null); setErrorClip(null); setCompartiendo(false);
+        if (recRef.current != null) { void detener(); return; }
+        tramosRec.current = []; setRec(null); setErrorClip(null);
     }, [c?.clave]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => { if (!errorClip) return; const t = setTimeout(() => setErrorClip(null), 9000); return () => clearTimeout(t); }, [errorClip]);
     useEffect(() => {
@@ -416,7 +474,9 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
         // Todavía sin video (se ve la foto del canal): no hay con qué sincronizar.
         return medir ? medir() : null;
     }, []);
-    const sil = useSiluetasEnVivo(c && c.online !== false ? c.stream : null, !!c && verSiluetas && grabacion == null, atrasoDelVideo);
+    // El análisis en vivo se dibuja en SiluetasDelVivo; acá sólo llega su estado (cambia casi nunca).
+    const [estadoSil, setEstadoSil] = useState<EstadoSiluetas>("apagado");
+    const msSil = useRef<number | null>(null);
     // HD convertido es varias veces más caro que el subflujo: sin H.265 se ve el subflujo convertido.
     const enHd = h265 && hd && !fallo;
     const m = alerta ? metaDe(alerta.tipo) : null;
@@ -463,14 +523,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                             )}
                         </>
                     )}
-                    {c.geom && verGeom && !(sil.analisis && grabacion == null) && <Geometria geom={c.geom} alerta={!!alerta} ajuste="contain" />}
-                    {/* Las siluetas van sobre el vivo con el mismo ajuste (contain): el análisis es del
-                        subflujo 16:9, igual que el video. Si dejan de llegar cuadros, se borran solas. */}
-                    {/* `interactiva` (13/11): tocar un auto muestra cuánto lleva en su lugar; antes el tiempo
-                        iba escrito sobre todos y tapaba la escena. Sólo las siluetas reciben el toque. */}
-                    {grabacion == null && sil.analisis && (
-                        <CapaAnalisis analisis={tamVideo ? { ...sil.analisis, ancho: tamVideo.w, alto: tamVideo.h } : sil.analisis} geom={verGeom ? geomDeIntrusion(c.geom) : null} ajuste="contain" interactiva opciones={opcionesDeObjeto} />
-                    )}
+                    <SiluetasDelVivo stream={c.online !== false ? c.stream : null} activo={verSiluetas && grabacion == null} atraso={atrasoDelVideo} tam={tamVideo}
+                        geom={c.geom} hayAlerta={!!alerta} verGeom={verGeom} opciones={opcionesDeObjeto} alEstado={setEstadoSil} msRef={msSil} />
 
                     {grabacion == null && <PasoVisionCanal paso={pasoVision} nombre={c.nombre} foto={foto} grande alCerrar={alCerrarPaso} capa="z-0" />}
 
@@ -482,10 +536,10 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                 {grabacion != null ? <History size={14} className="text-[var(--accion-en-oscuro)] shrink-0" /> : <Radio size={14} className="text-[var(--mal)] animate-pulse shrink-0" />}
                                 <span className="font-semibold text-white/90">{ubicacion(c)}</span>
                                 <span className="text-white/30">·</span><span>{grabacion != null ? "grabación" : calidad}</span>
-                                {grabacion == null && verSiluetas && sil.estado !== "apagado" && (<>
+                                {grabacion == null && verSiluetas && estadoSil !== "apagado" && (<>
                                     <span className="text-white/30">·</span>
-                                    <span className={cn(sil.estado === "ocupado" || sil.estado === "error" ? "text-[var(--aviso-texto)]" : "")}>
-                                        {sil.estado === "vivo" ? "siluetas en vivo" : sil.estado === "conectando" ? "buscando siluetas…" : sil.estado === "ocupado" ? "siluetas ocupadas (2 canales a la vez)" : "siluetas sin respuesta"}
+                                    <span className={cn(estadoSil === "ocupado" || estadoSil === "error" ? "text-[var(--aviso-texto)]" : "")}>
+                                        {estadoSil === "vivo" ? "siluetas en vivo" : estadoSil === "conectando" ? "buscando siluetas…" : estadoSil === "ocupado" ? "siluetas ocupadas (2 canales a la vez)" : "siluetas sin respuesta"}
                                     </span>
                                 </>)}
                             </p>
@@ -520,7 +574,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                 )}
                                 {grabacion == null && c.online !== false && (
                                     <Icono onClick={() => setVerSiluetas((x) => !x)} activo={verSiluetas}
-                                        titulo={verSiluetas ? `Siluetas de OmniVision en vivo${sil.estado === "vivo" && sil.ms != null ? ` · ${sil.ms} ms por cuadro` : sil.estado === "ocupado" ? " · ocupado: ya hay dos canales con siluetas" : ""} · tocar para apagar` : "Mostrar las siluetas de OmniVision en vivo"}>
+                                        titulo={verSiluetas ? `Siluetas de OmniVision en vivo${estadoSil === "vivo" && msSil.current != null ? ` · ${msSil.current} ms por cuadro` : estadoSil === "ocupado" ? " · ocupado: ya hay dos canales con siluetas" : ""} · tocar para apagar` : "Mostrar las siluetas de OmniVision en vivo"}>
                                         <Sparkles size={18} />
                                     </Icono>
                                 )}
@@ -541,7 +595,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                 {c.geom && <Icono onClick={() => setVerGeom((x) => !x)} activo={verGeom} titulo={verGeom ? "Ocultar la línea y la zona" : "Mostrar la línea y la zona de la cámara"}><Spline size={18} /></Icono>}
                                 {(puedeGrabar || rec != null) && grabacion == null && (
                                     <Icono onClick={() => (rec != null ? void detener() : empezar())} activo={rec != null}
-                                        titulo={rec != null ? "Detener y armar el clip" : armando ? "Armando el clip anterior…" : `Grabar un clip de lo que se ve (hasta ${REC_TOPE_MS / 1000} s; sigue grabando si cambiás de cámara)`}>
+                                        titulo={rec != null ? "Detener: el clip se arma en el servidor y queda en la bandeja" : `Grabar un clip de lo que se ve (hasta ${REC_TOPE_MS / 1000} s; sigue grabando si cambiás de cámara)`}>
                                         {rec != null ? <Square size={15} fill="currentColor" /> : <Circle size={17} className="text-[var(--mal)]" fill="currentColor" />}
                                     </Icono>
                                 )}
@@ -588,45 +642,9 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                     {lecturas.length > 0 && grabacion == null && <PilaLecturas lecturas={lecturas} />}
 
                     {/* Grabando: el punto rojo y el cronómetro, siempre a la vista (no se van con los controles), y detener de un toque. */}
-                    {rec != null && (
-                        <button type="button" data-capa-tocable onClick={() => void detener()} {...tip("Detener y armar el clip")}
-                            className="absolute left-4 sm:left-7 bottom-5 sm:bottom-7 z-10 inline-flex items-center gap-2.5 h-11 pl-3.5 pr-4 rounded-full visor-panel text-white">
-                            <span className="h-2.5 w-2.5 rounded-full bg-[var(--mal)] animate-pulse" />
-                            <span className="text-[13px] font-bold tracking-[0.08em]">REC</span>
-                            <span className="text-[14px] font-semibold tabular-nums">{String(Math.floor(recSeg / 60)).padStart(2, "0")}:{String(recSeg % 60).padStart(2, "0")}</span>
-                            <span className="text-[11.5px] text-white/60 tabular-nums">/ {String(Math.floor(REC_TOPE_MS / 60_000)).padStart(2, "0")}:{String((REC_TOPE_MS / 1000) % 60).padStart(2, "0")}</span>
-                            {tramosRec.current.length + (hayGrabacion ? 1 : 0) > 1 && <span className="text-[11.5px] text-white/75 tabular-nums">· {tramosRec.current.length + (hayGrabacion ? 1 : 0)} cámaras</span>}
-                            {!hayGrabacion && <span className="text-[11.5px] text-[color-mix(in_oklab,var(--aviso)_70%,#fff)]">· este canal no graba</span>}
-                            <Square size={13} fill="currentColor" className="ml-1" />
-                        </button>
-                    )}
-                    {armando && (
-                        <div className="absolute inset-0 z-10 grid place-items-center pointer-events-none">
-                            <RotuloVisor Icono={Clapperboard} texto="Armando el clip desde la grabación" esperando nota="Tarda lo que dura el clip, y hasta un minuto y medio más si el grabador todavía no tiene lo último" />
-                        </div>
-                    )}
-                    {errorClip && (
+                    {rec != null && <PildoraRec desde={rec} acumulado={yaGrabado()} graba={hayGrabacion} camaras={tramosRec.current.length + (hayGrabacion ? 1 : 0)} alDetener={detener} />}
+                    {errorClip && rec == null && (
                         <div data-capa-tocable className="absolute left-4 sm:left-7 bottom-5 sm:bottom-7 z-10 max-w-[420px] rounded-[10px] visor-panel text-white px-3.5 py-2.5 text-[13px]" role="alert">{errorClip}</div>
-                    )}
-                    {/* El clip listo: mirarlo, bajarlo o mandarlo. Queda hasta que se cierra. */}
-                    {clip && !compartiendo && (
-                        <div data-capa-tocable className="absolute left-4 sm:left-7 bottom-5 sm:bottom-7 z-10 w-[320px] max-w-[86vw] rounded-[14px] visor-panel text-white overflow-hidden">
-                            <video src={clip.url} controls muted playsInline preload="metadata" poster={getImagePath(clip.foto) || undefined} className="block w-full aspect-video bg-black" />
-                            <div className="px-3 pt-2 pb-2.5">
-                                <div className="text-[13px] font-semibold">Clip de {clip.segundos} s{clip.camaras > 1 ? ` · ${clip.camaras} cámaras` : ""} · {horaCorta(new Date(clip.desde).toISOString())}</div>
-                                {clip.salteados > 0 && <div className="text-[11.5px] text-[color-mix(in_oklab,var(--aviso)_70%,#fff)]">{clip.salteados === 1 ? "Un tramo no salió" : `${clip.salteados} tramos no salieron`}: su grabador no entregó ese horario.</div>}
-                                <div className="text-[11.5px] text-white/65">{clip.guardado ? "Guardado en el almacén." : "No se pudo guardar en el almacén: bajalo ahora, en unos minutos se borra."}</div>
-                                <div className="mt-2 flex items-center gap-1.5">
-                                    <a href={getImagePath(clip.guardado) || clip.url} download={clip.nombre} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-white text-black text-[12.5px] font-semibold"><Download size={14} /> Descargar</a>
-                                    <button type="button" onClick={() => setCompartiendo(true)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-white/15 hover:bg-white/25 text-[12.5px] font-semibold"><Share2 size={14} /> Enviar</button>
-                                    <button type="button" onClick={() => setClip(null)} {...tip("Cerrar")} className="ml-auto h-9 w-9 grid place-items-center rounded-full hover:bg-white/15"><X size={16} /></button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    {clip && compartiendo && (
-                        <CompartirEvento clipHecho={clip.nombre} foto={clip.foto} deviceId={c.equipoId} deviceName={c.nombre} instante={new Date(clip.desde)}
-                            titulo={clip.camaras > 1 ? "Recorrida grabada desde el vivo" : `Clip de ${c.nombre}`} lineas={[`Grabado desde el vivo · ${clip.segundos} s${clip.camaras > 1 ? ` · ${clip.camaras} cámaras` : ""}`]} onCerrar={() => setCompartiendo(false)} />
                     )}
                     {/* Mientras se busca en el registro cuándo llegó (suele ser menos de un segundo). */}
                     {buscandoLlegada && (

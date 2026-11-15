@@ -1894,3 +1894,38 @@ model ConsultaMinInterior {
 
   @@index([matricula, creadoEn])
 }
+
+/// Un clip pedido con «Grabar» en el vivo. Es la tarea (en cola → armando → listo o falló) y, cuando
+/// termina, el clip: se arma en el servidor aunque se cierre la pestaña (src/lib/clips-grabados.ts).
+model ClipGrabado {
+  id        String    @id @default(cuid())
+  /// Quién lo pidió (el `sub` de la sesión) y cómo se llama, para mostrarlo.
+  usuarioId String
+  usuario   String?
+  /// en-cola | esperando | trayendo | uniendo | editando | guardando | listo | fallo
+  estado    String    @default("en-cola")
+  /// Por dónde va: { tramo, de, proximo (ms: cuándo se le vuelve a pedir al grabador) }
+  avance    Json?
+  /// [{ deviceId?, nvrId?, ch?, desde, hasta, nombre? }], en milisegundos: con esto se puede rehacer.
+  tramos    Json
+  rotulo    String?
+  /// Listo: el archivo (carpeta de clips, vive minutos), su copia en el almacén y la portada.
+  nombre    String?
+  guardado  String?
+  foto      String?
+  segundos  Int?
+  camaras   Int?
+  salteados Int?
+  /// Falló: por qué.
+  motivo    String?
+  /// Late mientras alguien lo arma. Si deja de latir (se reinició la web), se retoma.
+  latido    DateTime?
+  intentos  Int       @default(0)
+  /// Quitado de la bandeja por quien lo pidió. El clip sigue en el almacén.
+  oculto    Boolean   @default(false)
+  creado    DateTime  @default(now())
+  terminado DateTime?
+
+  @@index([usuarioId, creado])
+  @@index([estado, latido])
+}

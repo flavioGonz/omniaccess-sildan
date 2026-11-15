@@ -273,7 +273,23 @@ const TRAMO_MINIMO_SEG = 1;
  * tramo tiene esta antigüedad (una edad que ya pasó no se repite: un tramo viejo se pide una vez).
  * Un corte que falla después de varios segundos NO se reintenta: ese no es «todavía no lo tengo».
  */
-const EDAD_DEL_FIN_SEG = [0, 20, 40, 65, 90];
+const EDAD_DEL_FIN_SEG = [0, 20, 40, 60, 75, 90, 105, 120, 150, 180, 240, 300];
+/*
+ * Hasta cinco minutos, y no noventa segundos (15/11). El 14/11 a las 20:02 un clip de tres tramos
+ * del NVR de IES falló entero «tras insistir un minuto y medio», con grabación de ese horario en
+ * los dos canales (medido después): ese grabador a veces tarda más de 90 s. Se puede esperar más
+ * porque el clip ya no lo arma un pedido que alguien mira: es una tarea del servidor
+ * (lib/clips-grabados) y quien lo pidió sigue trabajando.
+ */
+
+/** Por dónde va el armado, para contarlo en la bandeja de clips. */
+export type AvanceDeClip = {
+    paso: "esperando" | "trayendo" | "uniendo" | "editando";
+    /** Qué cámara de cuántas (esperando y trayendo). */
+    tramo?: number; de?: number;
+    /** Esperando: cuándo se le vuelve a pedir al grabador (ms). */
+    proximo?: number;
+};
 /** Un corte que falla en menos que esto fue un rechazo del grabador (no un corte que se cayó a mitad). */
 const RECHAZO_RAPIDO_MS = 5000;
 /** Diferencia de reloj que se corrige: menos es ruido; más no es un reloj corrido sino la zona horaria mal puesta. */
@@ -306,7 +322,8 @@ async function relojDelGrabador(nvrId: string | null): Promise<number> {
  * - Las cámaras pueden grabar en tamaños distintos: al unir se lleva todo al alto de Ajustes
  *   (720 si está en «original»), con bandas si la proporción no coincide. Se recodifica una vez.
  */
-export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | null): Promise<ResultadoClip & { tramos?: number; salteados?: number }> {
+export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | null, alAvance?: (a: AvanceDeClip) => void): Promise<ResultadoClip & { tramos?: number; salteados?: number }> {
+    const avisar = (a: AvanceDeClip) => { try { alAvance?.(a); } catch { /* contar el avance nunca frena el clip */ } };
     let resta = ENVIO_MAX_SEG;
     const tramos: (TramoGrabado & { seg: number })[] = [];
     for (const t of pedidos.slice(0, TRAMOS_MAX)) {
@@ -323,7 +340,7 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
     // esperar para que el grabador lo tenga se resuelve tramo por tramo, abajo.
     const falta = Math.max(...tramos.map((t) => t.desde + t.seg * 1000)) + MARGEN_GRABACION_SEG * 1000 - Date.now();
     if (falta > ESPERA_TOPE_MS) return { ok: false, motivo: "ese tramo todavía no se grabó", ventana, fuente: null };
-    if (falta > 0) await esperar(falta);
+    if (falta > 0) { avisar({ paso: "esperando", tramo: 1, de: tramos.length, proximo: Date.now() + falta }); await esperar(falta); }
 
     try { fs.mkdirSync(DIR_CLIPS, { recursive: true }); } catch { }
     purgarClips();
@@ -348,7 +365,8 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
             for (const edad of EDAD_DEL_FIN_SEG) {
                 const aun = fin + edad * 1000 - Date.now();
                 if (aun <= 0 && intentos > 0) continue;
-                if (aun > 0) await esperar(aun);
+                if (aun > 0) { avisar({ paso: "esperando", tramo: i + 1, de: tramos.length, proximo: fin + edad * 1000 }); await esperar(aun); }
+                avisar({ paso: "trayendo", tramo: i + 1, de: tramos.length });
                 intentos++;
                 const t0 = Date.now();
                 // Sin el logo acá: lo pone la edición, una vez, sobre el clip ya unido (si viniera en cada
@@ -359,6 +377,7 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
             }
             if (!(ok && bytes >= 1500)) console.warn(`[clip] grabación: el grabador no entregó el tramo ${i + 1} (canal ${f.ch}, ${t.seg} s, terminó hace ${Math.round((Date.now() - fin) / 1000)} s) tras ${intentos} ${intentos === 1 ? "intento" : "intentos"}${reloj ? `; reloj del grabador ${reloj} s` : ""}`);
         } else if (f.tipo === "anillo") {
+            avisar({ paso: "trayendo", tramo: i + 1, de: tramos.length });
             ok = (await cortarDesdeAnillo(f.dir, t.desde, t.desde + t.seg * 1000, parte)).ok;
             try { bytes = fs.statSync(parte).size; } catch { }
         } else console.warn(`[clip] grabación: tramo ${i + 1} sin fuente de video: ${f.motivo}`);
@@ -366,12 +385,13 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
         else { salteados++; try { fs.unlinkSync(parte); } catch { } }
     }
     const limpiar = () => { for (const x of partes) try { fs.unlinkSync(x); } catch { } };
-    if (!partes.length) return { ok: false, motivo: "el grabador todavía no tiene disponible ese tramo (se insistió durante un minuto y medio). Probá de nuevo en un rato, o cortalo desde la grabación", ventana, fuente: null };
+    if (!partes.length) return { ok: false, motivo: "el grabador todavía no tiene disponible ese tramo (se insistió durante cinco minutos). Probá de nuevo en un rato, o cortalo desde la grabación", ventana, fuente: null };
 
     /** Dónde empieza cada cámara en el clip unido (s) y cómo se llama: la edición escribe el nombre. */
     let escenas: EscenaDeClip[] = [];
     if (partes.length === 1) fs.renameSync(partes[0], destino);
     else {
+        avisar({ paso: "uniendo", de: partes.length });
         const unido = await unirEscenas(partes, nombres, destino, cfg.altura || 720);
         if (unido) escenas = unido;
         limpiar();
@@ -382,6 +402,7 @@ export async function clipDeTramos(pedidos: TramoGrabado[], rotulo?: string | nu
 
     let edicion: { editado?: boolean; ancho?: number; alto?: number; segundos?: number } = {};
     if (marca) {
+        avisar({ paso: "editando" });
         const e = await editarClip(destino, {
             titulo: partes.length > 1 ? "Recorrida" : dev?.name || rotulo || "Cámara",
             lineas: [cuandoLargo(new Date(primero.desde)), partes.length > 1 ? `${partes.length} cámaras` : ""],
