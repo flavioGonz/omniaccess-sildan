@@ -2,7 +2,8 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert, Route, Circle, Square } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert, Route, Circle, Square, CircleCheck, BellOff, Ban } from "lucide-react";
+import type { AlertaLista, AccionAlertaLista } from "./AlertaDeLista";
 import { JoystickPtz } from "./Joystick";
 import { metaDe } from "@/components/intrusion/comun";
 import { horaCorta, hace } from "@/lib/monitor/cliente";
@@ -200,7 +201,7 @@ function PildoraRec({ desde, acumulado, graba, camaras, alDetener }: {
     );
 }
 
-export function FichaCanal({ alGrabado, c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision, pasoVision = null, alCerrarPaso, alGuardarSeguimiento, alBuscar, alSeguirChapa }: {
+export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, alGrabado, c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision, pasoVision = null, alCerrarPaso, alGuardarSeguimiento, alBuscar, alSeguirChapa }: {
     /** «Seguirlo»: abrir el seguimiento de la matrícula de un vehículo tocado (dónde está, cuándo llegó, por dónde pasó). */
     alSeguirChapa?: (plate: string) => void;
     /**
@@ -209,6 +210,20 @@ export function FichaCanal({ alGrabado, c, h265, hls = false, alerta, lecturas, 
      * esto no hay botón de grabar.
      */
     alGrabado?: (tramos: { deviceId: string | null; nvrId: string | null; ch: number | null; desde: number; hasta: number; nombre: string }[], rotulo: string) => Promise<string | null>;
+    /** La alerta de lista negra de ESTE canal, si hay una (la misma que resalta su cuadro en la pared). */
+    lista?: AlertaLista | null;
+    /**
+     * Decidir sobre la alerta desde el vehículo tocado: aceptarla, desactivarla o retirar la chapa
+     * de la lista negra. Lo hace la pared (es la misma acción que en el menú del cuadro, con la
+     * misma auditoría); devuelve null si salió bien o qué pasó, para decirlo acá.
+     */
+    alAlertaLista?: (accion: AccionAlertaLista, plate: string) => Promise<string | null>;
+    /**
+     * Hay algo abierto ENCIMA de la ficha que es dueño del teclado (la confirmación de retirar de
+     * la lista negra). Sin esto, el Esc que cerraba la confirmación cerraba también el canal: los
+     * dos escuchan la tecla (visto al probarlo).
+     */
+    tecladoAjeno?: boolean;
     c: Canal | null; h265: boolean; hls?: boolean; alerta: Alerta | null; lecturas: Lectura[];
     /** Todas las cámaras de la pared y los enlaces del seguimiento visual (por idCanal). */
     canales?: Canal[]; seguimiento?: Record<string, TrackLink[]>; puedeEditar?: boolean;
@@ -281,8 +296,24 @@ export function FichaCanal({ alGrabado, c, h265, hls = false, alerta, lecturas, 
         setNotaLlegada(aviso);
         setGrabacionDesde(abrir);
     }, [streamCanal]);
+    const [avisoLista, setAvisoLista] = useState<string | null>(null);
+    useEffect(() => { if (!avisoLista) return; const t = setTimeout(() => setAvisoLista(null), 9000); return () => clearTimeout(t); }, [avisoLista]);
     const opcionesDeObjeto = useCallback((o: ObjetoAnalizado): OpcionObjeto[] => {
-        const ops: OpcionObjeto[] = [{
+        /*
+         * Un vehículo en alerta (lista negra): decidir ahí mismo (13/11, Nico: «el menú contextual
+         * del vehículo, pudiendo desactivar esa alerta y retirarla de la lista negra»). Hasta el
+         * 14/11 esto estaba sólo en el menú del cuadro de la pared: con el canal abierto había que
+         * salir para hacerlo. Va primero: es lo que se vino a hacer. Sólo con sesión de operador.
+         */
+        const deLista: OpcionObjeto[] = [];
+        if (o.alerta && alAlertaLista && !pantalla) {
+            const chapa = o.chapa?.plate || lista?.plate || "";
+            const hacer = (accion: AccionAlertaLista) => () => { void alAlertaLista(accion, chapa).then((m) => { if (m) setAvisoLista(m); }); };
+            if (lista && !lista.real) deLista.push({ clave: "lista-aceptar", rotulo: "Aceptar la alerta: es real", Icono: CircleCheck, alElegir: hacer("aceptar") });
+            if (lista) deLista.push({ clave: "lista-desactivar", rotulo: "Desactivar la alerta", Icono: BellOff, alElegir: hacer("desactivar") });
+            deLista.push({ clave: "lista-retirar", rotulo: "Retirar de la lista negra", Icono: Ban, motivo: !chapa ? "Todavía no se le leyó la matrícula" : undefined, alElegir: hacer("retirar") });
+        }
+        const ops: OpcionObjeto[] = [...deLista, {
             clave: "llegada", rotulo: "Ver cuándo llegó", Icono: History,
             motivo: !hayGrabacion ? "Este canal no tiene grabación" : !o.quietoDesde ? "Todavía no se sabe desde cuándo está" : undefined,
             alElegir: () => { void verLlegada(o); },
@@ -307,7 +338,7 @@ export function FichaCanal({ alGrabado, c, h265, hls = false, alerta, lecturas, 
             alElegir: () => setConsulta(o.chapa?.plate || null),
         });
         return ops;
-    }, [hayGrabacion, alBuscar, alSeguirChapa, amarillaOn, ministerioOn, pantalla, nombreCanal, verLlegada]);
+    }, [hayGrabacion, alBuscar, alSeguirChapa, amarillaOn, ministerioOn, pantalla, nombreCanal, verLlegada, lista, alAlertaLista]);
     const [fallo, setFallo] = useState(false);
     const [hd, setHd] = useState(true);
     // Cuál de los dos vivos ya tiene imagen: el subflujo arranca siempre y la alta calidad lo tapa
@@ -455,9 +486,15 @@ export function FichaCanal({ alGrabado, c, h265, hls = false, alerta, lecturas, 
         };
     }, [!!c]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // El Esc que cierra lo de encima llega acá en el MISMO evento, y para entonces lo de encima ya
+    // se cerró y React ya volvió a dibujar (entre un oyente y el siguiente): mirar sólo «¿hay algo
+    // encima ahora?» daba que no. Por eso también vale «se acaba de cerrar».
+    const tecladoAjenoRef = useRef(tecladoAjeno), ajenoHasta = useRef(0);
+    if (tecladoAjenoRef.current && !tecladoAjeno) ajenoHasta.current = performance.now() + 250;
+    tecladoAjenoRef.current = tecladoAjeno;
     const teclas = useCallback((e: KeyboardEvent) => {
         // Con el cajón de la Lista Amarilla abierto, las teclas son suyas (Esc lo cierra a él, no a la ficha).
-        if (sospechosoRef.current) return;
+        if (sospechosoRef.current || tecladoAjenoRef.current || performance.now() < ajenoHasta.current) return;
         // En la grabación, Esc vuelve al vivo; las flechas son de la regla (Grabacion).
         if (grabacionRef.current) { if (e.key === "Escape") { e.preventDefault(); setGrabacionDesde(null); } return; }
         if (e.key === "Escape") { e.preventDefault(); alCerrar(); }
@@ -643,8 +680,8 @@ export function FichaCanal({ alGrabado, c, h265, hls = false, alerta, lecturas, 
 
                     {/* Grabando: el punto rojo y el cronómetro, siempre a la vista (no se van con los controles), y detener de un toque. */}
                     {rec != null && <PildoraRec desde={rec} acumulado={yaGrabado()} graba={hayGrabacion} camaras={tramosRec.current.length + (hayGrabacion ? 1 : 0)} alDetener={detener} />}
-                    {errorClip && rec == null && (
-                        <div data-capa-tocable className="absolute left-4 sm:left-7 bottom-5 sm:bottom-7 z-10 max-w-[420px] rounded-[10px] visor-panel text-white px-3.5 py-2.5 text-[13px]" role="alert">{errorClip}</div>
+                    {(errorClip || avisoLista) && rec == null && (
+                        <div data-capa-tocable className="absolute left-4 sm:left-7 bottom-5 sm:bottom-7 z-10 max-w-[420px] rounded-[10px] visor-panel text-white px-3.5 py-2.5 text-[13px]" role="alert">{errorClip || avisoLista}</div>
                     )}
                     {/* Mientras se busca en el registro cuándo llegó (suele ser menos de un segundo). */}
                     {buscandoLlegada && (

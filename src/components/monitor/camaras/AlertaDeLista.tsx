@@ -34,7 +34,11 @@ export type AlertaLista = {
     clave: string; plate: string; requerida: boolean; ts: string; hasta: number | null;
     /** Alguien ya la aceptó como real: sigue resaltada hasta que se desactiva (igual que en la pila de avisos). */
     real?: boolean;
+    /** Llegó con esta pantalla abierta (por el socket), no vino ya pendiente al cargarla. */
+    enVivo?: boolean;
 };
+/** Lo que se puede decidir sobre una alerta de lista, desde el menú del cuadro o desde el vehículo en el vivo. */
+export type AccionAlertaLista = "aceptar" | "desactivar" | "retirar";
 export type ALaVista = { clave: string; deviceId: string | null; camara: string | null; plate: string; requerida: boolean; ts: string };
 
 /** Una lectura de acceso resalta su cuadro este tiempo: después el vehículo ya no está ahí. */
@@ -55,7 +59,7 @@ export function useAlertasDeLista(pendientes: ALaVista[] | undefined, canales: C
     useTiempoReal("access_event", (e: any) => {
         const dev = e?.deviceId || e?.device?.id;
         if (!e?.id || !dev || String(e.watch?.category || "").toUpperCase() !== "BLACKLISTED") return;
-        setVivas((p) => ({ ...p, [dev]: { clave: `l:${e.id}`, plate: limpia(e.plateDetected), requerida: esRequerida(e.watch?.label, e.watch?.motivo), ts: e.timestamp || new Date().toISOString(), hasta: Date.now() + ALERTA_ACCESO_MS } }));
+        setVivas((p) => ({ ...p, [dev]: { clave: `l:${e.id}`, plate: limpia(e.plateDetected), requerida: esRequerida(e.watch?.label, e.watch?.motivo), ts: e.timestamp || new Date().toISOString(), hasta: Date.now() + ALERTA_ACCESO_MS, enVivo: true } }));
     });
     useTiempoReal("aviso_guardia", (x: any) => {
         const a = x?.aviso;
@@ -63,7 +67,7 @@ export function useAlertasDeLista(pendientes: ALaVista[] | undefined, canales: C
         if (x.accion === "atendido") { setAtendidas((s) => new Set(s).add(`a:${a.id}`)); return; }
         const dev = equipoDe(a.datos?.deviceId, a.camara);
         if (!dev || x.accion !== "nuevo") return;
-        setVivas((p) => ({ ...p, [dev]: { clave: `a:${a.id}`, plate: limpia(a.plate), requerida: !!a.datos?.requerida, ts: a.creado || new Date().toISOString(), hasta: null } }));
+        setVivas((p) => ({ ...p, [dev]: { clave: `a:${a.id}`, plate: limpia(a.plate), requerida: !!a.datos?.requerida, ts: a.creado || new Date().toISOString(), hasta: null, enVivo: true } }));
     });
     const [reales, setReales] = useState<Set<string>>(() => new Set());
     useTiempoReal("alarma_atendida", (x: any) => {

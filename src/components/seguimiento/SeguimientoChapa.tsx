@@ -43,8 +43,10 @@ const fechaHora = (ms: number) => {
 };
 const limpia = (p: unknown) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
-export function SeguimientoChapa({ plate, alCerrar, alVer }: {
+export function SeguimientoChapa({ plate, alCerrar, alVer, porque }: {
     plate: string; alCerrar: () => void;
+    /** Si nadie lo pidió (se abrió solo por una requerida), por qué: se lee arriba, una línea. */
+    porque?: string | null;
     /** Abrir esa cámara: en vivo (`instante` null) o en su grabación desde ese momento. */
     alVer?: (deviceId: string, instante: number | null) => void;
 }) {
@@ -89,6 +91,7 @@ export function SeguimientoChapa({ plate, alCerrar, alVer }: {
                     <Button variant="ghost" size="icon-sm" onClick={pedir} title="Actualizar" aria-label="Actualizar">{cargando ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}</Button>
                     <Button variant="ghost" size="icon-sm" onClick={alCerrar} title="Cerrar  ( Esc )" aria-label="Cerrar"><X size={17} /></Button>
                 </div>
+                {porque && <div className="mt-1 text-[12px] text-muted-foreground">{porque}</div>}
                 {lista?.requerida ? <CartelRequerida motivo={lista.motivo} className="mt-2 w-full" />
                     : lista && <span className={cn("mt-2 inline-flex rounded-md border px-2 py-0.5 text-[11px] font-bold", lista.categoria === "BLACKLISTED" ? "chip-mal" : lista.categoria === "SEARCH" ? "chip-aviso" : "chip-info")} title={lista.motivo || undefined}>
                         {lista.categoria === "BLACKLISTED" ? "Lista negra" : lista.categoria === "SEARCH" ? "Lista Amarilla" : "VIP"}{lista.etiqueta ? ` · ${lista.etiqueta}` : ""}</span>}

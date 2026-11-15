@@ -31,7 +31,15 @@ import { EditorVista } from "@/components/monitor/camaras/Editor";
 import { abrirVentana, listarPantallas, hayVariasPantallasApi, clavePrefs, type Pantalla } from "@/components/monitor/camaras/ventanas";
 import { proximoIntento, esCorteGeneral } from "@/lib/vivo-reintento";
 import { cn } from "@/lib/utils";
-import { useAlertasDeLista, CapaAlertaLista, MenuCanal, type AlertaLista, type ALaVista, type OpcionCanal } from "@/components/monitor/camaras/AlertaDeLista";
+import { useAlertasDeLista, CapaAlertaLista, MenuCanal, type AlertaLista, type ALaVista, type OpcionCanal, type AccionAlertaLista } from "@/components/monitor/camaras/AlertaDeLista";
+import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
+
+const NO_SE_GUARDO = "No se pudo guardar la decisión. Probá de nuevo o hacelo desde Gestión de alarmas.";
+/** Decidir una alarma: lo mismo que en Gestión de alarmas (queda quién y cuándo en su bitácora). */
+async function gestionarAlarma(id: string, cuerpo: Record<string, unknown>): Promise<boolean> {
+    const r = await fetch("/api/alarmas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, atender: true, ...cuerpo }) }).catch(() => null);
+    return !!r?.ok;
+}
 import { IconoPolicia } from "@/components/IconoPolicia";
 import { MinInteriorDialog } from "@/components/MinInteriorDialog";
 import { retirarDeListaNegra } from "@/app/actions/watchlist";
@@ -486,6 +494,59 @@ export function VistaCamaras() {
     const [siguiendo, setSiguiendo] = useState<string | null>(null);
     // Los clips de «Grabar»: los arma el servidor y quedan en la bandeja de quien los pidió (una pantalla de pared no graba).
     const grabados = useClipsGrabados(!pantalla);
+    /** Por qué está abierto el seguimiento cuando nadie lo pidió (ver «se abre solo», más abajo). */
+    const [siguiendoPorque, setSiguiendoPorque] = useState<string | null>(null);
+    /** Retirar de la lista negra desde el vivo: se confirma en un cajón (ahí no hay segundo clic como en el menú del cuadro). */
+    const [retirando, setRetirando] = useState<{ plate: string; l: AlertaLista | null; canal: string } | null>(null);
+    const seguirChapa = useCallback((plate: string) => { setSiguiendoPorque(null); setSiguiendo(plate); }, []);
+    /*
+     * Las decisiones sobre una alerta de lista, en un solo lugar: las usan el menú del cuadro y el
+     * menú del vehículo en el vivo (14/11). Devuelven null si salió bien, o qué pasó.
+     * `desde` es dónde se decidió («la pared de cámaras (LPR Entrada)»): va a la bitácora.
+     */
+    /** Desactivar. Ya aceptada como real: se apaga la alarma activa. Si no, se da por atendida sin veredicto. */
+    const desactivarLista = useCallback(async (l: AlertaLista, desde: string): Promise<string | null> => {
+        const ok = l.real
+            ? !!(await fetch("/api/avisos/activas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: l.clave }) }).catch(() => null))?.ok
+            : await gestionarAlarma(l.clave, { nota: `Desactivada desde ${desde}` });
+        if (!ok) return l.real ? "No se pudo desactivar la alarma." : NO_SE_GUARDO;
+        quitarLista(l.clave);
+        return null;
+    }, [quitarLista]);
+    /** Retirar la chapa de la lista negra (pide el permiso «vigilancia»: sin él la acción no llega a correr y la llamada falla). */
+    const retirarLista = useCallback(async (plate: string, l: AlertaLista | null, desde: string): Promise<string | null> => {
+        if (!plate) return "Todavía no se le leyó la matrícula.";
+        const r = await retirarDeListaNegra(plate, desde).catch(() => ({ ok: false, error: "No se pudo retirar: tu rol no tiene permiso sobre las listas, o se cortó la conexión.", por: undefined as string | undefined }));
+        if (!r.ok) return r.error || "No se pudo retirar de la lista negra.";
+        if (l) { await gestionarAlarma(l.clave, { nota: `Retirada de la lista negra por ${r.por || "el operador"}` }); quitarLista(l.clave); }
+        return null;
+    }, [quitarLista]);
+    /*
+     * «Seguirlo» se abre solo cuando aparece una REQUERIDA (13/11, Nico: «un seguimiento más
+     * cercano sobre esa detección»; 14/11: lo que faltaba de la v1). Con una chapa confirmada por
+     * el Ministerio no se espera a que el guardia busque el menú: el cajón dice dónde está, desde
+     * cuándo y por dónde pasó, y de ahí se abre la cámara o la llegada.
+     *
+     * Con medida:
+     *   - sólo las que llegan con la pantalla abierta (`enVivo`): al entrar a la pared no salta un
+     *     cajón por cada alerta que ya estaba pendiente — esas ya resaltan su cuadro;
+     *   - una vez por alerta: cerrado, no vuelve a abrirse por la misma;
+     *   - no pisa un seguimiento que ya está abierto, ni se abre en una pantalla de pared sin
+     *     operador (nadie lo cerraría).
+     */
+    const yaAbiertas = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        if (pantalla) return;
+        for (const [dev, l] of Object.entries(listas)) {
+            if (!l.requerida || !l.enVivo || !l.plate || yaAbiertas.current.has(l.clave)) continue;
+            yaAbiertas.current.add(l.clave);
+            if (siguiendo) continue;
+            const canal = todos.find((k) => k.equipoId === dev)?.nombre;
+            setSiguiendoPorque(`Se abrió solo: ${canal ? `${canal} acaba de leerla` : "acaba de leerse"} y está requerida.`);
+            setSiguiendo(l.plate);
+            break;
+        }
+    }, [listas]); // eslint-disable-line react-hooks/exhaustive-deps
     const ministerioOn = useFuncion("LPR_MIN_INTERIOR") === true;
     const porClave = useMemo(() => new Map(todos.map((c) => [c.clave, c])), [todos]);
     const nvrs = useMemo(() => [...new Set(todos.map(grupoDe))], [todos]);
@@ -996,41 +1057,24 @@ export function VistaCamaras() {
                 if (!c) return null;
                 const l = c.equipoId ? listas[c.equipoId] || null : null;
                 const a = alertaDe(c);
-                /** Decidir una alarma: lo mismo que en Gestión de alarmas (queda quién y cuándo en su bitácora). */
-                const gestionar = async (id: string, cuerpo: Record<string, unknown>) => {
-                    const r = await fetch("/api/alarmas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, atender: true, ...cuerpo }) }).catch(() => null);
-                    if (!r?.ok) setAviso("No se pudo guardar la decisión. Probá de nuevo o hacelo desde Gestión de alarmas.");
-                    return !!r?.ok;
-                };
+                const gestionar = async (id: string, cuerpo: Record<string, unknown>) => { const ok = await gestionarAlarma(id, cuerpo); if (!ok) setAviso(NO_SE_GUARDO); return ok; };
                 const ops: OpcionCanal[] = [];
                 // Una pantalla de pared (sin sesión de operador) no decide nada: sólo navega.
                 if (!pantalla && l) {
                     if (!l.real) ops.push({ clave: "aceptar", rotulo: "Aceptar la alerta: es real", Icono: CircleCheck, tono: "bien", alElegir: () => gestionar(l.clave, { resultado: "real" }) });
                     ops.push({
                         clave: "desactivar", rotulo: "Desactivar la alerta", Icono: BellOff,
-                        alElegir: async () => {
-                            // Ya aceptada como real: se desactiva la alarma activa. Si no, se da por atendida sin veredicto.
-                            const ok = l.real
-                                ? !!(await fetch("/api/avisos/activas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: l.clave }) }).catch(() => null))?.ok
-                                : await gestionar(l.clave, { nota: `Desactivada desde la pared de cámaras (${c.nombre})` });
-                            if (ok) quitarLista(l.clave); else if (l.real) setAviso("No se pudo desactivar la alarma.");
-                        },
+                        alElegir: async () => { const m = await desactivarLista(l, `la pared de cámaras (${c.nombre})`); if (m) setAviso(m); },
                     });
                     ops.push({
                         clave: "retirar", rotulo: `Retirar ${l.plate} de la lista negra`, Icono: Ban, tono: "mal", confirmar: `¿Sacar ${l.plate} de la lista negra? Confirmar`,
-                        alElegir: async () => {
-                            // La acción pide el permiso «vigilancia» (middleware): sin él no llega a correr y la llamada falla.
-                            const r = await retirarDeListaNegra(l.plate, `la pared de cámaras (${c.nombre})`).catch(() => ({ ok: false, error: "No se pudo retirar: tu rol no tiene permiso sobre las listas, o se cortó la conexión.", por: undefined as string | undefined }));
-                            if (!r.ok) { setAviso(r.error || "No se pudo retirar de la lista negra."); return; }
-                            await gestionar(l.clave, { nota: `Retirada de la lista negra por ${r.por || "el operador"}` });
-                            quitarLista(l.clave);
-                        },
+                        alElegir: async () => { const m = await retirarLista(l.plate, l, `la pared de cámaras (${c.nombre})`); if (m) setAviso(m); },
                     });
                     if (ministerioOn) ops.push({ clave: "ministerio", rotulo: `Consultar ${l.plate} al Ministerio`, Icono: IconoPolicia, alElegir: () => setConsultaMin(l.plate) });
                 }
                 // Seguir: la chapa en alerta o, si no hay, la última que leyó este canal.
                 const chapaParaSeguir = l?.plate || lecturasDe(c).find((x) => x.plate)?.plate || null;
-                if (chapaParaSeguir) ops.push({ clave: "seguir", rotulo: `Seguir ${chapaParaSeguir}`, Icono: Route, alElegir: () => setSiguiendo(chapaParaSeguir) });
+                if (chapaParaSeguir) ops.push({ clave: "seguir", rotulo: `Seguir ${chapaParaSeguir}`, Icono: Route, alElegir: () => seguirChapa(chapaParaSeguir) });
                 if (!pantalla && a) {
                     const m = metaDe(a.tipo);
                     ops.push({ clave: "real", rotulo: `${m.label}: es real`, Icono: CircleCheck, tono: "bien", separa: ops.length > 0, alElegir: () => gestionar(`d:${a.id}`, { resultado: "real" }) });
@@ -1042,8 +1086,15 @@ export function VistaCamaras() {
                 return <MenuCanal x={menuCanal.x} y={menuCanal.y} titulo={c.nombre} sub={l ? `${l.requerida ? "Requerida por la policía" : "Lista negra"} · ${l.plate}` : a ? metaDe(a.tipo).label : ubicacion(c)} opciones={ops} alCerrar={() => setMenuCanal(null)} />;
             })()}
             {consultaMin && <MinInteriorDialog plate={consultaMin} open onOpenChange={(o) => { if (!o) setConsultaMin(null); }} />}
+            {retirando && (
+                <ConfirmarAccion id={retirando.plate} open onOpenChange={(o) => { if (!o) setRetirando(null); }}
+                    title={`Retirar ${retirando.plate} de la lista negra`} etiquetaAccion="Retirar de la lista negra"
+                    description={`${retirando.plate} deja de estar en la lista negra: no vuelve a dar alerta y se quita de las cámaras que la tienen cargada. Queda anotado quién la retiró y desde dónde.`}
+                    onDelete={async () => { const m = await retirarLista(retirando.plate, retirando.l, `el vivo de ${retirando.canal}`); return m ? { success: false, error: m } : { success: true }; }}
+                    onSuccess={() => setRetirando(null)} />
+            )}
             {siguiendo && (
-                <SeguimientoChapa plate={siguiendo} alCerrar={() => setSiguiendo(null)}
+                <SeguimientoChapa plate={siguiendo} porque={siguiendoPorque} alCerrar={() => { setSiguiendo(null); setSiguiendoPorque(null); }}
                     alVer={(deviceId, instante) => {
                         const k = todos.find((x) => x.equipoId === deviceId);
                         if (!k) { setAviso("Esa cámara no está entre los canales de la pared."); return; }
@@ -1051,7 +1102,15 @@ export function VistaCamaras() {
                     }} />
             )}
             {!pantalla && <BandejaDeClips clips={grabados.clips} alQuitar={grabados.quitar} alReintentar={grabados.reintentar} elevada={!!abierta} />}
-            <FichaCanal alSeguirChapa={setSiguiendo} alGrabado={pantalla ? undefined : grabados.encolar} c={abierta} grabacionInicial={grabacionInicial} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
+            <FichaCanal alSeguirChapa={seguirChapa} alGrabado={pantalla ? undefined : grabados.encolar} tecladoAjeno={!!retirando} c={abierta}
+                lista={abierta?.equipoId ? listas[abierta.equipoId] || null : null}
+                alAlertaLista={abierta ? async (accion: AccionAlertaLista, plate: string) => {
+                    const l = abierta.equipoId ? listas[abierta.equipoId] || null : null;
+                    if (accion === "retirar") { setRetirando({ plate: plate || l?.plate || "", l, canal: abierta.nombre }); return null; }
+                    if (!l) return "Esa alerta ya no está activa.";
+                    if (accion === "aceptar") return (await gestionarAlarma(l.clave, { resultado: "real" })) ? null : NO_SE_GUARDO;
+                    return desactivarLista(l, `el vivo de ${abierta.nombre}`);
+                } : undefined} grabacionInicial={grabacionInicial} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
                 alerta={abierta ? alertaDe(abierta) : null} lecturas={abierta ? lecturasDe(abierta) : []}
                 alCerrar={() => { setAbiertaClave(null); setOrigenClave(null); }} alMover={enPantalla.length > 1 ? mover : null}
                 canales={todos} seguimiento={seguimiento} alGuardarSeguimiento={(id, n) => setSegLocal((s) => ({ ...s, [id]: n }))} puedeEditar={!!datos?.puedeEditar} alertaDe={alertaDe}
