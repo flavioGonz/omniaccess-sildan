@@ -65,6 +65,19 @@ const DESLIZ_MS = 150;
 const ANCLA_SUAVE = 0.45;
 /** Cuánto de su propia superficie puede pisar un rótulo a otros antes de mudarse de lugar. */
 const PISA_TOLERADA = 0.12;
+/**
+ * Escena llena (15/11, Nico, con la entrada de proveedores: quince objetos, y por cada uno su
+ * nombre, su ícono, su porcentaje y su línea guía; los rótulos se cruzaban y tapaban la calle).
+ * Con muchos objetos a la vez, el rótulo de cada uno deja de decir algo —el color de la silueta ya
+ * dice si es persona o vehículo— y sólo estorba. Entonces, en el vivo, cada objeto lleva nada más
+ * que su punto, y el rótulo sale cuando hay algo que leer: el que se toca (con su reloj y su
+ * menú), lo que detecta un modelo entrenado (un «Basurero» no se adivina por el color), lo que
+ * está tocando la línea o la zona, y las alertas, que tienen su propia píldora.
+ *
+ * Dos números y no uno: si se entrara y saliera con el mismo, una escena de nueve objetos donde
+ * uno aparece y desaparece prendería y apagaría todos los rótulos.
+ */
+const LLENA_DESDE = 9, LLENA_HASTA = 6;
 /** Sin verse este tiempo, la identidad de un objeto se olvida. */
 const PISTA_OLVIDO_MS = 1500;
 type Pista = { id: number; grupo: string; caja: Caja; ancla: [number, number] | null; lugar: { dir: number; dy: number } | null; visto: number };
@@ -178,6 +191,14 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
         pistas.current = ps.filter((q) => ahora - q.visto < PISTA_OLVIDO_MS);
         return out;
     }, [objetos, interactiva]);
+    // ¿Escena llena? (ver LLENA_DESDE). Sólo en el vivo: en una foto se quiere leer todo.
+    const llenaAntes = useRef(false);
+    const llena = useMemo(() => {
+        if (!interactiva) return false;
+        const n = objetos.filter((o) => !o.oculto).length;
+        if (n >= LLENA_DESDE) llenaAntes.current = true; else if (n <= LLENA_HASTA) llenaAntes.current = false;
+        return llenaAntes.current;
+    }, [objetos, interactiva]);
     // Siempre en el mismo orden (el más viejo primero): mover un elemento de lugar en el documento le corta el deslizamiento.
     const orden = useMemo(() => objetos.map((_, i) => i).sort((a, b) => ids[a] - ids[b]), [objetos, ids]);
     const pistaDe = (id: number) => (interactiva ? pistas.current.find((q) => q.id === id) || null : null);
@@ -290,7 +311,8 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const c = COLOR_GRUPO[o.grupo] || COLOR_OTRO;
                 const sel = i === iSel;
                 // Con uno en foco, los demás no se dibujan; y el del foco va sin relleno: se lo quiere VER.
-                if (foco && !sel) return null;
+                // (Y el que tiene su capa apagada no se dibuja nunca: de él sólo queda la matrícula, más abajo.)
+                if ((foco && !sel) || o.oculto) return null;
                 /*
                  * En el vivo la silueta se desliza de su caja anterior a la nueva: el grupo de afuera
                  * lleva la caja como transformación (y eso es lo que el navegador anima), y el de
@@ -333,7 +355,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
             })}
 
             {/* Sólo la parte que toca: la misma silueta, recortada por la zona y por la franja de la línea. */}
-            {hayGeom && !foco && objetos.map((o, i) => tocan[i] && (
+            {hayGeom && !foco && objetos.map((o, i) => tocan[i] && !o.oculto && (
                 <g key={`t${i}`}>
                     {[geom!.zona.length >= 3 ? `zona-${uid}` : null, bandas.length ? `banda-${uid}` : null].filter(Boolean).map((clip) => (
                         <g key={clip} clipPath={`url(#${clip})`}>
@@ -379,7 +401,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const o = objetos[i];
                 const pista = pistaDe(ids[i]);
                 // Con uno en foco, sólo su rótulo.
-                if (foco && i !== iSel) return null;
+                if ((foco && i !== iSel) || o.oculto) return null;
                 // En alerta: su rótulo es la píldora de la sirena (o la cápsula del visor). «Auto 90 %»
                 // encima quedaba pisado con ella y no era lo que había que leer.
                 if (o.alerta && !foco) return null;
@@ -433,6 +455,14 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                     if (a && Math.hypot(ax - a[0], ay - a[1]) < lado * 0.12) { ax = a[0] + (ax - a[0]) * ANCLA_SUAVE; ay = a[1] + (ay - a[1]) * ANCLA_SUAVE; }
                     pista.ancla = [ax, ay];
                 }
+                // Escena llena: de este objeto, sólo el punto (se toca la silueta para leerlo). Ver LLENA_DESDE.
+                if (llena && !sel && o.grupo !== "propio" && !tocan[i]) return (
+                    <g key={`e${ids[i]}`} style={desliz(`translate(${ax.toFixed(1)}px, ${ay.toFixed(1)}px)`)}>
+                        <g transform={interactiva ? `translate(${-ax.toFixed(1)} ${-ay.toFixed(1)})` : undefined}>
+                            <circle cx={ax} cy={ay} r={f * 0.26} fill={c} stroke="#020617" strokeWidth={1} vectorEffect="non-scaling-stroke" filter={`url(#brillo-${uid})`} />
+                        </g>
+                    </g>
+                );
                 const diag = f * 2.4, margen = f * 0.3;
                 /*
                  * Con menú, el rótulo sale hasta AFUERA de la caja del objeto: si no, el menú colgaba

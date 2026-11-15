@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car, User, PawPrint, Sparkles, Boxes, ZoomIn, ZoomOut, ChevronLeft, Server, History, VideoOff, GripHorizontal } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car, User, PawPrint, Boxes, ZoomIn, ZoomOut, ChevronLeft, Server, History, VideoOff, GripHorizontal } from "lucide-react";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { geomDeIntrusion } from "@/lib/vision-capa";
 import { Scrub, type MarcaScrub, type BandaScrub, type ScrubMando } from "@/components/Scrub";
 import { tip } from "./TipVisor";
+import { MenuDeCapas } from "./MenuDeCapas";
+import { objetosVisibles, pideAnalisis, type CapasVisibles, type ClaveCapa } from "@/lib/capas-visibles";
 import { nombrePropio, useNombresPropios } from "@/lib/nombres-propios";
 import { metaDe } from "@/components/intrusion/comun";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
@@ -141,7 +143,7 @@ function Boton({ children, onClick, titulo, disabled, grande, activo }: { childr
     );
 }
 
-export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnvio, nota = null, verSiluetas, alSiluetas }: {
+export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnvio, nota = null, vis, alVis }: {
     c: Canal; h265: boolean; hls: boolean;
     /** Dónde arranca (el instante de la alerta, o un minuto atrás). */
     desdeMs: number;
@@ -155,7 +157,8 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
      * Antes la grabación tenía el suyo, y el de arriba —que sigue a la vista— no hacía nada acá
      * (13/11, Nico: «el botón de retirar las siluetas del playback creo que no anda»).
      */
-    verSiluetas: boolean; alSiluetas: () => void;
+    /** Las capas que se dibujan (el mismo menú que el vivo): acá, las siluetas por grupo y la línea de la cámara. */
+    vis: CapasVisibles; alVis: (v: CapasVisibles) => void;
     /** Con cámara (y sesión) el cajón de exportar ofrece WhatsApp; sin ella, sólo bajar. */
     deviceIdEnvio?: string;
 }) {
@@ -309,6 +312,7 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
      * el anterior no volvió, se espera. Un 429 (tope entre todas las pantallas) espera un segundo.
      * En pausa se mira una sola vez: el cuadro no cambia.
      */
+    const verSiluetas = pideAnalisis(vis, false);
     useEffect(() => {
         if (!verSiluetas) { setSiluetas(null); return; }
         let vivo = true, enVuelo = false, ultimo = -1, esperarHasta = 0;
@@ -336,6 +340,9 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
         const iv = setInterval(vuelta, SILUETAS_CADA_MS);
         return () => { vivo = false; clearInterval(iv); };
     }, [verSiluetas]);
+    // Lo que se dibuja de lo que llegó: sin las capas apagadas (en la grabación no hay matrículas).
+    const siluetasVis = useMemo(() => (siluetas ? { ...siluetas.analisis, objetos: objetosVisibles(siluetas.analisis.objetos, { ...vis, chapas: false }) } : null), [siluetas, vis]);
+    const filasDeCapas = useMemo<ClaveCapa[]>(() => ["persona", "vehiculo", "animal", "propio", ...(c.geom ? ["camara" as const] : [])], [c.geom]);
     // Un salto deja las siluetas del cuadro anterior: se borran hasta que llegue el nuevo análisis.
     useEffect(() => { setSiluetas(null); }, [cargaT]);
 
@@ -468,8 +475,8 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                     onError={() => { if (!convertir && !hls) { setConvertir(true); setIntento((i) => i + 1); } else setEstado("sin"); }}
                     className={cn("absolute inset-0 w-full h-full object-contain transition-opacity duration-300", nuevoListo ? "opacity-100" : "opacity-0")} />
             )}
-            {verSiluetas && siluetas && estado === "viendo" && (
-                <CapaAnalisis analisis={siluetas.analisis} geom={geomDeIntrusion(c.geom)} ajuste="contain" className="pointer-events-none" />
+            {verSiluetas && siluetasVis && estado === "viendo" && (
+                <CapaAnalisis analisis={siluetasVis} geom={vis.camara ? geomDeIntrusion(c.geom) : null} ajuste="contain" className="pointer-events-none" />
             )}
             </div>
             </div>
@@ -580,8 +587,9 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                     </span>
 
                     <span className="visor-panel rounded-full p-1 inline-flex items-center">
-                        <Boton onClick={alSiluetas} activo={verSiluetas}
-                            titulo={verSiluetas ? `Siluetas de OmniVision sobre la grabación${siluetas ? ` · ${siluetas.ms} ms por cuadro` : ""} · tocar para apagar` : "Mostrar las siluetas de OmniVision sobre la grabación"}><Sparkles size={17} /></Boton>
+                        <MenuDeCapas valor={vis} alCambiar={alVis} filas={filasDeCapas}
+                            estado={verSiluetas ? `Siluetas de OmniVision sobre la grabación${siluetas ? ` · ${siluetas.ms} ms por cuadro` : ""}` : "OmniVision no está mirando la grabación: no hay ninguna de sus capas prendida"}
+                            claseBoton={(activo) => cn("w-10 h-10 rounded-full grid place-items-center transition-colors", activo ? "bg-white text-black" : "text-white/85 hover:text-white hover:bg-white/15")} />
                         <Boton onClick={() => setDescarga(true)} titulo="Exportar un clip de este momento"><Download size={17} /></Boton>
                     </span>
 

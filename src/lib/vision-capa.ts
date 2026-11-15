@@ -24,6 +24,8 @@ export type ObjetoAnalizado = {
     quietoDesde?: number;
     /** La matrícula de este vehículo y dónde está su chapa (normalizada): de su estadía abierta, en el vivo. */
     chapa?: { plate: string; caja: [number, number, number, number] };
+    /** Su capa está apagada y sólo se dibuja su matrícula (lib/capas-visibles): sin silueta, sin rótulo, sin toque. */
+    oculto?: boolean;
     /**
      * Este vehículo está en la lista negra: se pinta ENTERO del color de alerta, latiendo, con la
      * sirena encima y este texto («Requerida · M. Interior», «Lista negra»). Lo suma el servidor en

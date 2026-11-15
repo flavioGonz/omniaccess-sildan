@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert, Route, Circle, Square, CircleCheck, BellOff, Ban, Layers } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, VideoOff, LogIn, LogOut, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert, Route, Circle, Square, CircleCheck, BellOff, Ban } from "lucide-react";
 import type { AlertaLista, AccionAlertaLista } from "./AlertaDeLista";
 import { JoystickPtz } from "./Joystick";
 import { metaDe } from "@/components/intrusion/comun";
@@ -29,6 +29,8 @@ import type { TrackLink } from "@/app/actions/detections";
 import { geomDeIntrusion } from "@/lib/vision-capa";
 import { cn } from "@/lib/utils";
 import { CapasDeAnaliticas, useCapasDelCanal } from "./CapasDeAnaliticas";
+import { MenuDeCapas } from "./MenuDeCapas";
+import { CAPAS_DEFECTO, CLAVE_CAPAS, leerCapas, objetosVisibles, pideAnalisis, type CapasVisibles, type ClaveCapa } from "@/lib/capas-visibles";
 
 /**
  * Un canal a pantalla completa, con los controles flotando encima como en el visor de eventos.
@@ -150,9 +152,11 @@ type EstadoSiluetas = "apagado" | "conectando" | "vivo" | "ocupado" | "error";
  * sumaba nada medible. Acá adentro el análisis sólo vuelve a dibujar esta capa; hacia arriba
  * avisa nada más que cuando cambia de estado (vivo, ocupado…), que es casi nunca.
  */
-const SiluetasDelVivo = memo(function SiluetasDelVivo({ stream, activo, atraso, tam, geom, hayAlerta, verGeom, opciones, alEstado, msRef }: {
+const SiluetasDelVivo = memo(function SiluetasDelVivo({ stream, activo, atraso, tam, geom, hayAlerta, verGeom, vis, opciones, alEstado, msRef }: {
     stream: string | null; activo: boolean; atraso: () => number | null;
     tam: { w: number; h: number } | null; geom: Canal["geom"]; hayAlerta: boolean; verGeom: boolean;
+    /** Qué capas se dibujan de lo que llega (el menú de capas). */
+    vis: CapasVisibles;
     opciones: (o: ObjetoAnalizado) => OpcionObjeto[];
     alEstado: (e: EstadoSiluetas) => void;
     /** Cuánto tardó el último cuadro: se lee al armar la ayuda del botón, no hace falta dibujar por eso. */
@@ -162,12 +166,14 @@ const SiluetasDelVivo = memo(function SiluetasDelVivo({ stream, activo, atraso, 
     useEffect(() => { alEstado(sil.estado); }, [sil.estado, alEstado]);
     useEffect(() => { msRef.current = sil.ms; }, [sil.ms, msRef]);
     const g = useMemo(() => (verGeom ? geomDeIntrusion(geom) : null), [verGeom, geom]);
+    // Lo que llegó, sin las capas apagadas. El tamaño es el del video que se ve.
+    const analisis = useMemo(() => (sil.analisis ? { ...sil.analisis, ...(tam ? { ancho: tam.w, alto: tam.h } : {}), objetos: objetosVisibles(sil.analisis.objetos, vis) } : null), [sil.analisis, tam, vis]);
     // Sin análisis (apagado, buscando, o la grabación): la línea y la zona de la cámara, quietas.
-    if (!activo || !sil.analisis) return geom && verGeom ? <Geometria geom={geom} alerta={hayAlerta} ajuste="contain" /> : null;
+    if (!activo || !analisis) return geom && verGeom ? <Geometria geom={geom} alerta={hayAlerta} ajuste="contain" /> : null;
     // Las siluetas van sobre el vivo con el mismo ajuste (contain): el análisis es del subflujo
     // 16:9, igual que el video. Si dejan de llegar cuadros, se borran solas. `interactiva` (13/11):
     // tocar un auto muestra cuánto lleva en su lugar; sólo las siluetas reciben el toque.
-    return <CapaAnalisis analisis={tam ? { ...sil.analisis, ancho: tam.w, alto: tam.h } : sil.analisis} geom={g} ajuste="contain" interactiva opciones={opciones} />;
+    return <CapaAnalisis analisis={analisis} geom={g} ajuste="contain" interactiva opciones={opciones} />;
 });
 
 /**
@@ -347,10 +353,13 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
     const [sdListo, setSdListo] = useState(false);
     const [hdListo, setHdListo] = useState(false);
     const hdListoRef = useRef(false); hdListoRef.current = hdListo;
-    const [verGeom, setVerGeom] = useState(true);
+    // Qué capas se dibujan sobre el video (el menú de capas): vale para el vivo y la grabación, y se recuerda.
+    const [vis, setVisCrudo] = useState<CapasVisibles>(CAPAS_DEFECTO);
+    useEffect(() => { try { setVisCrudo(leerCapas(localStorage.getItem(CLAVE_CAPAS))); } catch { /* sin almacenamiento: de fábrica */ } }, []);
+    const setVis = useCallback((v: CapasVisibles) => { setVisCrudo(v); try { localStorage.setItem(CLAVE_CAPAS, JSON.stringify(v)); } catch { /* no se recuerda, nada más */ } }, []);
+    const verGeom = vis.camara, verSiluetas = pideAnalisis(vis);
     // Siluetas de OmniVision sobre el vivo (pedido 15/10: «pretendo que sea la silueta»). Prendidas
     // al abrir; sólo mientras se mira el vivo de ESTE canal (la GPU no trabaja para nadie más).
-    const [verSiluetas, setVerSiluetas] = useState(true);
     /**
      * El tamaño del video que se ve. Las siluetas salen del subflujo y vienen en 0–1 de su cuadro;
      * se dibujan con el tamaño del video EN PANTALLA, porque el HD puede tener otra proporción que
@@ -376,10 +385,11 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
     const idPtz = c ? idCanal(c) : null;
     // Lo que las analíticas de este canal tienen dibujado (reglas, entrenables, lectura de matrículas).
     const capas = useCapasDelCanal(idPtz);
-    // Apagadas hasta que se piden (15/11, Nico, al verlas sobre el vivo: «las reglas de analíticas
-    // dibujan un recuadro que no debe estar»): el vivo es para mirar la escena; las zonas se
-    // muestran cuando alguien quiere saber qué mira cada analítica, con su botón.
-    const [verCapas, setVerCapas] = useState(false);
+    // Las zonas de las analíticas arrancan apagadas (15/11, Nico, al verlas sobre el vivo: «las reglas
+    // de analíticas dibujan un recuadro que no debe estar»): se prenden desde el menú de capas.
+    const verCapas = vis.zonas;
+    // Las capas que este canal tiene para ofrecer: las zonas sólo si alguna analítica dibujó una, la línea sólo si la cámara tiene.
+    const filasDeCapas = useMemo<ClaveCapa[]>(() => ["persona", "vehiculo", "animal", "propio", "chapas", ...(capas ? ["zonas" as const] : []), ...(c?.geom ? ["camara" as const] : [])], [capas, c?.geom]);
     /*
      * «Grabar» (13/11, Nico: «un botón Grabar: comenzar un fragmento de video de lo que está viendo…
      * poder descargarlo o enviarlo por Telegram o WhatsApp como el resto de clips»). El botón marca
@@ -537,7 +547,7 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                     className={cn("fixed inset-0 z-[2900] bg-black", !conPuntero && "cursor-none")}>
                     {grabacion != null ? (
                         <Grabacion c={c} h265={h265} hls={hls} desdeMs={grabacion} visibles={visibles} alVivo={() => { setNotaLlegada(null); setGrabacionDesde(null); }}
-                            nota={notaLlegada} verSiluetas={verSiluetas} alSiluetas={() => setVerSiluetas((x) => !x)}
+                            nota={notaLlegada} vis={vis} alVis={setVis}
                             deviceIdEnvio={!pantalla && c.equipoId ? c.equipoId : undefined} />
                     ) : c.online === false ? (
                         <>
@@ -570,7 +580,7 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                     {/* Debajo de las siluetas, que son las que reciben el toque. Sólo en el vivo: el estado de una entrenable es el de AHORA. */}
                     {capas && verCapas && grabacion == null && <CapasDeAnaliticas capas={capas} tam={tamVideo} />}
                     <SiluetasDelVivo stream={c.online !== false ? c.stream : null} activo={verSiluetas && grabacion == null} atraso={atrasoDelVideo} tam={tamVideo}
-                        geom={c.geom} hayAlerta={!!alerta} verGeom={verGeom} opciones={opcionesDeObjeto} alEstado={setEstadoSil} msRef={msSil} />
+                        geom={c.geom} hayAlerta={!!alerta} verGeom={verGeom} vis={vis} opciones={opcionesDeObjeto} alEstado={setEstadoSil} msRef={msSil} />
 
                     {grabacion == null && <PasoVisionCanal paso={pasoVision} nombre={c.nombre} foto={foto} grande alCerrar={alCerrarPaso} capa="z-0" />}
 
@@ -619,10 +629,9 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                                     </Icono>
                                 )}
                                 {grabacion == null && c.online !== false && (
-                                    <Icono onClick={() => setVerSiluetas((x) => !x)} activo={verSiluetas}
-                                        titulo={verSiluetas ? `Siluetas de OmniVision en vivo${estadoSil === "vivo" && msSil.current != null ? ` · ${msSil.current} ms por cuadro` : estadoSil === "ocupado" ? " · ocupado: ya hay dos canales con siluetas" : ""} · tocar para apagar` : "Mostrar las siluetas de OmniVision en vivo"}>
-                                        <Sparkles size={18} />
-                                    </Icono>
+                                    <MenuDeCapas valor={vis} alCambiar={setVis} filas={filasDeCapas}
+                                        estado={!verSiluetas ? "OmniVision no está mirando este canal: no hay ninguna de sus capas prendida" : estadoSil === "vivo" ? `Siluetas en vivo${msSil.current != null ? ` · ${msSil.current} ms por cuadro` : ""}` : estadoSil === "ocupado" ? "Ocupado: ya hay dos canales con siluetas abiertos" : estadoSil === "conectando" ? "Conectando con OmniVision…" : estadoSil === "error" ? "OmniVision no contesta" : null}
+                                        claseBoton={(activo) => cn("w-11 h-11 rounded-full grid place-items-center transition-colors", activo ? "bg-white text-black" : "text-white/85 hover:text-white hover:bg-white/15")} />
                                 )}
                                 {alBuscar && grabacion == null && c.online !== false && (
                                     <Icono onClick={() => alBuscar()} titulo="Buscar parecidos: congelar este cuadro y buscar a esa persona, vehículo u objeto en lo que registraron las cámaras"><ScanSearch size={18} /></Icono>
@@ -638,8 +647,6 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                                 {ptz && grabacion == null && c.online !== false && (
                                     <Icono onClick={() => setVerPtz((x) => !x)} activo={verPtz} titulo={verPtz ? "Ocultar el joystick" : "Mover la cámara (PTZ)"}><Joystick size={18} /></Icono>
                                 )}
-                                {c.geom && <Icono onClick={() => setVerGeom((x) => !x)} activo={verGeom} titulo={verGeom ? "Ocultar la línea y la zona" : "Mostrar la línea y la zona de la cámara"}><Spline size={18} /></Icono>}
-                                {capas && grabacion == null && <Icono onClick={() => setVerCapas((x) => !x)} activo={verCapas} titulo={verCapas ? "Ocultar las zonas de las analíticas" : "Mostrar las zonas de las analíticas de este canal"}><Layers size={18} /></Icono>}
                                 {(puedeGrabar || rec != null) && grabacion == null && (
                                     <Icono onClick={() => (rec != null ? void detener() : empezar())} activo={rec != null}
                                         titulo={rec != null ? "Detener: el clip se arma en el servidor y queda en la bandeja" : `Grabar un clip de lo que se ve (hasta ${REC_TOPE_MS / 1000} s; sigue grabando si cambiás de cámara)`}>
