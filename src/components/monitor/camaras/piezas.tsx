@@ -11,8 +11,18 @@ import { cn } from "@/lib/utils";
 export type Alerta = { id: string; tipo: string; ts: string;
     /** La captura de la detección y lo que OmniVision vio en ella (sólo las de la consulta, no las del socket). */
     foto?: string | null; verif?: { veredicto: string | null; analisis: any } | null };
-/** `foto`: la captura de esa lectura (la pila de la ficha del canal la muestra). */
-export type Lectura = { id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean; foto?: string | null };
+/**
+ * `foto`: la captura de esa lectura (la pila de la ficha del canal la muestra).
+ *
+ * `lista`/`requerida`/`sigue`/`vistaHasta` los agrega el servidor cuando esa chapa está vigilada
+ * (ver `vigilanciaDeLecturas` en /api/monitor/camaras): es lo que le permite al seguimiento visual
+ * avisar en la cámara vecina y decir si todavía la ve. `listaNegra` sale del texto del evento y
+ * queda para lo de antes; `lista` es la que se consultó contra la lista ahora.
+ */
+export type Lectura = {
+    id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean; foto?: string | null;
+    lista?: "negra" | "amarilla"; requerida?: boolean; sigue?: boolean; vistaHasta?: string | null;
+};
 export type Punto = { x: number; y: number };
 export type Canal = {
     clave: string; nombre: string; nvrId: string | null; nvr: string | null; ch: number | null; online: boolean | null;

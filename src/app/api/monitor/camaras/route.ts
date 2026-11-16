@@ -118,10 +118,66 @@ export type CanalPared = {
     geom: { line: { x: number; y: number }[]; field: { x: number; y: number }[] } | null;
     /** La última detección de las últimas 24 h, aunque ya no esté en alerta. */
     ultima: { id: string; tipo: string; ts: string; foto?: string | null } | null;
-    lecturas: { id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean; foto: string | null }[];
+    lecturas: {
+        id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean; foto: string | null;
+        /** En qué lista de vigilancia está esa chapa, si está en alguna (ver `vigilanciaDeLecturas`). */
+        lista?: "negra" | "amarilla"; requerida?: boolean;
+        /** Si esa cámara la sigue viendo (tiene una estadía abierta), y cuándo fue la última vez que la vio. */
+        sigue?: boolean; vistaHasta?: string | null;
+    }[];
     /** Si OmniVision analiza esta cámara (VISION_CAMARAS) y cuántos análisis por segundo le cuesta, medido. */
     vision?: { analiza: boolean; porSeg: number | null };
 };
+
+/**
+ * Qué lecturas de las cámaras son de una chapa vigilada, y si la cámara la sigue viendo.
+ *
+ * Es lo que necesita el seguimiento visual del vivo para avisar en la cámara vecina (16/11,
+ * Nico: «las minicámaras, cuando detectan una matrícula en lista negra o amarilla… debe indicar
+ * si lo sigue viendo o ya no lo ve, con la fecha exacta»). «La sigue viendo» no se adivina del
+ * reloj: es tener una estadía abierta de esa chapa en esa cámara, que es lo mismo que mira el
+ * vivo para escribirle la matrícula a un auto estacionado.
+ *
+ * Cuesta dos consultas y sólo cuando hay algo: sin chapas vigiladas entre las lecturas, ninguna.
+ */
+async function vigilanciaDeLecturas(porEquipo: Map<string, CanalPared["lecturas"]>) {
+    const chapas = [...new Set([...porEquipo.values()].flat().map((l) => l.plate).filter((p): p is string => !!p))];
+    if (!chapas.length) return;
+    const vigiladas = await prisma.plateWatch.findMany({ where: { active: true, category: { in: ["BLACKLISTED", "SEARCH"] }, plate: { in: chapas } }, select: { plate: true, category: true, label: true, motivo: true } }).catch(() => []);
+    if (!vigiladas.length) return;
+    const porChapa = new Map<string, { lista: "negra" | "amarilla"; requerida: boolean }>();
+    for (const v of vigiladas) {
+        const esNegra = v.category === "BLACKLISTED";
+        // La negra manda sobre la amarilla: es la que hay que atender.
+        if (esNegra || !porChapa.has(v.plate)) porChapa.set(v.plate, { lista: esNegra ? "negra" : "amarilla", requerida: esNegra && esRequerida(v.label, v.motivo) });
+    }
+    const pares: { deviceId: string; plate: string }[] = [];
+    for (const [id, ls] of porEquipo) for (const l of ls) if (l.plate && porChapa.has(l.plate)) pares.push({ deviceId: id, plate: l.plate });
+    if (!pares.length) return;
+    const avistamientos = await prisma.plateSighting.findMany({
+        where: { OR: pares.map((p) => ({ deviceId: p.deviceId, plate: p.plate })) },
+        orderBy: { timestamp: "desc" }, take: 200, select: { deviceId: true, plate: true, timestamp: true, estado: true, estCerrada: true, estHasta: true },
+    }).catch(() => []);
+    const ultima = new Map<string, { ts: Date; sigue: boolean }>();
+    for (const a of avistamientos) {
+        const k = `${a.deviceId}|${a.plate}`;
+        const abierta = a.estado === "ESTACIONADO" && a.estCerrada === false;
+        // De una estadía la última vez que se la vio es `estHasta`, que se va corriendo mientras
+        // el auto siga ahí; `timestamp` es cuándo empezó, que para «todavía lo ve» diría de menos.
+        const ts = (abierta && a.estHasta) || a.timestamp;
+        const antes = ultima.get(k);
+        if (!antes) ultima.set(k, { ts, sigue: abierta });
+        else if (abierta && !antes.sigue) ultima.set(k, { ts, sigue: true });
+    }
+    for (const [id, ls] of porEquipo) {
+        porEquipo.set(id, ls.map((l) => {
+            const v = l.plate ? porChapa.get(l.plate) : undefined;
+            if (!v) return l;
+            const u = ultima.get(`${id}|${l.plate}`);
+            return { ...l, lista: v.lista, requerida: v.requerida, sigue: !!u?.sigue, vistaHasta: (u?.ts || new Date(l.ts)).toISOString() };
+        }));
+    }
+}
 
 /**
  * Los avisos «lista negra a la vista» sin atender (lib/lista-negra-vista), para que la pared
@@ -195,6 +251,7 @@ export async function GET() {
         const filas = await prisma.accessEvent.findMany({ where: { deviceId: id }, orderBy: { timestamp: "desc" }, take: LECTURAS_POR_CAMARA, select: { id: true, timestamp: true, plateDetected: true, decision: true, direction: true, details: true, snapshotPath: true, imagePath: true } }).catch(() => []);
         lecturasPorEquipo.set(id, filas.map((f) => ({ id: f.id, ts: f.timestamp.toISOString(), plate: f.plateDetected || null, decision: String(f.decision), sentido: String(f.direction), listaNegra: /lista negra/i.test(f.details || ""), foto: f.snapshotPath || f.imagePath || null })));
     }));
+    await vigilanciaDeLecturas(lecturasPorEquipo);
     const extrasDe = (id: string) => {
         const funcion = funcionDe(id);
         const g = funcion === "intrusion" && tieneGeom(id) ? { line: geoms[id].line || [], field: geoms[id].field || [], lines: geoms[id].lines || [], fields: geoms[id].fields || [] } : null;
