@@ -77,7 +77,9 @@ const MISMO_ENVIO_MS = 90_000;
  * evento compartido (un despacho POR destino: se juntan). Los que mandan un clip grabado no van
  * acá: son envíos de ese clip (`sueltos` deja afuera los nombres que ya están en la lista).
  */
-export function deDespachos(despachos: FilaDespacho[], clipsListados: Set<string> = new Set()): Evidencia[] {
+export function deDespachos(despachos: FilaDespacho[], clipsListados: Set<string> = new Set(),
+    /** Los clips grabados que se mandaron, por nombre de archivo: para que el envío muestre SU video aunque el clip no esté en esta lista. */
+    grabados: Map<string, { guardado: string | null; foto: string | null; segundos: number | null }> = new Map()): Evidencia[] {
     const out: Evidencia[] = [];
     const grupos = new Map<string, Evidencia>();
     for (const j of [...despachos].sort((a, b) => +a.createdAt - +b.createdAt)) {
@@ -99,11 +101,13 @@ export function deDespachos(despachos: FilaDespacho[], clipsListados: Set<string
             const clave = `${p.instante}|${p.asunto}|${p.enviadoPor}|${j.channel}`;
             const g = grupos.get(clave);
             if (g && +j.createdAt - Date.parse(g.envios[g.envios.length - 1].cuando) <= MISMO_ENVIO_MS) { g.envios.push(envioDe(j)); continue; }
+            const suClip = hecho ? grabados.get(hecho) : undefined;
             const e: Evidencia = {
                 id: `envio-${j.id}`, origen: "enviado", cuando: j.createdAt.toISOString(), instante: texto(p.instante),
                 titulo: texto(p.asunto) || texto(p.deviceName) || "Evento compartido", detalle: texto(p.deviceName), quien: texto(p.enviadoPor),
-                segundos: null, camaras: null, video: null, foto: texto(p.snapshotPath),
-                sinVideo: "Se compartió la foto del evento.", archivo: hecho, deviceId: j.deviceId, matricula: null, envios: [envioDe(j)],
+                segundos: suClip?.segundos ?? null, camaras: null, video: suClip?.guardado ?? null, foto: suClip?.foto || texto(p.snapshotPath),
+                sinVideo: suClip?.guardado ? null : hecho ? "Se mandó un clip grabado que ya no está en el almacén." : "Se compartió la foto del evento.",
+                archivo: hecho, deviceId: j.deviceId, matricula: null, envios: [envioDe(j)],
             };
             grupos.set(clave, e); out.push(e);
         }

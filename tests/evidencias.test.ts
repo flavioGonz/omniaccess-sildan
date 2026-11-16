@@ -48,6 +48,10 @@ test("el envío de un clip grabado que ya está en la lista no aparece dos veces
     const j = job("1", { type: "ALERT", payload: { evento: "compartido", clipHecho: "grabado_1.mp4", asunto: "Clip" } });
     assert.equal(deDespachos([j], new Set(["grabado_1.mp4"])).length, 0);
     assert.equal(deDespachos([j]).length, 1);
+    // Mirando sólo lo enviado, ese envío aparece con el video del clip que mandó.
+    const solo = deDespachos([j], new Set(), new Map([["grabado_1.mp4", { guardado: "/api/files/b/g.mp4", foto: "/api/files/b/g.jpg", segundos: 42 }]]))[0];
+    assert.deepEqual([solo.video, solo.foto, solo.segundos, solo.sinVideo], ["/api/files/b/g.mp4", "/api/files/b/g.jpg", 42, null]);
+    assert.match(deDespachos([j])[0].sinVideo!, /ya no está/);
 });
 
 test("lo más nuevo primero, y se busca por cámara, persona, matrícula o destino", () => {

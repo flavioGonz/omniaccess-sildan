@@ -21,7 +21,7 @@ import type { Evidencia } from "@/lib/evidencias";
  * no hay otro color en la pantalla.
  */
 type Origen = "todo" | "grabado" | "enviado";
-type Respuesta = { evidencias: Evidencia[]; hayMas: boolean; total: { grabado: number; enviado: number } };
+type Respuesta = { evidencias: Evidencia[]; hayMas: boolean; total: { grabado: number } };
 const CANAL: Record<string, string> = { whatsapp: "WhatsApp", telegram: "Telegram", email: "Correo" };
 const ESPERA_BUSCAR_MS = 300;
 
@@ -95,7 +95,7 @@ export default function Evidencias() {
     const opciones: Pestania<Origen>[] = [
         { valor: "todo", rotulo: "Todo", icono: Images },
         { valor: "grabado", rotulo: "Grabados", icono: Video, cuenta: datos?.total.grabado, ayuda: "Lo que se grabó con el botón Grabar del vivo, en una cámara o siguiendo a alguien por varias" },
-        { valor: "enviado", rotulo: "Enviados", icono: Share2, cuenta: datos?.total.enviado, ayuda: "Los clips y los eventos que se mandaron por WhatsApp o Telegram desde el panel" },
+        { valor: "enviado", rotulo: "Enviados", icono: Share2, ayuda: "Los clips y los eventos que se mandaron por WhatsApp o Telegram desde el panel" },
     ];
 
     return (
