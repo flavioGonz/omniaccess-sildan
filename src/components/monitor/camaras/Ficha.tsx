@@ -579,8 +579,14 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                     )}
                     {/* Debajo de las siluetas, que son las que reciben el toque. Sólo en el vivo: el estado de una entrenable es el de AHORA. */}
                     {capas && verCapas && grabacion == null && <CapasDeAnaliticas capas={capas} tam={tamVideo} />}
-                    {/* Con `key`: al cambiar de canal la capa nace de nuevo, sin identidades ni rótulos del anterior. */}
-                    <SiluetasDelVivo key={c.clave} stream={c.online !== false ? c.stream : null} activo={verSiluetas && grabacion == null} atraso={atrasoDelVideo} tam={tamVideo}
+                    {/*
+                      * Con `key`: al cambiar de canal la capa nace de nuevo, sin identidades ni rótulos del anterior.
+                      * La clave lleva su sufijo: el seguimiento visual, más abajo en este mismo contenedor, usa
+                      * `c.clave` a secas. El 16/11 salieron las dos con la misma y React, con dos hermanos de igual
+                      * clave, volvía a montar esta capa en CADA dibujo: las siluetas no llegaban a conectar y al
+                      * tocar un botón (el menú de capas) la pantalla se caía con «Maximum update depth».
+                      */}
+                    <SiluetasDelVivo key={`${c.clave}-sil`} stream={c.online !== false ? c.stream : null} activo={verSiluetas && grabacion == null} atraso={atrasoDelVideo} tam={tamVideo}
                         geom={c.geom} hayAlerta={!!alerta} verGeom={verGeom} vis={vis} opciones={opcionesDeObjeto} alEstado={setEstadoSil} msRef={msSil} />
 
                     {grabacion == null && <PasoVisionCanal paso={pasoVision} nombre={c.nombre} foto={foto} grande alCerrar={alCerrarPaso} capa="z-0" />}

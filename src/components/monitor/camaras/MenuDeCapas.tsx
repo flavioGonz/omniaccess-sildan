@@ -59,7 +59,7 @@ export function MenuDeCapas({ valor, alCambiar, filas, estado, claseBoton, abre 
     return (
         <Popover open={abierto} onOpenChange={setAbierto}>
             <PopoverTrigger asChild>
-                <button type="button" aria-haspopup="menu" {...(abierto ? {} : tip(`Capas: qué se dibuja sobre el video (${prendidas} de ${filas.length})`))} className={claseBoton(abierto || prendidas > 0)}>
+                <button type="button" aria-haspopup="menu" {...(abierto ? {} : tip(`Capas: qué se dibuja sobre el video · ${prendidas} de ${filas.length} prendidas`))} className={claseBoton(abierto || prendidas > 0)}>
                     <Layers size={18} />
                 </button>
             </PopoverTrigger>
