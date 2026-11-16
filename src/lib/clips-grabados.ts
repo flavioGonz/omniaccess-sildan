@@ -118,12 +118,7 @@ async function armar(id: string) {
         avisar({ id, usuarioId: f.usuarioId, estado: "guardando" });
         // Al almacén: el clip y su portada. Si el depósito falla, el clip igual se puede bajar y mandar
         // durante unos minutos, y se dice que no quedó guardado.
-        const mes = new Date(tramos[0]?.desde || Date.now()).toISOString().slice(0, 7);
-        let guardado: string | null = null, foto: string | null = null;
-        try { guardado = await uploadToS3(fs.readFileSync(r.archivo), `clips/${mes}/${r.nombre}`, "video/mp4", "lpr"); }
-        catch (e) { console.error(`[clip/grabar] no se pudo guardar ${r.nombre} en el almacén: ${(e as Error)?.message || e}`); }
-        const jpg = await portada(r.archivo);
-        if (jpg) { try { foto = await uploadToS3(jpg, `clips/${mes}/${r.nombre.replace(/\.mp4$/, ".jpg")}`, "image/jpeg", "lpr"); } catch { /* sin portada: se comparte igual, sin foto */ } }
+        const { guardado, foto } = await alAlmacen(r.archivo, r.nombre, tramos[0]?.desde || Date.now());
         const pedidos = Math.round(tramos.reduce((s, x) => s + (x.hasta - x.desde), 0) / 1000);
         console.log(`[clip/grabar] ${f.usuario || f.usuarioId} grabó ${pedidos} s en ${r.tramos ?? 1} ${(r.tramos ?? 1) === 1 ? "cámara" : "cámaras"} (${r.fuente}, ${Math.round(r.bytes / 1024)} KB)${guardado ? "" : " · SIN guardar en el almacén"}`);
         await terminar(f, { estado: "listo", nombre: r.nombre, guardado, foto, segundos: Math.round(r.segundos ?? pedidos), camaras: r.tramos ?? 1, salteados: r.salteados ?? 0 });
@@ -177,8 +172,27 @@ export async function reintentar(usuarioId: string, id: string): Promise<ClipEnB
  * Que el archivo del clip esté en la carpeta de clips, para mandarlo: ahí vive unos minutos y el
  * envío (dispatch-worker) lo toma de ahí. Si ya se borró, se baja del almacén. Devuelve el nombre.
  */
-export async function prepararParaEnviar(usuarioId: string, id: string): Promise<{ ok: true; nombre: string } | { ok: false; motivo: string }> {
-    const f = await prisma.clipGrabado.findFirst({ where: { id, usuarioId, estado: "listo" } });
+/**
+ * Un clip y su portada, al almacén (clips/<mes>/). Lo usa la cola de Grabar y, desde el 16/11, los
+ * clips que se mandan por WhatsApp o Telegram: antes vivían diez minutos en una carpeta temporal
+ * y de la evidencia quedaba sólo el renglón en Despachos. Nunca tira: sin almacén, devuelve null
+ * y el que llama lo dice.
+ */
+export async function alAlmacen(archivo: string, nombre: string, instanteMs: number): Promise<{ guardado: string | null; foto: string | null }> {
+    const mes = new Date(instanteMs || Date.now()).toISOString().slice(0, 7);
+    let guardado: string | null = null, foto: string | null = null;
+    try { guardado = await uploadToS3(fs.readFileSync(archivo), `clips/${mes}/${nombre}`, "video/mp4", "lpr"); }
+    catch (e) { console.error(`[clip] no se pudo guardar ${nombre} en el almacén: ${(e as Error)?.message || e}`); }
+    if (guardado) {
+        const jpg = await portada(archivo);
+        if (jpg) { try { foto = await uploadToS3(jpg, `clips/${mes}/${nombre.replace(/\.mp4$/, ".jpg")}`, "image/jpeg", "lpr"); } catch { /* sin portada: se ve igual, sin foto */ } }
+    }
+    return { guardado, foto };
+}
+
+/** `usuarioId` null: cualquiera con permiso de video (la pantalla de Evidencias); con id, sólo los suyos (la bandeja). */
+export async function prepararParaEnviar(usuarioId: string | null, id: string): Promise<{ ok: true; nombre: string } | { ok: false; motivo: string }> {
+    const f = await prisma.clipGrabado.findFirst({ where: { id, ...(usuarioId ? { usuarioId } : {}), estado: "listo" } });
     if (!f?.nombre) return { ok: false, motivo: "Ese clip no está listo." };
     const destino = path.join(DIR_CLIPS, path.basename(f.nombre));
     try { if (fs.statSync(destino).size > 1500) { const ahora = new Date(); fs.utimesSync(destino, ahora, ahora); return { ok: true, nombre: f.nombre }; } } catch { /* no está: se baja */ }

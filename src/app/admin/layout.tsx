@@ -49,7 +49,7 @@ import {
     Ban,
     FileSearch,
     Search,
-    ScanEye, ClipboardList,
+    ScanEye, ClipboardList, FileVideo,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -317,6 +317,8 @@ export default function AdminLayout({
                     ) : (
                         puede("/admin/history") && (<SidebarItem icon={<History size={18} />} label="Historial de Acceso" href="/admin/history" active={pathname === "/admin/history"} collapsed={collapsed} />)
                     )}
+                    {/* Lo grabado y lo mandado, en un solo lugar (16/11). Con el permiso de grabaciones. */}
+                    {puede("/admin/evidencias") && (<SidebarItem icon={<FileVideo size={18} />} label="Evidencias" href="/admin/evidencias" active={pathname === "/admin/evidencias"} collapsed={collapsed} />)}
                     {modules.MODULE_QUEUE && (
                         puede("/admin/mapas") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapas" href="/admin/mapas" active={pathname === "/admin/mapas"} collapsed={collapsed} />)
                     )}

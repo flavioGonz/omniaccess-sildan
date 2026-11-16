@@ -1,9 +1,11 @@
 "use server";
 
+import path from "path";
 import { prisma } from "@/lib/prisma";
+import { alAlmacen } from "@/lib/clips-grabados";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
-import { clipDeInstante, PERMISOS_VIDEO } from "@/lib/clip-instante";
+import { clipDeInstante, DIR_CLIPS, PERMISOS_VIDEO } from "@/lib/clip-instante";
 import { configTelegramVideo, enviarVideoTelegram, htmlTg, type BotonTg } from "@/lib/telegram-video";
 import { fecha, horaSeg } from "@/lib/fechas";
 import { AJUSTE_MARCA_AGUA } from "@/lib/clips";
@@ -125,6 +127,9 @@ export async function enviarClipPorTelegram(p: { deviceId: string; instante: num
     const trabajo = (async (): Promise<ResultadoEnvioTelegram> => {
         const clip = await clipDeInstante({ deviceId: p.deviceId, instante: p.instante, antes: p.antes, despues: p.despues, para: "envio", matricula: p.matricula });
         if (!clip.ok) { await cerrar("FAILED", "sin video: " + clip.motivo); return { ok: false, error: "No se pudo armar el clip: " + clip.motivo }; }
+        // A Evidencias: el clip que se manda queda guardado (hasta el 16/11 se borraba a los diez minutos).
+        const evidencia = await alAlmacen(path.join(DIR_CLIPS, clip.nombre), clip.nombre, +new Date(p.instante)).catch(() => ({ guardado: null, foto: null }));
+        const guardadoEn = { clip: clip.nombre, guardado: evidencia.guardado, foto: evidencia.foto };
         const d = new Date(p.instante);
         const segundos = clip.ventana.antes + clip.ventana.despues;
         const pie = [
@@ -150,7 +155,7 @@ export async function enviarClipPorTelegram(p: { deviceId: string; instante: num
         const fallidos = enviados.filter((e) => !e.ok);
         await cerrar(fallidos.length === enviados.length ? "FAILED" : "SENT",
             fallidos.length ? `no llegó a ${fallidos.map((f) => `${f.nombre} (${f.error})`).join(", ")}` : null,
-            { enviados, fuente: clip.fuente, ventana: clip.ventana, editado: !!clip.editado });
+            { enviados, fuente: clip.fuente, ventana: clip.ventana, editado: !!clip.editado, ...guardadoEn });
         return { ok: true, enviados, segundos, fuente: clip.fuente, editado: !!clip.editado };
     })();
     const tope = new Promise<ResultadoEnvioTelegram>((r) => setTimeout(() => r({ ok: false, error: `Se pasó el tiempo de espera (${TOPE_ENVIO_MS / 1000} s). Mirá Despachos: puede haber salido igual.` }), TOPE_ENVIO_MS));

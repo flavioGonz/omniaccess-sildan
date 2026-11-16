@@ -107,7 +107,7 @@ const SECCIONES: Seccion[] = [
         ["video", "ver", "Monitor CCTV", "El monitor CCTV y el vivo de las cámaras, con PTZ.", ["/admin/monitor-cctv"]],
     ] },
     { modulo: "video", seccion: "grabaciones", nombre: "Grabaciones y clips", permisos: [
-        ["grabaciones", "operar", "Grabaciones y clips", "Mirar la grabación de un evento, buscar en el grabador, exportar clips y compartirlos por WhatsApp o Telegram."],
+        ["grabaciones", "operar", "Grabaciones y clips", "Mirar la grabación de un evento, buscar en el grabador, exportar clips, compartirlos por WhatsApp o Telegram y abrir Evidencias (lo grabado y lo mandado).", ["/admin/evidencias"]],
     ] },
     { modulo: "video", seccion: "acuseek", nombre: "Búsqueda inteligente", permisos: [
         ["acuseek", "ver", "Búsqueda inteligente", "Buscar en las grabaciones por descripción (AcuSeek).", ["/admin/acuseek"]],

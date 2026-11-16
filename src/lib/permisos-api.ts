@@ -43,6 +43,7 @@ export const RUTAS_API: [RegExp, ClaseApi][] = [
     // ── Video ──
     [/^\/api\/acuseek\//, P("acuseek")],
     [/^\/api\/clip\//, P("grabaciones")],
+    [/^\/api\/evidencias$/, P("grabaciones")],
     [/^\/api\/playback\//, P("grabaciones", "ajustes")],
     [/^\/api\/grabador\/buscar$/, P("grabaciones")],
     [/^\/api\/grabador\//, P("dispositivos.editar")],
