@@ -1911,7 +1911,16 @@ video::-webkit-media-controls { display: none !important; }
    Por dentro (inset) y no un anillo: los cuadros de la pared se tocan y un anillo se monta sobre el vecino. */
 .marco-alerta-lista { box-shadow: inset 0 0 0 4px var(--mal), inset 0 0 28px color-mix(in oklab, var(--mal) 55%, transparent); animation: marco-alerta-lista 1.4s ease-in-out infinite; }
 @keyframes marco-alerta-lista { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
-@media (prefers-reduced-motion: reduce) { .capa-alerta, .cartel-requerida, .marco-alerta-lista { animation: none; } }
+/* La luz que recorre por dentro a un vehículo en alerta (16/11, Nico: «animación dentro de la
+   silueta»). Va recortada con la silueta, así que la banda cruza el vehículo y no el cuadro. */
+.capa-alerta-luz { animation: capa-alerta-luz 2.2s linear infinite; }
+@keyframes capa-alerta-luz {
+  0% { transform: translateX(var(--luz-desde)); opacity: 0; }
+  12%, 72% { opacity: 1; }
+  100% { transform: translateX(var(--luz-hasta)); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .capa-alerta, .cartel-requerida, .marco-alerta-lista, .capa-alerta-luz { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .capa-alerta-luz { opacity: 0; } }
 
 /* Los tres puntos de «se está esperando» (RotuloVisor): se prenden de a uno. */
 .puntos-espera span { display: inline-block; animation: punto-espera 1.2s ease-in-out infinite both; }

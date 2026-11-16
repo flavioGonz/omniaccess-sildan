@@ -116,10 +116,15 @@ const COLOR_TOCA = "#f43f5e";
  * Mercosur —franja azul arriba, letras negras— para que se lea como matrícula y no como rótulo.
  */
 const COLOR_CHAPA = "#f8fafc";
-/** El rojo de alerta (--mal sobre imagen): la silueta entera de un vehículo en la lista negra. */
+/**
+ * Los dos colores de una chapa vigilada, sobre imagen. Rojo: lista negra y lo requerido por la
+ * policía. Ámbar: la Lista Amarilla, que es seguimiento y no alarma (16/11, Nico: «si está en
+ * lista amarilla el color de la silueta debe ser amarilla… para lista negra lo mismo, debemos
+ * alinearnos»). El mismo ámbar avisa también de un vehículo sin lectura.
+ */
 const COLOR_ALERTA = "#ef4444";
-/** El ámbar de aviso sobre imagen: algo para mirar que no es una alerta (un vehículo sin lectura). */
 const COLOR_AVISO = "#f59e0b";
+const colorDeAlerta = (o: ObjetoAnalizado) => (o.alertaTono === "aviso" ? COLOR_AVISO : COLOR_ALERTA);
 const AZUL_MERCOSUR = "#1d4ed8";
 export type ChapaEnFoto = { plate: string; caja: [number, number, number, number] };
 /** El ícono dice QUÉ es antes de leer: la clase si la conocemos, si no el grupo. */
@@ -326,16 +331,32 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                     <g key={ids[i]} style={desliz(`translate(${bx.toFixed(1)}px, ${by.toFixed(1)}px) scale(${bw.toFixed(2)}, ${bh.toFixed(2)})`)}>
                         <g transform={interactiva ? `scale(${1 / bw} ${1 / bh}) translate(${-bx.toFixed(1)} ${-by.toFixed(1)})` : undefined}
                             onClick={interactiva ? () => tocar(i) : undefined} style={interactiva ? { pointerEvents: "all", cursor: "pointer" } : undefined}>
+                            {/*
+                              * En una lista de vigilancia: toda la silueta de su color, latiendo (13/11, Nico: «el
+                              * color completo de la silueta se debe animar, con color alerta») y con una luz que la
+                              * recorre por dentro (16/11: «con animación dentro de la silueta»). La luz va recortada
+                              * con la silueta misma, así no se sale del vehículo. Con «reducir movimiento», todo queda quieto.
+                              */}
+                            {o.alerta && (
+                                <defs>
+                                    <clipPath id={`alerta-${ids[i]}-${uid}`}>{poligonos(o).map((p, j) => <polygon key={j} points={pts(p, W, H)} />)}</clipPath>
+                                </defs>
+                            )}
                             {poligonos(o).map((p, j) => (
                                 o.alerta
-                                    // En la lista negra: toda la silueta del color de alerta, latiendo (13/11, Nico: «el color
-                                    // completo de la silueta se debe animar, con color alerta»). Una sola animación de opacidad
-                                    // por silueta: no cuesta, y con «reducir movimiento» queda fija.
-                                    ? <polygon key={j} points={pts(p, W, H)} fill={COLOR_ALERTA} stroke={COLOR_ALERTA} strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinejoin="round"
+                                    ? <polygon key={j} points={pts(p, W, H)} fill={colorDeAlerta(o)} stroke={colorDeAlerta(o)} strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinejoin="round"
                                         filter={`url(#brillo-${uid})`} className="capa-alerta" />
                                     : <polygon key={j} points={pts(p, W, H)} fill={sel ? "transparent" : `url(#rel-${k}-${uid})`} stroke={c} strokeWidth={sel ? 3 : 2} vectorEffect="non-scaling-stroke"
                                     strokeLinejoin="round" filter={`url(#brillo-${uid})`} />
                             ))}
+                            {o.alerta && (() => {
+                                const bx2 = o.caja[0] * W, bw2 = Math.max(1, (o.caja[2] - o.caja[0]) * W), ancho = Math.max(bw2 * 0.22, lado * 0.03);
+                                return (
+                                    <g clipPath={`url(#alerta-${ids[i]}-${uid})`} className="capa-alerta-luz" style={{ ["--luz-desde" as string]: `${(bx2 - ancho).toFixed(1)}px`, ["--luz-hasta" as string]: `${(bx2 + bw2).toFixed(1)}px` }}>
+                                        <rect x={0} y={o.caja[1] * H} width={ancho} height={Math.max(1, (o.caja[3] - o.caja[1]) * H)} fill="#fff" opacity={0.26} />
+                                    </g>
+                                );
+                            })()}
                             {/* Un aviso que no es alerta («Sin lectura»): píldora ámbar sobre el techo, sin pintar el vehículo. */}
                             {o.aviso && !o.alerta && etiquetas && (() => {
                                 const cx = ((o.caja[0] + o.caja[2]) / 2) * W, arriba = o.caja[1] * H, alto2 = fuente * 1.9, ancho2 = o.aviso.length * fuente * 0.5 + fuente * 1.6;
@@ -351,14 +372,16 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                             {o.alerta && etiquetas && rotuloAlerta && (() => {
                                 const cx = ((o.caja[0] + o.caja[2]) / 2) * W, arriba = o.caja[1] * H, lado2 = fuente * 1.9, ancho2 = o.alerta.length * fuente * 0.43 + lado2 + fuente * 0.9;
                                 const x0 = Math.min(W - ancho2 - 2, Math.max(2, cx - ancho2 / 2)), y0 = Math.max(2, arriba - lado2 - fuente * 0.5);
+                                // Sobre el ámbar, la letra va oscura: blanca sobre amarillo no se lee.
+                                const amarilla = o.alertaTono === "aviso", tinta = amarilla ? "#1c1917" : "#fff";
                                 return (
                                     <g className="capa-alerta-rotulo">
-                                        <rect x={x0} y={y0} width={ancho2} height={lado2} rx={lado2 / 2} fill={COLOR_ALERTA} />
-                                        {/* La placa sólo si lo dice la policía; la lista negra del barrio lleva su escudo de siempre. */}
+                                        <rect x={x0} y={y0} width={ancho2} height={lado2} rx={lado2 / 2} fill={colorDeAlerta(o)} />
+                                        {/* La placa sólo si lo dice la policía; las listas del barrio llevan su escudo de siempre. */}
                                         {o.alerta === REQUERIDA_POLICIA
-                                            ? <IconoPolicia x={x0 + fuente * 0.42} y={y0 + lado2 * 0.16} width={lado2 * 0.68} height={lado2 * 0.68} color="#fff" strokeWidth={2.4} />
-                                            : <ShieldAlert x={x0 + fuente * 0.42} y={y0 + lado2 * 0.16} width={lado2 * 0.68} height={lado2 * 0.68} color="#fff" strokeWidth={2.4} />}
-                                        <text x={x0 + lado2 + fuente * 0.2} y={y0 + lado2 * 0.68} fill="#fff" fontSize={fuente * 0.95} fontWeight={700} style={{ letterSpacing: "0.01em" }}>{o.alerta}</text>
+                                            ? <IconoPolicia x={x0 + fuente * 0.42} y={y0 + lado2 * 0.16} width={lado2 * 0.68} height={lado2 * 0.68} color={tinta} strokeWidth={2.4} />
+                                            : <ShieldAlert x={x0 + fuente * 0.42} y={y0 + lado2 * 0.16} width={lado2 * 0.68} height={lado2 * 0.68} color={tinta} strokeWidth={2.4} />}
+                                        <text x={x0 + lado2 + fuente * 0.2} y={y0 + lado2 * 0.68} fill={tinta} fontSize={fuente * 0.95} fontWeight={700} style={{ letterSpacing: "0.01em" }}>{o.alerta}</text>
                                     </g>
                                 );
                             })()}

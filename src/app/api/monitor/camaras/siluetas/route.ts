@@ -9,6 +9,7 @@ import { GRUPO_PROPIO, UMBRAL_PANTALLA_DEFECTO } from "@/lib/detector-propio";
 import { conChapa, conEstadia, type EstadiaAbierta, type LugarVehiculo } from "@/lib/vision-estadia";
 import { leerRecuadro } from "@/lib/deteccion";
 import { REQUERIDA_POLICIA, esRequerida } from "@/lib/min-interior";
+import { ALERTA_AMARILLA } from "@/lib/vision-capa";
 import { sostenedor, CONFIANZA_SIGUE } from "@/lib/siluetas-sosten";
 import sharp from "sharp";
 import { leerChapas } from "@/lib/lector-chapas";
@@ -158,24 +159,36 @@ async function estadiasDe(camara: string): Promise<EstadiaAbierta[]> {
 }
 
 /**
- * Las matrículas en lista negra, y cómo nombrar a cada una sobre el vivo («Requerida por la policía»
- * si la confirmó el Ministerio, «Lista negra» si no). Se lee a lo sumo cada NEGRAS_MS: el auto
- * estacionado con una de esas chapas se pinta entero en rojo (ver `alerta` en lib/vision-capa).
+ * Las matrículas vigiladas y cómo nombrar a cada una sobre el vivo: «Requerida por la policía» si
+ * la confirmó el Ministerio, «Lista negra», o «Alerta Amarilla» si está en seguimiento. Se lee a
+ * lo sumo cada VIGILADAS_MS; el vehículo se pinta entero del color de su lista (ver `alerta` y
+ * `alertaTono` en lib/vision-capa).
+ *
+ * La amarilla llegó el 16/11 (Nico): antes el vivo sólo miraba la negra, así que una chapa en
+ * seguimiento pasaba por delante de la cámara sin que la pantalla dijera nada.
  */
-const NEGRAS_MS = 15_000;
-let negras: { al: number; porChapa: Map<string, string> } = { al: 0, porChapa: new Map() };
-async function negrasVigentes(): Promise<Map<string, string>> {
-    if (Date.now() - negras.al < NEGRAS_MS) return negras.porChapa;
+const VIGILADAS_MS = 15_000;
+type Vigilada = { texto: string; tono: "mal" | "aviso" };
+let vigiladas: { al: number; porChapa: Map<string, Vigilada> } = { al: 0, porChapa: new Map() };
+async function chapasVigiladas(): Promise<Map<string, Vigilada>> {
+    if (Date.now() - vigiladas.al < VIGILADAS_MS) return vigiladas.porChapa;
     try {
-        const filas = await prisma.plateWatch.findMany({ where: { active: true, category: "BLACKLISTED" }, select: { plate: true, label: true, motivo: true } });
-        negras = { al: Date.now(), porChapa: new Map(filas.map((f) => [f.plate.toUpperCase().replace(/[^A-Z0-9]/g, ""), esRequerida(f.label, f.motivo) ? REQUERIDA_POLICIA : "Lista negra"])) };
-    } catch { negras = { ...negras, al: Date.now() - NEGRAS_MS + 2000 }; }
-    return negras.porChapa;
+        const filas = await prisma.plateWatch.findMany({ where: { active: true, category: { in: ["BLACKLISTED", "SEARCH"] } }, select: { plate: true, label: true, motivo: true, category: true } });
+        // Si una chapa está en las dos listas manda la negra: es la que hay que atender.
+        const m = new Map<string, Vigilada>();
+        for (const f of filas) {
+            const k = f.plate.toUpperCase().replace(/[^A-Z0-9]/g, "");
+            if (f.category === "BLACKLISTED") m.set(k, { texto: esRequerida(f.label, f.motivo) ? REQUERIDA_POLICIA : "Lista negra", tono: "mal" });
+            else if (!m.has(k)) m.set(k, { texto: ALERTA_AMARILLA, tono: "aviso" });
+        }
+        vigiladas = { al: Date.now(), porChapa: m };
+    } catch { vigiladas = { ...vigiladas, al: Date.now() - VIGILADAS_MS + 2000 }; }
+    return vigiladas.porChapa;
 }
-/** A los vehículos cuya chapa está en lista negra se les pone la alerta. */
-function conAlerta<T extends { chapa?: { plate: string } }>(objetos: T[], porChapa: Map<string, string>): T[] {
+/** A los vehículos cuya chapa está vigilada se les pone su alerta. */
+function conAlerta<T extends { chapa?: { plate: string } }>(objetos: T[], porChapa: Map<string, Vigilada>): T[] {
     if (!porChapa.size) return objetos;
-    return objetos.map((o) => { const a = o.chapa ? porChapa.get(o.chapa.plate.toUpperCase().replace(/[^A-Z0-9]/g, "")) : undefined; return a ? { ...o, alerta: a } : o; });
+    return objetos.map((o) => { const a = o.chapa ? porChapa.get(o.chapa.plate.toUpperCase().replace(/[^A-Z0-9]/g, "")) : undefined; return a ? { ...o, alerta: a.texto, alertaTono: a.tono } : o; });
 }
 
 /** `lpr_<id>` o `face_<id>` → el id de la cámara, que es como la conoce vision-worker. */
@@ -291,7 +304,7 @@ export async function GET(req: NextRequest) {
                         analisis: {
                             ancho: j.ancho, alto: j.alto, tarea: "segmentar",
                             // El tiempo en el lugar sólo en el vivo: en la grabación el cuadro es de otro momento.
-                            objetos: conAlerta(await conMatriculas(conEstadia(sostener(paraPantalla(j.objetos, await ajustesDePantalla()), Date.now()), await lugaresDe(camara))), await negrasVigentes()),
+                            objetos: conAlerta(await conMatriculas(conEstadia(sostener(paraPantalla(j.objetos, await ajustesDePantalla()), Date.now()), await lugaresDe(camara))), await chapasVigiladas()),
                         },
                     });
                     descartados = 0;

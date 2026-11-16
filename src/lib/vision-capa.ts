@@ -32,12 +32,23 @@ export type ObjetoAnalizado = {
     /** Su capa está apagada y sólo se dibuja su matrícula (lib/capas-visibles): sin silueta, sin rótulo, sin toque. */
     oculto?: boolean;
     /**
-     * Este vehículo está en la lista negra: se pinta ENTERO del color de alerta, latiendo, con la
-     * sirena encima y este texto («Requerida · M. Interior», «Lista negra»). Lo suma el servidor en
-     * el vivo, y el visor en la foto de la estadía.
+     * Este vehículo está en una lista de vigilancia: se pinta ENTERO del color de su alerta,
+     * latiendo y con una luz que lo recorre, y lleva este texto encima («Requerida por la
+     * policía», «Lista negra», «Alerta Amarilla»). Lo suma el servidor en el vivo, y el visor en
+     * la foto de la estadía.
      */
     alerta?: string | null;
+    /**
+     * De qué lista. `mal` (rojo) es la negra y lo requerido por la policía; `aviso` (ámbar), la
+     * Lista Amarilla —seguimiento, no alarma— (16/11, Nico: «si está en lista amarilla el color
+     * de la silueta debe ser amarilla… para lista negra lo mismo, debemos alinearnos»). Sin esto
+     * es rojo: es lo que había antes de que la amarilla llegara al vivo.
+     */
+    alertaTono?: "mal" | "aviso";
 };
+/** Cómo se llama en pantalla una chapa en seguimiento (PlateWatch SEARCH). */
+export const ALERTA_AMARILLA = "Alerta Amarilla";
+
 export type Analisis = { ancho: number; alto: number; objetos: ObjetoAnalizado[]; tarea?: string;
     /** Doble verificación: el cuadro propio del canal, sacado unos segundos después (clave en MinIO). */
     propio?: { foto: string; despuesMs: number; ancho: number; alto: number; objetos: ObjetoAnalizado[]; tarea?: string } | null };

@@ -111,7 +111,9 @@ export function CapaAlertaLista({ stream, a, grande }: { stream: string; a: Aler
     const enAlerta = useMemo(() => {
         const an = sil.analisis as { ancho: number; alto: number; objetos: any[] } | null;
         if (!an?.objetos?.length) return null;
-        const objetos = an.objetos.filter((o) => o.alerta);
+        // Sólo las de SU alerta: desde el 16/11 el vivo también marca la Lista Amarilla (ámbar), y
+        // un auto en seguimiento que pasa por detrás no es lo que este cuadro vino a mostrar.
+        const objetos = an.objetos.filter((o) => o.alerta && o.alertaTono !== "aviso");
         return objetos.length ? { ...an, objetos } : null;
     }, [sil.analisis]);
     const Ico = a.requerida ? IconoPolicia : ShieldAlert;
