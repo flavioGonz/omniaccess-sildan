@@ -58,11 +58,14 @@ export function FrecuenciaDeChapa({ plate }: { plate: string }) {
         return <Vacio icono={CalendarDays} titulo={`${plate} no pasó por ningún acceso`} ayuda={`En los últimos ${datos?.dias || 30} días no hay entradas ni salidas con esa matrícula. Lo que se ve en esta cámara es una lectura del video, no un paso por un acceso.`} />;
     }
     const diasConPasos = calendario.filter((c) => c.count > 0).length;
+    // Sin `compacto`: cada bloque trae su propio margen y sus líneas van de lado a lado, como en el panel de la ficha.
     return (
-        <div className="space-y-4">
-            <GitHubActivity contributions={calendario} months={Math.max(1, Math.round(datos.dias / 30))} label="pasos" accent={["#0ea5e9", "#38bdf8"]} cellSize={13} showMonths
-                heading={`Se la vio ${diasConPasos} de los últimos ${datos.dias} días · ${datos.pasos.length} ${datos.pasos.length === 1 ? "paso" : "pasos"} por los accesos`} />
-            <ContenidoComportamiento datos={datos} compacto />
-        </div>
+        <>
+            <section className="px-5 py-4 border-b border-border">
+                <GitHubActivity contributions={calendario} months={Math.max(1, Math.round(datos.dias / 30))} label="pasos" accent={["#0ea5e9", "#38bdf8"]} cellSize={13} showMonths
+                    heading={`Se la vio ${diasConPasos} de los últimos ${datos.dias} días · ${datos.pasos.length} ${datos.pasos.length === 1 ? "paso" : "pasos"} por los accesos`} />
+            </section>
+            <ContenidoComportamiento datos={datos} />
+        </>
     );
 }

@@ -81,10 +81,17 @@ function CajonCerrar({ ...props }: React.ComponentProps<typeof DialogPrimitive.C
  * `tituloOculto` lo deja sólo para quien lo necesita.
  */
 function CajonContenido({
-    className, children, ancho = "medio", titulo, descripcion, tituloOculto, sinCabecera, pie, encabezado, sinCerrar,
+    className, children, ancho = "medio", titulo, descripcion, tituloOculto, sinCabecera, pie, encabezado, sinCerrar, velo = "normal",
     ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
     ancho?: keyof typeof ANCHOS;
+    /**
+     * Cuánto tapa lo que queda detrás. `tenue` es para cuando ATRÁS HAY ALGO QUE MIRAR: el cajón
+     * se abre sobre el video en vivo y la gracia es seguir viéndolo (16/11, Nico: «una ventana
+     * modal no, que ocupa toda la pantalla y no se ve el video detrás»). Además saca el desenfoque:
+     * sobre un video que no para, el navegador lo vuelve a calcular en cada cuadro.
+     */
+    velo?: "normal" | "tenue";
     titulo: string;
     descripcion?: string;
     tituloOculto?: boolean;
@@ -107,9 +114,10 @@ function CajonContenido({
     return (
         <DialogPrimitive.Portal>
             <DialogPrimitive.Overlay
-                className="fixed inset-0 z-[var(--capa-panel)] bg-black/55 backdrop-blur-[2px]
-                    data-[state=open]:animate-in data-[state=closed]:animate-out
-                    data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+                className={cn("fixed inset-0 z-[var(--capa-panel)]",
+                    velo === "tenue" ? "bg-black/25" : "bg-black/55 backdrop-blur-[2px]",
+                    "data-[state=open]:animate-in data-[state=closed]:animate-out",
+                    "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0")} />
             <DialogPrimitive.Content
                 data-slot="cajon-content"
                 className={cn(

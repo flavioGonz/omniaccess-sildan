@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, VideoOff, LogIn, LogOut, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert, Route, Circle, Square, CircleCheck, BellOff, Ban, CalendarDays } from "lucide-react";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { FrecuenciaDeChapa } from "@/components/visor/FrecuenciaDeChapa";
 import type { AlertaLista, AccionAlertaLista } from "./AlertaDeLista";
 import { JoystickPtz } from "./Joystick";
@@ -803,16 +803,17 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                     <TipVisor />
                     {/* Marcar el vehículo tocado: el mismo cajón de la Lista Amarilla del monitor LPR, con lo que ya se sabe escrito. */}
                     {sospechoso && <WatchlistDialog categoriaInicial="SEARCH" plateInicial={sospechoso.chapa} motivoInicial={sospechoso.motivo} onClose={() => setSospechoso(null)} />}
-                    {/* La frecuencia de una matrícula, sobre el vivo: el calendario y el módulo de comportamiento. */}
-                    <Dialog open={!!frecuencia} onOpenChange={(v) => { if (!v) setFrecuencia(null); }}>
-                        <DialogContent className="max-w-[860px] max-h-[86vh] overflow-y-auto">
-                            <DialogHeader>
-                                <DialogTitle className="flex items-center gap-2 text-[16px]"><CalendarDays size={17} /> Frecuencia de {frecuencia}</DialogTitle>
-                                <DialogDescription>Qué días pasó por los accesos del barrio, a qué hora, y cuánto se quedó cada vez.</DialogDescription>
-                            </DialogHeader>
+                    {/*
+                      * La frecuencia de una matrícula: un cajón al costado, no una ventana en el medio
+                      * (16/11, Nico: «una ventana modal no, que ocupa toda la pantalla y no se ve el video
+                      * detrás»). Con el velo tenue el vivo se sigue mirando mientras se lee el historial.
+                      */}
+                    <Cajon open={!!frecuencia} onOpenChange={(v) => { if (!v) setFrecuencia(null); }}>
+                        <CajonContenido ancho="intermedio" velo="tenue" titulo={`Frecuencia de ${frecuencia || ""}`}
+                            descripcion="Qué días pasó por los accesos del barrio, a qué hora, y cuánto se quedó cada vez.">
                             {frecuencia && <FrecuenciaDeChapa plate={frecuencia} />}
-                        </DialogContent>
-                    </Dialog>
+                        </CajonContenido>
+                    </Cajon>
                     {consulta && <MinInteriorDialog plate={consulta} open onOpenChange={(o) => { if (!o) setConsulta(null); }} />}
                 </motion.div>
             )}
