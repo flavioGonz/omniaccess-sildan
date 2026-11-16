@@ -16,7 +16,7 @@ import { PasoVisionCanal, type PasoVision } from "./PasoVision";
 import { TipVisor, tip } from "./TipVisor";
 import { getImagePath } from "@/lib/image-path";
 import { Vivo, Foto, Geometria, fotoDe, vivoDe, ubicacion, idCanal, FOTO_MS, useSiluetasEnVivo, type Canal, type Alerta, type Lectura } from "./piezas";
-import { CapaAnalisis, type OpcionObjeto } from "@/components/vision/CapaAnalisis";
+import { CapaAnalisis, type ChapaEnFoto, type OpcionObjeto } from "@/components/vision/CapaAnalisis";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { useFuncion } from "@/lib/funciones-cliente";
 import { claseDeBusqueda, motivoDesdeVivo, type ClaseBusqueda } from "@/lib/vivo-menu";
@@ -77,6 +77,40 @@ function Icono({ children, onClick, titulo, activo, href }: { children: React.Re
     const cls = cn("w-11 h-11 rounded-full grid place-items-center transition-colors", activo ? "bg-white text-black" : "text-white/85 hover:text-white hover:bg-white/15");
     if (href) return <a href={href} target="_blank" rel="noreferrer" {...tip(titulo)} className={cls}>{children}</a>;
     return <button type="button" onClick={onClick} {...tip(titulo)} aria-pressed={activo} className={cls}>{children}</button>;
+}
+
+/**
+ * La captura de una lectura, en grande, con la matrícula resaltada (16/11, Nico: «cuando vamos al
+ * evento última captura, debés resaltar la matrícula también»).
+ *
+ * Dónde está la chapa lo contesta el servidor (/api/monitor/camaras/chapa-foto): la caja que
+ * guardó el avistamiento o, si no la hay, leyendo la foto otra vez. Mientras tanto —y si no se la
+ * encuentra— se ve la captura sola: la foto es lo que se vino a mirar, el recuadro es el agregado.
+ *
+ * Se dibuja con la misma capa que el vivo, así la chapa se lee igual acá que sobre el video.
+ */
+function CapturaEnGrande({ l }: { l: Lectura }) {
+    const [tam, setTam] = useState<{ w: number; h: number } | null>(null);
+    // Guardado con el id de SU lectura: así lo de la captura anterior no se dibuja un cuadro sobre la nueva.
+    const [leido, setLeido] = useState<{ id: string; chapa: ChapaEnFoto | null } | null>(null);
+    const chapa = leido?.id === l.id ? leido.chapa : null;
+    useEffect(() => {
+        let vivo = true;
+        fetch(`/api/monitor/camaras/chapa-foto?evento=${encodeURIComponent(l.id)}`, { cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((j) => { if (vivo) setLeido({ id: l.id, chapa: Array.isArray(j?.caja) && j.caja.length === 4 ? { plate: j.plate || l.plate || "", caja: j.caja } : null }); })
+            .catch(() => { /* sin recuadro: la captura sola */ });
+        return () => { vivo = false; };
+    }, [l.id, l.plate]);
+    return (
+        <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img key={l.id} src={getImagePath(l.foto) || ""} alt={`Captura de ${l.plate || "una lectura sin matrícula"}`} draggable={false}
+                onLoad={(e) => setTam({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+                className="absolute inset-0 w-full h-full object-contain" />
+            {chapa && tam && <CapaAnalisis analisis={{ ancho: tam.w, alto: tam.h, tarea: "segmentar", objetos: [] }} chapa={chapa} ajuste="contain" />}
+        </>
+    );
 }
 
 /** Cuánto queda marcado el vehículo que la cámara lectora no pudo leer: lo que tarda en salir del cuadro. */
@@ -772,8 +806,7 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                       */}
                     {captura && grabacion == null && (
                         <div data-capa-tocable className="absolute inset-0 z-[8] bg-black">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img key={captura.id} src={getImagePath(captura.foto) || ""} alt={`Captura de ${captura.plate || "una lectura sin matrícula"}`} draggable={false} className="absolute inset-0 w-full h-full object-contain" />
+                            <CapturaEnGrande l={captura} />
                             <div className="absolute inset-x-0 bottom-6 sm:bottom-8 flex justify-center px-3 pointer-events-none">
                                 <span className="visor-panel pointer-events-auto rounded-full pl-4 pr-1.5 py-1.5 inline-flex items-center gap-3 text-white">
                                     <Camera size={15} className="shrink-0 text-white/70" />
