@@ -2,7 +2,9 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, VideoOff, LogIn, LogOut, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert, Route, Circle, Square, CircleCheck, BellOff, Ban } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, VideoOff, LogIn, LogOut, Crosshair, ScanEye, Joystick, ScanSearch, TriangleAlert, Route, Circle, Square, CircleCheck, BellOff, Ban, CalendarDays } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FrecuenciaDeChapa } from "@/components/visor/FrecuenciaDeChapa";
 import type { AlertaLista, AccionAlertaLista } from "./AlertaDeLista";
 import { JoystickPtz } from "./Joystick";
 import { metaDe } from "@/components/intrusion/comun";
@@ -305,6 +307,9 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
     const [consulta, setConsulta] = useState<string | null>(null);
     const [sospechoso, setSospechoso] = useState<{ chapa: string; motivo: string } | null>(null);
     const sospechosoRef = useRef(false); sospechosoRef.current = !!sospechoso;
+    // «Frecuencia»: la matrícula cuya ventana está abierta sobre el vivo. Mientras está, el teclado es suyo (Esc la cierra a ella).
+    const [frecuencia, setFrecuencia] = useState<string | null>(null);
+    const frecuenciaRef = useRef(false); frecuenciaRef.current = !!frecuencia;
     useEffect(() => { setSospechoso(null); setConsulta(null); }, [c?.clave]);
     const hayGrabacion = !!c?.nvrId && c?.ch != null;
     const nombreCanal = c?.nombre || "";
@@ -359,6 +364,12 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
             clave: "sospechoso", rotulo: "Etiquetar como sospechoso", Icono: TriangleAlert, tono: "aviso",
             motivo: o.grupo !== "vehiculo" ? "La Lista Amarilla es por matrícula: sólo vehículos" : undefined,
             alElegir: () => setSospechoso({ chapa: o.chapa?.plate || "", motivo: motivoDesdeVivo(nombreCanal, o.quietoDesde) }),
+        });
+        // La frecuencia de ESTA matrícula (16/11, Nico): el calendario y el comportamiento, en una ventana sobre el vivo.
+        if (o.grupo === "vehiculo") ops.push({
+            clave: "frecuencia", rotulo: "Frecuencia", Icono: CalendarDays,
+            motivo: !o.chapa?.plate ? "Todavía no se le leyó la matrícula" : undefined,
+            alElegir: () => { if (o.chapa?.plate) setFrecuencia(o.chapa.plate); },
         });
         if (alSeguirChapa && o.grupo === "vehiculo") ops.push({
             clave: "seguir", rotulo: "Seguir este vehículo", Icono: Route,
@@ -543,7 +554,7 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
     tecladoAjenoRef.current = tecladoAjeno;
     const teclas = useCallback((e: KeyboardEvent) => {
         // Con el cajón de la Lista Amarilla abierto, las teclas son suyas (Esc lo cierra a él, no a la ficha).
-        if (sospechosoRef.current || tecladoAjenoRef.current || performance.now() < ajenoHasta.current) return;
+        if (sospechosoRef.current || frecuenciaRef.current || tecladoAjenoRef.current || performance.now() < ajenoHasta.current) return;
         // En la grabación, Esc vuelve al vivo; las flechas son de la regla (Grabacion).
         if (grabacionRef.current) { if (e.key === "Escape") { e.preventDefault(); setGrabacionDesde(null); } return; }
         // Con una captura en grande, Esc vuelve al vivo (no cierra el canal).
@@ -792,6 +803,16 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                     <TipVisor />
                     {/* Marcar el vehículo tocado: el mismo cajón de la Lista Amarilla del monitor LPR, con lo que ya se sabe escrito. */}
                     {sospechoso && <WatchlistDialog categoriaInicial="SEARCH" plateInicial={sospechoso.chapa} motivoInicial={sospechoso.motivo} onClose={() => setSospechoso(null)} />}
+                    {/* La frecuencia de una matrícula, sobre el vivo: el calendario y el módulo de comportamiento. */}
+                    <Dialog open={!!frecuencia} onOpenChange={(v) => { if (!v) setFrecuencia(null); }}>
+                        <DialogContent className="max-w-[860px] max-h-[86vh] overflow-y-auto">
+                            <DialogHeader>
+                                <DialogTitle className="flex items-center gap-2 text-[16px]"><CalendarDays size={17} /> Frecuencia de {frecuencia}</DialogTitle>
+                                <DialogDescription>Qué días pasó por los accesos del barrio, a qué hora, y cuánto se quedó cada vez.</DialogDescription>
+                            </DialogHeader>
+                            {frecuencia && <FrecuenciaDeChapa plate={frecuencia} />}
+                        </DialogContent>
+                    </Dialog>
                     {consulta && <MinInteriorDialog plate={consulta} open onOpenChange={(o) => { if (!o) setConsulta(null); }} />}
                 </motion.div>
             )}

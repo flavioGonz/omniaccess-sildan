@@ -504,6 +504,13 @@ export type GitHubActivityProps = React.ComponentProps<"div"> & {
   defaultOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /**
+   * ── AGREGADO PARA OMNIACCESS ────────────────────────────
+   * El renglón de arriba, escrito por quien lo usa. El original arma «N contributions in AAAA»:
+   * en una pantalla en español, sobre la frecuencia de una matrícula, eso no dice nada. Sin esto
+   * se sigue armando como siempre.
+   */
+  heading?: string;
 };
 
 const GitHubActivity = ({
@@ -520,6 +527,7 @@ const GitHubActivity = ({
   defaultOpen = false,
   open: openProp,
   onOpenChange,
+  heading: headingProp,
   style,
   ...props
 }: GitHubActivityProps) => {
@@ -564,7 +572,7 @@ const GitHubActivity = ({
 
   const parsedYear = Number(contributions.at(-1)?.date.slice(0, 4));
   const displayYear = year ?? (Number.isFinite(parsedYear) ? parsedYear : null);
-  const heading = `${total} contributions${displayYear ? ` in ${displayYear}` : ""}`;
+  const heading = headingProp ?? `${total} contributions${displayYear ? ` in ${displayYear}` : ""}`;
 
   const gap = gapFor(cellSize);
   const columns = Math.min(
