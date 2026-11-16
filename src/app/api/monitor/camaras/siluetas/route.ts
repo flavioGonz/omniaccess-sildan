@@ -11,6 +11,7 @@ import { leerRecuadro } from "@/lib/deteccion";
 import { REQUERIDA_POLICIA, esRequerida } from "@/lib/min-interior";
 import { sostenedor, CONFIANZA_SIGUE } from "@/lib/siluetas-sosten";
 import sharp from "sharp";
+import { normalizarChapa } from "@/lib/formato-chapa";
 import { contradiceALaEstadia, memoriaDeChapas, type LecturaEnVivo } from "@/lib/chapas-en-vivo";
 
 /**
@@ -87,13 +88,32 @@ const CHAPAS_CADA_MS = 1500;
 const MARGEN_RECORTE = 0.06;
 /** El lector atiende de a uno (con varios a la vez se cayó: ver tracking-worker). Todas las sesiones hacen fila acá. */
 let filaDelLector: Promise<unknown> = Promise.resolve();
+/** Los mismos modelos que usa el motor de lecturas (tracking-worker): si no, las dos lecturas de una misma chapa no serían comparables. */
+const LPR_DETECTOR = process.env.TRACKING_DETECTOR || "yolo-v9-t-640-license-plate-end2end";
+const LPR_OCR = process.env.TRACKING_OCR || "cct-xs-v1-global-model";
+/**
+ * La confianza de una lectura, igual que en el motor: el promedio de la de cada letra, sin pasar
+ * de la del detector. El lector entrega la del texto como una LISTA (una por letra). El primer
+ * día esto la leía como un número, daba siempre 0 y ningún texto llegaba a confirmarse: se veía
+ * el recuadro sobre chapas perfectamente legibles y nunca la matrícula (16/11, captura de Nico
+ * del estacionamiento del frente; medido: seis lecturas iguales de seis, todas con «confianza 0»).
+ */
+function confianzaDe(i: any): number {
+    const c = i?.ocr?.confidence ?? i?.confidence;
+    const letras = Array.isArray(c) ? c.map(Number).filter((n) => Number.isFinite(n)) : typeof c === "number" ? [c] : [];
+    const media = letras.length ? letras.reduce((a, b) => a + b, 0) / letras.length : 0;
+    const det = Number(i?.detection?.confidence);
+    return Math.min(media, Number.isFinite(det) ? det : 1);
+}
 function leerRecorte(jpeg: Buffer): Promise<{ texto: string; confianza: number; caja: { x1: number; y1: number; x2: number; y2: number } | null }[]> {
     const pedido = filaDelLector.then(async () => {
-        const r = await fetch(`${LPR}/api/v1/tools/detect_and_recognize_plate/invoke`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image_base64: jpeg.toString("base64") }), signal: AbortSignal.timeout(8000) });
+        const r = await fetch(`${LPR}/api/v1/tools/detect_and_recognize_plate/invoke`, { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image_base64: jpeg.toString("base64"), detector_model: LPR_DETECTOR, ocr_model: LPR_OCR }), signal: AbortSignal.timeout(8000) });
         if (!r.ok) throw new Error(`omni-lpr respondió ${r.status}`);
         const d: any = await r.json();
         const items = d?.content?.[0]?.data;
-        return (Array.isArray(items) ? items : []).map((i: any) => ({ texto: String(i?.ocr?.text ?? i?.text ?? ""), confianza: Number(i?.ocr?.confidence ?? i?.confidence ?? 0) || 0, caja: i?.detection?.bounding_box || i?.bounding_box || null }));
+        // El texto, con la forma de una chapa del Mercosur (corregida por posición, como en el motor); lo que no la tiene queda vacío: sólo vale su recuadro.
+        return (Array.isArray(items) ? items : []).map((i: any) => ({ texto: normalizarChapa(String(i?.ocr?.text ?? i?.text ?? ""))?.plate || "", confianza: confianzaDe(i), caja: i?.detection?.bounding_box || i?.bounding_box || null }));
     });
     filaDelLector = pedido.catch(() => null);
     return pedido;
