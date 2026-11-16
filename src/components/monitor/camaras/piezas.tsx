@@ -391,6 +391,13 @@ export function useSiluetasEnVivo(stream: string | null, activo: boolean, atraso
     const atraso = useRef(atrasoMs); atraso.current = atrasoMs;
     useEffect(() => {
         if (!stream || !activo) { setAnalisis(null); setEstado("apagado"); return; }
+        /*
+         * Al cambiar de canal, lo del anterior se borra YA (16/11, Nico, pasando de cámara con las
+         * flechas: «me lleva fantasmas de siluetas del canal anterior al nuevo»). El análisis viejo
+         * quedaba en pantalla hasta que llegaba el primer cuadro del canal nuevo, y con el flujo
+         * tardando en conectar eran varios segundos de siluetas de autos sobre un cerco.
+         */
+        setAnalisis(null); setMs(null);
         setEstado("conectando");
         const cola = colaDeSiluetas<{ analisis: any; ms: number }>();
         let es: EventSource | null = null;

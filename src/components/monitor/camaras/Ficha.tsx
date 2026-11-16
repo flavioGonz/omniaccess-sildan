@@ -579,7 +579,8 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                     )}
                     {/* Debajo de las siluetas, que son las que reciben el toque. Sólo en el vivo: el estado de una entrenable es el de AHORA. */}
                     {capas && verCapas && grabacion == null && <CapasDeAnaliticas capas={capas} tam={tamVideo} />}
-                    <SiluetasDelVivo stream={c.online !== false ? c.stream : null} activo={verSiluetas && grabacion == null} atraso={atrasoDelVideo} tam={tamVideo}
+                    {/* Con `key`: al cambiar de canal la capa nace de nuevo, sin identidades ni rótulos del anterior. */}
+                    <SiluetasDelVivo key={c.clave} stream={c.online !== false ? c.stream : null} activo={verSiluetas && grabacion == null} atraso={atrasoDelVideo} tam={tamVideo}
                         geom={c.geom} hayAlerta={!!alerta} verGeom={verGeom} vis={vis} opciones={opcionesDeObjeto} alEstado={setEstadoSil} msRef={msSil} />
 
                     {grabacion == null && <PasoVisionCanal paso={pasoVision} nombre={c.nombre} foto={foto} grande alCerrar={alCerrarPaso} capa="z-0" />}
@@ -629,7 +630,7 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                                     </Icono>
                                 )}
                                 {grabacion == null && c.online !== false && (
-                                    <MenuDeCapas valor={vis} alCambiar={setVis} filas={filasDeCapas}
+                                    <MenuDeCapas valor={vis} alCambiar={setVis} filas={filasDeCapas} abre="abajo"
                                         estado={!verSiluetas ? "OmniVision no está mirando este canal: no hay ninguna de sus capas prendida" : estadoSil === "vivo" ? `Siluetas en vivo${msSil.current != null ? ` · ${msSil.current} ms por cuadro` : ""}` : estadoSil === "ocupado" ? "Ocupado: ya hay dos canales con siluetas abiertos" : estadoSil === "conectando" ? "Conectando con OmniVision…" : estadoSil === "error" ? "OmniVision no contesta" : null}
                                         claseBoton={(activo) => cn("w-11 h-11 rounded-full grid place-items-center transition-colors", activo ? "bg-white text-black" : "text-white/85 hover:text-white hover:bg-white/15")} />
                                 )}

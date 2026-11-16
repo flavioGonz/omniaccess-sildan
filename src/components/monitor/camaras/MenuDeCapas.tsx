@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Boxes, Car, Layers, PawPrint, RectangleEllipsis, Spline, User, type LucideIcon } from "lucide-react";
 import { COLOR_GRUPO } from "@/components/vision/CapaAnalisis";
 import { CAPAS_DEFECTO, type CapasVisibles, type ClaveCapa } from "@/lib/capas-visibles";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { tip } from "./TipVisor";
 
 /**
@@ -24,38 +25,48 @@ const FILAS: Record<ClaveCapa, { rotulo: string; nota?: string; Icono: LucideIco
     camara: { rotulo: "Línea y zona de la cámara", Icono: Spline },
 };
 
-export function MenuDeCapas({ valor, alCambiar, filas, estado, claseBoton }: {
+export function MenuDeCapas({ valor, alCambiar, filas, estado, claseBoton, abre = "arriba" }: {
     valor: CapasVisibles; alCambiar: (v: CapasVisibles) => void;
     /** Las capas que existen ACÁ, en orden (la grabación no tiene matrículas; un canal sin analíticas no tiene zonas). */
     filas: ClaveCapa[];
     /** Cómo viene el análisis (ms por cuadro, ocupado…): un renglón arriba. */
     estado?: string | null;
+    /**
+     * Para dónde se despliega. La barra del vivo está ARRIBA del video y la de la grabación abajo:
+     * el 15/11 salió siempre hacia arriba y en el vivo se abría fuera de la pantalla (16/11, Nico,
+     * con la captura del botón y sólo su ayuda: «esto debe desplegar un elemento hacia abajo»).
+     */
+    abre?: "arriba" | "abajo";
     /** El botón redondo de la barra donde vive: cada barra tiene el suyo. */
     claseBoton: (activo: boolean) => string;
 }) {
     const [abierto, setAbierto] = useState(false);
-    const raiz = useRef<HTMLSpanElement>(null);
     useEffect(() => {
         if (!abierto) return;
-        const afuera = (e: PointerEvent) => { if (!raiz.current?.contains(e.target as Node)) setAbierto(false); };
-        // En captura y cortando: Esc cierra el menú, no el canal que está debajo.
+        // En captura y cortando: Esc cierra el menú, no el canal que está debajo (que escucha en la ventana).
         const tecla = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); setAbierto(false); } };
-        document.addEventListener("pointerdown", afuera, true);
         window.addEventListener("keydown", tecla, true);
-        return () => { document.removeEventListener("pointerdown", afuera, true); window.removeEventListener("keydown", tecla, true); };
+        return () => window.removeEventListener("keydown", tecla, true);
     }, [abierto]);
     const prendidas = filas.filter((k) => valor[k]).length;
     const todas = (si: boolean) => { const v = { ...valor }; for (const k of filas) v[k] = si; alCambiar(v); };
     const deFabrica = filas.every((k) => valor[k] === CAPAS_DEFECTO[k]);
+    /*
+     * El panel va en un portal (el Popover compartido): la barra del vivo se desplaza de costado
+     * cuando no entra (`overflow-x-auto`), y eso recorta todo lo que cuelgue de ella. Por eso el
+     * 15/11 el menú se abría y no se veía.
+     */
     return (
-        <span ref={raiz} className="relative inline-flex" data-capa-tocable data-sin-zoom>
-            <button type="button" onClick={() => setAbierto((a) => !a)} aria-haspopup="menu" aria-expanded={abierto}
-                {...(abierto ? {} : tip(`Capas: qué se dibuja sobre el video (${prendidas} de ${filas.length})`))} className={claseBoton(abierto || prendidas > 0)}>
-                <Layers size={18} />
-            </button>
-            {abierto && (
-                <div role="menu" aria-label="Capas sobre el video" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}
-                    className="visor-panel absolute bottom-full right-0 mb-3 w-[280px] rounded-[14px] p-1.5 text-left text-white z-20">
+        <Popover open={abierto} onOpenChange={setAbierto}>
+            <PopoverTrigger asChild>
+                <button type="button" aria-haspopup="menu" {...(abierto ? {} : tip(`Capas: qué se dibuja sobre el video (${prendidas} de ${filas.length})`))} className={claseBoton(abierto || prendidas > 0)}>
+                    <Layers size={18} />
+                </button>
+            </PopoverTrigger>
+            <PopoverContent side={abre === "abajo" ? "bottom" : "top"} align={abre === "abajo" ? "start" : "end"} sideOffset={12} collisionPadding={12}
+                role="menu" aria-label="Capas sobre el video" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}
+                className="w-[280px] rounded-[14px] p-1.5 text-left text-white z-[var(--capa-menu)] shadow-none"
+                style={{ background: "rgba(8,11,17,.9)", border: "1px solid rgba(248,250,252,.14)", boxShadow: "var(--sombra-flotante)", backdropFilter: "blur(14px)" }}>
                     <div className="px-2.5 pt-1.5 pb-2">
                         <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-white/55">Capas sobre el video</div>
                         {estado && <div className="text-[11.5px] text-white/70 mt-0.5 tabular-nums">{estado}</div>}
@@ -81,8 +92,7 @@ export function MenuDeCapas({ valor, alCambiar, filas, estado, claseBoton }: {
                         <button type="button" onClick={() => todas(false)} disabled={prendidas === 0} className="px-1.5 py-1 rounded-md text-[var(--accion-en-oscuro)] hover:bg-white/[.1] disabled:opacity-40 disabled:pointer-events-none">Ocultar todo</button>
                         <button type="button" onClick={() => { const v = { ...valor }; for (const k of filas) v[k] = CAPAS_DEFECTO[k]; alCambiar(v); }} disabled={deFabrica} className="ml-auto px-1.5 py-1 rounded-md text-white/70 hover:bg-white/[.1] disabled:opacity-40 disabled:pointer-events-none">Como venía</button>
                     </div>
-                </div>
-            )}
-        </span>
+            </PopoverContent>
+        </Popover>
     );
 }
