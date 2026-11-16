@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { memoriaDeChapas, INTENTOS_MAX, POR_VUELTA } from "@/lib/chapas-en-vivo";
+import { contradiceALaEstadia, memoriaDeChapas, INTENTOS_MAX, POR_VUELTA } from "@/lib/chapas-en-vivo";
 
 const AUTO = [0.2, 0.3, 0.5, 0.7], CHAPA: [number, number, number, number] = [0.32, 0.6, 0.38, 0.63];
 
@@ -49,4 +49,17 @@ test("no se insiste: pocos recortes por vuelta, los más grandes primero, y un t
     for (let k = 0; k < INTENTOS_MAX; k++) { m.pendientes([AUTO], 1000 + k); m.anotar(AUTO, null); }
     assert.deepEqual(m.pendientes([AUTO], 5000), [], "sin chapa a la vista después de varios intentos: se lo deja en paz");
     assert.equal(m.de(AUTO), null, "y no se afirma nada: que no se encontró no es que no tenga");
+});
+
+test("la estadía de otro auto no se le cuelga al que está ahora: lo que se ve la contradice", () => {
+    // La captura del 16/11: el recuadro viejo quedó sobre la puerta; la chapa de ESTE auto está abajo, atrás.
+    const vieja = { plate: "SCW7383", caja: [0.62, 0.55, 0.66, 0.59] }, real = [0.74, 0.64, 0.775, 0.685];
+    assert.equal(contradiceALaEstadia(vieja, { plate: "", caja: real }), true, "se encontró la chapa en otro lugar: alcanza, aunque no se la haya leído");
+    assert.equal(contradiceALaEstadia(vieja, { plate: "SBL6779", caja: real }), true);
+    assert.equal(contradiceALaEstadia(vieja, null), false, "sin lectura en vivo no hay con qué contradecirla");
+    // El mismo auto: el recuadro en el mismo lugar (corrido un poco), o la misma chapa con una letra mal leída.
+    assert.equal(contradiceALaEstadia(vieja, { plate: "", caja: [0.615, 0.555, 0.655, 0.595] }), false);
+    assert.equal(contradiceALaEstadia(vieja, { plate: "SCW7388", caja: [0.62, 0.55, 0.66, 0.59] }), false);
+    assert.equal(contradiceALaEstadia(vieja, { plate: "SCW7383", caja: real }), false, "misma matrícula leída con certeza: es él, aunque el recuadro viejo esté corrido");
+    assert.equal(contradiceALaEstadia(vieja, { plate: "SBL6779", caja: [0.62, 0.55, 0.66, 0.59] }), true, "otra matrícula leída con certeza en ese mismo lugar: es otro");
 });

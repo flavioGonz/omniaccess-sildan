@@ -78,3 +78,36 @@ export function memoriaDeChapas() {
         },
     };
 }
+
+/**
+ * Entre la matrícula de la estadía abierta de ese lugar y lo que se ve AHORA, cuál mostrar.
+ *
+ * Por qué (16/11, Nico, con una captura: un auto rojo con chapa SBL 6779 a la vista y encima,
+ * dibujada, «SCW7383», con el recuadro sobre la puerta). Medido: la estadía de SCW7383 seguía
+ * abierta desde las 13:33 (última lectura 13:53) aunque ese auto ya no estaba; el rojo llegó a
+ * las 17:41 al mismo lugar y heredó la matrícula del anterior, porque una estadía se le cuelga
+ * al vehículo que tenga el recuadro viejo adentro de su caja.
+ *
+ * La estadía sigue ganando (la leyó el motor, con sus votos) salvo cuando lo que se ve la
+ * contradice: se encontró la chapa de ESTE vehículo en otro lugar del cuadro que el recuadro de
+ * la estadía, o se le leyó con certeza otra matrícula. Ahí se muestra lo de ahora, y la estadía
+ * no se le cuelga (ni su matrícula ni su reloj): es de otro auto.
+ *
+ * Sólo corrige con la lectura en vivo prendida. Sin ella no hay con qué contradecir a la
+ * estadía: el arreglo de fondo es que la estadía se cierre cuando el auto se va.
+ */
+export function contradiceALaEstadia(deEstadia: { plate: string; caja: number[] }, enVivo: { plate: string; caja: number[] } | null): boolean {
+    if (!enVivo) return false;
+    const a = limpiar(deEstadia.plate), b = limpiar(enVivo.plate);
+    if (b) {
+        // Una letra de diferencia es la misma chapa mal leída; más, es otra.
+        if (a.length !== b.length) return true;
+        let dif = 0; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) dif++;
+        if (dif > 1) return true;
+        if (dif === 0) return false;
+    }
+    // Los dos recuadros tienen que estar en el mismo lugar del cuadro (con holgura: el viejo es de otra lectura).
+    const [x1, y1, x2, y2] = enVivo.caja, w = x2 - x1, h = y2 - y1;
+    const cx = (deEstadia.caja[0] + deEstadia.caja[2]) / 2, cy = (deEstadia.caja[1] + deEstadia.caja[3]) / 2;
+    return cx < x1 - w || cx > x2 + w || cy < y1 - h * 1.5 || cy > y2 + h * 1.5;
+}

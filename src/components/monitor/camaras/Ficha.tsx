@@ -99,7 +99,11 @@ const ANCHO_CAPTURA = 320;
  * No se va con los controles: es información, no un control. Se oculta a mano con su pestaña, y
  * eso se recuerda en este navegador. Escondida no pide ninguna foto.
  */
-export function PilaLecturas({ lecturas }: { lecturas: Lectura[] }) {
+export function PilaLecturas({ lecturas, elegida = null, alElegir }: {
+    lecturas: Lectura[];
+    /** La que se está mirando en grande (su captura ocupa el lugar del video), y cómo se elige otra o se la suelta. */
+    elegida?: string | null; alElegir?: (l: Lectura) => void;
+}) {
     const [abierta, setAbierta] = useState(true);
     useEffect(() => { try { setAbierta(localStorage.getItem(CLAVE_PILA) !== "0"); } catch { /* sin almacenamiento: abierta */ } }, []);
     const alternar = () => setAbierta((a) => { try { localStorage.setItem(CLAVE_PILA, a ? "0" : "1"); } catch { /* idem */ } return !a; });
@@ -115,7 +119,7 @@ export function PilaLecturas({ lecturas }: { lecturas: Lectura[] }) {
                     <motion.div key="pila" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }} transition={{ duration: 0.18 }}
                         className="pointer-events-auto mr-3 sm:mr-4 w-[176px] max-h-[74vh] overflow-y-auto [scrollbar-width:none] flex flex-col gap-1.5">
                         <span className="px-1 text-[9px] font-bold uppercase tracking-[0.14em] text-white/70 [text-shadow:0_1px_4px_rgba(0,0,0,.8)]">Últimas lecturas</span>
-                        {lista.map((l) => <LecturaApilada key={l.id} l={l} />)}
+                        {lista.map((l) => <LecturaApilada key={l.id} l={l} elegida={elegida === l.id} alElegir={alElegir} />)}
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -123,13 +127,19 @@ export function PilaLecturas({ lecturas }: { lecturas: Lectura[] }) {
     );
 }
 
-function LecturaApilada({ l }: { l: Lectura }) {
+function LecturaApilada({ l, elegida, alElegir }: { l: Lectura; elegida: boolean; alElegir?: (l: Lectura) => void }) {
     const ok = l.decision === "GRANT" && !l.listaNegra;
     const foto = getImagePath(l.foto);
     // Si la captura no llega (borrada por retención, o una pantalla sin permiso de fotos), queda la chapa sola.
     const [rota, setRota] = useState(false);
+    // Con captura se puede abrir en grande (16/11, Nico: «al presionarlas debe traerme esa imagen y poder volver al video en vivo»).
+    const abre = !!alElegir && !!foto && !rota;
     return (
-        <div className={cn("relative overflow-hidden rounded-[10px] bg-black/45 backdrop-blur-md border", l.listaNegra ? "border-[var(--mal)]" : "border-white/15")}>
+        <div role={abre ? "button" : undefined} tabIndex={abre ? 0 : undefined} aria-pressed={abre ? elegida : undefined}
+            onClick={abre ? () => alElegir!(l) : undefined} onKeyDown={abre ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); alElegir!(l); } } : undefined}
+            {...(abre ? tip(elegida ? "Volver al video en vivo" : "Ver esta captura en grande") : {})}
+            className={cn("relative overflow-hidden rounded-[10px] bg-black/45 backdrop-blur-md border transition-colors", l.listaNegra ? "border-[var(--mal)]" : elegida ? "border-white" : "border-white/15",
+                abre && "cursor-pointer hover:border-white/60 focus-visible:outline-2 focus-visible:outline-[var(--accion-en-oscuro)]", elegida && "ring-2 ring-white")}>
             {foto && !rota && (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img src={`${foto}${foto.includes("?") ? "&" : "?"}w=${ANCHO_CAPTURA}`} alt="" loading="lazy" decoding="async" draggable={false} onError={() => setRota(true)} className="block w-full aspect-video object-cover opacity-90" />
@@ -481,6 +491,10 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
     const entreYo = useRef(false);
     useEffect(() => { setGrabacionDesde(grabacionInicial); setFallo(!!c && hdCaido(c.clave)); setSdListo(false); setHdListo(false); }, [c?.clave]); // eslint-disable-line react-hooks/exhaustive-deps
     const grabacionRef = useRef(grabacion != null); grabacionRef.current = grabacion != null;
+    // La captura de una lectura abierta en grande sobre el vivo (de la pila de últimas lecturas). Es de ESTE canal: al cambiar, se suelta.
+    const [captura, setCaptura] = useState<Lectura | null>(null);
+    const capturaRef = useRef(false); capturaRef.current = captura != null;
+    useEffect(() => { setCaptura(null); }, [c?.clave, grabacion != null]); // eslint-disable-line react-hooks/exhaustive-deps
     const alCerrarRef = useRef(alCerrar); alCerrarRef.current = alCerrar;
 
     // Controles que se apagan solos, y la ficha que se cierra sola.
@@ -532,6 +546,8 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
         if (sospechosoRef.current || tecladoAjenoRef.current || performance.now() < ajenoHasta.current) return;
         // En la grabación, Esc vuelve al vivo; las flechas son de la regla (Grabacion).
         if (grabacionRef.current) { if (e.key === "Escape") { e.preventDefault(); setGrabacionDesde(null); } return; }
+        // Con una captura en grande, Esc vuelve al vivo (no cierra el canal).
+        if (e.key === "Escape" && capturaRef.current) { e.preventDefault(); setCaptura(null); return; }
         if (e.key === "Escape") { e.preventDefault(); alCerrar(); }
         else if (e.key === "ArrowRight" && alMover) alMover(1);
         else if (e.key === "ArrowLeft" && alMover) alMover(-1);
@@ -738,7 +754,29 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                     </AnimatePresence>
 
                     {/* Las últimas lecturas con su captura: una pila a la derecha, sobre el video (ver PilaLecturas). */}
-                    {lecturas.length > 0 && grabacion == null && <PilaLecturas lecturas={lecturas} />}
+                    {/*
+                      * La captura de una lectura, en el lugar del video (16/11). Tapa el vivo y sus siluetas, que
+                      * siguen andando debajo: volver es instantáneo. Se vuelve con su botón, con Esc o tocando otra
+                      * vez la misma lectura. La imagen entera, sin achicar: es para mirar la chapa y la cara.
+                      */}
+                    {captura && grabacion == null && (
+                        <div data-capa-tocable className="absolute inset-0 z-[8] bg-black">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img key={captura.id} src={getImagePath(captura.foto) || ""} alt={`Captura de ${captura.plate || "una lectura sin matrícula"}`} draggable={false} className="absolute inset-0 w-full h-full object-contain" />
+                            <div className="absolute inset-x-0 bottom-6 sm:bottom-8 flex justify-center px-3 pointer-events-none">
+                                <span className="visor-panel pointer-events-auto rounded-full pl-4 pr-1.5 py-1.5 inline-flex items-center gap-3 text-white">
+                                    <Camera size={15} className="shrink-0 text-white/70" />
+                                    <span className="text-[13.5px] font-bold tabular-nums tracking-wide">{captura.plate || "SIN LEER"}</span>
+                                    <span className="text-[12px] text-white/70 tabular-nums">{new Date(captura.ts).toLocaleString("es-UY", { timeZone: "America/Montevideo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" })}</span>
+                                    <button type="button" onClick={() => setCaptura(null)} {...tip("Volver al video en vivo  ( Esc )")}
+                                        className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-white text-black text-[12.5px] font-bold hover:bg-white/90 transition-colors">
+                                        <Radio size={14} /> Volver al vivo
+                                    </button>
+                                </span>
+                            </div>
+                        </div>
+                    )}
+                    {lecturas.length > 0 && grabacion == null && <PilaLecturas lecturas={lecturas} elegida={captura?.id ?? null} alElegir={(l) => setCaptura((c0) => (c0?.id === l.id ? null : l))} />}
 
                     {/* Grabando: el punto rojo y el cronómetro, siempre a la vista (no se van con los controles), y detener de un toque. */}
                     {rec != null && <PildoraRec desde={rec} acumulado={yaGrabado()} graba={hayGrabacion} camaras={tramosRec.current.length + (hayGrabacion ? 1 : 0)} alDetener={detener} />}

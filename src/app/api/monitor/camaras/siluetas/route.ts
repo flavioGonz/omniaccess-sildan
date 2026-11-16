@@ -11,7 +11,7 @@ import { leerRecuadro } from "@/lib/deteccion";
 import { REQUERIDA_POLICIA, esRequerida } from "@/lib/min-interior";
 import { sostenedor, CONFIANZA_SIGUE } from "@/lib/siluetas-sosten";
 import sharp from "sharp";
-import { memoriaDeChapas, type Caja, type LecturaEnVivo } from "@/lib/chapas-en-vivo";
+import { contradiceALaEstadia, memoriaDeChapas, type LecturaEnVivo } from "@/lib/chapas-en-vivo";
 
 /**
  * GET /api/monitor/camaras/siluetas?stream=<nombre> → text/event-stream con lo que OmniVision ve
@@ -274,11 +274,22 @@ export async function GET(req: NextRequest) {
                 const p = pendiente; pendiente = null;
                 void analizar(p.jpeg, p.t);
             };
-            /** A cada vehículo, su matrícula leída en vivo (la de una estadía abierta, que se suma después, le gana). */
-            const conLeidas = <T extends { grupo: string; caja: number[] }>(objetos: T[]): (T & { chapa?: { plate: string; caja: Caja } })[] => {
+            /**
+             * Las matrículas de cada vehículo: la de la estadía abierta de su lugar y la leída en vivo. Gana
+             * la estadía, salvo que lo que se ve ahora la contradiga (lib/chapas-en-vivo): entonces ese
+             * vehículo queda como venía —sin la matrícula ni el reloj de una estadía que es de otro— y
+             * con lo leído ahora.
+             */
+            const conMatriculas = async <T extends { grupo: string; caja: number[] }>(objetos: T[]) => {
                 vehiculos = objetos.filter((o) => o.grupo === "vehiculo" && o.caja.length === 4).map((o) => o.caja);
-                if (!chapas) return objetos;
-                return objetos.map((o) => { const c = o.grupo === "vehiculo" ? chapas.de(o.caja) : null; return c ? { ...o, chapa: c } : o; });
+                const conEstadias = conChapa(objetos, await estadiasDe(camara));
+                if (!chapas) return conEstadias;
+                return conEstadias.map((o, i) => {
+                    const viva = o.grupo === "vehiculo" ? chapas.de(o.caja) : null;
+                    if (!viva) return o;
+                    if (!o.chapa) return { ...o, chapa: viva };
+                    return contradiceALaEstadia(o.chapa, viva) ? { ...objetos[i], chapa: viva } : o;
+                });
             };
             const analizar = async (jpeg: Buffer, t: number) => {
                 ocupado = true;
@@ -293,7 +304,7 @@ export async function GET(req: NextRequest) {
                         analisis: {
                             ancho: j.ancho, alto: j.alto, tarea: "segmentar",
                             // El tiempo en el lugar sólo en el vivo: en la grabación el cuadro es de otro momento.
-                            objetos: conAlerta(conChapa(conEstadia(conLeidas(sostener(paraPantalla(j.objetos, await ajustesDePantalla()), Date.now())), await lugaresDe(camara)), await estadiasDe(camara)), await negrasVigentes()),
+                            objetos: conAlerta(await conMatriculas(conEstadia(sostener(paraPantalla(j.objetos, await ajustesDePantalla()), Date.now()), await lugaresDe(camara))), await negrasVigentes()),
                         },
                     });
                     descartados = 0;
