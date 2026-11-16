@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { spawn } from "child_process";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { avisarPorSocket } from "@/lib/avisar";
@@ -194,9 +194,20 @@ export async function alAlmacen(archivo: string, nombre: string, instanteMs: num
 export async function prepararParaEnviar(usuarioId: string | null, id: string): Promise<{ ok: true; nombre: string } | { ok: false; motivo: string }> {
     const f = await prisma.clipGrabado.findFirst({ where: { id, ...(usuarioId ? { usuarioId } : {}), estado: "listo" } });
     if (!f?.nombre) return { ok: false, motivo: "Ese clip no está listo." };
-    const destino = path.join(DIR_CLIPS, path.basename(f.nombre));
-    try { if (fs.statSync(destino).size > 1500) { const ahora = new Date(); fs.utimesSync(destino, ahora, ahora); return { ok: true, nombre: f.nombre }; } } catch { /* no está: se baja */ }
-    const m = /^\/api\/files\/([^/]+)\/(.+)$/.exec(f.guardado || "");
+    return traerDelAlmacen(f.guardado, f.nombre);
+}
+
+/**
+ * Deja un clip guardado otra vez a mano en la carpeta de clips (vive minutos), para mandarlo: lo
+ * que WhatsApp y Telegram bajan es ese archivo. Sirve para un clip grabado y para uno que se mandó
+ * y quedó guardado (Evidencias › Reenviar).
+ */
+export async function traerDelAlmacen(guardado: string | null, nombreCrudo: string): Promise<{ ok: true; nombre: string } | { ok: false; motivo: string }> {
+    const nombre = path.basename(nombreCrudo);
+    if (!/^[\w.\-]{1,200}\.mp4$/.test(nombre)) return { ok: false, motivo: "Ese archivo no es un clip." };
+    const destino = path.join(DIR_CLIPS, nombre);
+    try { if (fs.statSync(destino).size > 1500) { const ahora = new Date(); fs.utimesSync(destino, ahora, ahora); return { ok: true, nombre }; } } catch { /* no está: se baja */ }
+    const m = /^\/api\/files\/([^/]+)\/(.+)$/.exec(guardado || "");
     if (!m) return { ok: false, motivo: "El clip ya no está en el servidor y no quedó guardado en el almacén." };
     try {
         const s3 = await getS3Client();
@@ -204,9 +215,17 @@ export async function prepararParaEnviar(usuarioId: string | null, id: string): 
         const bytes = Buffer.from(await (o.Body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray());
         fs.mkdirSync(DIR_CLIPS, { recursive: true });
         fs.writeFileSync(destino, bytes);
-        return { ok: true, nombre: f.nombre };
+        return { ok: true, nombre };
     } catch (e) {
-        console.error(`[clips] no se pudo traer ${f.nombre} del almacén: ${(e as Error)?.message || e}`);
+        console.error(`[clips] no se pudo traer ${nombre} del almacén: ${(e as Error)?.message || e}`);
         return { ok: false, motivo: "No se pudo traer el clip del almacén." };
     }
+}
+
+/** Saca del almacén un archivo guardado con `uploadToS3` (su URL /api/files/<depósito>/<clave>). No tira: dice si pudo. */
+export async function quitarDelAlmacen(url: string | null | undefined): Promise<boolean> {
+    const m = /^\/api\/files\/([^/]+)\/(.+)$/.exec(url || "");
+    if (!m) return false;
+    try { const s3 = await getS3Client(); await s3.send(new DeleteObjectCommand({ Bucket: m[1], Key: decodeURIComponent(m[2]) })); return true; }
+    catch (e) { console.error(`[clips] no se pudo quitar ${m[2]} del almacén: ${(e as Error)?.message || e}`); return false; }
 }

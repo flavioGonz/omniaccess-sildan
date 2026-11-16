@@ -17,6 +17,13 @@
  * servidor, la pantalla y las pruebas).
  */
 export type EnvioEvidencia = { canal: string; estado: string; a: string[]; cuando: string; por: string | null; error: string | null };
+/**
+ * De dónde se sacó el video: la cámara, y en qué grabador y canal graba (16/11, Nico: «indicá las
+ * cámaras del clip, dónde graban, para saber de dónde se extrajo la evidencia»). El grabador y el
+ * canal los completa el servidor (acá sólo se sabe la cámara). «anillo»: no salió de un grabador
+ * sino de los últimos minutos que el servidor guarda de esa cámara.
+ */
+export type FuenteEvidencia = { camara: string | null; deviceId: string | null; nvrId: string | null; grabador: string | null; canal: number | null; desde: string | null; hasta: string | null; origen: "grabador" | "anillo" | null };
 export type Evidencia = {
     id: string;
     /** «grabado»: con el botón Grabar. «enviado»: un clip o un evento mandado desde el panel. */
@@ -31,6 +38,9 @@ export type Evidencia = {
     archivo: string | null;
     deviceId: string | null; matricula: string | null;
     envios: EnvioEvidencia[];
+    fuentes: FuenteEvidencia[];
+    /** Los despachos que la forman (un envío a tres destinos son tres): hacen falta para borrarla. */
+    despachos: string[];
 };
 
 export type FilaClip = { id: string; usuario: string | null; usuarioId: string; rotulo: string | null; nombre: string | null; guardado: string | null; foto: string | null; segundos: number | null; camaras: number | null; tramos: unknown; creado: Date; terminado: Date | null };
@@ -39,6 +49,7 @@ export type FilaDespacho = { id: string; type: string; channel: string; status: 
 const texto = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 const numero = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 type Carga = Record<string, unknown>;
+const iso = (ms: number | null) => (ms != null && Number.isFinite(ms) ? new Date(ms).toISOString() : null);
 const cargaDe = (j: FilaDespacho): Carga => (j.payload && typeof j.payload === "object" ? (j.payload as Carga) : {});
 /** Un teléfono o un chat no se muestra entero en una lista: alcanza con reconocerlo. */
 export const disimular = (d: string) => (d.length > 4 ? `…${d.slice(-4)}` : d);
@@ -66,6 +77,8 @@ export function deClipGrabado(f: FilaClip, despachos: FilaDespacho[]): Evidencia
         sinVideo: f.guardado ? null : "No se pudo guardar en el almacén cuando se grabó.", archivo: f.nombre,
         deviceId: texto(tramos[0]?.deviceId), matricula: null,
         envios: despachos.filter((j) => f.nombre && cargaDe(j).clipHecho === f.nombre).map(envioDe),
+        fuentes: tramos.map((t) => ({ camara: texto(t.nombre), deviceId: texto(t.deviceId), nvrId: texto(t.nvrId), grabador: null, canal: numero(t.ch), desde: iso(numero(t.desde)), hasta: iso(numero(t.hasta)), origen: null })),
+        despachos: [],
     };
 }
 
@@ -84,30 +97,36 @@ export function deDespachos(despachos: FilaDespacho[], clipsListados: Set<string
     const grupos = new Map<string, Evidencia>();
     for (const j of [...despachos].sort((a, b) => +a.createdAt - +b.createdAt)) {
         const p = cargaDe(j);
+        // Borrada de Evidencias: el despacho sigue en Despachos (que se mandó es un hecho), pero acá ya no está.
+        if (p.evidenciaBorrada) continue;
+        const t0 = Date.parse(texto(p.instante) || "");
+        const fuente = (antes: number, despues: number): FuenteEvidencia[] => (j.deviceId || texto(p.deviceName)
+            ? [{ camara: texto(p.deviceName), deviceId: j.deviceId, nvrId: null, grabador: null, canal: null, desde: iso(Number.isFinite(t0) ? t0 - antes * 1000 : null), hasta: iso(Number.isFinite(t0) ? t0 + despues * 1000 : null),
+                origen: p.fuente === "anillo" ? "anillo" : p.fuente === "nvr" ? "grabador" : null }] : []);
         if (j.type === "CLIP") {
             const v = p.ventana && typeof p.ventana === "object" ? (p.ventana as Carga) : null;
-            const seg = (numero(v?.antes) ?? numero(p.antes) ?? 0) + (numero(v?.despues) ?? numero(p.despues) ?? 0);
+            const antes = numero(v?.antes) ?? numero(p.antes) ?? 0, despues = numero(v?.despues) ?? numero(p.despues) ?? 0, seg = antes + despues;
             const guardado = texto(p.guardado);
             out.push({
                 id: `envio-${j.id}`, origen: "enviado", cuando: j.createdAt.toISOString(), instante: texto(p.instante),
                 titulo: texto(p.deviceName) || "Clip de la grabación", detalle: texto(p.nota), quien: texto(p.enviadoPor),
                 segundos: seg || null, camaras: 1, video: guardado, foto: texto(p.foto),
                 sinVideo: guardado ? null : j.status === "FAILED" ? "No salió: no hubo video que guardar." : "Se mandó, pero el video no quedó guardado (los envíos anteriores al 16/11 no se guardaban).",
-                archivo: texto(p.clip), deviceId: j.deviceId, matricula: texto(p.matricula), envios: [envioDe(j)],
+                archivo: texto(p.clip), deviceId: j.deviceId, matricula: texto(p.matricula), envios: [envioDe(j)], fuentes: fuente(antes, despues), despachos: [j.id],
             });
         } else if (esCompartido(j)) {
             const hecho = texto(p.clipHecho);
             if (hecho && clipsListados.has(hecho)) continue;
             const clave = `${p.instante}|${p.asunto}|${p.enviadoPor}|${j.channel}`;
             const g = grupos.get(clave);
-            if (g && +j.createdAt - Date.parse(g.envios[g.envios.length - 1].cuando) <= MISMO_ENVIO_MS) { g.envios.push(envioDe(j)); continue; }
+            if (g && +j.createdAt - Date.parse(g.envios[g.envios.length - 1].cuando) <= MISMO_ENVIO_MS) { g.envios.push(envioDe(j)); g.despachos.push(j.id); continue; }
             const suClip = hecho ? grabados.get(hecho) : undefined;
             const e: Evidencia = {
                 id: `envio-${j.id}`, origen: "enviado", cuando: j.createdAt.toISOString(), instante: texto(p.instante),
                 titulo: texto(p.asunto) || texto(p.deviceName) || "Evento compartido", detalle: texto(p.deviceName), quien: texto(p.enviadoPor),
                 segundos: suClip?.segundos ?? null, camaras: null, video: suClip?.guardado ?? null, foto: suClip?.foto || texto(p.snapshotPath),
                 sinVideo: suClip?.guardado ? null : hecho ? "Se mandó un clip grabado que ya no está en el almacén." : "Se compartió la foto del evento.",
-                archivo: hecho, deviceId: j.deviceId, matricula: null, envios: [envioDe(j)],
+                archivo: hecho, deviceId: j.deviceId, matricula: null, envios: [envioDe(j)], fuentes: fuente(0, 0).map((x) => ({ ...x, hasta: null })), despachos: [j.id],
             };
             grupos.set(clave, e); out.push(e);
         }

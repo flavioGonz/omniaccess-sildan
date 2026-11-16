@@ -54,6 +54,17 @@ test("el envío de un clip grabado que ya está en la lista no aparece dos veces
     assert.match(deDespachos([j])[0].sinVideo!, /ya no está/);
 });
 
+test("de dónde salió: cada tramo con su cámara y su rato; y lo borrado de Evidencias ya no se lista", () => {
+    const e = deClipGrabado(clip({ tramos: [{ nvrId: "n1", ch: 4, desde: T - 60_000, hasta: T - 40_000, nombre: "Portón" }, { deviceId: "d2", desde: T - 40_000, hasta: T - 18_000, nombre: "Calle 2" }] }), []);
+    assert.deepEqual(e.fuentes.map((f) => [f.camara, f.nvrId, f.canal, f.deviceId]), [["Portón", "n1", 4, null], ["Calle 2", null, null, "d2"]]);
+    assert.equal(e.fuentes[0].desde, new Date(T - 60_000).toISOString());
+    const enviado = deDespachos([job("a", { payload: { deviceName: "LPR Entrada", instante: new Date(T).toISOString(), ventana: { antes: 10, despues: 20 }, fuente: "anillo" } })])[0];
+    assert.deepEqual([enviado.fuentes[0].origen, enviado.fuentes[0].desde, enviado.fuentes[0].hasta, enviado.despachos], ["anillo", new Date(T - 10_000).toISOString(), new Date(T + 20_000).toISOString(), ["a"]]);
+    assert.equal(deDespachos([job("b", { payload: { deviceName: "X", evidenciaBorrada: { por: "Nico" } } })]).length, 0);
+    const tres = deDespachos(["1", "2", "3"].map((id, k) => job(id, { type: "ALERT", payload: { evento: "compartido", asunto: "A", instante: new Date(T).toISOString(), to: id }, createdAt: new Date(T + k * 100) })));
+    assert.deepEqual(tres[0].despachos, ["1", "2", "3"]);
+});
+
 test("lo más nuevo primero, y se busca por cámara, persona, matrícula o destino", () => {
     const l = ordenarEvidencias([deClipGrabado(clip({ terminado: new Date(T - 5000) }), []), ...deDespachos([job("a", { payload: { deviceName: "LPR Entrada", matricula: "SBX4521", destinatarios: [{ nombre: "Guardia" }] } })])]);
     assert.deepEqual(l.map((e) => e.origen), ["enviado", "grabado"]);

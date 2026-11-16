@@ -5,29 +5,31 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { PERMISOS_VIDEO } from "@/lib/clip-instante";
-import { prepararParaEnviar } from "@/lib/clips-grabados";
-import { listarEvidencias } from "@/lib/evidencias-servidor";
+import { borrarEvidencia, listarEvidencias, prepararEnvio } from "@/lib/evidencias-servidor";
+import { auditar } from "@/lib/centrales/sesion";
 
 /**
  * Evidencias: lo grabado y lo mandado (lib/evidencias).
  *
  *   GET  ?origen=grabado|enviado&q=<texto>&antes=<ms>   la lista, de lo más nuevo a lo más viejo
- *   POST { accion: "preparar", id }                     deja a mano el archivo de un clip grabado, para volver a mandarlo
+ *   POST   { accion: "preparar", id }                   deja a mano el archivo de un clip, para volver a mandarlo
+ *   DELETE { id, despachos? }                           la borra (queda en la auditoría quién y qué)
  *
  * Con sesión y el permiso de grabaciones, los dos.
  */
 const SIN_CACHE = { "Cache-Control": "no-store" };
 
-async function permitido(): Promise<NextResponse | null> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- la sesión es el JWT crudo
-    const s: any = await getSession().catch(() => null);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- la sesión es el JWT crudo
+type Sesion = any;
+async function permitido(): Promise<NextResponse | { sesion: Sesion }> {
+    const s: Sesion = await getSession().catch(() => null);
     if (!s) return NextResponse.json({ error: "Hace falta iniciar sesión." }, { status: 401 });
     if (!PERMISOS_VIDEO.some((p) => permisosDeSesion(s).includes(p))) return NextResponse.json({ error: "Tu rol no puede ver las grabaciones." }, { status: 403 });
-    return null;
+    return { sesion: s };
 }
 
 export async function GET(req: NextRequest) {
-    const no = await permitido(); if (no) return no;
+    const q = await permitido(); if (q instanceof NextResponse) return q;
     const sp = req.nextUrl.searchParams, origen = sp.get("origen");
     try {
         const r = await listarEvidencias({ origen: origen === "grabado" || origen === "enviado" ? origen : null, q: (sp.get("q") || "").slice(0, 80), antes: Number(sp.get("antes")) || null });
@@ -39,8 +41,25 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-    const no = await permitido(); if (no) return no;
+    const q = await permitido(); if (q instanceof NextResponse) return q;
     const b = await req.json().catch(() => null);
     if (b?.accion !== "preparar" || typeof b.id !== "string") return NextResponse.json({ ok: false, motivo: "Pedido desconocido." }, { status: 400 });
-    return NextResponse.json(await prepararParaEnviar(null, b.id.replace(/^clip-/, "")), { headers: SIN_CACHE });
+    return NextResponse.json(await prepararEnvio(b.id), { headers: SIN_CACHE });
+}
+
+export async function DELETE(req: NextRequest) {
+    const q = await permitido(); if (q instanceof NextResponse) return q;
+    const b = await req.json().catch(() => null);
+    if (typeof b?.id !== "string" || !/^(clip|envio)-[\w-]{1,60}$/.test(b.id)) return NextResponse.json({ ok: false, motivo: "Falta cuál." }, { status: 400 });
+    const despachos = Array.isArray(b.despachos) ? b.despachos.filter((x: unknown): x is string => typeof x === "string" && /^[\w-]{1,60}$/.test(x)) : [];
+    const por = String(q.sesion?.name || q.sesion?.sub || "panel");
+    try {
+        const r = await borrarEvidencia(b.id, despachos, por);
+        await auditar(q.sesion, "evidencia.borrar", String(b.titulo || b.id).slice(0, 120), r.ok, r.ok ? r.detalle : r.motivo);
+        return NextResponse.json(r.ok ? { ok: true } : r, { status: r.ok ? 200 : 409, headers: SIN_CACHE });
+    } catch (e) {
+        console.error("[evidencias] borrar:", e instanceof Error ? e.message : e);
+        await auditar(q.sesion, "evidencia.borrar", String(b.titulo || b.id).slice(0, 120), false, "error al borrar");
+        return NextResponse.json({ ok: false, motivo: "No se pudo borrar." }, { status: 500, headers: SIN_CACHE });
+    }
 }
