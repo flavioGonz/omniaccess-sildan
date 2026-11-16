@@ -384,7 +384,9 @@ export function Flotante({ abierto, alCerrar, children, className, lado = "izqui
  * siluetas van adelantadas al video por todo su colchón (lib/siluetas-sincronia). Sin análisis
  * para ese instante no se devuelve ninguno: dibujar los viejos sería mentir.
  */
-export function useSiluetasEnVivo(stream: string | null, activo: boolean, atrasoMs?: () => number | null) {
+export function useSiluetasEnVivo(stream: string | null, activo: boolean, atrasoMs?: () => number | null,
+    /** Pedir también las matrículas de los vehículos (el servidor lee la alta calidad: sólo cuando ya se la está mirando). */
+    conChapas = false) {
     const [analisis, setAnalisis] = useState<any | null>(null);
     const [ms, setMs] = useState<number | null>(null);
     const [estado, setEstado] = useState<"apagado" | "conectando" | "vivo" | "ocupado" | "error">("apagado");
@@ -402,7 +404,7 @@ export function useSiluetasEnVivo(stream: string | null, activo: boolean, atraso
         const cola = colaDeSiluetas<{ analisis: any; ms: number }>();
         let es: EventSource | null = null;
         const abrir = () => {
-            es = new EventSource(`/api/monitor/camaras/siluetas?stream=${encodeURIComponent(stream)}`);
+            es = new EventSource(`/api/monitor/camaras/siluetas?stream=${encodeURIComponent(stream)}${conChapas ? "&chapas=1" : ""}`);
             // Sin lugar (tope de canales a la vez): el servidor lo dice y se cierra; sin cerrar acá,
             // EventSource reintentaría solo para siempre.
             es.addEventListener("ocupado", () => { es?.close(); setEstado("ocupado"); });
@@ -426,6 +428,6 @@ export function useSiluetasEnVivo(stream: string | null, activo: boolean, atraso
         };
         raf = requestAnimationFrame(paso);
         return () => { cancelAnimationFrame(raf); cola.vaciar(); es?.close(); };
-    }, [stream, activo]);
+    }, [stream, activo, conChapas]);
     return { analisis, ms, estado };
 }

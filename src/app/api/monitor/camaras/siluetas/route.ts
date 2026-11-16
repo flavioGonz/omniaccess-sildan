@@ -10,6 +10,8 @@ import { conChapa, conEstadia, type EstadiaAbierta, type LugarVehiculo } from "@
 import { leerRecuadro } from "@/lib/deteccion";
 import { REQUERIDA_POLICIA, esRequerida } from "@/lib/min-interior";
 import { sostenedor, CONFIANZA_SIGUE } from "@/lib/siluetas-sosten";
+import sharp from "sharp";
+import { memoriaDeChapas, type Caja, type LecturaEnVivo } from "@/lib/chapas-en-vivo";
 
 /**
  * GET /api/monitor/camaras/siluetas?stream=<nombre> → text/event-stream con lo que OmniVision ve
@@ -69,6 +71,33 @@ const PUNTOS_SILUETA_MAX = 60;
 const NOMBRE_STREAM = /^(lpr|face)_[\w-]{1,100}$/;
 
 let sesiones = 0;
+
+/**
+ * Matrículas en el vivo (`?chapas=1`; el porqué, lo medido y las reglas: lib/chapas-en-vivo).
+ *
+ * Cómo: otro ffmpeg lee la ALTA calidad del canal y entrega sólo sus cuadros clave (uno cada
+ * tanto, sin decodificar el resto: casi no cuesta). De cada uno se recorta cada vehículo que el
+ * análisis tiene a la vista y se le pasa al lector, de a uno. El navegador lo pide sólo cuando ya
+ * está mirando la alta calidad: así no se le abre al enlace de la cámara un flujo que nadie ve.
+ */
+const LPR = (process.env.OMNI_LPR_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+/** Entre una vuelta de lectura y la siguiente, como poco. */
+const CHAPAS_CADA_MS = 1500;
+/** Cuánto se agranda el recorte del vehículo hacia cada lado: la caja a veces deja la chapa en el borde. */
+const MARGEN_RECORTE = 0.06;
+/** El lector atiende de a uno (con varios a la vez se cayó: ver tracking-worker). Todas las sesiones hacen fila acá. */
+let filaDelLector: Promise<unknown> = Promise.resolve();
+function leerRecorte(jpeg: Buffer): Promise<{ texto: string; confianza: number; caja: { x1: number; y1: number; x2: number; y2: number } | null }[]> {
+    const pedido = filaDelLector.then(async () => {
+        const r = await fetch(`${LPR}/api/v1/tools/detect_and_recognize_plate/invoke`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image_base64: jpeg.toString("base64") }), signal: AbortSignal.timeout(8000) });
+        if (!r.ok) throw new Error(`omni-lpr respondió ${r.status}`);
+        const d: any = await r.json();
+        const items = d?.content?.[0]?.data;
+        return (Array.isArray(items) ? items : []).map((i: any) => ({ texto: String(i?.ocr?.text ?? i?.text ?? ""), confianza: Number(i?.ocr?.confidence ?? i?.confidence ?? 0) || 0, caja: i?.detection?.bounding_box || i?.bounding_box || null }));
+    });
+    filaDelLector = pedido.catch(() => null);
+    return pedido;
+}
 
 const r4 = (v: number) => Math.round(v * 10000) / 10000;
 function aligerar(poli: number[][]): number[][] {
@@ -186,6 +215,7 @@ export async function GET(req: NextRequest) {
     const p = await autorizarMonitor("/api/monitor/camaras/siluetas");
     if (p.error) return p.error;
     const stream = req.nextUrl.searchParams.get("stream") || "";
+    const conChapas = req.nextUrl.searchParams.get("chapas") === "1";
     if (!NOMBRE_STREAM.test(stream) || stream.endsWith("_hd")) return NextResponse.json({ error: "stream inválido" }, { status: 400 });
     // Sin lugar se contesta igual con un flujo de eventos que dice «ocupado» y se cierra: un 429 no
     // lo puede leer EventSource, que sólo reintentaría para siempre.
@@ -197,6 +227,8 @@ export async function GET(req: NextRequest) {
     const enc = new TextEncoder();
     let cerrado = false;
     let ff: ReturnType<typeof spawn> | null = null;
+    /** El de la alta calidad, para las matrículas (sólo con `chapas=1`). */
+    let ffHd: ReturnType<typeof spawn> | null = null;
     let fin: ReturnType<typeof setTimeout> | null = null;
     /** El aviso para analizar el cuadro guardado cuando llegue su momento. */
     let reloj: ReturnType<typeof setTimeout> | null = null;
@@ -209,6 +241,7 @@ export async function GET(req: NextRequest) {
                 if (fin) clearTimeout(fin);
                 if (reloj) clearTimeout(reloj);
                 try { ff?.kill("SIGKILL"); } catch { }
+                try { ffHd?.kill("SIGKILL"); } catch { }
                 try { controller.close(); } catch { }
             };
             req.signal.addEventListener("abort", cerrar);
@@ -230,6 +263,9 @@ export async function GET(req: NextRequest) {
             const camara = camaraDeStream(stream);
             // Entra con la confianza de fábrica y sigue con menos: en una escena llena, el corte fijo prendía y apagaba a los del fondo (lib/siluetas-sosten).
             const sostener = sostenedor<ReturnType<typeof paraPantalla>[number]>((o) => o.grupo !== GRUPO_PROPIO);
+            // Las matrículas: qué se le leyó a cada vehículo quieto, y los vehículos del último análisis.
+            const chapas = conChapas ? memoriaDeChapas() : null;
+            let vehiculos: number[][] = [];
             /** Analiza el cuadro guardado si omni-vision está libre y ya pasó la espera; si falta, se avisa solo. */
             const intentar = () => {
                 if (cerrado || ocupado || !pendiente) return;
@@ -237,6 +273,12 @@ export async function GET(req: NextRequest) {
                 if (falta > 0) { if (!reloj) reloj = setTimeout(() => { reloj = null; intentar(); }, falta); return; }
                 const p = pendiente; pendiente = null;
                 void analizar(p.jpeg, p.t);
+            };
+            /** A cada vehículo, su matrícula leída en vivo (la de una estadía abierta, que se suma después, le gana). */
+            const conLeidas = <T extends { grupo: string; caja: number[] }>(objetos: T[]): (T & { chapa?: { plate: string; caja: Caja } })[] => {
+                vehiculos = objetos.filter((o) => o.grupo === "vehiculo" && o.caja.length === 4).map((o) => o.caja);
+                if (!chapas) return objetos;
+                return objetos.map((o) => { const c = o.grupo === "vehiculo" ? chapas.de(o.caja) : null; return c ? { ...o, chapa: c } : o; });
             };
             const analizar = async (jpeg: Buffer, t: number) => {
                 ocupado = true;
@@ -251,7 +293,7 @@ export async function GET(req: NextRequest) {
                         analisis: {
                             ancho: j.ancho, alto: j.alto, tarea: "segmentar",
                             // El tiempo en el lugar sólo en el vivo: en la grabación el cuadro es de otro momento.
-                            objetos: conAlerta(conChapa(conEstadia(sostener(paraPantalla(j.objetos, await ajustesDePantalla()), Date.now()), await lugaresDe(camara)), await estadiasDe(camara)), await negrasVigentes()),
+                            objetos: conAlerta(conChapa(conEstadia(conLeidas(sostener(paraPantalla(j.objetos, await ajustesDePantalla()), Date.now())), await lugaresDe(camara)), await estadiasDe(camara)), await negrasVigentes()),
                         },
                     });
                     descartados = 0;
@@ -274,10 +316,56 @@ export async function GET(req: NextRequest) {
                     intentar();
                 }
             });
+            if (chapas) {
+                let leyendo = false, ultima = 0, bufHd = Buffer.alloc(0);
+                const vuelta = async (cuadro: Buffer) => {
+                    if (cerrado || leyendo || Date.now() - ultima < CHAPAS_CADA_MS) return;
+                    const pendientes = chapas.pendientes(vehiculos, Date.now());
+                    if (!pendientes.length) return;
+                    leyendo = true; ultima = Date.now();
+                    try {
+                        const m = await sharp(cuadro).metadata();
+                        const W = m.width || 0, H = m.height || 0;
+                        if (!W || !H) return;
+                        for (const v of pendientes) {
+                            if (cerrado) break;
+                            const mx = (v[2] - v[0]) * MARGEN_RECORTE, my = (v[3] - v[1]) * MARGEN_RECORTE;
+                            const left = Math.max(0, Math.round((v[0] - mx) * W)), top = Math.max(0, Math.round((v[1] - my) * H));
+                            const width = Math.min(W - left, Math.round((v[2] - v[0] + 2 * mx) * W)), height = Math.min(H - top, Math.round((v[3] - v[1] + 2 * my) * H));
+                            if (width < 40 || height < 40) { chapas.anotar(v, null); continue; }
+                            const recorte = await sharp(cuadro).extract({ left, top, width, height }).jpeg({ quality: 90 }).toBuffer();
+                            const leidas = (await leerRecorte(recorte)).filter((x) => x.caja).sort((a, b) => b.confianza - a.confianza);
+                            const x = leidas[0];
+                            const lectura: LecturaEnVivo | null = x?.caja
+                                ? { texto: x.texto, confianza: x.confianza, caja: [(left + x.caja.x1) / W, (top + x.caja.y1) / H, (left + x.caja.x2) / W, (top + x.caja.y2) / H] } : null;
+                            chapas.anotar(v, lectura);
+                        }
+                    } catch { /* el lector no contestó o el cuadro vino roto: la próxima vuelta */ }
+                    finally { leyendo = false; }
+                };
+                // Sólo los cuadros clave de la alta calidad: llegan cada uno o dos segundos y son los únicos que se decodifican.
+                ffHd = spawn("ffmpeg", ["-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-skip_frame", "nokey", "-i", `${GO2RTC_RTSP}/${stream}_hd`,
+                    "-an", "-vsync", "vfr", "-q:v", "3", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"], { stdio: ["ignore", "pipe", "ignore"] });
+                // Sin alta calidad (el canal no la tiene, o no abre) no hay matrículas; las siluetas siguen.
+                ffHd.on("error", () => { });
+                ffHd.stdout?.on("data", (d: Buffer) => {
+                    bufHd = Buffer.concat([bufHd, d]);
+                    if (bufHd.length > 24 * 1024 * 1024) { bufHd = Buffer.alloc(0); return; }
+                    for (;;) {
+                        const ini = bufHd.indexOf(Buffer.from([0xff, 0xd8]));
+                        if (ini < 0) { bufHd = Buffer.alloc(0); break; }
+                        const fin2 = bufHd.indexOf(Buffer.from([0xff, 0xd9]), ini + 2);
+                        if (fin2 < 0) { if (ini > 0) bufHd = bufHd.subarray(ini); break; }
+                        const cuadro = Buffer.from(bufHd.subarray(ini, fin2 + 2));
+                        bufHd = bufHd.subarray(fin2 + 2);
+                        void vuelta(cuadro);
+                    }
+                });
+            }
             enviar("hola", { cuadrosPorSeg: CUADROS_POR_SEG });
         },
         cancel() {
-            if (!cerrado) { cerrado = true; sesiones = Math.max(0, sesiones - 1); if (fin) clearTimeout(fin); if (reloj) clearTimeout(reloj); try { ff?.kill("SIGKILL"); } catch { } }
+            if (!cerrado) { cerrado = true; sesiones = Math.max(0, sesiones - 1); if (fin) clearTimeout(fin); if (reloj) clearTimeout(reloj); try { ff?.kill("SIGKILL"); } catch { } try { ffHd?.kill("SIGKILL"); } catch { } }
         },
     });
 

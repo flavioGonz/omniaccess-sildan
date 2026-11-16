@@ -22,8 +22,13 @@ export type ObjetoAnalizado = {
     icono?: string | null;
     /** Desde cuándo (ms) este vehículo está en su lugar: lo suma el servidor en el vivo (lib/vision-estadia). */
     quietoDesde?: number;
-    /** La matrícula de este vehículo y dónde está su chapa (normalizada): de su estadía abierta, en el vivo. */
+    /** La matrícula de este vehículo y dónde está su chapa (normalizada): de su estadía abierta o leída en el vivo. `plate` vacío: se encontró la chapa pero no se la pudo leer con certeza (sólo el recuadro). */
     chapa?: { plate: string; caja: [number, number, number, number] };
+    /**
+     * Algo para avisar sobre este objeto que NO es una alerta de lista: una píldora ámbar encima
+     * («Sin lectura»: la cámara de acceso avisó que pasó un vehículo y no le leyó la matrícula).
+     */
+    aviso?: string;
     /** Su capa está apagada y sólo se dibuja su matrícula (lib/capas-visibles): sin silueta, sin rótulo, sin toque. */
     oculto?: boolean;
     /**

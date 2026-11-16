@@ -77,6 +77,10 @@ function Icono({ children, onClick, titulo, activo, href }: { children: React.Re
     return <button type="button" onClick={onClick} {...tip(titulo)} aria-pressed={activo} className={cls}>{children}</button>;
 }
 
+/** Cuánto queda marcado el vehículo que la cámara lectora no pudo leer: lo que tarda en salir del cuadro. */
+const SIN_LECTURA_MS = 10_000;
+/** Una lectura sin matrícula más vieja que esto no es «la que acaba de pasar». */
+const SIN_LECTURA_RECIENTE_MS = 45_000;
 /** «Grabar»: el tope es el de un clip que se manda a mano (lib/clips ENVIO_MAX_SEG); menos que el mínimo es un doble clic. */
 const REC_TOPE_MS = 60_000;
 const REC_MINIMO_MS = 2000;
@@ -152,7 +156,11 @@ type EstadoSiluetas = "apagado" | "conectando" | "vivo" | "ocupado" | "error";
  * sumaba nada medible. Acá adentro el análisis sólo vuelve a dibujar esta capa; hacia arriba
  * avisa nada más que cuando cambia de estado (vivo, ocupado…), que es casi nunca.
  */
-const SiluetasDelVivo = memo(function SiluetasDelVivo({ stream, activo, atraso, tam, geom, hayAlerta, verGeom, vis, opciones, alEstado, msRef }: {
+const SiluetasDelVivo = memo(function SiluetasDelVivo({ stream, activo, atraso, tam, geom, hayAlerta, verGeom, vis, opciones, alEstado, msRef, leerChapas, sinLectura }: {
+    /** Pedir las matrículas de los vehículos al servidor (lee la alta calidad: sólo cuando se la está mirando). */
+    leerChapas: boolean;
+    /** La cámara acaba de avisar que pasó un vehículo sin lectura: se marca el vehículo que se ve (el más grande). */
+    sinLectura: boolean;
     stream: string | null; activo: boolean; atraso: () => number | null;
     tam: { w: number; h: number } | null; geom: Canal["geom"]; hayAlerta: boolean; verGeom: boolean;
     /** Qué capas se dibujan de lo que llega (el menú de capas). */
@@ -162,12 +170,22 @@ const SiluetasDelVivo = memo(function SiluetasDelVivo({ stream, activo, atraso, 
     /** Cuánto tardó el último cuadro: se lee al armar la ayuda del botón, no hace falta dibujar por eso. */
     msRef: MutableRefObject<number | null>;
 }) {
-    const sil = useSiluetasEnVivo(stream, activo, atraso);
+    const sil = useSiluetasEnVivo(stream, activo, atraso, leerChapas);
     useEffect(() => { alEstado(sil.estado); }, [sil.estado, alEstado]);
     useEffect(() => { msRef.current = sil.ms; }, [sil.ms, msRef]);
     const g = useMemo(() => (verGeom ? geomDeIntrusion(geom) : null), [verGeom, geom]);
     // Lo que llegó, sin las capas apagadas. El tamaño es el del video que se ve.
-    const analisis = useMemo(() => (sil.analisis ? { ...sil.analisis, ...(tam ? { ancho: tam.w, alto: tam.h } : {}), objetos: objetosVisibles(sil.analisis.objetos, vis) } : null), [sil.analisis, tam, vis]);
+    const analisis = useMemo(() => {
+        if (!sil.analisis) return null;
+        let objetos: ObjetoAnalizado[] = sil.analisis.objetos;
+        if (sinLectura) {
+            // En una cámara de acceso el vehículo que pasa es el que llena el cuadro: el más grande a la vista.
+            let m = -1, area = 0;
+            objetos.forEach((o, i) => { if (o.grupo !== "vehiculo") return; const a = (o.caja[2] - o.caja[0]) * (o.caja[3] - o.caja[1]); if (a > area) { area = a; m = i; } });
+            if (m >= 0) objetos = objetos.map((o, i) => (i === m ? { ...o, aviso: "Sin lectura" } : o));
+        }
+        return { ...sil.analisis, ...(tam ? { ancho: tam.w, alto: tam.h } : {}), objetos: objetosVisibles(objetos, vis) };
+    }, [sil.analisis, tam, vis, sinLectura]);
     // Sin análisis (apagado, buscando, o la grabación): la línea y la zona de la cámara, quietas.
     if (!activo || !analisis) return geom && verGeom ? <Geometria geom={geom} alerta={hayAlerta} ajuste="contain" /> : null;
     // Las siluetas van sobre el vivo con el mismo ajuste (contain): el análisis es del subflujo
@@ -530,6 +548,25 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
     }, []);
     // El análisis en vivo se dibuja en SiluetasDelVivo; acá sólo llega su estado (cambia casi nunca).
     const [estadoSil, setEstadoSil] = useState<EstadoSiluetas>("apagado");
+    /*
+     * «Sin lectura» sobre el vehículo (16/11, Nico: «cuando detectás un auto sin chapa en el vivo,
+     * debés marcarlo»). Que un auto no tiene chapa no se puede afirmar mirando una cámara de vista
+     * general (medido: no se encuentra chapa en la mayoría de los que sí tienen). Lo que sí se sabe
+     * es cuando la cámara LECTORA avisa que pasó un vehículo y no le leyó nada: es la última
+     * lectura del canal, sin matrícula. Mientras es reciente, se marca el vehículo que se ve.
+     */
+    const ultimaLectura = lecturas[0];
+    const [sinLecturaHasta, setSinLecturaHasta] = useState(0);
+    useEffect(() => {
+        if (!ultimaLectura || ultimaLectura.plate) return;
+        // Recién llegada (no la última de hace un rato, que ya está al abrir el canal). El plazo corre desde
+        // que llegó acá, no desde la hora de la cámara: su reloj y el de esta pantalla no tienen por qué coincidir.
+        if (Math.abs(Date.now() - Date.parse(ultimaLectura.ts)) > SIN_LECTURA_RECIENTE_MS) return;
+        setSinLecturaHasta(Date.now() + SIN_LECTURA_MS);
+        const t = setTimeout(() => setSinLecturaHasta(0), SIN_LECTURA_MS);
+        return () => clearTimeout(t);
+    }, [ultimaLectura?.id, ultimaLectura?.plate, ultimaLectura?.ts]); // eslint-disable-line react-hooks/exhaustive-deps
+    const sinLectura = sinLecturaHasta > 0;
     const msSil = useRef<number | null>(null);
     // HD convertido es varias veces más caro que el subflujo: sin H.265 se ve el subflujo convertido.
     const enHd = h265 && hd && !fallo;
@@ -587,7 +624,8 @@ export function FichaCanal({ lista = null, alAlertaLista, tecladoAjeno = false, 
                       * tocar un botón (el menú de capas) la pantalla se caía con «Maximum update depth».
                       */}
                     <SiluetasDelVivo key={`${c.clave}-sil`} stream={c.online !== false ? c.stream : null} activo={verSiluetas && grabacion == null} atraso={atrasoDelVideo} tam={tamVideo}
-                        geom={c.geom} hayAlerta={!!alerta} verGeom={verGeom} vis={vis} opciones={opcionesDeObjeto} alEstado={setEstadoSil} msRef={msSil} />
+                        geom={c.geom} hayAlerta={!!alerta} verGeom={verGeom} vis={vis} opciones={opcionesDeObjeto} alEstado={setEstadoSil} msRef={msSil}
+                        leerChapas={vis.chapas && enHd && hdListo} sinLectura={sinLectura} />
 
                     {grabacion == null && <PasoVisionCanal paso={pasoVision} nombre={c.nombre} foto={foto} grande alCerrar={alCerrarPaso} capa="z-0" />}
 

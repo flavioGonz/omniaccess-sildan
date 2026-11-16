@@ -118,6 +118,8 @@ const COLOR_TOCA = "#f43f5e";
 const COLOR_CHAPA = "#f8fafc";
 /** El rojo de alerta (--mal sobre imagen): la silueta entera de un vehículo en la lista negra. */
 const COLOR_ALERTA = "#ef4444";
+/** El ámbar de aviso sobre imagen: algo para mirar que no es una alerta (un vehículo sin lectura). */
+const COLOR_AVISO = "#f59e0b";
 const AZUL_MERCOSUR = "#1d4ed8";
 export type ChapaEnFoto = { plate: string; caja: [number, number, number, number] };
 /** El ícono dice QUÉ es antes de leer: la clase si la conocemos, si no el grupo. */
@@ -334,6 +336,17 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                                     : <polygon key={j} points={pts(p, W, H)} fill={sel ? "transparent" : `url(#rel-${k}-${uid})`} stroke={c} strokeWidth={sel ? 3 : 2} vectorEffect="non-scaling-stroke"
                                     strokeLinejoin="round" filter={`url(#brillo-${uid})`} />
                             ))}
+                            {/* Un aviso que no es alerta («Sin lectura»): píldora ámbar sobre el techo, sin pintar el vehículo. */}
+                            {o.aviso && !o.alerta && etiquetas && (() => {
+                                const cx = ((o.caja[0] + o.caja[2]) / 2) * W, arriba = o.caja[1] * H, alto2 = fuente * 1.9, ancho2 = o.aviso.length * fuente * 0.5 + fuente * 1.6;
+                                const x0 = Math.min(W - ancho2 - 2, Math.max(2, cx - ancho2 / 2)), y0 = Math.max(2, arriba - alto2 - fuente * 0.5);
+                                return (
+                                    <g>
+                                        <rect x={x0} y={y0} width={ancho2} height={alto2} rx={alto2 / 2} fill={COLOR_AVISO} />
+                                        <text x={x0 + ancho2 / 2} y={y0 + alto2 * 0.68} textAnchor="middle" fill="#1c1917" fontSize={fuente * 0.95} fontWeight={700}>{o.aviso}</text>
+                                    </g>
+                                );
+                            })()}
                             {/* La sirena y el porqué, sobre el techo: se lee sin tocar nada. */}
                             {o.alerta && etiquetas && rotuloAlerta && (() => {
                                 const cx = ((o.caja[0] + o.caja[2]) / 2) * W, arriba = o.caja[1] * H, lado2 = fuente * 1.9, ancho2 = o.alerta.length * fuente * 0.43 + lado2 + fuente * 0.9;
@@ -381,13 +394,14 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 return (
                     <g key={`ch${k}`}>
                         <rect x={bx} y={by} width={bw} height={bh} rx={lado * 0.004} fill={COLOR_CHAPA} fillOpacity={0.08} stroke={COLOR_CHAPA} strokeWidth={2.25} vectorEffect="non-scaling-stroke" filter={`url(#brillo-${uid})`} />
-                        <line x1={bx + bw / 2} y1={debajo ? by + bh : by} x2={bx + bw / 2} y2={debajo ? py : py + ph} stroke={COLOR_CHAPA} strokeOpacity={0.7} strokeWidth={1.4} vectorEffect="non-scaling-stroke" />
-                        <g filter={`url(#sombra-${uid})`}>
+                        {/* Sin texto (se la encontró pero no se la leyó con certeza): sólo el recuadro. */}
+                        {chapa.plate && <line x1={bx + bw / 2} y1={debajo ? by + bh : by} x2={bx + bw / 2} y2={debajo ? py : py + ph} stroke={COLOR_CHAPA} strokeOpacity={0.7} strokeWidth={1.4} vectorEffect="non-scaling-stroke" />}
+                        {chapa.plate && <g filter={`url(#sombra-${uid})`}>
                             <rect x={px} y={py} width={pw} height={ph} rx={f * 0.22} fill="#ffffff" stroke="#0f172a" strokeWidth={1} vectorEffect="non-scaling-stroke" />
                             <path d={`M${px + f * 0.22},${py} h${pw - f * 0.44} a${f * 0.22},${f * 0.22} 0 0 1 ${f * 0.22},${f * 0.22} v${franja - f * 0.22} h${-pw} v${-(franja - f * 0.22)} a${f * 0.22},${f * 0.22} 0 0 1 ${f * 0.22},${-f * 0.22} z`} fill={AZUL_MERCOSUR} />
-                        </g>
-                        <text x={px + pw / 2} y={py + franja + (ph - franja) * 0.74} textAnchor="middle" fontSize={f * 1.08} fontWeight={800} fill="#0b0f19"
-                            fontFamily="Outfit, system-ui, sans-serif" letterSpacing={0.06 * f} style={{ fontVariantNumeric: "tabular-nums" }}>{chapa.plate}</text>
+                        </g>}
+                        {chapa.plate && <text x={px + pw / 2} y={py + franja + (ph - franja) * 0.74} textAnchor="middle" fontSize={f * 1.08} fontWeight={800} fill="#0b0f19"
+                            fontFamily="Outfit, system-ui, sans-serif" letterSpacing={0.06 * f} style={{ fontVariantNumeric: "tabular-nums" }}>{chapa.plate}</text>}
                     </g>
                 );
             })}
@@ -404,7 +418,7 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 if ((foco && i !== iSel) || o.oculto) return null;
                 // En alerta: su rótulo es la píldora de la sirena (o la cápsula del visor). «Auto 90 %»
                 // encima quedaba pisado con ella y no era lo que había que leer.
-                if (o.alerta && !foco) return null;
+                if ((o.alerta || o.aviso) && !foco) return null;
                 const c = tocan[i] && !foco ? COLOR_TOCA : COLOR_GRUPO[o.grupo] || COLOR_OTRO;
                 /*
                  * El ícono de una clase entrenada es el que se le eligió (12/11, Nico: «el ícono al
