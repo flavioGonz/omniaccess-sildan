@@ -11,11 +11,16 @@ import {
     Power, PowerOff, Loader2, ShieldCheck, Plus,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Cajon, CajonContenido } from "@/components/ui/cajon";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 /** Igual que en lib/apagado (no se importa de ahí: ese archivo usa la base y esto corre en el navegador). */
 const APAGADO_SIN_AREA = "__sin_area";
 import { sileo as toast } from "sileo";
-import { crearArea, editarArea, borrarArea, borrarEquiposDeArea, resumenParaBorrar, leerAreas, moverArea, asignarEquipos, apagarGrupo, type Area, type EstadoAreas } from "@/app/actions/areas";
+import { crearArea, editarArea, borrarArea, borrarEquiposDeArea, resumenParaBorrar, leerAreas, moverArea, asignarEquipos, apagarGrupo, type Area, type EstadoAreas, type EquipoABorrar } from "@/app/actions/areas";
+
+/** Lo que contesta `resumenParaBorrar`: cuántos son y cuáles, para poder mirarlos antes de borrar. */
+type Resumen = { total: number; conDatos: number; vacios: number; equipos: EquipoABorrar[] };
 
 /**
  * Árbol de áreas para agrupar equipos. Todo por arrastrar y soltar:
@@ -114,7 +119,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
     const [pidiendo, setPidiendo] = useState<{ clave: string; titulo: string; apagar: boolean } | null>(null);
     /** Borrar un área con equipos adentro, o los equipos sin área: va con cartel, no con el «¿Borrar?» chico. */
     const [borrarPedido, setBorrarPedido] = useState<{ areaId: string | null; titulo: string; n: number } | null>(null);
-    const [borrandoAhora, setBorrandoAhora] = useState(false);
+    const [borrandoAhora, setBorrandoAhora] = useState<"vacios" | "todos" | null>(null);
     const [aplicando, setAplicando] = useState(false);
     const apagadas = useMemo(() => new Set(estado.apagadas || []), [estado.apagadas]);
     /** El área de arriba que está apagada (si la hay): las de abajo quedan apagadas con ella. */
@@ -438,7 +443,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
             </div>
             {filtros}
             <ModalApagado pedido={pidiendo} equipos={pidiendo ? afectados(pidiendo.clave) : []} aplicando={aplicando} onConfirmar={confirmar} onCancelar={() => !aplicando && setPidiendo(null)} />
-            <ModalBorrar pedido={borrarPedido} borrando={borrandoAhora}
+            <CajonBorrar pedido={borrarPedido} borrando={!!borrandoAhora} cual={borrandoAhora}
                 onCancelar={() => !borrandoAhora && setBorrarPedido(null)}
                 onSoloArea={async () => {
                     const p = borrarPedido; if (!p?.areaId) return;
@@ -448,7 +453,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                 }}
                 onConEquipos={async (soloVacios) => {
                     const p = borrarPedido; if (!p) return;
-                    setBorrandoAhora(true);
+                    setBorrandoAhora(soloVacios ? "vacios" : "todos");
                     try {
                         if (p.areaId && !soloVacios) {
                             const e = await borrarArea(p.areaId, true);
@@ -465,7 +470,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                         alBorrarEquipos?.();
                     } catch (e: any) {
                         toast.error({ title: "No se borró", description: e?.message });
-                    } finally { setBorrandoAhora(false); setBorrarPedido(null); }
+                    } finally { setBorrandoAhora(null); setBorrarPedido(null); }
                 }} />
             <TooltipAreas />
         </aside>
@@ -646,14 +651,16 @@ function ModalApagado({ pedido, equipos, aplicando, onConfirmar, onCancelar }: {
  * que se pueden querer, y la segunda no se deshace. Así que se pregunta cuál, con el número de
  * equipos a la vista y qué se lleva cada uno.
  */
-function ModalBorrar({ pedido, borrando, onSoloArea, onConEquipos, onCancelar }: {
+function CajonBorrar({ pedido, borrando, cual, onSoloArea, onConEquipos, onCancelar }: {
     pedido: { areaId: string | null; titulo: string; n: number } | null;
     borrando: boolean;
+    /** Cuál de los dos borrados está corriendo: el spinner va en el botón que se apretó, no en los dos. */
+    cual: "vacios" | "todos" | null;
     onSoloArea: () => void; onConEquipos: (soloVacios: boolean) => void; onCancelar: () => void;
 }) {
     // El resumen se guarda CON la clave de lo que se está por borrar, y se muestra sólo si coincide:
     // limpiarlo dentro del efecto hace que React vuelva a dibujar dos veces por cada apertura.
-    const [leido, setLeido] = useState<{ clave: string; r: { total: number; conDatos: number; vacios: number } } | null>(null);
+    const [leido, setLeido] = useState<{ clave: string; r: Resumen } | null>(null);
     const clave = pedido ? String(pedido.areaId) : "";
     const resumen = leido?.clave === clave ? leido.r : null;
     useEffect(() => {
@@ -661,71 +668,104 @@ function ModalBorrar({ pedido, borrando, onSoloArea, onConEquipos, onCancelar }:
         let vivo = true;
         resumenParaBorrar(pedido.areaId)
             .then((r) => { if (vivo) setLeido({ clave, r }); })
-            .catch(() => { if (vivo) setLeido({ clave, r: { total: 0, conDatos: 0, vacios: 0 } }); });
+            .catch(() => { if (vivo) setLeido({ clave, r: { total: 0, conDatos: 0, vacios: 0, equipos: [] } }); });
         return () => { vivo = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [clave]);
+
     const esArea = !!pedido?.areaId;
     const n = pedido?.n || 0;
     const equipos = `${n} ${n === 1 ? "equipo" : "equipos"}`;
+    const conDatos = resumen?.equipos.filter((e) => e.datos) || [];
+    const vacios = resumen?.equipos.filter((e) => !e.datos) || [];
+
     return (
-        <Dialog open={!!pedido} onOpenChange={(o) => { if (!o) onCancelar(); }}>
-            <DialogContent showCloseButton={false} className="sm:max-w-[460px] p-0 gap-0 overflow-hidden rounded-[14px]">
-                <div className="flex items-start gap-3 p-4 border-b border-border">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] chip-mal"><Trash2 size={16} /></span>
-                    <div className="min-w-0">
-                        <DialogTitle className="text-[17px] font-bold leading-tight">
-                            {esArea ? <>Borrar «{pedido?.titulo}»</> : <>Borrar los {equipos} sin área</>}
-                        </DialogTitle>
-                        <DialogDescription className="text-[12.5px] text-muted-foreground mt-1">
-                            {esArea
-                                ? <>Tiene {equipos} adentro (contando sus sub-áreas). El área es sólo una forma de agrupar: borrarla no borra los equipos, salvo que lo pidas.</>
-                                : <>Son los que no están en ningún área — entre ellos, los que quedaron sueltos al borrar sus áreas.</>}
-                        </DialogDescription>
+        <Cajon open={!!pedido} onOpenChange={(o) => { if (!o && !borrando) onCancelar(); }}>
+            <CajonContenido ancho="angosto" sinCerrar={borrando}
+                titulo={esArea ? `Borrar «${pedido?.titulo}»` : `Borrar los ${equipos} sin área`}
+                descripcion={esArea
+                    ? `Tiene ${equipos} adentro, contando sus sub-áreas.`
+                    : "Son los que no están en ningún área — entre ellos, los que quedaron sueltos al borrar sus áreas."}
+                pie={
+                    <div className="flex flex-col gap-2">
+                        {/* La limpieza segura primero cuando hay de los dos: es lo que casi siempre se quiere. */}
+                        {!!resumen?.vacios && !!resumen?.conDatos && (
+                            <Button onClick={() => onConEquipos(true)} disabled={borrando} className="h-10 rounded-full">
+                                {cual === "vacios" ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                                Borrar sólo {resumen.vacios === 1 ? "el vacío" : `los ${resumen.vacios} vacíos`}
+                            </Button>
+                        )}
+                        <button type="button" onClick={() => onConEquipos(false)} disabled={borrando}
+                            className="h-10 rounded-full pleno-mal text-[13px] font-bold inline-flex items-center justify-center gap-2 disabled:opacity-60">
+                            {cual === "todos" ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                            {esArea ? <>Borrar el área y sus {equipos}</> : <>Borrar los {equipos}</>}
+                        </button>
+                        {esArea && (
+                            <button type="button" onClick={onSoloArea} disabled={borrando}
+                                className="h-10 rounded-full border border-border text-[13px] font-semibold hover:bg-accent disabled:opacity-60">
+                                Borrar sólo el área (los equipos quedan sin área)
+                            </button>
+                        )}
+                        <button type="button" onClick={onCancelar} disabled={borrando}
+                            className="h-9 rounded-full text-[13px] font-semibold text-muted-foreground hover:bg-accent disabled:opacity-60">Cancelar</button>
                     </div>
-                </div>
-
-                <div className="p-4 space-y-2.5">
+                }>
+                <div className="space-y-3">
                     <p className="text-[12.5px] leading-snug">
-                        Borrar un equipo lo saca de <b>todo OmniAccess</b>: sus eventos y lecturas, sus detecciones, sus
-                        reglas de OmniVision, su lugar en el mapa y sus streams. Queda sólo el registro en Auditoría.
-                        <b className="tono-mal"> No se puede deshacer.</b>
+                        Borrar un equipo lo saca de <b>todo OmniAccess</b>: sus eventos y lecturas, sus detecciones,
+                        sus reglas de OmniVision, su lugar en el mapa y sus streams. Queda sólo el registro en
+                        Auditoría. <b className="tono-mal">No se puede deshacer.</b>
                     </p>
-                    {/* Cuántos de esos tienen algo guardado: es lo que separa una limpieza de un destrozo. */}
-                    {resumen === null ? <p className="text-[12px] text-muted-foreground inline-flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Mirando qué tiene guardado cada uno…</p>
-                        : resumen.conDatos > 0 ? (
-                            <p className="text-[12.5px] leading-snug chip-aviso rounded-[8px] px-2.5 py-2 border">
-                                <b>{resumen.conDatos} {resumen.conDatos === 1 ? "tiene" : "tienen"} datos guardados</b> (lecturas, eventos, detecciones o entrenamientos){resumen.vacios ? <> y {resumen.vacios} {resumen.vacios === 1 ? "está vacío" : "están vacíos"}</> : null}.
-                                {!esArea && <> Si lo que querés es limpiar lo que sobró, mirá antes cuáles son: entre los sueltos suele haber cámaras que están trabajando.</>}
-                            </p>
-                        ) : <p className="text-[12.5px] text-muted-foreground">Ninguno tiene nada guardado: nunca registraron una lectura ni una detección.</p>}
-                    {n > 10 && <p className="text-[12px] text-muted-foreground">Son {equipos}: puede tardar un rato.</p>}
-                </div>
 
-                <div className="flex flex-col gap-2 p-4 pt-0">
-                    {/* La limpieza segura primero cuando hay de los dos: es lo que casi siempre se quiere. */}
-                    {!!resumen?.vacios && !!resumen?.conDatos && (
-                        <button type="button" onClick={() => onConEquipos(true)} disabled={borrando}
-                            className="h-10 rounded-full bg-[var(--accion)] text-white text-[13px] font-bold inline-flex items-center justify-center gap-2 disabled:opacity-60">
-                            {borrando && <Loader2 size={14} className="animate-spin" />}
-                            Borrar sólo {resumen.vacios === 1 ? "el vacío" : `los ${resumen.vacios} vacíos`}
-                        </button>
+                    {resumen === null ? (
+                        <p className="text-[12px] text-muted-foreground inline-flex items-center gap-1.5">
+                            <Loader2 size={11} className="animate-spin" /> Mirando qué tiene guardado cada uno…
+                        </p>
+                    ) : (
+                        <>
+                            {/* Los que tienen datos, con nombre: es lo que separa una limpieza de un destrozo, y
+                                un número solo no deja mirarlos. */}
+                            {conDatos.length > 0 && (
+                                <section className="rounded-[10px] border border-[color-mix(in_oklab,var(--aviso)_34%,transparent)] overflow-hidden">
+                                    <div className="chip-aviso rounded-none border-0 px-3 py-2 text-[11.5px] font-bold uppercase tracking-wider">
+                                        {conDatos.length} con datos guardados
+                                    </div>
+                                    <div className="divide-y divide-border max-h-56 overflow-y-auto">
+                                        {conDatos.map((e) => <FilaEquipo key={e.id} e={e} />)}
+                                    </div>
+                                    <p className="px-3 py-2 text-[12px] leading-snug text-muted-foreground border-t border-border">
+                                        Tienen lecturas, eventos, detecciones o entrenamientos. Entre los sueltos suele
+                                        haber cámaras que están trabajando.
+                                    </p>
+                                </section>
+                            )}
+
+                            {vacios.length > 0 && (
+                                <section className="rounded-[10px] border border-border overflow-hidden">
+                                    <div className="px-3 py-2 text-[11.5px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/40">
+                                        {vacios.length} {vacios.length === 1 ? "vacío" : "vacíos"} · nunca registraron nada
+                                    </div>
+                                    <div className="divide-y divide-border max-h-40 overflow-y-auto">
+                                        {vacios.map((e) => <FilaEquipo key={e.id} e={e} />)}
+                                    </div>
+                                </section>
+                            )}
+
+                            {n > 10 && <p className="text-[12px] text-muted-foreground">Son {equipos}: puede tardar un rato.</p>}
+                        </>
                     )}
-                    <button type="button" onClick={() => onConEquipos(false)} disabled={borrando}
-                        className="h-10 rounded-full pleno-mal text-[13px] font-bold inline-flex items-center justify-center gap-2 disabled:opacity-60">
-                        {borrando && <Loader2 size={14} className="animate-spin" />}
-                        {esArea ? <>Borrar el área y sus {equipos}</> : <>Borrar los {equipos}</>}
-                    </button>
-                    {esArea && (
-                        <button type="button" onClick={onSoloArea} disabled={borrando}
-                            className="h-10 rounded-full border border-border text-[13px] font-semibold hover:bg-accent disabled:opacity-60">
-                            Borrar sólo el área (los equipos quedan sin área)
-                        </button>
-                    )}
-                    <button type="button" onClick={onCancelar} disabled={borrando}
-                        className="h-9 rounded-full text-[13px] font-semibold text-muted-foreground hover:bg-accent disabled:opacity-60">Cancelar</button>
                 </div>
-            </DialogContent>
-        </Dialog>
+            </CajonContenido>
+        </Cajon>
+    );
+}
+
+function FilaEquipo({ e }: { e: EquipoABorrar }) {
+    return (
+        <div className="flex items-center gap-2 px-3 py-1.5">
+            <IconoTipo tipo={e.tipo} size={13} className="shrink-0" />
+            <span className="flex-1 min-w-0 truncate text-[12.5px] font-semibold">{e.nombre}</span>
+            {e.ip && <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">{e.ip}</span>}
+        </div>
     );
 }

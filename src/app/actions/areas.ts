@@ -178,12 +178,19 @@ async function conDatos(ids: string[]): Promise<Set<string>> {
     ]);
 }
 
-export async function resumenParaBorrar(areaId: string | null): Promise<{ total: number; conDatos: number; vacios: number }> {
+export type EquipoABorrar = { id: string; nombre: string; tipo: string; ip: string | null; datos: boolean };
+
+export async function resumenParaBorrar(areaId: string | null): Promise<{ total: number; conDatos: number; vacios: number; equipos: EquipoABorrar[] }> {
     await conSesion();
     const ids = await idsDeArea(await leer(), areaId);
-    if (!ids.length) return { total: 0, conDatos: 0, vacios: 0 };
+    if (!ids.length) return { total: 0, conDatos: 0, vacios: 0, equipos: [] };
     const con = await conDatos(ids);
-    return { total: ids.length, conDatos: con.size, vacios: ids.length - con.size };
+    // La lista, no sólo el número: «mirá cuáles son» no se puede pedir si no se pueden ver.
+    const filas = await prisma.device.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, deviceType: true, ip: true }, orderBy: { name: "asc" } });
+    const equipos = filas.map((d) => ({ id: d.id, nombre: d.name, tipo: String(d.deviceType), ip: d.ip || null, datos: con.has(d.id) }));
+    // Primero los que tienen datos: son los que hay que mirar antes de apretar.
+    equipos.sort((a, b) => Number(b.datos) - Number(a.datos) || a.nombre.localeCompare(b.nombre));
+    return { total: ids.length, conDatos: con.size, vacios: ids.length - con.size, equipos };
 }
 
 export async function borrarArea(areaId: string, conEquipos = false): Promise<EstadoAreas> {
