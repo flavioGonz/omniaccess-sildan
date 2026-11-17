@@ -166,7 +166,7 @@ function Fila({ t, ahora, alVer }: { t: Tramo; ahora: number; alVer?: (deviceId:
     const [rota, setRota] = useState(false);
     const Ico = t.tipo === "estadia" ? CircleParking : t.tipo === "acceso" ? (t.sentido === "EXIT" ? LogOut : LogIn) : MoveRight;
     const que = t.tipo === "estadia" ? (t.abierta ? `Estacionada · lleva ${cuantoDuro(ahora - t.desde)}` : `Estacionada ${cuantoDuro(t.hasta - t.desde)}`)
-        : t.tipo === "acceso" ? `${t.sentido === "EXIT" ? "Salida" : "Entrada"}${t.decision ? (t.decision === "GRANT" ? " · autorizada" : " · denegada") : ""}` : `De paso${t.lecturas > 1 ? ` · ${t.lecturas} lecturas` : ""}`;
+        : t.tipo === "acceso" ? `${t.sentido === "EXIT" ? "Salida" : "Entrada"}${t.decision ? (t.decision === "GRANT" ? " · autorizada" : " · denegada") : ""}${t.quieto ? ` · quedó ahí ${cuantoDuro(t.quieto.hasta - t.desde)} (${t.quieto.lecturas} lecturas)` : ""}` : `De paso${t.lecturas > 1 ? ` · ${t.lecturas} lecturas` : ""}`;
     const otras = t.leidaComo.length > 1;
     return (
         <li className="flex gap-3 rounded-[10px] border border-border bg-background p-2">
@@ -178,7 +178,7 @@ function Fila({ t, ahora, alVer }: { t: Tramo; ahora: number; alVer?: (deviceId:
             </div>
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 text-[13px] font-semibold"><Ico size={14} className="shrink-0 text-muted-foreground" /><span className="truncate">{t.camara || "Cámara sin nombre"}</span></div>
-                <div className="text-[12px] text-muted-foreground tabular-nums">{t.tipo === "estadia" ? `${fechaHora(t.desde)} → ${t.abierta ? "sigue ahí" : fechaHora(t.hasta)}` : fechaHora(t.desde)}</div>
+                <div className="text-[12px] text-muted-foreground tabular-nums">{t.tipo === "estadia" ? `${fechaHora(t.desde)} → ${t.abierta ? "sigue ahí" : fechaHora(t.hasta)}` : t.quieto ? `${fechaHora(t.desde)} → ${fechaHora(t.quieto.hasta)}` : fechaHora(t.desde)}</div>
                 <div className="text-[12px]">{que}</div>
                 {otras && <div className="text-[11px] text-muted-foreground tabular-nums truncate">Leída como {t.leidaComo.map((x) => `${x.chapa} ×${x.lecturas}`).join(", ")}</div>}
             </div>

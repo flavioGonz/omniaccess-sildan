@@ -32,6 +32,12 @@ export type Hecho = {
      */
     porLugar?: boolean;
     foto?: string | null; sentido?: string | null; decision?: string | null;
+    /**
+     * Sólo accesos: el auto quedó quieto frente a la lectora y la cámara lo releyó N veces sin que
+     * eso sea una pasada nueva (lib-chapa-quieta.js). Es UNA tarjeta que dice cuánto se quedó, en
+     * vez de una tarjeta por relectura.
+     */
+    quieto?: { lecturas: number; hasta: number } | null;
 };
 
 export type Tramo = {
@@ -44,6 +50,8 @@ export type Tramo = {
     /** Con qué chapas se la leyó en este tramo, de la más leída a la menos. */
     leidaComo: { chapa: string; lecturas: number }[];
     lecturas: number; foto: string | null; sentido: string | null; decision: string | null;
+    /** Ver Hecho.quieto. */
+    quieto: { lecturas: number; hasta: number } | null;
 };
 
 export type Seguimiento = {
@@ -67,6 +75,17 @@ export const UNION_ESTADIA_MS = 20 * 60_000;
 export const DENTRO_DE_ESTADIA_MS = 60_000;
 /** Dos pasos por la misma cámara separados por menos que esto son el mismo paso. */
 export const UNION_PASO_MS = 2 * 60_000;
+/**
+ * Dos lecturas de la misma lectora, en el mismo sentido y con la misma decisión, separadas por
+ * menos que esto son la MISMA llegada.
+ *
+ * Una lectora lee al auto varias veces mientras se acerca —el recuadro se mueve, pero es un solo
+ * arribo—, y si el auto se queda parado enfrente lo relee cada 20-45 s. Medido el 17/11 en el
+ * lab: 327 «accesos» de un VW gris estacionado frente a «LPR Salida» en 2 h 17, el 44 % de lo que
+ * esa cámara registró en el día. El webhook ya no escribe los nuevos (lib-chapa-quieta.js); esto
+ * es para que los que YA están guardados tampoco se vean como 327 tarjetas.
+ */
+export const UNION_ACCESO_MS = 2 * 60_000;
 
 /** ¿`otra` puede ser `chapa` mal leída? Mismo largo y a lo sumo DIFERENCIAS_MAX letras distintas. */
 export const puedeSerLaMisma = (chapa: string, otra: string) => chapa === otra || diferencias(chapa, otra) <= DIFERENCIAS_MAX;
@@ -75,21 +94,25 @@ export function armarSeguimiento(chapa: string, hechos: Hecho[]): Seguimiento {
     const orden = hechos.filter((h) => puedeSerLaMisma(chapa, h.plate)).sort((a, b) => a.desde - b.desde);
     const tramos: (Tramo & { conteo: Map<string, number> })[] = [];
     for (const h of orden) {
-        const union = h.tipo === "estadia" ? UNION_ESTADIA_MS : h.tipo === "paso" ? UNION_PASO_MS : 0;
-        // Se junta con el último tramo del mismo tipo en la misma cámara, si se tocan o casi.
-        const previo = union ? [...tramos].reverse().find((t) => t.tipo === h.tipo && t.deviceId === h.deviceId && t.camara === h.camara) : undefined;
+        const union = h.tipo === "estadia" ? UNION_ESTADIA_MS : h.tipo === "paso" ? UNION_PASO_MS : UNION_ACCESO_MS;
+        // Se junta con el último tramo del mismo tipo en la misma cámara, si se tocan o casi. Un
+        // acceso además tiene que coincidir en sentido y decisión: entrar y salir por la misma
+        // lectora en dos minutos son dos hechos, aunque estén pegados.
+        const previo = union ? [...tramos].reverse().find((t) => t.tipo === h.tipo && t.deviceId === h.deviceId && t.camara === h.camara
+            && (h.tipo !== "acceso" || (t.sentido === (h.sentido || null) && t.decision === (h.decision || null)))) : undefined;
         if (previo && h.desde - previo.hasta <= union) {
             previo.hasta = Math.max(previo.hasta, h.hasta);
             previo.abierta = previo.abierta || !!h.abierta;
             previo.porLugar = previo.porLugar || !!h.porLugar;
             previo.lecturas++;
+            if (h.quieto) previo.quieto = { lecturas: (previo.quieto?.lecturas || previo.lecturas) + h.quieto.lecturas, hasta: Math.max(previo.quieto?.hasta || 0, h.quieto.hasta) };
             previo.conteo.set(h.plate, (previo.conteo.get(h.plate) || 0) + 1);
             if (h.foto) previo.foto = h.foto;
             continue;
         }
         tramos.push({
             clave: `${h.tipo}:${h.id}`, tipo: h.tipo, deviceId: h.deviceId, camara: h.camara, desde: h.desde, hasta: h.hasta, abierta: !!h.abierta, porLugar: !!h.porLugar, primeraEnCamara: null,
-            leidaComo: [], lecturas: 1, foto: h.foto || null, sentido: h.sentido || null, decision: h.decision || null, conteo: new Map([[h.plate, 1]]),
+            leidaComo: [], lecturas: 1, foto: h.foto || null, sentido: h.sentido || null, decision: h.decision || null, quieto: h.quieto || null, conteo: new Map([[h.plate, 1]]),
         });
     }
     /*

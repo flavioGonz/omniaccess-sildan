@@ -70,3 +70,33 @@ test("las relecturas de la misma cámara durante una estadía son esa estadía, 
     assert.deepEqual(s.tramos.map((t) => `${t.tipo}@${t.camara}×${t.lecturas}`), ["estadia@cairoli×4", "acceso@entrada×1"]);
     assert.deepEqual(s.tramos[0].leidaComo, [{ chapa: "SCH1707", lecturas: 3 }, { chapa: "SDH1707", lecturas: 1 }]);
 });
+
+test("327 lecturas de un auto quieto frente a la lectora son UNA llegada, no 327", () => {
+    // Medido el 17/11: «LPR Salida» releyó a SCM2419 cada ~22 s durante dos horas.
+    const t0 = Date.parse("2026-11-17T16:17:32Z");
+    const hechos = Array.from({ length: 50 }, (_, i) => ({
+        tipo: "acceso" as const, id: `e${i}`, plate: "SCM2419", deviceId: "cam1", camara: "LPR Salida",
+        desde: t0 + i * 22_000, hasta: t0 + i * 22_000, sentido: "EXIT", decision: "DENY",
+    }));
+    const s = armarSeguimiento("SCM2419", hechos);
+    assert.equal(s.tramos.length, 1);
+    assert.equal(s.tramos[0].lecturas, 50);
+});
+
+test("entrar y salir por la misma lectora en dos minutos son dos hechos", () => {
+    const t0 = Date.parse("2026-11-17T16:00:00Z");
+    const s = armarSeguimiento("ABC1234", [
+        { tipo: "acceso", id: "a", plate: "ABC1234", deviceId: "cam1", camara: "Portón", desde: t0, hasta: t0, sentido: "ENTRY", decision: "GRANT" },
+        { tipo: "acceso", id: "b", plate: "ABC1234", deviceId: "cam1", camara: "Portón", desde: t0 + 60_000, hasta: t0 + 60_000, sentido: "EXIT", decision: "GRANT" },
+    ]);
+    assert.equal(s.tramos.length, 2);
+});
+
+test("dos llegadas separadas por media hora siguen siendo dos", () => {
+    const t0 = Date.parse("2026-11-17T16:00:00Z");
+    const s = armarSeguimiento("ABC1234", [
+        { tipo: "acceso", id: "a", plate: "ABC1234", deviceId: "cam1", camara: "Portón", desde: t0, hasta: t0, sentido: "ENTRY", decision: "GRANT" },
+        { tipo: "acceso", id: "b", plate: "ABC1234", deviceId: "cam1", camara: "Portón", desde: t0 + 30 * 60_000, hasta: t0 + 30 * 60_000, sentido: "ENTRY", decision: "GRANT" },
+    ]);
+    assert.equal(s.tramos.length, 2);
+});

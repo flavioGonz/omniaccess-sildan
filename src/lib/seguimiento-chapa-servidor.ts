@@ -22,6 +22,17 @@ const DIAS_DEFECTO = 7, DIAS_MAX = 30, FILAS_MAX = 800;
 export type ListaDeChapa = { categoria: string; requerida: boolean; confirmada: string | null; motivo: string | null; etiqueta: string | null };
 export type RespuestaSeguimiento = { chapa: string; dias: number; lista: ListaDeChapa | null; seguimiento: Seguimiento };
 
+/**
+ * La hora del detalle («hasta 18:34:23») sobre el día del evento. Se guarda así —sólo la hora—
+ * para no alargar el detalle; si cayó antes que el evento, es del día siguiente (cruzó medianoche).
+ */
+function hastaDelDia(cuando: Date, h: number, m: number, s: number): number {
+    const d = new Date(cuando);
+    d.setHours(h, m, s, 0);
+    if (d.getTime() < cuando.getTime()) d.setDate(d.getDate() + 1);
+    return d.getTime();
+}
+
 export async function seguimientoDeChapa(cruda: string, diasPedidos?: number): Promise<RespuestaSeguimiento | null> {
     const chapa = normalizarMatricula(cruda);
     if (!chapa) return null;
@@ -42,7 +53,7 @@ export async function seguimientoDeChapa(cruda: string, diasPedidos?: number): P
         }).catch(() => []),
         prisma.accessEvent.findMany({
             where: { timestamp: { gte: desde }, OR: [{ plateDetected: chapa }, ...(otras.length ? [{ plateDetected: { in: otras }, deviceId: { in: camaras } }] : [])] },
-            select: { id: true, plateDetected: true, deviceId: true, timestamp: true, direction: true, decision: true, snapshotPath: true, imagePath: true, device: { select: { name: true } } },
+            select: { id: true, plateDetected: true, deviceId: true, timestamp: true, direction: true, decision: true, snapshotPath: true, imagePath: true, details: true, device: { select: { name: true } } },
             orderBy: { timestamp: "desc" }, take: 400,
         }),
         prisma.plateWatch.findFirst({ where: { plate: chapa, active: true }, select: { category: true, label: true, motivo: true } }).catch(() => null),
@@ -58,7 +69,11 @@ export async function seguimientoDeChapa(cruda: string, diasPedidos?: number): P
     for (const o of ocupaciones) if (o.plate) hechos.push({ tipo: "estadia", id: `o-${o.id}`, plate: o.plate, deviceId: o.deviceId, camara: nombreCamara(o.device?.name), desde: o.desde.getTime(), hasta: o.hasta.getTime(), abierta: !o.cerrada, porLugar: true });
     for (const a of accesos) {
         const t = a.timestamp.getTime();
-        hechos.push({ tipo: "acceso", id: a.id, plate: normalizarMatricula(a.plateDetected) || chapa, deviceId: a.deviceId, camara: nombreCamara(a.device?.name), desde: t, hasta: t, foto: a.snapshotPath || a.imagePath, sentido: String(a.direction), decision: String(a.decision) });
+        // «Quieto: N lecturas hasta HH:MM:SS» lo escribe el webhook cuando el auto se queda parado
+        // frente a la lectora (lib-chapa-quieta.js): el tramo va de la llegada a la última relectura.
+        const q = /Quieto: (\d+) lecturas hasta (\d{1,2}):(\d{2}):(\d{2})/.exec(a.details || "");
+        const quieto = q ? { lecturas: Number(q[1]), hasta: hastaDelDia(a.timestamp, Number(q[2]), Number(q[3]), Number(q[4])) } : null;
+        hechos.push({ tipo: "acceso", id: a.id, plate: normalizarMatricula(a.plateDetected) || chapa, deviceId: a.deviceId, camara: nombreCamara(a.device?.name), desde: t, hasta: quieto ? quieto.hasta : t, foto: a.snapshotPath || a.imagePath, sentido: String(a.direction), decision: String(a.decision), quieto });
     }
     return {
         chapa, dias,

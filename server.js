@@ -18,6 +18,7 @@ const { createServer } = require("https");
 const http = require("http");
 const { PrismaClient } = require("@prisma/client");
 const { registrarAvistamiento } = require("./lib-sightings");
+const { esElMismoQuieto } = require("./lib-chapa-quieta");
 const { Server } = require("socket.io");
 const { XMLParser } = require("fast-xml-parser");
 const fs = require("fs");
@@ -697,7 +698,33 @@ const DEBOUNCE_TIME = 5000;
 // día eran repeticiones de menos de 30 s. Dos pasadas reales de la misma chapa por la misma
 // cámara en 20 s no ocurren (la barrera tarda más que eso en cerrar).
 const ANTIRREBOTE_LPR_EVENTO_MS = 20000;
-const ultimoEventoLpr = new Map(); // "ip|chapa" -> hora del evento (ms)
+/**
+ * "ip|chapa" -> { t: hora del evento (ms), caja: recuadro de la chapa, eventoId }.
+ *
+ * Antes guardaba sólo la hora. Ahora también el recuadro, porque es lo que distingue al auto
+ * QUIETO frente a la cámara de una pasada nueva (lib-chapa-quieta.js): el antirrebote de 20 s no
+ * lo agarra, la cámara lo relee cada 20-45 s. Y el id del evento, para sumarle las repeticiones
+ * al que ya está en vez de escribir uno nuevo.
+ *
+ * Vive en memoria: si el servidor se reinicia, la primera lectura del auto que sigue ahí abre un
+ * evento nuevo y la cadena arranca de cero. Es una repetición cada reinicio, no 327.
+ */
+const ultimoEventoLpr = new Map();
+
+/**
+ * Al evento que ya está, decirle cuántas veces se releyó al auto quieto y hasta cuándo.
+ *
+ * La información no se pierde por no escribir filas nuevas: queda en el evento de la llegada, que
+ * es donde se la busca («llegó a las 16:17 y siguió ahí»). Se reemplaza el tramo anterior para no
+ * ir alargando el detalle con cada lectura.
+ */
+async function sumarRepeticionLpr(eventoId, lecturas, hasta) {
+    const fila = await prisma.accessEvent.findUnique({ where: { id: eventoId }, select: { details: true } });
+    if (!fila) return;
+    const hh = new Date(hasta).toLocaleTimeString("es-UY", { timeZone: process.env.TZ || "America/Montevideo", hour12: false });
+    const limpio = String(fila.details || "").replace(/,?\s*Quieto: [^,]*/, "");
+    await prisma.accessEvent.update({ where: { id: eventoId }, data: { details: `${limpio}, Quieto: ${lecturas} lecturas hasta ${hh}` } });
+}
 
 // Debug Logs History (In-memory)
 const debugLogsHistory = [];
@@ -1386,16 +1413,39 @@ const handleWebhook = async (req, res, logPrefix) => {
         // NO_LEIDA no se agrupa: dos lecturas sin chapa pueden ser dos autos.
         const claveEvento = `${ipAddress || "?"}|${finalPlate}`;
         const tEvento = eventTimestamp.getTime();
-        const tPrevio = finalPlate !== "NO_LEIDA" ? ultimoEventoLpr.get(claveEvento) : undefined;
+        const previo = finalPlate !== "NO_LEIDA" ? ultimoEventoLpr.get(claveEvento) : undefined;
+        const tPrevio = previo ? previo.t : null;
         if (tPrevio != null && Math.abs(tEvento - tPrevio) < ANTIRREBOTE_LPR_EVENTO_MS) {
             console.log(`${logPrefix} Debounced (misma pasada, ${Math.round(Math.abs(tEvento - tPrevio) / 1000)} s): ${finalPlate}`);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ message: "Debounced", plate: finalPlate }));
             return;
         }
+
+        // ── El auto QUIETO frente a la cámara (lib-chapa-quieta.js) ──
+        // El recuadro de la chapa no se movió y la lectura anterior es de hace menos de cinco
+        // minutos: es el mismo vehículo parado, no una pasada nueva. No se escribe un evento ni un
+        // avistamiento: se le suman las repeticiones al que ya está, que es lo que el seguimiento
+        // tiene que mostrar («estacionado desde las 16:17, 327 lecturas») en vez de 327 tarjetas.
+        //
+        // Va ACÁ a propósito, antes de subir la foto: esas 327 lecturas eran además 327 subidas al
+        // almacenamiento de la misma escena. Y no toca la barrera: este webhook no abre nada —la
+        // decisión y el relé son de la cámara—, así que suprimir la fila no cambia quién pasa.
+        if (previo && esElMismoQuieto(previo.caja, plateRect, tEvento - tPrevio)) {
+            const seg = Math.round((tEvento - tPrevio) / 1000);
+            ultimoEventoLpr.set(claveEvento, { t: tEvento, caja: plateRect, eventoId: previo.eventoId, desde: previo.desde || tPrevio, n: (previo.n || 1) + 1 });
+            const m = ultimoEventoLpr.get(claveEvento);
+            if (previo.eventoId) {
+                sumarRepeticionLpr(previo.eventoId, m.n, new Date(tEvento)).catch(() => { });
+            }
+            console.log(`${logPrefix} Quieto (mismo recuadro, ${seg} s, ${m.n} lecturas): ${finalPlate}`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ message: "Quieto", plate: finalPlate, lecturas: m.n }));
+            return;
+        }
         if (finalPlate !== "NO_LEIDA") {
-            ultimoEventoLpr.set(claveEvento, tEvento);
-            if (ultimoEventoLpr.size > 5000) { for (const [k, v] of ultimoEventoLpr) if (now - v > 10 * 60 * 1000) ultimoEventoLpr.delete(k); }
+            ultimoEventoLpr.set(claveEvento, { t: tEvento, caja: plateRect, eventoId: null, desde: tEvento, n: 1 });
+            if (ultimoEventoLpr.size > 5000) { for (const [k, v] of ultimoEventoLpr) if (now - v.t > 10 * 60 * 1000) ultimoEventoLpr.delete(k); }
         }
         if (lastSeen && now - lastSeen < DEBOUNCE_TIME) {
             console.log(`${logPrefix} Debounced: ${finalPlate}`);
@@ -1574,6 +1624,9 @@ const handleWebhook = async (req, res, logPrefix) => {
         });
 
         console.log(`${logPrefix} Event created: ${event.id} (${accessDecision}) - Plate: ${finalPlate}`);
+        // Para encadenar las relecturas del auto quieto con ESTE evento (ver lib-chapa-quieta.js).
+        const enMemoria = ultimoEventoLpr.get(claveEvento);
+        if (enMemoria) enMemoria.eventoId = event.id;
 
         // Recorrido del vehiculo: se registra al costado, sin demorar la barrera.
         registrarAvistamiento({
