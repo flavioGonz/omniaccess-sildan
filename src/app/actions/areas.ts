@@ -9,8 +9,13 @@ import { APAGADO_SIN_AREA, CLAVE_APAGADOS, recalcularApagados } from "@/lib/apag
  *
  * Vive en un Setting (JSON) y no en una tabla: es organización visual del panel, no cambia
  * cómo funciona ningún equipo, y así no toca el esquema de la base. Un equipo está en un área
- * o en ninguna; un área puede tener sub-áreas. Borrar un área no borra equipos: sus equipos y
- * sub-áreas suben al área padre.
+ * o en ninguna; un área puede tener sub-áreas.
+ *
+ * Borrar un área, por sí sola, NO borra equipos: sus equipos y sub-áreas suben al área padre.
+ * Eso sorprendió (17/11, Nico: «eliminé áreas enteras, pero veo que aún siguen persistiendo
+ * equipos de esas áreas»), y la sorpresa es razonable: si uno borra la carpeta espera que se
+ * vaya lo de adentro. Por eso ahora hay que elegir: borrar sólo el área, o borrarla CON sus
+ * equipos — y entonces se borran de verdad, de todo OmniAccess (lib/borrar-equipo).
  */
 const CLAVE = "DEVICE_AREAS";
 
@@ -98,11 +103,68 @@ export async function editarArea(areaId: string, cambios: { nombre?: string; col
     return escribir(e);
 }
 
-export async function borrarArea(areaId: string): Promise<EstadoAreas> {
+/** Las áreas de la rama de `areaId` (ella y todas sus sub-áreas). */
+function rama(areas: Area[], areaId: string): Set<string> {
+    const out = new Set([areaId]);
+    for (let n = 0; n < 50; n++) {
+        const antes = out.size;
+        for (const a of areas) if (a.padre && out.has(a.padre)) out.add(a.id);
+        if (out.size === antes) break;
+    }
+    return out;
+}
+
+/**
+ * Borra DE VERDAD los equipos de un área (y de sus sub-áreas), o los que no están en ninguna
+ * (`areaId` en null). Cada uno se borra de todo OmniAccess: sus eventos, sus lecturas, sus
+ * reglas, sus streams. Queda el registro en Auditoría.
+ *
+ * Pide «Editar dispositivos», como borrar un equipo de a uno. Que un equipo falle no frena a los
+ * demás: se cuentan y se informan, porque a mitad de una limpieza de cincuenta equipos lo peor
+ * que puede pasar es no saber cuáles quedaron.
+ */
+export async function borrarEquiposDeArea(areaId: string | null): Promise<{ borrados: number; fallaron: number; error?: string }> {
+    const s: any = await getSession();
+    if (!s) return { borrados: 0, fallaron: 0, error: "Hace falta una sesión del panel." };
+    const { permisosDeSesion } = await import("@/lib/permisos");
+    if (!permisosDeSesion(s).includes("dispositivos.editar")) return { borrados: 0, fallaron: 0, error: "Hace falta el permiso Editar dispositivos para borrar equipos." };
+
+    const e = await leer();
+    const dentro = areaId ? rama(e.areas, areaId) : null;
+    const todos = await prisma.device.findMany({ select: { id: true } });
+    const ids = todos.map((d) => d.id).filter((id) => {
+        const suya = e.equipos[id];
+        return dentro ? !!suya && dentro.has(suya) : !suya || !e.areas.some((a) => a.id === suya);
+    });
+    if (!ids.length) return { borrados: 0, fallaron: 0 };
+
+    const { borrarEquipoDeTodo } = await import("@/lib/borrar-equipo");
+    const quien = String(s.name || s.sub || "panel");
+    let borrados = 0, fallaron = 0;
+    for (const id of ids) {
+        const r = await borrarEquipoDeTodo(id, quien).catch(() => ({ ok: false as const }));
+        if (r.ok) borrados++; else fallaron++;
+    }
+    return { borrados, fallaron };
+}
+
+export async function borrarArea(areaId: string, conEquipos = false): Promise<EstadoAreas> {
     await conSesion();
+    if (conEquipos) {
+        const r = await borrarEquiposDeArea(areaId);
+        if (r.error) throw new Error(r.error);
+    }
+    // Se vuelve a leer: borrar un equipo también lo saca de este mismo ajuste.
     const e = await leer();
     const a = e.areas.find((x) => x.id === areaId);
     if (!a) return e;
+    if (conEquipos) {
+        // Se llevó sus equipos: también se lleva sus sub-áreas, que quedarían vacías y sin sentido.
+        const dentro = rama(e.areas, areaId);
+        e.areas = e.areas.filter((x) => !dentro.has(x.id));
+        for (const k of Object.keys(e.equipos)) if (dentro.has(e.equipos[k])) delete e.equipos[k];
+        return escribir(e);
+    }
     for (const h of e.areas) if (h.padre === areaId) h.padre = a.padre;
     for (const k of Object.keys(e.equipos)) if (e.equipos[k] === areaId) { if (a.padre) e.equipos[k] = a.padre; else delete e.equipos[k]; }
     e.areas = e.areas.filter((x) => x.id !== areaId);

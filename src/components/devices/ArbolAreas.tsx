@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 /** Igual que en lib/apagado (no se importa de ahí: ese archivo usa la base y esto corre en el navegador). */
 const APAGADO_SIN_AREA = "__sin_area";
 import { sileo as toast } from "sileo";
-import { crearArea, editarArea, borrarArea, moverArea, asignarEquipos, apagarGrupo, type Area, type EstadoAreas } from "@/app/actions/areas";
+import { crearArea, editarArea, borrarArea, borrarEquiposDeArea, moverArea, asignarEquipos, apagarGrupo, type Area, type EstadoAreas } from "@/app/actions/areas";
 
 /**
  * Árbol de áreas para agrupar equipos. Todo por arrastrar y soltar:
@@ -94,12 +94,14 @@ type Zona = "antes" | "dentro" | "despues";
  * anda mal, un punto rojo. El interruptor y las acciones aparecen al pasar el mouse, y un área
  * apagada lo dice con un ícono chico, que es lo único que distingue su estado.
  */
-export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActual, seleccion, onSeleccion, onAbrirEquipo, health = {}, alertasDe = {}, tipos = [], onTipo, colapsado = false, onColapsar }: {
+export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActual, seleccion, onSeleccion, onAbrirEquipo, health = {}, alertasDe = {}, tipos = [], onTipo, colapsado = false, onColapsar, alBorrarEquipos }: {
     estado: EstadoAreas; setEstado: (e: EstadoAreas) => void; devices: any[]; tiposVisibles: string[]; tipoActual: string;
     seleccion: string; onSeleccion: (id: string) => void; onAbrirEquipo?: (d: any) => void; health?: Record<string, any>; alertasDe?: Record<string, any[]>;
     /** Filtros por tipo de equipo (debajo de las áreas). */
     tipos?: { tipo: string; rotulo: string; cuenta: number; alertas?: number }[]; onTipo?: (t: string) => void;
     colapsado?: boolean; onColapsar?: (v: boolean) => void;
+    /** Se borraron equipos desde el árbol: la pantalla vuelve a traer la lista. */
+    alBorrarEquipos?: () => void;
 }) {
     const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
     const [verEquipos, setVerEquipos] = useState(true);
@@ -110,6 +112,9 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
     const arrastrandoArea = useRef<string | null>(null);
     /** Lo que se está por apagar o prender (área, «Sin área» o tipo), esperando la confirmación. */
     const [pidiendo, setPidiendo] = useState<{ clave: string; titulo: string; apagar: boolean } | null>(null);
+    /** Borrar un área con equipos adentro, o los equipos sin área: va con cartel, no con el «¿Borrar?» chico. */
+    const [borrarPedido, setBorrarPedido] = useState<{ areaId: string | null; titulo: string; n: number } | null>(null);
+    const [borrandoAhora, setBorrandoAhora] = useState(false);
     const [aplicando, setAplicando] = useState(false);
     const apagadas = useMemo(() => new Set(estado.apagadas || []), [estado.apagadas]);
     /** El área de arriba que está apagada (si la hay): las de abajo quedan apagadas con ella. */
@@ -144,6 +149,12 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
     /** ¿El equipo entra en el tipo elegido? Sin tipo elegido (TODOS_LOS_TIPOS), todos. */
     const deTipo = (d: any) => tipoActual === TODOS_LOS_TIPOS || d.deviceType === tipoActual;
     const contar = (areaId: string) => visibles.filter((d) => deTipo(d) && enArea(estado, d.id, areaId)).length;
+    /**
+     * Cuántos equipos se llevaría borrar esa rama: TODOS los del árbol, no los del tipo que se está
+     * mirando ni los de las vistas visibles. Borrar no respeta filtros, y el número del cartel tiene
+     * que ser el que de verdad se va a borrar.
+     */
+    const aBorrar = (areaId: string | null) => devices.filter((d) => enArea(estado, d.id, areaId ?? SIN_AREA)).length;
 
     const ejecutar = async (p: Promise<EstadoAreas>, ok?: string) => {
         try { const e = await p; setEstado(e); if (ok) toast.success({ title: ok }); }
@@ -265,7 +276,8 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                                 <button type="button" onClick={() => nueva(a.id)} data-tooltip-id="tt-areas" data-tooltip-content="Nueva sub-área" className="h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-background"><FolderPlus size={12.5} /></button>
                                 <button type="button" onClick={() => setEditando(a.id)} data-tooltip-id="tt-areas" data-tooltip-content="Renombrar (o doble clic)" className="h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-background"><Pencil size={12} /></button>
                                 <button type="button" onClick={() => setPaleta(paleta === a.id ? null : a.id)} data-tooltip-id="tt-areas" data-tooltip-content="Color" className="h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-background"><Palette size={12} /></button>
-                                <button type="button" onClick={() => setBorrando(a.id)} data-tooltip-id="tt-areas" data-tooltip-content="Borrar el área (los equipos no se borran: suben al área de arriba)" className="h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-red-500 hover:bg-background"><Trash2 size={12} /></button>
+                                <button type="button" onClick={() => { const n = aBorrar(a.id); if (n) setBorrarPedido({ areaId: a.id, titulo: a.nombre, n }); else setBorrando(a.id); }}
+                                    data-tooltip-id="tt-areas" data-tooltip-content="Borrar el área. Si tiene equipos, pregunta si se borran con ella o quedan sin área." className="h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-red-500 hover:bg-background"><Trash2 size={12} /></button>
                             </span>
                             <span className="flex items-center gap-1.5 group-hover:hidden">
                                 {!apagada && conProblema.has(a.id) && <Punto titulo="Hay equipos con alertas o sin respuesta" />}
@@ -319,7 +331,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
         );
     };
 
-    const raiz = (id: string, I: any, titulo: string, cuenta: number, ayuda: string, claveApagado?: string): React.ReactNode => {
+    const raiz = (id: string, I: any, titulo: string, cuenta: number, ayuda: string, claveApagado?: string, alBorrar?: () => void): React.ReactNode => {
         const z = sobre?.id === id;
         const apagada = !!claveApagado && apagadas.has(claveApagado);
         return (
@@ -330,6 +342,11 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                 <I size={15} className="text-muted-foreground shrink-0" />
                 <span className={cn("flex-1 text-[12.5px] font-semibold", apagada && "text-muted-foreground")}>{titulo}</span>
                 {apagada && <PowerOff size={11} className="text-muted-foreground/70 group-hover:hidden" aria-label="Apagado" />}
+                {alBorrar && (
+                    <button type="button" onClick={(e) => { e.stopPropagation(); alBorrar(); }} data-tooltip-id="tt-areas"
+                        data-tooltip-content="Borrar estos equipos de OmniAccess. Son los que quedaron sueltos al borrar sus áreas."
+                        className="hidden group-hover:grid h-6 w-6 place-items-center rounded text-muted-foreground hover:text-red-500 hover:bg-background"><Trash2 size={12} /></button>
+                )}
                 <span className={cn(claveApagado && "group-hover:hidden")}><Cuenta n={cuenta} /></span>
                 {claveApagado && <span className="hidden group-hover:flex"><MiniInterruptor prendido={!apagada} titulo={apagada ? `Apagado: OmniAccess no consume estos equipos. Tocá para reactivar.` : `Apagar «${titulo}»: OmniAccess deja de consumir estos equipos`}
                     onClick={() => setPidiendo({ clave: claveApagado, titulo, apagar: !apagada })} /></span>}
@@ -414,12 +431,40 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                     </div>
                 )}
                 <div className="pt-1 mt-1 border-t border-border/50">
-                    {raiz(SIN_AREA, Inbox, "Sin área", sinArea.filter(deTipo).length, "Equipos que todavía no están en ningún área. Soltá un equipo acá para sacarlo de su área.", APAGADO_SIN_AREA)}
+                    {raiz(SIN_AREA, Inbox, "Sin área", sinArea.filter(deTipo).length, "Equipos que todavía no están en ningún área. Soltá un equipo acá para sacarlo de su área.", APAGADO_SIN_AREA,
+                        aBorrar(null) ? () => setBorrarPedido({ areaId: null, titulo: "Sin área", n: aBorrar(null) }) : undefined)}
                     {verEquipos && seleccion === SIN_AREA && sinArea.slice(0, 200).map((d) => <Fragment key={d.id}>{hoja(d, 0)}</Fragment>)}
                 </div>
             </div>
             {filtros}
             <ModalApagado pedido={pidiendo} equipos={pidiendo ? afectados(pidiendo.clave) : []} aplicando={aplicando} onConfirmar={confirmar} onCancelar={() => !aplicando && setPidiendo(null)} />
+            <ModalBorrar pedido={borrarPedido} borrando={borrandoAhora}
+                onCancelar={() => !borrandoAhora && setBorrarPedido(null)}
+                onSoloArea={async () => {
+                    const p = borrarPedido; if (!p?.areaId) return;
+                    setBorrarPedido(null);
+                    await ejecutar(borrarArea(p.areaId), "Área borrada: sus equipos quedaron sin área");
+                    if (seleccion === p.areaId) onSeleccion(TODAS);
+                }}
+                onConEquipos={async () => {
+                    const p = borrarPedido; if (!p) return;
+                    setBorrandoAhora(true);
+                    try {
+                        if (p.areaId) {
+                            const e = await borrarArea(p.areaId, true);
+                            setEstado(e);
+                            toast.success({ title: `«${p.titulo}» borrada`, description: `Se borraron sus ${p.n} ${p.n === 1 ? "equipo" : "equipos"} de OmniAccess.` });
+                            if (seleccion === p.areaId) onSeleccion(TODAS);
+                        } else {
+                            const r = await borrarEquiposDeArea(null);
+                            if (r.error) throw new Error(r.error);
+                            toast.success({ title: `${r.borrados} ${r.borrados === 1 ? "equipo borrado" : "equipos borrados"}`, description: r.fallaron ? `${r.fallaron} no se pudieron borrar.` : undefined });
+                        }
+                        alBorrarEquipos?.();
+                    } catch (e: any) {
+                        toast.error({ title: "No se borró", description: e?.message });
+                    } finally { setBorrandoAhora(false); setBorrarPedido(null); }
+                }} />
             <TooltipAreas />
         </aside>
     );
@@ -584,6 +629,69 @@ function ModalApagado({ pedido, equipos, aplicando, onConfirmar, onCancelar }: {
                         {aplicando ? <Loader2 size={14} className="animate-spin" /> : apagar ? <PowerOff size={14} /> : <Power size={14} />}
                         {apagar ? `Apagar ${equipos.length || ""} ${equipos.length === 1 ? "equipo" : "equipos"}`.replace("  ", " ") : `Reactivar ${equipos.length || ""} ${equipos.length === 1 ? "equipo" : "equipos"}`.replace("  ", " ")}
                     </button>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+/**
+ * Borrar un área con equipos adentro, o los equipos que quedaron sin área.
+ *
+ * Existe porque borrar un área NO borraba equipos y eso sorprende (17/11, Nico: «eliminé áreas
+ * enteras, pero veo que aún siguen persistiendo equipos de esas áreas»). El «¿Borrar?» chico de
+ * al lado del área alcanzaba para una carpeta vacía; con equipos adentro hay dos cosas distintas
+ * que se pueden querer, y la segunda no se deshace. Así que se pregunta cuál, con el número de
+ * equipos a la vista y qué se lleva cada uno.
+ */
+function ModalBorrar({ pedido, borrando, onSoloArea, onConEquipos, onCancelar }: {
+    pedido: { areaId: string | null; titulo: string; n: number } | null;
+    borrando: boolean;
+    onSoloArea: () => void; onConEquipos: () => void; onCancelar: () => void;
+}) {
+    const esArea = !!pedido?.areaId;
+    const n = pedido?.n || 0;
+    const equipos = `${n} ${n === 1 ? "equipo" : "equipos"}`;
+    return (
+        <Dialog open={!!pedido} onOpenChange={(o) => { if (!o) onCancelar(); }}>
+            <DialogContent showCloseButton={false} className="sm:max-w-[460px] p-0 gap-0 overflow-hidden rounded-[14px]">
+                <div className="flex items-start gap-3 p-4 border-b border-border">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] chip-mal"><Trash2 size={16} /></span>
+                    <div className="min-w-0">
+                        <DialogTitle className="text-[17px] font-bold leading-tight">
+                            {esArea ? <>Borrar «{pedido?.titulo}»</> : <>Borrar los {equipos} sin área</>}
+                        </DialogTitle>
+                        <DialogDescription className="text-[12.5px] text-muted-foreground mt-1">
+                            {esArea
+                                ? <>Tiene {equipos} adentro (contando sus sub-áreas). El área es sólo una forma de agrupar: borrarla no borra los equipos, salvo que lo pidas.</>
+                                : <>Son los que no están en ningún área — entre ellos, los que quedaron sueltos al borrar sus áreas.</>}
+                        </DialogDescription>
+                    </div>
+                </div>
+
+                <div className="p-4 space-y-2.5">
+                    <p className="text-[12.5px] leading-snug">
+                        Borrar un equipo lo saca de <b>todo OmniAccess</b>: sus eventos y lecturas, sus detecciones, sus
+                        reglas de OmniVision, su lugar en el mapa y sus streams. Queda sólo el registro en Auditoría.
+                        <b className="tono-mal"> No se puede deshacer.</b>
+                    </p>
+                    {n > 10 && <p className="text-[12px] text-muted-foreground">Son {equipos}: puede tardar un rato.</p>}
+                </div>
+
+                <div className="flex flex-col gap-2 p-4 pt-0">
+                    <button type="button" onClick={onConEquipos} disabled={borrando}
+                        className="h-10 rounded-full pleno-mal text-[13px] font-bold inline-flex items-center justify-center gap-2 disabled:opacity-60">
+                        {borrando && <Loader2 size={14} className="animate-spin" />}
+                        {esArea ? <>Borrar el área y sus {equipos}</> : <>Borrar los {equipos}</>}
+                    </button>
+                    {esArea && (
+                        <button type="button" onClick={onSoloArea} disabled={borrando}
+                            className="h-10 rounded-full border border-border text-[13px] font-semibold hover:bg-accent disabled:opacity-60">
+                            Borrar sólo el área (los equipos quedan sin área)
+                        </button>
+                    )}
+                    <button type="button" onClick={onCancelar} disabled={borrando}
+                        className="h-9 rounded-full text-[13px] font-semibold text-muted-foreground hover:bg-accent disabled:opacity-60">Cancelar</button>
                 </div>
             </DialogContent>
         </Dialog>

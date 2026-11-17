@@ -638,7 +638,7 @@ export default function DevicesPage() {
 
             <div className="flex gap-4 items-start">
                 <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={tipoFijo || areaSel === TODAS ? typeFilter : TODOS_LOS_TIPOS}
-                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={abrir} health={health} alertasDe={alertasDe}
+                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={abrir} health={health} alertasDe={alertasDe} alBorrarEquipos={loadData}
                     colapsado={panelCerrado} onColapsar={colapsarPanel} onTipo={(t) => { if (t === typeFilter && tipoFijo && areaSel !== TODAS) { setTipoFijo(false); return; } setTipoFijo(true); setFilter(t); }}
                     tipos={allowedTypes.map((t) => ({ tipo: t, rotulo: TYPE_META[t]?.label || t, cuenta: devices.filter((d) => vistaDe(d) === t).length, alertas: devices.filter((d) => vistaDe(d) === t && alertasDe[d.id]?.length).length }))} />
                 <div className="flex-1 min-w-0 space-y-4">
