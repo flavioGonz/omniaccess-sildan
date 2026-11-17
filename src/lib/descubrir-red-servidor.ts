@@ -50,18 +50,40 @@ function puertoAbierto(ip: string, puerto: number): Promise<boolean> {
     });
 }
 
-/**
- * Lo que dice el servidor web del equipo sin que nadie se identifique: el encabezado `Server` y,
- * si pide clave, el reino del 401. Es de donde sale la marca sin tener que probar contraseñas —
- * una cámara Hikvision se presenta sola («App-webs», `DS-2CD…` en el reino).
- */
-async function web(ip: string): Promise<{ servidor: string | null; reino: string | null }> {
+type Respuesta = { estado: number; servidor: string | null; reino: string | null } | null;
+
+async function pedir(ip: string, ruta: string): Promise<Respuesta> {
     try {
-        const r = await fetch(`http://${ip}/`, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(WEB_MS) });
+        const r = await fetch(`http://${ip}${ruta}`, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(WEB_MS) });
         const auth = r.headers.get("www-authenticate") || "";
-        const reino = /realm="?([^",]+)"?/i.exec(auth)?.[1] || null;
-        return { servidor: r.headers.get("server"), reino };
-    } catch { return { servidor: null, reino: null }; }
+        // El cuerpo no se lee: alcanza con los encabezados y así la conexión se suelta enseguida.
+        return { estado: r.status, servidor: r.headers.get("server"), reino: /realm="?([^",]+)"?/i.exec(auth)?.[1] || null };
+    } catch { return null; }
+}
+
+/**
+ * Quién es, sin credenciales.
+ *
+ * Primero `/`, por el encabezado `Server` y el reino si pide clave. Medido en el lab (17/11): las
+ * Hikvision de ahí NO mandan `Server` ni piden clave ahí, así que eso solo deducía marca en cero
+ * equipos. Lo que las delata es su propio protocolo: `/ISAPI/System/deviceInfo` contesta 401 con
+ * `realm="IP Camera(GB828)"`. La misma ruta en una Dahua no existe, y su `magicBox.cgi` contesta
+ * 401 donde la Hikvision da 404 — por eso el de Dahua se prueba sólo si ISAPI no contestó.
+ *
+ * Son como mucho tres pedidos, y sólo a las direcciones que contestaron el ping con el 80 abierto.
+ */
+async function identificar(ip: string): Promise<{ servidor: string | null; reino: string | null; habla: ("ISAPI" | "DAHUA")[] }> {
+    const raiz = await pedir(ip, "/");
+    const habla: ("ISAPI" | "DAHUA")[] = [];
+    let reino = raiz?.reino || null;
+
+    const isapi = await pedir(ip, "/ISAPI/System/deviceInfo");
+    if (isapi && (isapi.estado === 401 || isapi.estado === 200)) { habla.push("ISAPI"); reino = isapi.reino || reino; }
+    else {
+        const dahua = await pedir(ip, "/cgi-bin/magicBox.cgi?action=getDeviceType");
+        if (dahua && (dahua.estado === 401 || dahua.estado === 200)) { habla.push("DAHUA"); reino = dahua.reino || reino; }
+    }
+    return { servidor: raiz?.servidor || null, reino, habla };
 }
 
 /** Las subredes /24 de las direcciones del propio servidor (sin loopback ni docker). */
@@ -101,7 +123,7 @@ export async function barrer(subred: string, desde: number, hasta: number): Prom
             Promise.all(PUERTOS.map(async (p) => ((await puertoAbierto(v.ip, p)) ? p : 0))).then((l) => l.filter(Boolean) as number[]),
             dns.reverse(v.ip).then((l) => l[0] || null).catch(() => null),
         ]);
-        const w = puertos.includes(80) ? await web(v.ip) : { servidor: null, reino: null };
+        const w = puertos.includes(80) ? await identificar(v.ip) : { servidor: null, reino: null, habla: [] as ("ISAPI" | "DAHUA")[] };
         const base: Hallazgo = { ip: v.ip, rtt: v.rtt, nombre, puertos, ...w };
         return { ...base, parece: queParece(base), equipo: null };
     }));

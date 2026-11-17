@@ -61,3 +61,19 @@ test("prefijoDe", () => {
     assert.equal(prefijoDe("8.8.8.8"), null);
     assert.equal(prefijoDe(null), null);
 });
+
+test("si contesta ISAPI es Hikvision, aunque no mande ningún encabezado (medido 17/11)", () => {
+    const p = queParece({ puertos: [80, 443, 554, 8000], servidor: null, reino: "IP Camera(GB828)", nombre: null, habla: ["ISAPI"] });
+    assert.equal(p.marca, "HIKVISION");
+    assert.match(p.que, /Cámara IP/);
+});
+
+test("el reino separa cámara de grabador", () => {
+    const g = queParece({ puertos: [80, 554], servidor: null, reino: "Embedded Net DVR", nombre: null, habla: ["ISAPI"] });
+    assert.equal(g.tipo, "NVR");
+    assert.match(g.que, /Grabador/);
+});
+
+test("magicBox contesta y ISAPI no: Dahua", () => {
+    assert.equal(queParece({ puertos: [80, 554], servidor: null, reino: null, nombre: null, habla: ["DAHUA"] }).marca, "DAHUA");
+});

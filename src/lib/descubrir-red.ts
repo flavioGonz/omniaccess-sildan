@@ -83,6 +83,16 @@ export type Hallazgo = {
     /** Lo que dijo el servidor web del equipo, si contestó: encabezado `Server` y el reino del 401. */
     servidor: string | null;
     reino: string | null;
+    /**
+     * Qué protocolos de fabricante contestaron, sin credenciales.
+     *
+     * Medido en el lab el 17/11: las Hikvision de ahí **no mandan `Server` ni piden clave en `/`**
+     * —contestan 200 con la página de login—, así que el encabezado solo no alcanzaba y el barrido
+     * no deducía ninguna marca. Lo que sí las delata es `/ISAPI/System/deviceInfo`: 401 con
+     * `realm="IP Camera(GB828)"`. La misma ruta en una Dahua no existe, y su `magicBox.cgi`
+     * contesta 401 donde la Hikvision da 404. Eso es lo que se prueba.
+     */
+    habla: ("ISAPI" | "DAHUA")[];
 };
 
 export type Parecer = {
@@ -109,11 +119,19 @@ const POR_TEXTO: [RegExp, Parecer["marca"]][] = [
  * cámara o un grabador) y deja la decisión en quien lo da de alta. Preferir equivocarse diciendo
  * «no se sabe» antes que poner un tipo que después hay que corregir a mano.
  */
-export function queParece(h: Pick<Hallazgo, "puertos" | "servidor" | "reino" | "nombre">): Parecer {
+export function queParece(h: Pick<Hallazgo, "puertos" | "servidor" | "reino" | "nombre"> & { habla?: Hallazgo["habla"] }): Parecer {
     const texto = `${h.servidor || ""} ${h.reino || ""} ${h.nombre || ""}`;
-    const marca = POR_TEXTO.find(([re]) => re.test(texto))?.[1] || null;
+    const habla = h.habla || [];
+    const marca = POR_TEXTO.find(([re]) => re.test(texto))?.[1]
+        || (habla.includes("ISAPI") ? "HIKVISION" : habla.includes("DAHUA") ? "DAHUA" : null);
     const tiene = (p: number) => h.puertos.includes(p);
     const nombre = (base: string) => (marca ? `${base} (${marca[0] + marca.slice(1).toLowerCase()})` : base);
+
+    // El reino del 401 de Hikvision dice qué clase de equipo es: «IP Camera(GB828)» en una cámara,
+    // «Embedded Net DVR» o el modelo en un grabador. Es lo único medido que separa cámara de
+    // grabador sin entrar con clave, así que se usa y nada más se adivina.
+    if (/ip camera/i.test(h.reino || "")) return { que: nombre("Cámara IP"), tipo: null, marca };
+    if (/net dvr|net nvr|embedded net/i.test(h.reino || "")) return { que: nombre("Grabador"), tipo: "NVR", marca };
 
     // El 37777 es el puerto propio de Dahua; el 8000, el de Hikvision. Con RTSP al lado, es video.
     if (tiene(554)) {
