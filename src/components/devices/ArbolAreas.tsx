@@ -120,6 +120,8 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
     /** Borrar un área con equipos adentro, o los equipos sin área: va con cartel, no con el «¿Borrar?» chico. */
     const [borrarPedido, setBorrarPedido] = useState<{ areaId: string | null; titulo: string; n: number } | null>(null);
     const [borrandoAhora, setBorrandoAhora] = useState<"vacios" | "todos" | null>(null);
+    /** El resumen de lo que se va a borrar, con su clave: el cajón sólo lo dibuja (así se puede ver sin base). */
+    const [resumenBorrar, setResumenBorrar] = useState<{ clave: string; r: Resumen } | null>(null);
     const [aplicando, setAplicando] = useState(false);
     const apagadas = useMemo(() => new Set(estado.apagadas || []), [estado.apagadas]);
     /** El área de arriba que está apagada (si la hay): las de abajo quedan apagadas con ella. */
@@ -160,6 +162,18 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
      * que ser el que de verdad se va a borrar.
      */
     const aBorrar = (areaId: string | null) => devices.filter((d) => enArea(estado, d.id, areaId ?? SIN_AREA)).length;
+
+    // Qué tiene guardado cada uno de los que se van a borrar. Se pide al abrir el cajón.
+    const claveBorrar = borrarPedido ? String(borrarPedido.areaId) : "";
+    useEffect(() => {
+        if (!borrarPedido) return;
+        let vivo = true;
+        resumenParaBorrar(borrarPedido.areaId)
+            .then((r) => { if (vivo) setResumenBorrar({ clave: claveBorrar, r }); })
+            .catch(() => { if (vivo) setResumenBorrar({ clave: claveBorrar, r: { total: 0, conDatos: 0, vacios: 0, equipos: [] } }); });
+        return () => { vivo = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [claveBorrar]);
 
     const ejecutar = async (p: Promise<EstadoAreas>, ok?: string) => {
         try { const e = await p; setEstado(e); if (ok) toast.success({ title: ok }); }
@@ -444,6 +458,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
             {filtros}
             <ModalApagado pedido={pidiendo} equipos={pidiendo ? afectados(pidiendo.clave) : []} aplicando={aplicando} onConfirmar={confirmar} onCancelar={() => !aplicando && setPidiendo(null)} />
             <CajonBorrar pedido={borrarPedido} borrando={!!borrandoAhora} cual={borrandoAhora}
+                resumen={resumenBorrar?.clave === claveBorrar ? resumenBorrar.r : null}
                 onCancelar={() => !borrandoAhora && setBorrarPedido(null)}
                 onSoloArea={async () => {
                     const p = borrarPedido; if (!p?.areaId) return;
@@ -651,28 +666,15 @@ function ModalApagado({ pedido, equipos, aplicando, onConfirmar, onCancelar }: {
  * que se pueden querer, y la segunda no se deshace. Así que se pregunta cuál, con el número de
  * equipos a la vista y qué se lleva cada uno.
  */
-function CajonBorrar({ pedido, borrando, cual, onSoloArea, onConEquipos, onCancelar }: {
+export function CajonBorrar({ pedido, borrando, cual, resumen, onSoloArea, onConEquipos, onCancelar }: {
     pedido: { areaId: string | null; titulo: string; n: number } | null;
     borrando: boolean;
     /** Cuál de los dos borrados está corriendo: el spinner va en el botón que se apretó, no en los dos. */
     cual: "vacios" | "todos" | null;
+    /** Lo lee el árbol; acá sólo se dibuja. Null = todavía no llegó. */
+    resumen: Resumen | null;
     onSoloArea: () => void; onConEquipos: (soloVacios: boolean) => void; onCancelar: () => void;
 }) {
-    // El resumen se guarda CON la clave de lo que se está por borrar, y se muestra sólo si coincide:
-    // limpiarlo dentro del efecto hace que React vuelva a dibujar dos veces por cada apertura.
-    const [leido, setLeido] = useState<{ clave: string; r: Resumen } | null>(null);
-    const clave = pedido ? String(pedido.areaId) : "";
-    const resumen = leido?.clave === clave ? leido.r : null;
-    useEffect(() => {
-        if (!pedido) return;
-        let vivo = true;
-        resumenParaBorrar(pedido.areaId)
-            .then((r) => { if (vivo) setLeido({ clave, r }); })
-            .catch(() => { if (vivo) setLeido({ clave, r: { total: 0, conDatos: 0, vacios: 0, equipos: [] } }); });
-        return () => { vivo = false; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [clave]);
-
     const esArea = !!pedido?.areaId;
     const n = pedido?.n || 0;
     const equipos = `${n} ${n === 1 ? "equipo" : "equipos"}`;
@@ -687,27 +689,27 @@ function CajonBorrar({ pedido, borrando, cual, onSoloArea, onConEquipos, onCance
                     ? `Tiene ${equipos} adentro, contando sus sub-áreas.`
                     : "Son los que no están en ningún área — entre ellos, los que quedaron sueltos al borrar sus áreas."}
                 pie={
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-2 w-full">
                         {/* La limpieza segura primero cuando hay de los dos: es lo que casi siempre se quiere. */}
                         {!!resumen?.vacios && !!resumen?.conDatos && (
-                            <Button onClick={() => onConEquipos(true)} disabled={borrando} className="h-10 rounded-full">
+                            <Button onClick={() => onConEquipos(true)} disabled={borrando} className="h-10 w-full rounded-full">
                                 {cual === "vacios" ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                                 Borrar sólo {resumen.vacios === 1 ? "el vacío" : `los ${resumen.vacios} vacíos`}
                             </Button>
                         )}
                         <button type="button" onClick={() => onConEquipos(false)} disabled={borrando}
-                            className="h-10 rounded-full pleno-mal text-[13px] font-bold inline-flex items-center justify-center gap-2 disabled:opacity-60">
+                            className="h-10 w-full rounded-full pleno-mal text-[13px] font-bold inline-flex items-center justify-center gap-2 disabled:opacity-60">
                             {cual === "todos" ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                             {esArea ? <>Borrar el área y sus {equipos}</> : <>Borrar los {equipos}</>}
                         </button>
                         {esArea && (
                             <button type="button" onClick={onSoloArea} disabled={borrando}
-                                className="h-10 rounded-full border border-border text-[13px] font-semibold hover:bg-accent disabled:opacity-60">
+                                className="h-10 w-full rounded-full border border-border text-[13px] font-semibold hover:bg-accent disabled:opacity-60">
                                 Borrar sólo el área (los equipos quedan sin área)
                             </button>
                         )}
                         <button type="button" onClick={onCancelar} disabled={borrando}
-                            className="h-9 rounded-full text-[13px] font-semibold text-muted-foreground hover:bg-accent disabled:opacity-60">Cancelar</button>
+                            className="h-9 w-full rounded-full text-[13px] font-semibold text-muted-foreground hover:bg-accent disabled:opacity-60">Cancelar</button>
                     </div>
                 }>
                 <div className="space-y-3">
