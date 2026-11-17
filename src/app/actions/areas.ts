@@ -123,19 +123,17 @@ function rama(areas: Area[], areaId: string): Set<string> {
  * demás: se cuentan y se informan, porque a mitad de una limpieza de cincuenta equipos lo peor
  * que puede pasar es no saber cuáles quedaron.
  */
-export async function borrarEquiposDeArea(areaId: string | null): Promise<{ borrados: number; fallaron: number; error?: string }> {
+export async function borrarEquiposDeArea(areaId: string | null, soloVacios = false): Promise<{ borrados: number; fallaron: number; error?: string }> {
     const s: any = await getSession();
     if (!s) return { borrados: 0, fallaron: 0, error: "Hace falta una sesión del panel." };
     const { permisosDeSesion } = await import("@/lib/permisos");
     if (!permisosDeSesion(s).includes("dispositivos.editar")) return { borrados: 0, fallaron: 0, error: "Hace falta el permiso Editar dispositivos para borrar equipos." };
 
     const e = await leer();
-    const dentro = areaId ? rama(e.areas, areaId) : null;
-    const todos = await prisma.device.findMany({ select: { id: true } });
-    const ids = todos.map((d) => d.id).filter((id) => {
-        const suya = e.equipos[id];
-        return dentro ? !!suya && dentro.has(suya) : !suya || !e.areas.some((a) => a.id === suya);
-    });
+    let ids = await idsDeArea(e, areaId);
+    // La limpieza segura: sólo los que nunca registraron nada. Es lo que casi siempre se quiere
+    // cuando se barren los sueltos — entre ellos suele haber cámaras que están trabajando.
+    if (soloVacios) { const con = await conDatos(ids); ids = ids.filter((id) => !con.has(id)); }
     if (!ids.length) return { borrados: 0, fallaron: 0 };
 
     const { borrarEquipoDeTodo } = await import("@/lib/borrar-equipo");
@@ -158,25 +156,34 @@ export async function borrarEquiposDeArea(areaId: string | null): Promise<{ borr
  * también, con sus avistamientos, y eso no se deshace. Así que antes de borrar se dice cuántos
  * son de cada clase.
  */
-export async function resumenParaBorrar(areaId: string | null): Promise<{ total: number; conDatos: number; vacios: number }> {
-    await conSesion();
-    const e = await leer();
+async function idsDeArea(e: EstadoAreas, areaId: string | null): Promise<string[]> {
     const dentro = areaId ? rama(e.areas, areaId) : null;
     const todos = await prisma.device.findMany({ select: { id: true } });
-    const ids = todos.map((d) => d.id).filter((id) => {
+    return todos.map((d) => d.id).filter((id) => {
         const suya = e.equipos[id];
         return dentro ? !!suya && dentro.has(suya) : !suya || !e.areas.some((a) => a.id === suya);
     });
-    if (!ids.length) return { total: 0, conDatos: 0, vacios: 0 };
+}
+
+/** De esos equipos, los que tienen algo guardado. Una consulta por tabla, con `distinct`. */
+async function conDatos(ids: string[]): Promise<Set<string>> {
+    if (!ids.length) return new Set();
     const cuenta = async (f: () => Promise<{ deviceId: string | null }[]>) => (await f().catch(() => [])).map((x) => x.deviceId).filter(Boolean) as string[];
-    const conAlgo = new Set<string>([
+    return new Set<string>([
         ...await cuenta(() => prisma.plateSighting.findMany({ where: { deviceId: { in: ids } }, select: { deviceId: true }, distinct: ["deviceId"] })),
         ...await cuenta(() => prisma.accessEvent.findMany({ where: { deviceId: { in: ids } }, select: { deviceId: true }, distinct: ["deviceId"] })),
         ...await cuenta(() => prisma.detection.findMany({ where: { deviceId: { in: ids } }, select: { deviceId: true }, distinct: ["deviceId"] })),
         ...await cuenta(() => prisma.fotoEntrenamiento.findMany({ where: { deviceId: { in: ids } }, select: { deviceId: true }, distinct: ["deviceId"] })),
         ...await cuenta(() => prisma.zonaEntrenable.findMany({ where: { deviceId: { in: ids } }, select: { deviceId: true }, distinct: ["deviceId"] })),
     ]);
-    return { total: ids.length, conDatos: conAlgo.size, vacios: ids.length - conAlgo.size };
+}
+
+export async function resumenParaBorrar(areaId: string | null): Promise<{ total: number; conDatos: number; vacios: number }> {
+    await conSesion();
+    const ids = await idsDeArea(await leer(), areaId);
+    if (!ids.length) return { total: 0, conDatos: 0, vacios: 0 };
+    const con = await conDatos(ids);
+    return { total: ids.length, conDatos: con.size, vacios: ids.length - con.size };
 }
 
 export async function borrarArea(areaId: string, conEquipos = false): Promise<EstadoAreas> {

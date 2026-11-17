@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 /** Igual que en lib/apagado (no se importa de ahí: ese archivo usa la base y esto corre en el navegador). */
 const APAGADO_SIN_AREA = "__sin_area";
 import { sileo as toast } from "sileo";
-import { crearArea, editarArea, borrarArea, borrarEquiposDeArea, resumenParaBorrar, moverArea, asignarEquipos, apagarGrupo, type Area, type EstadoAreas } from "@/app/actions/areas";
+import { crearArea, editarArea, borrarArea, borrarEquiposDeArea, resumenParaBorrar, leerAreas, moverArea, asignarEquipos, apagarGrupo, type Area, type EstadoAreas } from "@/app/actions/areas";
 
 /**
  * Árbol de áreas para agrupar equipos. Todo por arrastrar y soltar:
@@ -446,18 +446,20 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                     await ejecutar(borrarArea(p.areaId), "Área borrada: sus equipos quedaron sin área");
                     if (seleccion === p.areaId) onSeleccion(TODAS);
                 }}
-                onConEquipos={async () => {
+                onConEquipos={async (soloVacios) => {
                     const p = borrarPedido; if (!p) return;
                     setBorrandoAhora(true);
                     try {
-                        if (p.areaId) {
+                        if (p.areaId && !soloVacios) {
                             const e = await borrarArea(p.areaId, true);
                             setEstado(e);
                             toast.success({ title: `«${p.titulo}» borrada`, description: `Se borraron sus ${p.n} ${p.n === 1 ? "equipo" : "equipos"} de OmniAccess.` });
                             if (seleccion === p.areaId) onSeleccion(TODAS);
                         } else {
-                            const r = await borrarEquiposDeArea(null);
+                            const r = await borrarEquiposDeArea(p.areaId, soloVacios);
                             if (r.error) throw new Error(r.error);
+                            // Borrar un equipo también lo saca del ajuste de áreas: el árbol se vuelve a leer.
+                            setEstado(await leerAreas());
                             toast.success({ title: `${r.borrados} ${r.borrados === 1 ? "equipo borrado" : "equipos borrados"}`, description: r.fallaron ? `${r.fallaron} no se pudieron borrar.` : undefined });
                         }
                         alBorrarEquipos?.();
@@ -647,7 +649,7 @@ function ModalApagado({ pedido, equipos, aplicando, onConfirmar, onCancelar }: {
 function ModalBorrar({ pedido, borrando, onSoloArea, onConEquipos, onCancelar }: {
     pedido: { areaId: string | null; titulo: string; n: number } | null;
     borrando: boolean;
-    onSoloArea: () => void; onConEquipos: () => void; onCancelar: () => void;
+    onSoloArea: () => void; onConEquipos: (soloVacios: boolean) => void; onCancelar: () => void;
 }) {
     // El resumen se guarda CON la clave de lo que se está por borrar, y se muestra sólo si coincide:
     // limpiarlo dentro del efecto hace que React vuelva a dibujar dos veces por cada apertura.
@@ -701,7 +703,15 @@ function ModalBorrar({ pedido, borrando, onSoloArea, onConEquipos, onCancelar }:
                 </div>
 
                 <div className="flex flex-col gap-2 p-4 pt-0">
-                    <button type="button" onClick={onConEquipos} disabled={borrando}
+                    {/* La limpieza segura primero cuando hay de los dos: es lo que casi siempre se quiere. */}
+                    {!!resumen?.vacios && !!resumen?.conDatos && (
+                        <button type="button" onClick={() => onConEquipos(true)} disabled={borrando}
+                            className="h-10 rounded-full bg-[var(--accion)] text-white text-[13px] font-bold inline-flex items-center justify-center gap-2 disabled:opacity-60">
+                            {borrando && <Loader2 size={14} className="animate-spin" />}
+                            Borrar sólo {resumen.vacios === 1 ? "el vacío" : `los ${resumen.vacios} vacíos`}
+                        </button>
+                    )}
+                    <button type="button" onClick={() => onConEquipos(false)} disabled={borrando}
                         className="h-10 rounded-full pleno-mal text-[13px] font-bold inline-flex items-center justify-center gap-2 disabled:opacity-60">
                         {borrando && <Loader2 size={14} className="animate-spin" />}
                         {esArea ? <>Borrar el área y sus {equipos}</> : <>Borrar los {equipos}</>}
