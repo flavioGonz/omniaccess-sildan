@@ -72,6 +72,13 @@ interface DeviceFormDialogProps {
     alCambiarAbierto?: (v: boolean) => void;
     /** Tipo con el que arranca un alta (NVR, CAMERA…). */
     tipoInicial?: string;
+    /**
+     * Con qué datos arranca un alta NUEVA (no una edición): lo que se descubrió en la red —la IP,
+     * y la marca y el tipo si se pudieron deducir— para no volver a escribirlo. No se puede usar
+     * `device` para esto: `device` significa «editar éste», y sin id el guardado iría a actualizar
+     * algo que no existe.
+     */
+    inicial?: { ip?: string; brand?: string; deviceType?: string; name?: string };
 }
 
 const BRANDS = [
@@ -158,7 +165,7 @@ const CAMERA_GUIDES: Record<string, { title: string; steps: string[]; webhookUrl
     },
 };
 
-export function DeviceFormDialog({ device, groups, onSuccess, children, abierto, alCambiarAbierto, tipoInicial }: DeviceFormDialogProps) {
+export function DeviceFormDialog({ device, groups, onSuccess, children, abierto, alCambiarAbierto, tipoInicial, inicial }: DeviceFormDialogProps) {
     const [openInt, setOpenInt] = useState(false);
     const open = abierto ?? openInt;
     const setOpen = (v: boolean) => { if (abierto === undefined) setOpenInt(v); alCambiarAbierto?.(v); };
@@ -167,11 +174,11 @@ export function DeviceFormDialog({ device, groups, onSuccess, children, abierto,
     const [modelComboOpen, setModelComboOpen] = useState(false);
     const [showGuide, setShowGuide] = useState(false);
     const [formData, setFormData] = useState({
-        name: device?.name || "",
-        deviceType: device?.deviceType || tipoInicial || "LPR_CAMERA",
-        brand: device?.brand || "HIKVISION",
+        name: device?.name || inicial?.name || "",
+        deviceType: device?.deviceType || inicial?.deviceType || tipoInicial || "LPR_CAMERA",
+        brand: device?.brand || inicial?.brand || "HIKVISION",
         deviceModel: device?.deviceModel || "",
-        ip: device?.ip || "",
+        ip: device?.ip || inicial?.ip || "",
         mac: device?.mac || "",
         location: device?.location || "",
         direction: device?.direction || "ENTRY",
@@ -186,11 +193,11 @@ export function DeviceFormDialog({ device, groups, onSuccess, children, abierto,
     const isEdit = !!device;
 
     const buildDefaults = () => ({
-        name: device?.name || "",
-        deviceType: device?.deviceType || tipoInicial || "LPR_CAMERA",
-        brand: device?.brand || "HIKVISION",
+        name: device?.name || inicial?.name || "",
+        deviceType: device?.deviceType || inicial?.deviceType || tipoInicial || "LPR_CAMERA",
+        brand: device?.brand || inicial?.brand || "HIKVISION",
         deviceModel: device?.deviceModel || "",
-        ip: device?.ip || "",
+        ip: device?.ip || inicial?.ip || "",
         mac: device?.mac || "",
         location: device?.location || "",
         direction: device?.direction || "ENTRY",

@@ -1,0 +1,63 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { direcciones, esSubredPrivada, prefijoDe, queParece, subredesSugeridas } from "@/lib/descubrir-red";
+
+test("sólo redes privadas", () => {
+    for (const ok of ["192.168.1", "10.0.0", "172.26.20", "172.16.5", "172.31.255"]) assert.equal(esSubredPrivada(ok), true, ok);
+    for (const no of ["8.8.8", "172.15.1", "172.32.1", "200.40.182", "192.169.1"]) assert.equal(esSubredPrivada(no), false, no);
+});
+
+test("un prefijo con cualquier cosa pegada no pasa", () => {
+    for (const no of ["10.0.1;reboot", "10.0.1 2", "10.0.01", "10.0.-1", "10.0", "10.0.1.5", "10.0.1\n", ""]) {
+        assert.equal(esSubredPrivada(no), false, JSON.stringify(no));
+        assert.deepEqual(direcciones(no), []);
+    }
+});
+
+test("la lista de direcciones se acota", () => {
+    assert.deepEqual(direcciones("192.168.1", 10, 12), ["192.168.1.10", "192.168.1.11", "192.168.1.12"]);
+    assert.equal(direcciones("192.168.1").length, 254);
+    assert.equal(direcciones("192.168.1", 0, 999).length, 254);
+    // Al revés: se corrige en vez de devolver nada.
+    assert.deepEqual(direcciones("192.168.1", 20, 5), ["192.168.1.20"]);
+});
+
+test("las subredes sugeridas salen de los equipos que ya hay, la más poblada primero", () => {
+    const r = subredesSugeridas(["192.168.1.7", "192.168.1.8", "172.26.20.19", null, "sin ip", "8.8.8.8"]);
+    assert.deepEqual(r, ["192.168.1", "172.26.20"]);
+});
+
+test("la subred propia del servidor entra aunque no tenga equipos", () => {
+    assert.deepEqual(subredesSugeridas(["192.168.1.7"], ["10.10.0"]), ["192.168.1", "10.10.0"]);
+});
+
+test("RTSP abierto es cámara o grabador, y la marca sale del encabezado", () => {
+    const p = queParece({ puertos: [80, 554, 8000], servidor: "App-webs/", reino: "DS-2CD2143G0-I", nombre: null });
+    assert.equal(p.marca, "HIKVISION");
+    assert.match(p.que, /Cámara o grabador/);
+    // No inventa el tipo: una cámara y un grabador se ven igual desde afuera.
+    assert.equal(p.tipo, null);
+});
+
+test("un Akuvox con RTSP es un portero", () => {
+    const p = queParece({ puertos: [80, 554], servidor: "Akuvox Embedded", reino: null, nombre: null });
+    assert.equal(p.tipo, "DOOR_INTERCOM");
+    assert.equal(p.marca, "AKUVOX");
+});
+
+test("el 37777 delata un grabador Dahua aunque no diga nada", () => {
+    const p = queParece({ puertos: [80, 37777], servidor: null, reino: null, nombre: null });
+    assert.equal(p.tipo, "NVR");
+    assert.equal(p.marca, "DAHUA");
+});
+
+test("sin señales, dice que no sabe", () => {
+    assert.equal(queParece({ puertos: [], servidor: null, reino: null, nombre: null }).que, "No se sabe");
+    assert.equal(queParece({ puertos: [80], servidor: null, reino: null, nombre: null }).que, "Algo con página web");
+});
+
+test("prefijoDe", () => {
+    assert.equal(prefijoDe("172.26.20.226"), "172.26.20");
+    assert.equal(prefijoDe("8.8.8.8"), null);
+    assert.equal(prefijoDe(null), null);
+});

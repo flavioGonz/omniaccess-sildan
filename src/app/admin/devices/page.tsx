@@ -99,6 +99,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MoreHorizontal, DownloadCloud, UploadCloud, Info, PowerOff, Crosshair } from "lucide-react";
 import { Radar } from "lucide-react";
+import { DescubrirRed } from "@/components/devices/DescubrirRed";
 import { getDevicesWithAnalytics } from "@/app/actions/detections";
 import {
     Tooltip,
@@ -364,6 +365,9 @@ export default function DevicesPage() {
     const typeFilter = pedido && allowedTypes.includes(pedido) ? pedido : (allowedTypes[0] || "LPR_CAMERA");
     // Alta: un solo botón que pregunta qué se agrega (LPR, intrusión o NVR) e importar canales de un NVR.
     const [alta, setAlta] = useState<null | "lpr" | "intrusion" | "nvr" | "otro">(null);
+    /** El barrido de red, y con qué datos arranca el alta de lo que se encontró (17/11). */
+    const [descubriendo, setDescubriendo] = useState(false);
+    const [altaInicial, setAltaInicial] = useState<{ ip?: string; brand?: string; deviceType?: string; name?: string } | undefined>(undefined);
     const [editando, setEditando] = useState<any>(null);
     /** Un contador de filas tiene su propia ficha (CajonContadorFila), no la de las cámaras ni el formulario viejo. */
     const [contador, setContador] = useState<any>(null);
@@ -614,6 +618,11 @@ export default function DevicesPage() {
                         <BotonCuentas estado={areas} alcance={alcanceCuentas}
                             onAbrirEquipo={(id) => { const d = devices.find((x) => x.id === id); if (d) abrir(d); }} />
                     )}
+                    <button onClick={() => { setAltaInicial(undefined); setDescubriendo(true); }}
+                        data-tooltip-id="tt-grab" data-tooltip-content="Descubrir equipos en la red: le manda un ping a cada dirección del rango y te dice cuáles ya están dadas de alta y cuáles no."
+                        className="h-10 w-10 rounded-xl grid place-items-center border border-border/60 bg-background/70 hover:bg-accent hover:border-border transition-colors">
+                        <Radar size={17} className="text-sky-500" />
+                    </button>
                     <button onClick={() => setPedirHora(devices.filter((d) => ["LPR_CAMERA", "NVR"].includes(d.deviceType) && ["HIKVISION", "DAHUA"].includes(d.brand)))}
                         data-tooltip-id="tt-grab" data-tooltip-content="Sincronizar hora: muestra la hora y el desfase de cada cámara LPR y NVR y pregunta antes de poner la hora del servidor."
                         className="h-10 w-10 rounded-xl grid place-items-center border border-border/60 bg-background/70 hover:bg-accent hover:border-border transition-colors">
@@ -1143,7 +1152,17 @@ export default function DevicesPage() {
             <CajonPortero device={portero === "nuevo" ? null : portero} open={!!portero} onOpenChange={(v) => !v && setPortero(null)} onSuccess={() => { loadData(); }} />
             <CajonDispositivo device={editando} groups={groups} open={!!editando} onOpenChange={(v) => !v && setEditando(null)} onSuccess={() => { loadData(); cargarGrab(); }}
                 alCalibrar={(d) => setCalibIntr(d)} alCalibrarImagen={(d) => setCalibrating(d)} alCalibrarLectura={(d) => setCalibLect(d)} alImportar={(d) => setImportandoDe(d)} />
-            <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "otro"} alCambiarAbierto={(v) => !v && setAlta(null)} />
+            <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "otro"} inicial={altaInicial}
+                alCambiarAbierto={(v) => { if (!v) { setAlta(null); setAltaInicial(undefined); } }} />
+
+            <DescubrirRed abierto={descubriendo} alCerrar={() => setDescubriendo(false)}
+                alDarDeAlta={(d) => {
+                    // El alta general y no la guiada: lo descubierto puede ser cualquier cosa, y la
+                    // guiada arranca preguntando qué es, que es justo lo que el barrido ya contestó.
+                    setAltaInicial({ ip: d.ip, brand: d.marca || undefined, deviceType: d.tipo || undefined, name: d.nombre || undefined });
+                    setDescubriendo(false); setAlta("otro");
+                }}
+                alAbrirEquipo={(id) => { const d = devices.find((x) => x.id === id); if (d) { setDescubriendo(false); abrir(d); } }} />
             <ConfirmarHora equipos={pedirHora || []} health={health} open={!!pedirHora} onOpenChange={(v) => !v && setPedirHora(null)} onListo={() => setTimeout(refreshHealth, 1500)} />
             <ReactTooltip id="tt-alertas" place="top" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[60]" />
             {calibIntr && <CalibradorIntrusion device={calibIntr} onClose={() => { setCalibIntr(null); loadData(); }} />}
