@@ -1513,12 +1513,18 @@ model MuestraZona {
   fuente        String
   /// Lo que omni-vision ve en el recorte (siluetas y nombres), para mostrarlo al etiquetar
   analisis      Json?
+  /// La foto del conjunto de entrenamiento de objetos de la que salio esta muestra, si no la tomo
+  /// el worker (pedido 16/11: las fotos disparadas de un lado sirven del otro). Sin relacion: la
+  /// foto se puede borrar y la muestra ya no depende de ella. El unico por zona evita traer dos
+  /// veces la misma foto.
+  fotoId        String?
   /// "pos" | "neg" | null (sin etiquetar). Las etiquetadas no vencen.
   etiqueta      String?
   etiquetadoPor String?
   etiquetadoAt  DateTime?
   createdAt     DateTime       @default(now())
 
+  @@unique([zonaId, fotoId])
   @@index([zonaId, createdAt])
   @@index([zonaId, etiqueta])
 }
@@ -1550,7 +1556,8 @@ model FotoEntrenamiento {
   clave     String
   ancho     Int
   alto      Int
-  /// CAMARA (cuadro HD tomado desde la pantalla) | SUBIDA | REGISTRO (cuadro del registro de detecciones)
+  /// CAMARA (cuadro HD tomado desde la pantalla) | SUBIDA | REGISTRO (cuadro del registro de
+  /// detecciones) | ZONA (recorte de una muestra de una analitica entrenable)
   origen    String
   deviceId  String?
   /// [{ clase: ClasePropia.id, caja: [x1, y1, x2, y2] normalizada 0-1 }]
@@ -1558,6 +1565,9 @@ model FotoEntrenamiento {
   /// La miró una persona y dibujó todo lo que había (o dijo que no había nada).
   revisada  Boolean  @default(false)
   revisadaPor String?
+  /// La muestra de una analitica entrenable de la que salio esta foto (MuestraZona.id), si vino
+  /// de ahi. Unico: mandar dos veces la misma muestra no deja dos fotas iguales en el conjunto.
+  muestraId String?  @unique
   /// La programación de capturas que la tomó (CapturaProgramada.id), o null si entró a mano.
   /// Sin relación: borrar la programación no borra sus fotos, y la marca queda.
   programaId String?

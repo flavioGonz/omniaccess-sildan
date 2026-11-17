@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Camera, ChevronDown, CircleCheck, GraduationCap, Loader2, Settings2, Sparkles, TriangleAlert, Undo2 } from "lucide-react";
+import { ArrowLeft, Camera, ChevronDown, CircleCheck, GraduationCap, Images, Loader2, Settings2, Sparkles, TriangleAlert, Undo2 } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,7 @@ type Zona = ZonaLista & {
     modelo: (ZonaLista["modelo"] & { matriz: { vp: number; fp: number; vn: number; fn: number } | null; pliegues: number; por: string | null; guia?: number; metodo?: "prototipos" | "logistica"; validacion?: "dias" | "tramos" | "mezclada" }) | null;
     estado: (ZonaLista["estado"] & { analisis?: Analisis | null }) | null;
 };
-type Muestra = { id: string; url: string; prob: number | null; probTomada: number | null; fuente: string; etiqueta: "pos" | "neg" | null; etiquetadoPor: string | null; ts: string; analisis?: Analisis | null };
+type Muestra = { id: string; url: string; prob: number | null; probTomada: number | null; fuente: string; etiqueta: "pos" | "neg" | null; etiquetadoPor: string | null; ts: string; analisis?: Analisis | null; deFoto?: boolean };
 type Evento = { id: string; ts: string; prob: number | null; foto: string | null; avisado: boolean };
 
 const pct = (v: number) => `${Math.round(v * 100)} %`;
@@ -69,6 +69,10 @@ export default function ZonaEntrenable() {
     const [muestras, setMuestras] = useState<Muestra[] | null>(null);
     const [hayMas, setHayMas] = useState(false);
     const [errorMuestras, setErrorMuestras] = useState<string | null>(null);
+    /** Las fotos del conjunto de objetos de esta cámara que todavía no se trajeron como muestras. */
+    const [paraTraer, setParaTraer] = useState<{ fotos: { id: string }[]; tope: number } | null>(null);
+    const [trayendo, setTrayendo] = useState(false);
+    const [mandando, setMandando] = useState<string | null>(null);
     const [ejemplos, setEjemplos] = useState<{ pos: Muestra[]; neg: Muestra[] }>({ pos: [], neg: [] });
     const [rapido, setRapido] = useState<Muestra[] | null>(null);
     const [guia, setGuia] = useState<boolean | null>(null);
@@ -111,7 +115,49 @@ export default function ZonaEntrenable() {
         } catch (e: any) { setErrorMuestras(e?.message || "No se pudieron traer las muestras"); }
     }, [leer, vista, muestras]);
 
-    useEffect(() => { cargar(); cargarEjemplos(); }, [cargar, cargarEjemplos]);
+    /** Cuántas fotos del conjunto de objetos de esta cámara se pueden reaprovechar acá. */
+    const cargarParaTraer = useCallback(async () => {
+        try {
+            const r = await fetch(`/api/vision/zonas/${id}/fotos`, { cache: "no-store" });
+            if (r.ok) setParaTraer(await r.json());
+        } catch { /* es un extra: si no se puede, la pantalla sigue sin el bloque */ }
+    }, [id]);
+
+    /**
+     * Traer las fotos del conjunto de objetos como muestras de esta zona: recorta cada una por la
+     * zona y le pide el vector a omni-vision, así que tarda. Pedido 16/11: reaprovechar las fotos
+     * que ya se sacaron de esa cámara en vez de esperar a que el vigía las vuelva a tomar.
+     */
+    async function traerFotos() {
+        setTrayendo(true);
+        try {
+            const r = await fetch(`/api/vision/zonas/${id}/fotos`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
+            toast.success({
+                title: j.traidas ? `${j.traidas} ${j.traidas === 1 ? "foto traída" : "fotos traídas"}` : "No se trajo ninguna",
+                description: j.fallaron ? `${j.fallaron} no se pudieron: ${j.motivo}` : "Quedaron sin etiquetar, para el etiquetado.",
+            });
+            cargar(); cargarParaTraer(); setMuestras(null); cargarMuestras(false);
+        } catch (e: any) { toast.error({ title: "No se trajeron", description: e?.message }); }
+        finally { setTrayendo(false); }
+    }
+
+    /** Mandar un recorte al conjunto de entrenamiento del detector de objetos, para dibujarle los recuadros. */
+    async function alConjunto(mid: string) {
+        setMandando(mid);
+        try {
+            const r = await fetch(`/api/vision/zonas/${id}/muestras/al-conjunto`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [mid] }) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
+            if (j.mandadas) toast.success({ title: "Mandada a Objetos", description: "Está en «Sin dibujar», para marcarle lo que haya." });
+            else if (j.repetidas) toast.info({ title: "Ya estaba en el conjunto de Objetos" });
+            else throw new Error(j.motivo || "no se pudo");
+        } catch (e: any) { toast.error({ title: "No se mandó", description: e?.message }); }
+        finally { setMandando(null); }
+    }
+
+    useEffect(() => { cargar(); cargarEjemplos(); cargarParaTraer(); }, [cargar, cargarEjemplos, cargarParaTraer]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => { setMuestras(null); cargarMuestras(false); }, [id, vista]);
     useTiempoReal<{ id: string; estado: any }>("zona_estado", (d) => {
@@ -337,6 +383,14 @@ export default function ZonaEntrenable() {
                 <div className="flex items-center gap-3 flex-wrap">
                     <h2 className="text-[14px] font-bold">Muestras</h2>
                     <Filtros grupos={[{ clave: "v", titulo: "Ver", valor: vista, alElegir: setVista, opciones: vistas }]} />
+                    {!!paraTraer?.fotos.length && (
+                        <Pista texto="Son fotos de esta misma cámara que ya están en el conjunto de Objetos. Se recortan por la zona y entran como muestras para etiquetar.">
+                            <Button size="sm" variant="outline" onClick={traerFotos} disabled={trayendo} className="ml-auto">
+                                {trayendo ? <Loader2 size={14} className="animate-spin" /> : <Images size={14} />}
+                                Traer {paraTraer.fotos.length}{paraTraer.fotos.length === paraTraer.tope ? "+" : ""} fotos de Objetos
+                            </Button>
+                        </Pista>
+                    )}
                 </div>
                 {errorMuestras && !muestras ? <ErrorEstado mensaje={errorMuestras} alReintentar={() => cargarMuestras(false)} />
                     : !muestras ? <Cargando texto="Trayendo las muestras…" />
@@ -352,7 +406,18 @@ export default function ZonaEntrenable() {
                                                     {s.prob != null && <span className="absolute top-1.5 right-1.5"><Chip tono={s.prob >= zona.umbral ? "aviso" : "quieto"} pleno>{pct(s.prob)}</Chip></span>}
                                                 </a>
                                                 <div className="p-2 space-y-1.5">
-                                                    <div className="text-[11px] text-muted-foreground tabular-nums">{hora(s.ts)}</div>
+                                                    <div className="flex items-center gap-1">
+                                                        <span className="text-[11px] text-muted-foreground tabular-nums truncate">{hora(s.ts)}</span>
+                                                        {s.deFoto && <span className="text-[10.5px] text-muted-foreground shrink-0" title="Vino de una foto del conjunto de Objetos">· de Objetos</span>}
+                                                        {!s.deFoto && (
+                                                            <Pista texto="Mandar este recorte al conjunto de Objetos, para dibujarle los recuadros de lo que haya.">
+                                                                <button type="button" onClick={() => alConjunto(s.id)} disabled={mandando === s.id} aria-label="Mandar al conjunto de Objetos"
+                                                                    className="ml-auto h-6 w-6 grid place-items-center rounded-md hover:bg-accent text-muted-foreground shrink-0">
+                                                                    {mandando === s.id ? <Loader2 size={12} className="animate-spin" /> : <Images size={12} />}
+                                                                </button>
+                                                            </Pista>
+                                                        )}
+                                                    </div>
                                                     {s.etiqueta ? (
                                                         <div className="flex items-center gap-1.5">
                                                             <span className={cn("text-[12px] font-semibold flex-1 truncate inline-flex items-center gap-1", s.etiqueta === "pos" ? "tono-aviso" : "tono-bien")}>

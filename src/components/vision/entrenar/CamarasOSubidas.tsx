@@ -35,7 +35,9 @@ const GANA_SUBIDA = [
 
 export function CamarasOSubidas({ porOrigen }: { porOrigen?: Record<string, number> }) {
     const [abierto, setAbierto] = useState(false);
-    const camaras = (porOrigen?.CAMARA || 0) + (porOrigen?.REGISTRO || 0);
+    // ZONA son recortes traídos de una analítica entrenable: salieron de una cámara del barrio,
+    // así que cuentan de ese lado (pedido 16/11, reaprovechar las fotos entre los dos entrenamientos).
+    const camaras = (porOrigen?.CAMARA || 0) + (porOrigen?.REGISTRO || 0) + (porOrigen?.ZONA || 0);
     const subidas = porOrigen?.SUBIDA || 0;
     const total = camaras + subidas;
     const frac = total ? camaras / total : 0;

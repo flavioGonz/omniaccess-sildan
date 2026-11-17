@@ -19,16 +19,13 @@ const crypto = require("crypto");
 const http = require("http");
 const sharp = require("sharp");
 const { enHorario } = require("./vision-reglas");
+const { recortarZona, normalizar, aInt8 } = require("./lib-zona-muestra");
 
 const APP = (process.env.APP_INTERNAL_URL || "http://127.0.0.1:10001").replace(/\/$/, "");
 /** Cada cuánto se revisa si alguna zona toca mirar (la cadencia de cada una la pone su `cadaSeg`). */
 const VUELTA_MS = 15_000;
 /** Ancho del cuadro que se pide: la zona de un contenedor lejano tiene que tener píxeles. */
 const ANCHO_CUADRO = 1280;
-/** Margen alrededor del rectángulo de la zona (fracción de su lado): lo que la rodea ayuda a reconocerla. */
-const MARGEN = 0.04;
-/** Lado máximo del recorte guardado: SigLIP mira a 384, más es disco sin ganancia. */
-const LADO_MUESTRA = 384;
 /** Para dejar de estar en el estado que avisa hay que bajar este tanto del umbral: sin esto, una
  *  probabilidad que oscila en el umbral reinicia la cuenta del sostenido y avisa dos veces. */
 const HISTERESIS = 0.15;
@@ -43,11 +40,6 @@ const LIMPIEZA_MS = 6 * 3600_000;
 
 const sigmoide = (z) => 1 / (1 + Math.exp(-Math.max(-40, Math.min(40, z))));
 const producto = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
-function normalizar(v) { let n = 0; for (const x of v) n += x * x; n = Math.sqrt(n) || 1; return v.map((x) => x / n); }
-function aInt8(v) {
-    const max = Math.max(...v.map((x) => Math.abs(x))) || 1;
-    return { vector: Buffer.from(Int8Array.from(v, (x) => Math.round((x / max) * 127)).buffer), escala: max / 127 };
-}
 const r4 = (v) => Math.round(v * 10000) / 10000;
 function aligerar(poli) {
     if (poli.length <= PUNTOS_SILUETA_MAX) return poli;
@@ -88,17 +80,9 @@ function iniciar({ prisma, log, vision, subir, borrar, activa, segmentar, permit
         return nuevo;
     }
 
-    /** Recorte del rectángulo envolvente de la zona, con un poco de margen. */
-    async function recortar(jpeg, zona) {
-        const { width: W, height: H } = await sharp(jpeg).metadata();
-        const xs = zona.map((p) => p[0]), ys = zona.map((p) => p[1]);
-        let x1 = Math.min(...xs), x2 = Math.max(...xs), y1 = Math.min(...ys), y2 = Math.max(...ys);
-        const mx = (x2 - x1) * MARGEN, my = (y2 - y1) * MARGEN;
-        x1 = Math.max(0, x1 - mx); y1 = Math.max(0, y1 - my); x2 = Math.min(1, x2 + mx); y2 = Math.min(1, y2 + my);
-        const left = Math.floor(x1 * W), top = Math.floor(y1 * H);
-        const width = Math.max(8, Math.min(W - left, Math.ceil((x2 - x1) * W))), height = Math.max(8, Math.min(H - top, Math.ceil((y2 - y1) * H)));
-        return sharp(jpeg).extract({ left, top, width, height }).resize(LADO_MUESTRA, LADO_MUESTRA, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
-    }
+    /** Recorte del rectángulo envolvente de la zona, con un poco de margen (lib-zona-muestra.js:
+     *  lo comparte con la aplicación, que recorta igual para reaprovechar una foto del conjunto). */
+    const recortar = (jpeg, zona) => recortarZona(sharp, jpeg, zona);
 
     async function mirar(z) {
         const ahora = new Date();

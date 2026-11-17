@@ -17,11 +17,11 @@ export const BUCKET = process.env.VISION_BUCKET || "objetos";
 const CALIDAD = 90;
 
 /** Guarda una foto (de cualquier formato) como JPEG con el lado mayor topado, y crea su fila. */
-export async function guardarFoto(datos: Buffer, origen: "CAMARA" | "SUBIDA" | "REGISTRO", deviceId: string | null, programaId: string | null = null) {
+export async function guardarFoto(datos: Buffer, origen: "CAMARA" | "SUBIDA" | "REGISTRO" | "ZONA", deviceId: string | null, programaId: string | null = null, muestraId: string | null = null) {
     const img = sharp(datos, { failOn: "error" }).rotate();
     const jpeg = await img.resize({ width: LADO_MAX, height: LADO_MAX, fit: "inside", withoutEnlargement: true }).jpeg({ quality: CALIDAD }).toBuffer();
     const meta = await sharp(jpeg).metadata();
-    const fila = await prisma.fotoEntrenamiento.create({ data: { clave: "", ancho: meta.width || 0, alto: meta.height || 0, origen, deviceId, programaId } });
+    const fila = await prisma.fotoEntrenamiento.create({ data: { clave: "", ancho: meta.width || 0, alto: meta.height || 0, origen, deviceId, programaId, muestraId } });
     const clave = `entrenamiento/${new Date().toISOString().slice(0, 10)}/${fila.id}.jpg`;
     try {
         await (await getS3Client()).send(new PutObjectCommand({ Bucket: BUCKET, Key: clave, Body: jpeg, ContentType: "image/jpeg" }));

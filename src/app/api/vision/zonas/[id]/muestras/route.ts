@@ -35,8 +35,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const forma = (m: any) => ({
         id: m.id, url: imagen(m.recorte), prob: conProb(m) ?? null, probTomada: m.prob, fuente: m.fuente,
         etiqueta: m.etiqueta, etiquetadoPor: m.etiquetadoPor, ts: m.createdAt.toISOString(), analisis: m.analisis ?? null,
+        // Si salió de una foto del conjunto de objetos: la grilla lo dice y no ofrece mandarla de vuelta.
+        deFoto: !!m.fotoId,
     });
-    const sel = { id: true, recorte: true, vector: true, escala: true, prob: true, fuente: true, etiqueta: true, etiquetadoPor: true, createdAt: true, analisis: true } as const;
+    const sel = { id: true, recorte: true, vector: true, escala: true, prob: true, fuente: true, etiqueta: true, etiquetadoPor: true, createdAt: true, analisis: true, fotoId: true } as const;
 
     if (vista === "dudosas") {
         const filas = await prisma.muestraZona.findMany({ where: { zonaId: id, etiqueta: null }, orderBy: { createdAt: "desc" }, take: DUDOSAS_MAX, select: sel });
