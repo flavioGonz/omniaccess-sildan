@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 /** Igual que en lib/apagado (no se importa de ahí: ese archivo usa la base y esto corre en el navegador). */
 const APAGADO_SIN_AREA = "__sin_area";
 import { sileo as toast } from "sileo";
-import { crearArea, editarArea, borrarArea, borrarEquiposDeArea, moverArea, asignarEquipos, apagarGrupo, type Area, type EstadoAreas } from "@/app/actions/areas";
+import { crearArea, editarArea, borrarArea, borrarEquiposDeArea, resumenParaBorrar, moverArea, asignarEquipos, apagarGrupo, type Area, type EstadoAreas } from "@/app/actions/areas";
 
 /**
  * Árbol de áreas para agrupar equipos. Todo por arrastrar y soltar:
@@ -649,6 +649,20 @@ function ModalBorrar({ pedido, borrando, onSoloArea, onConEquipos, onCancelar }:
     borrando: boolean;
     onSoloArea: () => void; onConEquipos: () => void; onCancelar: () => void;
 }) {
+    // El resumen se guarda CON la clave de lo que se está por borrar, y se muestra sólo si coincide:
+    // limpiarlo dentro del efecto hace que React vuelva a dibujar dos veces por cada apertura.
+    const [leido, setLeido] = useState<{ clave: string; r: { total: number; conDatos: number; vacios: number } } | null>(null);
+    const clave = pedido ? String(pedido.areaId) : "";
+    const resumen = leido?.clave === clave ? leido.r : null;
+    useEffect(() => {
+        if (!pedido) return;
+        let vivo = true;
+        resumenParaBorrar(pedido.areaId)
+            .then((r) => { if (vivo) setLeido({ clave, r }); })
+            .catch(() => { if (vivo) setLeido({ clave, r: { total: 0, conDatos: 0, vacios: 0 } }); });
+        return () => { vivo = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [clave]);
     const esArea = !!pedido?.areaId;
     const n = pedido?.n || 0;
     const equipos = `${n} ${n === 1 ? "equipo" : "equipos"}`;
@@ -675,6 +689,14 @@ function ModalBorrar({ pedido, borrando, onSoloArea, onConEquipos, onCancelar }:
                         reglas de OmniVision, su lugar en el mapa y sus streams. Queda sólo el registro en Auditoría.
                         <b className="tono-mal"> No se puede deshacer.</b>
                     </p>
+                    {/* Cuántos de esos tienen algo guardado: es lo que separa una limpieza de un destrozo. */}
+                    {resumen === null ? <p className="text-[12px] text-muted-foreground inline-flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Mirando qué tiene guardado cada uno…</p>
+                        : resumen.conDatos > 0 ? (
+                            <p className="text-[12.5px] leading-snug chip-aviso rounded-[8px] px-2.5 py-2 border">
+                                <b>{resumen.conDatos} {resumen.conDatos === 1 ? "tiene" : "tienen"} datos guardados</b> (lecturas, eventos, detecciones o entrenamientos){resumen.vacios ? <> y {resumen.vacios} {resumen.vacios === 1 ? "está vacío" : "están vacíos"}</> : null}.
+                                {!esArea && <> Si lo que querés es limpiar lo que sobró, mirá antes cuáles son: entre los sueltos suele haber cámaras que están trabajando.</>}
+                            </p>
+                        ) : <p className="text-[12.5px] text-muted-foreground">Ninguno tiene nada guardado: nunca registraron una lectura ni una detección.</p>}
                     {n > 10 && <p className="text-[12px] text-muted-foreground">Son {equipos}: puede tardar un rato.</p>}
                 </div>
 

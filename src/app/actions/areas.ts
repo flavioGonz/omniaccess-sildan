@@ -148,6 +148,37 @@ export async function borrarEquiposDeArea(areaId: string | null): Promise<{ borr
     return { borrados, fallaron };
 }
 
+/**
+ * Cuántos de esos equipos tienen algo guardado (lecturas, eventos, detecciones, fotos o una
+ * analítica entrenable) y cuántos están vacíos.
+ *
+ * Es el aviso que faltaba. En el lab, de los 55 equipos sin área, 40 son cámaras que nunca
+ * registraron nada —la basura que se quiere limpiar— y 15 están trabajando: las LPR interiores
+ * de Cairoli, Fco. Simon, la florería… Borrar «todos los sueltos» de una pasada se llevaba esas
+ * también, con sus avistamientos, y eso no se deshace. Así que antes de borrar se dice cuántos
+ * son de cada clase.
+ */
+export async function resumenParaBorrar(areaId: string | null): Promise<{ total: number; conDatos: number; vacios: number }> {
+    await conSesion();
+    const e = await leer();
+    const dentro = areaId ? rama(e.areas, areaId) : null;
+    const todos = await prisma.device.findMany({ select: { id: true } });
+    const ids = todos.map((d) => d.id).filter((id) => {
+        const suya = e.equipos[id];
+        return dentro ? !!suya && dentro.has(suya) : !suya || !e.areas.some((a) => a.id === suya);
+    });
+    if (!ids.length) return { total: 0, conDatos: 0, vacios: 0 };
+    const cuenta = async (f: () => Promise<{ deviceId: string | null }[]>) => (await f().catch(() => [])).map((x) => x.deviceId).filter(Boolean) as string[];
+    const conAlgo = new Set<string>([
+        ...await cuenta(() => prisma.plateSighting.findMany({ where: { deviceId: { in: ids } }, select: { deviceId: true }, distinct: ["deviceId"] })),
+        ...await cuenta(() => prisma.accessEvent.findMany({ where: { deviceId: { in: ids } }, select: { deviceId: true }, distinct: ["deviceId"] })),
+        ...await cuenta(() => prisma.detection.findMany({ where: { deviceId: { in: ids } }, select: { deviceId: true }, distinct: ["deviceId"] })),
+        ...await cuenta(() => prisma.fotoEntrenamiento.findMany({ where: { deviceId: { in: ids } }, select: { deviceId: true }, distinct: ["deviceId"] })),
+        ...await cuenta(() => prisma.zonaEntrenable.findMany({ where: { deviceId: { in: ids } }, select: { deviceId: true }, distinct: ["deviceId"] })),
+    ]);
+    return { total: ids.length, conDatos: conAlgo.size, vacios: ids.length - conAlgo.size };
+}
+
 export async function borrarArea(areaId: string, conEquipos = false): Promise<EstadoAreas> {
     await conSesion();
     if (conEquipos) {
