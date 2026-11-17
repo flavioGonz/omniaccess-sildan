@@ -155,6 +155,8 @@ const TYPE_META: Record<string, { label: string; color: string; activeClass: str
     // Porteros IP (GDS3710, Akuvox E16…): cámara + cara + relé + intercom. Clase propia.
     DOOR_INTERCOM: { label: "Porteros", color: "text-cyan-400", activeClass: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30" },
     ACCESS_CONTROL: { label: "Control de acceso", color: "text-indigo-400", activeClass: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30" },
+    // Rastreadores GPS (17/11). Se dan de alta y se agrupan como los demás; todavía no se les pide nada.
+    GPS: { label: "GPS", color: "text-emerald-400", activeClass: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
 };
 
 const BRAND_CONFIG: Record<string, { label: string, color: string, bg: string, logoUrl: string }> = {
@@ -357,6 +359,7 @@ export default function DevicesPage() {
     // Porteros IP y control de acceso: su propia vista cuando hay al menos uno (como ALARM_HUB).
     if (devices.some((d) => vistaDe(d) === "DOOR_INTERCOM")) allowedTypes.push("DOOR_INTERCOM");
     if (devices.some((d) => vistaDe(d) === "ACCESS_CONTROL")) allowedTypes.push("ACCESS_CONTROL");
+    if (devices.some((d) => vistaDe(d) === "GPS")) allowedTypes.push("GPS");
     const pedido = searchParams.get('type');
     const typeFilter = pedido && allowedTypes.includes(pedido) ? pedido : (allowedTypes[0] || "LPR_CAMERA");
     // Alta: un solo botón que pregunta qué se agrega (LPR, intrusión o NVR) e importar canales de un NVR.

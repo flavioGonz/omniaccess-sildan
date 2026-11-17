@@ -546,6 +546,9 @@ enum DeviceType {
   QUEUE_COUNTER
   /// Central de alarma que reporta por SIA DC-09 (alarm-receiver.js). Ver model CentralAlarma.
   ALARM_HUB
+  /// Rastreador GPS de un vehiculo o de una persona (pedido 17/11). Por ahora se da de alta y se
+  /// agrupa como los demas equipos; no consume ningun flujo ni se le pide nada a la red.
+  GPS
 }
 
 enum DeviceBrand {

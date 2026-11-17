@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Tooltip } from "react-tooltip";
 import {
     ChevronRight, Folder, FolderOpen, FolderPlus, Pencil, Trash2, Layers, Inbox, Car, Radar, HardDrive, Cpu,
+    KeyRound, Satellite, Siren, DoorOpen, ScanFace, Users,
     Eye, EyeOff, ChevronsDownUp, ChevronsUpDown, GripVertical, Check, X, Palette, MousePointerClick, PanelLeftClose, PanelLeftOpen,
     Power, PowerOff, Loader2, ShieldCheck, Plus,
 } from "lucide-react";
@@ -31,10 +32,24 @@ export const SIN_AREA = "__sin__";
 export const TODAS = "__todas__";
 const COLORES = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#0ea5e9", "#8b5cf6", "#ec4899", "#14b8a6"];
 
+/**
+ * El ícono de cada tipo, con el mismo color que su vista en Dispositivos (TYPE_META).
+ *
+ * Estaban sólo los tres primeros y el resto caía en el engranaje genérico: en el árbol, «Centrales
+ * de alarma» y «Porteros» se veían iguales (17/11). Un tipo que no esté acá sigue andando con el
+ * genérico; esto es sólo cómo se ve.
+ */
 export const ICONO_TIPO: Record<string, { I: any; c: string; t: string }> = {
     LPR_CAMERA: { I: Car, c: "text-amber-500", t: "Cámara LPR" },
+    LPR_INTERIOR: { I: Car, c: "text-amber-500", t: "LPR interior" },
     CAMERA: { I: Radar, c: "text-red-500", t: "Cámara de intrusión" },
     NVR: { I: HardDrive, c: "text-sky-500", t: "NVR" },
+    FACE_TERMINAL: { I: ScanFace, c: "text-teal-500", t: "Acceso facial" },
+    QUEUE_COUNTER: { I: Users, c: "text-violet-500", t: "Contador de filas" },
+    ALARM_HUB: { I: Siren, c: "text-red-500", t: "Central de alarma" },
+    DOOR_INTERCOM: { I: DoorOpen, c: "text-cyan-500", t: "Portero" },
+    ACCESS_CONTROL: { I: KeyRound, c: "text-indigo-500", t: "Control de acceso" },
+    GPS: { I: Satellite, c: "text-emerald-500", t: "GPS" },
 };
 /** `tipoActual` cuando no hay un tipo elegido: el árbol cuenta todos los equipos. */
 export const TODOS_LOS_TIPOS = "*";

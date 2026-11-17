@@ -429,6 +429,10 @@ export function DeviceFormDialog({ device, groups, onSuccess, children, abierto,
                                                         <SelectItem value="NVR" className="py-3 font-bold">NVR / Grabador</SelectItem>
                                                         <SelectItem value="FACE_TERMINAL" className="py-3 font-bold">Acceso Facial</SelectItem>
                                                         <SelectItem value="QUEUE_COUNTER" className="py-3 font-bold">Contador de Filas</SelectItem>
+                                                        {/* 17/11: faltaban en el selector, así que no había forma de dar de alta el primero de su tipo
+                                                            y su vista en Dispositivos (que aparece cuando hay al menos uno) nunca se mostraba. */}
+                                                        <SelectItem value="ACCESS_CONTROL" className="py-3 font-bold">Control de acceso</SelectItem>
+                                                        <SelectItem value="GPS" className="py-3 font-bold">GPS</SelectItem>
                                                     </SelectContent>
                                                 </Select>
                                             </div>
