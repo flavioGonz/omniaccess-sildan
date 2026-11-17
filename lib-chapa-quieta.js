@@ -18,6 +18,12 @@
  *
  * Sobre 30 días y 52.484 eventos con recuadro, 6.699 (13 %) caen «en el mismo lugar» con ±8.
  *
+ * **Un auto quieto puede dar más de un recuadro, y eso hay que preverlo.** Medido al desplegar
+ * esto: el mismo auto parado frente a «LPR Salida» alternaba entre tres posiciones estables
+ * —733/233, 941/256 y 957/259—, porque el aviso de la cámara trae varias fotos y el recuadro sale
+ * de la que venga primero. Comparar sólo contra la lectura anterior rompía la cadena en cuanto
+ * alternaba. Por eso se guardan las últimas `RECUERDO` y alcanza con parecerse a CUALQUIERA.
+ *
  * Y hace falta la segunda condición, que no es obvia: entre dos lecturas «en el mismo lugar» la
  * mediana es de 28 s, pero el percentil 95 son **47 horas** — porque el mismo lugar también lo
  * ocupa el vecino que estaciona siempre ahí, dos días después. Sin la ventana de tiempo, una
@@ -46,18 +52,31 @@ function caja(r) {
     return x == null || y == null || w == null || h == null ? null : { x, y, w, h };
 }
 
+/** Cuántos recuadros recientes se recuerdan de una chapa en una cámara (ver arriba: alternan). */
+const RECUERDO = 4;
+
 /**
- * ¿Esta lectura es el mismo vehículo quieto que la anterior?
+ * ¿Esta lectura es el mismo vehículo quieto que alguna de las anteriores?
  *
- * Pide las dos cosas: que el recuadro no se haya movido y que la anterior sea reciente. Sin
- * recuadro —en una u otra— contesta `false`: se sigue por el camino de siempre (el antirrebote
- * de 20 s), que es lo que corresponde cuando no hay con qué distinguir.
+ * Pide las dos cosas: que el recuadro coincida con alguno de los recordados y que la última
+ * lectura sea reciente. Sin recuadro —en una u otra— contesta `false`: se sigue por el camino de
+ * siempre (el antirrebote de 20 s), que es lo que corresponde cuando no hay con qué distinguir.
  */
-function esElMismoQuieto(anterior, actual, dtMs, tolerancia = TOLERANCIA, ventanaMs = VENTANA_MS) {
-    const a = caja(anterior), b = caja(actual);
-    if (!a || !b) return false;
+function esElMismoQuieto(anteriores, actual, dtMs, tolerancia = TOLERANCIA, ventanaMs = VENTANA_MS) {
+    const b = caja(actual);
+    if (!b) return false;
     if (!(dtMs >= 0) || dtMs > ventanaMs) return false;
-    return Math.abs(a.x - b.x) <= tolerancia && Math.abs(a.y - b.y) <= tolerancia;
+    const lista = (Array.isArray(anteriores) ? anteriores : [anteriores]).map(caja).filter(Boolean);
+    return lista.some((a) => Math.abs(a.x - b.x) <= tolerancia && Math.abs(a.y - b.y) <= tolerancia);
 }
 
-module.exports = { TOLERANCIA, VENTANA_MS, caja, esElMismoQuieto };
+/** Las cajas recordadas, con la nueva adelante y sin repetir las que son la misma posición. */
+function recordar(anteriores, actual, tolerancia = TOLERANCIA) {
+    const b = caja(actual);
+    const lista = (Array.isArray(anteriores) ? anteriores : [anteriores]).map(caja).filter(Boolean);
+    if (!b) return lista.slice(0, RECUERDO);
+    const otras = lista.filter((a) => Math.abs(a.x - b.x) > tolerancia || Math.abs(a.y - b.y) > tolerancia);
+    return [b, ...otras].slice(0, RECUERDO);
+}
+
+module.exports = { TOLERANCIA, VENTANA_MS, RECUERDO, caja, esElMismoQuieto, recordar };

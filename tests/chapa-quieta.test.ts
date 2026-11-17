@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { esElMismoQuieto, caja, TOLERANCIA, VENTANA_MS } = require("../lib-chapa-quieta.js");
+const { esElMismoQuieto, recordar, caja, TOLERANCIA, VENTANA_MS, RECUERDO } = require("../lib-chapa-quieta.js");
 
 const r = (x: number, y: number, w = 26, h = 14) => ({ x, y, w, h });
 const SEG = 1000;
@@ -43,4 +43,26 @@ test("sin recuadro no se decide nada: queda el antirrebote de siempre", () => {
 
 test("un reloj corrido hacia atrás no encadena nada", () => {
     assert.equal(esElMismoQuieto(r(734, 233), r(734, 233), -5 * SEG), false);
+});
+
+test("un auto quieto que alterna entre varios recuadros sigue siendo el mismo (medido 17/11)", () => {
+    // «LPR Salida» mandaba tres posiciones estables del mismo auto parado, según qué foto del
+    // aviso traía el recuadro: 733/233, 941/256 y 957/259.
+    const tres = [r(733, 233), r(941, 256, 28, 21), r(957, 259, 28, 22)];
+    let memoria: unknown[] = [];
+    let quietas = 0;
+    for (const c of [...tres, ...tres, ...tres]) {
+        if (esElMismoQuieto(memoria, c, 22 * SEG)) quietas++;
+        memoria = recordar(memoria, c);
+    }
+    // Las tres primeras abren cada posición; las seis siguientes ya son conocidas.
+    assert.equal(quietas, 6);
+});
+
+test("recordar no repite la misma posición ni guarda más de RECUERDO", () => {
+    let m = recordar([], r(733, 233));
+    m = recordar(m, r(734, 233));           // la misma, ±1
+    assert.equal(m.length, 1);
+    for (const x of [r(100, 100), r(200, 200), r(300, 300), r(400, 400)]) m = recordar(m, x);
+    assert.equal(m.length, RECUERDO);
 });

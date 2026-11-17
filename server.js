@@ -18,7 +18,7 @@ const { createServer } = require("https");
 const http = require("http");
 const { PrismaClient } = require("@prisma/client");
 const { registrarAvistamiento } = require("./lib-sightings");
-const { esElMismoQuieto } = require("./lib-chapa-quieta");
+const { esElMismoQuieto, recordar: recordarCaja } = require("./lib-chapa-quieta");
 const { Server } = require("socket.io");
 const { XMLParser } = require("fast-xml-parser");
 const fs = require("fs");
@@ -699,7 +699,7 @@ const DEBOUNCE_TIME = 5000;
 // cámara en 20 s no ocurren (la barrera tarda más que eso en cerrar).
 const ANTIRREBOTE_LPR_EVENTO_MS = 20000;
 /**
- * "ip|chapa" -> { t: hora del evento (ms), caja: recuadro de la chapa, eventoId }.
+ * "ip|chapa" -> { t: hora del evento (ms), cajas: últimos recuadros de la chapa, eventoId }.
  *
  * Antes guardaba sólo la hora. Ahora también el recuadro, porque es lo que distingue al auto
  * QUIETO frente a la cámara de una pasada nueva (lib-chapa-quieta.js): el antirrebote de 20 s no
@@ -721,9 +721,10 @@ const ultimoEventoLpr = new Map();
 async function sumarRepeticionLpr(eventoId, lecturas, hasta) {
     const fila = await prisma.accessEvent.findUnique({ where: { id: eventoId }, select: { details: true } });
     if (!fila) return;
-    const hh = new Date(hasta).toLocaleTimeString("es-UY", { timeZone: process.env.TZ || "America/Montevideo", hour12: false });
+    // En ISO y no como hora suelta: la base guarda UTC y la pantalla dibuja en hora de Uruguay;
+    // una hora sin fecha ni zona se interpreta distinto de cada lado y el tramo salía corrido.
     const limpio = String(fila.details || "").replace(/,?\s*Quieto: [^,]*/, "");
-    await prisma.accessEvent.update({ where: { id: eventoId }, data: { details: `${limpio}, Quieto: ${lecturas} lecturas hasta ${hh}` } });
+    await prisma.accessEvent.update({ where: { id: eventoId }, data: { details: `${limpio}, Quieto: ${lecturas} lecturas hasta ${new Date(hasta).toISOString()}` } });
 }
 
 // Debug Logs History (In-memory)
@@ -1431,9 +1432,9 @@ const handleWebhook = async (req, res, logPrefix) => {
         // Va ACÁ a propósito, antes de subir la foto: esas 327 lecturas eran además 327 subidas al
         // almacenamiento de la misma escena. Y no toca la barrera: este webhook no abre nada —la
         // decisión y el relé son de la cámara—, así que suprimir la fila no cambia quién pasa.
-        if (previo && esElMismoQuieto(previo.caja, plateRect, tEvento - tPrevio)) {
+        if (previo && esElMismoQuieto(previo.cajas, plateRect, tEvento - tPrevio)) {
             const seg = Math.round((tEvento - tPrevio) / 1000);
-            ultimoEventoLpr.set(claveEvento, { t: tEvento, caja: plateRect, eventoId: previo.eventoId, desde: previo.desde || tPrevio, n: (previo.n || 1) + 1 });
+            ultimoEventoLpr.set(claveEvento, { t: tEvento, cajas: recordarCaja(previo.cajas, plateRect), eventoId: previo.eventoId, desde: previo.desde || tPrevio, n: (previo.n || 1) + 1 });
             const m = ultimoEventoLpr.get(claveEvento);
             if (previo.eventoId) {
                 sumarRepeticionLpr(previo.eventoId, m.n, new Date(tEvento)).catch(() => { });
@@ -1444,7 +1445,7 @@ const handleWebhook = async (req, res, logPrefix) => {
             return;
         }
         if (finalPlate !== "NO_LEIDA") {
-            ultimoEventoLpr.set(claveEvento, { t: tEvento, caja: plateRect, eventoId: null, desde: tEvento, n: 1 });
+            ultimoEventoLpr.set(claveEvento, { t: tEvento, cajas: recordarCaja(previo ? previo.cajas : [], plateRect), eventoId: null, desde: tEvento, n: 1 });
             if (ultimoEventoLpr.size > 5000) { for (const [k, v] of ultimoEventoLpr) if (now - v.t > 10 * 60 * 1000) ultimoEventoLpr.delete(k); }
         }
         if (lastSeen && now - lastSeen < DEBOUNCE_TIME) {
