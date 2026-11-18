@@ -96,9 +96,13 @@ export default function RootLayout({
       <body
         className={`${outfit.variable} antialiased font-sans`}
       >
+        {/* Claro de fábrica (18/11, Nico: «el light theme de la aplicación es el por defecto para
+            todo»). Era oscuro, y eso le pegaba sobre todo a lo que abre alguien de afuera —el censo,
+            el pase, el portal—, que no tiene preferencia guardada y veía una pantalla negra.
+            Quien ya eligió un tema conserva el suyo: next-themes lo guarda en el navegador. */}
         <ThemeProvider
           attribute="class"
-          defaultTheme="dark"
+          defaultTheme="light"
           enableSystem={false}
           disableTransitionOnChange
         >
