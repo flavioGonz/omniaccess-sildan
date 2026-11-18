@@ -112,11 +112,23 @@ export function desfasajeDeEquipo(horaDelEquipo: string | null | undefined, ahor
     return t - ahora;
 }
 
-/** La hora real de un evento, con el desfasaje del equipo descontado. */
-export function cuandoFue(e: AcsEvent, desfasajeMs: number | null): Date | null {
+/**
+ * La hora real de un evento, con el desfasaje del equipo descontado — **pero nunca en el futuro**.
+ *
+ * El 18/11 el reloj del terminal se movió casi once horas hacia atrás a media tarde (cambio de
+ * huso). Los eventos de ANTES del cambio ya tenían la hora bien; aplicarles el desfasaje medido
+ * después los mandaba al día siguiente: una tarjeta de las 14:57 quedó guardada a la 01:49 de
+ * mañana. Un acceso en el futuro no existe, así que esa es la señal de que la corrección no
+ * corresponde para ese evento: se guarda la hora que trae, que es la que tenía el equipo cuando
+ * lo anotó. Esto es un parche sobre un parche — lo que corresponde es poner el equipo en NTP.
+ */
+export function cuandoFue(e: AcsEvent, desfasajeMs: number | null, ahora = Date.now()): Date | null {
     const t = Date.parse(String(e.time ?? ""));
     if (!Number.isFinite(t)) return null;
-    return new Date(t - (desfasajeMs ?? 0));
+    const corregido = t - (desfasajeMs ?? 0);
+    const MARGEN = 60_000;                       // un minuto de tolerancia por el viaje del pedido
+    if (corregido > ahora + MARGEN) return new Date(Math.min(t, ahora));
+    return new Date(corregido);
 }
 
 /** «11 h 3 min atrasado» / «2 min adelantado». Para decirlo en pantalla sin hacer cuentas. */

@@ -50,6 +50,19 @@ test("el reloj del equipo se mide y se descuenta", () => {
     assert.equal(real.toISOString(), new Date(Date.parse(TARJETA.time) + 11 * 3_600_000).toISOString());
 });
 
+test("la corrección nunca manda un acceso al futuro", () => {
+    /* 18/11: el reloj del terminal se movió once horas atrás a media tarde. Los eventos de antes
+       del cambio ya tenían la hora bien, y corregirlos los mandaba al día siguiente. */
+    const ahora = Date.parse("2026-11-18T17:33:00-03:00");
+    const d = desfasajeDeEquipo("2026-11-18T06:41:00-03:00", ahora)!;      // ~10 h 52 min atrasado
+    const antesDelCambio = { time: "2026-11-18T14:57:43-03:00" };
+    assert.equal(cuandoFue(antesDelCambio, d, ahora)!.toISOString(), new Date(Date.parse(antesDelCambio.time)).toISOString(),
+        "si corregir lo manda al futuro, vale la hora que trae el evento");
+    const despuesDelCambio = { time: "2026-11-18T06:30:00-03:00" };
+    assert.equal(cuandoFue(despuesDelCambio, d, ahora)!.toISOString(), new Date(Date.parse(despuesDelCambio.time) - d).toISOString(),
+        "un evento posterior al cambio sí se corrige");
+});
+
 test("sin desfasaje medido, la hora del evento se respeta", () => {
     assert.equal(desfasajeDeEquipo(null), null);
     assert.equal(desfasajeDeEquipo("cualquier cosa"), null);
