@@ -51,6 +51,14 @@ export function esSoloLectura(ip: string): boolean {
 const POST_DE_LECTURA = [
     /AsynSearchByTextTask/i, /SearchTextTaskStatus/i, /DeleteAsynSearchByTextTask/i, /searchByPic/i, /\/ContentMgmt\/search/i,
     /logSearch/i, /\/test(\?|$)/i, /TestPicSearchBy\w*Channel/i, /SearchEventRuleAndTriggerParams/i, /SearchAcuSeekTarget/i, /\/capabilities/i,
+    /*
+     * Las búsquedas del control de acceso (18/11). En ISAPI se piden por POST porque llevan un
+     * cuerpo con el filtro, pero no cambian nada en el equipo: son la bitácora, las personas, las
+     * tarjetas y los rostros. Sin esta línea, traer la bitácora de un equipo de sólo lectura
+     * fallaba con «este servidor no puede cambiar su configuración», que además de bloquear lo
+     * que corresponde hacer decía algo que no era cierto.
+     */
+    /\/AccessControl\/AcsEvent/i, /\/AccessControl\/\w+\/Search/i, /\/FDLib\/FDSearch/i, /\/FaceDataRecord\/Search/i,
 ];
 /** Lo que se deja cambiar igual: el lente (ver arriba). */
 const PERMITIDO = [/\/PTZCtrl\/channels\/\d+\/continuous/i, /\/System\/Video\/inputs\/channels\/\d+\/focus/i, /onepushfoucs/i];

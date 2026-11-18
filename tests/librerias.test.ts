@@ -44,6 +44,15 @@ test("sólo lectura: POST de búsqueda y el lente pasan; un PUT de configuració
     assert.ok(!cambiaAlgo("PUT", "/ISAPI/PTZCtrl/channels/1/continuous"));
     assert.ok(cambiaAlgo("PUT", "/ISAPI/Streaming/channels/dualVCA"));
     assert.ok(cambiaAlgo("DELETE", "/ISAPI/Event/notification/httpHosts/1"));
+    // Las búsquedas del control de acceso van por POST y no cambian nada (18/11).
+    assert.ok(!cambiaAlgo("POST", "/ISAPI/AccessControl/AcsEvent?format=json"));
+    assert.ok(!cambiaAlgo("POST", "/ISAPI/AccessControl/UserInfo/Search?format=json"));
+    assert.ok(!cambiaAlgo("POST", "/ISAPI/AccessControl/CardInfo/Search?format=json"));
+    assert.ok(!cambiaAlgo("POST", "/ISAPI/Intelligent/FDLib/FDSearch?format=json"));
+    // Pero dar de alta o borrar una persona en el equipo sigue siendo escribir.
+    assert.ok(cambiaAlgo("POST", "/ISAPI/AccessControl/UserInfo/Record?format=json"));
+    assert.ok(cambiaAlgo("PUT", "/ISAPI/AccessControl/UserInfo/Modify?format=json"));
+    assert.ok(cambiaAlgo("PUT", "/ISAPI/System/time"));
 });
 
 test("cifrado: ida y vuelta, y lo viejo en claro se lee igual", () => {
