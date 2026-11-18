@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Car, Check, ChevronLeft, ChevronRight, Crosshair, Home, Loader2, MapPin, Plus, Sparkles, Trash2, Wrench, X } from "lucide-react";
+import { ArrowUpRight, Car, Check, ChevronLeft, ChevronRight, Crosshair, Home, Loader2, MapPin, Plus, Sparkles, Trash2, Wrench, X } from "lucide-react";
 import { getAppBranding } from "@/app/actions/settings";
 import { OmniLogo } from "@/components/brand/OmniLogo";
 import { normalizarChapa } from "@/lib/formato-chapa";
@@ -56,6 +56,8 @@ const PASOS = ["Tu casa", "Vehículos", "Quién entra"] as const;
 const LEMA = "Ve. Verifica. Avisa.";
 /** Quién lo hace. El censo lo mira gente que no sabe de dónde sale la herramienta. */
 const EMPRESA = "Ingeniería en Seguridad";
+/** Dónde se entera el que quiere saber qué es esto (Nico, 18/11). */
+const SITIO = "https://infratec.com.uy/omniaccess/";
 
 /** Crítico, sin rebote: lo que la guía pide para algo que no empujó un dedo (apple-design §4). */
 const RESORTE = { type: "spring" as const, bounce: 0, duration: 0.4 };
@@ -72,30 +74,48 @@ const VACIO: Form = { lote: "", apellido: "", nombre: "", tenencia: "PROPIETARIO
 /** Lo que se va escribiendo se guarda en el teléfono: en una asamblea la señal se corta. */
 const CLAVE = "oa.censo.borrador";
 
-export function Formulario({ centro }: { centro: [number, number] }) {
+export function Formulario({ centro, invitacion }: {
+    centro: [number, number];
+    /** Cuando se entró por el enlace del correo: el lote y el correo los pone la invitación. */
+    invitacion?: { clave: string; lote: string; email: string; nombre: string };
+}) {
     const [marca, setMarca] = useState<{ name: string; barrio: string; logoUrl: string }>({ name: "OmniAccess", barrio: "", logoUrl: "" });
     const [paso, setPaso] = useState(0);
     /** Hacia dónde se va: el paso entra por donde se lo empujó y sale por el mismo lado. */
     const [sentido, setSentido] = useState(1);
-    const [f, setF] = useState<Form>(VACIO);
+    const [f, setF] = useState<Form>(invitacion ? { ...VACIO, lote: invitacion.lote, email: invitacion.email } : VACIO);
     const [enviando, setEnviando] = useState(false);
     const [errores, setErrores] = useState<string[]>([]);
     const [listo, setListo] = useState(false);
 
     useEffect(() => { getAppBranding().then((b) => setMarca({ name: b.name, barrio: b.barrio, logoUrl: b.logoUrl })).catch(() => { }); }, []);
-    useEffect(() => { try { const v = localStorage.getItem(CLAVE); if (v) setF({ ...VACIO, ...JSON.parse(v) }); } catch { /* sin borrador */ } }, []);
+    useEffect(() => {
+        try {
+            const v = localStorage.getItem(CLAVE);
+            if (!v) return;
+            const guardado = JSON.parse(v);
+            // El lote y el correo de la invitación le ganan al borrador: si no, el que entra con el
+            // enlace del C7 después de haber mirado el del B4 carga el padrón equivocado.
+            setF({ ...VACIO, ...guardado, ...(invitacion ? { lote: invitacion.lote, email: invitacion.email || guardado.email || "" } : {}) });
+        } catch { /* sin borrador */ }
+    }, [invitacion]);
     useEffect(() => { try { localStorage.setItem(CLAVE, JSON.stringify(f)); } catch { /* el navegador puede no dejar */ } }, [f]);
 
     const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
     /** Cambiar de paso vuelve arriba: si no, el que venía abajo del paso largo entra al siguiente
      *  por la mitad y cree que le falta algo. */
     const irA = (n: number) => { setSentido(n > paso ? 1 : -1); setPaso(n); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* da igual */ } };
-    const puedeSeguir = paso > 0 || (f.lote.trim() && f.apellido.trim().length >= 2 && f.telefono.replace(/\D/g, "").length >= 8);
+    /* Lo obligatorio del primer paso (18/11, Nico): lote, apellido, celular, correo y el punto en
+       el mapa. El correo es por donde vuelve el aviso del alta; el punto es lo que pone la casa en
+       el plano, y sin él alguien tiene que ubicar trescientos lotes a mano. */
+    const correoSirve = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(f.email.trim());
+    const puedeSeguir = paso > 0 || !!(f.lote.trim() && f.apellido.trim().length >= 2
+        && f.telefono.replace(/\D/g, "").length >= 8 && correoSirve && f.lat != null && f.lng != null);
 
     async function enviar() {
         setEnviando(true); setErrores([]);
         try {
-            const r = await fetch("/api/registro", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(f) });
+            const r = await fetch("/api/registro", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...f, clave: invitacion?.clave }) });
             const j = await r.json().catch(() => ({}));
             if (!r.ok) { setErrores(j?.errores?.length ? j.errores : [j?.error || "No se pudo enviar. Probá de nuevo."]); return; }
             try { localStorage.removeItem(CLAVE); } catch { /* da igual */ }
@@ -129,7 +149,7 @@ export function Formulario({ centro }: { centro: [number, number] }) {
                     <motion.div key={paso} custom={sentido} className="censo-paso"
                         initial={{ opacity: 0, x: 22 * sentido }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -22 * sentido }}
                         transition={RESORTE}>
-                        {paso === 0 && <PasoCasa f={f} set={set} centro={centro} />}
+                        {paso === 0 && <PasoCasa f={f} set={set} centro={centro} loteFijo={!!invitacion} />}
                         {paso === 1 && <PasoVehiculos f={f} set={set} />}
                         {paso === 2 && <PasoServicios f={f} set={set} />}
                     </motion.div>
@@ -279,6 +299,12 @@ function Pie({ conBarra = false }: { conBarra?: boolean }) {
                     Los datos que cargás quedan en el servidor del barrio y los usa la administración para
                     darte de alta.
                 </p>
+                {/* El censo lo abren trescientas personas que no saben qué es OmniAccess: una línea
+                    para que puedan averiguarlo, sin robarle la pantalla al formulario. */}
+                <a href={SITIO} target="_blank" rel="noopener noreferrer"
+                    className="mt-2.5 inline-flex items-center gap-1.5 text-[12.5px] font-semibold tono-accion hover:underline">
+                    Conocé OmniAccess <ArrowUpRight size={14} />
+                </a>
             </div>
         </footer>
     );
@@ -320,18 +346,25 @@ function Seccion({ icono: I, titulo, children }: { icono: typeof Car; titulo: st
     );
 }
 
-function PasoCasa({ f, set, centro }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; centro: [number, number] }) {
+function PasoCasa({ f, set, centro, loteFijo }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; centro: [number, number]; loteFijo?: boolean }) {
     return (
         <Seccion icono={Home} titulo="Tu casa">
             <div className="grid grid-cols-2 gap-3">
-                <Campo rotulo="Lote"><input value={f.lote} onChange={(e) => set("lote", e.target.value)} placeholder="B4" autoCapitalize="characters" className={cn(ENTRADA, "uppercase tabular-nums font-bold")} /></Campo>
+                {/* Con invitación el lote no se escribe: lo trae la clave del correo, y dejarlo
+                    editable sería ofrecer cargar el padrón del vecino. */}
+                <Campo rotulo="Lote" ayuda={loteFijo ? "Viene de tu invitación." : undefined}>
+                    <input value={f.lote} onChange={(e) => set("lote", e.target.value)} placeholder="B4" readOnly={loteFijo}
+                        autoCapitalize="characters" className={cn(ENTRADA, "uppercase tabular-nums font-bold", loteFijo && "bg-muted/60 text-muted-foreground")} />
+                </Campo>
                 <Campo rotulo="Apellido"><input value={f.apellido} onChange={(e) => set("apellido", e.target.value)} placeholder="Pérez" autoCapitalize="words" className={ENTRADA} /></Campo>
             </div>
             <Campo rotulo="Nombre" ayuda="Opcional."><input value={f.nombre} onChange={(e) => set("nombre", e.target.value)} autoCapitalize="words" className={ENTRADA} /></Campo>
             <Campo rotulo="Celular" ayuda="Es por donde te avisamos. No se comparte con nadie.">
                 <input value={f.telefono} onChange={(e) => set("telefono", e.target.value)} placeholder="099 123 456" inputMode="tel" className={cn(ENTRADA, "tabular-nums")} />
             </Campo>
-            <Campo rotulo="Correo" ayuda="Opcional."><input value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="nombre@correo.com" inputMode="email" autoCapitalize="none" className={ENTRADA} /></Campo>
+            <Campo rotulo="Correo" ayuda="Ahí te avisamos cuando quede dado de alta.">
+                <input value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="nombre@correo.com" inputMode="email" autoCapitalize="none" className={ENTRADA} />
+            </Campo>
             <div>
                 <span className="block text-[13px] font-semibold mb-1.5">¿Cómo vivís en el lote?</span>
                 <div className="grid grid-cols-2 gap-2">
@@ -414,9 +447,10 @@ function Ubicacion({ f, set, centro }: { f: Form; set: <K extends keyof Form>(k:
             <div className="flex items-start gap-2">
                 <MapPin size={16} className="mt-0.5 shrink-0 tono-accion" />
                 <div className="min-w-0 flex-1">
-                    <p className="text-[14px] font-bold">¿Dónde queda tu lote? <span className="font-normal text-muted-foreground">Opcional</span></p>
+                    <p className="text-[14px] font-bold">¿Dónde queda tu lote?</p>
                     <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">
-                        Para que tu casa quede en el mapa del barrio y la guardia sepa adónde ir.
+                        Para que tu casa quede en el mapa del barrio y la guardia sepa adónde ir. Hace falta
+                        para poder enviar.
                     </p>
                 </div>
             </div>

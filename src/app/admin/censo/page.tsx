@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Car, Check, ClipboardList, Clock, Download, Home, Loader2, Mail, MapPin, MessageSquare, Phone, QrCode, Users, Wrench, X } from "lucide-react";
+import { Car, Check, ClipboardList, Clock, Download, Home, Loader2, Mail, MapPin, MessageSquare, Phone, QrCode, Send, Users, Wrench, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import dynamic from "next/dynamic";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
+import { CajonInvitaciones } from "@/components/censo/CajonInvitaciones";
 import { Chip, Cargando, ErrorEstado } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
 import { fechaHora } from "@/lib/fechas";
@@ -49,6 +50,7 @@ export default function BandejaCenso() {
     const [error, setError] = useState<string | null>(null);
     const [abierta, setAbierta] = useState<Carga | null>(null);
     const [qr, setQr] = useState(false);
+    const [invitaciones, setInvitaciones] = useState(false);
 
     const traer = useCallback(async () => {
         try {
@@ -91,7 +93,10 @@ export default function BandejaCenso() {
                         </p>
                     </div>
                 </div>
-                <Button variant="outline" className="shrink-0" onClick={() => setQr(true)}><QrCode size={15} /> El QR</Button>
+                <div className="flex shrink-0 items-center gap-2">
+                    <Button variant="outline" onClick={() => setInvitaciones(true)}><Send size={15} /> Invitaciones</Button>
+                    <Button variant="outline" onClick={() => setQr(true)}><QrCode size={15} /> El QR</Button>
+                </div>
             </header>
 
             <div className="px-8 py-4 border-b border-border flex items-center gap-3 flex-wrap shrink-0">
@@ -141,6 +146,7 @@ export default function BandejaCenso() {
 
             <Ficha carga={abierta} alCerrar={() => setAbierta(null)} alResolver={resolver} centro={CENTRO_RESPALDO} />
             <CajonQr abierto={qr} alCerrar={() => setQr(false)} />
+            <CajonInvitaciones abierto={invitaciones} alCerrar={() => { setInvitaciones(false); traer(); }} />
         </div>
     );
 }

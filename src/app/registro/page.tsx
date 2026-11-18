@@ -1,7 +1,9 @@
+import { notFound } from "next/navigation";
 import { funcionActiva } from "@/app/actions/funciones";
 import { getBarrioMap } from "@/app/actions/barriomap";
-import { notFound } from "next/navigation";
+import { prisma } from "@/lib/prisma";
 import { Formulario } from "./Formulario";
+import { ClaveNoSirve } from "./ClaveNoSirve";
 
 export const dynamic = "force-dynamic";
 
@@ -12,12 +14,18 @@ export const dynamic = "force-dynamic";
  * Apagada no se explica: se contesta como cualquier dirección que no existe. Una página que dice
  * «el censo está deshabilitado» le confirma a cualquiera que acá hay un censo.
  *
+ * Con la clave por lote prendida (CENSO_CON_CLAVE), esta dirección sin clave no muestra el
+ * formulario: pide la clave que llegó por correo. El formulario abierto queda para los barrios
+ * que usan sólo el QR.
+ *
  * Del mapa del barrio se saca SÓLO el centro, acá en el servidor. Es lo único que el formulario
  * necesita para abrir el mapa en el lugar correcto, y así esta página pública nunca sirve los
  * lotes, los perímetros ni —sobre todo— dónde está cada cámara.
  */
 export default async function Registro() {
     if (!(await funcionActiva("PADRON_CENSO"))) notFound();
+    const conClave = (await prisma.setting.findUnique({ where: { key: "CENSO_CON_CLAVE" } }).catch(() => null))?.value === "true";
+    if (conClave) return <ClaveNoSirve pidiendo />;
     const { center } = await getBarrioMap();
     return <Formulario centro={center} />;
 }

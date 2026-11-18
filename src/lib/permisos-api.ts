@@ -71,6 +71,8 @@ export const RUTAS_API: [RegExp, ClaseApi][] = [
     [/^\/api\/users\/[^/]+\/face$/, P("usuarios.editar")],
     // La bandeja del censo: aprobar una carga da de alta un residente y sus matrículas.
     [/^\/api\/censo$/, P("usuarios.editar")],
+    // Las invitaciones: cargar la planilla y mandar los correos con la clave de cada lote.
+    [/^\/api\/censo\/invitaciones$/, P("usuarios.editar")],
     // ── Administración ──
     [/^\/api\/(notifications\/test|push\/test|wa\/session)$/, P("notificaciones")],
     [/^\/api\/manuals$/, P("ajustes")],

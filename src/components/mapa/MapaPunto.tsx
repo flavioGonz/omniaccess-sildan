@@ -68,17 +68,27 @@ export default function MapaPunto({ punto, centro, alElegir, soloVer, alto = 280
                 <Seguir punto={punto} />
             </MapContainer>
 
-            {/* El pin, clavado en el centro y sin capturar el dedo: el mapa pasa por debajo. */}
-            <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                <div className="-mt-5 flex flex-col items-center">
-                    <div className="h-8 w-8 rounded-full border-[3px] border-white bg-[var(--accion)] shadow-[0_4px_14px_rgba(0,0,0,.5)]" />
-                    <div className="h-4 w-[3px] bg-white/90" />
-                    <div className="h-1.5 w-1.5 rounded-full bg-white/90" />
-                </div>
+            {/*
+             * El pin, clavado en el centro y sin capturar el dedo: el mapa pasa por debajo.
+             *
+             * `z-[1000]` no es por las dudas: los paneles de Leaflet van de 200 a 700 y sus
+             * controles a 800, así que un pin sin z-index queda DEBAJO de las baldosas y se ve a
+             * pedazos —un cuadradito azul corrido, que es exactamente lo que se veía—. Y va
+             * dibujado en SVG en vez de con tres divs: la punta tiene que caer en el píxel que se
+             * está eligiendo, y eso con cajas apiladas es aproximado.
+             */}
+            <div className="pointer-events-none absolute inset-0 z-[1000] grid place-items-center">
+                <svg width="34" height="46" viewBox="0 0 34 46" fill="none" aria-hidden
+                    /* La punta, abajo del todo, cae justo en el centro del mapa. */
+                    style={{ transform: "translateY(-19px)", filter: "drop-shadow(0 3px 6px rgba(0,0,0,.55))" }}>
+                    <path d="M17 45.5C17 45.5 32 26.8 32 17 32 8.7 25.3 2 17 2S2 8.7 2 17c0 9.8 15 28.5 15 28.5z"
+                        fill="var(--accion)" stroke="#ffffff" strokeWidth="2.5" strokeLinejoin="round" />
+                    <circle cx="17" cy="17" r="5.4" fill="#ffffff" />
+                </svg>
             </div>
 
             {!soloVer && (
-                <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-6 text-center text-[12px] font-semibold text-white">
+                <p className="pointer-events-none absolute inset-x-0 bottom-0 z-[1000] bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-6 text-center text-[12px] font-semibold text-white">
                     Movelo hasta tu casa
                 </p>
             )}

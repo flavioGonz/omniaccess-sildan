@@ -51,7 +51,7 @@ import {
     ScrollText,
     Send,
     BookOpen,
-ToggleRight,
+ToggleRight, Mail,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { SECCIONES_OMNIVISION } from "@/components/vision/NavOmniVision";
@@ -70,6 +70,7 @@ const PlaybackSection = nextDynamic(() => import("./PlaybackSection"), { ssr: fa
 const AccesosSection = nextDynamic(() => import("./AccesosSection"), { ssr: false, loading: _SLoad });
 const OmniLprToggle = nextDynamic(() => import("./OmniLprToggle"), { ssr: false });
 const CaracteristicasSection = nextDynamic(() => import("./CaracteristicasSection"), { ssr: false });
+const CorreoSection = nextDynamic(() => import("./CorreoSection"), { ssr: false });
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -211,6 +212,8 @@ const NAV_GROUPS = [
         { sec: "system_status", btab: "", label: "Estado del sistema", icon: Activity },
         { grupo: "Operación", sec: "auditoria", btab: "", label: "Auditoría", icon: ScrollText },
         { grupo: "Operación", sec: "colas", btab: "", label: "Colas y envíos", icon: Send },
+        // El SMTP: nació con las invitaciones del censo (18/11) y lo va a usar todo lo que mande correo.
+        { grupo: "Operación", sec: "correo", btab: "", label: "Correo (SMTP)", icon: Mail },
         { grupo: "Operación", sec: "procesos", btab: "", label: "Procesos y tareas", icon: Server },
         { grupo: "Operación", sec: "webhooks", btab: "", label: "Webhooks", icon: Activity },
         { grupo: "Datos", sec: "storage", btab: "", label: "Almacenamiento", icon: Cloud },
@@ -449,6 +452,8 @@ export default function SettingsPage() {
 
                     {activeSection === "branding" && <BrandingSection activeTab={brandingTab} />}
 
+
+                    {activeSection === "correo" && <CorreoSection />}
 
                     {activeSection === "caracteristicas" && (
                         <CaracteristicasSection extra={

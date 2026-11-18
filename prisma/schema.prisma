@@ -1946,6 +1946,31 @@ model ClipGrabado {
 /// Una carga del censo del barrio: lo que manda un residente desde el QR (src/lib/registro-padron.ts).
 /// NO es padron: es una solicitud. Entra por una URL publica y sin sesion, asi que nada de esto
 /// toca al padron hasta que alguien la aprueba desde el panel.
+/// Una invitacion al censo: un lote, su correo y su clave. La administracion carga la planilla,
+/// el sistema manda un correo por lote con copia a la administracion, y esa copia es la prueba
+/// de que el registro se mando (pedido de Nico, 18/11, para San Nicolas).
+model InvitacionCenso {
+  id         String    @id @default(cuid())
+  /// Por si manana hay mas de un barrio con su propio censo. Vacio = el unico de esta instalacion.
+  sitio      String    @default("")
+  lote       String
+  email      String
+  nombre     String    @default("")
+  /// La clave que viaja en el enlace y en el correo. Unica: es la que identifica al lote.
+  clave      String    @unique
+  enviadoAt  DateTime?
+  /// Cuantas veces se intento mandar y que dijo el servidor de correo la ultima vez.
+  intentos   Int       @default(0)
+  error      String?
+  /// Cuando se uso para cargar. Una invitacion usada no se bloquea: el lote puede corregir.
+  usadoAt    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([sitio, lote])
+  @@index([enviadoAt])
+}
+
 model SolicitudPadron {
   id         String    @id @default(cuid())
   /// Por si manana hay mas de un barrio con su propio QR. Vacio = el unico de esta instalacion.
@@ -1968,6 +1993,8 @@ model SolicitudPadron {
   /// a mano). Opcional: el censo nunca obliga a dar ubicacion, y una carga sin punto vale igual.
   lat        Float?
   lng        Float?
+  /// La clave de la invitacion con la que entro, si el censo pide clave por lote.
+  clave      String?
   /// pendiente | aprobada | rechazada
   estado     String    @default("pendiente")
   revisadaPor String?

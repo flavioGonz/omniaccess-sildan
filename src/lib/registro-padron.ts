@@ -141,7 +141,11 @@ export function validarSolicitud(x: any): { datos: Solicitud | null; errores: st
     if (apellido.length < 2) errores.push("Falta el apellido.");
     if (!telefono) errores.push("Falta el teléfono.");
     else if (!telefonoSirve(telefono)) errores.push("Ese teléfono no parece uruguayo. Va con 09 adelante.");
-    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) errores.push("Ese correo no se entiende.");
+    // Correo y ubicación pasaron a ser obligatorios el 18/11 (Nico). El correo es por donde
+    // vuelve el aviso de que se dio de alta, y la ubicación es lo que pone el lote en el mapa:
+    // sin ella, alguien tiene que ubicar a mano trescientos lotes sobre el plano.
+    if (!email) errores.push("Falta el correo.");
+    else if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) errores.push("Ese correo no se entiende.");
 
     const vistas = new Set<string>();
     const vehiculos: VehiculoCargado[] = [];
@@ -178,9 +182,10 @@ export function validarSolicitud(x: any): { datos: Solicitud | null; errores: st
     }
 
     const comentario = texto(x?.comentario, COMENTARIO_MAX);
-    // La ubicación nunca da error: si no se entiende, se guarda la carga sin punto. Nadie se queda
-    // afuera del padrón porque el GPS del teléfono devolvió cualquier cosa.
+    // Un punto que no se entiende (un (0,0) de un permiso negado) cuenta como no marcado: se pide
+    // de nuevo en vez de guardar una ubicación falsa que después hay que descubrir en el mapa.
     const punto = puntoSirve(x?.lat, x?.lng);
+    if (!punto) errores.push("Falta marcar en el mapa dónde queda el lote.");
     if (errores.length) return { datos: null, errores };
     return {
         datos: { lote, apellido, nombre, tenencia, telefono, email, vehiculos, servicios, comentario, lat: punto?.lat ?? null, lng: punto?.lng ?? null },

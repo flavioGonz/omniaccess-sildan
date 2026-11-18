@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizarLote, normalizarTelefono, puntoSirve, resumenDeSolicitud, validarSolicitud, VEHICULOS_MAX } from "@/lib/registro-padron";
 
-const base = { lote: "B4", apellido: "Pérez", telefono: "099123456", tenencia: "PROPIETARIO" };
+/* Desde el 18/11 el correo y la ubicación son obligatorios: la base los trae, y hay pruebas
+   aparte para cuando faltan. */
+const base = { lote: "B4", apellido: "Pérez", telefono: "099123456", tenencia: "PROPIETARIO", email: "ana@correo.com", lat: -34.9011, lng: -56.1645 };
 
 test("el lote se guarda igual lo escriba como lo escriba", () => {
     for (const x of ["b 4", "B4", "Lote B4", " lote  b4 "]) assert.equal(normalizarLote(x), "B4", x);
@@ -91,10 +93,14 @@ test("el punto del lote: lo que sirve y lo que no", () => {
     assert.equal(puntoSirve(undefined, undefined), null);
 });
 
-test("una ubicación que no se entiende no tumba la carga", () => {
+test("una ubicación que no se entiende se pide de nuevo", () => {
     const r = validarSolicitud({ ...base, lat: 0, lng: 0 });
-    assert.deepEqual(r.errores, []);
-    assert.equal(r.datos?.lat, null);
+    assert.match(r.errores.join(" "), /mapa/);
+});
+
+test("correo y ubicación son obligatorios", () => {
+    assert.match(validarSolicitud({ ...base, email: "" }).errores.join(" "), /correo/);
+    assert.match(validarSolicitud({ ...base, lat: null, lng: null }).errores.join(" "), /mapa/);
 });
 
 test("la ubicación viaja con la carga", () => {
