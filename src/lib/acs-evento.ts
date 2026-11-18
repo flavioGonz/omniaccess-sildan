@@ -58,6 +58,14 @@ const PERSONA: Record<string, Omit<Traduccion, "credencial" | "nombre" | "legajo
     "5/8": { detalle: "Tarjeta vencida", decision: "DENY", tipo: "TAG" },
     "5/9": { detalle: "Clave equivocada", decision: "DENY", tipo: "PIN" },
     "5/10": { detalle: "Tarjeta desconocida", decision: "DENY", tipo: "TAG" },
+    /*
+     * 5/104, medido el 18/11 en el DS-K1T343MFWX. El evento trae la persona (`name`,
+     * `employeeNoString`), el lector, la puerta y un `FaceRect`, con
+     * `currentVerifyMode: faceOrFpOrCardOrPw`: es alguien que pasó con el modo combinado. Qué
+     * factor usó no lo dice, así que el tipo queda en null en vez de inventar «rostro»: el
+     * historial muestra quién pasó, que es lo que se sabe.
+     */
+    "5/104": { detalle: "Autenticación válida (modo combinado)", decision: "GRANT", tipo: null },
 };
 
 /** Lo que pasa en el equipo y no es una persona: se cuenta por motivo y no entra al historial. */
@@ -69,6 +77,12 @@ export const NO_ES_ACCESO: Record<string, string> = {
     "3/112": "alguien entró a la configuración del equipo",
     "3/121": "alguien salió de la configuración",
     "3/122": "se cambió la configuración del equipo",
+    /* 3/1024 y 3/1028, medidos el 18/11: traen `remoteHostAddr` y ninguna persona. Son pedidos
+       remotos al equipo (uno con `doorNo`), no alguien pasando. No se les pone un nombre más
+       preciso porque no se pudo reproducir cuál es cuál: abrir la puerta a distancia no generó
+       ninguno de los dos. */
+    "3/1024": "pedido remoto al equipo",
+    "3/1028": "pedido remoto al equipo",
 };
 
 /**

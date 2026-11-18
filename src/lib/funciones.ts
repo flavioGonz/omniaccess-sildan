@@ -18,7 +18,8 @@ import type { ModuleId } from "@/lib/module-definitions";
  */
 
 export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS" | "LPR_PLAZAS" | "LPR_BUSQUEDA" | "LPR_MIN_INTERIOR"
-    | "FUNC_INTRUSION" | "FUNC_ALARMAS_RECEPCION" | "FUNC_ALARMAS_GESTION" | "EQUIPOS_USUARIOS" | "PADRON_CENSO";
+    | "FUNC_INTRUSION" | "FUNC_ALARMAS_RECEPCION" | "FUNC_ALARMAS_GESTION" | "EQUIPOS_USUARIOS" | "PADRON_CENSO"
+    | "FACE_DOBLE_VERIFICACION";
 
 export interface Funcion {
     id: FuncionId;
@@ -149,6 +150,14 @@ export const FUNCIONES: Funcion[] = [
         siSeApaga: "La página deja de existir (404) y no se puede cargar nada nuevo. Lo que ya llegó queda en la bandeja y se puede seguir aprobando o rechazando.",
         // Apagada de fábrica: prende una URL pública que escribe en la base. Eso se enciende
         // cuando el barrio lo pidió, no porque vino en la instalación.
+        porDefecto: false,
+    },
+    {
+        id: "FACE_DOBLE_VERIFICACION",
+        alcance: "instalacion",
+        nombre: "Doble verificación de rostros",
+        que: "Pone una al lado de la otra las dos opiniones sobre la misma pasada por un portero o un control de acceso: a quién reconoció el EQUIPO y a quién reconocimos NOSOTROS con OmniVision, y si coinciden. Se mira en OmniVision › Rostros › Doble verificación.",
+        siSeApaga: "La comparación se sigue pudiendo mirar, pero no se usa para nada más: no marca pasadas ni avisa cuando los dos no coinciden.",
         porDefecto: false,
     },
 ];

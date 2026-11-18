@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ScanFace, Settings2, UserCheck, GitMerge, ImagePlus, Sparkles } from "lucide-react";
+import { ScanFace, Settings2, UserCheck, GitMerge, ImagePlus, Sparkles, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CajonSubirRostro } from "@/components/vision/rostros/CajonSubirRostro";
+import { DobleVerificacion } from "@/components/vision/rostros/DobleVerificacion";
 import { Filtros } from "@/components/ui/filtros";
 import { Cargando, ErrorEstado, Vacio } from "@/components/ui/estados";
 import { cn } from "@/lib/utils";
@@ -36,6 +37,9 @@ export function VistaRostros({ acciones }: { acciones?: Partial<typeof ACCIONES_
     const [error, setError] = useState<string | null>(null);
     const [abierta, setAbierta] = useState<string | null>(null);
     const [subiendo, setSubiendo] = useState(false);
+    /* Dos vistas sobre lo mismo: las caras que juntamos, y las dos opiniones sobre cada pasada
+       (18/11, Nico: «debemos poder ver qué reconoció el portero y qué reconocemos nosotros»). */
+    const [vista, setVista] = useState<"caras" | "doble">("caras");
 
     const cargar = useCallback(async () => {
         try { setDatos(await listar({ filtro, orden, q, pagina })); setError(null); }
@@ -76,6 +80,19 @@ export function VistaRostros({ acciones }: { acciones?: Partial<typeof ACCIONES_
                 <Button size="sm" onClick={() => setSubiendo(true)} className="gap-1.5"><ImagePlus size={14} /> Agregar un rostro</Button>
             </div>
 
+            {/* Píldoras: elegir vista, que es justo lo que la píldora significa en este sistema. */}
+            <div className="inline-flex items-center gap-1 rounded-full border border-border p-0.5">
+                {([["caras", "Caras", ScanFace], ["doble", "Doble verificación", ShieldCheck]] as const).map(([v, rotulo, Ico]) => (
+                    <button key={v} type="button" onClick={() => setVista(v)}
+                        className={cn("inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full text-[12.5px] font-semibold transition-colors",
+                            vista === v ? "bg-foreground text-background" : "text-muted-foreground hover:bg-accent")}>
+                        <Ico size={14} /> {rotulo}
+                    </button>
+                ))}
+            </div>
+
+            {vista === "doble" ? <DobleVerificacion /> : (<>
+
             <Filtros solido busqueda={q} alBuscar={(v) => { setQ(v); setPagina(0); }} placeholder="Número o nombre" grupos={[
                 { clave: "filtro", titulo: "Cuáles", valor: filtro, alElegir: elegir<FiltroRostro>(setFiltro), opciones: [
                     { valor: "todos", rotulo: "Todos", cuenta: c.todos },
@@ -109,6 +126,7 @@ export function VistaRostros({ acciones }: { acciones?: Partial<typeof ACCIONES_
                     <button type="button" disabled={pagina >= paginas - 1} onClick={() => setPagina((p) => p + 1)} className="h-8 px-3 rounded-md border border-border font-semibold hover:bg-accent disabled:opacity-40">Siguientes</button>
                 </div>
             )}
+            </>)}
 
             <CajonRostro id={abierta} alCerrar={() => setAbierta(null)} alCambiar={cargar} alAbrir={setAbierta} acciones={acciones} />
             <CajonSubirRostro abierto={subiendo} alCerrar={() => setSubiendo(false)} alGuardar={cargar} alAbrirRostro={setAbierta} />
