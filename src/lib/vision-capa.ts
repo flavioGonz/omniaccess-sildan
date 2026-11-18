@@ -56,7 +56,7 @@ export type Analisis = { ancho: number; alto: number; objetos: ObjetoAnalizado[]
      * acceso: ahí el objeto es la cara. `caras` ausente = no se pudo preguntar (y no se dibuja
      * nada); `caras: []` = se preguntó y no había ninguna.
      */
-    caras?: { caja: [number, number, number, number]; prob: number; nombre?: string | null; similitud?: number | null }[];
+    caras?: { caja: [number, number, number, number]; prob: number; nombre?: string | null; similitud?: number | null; registrado?: boolean }[];
     caraMin?: number;
     /** Doble verificación: el cuadro propio del canal, sacado unos segundos después (clave en MinIO). */
     propio?: { foto: string; despuesMs: number; ancho: number; alto: number; objetos: ObjetoAnalizado[]; tarea?: string } | null };

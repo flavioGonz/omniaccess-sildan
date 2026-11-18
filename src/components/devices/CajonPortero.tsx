@@ -556,22 +556,38 @@ function CabeceraPortero({ id, titulo, subtitulo, ip, ficha, puertas = [], abrie
                     </motion.div>
                 )}
 
-                {/* La puerta abriéndose: un barrido y el nombre de la puerta sobre el video (18/11,
-                    Nico: «animar la apertura de la puerta cuando abre el relé»). Dura lo que dura
-                    el pulso: es la confirmación de que algo pasó del otro lado. */}
+                {/*
+                  * La puerta abriéndose, sobre el video (18/11, Nico: «animar la apertura de la
+                  * puerta cuando abre el relé… ¡puerta abierta!, tipo splashscreen, con algo de
+                  * diseño»). En una puerta que está en otro lado, esto es la única señal de que
+                  * algo pasó del otro lado — por eso ocupa la imagen entera por un momento y no
+                  * es un cartelito más. Dura 2,6 s y se va sola: después, lo que importa volver a
+                  * ver es quién entró.
+                  */}
                 <AnimatePresence>
                     {abierta && (
-                        <motion.div key={abierta.cuando} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}
-                            className="absolute inset-0 pointer-events-none overflow-hidden">
-                            <motion.span initial={{ x: "-110%" }} animate={{ x: "110%" }} transition={{ duration: 1.1, ease: "easeInOut" }}
-                                className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-emerald-300/35 to-transparent" />
-                            <motion.span initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 380, damping: 24 }}
-                                className="absolute inset-0 grid place-items-center">
-                                <span className="inline-flex items-center gap-2 h-10 px-4 rounded-full bg-emerald-500/90 text-white text-[13.5px] font-bold ring-1 ring-white/25 backdrop-blur-sm">
-                                    <DoorOpen size={17} /> {abierta.nombre} abierta
-                                </span>
-                            </motion.span>
-                            <motion.span initial={{ opacity: 0.9 }} animate={{ opacity: 0 }} transition={{ duration: 1.4, ease: "easeOut" }}
+                        <motion.div key={abierta.cuando} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                            transition={{ duration: 0.2 }} className="absolute inset-0 z-30 pointer-events-none overflow-hidden">
+                            <span className="absolute inset-0 bg-black/55 backdrop-blur-[3px]" />
+                            {/* El barrido de luz: cruza una vez, como cuando se abre y entra la luz. */}
+                            <motion.span initial={{ x: "-120%" }} animate={{ x: "120%" }} transition={{ duration: 1.15, ease: [0.22, 1, 0.36, 1] }}
+                                className="absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-emerald-300/30 to-transparent" />
+                            {/* El anillo que se expande, una sola vez, desde el centro. */}
+                            <motion.span initial={{ scale: 0.4, opacity: 0.85 }} animate={{ scale: 2.6, opacity: 0 }} transition={{ duration: 1.1, ease: "easeOut" }}
+                                className="absolute left-1/2 top-1/2 h-24 w-24 -ml-12 -mt-12 rounded-full border-2 border-emerald-300/70" />
+                            <div className="absolute inset-0 grid place-items-center">
+                                <motion.div initial={{ scale: 0.86, opacity: 0, y: 6 }} animate={{ scale: 1, opacity: 1, y: 0 }}
+                                    transition={{ type: "spring", stiffness: 420, damping: 26 }} className="flex flex-col items-center gap-2.5">
+                                    <motion.span initial={{ rotate: -12 }} animate={{ rotate: 0 }} transition={{ type: "spring", stiffness: 300, damping: 14 }}
+                                        className="grid h-14 w-14 place-items-center rounded-full bg-emerald-500 text-white ring-[6px] ring-emerald-400/25">
+                                        <DoorOpen size={26} strokeWidth={2.4} />
+                                    </motion.span>
+                                    <span className="text-white text-[15px] font-bold uppercase tracking-[0.18em] drop-shadow">Puerta abierta</span>
+                                    <span className="text-white/80 text-[12.5px] font-semibold">{abierta.nombre}</span>
+                                </motion.div>
+                            </div>
+                            {/* El borde verde, que se apaga solo: el último rastro de que abrió. */}
+                            <motion.span initial={{ opacity: 0.95 }} animate={{ opacity: 0 }} transition={{ duration: 2, ease: "easeOut" }}
                                 className="absolute inset-0 ring-[3px] ring-inset ring-emerald-400/80" />
                         </motion.div>
                     )}

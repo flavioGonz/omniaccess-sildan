@@ -316,6 +316,28 @@ export async function GET(req: NextRequest) {
                falta para normalizar las cajas de CompreFace, que vienen en píxeles. Se mide una
                vez: no cambia mientras dure el stream. */
             let dim: { w: number; h: number } | null = null;
+            /*
+             * Quién es cada sujeto que devuelve el motor, y si está REGISTRADO (atado a una
+             * persona del padrón) o es una identidad que el sistema fundó solo (R-0007). El
+             * recuadro lo dice en vivo y no se puede ir a la base en cada cuadro: se resuelve una
+             * vez por sujeto mientras dure la sesión.
+             */
+            const quien = new Map<string, { nombre: string; registrado: boolean }>();
+            const resolver = async (caras: CaraVista[] | null) => {
+                if (!caras?.length) return caras;
+                for (const c of caras) {
+                    const s0 = c.nombre;
+                    if (!s0 || quien.has(s0)) continue;
+                    const r = await prisma.rostro.findUnique({ where: { sujeto: s0 }, select: { apodo: true, numero: true, userId: true } }).catch(() => null);
+                    const persona = r?.userId ? await prisma.user.findUnique({ where: { id: r.userId }, select: { name: true } }).catch(() => null) : null;
+                    quien.set(s0, r
+                        ? { nombre: persona?.name || r.apodo || `R-${String(r.numero).padStart(4, "0")}`, registrado: !!persona }
+                        : { nombre: s0, registrado: false });
+                }
+                return caras.map((c) => (c.nombre && quien.has(c.nombre)
+                    ? { ...c, nombre: quien.get(c.nombre)!.nombre, registrado: quien.get(c.nombre)!.registrado }
+                    : c));
+            };
             const analizar = async (jpeg: Buffer, t: number) => {
                 ocupado = true;
                 const inicio = Date.now();
@@ -340,7 +362,7 @@ export async function GET(req: NextRequest) {
                             ancho: j.ancho, alto: j.alto, tarea: "segmentar",
                             // El tiempo en el lugar sólo en el vivo: en la grabación el cuadro es de otro momento.
                             objetos: conAlerta(await conMatriculas(conEstadia(sostener(paraPantalla(j.objetos, await ajustesDePantalla()), Date.now()), await lugaresDe(camara))), await chapasVigiladas()),
-                            ...(cara.si ? { caras: caras ?? undefined, caraMin: cara.caraMin } : {}),
+                            ...(cara.si ? { caras: (await resolver(caras)) ?? undefined, caraMin: cara.caraMin } : {}),
                         },
                     });
                     descartados = 0;

@@ -51,6 +51,8 @@ export type CaraVista = {
     nombre?: string | null;
     /** Qué tan parecida, 0 a 100. */
     similitud?: number | null;
+    /** La cara está atada a una persona del padrón (y no es sólo una identidad que el sistema fundó solo). */
+    registrado?: boolean;
 };
 
 /** Lee el valor guardado y lo deja dentro del rango. Sin valor, el de fábrica. */

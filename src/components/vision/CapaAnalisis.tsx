@@ -119,8 +119,10 @@ const COLOR_TOCA = "#f43f5e";
  */
 const COLOR_CARA = "#38bdf8";
 const COLOR_CARA_CHICA = "#fbbf24";
-/** Reconocida: el verde de «esta persona es quien dice ser». */
+/** Reconocida y REGISTRADA (atada a una persona del padrón): el verde de «sé quién es». */
 const COLOR_CARA_RECO = "#34d399";
+/** Reconocida pero sin registrar: el sistema la conoce de otras veces, nadie le puso nombre. */
+const COLOR_CARA_CONOCIDA = "#a78bfa";
 /**
  * La chapa que leyó OmniVision (Nico, 15/10: «dentro de las siluetas, la matrícula cuadrada
  * similar»): un recuadro blanco sobre la chapa misma, y debajo la chapa dibujada como una
@@ -227,6 +229,30 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
     // Siempre en el mismo orden (el más viejo primero): mover un elemento de lugar en el documento le corta el deslizamiento.
     const orden = useMemo(() => objetos.map((_, i) => i).sort((a, b) => ids[a] - ids[b]), [objetos, ids]);
     const pistaDe = (id: number) => (interactiva ? pistas.current.find((q) => q.id === id) || null : null);
+
+    /*
+     * Las caras también conservan su identidad entre cuadros, y SIEMPRE (no sólo en el monitor):
+     * una cara llega 5 a 9 veces por segundo y, dibujada como un elemento nuevo cada vez, salta.
+     * Con la misma identidad, el mismo elemento se desliza de una posición a la otra y se ve como
+     * el resto de las siluetas (18/11, Nico: «es poco fluido, medio con lag, no es como las otras
+     * siluetas»).
+     */
+    const pistasCara = useRef<{ id: number; caja: Caja; visto: number }[]>([]);
+    const serieCara = useRef(0);
+    const caras = analisis.caras;
+    const idsCara = useMemo(() => {
+        const cs = caras || [];
+        const ahora = Date.now(), ps = pistasCara.current, out: number[] = new Array(cs.length).fill(-1), usadas = new Set<number>();
+        const pares: [number, number, number][] = [];
+        cs.forEach((c, i) => ps.forEach((q, j) => { const v = iou(c.caja, q.caja); if (v >= 0.2) pares.push([v, i, j]); }));
+        pares.sort((a, b) => b[0] - a[0]);
+        for (const [, i, j] of pares) { if (out[i] !== -1 || usadas.has(j)) continue; out[i] = ps[j].id; usadas.add(j); ps[j].caja = cs[i].caja; ps[j].visto = ahora; }
+        cs.forEach((c, i) => { if (out[i] === -1) { const id = ++serieCara.current; ps.push({ id, caja: c.caja, visto: ahora }); out[i] = id; } });
+        pistasCara.current = ps.filter((q) => ahora - q.visto < 1500);
+        return out;
+    }, [caras]);
+    /** Siempre en el mismo orden: mover un elemento de lugar en el documento le corta el deslizamiento. */
+    const ordenCara = useMemo(() => (caras || []).map((_, i) => i).sort((a, b) => idsCara[a] - idsCara[b]), [caras, idsCara]);
     const desliz = (transform: string): React.CSSProperties | undefined => (interactiva ? { transform, transformOrigin: "0 0", transition: `transform ${DESLIZ_MS}ms linear` } : undefined);
 
     // El objeto tocado: su caja (se va corriendo con él) y la última vez que se lo vio.
@@ -698,40 +724,54 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
               * punteado del medio es ese tamaño mínimo, para poder resolver la distancia de
               * captura mirando en vez de probando (18/11, pedido de Nico).
               */}
-            {!foco && analisis.caras?.map((c, i) => {
+            {!foco && ordenCara.map((i) => {
+                const c = (caras || [])[i];
+                const id = idsCara[i];
                 const [x1, y1, x2, y2] = c.caja;
                 const x = x1 * W, y = y1 * H, an = Math.max(1, (x2 - x1) * W), al = Math.max(1, (y2 - y1) * H);
                 const alcanza = (y2 - y1) >= (analisis.caraMin ?? 0);
                 const reco = !!c.nombre;
-                const col = !alcanza ? COLOR_CARA_CHICA : reco ? COLOR_CARA_RECO : COLOR_CARA;
-                const t = Math.min(an, al) * 0.3;   // el largo de cada esquina de la mira
+                const col = !alcanza ? COLOR_CARA_CHICA : reco ? (c.registrado ? COLOR_CARA_RECO : COLOR_CARA_CONOCIDA) : COLOR_CARA;
                 const fc = lado * 0.021;
                 /*
-                 * La forma de una cabeza y no un rectángulo (18/11, Nico: «siluetas del rostro si
-                 * puedes mejor, que no sea un rectángulo»). El motor devuelve una caja y nada
-                 * más: dibujar una silueta recortada sería inventarla. Lo que se dibuja es un
-                 * óvalo con mentón —la forma de una cabeza inscripta en esa caja—, que es una
-                 * manera de mostrar la misma información, no un dato nuevo.
+                 * Sólo los cuatro ángulos (18/11, Nico: «prefiero sólo los bordes, ángulos, sin
+                 * ese círculo»). Van dibujados en una caja de 100×100 y puestos en su lugar con
+                 * un `transform`: así el mismo elemento se DESLIZA de un cuadro al siguiente, en
+                 * vez de redibujarse en otra posición. El trazo no se deforma al escalar
+                 * (`non-scaling-stroke`) y el rótulo va en su propio grupo, sólo trasladado,
+                 * para que la letra no se estire.
                  */
-                const cx = x + an / 2, rx = an / 2, ry = al / 2, cy = y + ry;
-                const cabeza = `M${cx},${y} C${cx + rx},${y} ${cx + rx},${cy + ry * 0.25} ${cx + rx * 0.55},${cy + ry * 0.68}`
-                    + ` C${cx + rx * 0.3},${y + al} ${cx - rx * 0.3},${y + al} ${cx - rx * 0.55},${cy + ry * 0.68}`
-                    + ` C${cx - rx},${cy + ry * 0.25} ${cx - rx},${y} ${cx},${y} Z`;
+                const T = 30;   // el largo de cada ángulo, sobre 100
                 return (
-                    <g key={`cara-${i}`} filter={`url(#sombra-${uid})`}>
-                        <path d={cabeza} fill={col} fillOpacity={reco ? 0.14 : 0.08} stroke={col} strokeWidth={2.5}
-                            vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-                        {[[x, y, 1, 1], [x + an, y, -1, 1], [x, y + al, 1, -1], [x + an, y + al, -1, -1]].map(([ex, ey, dx, dy], k) => (
-                            <path key={k} d={`M${ex},${ey + dy * t} L${ex},${ey} L${ex + dx * t},${ey}`} fill="none"
-                                stroke={col} strokeOpacity="0.75" strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
-                        ))}
+                    <g key={`cara-${id}`}>
+                        <g style={{ transform: `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) scale(${(an / 100).toFixed(4)}, ${(al / 100).toFixed(4)})`, transformOrigin: "0 0", transition: `transform ${DESLIZ_MS}ms linear` }}>
+                            <g filter={`url(#sombra-${uid})`}>
+                                {[[0, 0, 1, 1], [100, 0, -1, 1], [0, 100, 1, -1], [100, 100, -1, -1]].map(([ex, ey, dx, dy], k) => (
+                                    <path key={k} d={`M${ex},${ey + dy * T} L${ex},${ey} L${ex + dx * T},${ey}`} fill="none"
+                                        stroke={col} strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round">
+                                        {/* Al aparecer, los ángulos se cierran sobre la cara. */}
+                                        <animate attributeName="opacity" from="0" to="1" dur="0.22s" fill="freeze" />
+                                    </path>
+                                ))}
+                                {/* Un punto en el centro, que late mientras se la está mirando. */}
+                                <circle cx="50" cy="50" r="2.5" fill={col} opacity="0.9">
+                                    <animate attributeName="r" values="2.5;4.5;2.5" dur="1.6s" repeatCount="indefinite" />
+                                </circle>
+                            </g>
+                        </g>
                         {etiquetas && (
-                            <text x={cx} y={y - fc * 0.45} textAnchor="middle" filter={`url(#texto-${uid})`}
-                                style={{ fontFamily: "Outfit, system-ui, sans-serif", fontSize: fc, fontWeight: 700, fill: col }}>
-                                {reco
-                                    ? `${c.nombre}${c.similitud != null ? ` · ${c.similitud} %` : ""}`
-                                    : `${Math.round((y2 - y1) * 100)} %${alcanza ? "" : " · muy chica"}`}
-                            </text>
+                            <g style={{ transform: `translate(${(x + an / 2).toFixed(1)}px, ${y.toFixed(1)}px)`, transformOrigin: "0 0", transition: `transform ${DESLIZ_MS}ms linear` }}>
+                                <text x={0} y={-fc * 0.5} textAnchor="middle" filter={`url(#texto-${uid})`}
+                                    style={{ fontFamily: "Outfit, system-ui, sans-serif", fontSize: fc, fontWeight: 700, fill: col }}>
+                                    {reco ? c.nombre : alcanza ? "Sin reconocer" : "Muy chica"}
+                                </text>
+                                <text x={0} y={-fc * 0.5 + fc * 1.05} textAnchor="middle" filter={`url(#texto-${uid})`}
+                                    style={{ fontFamily: "Outfit, system-ui, sans-serif", fontSize: fc * 0.76, fontWeight: 600, fill: col, opacity: 0.85 }}>
+                                    {reco
+                                        ? `${c.registrado ? "registrado" : "sin registrar"}${c.similitud != null ? ` · ${c.similitud} %` : ""}`
+                                        : `${Math.round((y2 - y1) * 100)} % del alto`}
+                                </text>
+                            </g>
                         )}
                     </g>
                 );
