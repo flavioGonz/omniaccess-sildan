@@ -1964,6 +1964,10 @@ model SolicitudPadron {
   /// [{ tipo: JARDINERO|PISCINERO|LIMPIEZA|OTRO, nombre?, dias[], desde?, hasta?, chapa? }]
   servicios  Json      @default("[]")
   comentario String    @default("")
+  /// Donde queda el lote en el mapa, si la persona lo marco (GPS del telefono o un punto elegido
+  /// a mano). Opcional: el censo nunca obliga a dar ubicacion, y una carga sin punto vale igual.
+  lat        Float?
+  lng        Float?
   /// pendiente | aprobada | rechazada
   estado     String    @default("pendiente")
   revisadaPor String?

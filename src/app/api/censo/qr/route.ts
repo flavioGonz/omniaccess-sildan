@@ -1,10 +1,9 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
 import sharp from "sharp";
 import { getSession } from "@/app/actions/auth";
 import { getAppBranding } from "@/app/actions/settings";
+import { isotipoSvg } from "@/components/brand/OmniLogo";
 
 export const dynamic = "force-dynamic";
 
@@ -48,9 +47,10 @@ export async function GET(req: NextRequest) {
             ? await fetch(marca.logoUrl.startsWith("http") ? marca.logoUrl : `${origen}${marca.logoUrl}`, { signal: AbortSignal.timeout(4000) })
                 .then((r) => (r.ok ? r.arrayBuffer().then((a) => Buffer.from(a)) : null)).catch(() => null)
             : null;
-        // El SVG se lee del disco y no por HTTP: es un archivo nuestro, y una ida y vuelta al propio
-        // servidor para traerlo es una forma de fallar sin necesidad.
-        const dibujo = fuente ?? await readFile(join(process.cwd(), "public", "omniaccess-mark.svg")).catch(() => null);
+        // El isotipo sale del componente de marca (`isotipoSvg`), no de un archivo de `public/`:
+        // ahí viven todavía los logos de la identidad anterior y es exactamente así como se coló
+        // el anillo viejo en esta pantalla. Si la marca cambia, cambia en un solo lugar.
+        const dibujo = fuente ?? Buffer.from(isotipoSvg());
         if (dibujo) {
             const lado = Math.round(tam * 0.2);
             const aire = Math.round(lado * 0.16);

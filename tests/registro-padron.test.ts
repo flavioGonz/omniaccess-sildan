@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizarLote, normalizarTelefono, resumenDeSolicitud, validarSolicitud, VEHICULOS_MAX } from "@/lib/registro-padron";
+import { normalizarLote, normalizarTelefono, puntoSirve, resumenDeSolicitud, validarSolicitud, VEHICULOS_MAX } from "@/lib/registro-padron";
 
 const base = { lote: "B4", apellido: "Pérez", telefono: "099123456", tenencia: "PROPIETARIO" };
 
@@ -80,4 +80,25 @@ test("un horario mal escrito se avisa", () => {
 
 test("el resumen de la bandeja", () => {
     assert.equal(resumenDeSolicitud({ lote: "B4", apellido: "Pérez", vehiculos: [1, 2, 3] as any, servicios: [1] as any }), "Lote B4 · Pérez · 3 vehículos · 1 servicio");
+});
+
+test("el punto del lote: lo que sirve y lo que no", () => {
+    assert.deepEqual(puntoSirve(-34.901123456, -56.164598765), { lat: -34.901123, lng: -56.164599 });
+    // Lo que manda un navegador cuando el permiso se negó, o una isla del Golfo de Guinea.
+    assert.equal(puntoSirve(0, 0), null);
+    assert.equal(puntoSirve(95, -56), null);
+    assert.equal(puntoSirve("acá", -56), null);
+    assert.equal(puntoSirve(undefined, undefined), null);
+});
+
+test("una ubicación que no se entiende no tumba la carga", () => {
+    const r = validarSolicitud({ ...base, lat: 0, lng: 0 });
+    assert.deepEqual(r.errores, []);
+    assert.equal(r.datos?.lat, null);
+});
+
+test("la ubicación viaja con la carga", () => {
+    const r = validarSolicitud({ ...base, lat: -34.9011, lng: -56.1645 });
+    assert.equal(r.datos?.lat, -34.9011);
+    assert.equal(r.datos?.lng, -56.1645);
 });

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { Car, Check, ChevronLeft, ChevronRight, Home, Loader2, Plus, ShieldCheck, Sparkles, Trash2, Wrench } from "lucide-react";
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { Car, Check, ChevronLeft, ChevronRight, Crosshair, Home, Loader2, MapPin, Plus, Sparkles, Trash2, Wrench, X } from "lucide-react";
 import { getAppBranding } from "@/app/actions/settings";
-import { EMPRESA, LEMA, MarcaOmni } from "@/components/marca/MarcaOmni";
+import { OmniLogo } from "@/components/brand/OmniLogo";
 import { normalizarChapa } from "@/lib/formato-chapa";
 import {
     DIAS, TENENCIAS, TIPOS_SERVICIO, TIPOS_VEHICULO, VEHICULOS_MAX, SERVICIOS_MAX,
@@ -46,7 +47,15 @@ import { cn } from "@/lib/utils";
  *    deslizamiento, barra sólida en vez de vidrio.
  */
 
+/** El mapa entra sólo si lo piden: son ~40 KB de Leaflet que la mayoría no va a abrir. */
+const MapaLote = dynamic(() => import("./MapaLote"), { ssr: false, loading: () => <div className="h-[280px] w-full animate-pulse rounded-[14px] bg-card" /> });
+
 const PASOS = ["Tu casa", "Vehículos", "Quién entra"] as const;
+
+/** La bajada de la familia de marcas (material comercial, 26/10). */
+const LEMA = "Ve. Verifica. Avisa.";
+/** Quién lo hace. El censo lo mira gente que no sabe de dónde sale la herramienta. */
+const EMPRESA = "Ingeniería en Seguridad";
 
 /** Crítico, sin rebote: lo que la guía pide para algo que no empujó un dedo (apple-design §4). */
 const RESORTE = { type: "spring" as const, bounce: 0, duration: 0.4 };
@@ -56,12 +65,14 @@ const PULSABLE = "active:scale-[0.97] transition-transform duration-100 ease-out
 type Form = {
     lote: string; apellido: string; nombre: string; tenencia: Tenencia; telefono: string; email: string;
     vehiculos: VehiculoCargado[]; servicios: ServicioCargado[]; comentario: string;
+    /** Dónde queda el lote. Opcional de punta a punta: nadie queda afuera por no marcarlo. */
+    lat: number | null; lng: number | null;
 };
-const VACIO: Form = { lote: "", apellido: "", nombre: "", tenencia: "PROPIETARIO", telefono: "", email: "", vehiculos: [{ chapa: "", tipo: "PROPIO" }], servicios: [], comentario: "" };
+const VACIO: Form = { lote: "", apellido: "", nombre: "", tenencia: "PROPIETARIO", telefono: "", email: "", vehiculos: [{ chapa: "", tipo: "PROPIO" }], servicios: [], comentario: "", lat: null, lng: null };
 /** Lo que se va escribiendo se guarda en el teléfono: en una asamblea la señal se corta. */
 const CLAVE = "oa.censo.borrador";
 
-export function Formulario() {
+export function Formulario({ centro }: { centro: [number, number] }) {
     const [marca, setMarca] = useState<{ name: string; barrio: string; logoUrl: string }>({ name: "OmniAccess", barrio: "", logoUrl: "" });
     const [paso, setPaso] = useState(0);
     /** Hacia dónde se va: el paso entra por donde se lo empujó y sale por el mismo lado. */
@@ -76,6 +87,9 @@ export function Formulario() {
     useEffect(() => { try { localStorage.setItem(CLAVE, JSON.stringify(f)); } catch { /* el navegador puede no dejar */ } }, [f]);
 
     const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
+    /** Cambiar de paso vuelve arriba: si no, el que venía abajo del paso largo entra al siguiente
+     *  por la mitad y cree que le falta algo. */
+    const irA = (n: number) => { setSentido(n > paso ? 1 : -1); setPaso(n); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* da igual */ } };
     const puedeSeguir = paso > 0 || (f.lote.trim() && f.apellido.trim().length >= 2 && f.telefono.replace(/\D/g, "").length >= 8);
 
     async function enviar() {
@@ -91,23 +105,23 @@ export function Formulario() {
         } finally { setEnviando(false); }
     }
 
-    if (listo) return <Gracias marca={marca} lote={f.lote} vehiculos={f.vehiculos.filter((v) => v.chapa.trim()).length} />;
+    if (listo) return <Gracias marca={marca} lote={f.lote} vehiculos={f.vehiculos.filter((v) => v.chapa.trim()).length} servicios={f.servicios.length} ubicado={f.lat != null} />;
 
     return (
         <div className="min-h-screen bg-background text-foreground">
             <Cabecera marca={marca} />
 
             <main className="mx-auto w-full max-w-[640px] px-4">
-                <header className="pt-8 pb-6">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] tono-accion">Censo de vehículos</p>
-                    <h1 className="censo-titulo mt-2 font-bold">
-                        Que el portón te conozca
-                    </h1>
-                    <p className="mt-2.5 text-[15px] leading-relaxed text-muted-foreground">
-                        Cargá las matrículas que entran a tu casa y quién te visita seguido. Son dos minutos y lo
-                        hacés una sola vez.
-                    </p>
-                </header>
+                {/* La portada es de la primera pantalla. En los pasos siguientes se va: si se queda,
+                    el que llega al paso 3 tiene que pasar por arriba del título cada vez. */}
+                <AnimatePresence initial={false}>
+                    {paso === 0 && (
+                        <motion.div key="portada" initial={false} exit={{ opacity: 0, height: 0 }} transition={RESORTE} className="overflow-hidden">
+                            <Portada barrio={marca.barrio} />
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+                {paso > 0 && <div className="pt-6" />}
 
                 <Progreso paso={paso} />
 
@@ -115,7 +129,7 @@ export function Formulario() {
                     <motion.div key={paso} custom={sentido} className="censo-paso"
                         initial={{ opacity: 0, x: 22 * sentido }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -22 * sentido }}
                         transition={RESORTE}>
-                        {paso === 0 && <PasoCasa f={f} set={set} />}
+                        {paso === 0 && <PasoCasa f={f} set={set} centro={centro} />}
                         {paso === 1 && <PasoVehiculos f={f} set={set} />}
                         {paso === 2 && <PasoServicios f={f} set={set} />}
                     </motion.div>
@@ -135,13 +149,13 @@ export function Formulario() {
             <nav className="censo-barra fixed inset-x-0 bottom-0">
                 <div className="mx-auto flex w-full max-w-[640px] items-center gap-3 px-4 pt-3">
                     {paso > 0 && (
-                        <button type="button" onClick={() => { setSentido(-1); setPaso(paso - 1); }} disabled={enviando}
+                        <button type="button" onClick={() => irA(paso - 1)} disabled={enviando}
                             className={cn("h-12 w-12 shrink-0 grid place-items-center rounded-[10px] border border-border hover:bg-accent disabled:opacity-50", PULSABLE)} aria-label="Volver">
                             <ChevronLeft size={18} />
                         </button>
                     )}
                     {paso < PASOS.length - 1 ? (
-                        <button type="button" onClick={() => { setSentido(1); setPaso(paso + 1); }} disabled={!puedeSeguir}
+                        <button type="button" onClick={() => irA(paso + 1)} disabled={!puedeSeguir}
                             className={cn("h-12 flex-1 rounded-[10px] bg-[var(--accion)] text-white text-[15px] font-bold inline-flex items-center justify-center gap-2 disabled:opacity-40", PULSABLE)}>
                             Seguir <ChevronRight size={18} />
                         </button>
@@ -170,7 +184,7 @@ function Cabecera({ marca }: { marca: { name: string; barrio: string; logoUrl: s
     return (
         <div className="border-b border-border">
             <div className="mx-auto flex w-full max-w-[640px] items-center gap-2.5 px-4 py-3.5">
-                <MarcaOmni size={26} className="shrink-0" />
+                <OmniLogo size={26} className="shrink-0" />
                 <span className="text-[17px] font-bold tracking-[-0.02em] leading-none">
                     {propia ? <>Omni<span className="font-normal">Access</span></> : marca.name}
                 </span>
@@ -188,6 +202,59 @@ function Cabecera({ marca }: { marca: { name: string; barrio: string; logoUrl: s
 }
 
 /**
+ * La portada.
+ *
+ * El isotipo de OmniAccess **es** un recuadro de detección: las cuatro esquinas que OmniVision
+ * dibuja sobre lo que ve. Acá ese recuadro se agranda hasta encuadrar el título, y traba — que es
+ * literalmente lo que hace el producto, y lo que la gente va a ver cuando el portón les lea la
+ * matrícula. Es la misma idea del ident («Enfoque», 10/11), hecha con cuatro divs en vez de 3D.
+ *
+ * Después pasa una línea de barrido, una sola vez: es el gesto de «te estoy leyendo». Una sola,
+ * porque algo que parpadea sin parar en una pantalla donde hay que escribir es ruido.
+ *
+ * Con movimiento reducido no hay nada de esto: el recuadro aparece puesto.
+ */
+function Portada({ barrio }: { barrio: string }) {
+    const quieto = useReducedMotion();
+    const esquina = (i: number, clases: string, dx: number, dy: number) => (
+        <motion.span aria-hidden key={i} className={cn("absolute h-6 w-6 border-[var(--accion)]", clases)}
+            initial={quieto ? false : { opacity: 0, x: dx, y: dy }}
+            animate={{ opacity: 1, x: 0, y: 0 }}
+            transition={{ ...RESORTE, delay: 0.08 + i * 0.05 }} />
+    );
+    return (
+        <header className="pb-7 pt-9">
+            <div className="relative px-5 py-5">
+                {esquina(0, "left-0 top-0 rounded-tl-[8px] border-l-2 border-t-2", -14, -14)}
+                {esquina(1, "right-0 top-0 rounded-tr-[8px] border-r-2 border-t-2", 14, -14)}
+                {esquina(2, "right-0 bottom-0 rounded-br-[8px] border-b-2 border-r-2", 14, 14)}
+                {esquina(3, "left-0 bottom-0 rounded-bl-[8px] border-b-2 border-l-2", -14, 14)}
+
+                {/* el barrido: una pasada y se va */}
+                {!quieto && (
+                    <motion.span aria-hidden className="censo-barrido"
+                        initial={{ top: "0%", opacity: 0 }}
+                        animate={{ top: ["0%", "100%"], opacity: [0, 1, 1, 0] }}
+                        transition={{ duration: 1.1, delay: 0.42, ease: "easeInOut" }} />
+                )}
+
+                <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                    <motion.span aria-hidden className="censo-punto"
+                        initial={quieto ? false : { scale: 0 }} animate={{ scale: 1 }} transition={{ ...RESORTE, delay: 0.5 }} />
+                    Censo de vehículos{barrio ? ` · ${barrio}` : ""}
+                </p>
+                <h1 className="censo-titulo mt-2.5 font-bold">Que el portón te conozca</h1>
+            </div>
+
+            <p className="mt-4 text-[15.5px] leading-relaxed text-muted-foreground">
+                Cargá las matrículas que entran a tu casa y quién te visita seguido. La cámara las lee en la
+                entrada y la barrera se abre sola. Son dos minutos y lo hacés una sola vez.
+            </p>
+        </header>
+    );
+}
+
+/**
  * El pie: quién hizo esto y qué pasa con lo que la persona acaba de escribir.
  *
  * Las dos cosas son la misma pregunta para alguien que carga la matrícula de su auto en un
@@ -199,7 +266,7 @@ function Pie({ conBarra = false }: { conBarra?: boolean }) {
         <footer className={cn("mt-12 border-t border-border px-4 pt-6", conBarra ? "pb-28" : "pb-10")}>
             <div className="mx-auto w-full max-w-[640px]">
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                    <MarcaOmni size={20} className="mr-0.5 shrink-0" />
+                    <OmniLogo size={20} className="mr-0.5 shrink-0" />
                     <span className="text-[13px] font-bold tracking-[-0.01em]">Omni<span className="font-normal">Access</span></span>
                     <span className="text-[12px] text-muted-foreground">· {LEMA}</span>
                 </div>
@@ -249,7 +316,7 @@ function Seccion({ icono: I, titulo, children }: { icono: typeof Car; titulo: st
     );
 }
 
-function PasoCasa({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void }) {
+function PasoCasa({ f, set, centro }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; centro: [number, number] }) {
     return (
         <Seccion icono={Home} titulo="Tu casa">
             <div className="grid grid-cols-2 gap-3">
@@ -273,7 +340,120 @@ function PasoCasa({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, v: Fo
                     ))}
                 </div>
             </div>
+            <Ubicacion f={f} set={set} centro={centro} />
         </Seccion>
+    );
+}
+
+/**
+ * El campo de matrícula, dibujado como una matrícula.
+ *
+ * No es decoración: la persona está cargando el dato que la cámara va a leer en la entrada, y
+ * verlo tomar forma de chapa mientras lo escribe es la única parte del censo donde se entiende
+ * de un vistazo para qué sirve todo esto. El molde es el del Mercosur, que es el que se usa acá.
+ */
+function Chapa({ valor, alCambiar, tono, alto = true }: {
+    valor: string; alCambiar: (v: string) => void; tono: "bien" | "aviso" | null; alto?: boolean;
+}) {
+    return (
+        <div className="censo-chapa" data-tono={tono || undefined}>
+            <div className="censo-chapa-banda">Uruguay</div>
+            <input value={valor} onChange={(e) => alCambiar(e.target.value.toUpperCase())} placeholder="ABC 1234"
+                autoCapitalize="characters" autoCorrect="off" spellCheck={false} inputMode="text"
+                aria-label="Matrícula" style={alto ? undefined : { height: 42, fontSize: 20 }} />
+        </div>
+    );
+}
+
+/**
+ * Dónde queda el lote. Opcional, y se dice que es opcional.
+ *
+ * Sirve para dos cosas concretas: que el lote quede dibujado en el mapa del barrio sin que nadie
+ * lo marque a mano uno por uno (son más de trescientos), y que un aviso de la guardia sepa a qué
+ * casa ir. Por eso se pide acá y no después.
+ *
+ * El GPS de un teléfono adentro de una casa se corre; cuando viene con poca precisión se abre el
+ * mapa en vez de dar el punto por bueno.
+ */
+function Ubicacion({ f, set, centro }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; centro: [number, number] }) {
+    const [mapa, setMapa] = useState(false);
+    const [buscando, setBuscando] = useState(false);
+    const [aviso, setAviso] = useState("");
+    const punto: [number, number] | null = f.lat != null && f.lng != null ? [f.lat, f.lng] : null;
+
+    const marcar = (lat: number, lng: number) => { set("lat", lat); set("lng", lng); };
+
+    function usarGps() {
+        if (!navigator.geolocation) { setAviso("Este teléfono no da la ubicación. Marcala en el mapa."); setMapa(true); return; }
+        setBuscando(true); setAviso("");
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                setBuscando(false);
+                marcar(Number(pos.coords.latitude.toFixed(6)), Number(pos.coords.longitude.toFixed(6)));
+                setMapa(true);
+                // 50 m es media manzana: con eso el punto puede caer en la casa del vecino.
+                if (pos.coords.accuracy > 50) setAviso("El GPS no está fino acá adentro. Movelo hasta tu casa.");
+            },
+            (e) => {
+                setBuscando(false);
+                setAviso(e.code === e.PERMISSION_DENIED
+                    ? "No nos diste permiso de ubicación. Podés marcarla en el mapa."
+                    : "No se pudo leer el GPS. Marcala en el mapa.");
+                setMapa(true);
+            },
+            { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
+        );
+    }
+
+    return (
+        <div className="rounded-[10px] border border-border bg-card p-3.5">
+            <div className="flex items-start gap-2">
+                <MapPin size={16} className="mt-0.5 shrink-0 tono-accion" />
+                <div className="min-w-0 flex-1">
+                    <p className="text-[14px] font-bold">¿Dónde queda tu lote? <span className="font-normal text-muted-foreground">Opcional</span></p>
+                    <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">
+                        Para que tu casa quede en el mapa del barrio y la guardia sepa adónde ir.
+                    </p>
+                </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+                <button type="button" onClick={usarGps} disabled={buscando}
+                    className={cn("h-11 rounded-[10px] border border-border text-[13.5px] font-semibold inline-flex items-center justify-center gap-2 hover:bg-accent disabled:opacity-60", PULSABLE)}>
+                    {buscando ? <Loader2 size={15} className="animate-spin" /> : <Crosshair size={15} />} Mi ubicación
+                </button>
+                <button type="button" onClick={() => setMapa((v) => !v)}
+                    className={cn("h-11 rounded-[10px] border border-border text-[13.5px] font-semibold inline-flex items-center justify-center gap-2 hover:bg-accent", PULSABLE)}>
+                    <MapPin size={15} /> {mapa ? "Cerrar mapa" : "En el mapa"}
+                </button>
+            </div>
+
+            {aviso && <p className="mt-2 text-[12.5px] leading-snug tono-aviso">{aviso}</p>}
+
+            <AnimatePresence initial={false}>
+                {mapa && (
+                    <motion.div key="mapa" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                        transition={RESORTE} className="overflow-hidden">
+                        <div className="pt-3">
+                            <MapaLote punto={punto} centro={centro} alElegir={marcar} />
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {punto && (
+                <div className="mt-2.5 flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-full chip-bien px-2.5 py-1 text-[12px] font-bold">
+                        <Check size={13} /> Ubicación marcada
+                    </span>
+                    <span className="truncate text-[11.5px] tabular-nums text-muted-foreground">{punto[0].toFixed(5)}, {punto[1].toFixed(5)}</span>
+                    <button type="button" onClick={() => { set("lat", null); set("lng", null); }}
+                        className="ml-auto grid h-7 w-7 shrink-0 place-items-center rounded-full border border-border text-muted-foreground hover:text-[var(--mal)]" aria-label="Quitar la ubicación">
+                        <X size={13} />
+                    </button>
+                </div>
+            )}
+        </div>
     );
 }
 
@@ -302,18 +482,14 @@ function PasoVehiculos({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, 
                         className="rounded-[10px] border border-border bg-card p-3.5 space-y-3">
                         <div className="flex items-start gap-2">
                             <div className="flex-1">
-                                <input value={v.chapa} onChange={(e) => cambiar(i, { chapa: e.target.value.toUpperCase() })} placeholder="ABC 1234"
-                                    autoCapitalize="characters" autoCorrect="off" spellCheck={false}
-                                    // El color del estado le gana al del foco: si no, la chapa que hay que revisar
-                                    // se ve azul justo mientras se la está escribiendo, que es cuando hay que verla.
-                                    className={cn(ENTRADA, "h-14 text-[22px] font-bold tracking-[0.12em] tabular-nums text-center",
-                                        est.tono === "bien" && "border-[var(--bien)] focus:border-[var(--bien)] focus:ring-[var(--bien)]/25",
-                                        est.tono === "aviso" && "border-[var(--aviso)] focus:border-[var(--aviso)] focus:ring-[var(--aviso)]/25")} />
+                                {/* El tono del estado va en la chapa misma: la que hay que revisar se ve
+                                    marcada mientras se la escribe, que es cuando sirve verla. */}
+                                <Chapa valor={v.chapa} alCambiar={(x) => cambiar(i, { chapa: x })} tono={est.tono} />
                                 {est.dice && <p className={cn("mt-1.5 text-[12.5px] leading-snug", est.tono === "bien" ? "tono-bien" : "tono-aviso")}>{est.dice}</p>}
                             </div>
                             {f.vehiculos.length > 1 && (
                                 <button type="button" onClick={() => set("vehiculos", f.vehiculos.filter((_, j) => j !== i))}
-                                    className="h-14 w-11 shrink-0 grid place-items-center rounded-[10px] border border-border text-muted-foreground hover:text-[var(--mal)]" aria-label="Quitar">
+                                    className="h-[71px] w-11 shrink-0 grid place-items-center rounded-[10px] border border-border text-muted-foreground hover:text-[var(--mal)]" aria-label="Quitar">
                                     <Trash2 size={16} />
                                 </button>
                             )}
@@ -383,8 +559,7 @@ function PasoServicios({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, 
                         <Campo rotulo="Hasta"><input type="time" value={s.hasta || ""} onChange={(e) => cambiar(i, { hasta: e.target.value })} className={cn(ENTRADA, "h-11 text-[14px] tabular-nums")} /></Campo>
                     </div>
                     <Campo rotulo="Matrícula" ayuda="Si viene siempre en el mismo vehículo. Opcional.">
-                        <input value={s.chapa || ""} onChange={(e) => cambiar(i, { chapa: e.target.value.toUpperCase() })} placeholder="ABC 1234"
-                            autoCapitalize="characters" autoCorrect="off" spellCheck={false} className={cn(ENTRADA, "h-11 text-[15px] font-bold tracking-[0.1em] tabular-nums")} />
+                        <Chapa valor={s.chapa || ""} alCambiar={(x) => cambiar(i, { chapa: x })} tono={estadoChapa(s.chapa || "").tono} alto={false} />
                     </Campo>
                 </motion.div>
             ))}
@@ -406,22 +581,47 @@ function PasoServicios({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, 
     );
 }
 
-function Gracias({ marca, lote, vehiculos }: { marca: { name: string; barrio: string; logoUrl: string }; lote: string; vehiculos: number }) {
+function Gracias({ marca, lote, vehiculos, servicios, ubicado }: {
+    marca: { name: string; barrio: string; logoUrl: string };
+    lote: string; vehiculos: number; servicios: number; ubicado: boolean;
+}) {
+    const quieto = useReducedMotion();
+    const linea = [
+        vehiculos > 0 ? `${vehiculos} ${vehiculos === 1 ? "matrícula" : "matrículas"}` : null,
+        servicios > 0 ? `${servicios} ${servicios === 1 ? "servicio" : "servicios"}` : null,
+        ubicado ? "la ubicación del lote" : null,
+    ].filter(Boolean) as string[];
+    const dice = linea.length ? linea.join(", ").replace(/, ([^,]*)$/, " y $1") : "tus datos";
+
     return (
         <div className="min-h-screen bg-background text-foreground">
             <Cabecera marca={marca} />
             <main className="mx-auto w-full max-w-[640px] px-4 pt-14 text-center">
-                <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 240, damping: 18 }}
-                    className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-[color-mix(in_oklab,var(--bien)_14%,transparent)]">
-                    <ShieldCheck size={38} className="tono-bien" />
-                </motion.div>
-                <h1 className="mt-6 text-[28px] font-bold leading-tight tracking-[-0.02em]">Listo, lote {lote}</h1>
+                {/* El mismo recuadro de la portada, pero cerrado sobre el isotipo: lo que la
+                    persona acaba de hacer es, justamente, quedar dentro del cuadro. */}
+                <div className="relative mx-auto grid h-24 w-24 place-items-center">
+                    {[
+                        ["left-0 top-0 rounded-tl-[10px] border-l-[3px] border-t-[3px]", -16, -16],
+                        ["right-0 top-0 rounded-tr-[10px] border-r-[3px] border-t-[3px]", 16, -16],
+                        ["right-0 bottom-0 rounded-br-[10px] border-b-[3px] border-r-[3px]", 16, 16],
+                        ["left-0 bottom-0 rounded-bl-[10px] border-b-[3px] border-l-[3px]", -16, 16],
+                    ].map(([clases, dx, dy], k) => (
+                        <motion.span aria-hidden key={k} className={cn("absolute h-7 w-7 border-[var(--bien)]", clases as string)}
+                            initial={quieto ? false : { opacity: 0, x: dx as number, y: dy as number }}
+                            animate={{ opacity: 1, x: 0, y: 0 }} transition={{ ...RESORTE, delay: 0.05 + k * 0.05 }} />
+                    ))}
+                    <motion.span initial={quieto ? false : { scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                        transition={{ ...RESORTE, delay: 0.26 }} className="tono-bien">
+                        <Check size={42} strokeWidth={2.6} />
+                    </motion.span>
+                </div>
+
+                <h1 className="mt-7 text-[28px] font-bold leading-tight tracking-[-0.02em]">Listo, lote {lote}</h1>
                 <p className="mx-auto mt-3 max-w-[460px] text-[15px] leading-relaxed text-muted-foreground">
-                    {vehiculos > 0
-                        ? `Quedaron ${vehiculos === 1 ? "tu matrícula" : `tus ${vehiculos} matrículas`} para que la administración las dé de alta.`
-                        : "Quedó tu registro para que la administración lo dé de alta."}{" "}
+                    Cargaste {dice}. La administración lo revisa y lo da de alta en los próximos días.
                     Si falta algo, volvé a escanear el QR y cargalo de nuevo.
                 </p>
+
                 <div className="mx-auto mt-8 max-w-[460px] rounded-[10px] border border-border bg-card p-4 text-left">
                     <p className="flex items-center gap-2 text-[14px] font-bold"><Sparkles size={15} className="tono-accion" /> Lo que viene</p>
                     <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted-foreground">

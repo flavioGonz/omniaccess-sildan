@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Car, Check, Clock, Download, Home, Loader2, QrCode, Users, Wrench, X } from "lucide-react";
+import { Car, Check, Clock, Download, Home, Loader2, MapPin, QrCode, Users, Wrench, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
@@ -9,7 +9,7 @@ import { Chip, Cargando, ErrorEstado } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
 import { fechaHora } from "@/lib/fechas";
 import { TENENCIAS, TIPOS_SERVICIO, TIPOS_VEHICULO, type ServicioCargado, type VehiculoCargado } from "@/lib/registro-padron";
-import { cn } from "@/lib/utils";
+
 
 /**
  * La bandeja del censo: lo que carga la gente desde el QR (/registro), antes de ser padrón.
@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 type Carga = {
     id: string; lote: string; apellido: string; nombre: string; tenencia: string; telefono: string; email: string;
     vehiculos: VehiculoCargado[]; servicios: ServicioCargado[]; comentario: string;
+    lat: number | null; lng: number | null;
     estado: string; revisadaPor: string | null; revisadaAt: string | null; nota: string | null; createdAt: string;
 };
 
@@ -152,6 +153,11 @@ function Ficha({ carga, alCerrar, alResolver }: { carga: Carga | null; alCerrar:
                             <Dato icono={Home} rotulo="Lote" valor={carga.lote} />
                             <Dato icono={Users} rotulo="Teléfono" valor={tel(carga.telefono)} />
                             {carga.email && <Dato icono={Users} rotulo="Correo" valor={carga.email} />}
+                            {/* Al aprobar, este punto completa la ubicación del lote si todavía no tenía
+                                ninguna — la que dibujó la administración sobre el plano nunca se pisa. */}
+                            {carga.lat != null && carga.lng != null && (
+                                <Dato icono={MapPin} rotulo="Ubicación que marcó" valor={`${carga.lat.toFixed(5)}, ${carga.lng.toFixed(5)}`} />
+                            )}
                         </section>
 
                         <section className="space-y-2">

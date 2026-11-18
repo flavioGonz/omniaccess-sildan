@@ -53,8 +53,18 @@ export async function aprobarSolicitud(id: string, quien: string): Promise<Resul
 
     // ── El lote ──
     const nombreUnidad = `Lote ${s.lote}`;
-    let unidad = await prisma.unit.findFirst({ where: { OR: [{ lot: s.lote }, { name: nombreUnidad }] }, select: { id: true, name: true } });
-    if (!unidad) unidad = await prisma.unit.create({ data: { name: nombreUnidad, lot: s.lote, type: "CASA" }, select: { id: true, name: true } });
+    // El punto que marcó la persona, en el formato en que el resto del sistema guarda coordenadas.
+    const punto = s.lat != null && s.lng != null ? `${s.lat}, ${s.lng}` : null;
+    let unidad = await prisma.unit.findFirst({ where: { OR: [{ lot: s.lote }, { name: nombreUnidad }] }, select: { id: true, name: true, coordinates: true } });
+    if (!unidad) unidad = await prisma.unit.create({ data: { name: nombreUnidad, lot: s.lote, type: "CASA", coordinates: punto }, select: { id: true, name: true, coordinates: true } });
+    else if (punto && !unidad.coordinates?.trim()) {
+        // Se completa la que falta, nunca se pisa la que ya está: la del mapa la dibujó la
+        // administración sobre el plano y vale más que un GPS tomado desde el living.
+        await prisma.unit.update({ where: { id: unidad.id }, data: { coordinates: punto } });
+        avisos.push("Se guardó la ubicación del lote.");
+    } else if (punto && unidad.coordinates?.trim() && unidad.coordinates.trim() !== punto) {
+        avisos.push("El lote ya tenía ubicación: la del censo quedó sin usar.");
+    }
 
     // ── La persona ──
     const nombre = [s.nombre, s.apellido].filter(Boolean).join(" ").trim() || s.apellido;

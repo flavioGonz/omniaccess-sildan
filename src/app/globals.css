@@ -2511,10 +2511,58 @@ tr.omni-fila-p1-viva > td { animation-duration: .9s; }
     font-optical-sizing: auto;
 }
 
+/* El punto de OmniVision: el único color propio de la marca, y por eso está escrito con su
+   valor y no con un token de la interfaz (no es estado ni acción). Ver components/brand/OmniLogo. */
+.censo-punto {
+    width: 7px; height: 7px; border-radius: 999px;
+    background: #8A6CFF;
+    box-shadow: 0 0 10px color-mix(in oklab, #8A6CFF 70%, transparent);
+    display: inline-block; flex: none;
+}
+
+/* La línea de barrido de la portada: una sola pasada sobre el título. */
+.censo-barrido {
+    position: absolute; left: 0; right: 0; height: 1px; pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--accion), transparent);
+}
+
+/* ── La matrícula ──
+   Se dibuja como una chapa de verdad —banda arriba, fondo claro, dígitos anchos— porque es
+   exactamente lo que la cámara va a leer en la entrada: el campo muestra el resultado, no un
+   casillero de texto. Es la pieza que convierte un formulario en una demostración del producto.
+   Los colores son los de una chapa, no los del tema: una matrícula es blanca con letras negras
+   también cuando la pantalla está en oscuro. */
+.censo-chapa {
+    border-radius: 10px;
+    background: #F4F6F9;
+    border: 1px solid color-mix(in oklab, #0A0E14 25%, transparent);
+    box-shadow: inset 0 1px 0 #fff, 0 1px 2px rgba(0, 0, 0, .35);
+    overflow: hidden;
+    transition: box-shadow 160ms ease, border-color 160ms ease;
+}
+.censo-chapa-banda {
+    background: #0B2A6B;
+    color: #fff;
+    font-size: 8px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase;
+    text-align: center; padding: 2px 0 3px;
+}
+.censo-chapa input {
+    width: 100%; height: 52px; background: transparent; border: 0; outline: none; text-align: center;
+    color: #0A0E14; font-weight: 800; font-size: 26px; letter-spacing: 0.14em;
+    font-variant-numeric: tabular-nums;
+}
+.censo-chapa input::placeholder { color: color-mix(in oklab, #0A0E14 32%, transparent); font-weight: 700; }
+.censo-chapa:focus-within { box-shadow: inset 0 1px 0 #fff, 0 0 0 4px color-mix(in oklab, var(--accion) 30%, transparent); }
+.censo-chapa[data-tono="bien"] { border-color: var(--bien); }
+.censo-chapa[data-tono="bien"]:focus-within { box-shadow: inset 0 1px 0 #fff, 0 0 0 4px color-mix(in oklab, var(--bien) 30%, transparent); }
+.censo-chapa[data-tono="aviso"] { border-color: var(--aviso); }
+.censo-chapa[data-tono="aviso"]:focus-within { box-shadow: inset 0 1px 0 #fff, 0 0 0 4px color-mix(in oklab, var(--aviso) 30%, transparent); }
+
 /* Quien pidió menos movimiento no pide «sin respuesta»: pide que no lo muevan. Se cambia
    el deslizamiento por un fundido corto y se saca el rebote. */
 @media (prefers-reduced-motion: reduce) {
     .censo-paso { transition: opacity 180ms ease !important; transform: none !important; }
+    .censo-barrido { display: none; }
 }
 
 /* Quien pidió menos transparencia necesita la barra sólida, no más bonita. */

@@ -67,7 +67,28 @@ export type Solicitud = {
     vehiculos: VehiculoCargado[];
     servicios: ServicioCargado[];
     comentario: string;
+    /** Dónde queda el lote, si lo marcó. `null` es lo normal: es opcional. */
+    lat: number | null;
+    lng: number | null;
 };
+
+/**
+ * Un punto que sirve para poner un lote en el mapa.
+ *
+ * Se valida el RANGO y no la cercanía al barrio a propósito: el GPS de un teléfono adentro de una
+ * casa se va cuadras enteras, y rechazar por eso la ubicación de alguien que está parado en su
+ * puerta es peor que guardarla corrida —la administración la ve en la bandeja y la mueve—. Lo que
+ * sí se descarta es lo imposible: un (0,0) del Golfo de Guinea, que es lo que manda un navegador
+ * cuando el permiso se negó, y cualquier cosa que no sea un número.
+ */
+export function puntoSirve(lat: unknown, lng: unknown): { lat: number; lng: number } | null {
+    const a = Number(lat), o = Number(lng);
+    if (!Number.isFinite(a) || !Number.isFinite(o)) return null;
+    if (Math.abs(a) > 90 || Math.abs(o) > 180) return null;
+    if (Math.abs(a) < 0.0001 && Math.abs(o) < 0.0001) return null;
+    // Seis decimales son ~11 cm: más que suficiente para una casa, y no guarda ruido del GPS.
+    return { lat: Number(a.toFixed(6)), lng: Number(o.toFixed(6)) };
+}
 
 const texto = (v: unknown, max = TEXTO_MAX) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -157,8 +178,14 @@ export function validarSolicitud(x: any): { datos: Solicitud | null; errores: st
     }
 
     const comentario = texto(x?.comentario, COMENTARIO_MAX);
+    // La ubicación nunca da error: si no se entiende, se guarda la carga sin punto. Nadie se queda
+    // afuera del padrón porque el GPS del teléfono devolvió cualquier cosa.
+    const punto = puntoSirve(x?.lat, x?.lng);
     if (errores.length) return { datos: null, errores };
-    return { datos: { lote, apellido, nombre, tenencia, telefono, email, vehiculos, servicios, comentario }, errores: [] };
+    return {
+        datos: { lote, apellido, nombre, tenencia, telefono, email, vehiculos, servicios, comentario, lat: punto?.lat ?? null, lng: punto?.lng ?? null },
+        errores: [],
+    };
 }
 
 /** Una línea para la bandeja: «Lote B4 · Pérez · 3 vehículos · 2 servicios». */
