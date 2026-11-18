@@ -76,8 +76,13 @@ export async function carasDelCuadro(jpeg: Buffer, anchoPx: number, altoPx: numb
         const r = await fetch(`${url}/api/v1/detection/detect?det_prob_threshold=0.75&face_plugins=`, {
             method: "POST", body: fd, headers: { "x-api-key": detKey }, signal: AbortSignal.timeout(msMax),
         });
+        const j = await r.json().catch(() => null) as { result?: { box?: Record<string, number> }[]; code?: number } | null;
+        /* «No face is found in the given image» viene como 400 con code 28, y NO es un fallo: es
+           la respuesta «no hay nadie». Medido el 18/11 contra el portero con la puerta vacía. Si
+           esto devolviera `null`, el recuadro de referencia tampoco se dibujaría y justamente se
+           quiere ver con la puerta vacía, para ajustar la distancia. */
+        if (j?.code === 28) return [];
         if (!r.ok) return null;
-        const j = await r.json().catch(() => null) as { result?: { box?: Record<string, number> }[] } | null;
         if (!j?.result) return null;
         const W = anchoPx || 1, H = altoPx || 1;
         return j.result
