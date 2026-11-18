@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Car, Check, ClipboardList, Clock, Download, Home, Loader2, MapPin, QrCode, Users, Wrench, X } from "lucide-react";
+import { Car, Check, ClipboardList, Clock, Download, Home, Loader2, Mail, MapPin, MessageSquare, Phone, QrCode, Users, Wrench, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
-import { Cajon, CajonContenido } from "@/components/ui/cajon";
+import dynamic from "next/dynamic";
+import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Chip, Cargando, ErrorEstado } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
 import { fechaHora } from "@/lib/fechas";
@@ -32,6 +33,12 @@ const VISTAS = [
     { valor: "rechazada", rotulo: "Rechazadas" },
     { valor: "todas", rotulo: "Todas" },
 ];
+
+/* El mapa de la ficha sólo se dibuja cuando la carga TRAE punto, y entonces se centra en él:
+   este valor es el respaldo que el mapa pide y que en la práctica no se usa. */
+const CENTRO_RESPALDO: [number, number] = [-34.9011, -56.1645];
+
+const MapaPunto = dynamic(() => import("@/components/mapa/MapaPunto"), { ssr: false, loading: () => <div className="h-[190px] w-full animate-pulse rounded-[10px] bg-card" /> });
 
 const tel = (t: string) => (t.startsWith("598") ? `0${t.slice(3)}` : t).replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3");
 
@@ -132,98 +139,130 @@ export default function BandejaCenso() {
 
             </div>
 
-            <Ficha carga={abierta} alCerrar={() => setAbierta(null)} alResolver={resolver} />
+            <Ficha carga={abierta} alCerrar={() => setAbierta(null)} alResolver={resolver} centro={CENTRO_RESPALDO} />
             <CajonQr abierto={qr} alCerrar={() => setQr(false)} />
         </div>
     );
 }
 
-function Ficha({ carga, alCerrar, alResolver }: { carga: Carga | null; alCerrar: () => void; alResolver: (c: Carga, a: "aprobar" | "rechazar", motivo?: string) => Promise<void> }) {
+/**
+ * La ficha de una carga.
+ *
+ * El cuerpo va en `CajonSeccion` y no en un `div` con `space-y`: la sección trae la canaleta de
+ * 24 px, el aire de 32 entre bloques y el rótulo con su ícono, que es lo que hace que un cajón
+ * de este sistema se vea como los demás. Antes el contenido arrancaba pegado al borde mientras
+ * el título respiraba, y eso es exactamente lo que se ve como «mal alineado».
+ */
+function Ficha({ carga, alCerrar, alResolver, centro }: {
+    carga: Carga | null;
+    alCerrar: () => void;
+    alResolver: (c: Carga, a: "aprobar" | "rechazar", motivo?: string) => Promise<void>;
+    centro: [number, number];
+}) {
     const [trabajando, setTrabajando] = useState<"aprobar" | "rechazar" | null>(null);
     const [motivo, setMotivo] = useState("");
     useEffect(() => { setMotivo(""); setTrabajando(null); }, [carga?.id]);
     const hacer = async (a: "aprobar" | "rechazar") => { if (!carga) return; setTrabajando(a); try { await alResolver(carga, a, motivo); } finally { setTrabajando(null); } };
     const pendiente = carga?.estado === "pendiente";
+    const punto: [number, number] | null = carga?.lat != null && carga?.lng != null ? [carga.lat, carga.lng] : null;
 
     return (
         <Cajon open={!!carga} onOpenChange={(o) => { if (!o && !trabajando) alCerrar(); }}>
             <CajonContenido ancho="intermedio" titulo={carga ? `Lote ${carga.lote} · ${[carga.nombre, carga.apellido].filter(Boolean).join(" ")}` : ""}
                 descripcion={carga ? `${TENENCIAS.find((t) => t.id === carga.tenencia)?.rotulo} · cargado ${fechaHora(carga.createdAt)}` : ""}
                 pie={pendiente ? (
-                    <div className="flex flex-col gap-2 w-full">
-                        <Button className="h-10 w-full rounded-full" onClick={() => hacer("aprobar")} disabled={!!trabajando}>
+                    <>
+                        <Button variant="outline" onClick={() => hacer("rechazar")} disabled={!!trabajando}>
+                            {trabajando === "rechazar" ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />} Rechazar
+                        </Button>
+                        <Button onClick={() => hacer("aprobar")} disabled={!!trabajando}>
                             {trabajando === "aprobar" ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Dar de alta en el padrón
                         </Button>
-                        <button type="button" onClick={() => hacer("rechazar")} disabled={!!trabajando}
-                            className="h-10 w-full rounded-full border border-border text-[13px] font-semibold hover:bg-accent disabled:opacity-60 inline-flex items-center justify-center gap-2">
-                            {trabajando === "rechazar" ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />} Rechazar
-                        </button>
-                    </div>
+                    </>
                 ) : undefined}>
                 {carga && (
-                    <div className="space-y-4">
-                        <section className="rounded-[10px] border border-border divide-y divide-border">
-                            <Dato icono={Home} rotulo="Lote" valor={carga.lote} />
-                            <Dato icono={Users} rotulo="Teléfono" valor={tel(carga.telefono)} />
-                            {carga.email && <Dato icono={Users} rotulo="Correo" valor={carga.email} />}
-                            {/* Al aprobar, este punto completa la ubicación del lote si todavía no tenía
-                                ninguna — la que dibujó la administración sobre el plano nunca se pisa. */}
-                            {carga.lat != null && carga.lng != null && (
-                                <Dato icono={MapPin} rotulo="Ubicación que marcó" valor={`${carga.lat.toFixed(5)}, ${carga.lng.toFixed(5)}`} />
-                            )}
-                        </section>
+                    <>
+                        <CajonSeccion titulo="Quién es" icono={Users} compacta>
+                            <div className="rounded-[10px] border border-border divide-y divide-border">
+                                <Dato icono={Home} rotulo="Lote" valor={carga.lote} />
+                                <Dato icono={Phone} rotulo="Teléfono" valor={tel(carga.telefono)} />
+                                {carga.email && <Dato icono={Mail} rotulo="Correo" valor={carga.email} />}
+                            </div>
+                        </CajonSeccion>
 
-                        <section className="space-y-2">
-                            <h3 className="text-[13px] font-bold">Vehículos · {carga.vehiculos.length}</h3>
-                            {carga.vehiculos.length === 0 && <p className="text-[12.5px] text-muted-foreground">No cargó ninguno.</p>}
-                            {carga.vehiculos.map((v) => (
-                                <div key={v.chapa} className="flex items-center gap-2 rounded-[10px] border border-border px-3 py-2">
-                                    <span className="text-[14px] font-bold tracking-[0.1em] tabular-nums">{v.chapa}</span>
-                                    <span className="text-[12px] text-muted-foreground">{TIPOS_VEHICULO.find((t) => t.id === v.tipo)?.rotulo}</span>
-                                    {v.quien && <span className="text-[12px] text-muted-foreground truncate">· {v.quien}</span>}
-                                </div>
-                            ))}
-                        </section>
+                        <CajonSeccion titulo={`Vehículos · ${carga.vehiculos.length}`} icono={Car} compacta>
+                            {carga.vehiculos.length === 0
+                                ? <p className="text-[12.5px] text-muted-foreground">No cargó ninguno.</p>
+                                : (
+                                    <div className="rounded-[10px] border border-border divide-y divide-border">
+                                        {carga.vehiculos.map((v) => (
+                                            <div key={v.chapa} className="flex items-center gap-3 px-3 py-2.5">
+                                                <span className="w-[86px] shrink-0 text-[13.5px] font-bold tracking-[0.08em] tabular-nums">{v.chapa}</span>
+                                                <span className="text-[12.5px] text-muted-foreground">{TIPOS_VEHICULO.find((t) => t.id === v.tipo)?.rotulo}</span>
+                                                {v.quien && <span className="truncate text-[12.5px] text-muted-foreground">· {v.quien}</span>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                        </CajonSeccion>
 
                         {carga.servicios.length > 0 && (
-                            <section className="space-y-2">
-                                <h3 className="text-[13px] font-bold">Quién entra seguido · {carga.servicios.length}</h3>
-                                {carga.servicios.map((s, i) => (
-                                    <div key={i} className="rounded-[10px] border border-border px-3 py-2 text-[13px]">
-                                        <span className="font-semibold">{TIPOS_SERVICIO.find((t) => t.id === s.tipo)?.rotulo}</span>
-                                        {s.nombre && <span> · {s.nombre}</span>}
-                                        {!!s.dias?.length && <span className="text-muted-foreground"> · {s.dias.join(", ")}</span>}
-                                        {(s.desde || s.hasta) && <span className="text-muted-foreground tabular-nums"> · {s.desde || "?"} a {s.hasta || "?"}</span>}
-                                        {s.chapa && <span className="font-bold tabular-nums tracking-[0.08em]"> · {s.chapa}</span>}
-                                    </div>
-                                ))}
-                                <p className="text-[12px] text-muted-foreground leading-snug">
-                                    Los servicios quedan anotados en la ficha de la persona. Todavía no se convierten solos en
-                                    autorizaciones: eso se arma en Visitas, mirándolo.
-                                </p>
-                            </section>
+                            <CajonSeccion titulo={`Quién entra seguido · ${carga.servicios.length}`} icono={Wrench} compacta
+                                ayuda="Quedan anotados en la ficha de la persona. Todavía no se convierten solos en autorizaciones: eso se arma en Visitas, mirándolo.">
+                                <div className="rounded-[10px] border border-border divide-y divide-border">
+                                    {carga.servicios.map((s, i) => (
+                                        <div key={i} className="px-3 py-2.5 text-[13px]">
+                                            <span className="font-semibold">{TIPOS_SERVICIO.find((t) => t.id === s.tipo)?.rotulo}</span>
+                                            {s.nombre && <span> · {s.nombre}</span>}
+                                            {!!s.dias?.length && <span className="text-muted-foreground"> · {s.dias.join(", ")}</span>}
+                                            {(s.desde || s.hasta) && <span className="text-muted-foreground tabular-nums"> · {s.desde || "?"} a {s.hasta || "?"}</span>}
+                                            {s.chapa && <span className="font-bold tabular-nums tracking-[0.08em]"> · {s.chapa}</span>}
+                                        </div>
+                                    ))}
+                                </div>
+                            </CajonSeccion>
                         )}
+
+                        {/* La ubicación, dicha de las dos maneras: con el mapa cuando la marcó, y con una
+                            línea cuando no — que un bloque desaparezca sin explicación deja pensando si
+                            la pantalla se rompió. Al aprobar, este punto completa el lote si no tenía. */}
+                        <CajonSeccion titulo="Dónde queda el lote" icono={MapPin} compacta>
+                            {punto ? (
+                                <div className="space-y-2">
+                                    <MapaPunto punto={punto} centro={centro} soloVer alto={190} />
+                                    <p className="text-[11.5px] text-muted-foreground tabular-nums">
+                                        {punto[0].toFixed(5)}, {punto[1].toFixed(5)} · se guarda en el lote al aprobar, si todavía no tenía ubicación
+                                    </p>
+                                </div>
+                            ) : (
+                                <p className="flex items-start gap-2 text-[12.5px] leading-snug text-muted-foreground">
+                                    <MapPin size={14} className="mt-0.5 shrink-0 opacity-50" />
+                                    No marcó la ubicación: es opcional en el formulario. El lote se puede ubicar después en Mapa.
+                                </p>
+                            )}
+                        </CajonSeccion>
 
                         {carga.comentario && (
-                            <section>
-                                <h3 className="text-[13px] font-bold mb-1">Dijo</h3>
-                                <p className="text-[13px] leading-relaxed rounded-[10px] bg-muted/50 p-3">{carga.comentario}</p>
-                            </section>
+                            <CajonSeccion titulo="Dijo" icono={MessageSquare} compacta>
+                                <p className="rounded-[10px] bg-muted/50 p-3 text-[13px] leading-relaxed">{carga.comentario}</p>
+                            </CajonSeccion>
                         )}
 
-                        {pendiente ? (
-                            <label className="block">
-                                <span className="block text-[12.5px] font-semibold mb-1">Motivo, si la rechazás</span>
-                                <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ese lote ya lo cargó otra persona"
-                                    className="w-full h-10 rounded-[6px] border border-border bg-background px-2.5 text-[13px] outline-none focus:ring-2 focus:ring-[var(--accion)]/30" />
-                            </label>
-                        ) : (
-                            <p className="text-[12.5px] text-muted-foreground">
-                                {carga.estado === "aprobada" ? "Aprobada" : "Rechazada"} por {carga.revisadaPor || "alguien"} el {fechaHora(carga.revisadaAt)}.
-                                {carga.nota ? ` ${carga.nota}` : ""}
-                            </p>
-                        )}
-                    </div>
+                        <CajonSeccion titulo={pendiente ? "Si la rechazás" : "Cómo se resolvió"} icono={ClipboardList} compacta>
+                            {pendiente ? (
+                                <label className="block">
+                                    <span className="mb-1.5 block text-[12.5px] text-muted-foreground">El motivo le llega a quien la cargó.</span>
+                                    <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ese lote ya lo cargó otra persona"
+                                        className="h-10 w-full rounded-[6px] border border-border bg-background px-2.5 text-[13px] outline-none focus:border-[var(--accion)] focus:ring-2 focus:ring-[var(--accion)]/30" />
+                                </label>
+                            ) : (
+                                <p className="text-[12.5px] text-muted-foreground">
+                                    {carga.estado === "aprobada" ? "Aprobada" : "Rechazada"} por {carga.revisadaPor || "alguien"} el {fechaHora(carga.revisadaAt)}.
+                                    {carga.nota ? ` ${carga.nota}` : ""}
+                                </p>
+                            )}
+                        </CajonSeccion>
+                    </>
                 )}
             </CajonContenido>
         </Cajon>

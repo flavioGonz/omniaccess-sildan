@@ -48,7 +48,7 @@ import { cn } from "@/lib/utils";
  */
 
 /** El mapa entra sólo si lo piden: son ~40 KB de Leaflet que la mayoría no va a abrir. */
-const MapaLote = dynamic(() => import("./MapaLote"), { ssr: false, loading: () => <div className="h-[280px] w-full animate-pulse rounded-[14px] bg-card" /> });
+const MapaPunto = dynamic(() => import("@/components/mapa/MapaPunto"), { ssr: false, loading: () => <div className="h-[280px] w-full animate-pulse rounded-[10px] bg-card" /> });
 
 const PASOS = ["Tu casa", "Vehículos", "Quién entra"] as const;
 
@@ -439,7 +439,7 @@ function Ubicacion({ f, set, centro }: { f: Form; set: <K extends keyof Form>(k:
                     <motion.div key="mapa" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                         transition={RESORTE} className="overflow-hidden">
                         <div className="pt-3">
-                            <MapaLote punto={punto} centro={centro} alElegir={marcar} />
+                            <MapaPunto punto={punto} centro={centro} alElegir={marcar} />
                         </div>
                     </motion.div>
                 )}

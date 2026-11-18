@@ -51,6 +51,7 @@ import {
     ScrollText,
     Send,
     BookOpen,
+ToggleRight,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { SECCIONES_OMNIVISION } from "@/components/vision/NavOmniVision";
@@ -68,6 +69,7 @@ const DriversSection = nextDynamic(() => import("./DriversSection"), { ssr: fals
 const PlaybackSection = nextDynamic(() => import("./PlaybackSection"), { ssr: false, loading: _SLoad });
 const AccesosSection = nextDynamic(() => import("./AccesosSection"), { ssr: false, loading: _SLoad });
 const OmniLprToggle = nextDynamic(() => import("./OmniLprToggle"), { ssr: false });
+const CaracteristicasSection = nextDynamic(() => import("./CaracteristicasSection"), { ssr: false });
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -202,6 +204,10 @@ const NAV_GROUPS = [
        panel—, y alfabético dentro de cada grupo. Branding dejó de ser un menú propio y es un
        submenú del grupo Panel (`hijos`): es la cara del panel, no una familia de ajustes aparte. */
     { id: "sistema", label: "Sistema", icon: Server, items: [
+        /* Características va primera (18/11, Nico): es lo que se prende y se apaga en esta
+           instalación, y estaba repartido entre la pantalla de modos y los ajustes del modo LPR
+           aunque la mayoría no dependa de ningún modo. */
+        { sec: "caracteristicas", btab: "", label: "Características", icon: ToggleRight },
         { sec: "system_status", btab: "", label: "Estado del sistema", icon: Activity },
         { grupo: "Operación", sec: "auditoria", btab: "", label: "Auditoría", icon: ScrollText },
         { grupo: "Operación", sec: "colas", btab: "", label: "Colas y envíos", icon: Send },
@@ -444,6 +450,15 @@ export default function SettingsPage() {
                     {activeSection === "branding" && <BrandingSection activeTab={brandingTab} />}
 
 
+                    {activeSection === "caracteristicas" && (
+                        <CaracteristicasSection extra={
+                            /* Omni-LPR es una característica con su propio interruptor y su propio
+                               estado (no vive en lib/funciones todavía): estaba en «Modo de la
+                               instalación», que es justo donde Nico pidió que no esté. */
+                            <OmniLprToggle />
+                        } />
+                    )}
+
                     {activeSection === "modo" && (
                         <div className="space-y-8">
                             {/* Los módulos y sus funciones.
@@ -506,20 +521,23 @@ export default function SettingsPage() {
                                     />
                                 );
 
+                                /* El modo Matrículas no dibuja nada acá.
+                                 *
+                                 * Tenía dos bloques —el comportamiento (lista negra / blanca /
+                                 * aprendizaje) y el interruptor de Omni-LPR— y los dos sobraban en
+                                 * esta pantalla (18/11, Nico). El comportamiento se eligió una vez
+                                 * en la vida de la instalación y se mira desde la ficha de la
+                                 * matrícula; el interruptor es una característica y vive en
+                                 * Sistema → Características, con todas las demás. */
                                 if (activo.id === "MODULE_LPR") return (
-                                    <>
-                                        <ModeConfiguration
-                                            title="Comportamiento del modo Matrículas"
-                                            description="Qué hace el sistema cuando lee una chapa"
-                                            settingKey="MODE_LPR"
-                                            options={[
-                                                { id: "BLACKLIST", label: "Lista Negra", desc: "Las matrículas identificadas en lista serán DENEGADAS.", icon: ShieldAlert, color: "red" },
-                                                { id: "WHITELIST", label: "Lista Blanca", desc: "Las matrículas identificadas en lista serán PERMITIDAS.", icon: ShieldCheck, color: "emerald" },
-                                                { id: "LEARNING", label: "Aprendizaje", desc: "Agrega matrículas desconocidas a la base de datos.", icon: Activity, color: "blue" }
-                                            ]}
-                                        />
-                                        <OmniLprToggle />
-                                    </>
+                                    <div className="rounded-[var(--radius)] border border-border bg-card p-5">
+                                        <div className="text-[13px] font-semibold text-foreground">Matrículas está puesto</div>
+                                        <p className="mt-1 max-w-xl text-[11px] leading-[1.45] text-muted-foreground">
+                                            Lo que esta instalación puede prender y apagar —Omni-LPR, estadías, intrusión,
+                                            alarmas, censo— está en <span className="font-semibold text-foreground">Sistema → Características</span>.
+                                            Las matrículas permitidas y bloqueadas se administran en Usuarios y en las listas.
+                                        </p>
+                                    </div>
                                 );
 
                                 return (

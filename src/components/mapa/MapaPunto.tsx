@@ -5,7 +5,7 @@ import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 /**
- * Elegir dónde queda el lote, en el teléfono.
+ * Un punto en el mapa: elegirlo en el teléfono, o mirarlo.
  *
  * No reusa `components/LocationPicker` a propósito: ese pone un marcador de Leaflet que hay que
  * tocar o arrastrar, y las imágenes del marcador las trae de unpkg.com. Las dos cosas están mal
@@ -45,22 +45,26 @@ function Seguir({ punto }: { punto: [number, number] | null }) {
     return null;
 }
 
-export default function MapaLote({ punto, centro, alElegir }: {
+export default function MapaPunto({ punto, centro, alElegir, soloVer, alto = 280 }: {
     punto: [number, number] | null;
     /** Dónde abrir cuando todavía no hay punto: el centro del mapa del barrio. */
     centro: [number, number];
-    alElegir: (lat: number, lng: number) => void;
+    alElegir?: (lat: number, lng: number) => void;
+    /** Mirar y nada más: es lo que necesita la bandeja del censo para ver dónde marcó cada uno. */
+    soloVer?: boolean;
+    alto?: number;
 }) {
     // Sin guardia de montaje: esta pieza entra por `dynamic(..., { ssr: false })`, así que acá
     // ya hay ventana. La guardia que se usa habitualmente con Leaflet sobra y además dispara un
     // render en cascada.
     return (
-        <div className="relative h-[280px] w-full overflow-hidden rounded-[14px] border border-border">
+        <div className="relative w-full overflow-hidden rounded-[10px] border border-border" style={{ height: alto }}>
             <MapContainer center={punto || centro} zoom={punto ? ZOOM_CERCA : ZOOM_LEJOS} className="h-full w-full"
-                zoomControl={false} attributionControl={false} scrollWheelZoom={false}>
+                zoomControl={false} attributionControl={false} scrollWheelZoom={false}
+                dragging={!soloVer} doubleClickZoom={!soloVer} touchZoom={!soloVer} keyboard={!soloVer}>
                 <TileLayer attribution="&copy; Esri" maxNativeZoom={19} maxZoom={21}
                     url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
-                <AlMover alSoltar={alElegir} />
+                {alElegir && !soloVer && <AlMover alSoltar={alElegir} />}
                 <Seguir punto={punto} />
             </MapContainer>
 
@@ -73,9 +77,11 @@ export default function MapaLote({ punto, centro, alElegir }: {
                 </div>
             </div>
 
-            <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-6 text-center text-[12px] font-semibold text-white">
-                Movelo hasta tu casa
-            </p>
+            {!soloVer && (
+                <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-6 text-center text-[12px] font-semibold text-white">
+                    Movelo hasta tu casa
+                </p>
+            )}
         </div>
     );
 }
