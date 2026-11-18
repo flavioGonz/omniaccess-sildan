@@ -69,6 +69,8 @@ export const RUTAS_API: [RegExp, ClaseApi][] = [
     [/^\/api\/queue\/onvif-topics$/, P("filas.config")],
     // ── Padrón ──
     [/^\/api\/users\/[^/]+\/face$/, P("usuarios.editar")],
+    // La bandeja del censo: aprobar una carga da de alta un residente y sus matrículas.
+    [/^\/api\/censo$/, P("usuarios.editar")],
     // ── Administración ──
     [/^\/api\/(notifications\/test|push\/test|wa\/session)$/, P("notificaciones")],
     [/^\/api\/manuals$/, P("ajustes")],

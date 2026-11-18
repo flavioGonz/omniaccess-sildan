@@ -1,0 +1,58 @@
+import { NextRequest, NextResponse } from "next/server";
+import QRCode from "qrcode";
+import sharp from "sharp";
+import { getSession } from "@/app/actions/auth";
+import { getAppBranding } from "@/app/actions/settings";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * El QR del censo, hecho acá y no en una página de internet.
+ *
+ * Un QR de un formulario con datos de trescientas familias no se genera en un sitio de terceros:
+ * la URL queda en el registro de alguien más, y la imagen que se imprime no la controla nadie.
+ *
+ * `?formato=svg` para imprimir (vectorial, no se pixela en un A3) y `?formato=png` para proyectar
+ * o pegar en una placa. Corrección de errores alta (H): con el logo tapando el centro, el código
+ * se sigue leyendo aunque se pierda hasta un 30 % — y además perdona el papel doblado.
+ */
+const TAM_MAX = 2048;
+
+export async function GET(req: NextRequest) {
+    if (!(await getSession().catch(() => null))) return NextResponse.json({ error: "Hace falta iniciar sesión." }, { status: 401 });
+    const sp = req.nextUrl.searchParams;
+    const formato = sp.get("formato") === "png" ? "png" : "svg";
+    const tam = Math.min(TAM_MAX, Math.max(240, Number(sp.get("tam")) || 1024));
+    // La URL se arma con el host por el que entró quien pide el QR: es la que va a funcionar
+    // desde afuera, y no una escrita a mano que mañana cambia.
+    const origen = req.nextUrl.origin.replace(/^http:/, req.headers.get("x-forwarded-proto") === "https" ? "https:" : "http:");
+    const url = `${origen}/registro`;
+
+    const opciones = { errorCorrectionLevel: "H" as const, margin: 2, color: { dark: "#0b1220", light: "#ffffff" } };
+    if (formato === "svg") {
+        const svg = await QRCode.toString(url, { ...opciones, type: "svg", width: tam });
+        return new NextResponse(svg, { headers: { "Content-Type": "image/svg+xml", "Content-Disposition": `inline; filename="qr-censo.svg"`, "Cache-Control": "no-store" } });
+    }
+    const png = await QRCode.toBuffer(url, { ...opciones, type: "png", width: tam });
+
+    // El logo en el centro, si el barrio tiene uno cargado. Se compone acá para que la imagen que
+    // se baja ya esté lista: nadie tiene que abrir otro programa para ponerlo. Si no hay logo no se
+    // hace el hueco — un cuadrado blanco en el medio de un QR no es un diseño, es un error.
+    let salida = png;
+    try {
+        const marca = await getAppBranding();
+        if (marca.logoUrl) {
+            const r = await fetch(marca.logoUrl.startsWith("http") ? marca.logoUrl : `${origen}${marca.logoUrl}`, { signal: AbortSignal.timeout(4000) });
+            if (r.ok) {
+                const lado = Math.round(tam * 0.2);
+                const aire = Math.round(lado * 0.16);
+                const logo = await sharp(Buffer.from(await r.arrayBuffer()))
+                    .resize(lado - aire * 2, lado - aire * 2, { fit: "inside", background: { r: 255, g: 255, b: 255, alpha: 0 } })
+                    .extend({ top: aire, bottom: aire, left: aire, right: aire, background: "#ffffff" })
+                    .flatten({ background: "#ffffff" }).png().toBuffer();
+                salida = await sharp(png).composite([{ input: logo, gravity: "centre" }]).png().toBuffer();
+            }
+        }
+    } catch { /* sin logo: el QR solo, que es lo que importa */ }
+    return new NextResponse(new Uint8Array(salida), { headers: { "Content-Type": "image/png", "Content-Disposition": `inline; filename="qr-censo.png"`, "Cache-Control": "no-store" } });
+}
