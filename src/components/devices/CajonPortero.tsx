@@ -15,6 +15,10 @@ import { useConfirmar } from "@/components/ui/use-confirmar";
 import { Bloque, Campo, Etiqueta, Opcion, TT_FICHA } from "@/components/devices/CajonDispositivo";
 import { createDevice, updateDevice } from "@/app/actions/devices";
 import { fichaPortero, abrirPuertaPortero, probarPortero, ajustesVisionPortero, compararCaraPortero, type FichaPortero, type ComparacionPortero, type CaraComparada } from "@/app/actions/portero";
+import { leerCaraMin, guardarCaraMin } from "@/app/actions/caras";
+import { CARA_MIN_FRAC, CARA_MIN_RANGO } from "@/lib/caras-vivo";
+import { useSiluetasEnVivo } from "@/components/monitor/camaras/piezas";
+import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { comoAbre, MARCAS_PORTERO, ROTULO_MARCA, textoSegundos, type Puerta } from "@/lib/aperturas";
 import { DESFASAJE_AVISA_MS, diceDesfasaje } from "@/lib/acs-evento";
 import { cn } from "@/lib/utils";
@@ -155,6 +159,21 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
         finally { setAbriendo(null); }
     };
 
+    /* La distancia de captura: el alto mínimo de cara, en fracción del alto del cuadro. Se mueve
+       y se ve enseguida sobre el video; se guarda al soltar. */
+    const [caraMin, setCaraMin] = useState<number>(CARA_MIN_FRAC);
+    const [guardandoMin, setGuardandoMin] = useState(false);
+    useEffect(() => { if (id) leerCaraMin(id).then(setCaraMin).catch(() => { }); }, [id]);
+    const guardarMin = async (v: number) => {
+        if (!id) return;
+        setGuardandoMin(true);
+        try {
+            const r = await guardarCaraMin(id, v);
+            if (r.ok) { setCaraMin(r.valor); toast.success({ title: `Distancia de captura: ${Math.round(r.valor * 100)} % del alto` }); }
+            else toast.error({ title: "No se pudo guardar", description: r.error });
+        } finally { setGuardandoMin(false); }
+    };
+
     const visCambio = !!ficha && (vis.enOmniVision !== ficha.vision.enOmniVision || vis.miraCaras !== ficha.vision.miraCaras || vis.leeMatriculas !== ficha.vision.leeMatriculas);
     const comparar = async () => {
         if (!ficha) return;
@@ -176,7 +195,7 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
             <CajonContenido ancho="intermedio" tituloOculto sinCabecera titulo={f.name || device?.name || "Portero"} descripcion={`${tipo.titulo} · ${marca}`} pie={pie}>
                 <CabeceraPortero id={id} titulo={f.name || device?.name || (alta ? "Portero nuevo" : "Portero")} subtitulo={[tipo.titulo, marca, ficha?.deviceModel].filter(Boolean).join(" · ")}
                     ip={f.ip} ficha={ficha}
-                    puertas={ficha?.puertas || []} abriendo={abriendo} bloqueada={!!ficha?.soloLectura || !como.puede} onAbrir={abrir} />
+                    puertas={ficha?.puertas || []} abriendo={abriendo} bloqueada={!!ficha?.soloLectura || !como.puede} onAbrir={abrir} caraMin={caraMin} />
 
                 {!alta && error && !ficha ? (
                     <div className="px-6 py-10 text-center">
@@ -239,6 +258,27 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
                         {/* La bitácora del equipo: sólo tiene sentido en los Hikvision, que son los
                             que la saben contestar (medido el 18/11 contra un DS-K1T343MFWX). */}
                         {ficha && f.brand === "HIKVISION" && <BitacoraDelEquipo id={ficha.id} />}
+
+                        {ficha && (
+                            <Bloque titulo="Distancia de captura" icono={ScanFace}
+                                ayuda="Qué tan grande tiene que verse una cara para que el motor pueda compararla. Se dibuja sobre el video: el recuadro punteado es el mínimo, y la cara que se ve ahora sale verde si llega y ámbar si queda chica.">
+                                <div className="flex items-center gap-3">
+                                    <input type="range" min={CARA_MIN_RANGO.min * 100} max={CARA_MIN_RANGO.max * 100} step={1}
+                                        value={Math.round(caraMin * 100)}
+                                        onChange={(e) => setCaraMin(Number(e.target.value) / 100)}
+                                        onPointerUp={() => guardarMin(caraMin)} onKeyUp={() => guardarMin(caraMin)}
+                                        disabled={guardandoMin}
+                                        className="flex-1 accent-[var(--accion)]" aria-label="Alto mínimo de la cara" />
+                                    <span className="w-[86px] text-right text-[13px] font-bold tabular-nums">{Math.round(caraMin * 100)} % del alto</span>
+                                </div>
+                                <p className="text-[12px] text-muted-foreground leading-snug">
+                                    Subirlo pide que la persona esté más cerca y descarta las caras lejanas; bajarlo intenta
+                                    comparar caras más chicas, que es donde el motor empieza a confundirse. Mirá el video de
+                                    arriba mientras lo movés: lo que importa es que una persona parada frente al portero
+                                    entre en el recuadro.
+                                </p>
+                            </Bloque>
+                        )}
 
                         {ficha && (
                             <Bloque titulo="Analíticas sobre su video" icono={ScanFace} ayuda="A qué se manda el video del portero. OmniVision detecta personas y vehículos y aplica las reglas; el lector propio lee las matrículas; el modo face le pone un número a cada cara y cuenta cuántas veces vuelve. La cámara de un portero mira de cerca: es donde mejor anda el reconocimiento de rostros."
@@ -444,13 +484,20 @@ function ResultadoComparacion({ r }: { r: ComparacionPortero }) {
  * desplazarse para llegar al botón mientras alguien espera del otro lado. Ahora el botón está
  * sobre la imagen de quien toca el timbre, que es la información que hace falta para decidir.
  */
-function CabeceraPortero({ id, titulo, subtitulo, ip, ficha, puertas = [], abriendo, bloqueada, onAbrir }: {
+function CabeceraPortero({ id, titulo, subtitulo, ip, ficha, puertas = [], abriendo, bloqueada, onAbrir, caraMin }: {
     id: string | null; titulo: string; subtitulo: string; ip?: string; ficha: FichaPortero | null;
     puertas?: Puerta[]; abriendo?: number | null; bloqueada?: boolean; onAbrir?: (p: Puerta) => void;
+    /** El tamaño mínimo de cara que se está ajustando: se dibuja encima del video mientras se mueve. */
+    caraMin?: number | null;
 }) {
     const [listo, setListo] = useState(false);
     const [falla, setFalla] = useState(false);
     useEffect(() => { setListo(false); setFalla(false); }, [id]);
+    /* Lo que OmniVision ve en este portero AHORA: las siluetas y, por ser un portero, el recuadro
+       del rostro (lib/caras-vivo). Es el mismo vivo que el monitor; acá sirve para ver si la cara
+       de quien toca el timbre llega al tamaño que el motor necesita. */
+    const { analisis } = useSiluetasEnVivo(id ? `lpr_${id}` : null, !!id && listo);
+    const conMinimo = analisis ? { ...analisis, ...(caraMin != null ? { caraMin } : {}) } : null;
     const chip = "inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/45 backdrop-blur-md text-white text-[10.5px] font-bold ring-1 ring-white/10";
     return (
         <div className="sticky top-0 z-20">
@@ -465,6 +512,7 @@ function CabeceraPortero({ id, titulo, subtitulo, ip, ficha, puertas = [], abrie
                             {falla ? <span className="inline-flex items-center gap-1.5"><AlertTriangle size={14} /> Sin video del portero</span> : <span className="inline-flex items-center gap-2"><Loader2 size={15} className="animate-spin" /> Conectando el vivo…</span>}
                         </span>
                     )}
+                    {conMinimo && listo && <CapaAnalisis analisis={conMinimo} ajuste="cover" />}
                     <span className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none" />
                     <span className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/85 to-transparent pointer-events-none" />
                 </>)}

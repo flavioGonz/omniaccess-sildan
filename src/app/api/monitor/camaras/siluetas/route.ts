@@ -13,6 +13,7 @@ import { ALERTA_AMARILLA } from "@/lib/vision-capa";
 import { sostenedor, CONFIANZA_SIGUE } from "@/lib/siluetas-sosten";
 import sharp from "sharp";
 import { leerChapas } from "@/lib/lector-chapas";
+import { CARA_MIN_FRAC, TIPOS_CARA, carasDelCuadro, caraMinDe, claveCaraMin, type CaraVista } from "@/lib/caras-vivo";
 import { contradiceALaEstadia, memoriaDeChapas, type LecturaEnVivo } from "@/lib/chapas-en-vivo";
 
 /**
@@ -195,6 +196,24 @@ function conAlerta<T extends { chapa?: { plate: string } }>(objetos: T[], porCha
 const camaraDeStream = (stream: string) => stream.replace(/^(lpr|face)_/, "");
 
 /**
+ * ¿Este canal es de un portero o un control de acceso? Ahí lo que importa es la CARA, no el
+ * cuerpo, y además se dibuja el recuadro mínimo que el motor necesita para poder comparar
+ * (lib/caras-vivo). Se pregunta una vez por sesión: el tipo de un equipo no cambia mientras
+ * alguien mira su vivo.
+ */
+async function equipoDeCara(camara: string): Promise<{ si: boolean; caraMin: number }> {
+    try {
+        const d = await prisma.device.findFirst({
+            where: { OR: [{ id: camara }, { name: camara }] },
+            select: { id: true, deviceType: true },
+        });
+        if (!d || !TIPOS_CARA.includes(String(d.deviceType) as never)) return { si: false, caraMin: CARA_MIN_FRAC };
+        const v = await prisma.setting.findUnique({ where: { key: claveCaraMin(d.id) } }).catch(() => null);
+        return { si: true, caraMin: caraMinDe(v?.value) };
+    } catch { return { si: false, caraMin: CARA_MIN_FRAC }; }
+}
+
+/**
  * Lo que viaja al navegador de lo que vio omni-vision, para el vivo (GET) y la grabación (POST).
  * Lo del detector entrenado acá sólo desde el umbral de pantalla de su clase: se decide cuadro a
  * cuadro, así que el recuadro aparece cuando lo supera y se va cuando baja. Lo de fábrica
@@ -291,11 +310,27 @@ export async function GET(req: NextRequest) {
                     return contradiceALaEstadia(o.chapa, viva) ? { ...objetos[i], chapa: viva } : o;
                 });
             };
+            /** Si es un portero, el cuadro va también al detector de rostros (ver lib/caras-vivo). */
+            let cara: { si: boolean; caraMin: number } | null = null;
+            /* El tamaño del cuadro que entrega ffmpeg (ANCHO_ANALISIS por el alto que toque): hace
+               falta para normalizar las cajas de CompreFace, que vienen en píxeles. Se mide una
+               vez: no cambia mientras dure el stream. */
+            let dim: { w: number; h: number } | null = null;
             const analizar = async (jpeg: Buffer, t: number) => {
                 ocupado = true;
                 const inicio = Date.now();
                 try {
-                    const r = await fetch(`${VISION}/detectar?tarea=segmentar&grupos=${GRUPOS}&umbral=${CONFIANZA_SIGUE}`, { method: "POST", body: new Uint8Array(jpeg), headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(5000) });
+                    if (!cara) cara = await equipoDeCara(camara);
+                    if (cara.si && !dim) {
+                        const m = await sharp(jpeg).metadata().catch(() => null);
+                        dim = { w: m?.width || ANCHO_ANALISIS, h: m?.height || Math.round(ANCHO_ANALISIS * 9 / 16) };
+                    }
+                    /* Las dos consultas salen juntas: omni-vision mira el cuerpo y CompreFace la
+                       cara sobre el MISMO cuadro. En serie, el ritmo del vivo se partía al medio. */
+                    const [r, caras] = await Promise.all([
+                        fetch(`${VISION}/detectar?tarea=segmentar&grupos=${GRUPOS}&umbral=${CONFIANZA_SIGUE}`, { method: "POST", body: new Uint8Array(jpeg), headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(5000) }),
+                        cara.si ? carasDelCuadro(jpeg, dim?.w || ANCHO_ANALISIS, dim?.h || 0) : Promise.resolve(null as CaraVista[] | null),
+                    ]);
                     const j: any = await r.json().catch(() => ({}));
                     proximo = inicio + Math.max(1000 / CUADROS_POR_SEG - 15, (Date.now() - inicio) * ESPERA_POR_MS * Math.max(1, sesiones));
                     if (!r.ok) { enviar("error", { error: j.error || `omni-vision respondió ${r.status}` }); return; }
@@ -305,6 +340,7 @@ export async function GET(req: NextRequest) {
                             ancho: j.ancho, alto: j.alto, tarea: "segmentar",
                             // El tiempo en el lugar sólo en el vivo: en la grabación el cuadro es de otro momento.
                             objetos: conAlerta(await conMatriculas(conEstadia(sostener(paraPantalla(j.objetos, await ajustesDePantalla()), Date.now()), await lugaresDe(camara))), await chapasVigiladas()),
+                            ...(cara.si ? { caras: caras ?? undefined, caraMin: cara.caraMin } : {}),
                         },
                     });
                     descartados = 0;

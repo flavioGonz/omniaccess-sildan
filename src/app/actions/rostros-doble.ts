@@ -17,8 +17,8 @@ import { emparejar, resumen, type Par } from "@/lib/rostros-doble";
 const TIPOS = ["DOOR_INTERCOM", "ACCESS_CONTROL", "FACE_TERMINAL"] as const;
 /** Tope de eventos por consulta: más que esto no entra en una pantalla y tarda. */
 const MAX = 1500;
-/** La clave de la característica. Apagada, la pantalla no se ofrece. */
-export const CLAVE_DOBLE = "FACE_DOBLE_VERIFICACION";
+/** La clave de la característica. Apagada, la comparación se ve pero no decide nada. */
+const CLAVE_DOBLE = "FACE_DOBLE_VERIFICACION";
 
 export type PasadaDoble = Par & { equipoNombre: string | null };
 export type RespuestaDoble = {

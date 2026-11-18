@@ -112,6 +112,14 @@ export const COLOR_OTRO = "#e2e8f0";
 const COLOR_GEOM = "#f8fafc";
 const COLOR_TOCA = "#f43f5e";
 /**
+ * El rostro en el vivo de un portero (18/11). Verde cuando la cara alcanza el tamaño que el motor
+ * necesita para comparar y ámbar cuando no: el color ES la respuesta a «¿está a la distancia
+ * correcta?», que es para lo que se pidió. El recuadro de referencia va en blanco, como el resto
+ * de la geometría, porque es una guía y no algo que la cámara vio.
+ */
+const COLOR_CARA = "#34d399";
+const COLOR_CARA_CHICA = "#fbbf24";
+/**
  * La chapa que leyó OmniVision (Nico, 15/10: «dentro de las siluetas, la matrícula cuadrada
  * similar»): un recuadro blanco sobre la chapa misma, y debajo la chapa dibujada como una
  * Mercosur —franja azul arriba, letras negras— para que se lea como matrícula y no como rótulo.
@@ -678,6 +686,58 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                     </g>
                 );
             }); })()}
+
+            {/*
+              * Los rostros, en los canales de porteros y controles de acceso (lib/caras-vivo).
+              *
+              * Se dibujan como una mira —cuatro esquinas y un recuadro fino— y no como las
+              * siluetas: una cara no es un objeto más de la escena, es LO que ese equipo mira. El
+              * color dice si llega al tamaño que el motor necesita para comparar, y el recuadro
+              * punteado del medio es ese tamaño mínimo, para poder resolver la distancia de
+              * captura mirando en vez de probando (18/11, pedido de Nico).
+              */}
+            {!foco && analisis.caras?.map((c, i) => {
+                const [x1, y1, x2, y2] = c.caja;
+                const x = x1 * W, y = y1 * H, an = Math.max(1, (x2 - x1) * W), al = Math.max(1, (y2 - y1) * H);
+                const alcanza = (y2 - y1) >= (analisis.caraMin ?? 0);
+                const col = alcanza ? COLOR_CARA : COLOR_CARA_CHICA;
+                const t = Math.min(an, al) * 0.26;   // el largo de cada esquina
+                const fc = lado * 0.021;
+                return (
+                    <g key={`cara-${i}`} filter={`url(#sombra-${uid})`}>
+                        <rect x={x} y={y} width={an} height={al} rx={Math.min(an, al) * 0.12} fill="none"
+                            stroke={col} strokeOpacity="0.45" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+                        {[[x, y, 1, 1], [x + an, y, -1, 1], [x, y + al, 1, -1], [x + an, y + al, -1, -1]].map(([ex, ey, dx, dy], k) => (
+                            <path key={k} d={`M${ex},${ey + dy * t} L${ex},${ey} L${ex + dx * t},${ey}`} fill="none"
+                                stroke={col} strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+                        ))}
+                        {etiquetas && (
+                            <text x={x + an / 2} y={y - fc * 0.45} textAnchor="middle" filter={`url(#texto-${uid})`}
+                                style={{ fontFamily: "Outfit, system-ui, sans-serif", fontSize: fc, fontWeight: 700, fill: col }}>
+                                {Math.round((y2 - y1) * 100)} % {alcanza ? "" : "· muy chica"}
+                            </text>
+                        )}
+                    </g>
+                );
+            })}
+            {/* El tamaño mínimo, al pie y al centro: la referencia contra la que se mira la cara. */}
+            {!foco && analisis.caraMin != null && analisis.caras && (() => {
+                const al = analisis.caraMin * H, an = al * 0.78;     // una cara es más alta que ancha
+                const x = W / 2 - an / 2, y = H - al - lado * 0.035;
+                const fc = lado * 0.019;
+                return (
+                    <g opacity={0.72} filter={`url(#sombra-${uid})`}>
+                        <rect x={x} y={y} width={an} height={al} rx={an * 0.14} fill="none" stroke={COLOR_GEOM}
+                            strokeWidth={1.5} strokeDasharray="6 5" vectorEffect="non-scaling-stroke" />
+                        {etiquetas && (
+                            <text x={W / 2} y={y - fc * 0.4} textAnchor="middle" filter={`url(#texto-${uid})`}
+                                style={{ fontFamily: "Outfit, system-ui, sans-serif", fontSize: fc, fontWeight: 600, fill: COLOR_GEOM }}>
+                                mínimo para comparar
+                            </text>
+                        )}
+                    </g>
+                );
+            })()}
         </svg>
     );
 }

@@ -80,6 +80,9 @@ export const ACCIONES: Record<string, Archivo> = {
     // Las dos opiniones sobre una misma pasada (el equipo y nosotros): es una lectura, con el
     // mismo permiso que mirar los rostros.
     "rostros-doble": { defecto: P("vision.config", "rostros.listas") },
+    // La distancia de captura de un portero facial: leerla es mirar la ficha; guardarla cambia el
+    // equipo (se revisa por dentro, con el permiso de dispositivos).
+    caras: { defecto: P("dispositivos.editar"), por: { leerCaraMin: S } },
     // Abrir una puerta desde la ficha del portero: quien opera el acceso o quien administra equipos.
     // Comparar un rostro con un cuadro del portero no cambia nada: alcanza con ver dispositivos (se revisa por dentro).
     portero: { defecto: P("dispositivos.editar"), por: { abrirPuertaPortero: P("lpr.operar", "dispositivos.editar"), compararCaraPortero: S } },
