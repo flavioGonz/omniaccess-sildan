@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Car, Check, Clock, Download, Home, Loader2, MapPin, QrCode, Users, Wrench, X } from "lucide-react";
+import { Car, Check, ClipboardList, Clock, Download, Home, Loader2, MapPin, QrCode, Users, Wrench, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
@@ -67,21 +67,32 @@ export default function BandejaCenso() {
     }
 
     return (
-        <div className="p-4 sm:p-6 space-y-4 max-w-[1100px]">
-            <header className="flex items-center gap-3 flex-wrap">
-                <div>
-                    <h1 className="text-[28px] font-bold tracking-[-0.02em] leading-tight">Censo del barrio</h1>
-                    <p className="text-[13px] text-muted-foreground">
-                        Lo que carga cada lote desde el QR. Nada entra al padrón hasta que lo aprobás acá.
-                    </p>
+        /* El armazón es el de las demás pantallas del panel (Usuarios, Unidades): alto completo,
+           encabezado fijo con su barra, y el cuerpo que scrollea. Antes era un `div` con padding y
+           `max-w-[1100px]`, y con el menú plegado la pantalla no se ensanchaba: quedaba una columna
+           angosta pegada a la izquierda y media pantalla vacía. */
+        <div className="relative h-full flex flex-col overflow-hidden bg-background">
+            <header className="px-8 py-6 border-b border-border bg-card/40 backdrop-blur-md flex items-center justify-between gap-4 shrink-0">
+                <div className="flex items-center gap-4 min-w-0">
+                    <span className="w-11 h-11 shrink-0 rounded-lg bg-muted border border-border flex items-center justify-center text-muted-foreground">
+                        <ClipboardList size={20} />
+                    </span>
+                    <div className="min-w-0">
+                        <h1 className="text-2xl font-bold text-foreground">Censo del barrio</h1>
+                        <p className="text-sm text-muted-foreground mt-1 truncate">
+                            Lo que carga cada lote desde el QR. Nada entra al padrón hasta que lo aprobás acá.
+                        </p>
+                    </div>
                 </div>
-                <Button variant="outline" className="ml-auto" onClick={() => setQr(true)}><QrCode size={15} /> El QR</Button>
+                <Button variant="outline" className="shrink-0" onClick={() => setQr(true)}><QrCode size={15} /> El QR</Button>
             </header>
 
-            <div className="flex items-center gap-3 flex-wrap">
+            <div className="px-8 py-4 border-b border-border flex items-center gap-3 flex-wrap shrink-0">
                 <Filtros grupos={[{ clave: "e", titulo: "Ver", valor: vista, alElegir: setVista, opciones: VISTAS }]} />
                 {pendientes > 0 && <Chip tono="aviso">{pendientes} sin revisar</Chip>}
             </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-8 py-5 space-y-4">
 
             {error && !cargas ? <ErrorEstado mensaje={error} alReintentar={traer} />
                 : !cargas ? <Cargando texto="Trayendo la bandeja…" />
@@ -91,7 +102,7 @@ export default function BandejaCenso() {
                             <p className="text-[13px] text-muted-foreground">Todavía no hay cargas acá. El QR las trae solas.</p>
                         </div>
                     ) : (
-                        <div className="grid gap-2.5 sm:grid-cols-2">
+                        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                             {cargas.map((c) => (
                                 <button key={c.id} type="button" onClick={() => setAbierta(c)}
                                     className="text-left rounded-[10px] border border-border bg-card p-3.5 hover:bg-accent/40 transition-colors">
@@ -118,6 +129,8 @@ export default function BandejaCenso() {
                             ))}
                         </div>
                     )}
+
+            </div>
 
             <Ficha carga={abierta} alCerrar={() => setAbierta(null)} alResolver={resolver} />
             <CajonQr abierto={qr} alCerrar={() => setQr(false)} />

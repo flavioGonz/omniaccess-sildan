@@ -243,12 +243,16 @@ function Portada({ barrio }: { barrio: string }) {
                         initial={quieto ? false : { scale: 0 }} animate={{ scale: 1 }} transition={{ ...RESORTE, delay: 0.5 }} />
                     Censo de vehículos{barrio ? ` · ${barrio}` : ""}
                 </p>
-                <h1 className="censo-titulo mt-2.5 font-bold">Que el portón te conozca</h1>
+                <h1 className="censo-titulo mt-2.5 font-bold">Que la entrada te conozca</h1>
             </div>
 
             <p className="mt-4 text-[15.5px] leading-relaxed text-muted-foreground">
+                {/* Nada de «la barrera se abre sola»: San Nicolás no tiene barreras, y prometer en un
+                    formulario algo que el barrio no tiene es la peor forma de empezar. Lo que SÍ pasa en
+                    todas las instalaciones es que la cámara lee y la guardia ya sabe quién llega. */}
                 Cargá las matrículas que entran a tu casa y quién te visita seguido. La cámara las lee en la
-                entrada y la barrera se abre sola. Son dos minutos y lo hacés una sola vez.
+                entrada y la guardia ya sabe quién llega: no tenés que parar a dar explicaciones. Son dos
+                minutos y lo hacés una sola vez.
             </p>
         </header>
     );
@@ -625,8 +629,8 @@ function Gracias({ marca, lote, vehiculos, servicios, ubicado }: {
                 <div className="mx-auto mt-8 max-w-[460px] rounded-[10px] border border-border bg-card p-4 text-left">
                     <p className="flex items-center gap-2 text-[14px] font-bold"><Sparkles size={15} className="tono-accion" /> Lo que viene</p>
                     <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted-foreground">
-                        Cuando esté aprobado, el portón reconoce tu matrícula sola: no hay que llamar ni tocar nada.
-                        Lo que pase en tu entrada queda registrado con su foto.
+                        Cuando esté aprobado, la cámara reconoce tu matrícula al llegar y la guardia te ve
+                        entrar sin que tengas que avisar. Lo que pasa en tu entrada queda registrado con su foto.
                     </p>
                 </div>
             </main>

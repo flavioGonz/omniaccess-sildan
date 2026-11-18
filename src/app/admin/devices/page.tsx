@@ -1162,7 +1162,8 @@ export default function DevicesPage() {
                     setAltaInicial({ ip: d.ip, brand: d.marca || undefined, deviceType: d.tipo || undefined, name: d.nombre || undefined });
                     setDescubriendo(false); setAlta("otro");
                 }}
-                alAbrirEquipo={(id) => { const d = devices.find((x) => x.id === id); if (d) { setDescubriendo(false); abrir(d); } }} />
+                alAbrirEquipo={(id) => { const d = devices.find((x) => x.id === id); if (d) { setDescubriendo(false); abrir(d); } }}
+                alCambiarEquipos={() => { loadData(); }} />
             <ConfirmarHora equipos={pedirHora || []} health={health} open={!!pedirHora} onOpenChange={(v) => !v && setPedirHora(null)} onListo={() => setTimeout(refreshHealth, 1500)} />
             <ReactTooltip id="tt-alertas" place="top" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[60]" />
             {calibIntr && <CalibradorIntrusion device={calibIntr} onClose={() => { setCalibIntr(null); loadData(); }} />}

@@ -146,3 +146,56 @@ export function queParece(h: Pick<Hallazgo, "puertos" | "servidor" | "reino" | "
     if (tiene(22)) return { que: "Equipo con SSH", tipo: null, marca: null };
     return { que: "No se sabe", tipo: null, marca: null };
 }
+
+/**
+ * Un solo campo para decir qué barrer, en vez de tres.
+ *
+ * Nico pidió poder escribir un CIDR (18/11). En vez de sumarle un cuarto casillero al encabezado
+ * —subred, desde, hasta y ahora máscara, cuatro cosas para decir una—, el campo entiende las
+ * cuatro formas en que alguien escribe una red cuando la tiene en la cabeza:
+ *
+ *   192.168.1          toda la /24 (1 a 254)
+ *   192.168.1.0/24     lo mismo, en CIDR
+ *   192.168.1.64/26    el bloque .64–.127, sin la red ni la difusión
+ *   192.168.1.10-60    un tramo a mano
+ *   192.168.1.64       una sola dirección
+ *
+ * Devuelve siempre prefijo + tramo porque es lo que el barrido sabe hacer: una /24 por vez. Un
+ * bloque más grande que eso (/23 o menos) **no se recorta en silencio**: se avisa, porque quien
+ * escribió /22 quería mil direcciones y merece que se le diga que acá no entran, en vez de
+ * recibir sin aviso la cuarta parte de lo que pidió.
+ */
+export function leerRango(texto: string): { subred: string; desde: number; hasta: number; total: number; error?: undefined } | { error: string } {
+    const t = String(texto || "").trim().replace(/\s+/g, "").replace(/\.x$/i, "").replace(/\.\*$/, "");
+    if (!t) return { error: "Escribí una red: 192.168.1 o 192.168.1.0/24." };
+
+    const arma = (subred: string, desde: number, hasta: number) => {
+        if (!esSubredPrivada(subred)) return { error: "Sólo se pueden barrer redes privadas (10.x, 172.16–31.x, 192.168.x)." };
+        const d = Math.max(1, Math.min(254, desde)), h = Math.max(d, Math.min(254, hasta));
+        return { subred, desde: d, hasta: h, total: h - d + 1 };
+    };
+
+    const cidr = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d{1,3})\/(\d{1,2})$/.exec(t);
+    if (cidr) {
+        const [, pref, ultimo, bits] = cidr;
+        const n = Number(bits);
+        if (n < 24) return { error: `Un /${n} son ${2 ** (32 - n)} direcciones. Acá se barre una /24 por vez: probá ${pref}.0/24.` };
+        if (n > 32) return { error: "Esa máscara no existe." };
+        const tam = 2 ** (32 - n);
+        const base = Math.floor(Number(ultimo) / tam) * tam;
+        // En un bloque de más de dos direcciones, la primera es la red y la última la difusión:
+        // no contestan y pingearlas es tiempo tirado.
+        return arma(pref, tam > 2 ? base + 1 : base, tam > 2 ? base + tam - 2 : base + tam - 1);
+    }
+
+    const tramo = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d{1,3})-(\d{1,3})$/.exec(t);
+    if (tramo) return arma(tramo[1], Number(tramo[2]), Number(tramo[3]));
+
+    const una = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d{1,3})$/.exec(t);
+    if (una) return arma(una[1], Number(una[2]), Number(una[2]));
+
+    const pref = /^(\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(t);
+    if (pref) return arma(pref[1], 1, 254);
+
+    return { error: "No se entiende. Probá 192.168.1, 192.168.1.0/24 o 192.168.1.10-60." };
+}

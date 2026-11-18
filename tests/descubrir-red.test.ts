@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { direcciones, esSubredPrivada, prefijoDe, queParece, subredesSugeridas } from "@/lib/descubrir-red";
+import { direcciones, esSubredPrivada, leerRango, prefijoDe, queParece, subredesSugeridas } from "@/lib/descubrir-red";
 
 test("sólo redes privadas", () => {
     for (const ok of ["192.168.1", "10.0.0", "172.26.20", "172.16.5", "172.31.255"]) assert.equal(esSubredPrivada(ok), true, ok);
@@ -76,4 +76,25 @@ test("el reino separa cámara de grabador", () => {
 
 test("magicBox contesta y ISAPI no: Dahua", () => {
     assert.equal(queParece({ puertos: [80, 554], servidor: null, reino: null, nombre: null, habla: ["DAHUA"] }).marca, "DAHUA");
+});
+
+test("el campo de red entiende las cuatro formas de escribirla", () => {
+    assert.deepEqual(leerRango("192.168.1"), { subred: "192.168.1", desde: 1, hasta: 254, total: 254 });
+    assert.deepEqual(leerRango("192.168.1.x"), { subred: "192.168.1", desde: 1, hasta: 254, total: 254 });
+    assert.deepEqual(leerRango("192.168.1.0/24"), { subred: "192.168.1", desde: 1, hasta: 254, total: 254 });
+    // Un /26 arranca en .64 y termina en .127; sin la red ni la difusión quedan .65–.126.
+    assert.deepEqual(leerRango("192.168.1.100/26"), { subred: "192.168.1", desde: 65, hasta: 126, total: 62 });
+    assert.deepEqual(leerRango("10.0.5.10-60"), { subred: "10.0.5", desde: 10, hasta: 60, total: 51 });
+    assert.deepEqual(leerRango("172.20.3.17"), { subred: "172.20.3", desde: 17, hasta: 17, total: 1 });
+});
+
+test("un bloque más grande que una /24 se avisa, no se recorta solo", () => {
+    const r = leerRango("10.0.0.0/22") as { error: string };
+    assert.match(r.error, /1024 direcciones/);
+});
+
+test("el campo de red rechaza lo que no es una red privada", () => {
+    assert.ok((leerRango("8.8.8.0/24") as { error: string }).error);
+    assert.ok((leerRango("") as { error: string }).error);
+    assert.ok((leerRango("la red de la entrada") as { error: string }).error);
 });
