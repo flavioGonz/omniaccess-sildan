@@ -17,13 +17,9 @@ export default async function GuardPage() {
         redirect('/guard-iphone');
     }
 
-    const initialEntries = await prisma.bitacora.findMany({
-        take: 500,
-        orderBy: { timestamp: "desc" },
-        include: {
-            accessEvent: true
-        }
-    });
+    // La bitácora la pide el cliente ya filtrada por el guardia identificado (getBitacoraPage):
+    // antes se mandaban acá los 500 últimos registros de TODOS los guardias (~700 KB de HTML).
+    const initialEntries: any[] = [];
 
     const [logoSetting, headerColorSetting, iconsSetting, globalLogoSetting, guards] = await Promise.all([
         prisma.setting.findUnique({ where: { key: "GUARD_MAIN_LOGO" } }),
@@ -36,13 +32,10 @@ export default async function GuardPage() {
     // Fetch units for selection
     const units = await prisma.unit.findMany({
         orderBy: { name: "asc" },
-        include: {
-            users: {
-                include: {
-                    vehicles: true
-                }
-            }
-        }
+        select: {
+            id: true, name: true, number: true, contactName: true,
+            users: { select: { name: true, vehicles: { select: { plate: true, brand: true, model: true, color: true } } } },
+        },
     });
 
     return (

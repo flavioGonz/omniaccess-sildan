@@ -94,14 +94,7 @@ export async function getBitacoraPage(page: number = 0, pageSize: number = 20, q
     return await prisma.bitacora.findMany({
         where,
         orderBy: { timestamp: 'desc' },
-        include: {
-            accessEvent: {
-                include: {
-                    user: true,
-                    device: true
-                }
-            }
-        },
+        include: { accessEvent: { select: { id: true, device: { select: { name: true } } } } },
         skip,
         take: pageSize
     });

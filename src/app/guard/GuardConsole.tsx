@@ -15,6 +15,7 @@ import {
     ChevronRight,
     Search,
     History as HistoryIcon,
+    Timer,
     FileText,
     Bell,
     Settings,
@@ -81,7 +82,8 @@ import { sileo as toast } from "sileo";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { PanelVisitas } from "@/components/guard/PanelVisitas";
-import { avisosPendientes as avisosPendientesAccion } from "@/app/actions/visitas";
+import { avisosPendientes as avisosPendientesAccion, registrarVisitaSinLote, ultimaEntradaParaSeguimiento, datosParaRegistrar } from "@/app/actions/visitas";
+import { conAncho } from "@/lib/ancho-foto";
 import { io } from "socket.io-client";
 import { useInView } from "react-intersection-observer";
 import { saveGuardBranding, uploadBrandingFile } from "@/app/actions/settings";
@@ -879,6 +881,10 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
     const [unitSearch, setUnitSearch] = useState("");
     const [showUnitResults, setShowUnitResults] = useState(false);
     const [selectedUnit, setSelectedUnit] = useState<any>(null);
+    // "Sin lote destino": entra sin saber a qué lote va → visita con seguimiento (change visita-sin-lote).
+    const [sinLote, setSinLote] = useState(false);
+    const [sinLoteMin, setSinLoteMin] = useState(10);
+    useEffect(() => { datosParaRegistrar().then((d) => setSinLoteMin(d.sinLoteMin)).catch(() => { }); }, []);
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1052,7 +1058,8 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         setIsHistoryLoading(true);
         try {
             const nextPage = historyPage + 1;
-            const newEntries = await getBitacoraPage(nextPage, 20, historySearch, guardNameRef.current || guardName || "");
+            const yo = guardNameRef.current || guardName || "";
+            const newEntries = yo ? await getBitacoraPage(nextPage, 20, historySearch, yo) : [];
             if (newEntries.length < 20) setHasMoreHistory(false);
             setEntries(prev => [...prev, ...newEntries]);
             setHistoryPage(nextPage);
@@ -1069,7 +1076,9 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             if (activeTab === "history") {
                 setIsHistoryLoading(true);
                 try {
-                    const firstPage = await getBitacoraPage(0, 20, historySearch, guardNameRef.current || guardName || "");
+                    // Sin guardia identificado no se pide nada: sin nombre el servidor devolvería los de todos.
+                    const yo = guardNameRef.current || guardName || "";
+                    const firstPage = yo ? await getBitacoraPage(0, 20, historySearch, yo) : [];
                     setEntries(firstPage);
                     setHistoryPage(0);
                     setHasMoreHistory(firstPage.length === 20);
@@ -1079,7 +1088,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                     setIsHistoryLoading(false);
                 }
             }
-        }, 500);
+        }, historySearch ? 400 : 0);
         return () => clearTimeout(timer);
     }, [historySearch, activeTab, resyncTick]);
 
@@ -1457,7 +1466,8 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             formData.append("name", name.trim());
             formData.append("dni", dni.trim());
             formData.append("company", originType === "EMPRESA" ? company.trim() : originType);
-            formData.append("destination", selectedUnit ? selectedUnit.name + (selectedUnit.number ? ` (${selectedUnit.number})` : "") : "");
+            const conSeguimiento = sinLote && type === "ENTRY";
+            formData.append("destination", conSeguimiento ? "SIN LOTE" : selectedUnit ? selectedUnit.name + (selectedUnit.number ? ` (${selectedUnit.number})` : "") : "");
             formData.append("guardName", guardName.trim());
 
             const finalLocation = myLocation || location;
@@ -1478,10 +1488,23 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
 
             const newEntry = await createBitacoraEntry(formData);
 
+            // Sin lote destino: además del registro, una visita con cuenta atrás en Visitas y en el monitor LPR.
+            if (conSeguimiento) {
+                try {
+                    const d = await datosParaRegistrar();
+                    const tipo = d.tipos.find((t: any) => t.clave === "VISITA")?.clave || d.tipos[0]?.clave;
+                    const normal = plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+                    const lectura = await ultimaEntradaParaSeguimiento().catch(() => null);
+                    const r = tipo ? await registrarVisitaSinLote({ tipo, plate: plate.trim(), nombre: name.trim() || (originType === "EMPRESA" ? company.trim() : null), guardia: guardName.trim(), accessEventId: lectura && lectura.plate === normal ? lectura.id : null }) : { ok: false as const, error: "No hay tipos de visita activos" };
+                    if (r.ok) showNotification("SEGUIMIENTO INICIADO", `${normal}: tenés ${d.sinLoteMin} min para asignarle el lote en Visitas.`, "info", 3500);
+                    else showNotification("SIN SEGUIMIENTO", r.error, "error", 4000);
+                } catch (e: any) { showNotification("SIN SEGUIMIENTO", e?.message || "No se pudo iniciar el seguimiento", "error", 4000); }
+            }
+
             setShowSuccessOverlay(true);
             setTimeout(() => {
                 setPlate(""); setNotes(""); setName(""); setDni(""); setCompany("");
-                setSelectedUnit(null); setUnitSearch("");
+                setSelectedUnit(null); setUnitSearch(""); setSinLote(false);
                 setCapturedPhoto(null);
                 setAudioBlob(null);
                 setAudioUrl(null);
@@ -1735,7 +1758,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[300] bg-red-600/20 backdrop-blur-[2px] flex flex-col items-center justify-center"
+                        className="fixed inset-0 z-[300] bg-red-600/20-[2px] flex flex-col items-center justify-center"
                     >
                         <div className="absolute inset-0 border-[20px] border-red-600 animate-pulse pointer-events-none" />
                         <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-red-600 to-transparent flex items-center justify-center px-10">
@@ -1991,6 +2014,26 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                                 />
                                                             </div>
                                                         </div>
+                                                        {type === "ENTRY" && (
+                                                            <div className="flex justify-center">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => { playTactileSound(); setSinLote((v) => { if (!v) setSelectedUnit(null); return !v; }); }}
+                                                                    aria-pressed={sinLote}
+                                                                    className={cn("w-full max-w-xl min-h-[64px] rounded-2xl border-2 px-4 flex items-center gap-3 text-left active:scale-[0.99] transition-all",
+                                                                        sinLote ? "border-amber-500 bg-amber-50 shadow-lg shadow-amber-500/10" : "border-black/10 bg-white")}
+                                                                >
+                                                                    <span className={cn("w-11 h-11 rounded-xl grid place-items-center shrink-0", sinLote ? "bg-amber-500 text-white" : "bg-slate-100 text-black/40")}><Timer size={22} /></span>
+                                                                    <span className="flex-1 min-w-0">
+                                                                        <span className="block font-bold text-black">Sin lote destino</span>
+                                                                        <span className="block text-xs text-black/50">{sinLote ? `Entra con seguimiento: ${sinLoteMin} min para asignarle el lote en Visitas.` : "Tocá si todavía no se sabe a qué lote va."}</span>
+                                                                    </span>
+                                                                    <span className={cn("w-12 h-7 rounded-full p-1 transition-colors shrink-0", sinLote ? "bg-amber-500" : "bg-black/15")}>
+                                                                        <span className={cn("block w-5 h-5 rounded-full bg-white shadow transition-transform", sinLote ? "translate-x-5" : "")} />
+                                                                    </span>
+                                                                </button>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
 
@@ -2018,6 +2061,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                             whileTap={{ scale: 0.99 }}
                                                             onClick={() => setShowUnitPicker(true)}
                                                             className={cn(
+                                                                sinLote && "!border-amber-500 !bg-amber-50",
                                                                 "w-full h-16 md:h-24 rounded-[1.5rem] md:rounded-2xl border border-black/20 flex items-center justify-between px-6 md:px-8 transition-all relative overflow-hidden group",
                                                                 selectedUnit
                                                                     ? "bg-[#B20D30]/5 border-[#B20D30] shadow-lg shadow-[#B20D30]/5"
@@ -2039,8 +2083,8 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                                         </>
                                                                     ) : (
                                                                         <>
-                                                                            <p className="text-sm md:text-lg font-bold text-black/30 uppercase tracking-tighter">Pendiente Seleccionar</p>
-                                                                            <p className="text-[8px] md:text-[9px] font-bold text-black/20 uppercase tracking-widest">Toca para abrir el panel de unidades</p>
+                                                                            <p className={cn("text-sm md:text-lg font-bold uppercase tracking-tighter", sinLote ? "text-amber-700" : "text-black/30")}>{sinLote ? "Sin lote destino" : "Pendiente Seleccionar"}</p>
+                                                                            <p className="text-[8px] md:text-[9px] font-bold text-black/20 uppercase tracking-widest">{sinLote ? "Se asigna después desde Visitas" : "Toca para abrir el panel de unidades"}</p>
                                                                         </>
                                                                     )}
                                                                 </div>
@@ -2107,102 +2151,80 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                     )}
                                 </AnimatePresence>
 
-                                {/* UNIT PICKER OVERLAY */}
+                                {/* UNIT PICKER OVERLAY — hoja blanca, mismo estilo que Visitas (rápida: sin desenfoque ni animación por tarjeta) */}
                                 <AnimatePresence>
                                     {showUnitPicker && (
                                         <motion.div
                                             initial={{ opacity: 0 }}
                                             animate={{ opacity: 1 }}
                                             exit={{ opacity: 0 }}
-                                            className="fixed inset-0 bg-black/98 backdrop-blur-3xl z-[250] flex items-center justify-center p-6 md:p-12 lg:p-20"
+                                            transition={{ duration: 0.12 }}
+                                            className="fixed inset-0 bg-black/50 z-[250] flex items-end md:items-center justify-center"
+                                            onClick={() => setShowUnitPicker(false)}
                                         >
-                                            <div className="w-full max-w-7xl h-full flex flex-col gap-10">
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center gap-8">
-                                                        <div className="w-20 h-20 rounded-2xl bg-[#B20D30] flex items-center justify-center text-white shadow-[0_20px_60px_rgba(178,13,48,0.4)]">
-                                                            <Home size={40} />
-                                                        </div>
+                                            <motion.div
+                                                initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
+                                                transition={{ type: "spring", stiffness: 420, damping: 38 }}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="w-full md:max-w-4xl h-[88vh] bg-white rounded-t-3xl md:rounded-3xl p-5 md:p-7 flex flex-col gap-4"
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-12 h-12 rounded-2xl bg-[#B20D30] text-white grid place-items-center shrink-0"><Home size={24} /></div>
                                                         <div>
-                                                            <h2 className="text-5xl font-bold text-white uppercase tracking-tighter">Unidades y Lotes</h2>
-                                                            <p className="text-sm font-bold text-white/50 uppercase tracking-[0.4em] mt-3">Seleccione el punto de destino final</p>
+                                                            <h3 className="text-2xl font-bold text-black">Lote de destino</h3>
+                                                            <p className="text-sm text-black/50">Buscá por lote o por el nombre del residente.</p>
                                                         </div>
                                                     </div>
-                                                    <button
-                                                        onClick={() => setShowUnitPicker(false)}
-                                                        className="w-20 h-20 bg-white hover:bg-[#B20D30] rounded-2xl flex items-center justify-center text-black hover:text-white transition-all duration-500 border-2 border-white group"
-                                                    >
-                                                        <X size={40} className="group-hover:rotate-90 transition-transform duration-500" />
-                                                    </button>
+                                                    <button onClick={() => setShowUnitPicker(false)} className="grid h-12 w-12 place-items-center rounded-2xl bg-black/5 shrink-0 active:scale-95 transition-transform" aria-label="Cerrar"><X size={24} /></button>
                                                 </div>
-
-                                                <div className="flex items-center gap-10">
-                                                    <Search className="text-white/30" size={32} />
-                                                    <Input
+                                                <div className="relative">
+                                                    <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-black/30" />
+                                                    <input
                                                         value={unitSearch}
                                                         onChange={(e) => setUnitSearch(e.target.value)}
-                                                        placeholder="ESCRIBE PARA BUSCAR LOTE O CASA..."
-                                                        className="flex-1 h-20 bg-white/5 border-2 border-white/10 rounded-2xl text-3xl font-bold text-white placeholder:text-white/20 px-10 focus:border-[#B20D30] transition-all"
+                                                        placeholder="G17, Pérez…"
+                                                        className="w-full h-14 pl-11 pr-4 rounded-2xl border border-black/10 bg-black/[0.02] text-lg text-black outline-none focus:border-[#B20D30]"
                                                     />
                                                 </div>
-
-                                                <div className="flex-1 overflow-y-auto pr-6 custom-scrollbar grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-8 pb-10">
-                                                    {units.filter(u => u.name.toLowerCase().includes(unitSearch.toLowerCase()) || (u.number && u.number.toLowerCase().includes(unitSearch.toLowerCase()))).map((u) => (
-                                                        <motion.button
-                                                            key={u.id}
-                                                            whileHover={{ scale: 1.05, y: -10 }}
-                                                            whileTap={{ scale: 0.95 }}
-                                                            onClick={() => {
-                                                                setSelectedUnit(u);
-                                                                setShowUnitPicker(false);
-                                                                playTactileSound();
-
-                                                                // AUTO-FILL LOGIC
-                                                                const vehicles: any[] = [];
-                                                                if (u.users) {
-                                                                    u.users.forEach((user: any) => {
-                                                                        if (user.vehicles) {
-                                                                            user.vehicles.forEach((v: any) => vehicles.push({ ...v, ownerName: user.name }));
-                                                                        }
-                                                                    });
-                                                                }
-
-                                                                if (vehicles.length > 0) {
-                                                                    setAvailableVehicles(vehicles);
-                                                                    setShowVehiclePrompt(true);
-                                                                }
-                                                            }}
-                                                            className={cn(
-                                                                "min-h-[220px] rounded-2xl border-2 flex flex-col items-center justify-center gap-6 transition-all relative overflow-hidden group",
-                                                                selectedUnit?.id === u.id
-                                                                    ? "bg-white border-white text-black shadow-[0_30px_90px_rgba(255,255,255,0.2)]"
-                                                                    : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10 hover:border-white/30"
-                                                            )}
-                                                        >
-                                                            <div className={cn(
-                                                                "w-16 h-16 rounded-3xl flex items-center justify-center transition-all duration-500",
-                                                                selectedUnit?.id === u.id ? "bg-[#B20D30] text-white" : "bg-white/5 group-hover:bg-white/10"
-                                                            )}>
-                                                                <Home size={32} />
-                                                            </div>
-                                                            <div className="text-center px-6">
-                                                                <p className={cn(
-                                                                    "text-2xl font-bold uppercase tracking-tighter leading-none break-words line-clamp-2 transition-colors",
-                                                                    selectedUnit?.id === u.id ? "text-black" : "text-white"
-                                                                )}>{u.name}</p>
-                                                                <p className={cn(
-                                                                    "text-xs font-bold uppercase tracking-widest mt-4 transition-colors",
-                                                                    selectedUnit?.id === u.id ? "text-[#B20D30]" : "text-white/30"
-                                                                )}>{u.number || "RESIDENCIA"}</p>
-                                                            </div>
-                                                            {selectedUnit?.id === u.id && (
-                                                                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute top-6 right-6 text-[#B20D30]">
-                                                                    <CheckCircle2 size={24} fill="currentColor" stroke="white" strokeWidth={3} />
-                                                                </motion.div>
-                                                            )}
-                                                        </motion.button>
-                                                    ))}
+                                                {type === "ENTRY" && (
+                                                    <button
+                                                        onClick={() => { setSinLote(true); setSelectedUnit(null); setShowUnitPicker(false); playTactileSound(); }}
+                                                        className={cn("w-full min-h-[64px] rounded-2xl border-2 border-dashed px-4 flex items-center gap-3 text-left active:scale-[0.99] transition-transform", sinLote ? "border-amber-500 bg-amber-50" : "border-black/15 bg-white")}
+                                                    >
+                                                        <span className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 grid place-items-center shrink-0"><Timer size={20} /></span>
+                                                        <span className="flex-1 min-w-0">
+                                                            <span className="block font-bold text-black">Sin lote destino</span>
+                                                            <span className="block text-xs text-black/50">No se sabe a qué lote va: entra con seguimiento y se le asigna después en Visitas.</span>
+                                                        </span>
+                                                    </button>
+                                                )}
+                                                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain grid grid-cols-3 md:grid-cols-5 gap-2 content-start pb-4">
+                                                    {(() => {
+                                                        const q = unitSearch.trim().toLowerCase();
+                                                        const lista = units.filter((u: any) => !q || u.name.toLowerCase().includes(q) || (u.number || "").toLowerCase().includes(q) || (u.contactName || "").toLowerCase().includes(q));
+                                                        if (!lista.length) return <div className="col-span-full py-10 text-center text-black/40">Ningún lote con «{unitSearch}»</div>;
+                                                        return lista.slice(0, 150).map((u: any) => (
+                                                            <button
+                                                                key={u.id}
+                                                                onClick={() => {
+                                                                    setSelectedUnit(u);
+                                                                    setSinLote(false);
+                                                                    setShowUnitPicker(false);
+                                                                    playTactileSound();
+                                                                    const vehicles: any[] = [];
+                                                                    (u.users || []).forEach((user: any) => (user.vehicles || []).forEach((v: any) => vehicles.push({ ...v, ownerName: user.name })));
+                                                                    if (vehicles.length > 0) { setAvailableVehicles(vehicles); setShowVehiclePrompt(true); }
+                                                                }}
+                                                                className={cn("min-h-[64px] rounded-xl border-2 px-2.5 py-2 text-left active:scale-95 transition-transform", selectedUnit?.id === u.id ? "border-[#B20D30] bg-[#B20D30] text-white" : "border-black/10 bg-white text-black")}
+                                                            >
+                                                                <span className="block font-bold text-base leading-tight">{u.name}</span>
+                                                                {(u.contactName || u.number) && <span className={cn("block text-[11px] truncate mt-0.5", selectedUnit?.id === u.id ? "text-white/80" : "text-black/50")}>{u.contactName || u.number}</span>}
+                                                            </button>
+                                                        ));
+                                                    })()}
                                                 </div>
-                                            </div>
+                                            </motion.div>
                                         </motion.div>
                                     )}
                                 </AnimatePresence>
@@ -2214,7 +2236,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                             initial={{ opacity: 0 }}
                                             animate={{ opacity: 1 }}
                                             exit={{ opacity: 0 }}
-                                            className="fixed inset-0 bg-black/98 backdrop-blur-3xl z-[250] flex items-center justify-center p-6 md:p-12 lg:p-20"
+                                            className="fixed inset-0 bg-black/98 z-[250] flex items-center justify-center p-6 md:p-12 lg:p-20"
                                         >
                                             <div className="w-full max-w-5xl flex flex-col gap-10">
                                                 <div className="flex items-center justify-between">
@@ -2393,7 +2415,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                     {/* FILTER MODAL */}
                                     <AnimatePresence>
                                         {showAlertsFilterModal && (
-                                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => setShowAlertsFilterModal(false)}>
+                                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-6" onClick={() => setShowAlertsFilterModal(false)}>
                                                 <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-white rounded-2xl p-8 w-full max-w-md shadow-lg space-y-6" onClick={e => e.stopPropagation()}>
                                                     <div className="flex items-center justify-between">
                                                         <h3 className="text-xl font-bold uppercase tracking-tighter">Filtros</h3>
@@ -2480,7 +2502,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                     </div>
                                     <AnimatePresence>
                                         {showLprFilterModal && (
-                                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => setShowLprFilterModal(false)}>
+                                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center p-6" onClick={() => setShowLprFilterModal(false)}>
                                                 <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-white rounded-2xl p-8 w-full max-w-md shadow-lg space-y-6" onClick={e => e.stopPropagation()}>
                                                     <div className="flex items-center justify-between">
                                                         <h3 className="text-xl font-bold uppercase tracking-tighter">Filtros LPR</h3>
@@ -2586,16 +2608,20 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                         {activeTab === "history" && (
                             <motion.div key="history" custom={tabDir} variants={tabVariants} initial="enter" animate="center" exit="exit" transition={tabTransition} className="h-full w-full overflow-y-auto px-8 pt-6 pb-40 custom-scrollbar">
                                 <div className="max-w-7xl mx-auto space-y-8">
-                                    <div className="flex flex-col md:flex-row md:items-center justify-between sticky top-0 bg-slate-50/95 backdrop-blur-md py-6 z-30 gap-6">
+                                    <div className="flex flex-col md:flex-row md:items-center justify-between sticky top-0 bg-slate-50 py-6 z-30 gap-6">
                                         <div>
                                             <h2 className="text-3xl font-bold uppercase tracking-tighter text-black leading-none">Bitácora Digital</h2>
                                             <p className="text-[10px] text-black/40 font-bold uppercase tracking-[0.3em] mt-2">Registros de ingreso y salida en tiempo real</p>
+                                            <p className="mt-3 inline-flex items-center gap-2 rounded-xl bg-[#B20D30]/5 border border-[#B20D30]/15 px-3 py-2 text-xs text-black/70">
+                                                <UserIcon size={14} className="text-[#B20D30] shrink-0" />
+                                                <span>Ves sólo los registros de <b className="text-black">{guardName || "tu usuario"}</b>. La búsqueda filtra únicamente dentro de ellos.</span>
+                                            </p>
                                         </div>
                                         <div className="flex items-center gap-4">
                                             <div className="relative">
                                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-black/30" size={20} />
                                                 <Input
-                                                    placeholder="FILTRAR POR MATRÍCULA..."
+                                                    placeholder="BUSCAR EN MIS REGISTROS..."
                                                     className="pl-12 h-14 w-80 bg-white/40 backdrop-blur-md border border-black transition-all duration-300 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all focus:border-[#B20D30]/50 shadow-sm"
                                                     value={historySearch}
                                                     onChange={(e) => {
@@ -2607,11 +2633,22 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                     </div>
 
                                     <div className="w-full">
+                                        {entries.length === 0 && isHistoryLoading && (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                                {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-64 rounded-2xl bg-slate-100 animate-pulse" />)}
+                                            </div>
+                                        )}
+                                        {entries.length === 0 && !isHistoryLoading && (
+                                            <div className="py-20 text-center">
+                                                <HistoryIcon size={40} className="mx-auto text-black/15" />
+                                                <p className="mt-4 text-lg font-bold text-black/60">{historySearch ? `Nada con «${historySearch}» en tus registros` : "Todavía no tenés registros"}</p>
+                                                <p className="text-sm text-black/40">Los ingresos y salidas que cargues en Acceso aparecen acá.</p>
+                                            </div>
+                                        )}
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                             {entries.map((entry) => (
-                                                <motion.button
+                                                <button
                                                     key={entry.id}
-                                                    whileTap={{ scale: 0.98 }}
                                                     onClick={() => setSelectedEntry(entry)}
                                                     className="bg-white rounded-2xl border-2 border-slate-100 p-6 flex flex-col gap-5 hover:shadow-xl transition-all text-left group relative overflow-hidden"
                                                 >
@@ -2619,7 +2656,8 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                         <div className="flex items-center gap-4">
                                                             <div className="w-20 h-20 rounded-[1.5rem] bg-slate-50 overflow-hidden relative border border-black/5 shadow-inner">
                                                                 {entry.photoPath ? (
-                                                                    <Image src={entry.photoPath} alt="Entry" fill className="object-cover group-hover:scale-110 transition-transform duration-500" />
+                                                                    // eslint-disable-next-line @next/next/no-img-element
+                                                                    <img src={conAncho(entry.photoPath, 200) || entry.photoPath} alt="" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover" />
                                                                 ) : (
                                                                     <div className="w-full h-full flex items-center justify-center text-black/10">
                                                                         <Camera size={32} />
@@ -2686,14 +2724,14 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                             <ChevronRight size={16} className="text-black/10 group-hover:text-black/30 group-hover:translate-x-1 transition-all" />
                                                         </div>
                                                     </div>
-                                                </motion.button>
+                                                </button>
                                             ))}
                                         </div>
 
                                         {/* Infinite Scroll Load More Trigger */}
                                         <div ref={loadMoreRef} className="py-20 flex justify-center w-full">
                                             {isHistoryLoading && <Loader2 className="animate-spin text-[#B20D30]" size={32} />}
-                                            {!hasMoreHistory && !isHistoryLoading && (
+                                            {!hasMoreHistory && !isHistoryLoading && entries.length > 0 && (
                                                 <p className="text-[10px] font-bold uppercase tracking-[0.4em] text-black/20">Fin de la bitácora</p>
                                             )}
                                         </div>
@@ -2709,10 +2747,10 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                 {/* ENTRY DETAIL DRAWER */}
                 <AnimatePresence>
                     {selectedEntry && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-sm" onClick={() => setSelectedEntry(null)}>
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-black/60" onClick={() => setSelectedEntry(null)}>
                             <motion.div initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ type: "spring", damping: 30, stiffness: 300 }} className="absolute right-0 top-0 bottom-0 w-full max-w-lg bg-white shadow-lg overflow-y-auto" onClick={e => e.stopPropagation()}>
                                 {/* Header */}
-                                <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-xl border-b border-slate-100 p-6 flex items-center justify-between">
+                                <div className="sticky top-0 z-10 bg-white border-b border-slate-100 p-6 flex items-center justify-between">
                                     <div>
                                         <h3 className="text-xl font-bold uppercase tracking-tighter text-black">Detalle de Registro</h3>
                                         <p className="text-[10px] font-bold uppercase tracking-widest text-black/30 mt-1">
@@ -3108,7 +3146,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                 {/* BACKUP REQUEST MODAL (SENDER) */}
                 <AnimatePresence>
                     {showBackupModal && (
-                        <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-6 backdrop-blur-sm">
+                        <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-6">
                             <motion.div
                                 initial={{ scale: 0.9, opacity: 0 }}
                                 animate={{ scale: 1, opacity: 1 }}
@@ -3291,7 +3329,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                 initial={{ opacity: 0, scale: 1.1 }}
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.9 }}
-                                className="fixed inset-0 z-[1000] flex flex-col items-center justify-center p-8 backdrop-blur-3xl bg-black/80"
+                                className="fixed inset-0 z-[1000] flex flex-col items-center justify-center p-8 bg-black/80"
                             >
                                 <motion.div
                                     initial={{ opacity: 0, y: 40 }}
@@ -3369,7 +3407,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
                                 exit={{ opacity: 0 }}
-                                className="fixed inset-0 z-[2000] bg-black/90 backdrop-blur-xl flex items-center justify-center"
+                                className="fixed inset-0 z-[2000] bg-black/90 flex items-center justify-center"
                                 onClick={() => setViewerImage(null)}
                             >
                                 <motion.button
@@ -3605,7 +3643,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
                                 exit={{ opacity: 0 }}
-                                className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6"
+                                className="fixed inset-0 z-[3000] bg-black/80 flex items-center justify-center p-6"
                                 onClick={() => {
                                     setShowNormalizationModal(false);
                                     setNormalizationText("");
@@ -3676,7 +3714,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6"
+                            className="fixed inset-0 z-[3000] bg-black/80 flex items-center justify-center p-6"
                             onClick={() => setShowGuardList(false)}
                         >
                             <motion.div
@@ -3763,7 +3801,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6"
+                            className="fixed inset-0 z-[3000] bg-black/80 flex items-center justify-center p-6"
                             onClick={() => setShowSettingsModal(false)}
                         >
                             <motion.div
@@ -4063,7 +4101,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[4500] bg-black/60 backdrop-blur-md flex items-center justify-center p-8"
+                        className="fixed inset-0 z-[4500] bg-black/60 flex items-center justify-center p-8"
                         onClick={() => setShowSearchFillModal(false)}
                     >
                         <motion.div
@@ -4186,7 +4224,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[3100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6"
+                        className="fixed inset-0 z-[3100] bg-slate-950/80 flex items-center justify-center p-6"
                         onClick={() => setPlateAnalysis(null)}
                     >
                         <motion.div
@@ -4676,7 +4714,7 @@ function NotificationOverlay({ type, title, message, onClose }: { type: string, 
             exit={{ opacity: 0 }}
             onClick={onClose}
             className={cn(
-                "fixed inset-0 z-[1000] flex flex-col items-center justify-center p-8 backdrop-blur-md transition-colors duration-500",
+                "fixed inset-0 z-[1000] flex flex-col items-center justify-center p-8 transition-colors duration-500",
                 type === "success" ? "bg-emerald-600/95" : "bg-[#B20D30]/95"
             )}
         >
