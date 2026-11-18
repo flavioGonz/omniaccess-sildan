@@ -56,6 +56,15 @@ type Fila = {
     /** Solo en las salidas: cuánto estuvo adentro desde su propia entrada. */
     permanencia: number | null;
     /**
+     * Qué CLASE de equipo lo registró (LPR_CAMERA, DOOR_INTERCOM, FACE_TERMINAL…).
+     *
+     * 18/11, Nico: la ficha de un paso por el portero mostraba una chapa «SIN LEER» y «SIN MARCA».
+     * En un portero facial no hay matrícula que buscar, así que ese bloque no dice nada: dice que
+     * faltó algo que nunca iba a estar. El visor necesita saber de qué equipo viene el evento para
+     * dibujar el rostro en lugar de la chapa.
+     */
+    tipoEquipo?: string | null;
+    /**
      * Solo en las entradas permitidas: cuándo salió ese vehículo después de esta entrada.
      * `null` con `adentro: true` es "sigue adentro" y el contador de la tabla corre en vivo;
      * `adentro: false` sin salida es una entrada vieja a la que nunca se le registró la
@@ -462,7 +471,7 @@ export async function GET(req: NextRequest) {
                 },
                 orderBy: { timestamp: "desc" },
                 take: cuantas,
-                include: { user: { select: { name: true } }, device: { select: { name: true } } },
+                include: { user: { select: { name: true } }, device: { select: { name: true, deviceType: true } } },
             })
             : Promise.resolve([] as any[]),
         pedirTrack
@@ -669,6 +678,14 @@ export async function GET(req: NextRequest) {
     const tiposObjetos = new Map(idsObj.length ? (await prisma.device.findMany({ where: { id: { in: idsObj } }, select: { id: true, deviceType: true } })).map((d) => [d.id, String(d.deviceType)]) : []);
     // Cuántos disparos sin vehículo quedaron afuera en el período (sólo en la primera página): la
     // pantalla lo dice, para que no parezca que la cámara no mandó nada.
+    /* El tipo de equipo de cada fila, en una sola consulta: el visor lo usa para saber si dibuja
+       una chapa o un rostro (ver el comentario del campo en `Fila`). */
+    const idsEquipos = [...new Set(pagina.map((f) => f.deviceId).filter(Boolean) as string[])];
+    if (idsEquipos.length) {
+        const tipos = new Map((await prisma.device.findMany({ where: { id: { in: idsEquipos } }, select: { id: true, deviceType: true } }))
+            .map((d) => [d.id, String(d.deviceType)]));
+        for (const f of pagina) if (f.deviceId) f.tipoEquipo = tipos.get(f.deviceId) || null;
+    }
     const ocultosSinVehiculo = sinVehiculo === "ocultar" && pedirAccesos && skip === 0
         ? await prisma.accessEvent.count({ where: { ...porFecha, sinVehiculo: true, plateDetected: { in: NO_LEIDAS_SQL } } }).catch(() => 0)
         : 0;

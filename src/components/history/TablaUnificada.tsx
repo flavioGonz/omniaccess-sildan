@@ -55,6 +55,8 @@ export type FilaHistorial = {
     salida?: string | null;
     adentro?: boolean;
     raw: any | null;
+    /** Qué clase de equipo lo registró: decide si la ficha abre con la chapa o con el rostro. */
+    tipoEquipo?: string | null;
     /** Lo que vio OmniVision en la foto, si la lectura ya se analizó (sólo accesos). */
     vision?: VisionFila | null;
     /** La empresa (delivery, taxi…) de esa matrícula a esa hora, con su logo. */
@@ -1057,6 +1059,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                            visor es uno solo: dibuja lo que le llega y omite lo que no. */
                         direccion: viendo.sentido,
                         tipoAcceso: viendo.raw?.accessType || null,
+                        tipoEquipo: viendo.tipoEquipo || null,
                         detalles: viendo.detalles,
                         permanenciaMs: viendo.permanencia != null ? viendo.permanencia * 1000 : null,
                         rostroUrl: viendo.raw?.user?.cara || null,

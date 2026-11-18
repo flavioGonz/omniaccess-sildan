@@ -83,6 +83,11 @@ export type CuadroAvistamiento = {
     direccion?: string | null;
     /** PLATE | FACE | TAG. Con qué se identificó. */
     tipoAcceso?: string | null;
+    /**
+     * Qué CLASE de equipo lo registró. Un portero o un terminal facial no tiene matrícula que
+     * buscar: la ficha abre con el rostro y no con una chapa «SIN LEER» (18/11).
+     */
+    tipoEquipo?: string | null;
     /** Cuánto estuvo adentro, si esto es una salida y se pudo calcular. */
     permanenciaMs?: number | null;
     /** El rostro capturado, cuando el acceso fue por cara. */
@@ -652,6 +657,15 @@ export function VisorCuadro({
      * conoce el sistema, cuánto se parece al padrón y qué tan buena salió la captura.
      */
     const esRostro = String(fila.tipoAcceso || "").toUpperCase() === "FACE";
+    /*
+     * Los equipos que miran personas, no vehículos. En uno de estos la ficha abre con el rostro
+     * aunque el evento no sea un acceso por cara: un paso detectado por OmniVision frente al
+     * portero mostraba «SIN LEER / SIN MARCA / esta matrícula no está en el padrón», tres renglones
+     * hablando de algo que en ese equipo no existe. Si además hubo una chapa leída, se muestra
+     * igual debajo: un auto frente al portero se lee y eso sigue valiendo.
+     */
+    const equipoDePersonas = ["DOOR_INTERCOM", "ACCESS_CONTROL", "FACE_TERMINAL"].includes(String(fila.tipoEquipo || ""));
+    const abreConRostro = esRostro || equipoDePersonas;
     const dr = useMemo(() => (esRostro ? leerDetalleRostro(fila.detalles) : null), [esRostro, fila.detalles]);
     const calidadCara = dr ? calidadRostro(dr.deteccion, dr.caraFrac) : null;
     /** El nombre de la cámara como se lee: en la base está con las entidades de HTML («Ext. -&gt; Cairoli»). */
@@ -1116,26 +1130,36 @@ export function VisorCuadro({
                     (acercado || limpio) && "opacity-0 pointer-events-none",
                 )}>
                 <div className="my-auto flex flex-col gap-3 py-2 visor-sombra-texto">
-                    {esRostro ? (
-                        /* Acceso por rostro: la cara y quién es. Ni chapa ni marca: en este evento no hay vehículo. */
+                    {abreConRostro ? (<>
+                        {/* Equipo de personas: la cara y quién es. La chapa sólo si de verdad se leyó una. */}
                         <div className="flex items-center gap-4">
                             {rostro
                                 /* eslint-disable-next-line @next/next/no-img-element */
                                 ? <img src={rostro} alt="" width={104} height={104} className="w-[104px] h-[104px] rounded-[14px] object-cover border border-white/25 bg-black shrink-0" />
                                 : <span className="w-[104px] h-[104px] rounded-[14px] grid place-items-center bg-white/10 border border-white/20 text-white/60 shrink-0"><ScanFace size={36} /></span>}
                             <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-white/60"><ScanFace size={12} /> Reconocimiento facial</div>
-                                <h2 className="mt-1 text-2xl md:text-[28px] font-bold text-white leading-tight truncate">{dueno?.nombre || dr?.nombre || "Desconocido"}</h2>
+                                <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-white/60"><ScanFace size={12} /> {rostro || esRostro ? "Reconocimiento facial" : "Paso frente al equipo"}</div>
+                                <h2 className="mt-1 text-2xl md:text-[28px] font-bold text-white leading-tight truncate">
+                                    {dueno?.nombre || dr?.nombre || (rostro || esRostro ? "Desconocido" : "Sin rostro")}
+                                </h2>
                                 <p className="mt-1 text-[12.5px] text-white/70 tabular-nums">
                                     {fila.similitud != null
                                         ? <><span className={cn("font-bold", fila.similitud >= 85 ? "visor-bien" : fila.similitud >= 65 ? "visor-aviso" : "visor-mal")}>{Math.round(fila.similitud)} %</span> de parecido con {dueno ? "su foto del padrón" : "lo más parecido del padrón"}</>
-                                        : "Sin comparación con el padrón"}
+                                        : rostro || esRostro ? "Sin comparación con el padrón" : "El equipo no guardó una cara en este paso."}
                                 </p>
                                 {/* Una cara que el sistema ya vio sin que nadie la registrara (R-0008): cuántas veces. */}
                                 {!dueno && dr?.veces != null && dr.veces > 1 && <p className="text-[12px] text-white/55 tabular-nums">Vista {dr.veces} veces por las cámaras</p>}
                             </div>
                         </div>
-                    ) : (<>
+                        {/* Un vehículo frente al portero sí se lee: si hubo chapa, va abajo y en chico. */}
+                        {chapaVisor.plate && !esSinLectura(chapaVisor.plate) && (
+                            <div className="flex items-center gap-3">
+                                <ChapaMercosur plate={textoChapa(chapaVisor)} omnivision={chapaVisor.omni ? datos?.relectura : undefined}
+                                    conocida={conocida && !datos?.porRelectura} onCopiar={copiar} />
+                                {copiada && <span className="text-[11px] font-semibold text-white/70">copiada</span>}
+                            </div>
+                        )}
+                    </>) : (<>
                     <div className="flex items-center gap-3">
                         {/* Una NO_LEIDA lleva la chapa que leyó OmniVision, con su marca en la banda. */}
                         <ChapaMercosur plate={chapaVisor.plate ? textoChapa(chapaVisor) : esSinLectura(fila.plate) ? "SIN LEER" : fila.plate}
@@ -1223,8 +1247,8 @@ export function VisorCuadro({
                             <div className="flex items-center justify-between gap-3 py-0.5">
                                 {/* Lo que dice la chapa sola (18/10, Nico: «dar una mejor descripción a desconocidos»). */}
                                 <span className="text-[12.5px] text-white/60">
-                                    {esRostro ? (dr?.nombre && dr.identidad !== "padron" ? <>No está en el padrón. El sistema la conoce como <b className="text-white/90">{dr.nombre}</b>.</> : "Esta persona no está en el padrón.") : null}
-                                    {!esRostro && (() => { const l = chapaVisor.plate ? leerChapa(chapaVisor.plate) : null; return l && (l.categoria || l.extranjera) ? <>No está en el padrón. <b className="text-white/90">{l.frase}</b>{l.confianza === "probable" ? " (probable)" : ""}.</> : "Esta matrícula no está en el padrón."; })()}
+                                    {abreConRostro ? (dr?.nombre && dr.identidad !== "padron" ? <>No está en el padrón. El sistema la conoce como <b className="text-white/90">{dr.nombre}</b>.</> : rostro || esRostro ? "Esta persona no está en el padrón." : "Nadie quedó identificado en este paso.") : null}
+                                    {!abreConRostro && (() => { const l = chapaVisor.plate ? leerChapa(chapaVisor.plate) : null; return l && (l.categoria || l.extranjera) ? <>No está en el padrón. <b className="text-white/90">{l.frase}</b>{l.confianza === "probable" ? " (probable)" : ""}.</> : "Esta matrícula no está en el padrón."; })()}
                                 </span>
                                 {/* Con la chapa que se ve (la releída, en una NO_LEIDA). Sin chapa no hay qué dar de alta. */}
                                 {/* Lista negra al lado de Registrar (19/10, Nico): son las dos decisiones sobre
@@ -1274,7 +1298,9 @@ export function VisorCuadro({
                         </Seccion>
                     )}
 
-                    {!esRostro && (conf != null || fila.reads != null || recuadro || vehiculoCamara) && (
+                    {/* «Según la cámara» habla de la LECTURA de la chapa: en un portero sin chapa leída
+                        no hay nada que contar ahí (18/11). Con chapa, se muestra igual. */}
+                    {(!abreConRostro || (chapaVisor.plate && !esSinLectura(chapaVisor.plate))) && (conf != null || fila.reads != null || recuadro || vehiculoCamara) && (
                         <Seccion titulo="Según la cámara" icono={Camera}>
                             <dl>
                                 {(conf != null || fila.reads != null) && (
@@ -1482,7 +1508,20 @@ export function VisorCuadro({
                 {/* Buscar parecidos baja como persiana DENTRO de esta ventana (antes era otra ventana a la derecha). */}
                 <AnimatePresence>
                     {parecidos && fila.snapshotUrl && (
-                        <BuscarParecidos key="parecidos" foto={fila.snapshotUrl} instanteMs={new Date(fila.timestamp).getTime()} chapa={chapaVisor.plate || fila.plate || null} onCerrar={() => setParecidos(false)}
+                        /*
+                         * En un portero la búsqueda arranca por la PERSONA, no por el vehículo
+                         * (18/11, Nico: «el botón de buscar parecidos en este tipo de eventos debe
+                         * adaptarse, actualmente no anda»). Buscaba el objeto más grande del cuadro
+                         * —que frente a un portero es el marco de la puerta o un auto de la calle— y
+                         * comparaba contra una chapa que no existe. Ahora se limita a personas y
+                         * entra con la persona que OmniVision ya marcó en esta foto.
+                         */
+                        <BuscarParecidos key="parecidos" foto={fila.snapshotUrl} instanteMs={new Date(fila.timestamp).getTime()}
+                            chapa={abreConRostro && !chapaVisor.plate ? null : (chapaVisor.plate || fila.plate || null)}
+                            grupo={abreConRostro && !chapaVisor.plate ? "persona" : undefined}
+                            cajaInicial={abreConRostro ? (datos?.vision?.objetos || []).find((o) => o.grupo === "persona")?.caja ?? null : null}
+                            titulo={abreConRostro && !chapaVisor.plate ? "Buscar esta persona" : undefined}
+                            onCerrar={() => setParecidos(false)}
                             onVerGrabacion={(deviceId, ms, camara) => setGrabacionDe({ deviceId, ms, camara })} />
                     )}
                 </AnimatePresence>

@@ -175,7 +175,8 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
         <Cajon open={open} onOpenChange={(x) => { if (!guardando && abriendo == null) onOpenChange(x); }}>
             <CajonContenido ancho="intermedio" tituloOculto sinCabecera titulo={f.name || device?.name || "Portero"} descripcion={`${tipo.titulo} · ${marca}`} pie={pie}>
                 <CabeceraPortero id={id} titulo={f.name || device?.name || (alta ? "Portero nuevo" : "Portero")} subtitulo={[tipo.titulo, marca, ficha?.deviceModel].filter(Boolean).join(" · ")}
-                    ip={f.ip} ficha={ficha} />
+                    ip={f.ip} ficha={ficha}
+                    puertas={ficha?.puertas || []} abriendo={abriendo} bloqueada={!!ficha?.soloLectura || !como.puede} onAbrir={abrir} />
 
                 {!alta && error && !ficha ? (
                     <div className="px-6 py-10 text-center">
@@ -195,7 +196,7 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
                                     <p className="text-[12.5px] text-muted-foreground flex items-start gap-1.5"><AlertTriangle size={14} className="mt-0.5 shrink-0 tono-aviso" /> {como.nota}</p>
                                 ) : (
                                     <div className="space-y-2">
-                                        {ficha.puertas.map((p) => <FilaPuerta key={p.n} p={p} abriendo={abriendo === p.n} bloqueada={ficha.soloLectura || !como.puede || (abriendo != null && abriendo !== p.n)} resultado={resultados[p.n]} onAbrir={() => abrir(p)} />)}
+                                        {ficha.puertas.map((p) => <FilaPuerta key={p.n} p={p} resultado={resultados[p.n]} />)}
                                     </div>
                                 )}
                                 {/* Si la marca no informa sus relés (Akuvox), lo dice la nota de abajo: acá sólo el fallo de lectura. */}
@@ -348,7 +349,8 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
 }
 
 /** Una puerta del equipo: qué es, cuánto queda abierta, qué acepta, y el botón para abrirla. */
-function FilaPuerta({ p, abriendo, bloqueada, resultado, onAbrir }: { p: Puerta; abriendo: boolean; bloqueada: boolean; resultado?: Resultado; onAbrir: () => void }) {
+/** Lo que el equipo declara de una puerta. El botón de abrir ya no vive acá: está sobre el video. */
+function FilaPuerta({ p, resultado }: { p: Puerta; resultado?: Resultado }) {
     const I = p.clase === "rele" ? Zap : DoorClosed;
     // «Relé A · Relé» no dice nada: la clase se escribe sólo cuando el nombre no la trae.
     const detalle = [/^rel[eé]/i.test(p.nombre) ? null : p.clase === "rele" ? "Relé" : "Cerradura", p.segundos ? `queda abierta ${textoSegundos(p.segundos)}` : null].filter(Boolean).join(" · ");
@@ -362,7 +364,6 @@ function FilaPuerta({ p, abriendo, bloqueada, resultado, onAbrir }: { p: Puerta;
                     {detalle && <span className="block text-[11.5px] text-muted-foreground leading-snug">{detalle}</span>}
                     {acepta.length > 0 && <span className="block text-[11.5px] text-muted-foreground leading-snug">Acepta: {acepta.join(", ")}.</span>}
                 </span>
-                <Button variant="outline" size="sm" onClick={onAbrir} disabled={bloqueada || abriendo} className="gap-1.5 shrink-0">{abriendo ? <Loader2 size={14} className="animate-spin" /> : <DoorOpen size={14} />} {abriendo ? "Abriendo…" : "Abrir"}</Button>
             </div>
             {resultado && (
                 <p className={cn("mt-2 text-[12px] flex items-start gap-1.5", resultado.ok ? "tono-bien" : "tono-mal")}>
@@ -434,8 +435,19 @@ function ResultadoComparacion({ r }: { r: ComparacionPortero }) {
     );
 }
 
-/** El video del portero arriba (es lo que ve quien toca el timbre). En el alta, sin equipo todavía, una franja con el título. */
-function CabeceraPortero({ id, titulo, subtitulo, ip, ficha }: { id: string | null; titulo: string; subtitulo: string; ip?: string; ficha: FichaPortero | null }) {
+/**
+ * El video del portero arriba (es lo que ve quien toca el timbre), y ENCIMA los botones de abrir.
+ *
+ * 18/11, Nico: «los controles de apertura de puertas serán iconos overlay al video para achicar
+ * el scroll del drawer». Abrir es lo único que se hace con urgencia en esta ficha y estaba abajo
+ * de todo, detrás de una lista con el nombre, el número y las órdenes de cada puerta: había que
+ * desplazarse para llegar al botón mientras alguien espera del otro lado. Ahora el botón está
+ * sobre la imagen de quien toca el timbre, que es la información que hace falta para decidir.
+ */
+function CabeceraPortero({ id, titulo, subtitulo, ip, ficha, puertas = [], abriendo, bloqueada, onAbrir }: {
+    id: string | null; titulo: string; subtitulo: string; ip?: string; ficha: FichaPortero | null;
+    puertas?: Puerta[]; abriendo?: number | null; bloqueada?: boolean; onAbrir?: (p: Puerta) => void;
+}) {
     const [listo, setListo] = useState(false);
     const [falla, setFalla] = useState(false);
     useEffect(() => { setListo(false); setFalla(false); }, [id]);
@@ -470,10 +482,27 @@ function CabeceraPortero({ id, titulo, subtitulo, ip, ficha }: { id: string | nu
                     <CajonCerrar className="shrink-0 h-9 w-9 rounded-full bg-black/45 hover:bg-black/70 backdrop-blur-md text-white grid place-items-center ring-1 ring-white/15 transition-colors" aria-label="Cerrar"><X size={17} /></CajonCerrar>
                 </div>
                 {id && (
-                    <div className="absolute left-4 right-4 bottom-3 flex items-center gap-1.5 flex-wrap">
-                        {ip && <span className={cn(chip, "font-mono")}><Network size={11} /> {ip}</span>}
-                        {ficha && <span className={cn(chip, ficha.enLinea ? "!bg-emerald-600/80" : "!bg-red-600/80")}>{ficha.enLinea ? <Check size={11} /> : <AlertTriangle size={11} />} {ficha.enLinea ? "Contesta" : "Sin respuesta"}</span>}
-                        {ficha && ficha.puertas.length > 0 && <span className={chip}><DoorClosed size={11} /> {ficha.puertas.length === 1 ? "1 puerta" : `${ficha.puertas.length} puertas`}{ficha.puertasLeidas ? "" : " (sin leer)"}</span>}
+                    <div className="absolute left-4 right-4 bottom-3 flex items-end justify-between gap-3">
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                            {ip && <span className={cn(chip, "font-mono")}><Network size={11} /> {ip}</span>}
+                            {ficha && <span className={cn(chip, ficha.enLinea ? "!bg-emerald-600/80" : "!bg-red-600/80")}>{ficha.enLinea ? <Check size={11} /> : <AlertTriangle size={11} />} {ficha.enLinea ? "Contesta" : "Sin respuesta"}</span>}
+                            {ficha && ficha.puertas.length > 0 && <span className={chip}><DoorClosed size={11} /> {ficha.puertas.length === 1 ? "1 puerta" : `${ficha.puertas.length} puertas`}{ficha.puertasLeidas ? "" : " (sin leer)"}</span>}
+                        </div>
+                        {/* Abrir, sobre el video. Una puerta: el botón la nombra. Varias: una por una. */}
+                        {puertas.length > 0 && onAbrir && (
+                            <div className="flex items-center gap-2 shrink-0">
+                                {puertas.map((p) => (
+                                    <button key={p.n} type="button" onClick={() => onAbrir(p)} disabled={bloqueada || abriendo != null}
+                                        {...{ "data-tooltip-id": TT_FICHA, "data-tooltip-content": bloqueada ? "Desde este servidor este equipo es de sólo lectura" : `Abrir «${p.nombre}»${p.segundos ? ` · queda abierta ${textoSegundos(p.segundos)}` : ""}` }}
+                                        className={cn("inline-flex items-center gap-1.5 h-9 px-3.5 rounded-[10px] text-[12.5px] font-bold text-white transition-colors",
+                                            "bg-[var(--accion)]/90 hover:bg-[var(--accion)] ring-1 ring-white/20 backdrop-blur-md",
+                                            "disabled:opacity-45 disabled:hover:bg-[var(--accion)]/90")}>
+                                        {abriendo === p.n ? <Loader2 size={15} className="animate-spin" /> : <DoorOpen size={15} />}
+                                        <span className="max-w-[112px] truncate">{abriendo === p.n ? "Abriendo…" : puertas.length === 1 ? "Abrir" : p.nombre}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
