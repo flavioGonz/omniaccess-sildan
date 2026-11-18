@@ -73,6 +73,8 @@ export const RUTAS_API: [RegExp, ClaseApi][] = [
     [/^\/api\/censo$/, P("usuarios.editar")],
     // Las invitaciones: cargar la planilla y mandar los correos con la clave de cada lote.
     [/^\/api\/censo\/invitaciones$/, P("usuarios.editar")],
+    // Traer la bitácora de un control de acceso al historial: lee el equipo y escribe acá.
+    [/^\/api\/devices\/bitacora$/, P("dispositivos.editar")],
     // ── Administración ──
     [/^\/api\/(notifications\/test|push\/test|wa\/session)$/, P("notificaciones")],
     [/^\/api\/manuals$/, P("ajustes")],

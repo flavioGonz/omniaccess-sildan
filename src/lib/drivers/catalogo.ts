@@ -52,8 +52,8 @@ export type Soporte = {
 export const SOPORTE: Soporte[] = [
     {
         marca: "HIKVISION", rotulo: "Hikvision", estado: "andando",
-        hace: ["lpr", "rostro", "bitacora", "relé", "video", "usuarios", "sesiones"],
-        nota: "Es la marca sobre la que se construyó el sistema y la que más cosas tiene probadas. Hoy es la única que sabe cargarle matrículas a un equipo.",
+        hace: ["lpr", "rostro", "rfid", "bitacora", "relé", "video", "usuarios", "sesiones"],
+        nota: "Es la marca sobre la que se construyó el sistema y la que más cosas tiene probadas. Hoy es la única que sabe cargarle matrículas a un equipo. Sus controles de acceso y porteros (medidos el 18/11 contra un DS-K1T343MFWX y un DS-KV9503-WBE1) manejan tarjetas y rostros por ISAPI, y la bitácora del terminal se trae al historial. El portero NO tiene bitácora para consultar: avisa en el momento y hay que escucharlo.",
     },
     {
         marca: "AKUVOX", rotulo: "Akuvox", estado: "andando",

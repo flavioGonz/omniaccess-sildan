@@ -16,6 +16,7 @@ import { Bloque, Campo, Etiqueta, Opcion, TT_FICHA } from "@/components/devices/
 import { createDevice, updateDevice } from "@/app/actions/devices";
 import { fichaPortero, abrirPuertaPortero, probarPortero, ajustesVisionPortero, compararCaraPortero, type FichaPortero, type ComparacionPortero, type CaraComparada } from "@/app/actions/portero";
 import { comoAbre, MARCAS_PORTERO, ROTULO_MARCA, textoSegundos, type Puerta } from "@/lib/aperturas";
+import { DESFASAJE_AVISA_MS, diceDesfasaje } from "@/lib/acs-evento";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 
@@ -230,6 +231,10 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
                                 )}
                             </Bloque>
                         )}
+
+                        {/* La bitácora del equipo: sólo tiene sentido en los Hikvision, que son los
+                            que la saben contestar (medido el 18/11 contra un DS-K1T343MFWX). */}
+                        {ficha && f.brand === "HIKVISION" && <BitacoraDelEquipo id={ficha.id} />}
 
                         {ficha && (
                             <Bloque titulo="Analíticas sobre su video" icono={ScanFace} ayuda="A qué se manda el video del portero. OmniVision detecta personas y vehículos y aplica las reglas; el lector propio lee las matrículas; el modo face le pone un número a cada cara y cuenta cuántas veces vuelve. La cámara de un portero mira de cerca: es donde mejor anda el reconocimiento de rostros."
@@ -470,5 +475,76 @@ function CabeceraPortero({ id, titulo, subtitulo, ip, ficha }: { id: string | nu
                 )}
             </div>
         </div>
+    );
+}
+
+
+/**
+ * Traer al historial lo que el equipo guardó: quién pasó, con qué y cuándo.
+ *
+ * Hasta ahora eso vivía sólo adentro del equipo. El botón lee de a páginas, descuenta el
+ * desfasaje del reloj del equipo y guarda sólo lo que es una persona pasando —la puerta
+ * abriéndose y el log de administración se cuentan y no entran al historial, que si no serían
+ * más de la mitad de las filas y ninguna dice quién pasó.
+ */
+function BitacoraDelEquipo({ id }: { id: string }) {
+    const [trabajando, setTrabajando] = useState(false);
+    const [r, setR] = useState<{ leidos: number; guardados: number; otros: Record<string, number>; sinTraducir: Record<string, number>; desfasajeMs: number | null; error?: string } | null>(null);
+
+    async function traerla() {
+        setTrabajando(true);
+        try {
+            const resp = await fetch("/api/devices/bitacora", {
+                method: "POST", headers: { "content-type": "application/json" },
+                body: JSON.stringify({ deviceId: id, desdeDias: 30 }),
+            });
+            const j = await resp.json();
+            setR(j);
+            if (j.error && !j.guardados) toast.error({ title: "No se pudo leer la bitácora", description: j.error });
+            else toast.success({ title: `${j.guardados} ${j.guardados === 1 ? "acceso" : "accesos"} al historial`, description: `De ${j.leidos} eventos leídos.` });
+        } catch {
+            toast.error({ title: "No se pudo leer la bitácora" });
+        } finally { setTrabajando(false); }
+    }
+
+    const desf = r?.desfasajeMs ?? null;
+    const corrido = desf != null && Math.abs(desf) > DESFASAJE_AVISA_MS;
+    return (
+        <Bloque titulo="Bitácora del equipo" icono={History}
+            ayuda="Lo que el equipo guardó: tarjetas, rostros y rechazos, con su hora. Se trae al historial de accesos, y la próxima vez sigue desde donde quedó."
+            accion={<button type="button" onClick={traerla} disabled={trabajando}
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-[var(--accion)] hover:underline disabled:opacity-50">
+                {trabajando ? <Loader2 size={12} className="animate-spin" /> : <History size={12} />} Traer la de 30 días
+            </button>}>
+            {!r ? (
+                <p className="text-[12.5px] text-muted-foreground">
+                    Todavía no se trajo nada. La puerta abriéndose y el log de configuración no entran:
+                    no dicen quién pasó.
+                </p>
+            ) : (
+                <div className="space-y-1.5 text-[12.5px]">
+                    <p><span className="font-semibold tabular-nums">{r.guardados}</span> accesos guardados de <span className="tabular-nums">{r.leidos}</span> eventos leídos.</p>
+                    {Object.keys(r.otros).length > 0 && (
+                        <p className="text-muted-foreground">
+                            No son accesos: {Object.entries(r.otros).map(([k, v]) => `${v} ${k}`).join(" · ")}.
+                        </p>
+                    )}
+                    {Object.keys(r.sinTraducir).length > 0 && (
+                        <p className="tono-aviso">
+                            Códigos que el equipo manda y no sabemos leer: {Object.entries(r.sinTraducir).map(([k, v]) => `${k} (${v})`).join(", ")}. Quedan sin guardar.
+                        </p>
+                    )}
+                    {corrido && (
+                        <p className="flex items-start gap-1.5 tono-aviso">
+                            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                            El reloj del equipo está {diceDesfasaje(desf!)}. Las horas se corrigieron al traerlas, pero
+                            conviene ponerlo en hora: mientras siga así, lo que muestre el equipo en su pantalla no
+                            coincide con el historial.
+                        </p>
+                    )}
+                    {r.error && <p className="tono-mal">{r.error}</p>}
+                </div>
+            )}
+        </Bloque>
     );
 }
