@@ -13,7 +13,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
     BadgeCheck, AlertTriangle, CircleSlash, Car, ScanFace, Nfc, ScrollText,
     DoorOpen, Users as UsersIcon, Video, UserCog, Wifi, Cpu, Check, X, Blocks,
-    Upload, Loader2, Trash2, ImageIcon,
+    Upload, Loader2, Trash2, ImageIcon, Siren, Radar, Webhook,
 } from "lucide-react";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Pista } from "@/components/ui/pista";
@@ -32,10 +32,12 @@ const LOGOS_DEFAULT: Record<string, string> = {
 const CAP_ICONO: Record<Capacidad, React.ComponentType<{ size?: number; className?: string }>> = {
     lpr: Car, rostro: ScanFace, rfid: Nfc, bitacora: ScrollText, "relé": DoorOpen,
     conteo: UsersIcon, video: Video, usuarios: UserCog, sesiones: Wifi,
+    alarmas: Siren, analiticas: Radar,
 };
 const CAP_CORTO: Record<Capacidad, string> = {
     lpr: "Matrículas", rostro: "Rostros", rfid: "Tarjetas", bitacora: "Bitácora", "relé": "Abrir puerta",
     conteo: "Aforo", video: "Video", usuarios: "Usuarios", sesiones: "Sesiones",
+    alarmas: "Alarmas", analiticas: "Analíticas",
 };
 const TODAS_CAP = Object.keys(QUE_ES) as Capacidad[];
 
@@ -139,6 +141,26 @@ function DriverDrawer({ soporte, onClose, logo, onLogoChange }: { soporte: Sopor
 
                         <CajonSeccion titulo="En qué está" icono={AlertTriangle}>
                             <p className="text-[13px] text-foreground leading-[1.55]">{soporte.nota}</p>
+                        </CajonSeccion>
+
+                        {/* 18/11, Nico: «el driver debe indicar el endpoint hook que expone para cada
+                            fabricante». Es el dato que hay que CARGAR EN EL EQUIPO para que sus eventos
+                            lleguen solos, así que va arriba de todo lo demás y se puede copiar. */}
+                        <CajonSeccion titulo="Por dónde avisa el equipo" icono={Webhook}>
+                            {soporte.hook ? (
+                                <div className="space-y-1.5">
+                                    <button type="button" onClick={() => { navigator.clipboard?.writeText(soporte.hook!.ruta).catch(() => { }); }}
+                                        className="w-full text-left rounded-[6px] border border-border bg-muted/50 px-2.5 py-2 font-mono text-[12.5px] hover:bg-accent transition-colors">
+                                        {soporte.hook.ruta}
+                                    </button>
+                                    <p className="text-[12.5px] text-muted-foreground leading-snug">{soporte.hook.como}</p>
+                                </div>
+                            ) : (
+                                <p className="text-[12.5px] text-muted-foreground leading-snug">
+                                    Esta marca no avisa sola: o no hay integración de eventos, o es OmniAccess el que le pregunta
+                                    (Dahua deja una conexión abierta y el equipo manda por ahí). No hay nada que cargarle al equipo.
+                                </p>
+                            )}
                         </CajonSeccion>
 
                         <CajonSeccion titulo="Qué sabe hacer" icono={Blocks}>
