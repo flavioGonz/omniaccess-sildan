@@ -2,6 +2,7 @@
 
 import { AjusteVideoFicha } from "@/components/video/AjusteVideoFicha";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ElegirArea } from "@/components/devices/ElegirArea";
 import { useFiltroArea } from "@/lib/use-filtro-area";
 import { AnimatePresence, motion } from "framer-motion";
@@ -295,12 +296,24 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
      * una foto (el recorte, los números de las tarjetas, las flechas) sigue oscuro, porque ahí
      * lo que hay abajo es la imagen y no el panel.
      */
-    return (
-        <motion.section role="dialog" aria-label="Buscar parecidos"
+    /*
+     * A pantalla completa, y en un portal (18/11, Nico: «quiero que sea a pantalla completa… antes
+     * de abrir esta, abre una ventana modal más chica, y luego abre esta, esa transición queda
+     * rara»).
+     *
+     * Las dos cosas eran la misma: la búsqueda se dibujaba `absolute inset-0` DENTRO del visor, así
+     * que heredaba su tamaño —un recuadro con aire alrededor— y su apertura se veía como una
+     * segunda ventana creciendo adentro de la primera. En un portal al <body> con `fixed inset-0`
+     * ocupa la pantalla entera y aparece de una: el visor queda atrás, tapado, y sigue ahí al
+     * cerrar. La entrada deja de ser un «crecer desde adentro» y pasa a ser un fundido con un
+     * acercamiento mínimo, que es lo que hace una pantalla que se pone encima.
+     */
+    const cuerpo = (
+        <motion.section role="dialog" aria-modal="true" aria-label="Buscar parecidos"
             onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}
-            initial={{ opacity: 0, scale: 0.965, y: 14, filter: "blur(6px)" }} animate={{ opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
-            exit={{ opacity: 0, scale: 0.975, y: 10, filter: "blur(4px)" }} transition={ENTRADA}
-            className="absolute inset-0 z-[60] overflow-hidden cajon-vidrio cajon-denso text-foreground">
+            initial={{ opacity: 0, scale: 0.995, filter: "blur(4px)" }} animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+            exit={{ opacity: 0, scale: 0.995, filter: "blur(3px)" }} transition={ENTRADA}
+            className="fixed inset-0 z-[calc(var(--capa-panel)+200)] overflow-hidden cajon-vidrio cajon-denso text-foreground">
             <CtxRutas.Provider value={rutas}>
             <AnimatePresence initial={false} mode="popLayout">
             {abierto && res ? (
@@ -409,14 +422,19 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
                         {/* Dónde y cuándo: estaba en la barra de los resultados (boceto del 20/10). */}
                         <div className="space-y-2">
                             <div className={ROTULO}>Dónde y cuándo</div>
-                            {!rutas.limitado && <span className="flex w-full items-center rounded-full border border-border p-0.5">
+                            {/* El par OmniVision / NVR sólo cuando HAY un NVR donde buscar (18/11, Nico).
+                                Antes salía siempre, con el del NVR apagado y su explicación en el título:
+                                un control que no se puede usar y que en casi todas las instalaciones nunca
+                                se va a poder usar es ruido, no información. Con uno solo no hay nada que
+                                elegir, así que tampoco se dibuja el par. */}
+                            {!rutas.limitado && conNvr && <span className="flex w-full items-center rounded-full border border-border p-0.5">
                                 <button type="button" onClick={() => setMotor("omni")} aria-pressed={motor === "omni"}
                                     className={cn("flex-1 h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center justify-center gap-1.5", motor === "omni" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
                                     <Sparkles size={13} /> OmniVision
                                 </button>
-                                <button type="button" onClick={() => conNvr && setMotor("nvr")} aria-pressed={motor === "nvr"} disabled={!conNvr}
-                                    title={conNvr ? "La misma búsqueda en el NVR (AcuSearch)" : "No hay un NVR Hikvision VPro dado de alta: la búsqueda del NVR no está en esta instalación."}
-                                    className={cn("flex-1 h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center justify-center gap-1.5", motor === "nvr" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground", !conNvr && "opacity-40 cursor-not-allowed hover:text-muted-foreground")}>
+                                <button type="button" onClick={() => setMotor("nvr")} aria-pressed={motor === "nvr"}
+                                    title="La misma búsqueda en el NVR (AcuSearch)"
+                                    className={cn("flex-1 h-7 px-3 rounded-full text-[12px] font-semibold inline-flex items-center justify-center gap-1.5", motor === "nvr" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
                                     <Server size={13} /> NVR (AcuSearch)
                                 </button>
                             </span>}
@@ -505,6 +523,11 @@ export function BuscarParecidos({ foto, instanteMs, chapa: chapaEvento, onCerrar
             </CtxRutas.Provider>
         </motion.section>
     );
+    /* El portal necesita el documento. Acá alcanza con preguntar por él: esta pieza se monta
+       SIEMPRE después de un clic (nadie la dibuja en el primer pintado), así que no hay un
+       árbol del servidor con el que pueda discrepar. */
+    if (typeof document === "undefined") return null;
+    return createPortal(cuerpo, document.body);
 }
 
 /** Qué tan parecido, en palabras: el coseno crudo no le dice nada a nadie. */

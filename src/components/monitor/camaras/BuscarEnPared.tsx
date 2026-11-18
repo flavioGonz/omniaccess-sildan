@@ -1,10 +1,15 @@
 "use client";
 
+import nextDynamic from "next/dynamic";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { AnimatePresence, motion } from "framer-motion";
 import { Backpack, Camera, Car, ChevronLeft, Loader2, PawPrint, RefreshCw, ScanSearch, Smartphone, User, VideoOff, X } from "lucide-react";
-import { BuscarParecidos, type RutasParecidos } from "@/components/visor/BuscarParecidos";
+import type { RutasParecidos } from "@/components/visor/BuscarParecidos";
+/* La búsqueda de parecidos entra sin SSR: se dibuja en un portal al <body> (pantalla completa) y
+   un portal necesita el documento. Además pesa, y nadie la ve hasta que la pide. */
+const BuscarParecidos = nextDynamic(() => import("@/components/visor/BuscarParecidos").then((m) => m.BuscarParecidos), { ssr: false });
 import { fotoDe, type Canal } from "@/components/monitor/camaras/piezas";
 import { cn } from "@/lib/utils";
 

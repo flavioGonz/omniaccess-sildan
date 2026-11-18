@@ -1,5 +1,7 @@
 "use client";
 
+import nextDynamic from "next/dynamic";
+
 import { useFuncion } from "@/lib/funciones-cliente";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
@@ -40,7 +42,9 @@ import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
 import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
 import { SeguimientoVivo } from "@/components/visor/SeguimientoVivo";
-import { BuscarParecidos } from "@/components/visor/BuscarParecidos";
+/* La búsqueda de parecidos entra sin SSR: se dibuja en un portal al <body> (pantalla completa) y
+   un portal necesita el documento. Además pesa, y nadie la ve hasta que la pide. */
+const BuscarParecidos = nextDynamic(() => import("@/components/visor/BuscarParecidos").then((m) => m.BuscarParecidos), { ssr: false });
 import { describirObjeto } from "@/components/visor/FichaVisor";
 import { chapaDe, esSinLectura, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
 import { useClipEvento } from "@/lib/clip-evento";
