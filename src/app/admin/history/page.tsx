@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { PulsoActividad } from "@/components/history/PulsoActividad";
 import { getAccessEvents } from "@/app/actions/history";
 import { getEnabledModules } from "@/app/actions/modules";
 import { History, Download, RefreshCw, Upload, FileJson } from "lucide-react";
@@ -223,9 +222,6 @@ export default function HistoryPage() {
                             </button>
                         </Pista>
                     </div>
-                    {/* El pulso sólo donde entra sin apretar al título: con menos ancho empujaba el buscador. */}
-                    <span className="hidden min-[1800px]:block w-px h-8 bg-border mx-1" />
-                    <div className="hidden min-[1800px]:block"><PulsoActividad dias={60} /></div>
                 </div>
 
                 <div ref={cajaBuscar} className="flex justify-center items-center gap-2 min-w-0"

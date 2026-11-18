@@ -937,7 +937,10 @@ export function VisorCuadro({
                             foto (misma proporción), así que el ajuste «contain» cae justo. */}
                         {modo === "foto" && !enPaso && !limpio && verSiluetas && vision && !enVideo && (
                             <CapaAnalisis analisis={visionConAlerta || vision} atributos className="z-[6]" rotuloAlerta={!conCapsula}
-                                chapa={datos?.relectura?.plate && datos.relectura.caja ? { plate: datos.relectura.plate, caja: datos.relectura.caja } : null} />
+                                chapa={datos?.relectura?.plate && datos.relectura.caja ? { plate: datos.relectura.plate, caja: datos.relectura.caja } : null}
+                                /* En el playback la insignia de categoría igual se ve: la matrícula la
+                                   trae el evento aunque no se sepa dónde cae la chapa en la foto. */
+                                matricula={fila.plate} />
                         )}
 
                         {/* El auto estacionado, con su silueta (12/11). Si ya se están viendo las

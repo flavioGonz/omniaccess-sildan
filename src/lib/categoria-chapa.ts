@@ -82,6 +82,29 @@ const CATEGORIAS: Record<string, Omit<CategoriaChapa, "codigo">> = {
     EX: { nombre: "Exonerado", corto: "Exonerado", grupo: "especial", tono: "quieto", letras: "negro", explica: "Vehículo exonerado de tributos." },
     PR: { nombre: "Prueba / provisoria", corto: "Provisoria", grupo: "temporal", tono: "aviso", letras: "rojo", explica: "Chapa de prueba o provisoria (concesionaria, traslado)." },
     RO: { nombre: "Casa rodante", corto: "Casa rodante", grupo: "especial", tono: "quieto", letras: "negro", explica: "Motorhome / casa rodante." },
+
+    /* ── Sumadas el 18/11 (Nico: «nomenclaturas de matrículas de Uruguay entero, cargarlas y
+       reconocer el tipo de chapa para dar más info del vehículo al guardia»). Salen del listado
+       de tipos acordados del SUCIVE y del relevamiento de Wikipedia y Academia del Molino. ── */
+    TI: { nombre: "Transporte interurbano", corto: "Interurbano", grupo: "publico", tono: "info", letras: "verde", explica: "Ómnibus de línea interdepartamental o interurbana." },
+    TD: { nombre: "Transporte de escolares con discapacidad", corto: "Escolar adaptado", grupo: "publico", tono: "info", letras: "verde", explica: "Transporte escolar adaptado." },
+    ID: { nombre: "Intendencia Departamental", corto: "Intendencia", grupo: "oficial", tono: "info", letras: "azul", explica: "Vehículo de la intendencia departamental." },
+    ED: { nombre: "Edil", corto: "Edil", grupo: "oficial", tono: "info", letras: "azul", explica: "Vehículo de un edil departamental." },
+    CM: { nombre: "Concejal municipal", corto: "Concejal", grupo: "oficial", tono: "info", letras: "azul", explica: "Vehículo de un concejal municipal." },
+    RN: { nombre: "Representante nacional", corto: "Representante", grupo: "oficial", tono: "info", letras: "azul", explica: "Vehículo de un representante nacional." },
+    MP: { nombre: "Ministerio Público", corto: "Fiscalía", grupo: "oficial", tono: "info", letras: "azul", explica: "Vehículo del Ministerio Público y Fiscal." },
+    NG: { nombre: "ONG internacional", corto: "ONG internacional", grupo: "diplomatico", tono: "aviso", letras: "dorado", explica: "Vehículo de una organización no gubernamental internacional acreditada." },
+    LQ: { nombre: "Alquiler (rent a car)", corto: "Alquiler", grupo: "comercial", tono: "quieto", letras: "rojo", explica: "Auto de alquiler sin chofer: quien maneja no es el dueño." },
+    TM: { nombre: "Transporte mediano", corto: "Transporte", grupo: "comercial", tono: "quieto", letras: "rojo", explica: "Utilitario de transporte mediano." },
+    TA: { nombre: "Transporte con acoplado", corto: "Con acoplado", grupo: "comercial", tono: "quieto", letras: "rojo", explica: "Camión con acoplado." },
+    TZ: { nombre: "Transporte con remolque", corto: "Remolque", grupo: "comercial", tono: "quieto", letras: "negro", explica: "Transporte con remolque." },
+    MZ: { nombre: "Transporte con remolque", corto: "Remolque", grupo: "comercial", tono: "quieto", letras: "negro", explica: "Transporte con remolque." },
+    ZZ: { nombre: "Vehículo con tráiler", corto: "Tráiler", grupo: "comercial", tono: "quieto", letras: "negro", explica: "Vehículo con tráiler." },
+    MA: { nombre: "Maquinaria", corto: "Maquinaria", grupo: "especial", tono: "quieto", letras: "negro", explica: "Maquinaria (no se usa en Cerro Largo, Soriano, Colonia ni Lavalleja)." },
+    MV: { nombre: "Maquinaria vial", corto: "Maquinaria vial", grupo: "especial", tono: "quieto", letras: "negro", explica: "Maquinaria vial." },
+    DP: { nombre: "Deportivo", corto: "Deportivo", grupo: "especial", tono: "quieto", letras: "verde", explica: "Vehículo deportivo o de competición." },
+    VC: { nombre: "Vehículo clásico", corto: "Clásico", grupo: "especial", tono: "quieto", letras: "verde", explica: "Vehículo clásico o de colección." },
+    DU: { nombre: "Demostración de usado", corto: "Demostración", grupo: "temporal", tono: "aviso", letras: "rojo", explica: "Chapa de demostración de vehículo usado (concesionaria)." },
 };
 
 /** Series fijas de tres letras (las fuerzas armadas, las motos policiales de Montevideo). */
@@ -93,6 +116,23 @@ const SERIES: Record<string, Omit<CategoriaChapa, "codigo">> = {
     ANA: { nombre: "Aviación Naval", corto: "Aviación Naval", grupo: "militar", tono: "info", letras: "negro", explica: "Vehículo de la Aviación Naval." },
     SJP: { nombre: "Policía (moto de Jefatura)", corto: "Policía", grupo: "emergencia", tono: "mal", letras: "azul", explica: "Moto de la Jefatura de Policía de Montevideo." },
     SMP: { nombre: "Ministerio del Interior (moto)", corto: "Policía", grupo: "emergencia", tono: "mal", letras: "azul", explica: "Moto del Ministerio del Interior." },
+
+    /* Series propias de un departamento (18/11). Son de tres letras y fijas, así que no chocan
+       con la serie particular del interior: se reconocen igual que las de Montevideo. */
+    AIC: { nombre: "Intendencia de Canelones", corto: "Intendencia", grupo: "oficial", tono: "info", letras: "rojo", explica: "Vehículo de la Intendencia de Canelones." },
+    CCM: { nombre: "Camión de mercaderías (Rocha)", corto: "Camión", grupo: "comercial", tono: "quieto", letras: "negro", explica: "Camión de mercaderías empadronado en Rocha." },
+    CCZ: { nombre: "Transporte con remolque (Rocha)", corto: "Remolque", grupo: "comercial", tono: "quieto", letras: "negro", explica: "Transporte con remolque empadronado en Rocha." },
+    GAT: { nombre: "Taxi de Artigas", corto: "Taxi", grupo: "publico", tono: "info", letras: "negro", explica: "Taxi empadronado en Artigas (chapa negra sobre amarillo)." },
+    GBT: { nombre: "Taxi de Artigas", corto: "Taxi", grupo: "publico", tono: "info", letras: "negro", explica: "Taxi empadronado en Artigas (chapa negra sobre amarillo)." },
+    GAR: { nombre: "Remise de Artigas", corto: "Remise", grupo: "publico", tono: "info", letras: "negro", explica: "Remise empadronado en Artigas." },
+    GBR: { nombre: "Remise de Artigas", corto: "Remise", grupo: "publico", tono: "info", letras: "negro", explica: "Remise empadronado en Artigas." },
+    GAO: { nombre: "Ómnibus interdepartamental (Artigas)", corto: "Ómnibus", grupo: "publico", tono: "info", letras: "negro", explica: "Ómnibus interdepartamental de Artigas." },
+    GBO: { nombre: "Ómnibus interdepartamental (Artigas)", corto: "Ómnibus", grupo: "publico", tono: "info", letras: "negro", explica: "Ómnibus interdepartamental de Artigas." },
+    GAE: { nombre: "Escolar de Artigas", corto: "Escolar", grupo: "publico", tono: "info", letras: "negro", explica: "Transporte escolar de Artigas." },
+    GAM: { nombre: "Médico de Artigas", corto: "Médico", grupo: "especial", tono: "bien", letras: "verde", explica: "Vehículo de un médico, empadronado en Artigas." },
+    GBM: { nombre: "Médico de Artigas", corto: "Médico", grupo: "especial", tono: "bien", letras: "verde", explica: "Vehículo de un médico, empadronado en Artigas." },
+    GTC: { nombre: "Transporte de carga (Artigas)", corto: "Carga", grupo: "comercial", tono: "quieto", letras: "negro", explica: "Transporte de carga empadronado en Artigas." },
+    HOM: { nombre: "Ómnibus interdepartamental (Salto)", corto: "Ómnibus", grupo: "publico", tono: "info", letras: "rojo", explica: "Ómnibus interdepartamental de Salto." },
 };
 
 /**
@@ -100,7 +140,11 @@ const SERIES: Record<string, Omit<CategoriaChapa, "codigo">> = {
  * empiezan con una letra que no se usa para eso (ver arriba). Medido: Canelones ya tiene AAM, AAT,
  * AAU, AAL particulares.
  */
-const EN_INTERIOR = new Set(["TX", "RE", "TC", "TU", "TP", "TR", "OF", "MI", "MD", "IM", "JD", "PL", "PJ", "ME", "OI", "PR", "RO"]);
+const EN_INTERIOR = new Set([
+    "TX", "RE", "TC", "TU", "TP", "TR", "OF", "MI", "MD", "IM", "JD", "PL", "PJ", "ME", "OI", "PR", "RO",
+    // Sumados el 18/11, con la misma regla: ninguno empieza con A–H.
+    "TI", "TD", "TM", "TA", "TZ", "MZ", "ZZ", "MA", "MV", "ID", "RN", "MP", "NG", "LQ", "VC",
+]);
 
 export type LecturaChapa = {
     departamento: string | null;
@@ -154,18 +198,20 @@ export function leerChapa(texto: string | null | undefined): LecturaChapa | null
  */
 export type TipoChapa = { id: string; rotulo: string; codigos: string[]; series?: string[]; aspecto?: boolean };
 export const TIPOS_CHAPA: TipoChapa[] = [
-    { id: "taxi", rotulo: "Taxi", codigos: ["TX"], aspecto: true },
-    { id: "remise", rotulo: "Remise", codigos: ["RE"] },
-    { id: "transporte", rotulo: "Ómnibus, turismo y escolar", codigos: ["TC", "TU", "ES"] },
+    { id: "taxi", rotulo: "Taxi", codigos: ["TX"], series: ["GAT", "GBT"], aspecto: true },
+    { id: "remise", rotulo: "Remise", codigos: ["RE"], series: ["GAR", "GBR"] },
+    { id: "transporte", rotulo: "Ómnibus, turismo y escolar", codigos: ["TC", "TU", "TI", "ES", "TD"], series: ["GAO", "GBO", "GAE", "HOM"] },
     { id: "policia", rotulo: "Policía / Bomberos", codigos: ["MI"], series: ["SJP", "SMP"] },
     { id: "ambulancia", rotulo: "Ambulancia", codigos: ["AM"] },
-    { id: "oficial", rotulo: "Oficial e intendencia", codigos: ["OF", "IM", "JD", "PL", "PE", "PJ"] },
+    { id: "oficial", rotulo: "Oficial e intendencia", codigos: ["OF", "IM", "ID", "JD", "PL", "PE", "PJ", "ED", "CM", "RN", "MP"], series: ["AIC"] },
     { id: "militar", rotulo: "Fuerzas armadas", codigos: ["MD"], series: ["ENA", "ENT", "FAU", "ARN", "ANA"] },
-    { id: "diplomatico", rotulo: "Diplomático y consular", codigos: ["CD", "CC", "OI"] },
-    { id: "alquiler", rotulo: "Alquiler (rent a car)", codigos: ["AL"] },
-    { id: "carga", rotulo: "Carga y remolque", codigos: ["TP", "TR"] },
+    { id: "diplomatico", rotulo: "Diplomático y consular", codigos: ["CD", "CC", "OI", "NG"] },
+    { id: "alquiler", rotulo: "Alquiler (rent a car)", codigos: ["AL", "LQ"] },
+    { id: "carga", rotulo: "Carga y remolque", codigos: ["TP", "TR", "TM", "TA", "TZ", "MZ", "ZZ"], series: ["CCM", "CCZ", "GTC"] },
+    { id: "medico", rotulo: "Médico", codigos: ["ME"], series: ["GAM", "GBM"] },
+    { id: "maquinaria", rotulo: "Maquinaria", codigos: ["MA", "MV"] },
     { id: "discapacidad", rotulo: "Discapacidad", codigos: ["DI"] },
-    { id: "temporal", rotulo: "Temporaria o de prueba", codigos: ["AT", "PR"] },
+    { id: "temporal", rotulo: "Temporaria, prueba o demostración", codigos: ["AT", "PR", "DU"] },
 ];
 
 /**

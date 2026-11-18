@@ -9,6 +9,7 @@ import { RelojRodante } from "@/components/tracking/MarcaEstadia";
 import { bandasLinea, poligonos, veredicto, type Analisis, type GeomNorm, type ObjetoAnalizado, type Pt } from "@/lib/vision-capa";
 import { iconoPropio, useNombresPropios } from "@/lib/nombres-propios";
 import { resolverIcono } from "@/components/vision/iconos-clase";
+import { InsigniaChapa, categoriaDeChapa } from "@/components/vision/InsigniaChapa";
 
 /**
  * Tocar un objeto en el vivo (13/11, Nico: «el tiempo de permanencia sólo debe mostrarse al tocar
@@ -155,10 +156,17 @@ function techoEn(polis: Pt[][], x: number): number | null {
 const pts = (p: Pt[], w: number, h: number) => p.map(([x, y]) => `${(x * w).toFixed(1)},${(y * h).toFixed(1)}`).join(" ");
 const ptsPx = (p: Pt[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 
-export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = true, atributos = false, chapa, interactiva = false, opciones, rotuloAlerta = true, className }: {
+export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = true, atributos = false, chapa, matricula, interactiva = false, opciones, rotuloAlerta = true, className }: {
     analisis: Analisis;
     /** La chapa que leyó OmniVision, con su caja en la foto (relectura). */
     chapa?: ChapaEnFoto | null;
+    /**
+     * La matrícula del evento cuando NO se sabe dónde está la chapa en la foto (el playback de una
+     * lectura de la cámara de acceso: hay chapa leída, no hay recorte ubicado). Sólo se usa para la
+     * insignia de categoría, que se apoya sobre el vehículo más grande; la matrícula dibujada
+     * necesita su caja y sin ella no se inventa.
+     */
+    matricula?: string | null;
     geom?: GeomNorm | null;
     ajuste?: "contain" | "cover";
     /** El rótulo «Persona 92 %» sobre cada objeto. En una miniatura sobra. */
@@ -425,9 +433,38 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                         </g>}
                         {chapa.plate && <text x={px + pw / 2} y={py + franja + (ph - franja) * 0.74} textAnchor="middle" fontSize={f * 1.08} fontWeight={800} fill="#0b0f19"
                             fontFamily="Outfit, system-ui, sans-serif" letterSpacing={0.06 * f} style={{ fontVariantNumeric: "tabular-nums" }}>{chapa.plate}</text>}
+                        {/* Qué dice la chapa del vehículo (taxi, policía, ambulancia…): pegada a la
+                            matrícula, del lado contrario al auto, para que se vea de cuál habla. */}
+                        {(() => {
+                            const c = chapa.plate ? categoriaDeChapa(chapa.plate) : null;
+                            if (!c) return null;
+                            const alto = ph * 0.78;
+                            // Arriba de la matrícula si la matrícula va debajo del auto, y al revés:
+                            // así la insignia nunca queda entre el auto y su chapa.
+                            const arriba = !debajo;
+                            return <InsigniaChapa cat={c.cat} tipo={c.tipo} dudosa={c.dudosa} cx={px + pw / 2}
+                                y={arriba ? py : py + ph + alto * 0.18} alto={alto} haciaArriba={arriba} />;
+                        })()}
                     </g>
                 );
             })}
+
+            {/* Sin caja de chapa: la insignia se apoya sobre el vehículo más grande del cuadro, que
+                es el que la cámara de acceso estaba mirando cuando leyó esa matrícula. */}
+            {(() => {
+                if (!matricula || chapa?.plate || objetos.some((o) => o.chapa?.plate)) return null;
+                const c = categoriaDeChapa(matricula);
+                if (!c) return null;
+                const autos = objetos.filter((o) => o.grupo === "vehiculo" && !o.oculto);
+                if (!autos.length) return null;
+                const mayor = autos.reduce((a, b) => (((a.caja[2] - a.caja[0]) * (a.caja[3] - a.caja[1])) >= ((b.caja[2] - b.caja[0]) * (b.caja[3] - b.caja[1])) ? a : b));
+                const [x1, , x2, y2] = mayor.caja;
+                const alto = fuente * 1.6;
+                // Apoyada en el borde de ABAJO del vehículo, que es donde estaría su chapa. Arriba
+                // está el rótulo del objeto («Auto 94 %») y las dos cosas se pisaban.
+                return <InsigniaChapa cat={c.cat} tipo={c.tipo} dudosa={c.dudosa}
+                    cx={((x1 + x2) / 2) * W} y={Math.min(H - alto * 0.2, y2 * H)} alto={alto} haciaArriba />;
+            })()}
 
             {/* Rótulos: un punto anillado sobre lo más alto de la silueta, una línea guía con codo, y
                 el texto sin fondo apoyado sobre la línea: arriba el ícono y qué es, abajo los atributos
