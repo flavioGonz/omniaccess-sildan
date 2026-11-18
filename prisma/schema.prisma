@@ -783,9 +783,22 @@ model Visita {
   accessEventEntradaId  String?
   accessEventSalidaId   String?
   avisadaExcedidaAt     DateTime?
+  /// Visita sin lote en seguimiento (change visita-sin-lote): hasta cuándo tiene el guardia para
+  /// asignarle el lote. null = no está en seguimiento (con lote, o ya resuelta).
+  seguimientoVence      DateTime?
+  /// Cuándo y quién le asignó el lote (cierra el seguimiento).
+  loteAsignadoAt        DateTime?
+  loteAsignadoPor       String?
+  /// Motivo de cierre cuando se cerró sin lote: SALIO_SIN_LOTE | NO_INGRESO | SE_EQUIVOCO | OTRO.
+  cierreMotivo          String?
+  /// Aviso SIN_LOTE_VENCIDA ya creado (una sola vez por visita).
+  avisadaSinLoteAt      DateTime?
+  /// La última cámara interior que la vio (para «Visto en …»).
+  vistoEnCamara         String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
+  @@index([seguimientoVence])
   @@index([plate, sale])
   @@index([sale, vence])
   @@index([entra])

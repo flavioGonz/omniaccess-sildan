@@ -35,7 +35,7 @@ const CAMARAS_MS = 60_000;
 let camaras: { mapa: Map<string, { tipo: Camara; nombre: string }>; hasta: number } | null = null;
 async function camaraDe(deviceId: string | null | undefined, direccion: string | null | undefined): Promise<{ tipo: Camara; nombre: string | null }> {
     if (!camaras || camaras.hasta < Date.now()) {
-        const devs = await prisma.device.findMany({ where: { deviceType: { in: ["LPR_CAMERA"] as any } }, select: { id: true, name: true, deviceType: true, direction: true } });
+        const devs = await prisma.device.findMany({ where: { deviceType: { in: ["LPR_CAMERA", "LPR_INTERIOR"] as any } }, select: { id: true, name: true, deviceType: true, direction: true } });
         camaras = { mapa: new Map(devs.map((d) => [d.id, { tipo: ((d.deviceType as string) === "LPR_INTERIOR" ? "interior" : d.direction === "EXIT" ? "salida" : "entrada") as Camara, nombre: d.name }])), hasta: Date.now() + CAMARAS_MS };
     }
     const c = deviceId ? camaras.mapa.get(deviceId) : null;
@@ -95,11 +95,14 @@ export async function alLeerMatricula(l: Lectura): Promise<void> {
         const enCurso = await visitaEnCurso(plate);
 
         if (cam.tipo === "salida") {
-            if (enCurso) await cerrarVisita(enCurso.id, { cierre: "CAMARA_SALIDA", accessEventId, sale: instante });
+            // Una visita sin lote que sale antes de que se le asigne el lote queda «salió sin lote».
+            if (enCurso) await cerrarVisita(enCurso.id, { cierre: "CAMARA_SALIDA", accessEventId, sale: instante, motivo: enCurso.seguimientoVence && !enCurso.unitId ? "SALIO_SIN_LOTE" : null });
             return;
         }
         if (cam.tipo === "interior" && enCurso) {
-            await prisma.visita.update({ where: { id: enCurso.id }, data: { vistoAdentroAt: instante } }).catch(() => { });
+            await prisma.visita.update({ where: { id: enCurso.id }, data: { vistoAdentroAt: instante, vistoEnCamara: camaraNombre || null } }).catch(() => { });
+            // En seguimiento: la tablet y el monitor muestran «Visto en …» al instante.
+            if (enCurso.seguimientoVence) { const { avisarPorSocket } = await import("@/lib/avisar"); avisarPorSocket("visita", { accion: "visto", visitaId: enCurso.id }); }
         }
 
         // Entrada con invitación vigente y sin visita: se abre sola, con el lote del pase.

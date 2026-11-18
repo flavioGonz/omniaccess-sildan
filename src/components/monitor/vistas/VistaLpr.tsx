@@ -83,6 +83,8 @@ type Datos = {
     modo?: Modo; ultima: Lectura | null; tira: Lectura[];
     contadores: { entradas: number; salidas: number; denegados: number; noRegistrados?: number; adentro: number; actualizado: string; dia: string };
     enBarrio?: { visitas: VisitaEnBarrio[]; noRegistradas: NoRegistrada[] };
+    /** Visitas sin lote con su cuenta atrás (change visita-sin-lote). */
+    enSeguimiento?: EnSeguimiento[];
     atencion: Atencion[]; ahora: string;
     /** Matrícula → logo de su empresa (ver lib/empresas-servidor). */
     logos?: Record<string, Logo>;
@@ -318,6 +320,8 @@ export function VistaLpr() {
     });
     // Visitas que se abren o cierran, y avisos a la guardia: se vuelve a pedir el estado.
     useTiempoReal("visita", () => recargar());
+    const idsSeguimiento = useMemo(() => new Set((datos?.enSeguimiento || []).map((s) => s.accessEventId).filter(Boolean) as string[]), [datos?.enSeguimiento]);
+    const alVencerSeguimiento = useCallback(() => { if (!silencio && modoSonido !== "off") sonar("denegado"); }, [silencio, modoSonido]);
     // omni-vision terminó de mirar la foto de una lectura: se trae para dibujarla.
     useTiempoReal("lectura_analizada", () => recargar());
     useTiempoReal("aviso_guardia", (d: any) => { recargar(); if (d?.accion === "nuevo" && !silencio && modoSonido !== "off") sonar("denegado"); });
@@ -393,6 +397,8 @@ export function VistaLpr() {
                     </AnimatePresence>
                 </div>
 
+                {(datos?.enSeguimiento?.length || 0) > 0 && <FranjaSeguimiento items={datos!.enSeguimiento!} alAbrir={(id) => id && setFichaId(id)} alVencer={alVencerSeguimiento} />}
+
                 {/* Contadores del día (filtran las detecciones de la derecha). */}
                 <div className="shrink-0 grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <Contador rotulo={rotulos.adentro} valor={c?.adentro ?? 0} Icono={Users} tono="info" />
@@ -437,7 +443,7 @@ export function VistaLpr() {
                         {visibles.length === 0 && <div className="grid place-items-center h-24 rounded-xl border border-dashed border-border text-[14px] text-muted-foreground">{tira.length ? "Ninguna con este filtro" : "Sin lecturas anteriores"}</div>}
                         <AnimatePresence initial={false}>
                             {visibles.map((l) => {
-                                const f = getImagePath(l.foto); const est = estadoDe(l, modo); const sel = fijada?.id === l.id;
+                                const f = getImagePath(l.foto); const est = estadoDe(l, modo); const sel = fijada?.id === l.id; const enSeg = idsSeguimiento.has(l.id);
                                 const emp = l.plate ? datos?.logos?.[l.plate] : null; const t = tinteDe(l, !!emp);
                                 return (
                                     <motion.button key={l.id} type="button" layout="position" onClick={() => setFijada(l)}
@@ -455,6 +461,7 @@ export function VistaLpr() {
                                                 {emp && <span className="ml-auto shrink-0"><LogoSobreFoto empresa={emp} className="h-7 max-w-[96px]" /></span>}
                                             </span>
                                             <span className="block text-[12px] text-white/70 truncate">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : "entrada"}{l.camara ? ` · ${l.camara}` : ""}</span>
+                                            {enSeg && <span className="inline-block mt-0.5 mr-1 px-1.5 py-0.5 rounded bg-amber-400 text-black text-[10px] font-extrabold uppercase">En seguimiento</span>}
                                             <span className="block mt-0.5 truncate">{l.clase ? <EtiquetaClase l={l} comp={comportamiento} /> : <span className="text-[11px] text-white/60">{l.persona || (l.decision === "GRANT" ? "Autorizado" : "Sin registro")}</span>}</span>
                                         </span>
                                         <est.Ic size={18} className={cn("shrink-0", est.ok ? "text-[var(--bien)]" : est.error ? "text-[var(--mal)]" : "text-white/50")} />
@@ -1061,5 +1068,57 @@ function IncidenteListaNegra({ l, total, empresa, alCerrar, alVerFicha }: { l: L
                 </div>
             </motion.div>
         </motion.div>
+    );
+}
+
+// ─────────── Visitas sin lote en seguimiento (change visita-sin-lote) ───────────
+type EnSeguimiento = { id: string; plate: string | null; tipoNombre: string; nombre: string | null; registradaPor: string | null; desde: string; vence: string; vistoEn: string | null; vistoAt: string | null; accessEventId: string | null; foto: string | null };
+
+/** Franja oscura con las visitas sin lote y su cuenta atrás. Suena una vez cuando una vence. */
+function FranjaSeguimiento({ items, alAbrir, alVencer }: { items: EnSeguimiento[]; alAbrir: (accessEventId: string | null) => void; alVencer: () => void }) {
+    const [ahora, setAhora] = useState(() => Date.now());
+    useEffect(() => { const t = setInterval(() => setAhora(Date.now()), 1000); return () => clearInterval(t); }, []);
+    const sonadas = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        for (const s of items) {
+            const vencida = +new Date(s.vence) <= ahora;
+            if (vencida && !sonadas.current.has(s.id)) { sonadas.current.add(s.id); alVencer(); }
+            if (!vencida) sonadas.current.delete(s.id);
+        }
+    }, [items, ahora, alVencer]);
+    return (
+        <div className="shrink-0 rounded-2xl bg-neutral-950 text-white border border-white/10 p-3 flex flex-col gap-2">
+            <div className="text-[12px] font-bold uppercase tracking-[0.14em] text-white/60 inline-flex items-center gap-2"><Activity size={14} /> Visitas sin lote en seguimiento · {items.length}</div>
+            <div className="flex gap-2 overflow-x-auto [scrollbar-width:thin]">
+                {items.map((s) => {
+                    const resta = +new Date(s.vence) - ahora;
+                    const total = Math.max(1, +new Date(s.vence) - +new Date(s.desde));
+                    const estado = resta < 0 ? "vencida" : resta < total * 0.5 ? "cerca" : "ok";
+                    const f = s.foto ? getImagePath(s.foto) : null;
+                    return (
+                        <button key={s.id} type="button" disabled={!s.accessEventId} onClick={() => alAbrir(s.accessEventId)}
+                            className={cn("shrink-0 min-w-[300px] flex items-center gap-3 rounded-xl border px-2.5 py-2 text-left", s.accessEventId && tocable,
+                                estado === "vencida" ? "border-red-500 bg-red-500/15 animate-[pulse_1.4s_ease-in-out_infinite]" : estado === "cerca" ? "border-amber-400/70 bg-amber-400/10" : "border-white/15 bg-white/5")}>
+                            <span className="relative w-20 h-12 rounded-lg bg-neutral-800 overflow-hidden shrink-0">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                {f ? <img src={conAncho(f, 240) || undefined} alt="" className="absolute inset-0 w-full h-full object-cover" /> : <Car size={20} className="absolute inset-0 m-auto text-white/30" />}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-2">
+                                    <span className="text-[16px] font-black tabular-nums tracking-[0.12em]">{s.plate || "—"}</span>
+                                    <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-extrabold", estado === "vencida" ? "bg-red-500 text-white" : "bg-amber-400 text-black")}>SIN LOTE</span>
+                                </span>
+                                <span className="block text-[12px] text-white/60 truncate">{s.tipoNombre}{s.nombre ? ` · ${s.nombre}` : ""} · {horaCorta(s.desde)}</span>
+                                {s.vistoEn && <span className="block text-[12px] text-white/80 truncate">Visto en: {s.vistoEn}{s.vistoAt ? ` · ${horaCorta(s.vistoAt)}` : ""}</span>}
+                            </span>
+                            <span className={cn("text-right tabular-nums font-black leading-none shrink-0", estado === "vencida" ? "text-red-400" : estado === "cerca" ? "text-amber-300" : "text-emerald-300")}>
+                                <span className="block text-[24px]">{mmss(resta)}</span>
+                                <span className="block text-[10px] uppercase tracking-wider mt-0.5 opacity-70">{estado === "vencida" ? "vencida" : "para el lote"}</span>
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
     );
 }

@@ -24,13 +24,14 @@ let ultimoCorte = "";
 export async function tick(opts: { forzarPerfiles?: boolean } = {}) {
     const aj = await leerAjustesVisitas(true);
     const ahora = new Date();
-    const r = { excedidas: 0, permanencias: 0, cerradasFinDelDia: 0, perfiles: null as null | { matriculas: number; escritas: number; ms: number } };
+    const r = { excedidas: 0, sinLote: 0, permanencias: 0, cerradasFinDelDia: 0, perfiles: null as null | { matriculas: number; escritas: number; ms: number } };
     const nombreTipo = new Map(aj.tipos.map((t) => [t.clave, t]));
 
     // ── Excedidas ──
     if (aj.avisos.VISITA_EXCEDIDA.activo) {
         // El pase libre no vence: no se lo trae aunque haya pasado su vence técnico (ver PASE_LIBRE_HORAS).
-        const vencidas = await prisma.visita.findMany({ where: { sale: null, vence: { lt: ahora }, avisadaExcedidaAt: null, tipo: { not: TIPO_PASE_LIBRE } }, take: 200 });
+        // Las que están en seguimiento sin lote tienen su propio aviso (abajo): no se avisan dos veces.
+        const vencidas = await prisma.visita.findMany({ where: { sale: null, vence: { lt: ahora }, avisadaExcedidaAt: null, tipo: { not: TIPO_PASE_LIBRE }, seguimientoVence: null }, take: 200 });
         for (const v of vencidas) {
             const tipo = nombreTipo.get(v.tipo);
             const minutos = Math.round((v.vence.getTime() - v.entra.getTime()) / 60_000);
@@ -41,6 +42,22 @@ export async function tick(opts: { forzarPerfiles?: boolean } = {}) {
             }, aj.antirreboteMin);
             await prisma.visita.update({ where: { id: v.id }, data: { avisadaExcedidaAt: ahora } }).catch(() => { });
             if (aviso) r.excedidas++;
+        }
+    }
+
+    // ── Visita sin lote: venció el tiempo para asignarle el lote (change visita-sin-lote) ──
+    // Siempre activo: es el recordatorio que pidió el guardia al registrarla. No la cierra.
+    {
+        const sinLote = await prisma.visita.findMany({ where: { sale: null, seguimientoVence: { lt: ahora }, avisadaSinLoteAt: null }, take: 200 });
+        for (const v of sinLote) {
+            const tipo = nombreTipo.get(v.tipo);
+            await crearAviso({
+                tipo: "SIN_LOTE_VENCIDA", plate: v.plate, visitaId: v.id, accessEventId: v.accessEventEntradaId,
+                motivo: motivo.sinLote({ plate: v.plate, tipoNombre: tipo?.nombre || v.tipo, minutos: Math.max(1, Math.round((ahora.getTime() - v.entra.getTime()) / 60_000)), guardia: v.registradaPor }),
+                datos: { seguimientoVence: v.seguimientoVence },
+            }, 1);
+            await prisma.visita.update({ where: { id: v.id }, data: { avisadaSinLoteAt: ahora } }).catch(() => { });
+            r.sinLote++;
         }
     }
 

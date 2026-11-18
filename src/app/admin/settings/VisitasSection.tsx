@@ -129,6 +129,16 @@ export default function VisitasSection() {
                     <Campo etiqueta="No repetir el mismo aviso por" sufijo="min"><Input type="number" value={aj.antirreboteMin} onChange={(e) => set({ antirreboteMin: Number(e.target.value) })} className="w-16 h-8 tabular-nums" /></Campo>
                 </div>
             </section>
+
+            {/* Visita sin lote: cuánto tiene la guardia para asignarle el lote. */}
+            <section className="rounded-[10px] border border-border bg-card p-4">
+                <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1 inline-flex items-center gap-1.5"><Timer size={12} /> Visita sin lote</h3>
+                <p className="text-[12px] text-muted-foreground mb-3">La guardia registra una visita sin saber a qué lote va. Tiene este tiempo para asignárselo; si vence, avisa en la garita y en el monitor LPR.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-[13px]">
+                    <Campo etiqueta="Tiempo para asignar el lote" sufijo="min"><Input type="number" min={1} max={120} value={aj.sinLoteMin} onChange={(e) => set({ sinLoteMin: Number(e.target.value) })} className="w-16 h-8 tabular-nums" /></Campo>
+                    <Campo etiqueta="Cada prórroga suma" sufijo="min"><Input type="number" min={1} max={60} value={aj.sinLoteProrrogaMin} onChange={(e) => set({ sinLoteProrrogaMin: Number(e.target.value) })} className="w-16 h-8 tabular-nums" /></Campo>
+                </div>
+            </section>
         </div>
     );
 }

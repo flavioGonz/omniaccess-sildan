@@ -75,6 +75,8 @@ export type NuevaVisita = {
     plate?: string | null; tipo: string; minutos: number; unitId?: string | null; loteNombre?: string | null;
     nombre?: string | null; empresa?: string | null; origen: "GUARDIA" | "INVITACION" | "PROVEEDOR"; registradaPor?: string | null;
     invitationId?: string | null; entra?: Date; vence?: Date; accessEventEntradaId?: string | null;
+    /** Visita sin lote en seguimiento: minutos para asignarle el lote (change visita-sin-lote). */
+    seguimientoMin?: number | null;
 };
 
 export async function visitaEnCurso(plate: string | null | undefined) {
@@ -91,16 +93,17 @@ export async function abrirVisita(v: NuevaVisita) {
             nombre: v.nombre?.trim() || null, empresa: v.empresa?.trim() || null, origen: v.origen, registradaPor: v.registradaPor || null,
             invitationId: v.invitationId || null, entra, vence: v.vence || new Date(entra.getTime() + v.minutos * 60_000),
             accessEventEntradaId: v.accessEventEntradaId || null,
+            seguimientoVence: v.seguimientoMin ? new Date(entra.getTime() + v.seguimientoMin * 60_000) : null,
         },
     });
     avisarPorSocket("visita", { accion: "alta", visita });
     return visita;
 }
 
-export async function cerrarVisita(id: string, c: { cierre: "CAMARA_SALIDA" | "GUARDIA" | "FIN_DEL_DIA"; por?: string | null; accessEventId?: string | null; sale?: Date }) {
+export async function cerrarVisita(id: string, c: { cierre: "CAMARA_SALIDA" | "GUARDIA" | "FIN_DEL_DIA"; por?: string | null; accessEventId?: string | null; sale?: Date; motivo?: string | null }) {
     const v = await prisma.visita.updateMany({
         where: { id, sale: null },
-        data: { sale: c.sale || new Date(), cierre: c.cierre, cerradaPor: c.por || null, accessEventSalidaId: c.accessEventId || null },
+        data: { sale: c.sale || new Date(), cierre: c.cierre, cerradaPor: c.por || null, accessEventSalidaId: c.accessEventId || null, cierreMotivo: c.motivo || null, seguimientoVence: null },
     });
     if (!v.count) return null;
     const visita = await prisma.visita.findUnique({ where: { id } });
@@ -120,6 +123,43 @@ export async function extenderVisita(id: string, minutos: number, quien: string 
     const extensiones = [...((v.extensiones as any[]) || []), { quien, minutos, cuando: ahora.toISOString() }];
     const visita = await prisma.visita.update({ where: { id }, data: { vence: new Date(base.getTime() + minutos * 60_000), extensiones, avisadaExcedidaAt: null } });
     await prisma.avisoGuardia.updateMany({ where: { visitaId: id, tipo: "VISITA_EXCEDIDA", atendidoAt: null }, data: { atendidoAt: ahora, atendidoPor: quien || "guardia", nota: `Extendida ${minutos} min` } }).catch(() => { });
+    avisarPorSocket("visita", { accion: "cambio", visita });
+    return visita;
+}
+
+// ─────────────────────── Visita sin lote (seguimiento) ───────────────────────
+
+/**
+ * Le pone el lote a una visita en seguimiento: termina el seguimiento y la visita sigue como una
+ * más, con el tiempo de su tipo contado desde ahora (change visita-sin-lote).
+ */
+export async function asignarLoteVisita(id: string, unidad: { id: string; name: string }, minutosTipo: number, quien: string | null) {
+    const v = await prisma.visita.findUnique({ where: { id } });
+    if (!v || v.sale) return null;
+    const ahora = new Date();
+    const visita = await prisma.visita.update({
+        where: { id },
+        data: { unitId: unidad.id, loteNombre: unidad.name, seguimientoVence: null, loteAsignadoAt: ahora, loteAsignadoPor: quien, vence: new Date(ahora.getTime() + Math.max(1, minutosTipo) * 60_000), avisadaExcedidaAt: null },
+    });
+    await prisma.avisoGuardia.updateMany({ where: { visitaId: id, tipo: "SIN_LOTE_VENCIDA", atendidoAt: null }, data: { atendidoAt: ahora, atendidoPor: quien || "guardia", nota: `Lote ${unidad.name}` } }).catch(() => { });
+    avisarPorSocket("visita", { accion: "cambio", visita });
+    return visita;
+}
+
+/** Más minutos para asignar el lote; si ya había vencido, desde ahora. */
+export async function prorrogarSeguimiento(id: string, minutos: number, quien: string | null) {
+    const v = await prisma.visita.findUnique({ where: { id } });
+    if (!v || v.sale || !v.seguimientoVence) return null;
+    const ahora = new Date();
+    const base = v.seguimientoVence.getTime() < ahora.getTime() ? ahora : v.seguimientoVence;
+    const extensiones = [...((v.extensiones as any[]) || []), { quien, minutos, cuando: ahora.toISOString(), seguimiento: true }];
+    const nuevoVence = new Date(base.getTime() + minutos * 60_000);
+    const visita = await prisma.visita.update({
+        where: { id },
+        // La visita no vence antes que su seguimiento: si no, saltaría «excedida» con el lote sin asignar.
+        data: { seguimientoVence: nuevoVence, extensiones, avisadaSinLoteAt: null, ...(v.vence < nuevoVence ? { vence: nuevoVence } : {}) },
+    });
+    await prisma.avisoGuardia.updateMany({ where: { visitaId: id, tipo: "SIN_LOTE_VENCIDA", atendidoAt: null }, data: { atendidoAt: ahora, atendidoPor: quien || "guardia", nota: `Prórroga ${minutos} min` } }).catch(() => { });
     avisarPorSocket("visita", { accion: "cambio", visita });
     return visita;
 }

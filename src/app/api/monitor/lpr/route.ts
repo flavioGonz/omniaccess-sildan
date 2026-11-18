@@ -103,7 +103,16 @@ export async function GET(req: Request) {
         adentro = [...ultimaPorChapa.values()].filter((d) => d === "ENTRY").length;
     }
     const tipos = new Map(aj.tipos.map((t) => [t.clave, t.nombre]));
-    const visitasEnCurso = visitas.map((v) => ({
+    // Visitas sin lote en seguimiento (change visita-sin-lote): franja propia en el monitor, con la foto de la entrada.
+    const seg = visitas.filter((v: any) => v.seguimientoVence && !v.unitId);
+    const fotosSeg = seg.length ? await prisma.accessEvent.findMany({ where: { id: { in: seg.map((v) => v.accessEventEntradaId).filter(Boolean) as string[] } }, select: { id: true, imagePath: true, snapshotPath: true } }).catch(() => []) : [];
+    const fotoSeg = new Map(fotosSeg.map((e) => [e.id, e.imagePath || e.snapshotPath || null]));
+    const enSeguimiento = seg.map((v: any) => ({
+        id: v.id, plate: v.plate, tipoNombre: aj.tipos.find((t) => t.clave === v.tipo)?.nombre || v.tipo, nombre: v.nombre, registradaPor: v.registradaPor,
+        desde: v.entra.toISOString(), vence: v.seguimientoVence.toISOString(), vistoEn: v.vistoEnCamara || null, vistoAt: v.vistoAdentroAt ? v.vistoAdentroAt.toISOString() : null,
+        accessEventId: v.accessEventEntradaId, foto: v.accessEventEntradaId ? fotoSeg.get(v.accessEventEntradaId) || null : null,
+    }));
+    const visitasEnCurso = visitas.filter((v: any) => !(v.seguimientoVence && !v.unitId)).map((v) => ({
         tipo: "VISITA", id: v.id, plate: v.plate, tipoVisita: v.tipo, tipoNombre: tipos.get(v.tipo) || (esPaseLibre(v.tipo) ? NOMBRE_PASE_LIBRE : v.tipo), lote: v.loteNombre, nombre: v.nombre, empresa: v.empresa,
         origen: v.origen, desde: v.entra.toISOString(), vence: v.vence.toISOString(), accessEventId: v.accessEventEntradaId,
     }));
@@ -130,6 +139,7 @@ export async function GET(req: Request) {
         tira: ultimas.slice(1, ULTIMAS_EN_TIRA + 1).map(conRegistro),
         contadores: { entradas, salidas, denegados, noRegistrados, adentro, actualizado: new Date().toISOString(), dia: hoy.toISOString() },
         enBarrio: { visitas: visitasEnCurso, noRegistradas: enBarrio },
+        enSeguimiento,
         atencion, ahora: new Date().toISOString(),
         // Matrícula → logo de su empresa (delivery, taxi), para incrustarlo en la captura.
         logos: await logosDeMatriculas().catch(() => ({})),

@@ -94,6 +94,9 @@ export type Ajustes = {
     rutinaDesvioMaxMin: number;
     /** Cuántos días hacia atrás mira el perfil. */
     ventanaPerfilDias: number;
+    /** Visita sin lote (change visita-sin-lote): minutos para asignarle el lote y de cada prórroga. */
+    sinLoteMin: number;
+    sinLoteProrrogaMin: number;
 };
 
 export const AJUSTES_POR_DEFECTO: Ajustes = {
@@ -107,6 +110,8 @@ export const AJUSTES_POR_DEFECTO: Ajustes = {
     rutinaDiasMin: 4,
     rutinaDesvioMaxMin: 30,
     ventanaPerfilDias: 30,
+    sinLoteMin: 10,
+    sinLoteProrrogaMin: 5,
 };
 
 /** Las claves en `Setting`. */
@@ -160,10 +165,12 @@ export function normalizarAjustes(raw: { modo?: string | null; tipos?: string | 
         rutinaDiasMin: entero(a.rutinaDiasMin, 3, 30, g.rutinaDiasMin),
         rutinaDesvioMaxMin: entero(a.rutinaDesvioMaxMin, 5, 180, g.rutinaDesvioMaxMin),
         ventanaPerfilDias: entero(a.ventanaPerfilDias, 7, 120, g.ventanaPerfilDias),
+        sinLoteMin: entero(a.sinLoteMin, 1, 120, g.sinLoteMin),
+        sinLoteProrrogaMin: entero(a.sinLoteProrrogaMin, 1, 60, g.sinLoteProrrogaMin),
     };
 }
 
 /** Lo que se guarda en `AVISOS_GUARDIA`: los avisos más los parámetros generales. */
 export function serializarAvisos(aj: Ajustes): string {
-    return JSON.stringify({ ...aj.avisos, antirreboteMin: aj.antirreboteMin, horaCorte: aj.horaCorte, rutinaDiasMin: aj.rutinaDiasMin, rutinaDesvioMaxMin: aj.rutinaDesvioMaxMin, ventanaPerfilDias: aj.ventanaPerfilDias });
+    return JSON.stringify({ ...aj.avisos, antirreboteMin: aj.antirreboteMin, horaCorte: aj.horaCorte, rutinaDiasMin: aj.rutinaDiasMin, rutinaDesvioMaxMin: aj.rutinaDesvioMaxMin, ventanaPerfilDias: aj.ventanaPerfilDias, sinLoteMin: aj.sinLoteMin, sinLoteProrrogaMin: aj.sinLoteProrrogaMin });
 }
