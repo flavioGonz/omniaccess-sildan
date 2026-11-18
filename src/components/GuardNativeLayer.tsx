@@ -41,6 +41,12 @@ export default function GuardNativeLayer({ socket, guardName, myLocation, isAler
     const [nightMode, setNightMode] = useState(false);
     const [torchOn, setTorchOn] = useState(false);
     const [panelOpen, setPanelOpen] = useState(false);
+    // El panel se abre desde el menú del avatar ("Herramientas"); el botón flotante se retiró.
+    useEffect(() => {
+        const abrir = () => setPanelOpen((v) => !v);
+        window.addEventListener("guard:herramientas", abrir);
+        return () => window.removeEventListener("guard:herramientas", abrir);
+    }, []);
 
     const [manDown, setManDown] = useState(false);
     const [manDownLeft, setManDownLeft] = useState(20);
@@ -276,7 +282,9 @@ export default function GuardNativeLayer({ socket, guardName, myLocation, isAler
 
     return (
         <>
+            {/* Botón flotante retirado de la pantalla: ahora se abre desde el menú del avatar. */}
             <motion.button whileTap={{ scale: 0.9 }} onClick={() => { setPanelOpen(v => !v); native.vibrate(30); }}
+                style={{ display: "none" }}
                 className="fixed z-[130] bottom-28 right-4 w-12 h-12 rounded-2xl bg-white/70 backdrop-blur-2xl border border-white/70 shadow-[0_8px_24px_rgba(0,0,0,0.15)] flex items-center justify-center text-black/60 active:scale-90" title="Herramientas de guardia">
                 <Wrench size={20} />
             </motion.button>

@@ -19,6 +19,7 @@ import {
     FileText,
     Bell,
     Settings,
+    Wrench,
     CameraOff,
     CheckCircle2,
     X,
@@ -84,6 +85,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { PanelVisitas } from "@/components/guard/PanelVisitas";
 import { avisosPendientes as avisosPendientesAccion, registrarVisitaSinLote, ultimaEntradaParaSeguimiento, datosParaRegistrar } from "@/app/actions/visitas";
 import { conAncho } from "@/lib/ancho-foto";
+import { relecturasGuardia, type RelecturaGuardia } from "@/app/actions/relectura-guardia";
 import { io } from "socket.io-client";
 import { useInView } from "react-intersection-observer";
 import { saveGuardBranding, uploadBrandingFile } from "@/app/actions/settings";
@@ -1133,6 +1135,21 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         const timer = setTimeout(fetchLPR, 500);
         return () => clearTimeout(timer);
     }, [activeTab, lprSearch, lprDate, lprDirection, resyncTick]);
+
+    // Doble verificación LPR: lo que releyó omni-vision de las NO_LEIDA de la lista.
+    const [relecturas, setRelecturas] = useState<Record<string, RelecturaGuardia>>({});
+    useEffect(() => {
+        if (activeTab !== "lpr") return;
+        const ids = lprEntries.filter((e: any) => ["NO_LEIDA", "UNKNOWN", "S/P"].includes(String(e.plateDetected || "").toUpperCase())).map((e: any) => e.id);
+        if (!ids.length) return;
+        let vivo = true;
+        const pedir = () => relecturasGuardia(ids).then((r) => { if (vivo) setRelecturas((prev) => ({ ...prev, ...r })); }).catch(() => { });
+        pedir();
+        // omni-vision relee en 1-5 s: se vuelve a preguntar un rato por las que todavía no tienen.
+        const t = setInterval(pedir, 8000);
+        const fin = setTimeout(() => clearInterval(t), 60000);
+        return () => { vivo = false; clearInterval(t); clearTimeout(fin); };
+    }, [activeTab, lprEntries]);
 
     // Filtro por cámara (persistente por usuario): si el guardia eligió cámaras, sólo esas;
     // si no eligió ninguna, ve TODAS las capturas.
@@ -2580,6 +2597,15 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                                 {isUnknown && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 text-[8px] font-bold uppercase tracking-wider" title="Registrar nuevo usuario"><UserPlus size={11} /> Registrar</span>}
                                                                 {isMerodeo && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-500/10 text-red-600 text-[8px] font-bold uppercase tracking-wider" title="Vehículo con merodeo detectado"><ShieldAlert size={11} /> Merodeo</span>}
                                                             </div>
+                                                            {relecturas[event.id]?.plate && (() => { const r = relecturas[event.id]; return (
+                                                                <div className={cn("mt-2 inline-flex items-center gap-2 rounded-xl border px-2.5 py-1.5", r.alerta ? "border-red-300 bg-red-50" : "border-violet-200 bg-violet-50")}>
+                                                                    <ScanSearch size={14} className={r.alerta ? "text-red-600" : "text-violet-600"} />
+                                                                    <span className="text-[9px] font-bold uppercase tracking-wider text-black/50">OmniVision leyó</span>
+                                                                    <span className="px-1.5 py-0.5 rounded-md bg-black text-white text-xs font-bold tracking-widest">{r.plate}</span>
+                                                                    {r.confianza != null && <span className="text-[10px] font-bold text-black/50">{Math.round((r.confianza > 1 ? r.confianza : r.confianza * 100))}%</span>}
+                                                                    {(r.quien || r.alerta) && <span className={cn("text-[10px] font-bold truncate max-w-[180px]", r.alerta ? "text-red-700" : "text-black/70")}>{r.alerta || `${r.quien}${r.unidad ? ` · ${r.unidad}` : ""}`}</span>}
+                                                                </div>
+                                                            ); })()}
                                                         </div>
                                                         <div className="text-right shrink-0">
                                                             <p className="text-xs font-bold text-black">{new Date(event.timestamp).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit' })}</p>
@@ -2925,6 +2951,10 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                         <button className="flex items-center gap-3 p-4 hover:bg-slate-50 rounded-2xl transition-colors text-black"
                                             onClick={() => { setShowCameraModal(true); setShowProfileMenu(false); }}>
                                             <Camera size={20} /> <span className="text-xs font-bold uppercase tracking-wider">Mi Foto</span>
+                                        </button>
+                                        <button className="flex items-center gap-3 p-4 hover:bg-slate-50 rounded-2xl transition-colors text-black"
+                                            onClick={() => { window.dispatchEvent(new Event("guard:herramientas")); setShowProfileMenu(false); }}>
+                                            <Wrench size={20} /> <span className="text-xs font-bold uppercase tracking-wider">Herramientas</span>
                                         </button>
                                         <button className="flex items-center gap-3 p-4 hover:bg-slate-50 rounded-2xl transition-colors text-black"
                                             onClick={() => { setShowSettingsModal(true); setShowProfileMenu(false); }}>
