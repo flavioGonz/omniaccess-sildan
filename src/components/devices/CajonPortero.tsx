@@ -492,7 +492,7 @@ function CabeceraPortero({ id, titulo, subtitulo, ip, ficha }: { id: string | nu
  */
 function BitacoraDelEquipo({ id }: { id: string }) {
     const [trabajando, setTrabajando] = useState(false);
-    const [r, setR] = useState<{ leidos: number; guardados: number; otros: Record<string, number>; sinTraducir: Record<string, number>; desfasajeMs: number | null; sinBitacora?: boolean; error?: string } | null>(null);
+    const [r, setR] = useState<{ leidos: number; guardados: number; otros: Record<string, number>; sinTraducir: Record<string, number>; desfasajeMs: number | null; sinBitacora?: boolean; masViejos?: number; error?: string } | null>(null);
     /*
      * ¿Tiene bitácora? Se le pregunta al equipo al abrir la ficha, antes de ofrecer el botón.
      * 18/11, Nico: «al intentar traer la de 30 días da un error: Request failed with status code 400».
@@ -549,6 +549,12 @@ function BitacoraDelEquipo({ id }: { id: string }) {
             ) : (
                 <div className="space-y-1.5 text-[12.5px]">
                     <p><span className="font-semibold tabular-nums">{r.guardados}</span> accesos guardados de <span className="tabular-nums">{r.leidos}</span> eventos leídos.</p>
+                    {!!r.masViejos && (
+                        <p className="text-muted-foreground">
+                            Se trajeron los más nuevos. Quedan <span className="tabular-nums">{r.masViejos}</span> eventos
+                            más viejos sin traer: entran en la próxima corrida si hacen falta.
+                        </p>
+                    )}
                     {Object.keys(r.otros).length > 0 && (
                         <p className="text-muted-foreground">
                             No son accesos: {Object.entries(r.otros).map(([k, v]) => `${v} ${k}`).join(" · ")}.

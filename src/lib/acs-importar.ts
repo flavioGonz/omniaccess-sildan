@@ -12,8 +12,13 @@ import type { CredentialType } from "@prisma/client";
  *
  * Tres decisiones que vale la pena leer antes de tocar esto:
  *
- *  · **Se pide de a páginas y se corta solo.** El equipo medido tiene 811 eventos y acepta 30 por
- *    pedido; traer todo de una es una petición de minutos que el navegador corta por la mitad.
+ *  · **Se pide de a páginas, desde la última hacia atrás, y se corta solo.** El equipo acepta 30
+ *    por pedido y devuelve los eventos del más viejo al más nuevo. Pidiendo desde el principio,
+ *    las primeras 40 páginas eran las 1.200 más VIEJAS —todas ya traídas— y la segunda corrida
+ *    decía «0 accesos guardados de 1200 eventos leídos» mientras los 188 nuevos quedaban atrás
+ *    del tope (medido 18/11, con 1.418 eventos en el equipo). Ahora se pregunta cuántos hay
+ *    (`totalMatches`) y se empieza por el final: lo nuevo entra en la primera página, y se corta
+ *    en cuanto una página entera ya estaba traída.
  *  · **Lo ya traído no se vuelve a traer.** El equipo le pone a cada evento un número de serie
  *    creciente; se guarda el último en un Setting por equipo y se piden sólo los posteriores.
  *  · **La hora se corrige con el desfasaje medido del equipo** (lib/acs-evento). El terminal de
@@ -35,6 +40,8 @@ export type Resumen = {
     sinTraducir: Record<string, number>;
     desfasajeMs: number | null;
     ultimaSerie: number | null;
+    /** Eventos más viejos que quedaron sin traer porque se llegó al tope de esta corrida. */
+    masViejos?: number;
     /** El equipo no tiene bitácora que se pueda pedir (ver `tieneBitacora`). No es un error. */
     sinBitacora?: boolean;
     error?: string;
@@ -42,12 +49,12 @@ export type Resumen = {
 
 type Equipo = { id: string; ip: string; username: string | null; password: string | null; httpPort: number | null; name: string; location: string | null; direction: string };
 
-async function pagina(d: Equipo, desde: number, hasta: number, offset: string, posicion: number): Promise<AcsEvent[]> {
+async function pagina(d: Equipo, desde: number, hasta: number, offset: string, posicion: number, cuantos = POR_PAGINA): Promise<{ lista: AcsEvent[]; total: number }> {
     const cuerpo = {
         AcsEventCond: {
             searchID: `oa-${d.id.slice(0, 8)}`,
             searchResultPosition: posicion,
-            maxResults: POR_PAGINA,
+            maxResults: cuantos,
             major: 0, minor: 0,
             // Con huso explícito y en el huso del equipo: con `...Z` contesta 400 (medido 18/11).
             startTime: isoConOffset(desde, offset),
@@ -57,7 +64,7 @@ async function pagina(d: Equipo, desde: number, hasta: number, offset: string, p
     const r = await authenticatedRequest("POST", "/ISAPI/AccessControl/AcsEvent?format=json",
         { ip: d.ip, username: d.username || "admin", password: d.password || "", authType: "DIGEST", httpPort: d.httpPort || undefined },
         { data: cuerpo, contentType: "application/json", accept: "application/json", responseType: "json", timeout: 15000 });
-    return (r?.AcsEvent?.InfoList || []) as AcsEvent[];
+    return { lista: (r?.AcsEvent?.InfoList || []) as AcsEvent[], total: Number(r?.AcsEvent?.totalMatches) || 0 };
 }
 
 /**
@@ -125,15 +132,25 @@ export async function importarBitacora(deviceId: string, desdeDias = 30): Promis
     const sinTraducir: Record<string, number> = {};
     let leidos = 0, guardados = 0, mayorSerie = ultima;
 
+    const desde = ahoraDelEquipo - desdeDias * 86_400_000;
+    const hasta = ahoraDelEquipo + 86_400_000;
+    let masViejos = 0;
+
     try {
+        // Cuántos hay en la ventana, para empezar por la última página (ver el comentario de arriba).
+        const total = (await pagina(d, desde, hasta, offset, 0, 1)).total;
+        let pos = Math.max(0, total - POR_PAGINA);
+
         for (let p = 0; p < PAGINAS_MAX; p++) {
-            const lote = await pagina(d, ahoraDelEquipo - desdeDias * 86_400_000, ahoraDelEquipo + 86_400_000, offset, p * POR_PAGINA);
+            const { lista: lote } = await pagina(d, desde, hasta, offset, pos);
             if (!lote.length) break;
             leidos += lote.length;
+            let nuevos = 0;
 
             for (const e of lote) {
                 const serie = Number(e.serialNo) || 0;
                 if (serie && serie <= ultima) continue;        // ya estaba
+                nuevos++;
                 if (serie > mayorSerie) mayorSerie = serie;
 
                 const t = traducirAcs(e);
@@ -169,7 +186,11 @@ export async function importarBitacora(deviceId: string, desdeDias = 30): Promis
                 });
                 guardados++;
             }
-            if (lote.length < POR_PAGINA) break;
+            // Una página entera que ya estaba: de acá para atrás es todo viejo.
+            if (!nuevos && ultima > 0) break;
+            if (pos === 0) break;
+            if (p === PAGINAS_MAX - 1) masViejos = pos;    // se llegó al tope: queda lo anterior
+            pos = Math.max(0, pos - POR_PAGINA);
         }
     } catch (err) {
         return { leidos, guardados, otros, sinTraducir, desfasajeMs, ultimaSerie: mayorSerie || null, error: err instanceof Error ? err.message.slice(0, 200) : "No se pudo leer la bitácora" };
@@ -178,5 +199,5 @@ export async function importarBitacora(deviceId: string, desdeDias = 30): Promis
     if (mayorSerie > ultima) {
         await prisma.setting.upsert({ where: { key: CLAVE_SERIE(d.id) }, update: { value: String(mayorSerie) }, create: { key: CLAVE_SERIE(d.id), value: String(mayorSerie) } });
     }
-    return { leidos, guardados, otros, sinTraducir, desfasajeMs, ultimaSerie: mayorSerie || null };
+    return { leidos, guardados, otros, sinTraducir, desfasajeMs, ultimaSerie: mayorSerie || null, masViejos: masViejos || undefined };
 }
