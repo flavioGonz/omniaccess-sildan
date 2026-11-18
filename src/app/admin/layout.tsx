@@ -1,6 +1,7 @@
 "use client";
 
 import { useFuncion } from "@/lib/funciones-cliente";
+import { hayEquiposDeAcceso } from "@/app/actions/bitacora-equipos";
 import React, { useRef, useState, useEffect } from "react";
 import { pantallaInicio } from "@/lib/landing";
 import { useSessionRole } from "@/hooks/useSessionRole";
@@ -128,6 +129,10 @@ export default function AdminLayout({
     // Y la Lista Amarilla la suya (12/11, Nico), sólo con la función de LPR prendida.
     const amarillaOn = useFuncion("LPR_BUSQUEDA") === true;
     const censoOn = useFuncion("PADRON_CENSO") === true;
+    /* La bitácora de equipos sólo si hay alguno: una sección vacía en un barrio sin porteros es
+       una promesa que no se cumple. Se pregunta una vez al entrar. */
+    const [hayAccesos, setHayAccesos] = useState(false);
+    useEffect(() => { hayEquiposDeAcceso().then(setHayAccesos).catch(() => { }); }, []);
     const enListaAmarilla = pathname === "/admin/users" && searchParams?.get("tab") === "listaamarilla";
     const router = useRouter();
     const [angosto, setCollapsed] = useState(false);
@@ -321,6 +326,9 @@ export default function AdminLayout({
                     ) : (
                         puede("/admin/history") && (<SidebarItem icon={<History size={18} />} label="Historial de Acceso" href="/admin/history" active={pathname === "/admin/history"} collapsed={collapsed} />)
                     )}
+                    {/* Porteros y controles de acceso: su propia bitácora, cuando hay alguno (18/11). El
+                        Historial es de matrículas; acá el sujeto es una persona frente a una puerta. */}
+                    {hayAccesos && puede("/admin/bitacora-equipos") && (<SidebarItem icon={<DoorOpen size={18} />} label="Bitácora de equipos" href="/admin/bitacora-equipos" active={pathname === "/admin/bitacora-equipos"} collapsed={collapsed} />)}
                     {/* Lo grabado y lo mandado, en un solo lugar (16/11). Con el permiso de grabaciones. */}
                     {puede("/admin/evidencias") && (<SidebarItem icon={<FileVideo size={18} />} label="Evidencias" href="/admin/evidencias" active={pathname === "/admin/evidencias"} collapsed={collapsed} />)}
                     {modules.MODULE_QUEUE && (
