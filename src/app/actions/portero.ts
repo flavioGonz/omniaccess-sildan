@@ -70,6 +70,8 @@ export type FichaPortero = {
     aperturas: AperturaPasada[];
     /** Los grupos de acceso que incluyen a este portero. */
     grupos: string[];
+    /** Los otros equipos Hikvision de acceso: a cuáles se le pueden copiar sus rostros. */
+    otrosEquipos: { id: string; nombre: string }[];
     vision: VisionPortero;
 };
 
@@ -104,6 +106,10 @@ export async function fichaPortero(id: string): Promise<FichaPortero> {
         hace: (soporte?.hace || []).map((c) => ({ clave: c, que: QUE_ES[c] })), notaMarca: soporte?.nota || null,
         aperturas: pasadas.map((a) => ({ cuando: a.cuando.toISOString(), quien: a.quien, ok: a.ok, detalle: a.detalle })),
         grupos: d.accessGroups.map((g) => g.name),
+        otrosEquipos: (await prisma.device.findMany({
+            where: { id: { not: d.id }, brand: "HIKVISION", deviceType: { in: ["DOOR_INTERCOM", "ACCESS_CONTROL", "FACE_TERMINAL"] } as never },
+            select: { id: true, name: true }, orderBy: { name: "asc" },
+        }).catch(() => [])).map((x) => ({ id: x.id, nombre: x.name })),
         vision: {
             // Sin lista elegida, OmniVision mira todos los equipos (así lo lee vision-worker).
             todas: elegidas.length === 0, enOmniVision: elegidas.length === 0 || elegidas.includes(d.id),

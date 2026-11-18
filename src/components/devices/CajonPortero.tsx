@@ -17,6 +17,7 @@ import { Bloque, Campo, Etiqueta, Opcion, TT_FICHA } from "@/components/devices/
 import { createDevice, updateDevice } from "@/app/actions/devices";
 import { fichaPortero, abrirPuertaPortero, probarPortero, ajustesVisionPortero, compararCaraPortero, type FichaPortero, type ComparacionPortero, type CaraComparada } from "@/app/actions/portero";
 import { leerCaraMin, guardarCaraMin } from "@/app/actions/caras";
+import { RostrosDelEquipo } from "@/components/devices/RostrosDelEquipo";
 import { CARA_MIN_FRAC, CARA_MIN_RANGO } from "@/lib/caras-vivo";
 import { useSiluetasEnVivo } from "@/components/monitor/camaras/piezas";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
@@ -286,6 +287,13 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
                                     arriba mientras lo movés: lo que importa es que una persona parada frente al portero
                                     entre en el recuadro.
                                 </p>
+                            </Bloque>
+                        )}
+
+                        {ficha && f.brand === "HIKVISION" && (
+                            <Bloque titulo="Rostros del equipo" icono={ScanFace}
+                                ayuda="Las caras que el equipo tiene cargadas adentro. Se pueden ver, pasar a otro portero, cargar una nueva y borrar las elegidas. Cargar y borrar cambian quién puede abrir esa puerta: quedan en Auditoría.">
+                                <RostrosDelEquipo id={ficha.id} otros={ficha.otrosEquipos || []} />
                             </Bloque>
                         )}
 
