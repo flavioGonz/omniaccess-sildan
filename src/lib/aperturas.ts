@@ -42,9 +42,9 @@ export type ComoAbre = {
  */
 export const COMO_ABRE: Record<string, ComoAbre> = {
     HIKVISION: {
-        puede: true, probado: false,
+        puede: true, probado: true,
         metodo: "ISAPI · PUT /ISAPI/AccessControl/RemoteControl/door/<n>",
-        nota: "Un portero o un control de acceso Hikvision abre por su cerradura, no por la salida de alarma como una cámara. El equipo declara qué puertas tiene y qué órdenes acepta, y eso se lee. El pedido de apertura todavía no se probó contra una puerta real.",
+        nota: "Un portero o un control de acceso Hikvision abre por su cerradura, no por la salida de alarma como una cámara. El equipo declara qué puertas tiene y qué órdenes acepta, y eso se lee. Probado el 18/11 contra los dos equipos de la instalación —un DS-K1T343MFWX y un DS-KV9503-WBE1—, que aceptaron la orden con «OK».",
     },
     AKUVOX: {
         puede: true, probado: true,

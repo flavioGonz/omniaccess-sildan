@@ -49,8 +49,10 @@ test("Dahua e Intelbras: una línea por dato, índice desde 0 y canal desde 1", 
 
 test("la tabla dice lo que hay: probado sólo donde se vio abrir", () => {
     for (const m of MARCAS_PORTERO) assert.ok(COMO_ABRE[m], `${m} sin entrada`);
-    assert.equal(comoAbre("AKUVOX").probado, true);
-    for (const m of ["HIKVISION", "DAHUA", "INTELBRAS"]) { assert.equal(comoAbre(m).puede, true); assert.equal(comoAbre(m).probado, false); }
+    // Probadas contra una puerta real: Akuvox (porteros andando) y Hikvision (18/11, los dos
+    // equipos de la instalación: DS-K1T343MFWX y DS-KV9503-WBE1).
+    for (const m of ["AKUVOX", "HIKVISION"]) assert.equal(comoAbre(m).probado, true, `${m} debería estar probado`);
+    for (const m of ["DAHUA", "INTELBRAS"]) { assert.equal(comoAbre(m).puede, true); assert.equal(comoAbre(m).probado, false); }
     assert.equal(comoAbre("GRANDSTREAM").puede, false);
     // Una marca que no está en la tabla no abre, y lo dice.
     assert.equal(comoAbre("ZKTECO").puede, false);
