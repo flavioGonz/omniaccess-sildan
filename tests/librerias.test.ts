@@ -53,6 +53,11 @@ test("sólo lectura: POST de búsqueda y el lente pasan; un PUT de configuració
     assert.ok(cambiaAlgo("POST", "/ISAPI/AccessControl/UserInfo/Record?format=json"));
     assert.ok(cambiaAlgo("PUT", "/ISAPI/AccessControl/UserInfo/Modify?format=json"));
     assert.ok(cambiaAlgo("PUT", "/ISAPI/System/time"));
+    // Abrir una puerta no es configurar: pasa aunque el equipo sea de sólo lectura (18/11).
+    assert.ok(!cambiaAlgo("PUT", "/ISAPI/AccessControl/RemoteControl/door/1"));
+    assert.doesNotThrow(() => exigirEscritura("192.168.1.86", "PUT", "/ISAPI/AccessControl/RemoteControl/door/2"));
+    // Pero dejarla abierta para siempre por configuración, no.
+    assert.ok(cambiaAlgo("PUT", "/ISAPI/AccessControl/Door/param/1"));
 });
 
 test("cifrado: ida y vuelta, y lo viejo en claro se lee igual", () => {

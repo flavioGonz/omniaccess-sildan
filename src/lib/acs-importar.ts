@@ -35,6 +35,8 @@ export type Resumen = {
     sinTraducir: Record<string, number>;
     desfasajeMs: number | null;
     ultimaSerie: number | null;
+    /** El equipo no tiene bitácora que se pueda pedir (ver `tieneBitacora`). No es un error. */
+    sinBitacora?: boolean;
     error?: string;
 };
 
@@ -58,6 +60,34 @@ async function pagina(d: Equipo, desde: number, hasta: number, offset: string, p
     return (r?.AcsEvent?.InfoList || []) as AcsEvent[];
 }
 
+/**
+ * ¿Este equipo guarda una bitácora que se le pueda pedir?
+ *
+ * 18/11, Nico: «al intentar traer la de 30 días da un error: Request failed with status code 400».
+ * Medido: el portero DS-KV9503 contesta `notSupport` a /AccessControl/AcsEvent, y el terminal
+ * DS-K1T343MFWX contesta las capacidades. No es una falla: ese modelo de portero no lleva registro
+ * de accesos — los eventos los manda en el momento, no los guarda. Preguntarlo antes convierte un
+ * error rojo sin explicación en una frase que dice qué hacer en su lugar (escucharlo).
+ */
+async function tieneBitacora(d: Equipo): Promise<boolean> {
+    try {
+        const r = await authenticatedRequest("GET", "/ISAPI/AccessControl/AcsEvent/capabilities?format=json",
+            { ip: d.ip, username: d.username || "admin", password: d.password || "", authType: "DIGEST", httpPort: d.httpPort || undefined },
+            { accept: "application/json", responseType: "json", timeout: 8000 });
+        return !!r?.AcsEvent;
+    } catch { return false; }
+}
+
+/** Lo mismo, por id: la pantalla lo pregunta al abrir la ficha para no ofrecer un botón que falla. */
+export async function puedeBitacora(deviceId: string): Promise<boolean> {
+    const d = await prisma.device.findUnique({
+        where: { id: deviceId },
+        select: { id: true, ip: true, username: true, password: true, httpPort: true, name: true, location: true, direction: true },
+    }) as Equipo | null;
+    if (!d) return false;
+    return tieneBitacora(d);
+}
+
 /** La hora que dice el equipo, para medirle el desfasaje. */
 async function horaDelEquipo(d: Equipo): Promise<string | null> {
     try {
@@ -79,6 +109,8 @@ export async function importarBitacora(deviceId: string, desdeDias = 30): Promis
         select: { id: true, ip: true, username: true, password: true, httpPort: true, name: true, location: true, direction: true },
     }) as Equipo | null;
     if (!d) return { ...vacio, error: "Ese equipo no existe." };
+
+    if (!(await tieneBitacora(d))) return { ...vacio, sinBitacora: true };
 
     const marca = await prisma.setting.findUnique({ where: { key: CLAVE_SERIE(d.id) } }).catch(() => null);
     const ultima = Number(marca?.value) || 0;

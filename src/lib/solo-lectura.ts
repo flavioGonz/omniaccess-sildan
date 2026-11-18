@@ -60,8 +60,19 @@ const POST_DE_LECTURA = [
      */
     /\/AccessControl\/AcsEvent/i, /\/AccessControl\/\w+\/Search/i, /\/FDLib\/FDSearch/i, /\/FaceDataRecord\/Search/i,
 ];
-/** Lo que se deja cambiar igual: el lente (ver arriba). */
-const PERMITIDO = [/\/PTZCtrl\/channels\/\d+\/continuous/i, /\/System\/Video\/inputs\/channels\/\d+\/focus/i, /onepushfoucs/i];
+/**
+ * Lo que se deja hacer igual: el lente (ver arriba) y ABRIR UNA PUERTA.
+ *
+ * La regla que guarda este archivo es «desde acá no se CONFIGURA un equipo de otro barrio». Abrir
+ * una puerta no configura nada: es la operación para la que existe OmniAccess, dura los segundos
+ * que el equipo tenga puestos, ya pide el permiso de puertas y queda en Auditoría con quién la
+ * abrió. Sin esta línea, un portero dado de alta en una red marcada de sólo lectura se ve, se
+ * prueba y nunca abre — que es lo contrario de lo que el guardia necesita. (18/11)
+ */
+const PERMITIDO = [
+    /\/PTZCtrl\/channels\/\d+\/continuous/i, /\/System\/Video\/inputs\/channels\/\d+\/focus/i, /onepushfoucs/i,
+    /\/AccessControl\/RemoteControl\/door\/\d+/i,
+];
 
 export function cambiaAlgo(metodo: string, ruta: string): boolean {
     const m = metodo.toUpperCase();

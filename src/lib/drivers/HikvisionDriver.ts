@@ -99,19 +99,34 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver, IUs
             authType: device.authType,
         };
         const candidates = [`${channel}01`, `${channel}`, "101", "1"];
-        const seen = new Set<string>();
-        for (const ch of candidates) {
-            if (seen.has(ch)) continue; seen.add(ch);
-            try {
-                const data = await authenticatedRequest(
-                    "GET",
-                    `/ISAPI/Streaming/channels/${ch}/picture${ancho ? `?videoResolutionWidth=${ancho}&videoResolutionHeight=${Math.round(ancho * 9 / 16)}` : ""}`,
-                    authDevice,
-                    { accept: "image/jpeg", responseType: "arraybuffer", timeout: 12000 }
-                );
-                const buf = Buffer.from(data);
-                if (buf && buf.length > 500) return buf; // sanity: real JPEG, not an error page
-            } catch (e) { /* try next channel */ }
+        /*
+         * Dos vueltas: con el tamaño pedido y, si ninguna cámara contestó, sin él.
+         *
+         * 18/11, medido: el portero DS-KV9503 contesta 404 (statusCode 6) a
+         * `/picture?videoResolutionWidth=640` y 200 con 24 KB de JPEG a `/picture` pelado. Ese
+         * modelo no sabe redimensionar. Como el parámetro iba en los cuatro candidatos, los cuatro
+         * fallaban y el portero quedaba sin ninguna foto: la grilla daba 502 y comparar un rostro
+         * decía «no llegó video del portero». El tamaño es una optimización de ancho de banda —si
+         * el equipo no la soporta, se trae la foto entera, que es lo que el operador vino a ver.
+         */
+        const consultas = ancho
+            ? [`?videoResolutionWidth=${ancho}&videoResolutionHeight=${Math.round(ancho * 9 / 16)}`, ""]
+            : [""];
+        for (const q of consultas) {
+            const seen = new Set<string>();
+            for (const ch of candidates) {
+                if (seen.has(ch)) continue; seen.add(ch);
+                try {
+                    const data = await authenticatedRequest(
+                        "GET",
+                        `/ISAPI/Streaming/channels/${ch}/picture${q}`,
+                        authDevice,
+                        { accept: "image/jpeg", responseType: "arraybuffer", timeout: 12000 }
+                    );
+                    const buf = Buffer.from(data);
+                    if (buf && buf.length > 500) return buf; // sanity: real JPEG, not an error page
+                } catch { /* try next channel */ }
+            }
         }
         return null;
     }
@@ -392,7 +407,9 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver, IUs
      * El comando de apertura NO se probó contra el equipo: es la puerta de un cliente.
      */
     static abrePorCerradura(device: Pick<Device, "deviceType">): boolean {
-        return device.deviceType === "DOOR_INTERCOM" || device.deviceType === "ACCESS_CONTROL";
+        // 18/11: faltaba el terminal facial, que también abre por cerradura; con la salida de
+        // alarma de una cámara habría contestado 404 y dicho «no abrió» sin saber por qué.
+        return device.deviceType === "DOOR_INTERCOM" || device.deviceType === "ACCESS_CONTROL" || device.deviceType === "FACE_TERMINAL";
     }
 
     /** Abre la cerradura (la puerta 1) y dice si el equipo lo aceptó. El tiempo abierto lo pone el equipo (Door/param). */

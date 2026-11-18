@@ -139,13 +139,14 @@ const PLACEHOLDER_BRAND = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="
  * seguimiento interior, que es donde nadie la buscaba.
  */
 const vistaDe = (d: any): string => (esLprDeAcceso(d) ? "LPR_CAMERA" : String(d.deviceType));
-/** Los tipos que se editan con la ficha de porteros (13/11): antes caían en el modal viejo de cuatro fases. */
-const ES_PORTERO = ["DOOR_INTERCOM", "ACCESS_CONTROL"];
+/** Los tipos que se editan con la ficha de porteros (13/11): antes caían en el modal viejo de cuatro
+ *  fases. Los terminales faciales se sumaron el 18/11: comparten bitácora, puertas y rostros. */
+const ES_PORTERO = ["DOOR_INTERCOM", "ACCESS_CONTROL", "FACE_TERMINAL"];
 
 const TYPE_META: Record<string, { label: string; color: string; activeClass: string }> = {
     LPR_CAMERA: { label: "Cámaras LPR", color: "text-amber-400", activeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
     CAMERA: { label: "Intrusión", color: "text-red-400", activeClass: "bg-red-500/15 text-red-300 border-red-500/30" },
-    FACE_TERMINAL: { label: "Face", color: "text-teal-400", activeClass: "bg-teal-500/15 text-teal-300 border-teal-500/30" },
+    FACE_TERMINAL: { label: "Acceso facial", color: "text-teal-400", activeClass: "bg-teal-500/15 text-teal-300 border-teal-500/30" },
     QUEUE_COUNTER: { label: "Filas", color: "text-violet-400", activeClass: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
     NVR: { label: "NVR", color: "text-blue-400", activeClass: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
     // (SN) La LPR de seguimiento interior: la página de Olivos no tenía este tipo y el equipo no
@@ -348,7 +349,11 @@ export default function DevicesPage() {
     if (modules.MODULE_LPR) { allowedTypes.push("LPR_CAMERA"); allowedTypes.push("CAMERA"); allowedTypes.push("NVR"); }
     // (SN) Sólo si hay alguna: en una instalación sin LPR interior la vista vacía no suma nada.
     if (modules.MODULE_LPR && devices.some((d) => vistaDe(d) === "LPR_INTERIOR")) allowedTypes.splice(1, 0, "LPR_INTERIOR");
-    if (modules.MODULE_FACE) allowedTypes.push("FACE_TERMINAL");
+    /* Con el módulo prendido, o si hay alguna dada de alta. 18/11, Nico: «no veo el otro dispositivo
+       de control de acceso» — el lab corre en modo LPR y el terminal facial DS-K1T343MFWX, que sí
+       estaba dado de alta y contestaba, no tenía dónde verse. Mismo criterio que los contadores de
+       fila: un equipo que existe en la base siempre tiene que poder abrirse. */
+    if (modules.MODULE_FACE || devices.some((d) => vistaDe(d) === "FACE_TERMINAL")) allowedTypes.push("FACE_TERMINAL");
     // Los contadores de fila se ven aunque el modo Filas no sea el que corre, si hay alguno dado de alta
     // (21/10, Nico: «la cámara del Británico no la veo en dispositivos»: el lab corre en modo LPR y
     // tiene un contador Bosch para probar; existía, contaba, y no había dónde verlo ni editarlo).

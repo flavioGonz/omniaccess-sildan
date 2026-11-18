@@ -39,6 +39,9 @@ const ORDEN: Record<string, string> = { open: "abrir", close: "cerrar", alwaysOp
 const TIPOS = [
     { valor: "DOOR_INTERCOM", titulo: "Portero", detalle: "Con botón de llamada, y casi siempre cámara.", icono: BellRing },
     { valor: "ACCESS_CONTROL", titulo: "Control de acceso", detalle: "Lectora o controladora, sin llamada.", icono: Fingerprint },
+    // 18/11: un terminal facial se editaba con el modal viejo de cuatro fases, que no tiene ni
+    // bitácora ni puertas ni comparar un rostro, que es justo lo que un terminal facial hace.
+    { valor: "FACE_TERMINAL", titulo: "Acceso facial", detalle: "Lee la cara, y casi siempre también tarjeta.", icono: ScanFace },
 ] as const;
 
 const hace = (iso: string | null) => {
@@ -279,7 +282,7 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
 
                         {alta && (
                             <Bloque titulo="Qué equipo es" icono={BellRing} ayuda="La marca decide cómo se le pide que abra. Al lado de cada una dice si esa apertura se probó contra un equipo real.">
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-3 gap-3">
                                     {TIPOS.map((t) => <Opcion key={t.valor} activa={f.deviceType === t.valor} onClick={() => set("deviceType", t.valor)} icono={t.icono} color="text-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]" titulo={t.titulo} detalle={t.detalle} />)}
                                 </div>
                                 <div>
@@ -489,7 +492,23 @@ function CabeceraPortero({ id, titulo, subtitulo, ip, ficha }: { id: string | nu
  */
 function BitacoraDelEquipo({ id }: { id: string }) {
     const [trabajando, setTrabajando] = useState(false);
-    const [r, setR] = useState<{ leidos: number; guardados: number; otros: Record<string, number>; sinTraducir: Record<string, number>; desfasajeMs: number | null; error?: string } | null>(null);
+    const [r, setR] = useState<{ leidos: number; guardados: number; otros: Record<string, number>; sinTraducir: Record<string, number>; desfasajeMs: number | null; sinBitacora?: boolean; error?: string } | null>(null);
+    /*
+     * ¿Tiene bitácora? Se le pregunta al equipo al abrir la ficha, antes de ofrecer el botón.
+     * 18/11, Nico: «al intentar traer la de 30 días da un error: Request failed with status code 400».
+     * El portero DS-KV9503 contesta `notSupport`: no guarda registro de accesos. Ofrecer un botón
+     * que no puede andar y contestar con el error crudo de la librería HTTP es peor que no ofrecerlo.
+     * `null` mientras se pregunta: el bloque no parpadea entre las dos versiones.
+     */
+    const [puede, setPuede] = useState<boolean | null>(null);
+    useEffect(() => {
+        let vivo = true;
+        fetch(`/api/devices/bitacora?deviceId=${encodeURIComponent(id)}`)
+            .then((x) => x.json())
+            .then((j) => { if (vivo) setPuede(!!j?.puede); })
+            .catch(() => { if (vivo) setPuede(true); });   // si no se pudo preguntar, se deja intentar
+        return () => { vivo = false; };
+    }, [id]);
 
     async function traerla() {
         setTrabajando(true);
@@ -512,11 +531,17 @@ function BitacoraDelEquipo({ id }: { id: string }) {
     return (
         <Bloque titulo="Bitácora del equipo" icono={History}
             ayuda="Lo que el equipo guardó: tarjetas, rostros y rechazos, con su hora. Se trae al historial de accesos, y la próxima vez sigue desde donde quedó."
-            accion={<button type="button" onClick={traerla} disabled={trabajando}
+            accion={puede === false ? undefined : <button type="button" onClick={traerla} disabled={trabajando || puede === null}
                 className="inline-flex items-center gap-1 text-[12px] font-semibold text-[var(--accion)] hover:underline disabled:opacity-50">
                 {trabajando ? <Loader2 size={12} className="animate-spin" /> : <History size={12} />} Traer la de 30 días
             </button>}>
-            {!r ? (
+            {puede === false || r?.sinBitacora ? (
+                <p className="text-[12.5px] text-muted-foreground">
+                    Este equipo no guarda una bitácora que se le pueda pedir: contesta que no la tiene.
+                    Los porteros mandan cada evento en el momento y no lo archivan, así que su historial
+                    se consigue escuchándolo —apuntándole los avisos a OmniAccess—, no yendo a buscarlo.
+                </p>
+            ) : !r ? (
                 <p className="text-[12.5px] text-muted-foreground">
                     Todavía no se trajo nada. La puerta abriéndose y el log de configuración no entran:
                     no dicen quién pasó.
