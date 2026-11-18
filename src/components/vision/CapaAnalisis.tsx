@@ -117,8 +117,10 @@ const COLOR_TOCA = "#f43f5e";
  * correcta?», que es para lo que se pidió. El recuadro de referencia va en blanco, como el resto
  * de la geometría, porque es una guía y no algo que la cámara vio.
  */
-const COLOR_CARA = "#34d399";
+const COLOR_CARA = "#38bdf8";
 const COLOR_CARA_CHICA = "#fbbf24";
+/** Reconocida: el verde de «esta persona es quien dice ser». */
+const COLOR_CARA_RECO = "#34d399";
 /**
  * La chapa que leyó OmniVision (Nico, 15/10: «dentro de las siluetas, la matrícula cuadrada
  * similar»): un recuadro blanco sobre la chapa misma, y debajo la chapa dibujada como una
@@ -700,21 +702,35 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const [x1, y1, x2, y2] = c.caja;
                 const x = x1 * W, y = y1 * H, an = Math.max(1, (x2 - x1) * W), al = Math.max(1, (y2 - y1) * H);
                 const alcanza = (y2 - y1) >= (analisis.caraMin ?? 0);
-                const col = alcanza ? COLOR_CARA : COLOR_CARA_CHICA;
-                const t = Math.min(an, al) * 0.26;   // el largo de cada esquina
+                const reco = !!c.nombre;
+                const col = !alcanza ? COLOR_CARA_CHICA : reco ? COLOR_CARA_RECO : COLOR_CARA;
+                const t = Math.min(an, al) * 0.3;   // el largo de cada esquina de la mira
                 const fc = lado * 0.021;
+                /*
+                 * La forma de una cabeza y no un rectángulo (18/11, Nico: «siluetas del rostro si
+                 * puedes mejor, que no sea un rectángulo»). El motor devuelve una caja y nada
+                 * más: dibujar una silueta recortada sería inventarla. Lo que se dibuja es un
+                 * óvalo con mentón —la forma de una cabeza inscripta en esa caja—, que es una
+                 * manera de mostrar la misma información, no un dato nuevo.
+                 */
+                const cx = x + an / 2, rx = an / 2, ry = al / 2, cy = y + ry;
+                const cabeza = `M${cx},${y} C${cx + rx},${y} ${cx + rx},${cy + ry * 0.25} ${cx + rx * 0.55},${cy + ry * 0.68}`
+                    + ` C${cx + rx * 0.3},${y + al} ${cx - rx * 0.3},${y + al} ${cx - rx * 0.55},${cy + ry * 0.68}`
+                    + ` C${cx - rx},${cy + ry * 0.25} ${cx - rx},${y} ${cx},${y} Z`;
                 return (
                     <g key={`cara-${i}`} filter={`url(#sombra-${uid})`}>
-                        <rect x={x} y={y} width={an} height={al} rx={Math.min(an, al) * 0.12} fill="none"
-                            stroke={col} strokeOpacity="0.45" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+                        <path d={cabeza} fill={col} fillOpacity={reco ? 0.14 : 0.08} stroke={col} strokeWidth={2.5}
+                            vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
                         {[[x, y, 1, 1], [x + an, y, -1, 1], [x, y + al, 1, -1], [x + an, y + al, -1, -1]].map(([ex, ey, dx, dy], k) => (
                             <path key={k} d={`M${ex},${ey + dy * t} L${ex},${ey} L${ex + dx * t},${ey}`} fill="none"
-                                stroke={col} strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+                                stroke={col} strokeOpacity="0.75" strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
                         ))}
                         {etiquetas && (
-                            <text x={x + an / 2} y={y - fc * 0.45} textAnchor="middle" filter={`url(#texto-${uid})`}
+                            <text x={cx} y={y - fc * 0.45} textAnchor="middle" filter={`url(#texto-${uid})`}
                                 style={{ fontFamily: "Outfit, system-ui, sans-serif", fontSize: fc, fontWeight: 700, fill: col }}>
-                                {Math.round((y2 - y1) * 100)} % {alcanza ? "" : "· muy chica"}
+                                {reco
+                                    ? `${c.nombre}${c.similitud != null ? ` · ${c.similitud} %` : ""}`
+                                    : `${Math.round((y2 - y1) * 100)} %${alcanza ? "" : " · muy chica"}`}
                             </text>
                         )}
                     </g>

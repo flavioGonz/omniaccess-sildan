@@ -47,6 +47,10 @@ export type CaraVista = {
     caja: [number, number, number, number];
     /** 0 a 1. */
     prob: number;
+    /** A quién reconoció el motor en esta cara, si reconoció a alguien. */
+    nombre?: string | null;
+    /** Qué tan parecida, 0 a 100. */
+    similitud?: number | null;
 };
 
 /** Lee el valor guardado y lo deja dentro del rango. Sin valor, el de fábrica. */
@@ -63,20 +67,31 @@ export const altoDeCara = (c: CaraVista): number => Math.max(0, c.caja[3] - c.ca
 export const caraAlcanza = (c: CaraVista, min: number): boolean => altoDeCara(c) >= min;
 
 /**
- * Las caras del cuadro, normalizadas. Nunca tira: si el motor no contesta, se devuelve `null` y
- * el vivo sigue mostrando las siluetas — una cara que no se pudo detectar no es una cara que no
- * está, y por eso `null` (no se dibuja nada) y no `[]` (no hay nadie).
+ * Las caras del cuadro, normalizadas, CON NOMBRE si el motor reconoce a alguien.
+ *
+ * Se usa `/recognition/recognize` y no `/detection/detect`: cuesta lo mismo (una llamada por
+ * cuadro) y además devuelve a quién se parece esa cara. Con eso el recuadro puede cambiar de
+ * color cuando reconoce (18/11, pedido de Nico) en vez de mostrar siempre lo mismo. Si no hay
+ * clave de reconocimiento se cae a la detección, que al menos dibuja dónde está la cara.
+ *
+ * Nunca tira: si el motor no contesta, se devuelve `null` y el vivo sigue mostrando lo demás —
+ * una cara que no se pudo mirar no es una cara que no está, y por eso `null` (no se dibuja nada)
+ * y no `[]` (se miró y no hay nadie).
  */
 export async function carasDelCuadro(jpeg: Buffer, anchoPx: number, altoPx: number, msMax = 2500): Promise<CaraVista[] | null> {
     try {
-        const { url, detKey } = await getCompreFace();
-        if (!url || !detKey) return null;
+        const { url, detKey, recoKey } = await getCompreFace();
+        if (!url || !(recoKey || detKey)) return null;
+        const reconociendo = !!recoKey;
+        const ruta = reconociendo
+            ? "/api/v1/recognition/recognize?det_prob_threshold=0.75&prediction_count=1&face_plugins="
+            : "/api/v1/detection/detect?det_prob_threshold=0.75&face_plugins=";
         const fd = new FormData();
         fd.append("file", new Blob([new Uint8Array(jpeg)], { type: "image/jpeg" }), "cuadro.jpg");
-        const r = await fetch(`${url}/api/v1/detection/detect?det_prob_threshold=0.75&face_plugins=`, {
-            method: "POST", body: fd, headers: { "x-api-key": detKey }, signal: AbortSignal.timeout(msMax),
+        const r = await fetch(`${url}${ruta}`, {
+            method: "POST", body: fd, headers: { "x-api-key": reconociendo ? recoKey : detKey }, signal: AbortSignal.timeout(msMax),
         });
-        const j = await r.json().catch(() => null) as { result?: { box?: Record<string, number> }[]; code?: number } | null;
+        const j = await r.json().catch(() => null) as { result?: { box?: Record<string, number>; subjects?: { subject?: string; similarity?: number }[] }[]; code?: number } | null;
         /* «No face is found in the given image» viene como 400 con code 28, y NO es un fallo: es
            la respuesta «no hay nadie». Medido el 18/11 contra el portero con la puerta vacía. Si
            esto devolviera `null`, el recuadro de referencia tampoco se dibujaría y justamente se
@@ -86,12 +101,17 @@ export async function carasDelCuadro(jpeg: Buffer, anchoPx: number, altoPx: numb
         if (!j?.result) return null;
         const W = anchoPx || 1, H = altoPx || 1;
         return j.result
-            .map((f) => f.box)
-            .filter((b): b is Record<string, number> => !!b)
-            .map((b) => ({
-                caja: [b.x_min / W, b.y_min / H, b.x_max / W, b.y_max / H] as [number, number, number, number],
-                prob: Number(b.probability) || 0,
-            }))
+            .filter((f) => !!f.box)
+            .map((f) => {
+                const b = f.box as Record<string, number>;
+                const s0 = f.subjects?.[0];
+                return {
+                    caja: [b.x_min / W, b.y_min / H, b.x_max / W, b.y_max / H] as [number, number, number, number],
+                    prob: Number(b.probability) || 0,
+                    nombre: s0?.subject || null,
+                    similitud: s0?.similarity != null ? Math.round(s0.similarity * 100) : null,
+                };
+            })
             .filter((c) => c.caja.every((v) => Number.isFinite(v)));
     } catch { return null; }
 }

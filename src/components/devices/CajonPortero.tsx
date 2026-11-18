@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { Tooltip } from "react-tooltip";
 import {
@@ -153,7 +154,8 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
         try {
             const r = await servidor.abrir(ficha.id, p.n, p.nombre);
             setResultados((x) => ({ ...x, [p.n]: { ...r, cuando: Date.now() } }));
-            if (r.ok) toast.success({ title: "El equipo aceptó abrir", description: r.mensaje }); else toast.error({ title: "No abrió", description: r.mensaje });
+            if (r.ok) { setAbierta({ nombre: p.nombre, cuando: Date.now() }); toast.success({ title: "El equipo aceptó abrir", description: r.mensaje }); }
+            else toast.error({ title: "No abrió", description: r.mensaje });
             traer(ficha.id, false);
         } catch (e: any) { setResultados((x) => ({ ...x, [p.n]: { ok: false, mensaje: e?.message || "No se pudo pedir", cuando: Date.now() } })); }
         finally { setAbriendo(null); }
@@ -162,6 +164,13 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
     /* La distancia de captura: el alto mínimo de cara, en fracción del alto del cuadro. Se mueve
        y se ve enseguida sobre el video; se guarda al soltar. */
     const [caraMin, setCaraMin] = useState<number>(CARA_MIN_FRAC);
+    /** La última puerta que abrió: dispara la animación sobre el video y se borra sola. */
+    const [abierta, setAbierta] = useState<{ nombre: string; cuando: number } | null>(null);
+    useEffect(() => {
+        if (!abierta) return;
+        const t = setTimeout(() => setAbierta(null), 2600);
+        return () => clearTimeout(t);
+    }, [abierta]);
     const [guardandoMin, setGuardandoMin] = useState(false);
     useEffect(() => { if (id) leerCaraMin(id).then(setCaraMin).catch(() => { }); }, [id]);
     const guardarMin = async (v: number) => {
@@ -195,7 +204,7 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
             <CajonContenido ancho="intermedio" tituloOculto sinCabecera titulo={f.name || device?.name || "Portero"} descripcion={`${tipo.titulo} · ${marca}`} pie={pie}>
                 <CabeceraPortero id={id} titulo={f.name || device?.name || (alta ? "Portero nuevo" : "Portero")} subtitulo={[tipo.titulo, marca, ficha?.deviceModel].filter(Boolean).join(" · ")}
                     ip={f.ip} ficha={ficha}
-                    puertas={ficha?.puertas || []} abriendo={abriendo} bloqueada={!!ficha?.soloLectura || !como.puede} onAbrir={abrir} caraMin={caraMin} />
+                    puertas={ficha?.puertas || []} abriendo={abriendo} bloqueada={!!ficha?.soloLectura || !como.puede} onAbrir={abrir} caraMin={caraMin} comparacion={comparacion} abierta={abierta} />
 
                 {!alta && error && !ficha ? (
                     <div className="px-6 py-10 text-center">
@@ -303,7 +312,7 @@ export function CajonPortero({ device, open, onOpenChange, onSuccess, acciones }
                                     </Button>
                                     <span className="ml-2 text-[11.5px] text-muted-foreground">Toma un cuadro y dice a quién reconocería. No guarda nada.</span>
                                 </div>
-                                {comparacion && comparacion !== "corriendo" && <ResultadoComparacion r={comparacion} />}
+                                {/* El resultado se dibuja sobre el video, pegado a la derecha (ver CabeceraPortero). */}
                             </Bloque>
                         )}
 
@@ -439,8 +448,8 @@ function fraseDe(c: CaraComparada): { texto: string; tono: "bien" | "aviso" | "m
 }
 
 /** El cuadro que se comparó, con cada cara marcada, y qué diría el modo face de cada una. */
-function ResultadoComparacion({ r }: { r: ComparacionPortero }) {
-    if (!r.ok) return <p className="text-[12px] tono-mal flex items-start gap-1.5"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> {r.error}</p>;
+function ResultadoComparacion({ r, oscuro }: { r: ComparacionPortero; oscuro?: boolean }) {
+    if (!r.ok) return <p className={cn("text-[12px] flex items-start gap-1.5", oscuro ? "text-red-300" : "tono-mal")}><AlertTriangle size={14} className="mt-0.5 shrink-0" /> {r.error}</p>;
     return (
         <div className="space-y-2.5">
             {r.foto && (
@@ -454,23 +463,23 @@ function ResultadoComparacion({ r }: { r: ComparacionPortero }) {
                     ))}
                 </div>
             )}
-            {r.caras.length === 0 ? <p className="text-[12.5px] text-muted-foreground">No hay ninguna cara en el cuadro en este momento. Probá con alguien parado frente al portero.</p> : (
+            {r.caras.length === 0 ? <p className={cn("text-[12.5px]", oscuro ? "text-white/75" : "text-muted-foreground")}>No hay ninguna cara en el cuadro en este momento. Probá con alguien parado frente al portero.</p> : (
                 <div className="space-y-1.5">
                     {r.caras.map((c, i) => {
                         const f = fraseDe(c);
                         return (
                             <div key={i} className="flex items-start gap-2.5 text-[12.5px]">
-                                <span className="mt-px h-[18px] min-w-[18px] px-1 rounded-[4px] bg-muted text-[11px] font-bold grid place-items-center tabular-nums shrink-0">{i + 1}</span>
+                                <span className={cn("mt-px h-[18px] min-w-[18px] px-1 rounded-[4px] text-[11px] font-bold grid place-items-center tabular-nums shrink-0", oscuro ? "bg-white/20" : "bg-muted")}>{i + 1}</span>
                                 <span className="min-w-0 flex-1">
                                     <span className={cn(f.tono === "bien" && "tono-bien", f.tono === "mal" && "tono-mal", f.tono === "aviso" && "text-foreground", "font-semibold")}>{f.texto}</span>
-                                    <span className="block text-[11.5px] text-muted-foreground tabular-nums">Cara de {c.px} px · detección {pct(c.prob)}</span>
+                                    <span className={cn("block text-[11.5px] tabular-nums", oscuro ? "text-white/70" : "text-muted-foreground")}>Cara de {c.px} px · detección {pct(c.prob)}</span>
                                 </span>
                             </div>
                         );
                     })}
                 </div>
             )}
-            <p className="text-[11px] text-muted-foreground tabular-nums">Comparado en {(r.ms / 1000).toFixed(1).replace(".", ",")} s.</p>
+            <p className={cn("text-[11px] tabular-nums", oscuro ? "text-white/65" : "text-muted-foreground")}>Comparado en {(r.ms / 1000).toFixed(1).replace(".", ",")} s.</p>
         </div>
     );
 }
@@ -484,11 +493,15 @@ function ResultadoComparacion({ r }: { r: ComparacionPortero }) {
  * desplazarse para llegar al botón mientras alguien espera del otro lado. Ahora el botón está
  * sobre la imagen de quien toca el timbre, que es la información que hace falta para decidir.
  */
-function CabeceraPortero({ id, titulo, subtitulo, ip, ficha, puertas = [], abriendo, bloqueada, onAbrir, caraMin }: {
+function CabeceraPortero({ id, titulo, subtitulo, ip, ficha, puertas = [], abriendo, bloqueada, onAbrir, caraMin, comparacion, abierta }: {
     id: string | null; titulo: string; subtitulo: string; ip?: string; ficha: FichaPortero | null;
     puertas?: Puerta[]; abriendo?: number | null; bloqueada?: boolean; onAbrir?: (p: Puerta) => void;
     /** El tamaño mínimo de cara que se está ajustando: se dibuja encima del video mientras se mueve. */
     caraMin?: number | null;
+    /** La comparación en curso o su resultado: va pegada a la derecha del video, encima. */
+    comparacion?: ComparacionPortero | "corriendo" | null;
+    /** La puerta que acaba de abrir: dispara la animación sobre el video. */
+    abierta?: { nombre: string; cuando: number } | null;
 }) {
     const [listo, setListo] = useState(false);
     const [falla, setFalla] = useState(false);
@@ -497,7 +510,10 @@ function CabeceraPortero({ id, titulo, subtitulo, ip, ficha, puertas = [], abrie
        del rostro (lib/caras-vivo). Es el mismo vivo que el monitor; acá sirve para ver si la cara
        de quien toca el timbre llega al tamaño que el motor necesita. */
     const { analisis } = useSiluetasEnVivo(id ? `lpr_${id}` : null, !!id && listo);
-    const conMinimo = analisis ? { ...analisis, ...(caraMin != null ? { caraMin } : {}) } : null;
+    /* Sólo las caras (18/11, Nico: «el drawer de los porteros sólo debe mostrar las analíticas
+       faciales en vivo»). Las siluetas de los autos de la calle de enfrente no dicen nada sobre
+       quién está tocando el timbre, y tapaban lo único que importa acá. */
+    const soloCaras = analisis ? { ...analisis, objetos: [], ...(caraMin != null ? { caraMin } : {}) } : null;
     const chip = "inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/45 backdrop-blur-md text-white text-[10.5px] font-bold ring-1 ring-white/10";
     return (
         <div className="sticky top-0 z-20">
@@ -512,7 +528,7 @@ function CabeceraPortero({ id, titulo, subtitulo, ip, ficha, puertas = [], abrie
                             {falla ? <span className="inline-flex items-center gap-1.5"><AlertTriangle size={14} /> Sin video del portero</span> : <span className="inline-flex items-center gap-2"><Loader2 size={15} className="animate-spin" /> Conectando el vivo…</span>}
                         </span>
                     )}
-                    {conMinimo && listo && <CapaAnalisis analisis={conMinimo} ajuste="cover" />}
+                    {soloCaras && listo && <CapaAnalisis analisis={soloCaras} ajuste="cover" />}
                     <span className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none" />
                     <span className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/85 to-transparent pointer-events-none" />
                 </>)}
@@ -529,6 +545,38 @@ function CabeceraPortero({ id, titulo, subtitulo, ip, ficha, puertas = [], abrie
                     </div>
                     <CajonCerrar className="shrink-0 h-9 w-9 rounded-full bg-black/45 hover:bg-black/70 backdrop-blur-md text-white grid place-items-center ring-1 ring-white/15 transition-colors" aria-label="Cerrar"><X size={17} /></CajonCerrar>
                 </div>
+                {/* La comparación, pegada a la derecha del video y encima (18/11): el resultado se mira
+                    contra la cara que se está viendo, no treinta centímetros más abajo. */}
+                {id && comparacion && (
+                    <motion.div initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.22, ease: "easeOut" }}
+                        className="absolute right-3 top-[72px] bottom-12 w-[216px] max-w-[46%] overflow-y-auto rounded-[10px] bg-black/55 backdrop-blur-md ring-1 ring-white/15 p-2.5 text-white">
+                        {comparacion === "corriendo"
+                            ? <p className="text-[12px] inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Comparando…</p>
+                            : <ResultadoComparacion r={comparacion} oscuro />}
+                    </motion.div>
+                )}
+
+                {/* La puerta abriéndose: un barrido y el nombre de la puerta sobre el video (18/11,
+                    Nico: «animar la apertura de la puerta cuando abre el relé»). Dura lo que dura
+                    el pulso: es la confirmación de que algo pasó del otro lado. */}
+                <AnimatePresence>
+                    {abierta && (
+                        <motion.div key={abierta.cuando} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}
+                            className="absolute inset-0 pointer-events-none overflow-hidden">
+                            <motion.span initial={{ x: "-110%" }} animate={{ x: "110%" }} transition={{ duration: 1.1, ease: "easeInOut" }}
+                                className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-emerald-300/35 to-transparent" />
+                            <motion.span initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 380, damping: 24 }}
+                                className="absolute inset-0 grid place-items-center">
+                                <span className="inline-flex items-center gap-2 h-10 px-4 rounded-full bg-emerald-500/90 text-white text-[13.5px] font-bold ring-1 ring-white/25 backdrop-blur-sm">
+                                    <DoorOpen size={17} /> {abierta.nombre} abierta
+                                </span>
+                            </motion.span>
+                            <motion.span initial={{ opacity: 0.9 }} animate={{ opacity: 0 }} transition={{ duration: 1.4, ease: "easeOut" }}
+                                className="absolute inset-0 ring-[3px] ring-inset ring-emerald-400/80" />
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 {id && (
                     <div className="absolute left-4 right-4 bottom-3 flex items-end justify-between gap-3">
                         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
