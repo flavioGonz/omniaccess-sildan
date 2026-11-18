@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Car, Check, ChevronLeft, ChevronRight, Home, Loader2, Plus, ShieldCheck, Sparkles, Trash2, Wrench } from "lucide-react";
 import { getAppBranding } from "@/app/actions/settings";
+import { EMPRESA, LEMA, MarcaOmni } from "@/components/marca/MarcaOmni";
 import { normalizarChapa } from "@/lib/formato-chapa";
 import {
     DIAS, TENENCIAS, TIPOS_SERVICIO, TIPOS_VEHICULO, VEHICULOS_MAX, SERVICIOS_MAX,
@@ -96,7 +97,7 @@ export function Formulario() {
         <div className="min-h-screen bg-background text-foreground">
             <Cabecera marca={marca} />
 
-            <main className="mx-auto w-full max-w-[640px] px-4 pb-28">
+            <main className="mx-auto w-full max-w-[640px] px-4">
                 <header className="pt-8 pb-6">
                     <p className="text-[11px] font-bold uppercase tracking-[0.18em] tono-accion">Censo de vehículos</p>
                     <h1 className="censo-titulo mt-2 font-bold">
@@ -128,6 +129,9 @@ export function Formulario() {
                 )}
             </main>
 
+            {/* el pb-28 vive acá y no en <main>: lo que tiene que esquivar la barra fija es lo último de la página */}
+            <Pie conBarra />
+
             <nav className="censo-barra fixed inset-x-0 bottom-0">
                 <div className="mx-auto flex w-full max-w-[640px] items-center gap-3 px-4 pt-3">
                     {paso > 0 && (
@@ -153,17 +157,59 @@ export function Formulario() {
     );
 }
 
+/**
+ * Arriba va OmniAccess y a la derecha el barrio, en ese orden y no al revés.
+ *
+ * Antes la cabecera mostraba el logo del barrio si estaba cargado, y si no, el nombre en texto: el
+ * formulario no se veía de nadie. El pedido era justamente ese («la única oportunidad que más de
+ * 300 personas conozcan la empresa»), así que la marca va siempre dibujada y el barrio queda como
+ * el contexto que es: para quién es este censo.
+ */
 function Cabecera({ marca }: { marca: { name: string; barrio: string; logoUrl: string } }) {
+    const propia = marca.name === "OmniAccess";
     return (
         <div className="border-b border-border">
-            <div className="mx-auto flex w-full max-w-[640px] items-center gap-3 px-4 py-4">
+            <div className="mx-auto flex w-full max-w-[640px] items-center gap-2.5 px-4 py-3.5">
+                <MarcaOmni size={26} className="shrink-0" />
+                <span className="text-[17px] font-bold tracking-[-0.02em] leading-none">
+                    {propia ? <>Omni<span className="font-normal">Access</span></> : marca.name}
+                </span>
                 {marca.logoUrl
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    ? <img src={marca.logoUrl} alt={marca.name} className="h-7 object-contain" />
-                    : <span className="text-[17px] font-bold uppercase tracking-tight leading-none">{marca.name}</span>}
-                {marca.barrio && <span className="ml-auto text-[12px] font-semibold text-muted-foreground truncate">{marca.barrio}</span>}
+                    ? (
+                        <span className="ml-auto flex min-w-0 items-center gap-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={marca.logoUrl} alt={marca.barrio || "logo del barrio"} className="h-6 max-w-[120px] object-contain" />
+                        </span>
+                    )
+                    : marca.barrio && <span className="ml-auto truncate text-[12px] font-semibold text-muted-foreground">{marca.barrio}</span>}
             </div>
         </div>
+    );
+}
+
+/**
+ * El pie: quién hizo esto y qué pasa con lo que la persona acaba de escribir.
+ *
+ * Las dos cosas son la misma pregunta para alguien que carga la matrícula de su auto en un
+ * formulario que le llegó por QR en una asamblea. Si no está escrito, lo pregunta — y en una
+ * asamblea lo pregunta en voz alta.
+ */
+function Pie({ conBarra = false }: { conBarra?: boolean }) {
+    return (
+        <footer className={cn("mt-12 border-t border-border px-4 pt-6", conBarra ? "pb-28" : "pb-10")}>
+            <div className="mx-auto w-full max-w-[640px]">
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                    <MarcaOmni size={20} className="mr-0.5 shrink-0" />
+                    <span className="text-[13px] font-bold tracking-[-0.01em]">Omni<span className="font-normal">Access</span></span>
+                    <span className="text-[12px] text-muted-foreground">· {LEMA}</span>
+                </div>
+                <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+                    Control de acceso por matrícula, con la foto de cada paso. Un desarrollo de {EMPRESA}.
+                    Los datos que cargás quedan en el servidor del barrio y los usa la administración para
+                    darte de alta.
+                </p>
+            </div>
+        </footer>
     );
 }
 
@@ -384,6 +430,8 @@ function Gracias({ marca, lote, vehiculos }: { marca: { name: string; barrio: st
                     </p>
                 </div>
             </main>
+
+            <Pie />
         </div>
     );
 }

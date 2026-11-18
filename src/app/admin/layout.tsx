@@ -107,6 +107,7 @@ function SidebarItem({ icon, label, href, active, collapsed, insignia, tonoInsig
 
 import { getSetting } from "@/app/actions/settings";
 import { contarListaNegra, contarListaAmarilla } from "@/app/actions/watchlist";
+import { contarCensoPendiente } from "@/app/actions/censo";
 
 export default function AdminLayout({
     children,
@@ -196,10 +197,12 @@ export default function AdminLayout({
     // pasa en Usuarios, y al volver al menú ya se ve) y cada minuto.
     const [enListaNegraN, setEnListaNegraN] = useState(0);
     const [enListaAmarillaN, setEnListaAmarillaN] = useState(0);
+    const [censoPendienteN, setCensoPendienteN] = useState(0);
     useEffect(() => {
         const leer = () => {
             contarListaNegra().then(setEnListaNegraN).catch(() => { });
             contarListaAmarilla().then(setEnListaAmarillaN).catch(() => { });
+            contarCensoPendiente().then(setCensoPendienteN).catch(() => { });
         };
         leer();
         const iv = setInterval(leer, 60_000);
@@ -340,7 +343,7 @@ export default function AdminLayout({
                             {amarillaOn && puede("/admin/users") && (<SidebarItem icon={<Search size={18} />} label="Lista Amarilla" href="/admin/users?tab=listaamarilla" active={enListaAmarilla} collapsed={collapsed} insignia={enListaAmarillaN} tonoInsignia="aviso" />)}
                             {puede("/admin/units") && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
                             {/* El censo del barrio: lo que carga cada lote desde el QR, esperando que alguien lo apruebe. */}
-                            {censoOn && puede("/admin/censo") && (<SidebarItem icon={<ClipboardList size={18} />} label="Censo" href="/admin/censo" active={pathname === "/admin/censo"} collapsed={collapsed} />)}
+                            {censoOn && puede("/admin/censo") && (<SidebarItem icon={<ClipboardList size={18} />} label="Censo" href="/admin/censo" active={pathname === "/admin/censo"} collapsed={collapsed} insignia={censoPendienteN} tonoInsignia="aviso" />)}
                             {/* Una sola entrada para toda la flota.
                                 Antes había tres —una por módulo—, y cada una llevaba su propio
                                 `?type=`. O sea que desde el menú NUNCA se llegaba a la lista

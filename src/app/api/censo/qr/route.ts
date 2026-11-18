@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
 import sharp from "sharp";
@@ -35,23 +37,29 @@ export async function GET(req: NextRequest) {
     }
     const png = await QRCode.toBuffer(url, { ...opciones, type: "png", width: tam });
 
-    // El logo en el centro, si el barrio tiene uno cargado. Se compone acá para que la imagen que
-    // se baja ya esté lista: nadie tiene que abrir otro programa para ponerlo. Si no hay logo no se
-    // hace el hueco — un cuadrado blanco en el medio de un QR no es un diseño, es un error.
+    // El logo en el centro: el del barrio si lo cargó, y si no **la marca de OmniAccess**, que está
+    // en public/ y antes no se usaba. El hueco se compone acá para que la imagen que se baja ya esté
+    // lista — nadie tiene que abrir otro programa para pegarle el logo. Lo que no se hace nunca es
+    // el hueco vacío: un cuadrado blanco en el medio de un QR no es un diseño, es un error.
     let salida = png;
     try {
         const marca = await getAppBranding();
-        if (marca.logoUrl) {
-            const r = await fetch(marca.logoUrl.startsWith("http") ? marca.logoUrl : `${origen}${marca.logoUrl}`, { signal: AbortSignal.timeout(4000) });
-            if (r.ok) {
-                const lado = Math.round(tam * 0.2);
-                const aire = Math.round(lado * 0.16);
-                const logo = await sharp(Buffer.from(await r.arrayBuffer()))
-                    .resize(lado - aire * 2, lado - aire * 2, { fit: "inside", background: { r: 255, g: 255, b: 255, alpha: 0 } })
-                    .extend({ top: aire, bottom: aire, left: aire, right: aire, background: "#ffffff" })
-                    .flatten({ background: "#ffffff" }).png().toBuffer();
-                salida = await sharp(png).composite([{ input: logo, gravity: "centre" }]).png().toBuffer();
-            }
+        const fuente = marca.logoUrl
+            ? await fetch(marca.logoUrl.startsWith("http") ? marca.logoUrl : `${origen}${marca.logoUrl}`, { signal: AbortSignal.timeout(4000) })
+                .then((r) => (r.ok ? r.arrayBuffer().then((a) => Buffer.from(a)) : null)).catch(() => null)
+            : null;
+        // El SVG se lee del disco y no por HTTP: es un archivo nuestro, y una ida y vuelta al propio
+        // servidor para traerlo es una forma de fallar sin necesidad.
+        const dibujo = fuente ?? await readFile(join(process.cwd(), "public", "omniaccess-mark.svg")).catch(() => null);
+        if (dibujo) {
+            const lado = Math.round(tam * 0.2);
+            const aire = Math.round(lado * 0.16);
+            // density alta para que el vectorial no entre pixelado cuando el QR se imprime en A3
+            const logo = await sharp(dibujo, { density: 600 })
+                .resize(lado - aire * 2, lado - aire * 2, { fit: "inside", background: { r: 255, g: 255, b: 255, alpha: 0 } })
+                .extend({ top: aire, bottom: aire, left: aire, right: aire, background: "#ffffff" })
+                .flatten({ background: "#ffffff" }).png().toBuffer();
+            salida = await sharp(png).composite([{ input: logo, gravity: "centre" }]).png().toBuffer();
         }
     } catch { /* sin logo: el QR solo, que es lo que importa */ }
     return new NextResponse(new Uint8Array(salida), { headers: { "Content-Type": "image/png", "Content-Disposition": `inline; filename="qr-censo.png"`, "Cache-Control": "no-store" } });

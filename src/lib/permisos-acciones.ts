@@ -36,6 +36,9 @@ export const ACCIONES: Record<string, Archivo> = {
     barriomap: { defecto: P("mapa.editar") },
     bitacora: { defecto: P("guardia") },
     "bot-historial": { defecto: P("notificaciones") },
+    // El censo da de alta residentes y matrículas: el mismo permiso que editar el padrón. La
+    // cuenta de pendientes es lectura y la resuelve LECTURA (`contar…`).
+    censo: { defecto: P("usuarios.editar") },
     "clips-telegram": { defecto: P("grabaciones") },
     clips: { defecto: P("grabaciones") },
     compartir: { defecto: P("grabaciones") },
