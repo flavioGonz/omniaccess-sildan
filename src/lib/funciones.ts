@@ -18,7 +18,7 @@ import type { ModuleId } from "@/lib/module-definitions";
  */
 
 export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS" | "LPR_PLAZAS" | "LPR_BUSQUEDA" | "LPR_MIN_INTERIOR"
-    | "FUNC_INTRUSION" | "FUNC_ALARMAS_RECEPCION" | "FUNC_ALARMAS_GESTION" | "EQUIPOS_USUARIOS";
+    | "FUNC_INTRUSION" | "FUNC_ALARMAS_RECEPCION" | "FUNC_ALARMAS_GESTION" | "EQUIPOS_USUARIOS" | "PADRON_CENSO";
 
 export interface Funcion {
     id: FuncionId;
@@ -139,6 +139,16 @@ export const FUNCIONES: Funcion[] = [
         nombre: "Usuarios de los equipos",
         que: "Lee las cuentas locales de cada equipo compatible (hoy, Hikvision) y quién está conectado y desde dónde. Avisa cuando aparece una cuenta que no creó OmniAccess o una sesión desde una IP desconocida. Las cuentas se ven en la ficha de cada equipo y por área en Dispositivos.",
         siSeApaga: "Se deja de leer a los equipos y desaparecen el bloque de usuarios y el panel de cuentas de las áreas. Lo ya leído no se borra: al prenderla otra vez se ve como estaba y se actualiza en la próxima vuelta.",
+        porDefecto: false,
+    },
+    {
+        id: "PADRON_CENSO",
+        alcance: "instalacion",
+        nombre: "Auto-registro del padrón",
+        que: "Abre /registro: una página pública, pensada para un QR, donde cada lote carga su apellido, su teléfono, sus matrículas y quién le entra seguido. Lo que llega cae en Gestión → Censo y no toca el padrón hasta que alguien lo aprueba.",
+        siSeApaga: "La página deja de existir (404) y no se puede cargar nada nuevo. Lo que ya llegó queda en la bandeja y se puede seguir aprobando o rechazando.",
+        // Apagada de fábrica: prende una URL pública que escribe en la base. Eso se enciende
+        // cuando el barrio lo pidió, no porque vino en la instalación.
         porDefecto: false,
     },
 ];

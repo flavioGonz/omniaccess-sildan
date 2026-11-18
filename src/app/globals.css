@@ -2483,3 +2483,45 @@ tr.omni-fila-p1 > td [class*="chip-"] { background: rgba(255, 255, 255, .18) !im
 tr.omni-fila-p1 > td { animation: omni-p1-late 1.6s ease-in-out infinite; }
 tr.omni-fila-p1-viva > td { animation-duration: .9s; }
 @media (prefers-reduced-motion: reduce) { tr.omni-fila-p1 > td { animation: none; } }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Censo del barrio (/registro): la única pantalla pública, y casi siempre en un
+   celular. Sigue las reglas de materiales y accesibilidad de la skill apple-design
+   (.claude/skills/apple-design), que es de donde salen el blur, la saturación y el
+   borde superior claro: una capa translúcida con el contenido pasando por debajo,
+   no una franja opaca que se come una tira de pantalla.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.censo-barra {
+    background: color-mix(in oklab, var(--background) 72%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    /* El filo claro de arriba es la luz pegando en el material. Sin él, la barra flota sin canto. */
+    border-top: 1px solid color-mix(in oklab, var(--foreground) 8%, transparent);
+    /* El indicador de inicio del iPhone: sin esto el botón queda debajo de la barrita. */
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+/* Tipografía del título: el tracking es específico del tamaño — el texto grande se lee
+   separado si no se lo cierra, y el cuerpo no quiere tracking (apple-design §15). */
+.censo-titulo {
+    font-size: clamp(1.75rem, 7vw, 2.25rem);
+    line-height: 1.05;
+    letter-spacing: -0.022em;
+    font-optical-sizing: auto;
+}
+
+/* Quien pidió menos movimiento no pide «sin respuesta»: pide que no lo muevan. Se cambia
+   el deslizamiento por un fundido corto y se saca el rebote. */
+@media (prefers-reduced-motion: reduce) {
+    .censo-paso { transition: opacity 180ms ease !important; transform: none !important; }
+}
+
+/* Quien pidió menos transparencia necesita la barra sólida, no más bonita. */
+@media (prefers-reduced-transparency: reduce) {
+    .censo-barra { background: var(--background); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+@media (prefers-contrast: more) {
+    .censo-barra { background: var(--background); border-top-color: var(--foreground); }
+}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { validarSolicitud } from "@/lib/registro-padron";
+import { exigirFuncion } from "@/lib/funcion-servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,8 @@ function limpiar(ahora: number) {
 }
 
 export async function POST(req: NextRequest) {
+    // Con la función apagada esta dirección no existe: 404, como la página.
+    const no = await exigirFuncion("PADRON_CENSO"); if (no) return no;
     const quien = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "sin-direccion";
     if (!hayCupo(quien)) {
         return NextResponse.json({ error: "Ya mandaste varias cargas seguidas. Esperá unos minutos." }, { status: 429, headers: { "Retry-After": "600" } });

@@ -330,8 +330,22 @@ export async function middleware(request: NextRequest) {
         }
     }
 
-    // Root -> login
+    /*
+     * La raíz.
+     *
+     * Mandaba SIEMPRE a /login, con sesión o sin ella (18/11, Nico: «cada vez que voy a la raíz
+     * del dominio me pide login de nuevo, como si no recordara que estoy logueado en otra
+     * pestaña»). La sesión estaba; nadie la miraba. Ahora se mira: con sesión válida va a /admin,
+     * que a su vez lleva a la pantalla de inicio del rol (lib/landing), igual que entrar.
+     */
     if (pathname === '/') {
+        const session = request.cookies.get('session')?.value
+        if (session && key) {
+            try {
+                await jwtVerify(session, key, { algorithms: ['HS256'] })
+                return NextResponse.redirect(new URL('/admin', request.url))
+            } catch { /* vencida o de otra clave: a entrar de nuevo */ }
+        }
         return NextResponse.redirect(new URL('/login', request.url))
     }
 

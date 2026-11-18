@@ -5,7 +5,7 @@ import { FUNCIONES, FUNCIONES_INSTALACION, dependenciaCumplida, estadoEfectivo, 
 
 test("las funciones de la instalación no cuelgan de ningún modo", () => {
     const ids = FUNCIONES_INSTALACION().map((f) => f.id).sort();
-    assert.deepEqual(ids, ["EQUIPOS_USUARIOS", "FUNC_ALARMAS_GESTION", "FUNC_ALARMAS_RECEPCION", "FUNC_INTRUSION"]);
+    assert.deepEqual(ids, ["EQUIPOS_USUARIOS", "FUNC_ALARMAS_GESTION", "FUNC_ALARMAS_RECEPCION", "FUNC_INTRUSION", "PADRON_CENSO"]);
     for (const f of FUNCIONES_INSTALACION()) assert.equal(f.modulo, undefined);
     for (const f of FUNCIONES.filter((x) => x.alcance === "modulo")) assert.ok(f.modulo, `${f.id} sin módulo`);
 });

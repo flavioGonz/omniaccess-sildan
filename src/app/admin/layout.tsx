@@ -126,6 +126,7 @@ export default function AdminLayout({
     const enListaNegra = pathname === "/admin/users" && searchParams?.get("tab") === "listanegra";
     // Y la Lista Amarilla la suya (12/11, Nico), sólo con la función de LPR prendida.
     const amarillaOn = useFuncion("LPR_BUSQUEDA") === true;
+    const censoOn = useFuncion("PADRON_CENSO") === true;
     const enListaAmarilla = pathname === "/admin/users" && searchParams?.get("tab") === "listaamarilla";
     const router = useRouter();
     const [angosto, setCollapsed] = useState(false);
@@ -339,7 +340,7 @@ export default function AdminLayout({
                             {amarillaOn && puede("/admin/users") && (<SidebarItem icon={<Search size={18} />} label="Lista Amarilla" href="/admin/users?tab=listaamarilla" active={enListaAmarilla} collapsed={collapsed} insignia={enListaAmarillaN} tonoInsignia="aviso" />)}
                             {puede("/admin/units") && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
                             {/* El censo del barrio: lo que carga cada lote desde el QR, esperando que alguien lo apruebe. */}
-                            {puede("/admin/censo") && (<SidebarItem icon={<ClipboardList size={18} />} label="Censo" href="/admin/censo" active={pathname === "/admin/censo"} collapsed={collapsed} />)}
+                            {censoOn && puede("/admin/censo") && (<SidebarItem icon={<ClipboardList size={18} />} label="Censo" href="/admin/censo" active={pathname === "/admin/censo"} collapsed={collapsed} />)}
                             {/* Una sola entrada para toda la flota.
                                 Antes había tres —una por módulo—, y cada una llevaba su propio
                                 `?type=`. O sea que desde el menú NUNCA se llegaba a la lista
