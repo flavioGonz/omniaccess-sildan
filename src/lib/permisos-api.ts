@@ -26,6 +26,8 @@ export const RUTAS_API: [RegExp, ClaseApi][] = [
     [/^\/api\/guardia\/(servidor|entrar)$/, "propio"],
     [/^\/api\/(health|version|subscribe|queue-report|notifications\/event|visitas\/tick|vigilancia\/bot)$/, "propio"],
     [/^\/api\/(apk|push\/dispatch|topology|chatbot|onvif\/notify|invitado|branding|min-interior|devices\/health\/tick|devices\/usuarios\/tick)(\/|$)/, "propio"],
+    // El censo del barrio: público a propósito (la ruta se defiende sola, ver /api/registro).
+    [/^\/api\/registro$/, "propio"],
     [/^\/api\/queue\/(poll|vca-config|report\/send|reset|schedule\/tick|report\/tick)(\/|$)/, "propio"],
     // El motor de seguimiento con su token (x-tracking-token): lo llama el worker, no una persona.
     [/^\/api\/tracking\/(sighting|franja\/vision|franja\/mirar|calibracion|stays\/sweep)$/, "propio"],

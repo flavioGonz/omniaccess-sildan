@@ -159,6 +159,9 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/pwa') ||
         pathname.startsWith('/invitado') ||
         pathname.startsWith('/residente') ||
+        // El censo del barrio: una URL pública con QR para que cada lote cargue sus vehículos
+        // (src/lib/registro-padron.ts). Escribe en una bandeja, no en el padrón, y no consulta nada.
+        pathname.startsWith('/registro') ||
         // La foto del celular para la pared (openspec pared-vms): sin usuario; la autoriza el token del QR.
         pathname.startsWith('/subir/') ||
         pathname.startsWith('/api/subida/')
@@ -227,6 +230,7 @@ export async function middleware(request: NextRequest) {
         pathname === '/api/vision/objetos/capturas/vuelta' ||   // el reloj de vision-worker con x-tracking-token; la ruta lo verifica
         pathname === '/api/vigilancia/bot' ||   // bot de WhatsApp → lista de vigilancia (token propio)
         pathname.startsWith('/api/invitado/') ||   // el QR del pase: lo baja el bot y el invitado
+        pathname === '/api/registro' ||   // el censo del barrio: sin sesión, con balde por dirección
         pathname.startsWith('/api/branding/') ||   // logos subidos (login, QR): los ve quien no inició sesión
 
         pathname.startsWith('/api/min-interior') ||

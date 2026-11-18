@@ -1942,3 +1942,37 @@ model ClipGrabado {
   @@index([usuarioId, creado])
   @@index([estado, latido])
 }
+
+/// Una carga del censo del barrio: lo que manda un residente desde el QR (src/lib/registro-padron.ts).
+/// NO es padron: es una solicitud. Entra por una URL publica y sin sesion, asi que nada de esto
+/// toca al padron hasta que alguien la aprueba desde el panel.
+model SolicitudPadron {
+  id         String    @id @default(cuid())
+  /// Por si manana hay mas de un barrio con su propio QR. Vacio = el unico de esta instalacion.
+  sitio      String    @default("")
+  lote       String
+  apellido   String
+  nombre     String    @default("")
+  /// PROPIETARIO | INQUILINO
+  tenencia   String    @default("PROPIETARIO")
+  /// Solo digitos y con el pais, como lo manda WhatsApp (598...). Es el unico dato por el que se
+  /// le puede volver a hablar al residente.
+  telefono   String
+  email      String    @default("")
+  /// [{ chapa, tipo: PROPIO|FAMILIAR|PROVEEDOR, marca?, color?, quien? }]
+  vehiculos  Json      @default("[]")
+  /// [{ tipo: JARDINERO|PISCINERO|LIMPIEZA|OTRO, nombre?, dias[], desde?, hasta?, chapa? }]
+  servicios  Json      @default("[]")
+  comentario String    @default("")
+  /// pendiente | aprobada | rechazada
+  estado     String    @default("pendiente")
+  revisadaPor String?
+  revisadaAt DateTime?
+  /// Por que se rechazo, o que se cambio al aprobar.
+  nota       String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([estado, createdAt])
+  @@index([lote])
+}
