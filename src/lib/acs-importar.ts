@@ -1,6 +1,6 @@
 import { authenticatedRequest } from "@/lib/digest-auth";
 import { prisma } from "@/lib/prisma";
-import { cuandoFue, desfasajeDeEquipo, traducirAcs, NO_ES_ACCESO, type AcsEvent } from "@/lib/acs-evento";
+import { cuandoFue, desfasajeDeEquipo, isoConOffset, offsetDeEquipo, traducirAcs, NO_ES_ACCESO, type AcsEvent } from "@/lib/acs-evento";
 import type { CredentialType } from "@prisma/client";
 
 /**
@@ -40,15 +40,16 @@ export type Resumen = {
 
 type Equipo = { id: string; ip: string; username: string | null; password: string | null; httpPort: number | null; name: string; location: string | null; direction: string };
 
-async function pagina(d: Equipo, desde: number, posicion: number): Promise<AcsEvent[]> {
+async function pagina(d: Equipo, desde: number, hasta: number, offset: string, posicion: number): Promise<AcsEvent[]> {
     const cuerpo = {
         AcsEventCond: {
             searchID: `oa-${d.id.slice(0, 8)}`,
             searchResultPosition: posicion,
             maxResults: POR_PAGINA,
             major: 0, minor: 0,
-            startTime: new Date(desde).toISOString().replace(/\.\d+Z$/, "Z"),
-            endTime: new Date(Date.now() + 86_400_000).toISOString().replace(/\.\d+Z$/, "Z"),
+            // Con huso explícito y en el huso del equipo: con `...Z` contesta 400 (medido 18/11).
+            startTime: isoConOffset(desde, offset),
+            endTime: isoConOffset(hasta, offset),
         },
     };
     const r = await authenticatedRequest("POST", "/ISAPI/AccessControl/AcsEvent?format=json",
@@ -81,7 +82,12 @@ export async function importarBitacora(deviceId: string, desdeDias = 30): Promis
 
     const marca = await prisma.setting.findUnique({ where: { key: CLAVE_SERIE(d.id) } }).catch(() => null);
     const ultima = Number(marca?.value) || 0;
-    const desfasajeMs = desfasajeDeEquipo(await horaDelEquipo(d));
+    const suHora = await horaDelEquipo(d);
+    const desfasajeMs = desfasajeDeEquipo(suHora);
+    const offset = offsetDeEquipo(suHora);
+    /* La ventana se escribe en la hora DEL EQUIPO: con el reloj once horas atrasado, pedirle los
+       «últimos 30 días» en hora nuestra le pide un futuro que él no tiene. */
+    const ahoraDelEquipo = Date.now() + (desfasajeMs ?? 0);
 
     const otros: Record<string, number> = {};
     const sinTraducir: Record<string, number> = {};
@@ -89,7 +95,7 @@ export async function importarBitacora(deviceId: string, desdeDias = 30): Promis
 
     try {
         for (let p = 0; p < PAGINAS_MAX; p++) {
-            const lote = await pagina(d, Date.now() - desdeDias * 86_400_000, p * POR_PAGINA);
+            const lote = await pagina(d, ahoraDelEquipo - desdeDias * 86_400_000, ahoraDelEquipo + 86_400_000, offset, p * POR_PAGINA);
             if (!lote.length) break;
             leidos += lote.length;
 

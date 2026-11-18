@@ -127,3 +127,31 @@ export function diceDesfasaje(ms: number): string {
     const partes = [h ? `${h} h` : "", m ? `${m} min` : ""].filter(Boolean).join(" ") || "menos de un minuto";
     return `${partes} ${atrasado ? "atrasado" : "adelantado"}`;
 }
+
+
+/**
+ * Una fecha en el formato que acepta el equipo: ISO con el huso EXPLÍCITO y en SU huso.
+ *
+ * Medido el 18/11: pedirle la bitácora con `...Z` devuelve 400. El equipo quiere
+ * `2026-11-01T00:00:00-03:00`. Y el instante tiene que ir en la hora del equipo, no en la
+ * nuestra: con el reloj once horas atrasado, una ventana escrita en hora nuestra se corre once
+ * horas sobre lo que el equipo cree que es hoy.
+ */
+export function isoConOffset(ms: number, offset: string): string {
+    const m = /^([+-])(\d\d):(\d\d)$/.exec(offset) || ["", "+", "00", "00"];
+    const signo = m[1] === "-" ? -1 : 1;
+    const minutos = signo * (Number(m[2]) * 60 + Number(m[3]));
+    const d = new Date(ms + minutos * 60_000);
+    const p = (n: number, l = 2) => String(n).padStart(l, "0");
+    return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}${m[1] === "-" ? "-" : "+"}${m[2]}:${m[3]}`;
+}
+
+/** El huso que declara el equipo en su `localTime` («-03:00»). Por defecto, el nuestro. */
+export function offsetDeEquipo(horaDelEquipo: string | null | undefined): string {
+    const m = /([+-]\d\d:\d\d)$/.exec(String(horaDelEquipo ?? ""));
+    if (m) return m[1];
+    const min = -new Date().getTimezoneOffset();
+    const s = min < 0 ? "-" : "+";
+    const a = Math.abs(min);
+    return `${s}${String(Math.floor(a / 60)).padStart(2, "0")}:${String(a % 60).padStart(2, "0")}`;
+}

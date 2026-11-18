@@ -1,7 +1,7 @@
 /** La bitácora de un control de acceso Hikvision, traducida (lib/acs-evento). */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cuandoFue, desfasajeDeEquipo, diceDesfasaje, NO_ES_ACCESO, traducirAcs } from "@/lib/acs-evento";
+import { cuandoFue, desfasajeDeEquipo, diceDesfasaje, isoConOffset, NO_ES_ACCESO, offsetDeEquipo, traducirAcs } from "@/lib/acs-evento";
 
 /* Los tres son eventos REALES del DS-K1T343MFWX de la instalación, copiados tal cual. */
 const TARJETA = { major: 5, minor: 1, time: "2026-10-31T14:05:06-03:00", cardNo: "2244111551", cardType: 1, name: "304", cardReaderNo: 1, doorNo: 1, employeeNoString: "304", serialNo: 15409, userType: "normal", currentVerifyMode: "faceOrFpOrCardOrPw" };
@@ -55,4 +55,13 @@ test("sin desfasaje medido, la hora del evento se respeta", () => {
     assert.equal(desfasajeDeEquipo("cualquier cosa"), null);
     assert.equal(cuandoFue(TARJETA, null)!.toISOString(), new Date(Date.parse(TARJETA.time)).toISOString());
     assert.equal(cuandoFue({ time: "no es hora" }, 0), null);
+});
+
+test("la fecha va con el huso del equipo, no en Z", () => {
+    // El equipo contesta 400 con «...Z»: quiere el huso escrito.
+    const t = Date.parse("2026-11-18T12:00:00Z");
+    assert.equal(isoConOffset(t, "-03:00"), "2026-11-18T09:00:00-03:00");
+    assert.equal(isoConOffset(t, "+08:00"), "2026-11-18T20:00:00+08:00");
+    assert.equal(offsetDeEquipo("2026-11-18T05:46:35-03:00"), "-03:00");
+    assert.equal(offsetDeEquipo("2026-11-18T11:21:26+08:00"), "+08:00");
 });
