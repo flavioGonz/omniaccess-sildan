@@ -42,6 +42,11 @@ export type FiltrosHistorial = {
     horaDesde: string; horaHasta: string;
     tipos: string[];
     identificacion: "ALL" | "PLATE" | "FACE" | "TAG";
+    /**
+     * Rostros (19/11, Nico: «/admin/history debe tener filtros face»). Las cuatro preguntas que se
+     * hacen sobre una cara: a quién reconoció, a quién no, quién está en el padrón y quién no.
+     */
+    rostro: "ALL" | "RECONOCIDO" | "DESCONOCIDO" | "REGISTRADO" | "SIN_REGISTRAR";
     resultado: "ALL" | "GRANT" | "DENY";
     sentido: "ALL" | "ENTRY" | "EXIT";
     camaras: string[];
@@ -61,7 +66,7 @@ export type FiltrosHistorial = {
 export type CambiarFiltros = <K extends keyof FiltrosHistorial>(clave: K, valor: FiltrosHistorial[K]) => void;
 
 export const SIN_FILTROS: FiltrosHistorial = {
-    desde: "", hasta: "", horaDesde: "", horaHasta: "", tipos: [], identificacion: "ALL", resultado: "ALL", sentido: "ALL",
+    desde: "", hasta: "", horaDesde: "", horaHasta: "", tipos: [], identificacion: "ALL", rostro: "ALL", resultado: "ALL", sentido: "ALL",
     camaras: [], areas: [], color: "ALL", tipoVeh: "ALL", merodeo: false, vision: [], chapa: [], sinVehiculo: "ocultar",
 };
 
@@ -135,7 +140,7 @@ const Titulo = ({ children }: { children: React.ReactNode }) => (
     <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{children}</div>
 );
 
-export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles, camarasServidor, areasDatos, soloSeguimiento, modo, merodeando }: {
+export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles, camarasServidor, areasDatos, soloSeguimiento, modo, merodeando, conRostros = false }: {
     f: FiltrosHistorial; cambiar: CambiarFiltros; limpiar: () => void;
     /** Cuántos filtros hay puestos (más la búsqueda): con alguno aparece «Limpiar». */
     puestos: number;
@@ -147,6 +152,8 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
     soloSeguimiento: boolean;
     modo: "LPR" | "FACE" | "QUEUE" | null;
     merodeando: number;
+    /** Hay equipos que miran caras: sin eso, los filtros de rostro no se ofrecen. */
+    conRostros?: boolean;
 }) {
     const alternar = (clave: "tipos" | "camaras" | "areas" | "vision" | "chapa", v: string) => {
         const actual = f[clave];
@@ -186,6 +193,20 @@ export function BarraFiltros({ f, cambiar, limpiar, puestos, camarasDisponibles,
             clave: "ident", titulo: "Con qué se identificó", valor: f.identificacion, alElegir: (v) => cambiar("identificacion", v as any),
             oculto: soloSeguimiento || modo !== null,
             opciones: [{ valor: "ALL", rotulo: "Todas" }, { valor: "PLATE", rotulo: "LPR", icono: Car }, { valor: "FACE", rotulo: "Rostro", icono: ScanFace }, { valor: "TAG", rotulo: "RFID", icono: CreditCard }],
+        },
+        {
+            /* Sólo donde hay caras: en un barrio que no mira rostros, cuatro opciones que nunca
+               devuelven nada son ruido. Se muestra con el modo Rostro puesto o cuando hay un
+               equipo que las mira (`conRostros`). */
+            clave: "rostro", titulo: "Rostros", valor: f.rostro, alElegir: (v) => cambiar("rostro", v as any),
+            oculto: soloSeguimiento || !conRostros,
+            opciones: [
+                { valor: "ALL", rotulo: "Todos" },
+                { valor: "RECONOCIDO", rotulo: "Reconocidos", icono: ScanFace, titulo: "El motor dijo a quién se parece esa cara" },
+                { valor: "DESCONOCIDO", rotulo: "Sin reconocer", titulo: "Pasó una cara y no se pareció a ninguna conocida" },
+                { valor: "REGISTRADO", rotulo: "En el padrón", titulo: "La cara está atada a una persona del padrón" },
+                { valor: "SIN_REGISTRAR", rotulo: "Sin registrar", titulo: "Se la reconoce entre ella misma, pero nadie le puso nombre" },
+            ],
         },
         {
             clave: "resultado", titulo: "Si se abrió o no (sólo accesos)", valor: f.resultado, alElegir: (v) => cambiar("resultado", v as any), oculto: soloSeguimiento,

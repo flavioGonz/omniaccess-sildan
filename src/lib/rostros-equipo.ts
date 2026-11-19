@@ -1,3 +1,5 @@
+import crypto from "crypto";
+import http from "http";
 import { authenticatedRequest } from "@/lib/digest-auth";
 
 /**
@@ -21,8 +23,12 @@ import { authenticatedRequest } from "@/lib/digest-auth";
  * se copia la FOTO (y el destino la vuelve a enrolar), del terminal la PLANTILLA (que es lo que
  * Hikvision usa entre equipos). Lo que no se puede, se dice; no se simula.
  *
- * El primer pedido de una foto puede contestar 503: el servicio de imágenes del equipo arranca
- * perezoso. Se reintenta una vez — medido el 18/11, el segundo pedido trae el JPEG.
+ * **La foto no sale por digest.** Medido el 19/11: `GET /LOCALS/face/<FPID>.jpg` con autenticación
+ * digest contesta **503** siempre; el mismo pedido con la cookie de una sesión web
+ * (`/ISAPI/Security/sessionLogin`) contesta **200** con el JPEG. El servicio de imágenes del
+ * equipo sólo le habla a una sesión del panel, no a ISAPI. Por eso acá se abre esa sesión y se
+ * guarda su cookie un rato: sin eso, «bajar los rostros» no baja nada y parecía un problema del
+ * equipo cuando era de autenticación.
  */
 
 export type EquipoHik = { ip: string; username: string | null; password: string | null; authType?: string | null; httpPort?: number | null };
@@ -69,19 +75,71 @@ export async function listarRostros(d: EquipoHik, max = ROSTROS_MAX): Promise<{ 
     return { rostros: out, total: total || out.length };
 }
 
+/* ── La sesión web del equipo, sólo para bajar fotos (ver el comentario de arriba) ────────── */
+
+const sha = (s: string) => crypto.createHash("sha256").update(s, "utf8").digest("hex");
+const etiqueta = (xml: string, t: string) => (new RegExp("<" + t + ">([^<]*)<").exec(xml) || [])[1] || "";
+
+/** Un pedido crudo (sin digest): hace falta para el login de sesión y para la foto con cookie. */
+function crudo(ip: string, puerto: number, ruta: string, metodo: string, cab?: Record<string, string>, cuerpo?: string) {
+    return new Promise<{ code: number; headers: http.IncomingHttpHeaders; body: Buffer }>((res) => {
+        const h: Record<string, string> = { ...(cab || {}) };
+        if (cuerpo) { h["Content-Type"] = "application/xml"; h["Content-Length"] = String(Buffer.byteLength(cuerpo)); }
+        const r = http.request({ host: ip, port: puerto, path: ruta, method: metodo, headers: h, timeout: 12000 }, (x) => {
+            const b: Buffer[] = [];
+            x.on("data", (d) => b.push(d as Buffer));
+            x.on("end", () => res({ code: x.statusCode || 0, headers: x.headers, body: Buffer.concat(b) }));
+        });
+        r.on("error", () => res({ code: 0, headers: {}, body: Buffer.alloc(0) }));
+        r.on("timeout", () => { r.destroy(); res({ code: 0, headers: {}, body: Buffer.alloc(0) }); });
+        if (cuerpo) r.write(cuerpo);
+        r.end();
+    });
+}
+
+/** La cookie de sesión por equipo. Dura poco a propósito: si caduca, se vuelve a pedir y listo. */
+const sesiones = new Map<string, { cookie: string; at: number }>();
+const SESION_MS = 4 * 60_000;
+
+async function cookieDe(d: EquipoHik): Promise<string | null> {
+    const ip = d.ip, puerto = d.httpPort || 80, usuario = d.username || "admin", clave = d.password || "";
+    const ya = sesiones.get(`${ip}:${puerto}`);
+    if (ya && Date.now() - ya.at < SESION_MS) return ya.cookie;
+    try {
+        const cap = await crudo(ip, puerto, `/ISAPI/Security/sessionLogin/capabilities?username=${encodeURIComponent(usuario)}`, "GET");
+        const x = cap.body.toString();
+        const sid = etiqueta(x, "sessionID"), reto = etiqueta(x, "challenge"), sal = etiqueta(x, "salt");
+        const vueltas = Number(etiqueta(x, "iterations")) || 100;
+        if (!sid || !reto) return null;
+        /* El hash que pide Hikvision: usuario+sal+clave, después con el reto, y después las vueltas
+           que el equipo diga. Es su esquema, no uno nuestro. */
+        let h = sha(usuario + sal + clave);
+        h = sha(h + reto);
+        for (let i = 2; i < vueltas; i++) h = sha(h);
+        const log = await crudo(ip, puerto, `/ISAPI/Security/sessionLogin?timeStamp=${Date.now()}`, "POST", undefined,
+            `<SessionLogin><userName>${usuario}</userName><password>${h}</password><sessionID>${sid}</sessionID><isSessionIDValidLongTerm>false</isSessionIDValidLongTerm><sessionIDVersion>2</sessionIDVersion></SessionLogin>`);
+        const cookie = ((log.headers["set-cookie"] as string[] | undefined) || []).map((s) => s.split(";")[0]).join("; ");
+        if (log.code !== 200 || !cookie) return null;
+        sesiones.set(`${ip}:${puerto}`, { cookie, at: Date.now() });
+        return cookie;
+    } catch { return null; }
+}
+
 /**
  * La foto de un rostro. El equipo declara una URL suya; se pide esa ruta contra su IP (la URL
- * trae el host del equipo, que puede ser una dirección interna que desde acá no resuelve).
+ * trae el host del equipo, que puede ser una dirección interna que desde acá no resuelve) y con
+ * la cookie de la sesión web, que es la única forma en que el equipo la entrega.
  */
 export async function bajarFoto(d: EquipoHik, r: RostroEquipo): Promise<Buffer | null> {
     const ruta = (r.fotoUrl || `/LOCALS/face/${r.fpid}.jpg`).replace(/^https?:\/\/[^/]*/, "").split("@")[0];
     for (let i = 0; i < 2; i++) {
-        try {
-            const data = await authenticatedRequest("GET", ruta, cred(d) as never, { accept: "image/jpeg", responseType: "arraybuffer", timeout: 12000 });
-            const buf = Buffer.from(data as ArrayBuffer);
-            if (buf.length > 500 && buf[0] === 0xff && buf[1] === 0xd8) return buf;
-        } catch { /* 503 la primera vez: el servicio de imágenes del equipo arranca perezoso */ }
-        await new Promise((x) => setTimeout(x, 700));
+        const cookie = await cookieDe(d);
+        if (!cookie) return null;
+        const f = await crudo(d.ip, d.httpPort || 80, ruta, "GET", { Cookie: cookie, Accept: "image/jpeg" });
+        if (f.body.length > 500 && f.body[0] === 0xff && f.body[1] === 0xd8) return f.body;
+        // Cookie vieja o servicio dormido: se tira la sesión y se vuelve a intentar una vez.
+        sesiones.delete(`${d.ip}:${d.httpPort || 80}`);
+        await new Promise((x) => setTimeout(x, 600));
     }
     return null;
 }
@@ -100,20 +158,71 @@ function multipart(json: unknown, jpeg: Buffer): { cuerpo: Buffer; tipo: string 
 }
 
 /**
+ * Da de alta a la PERSONA en el control de acceso. Hace falta antes de cargarle la cara: medido
+ * el 19/11 contra el DS-KV9503, subir un rostro con un legajo que el equipo no conoce devuelve
+ * `deviceUserNotExist`. Una cara no vive sola: cuelga de un usuario.
+ */
+export async function altaUsuario(d: EquipoHik, fpid: string, nombre: string | null): Promise<{ ok: boolean; error?: string }> {
+    const data = {
+        UserInfo: {
+            employeeNo: fpid, name: nombre || fpid, userType: "normal",
+            Valid: { enable: true, beginTime: "2026-01-01T00:00:00", endTime: "2037-01-01T00:00:00", timeType: "local" },
+            doorRight: "1", RightPlan: [{ doorNo: 1, planTemplateNo: "1" }],
+        },
+    };
+    try {
+        const r = await authenticatedRequest("POST", "/ISAPI/AccessControl/UserInfo/Record?format=json", cred(d) as never, {
+            data, contentType: "application/json", accept: "application/json", responseType: "json", timeout: 15000,
+        });
+        if (r?.statusCode && Number(r.statusCode) !== 1) return { ok: false, error: String(r.subStatusCode || r.statusString || "el equipo lo rechazó") };
+        return { ok: true };
+    } catch (e) { return { ok: false, error: e instanceof Error ? e.message.slice(0, 160) : "no se pudo dar de alta a la persona" }; }
+}
+
+/** Borra a la persona del control de acceso (con su cara, sus tarjetas y sus permisos). */
+export async function borrarUsuario(d: EquipoHik, fpid: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const r = await authenticatedRequest("PUT", "/ISAPI/AccessControl/UserInfo/Delete?format=json", cred(d) as never, {
+            data: { UserInfoDelCond: { EmployeeNoList: [{ employeeNo: fpid }] } },
+            contentType: "application/json", accept: "application/json", responseType: "json", timeout: 15000,
+        });
+        if (r?.statusCode && Number(r.statusCode) !== 1) return { ok: false, error: String(r.subStatusCode || r.statusString || "el equipo lo rechazó") };
+        return { ok: true };
+    } catch (e) { return { ok: false, error: e instanceof Error ? e.message.slice(0, 160) : "no se pudo borrar a la persona" }; }
+}
+
+/**
  * Da de alta (o reemplaza) una cara en el equipo. `fpid` es el legajo de la persona: si ya tiene
  * una cara, el equipo la pisa.
+ *
+ * Dos cosas medidas el 19/11 contra el DS-KV9503 y que no son las que uno escribiría de memoria:
+ *  · el método es **PUT** sobre `FDSetUp` con la biblioteca en la URL; con POST contesta
+ *    `methodNotAllowed`;
+ *  · el legajo tiene que existir como usuario. Si no existe, en vez de fallar con
+ *    `deviceUserNotExist` se lo crea y se reintenta: cargar una cara nueva es, para quien lo
+ *    hace, una sola cosa.
  *
  * ESCRIBE en el equipo: pasa por el guardia de sólo lectura (lib/solo-lectura), que lo corta si
  * ese equipo está marcado.
  */
-export async function altaRostro(d: EquipoHik, fpid: string, nombre: string | null, jpeg: Buffer): Promise<{ ok: boolean; error?: string }> {
-    const { cuerpo, tipo } = multipart({ ...LIB, FPID: fpid, ...(nombre ? { name: nombre } : {}) }, jpeg);
-    try {
-        const r = await authenticatedRequest("POST", "/ISAPI/Intelligent/FDLib/FDSetUp?format=json", cred(d) as never, {
+export async function altaRostro(d: EquipoHik, fpid: string, nombre: string | null, jpeg: Buffer): Promise<{ ok: boolean; error?: string; creoPersona?: boolean }> {
+    const subir = async () => {
+        const { cuerpo, tipo } = multipart({ ...LIB, FPID: fpid, ...(nombre ? { name: nombre } : {}) }, jpeg);
+        return authenticatedRequest("PUT", "/ISAPI/Intelligent/FDLib/FDSetUp?format=json&FDID=1&faceLibType=blackFD", cred(d) as never, {
             data: cuerpo, contentType: tipo, accept: "application/json", responseType: "json", timeout: 20000,
         });
+    };
+    try {
+        let r = await subir();
+        let creoPersona = false;
+        if (String(r?.subStatusCode || "") === "deviceUserNotExist") {
+            const u = await altaUsuario(d, fpid, nombre);
+            if (!u.ok) return { ok: false, error: `el equipo no conoce al legajo ${fpid} y no se lo pudo dar de alta: ${u.error}` };
+            creoPersona = true;
+            r = await subir();
+        }
         if (r?.statusCode && Number(r.statusCode) !== 1) return { ok: false, error: String(r.subStatusCode || r.statusString || "el equipo lo rechazó") };
-        return { ok: true };
+        return { ok: true, creoPersona };
     } catch (e) { return { ok: false, error: e instanceof Error ? e.message.slice(0, 160) : "no se pudo cargar" }; }
 }
 
@@ -140,7 +249,7 @@ export async function copiarRostro(origen: EquipoHik, destino: EquipoHik, r: Ros
     }
     if (r.modelo) {
         try {
-            const x = await authenticatedRequest("POST", "/ISAPI/Intelligent/FDLib/FDSetUp?format=json", cred(destino) as never, {
+            const x = await authenticatedRequest("PUT", "/ISAPI/Intelligent/FDLib/FDSetUp?format=json&FDID=1&faceLibType=blackFD", cred(destino) as never, {
                 data: { ...LIB, FPID: r.fpid, ...(r.nombre ? { name: r.nombre } : {}), modelData: r.modelo },
                 contentType: "application/json", accept: "application/json", responseType: "json", timeout: 20000,
             });

@@ -216,7 +216,7 @@ function HaceCuanto({ desde }: { desde: string }) {
     return <span className="text-[11.5px] text-muted-foreground tabular-nums">hace {leerDuracion(ms)}</span>;
 }
 
-export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, areas = [], filtroArea = null, vision = [], chapa = [], barra, vista = "lista", onMerodeo, onResumen, onCargado, onMotores, omnivision = true, grabador = false, foto = null, sinVehiculo = "ocultar", alVerSinVehiculo }: {
+export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", rostro = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, areas = [], filtroArea = null, vision = [], chapa = [], barra, vista = "lista", onMerodeo, onResumen, onCargado, onMotores, omnivision = true, grabador = false, foto = null, sinVehiculo = "ocultar", alVerSinVehiculo }: {
     buscar: string; desde: string; hasta: string; tipos: string[];
     /**
      * Los disparos sin vehículo (sin chapa y OmniVision no vio ningún vehículo): «ocultar» por
@@ -236,6 +236,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     foto?: { blob: Blob; objeto: "vehiculo" | "persona" } | null;
     /** Los filtros de acceso: con qué se identificó, si abrió, en qué sentido. Viajan al servidor. */
     identificacion?: string; resultado?: string; sentido?: string;
+    /** Filtro de rostros: reconocidos, sin reconocer, registrados o sin registrar (19/11). */
+    rostro?: string;
     /** Subirlo fuerza una recarga desde la primera página (el botón de refrescar, una importación). */
     version?: number;
     /** Matrículas marcadas por merodeo; si viene vacío no se filtra. */
@@ -304,7 +306,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     const [omni, setOmni] = useState<FranjaOmni | null>(null);
     const camarasClave = (camaras || []).join("\u0001");
     const areasClave = areas.join(",");
-    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave, camarasClave, chapaClave, areasClave, sinVehiculo]);
+    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, rostro, resultado, sentido, version, visionClave, camarasClave, chapaClave, areasClave, sinVehiculo]);
 
     useEffect(() => {
         let vivo = true;
@@ -315,6 +317,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         if (hasta) q.set("to", hasta);
         if (tipos.length) q.set("tipos", tipos.join(","));
         if (identificacion !== "ALL") q.set("type", identificacion);
+        if (rostro !== "ALL") q.set("rostro", rostro);
         if (resultado !== "ALL") q.set("decision", resultado);
         if (sentido !== "ALL") q.set("direction", sentido);
         if (visionClave) q.set("vision", visionClave);
@@ -351,7 +354,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             .finally(() => { if (vivo) setCargando(false); });
         return () => { vivo = false; };
     // `version` entra por el reset de página; si ya estaba en 0 hace falta igual volver a pedir.
-    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version, visionClave, camarasClave, chapaClave, areasClave, omnivision, sinVehiculo]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [buscar, desde, hasta, tipos, identificacion, rostro, resultado, sentido, pagina, recargar, version, visionClave, camarasClave, chapaClave, areasClave, omnivision, sinVehiculo]); // eslint-disable-line react-hooks/exhaustive-deps
 
     /*
      * La búsqueda en los grabadores: se pide al dejar de escribir y se sigue su avance (cada grabador

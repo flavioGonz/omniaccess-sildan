@@ -85,6 +85,8 @@ export const ACCIONES: Record<string, Archivo> = {
     caras: { defecto: P("dispositivos.editar"), por: { leerCaraMin: S } },
     // La bitácora de los equipos de acceso: es el historial de esos equipos, con su permiso.
     "bitacora-equipos": { defecto: P("historial") },
+    // El comportamiento de una cara: la misma lectura que el de una matrícula.
+    "rostro-comportamiento": { defecto: P("historial", "rostros", "vision") },
     // Abrir una puerta desde la ficha del portero: quien opera el acceso o quien administra equipos.
     // Comparar un rostro con un cuadro del portero no cambia nada: alcanza con ver dispositivos (se revisa por dentro).
     portero: { defecto: P("dispositivos.editar"), por: { abrirPuertaPortero: P("lpr.operar", "dispositivos.editar"), compararCaraPortero: S } },

@@ -331,6 +331,21 @@ export async function GET(req: NextRequest) {
     const identificacion = sp.get("type") || "ALL";
     const decision = sp.get("decision") || "ALL";
     /**
+     * Filtro de ROSTROS (19/11, Nico: «/admin/history debe tener filtros face»).
+     *
+     * Las cuatro preguntas que se hacen sobre una cara, y que antes no se podían hacer acá:
+     * ¿a quién reconoció?, ¿a quién NO?, ¿quién de los reconocidos está en el padrón?, ¿quién no.
+     * Se resuelven sobre lo que cada pasada dejó escrito —`Rostro: <nombre>`— y sobre si el
+     * evento quedó atado a una persona. Cualquiera de los cuatro implica mirar sólo accesos de
+     * cara: un avistamiento de matrícula no tiene nada que contestar.
+     */
+    const rostro = ["RECONOCIDO", "DESCONOCIDO", "REGISTRADO", "SIN_REGISTRAR"].includes(sp.get("rostro") || "") ? sp.get("rostro")! : "ALL";
+    const porRostro = rostro === "ALL" ? {}
+        : rostro === "DESCONOCIDO" ? { accessType: "FACE" as never, details: { contains: "Rostro: Desconocido" } }
+            : rostro === "RECONOCIDO" ? { accessType: "FACE" as never, AND: [{ details: { contains: "Rostro: " } }, { NOT: { details: { contains: "Rostro: Desconocido" } } }] }
+                : rostro === "REGISTRADO" ? { accessType: "FACE" as never, userId: { not: null } }
+                    : { accessType: "FACE" as never, userId: null };
+    /**
      * Los disparos sin vehículo (AccessEvent.sinVehiculo: sin chapa y OmniVision no vio ningún
      * vehículo en la foto). 23/10, Nico: la cámara de salida mandaba cientos por noche, todos
      * «Denegado · Sin lectura» con la calle vacía. Por defecto no se muestran; «mostrar» los suma
@@ -431,7 +446,7 @@ export async function GET(req: NextRequest) {
     /* OmniVision en cámaras RTSP (ver objetosOmniVision). Los filtros propios de un acceso (con qué
        se identificó, si abrió, en qué sentido) no aplican: con alguno puesto, no entran. */
     // PLATE no cuenta: en un barrio sólo con LPR viene puesto siempre (es el módulo), y lo de OmniVision también es por chapa.
-    const filtrosDeAcceso = ["FACE", "TAG"].includes(identificacion) || ["GRANT", "DENY"].includes(decision) || ["ENTRY", "EXIT"].includes(sentido);
+    const filtrosDeAcceso = ["FACE", "TAG"].includes(identificacion) || ["GRANT", "DENY"].includes(decision) || ["ENTRY", "EXIT"].includes(sentido) || rostro !== "ALL";
     // Con cámaras elegidas (y sin tipos), también los objetos: son de esas cámaras, no miles.
     const quiereOVObjetos = tipos.includes("OV_OBJETO") || (camaras.length > 0 && tipos.length === 0);
     const pedirOV = !filtrosDeAcceso && sinVehiculo !== "solo" && (quiere("OV_CHAPA") || quiereOVObjetos);
@@ -452,6 +467,7 @@ export async function GET(req: NextRequest) {
                     ] } : {}),
                     // Son enums de Prisma; un valor inventado en la URL no rompe la consulta, se ignora.
                     ...(["PLATE", "FACE", "TAG"].includes(identificacion) ? { accessType: identificacion as any } : {}),
+                    ...porRostro,
                     ...(["GRANT", "DENY"].includes(decision) ? { decision: decision as any } : {}),
                     ...(["ENTRY", "EXIT"].includes(sentido) ? { direction: sentido as any } : {}),
                     ...(buscar

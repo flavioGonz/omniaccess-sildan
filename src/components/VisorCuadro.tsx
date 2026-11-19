@@ -37,6 +37,7 @@ import { leerDetalleRostro, calidadRostro } from "@/lib/monitor/rostro";
 import { nombreCamara } from "@/lib/rostros";
 import { TiraPasos, type PasoVisor } from "@/components/visor/TiraPasos";
 import { PanelComportamiento, type ComportamientoVisor } from "@/components/visor/PanelComportamiento";
+import { ComportamientoRostro } from "@/components/visor/ComportamientoRostro";
 import { PerfilChapa } from "@/components/visor/PerfilChapa";
 import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
@@ -1337,10 +1338,13 @@ export function VisorCuadro({
                                 Pasos anteriores{pasos.length ? <span className="tabular-nums text-white/55">· {pasos.length}</span> : null}
                             </BotonVisor>
                         )}
-                        {comportamiento && (
+                        {/* En un evento de rostro el sujeto es la CARA, y su comportamiento sale de
+                            sus pasadas (19/11, Nico: «la ventana del evento face debe tener el botón
+                            de comportamiento, para ver la frecuencia similar a git»). */}
+                        {(comportamiento || (abreConRostro && dr?.rostroId)) && (
                             <BotonVisor icono={Activity} encendida={panel === "comportamiento"}
                                 onClick={() => setPanel(panel === "comportamiento" ? null : "comportamiento")}
-                                title="Cuándo entra, cuánto se queda y en qué horarios se la ve">
+                                title={abreConRostro && dr?.rostroId ? "Con qué frecuencia pasa esta cara y en qué horarios" : "Cuándo entra, cuánto se queda y en qué horarios se la ve"}>
                                 Comportamiento
                             </BotonVisor>
                         )}
@@ -1500,7 +1504,10 @@ export function VisorCuadro({
                         onElegir={(p) => { setModo("foto"); setPasoViendo(p); }}
                         onCerrar={() => setPanel(null)} />
                 )}
-                {panel === "comportamiento" && comportamiento && !limpio && (
+                {panel === "comportamiento" && abreConRostro && dr?.rostroId && !limpio && (
+                    <ComportamientoRostro rostroId={dr.rostroId} nombre={dueno?.nombre || dr?.nombre || "Esta cara"} onCerrar={() => setPanel(null)} />
+                )}
+                {panel === "comportamiento" && !(abreConRostro && dr?.rostroId) && comportamiento && !limpio && (
                     <PanelComportamiento plate={datos?.plate || fila.plate} datos={comportamiento} viendo={pasoViendo?.id || null}
                         onElegir={(p) => { setModo("foto"); setPasoViendo(p.actual ? null : p); }}
                         onCerrar={() => setPanel(null)} />

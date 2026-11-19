@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
 import { horaSeg, limiteDeFiltro, periodoConHora } from "@/lib/fechas";
 import type { CamaraHistorial } from "@/app/api/history/camaras/route";
+import { hayEquiposDeAcceso } from "@/app/actions/bitacora-equipos";
 
 /**
  * El historial: accesos y seguimiento en un solo registro.
@@ -156,6 +157,12 @@ export default function HistoryPage() {
      * ni sentido.
      */
     const soloSeguimiento = f.tipos.length > 0 && !f.tipos.includes("ACCESO");
+    /* ¿Esta instalación mira caras? Sin eso, los filtros de rostro son cuatro opciones que nunca
+       devuelven nada (19/11). Alcanza con que haya un portero, un control de acceso o un terminal
+       facial dado de alta, o que el modo puesto sea Rostro. */
+    const [hayEquiposCara, setHayEquiposCara] = useState(false);
+    useEffect(() => { hayEquiposDeAcceso().then(setHayEquiposCara).catch(() => { }); }, []);
+    const conRostros = hayEquiposCara || activeMode === "FACE";
 
     /* Las cámaras del filtro, del servidor y del período entero (api/history/camaras): las de las
        filas cargadas dejaban afuera a las que tienen pocas lecturas, como las RTSP de OmniVision. */
@@ -185,6 +192,7 @@ export default function HistoryPage() {
         if (f.sinVehiculo !== "ocultar") n++;
         if (f.tipos.length) n++;
         if (f.identificacion !== "ALL" && activeMode === null) n++;
+        if (f.rostro !== "ALL") n++;
         if (f.resultado !== "ALL") n++;
         if (f.sentido !== "ALL") n++;
         if (f.camaras.length) n++;
@@ -307,7 +315,8 @@ export default function HistoryPage() {
                 barra={
                     <BarraFiltros f={f} cambiar={cambiar} limpiar={limpiarFiltros} puestos={puestos}
                         camarasDisponibles={resumen.camaras} camarasServidor={camarasServidor} areasDatos={areasDatos}
-                        soloSeguimiento={soloSeguimiento} modo={modosListos ? activeMode : "LPR"} merodeando={chapasMerodeo.size} />
+                        soloSeguimiento={soloSeguimiento} modo={modosListos ? activeMode : "LPR"} merodeando={chapasMerodeo.size}
+                        conRostros={conRostros} />
                 }
                 buscar={searchTerm}
                 desde={periodo.desde}
@@ -316,6 +325,7 @@ export default function HistoryPage() {
                 alVerSinVehiculo={() => cambiar("sinVehiculo", "mostrar")}
                 tipos={f.tipos}
                 identificacion={soloSeguimiento ? "ALL" : f.identificacion}
+                rostro={soloSeguimiento ? "ALL" : f.rostro}
                 resultado={soloSeguimiento ? "ALL" : f.resultado}
                 sentido={soloSeguimiento ? "ALL" : f.sentido}
                 version={version}
