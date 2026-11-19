@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { CreditCard, Fingerprint, ScanFace, ScrollText, ShieldCheck, UserRound, Users } from "lucide-react";
 import { baseDelEquipo, type BaseEquipo, type PersonaDeBase } from "@/app/actions/base-equipo";
 import { Cargando, ErrorEstado } from "@/components/ui/estados";
+import { RostrosDelEquipo } from "@/components/devices/RostrosDelEquipo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -79,6 +80,17 @@ export function BaseDeEquipos({ equipos, elegido, alElegir }: {
 
             {datos.error && <p className="mt-3 text-[12.5px] tono-aviso">{datos.error}</p>}
 
+            {/* Medido el 19/11: en los equipos de producción las caras están cargadas con un
+                identificador propio («414ad2», «arquitecto1») y sin nombre, así que no se atan a
+                ninguna persona de la lista. Decirlo es el punto de la pantalla: una cara que puede
+                abrir la puerta y no se sabe de quién es, es exactamente lo que hay que ver. */}
+            {datos.rostrosBiblioteca > 0 && datos.rostrosAtados === 0 && (
+                <p className="mt-3 text-[12.5px] tono-aviso">
+                    Las {datos.rostrosBiblioteca} caras de este equipo están cargadas con un identificador propio, sin
+                    nombre y sin legajo: ninguna se puede atar a una persona de la lista. Se ven todas más abajo.
+                </p>
+            )}
+
             {datos.personas.length > 0 && (<>
                 <div className="mt-6 flex items-baseline gap-2">
                     <h2 className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Personas cargadas en el equipo</h2>
@@ -89,7 +101,7 @@ export function BaseDeEquipos({ equipos, elegido, alElegir }: {
 
                 <div className="mt-2 rounded-[12px] border border-border overflow-hidden divide-y divide-border">
                     <AnimatePresence initial={false} mode="popLayout">
-                        {datos.personas.map((x) => <Fila key={x.legajo} x={x} quieto={!!quieto} />)}
+                        {datos.personas.map((x) => <Fila key={x.legajo} x={x} deviceId={id} quieto={!!quieto} />)}
                     </AnimatePresence>
                 </div>
 
@@ -103,17 +115,39 @@ export function BaseDeEquipos({ equipos, elegido, alElegir }: {
                     </div>
                 )}
             </>)}
+
+            {/* Los rostros, acá abajo y no en otra pantalla. «¿Qué caras tiene cargadas este
+                portero?» y «¿quién está cargado?» son la misma pregunta mirada de dos maneras;
+                tenerlas separadas obligaba a irse a la ficha del equipo para ver una foto. */}
+            <section className="mt-8">
+                <h2 className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Rostros cargados en el equipo</h2>
+                <RostrosDelEquipo id={id} otros={equipos.filter((e) => e.id !== id)} />
+            </section>
         </div>
     );
 }
 
 /** Una persona del equipo, y si la conocemos. */
-function Fila({ x, quieto }: { x: PersonaDeBase; quieto: boolean }) {
+function Fila({ x, deviceId, quieto }: { x: PersonaDeBase; deviceId: string; quieto: boolean }) {
+    /* La cara sale del equipo por nuestra ruta, nunca por una URL con credencial. Si ese equipo no
+       entrega la foto —el terminal facial da la plantilla pero no la foto— el <img> falla y queda
+       el ícono: se degrada, no se inventa una silueta que parezca una persona. */
+    const [sinFoto, setSinFoto] = useState(false);
+    const hayFoto = !!x.fpid && !sinFoto;
     return (
         <motion.div layout={!quieto} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={quieto ? SUAVE : RESORTE}
             className="flex items-center gap-3 px-3.5 py-2.5 bg-card">
-            <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-full", x.padron ? "chip-bien" : "bg-muted text-muted-foreground")}>
-                {x.padron ? <ShieldCheck size={16} /> : <UserRound size={16} />}
+            <span className={cn("relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full",
+                hayFoto ? "bg-black ring-1 ring-border" : x.padron ? "chip-bien" : "bg-muted text-muted-foreground")}>
+                {hayFoto ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={`/api/devices/rostros-equipo/foto?deviceId=${encodeURIComponent(deviceId)}&fpid=${encodeURIComponent(x.fpid || "")}`}
+                        alt="" loading="lazy" onError={() => setSinFoto(true)}
+                        className="absolute inset-0 h-full w-full object-cover" />
+                ) : x.padron ? <ShieldCheck size={16} /> : <UserRound size={16} />}
+                {hayFoto && x.padron && (
+                    <span className="absolute -bottom-0.5 -right-0.5 grid h-[14px] w-[14px] place-items-center rounded-full chip-bien ring-2 ring-card"><ShieldCheck size={9} /></span>
+                )}
             </span>
             <span className="min-w-0 flex-1">
                 <span className="flex items-baseline gap-2">

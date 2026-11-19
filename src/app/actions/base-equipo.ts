@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { TIPOS_CARA } from "@/lib/caras-vivo";
-import { contarBase, listarPersonas, type PersonaEquipo } from "@/lib/rostros-equipo";
+import { contarBase, listarPersonas, listarRostros, type PersonaEquipo } from "@/lib/rostros-equipo";
 
 /**
  * La base local de un lector: qué tiene guardado adentro y cuánto de eso coincide con OmniAccess.
@@ -23,6 +23,15 @@ import { contarBase, listarPersonas, type PersonaEquipo } from "@/lib/rostros-eq
  */
 
 export type PersonaDeBase = PersonaEquipo & {
+    /**
+     * El `FPID` de su cara en el equipo, cuando se pudo atar. Medido el 19/11: en el portero de
+     * lab el FPID ES el legajo, pero en los dos equipos de producción las caras están cargadas con
+     * identificadores propios (`414ad2`, `arquitecto1`) y sin nombre, así que **la mayoría de los
+     * rostros no corresponde a ninguna persona de la lista**. Por eso esto es `null` y no una
+     * suposición: pedir la foto de un FPID inventado devuelve 404 y la fila quedaría con un hueco
+     * sin explicación.
+     */
+    fpid: string | null;
     /** El usuario del padrón que le corresponde, si lo hay. */
     padron: { id: string; nombre: string; unidad: string | null } | null;
     /** Cómo se encontró: por su legajo o por el nombre exacto. */
@@ -37,6 +46,9 @@ export type BaseEquipo = {
     desde: number;
     /** De la página traída: cuántas están en el padrón. */
     enPadron: number;
+    /** Cuántas caras tiene la biblioteca del equipo, y cuántas se pudieron atar a esta página. */
+    rostrosBiblioteca: number;
+    rostrosAtados: number;
     error?: string;
 };
 
@@ -54,11 +66,17 @@ export async function baseDelEquipo(deviceId: string, desde = 0): Promise<BaseEq
 
     const cabecera = { id: d.id, nombre: d.name, ip: d.ip, tipo: String(d.deviceType), marca: String(d.brand) };
     if (String(d.brand) !== "HIKVISION") {
-        return { equipo: cabecera, cuenta: { personas: null, tarjetas: null, rostros: null, bitacora: false, huellas: false }, personas: [], total: 0, desde: 0, enPadron: 0, error: "Por ahora sólo se lee la base de los equipos Hikvision." };
+        return { equipo: cabecera, cuenta: { personas: null, tarjetas: null, rostros: null, bitacora: false, huellas: false }, personas: [], total: 0, desde: 0, enPadron: 0, rostrosBiblioteca: 0, rostrosAtados: 0, error: "Por ahora sólo se lee la base de los equipos Hikvision." };
     }
 
     try {
-        const [cuenta, pagina] = await Promise.all([contarBase(d), listarPersonas(d, desde)]);
+        /* Las caras del equipo se piden una vez por carga para poder atarlas a su persona: el
+           vínculo es FPID = legajo, y cuando no lo es (producción) no se ata nada. */
+        const [cuenta, pagina, caras] = await Promise.all([
+            contarBase(d), listarPersonas(d, desde),
+            listarRostros(d, 300).catch(() => ({ rostros: [] as { fpid: string }[], total: 0 })),
+        ]);
+        const fpids = new Set(caras.rostros.map((r) => r.fpid));
 
         /* El cruce con el padrón: primero por legajo contra las credenciales (es lo que el equipo
            usa para identificar), y si no hay, por nombre exacto. */
@@ -81,6 +99,7 @@ export async function baseDelEquipo(deviceId: string, desde = 0): Promise<BaseEq
             const u = porLegajo || porNom;
             return {
                 ...x,
+                fpid: fpids.has(x.legajo) ? x.legajo : null,
                 padron: u ? { id: u.id, nombre: u.name, unidad: u.apartment || null } : null,
                 porQue: porLegajo ? "legajo" : porNom ? "nombre" : null,
             };
@@ -89,11 +108,13 @@ export async function baseDelEquipo(deviceId: string, desde = 0): Promise<BaseEq
         return {
             equipo: cabecera, cuenta, personas, total: pagina.total, desde,
             enPadron: personas.filter((x) => x.padron).length,
+            rostrosBiblioteca: caras.total || caras.rostros.length,
+            rostrosAtados: personas.filter((x) => x.fpid).length,
         };
     } catch (e) {
         return {
             equipo: cabecera, cuenta: { personas: null, tarjetas: null, rostros: null, bitacora: false, huellas: false },
-            personas: [], total: 0, desde: 0, enPadron: 0,
+            personas: [], total: 0, desde: 0, enPadron: 0, rostrosBiblioteca: 0, rostrosAtados: 0,
             error: e instanceof Error ? e.message.slice(0, 200) : "No se pudo leer la base del equipo",
         };
     }
