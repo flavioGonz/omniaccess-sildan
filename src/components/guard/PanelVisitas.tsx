@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { createPortal } from "react-dom";
 import { Plus, Clock, X, Check, Search, Loader2, Bike, Wrench, HardHat, Users, Ticket, LogOut, AlertTriangle, BellRing, Timer, Eye, MapPin, Car, Activity } from "lucide-react";
 import { getImagePath } from "@/lib/image-path";
 import { conAncho } from "@/lib/ancho-foto";
@@ -244,10 +245,10 @@ function AltaVisita({ abierta, alCerrar, guardName, alRegistrar }: { abierta: bo
         } finally { setGuardando(false); }
     }
 
-    return (
+    return enPortal(
         <AnimatePresence>
             {abierta && (
-                <motion.div key="alta" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} className="fixed inset-0 z-[300] bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-6" onClick={alCerrar}>
+                <motion.div key="alta" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} className="fixed inset-0 z-[300] bg-black/50 flex items-end md:items-center justify-center p-0 md:p-6" onClick={alCerrar}>
                     <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }} transition={{ type: "spring", stiffness: 420, damping: 38 }}
                         onClick={(e) => e.stopPropagation()} className="w-full md:max-w-3xl max-h-[92vh] overflow-y-auto bg-white rounded-t-3xl md:rounded-3xl p-5 md:p-7 space-y-6">
                         <div className="flex items-center justify-between">
@@ -412,10 +413,10 @@ function AltaSinLote({ abierta, alCerrar, guardName, alRegistrar }: { abierta: b
     }
     const fotoL = lectura?.foto ? getImagePath(lectura.foto) : null;
     const hace = lectura ? Math.max(0, Math.round((Date.now() - +new Date(lectura.ts)) / 1000)) : 0;
-    return (
+    return enPortal(
         <AnimatePresence>
             {abierta && (
-                <motion.div key="alta-sl" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={alCerrar}>
+                <motion.div key="alta-sl" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-black/50 flex items-end md:items-center justify-center" onClick={alCerrar}>
                     <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }} transition={{ type: "spring", stiffness: 420, damping: 38 }}
                         onClick={(e) => e.stopPropagation()} className="w-full md:max-w-3xl max-h-[92vh] overflow-y-auto bg-white rounded-t-3xl md:rounded-3xl p-5 md:p-7 space-y-5">
                         <div className="flex items-start justify-between gap-3">
@@ -489,10 +490,10 @@ function AsignarLote({ v, alCerrar, guardName, alListo }: { v: VisitaFila | null
             alListo();
         } finally { setGuardando(false); }
     }
-    return (
+    return enPortal(
         <AnimatePresence>
             {v && (
-                <motion.div key="asig" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={alCerrar}>
+                <motion.div key="asig" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-black/50 flex items-end md:items-center justify-center" onClick={alCerrar}>
                     <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }} transition={{ type: "spring", stiffness: 420, damping: 38 }}
                         onClick={(e) => e.stopPropagation()} className="w-full md:max-w-3xl max-h-[92vh] overflow-y-auto bg-white rounded-t-3xl md:rounded-3xl p-5 md:p-7 space-y-4">
                         <div className="flex items-start justify-between gap-3">
@@ -536,10 +537,10 @@ function CerrarSinLote({ v, alCerrar, guardName, alListo }: { v: VisitaFila | nu
             alListo();
         } finally { setGuardando(false); }
     }
-    return (
+    return enPortal(
         <AnimatePresence>
             {v && (
-                <motion.div key="cerr" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center" onClick={alCerrar}>
+                <motion.div key="cerr" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-black/50 flex items-end md:items-center justify-center" onClick={alCerrar}>
                     <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }} transition={{ type: "spring", stiffness: 420, damping: 38 }}
                         onClick={(e) => e.stopPropagation()} className="w-full md:max-w-xl bg-white rounded-t-3xl md:rounded-3xl p-5 md:p-7 space-y-4">
                         <div className="flex items-start justify-between gap-3">
@@ -557,4 +558,12 @@ function CerrarSinLote({ v, alCerrar, guardName, alListo }: { v: VisitaFila | nu
             )}
         </AnimatePresence>
     );
+}
+
+/**
+ * Las hojas (alta, asignar lote, cerrar) se montan en <body>: dentro de la pestaña, el
+ * contenedor animado (transform) las encerraba y la barra inferior tapaba el botón de confirmar.
+ */
+function enPortal(nodo: React.ReactNode) {
+    return typeof document === "undefined" ? null : createPortal(nodo, document.body);
 }
