@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Clock, Loader2, Mail, Send, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Check, Clock, Download, Loader2, Mail, Send, Trash2, Upload } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
@@ -109,6 +109,14 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                 descripcion="Un correo por lote, con su clave, y con copia a la administración."
                 pie={d ? (
                     <>
+                        {/* La planilla en blanco va ANTES de «Cargar»: es el paso que viene primero.
+                            Sin esto, pedirle la lista a la administración era explicarle por correo
+                            qué columnas poner. */}
+                        <Button variant="ghost" asChild>
+                            <a href="/api/censo/invitaciones/plantilla" download>
+                                <Download size={14} /> Plantilla
+                            </a>
+                        </Button>
                         <Button variant="outline" onClick={() => archivo.current?.click()} disabled={subiendo}>
                             {subiendo ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Cargar planilla
                         </Button>
@@ -171,7 +179,7 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                     ayuda="La planilla puede tener una columna «lote» y otra «correo», o ninguna cabecera: la columna del correo se reconoce sola.">
                                     {d.invitaciones.length === 0 ? (
                                         <p className="text-[12.5px] text-muted-foreground">
-                                            Todavía no hay ninguno. Cargá la planilla de la administración (.xlsx o .csv).
+                                            Todavía no hay ninguno. Bajá la plantilla, mandásela a la administración y cargala acá (.xlsx o .csv).
                                         </p>
                                     ) : (
                                         <>

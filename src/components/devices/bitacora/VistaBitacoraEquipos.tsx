@@ -189,7 +189,7 @@ export function VistaBitacoraEquipos() {
                         <h2 className="sticky top-0 z-10 -mx-2 px-2 py-2 bg-background/80 backdrop-blur-sm text-[9.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                             {fecha(dia)} · <span className="tabular-nums">{lista.length}</span> {lista.length === 1 ? "pasada" : "pasadas"}
                         </h2>
-                        <div className="mt-1 grid gap-2.5 [grid-auto-flow:dense] [grid-template-columns:repeat(auto-fill,minmax(152px,1fr))]">
+                        <div className="mt-1 grid gap-2.5 [grid-auto-flow:dense] [grid-auto-rows:100px] [grid-template-columns:repeat(auto-fill,minmax(152px,1fr))]">
                             <AnimatePresence initial={false}>
                                 {lista.map((p, i) => (
                                     <Baldosa key={p.id} p={p} tamano={tamanoDe(p, i)} activo={sel?.id === p.id}
@@ -217,15 +217,18 @@ function Baldosa({ p, tamano, activo, nueva, alElegir }: { p: PasoEquipo; tamano
     const Ico = (p.tipo && ICONO_TIPO[p.tipo]) || ScanFace;
     const foto = p.cara || p.foto;
     const negada = p.decision === "DENY";
-    const span = tamano === "grande" ? "sm:col-span-2 sm:row-span-2" : tamano === "medio" ? "sm:col-span-1 sm:row-span-2" : "";
-    const alto = tamano === "chico" ? "h-[86px]" : "";
+    /* El alto NO sale del contenido: todo lo que va adentro de la baldosa está posicionado en
+       absoluto, así que una baldosa sin alto propio mide cero. Antes el `row-span` colgaba de
+       filas implícitas que se median por el contenido, y el bento salía como un montón de
+       rayitas. Ahora la fila mide 100px fijos y el tamaño es cuántas filas ocupa. */
+    const span = tamano === "grande" ? "sm:col-span-2 sm:row-span-3" : tamano === "medio" ? "sm:row-span-2" : "";
     return (
         <motion.button type="button" onClick={alElegir}
             initial={nueva ? (quieto ? { opacity: 0 } : { opacity: 0, scale: 0.96 }) : false}
             animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: quieto ? 1 : 0.98 }} transition={quieto ? SUAVE : RESORTE}
             whileTap={quieto ? undefined : { scale: 0.985 }}
             className={cn("group relative overflow-hidden rounded-[14px] border text-left transition-colors",
-                span, alto,
+                span,
                 activo ? "border-[var(--accion)] ring-2 ring-[var(--accion)]/25" : "border-border hover:border-foreground/25",
                 foto ? "bg-black" : "bg-card")}>
             {foto ? (
