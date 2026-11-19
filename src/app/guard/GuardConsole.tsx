@@ -70,7 +70,7 @@ import { cn } from "@/lib/utils";
 import { createBitacoraEntry, deleteBitacoraEntry, getBitacoraPage, searchRecentBitacora } from "@/app/actions/bitacora";
 import { getAccessEvents, getPlateAnalysis } from "@/app/actions/history";
 import { getParkingSlots, getParkingOccupancy } from "@/app/actions/plazas";
-import { getQuickCreateData, getGuardsList, verifyGuardCredential, isGuardRevoked } from "@/app/actions/users";
+import { getQuickCreateData, getGuardsList, verifyGuardCredential, isGuardRevoked, guardiaVigente } from "@/app/actions/users";
 import { native } from "@/lib/guard-native";
 import { resolveFaceEventAction } from "@/app/actions/face-resolve";
 import { CajonUsuario } from "@/components/users/CajonUsuario";
@@ -1037,6 +1037,12 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                     return;
                 }
             } catch (e) { }
+            // La identificación del guardia vive en una cookie firmada de 14 h (lib/sesion-guardia).
+            // Si venció, el servidor rechaza visitas y avisos: se vuelve a pedir el PIN.
+            try {
+                const vigente = await guardiaVigente();
+                if (!vigente) { setTempGuardName(savedGuard); setShowIdentityOverlay(true); setIdentificado(false); return; }
+            } catch (e) { }
             setGuardName(savedGuard);
             setShowIdentityOverlay(false); setIdentificado(true);
         })();
@@ -1508,6 +1514,11 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             // Sin lote destino: además del registro, una visita con cuenta atrás en Visitas y en el monitor LPR.
             if (conSeguimiento) {
                 try {
+                    if (!(await guardiaVigente().catch(() => null))) {
+                        showNotification("IDENTIFICACIÓN VENCIDA", "El registro se guardó, pero para el seguimiento tenés que volver a ingresar tu PIN (Cambiar guardia).", "error", 5000);
+                        setShowIdentityOverlay(true); setIdentificado(false);
+                        throw new Error("__sin_guardia__");
+                    }
                     const d = await datosParaRegistrar();
                     const tipo = d.tipos.find((t: any) => t.clave === "VISITA")?.clave || d.tipos[0]?.clave;
                     const normal = plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -1515,7 +1526,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                     const r = tipo ? await registrarVisitaSinLote({ tipo, plate: plate.trim(), nombre: name.trim() || (originType === "EMPRESA" ? company.trim() : null), guardia: guardName.trim(), accessEventId: lectura && lectura.plate === normal ? lectura.id : null }) : { ok: false as const, error: "No hay tipos de visita activos" };
                     if (r.ok) showNotification("SEGUIMIENTO INICIADO", `${normal}: tenés ${d.sinLoteMin} min para asignarle el lote en Visitas.`, "info", 3500);
                     else showNotification("SIN SEGUIMIENTO", r.error, "error", 4000);
-                } catch (e: any) { showNotification("SIN SEGUIMIENTO", e?.message || "No se pudo iniciar el seguimiento", "error", 4000); }
+                } catch (e: any) { if (e?.message !== "__sin_guardia__") showNotification("SIN SEGUIMIENTO", "No se pudo iniciar el seguimiento. Probá de nuevo desde Visitas → Visita sin lote.", "error", 4000); }
             }
 
             setShowSuccessOverlay(true);
