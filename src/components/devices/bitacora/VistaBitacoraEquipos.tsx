@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { bitacoraEquipos, type BitacoraEquipos, type EquipoDeAcceso, type PasoEquipo } from "@/app/actions/bitacora-equipos";
 import { Cargando, ErrorEstado, Vacio } from "@/components/ui/estados";
+import { BaseDeEquipos } from "@/components/devices/bitacora/BaseDeEquipos";
 import { getImagePath } from "@/lib/image-path";
 import { hora, fecha } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
@@ -71,6 +72,10 @@ export function VistaBitacoraEquipos() {
     const [error, setError] = useState<string | null>(null);
     const [elegido, setElegido] = useState<string | null>(null);
     const [abriendoEquipos, setAbriendoEquipos] = useState(false);
+    /* Dos miradas sobre los mismos lectores: lo que PASÓ (las pasadas) y lo que TIENEN cargado
+       adentro (su base local). 19/11, Nico: «tema lectura de rostros, base de datos locales de
+       cada lector, logs, registros, rostros». */
+    const [vista, setVista] = useState<"pasadas" | "base">("pasadas");
     const nuevas = useRef<Set<string>>(new Set());
     const vistos = useRef<Set<string>>(new Set());
 
@@ -123,19 +128,33 @@ export function VistaBitacoraEquipos() {
                     <div className="min-w-0">
                         <h1 className="text-[17px] font-bold leading-tight tracking-[-0.01em]">Bitácora de equipos</h1>
                         <p className="text-[12px] text-muted-foreground leading-snug">
-                            <span className="tabular-nums font-semibold text-foreground">{pasos.length}</span> {pasos.length === 1 ? "pasada" : "pasadas"} · {rotuloEquipos.toLowerCase()}
+                            {vista === "pasadas"
+                                ? <><span className="tabular-nums font-semibold text-foreground">{pasos.length}</span> {pasos.length === 1 ? "pasada" : "pasadas"} · {rotuloEquipos.toLowerCase()}</>
+                                : "Lo que cada lector tiene guardado adentro, y cuánto de eso está en el padrón"}
                         </p>
                     </div>
 
+                    {/* Las dos miradas. Píldoras: en este sistema la píldora significa elegir. */}
+                    <div className="inline-flex items-center rounded-full border border-border bg-card/70 p-0.5 ml-1">
+                        {([["pasadas", "Pasadas"], ["base", "Base de los equipos"]] as const).map(([v, rotulo]) => (
+                            <button key={v} type="button" onClick={() => setVista(v)}
+                                className={cn("relative h-8 px-3.5 rounded-full text-[12.5px] font-semibold transition-colors",
+                                    vista === v ? "text-background" : "text-muted-foreground hover:text-foreground")}>
+                                {vista === v && <motion.span layoutId="vista-activa" transition={RESORTE} className="absolute inset-0 rounded-full bg-foreground" />}
+                                <span className="relative">{rotulo}</span>
+                            </button>
+                        ))}
+                    </div>
+
                     <div className="ml-auto flex items-center gap-2">
-                        <label className="relative">
+                        <label className={cn("relative", vista === "base" && "hidden")}>
                             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nombre, tarjeta o legajo"
                                 className="h-9 w-[200px] pl-8 pr-3 rounded-full border border-border bg-card/70 text-[12.5px] outline-none transition-shadow focus:ring-2 focus:ring-[var(--accion)]/35" />
                         </label>
 
                         {/* Período: un control segmentado, con el fondo del elegido deslizándose. */}
-                        <div className="relative inline-flex items-center rounded-full border border-border bg-card/70 p-0.5">
+                        <div className={cn("relative inline-flex items-center rounded-full border border-border bg-card/70 p-0.5", vista === "base" && "hidden")}>
                             {DIAS.map((d) => (
                                 <button key={d} type="button" onClick={() => setDias(d)}
                                     className={cn("relative h-8 px-3.5 rounded-full text-[12.5px] font-semibold transition-colors",
@@ -146,15 +165,22 @@ export function VistaBitacoraEquipos() {
                             ))}
                         </div>
 
-                        <ElegirEquipos equipos={datos.equipos} elegidos={equipos} alCambiar={setEquipos}
-                            abierto={abriendoEquipos} alAbrir={setAbriendoEquipos} rotulo={rotuloEquipos} />
+                        {vista === "pasadas" && (
+                            <ElegirEquipos equipos={datos.equipos} elegidos={equipos} alCambiar={setEquipos}
+                                abierto={abriendoEquipos} alAbrir={setAbriendoEquipos} rotulo={rotuloEquipos} />
+                        )}
                     </div>
                 </div>
             </header>
             {/* Donde la barra toca el contenido: un degradado, no una línea. */}
             <div className="relative z-10 h-5 -mt-5 shrink-0 bg-gradient-to-b from-background/80 to-transparent pointer-events-none" />
 
-            <div className="flex-1 min-h-0 overflow-y-auto px-6 lg:px-8 pb-10">
+            <div className="flex-1 min-h-0 overflow-y-auto">
+                {vista === "base" ? (
+                    <BaseDeEquipos equipos={datos.equipos.map((e) => ({ id: e.id, nombre: e.nombre }))}
+                        elegido={equipos[0] || null} alElegir={(id) => setEquipos([id])} />
+                ) : (
+                <div className="px-6 lg:px-8 pb-10">
                 {pasos.length === 0 ? (
                     <Vacio icono={DoorOpen} titulo="Ninguna pasada en este período"
                         ayuda="Un portero cuenta sus pasadas cuando se lo escucha (hay que apuntarle los avisos a OmniAccess) y un control de acceso cuando se le trae la bitácora desde su ficha. OmniVision suma las suyas si le está mirando el video." />
@@ -173,6 +199,8 @@ export function VistaBitacoraEquipos() {
                         </div>
                     </section>
                 ))}
+                </div>
+                )}
             </div>
 
             {/* La pasada elegida: una hoja que entra desde la derecha y se va por donde vino. */}

@@ -259,3 +259,89 @@ export async function copiarRostro(origen: EquipoHik, destino: EquipoHik, r: Ros
     }
     return { ok: false, error: "el equipo de origen no entrega ni la foto ni la plantilla de esta cara" };
 }
+
+/* ── La base local del equipo: sus personas, sus tarjetas y qué tiene cada una ─────────────────
+ *
+ * Pedido de Nico (19/11): «tema lectura de rostros, base de datos locales de cada lector, logs,
+ * registros, rostros».
+ *
+ * Medido el 19/11 contra los tres equipos, y corrige lo que decía el relevamiento anterior: el
+ * portero SÍ lista personas y tarjetas (`UserInfo/Search` y `CardInfo/Search` contestan 200 con
+ * 417 y 998). El 400 de la primera vez era el cuerpo del pedido mal armado, no una limitación del
+ * equipo — otra vez el mismo error: dar por falla del otro lo que era nuestro.
+ *
+ *   | | terminal DS-K1T343 | portero DS-KV9503 |
+ *   |---|---|---|
+ *   | personas | 402 | 417 |
+ *   | tarjetas | 987 | 998 |
+ *   | rostros  | 71  | 66  |
+ *   | bitácora | sí  | no  |
+ *   | huellas  | sí  | no  |
+ */
+
+export type PersonaEquipo = {
+    legajo: string;
+    nombre: string | null;
+    tarjetas: number;
+    rostros: number;
+    huellas: number;
+    /** `normal`, `visitor`, `blackList`… tal como lo dice el equipo. */
+    tipo: string | null;
+    /** Hasta cuándo vale, si el equipo lo declara. */
+    vence: string | null;
+};
+
+const POR_PAGINA_PERSONAS = 30;
+
+/** Las personas cargadas en el equipo, de a páginas (el equipo corta en 30 por pedido). */
+export async function listarPersonas(d: EquipoHik, desde = 0, cuantos = POR_PAGINA_PERSONAS): Promise<{ personas: PersonaEquipo[]; total: number }> {
+    const r = await authenticatedRequest("POST", "/ISAPI/AccessControl/UserInfo/Search?format=json", cred(d) as never, {
+        data: { UserInfoSearchCond: { searchID: `oa-${(d.ip || "").replace(/\./g, "")}`, searchResultPosition: desde, maxResults: Math.min(30, cuantos) } },
+        contentType: "application/json", accept: "application/json", responseType: "json", timeout: 15000,
+    });
+    const b = r?.UserInfoSearch || {};
+    const lista = (b.UserInfo || []) as Record<string, unknown>[];
+    return {
+        total: Number(b.totalMatches) || lista.length,
+        personas: lista.map((u) => ({
+            legajo: String(u.employeeNo ?? ""),
+            nombre: (u.name as string) || null,
+            tarjetas: Number(u.numOfCard) || 0,
+            rostros: Number(u.numOfFace) || 0,
+            huellas: Number(u.numOfFP) || 0,
+            tipo: (u.userType as string) || null,
+            vence: ((u.Valid as Record<string, unknown> | undefined)?.endTime as string) || null,
+        })),
+    };
+}
+
+/** Lo que el equipo tiene guardado, en números. Lo que no sabe hacer contesta `null`, no cero. */
+export async function contarBase(d: EquipoHik): Promise<{ personas: number | null; tarjetas: number | null; rostros: number | null; bitacora: boolean; huellas: boolean }> {
+    const uno = async <T>(f: () => Promise<T>): Promise<T | null> => { try { return await f(); } catch { return null; } };
+    const personas = await uno(async () => {
+        const r = await authenticatedRequest("GET", "/ISAPI/AccessControl/UserInfo/Count?format=json", cred(d) as never, { accept: "application/json", responseType: "json", timeout: 10000 });
+        return Number(r?.UserInfoCount?.userNumber) || 0;
+    });
+    const tarjetas = await uno(async () => {
+        const r = await authenticatedRequest("GET", "/ISAPI/AccessControl/CardInfo/Count?format=json", cred(d) as never, { accept: "application/json", responseType: "json", timeout: 10000 });
+        return Number(r?.CardInfoCount?.cardNumber) || 0;
+    });
+    const rostros = await uno(async () => {
+        const r = await authenticatedRequest("GET", "/ISAPI/Intelligent/FDLib/Count?format=json&FDID=1&faceLibType=blackFD", cred(d) as never, { accept: "application/json", responseType: "json", timeout: 10000 });
+        return Number(r?.recordDataNumber) || 0;
+    });
+    const bitacora = !!(await uno(() => authenticatedRequest("GET", "/ISAPI/AccessControl/AcsEvent/capabilities?format=json", cred(d) as never, { accept: "application/json", responseType: "json", timeout: 8000 })));
+    const huellas = !!(await uno(() => authenticatedRequest("GET", "/ISAPI/AccessControl/FingerPrintCfg/capabilities?format=json", cred(d) as never, { accept: "application/json", responseType: "json", timeout: 8000 })));
+    return { personas, tarjetas, rostros, bitacora, huellas };
+}
+
+/** Las tarjetas de una persona, para poder cruzarlas con el padrón de OmniAccess. */
+export async function tarjetasDe(d: EquipoHik, legajo: string): Promise<string[]> {
+    try {
+        const r = await authenticatedRequest("POST", "/ISAPI/AccessControl/CardInfo/Search?format=json", cred(d) as never, {
+            data: { CardInfoSearchCond: { searchID: "oa-tar", searchResultPosition: 0, maxResults: 30, EmployeeNoList: [{ employeeNo: legajo }] } },
+            contentType: "application/json", accept: "application/json", responseType: "json", timeout: 12000,
+        });
+        return ((r?.CardInfoSearch?.CardInfo || []) as Record<string, unknown>[]).map((c) => String(c.cardNo ?? "")).filter(Boolean);
+    } catch { return []; }
+}
