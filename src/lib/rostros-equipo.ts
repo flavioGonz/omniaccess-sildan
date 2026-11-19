@@ -15,13 +15,21 @@ import { authenticatedRequest } from "@/lib/digest-auth";
  * | | DS-KV9503 (portero) | DS-K1T343 (terminal) |
  * |---|---|---|
  * | Listar (`FDSearch`) | sí | sí |
- * | `FPID` | es el `employeeNo` | es el `employeeNo` |
+ * | `FPID` | **no siempre** es el `employeeNo` | **no siempre** es el `employeeNo` |
  * | Bajar la FOTO | **sí**, `/LOCALS/face/<FPID>.jpg` | **no**: 404 por todos los caminos probados |
  * | `modelData` (la plantilla) | **no** la devuelve | **sí**, 364 bytes |
  *
  * O sea que los dos caminos para copiar una cara existen, pero no en el mismo equipo: del portero
  * se copia la FOTO (y el destino la vuelve a enrolar), del terminal la PLANTILLA (que es lo que
  * Hikvision usa entre equipos). Lo que no se puede, se dice; no se simula.
+ *
+ * **El FPID no es el legajo, y creer que sí fue un error.** Medido el 19/11: en el portero de lab
+ * el FPID es el legajo (FPID 4 = Pachi), pero en los dos equipos de producción las caras están
+ * cargadas con identificadores propios —`414ad2`, `510ad1`, `arquitecto1`— y **sin nombre**,
+ * mientras casi todas las personas declaran `numOfFace: 0`. O sea que la biblioteca de caras y la
+ * lista de usuarios son dos mundos separados: hay caras que abren la puerta y no se sabe de quién
+ * son. Cualquier pantalla que ate una cara a una persona tiene que atarla sólo cuando el FPID
+ * coincide de verdad con un legajo, y decir que las demás no se pudieron atar.
  *
  * **La foto no sale por digest.** Medido el 19/11: `GET /LOCALS/face/<FPID>.jpg` con autenticación
  * digest contesta **503** siempre; el mismo pedido con la cookie de una sesión web
