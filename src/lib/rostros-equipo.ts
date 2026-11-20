@@ -109,16 +109,44 @@ function crudo(ip: string, puerto: number, ruta: string, metodo: string, cab?: R
 const sesiones = new Map<string, { cookie: string; at: number }>();
 const SESION_MS = 4 * 60_000;
 
+/**
+ * Dos frenos que no estaban, y que costaron caro el 20/11: **la pantalla pidió 71 fotos a la vez
+ * de un terminal que no las tiene, cada pedido abrió su propia sesión web, y el equipo bloqueó al
+ * usuario `admin` por 26 minutos.** Un Hikvision cuenta los `sessionLogin` fallidos y se defiende;
+ * el culpable no fue el equipo, fue pedirle en ráfaga algo que no podía dar.
+ *
+ *  · `enVuelo` — una sola sesión por equipo a la vez. Setenta y un pedidos simultáneos ahora
+ *    esperan al mismo login en vez de disparar setenta y uno.
+ *  · `enPenitencia` — si el login falla, ese equipo queda en penitencia unos minutos y durante ese
+ *    rato NI SE INTENTA. Reintentar contra un equipo que ya nos rechazó es lo que convierte un
+ *    error en un bloqueo.
+ */
+const enVuelo = new Map<string, Promise<string | null>>();
+const enPenitencia = new Map<string, number>();
+const PENITENCIA_MS = 5 * 60_000;
+
 async function cookieDe(d: EquipoHik): Promise<string | null> {
-    const ip = d.ip, puerto = d.httpPort || 80, usuario = d.username || "admin", clave = d.password || "";
-    const ya = sesiones.get(`${ip}:${puerto}`);
+    const clave = `${d.ip}:${d.httpPort || 80}`;
+    const castigo = enPenitencia.get(clave);
+    if (castigo && Date.now() < castigo) return null;
+    const ya = sesiones.get(clave);
     if (ya && Date.now() - ya.at < SESION_MS) return ya.cookie;
+    const volando = enVuelo.get(clave);
+    if (volando) return volando;
+    const tarea = abrirSesion(d).finally(() => enVuelo.delete(clave));
+    enVuelo.set(clave, tarea);
+    return tarea;
+}
+
+async function abrirSesion(d: EquipoHik): Promise<string | null> {
+    const ip = d.ip, puerto = d.httpPort || 80, usuario = d.username || "admin", clave = d.password || "";
+    const fallo = () => { enPenitencia.set(`${ip}:${puerto}`, Date.now() + PENITENCIA_MS); return null; };
     try {
         const cap = await crudo(ip, puerto, `/ISAPI/Security/sessionLogin/capabilities?username=${encodeURIComponent(usuario)}`, "GET");
         const x = cap.body.toString();
         const sid = etiqueta(x, "sessionID"), reto = etiqueta(x, "challenge"), sal = etiqueta(x, "salt");
         const vueltas = Number(etiqueta(x, "iterations")) || 100;
-        if (!sid || !reto) return null;
+        if (!sid || !reto) return fallo();
         /* El hash que pide Hikvision: usuario+sal+clave, después con el reto, y después las vueltas
            que el equipo diga. Es su esquema, no uno nuestro. */
         let h = sha(usuario + sal + clave);
@@ -127,10 +155,11 @@ async function cookieDe(d: EquipoHik): Promise<string | null> {
         const log = await crudo(ip, puerto, `/ISAPI/Security/sessionLogin?timeStamp=${Date.now()}`, "POST", undefined,
             `<SessionLogin><userName>${usuario}</userName><password>${h}</password><sessionID>${sid}</sessionID><isSessionIDValidLongTerm>false</isSessionIDValidLongTerm><sessionIDVersion>2</sessionIDVersion></SessionLogin>`);
         const cookie = ((log.headers["set-cookie"] as string[] | undefined) || []).map((s) => s.split(";")[0]).join("; ");
-        if (log.code !== 200 || !cookie) return null;
+        if (log.code !== 200 || !cookie) return fallo();
         sesiones.set(`${ip}:${puerto}`, { cookie, at: Date.now() });
+        enPenitencia.delete(`${ip}:${puerto}`);
         return cookie;
-    } catch { return null; }
+    } catch { return fallo(); }
 }
 
 /**
@@ -161,7 +190,10 @@ export async function bajarFoto(d: EquipoHik, r: RostroEquipo): Promise<Buffer |
         if (!cookie) return null;
         const f = await crudo(d.ip, d.httpPort || 80, ruta, "GET", { Cookie: cookie, Accept: "image/jpeg" });
         if (f.body.length > 500 && f.body[0] === 0xff && f.body[1] === 0xd8) return f.body;
-        // Cookie vieja o servicio dormido: se tira la sesión y se vuelve a intentar una vez.
+        /* Una sola segunda vuelta, y SÓLO porque la cookie puede haber caducado. Si el equipo
+           contesta 404 no hay nada que reintentar: esa foto no existe, y volver a entrar para
+           pedirla de nuevo es gastar un login contra el contador de bloqueo del equipo. */
+        if (f.code === 404 || f.code === 401) return null;
         sesiones.delete(`${d.ip}:${d.httpPort || 80}`);
         await new Promise((x) => setTimeout(x, 600));
     }
