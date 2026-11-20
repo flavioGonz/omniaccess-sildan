@@ -72,6 +72,8 @@ const EVENTOS: Record<string, { v: string; l: string; ayuda: string }[]> = {
         { v: "GPS_CORTE", l: "Le cortaron la alimentación", ayuda: "El rastreador quedó sin la batería del vehículo: lo desconectaron, o desconectaron la batería. Sigue reportando un rato con la suya." },
         { v: "GPS_MOVIMIENTO", l: "Se mueve con el motor apagado", ayuda: "El vehículo se está trasladando a más de 10 km/h y el rastreador dice que el motor está apagado: un remolque, o se lo llevan. Sólo sirve si el cable de encendido (ACC) del rastreador está conectado; si no, el motor figura siempre apagado y esto avisa en cada viaje." },
         { v: "GPS_BATERIA", l: "Batería del vehículo baja", ayuda: "La batería del vehículo cayó por debajo de 11,8 V. Avisa una vez al caer, no mientras siga baja." },
+        { v: "GPS_GEOCERCA_ENTRA", l: "Entró a una geocerca", ayuda: "El vehículo entró a una de las zonas dibujadas en el mapa (clic derecho sobre el rastreador › Geocercas). El aviso dice a cuál." },
+        { v: "GPS_GEOCERCA_SALE", l: "Salió de una geocerca", ayuda: "El vehículo salió de una de las zonas dibujadas en el mapa. El aviso dice de cuál." },
         { v: "GPS_VIBRACION", l: "Vibración", ayuda: "El rastreador detectó golpes o vibración con el vehículo en guardia." },
         { v: "GPS_VELOCIDAD", l: "Exceso de velocidad", ayuda: "Pasó la velocidad máxima configurada EN EL RASTREADOR (se le pone por SMS)." },
         { v: "GPS_DESARME", l: "Desarmaron el rastreador", ayuda: "Le abrieron la tapa o lo sacaron de su lugar." },

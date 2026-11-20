@@ -102,6 +102,11 @@ const vigia = evs.nuevoVigia();
 /** Lo último que se supo del motor de cada equipo, para juzgar «se mueve con el motor apagado». */
 const motor = new Map();
 
+/** Las geocercas, releídas cada medio minuto: se editan en el mapa y el receptor es otro proceso. */
+let geocercas = [];
+async function leerGeocercas() { try { geocercas = await prisma.gpsGeocerca.findMany({ where: { activa: true } }); } catch { /* sin base: quedan las últimas */ } }
+leerGeocercas(); setInterval(leerGeocercas, 30_000).unref();
+
 async function avisarPorReglas(ev) {
     try {
         let token = process.env.TRACKING_TOKEN || "";
@@ -216,6 +221,7 @@ const servidor = net.createServer((s) => {
                         const sabido = motor.has(imei) ? motor.get(imei) : null;
                         const t = vigia.alMoverse(imei, { conFix: m.gps.conFix, velocidad: m.gps.velocidad, encendido: sabido });
                         if (t) await alEvento(imei, t, m.gps, `${m.gps.velocidad} km/h`);
+                        for (const c of vigia.alUbicarse(imei, geocercas, m.gps)) await alEvento(imei, c.tipo, m.gps, c.geocerca.nombre);
                     }
                 } else if (m.tipo === "respuesta") {
                     alResponder(imei, m);

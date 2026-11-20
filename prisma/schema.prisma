@@ -2088,3 +2088,19 @@ model GpsEvento {
 
   @@index([imei, cuando])
 }
+
+/// Una zona sobre el mapa para los rastreadores GPS: avisa cuando uno entra o sale. Hoy es un
+/// circulo (centro y radio); el receptor las vuelve a leer cada medio minuto.
+model GpsGeocerca {
+  id        String   @id @default(cuid())
+  nombre    String
+  lat       Float
+  lon       Float
+  /// Radio en metros.
+  radio     Int
+  /// A que rastreadores les vale (IMEI). Vacio = a todos.
+  imeis     String[] @default([])
+  activa    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

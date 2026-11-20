@@ -3,12 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { CircleMarker, Marker, Polyline, Popup, useMap } from "react-leaflet";
+import { Circle, CircleMarker, Marker, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
-import { Crosshair, EyeOff, Loader2, MapPin, Radio, Route, Server, ToggleLeft, ToggleRight, X } from "lucide-react";
+import { CircleDashed, Crosshair, EyeOff, Loader2, MapPin, Plus, Radio, Route, Server, ToggleLeft, ToggleRight, X } from "lucide-react";
 import { sileo as toast } from "sileo";
-import { cambiarIconoGps, comandoGps, rastreadoresGps, recorridoGps, type ComandoGps, type Rastreador, type RecorridoGps } from "@/app/actions/gps";
-import { fechaHora, hace } from "@/lib/fechas";
+import {
+    borrarGeocercaGps, cambiarIconoGps, comandoGps, geocercasGps, guardarGeocercaGps, rastreadoresGps, recorridoGps,
+    type ComandoGps, type Geocerca, type Rastreador, type RecorridoGps,
+} from "@/app/actions/gps";
+import { Button } from "@/components/ui/button";
+import { DeleteButton } from "@/components/ui/delete-button";
+import { fechaHora, hace, hora } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 
 /**
@@ -91,6 +96,29 @@ export function CapaGps() {
     const [armado, setArmado] = useState(false);
     const [mandando, setMandando] = useState<string | null>(null);
     const volo = useRef(false);
+    /** Geocercas: la lista, si su panel está abierto, y la que se está dibujando o corrigiendo. */
+    const [cercas, setCercas] = useState<Geocerca[]>([]);
+    const [panelCercas, setPanelCercas] = useState(false);
+    const [borrador, setBorrador] = useState<Borrador | null>(null);
+    /** Esperando un clic en el mapa para poner el centro de una geocerca nueva. */
+    const [colocando, setColocando] = useState(false);
+    const [guardando, setGuardando] = useState(false);
+    /** El viaje resaltado dentro del recorrido a la vista. */
+    const [viajeSel, setViajeSel] = useState<number | null>(null);
+
+    const traerCercas = useCallback(async () => { try { setCercas(await geocercasGps()); } catch { /* sin permiso: no se dibujan */ } }, []);
+    useEffect(() => { traerCercas(); }, [traerCercas]);
+
+    const guardarCerca = async () => {
+        if (!borrador) return;
+        setGuardando(true);
+        try {
+            const x = await guardarGeocercaGps({ id: borrador.id, nombre: borrador.nombre, lat: borrador.lat, lon: borrador.lon, radio: borrador.radio, imeis: borrador.imeis, activa: borrador.activa });
+            if (!x.ok) { toast.error({ title: "No se guardó", description: x.error }); return; }
+            toast.success({ title: "Geocerca guardada", description: "Empieza a valer en menos de un minuto." });
+            setBorrador(null); traerCercas();
+        } finally { setGuardando(false); }
+    };
 
     const traer = useCallback(async () => {
         /* Sólo los dados de alta. Uno que se presentó solo todavía no es de nadie: el puerto
@@ -102,6 +130,7 @@ export function CapaGps() {
     useEffect(() => { traer(); const iv = setInterval(traer, REFRESCO_MS); return () => clearInterval(iv); }, [traer]);
 
     const verRuta = useCallback(async (imei: string, horas: number, encuadrar = true) => {
+        if (encuadrar) setViajeSel(null);
         setRuta((v) => ({ imei, horas, datos: v && v.imei === imei && v.horas === horas ? v.datos : null }));
         try {
             const datos = await recorridoGps(imei, horas);
@@ -154,6 +183,17 @@ export function CapaGps() {
     const delMenu = menu ? lista.find((r) => r.imei === menu.imei) : null;
     const pts = ruta?.datos?.puntos || [];
     const deLaRuta = ruta ? lista.find((r) => r.imei === ruta.imei) : null;
+    const viajes = ruta?.datos?.viajes || [];
+    const paradas = ruta?.datos?.paradas || [];
+    /* El viaje elegido se dibuja con los puntos del recorrido que caen en su horario. */
+    const elViaje = viajeSel !== null ? viajes[viajeSel] : null;
+    const ptsViaje = elViaje ? pts.filter((p) => p.cuando >= elViaje.desde && p.cuando <= elViaje.hasta) : [];
+    const verViaje = (i: number) => {
+        const v = viajes[i]; if (!v) return;
+        setViajeSel(i === viajeSel ? null : i);
+        const suyos = pts.filter((p) => p.cuando >= v.desde && p.cuando <= v.hasta);
+        if (suyos.length > 1) mapa.fitBounds(L.latLngBounds(suyos.map((p) => [p.lat, p.lon] as [number, number])), { padding: [60, 60], maxZoom: 17 });
+    };
 
     return (
         <>
@@ -166,6 +206,33 @@ export function CapaGps() {
                     <CircleMarker center={[pts[0].lat, pts[0].lon]} radius={6} pathOptions={{ color: "#fff", weight: 3, fillColor: CELESTE, fillOpacity: 1 }} />
                 </>
             )}
+
+            {/* El viaje elegido, encima del recorrido: el resto queda de fondo. */}
+            {ptsViaje.length > 1 && (
+                <Polyline positions={ptsViaje.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: "#fbbf24", weight: 6, opacity: 1, lineCap: "round", lineJoin: "round" }} />
+            )}
+            {/* Las paradas: dónde quedó entre un viaje y otro, y cuánto. */}
+            {paradas.map((pa, i) => (
+                <Marker key={`pa-${i}`} position={[pa.lat, pa.lon]} zIndexOffset={1200} interactive={false}
+                    icon={L.divIcon({ className: "bg-transparent border-0", iconSize: [64, 20], iconAnchor: [32, 10],
+                        html: `<div style="padding:1px 7px;border-radius:999px;background:#0a0e14;color:#fff;border:2px solid ${CELESTE};font:700 10.5px/14px Outfit,system-ui,sans-serif;white-space:nowrap;text-align:center">P · ${duracion(pa.minutos)}</div>` })} />
+            ))}
+
+            {/* Las geocercas. La que se está corrigiendo se dibuja como borrador, no dos veces. */}
+            {cercas.filter((c) => c.id !== borrador?.id).map((c) => (
+                <Circle key={c.id} center={[c.lat, c.lon]} radius={c.radio}
+                    pathOptions={{ color: c.activa ? "#a78bfa" : GRIS, weight: 2, dashArray: c.activa ? undefined : "6 6", fillColor: c.activa ? "#a78bfa" : GRIS, fillOpacity: 0.12 }}
+                    eventHandlers={{ click: () => { setBorrador({ ...c }); setPanelCercas(true); } }} />
+            ))}
+            {borrador && (
+                <>
+                    <Circle center={[borrador.lat, borrador.lon]} radius={borrador.radio} pathOptions={{ color: "#fbbf24", weight: 2.5, dashArray: "8 6", fillColor: "#fbbf24", fillOpacity: 0.14 }} />
+                    <Marker position={[borrador.lat, borrador.lon]} draggable zIndexOffset={1800}
+                        icon={L.divIcon({ className: "bg-transparent border-0", iconSize: [18, 18], iconAnchor: [9, 9], html: '<div style="width:18px;height:18px;border-radius:50%;background:#fbbf24;border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.5)"></div>' })}
+                        eventHandlers={{ dragend: (e) => { const ll = (e.target as L.Marker).getLatLng(); setBorrador((b) => (b ? { ...b, lat: ll.lat, lon: ll.lng } : b)); } }} />
+                </>
+            )}
+            {colocando && <ClicEnElMapa alTocar={(lat, lon) => { setColocando(false); setBorrador({ nombre: "", lat, lon, radio: 200, imeis: [], activa: true }); setPanelCercas(true); }} />}
 
             {lista.map((r) => (
                 <Marker key={r.imei} position={[r.lat!, r.lon!]} icon={icono(r)} zIndexOffset={1500}
@@ -223,6 +290,10 @@ export function CapaGps() {
                                 <Item icono={ToggleRight} cargando={mandando === "rele.accionar"} apagado={!delMenu.enLinea || !!mandando} onClick={() => setArmado(true)}>Accionar el relé…</Item>
                             )}
 
+                            <Rotulo>Geocercas</Rotulo>
+                            <Item icono={Plus} onClick={() => { setBorrador({ nombre: "", lat: delMenu.lat!, lon: delMenu.lon!, radio: 200, imeis: [], activa: true }); setPanelCercas(true); setMenu(null); }}>Nueva alrededor de acá</Item>
+                            <Item icono={CircleDashed} onClick={() => { setPanelCercas(true); setMenu(null); }}>Ver las geocercas{cercas.length ? ` (${cercas.length})` : ""}</Item>
+
                             <Rotulo>Ícono</Rotulo>
                             <div className="px-3 pb-1.5 flex gap-1">
                                 {Object.entries(ICONOS).map(([clave, i]) => (
@@ -264,6 +335,78 @@ export function CapaGps() {
                                     <Cifra k="Desde" v={fechaHora(ruta.datos.resumen.desde)} />
                                 </dl>
                             )}
+                            {viajes.length > 0 && (
+                                <div className="mt-2.5 border-t border-border pt-2">
+                                    <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1">
+                                        {viajes.length} {viajes.length === 1 ? "viaje" : "viajes"}{paradas.length ? ` · ${paradas.length} ${paradas.length === 1 ? "parada" : "paradas"}` : ""}
+                                    </p>
+                                    <ul className="max-h-[132px] overflow-y-auto [scrollbar-width:thin] -mx-1">
+                                        {viajes.map((v, i) => (
+                                            <li key={v.desde}>
+                                                <button type="button" onClick={() => verViaje(i)}
+                                                    className={cn("w-full flex items-center gap-3 px-2 py-1 rounded-[6px] text-left text-[12px] tabular-nums", viajeSel === i ? "bg-amber-400/20" : "hover:bg-accent")}>
+                                                    <span className="font-bold w-[92px] shrink-0">{hora(v.desde)} → {hora(v.hasta)}</span>
+                                                    <span className="w-[62px] shrink-0">{v.km.toFixed(1).replace(".", ",")} km</span>
+                                                    <span className="w-[58px] shrink-0 text-muted-foreground">{duracion(v.minutos)}</span>
+                                                    <span className="text-muted-foreground truncate">máx {v.velMax} km/h · media {v.velMedia}</span>
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {panelCercas && (
+                        <div className="fixed top-20 right-4 z-[500] w-[300px] max-h-[calc(100vh-120px)] flex flex-col rounded-[14px] border border-border bg-popover shadow-xl"
+                            onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border">
+                                <CircleDashed size={15} className="text-muted-foreground" />
+                                <p className="text-[13px] font-bold flex-1">Geocercas</p>
+                                <button type="button" onClick={() => { setPanelCercas(false); setBorrador(null); setColocando(false); }} aria-label="Cerrar" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent"><X size={14} /></button>
+                            </div>
+
+                            {borrador ? (
+                                <div className="px-4 py-3 space-y-2.5">
+                                    <label className="block">
+                                        <span className="block text-[11px] text-muted-foreground mb-1">Nombre (es lo que dice el aviso)</span>
+                                        <input autoFocus value={borrador.nombre} onChange={(e) => setBorrador({ ...borrador, nombre: e.target.value })} placeholder="Ej. Base, Taller, Casa"
+                                            className="h-8 w-full px-2.5 rounded-[6px] border border-border bg-background text-[12.5px]" />
+                                    </label>
+                                    <label className="block">
+                                        <span className="flex justify-between text-[11px] text-muted-foreground mb-1"><span>Radio</span><b className="text-foreground tabular-nums">{borrador.radio >= 1000 ? `${(borrador.radio / 1000).toFixed(1).replace(".", ",")} km` : `${borrador.radio} m`}</b></span>
+                                        {/* La escala no es pareja: entre 50 y 500 m se necesita precisión; a 5 km, no. */}
+                                        <input type="range" min={0} max={RADIOS.length - 1} step={1} value={indiceDeRadio(borrador.radio)}
+                                            onChange={(e) => setBorrador({ ...borrador, radio: RADIOS[Number(e.target.value)] })} className="w-full" />
+                                    </label>
+                                    <label className="flex items-center gap-2 text-[12px]">
+                                        <input type="checkbox" checked={borrador.activa} onChange={(e) => setBorrador({ ...borrador, activa: e.target.checked })} /> Avisar cuando entren o salgan
+                                    </label>
+                                    <p className="text-[11px] text-muted-foreground leading-snug">Arrastrá el punto amarillo para mover el centro. Vale para todos los rastreadores.</p>
+                                    <div className="flex items-center gap-2 pt-1">
+                                        {borrador.id && <DeleteButton onConfirm={async () => { await borrarGeocercaGps(borrador.id!); setBorrador(null); traerCercas(); }} />}
+                                        <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setBorrador(null)}>Cancelar</Button>
+                                        <Button size="sm" disabled={guardando || !borrador.nombre.trim()} onClick={guardarCerca}>{guardando && <Loader2 size={13} className="animate-spin" />} Guardar</Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="px-2 py-2 overflow-y-auto [scrollbar-width:thin]">
+                                    {cercas.length === 0 && <p className="px-2 py-2 text-[12px] text-muted-foreground">Todavía no hay ninguna. Una geocerca es una zona que avisa cuando un vehículo entra o sale.</p>}
+                                    {cercas.map((c) => (
+                                        <button key={c.id} type="button" onClick={() => { setBorrador({ ...c }); mapa.fitBounds(L.latLng(c.lat, c.lon).toBounds(c.radio * 2.4)); }}
+                                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-[6px] text-left hover:bg-accent">
+                                            <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", c.activa ? "bg-violet-400" : "bg-muted-foreground/40")} />
+                                            <span className="text-[12.5px] font-semibold truncate flex-1">{c.nombre}</span>
+                                            <span className="text-[11px] text-muted-foreground tabular-nums">{c.radio >= 1000 ? `${(c.radio / 1000).toFixed(1).replace(".", ",")} km` : `${c.radio} m`}</span>
+                                        </button>
+                                    ))}
+                                    <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => setColocando(true)} disabled={colocando}>
+                                        <Plus size={13} /> {colocando ? "Tocá el mapa donde va el centro…" : "Nueva: tocar el mapa"}
+                                    </Button>
+                                    <p className="px-2 pt-2 text-[11px] text-muted-foreground leading-snug">Para que avise, armá una regla de GPS con «Entró» o «Salió de una geocerca» en Notificaciones.</p>
+                                </div>
+                            )}
                         </div>
                     )}
                 </>,
@@ -294,4 +437,19 @@ function Item({ icono: Ico, children, onClick, apagado, cargando, peligro }: { i
 }
 function Cifra({ k, v }: { k: string; v: string }) {
     return <div className="min-w-0"><dt className="text-[10.5px] text-muted-foreground">{k}</dt><dd className="font-bold tabular-nums truncate">{v}</dd></div>;
+}
+
+/** Una geocerca a medio dibujar o corrigiéndose: sin `id` todavía no existe. */
+type Borrador = { id?: string; nombre: string; lat: number; lon: number; radio: number; imeis: string[]; activa: boolean };
+
+/** Los radios que ofrece la barra, en metros. */
+const RADIOS = [50, 75, 100, 150, 200, 300, 400, 500, 750, 1000, 1500, 2000, 3000, 5000, 10000];
+const indiceDeRadio = (r: number) => { let m = 0; RADIOS.forEach((x, i) => { if (Math.abs(x - r) < Math.abs(RADIOS[m] - r)) m = i; }); return m; };
+
+const duracion = (min: number) => (min >= 60 ? `${Math.floor(min / 60)} h ${min % 60} min` : `${min} min`);
+
+/** Espera UN clic en el mapa. Vive adentro del mapa porque es el mapa el que sabe dónde se tocó. */
+function ClicEnElMapa({ alTocar }: { alTocar: (lat: number, lon: number) => void }) {
+    useMapEvents({ click: (e) => alTocar(e.latlng.lat, e.latlng.lng) });
+    return null;
 }

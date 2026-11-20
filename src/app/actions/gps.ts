@@ -6,6 +6,7 @@ import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { leerEstadoRele, puedeAccionarRele } from "@/lib/gps-rele";
 import { aligerar, resumenDeRecorrido, type ResumenRecorrido } from "@/lib/gps-recorrido";
+import { viajesYParadas, type Parada, type Viaje } from "@/lib/gps-viajes";
 
 /**
  * Los rastreadores GPS que se presentaron en gps-receiver.js, para la pantalla de Dispositivos.
@@ -128,7 +129,7 @@ export async function atarVehiculoGps(imei: string, matricula: string): Promise<
 }
 
 export type PuntoGps = { lat: number; lon: number; cuando: string; velocidad: number };
-export type RecorridoGps = { puntos: PuntoGps[]; resumen: ResumenRecorrido };
+export type RecorridoGps = { puntos: PuntoGps[]; resumen: ResumenRecorrido; viajes: Viaje[]; paradas: Parada[] };
 
 /**
  * Por dónde anduvo en las últimas horas, del más viejo al más nuevo.
@@ -146,7 +147,9 @@ export async function recorridoGps(imei: string, horas = 24): Promise<RecorridoG
         select: { lat: true, lon: true, cuando: true, velocidad: true },
     });
     const todos = filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
-    return { puntos: aligerar(todos, 3000), resumen: resumenDeRecorrido(todos) };
+    /* Los viajes y las paradas también se cortan sobre todos los puntos: con los aligerados, un
+       semáforo y una parada de cinco minutos se ven iguales. */
+    return { puntos: aligerar(todos, 3000), resumen: resumenDeRecorrido(todos), ...viajesYParadas(todos) };
 }
 
 const ICONOS = new Set(["auto", "camion", "moto", "persona", "punto"]);
@@ -219,4 +222,39 @@ export async function comandoGps(imei: string, accion: ComandoGps): Promise<{ ok
     }
     if (escribe) await auditar(s, "equipos.gps.rele", e.deviceId, r.ok, `IMEI ${imei} · ${accion === "rele.accionar" ? "accionar" : "soltar"} · ${r.ok ? `equipo: «${(r.respuesta || "").slice(0, 120)}»` : r.error}`);
     return { ...r, cortado };
+}
+
+/**
+ * Las geocercas: zonas sobre el mapa que avisan cuando un rastreador entra o sale. Las evalúa el
+ * receptor (otro proceso), que las relee cada medio minuto: un cambio acá tarda hasta ese tiempo
+ * en empezar a valer.
+ */
+export type Geocerca = { id: string; nombre: string; lat: number; lon: number; radio: number; imeis: string[]; activa: boolean };
+
+export async function geocercasGps(): Promise<Geocerca[]> {
+    await sesion("dispositivos");
+    const f = await prisma.gpsGeocerca.findMany({ orderBy: { createdAt: "asc" } });
+    return f.map((g) => ({ id: g.id, nombre: g.nombre, lat: g.lat, lon: g.lon, radio: g.radio, imeis: g.imeis, activa: g.activa }));
+}
+
+export async function guardarGeocercaGps(g: { id?: string; nombre: string; lat: number; lon: number; radio: number; imeis?: string[]; activa?: boolean }): Promise<{ ok: boolean; id?: string; error?: string }> {
+    const s = await sesion("dispositivos.editar");
+    const nombre = String(g.nombre || "").trim().slice(0, 60);
+    if (!nombre) return { ok: false, error: "La geocerca necesita un nombre: es lo que va a decir el aviso." };
+    if (!Number.isFinite(g.lat) || !Number.isFinite(g.lon) || Math.abs(g.lat) > 90 || Math.abs(g.lon) > 180) return { ok: false, error: "El centro no es un punto del mapa." };
+    /* Menos de 30 m es más chico que el ruido del propio GPS: avisaría sola. */
+    const radio = Math.round(Math.min(Math.max(Number(g.radio) || 0, 30), 50_000));
+    const data = { nombre, lat: g.lat, lon: g.lon, radio, imeis: (g.imeis || []).map(String).slice(0, 200), activa: g.activa !== false };
+    const fila = g.id
+        ? await prisma.gpsGeocerca.update({ where: { id: g.id }, data, select: { id: true } })
+        : await prisma.gpsGeocerca.create({ data, select: { id: true } });
+    await auditar(s, g.id ? "equipos.gps.geocerca.cambiar" : "equipos.gps.geocerca.alta", fila.id, true, `${nombre} · ${radio} m`);
+    return { ok: true, id: fila.id };
+}
+
+export async function borrarGeocercaGps(id: string): Promise<{ ok: boolean }> {
+    const s = await sesion("dispositivos.editar");
+    const g = await prisma.gpsGeocerca.delete({ where: { id } }).catch(() => null);
+    if (g) await auditar(s, "equipos.gps.geocerca.borrar", id, true, g.nombre);
+    return { ok: !!g };
 }

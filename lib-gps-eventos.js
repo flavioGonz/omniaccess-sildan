@@ -34,6 +34,8 @@ const ROTULO = {
     GPS_BATERIA_EQUIPO: "Batería interna del rastreador baja",
     GPS_DESARME: "Desarmaron el rastreador",
     GPS_OTRA: "Alarma del rastreador",
+    GPS_GEOCERCA_ENTRA: "Entró a una geocerca",
+    GPS_GEOCERCA_SALE: "Salió de una geocerca",
 };
 
 /** Debajo de esto, la batería de 12 V de un vehículo en reposo está descargándose. */
@@ -45,11 +47,55 @@ const VEL_TRASLADO = 10;
 /** Quieto este tiempo, el traslado terminó y el próximo vuelve a avisar. */
 const QUIETO_MS = 5 * 60_000;
 
+/** Metros entre dos puntos (haversine). */
+function metros(aLat, aLon, bLat, bLon) {
+    const R = 6371000, rad = Math.PI / 180;
+    const dLat = (bLat - aLat) * rad, dLon = (bLon - aLon) * rad;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+/** ¿Ese punto está adentro de la geocerca? Hoy son círculos: un centro y un radio en metros. */
+const dentroDe = (gc, lat, lon) => metros(gc.lat, gc.lon, lat, lon) <= gc.radio;
+
+/** ¿La geocerca vale para ese rastreador? Sin lista, vale para todos. */
+const aplicaA = (gc, imei) => !gc.imeis || !gc.imeis.length || gc.imeis.includes(imei);
+
+/**
+ * Cuántas posiciones seguidas del otro lado hacen falta para creer que cruzó. Con una sola, un
+ * vehículo estacionado JUSTO en el borde entra y sale con cada salto del GPS (medido: quince
+ * metros de ruido estando quieto) y manda un aviso por cada uno.
+ */
+const CONFIRMACIONES = 2;
+
 /** El estado por rastreador. `voltajeInicial` siembra lo último que se supo, para no avisar al reiniciar. */
 function nuevoVigia() {
     const e = new Map(); // imei → { baja, trasladando, quietoDesde }
     const de = (imei) => { if (!e.has(imei)) e.set(imei, { baja: null, trasladando: false, quietoDesde: null }); return e.get(imei); };
+    const cercas = new Map(); // `${imei}|${geocercaId}` → { dentro, cuenta }
     return {
+        /**
+         * Una posición nueva contra las geocercas. Devuelve los cruces: `[{ tipo, geocerca }]`.
+         * La primera vez que se ve a un rastreador contra una geocerca no es un cruce: se anota
+         * de qué lado está y nada más — si no, dar de alta una geocerca alrededor de la base
+         * avisaría «entró» por cada vehículo que ya estaba adentro.
+         */
+        alUbicarse(imei, geocercas, p) {
+            const cruces = [];
+            if (!p || !p.conFix) return cruces;
+            for (const gc of geocercas || []) {
+                if (gc.activa === false || !aplicaA(gc, imei)) continue;
+                const clave = `${imei}|${gc.id}`;
+                const ahora = dentroDe(gc, p.lat, p.lon);
+                const c = cercas.get(clave);
+                if (!c) { cercas.set(clave, { dentro: ahora, cuenta: 0 }); continue; }
+                if (ahora === c.dentro) { c.cuenta = 0; continue; }
+                if (++c.cuenta < CONFIRMACIONES) continue;
+                c.dentro = ahora; c.cuenta = 0;
+                cruces.push({ tipo: ahora ? "GPS_GEOCERCA_ENTRA" : "GPS_GEOCERCA_SALE", geocerca: gc });
+            }
+            return cruces;
+        },
         sembrar(imei, voltaje) { if (typeof voltaje === "number") de(imei).baja = voltaje < VOLTAJE_BAJO; },
         /** Un voltaje nuevo. Devuelve "GPS_BATERIA" sólo cuando CAE por debajo del umbral. */
         alVoltaje(imei, v) {
@@ -84,4 +130,4 @@ function nuevoVigia() {
     };
 }
 
-module.exports = { eventoDeAlarma, nuevoVigia, ROTULO, VOLTAJE_BAJO, VOLTAJE_RECUPERADO, VEL_TRASLADO };
+module.exports = { eventoDeAlarma, nuevoVigia, dentroDe, metros, ROTULO, VOLTAJE_BAJO, VOLTAJE_RECUPERADO, VEL_TRASLADO };

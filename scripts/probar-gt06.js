@@ -149,6 +149,30 @@ prueba("los códigos de alarma del equipo se traducen, y el desconocido no se pi
     assert.strictEqual(ev.eventoDeAlarma(0x55), "GPS_OTRA");
     assert.strictEqual(ev.eventoDeAlarma(0), null);
 });
+prueba("la geocerca avisa al cruzar, no al verla por primera vez ni por el ruido del borde", () => {
+    const v = ev.nuevoVigia();
+    const base = { id: "g1", nombre: "Base", lat: -34.8894, lon: -56.1440, radio: 200 };
+    const adentro = { conFix: true, lat: -34.8894, lon: -56.1440 };
+    const afuera = { conFix: true, lat: -34.8950, lon: -56.1440 };       // ~620 m al sur
+    assert.deepStrictEqual(v.alUbicarse("a", [base], adentro), []);       // primera vez: se anota, no avisa
+    assert.deepStrictEqual(v.alUbicarse("a", [base], afuera), []);        // un solo punto afuera: todavía no
+    assert.deepStrictEqual(v.alUbicarse("a", [base], adentro), []);       // volvió: era ruido
+    assert.deepStrictEqual(v.alUbicarse("a", [base], afuera), []);
+    const sale = v.alUbicarse("a", [base], afuera);                       // dos seguidos: salió
+    assert.strictEqual(sale.length, 1); assert.strictEqual(sale[0].tipo, "GPS_GEOCERCA_SALE"); assert.strictEqual(sale[0].geocerca.nombre, "Base");
+    assert.deepStrictEqual(v.alUbicarse("a", [base], afuera), []);        // sigue afuera: no repite
+    v.alUbicarse("a", [base], adentro);
+    assert.strictEqual(v.alUbicarse("a", [base], adentro)[0].tipo, "GPS_GEOCERCA_ENTRA");
+});
+prueba("una geocerca apagada, o de otro rastreador, no dice nada", () => {
+    const v = ev.nuevoVigia();
+    const p1 = { conFix: true, lat: -34.8894, lon: -56.1440 }, p2 = { conFix: true, lat: -34.95, lon: -56.1440 };
+    const apagada = { id: "g2", lat: -34.8894, lon: -56.1440, radio: 100, activa: false };
+    const ajena = { id: "g3", lat: -34.8894, lon: -56.1440, radio: 100, imeis: ["otro"] };
+    for (const p of [p1, p2, p2, p2]) assert.deepStrictEqual(v.alUbicarse("a", [apagada, ajena], p), []);
+    // Y sin satélites una posición no cruza nada.
+    assert.deepStrictEqual(v.alUbicarse("a", [{ id: "g4", lat: 0, lon: 0, radio: 10 }], { conFix: false, lat: 0, lon: 0 }), []);
+});
 prueba("el latido REAL trae su código de alarma en cero", () => {
     assert.strictEqual(g.leer(H("78780a130406040002000e82250d0a")).estado.alarma, 0);
 });
