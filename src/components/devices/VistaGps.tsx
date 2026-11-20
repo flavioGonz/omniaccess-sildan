@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, Loader2, MapPin, Pencil, Plus, Satellite } from "lucide-react";
+import { Check, Loader2, MapPin, Pencil, Plus, Radio, Satellite } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { atarVehiculoGps, darDeAltaGps, renombrarGps, type Rastreador } from "@/app/actions/gps";
+import { atarVehiculoGps, comandoGps, darDeAltaGps, renombrarGps, type Rastreador } from "@/app/actions/gps";
 import { arrastrarEquipos } from "@/components/devices/ArbolAreas";
 import { hace } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
@@ -53,13 +53,14 @@ export function VistaGps({ lista, busqueda, alCambiar }: {
                         <TableHead className={TH}>Batería</TableHead>
                         <TableHead className={TH}>Señal</TableHead>
                         <TableHead className={TH}>Posición</TableHead>
+                        <TableHead className={TH}>Relé</TableHead>
                         <TableHead className={cn(TH, "text-right pr-4")}>Acciones</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {filas.length === 0 && (
                         <TableRow>
-                            <TableCell colSpan={8} className="text-center py-16">
+                            <TableCell colSpan={9} className="text-center py-16">
                                 <div className="flex flex-col items-center gap-3">
                                     <div className="p-5 bg-card/50 rounded-lg border border-dashed border-border"><Satellite size={36} className="text-muted-foreground" /></div>
                                     <p className="text-sm font-semibold text-muted-foreground">{lista.length ? "Ninguno coincide con la búsqueda" : "Todavía no se presentó ningún rastreador"}</p>
@@ -92,6 +93,23 @@ function Fila({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
     const [chapa, setChapa] = useState(r.matricula || "");
     const conPosicion = r.lat !== null && r.lon !== null;
     const bajo = r.voltaje !== null && r.voltaje < VOLTAJE_BAJO;
+
+    /* El relé se acciona en dos toques: el primero arma («¿Confirmar?») y el segundo dispara. Si
+       no hay segundo toque en unos segundos se desarma solo. Un botón que corta un motor no puede
+       dispararse con un clic que iba para la fila de al lado. */
+    const [armado, setArmado] = useState(false);
+    const [mandando, setMandando] = useState<string | null>(null);
+    useEffect(() => { if (!armado) return; const t = setTimeout(() => setArmado(false), 5000); return () => clearTimeout(t); }, [armado]);
+    const mandar = async (accion: "estado" | "rele.accionar" | "rele.soltar") => {
+        setMandando(accion); setArmado(false);
+        try {
+            const x = await comandoGps(r.imei, accion);
+            /* Se muestra lo que contestó EL EQUIPO, textual: es la única palabra que vale. */
+            if (!x.ok) toast.error({ title: accion === "estado" ? "No contestó" : "No se accionó", description: x.error });
+            else toast.success({ title: accion === "estado" ? "El equipo contestó" : accion === "rele.accionar" ? "Relé accionado" : "Relé en reposo", description: x.respuesta });
+            alCambiar();
+        } finally { setMandando(null); }
+    };
 
     const alta = async () => {
         setTrabajando(true);
@@ -174,6 +192,30 @@ function Fila({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
                 ) : <span className="text-[11.5px] text-muted-foreground">Sin satélites todavía</span>}
             </TableCell>
 
+            <TableCell>
+                {!r.deviceId ? <span className="text-[11.5px] text-muted-foreground">—</span> : (
+                    <div className="flex items-center gap-1.5">
+                        <span className={cn("h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit",
+                            r.cortado ? "bg-red-500/10 text-red-500 border-red-500/25" : "text-muted-foreground border-border bg-muted/40")}>
+                            <span className={cn("w-1.5 h-1.5 rounded-full", r.cortado ? "bg-red-500" : "bg-muted-foreground/40")} />
+                            {r.cortado === null ? "Sin dato" : r.cortado ? "Accionado" : "En reposo"}
+                        </span>
+                        {r.cortado ? (
+                            <Button variant="outline" size="sm" className="h-7 px-2 text-[11.5px]" disabled={!!mandando || !r.enLinea} onClick={() => mandar("rele.soltar")}>
+                                {mandando === "rele.soltar" ? <Loader2 size={12} className="animate-spin" /> : "Soltar"}
+                            </Button>
+                        ) : armado ? (
+                            <Button size="sm" className="h-7 px-2 text-[11.5px] pleno-mal" disabled={!!mandando} onClick={() => mandar("rele.accionar")}>¿Confirmar?</Button>
+                        ) : (
+                            <Button variant="outline" size="sm" className="h-7 px-2 text-[11.5px]" disabled={!!mandando || !r.enLinea}
+                                title={r.enLinea ? "Accionar el relé del rastreador" : "El rastreador no está en línea"} onClick={() => setArmado(true)}>
+                                {mandando === "rele.accionar" ? <Loader2 size={12} className="animate-spin" /> : "Accionar"}
+                            </Button>
+                        )}
+                    </div>
+                )}
+            </TableCell>
+
             <TableCell className="pr-4">
                 <div className="flex items-center justify-end gap-1">
                     {r.deviceId ? (
@@ -182,6 +224,9 @@ function Fila({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
                                 <Link href={`/admin/mapa?gps=${r.imei}`} title="Ver en el mapa"
                                     className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><MapPin size={14} /></Link>
                             )}
+                            <button type="button" onClick={() => mandar("estado")} disabled={!!mandando || !r.enLinea} title="Preguntarle al equipo cómo está"
+                                className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40">
+                                {mandando === "estado" ? <Loader2 size={14} className="animate-spin" /> : <Radio size={14} />}</button>
                             {nuevo !== null ? (
                                 <button type="button" onClick={renombrar} disabled={trabajando} title="Guardar el nombre"
                                     className="h-7 w-7 grid place-items-center rounded-md text-[var(--accion)] hover:bg-accent">{trabajando ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}</button>

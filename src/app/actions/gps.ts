@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
+import { leerEstadoRele, puedeAccionarRele } from "@/lib/gps-rele";
 
 /**
  * Los rastreadores GPS que se presentaron en gps-receiver.js, para la pantalla de Dispositivos.
@@ -37,6 +38,8 @@ export type Rastreador = {
     bateria: number | null; senal: number | null;
     /** La alimentación que informa el equipo: la batería del vehículo. */
     voltaje: number | null;
+    /** El relé está accionado. `null` si el equipo todavía no lo informó. */
+    cortado: boolean | null;
     posiciones: number;
 };
 
@@ -72,7 +75,7 @@ export async function rastreadoresGps(): Promise<Rastreador[]> {
             ultimoLatido: e.ultimoLatido?.toISOString() || null,
             lat: e.lat, lon: e.lon, cuando: e.cuando?.toISOString() || null,
             velocidad: e.velocidad, rumbo: e.rumbo, encendido: e.encendido,
-            bateria: e.bateria, senal: e.senal, voltaje: e.voltaje,
+            bateria: e.bateria, senal: e.senal, voltaje: e.voltaje, cortado: e.cortado,
             posiciones: cuantas.get(e.imei) || 0,
         };
     });
@@ -132,4 +135,66 @@ export async function recorridoGps(imei: string, horas = 24): Promise<PuntoGps[]
         select: { lat: true, lon: true, cuando: true, velocidad: true },
     });
     return filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
+}
+
+/**
+ * Los comandos que la pantalla puede mandarle a un rastreador. Es una lista cerrada, no texto
+ * libre: el equipo acepta por este canal lo mismo que por SMS —incluido cambiarle el servidor o
+ * reiniciarlo de fábrica—, y eso no tiene que quedar a un campo de texto de distancia.
+ */
+const COMANDOS = {
+    estado: "STATUS#",
+    posicion: "WHERE#",
+    rele: "RELAY#",
+    "rele.accionar": "RELAY,1#",
+    "rele.soltar": "RELAY,0#",
+} as const;
+export type ComandoGps = keyof typeof COMANDOS;
+
+const CONTROL = `http://127.0.0.1:${process.env.GPS_PUERTO_CONTROL || 10013}`;
+
+async function alEquipo(imei: string, texto: string): Promise<{ ok: boolean; respuesta?: string; error?: string }> {
+    try {
+        const r = await fetch(`${CONTROL}/comando`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ imei, texto }), signal: AbortSignal.timeout(25_000),
+        });
+        return await r.json();
+    } catch { return { ok: false, error: "No se pudo hablar con el receptor de GPS." }; }
+}
+
+/**
+ * Manda un comando y devuelve LO QUE EL EQUIPO CONTESTÓ, tal cual. No se traduce ni se resume:
+ * cuando se trata de un relé, la palabra del equipo es el dato.
+ */
+export async function comandoGps(imei: string, accion: ComandoGps): Promise<{ ok: boolean; respuesta?: string; error?: string; cortado?: boolean | null }> {
+    const texto = COMANDOS[accion];
+    if (!texto) return { ok: false, error: "Ese comando no existe." };
+    const escribe = accion === "rele.accionar" || accion === "rele.soltar";
+    const s = await sesion(escribe ? "dispositivos.editar" : "dispositivos");
+
+    const e = await prisma.gpsEquipo.findUnique({ where: { imei } });
+    if (!e) return { ok: false, error: "Ese rastreador no existe." };
+    /* A uno que se presentó solo no se le manda nada: todavía no es de nadie. */
+    if (!e.deviceId) return { ok: false, error: "Primero hay que dar de alta el rastreador." };
+
+    if (accion === "rele.accionar") {
+        const v = puedeAccionarRele({ velocidad: e.velocidad, cuando: e.cuando, encendido: e.encendido, ultimoLatido: e.ultimoLatido });
+        if (!v.ok) {
+            await auditar(s, "equipos.gps.rele", e.deviceId, false, `IMEI ${imei} · accionar · frenado: ${v.motivo}`);
+            return { ok: false, error: v.motivo };
+        }
+    }
+
+    const r = await alEquipo(imei, texto);
+    let cortado: boolean | null | undefined;
+    if (escribe || accion === "rele") {
+        /* Después de tocar el relé se le pregunta al equipo cómo quedó, en vez de suponerlo: el
+           latido que trae ese dato puede tardar cinco minutos. */
+        const c = accion === "rele" ? r : await alEquipo(imei, COMANDOS.rele);
+        cortado = c.ok ? leerEstadoRele(c.respuesta || "") : null;
+        if (cortado !== null && cortado !== undefined) await prisma.gpsEquipo.update({ where: { imei }, data: { cortado } }).catch(() => { });
+    }
+    if (escribe) await auditar(s, "equipos.gps.rele", e.deviceId, r.ok, `IMEI ${imei} · ${accion === "rele.accionar" ? "accionar" : "soltar"} · ${r.ok ? `equipo: «${(r.respuesta || "").slice(0, 120)}»` : r.error}`);
+    return { ...r, cortado };
 }
