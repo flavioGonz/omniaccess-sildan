@@ -2012,3 +2012,55 @@ model SolicitudPadron {
   @@index([estado, createdAt])
   @@index([lote])
 }
+
+/// Un rastreador GPS que se conecto a gps-receiver.js. Se crea solo la primera vez que el equipo
+/// se presenta (su login trae el IMEI): asi un rastreador nuevo aparece sin que nadie lo cargue,
+/// y despues se lo ata a un vehiculo. Guarda lo ULTIMO que se supo; el recorrido esta en
+/// GpsPosicion.
+model GpsEquipo {
+  /// El IMEI: es como el equipo se identifica a si mismo en el protocolo.
+  imei         String    @id
+  nombre       String?
+  /// El Device de tipo GPS que lo representa en el arbol de equipos, si lo dieron de alta.
+  deviceId     String?
+  /// El vehiculo del padron que lleva este rastreador. Sin relacion a proposito: borrar el
+  /// vehiculo no borra por donde anduvo.
+  vehicleId    String?
+  protocolo    String    @default("GT06")
+  lat          Float?
+  lon          Float?
+  velocidad    Int?
+  rumbo        Int?
+  /// La hora de la ultima posicion CON satelites. Null si todavia no mando ninguna.
+  cuando       DateTime?
+  /// Motor encendido (ACC), segun el ultimo latido.
+  encendido    Boolean?
+  /// 0 = sin bateria ... 6 = llena, como lo informa el equipo.
+  bateria      Int?
+  /// 0 = sin senal ... 4 = fuerte.
+  senal        Int?
+  ultimoLatido DateTime?
+  ultimaIp     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+/// Una posicion reportada por un rastreador. Una fila por reporte con satelites.
+model GpsPosicion {
+  id        String   @id @default(cuid())
+  imei      String
+  /// La hora que dice el equipo (UTC).
+  cuando    DateTime
+  /// La hora en que llego la trama: si difiere en horas enteras de `cuando`, es el huso del equipo.
+  llego     DateTime @default(now())
+  lat       Float
+  lon       Float
+  velocidad Int
+  rumbo     Int
+  satelites Int
+  encendido Boolean?
+  /// El codigo de alarma si esta posicion vino con una (SOS, corte de alimentacion...).
+  alarma    Int?
+
+  @@index([imei, cuando])
+}

@@ -36,5 +36,8 @@ if (dc.status) process.exitCode = 1;
 // Y las de la salida a CMS de un receptor (IPC10 de Paradox, Sur-Gard).
 const cms = require("child_process").spawnSync(process.execPath, [path.join(__dirname, "probar-cms.js")], { stdio: "inherit" });
 if (cms.status) process.exitCode = 1;
+// Y las del protocolo de los rastreadores GPS (GT06), con tramas reales del equipo.
+const gps = require("child_process").spawnSync(process.execPath, [path.join(__dirname, "probar-gt06.js")], { stdio: "inherit" });
+if (gps.status) process.exitCode = 1;
 const archivos = fs.readdirSync(path.join(RAIZ, "tests")).filter((f) => f.endsWith(".test.ts")).sort();
 for (const f of archivos) require(path.join(RAIZ, "tests", f));

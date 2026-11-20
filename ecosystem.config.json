@@ -176,6 +176,24 @@
             "out_file": "./logs/alarmas-out.log",
             "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
             "merge_logs": true
+        },
+        {
+            "name": "gps-receiver",
+            "script": "gps-receiver.js",
+            "cwd": "./",
+            "instances": 1,
+            "exec_mode": "fork",
+            "autorestart": true,
+            "watch": false,
+            "max_memory_restart": "256M",
+            "env": {
+                "NODE_ENV": "production",
+                "GPS_PUERTO": "1341"
+            },
+            "error_file": "./logs/gps-error.log",
+            "out_file": "./logs/gps-out.log",
+            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+            "merge_logs": true
         }
     ]
 }
