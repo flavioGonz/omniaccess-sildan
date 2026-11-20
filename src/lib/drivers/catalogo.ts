@@ -23,7 +23,7 @@
  */
 
 /** Las cosas que un equipo puede hacer por OmniAccess. */
-export type Capacidad = "lpr" | "rostro" | "rfid" | "bitacora" | "relé" | "conteo" | "video" | "usuarios" | "sesiones" | "alarmas" | "analiticas";
+export type Capacidad = "lpr" | "rostro" | "rfid" | "bitacora" | "relé" | "conteo" | "video" | "usuarios" | "sesiones" | "alarmas" | "analiticas" | "posicion" | "comandos";
 
 export const QUE_ES: Record<Capacidad, string> = {
     lpr: "Cargarle matrículas y que abra por patente",
@@ -37,6 +37,8 @@ export const QUE_ES: Record<Capacidad, string> = {
     sesiones: "Ver quién está conectado y desde qué IP",
     alarmas: "Recibir sus alarmas y traducirlas",
     analiticas: "Recibir sus analíticas (cruces, zonas, conteos) sin mirarle el video",
+    posicion: "Saber dónde está, por dónde anduvo y cómo está el vehículo que lo lleva",
+    comandos: "Preguntarle y mandarle órdenes por la conexión que él mismo abre, sin gastar un SMS",
 };
 
 export type EstadoDriver = "andando" | "parcial" | "sin hacer";
@@ -150,6 +152,21 @@ export const SOPORTE: Soporte[] = [
         hook: { ruta: "TCP :10011 (ALARMAS_PUERTO_CMS)", como: "En el receptor IPC10: salida a automatización / CMS, apuntada a la IP de OmniAccess. También escucha SIA DC-09 en TCP y UDP :10010 para las centrales que lo hablan." },
         nota: "Las centrales Paradox con comunicador PCS/IP no hablan SIA DC-09: reportan a su receptor IPC10, y ese receptor le pasa los eventos al software de monitoreo. OmniAccess hace de software de monitoreo: escucha el puerto, contesta ACK a cada trama y traduce el Contact ID (lib-cms-salida). Entiende los tres formatos que saca el IPC10 —Sur-Gard MLR2-DG, Ademco CID-TCP y Ademco 685— y el lector es tolerante a propósito: Paradox no publica la trama exacta, así que se busca el bloque de cuenta, calificador, evento, grupo y zona esté donde esté, y cada trama cruda queda anotada para ajustarlo con la primera real. A la central NO se le manda nada: esto es de una sola mano.",
     },
+    {
+        /*
+         * Los rastreadores GPS (20/11). Como Paradox, no es una marca del enum sino un PROTOCOLO:
+         * GT06 lo hablan Concox, Jimi y una cantidad de clones sin nombre, y lo que importa para
+         * integrarlos no es quién los fabricó sino qué idioma hablan. Y como Paradox, no hay un
+         * equipo al que ir a buscar: es el rastreador el que se conecta a nosotros.
+         */
+        marca: "GT06", rotulo: "Rastreadores GPS · GT06 (Concox y clones)", estado: "parcial",
+        hace: ["posicion", "comandos", "relé"],
+        hook: {
+            ruta: "TCP :1341 (GPS_PUERTO) — no es HTTP",
+            como: "Por SMS al rastreador: SERVER,0,<IP pública de OmniAccess>,1341,0# y el APN de la SIM con APN,<apn>#. Se verifica con GPRSSET# (qué servidor tiene) y STATUS# (tiene que decir «GPRS:Link Up»). En el router hay que reenviar el TCP 1341 al servidor. El rastreador aparece solo en Dispositivos › GPS la primera vez que se conecta, y ahí se lo da de alta.",
+        },
+        nota: "Probado contra un clon con firmware W16_NP: login, latido (motor, batería, señal), posición con satélites, voltaje del vehículo, y comandos por GPRS (estado, posición, consulta y accionamiento del relé). El equipo NO pasa del login si el servidor no le contesta el acuse: por SMS dice «GPRS:Link Down» con señal fuerte, y parece roto cuando sólo está esperando. Parcial porque falta: que sus alarmas (SOS, corte de alimentación) generen un aviso, geocercas, y verificar una posición en movimiento. El relé no se acciona con el vehículo andando (lib/gps-rele). Otros protocolos de rastreadores (Teltonika, Queclink, TK103) no están hechos: cada uno es un decodificador distinto.",
+    },
 ];
 
 export const soporteDe = (marca: string) => SOPORTE.find((s) => s.marca === marca);
@@ -170,6 +187,7 @@ export const NECESITA: Record<string, Capacidad[]> = {
     ACCESS_CONTROL: ["rfid"],
     DOOR_INTERCOM: ["relé"],
     QUEUE_COUNTER: ["conteo"],
+    GPS: ["posicion"],
 };
 
 export type Veredicto = {

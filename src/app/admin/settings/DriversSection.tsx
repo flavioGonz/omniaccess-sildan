@@ -13,7 +13,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
     BadgeCheck, AlertTriangle, CircleSlash, Car, ScanFace, Nfc, ScrollText,
     DoorOpen, Users as UsersIcon, Video, UserCog, Wifi, Cpu, Check, X, Blocks,
-    Upload, Loader2, Trash2, ImageIcon, Siren, Radar, Webhook,
+    Upload, Loader2, Trash2, ImageIcon, Siren, Radar, Webhook, MapPin, TerminalSquare,
 } from "lucide-react";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Pista } from "@/components/ui/pista";
@@ -32,12 +32,12 @@ const LOGOS_DEFAULT: Record<string, string> = {
 const CAP_ICONO: Record<Capacidad, React.ComponentType<{ size?: number; className?: string }>> = {
     lpr: Car, rostro: ScanFace, rfid: Nfc, bitacora: ScrollText, "relé": DoorOpen,
     conteo: UsersIcon, video: Video, usuarios: UserCog, sesiones: Wifi,
-    alarmas: Siren, analiticas: Radar,
+    alarmas: Siren, analiticas: Radar, posicion: MapPin, comandos: TerminalSquare,
 };
 const CAP_CORTO: Record<Capacidad, string> = {
     lpr: "Matrículas", rostro: "Rostros", rfid: "Tarjetas", bitacora: "Bitácora", "relé": "Abrir puerta",
     conteo: "Aforo", video: "Video", usuarios: "Usuarios", sesiones: "Sesiones",
-    alarmas: "Alarmas", analiticas: "Analíticas",
+    alarmas: "Alarmas", analiticas: "Analíticas", posicion: "Posición", comandos: "Comandos",
 };
 const TODAS_CAP = Object.keys(QUE_ES) as Capacidad[];
 
