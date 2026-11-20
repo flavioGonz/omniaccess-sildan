@@ -1,4 +1,6 @@
 import axios from "axios";
+import { altaRostro, altaTarjeta, altaUsuario, modificarUsuario } from "@/lib/rostros-equipo";
+import { bytesDeImagen } from "@/lib/imagen-bytes";
 import { IDeviceDriver, ILprDriver, IFaceDriver, ILogDriver, IUsuariosDriver, ListaCamara } from "./IDeviceDriver";
 import { parsearCuentasHik, parsearSesionesHik, parsearCapacidadesHik, type CuentaLeida, type SesionLeida, type CapacidadesLeidas } from "@/lib/usuarios-equipo/hikvision";
 import { Device, Credential, CredentialType, AuthType } from "@prisma/client";
@@ -10,6 +12,9 @@ import {
     DigestAuthDevice
 } from "../digest-auth";
 import crypto from "crypto";
+
+/** Qué quedó cargado de una persona en un equipo. Lo que no se pudo, se dice. */
+export type SyncPersona = { legajo: string; persona: boolean; tarjetas: number; rostro: boolean; avisos: string[] };
 
 export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver, IUsuariosDriver {
     /**
@@ -940,82 +945,92 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver, IUs
         return Math.abs(hash % 1000000).toString();
     }
 
+    /**
+     * Carga a una persona del padrón en un control de acceso Hikvision: su nombre, su tarjeta y
+     * su cara.
+     *
+     * **Esto antes no cargaba ninguna cara y no se quejaba.** Dos defectos que se tapaban entre
+     * sí (medidos el 19 y 20/11 contra el DS-KV9503 del lab y el DS-K1T343 de San Nicolás):
+     *
+     *  · La cara se mandaba a `/AccessControl/Face/Record` y a `/Snapshot/Face`, que en estos
+     *    equipos no existen. El camino real es **PUT** `/Intelligent/FDLib/FDSetUp` multipart,
+     *    con la persona YA creada (si no, `deviceUserNotExist`).
+     *  · La foto sólo se bajaba `if (user.cara.startsWith("http"))`, y la cara de un residente se
+     *    guarda como `face/abc.jpg` en MinIO. El `if` no entraba nunca.
+     *
+     * Y los dos errores terminaban en `.catch(() => {})`, así que la pantalla decía «sincronizado»
+     * igual. Ahora devuelve QUÉ se hizo y QUÉ falló, porque «se cargó» y «se intentó» son cosas
+     * distintas cuando de eso depende que alguien pueda entrar.
+     *
+     * El legajo (`employeeNo`) se elige midiendo, no inventando: ver `legajoParaEquipo`.
+     */
     async syncUserWithFace(user: any, device: Device): Promise<void> {
+        await this.sincronizarPersona(user, device);
+    }
 
-        // Generate a 4-7 digit EmployeeNo from the DB ID
-        const employeeNo = this.getNumericId(user.id);
-
-        // 1. Create/Update User Info
-        const userPayload = {
-            UserInfo: {
-                employeeNo: employeeNo,
-                name: user.name,
-                userType: "normal",
-                Valid: {
-                    enable: true,
-                    beginTime: "2024-01-01T00:00:00",
-                    endTime: "2037-12-31T23:59:59"
-                },
-                doorRight: "1",
-                RightPlan: [{ doorNo: 1, planTemplateNo: "1" }]
-            }
+    /**
+     * Qué número le corresponde a esta persona EN ESTE equipo.
+     *
+     * El número de la persona tiene que ser estable (si cambia, la próxima sincronización crea un
+     * duplicado en vez de actualizar) y, a ser posible, reconocible (los equipos de San Nicolás
+     * usan el número de unidad, y el cruce con el padrón se hace por ahí). Las dos cosas chocan,
+     * así que se resuelve preguntándole al equipo:
+     *
+     *  1. Si el número histórico (el hash del id) YA existe en el equipo, es nuestro: se usa ese.
+     *  2. Si no, y la persona tiene una tarjeta cuyo número está LIBRE en el equipo, se usa ese.
+     *  3. Si no, el hash.
+     *
+     * Nunca se toma un número ocupado por otro: ahí no estaríamos actualizando a nadie, le
+     * estaríamos cambiando el nombre a un vecino.
+     */
+    private async legajoParaEquipo(user: any, device: Device): Promise<string> {
+        const hash = this.getNumericId(user.id);
+        const existe = async (n: string) => {
+            try {
+                const r = await this.request("POST", "/ISAPI/AccessControl/UserInfo/Search?format=json", {
+                    UserInfoSearchCond: { searchID: "oa-legajo", searchResultPosition: 0, maxResults: 1, EmployeeNoList: [{ employeeNo: n }] },
+                }, device);
+                return Number(r?.UserInfoSearch?.numOfMatches || 0) > 0;
+            } catch { return false; }
         };
+        if (await existe(hash)) return hash;
+        const tag = (user.credentials || []).find((c: any) => c.type === "TAG" && /^[0-9]{1,16}$/.test(String(c.value || "")));
+        if (tag && !(await existe(String(tag.value)))) return String(tag.value);
+        return hash;
+    }
 
-        try {
-            await this.request("POST", "/ISAPI/AccessControl/UserInfo/Record?format=json", userPayload, device);
-        } catch (e: any) {
-            await this.request("PUT", "/ISAPI/AccessControl/UserInfo/Modify?format=json", userPayload, device).catch(() => { });
+    /** Lo de arriba, con el resultado a la vista. */
+    async sincronizarPersona(user: any, device: Device): Promise<SyncPersona> {
+        const d = { ip: device.ip, username: device.username, password: device.password, authType: device.authType, httpPort: device.httpPort };
+        const legajo = await this.legajoParaEquipo(user, device);
+        const r: SyncPersona = { legajo, persona: false, tarjetas: 0, rostro: false, avisos: [] };
+
+        /* La persona. `Record` con un legajo que ya existe contesta `employeeNoAlreadyExist`: no
+           es un error, es que había que modificar en vez de crear. */
+        const alta = await altaUsuario(d, legajo, user.name);
+        if (alta.ok) r.persona = true;
+        else {
+            const mod = await modificarUsuario(d, legajo, { nombre: user.name });
+            if (mod.ok) r.persona = true;
+            else r.avisos.push(`la persona no se pudo cargar: ${mod.error || alta.error}`);
         }
 
-        // 2. Sync Card (if any TAG)
-        const tag = user.credentials?.find((c: any) => c.type === 'TAG');
-        if (tag) {
-            const cardPayload = {
-                CardInfo: {
-                    employeeNo: employeeNo,
-                    cardNo: tag.value,
-                    cardType: "normalCard"
-                }
-            };
-            try {
-                await this.request("POST", "/ISAPI/AccessControl/CardInfo/Record?format=json", cardPayload, device);
-            } catch (e) {
-                await this.request("PUT", "/ISAPI/AccessControl/CardInfo/Modify?format=json", cardPayload, device).catch(() => { });
-            }
+        for (const c of (user.credentials || []).filter((x: any) => x.type === "TAG" && x.value)) {
+            const t = await altaTarjeta(d, legajo, String(c.value));
+            if (t.ok) r.tarjetas++;
+            else if (!/alreadyexist/i.test(t.error || "")) r.avisos.push(`la tarjeta ${c.value}: ${t.error}`);
+            else r.tarjetas++;
         }
 
-        // 3. Sync Face Image
         if (user.cara) {
-            try {
-                let imageBuffer: Buffer | null = null;
-                if (user.cara.startsWith("http")) {
-                    const resp = await axios.get(user.cara, { responseType: 'arraybuffer', timeout: 5000 });
-                    imageBuffer = Buffer.from(resp.data);
-                }
-
-                if (imageBuffer) {
-                    const base64Face = imageBuffer.toString('base64');
-                    const facePayload = {
-                        faceId: employeeNo,
-                        faceData: base64Face
-                    };
-                    // URI variation: modern terminals use /ISAPI/AccessControl/Face/Record
-                    await this.request("POST", "/ISAPI/AccessControl/Face/Record?format=json", {
-                        FaceInfo: {
-                            employeeNo: employeeNo,
-                            faceData: base64Face
-                        }
-                    }, device).catch(async () => {
-                        // Legacy/Snapshot variation
-                        await this.request("POST", "/ISAPI/AccessControl/Snapshot/Face?format=json", {
-                            employeeNo: employeeNo,
-                            faceData: base64Face
-                        }, device).catch(e => console.error("Final face sync failure", e.message));
-                    });
-                }
-            } catch (e: any) {
-                console.error(`[Hikvision Sync] Face image download/sync failed:`, e.message);
+            const jpeg = await bytesDeImagen(user.cara);
+            if (!jpeg) r.avisos.push("no se pudo leer la foto de la persona");
+            else {
+                const f = await altaRostro(d, legajo, user.name, jpeg);
+                if (f.ok) r.rostro = true;
+                else r.avisos.push(`el rostro: ${f.error}`);
             }
         }
+        return r;
     }
 }

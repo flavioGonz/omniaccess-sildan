@@ -235,6 +235,56 @@ export async function altaUsuario(d: EquipoHik, fpid: string, nombre: string | n
     } catch (e) { return { ok: false, error: e instanceof Error ? e.message.slice(0, 160) : "no se pudo dar de alta a la persona" }; }
 }
 
+/**
+ * Cambia lo que ya está cargado de una persona: su nombre y su vigencia.
+ *
+ * Va por `Modify` y no por `Record` a propósito: `Record` con un legajo existente contesta
+ * `employeeNoAlreadyExist` en vez de pisar, así que «crear» y «modificar» son dos verbos
+ * distintos para el equipo aunque en la pantalla sean el mismo gesto.
+ */
+export async function modificarUsuario(d: EquipoHik, fpid: string, p: { nombre?: string | null; desde?: string | null; hasta?: string | null }): Promise<{ ok: boolean; error?: string }> {
+    const UserInfo: Record<string, unknown> = { employeeNo: fpid, userType: "normal" };
+    if (p.nombre !== undefined) UserInfo.name = p.nombre || fpid;
+    if (p.desde || p.hasta) {
+        UserInfo.Valid = {
+            enable: true, timeType: "local",
+            beginTime: p.desde || "2026-01-01T00:00:00",
+            endTime: p.hasta || "2037-01-01T00:00:00",
+        };
+    }
+    try {
+        const r = await authenticatedRequest("PUT", "/ISAPI/AccessControl/UserInfo/Modify?format=json", cred(d) as never, {
+            data: { UserInfo }, contentType: "application/json", accept: "application/json", responseType: "json", timeout: 15000,
+        });
+        if (r?.statusCode && Number(r.statusCode) !== 1) return { ok: false, error: String(r.subStatusCode || r.statusString || "el equipo lo rechazó") };
+        return { ok: true };
+    } catch (e) { return { ok: false, error: e instanceof Error ? e.message.slice(0, 160) : "no se pudo modificar a la persona" }; }
+}
+
+/** Le agrega una tarjeta a una persona ya cargada. El equipo la ata por el legajo. */
+export async function altaTarjeta(d: EquipoHik, fpid: string, numero: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const r = await authenticatedRequest("POST", "/ISAPI/AccessControl/CardInfo/Record?format=json", cred(d) as never, {
+            data: { CardInfo: { employeeNo: fpid, cardNo: numero, cardType: "normalCard" } },
+            contentType: "application/json", accept: "application/json", responseType: "json", timeout: 15000,
+        });
+        if (r?.statusCode && Number(r.statusCode) !== 1) return { ok: false, error: String(r.subStatusCode || r.statusString || "el equipo la rechazó") };
+        return { ok: true };
+    } catch (e) { return { ok: false, error: e instanceof Error ? e.message.slice(0, 160) : "no se pudo cargar la tarjeta" }; }
+}
+
+/** Le saca una tarjeta. Borrar la persona también se las lleva; esto es para sacar UNA. */
+export async function borrarTarjeta(d: EquipoHik, numero: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const r = await authenticatedRequest("PUT", "/ISAPI/AccessControl/CardInfo/Delete?format=json", cred(d) as never, {
+            data: { CardInfoDelCond: { CardNoList: [{ cardNo: numero }] } },
+            contentType: "application/json", accept: "application/json", responseType: "json", timeout: 15000,
+        });
+        if (r?.statusCode && Number(r.statusCode) !== 1) return { ok: false, error: String(r.subStatusCode || r.statusString || "el equipo la rechazó") };
+        return { ok: true };
+    } catch (e) { return { ok: false, error: e instanceof Error ? e.message.slice(0, 160) : "no se pudo borrar la tarjeta" }; }
+}
+
 /** Borra a la persona del control de acceso (con su cara, sus tarjetas y sus permisos). */
 export async function borrarUsuario(d: EquipoHik, fpid: string): Promise<{ ok: boolean; error?: string }> {
     try {
