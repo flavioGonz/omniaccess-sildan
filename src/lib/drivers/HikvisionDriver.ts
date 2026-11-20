@@ -1031,6 +1031,17 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver, IUs
                 else r.avisos.push(`el rostro: ${f.error}`);
             }
         }
+
+        /* Se anota con qué número quedó cargada. Sin esto, la persona que OmniAccess acaba de
+           empujar aparecía como «no figura en el padrón» en la base del propio lector, que es
+           exactamente la pregunta que esa pantalla existe para contestar. Guarda el último
+           número usado: si un equipo le tocara otro, el cruce igual tiene sus otras vías. */
+        if (r.persona && user.id) {
+            try {
+                const { prisma } = await import("@/lib/prisma");
+                if (user.legajoEquipos !== legajo) await prisma.user.update({ where: { id: user.id }, data: { legajoEquipos: legajo } });
+            } catch { /* anotar el número no puede hacer fallar la carga, que ya pasó */ }
+        }
         return r;
     }
 }

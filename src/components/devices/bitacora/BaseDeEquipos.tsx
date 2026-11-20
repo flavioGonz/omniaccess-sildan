@@ -156,7 +156,7 @@ function Fila({ x, deviceId, quieto }: { x: PersonaDeBase; deviceId: string; qui
                 </span>
                 <span className="block text-[11.5px] text-muted-foreground truncate">
                     {x.padron
-                        ? <>En el padrón como <b className="text-foreground font-semibold">{x.padron.nombre}</b>{x.padron.unidad ? ` · ${x.padron.unidad}` : ""}<span className="opacity-70"> (por {x.porQue === "legajo" ? "su legajo" : "el nombre"})</span></>
+                        ? <>En el padrón como <b className="text-foreground font-semibold">{x.padron.nombre}</b>{x.padron.unidad ? ` · ${x.padron.unidad}` : ""}<span className="opacity-70"> ({x.porQue === "sincronizada" ? "la cargó OmniAccess" : x.porQue === "legajo" ? "por su legajo" : "por el nombre"})</span></>
                         : "No figura en el padrón de OmniAccess"}
                 </span>
             </span>

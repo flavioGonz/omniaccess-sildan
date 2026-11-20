@@ -35,7 +35,7 @@ export type PersonaDeBase = PersonaEquipo & {
     /** El usuario del padrón que le corresponde, si lo hay. */
     padron: { id: string; nombre: string; unidad: string | null } | null;
     /** Cómo se encontró: por su legajo o por el nombre exacto. */
-    porQue: "legajo" | "nombre" | null;
+    porQue: "sincronizada" | "legajo" | "nombre" | null;
 };
 
 export type BaseEquipo = {
@@ -86,7 +86,10 @@ export async function baseDelEquipo(deviceId: string, desde = 0): Promise<BaseEq
            usa para identificar), y si no hay, por nombre exacto. */
         const legajos = pagina.personas.map((x) => x.legajo).filter(Boolean);
         const nombres = pagina.personas.map((x) => (x.nombre || "").trim()).filter((x) => x.length > 1);
-        const [porCred, porNombre] = await Promise.all([
+        const [porLegajo, porCred, porNombre] = await Promise.all([
+            legajos.length
+                ? prisma.user.findMany({ where: { legajoEquipos: { in: legajos } }, select: { id: true, name: true, apartment: true, legajoEquipos: true } }).catch(() => [])
+                : Promise.resolve([]),
             legajos.length
                 ? prisma.credential.findMany({ where: { value: { in: legajos } }, select: { value: true, user: { select: { id: true, name: true, apartment: true } } } }).catch(() => [])
                 : Promise.resolve([]),
@@ -94,18 +97,22 @@ export async function baseDelEquipo(deviceId: string, desde = 0): Promise<BaseEq
                 ? prisma.user.findMany({ where: { name: { in: nombres } }, select: { id: true, name: true, apartment: true } }).catch(() => [])
                 : Promise.resolve([]),
         ]);
+        const mapaLegajo = new Map(porLegajo.map((u) => [u.legajoEquipos!, u]));
         const mapaCred = new Map(porCred.filter((c) => c.user).map((c) => [c.value, c.user!]));
         const mapaNombre = new Map(porNombre.map((u) => [u.name, u]));
 
         const personas: PersonaDeBase[] = pagina.personas.map((x) => {
-            const porLegajo = mapaCred.get(x.legajo);
-            const porNom = !porLegajo && x.nombre ? mapaNombre.get(x.nombre.trim()) : undefined;
-            const u = porLegajo || porNom;
+            /* En orden de confianza: el número con el que NOSOTROS la cargamos, después una
+               credencial del padrón con ese valor, y recién al final el nombre exacto. */
+            const porNuestro = mapaLegajo.get(x.legajo);
+            const porCredencial = !porNuestro ? mapaCred.get(x.legajo) : undefined;
+            const porNom = !porNuestro && !porCredencial && x.nombre ? mapaNombre.get(x.nombre.trim()) : undefined;
+            const u = porNuestro || porCredencial || porNom;
             return {
                 ...x,
                 fpid: fpids.has(x.legajo) ? x.legajo : null,
                 padron: u ? { id: u.id, nombre: u.name, unidad: u.apartment || null } : null,
-                porQue: porLegajo ? "legajo" : porNom ? "nombre" : null,
+                porQue: porNuestro ? "sincronizada" : porCredencial ? "legajo" : porNom ? "nombre" : null,
             };
         });
 

@@ -97,6 +97,11 @@ model User {
   autorizadoCambio DateTime?
   /// Cuenta en los equipos (openspec usuarios-de-equipos): se marca a mano por persona. La clave es
   /// propia (no la del panel, que está con hash) y se guarda cifrada (lib/cifrado-datos).
+  /// El número con el que esta persona está cargada en los lectores (el `employeeNo` de
+  /// Hikvision). Lo escribe la sincronización cuando la empuja a un equipo, y sirve para
+  /// reconocerla después en la base del lector: sin esto, alguien que OmniAccess acaba de cargar
+  /// figuraba como «no está en el padrón» en su propia pantalla.
+  legajoEquipos       String?
   cuentaEquipos       Boolean @default(false)
   claveEquipos        String?
   claveEquiposVersion Int     @default(0)
