@@ -2045,6 +2045,8 @@ model GpsEquipo {
   voltaje      Float?
   /// El ICCID de la SIM que lleva puesta.
   iccid        String?
+  /// Con que dibujo se lo ve en el mapa: auto | camion | moto | persona | punto.
+  icono        String?
   /// El rele del equipo esta accionado (corte de combustible o de alimentacion), segun el latido.
   cortado      Boolean?
   createdAt    DateTime  @default(now())

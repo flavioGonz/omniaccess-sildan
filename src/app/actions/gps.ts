@@ -5,6 +5,7 @@ import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { leerEstadoRele, puedeAccionarRele } from "@/lib/gps-rele";
+import { aligerar, resumenDeRecorrido, type ResumenRecorrido } from "@/lib/gps-recorrido";
 
 /**
  * Los rastreadores GPS que se presentaron en gps-receiver.js, para la pantalla de Dispositivos.
@@ -40,6 +41,8 @@ export type Rastreador = {
     voltaje: number | null;
     /** El relé está accionado. `null` si el equipo todavía no lo informó. */
     cortado: boolean | null;
+    /** Con qué dibujo se lo ve en el mapa. */
+    icono: string | null;
     posiciones: number;
 };
 
@@ -75,7 +78,7 @@ export async function rastreadoresGps(): Promise<Rastreador[]> {
             ultimoLatido: e.ultimoLatido?.toISOString() || null,
             lat: e.lat, lon: e.lon, cuando: e.cuando?.toISOString() || null,
             velocidad: e.velocidad, rumbo: e.rumbo, encendido: e.encendido,
-            bateria: e.bateria, senal: e.senal, voltaje: e.voltaje, cortado: e.cortado,
+            bateria: e.bateria, senal: e.senal, voltaje: e.voltaje, cortado: e.cortado, icono: e.icono,
             posiciones: cuantas.get(e.imei) || 0,
         };
     });
@@ -125,16 +128,35 @@ export async function atarVehiculoGps(imei: string, matricula: string): Promise<
 }
 
 export type PuntoGps = { lat: number; lon: number; cuando: string; velocidad: number };
+export type RecorridoGps = { puntos: PuntoGps[]; resumen: ResumenRecorrido };
 
-/** Por dónde anduvo en las últimas horas, del más viejo al más nuevo, para dibujar el recorrido. */
-export async function recorridoGps(imei: string, horas = 24): Promise<PuntoGps[]> {
+/**
+ * Por dónde anduvo en las últimas horas, del más viejo al más nuevo.
+ *
+ * Las cuentas (kilómetros, tiempo en movimiento, velocidad máxima) se hacen acá, sobre TODOS los
+ * puntos, y recién después se aligera lo que viaja al mapa: una semana andando son decenas de
+ * miles de puntos, y sumar la distancia sobre los que quedaron después de saltear daría de menos
+ * en cada curva.
+ */
+export async function recorridoGps(imei: string, horas = 24): Promise<RecorridoGps> {
     await sesion("dispositivos");
-    const desde = new Date(Date.now() - Math.min(Math.max(horas, 1), 24 * 7) * 3600_000);
+    const desde = new Date(Date.now() - Math.min(Math.max(horas, 1), 24 * 31) * 3600_000);
     const filas = await prisma.gpsPosicion.findMany({
-        where: { imei, cuando: { gte: desde } }, orderBy: { cuando: "asc" }, take: 3000,
+        where: { imei, cuando: { gte: desde } }, orderBy: { cuando: "asc" }, take: 120_000,
         select: { lat: true, lon: true, cuando: true, velocidad: true },
     });
-    return filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
+    const todos = filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
+    return { puntos: aligerar(todos, 3000), resumen: resumenDeRecorrido(todos) };
+}
+
+const ICONOS = new Set(["auto", "camion", "moto", "persona", "punto"]);
+
+/** Con qué dibujo se ve el rastreador en el mapa. */
+export async function cambiarIconoGps(imei: string, icono: string): Promise<{ ok: boolean; error?: string }> {
+    await sesion("dispositivos.editar");
+    if (!ICONOS.has(icono)) return { ok: false, error: "Ese ícono no existe." };
+    await prisma.gpsEquipo.update({ where: { imei }, data: { icono } });
+    return { ok: true };
 }
 
 /**
