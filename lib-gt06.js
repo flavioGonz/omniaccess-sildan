@@ -40,6 +40,9 @@ const PROTO = {
     ESTADO_N: 0x23,
     ALARMA_N: 0x26,
     HORA: 0x8a,           // el equipo pide la hora
+    RESPUESTA: 0x15,      // el equipo contesta un comando del servidor
+    RESPUESTA_N: 0x21,    // lo mismo, en trama larga (equipos nuevos)
+    COMANDO: 0x80,        // del servidor al equipo: el mismo texto que se le manda por SMS
     INFO: 0x94,           // trama larga: voltaje del vehículo, datos de la SIM
     POSICION_4G: 0xa0,
 };
@@ -156,6 +159,17 @@ function leer(t) {
         case PROTO.HORA:
             m.tipo = "hora";
             break;
+        case PROTO.RESPUESTA: case PROTO.RESPUESTA_N: {
+            /* La respuesta a un comando: el mismo texto que el equipo contestaría por SMS. Las dos
+               variantes difieren en dónde empieza (un largo y un idioma de más en la corta), así
+               que se saltea la marca del servidor y se toma lo imprimible. */
+            m.tipo = "respuesta";
+            const desde = proto === PROTO.RESPUESTA ? 5 : 5;
+            const hasta = proto === PROTO.RESPUESTA ? d.length - 2 : d.length;
+            m.marca = d.length >= 5 ? d.readUInt32BE(proto === PROTO.RESPUESTA ? 1 : 0) : 0;
+            m.texto = d.subarray(desde, Math.max(desde, hasta)).toString("latin1").replace(/[^\x20-\x7e]+/g, " ").trim();
+            break;
+        }
         case PROTO.INFO: {
             /* «Transmisión de información»: un subtipo y sus datos. Los dos que manda el equipo
                de Nico al conectarse, leídos de sus tramas reales del 20/11:
@@ -200,7 +214,23 @@ function acuseHora(serie, ahora = new Date()) {
     return Buffer.concat([Buffer.from([0x78, 0x78]), cuerpo, Buffer.from([(c >> 8) & 0xff, c & 0xff, 0x0d, 0x0a])]);
 }
 
+/**
+ * Un comando del servidor al equipo. Es EL MISMO TEXTO que se le manda por SMS (`STATUS#`,
+ * `RELAY,1#`), viajando por la conexión que ya está abierta: no gasta un SMS y la respuesta
+ * vuelve por el mismo lado. `marca` es un número nuestro que el equipo devuelve tal cual, para
+ * saber a qué pregunta corresponde cada respuesta.
+ */
+function comando(texto, serie, marca, conIdioma = true) {
+    const t = Buffer.from(texto, "latin1");
+    const m = Buffer.alloc(4); m.writeUInt32BE(marca >>> 0);
+    const idioma = conIdioma ? Buffer.from([0x00, 0x02]) : Buffer.alloc(0);
+    const datos = Buffer.concat([Buffer.from([4 + t.length]), m, t, idioma]);
+    const cuerpo = Buffer.concat([Buffer.from([datos.length + 5, PROTO.COMANDO]), datos, Buffer.from([(serie >> 8) & 0xff, serie & 0xff])]);
+    const c = crcItu(cuerpo);
+    return Buffer.concat([Buffer.from([0x78, 0x78]), cuerpo, Buffer.from([(c >> 8) & 0xff, c & 0xff, 0x0d, 0x0a])]);
+}
+
 /** ¿A esta trama hay que contestarle? La posición sola no lo pide; el resto sí. */
 const pideAcuse = (m) => m.ok && (m.tipo === "login" || m.tipo === "estado" || m.tipo === "alarma");
 
-module.exports = { crcItu, partir, leer, acuse, acuseHora, pideAcuse, nombreAlarma, PROTO };
+module.exports = { crcItu, partir, leer, acuse, acuseHora, comando, pideAcuse, nombreAlarma, PROTO };

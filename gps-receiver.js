@@ -41,6 +41,57 @@ const BASURA_MAX = 4096;
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const enLinea = new Map();   // imei → socket
 
+/**
+ * Los comandos al equipo. La aplicación web no tiene el socket del rastreador —lo tiene este
+ * proceso—, así que le pide el envío por una puertita HTTP que SÓLO escucha en 127.0.0.1: desde
+ * afuera del servidor no existe. Cada comando lleva una marca; el equipo la devuelve en su
+ * respuesta y con eso se sabe a quién contestarle.
+ */
+const PUERTO_CONTROL = Number(process.env.GPS_PUERTO_CONTROL || 10013);
+const ESPERA_RESPUESTA_MS = 20_000;
+const esperando = new Map();   // marca → { resolver, reloj }
+let marcaSig = (Date.now() & 0x7fffffff) || 1, serieSig = 1;
+
+function mandarComando(imei, texto, conIdioma = true) {
+    return new Promise((resolver) => {
+        const s = enLinea.get(imei);
+        if (!s) return resolver({ ok: false, error: "El rastreador no está en línea." });
+        const marca = marcaSig = (marcaSig + 1) & 0x7fffffff;
+        const reloj = setTimeout(() => { esperando.delete(marca); resolver({ ok: false, error: "El rastreador no contestó a tiempo." }); }, ESPERA_RESPUESTA_MS);
+        esperando.set(marca, { resolver, reloj, imei });
+        const t = g.comando(texto, serieSig = (serieSig + 1) & 0xffff, marca, conIdioma);
+        log(imei, "COMANDO →", texto, t.toString("hex"));
+        s.write(t);
+    });
+}
+
+function alResponder(imei, m) {
+    log(imei, "RESPUESTA ←", JSON.stringify(m.texto));
+    /* Por la marca, y si el equipo no la devuelve bien, al único comando que ese equipo tiene
+       pendiente: no perder una respuesta por un detalle del clon. */
+    let e = esperando.get(m.marca);
+    let clave = m.marca;
+    if (!e) for (const [k, v] of esperando) if (v.imei === imei) { e = v; clave = k; break; }
+    if (!e) return;
+    clearTimeout(e.reloj); esperando.delete(clave);
+    e.resolver({ ok: true, respuesta: m.texto });
+}
+
+require("http").createServer((req, res) => {
+    const fin = (c, o) => { res.writeHead(c, { "content-type": "application/json" }); res.end(JSON.stringify(o)); };
+    if (req.method === "GET" && req.url === "/enlinea") return fin(200, { imeis: [...enLinea.keys()] });
+    if (req.method !== "POST" || req.url !== "/comando") return fin(404, { error: "no existe" });
+    let cuerpo = "";
+    req.on("data", (c) => { cuerpo += c; if (cuerpo.length > 2000) req.destroy(); });
+    req.on("end", async () => {
+        try {
+            const { imei, texto, sinIdioma } = JSON.parse(cuerpo || "{}");
+            if (!imei || !texto || !/^[\x20-\x7e]{1,80}$/.test(texto)) return fin(400, { ok: false, error: "Falta el equipo o el comando." });
+            fin(200, await mandarComando(String(imei), String(texto), !sinIdioma));
+        } catch { fin(400, { ok: false, error: "Pedido mal formado." }); }
+    });
+}).listen(PUERTO_CONTROL, "127.0.0.1", () => log(`control de comandos en 127.0.0.1:${PUERTO_CONTROL}`));
+
 async function alPresentarse(imei, ip) {
     await prisma.gpsEquipo.upsert({
         where: { imei },
@@ -52,7 +103,7 @@ async function alPresentarse(imei, ip) {
 async function alLatido(imei, e) {
     await prisma.gpsEquipo.update({
         where: { imei },
-        data: { encendido: e.encendido, bateria: e.bateria, senal: e.senal, ultimoLatido: new Date() },
+        data: { encendido: e.encendido, bateria: e.bateria, senal: e.senal, cortado: e.cortado, ultimoLatido: new Date() },
     }).catch(() => {});
 }
 
@@ -113,6 +164,9 @@ const servidor = net.createServer((s) => {
                     const guardada = await alPosicion(imei, m);
                     if (m.tipo === "alarma") log(imei, "ALARMA:", g.nombreAlarma(m.alarma));
                     else if (!guardada) log(imei, "posición sin satélites, no se guarda");
+                } else if (m.tipo === "respuesta") {
+                    alResponder(imei, m);
+                    continue;
                 } else if (m.tipo === "info") {
                     const data = { ...(m.voltaje !== undefined ? { voltaje: m.voltaje } : {}), ...(m.iccid ? { iccid: m.iccid } : {}) };
                     if (Object.keys(data).length) await prisma.gpsEquipo.update({ where: { imei }, data }).catch(() => {});
