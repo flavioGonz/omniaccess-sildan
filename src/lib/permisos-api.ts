@@ -77,6 +77,8 @@ export const RUTAS_API: [RegExp, ClaseApi][] = [
     [/^\/api\/censo\/invitaciones\/plantilla$/, P("usuarios.editar")],
     // Traer la bitácora de un control de acceso al historial: lee el equipo y escribe acá.
     [/^\/api\/devices\/bitacora$/, P("dispositivos.editar")],
+    // Las personas de un control de acceso: altas, bajas y cambios adentro del equipo.
+    [/^\/api\/devices\/personas-equipo$/, P("dispositivos.editar")],
     // ── Administración ──
     [/^\/api\/(notifications\/test|push\/test|wa\/session)$/, P("notificaciones")],
     [/^\/api\/manuals$/, P("ajustes")],

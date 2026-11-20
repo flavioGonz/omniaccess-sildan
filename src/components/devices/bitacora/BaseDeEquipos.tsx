@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { CreditCard, Fingerprint, ScanFace, ScrollText, ShieldCheck, UserRound, Users } from "lucide-react";
+import { CreditCard, Fingerprint, Plus, ScanFace, ScrollText, ShieldCheck, UserRound, Users } from "lucide-react";
 import { baseDelEquipo, type BaseEquipo, type PersonaDeBase } from "@/app/actions/base-equipo";
 import { Cargando, ErrorEstado } from "@/components/ui/estados";
 import { RostrosDelEquipo } from "@/components/devices/RostrosDelEquipo";
+import { FichaPersonaEquipo } from "@/components/devices/bitacora/FichaPersonaEquipo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,6 +35,8 @@ export function BaseDeEquipos({ equipos, elegido, alElegir }: {
     const [error, setError] = useState<string | null>(null);
     const [desde, setDesde] = useState(0);
     const [cargando, setCargando] = useState(false);
+    /** Qué persona se está editando: un legajo, `null` para una nueva, `undefined` para ninguna. */
+    const [ficha, setFicha] = useState<string | null | undefined>(undefined);
 
     const id = elegido || equipos[0]?.id || null;
     const traer = useCallback(async () => {
@@ -94,6 +97,10 @@ export function BaseDeEquipos({ equipos, elegido, alElegir }: {
             {datos.personas.length > 0 && (<>
                 <div className="mt-6 flex items-baseline gap-2">
                     <h2 className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Personas cargadas en el equipo</h2>
+                    <button type="button" onClick={() => setFicha(null)}
+                        className="order-last ml-auto inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[12px] font-semibold text-[var(--accion)] hover:bg-accent">
+                        <Plus size={13} /> Cargar una persona
+                    </button>
                     <span className="text-[11.5px] text-muted-foreground tabular-nums">
                         {desde + 1}–{Math.min(desde + datos.personas.length, datos.total)} de {datos.total} · {datos.enPadron} de esta página están en el padrón
                     </span>
@@ -101,7 +108,7 @@ export function BaseDeEquipos({ equipos, elegido, alElegir }: {
 
                 <div className="mt-2 rounded-[12px] border border-border overflow-hidden divide-y divide-border">
                     <AnimatePresence initial={false} mode="popLayout">
-                        {datos.personas.map((x) => <Fila key={x.legajo} x={x} deviceId={id} quieto={!!quieto} />)}
+                        {datos.personas.map((x) => <Fila key={x.legajo} x={x} deviceId={id} quieto={!!quieto} alAbrir={() => setFicha(x.legajo)} />)}
                     </AnimatePresence>
                 </div>
 
@@ -123,20 +130,27 @@ export function BaseDeEquipos({ equipos, elegido, alElegir }: {
                 <h2 className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Rostros cargados en el equipo</h2>
                 <RostrosDelEquipo id={id} otros={equipos.filter((e) => e.id !== id)} />
             </section>
+
+            <AnimatePresence>
+                {ficha !== undefined && (
+                    <FichaPersonaEquipo deviceId={id} legajo={ficha} daFoto={datos.rostrosAtados > 0 || !!datos.personas.find((x) => x.fpid)}
+                        alCerrar={() => setFicha(undefined)} alCambiar={traer} />
+                )}
+            </AnimatePresence>
         </div>
     );
 }
 
 /** Una persona del equipo, y si la conocemos. */
-function Fila({ x, deviceId, quieto }: { x: PersonaDeBase; deviceId: string; quieto: boolean }) {
+function Fila({ x, deviceId, quieto, alAbrir }: { x: PersonaDeBase; deviceId: string; quieto: boolean; alAbrir: () => void }) {
     /* La cara sale del equipo por nuestra ruta, nunca por una URL con credencial. Si ese equipo no
        entrega la foto —el terminal facial da la plantilla pero no la foto— el <img> falla y queda
        el ícono: se degrada, no se inventa una silueta que parezca una persona. */
     const [sinFoto, setSinFoto] = useState(false);
     const hayFoto = !!x.fpid && !sinFoto;
     return (
-        <motion.div layout={!quieto} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={quieto ? SUAVE : RESORTE}
-            className="flex items-center gap-3 px-3.5 py-2.5 bg-card">
+        <motion.button type="button" onClick={alAbrir} layout={!quieto} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={quieto ? SUAVE : RESORTE}
+            className="w-full text-left flex items-center gap-3 px-3.5 py-2.5 bg-card hover:bg-accent/50 transition-colors">
             <span className={cn("relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full",
                 hayFoto ? "bg-black ring-1 ring-border" : x.padron ? "chip-bien" : "bg-muted text-muted-foreground")}>
                 {hayFoto ? (
@@ -165,7 +179,7 @@ function Fila({ x, deviceId, quieto }: { x: PersonaDeBase; deviceId: string; qui
                 {x.tarjetas > 0 && <span className="inline-flex items-center gap-1 h-[20px] px-1.5 rounded chip-quieto"><CreditCard size={10} /> {x.tarjetas}</span>}
                 {x.huellas > 0 && <span className="inline-flex items-center gap-1 h-[20px] px-1.5 rounded chip-quieto"><Fingerprint size={10} /> {x.huellas}</span>}
             </span>
-        </motion.div>
+        </motion.button>
     );
 }
 

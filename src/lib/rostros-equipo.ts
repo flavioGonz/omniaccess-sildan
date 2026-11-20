@@ -395,6 +395,8 @@ export type PersonaEquipo = {
     tipo: string | null;
     /** Hasta cuándo vale, si el equipo lo declara. */
     vence: string | null;
+    /** Desde cuándo vale, cuando se la pide de a una. */
+    desde?: string | null;
 };
 
 const POR_PAGINA_PERSONAS = 30;
@@ -419,6 +421,25 @@ export async function listarPersonas(d: EquipoHik, desde = 0, cuantos = POR_PAGI
             vence: ((u.Valid as Record<string, unknown> | undefined)?.endTime as string) || null,
         })),
     };
+}
+
+/** Una persona concreta del equipo, por su legajo. `null` si el equipo no la conoce. */
+export async function buscarPersona(d: EquipoHik, legajo: string): Promise<PersonaEquipo | null> {
+    try {
+        const r = await authenticatedRequest("POST", "/ISAPI/AccessControl/UserInfo/Search?format=json", cred(d) as never, {
+            data: { UserInfoSearchCond: { searchID: "oa-una", searchResultPosition: 0, maxResults: 1, EmployeeNoList: [{ employeeNo: legajo }] } },
+            contentType: "application/json", accept: "application/json", responseType: "json", timeout: 12000,
+        });
+        const u = (r?.UserInfoSearch?.UserInfo || [])[0] as Record<string, unknown> | undefined;
+        if (!u) return null;
+        const v = (u.Valid || {}) as Record<string, unknown>;
+        return {
+            legajo: String(u.employeeNo ?? ""), nombre: (u.name as string) || null,
+            tarjetas: Number(u.numOfCard) || 0, rostros: Number(u.numOfFace) || 0, huellas: Number(u.numOfFP) || 0,
+            tipo: (u.userType as string) || null, vence: (v.endTime as string) || null,
+            desde: (v.beginTime as string) || null,
+        } as PersonaEquipo;
+    } catch { return null; }
 }
 
 /** Lo que el equipo tiene guardado, en números. Lo que no sabe hacer contesta `null`, no cero. */
