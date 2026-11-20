@@ -7,6 +7,7 @@ import axios, { AxiosRequestConfig, Method } from "axios";
 import * as https from "https";
 import { hostHttp } from "@/lib/host-http";
 import { exigirEscritura } from "@/lib/solo-lectura";
+import { anotarRechazo, frenado, leerUserCheck, limpiarRechazo } from "@/lib/equipo-rechazo";
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
@@ -25,6 +26,16 @@ interface DigestChallenge {
     qop?: string | null;
     opaque?: string | null;
     algorithm?: string;
+}
+
+/** El cuerpo de un error de axios, como texto: puede venir como string, Buffer u objeto. */
+function cuerpoDe(e: unknown): string {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- el error de axios no está tipado
+    const d = (e as any)?.response?.data;
+    if (!d) return "";
+    if (typeof d === "string") return d;
+    if (Buffer.isBuffer(d)) return d.toString("utf8");
+    try { return JSON.stringify(d); } catch { return ""; }
 }
 
 function parseWWWAuthenticate(header: string): DigestChallenge | null {
@@ -128,8 +139,15 @@ export async function authenticatedRequest(
         responseType: options.responseType || "json",
     };
 
+    /* Si este equipo nos viene rechazando, no se le habla. Ver lib/equipo-rechazo: insistir
+       contra un Hikvision que cuenta los intentos es lo que lo termina bloqueando, y basta con
+       que alguien abra una pantalla para gastar uno. */
+    const freno = frenado(host);
+    if (freno) throw new Error(freno);
+
     try {
         const response = await axios.request(config);
+        limpiarRechazo(host);
         return options.responseType === "text" ? response.data : response.data;
     } catch (error: any) {
         // Digest auth: handle 401 challenge
@@ -153,10 +171,21 @@ export async function authenticatedRequest(
                 timeout: timeout + 5000, // Extra time for retry
             };
 
-            const response = await axios.request(retryConfig);
-            return options.responseType === "text" ? response.data : response.data;
+            try {
+                const response = await axios.request(retryConfig);
+                limpiarRechazo(host);
+                return options.responseType === "text" ? response.data : response.data;
+            } catch (e2: any) {
+                /* El segundo 401 sí es un intento fallido para el equipo, y Hikvision avisa en el
+                   cuerpo cuántos le quedan. Eso se lee y se frena, en vez de tirarlo. */
+                const aviso = leerUserCheck(cuerpoDe(e2));
+                if (aviso) { anotarRechazo(host, aviso, `El equipo ${device.ip}`, Date.now()); throw new Error(frenado(host) || "el equipo rechazó la clave"); }
+                throw e2;
+            }
         }
 
+        const aviso = leerUserCheck(cuerpoDe(error));
+        if (aviso) { anotarRechazo(host, aviso, `El equipo ${device.ip}`, Date.now()); throw new Error(frenado(host) || "el equipo rechazó la clave"); }
         throw error;
     }
 }
