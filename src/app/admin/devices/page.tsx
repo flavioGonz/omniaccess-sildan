@@ -77,6 +77,8 @@ const toast = {
 import { io } from "socket.io-client";
 import { Badge } from "@/components/ui/badge";
 import { DeviceFormDialog } from "@/components/DeviceFormDialog";
+import { VistaGps } from "@/components/devices/VistaGps";
+import { rastreadoresGps } from "@/app/actions/gps";
 import { CajonContadorFila } from "@/components/devices/CajonContadorFila";
 import { CajonPortero } from "@/components/devices/CajonPortero";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
@@ -254,6 +256,9 @@ export default function DevicesPage() {
     const usuariosOn = useFuncion("EQUIPOS_USUARIOS") === true;
 
     const [devices, setDevices] = useState<any[]>([]);
+    /** Cuántos rastreadores conoce el receptor, estén o no dados de alta como equipo. */
+    const [cuantosGps, setCuantosGps] = useState(0);
+    useEffect(() => { rastreadoresGps().then((l) => setCuantosGps(l.length)).catch(() => { }); }, []);
     const [groups, setGroups] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
@@ -365,7 +370,10 @@ export default function DevicesPage() {
     // Porteros IP y control de acceso: su propia vista cuando hay al menos uno (como ALARM_HUB).
     if (devices.some((d) => vistaDe(d) === "DOOR_INTERCOM")) allowedTypes.push("DOOR_INTERCOM");
     if (devices.some((d) => vistaDe(d) === "ACCESS_CONTROL")) allowedTypes.push("ACCESS_CONTROL");
-    if (devices.some((d) => vistaDe(d) === "GPS")) allowedTypes.push("GPS");
+    /* Los GPS se ven si hay alguno dado de alta O si alguno se presentó en el receptor: el
+       rastreador se anota solo al conectarse (GpsEquipo) y, mirando sólo los Device, estaba
+       reportando sin que esta pantalla supiera que existía (20/11). */
+    if (devices.some((d) => vistaDe(d) === "GPS") || cuantosGps > 0) allowedTypes.push("GPS");
     const pedido = searchParams.get('type');
     const typeFilter = pedido && allowedTypes.includes(pedido) ? pedido : (allowedTypes[0] || "LPR_CAMERA");
     // Alta: un solo botón que pregunta qué se agrega (LPR, intrusión o NVR) e importar canales de un NVR.
@@ -645,7 +653,7 @@ export default function DevicesPage() {
                 <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={tipoFijo || areaSel === TODAS ? typeFilter : TODOS_LOS_TIPOS}
                     seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={abrir} health={health} alertasDe={alertasDe} alBorrarEquipos={loadData}
                     colapsado={panelCerrado} onColapsar={colapsarPanel} onTipo={(t) => { if (t === typeFilter && tipoFijo && areaSel !== TODAS) { setTipoFijo(false); return; } setTipoFijo(true); setFilter(t); }}
-                    tipos={allowedTypes.map((t) => ({ tipo: t, rotulo: TYPE_META[t]?.label || t, cuenta: devices.filter((d) => vistaDe(d) === t).length, alertas: devices.filter((d) => vistaDe(d) === t && alertasDe[d.id]?.length).length }))} />
+                    tipos={allowedTypes.map((t) => ({ tipo: t, rotulo: TYPE_META[t]?.label || t, cuenta: t === "GPS" ? Math.max(cuantosGps, devices.filter((d) => vistaDe(d) === t).length) : devices.filter((d) => vistaDe(d) === t).length, alertas: devices.filter((d) => vistaDe(d) === t && alertasDe[d.id]?.length).length }))} />
                 <div className="flex-1 min-w-0 space-y-4">
             {areaSel !== TODAS && !tipoFijo ? (
                 <VistaArea estado={areas} areaId={areaSel} busqueda={searchTerm}
@@ -660,7 +668,8 @@ export default function DevicesPage() {
             ) : (<>
 
             {typeFilter === "ALARM_HUB" && <VistaCentrales alAbrir={(id) => setCentral(id)} version={versionCentrales} busqueda={searchTerm} />}
-            {typeFilter !== "NVR" && typeFilter !== "CAMERA" && typeFilter !== "ALARM_HUB" && (
+            {typeFilter === "GPS" && <VistaGps busqueda={searchTerm} />}
+            {typeFilter !== "NVR" && typeFilter !== "CAMERA" && typeFilter !== "ALARM_HUB" && typeFilter !== "GPS" && (
             <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
                 <Table>
                     <TableHeader className="bg-card/60">

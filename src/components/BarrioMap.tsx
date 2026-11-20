@@ -30,6 +30,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { montarVivo } from "@/lib/vivo";
 import { BotonFijar, useVivo } from "@/components/vivo/PanelVivo";
 import { useRouter } from "next/navigation";
+import { CapaGps } from "@/components/mapa/CapaGps";
 
 type Tool = "select" | "perimeter" | "camera" | "lote" | "division" | "street";
 type LL = [number, number];
@@ -1167,6 +1168,8 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
                     <ViewPersist />
                     <ZoomTracker onZoom={setZoom} />
                     <BoundsTracker onBounds={setMapBounds} />
+                    {/* Los rastreadores GPS: se dibujan solos donde estén, aunque sea lejos del barrio. */}
+                    <CapaGps />
                     {(movingCam || extendDiv || intrDraw || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
                     <MapCtxMenu onCtx={(oe) => setCtx({ x: oe.clientX, y: oe.clientY, type: "map", id: "" })} />
 
