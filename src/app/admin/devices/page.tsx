@@ -78,7 +78,7 @@ import { io } from "socket.io-client";
 import { Badge } from "@/components/ui/badge";
 import { DeviceFormDialog } from "@/components/DeviceFormDialog";
 import { VistaGps } from "@/components/devices/VistaGps";
-import { rastreadoresGps } from "@/app/actions/gps";
+import { rastreadoresGps, type Rastreador } from "@/app/actions/gps";
 import { CajonContadorFila } from "@/components/devices/CajonContadorFila";
 import { CajonPortero } from "@/components/devices/CajonPortero";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
@@ -256,9 +256,14 @@ export default function DevicesPage() {
     const usuariosOn = useFuncion("EQUIPOS_USUARIOS") === true;
 
     const [devices, setDevices] = useState<any[]>([]);
-    /** Cuántos rastreadores conoce el receptor, estén o no dados de alta como equipo. */
-    const [cuantosGps, setCuantosGps] = useState(0);
-    useEffect(() => { rastreadoresGps().then((l) => setCuantosGps(l.length)).catch(() => { }); }, []);
+    /** Los rastreadores que conoce el receptor, estén o no dados de alta como equipo. Se vuelven a
+        pedir cada 20 s: parado, un rastreador reporta cada 3 a 5 minutos. */
+    const [rastreadores, setRastreadores] = useState<Rastreador[]>([]);
+    const traerGps = () => { rastreadoresGps().then(setRastreadores).catch(() => { }); };
+    useEffect(() => { traerGps(); const iv = setInterval(traerGps, 20_000); return () => clearInterval(iv); }, []);
+    const cuantosGps = rastreadores.length;
+    /** Para las filas de un área: el rastreador de cada Device de tipo GPS. */
+    const gpsDe = useMemo(() => Object.fromEntries(rastreadores.filter((r) => r.deviceId).map((r) => [r.deviceId as string, r])), [rastreadores]);
     const [groups, setGroups] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
@@ -660,7 +665,7 @@ export default function DevicesPage() {
                     // vistaDe y no deviceType: con todas las LPR_INTERIOR mirando un acceso, LPR_INTERIOR no está
                     // en allowedTypes y las cámaras de lectura OmniVision desaparecían de la vista del área.
                     devices={devices.filter((d) => allowedTypes.includes(vistaDe(d)))}
-                    health={health} alertasDe={alertasDe} grab={grab} detectando={detectando} calculando={calculando}
+                    health={health} alertasDe={alertasDe} grab={grab} detectando={detectando} calculando={calculando} gps={gpsDe}
                     onDetectar={(ids) => detectar(ids)} onRetencion={retencion} onEditar={abrir}
                     onCalibrar={(d) => (d.deviceType === "CAMERA" ? setCalibIntr(d) : setCalibrating(d))}
                     onCalibrarIntrusion={(d) => setCalibIntr(d)}
@@ -668,7 +673,7 @@ export default function DevicesPage() {
             ) : (<>
 
             {typeFilter === "ALARM_HUB" && <VistaCentrales alAbrir={(id) => setCentral(id)} version={versionCentrales} busqueda={searchTerm} />}
-            {typeFilter === "GPS" && <VistaGps busqueda={searchTerm} />}
+            {typeFilter === "GPS" && <VistaGps lista={rastreadores} busqueda={searchTerm} alCambiar={() => { traerGps(); loadData(); }} />}
             {typeFilter !== "NVR" && typeFilter !== "CAMERA" && typeFilter !== "ALARM_HUB" && typeFilter !== "GPS" && (
             <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
                 <Table>

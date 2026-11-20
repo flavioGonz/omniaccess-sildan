@@ -96,6 +96,19 @@ export async function darDeAltaGps(imei: string, nombre: string): Promise<{ ok: 
     return { ok: true, deviceId: d.id };
 }
 
+/** Le cambia el nombre a un rastreador ya dado de alta (al equipo y a su registro). */
+export async function renombrarGps(imei: string, nombre: string): Promise<{ ok: boolean; error?: string }> {
+    const s = await sesion("dispositivos.editar");
+    const limpio = nombre.trim().slice(0, 60);
+    if (!limpio) return { ok: false, error: "El nombre no puede quedar vacío." };
+    const e = await prisma.gpsEquipo.findUnique({ where: { imei } });
+    if (!e?.deviceId) return { ok: false, error: "Ese rastreador no está dado de alta." };
+    await prisma.device.update({ where: { id: e.deviceId }, data: { name: limpio } });
+    await prisma.gpsEquipo.update({ where: { imei }, data: { nombre: limpio } });
+    await auditar(s, "equipos.gps.renombrar", e.deviceId, true, `IMEI ${imei} → ${limpio}`);
+    return { ok: true };
+}
+
 /** Ata el rastreador a un vehículo del padrón por su matrícula (vacía = lo desata). */
 export async function atarVehiculoGps(imei: string, matricula: string): Promise<{ ok: boolean; error?: string }> {
     const s = await sesion("dispositivos.editar");

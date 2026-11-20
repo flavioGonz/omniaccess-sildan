@@ -10,15 +10,19 @@ import { AvisosArea } from "@/components/devices/avisos/AvisosEquipo";
 import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
 import type { EstadoAreas, Area } from "@/app/actions/areas";
 import type { FilaGrabacion } from "@/app/actions/grabaciones";
+import type { Rastreador } from "@/app/actions/gps";
+import { hace } from "@/lib/fechas";
 
 /**
  * Lo que hay en un área, a la derecha del árbol: todos sus equipos (de todos los tipos), con
  * sus sub-áreas como grupos plegables. Se llega eligiendo una carpeta en el árbol.
  */
-export function VistaArea({ estado, areaId, devices, busqueda = "", health = {}, alertasDe = {}, grab = {}, detectando, calculando,
+export function VistaArea({ estado, areaId, devices, busqueda = "", health = {}, alertasDe = {}, grab = {}, gps = {}, detectando, calculando,
     onDetectar, onRetencion, onEditar, onVivo, onCalibrar, onCalibrarIntrusion, onSalud, onElegirArea }: {
     estado: EstadoAreas; areaId: string; devices: any[]; busqueda?: string; health?: Record<string, any>; alertasDe?: Record<string, AlertaEquipo[]>;
     grab?: Record<string, FilaGrabacion>; detectando?: string | null; calculando?: string | null;
+    /** El rastreador de cada equipo de tipo GPS, por id de equipo: su fila muestra lo que un GPS tiene para decir. */
+    gps?: Record<string, Rastreador>;
     onDetectar: (ids: string[]) => void; onRetencion: (id: string) => void; onEditar: (d: any) => void; onVivo?: (d: any) => void;
     onCalibrar: (d: any) => void; onSalud: (d: any) => void; onElegirArea: (id: string) => void;
     /** La analítica de intrusión de una cámara que además lee matrículas (LPR_INTERIOR): la misma cámara puede vigilar un perímetro. */
@@ -51,7 +55,10 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
 
     const fila = (d: any) => {
         const h = health[d.id];
-        const on = h ? h.reachable : null;
+        /* Un GPS no se alcanza por red (sale por la celular, con una IP que cambia): «está» si
+           reportó hace poco, no si contesta un ping. Con la salud por red figuraba Off siempre. */
+        const g = d.deviceType === "GPS" ? gps[d.id] : undefined;
+        const on = d.deviceType === "GPS" ? (g ? g.enLinea : null) : h ? h.reachable : null;
         return (
             /* Un div común y no motion.div (22/10, Nico: «el drag and drop no funciona más para colocar
                dispositivos en áreas»): framer-motion se queda con onDragStart para su propio gesto de
@@ -64,6 +71,8 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
                     <GripVertical size={12} className="text-muted-foreground/30 group-hover:text-muted-foreground shrink-0 -ml-1" />
                     {d.deviceType === "NVR" ? (
                         <span className="w-14 h-9 rounded-md bg-sky-500/10 grid place-items-center shrink-0"><IconoTipo tipo="NVR" size={16} /></span>
+                    ) : d.deviceType === "GPS" ? (
+                        <span className="w-14 h-9 rounded-md bg-emerald-500/10 grid place-items-center shrink-0"><IconoTipo tipo="GPS" size={16} /></span>
                     ) : (
                         <span className="relative shrink-0">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -79,9 +88,17 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
                         </div>
                     </div>
                 </div>
-                <span className="text-[11.5px] font-mono text-muted-foreground truncate">{d.ip}</span>
+                <span className="text-[11.5px] font-mono text-muted-foreground truncate">{d.deviceType === "GPS" ? (g?.matricula || `…${String(d.mac || "").slice(-6)}`) : d.ip}</span>
                 <div className="min-w-0">
-                    {d.deviceType === "NVR" ? <span className="text-[11px] text-muted-foreground">—</span> :
+                    {d.deviceType === "GPS" ? (
+                        g ? (
+                            <span className="block text-[11.5px] truncate">
+                                <b className="font-semibold">{g.encendido ? "Motor encendido" : "Motor apagado"}</b>
+                                {g.voltaje !== null && <span className="text-muted-foreground tabular-nums"> · {g.voltaje.toFixed(1).replace(".", ",")} V</span>}
+                                <span className="text-muted-foreground"> · posición de {hace(g.cuando, "nunca")}</span>
+                            </span>
+                        ) : <span className="text-[11px] text-muted-foreground">Todavía no se presentó</span>
+                    ) : d.deviceType === "NVR" ? <span className="text-[11px] text-muted-foreground">—</span> :
                         <CeldaGrabacion g={grab[d.id]} detectando={detectando === d.id || detectando === "__todas__"} calculando={calculando === d.id} onDetectar={() => onDetectar([d.id])} onRetencion={() => onRetencion(d.id)} />}
                 </div>
                 <span className="inline-flex items-center gap-1 min-w-0">
