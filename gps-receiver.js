@@ -27,6 +27,7 @@ require("dotenv").config({ quiet: true });
 const net = require("net");
 const { PrismaClient } = require("@prisma/client");
 const g = require("./lib-gt06");
+const evs = require("./lib-gps-eventos");
 
 const prisma = new PrismaClient();
 const PUERTO = Number(process.env.GPS_PUERTO || 1341);
@@ -92,12 +93,56 @@ require("http").createServer((req, res) => {
     });
 }).listen(PUERTO_CONTROL, "127.0.0.1", () => log(`control de comandos en 127.0.0.1:${PUERTO_CONTROL}`));
 
+/**
+ * Los eventos: se guardan en GpsEvento y se pasan al motor de reglas de la aplicación, que es el
+ * que sabe a quién avisarle y por dónde (el mismo camino que usa alarm-receiver.js). Si no hay
+ * ninguna regla de GPS, no sale nada: el evento queda guardado y listo.
+ */
+const vigia = evs.nuevoVigia();
+/** Lo último que se supo del motor de cada equipo, para juzgar «se mueve con el motor apagado». */
+const motor = new Map();
+
+async function avisarPorReglas(ev) {
+    try {
+        let token = process.env.TRACKING_TOKEN || "";
+        if (!token) token = (await prisma.setting.findUnique({ where: { key: "TRACKING_TOKEN" } }))?.value || "";
+        if (!token) return;
+        const r = await fetch(`${process.env.INTERNAL_BASE_URL || "http://127.0.0.1:10001"}/api/notifications/event`, {
+            method: "POST", headers: { "Content-Type": "application/json", "x-tracking-token": token }, body: JSON.stringify(ev), signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) log(`reglas: /api/notifications/event respondió ${r.status}`);
+    } catch (e) { log("reglas: no se pudo avisar:", e.message); }
+}
+
+async function alEvento(imei, tipo, p, detalle) {
+    if (!tipo) return;
+    log(imei, "EVENTO:", tipo, detalle || "");
+    try {
+        const e = await prisma.gpsEquipo.findUnique({ where: { imei } });
+        /* Un equipo que se presentó solo y nadie aceptó no avisa a nadie: todavía no es de nadie. */
+        if (!e || !e.deviceId) return;
+        const lat = p && p.conFix ? p.lat : e.lat, lon = p && p.conFix ? p.lon : e.lon;
+        await prisma.gpsEvento.create({ data: { imei, tipo, lat, lon, detalle: detalle || null } });
+        const veh = e.vehicleId ? await prisma.vehicle.findUnique({ where: { id: e.vehicleId }, select: { plate: true } }).catch(() => null) : null;
+        const lugar = lat != null && lon != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : "";
+        avisarPorReglas({
+            modulo: "GPS", evento: tipo, deviceId: e.deviceId, deviceName: e.nombre || `Rastreador ${imei.slice(-6)}`,
+            plate: veh ? veh.plate : null,
+            extra: { detalle: detalle || "", lugar, mapa: lugar ? `https://maps.google.com/?q=${lat},${lon}` : "", imei },
+        });
+    } catch (err) { log(imei, "error guardando el evento:", err.message); }
+}
+
 async function alPresentarse(imei, ip) {
     await prisma.gpsEquipo.upsert({
         where: { imei },
         create: { imei, ultimaIp: ip, ultimoLatido: new Date() },
         update: { ultimaIp: ip, ultimoLatido: new Date() },
     });
+    /* Se siembra lo último que se supo: reiniciar el receptor con la batería ya baja, o con el
+       motor ya apagado, no es una novedad y no tiene que avisar. */
+    const e = await prisma.gpsEquipo.findUnique({ where: { imei }, select: { voltaje: true, encendido: true } }).catch(() => null);
+    if (e) { vigia.sembrar(imei, e.voltaje); if (e.encendido !== null) motor.set(imei, e.encendido); }
 }
 
 async function alLatido(imei, e) {
@@ -159,17 +204,29 @@ const servidor = net.createServer((s) => {
                 } else if (!imei) {
                     continue;                                     // nadie habla antes de presentarse
                 } else if (m.tipo === "estado") {
+                    motor.set(imei, m.estado.encendido);
                     await alLatido(imei, m.estado);
+                    await alEvento(imei, evs.eventoDeAlarma(m.estado.alarma), null);
                 } else if (m.tipo === "posicion" || m.tipo === "alarma") {
+                    if (m.encendido !== undefined) motor.set(imei, m.encendido);
                     const guardada = await alPosicion(imei, m);
-                    if (m.tipo === "alarma") log(imei, "ALARMA:", g.nombreAlarma(m.alarma));
+                    if (m.tipo === "alarma") await alEvento(imei, evs.eventoDeAlarma(m.alarma) || "GPS_OTRA", m.gps, g.nombreAlarma(m.alarma));
                     else if (!guardada) log(imei, "posición sin satélites, no se guarda");
+                    if (m.gps) {
+                        const sabido = motor.has(imei) ? motor.get(imei) : null;
+                        const t = vigia.alMoverse(imei, { conFix: m.gps.conFix, velocidad: m.gps.velocidad, encendido: sabido });
+                        if (t) await alEvento(imei, t, m.gps, `${m.gps.velocidad} km/h`);
+                    }
                 } else if (m.tipo === "respuesta") {
                     alResponder(imei, m);
                     continue;
                 } else if (m.tipo === "info") {
                     const data = { ...(m.voltaje !== undefined ? { voltaje: m.voltaje } : {}), ...(m.iccid ? { iccid: m.iccid } : {}) };
                     if (Object.keys(data).length) await prisma.gpsEquipo.update({ where: { imei }, data }).catch(() => {});
+                    if (m.voltaje !== undefined) {
+                        const t = vigia.alVoltaje(imei, m.voltaje);
+                        if (t) await alEvento(imei, t, null, `${m.voltaje.toFixed(1).replace(".", ",")} V`);
+                    }
                     continue;
                 } else if (m.tipo === "hora") {
                     s.write(g.acuseHora(m.serie));

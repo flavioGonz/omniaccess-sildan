@@ -180,7 +180,9 @@ async function conjuntoAGrabar() {
     try { mapa = JSON.parse(await getSetting("NVR_CHANNEL_MAP", "{}")) || {}; } catch {}
     // Sólo las reglas que mandan por un canal que lleva video (un aviso por correo no pide clip).
     const reglas = (await prisma.notificationRule.findMany({ where: { enabled: true }, select: { deviceId: true, modulo: true, channels: true } }))
-        .filter((r) => /whatsapp|telegram/.test(String(r.channels || "")));
+        // Las reglas de GPS no llevan video: sin esto, una regla atada a un rastreador pondría a
+        // grabar un flujo RTSP que no existe.
+        .filter((r) => r.modulo !== "GPS" && /whatsapp|telegram/.test(String(r.channels || "")));
     const ids = new Set();
     const tipos = new Set();
     for (const r of reglas) {

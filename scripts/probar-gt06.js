@@ -112,5 +112,46 @@ prueba("lo desconocido no rompe: se devuelve en crudo", () => {
     assert.ok(m.ok); assert.strictEqual(m.tipo, "desconocido");
 });
 
+console.log("lib-gps-eventos");
+const ev = require(path.join(__dirname, "..", "lib-gps-eventos.js"));
+prueba("la batería baja avisa al CAER, no mientras sigue baja", () => {
+    const v = ev.nuevoVigia();
+    assert.strictEqual(v.alVoltaje("a", 12.6), null);          // primera lectura: no se sabe de dónde venía
+    assert.strictEqual(v.alVoltaje("a", 11.7), "GPS_BATERIA"); // cayó
+    assert.strictEqual(v.alVoltaje("a", 11.6), null);          // sigue baja: no repite
+    assert.strictEqual(v.alVoltaje("a", 11.9), null);          // subió un poco, pero no se recuperó
+    assert.strictEqual(v.alVoltaje("a", 11.7), null);          // así que tampoco vuelve a avisar
+    assert.strictEqual(v.alVoltaje("a", 12.4), null);          // se recuperó
+    assert.strictEqual(v.alVoltaje("a", 11.5), "GPS_BATERIA"); // y volvió a caer: aviso nuevo
+});
+prueba("reiniciar el receptor con la batería ya baja no dispara un aviso (el caso real: 11,7 V)", () => {
+    const v = ev.nuevoVigia(); v.sembrar("a", 11.7);
+    assert.strictEqual(v.alVoltaje("a", 11.7), null);
+});
+prueba("moverse con el motor apagado avisa una vez por traslado", () => {
+    const v = ev.nuevoVigia(); const t = 1e12;
+    assert.strictEqual(v.alMoverse("a", { conFix: true, velocidad: 30, encendido: false }, t), "GPS_MOVIMIENTO");
+    assert.strictEqual(v.alMoverse("a", { conFix: true, velocidad: 35, encendido: false }, t + 10000), null);
+    // Se detiene; a los 5 minutos quieto, el traslado terminó.
+    assert.strictEqual(v.alMoverse("a", { conFix: true, velocidad: 0, encendido: false }, t + 20000), null);
+    assert.strictEqual(v.alMoverse("a", { conFix: true, velocidad: 0, encendido: false }, t + 20000 + 5 * 60000), null);
+    assert.strictEqual(v.alMoverse("a", { conFix: true, velocidad: 25, encendido: false }, t + 20000 + 6 * 60000), "GPS_MOVIMIENTO");
+});
+prueba("andando con el motor ENCENDIDO no es una alarma, y sin saber del motor tampoco", () => {
+    const v = ev.nuevoVigia();
+    assert.strictEqual(v.alMoverse("a", { conFix: true, velocidad: 60, encendido: true }), null);
+    assert.strictEqual(v.alMoverse("b", { conFix: true, velocidad: 60, encendido: null }), null);
+    assert.strictEqual(v.alMoverse("c", { conFix: false, velocidad: 60, encendido: false }), null);   // sin satélites la velocidad no vale
+});
+prueba("los códigos de alarma del equipo se traducen, y el desconocido no se pierde", () => {
+    assert.strictEqual(ev.eventoDeAlarma(0x01), "GPS_SOS");
+    assert.strictEqual(ev.eventoDeAlarma(0x02), "GPS_CORTE");
+    assert.strictEqual(ev.eventoDeAlarma(0x55), "GPS_OTRA");
+    assert.strictEqual(ev.eventoDeAlarma(0), null);
+});
+prueba("el latido REAL trae su código de alarma en cero", () => {
+    assert.strictEqual(g.leer(H("78780a130406040002000e82250d0a")).estado.alarma, 0);
+});
+
 console.log(`\n${ok} bien, ${mal} mal`);
 process.exit(mal ? 1 : 0);

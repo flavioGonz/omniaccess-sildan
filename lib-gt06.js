@@ -147,6 +147,8 @@ function leer(t) {
                 bateria: d[1],
                 /** 0 = sin señal … 4 = fuerte. */
                 senal: d[2],
+                /** El latido también puede traer una alarma (0 = ninguna): mismo código que la trama de alarma. */
+                alarma: d.length >= 4 ? d[3] : 0,
             };
             break;
         }

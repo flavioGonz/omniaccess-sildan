@@ -2072,3 +2072,19 @@ model GpsPosicion {
 
   @@index([imei, cuando])
 }
+
+/// Algo que le paso a un rastreador: una alarma que aviso el equipo (SOS, corte de alimentacion)
+/// o una que se dedujo de lo que manda (bateria del vehiculo baja, se mueve con el motor apagado).
+model GpsEvento {
+  id        String   @id @default(cuid())
+  imei      String
+  /// GPS_SOS | GPS_CORTE | GPS_BATERIA | GPS_MOVIMIENTO | ... (lib-gps-eventos.js)
+  tipo      String
+  cuando    DateTime @default(now())
+  lat       Float?
+  lon       Float?
+  /// Lo que hace falta para entenderlo sin ir a buscar: «11,6 V», «32 km/h».
+  detalle   String?
+
+  @@index([imei, cuando])
+}

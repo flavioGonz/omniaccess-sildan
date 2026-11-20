@@ -53,6 +53,8 @@ const MODULOS = [
     { v: "INTRUSION", l: "Intrusión", modulo: null },
     { v: "FACE", l: "Rostros", modulo: "MODULE_FACE" },
     { v: "QUEUE", l: "Filas", modulo: "MODULE_QUEUE" },
+    // Sin interruptor propio: se ofrece cuando hay algún rastreador dado de alta (ver modulosVisibles).
+    { v: "GPS", l: "GPS", modulo: "__GPS__" },
 ] as const;
 const nombreModulo = (v?: string | null) => MODULOS.find((m) => m.v === (v || "QUEUE"))?.l || v || "Filas";
 
@@ -62,8 +64,20 @@ const TIPOS_POR_MODULO: Record<string, string[]> = {
     LPR: ["LPR_CAMERA", "LPR_INTERIOR"],
     FACE: ["FACE_TERMINAL", "FACE_CAMERA", "DOOR_INTERCOM"],
     INTRUSION: ["CAMERA", "LPR_INTERIOR"],
+    GPS: ["GPS"],
 };
 const EVENTOS: Record<string, { v: string; l: string; ayuda: string }[]> = {
+    GPS: [
+        { v: "GPS_SOS", l: "Botón de pánico (SOS)", ayuda: "Alguien apretó el botón de pánico conectado al rastreador." },
+        { v: "GPS_CORTE", l: "Le cortaron la alimentación", ayuda: "El rastreador quedó sin la batería del vehículo: lo desconectaron, o desconectaron la batería. Sigue reportando un rato con la suya." },
+        { v: "GPS_MOVIMIENTO", l: "Se mueve con el motor apagado", ayuda: "El vehículo se está trasladando a más de 10 km/h y el rastreador dice que el motor está apagado: un remolque, o se lo llevan. Sólo sirve si el cable de encendido (ACC) del rastreador está conectado; si no, el motor figura siempre apagado y esto avisa en cada viaje." },
+        { v: "GPS_BATERIA", l: "Batería del vehículo baja", ayuda: "La batería del vehículo cayó por debajo de 11,8 V. Avisa una vez al caer, no mientras siga baja." },
+        { v: "GPS_VIBRACION", l: "Vibración", ayuda: "El rastreador detectó golpes o vibración con el vehículo en guardia." },
+        { v: "GPS_VELOCIDAD", l: "Exceso de velocidad", ayuda: "Pasó la velocidad máxima configurada EN EL RASTREADOR (se le pone por SMS)." },
+        { v: "GPS_DESARME", l: "Desarmaron el rastreador", ayuda: "Le abrieron la tapa o lo sacaron de su lugar." },
+        { v: "GPS_BATERIA_EQUIPO", l: "Batería del rastreador baja", ayuda: "La batería interna del rastreador, la que usa cuando le cortan la alimentación." },
+        { v: "GPS_OTRA", l: "Otra alarma", ayuda: "Una alarma del rastreador que no es ninguna de las anteriores." },
+    ],
     LPR: [
         { v: "ALLOW", l: "Acceso permitido", ayuda: "La barrera dejó pasar la matrícula." },
         { v: "DENY", l: "Acceso denegado", ayuda: "La barrera no la dejó pasar (sin credencial, fuera de horario, lista negra)." },
@@ -179,7 +193,7 @@ export default function RulesManager() {
 
     /* Sólo los módulos prendidos en este barrio, más el de la regla abierta: ofrecer "Filas"
        donde no hay contadores es ofrecer una regla que nunca va a disparar. */
-    const modulosVisibles = useMemo(() => MODULOS.filter((m) => !m.modulo || modulos[m.modulo] || form.modulo === m.v || reglas.some((r) => (r.modulo || "QUEUE") === m.v)), [modulos, form.modulo, reglas]);
+    const modulosVisibles = useMemo(() => MODULOS.filter((m) => !m.modulo || (m.v === "GPS" ? equipos.some((d) => d.deviceType === "GPS") : (modulos as Record<string, boolean>)[m.modulo]) || form.modulo === m.v || reglas.some((r) => (r.modulo || "QUEUE") === m.v)), [modulos, form.modulo, reglas, equipos]);
     const moduloInicial = modulosVisibles[0]?.v || MODULO_POR_DEFECTO;
 
     const visibles = useMemo(() => {

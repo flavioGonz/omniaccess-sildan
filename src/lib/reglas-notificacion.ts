@@ -15,7 +15,7 @@ import { leerChapa, tipoDeChapa } from "@/lib/categoria-chapa";
  * plantillas y antirrebote. Acá entran los tres por la misma puerta.
  */
 
-export type Modulo = "QUEUE" | "LPR" | "FACE" | "INTRUSION";
+export type Modulo = "QUEUE" | "LPR" | "FACE" | "INTRUSION" | "GPS";
 
 export type EventoNotificable = {
     modulo: Modulo;
@@ -63,6 +63,16 @@ const ETIQUETA: Record<string, string> = {
     CENTRAL: "Alarma de central",
     // Un evento de central que nadie tomó, o que se tomó y no se trató, a tiempo (lib/centrales/tratamiento).
     CENTRAL_ESCALADO: "Alarma de central sin atender",
+    // Los rastreadores GPS (lib-gps-eventos.js): los que avisa el equipo y los que se deducen.
+    GPS_SOS: "Botón de pánico (SOS)",
+    GPS_CORTE: "Le cortaron la alimentación al rastreador",
+    GPS_VIBRACION: "Vibración en el vehículo",
+    GPS_VELOCIDAD: "Exceso de velocidad",
+    GPS_MOVIMIENTO: "Se mueve con el motor apagado",
+    GPS_BATERIA: "Batería del vehículo baja",
+    GPS_BATERIA_EQUIPO: "Batería interna del rastreador baja",
+    GPS_DESARME: "Desarmaron el rastreador",
+    GPS_OTRA: "Alarma del rastreador",
 };
 const TIPO_CENTRAL: Record<string, string> = { ROBO: "Robo", PANICO: "Pánico", INCENDIO: "Incendio", SABOTAJE: "Sabotaje", COACCION: "Coacción", MEDICA: "Emergencia médica", GAS: "Gas", AGUA: "Pérdida de agua", TEMPERATURA: "Temperatura", GENERAL: "Alarma" };
 const CLASE: Record<string, string> = { human: "Persona", vehicle: "Vehículo" };
@@ -93,8 +103,17 @@ function armarTexto(plantilla: string | null, ev: EventoNotificable, ahora: Date
         // Lista Amarilla: cuánto se la vio antes («5.ª lectura en 7 días… · anterior: ayer 22:14 en
         // Portón Sur»). La frase ya viene armada del servidor de eventos (lib-contexto-vigilancia).
         "{contexto}": String(ev.extra?.contexto ?? ""),
+        // GPS: lo que acompaña al evento («11,6 V», «32 km/h»), dónde fue y el enlace para abrirlo.
+        "{detalle}": String(ev.extra?.detalle ?? ""),
+        "{lugar}": String(ev.extra?.lugar ?? ""),
+        "{mapa}": String(ev.extra?.mapa ?? ""),
     };
-    const base = plantilla || (ev.modulo === "FACE"
+    const base = plantilla || (ev.modulo === "GPS"
+        /* Un rastreador no tiene «entrada/salida» ni «clase»: tiene un vehículo, un dato y un
+           lugar. El enlace al mapa va en el texto porque es lo primero que quiere quien recibe
+           «se mueve con el motor apagado»: verlo, sin entrar a ningún panel. */
+        ? `📍 {evento}\n{device}${ev.plate ? " · {plate}" : ""}${ev.extra?.detalle ? "\n{detalle}" : ""}${ev.extra?.mapa ? "\n{mapa}" : ""}\n{date} {time}`
+        : ev.modulo === "FACE"
         ? "👤 {evento}\n{persona}\n{device} · {channel}\n{date} {time}"
         // Una central no tiene «clase» (persona, vehículo): sin el «· —» que quedaba colgando.
         : ev.modulo === "INTRUSION" && ev.evento === "CENTRAL"
@@ -170,15 +189,18 @@ export async function notificarEvento(ev: EventoNotificable): Promise<number> {
                     await enqueueDispatch({
                         type: "ALERT",
                         channel: canal,
-                        delayMs: canal === "whatsapp" || canal === "telegram" ? Math.max(0, demoraClipMs - (Date.now() - instante.getTime())) : 0,
+                        /* Un GPS no tiene video: ni se espera al clip ni se le pide una foto. Sin
+                           el `deviceId`, el despacho sale como texto en vez de ir a buscarle un
+                           cuadro a un equipo que no tiene cámara. */
+                        delayMs: ev.modulo !== "GPS" && (canal === "whatsapp" || canal === "telegram") ? Math.max(0, demoraClipMs - (Date.now() - instante.getTime())) : 0,
                         ruleId: regla.id,
-                        deviceId: ev.deviceId || null,
+                        deviceId: ev.modulo === "GPS" ? null : ev.deviceId || null,
                         payload: {
                             evento: ev.evento,
                             modulo: ev.modulo,
                             ruleName: regla.name,
                             deviceName: ev.deviceName,
-                            channelName: ev.modulo === "INTRUSION" ? (CLASE[String(ev.clase || "")] || "Intrusión") : (ev.direction === "EXIT" ? "Salida" : "Entrada"),
+                            channelName: ev.modulo === "GPS" ? "GPS" : ev.modulo === "INTRUSION" ? (CLASE[String(ev.clase || "")] || "Intrusión") : (ev.direction === "EXIT" ? "Salida" : "Entrada"),
                             plate: ev.plate || null,
                             persona: ev.personName || null,
                             asunto: `${ETIQUETA[ev.evento] || ev.evento} · ${ev.plate || ev.personName || ev.deviceName || ""}`.trim(),
