@@ -61,7 +61,10 @@ export function CapaGps() {
     const volo = useRef(false);
 
     const traer = useCallback(async () => {
-        try { setLista((await rastreadoresGps()).filter((r) => r.lat !== null && r.lon !== null)); }
+        /* Sólo los dados de alta. Uno que se presentó solo todavía no es de nadie: el puerto
+           está abierto a internet, y un IMEI inventado con una posición inventada no tiene que
+           poder dibujarse en el mapa de operación. Se acepta primero en Dispositivos. */
+        try { setLista((await rastreadoresGps()).filter((r) => r.deviceId && r.lat !== null && r.lon !== null)); }
         catch { /* sin permiso o sin red: la capa no se dibuja y el mapa sigue andando */ }
     }, []);
     useEffect(() => { traer(); const iv = setInterval(traer, REFRESCO_MS); return () => clearInterval(iv); }, [traer]);
