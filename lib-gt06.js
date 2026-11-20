@@ -40,6 +40,7 @@ const PROTO = {
     ESTADO_N: 0x23,
     ALARMA_N: 0x26,
     HORA: 0x8a,           // el equipo pide la hora
+    INFO: 0x94,           // trama larga: voltaje del vehículo, datos de la SIM
     POSICION_4G: 0xa0,
 };
 
@@ -155,6 +156,18 @@ function leer(t) {
         case PROTO.HORA:
             m.tipo = "hora";
             break;
+        case PROTO.INFO: {
+            /* «Transmisión de información»: un subtipo y sus datos. Los dos que manda el equipo
+               de Nico al conectarse, leídos de sus tramas reales del 20/11:
+                 00 → el voltaje de la alimentación, en centésimas de volt (0x0492 = 11,70 V, el
+                      mismo «Charging:11.7V» que contesta por SMS). Es la batería DEL VEHÍCULO.
+                 0a → IMEI, IMSI e ICCID de la SIM, en BCD. */
+            m.tipo = "info";
+            const sub = d[0];
+            if (sub === 0x00 && d.length >= 3) m.voltaje = d.readUInt16BE(1) / 100;
+            else if (sub === 0x0a && d.length >= 27) m.iccid = d.subarray(17, 27).toString("hex").replace(/f+$/i, "");
+            break;
+        }
         default:
             m.tipo = "desconocido";
     }

@@ -2041,6 +2041,10 @@ model GpsEquipo {
   senal        Int?
   ultimoLatido DateTime?
   ultimaIp     String?
+  /// El voltaje de la alimentacion que informa el equipo: la bateria DEL VEHICULO.
+  voltaje      Float?
+  /// El ICCID de la SIM que lleva puesta.
+  iccid        String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 }

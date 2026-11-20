@@ -80,6 +80,33 @@ prueba("el latido dice encendido, batería y señal", () => {
     assert.strictEqual(m.estado.bateria, 4); assert.strictEqual(m.estado.senal, 3);
     assert.ok(g.pideAcuse(m));
 });
+prueba("la posición REAL del equipo (20/11) cae en Montevideo, con 12 satélites", () => {
+    const m = g.leer(H("787823121a0b14020115cc03be443106060af4005800000000000000000000000000000b42f30d0a"));
+    assert.ok(m.ok); assert.strictEqual(m.tipo, "posicion");
+    assert.strictEqual(m.gps.fecha.toISOString(), "2026-11-20T02:01:21.000Z");
+    assert.strictEqual(m.gps.satelites, 12); assert.strictEqual(m.gps.conFix, true);
+    assert.ok(m.gps.lat < -34.8 && m.gps.lat > -35.0, `lat ${m.gps.lat}`);
+    assert.ok(m.gps.lon < -56.0 && m.gps.lon > -56.3, `lon ${m.gps.lon}`);
+});
+prueba("la trama REAL sin satélites dice que no tiene fix (y no se debe guardar)", () => {
+    const m = g.leer(H("787823121a0b140d3929c003be4303060609ee00480002ec0ae7724e7a0500000000001228850d0a"));
+    assert.ok(m.ok); assert.strictEqual(m.gps.satelites, 0); assert.strictEqual(m.gps.conFix, false);
+    // La hora del equipo es UTC: esta trama llegó a las 13:57:46Z y dice 13:57:41Z.
+    assert.strictEqual(m.gps.fecha.toISOString(), "2026-11-20T13:57:41.000Z");
+});
+prueba("el latido REAL: cargando, motor apagado, batería llena, señal fuerte", () => {
+    const m = g.leer(H("78780a130406040002000e82250d0a"));
+    assert.strictEqual(m.tipo, "estado"); assert.strictEqual(m.estado.cargando, true);
+    assert.strictEqual(m.estado.encendido, false); assert.strictEqual(m.estado.bateria, 6); assert.strictEqual(m.estado.senal, 4);
+});
+prueba("el voltaje REAL del vehículo: 11,70 V, lo mismo que contesta por SMS", () => {
+    const m = g.leer(H("79790008940004920010548d0d0a"));
+    assert.ok(m.ok); assert.strictEqual(m.tipo, "info"); assert.strictEqual(m.voltaje, 11.7);
+});
+prueba("los datos REALES de la SIM traen el ICCID", () => {
+    const m = g.leer(H("79790020940a086519007574988074810001200358008959810625020035864f000fdb490d0a"));
+    assert.ok(m.ok); assert.strictEqual(m.tipo, "info"); assert.strictEqual(m.iccid, "8959810625020035864");
+});
 prueba("lo desconocido no rompe: se devuelve en crudo", () => {
     const m = g.leer(trama(0x77, Buffer.from([1, 2, 3]), 3));
     assert.ok(m.ok); assert.strictEqual(m.tipo, "desconocido");

@@ -113,6 +113,10 @@ const servidor = net.createServer((s) => {
                     const guardada = await alPosicion(imei, m);
                     if (m.tipo === "alarma") log(imei, "ALARMA:", g.nombreAlarma(m.alarma));
                     else if (!guardada) log(imei, "posición sin satélites, no se guarda");
+                } else if (m.tipo === "info") {
+                    const data = { ...(m.voltaje !== undefined ? { voltaje: m.voltaje } : {}), ...(m.iccid ? { iccid: m.iccid } : {}) };
+                    if (Object.keys(data).length) await prisma.gpsEquipo.update({ where: { imei }, data }).catch(() => {});
+                    continue;
                 } else if (m.tipo === "hora") {
                     s.write(g.acuseHora(m.serie));
                     continue;
