@@ -3,7 +3,7 @@ import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { prisma } from "@/lib/prisma";
-import { altaRostro, borrarRostro, copiarRostro, listarRostros, type EquipoHik, type RostroEquipo } from "@/lib/rostros-equipo";
+import { altaRostro, borrarRostro, copiarRostro, daFotos, listarRostros, type EquipoHik, type RostroEquipo } from "@/lib/rostros-equipo";
 
 export const dynamic = "force-dynamic";
 const VER = "dispositivos";
@@ -38,13 +38,15 @@ export async function GET(req: NextRequest) {
 
     try {
         const { rostros, total } = await listarRostros(d);
+        /* Qué se puede hacer con ESTE equipo. `daFoto` se MIDE bajando una cara: el terminal
+           declara una faceURL para las 71 y esa URL contesta 404, así que creerle llenaba la
+           pantalla de imágenes rotas (ver `daFotos` en lib/rostros-equipo). */
+        const foto = await daFotos(d, rostros);
         return NextResponse.json({
             total,
-            /* Qué se puede hacer con ESTE equipo, mirando lo que contestó: los dos modelos de la
-               instalación no dan lo mismo (ver lib/rostros-equipo). */
-            daFoto: rostros.some((r) => !!r.fotoUrl),
+            daFoto: foto,
             daPlantilla: rostros.some((r) => !!r.modelo),
-            rostros: rostros.map((r) => ({ fpid: r.fpid, nombre: r.nombre, foto: !!r.fotoUrl, plantilla: !!r.modelo })),
+            rostros: rostros.map((r) => ({ fpid: r.fpid, nombre: r.nombre, foto: foto && !!r.fotoUrl, plantilla: !!r.modelo })),
         }, { headers: { "Cache-Control": "no-store" } });
     } catch (e) {
         return NextResponse.json({ error: e instanceof Error ? e.message.slice(0, 200) : "No se pudieron leer los rostros" }, { status: 502 });

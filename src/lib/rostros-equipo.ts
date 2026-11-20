@@ -138,6 +138,22 @@ async function cookieDe(d: EquipoHik): Promise<string | null> {
  * trae el host del equipo, que puede ser una dirección interna que desde acá no resuelve) y con
  * la cookie de la sesión web, que es la única forma en que el equipo la entrega.
  */
+/**
+ * ¿Este equipo entrega de verdad las fotos de sus caras? Se contesta **bajando una**, no mirando
+ * si declara una URL.
+ *
+ * El error que arregla (20/11, lo vio Nico en pantalla): el terminal DS-K1T343 declara
+ * `faceURL: http://…/LOCALS/face/<FPID>.jpg` para sus 71 caras, y esa URL después contesta 404.
+ * Como la pantalla confiaba en que la URL existiera, dibujaba 71 `<img>` rotos y la consola del
+ * navegador se llenaba de 404. Un equipo que promete algo y no lo cumple es un caso normal, no
+ * una excepción: por eso esto se mide una vez por lectura y lo que no se puede, no se pide.
+ */
+export async function daFotos(d: EquipoHik, rostros: RostroEquipo[]): Promise<boolean> {
+    const uno = rostros.find((r) => r.fotoUrl) || rostros[0];
+    if (!uno) return false;
+    try { return (await bajarFoto(d, uno)) !== null; } catch { return false; }
+}
+
 export async function bajarFoto(d: EquipoHik, r: RostroEquipo): Promise<Buffer | null> {
     const ruta = (r.fotoUrl || `/LOCALS/face/${r.fpid}.jpg`).replace(/^https?:\/\/[^/]*/, "").split("@")[0];
     for (let i = 0; i < 2; i++) {

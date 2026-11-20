@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { TIPOS_CARA } from "@/lib/caras-vivo";
-import { contarBase, listarPersonas, listarRostros, type PersonaEquipo } from "@/lib/rostros-equipo";
+import { contarBase, daFotos, listarPersonas, listarRostros, type PersonaEquipo, type RostroEquipo } from "@/lib/rostros-equipo";
 
 /**
  * La base local de un lector: qué tiene guardado adentro y cuánto de eso coincide con OmniAccess.
@@ -74,9 +74,13 @@ export async function baseDelEquipo(deviceId: string, desde = 0): Promise<BaseEq
            vínculo es FPID = legajo, y cuando no lo es (producción) no se ata nada. */
         const [cuenta, pagina, caras] = await Promise.all([
             contarBase(d), listarPersonas(d, desde),
-            listarRostros(d, 300).catch(() => ({ rostros: [] as { fpid: string }[], total: 0 })),
+            listarRostros(d, 300).catch(() => ({ rostros: [] as RostroEquipo[], total: 0 })),
         ]);
-        const fpids = new Set(caras.rostros.map((r) => r.fpid));
+        /* Y además hay que PODER bajar la foto: el terminal declara una URL por cara que después
+           contesta 404, y algunos de sus FPID son números que coinciden con un legajo. Sin esta
+           medición la fila mostraba una imagen rota por cada coincidencia casual. */
+        const conFoto = caras.rostros.length ? await daFotos(d, caras.rostros) : false;
+        const fpids = new Set(conFoto ? caras.rostros.map((r) => r.fpid) : []);
 
         /* El cruce con el padrón: primero por legajo contra las credenciales (es lo que el equipo
            usa para identificar), y si no hay, por nombre exacto. */
