@@ -10,6 +10,7 @@ import { diaSemana, fechaHora, hora } from "@/lib/fechas";
 import { RITMOS } from "@/lib/censo-goteo";
 import type { EstadoGoteo } from "@/lib/censo-envio";
 import type { JuicioDominio } from "@/lib/correo-dominio";
+import { EditorCodigo } from "@/components/lotes/EditorCodigo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -329,11 +330,13 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                                         <div className="min-w-0 flex-1">
                                                             {/* La invitación es por persona (21/11): el nombre va primero, que es por lo que se la busca. */}
                                                             <p className="truncate text-[12.5px]">{i.nombre ? <><span className="font-semibold">{i.nombre}</span> <span className="text-muted-foreground">· {i.email}</span></> : i.email}</p>
-                                                            <p className="truncate text-[11.5px] text-muted-foreground tabular-nums">
-                                                                {i.clave}
-                                                                {i.enviadoAt && ` · enviado ${fechaHora(i.enviadoAt)}`}
-                                                                {i.error && ` · ${i.error}`}
-                                                            </p>
+                                                            {/* El código se cambia acá mismo, con el lápiz (21/11): a mano o pidiendo otro. */}
+                                                            <EditorCodigo className="mt-0.5" invitacionId={i.id} clave={i.clave} yaEnviado={!!i.enviadoAt} alCambiar={traer} />
+                                                            {(i.enviadoAt || i.error) && (
+                                                                <p className="truncate text-[11.5px] text-muted-foreground tabular-nums">
+                                                                    {[i.enviadoAt ? `enviado ${fechaHora(i.enviadoAt)}` : "", i.error || ""].filter(Boolean).join(" · ")}
+                                                                </p>
+                                                            )}
                                                         </div>
                                                         {i.usadoAt ? <Chip tono="bien" icono={Check}>Cargó</Chip>
                                                             : i.error ? <Chip tono="mal" icono={AlertTriangle}>Error</Chip>

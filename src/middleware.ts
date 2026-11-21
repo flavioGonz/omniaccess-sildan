@@ -227,6 +227,7 @@ export async function middleware(request: NextRequest) {
         // (server.js ignora el estado de la respuesta, así que fallaba en silencio).
         pathname === '/api/notifications/event' ||
         pathname === '/api/visitas/tick' ||   // cron del CT con x-tracking-token; la ruta lo verifica
+        pathname === '/api/lotes/vuelta' ||   // la pasada de la auditoría de lotes: la llama dispatch-worker con x-tracking-token; la ruta lo verifica
         pathname === '/api/censo/invitaciones/goteo' ||   // el envío de a poco del censo: lo llama dispatch-worker con x-tracking-token; la ruta lo verifica
         pathname === '/api/vision/objetos/capturas/vuelta' ||   // el reloj de vision-worker con x-tracking-token; la ruta lo verifica
         pathname === '/api/vigilancia/bot' ||   // bot de WhatsApp → lista de vigilancia (token propio)

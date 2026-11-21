@@ -32,18 +32,33 @@ export function nuevaClave(): string {
     return `${s.slice(0, 4)}-${s.slice(4)}`;
 }
 
+/** Lo corto y lo largo que puede ser un código puesto a mano por la administración. */
+export const CLAVE_MIN = 6;
+export const CLAVE_MAX = 12;
+
 /**
  * La clave como la escribió la persona, llevada a su forma guardada.
  *
- * Se aceptan minúsculas, espacios y la falta del guión —eso es cómo la gente copia un código—;
- * lo que no se acepta es un carácter que el alfabeto no usa, porque no hay forma honesta de
- * adivinar cuál era. `null` significa «eso no es una clave», y la pantalla lo dice así.
+ * Se aceptan minúsculas, espacios y la falta del guión —eso es cómo la gente copia un código—.
+ * `null` significa «eso no tiene forma de clave», y la pantalla lo dice así.
+ *
+ * Hasta el 21/11 también se rechazaba todo carácter fuera del alfabeto de arriba. Eso valía
+ * mientras todas las claves las generaba el sistema; desde que la administración puede ponerle a
+ * una persona el código que quiera («editar los códigos del censo a mano»), una clave puede tener
+ * cualquier letra o número y entre 6 y 12 de largo. Para quien entra no cambia nada: una clave mal
+ * tipeada y una que no existe siempre dieron el mismo cartel.
+ *
+ * Las de ocho —todas las generadas— se guardan en dos grupos de cuatro, como siempre.
  */
 export function normalizarClave(texto: string | null | undefined): string | null {
     const s = String(texto ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (s.length !== LARGO_CLAVE) return null;
-    for (const c of s) if (!ALFABETO.includes(c)) return null;
-    return `${s.slice(0, 4)}-${s.slice(4)}`;
+    if (s.length < CLAVE_MIN || s.length > CLAVE_MAX) return null;
+    return s.length === LARGO_CLAVE ? `${s.slice(0, 4)}-${s.slice(4)}` : s;
+}
+
+/** Los caracteres de un código que se confunden al leerlo o dictarlo. Para avisar, no para prohibir. */
+export function seConfunden(clave: string): string[] {
+    return [...new Set(clave.toUpperCase().replace(/[^A-Z0-9]/g, "").split("").filter((c) => !ALFABETO.includes(c)))];
 }
 
 /** Un correo que sirve para mandarle algo. No valida que exista: valida que tenga forma. */

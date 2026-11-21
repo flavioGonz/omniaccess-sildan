@@ -1,7 +1,7 @@
 /** El censo con clave por lote (lib/censo-invitaciones). */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CID_LOGO, correoDeInvitacion, correoSirve, leerPlanilla, normalizarClave, normalizarLoteInv, nuevaClave } from "@/lib/censo-invitaciones";
+import { CID_LOGO, seConfunden, correoDeInvitacion, correoSirve, leerPlanilla, normalizarClave, normalizarLoteInv, nuevaClave } from "@/lib/censo-invitaciones";
 
 test("la clave no usa caracteres que se confunden", () => {
     for (let i = 0; i < 200; i++) {
@@ -20,8 +20,8 @@ test("la clave se acepta como la copia la gente", () => {
 });
 
 test("lo que no es una clave se dice que no lo es", () => {
-    assert.equal(normalizarClave("ABCD-123"), null);      // corta
-    assert.equal(normalizarClave("ABCD-OOOO"), null);     // letras que el alfabeto no usa
+    assert.equal(normalizarClave("ABC-12"), null);        // corta
+    assert.equal(normalizarClave("ABCDEFGHJKMNP"), null); // larga
     assert.equal(normalizarClave(""), null);
     assert.equal(normalizarClave(null), null);
 });
@@ -98,4 +98,16 @@ test("qué es un correo y qué no", () => {
     assert.equal(correoSirve("ana@correo"), false);
     assert.equal(correoSirve("ana correo.com"), false);
     assert.equal(correoSirve(""), false);
+});
+
+test("un código puesto a mano puede tener cualquier letra o número, de 6 a 12", () => {
+    // Las de ocho siguen en dos grupos de cuatro, vengan de donde vengan.
+    assert.equal(normalizarClave("lote 0215"), "LOTE-0215");
+    assert.equal(normalizarClave("SN-A2-2026"), "SNA2-2026");
+    // Las de otro largo se guardan seguidas.
+    assert.equal(normalizarClave("casa 15"), "CASA15");
+    assert.equal(normalizarClave("ñandú-123456"), "AND123456");
+    // Se avisa qué caracteres se prestan a confusión; no se prohíben.
+    assert.deepEqual(seConfunden("LOTE-0215").sort(), ["0", "1", "2", "5", "L", "O"]);
+    assert.deepEqual(seConfunden(nuevaClave()), []);
 });

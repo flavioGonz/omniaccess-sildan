@@ -12,6 +12,7 @@ import path from "path";
 import { uploadToS3 } from "@/lib/s3";
 import { credencialesVisibles, esCuentaDelPanel } from "@/lib/credenciales-visibles";
 import { getSession } from "@/app/actions/auth";
+import { auditarLotesDesdeElPanel } from "@/lib/lote-auditoria";
 
 /**
  * Las matrículas de una persona. Varias, no una.
@@ -402,6 +403,8 @@ export async function deleteUser(id: string) {
     await prisma.user.delete({
         where: { id },
     });
+    // El lote pierde a esta persona y sus matrículas: queda en su historial, con quién la borró.
+    await auditarLotesDesdeElPanel([id]);
     revalidatePath("/admin/users");
 }
 
@@ -524,6 +527,7 @@ export async function createUser(formData: FormData) {
     // Handle Groups (if strictly needed from form, but usually handled separately or default)
     // For now we assume groups are managed via edit or default logic if any
 
+    await auditarLotesDesdeElPanel([newUser.id]);
     revalidatePath("/admin/users");
     return newUser;
 }
@@ -635,6 +639,8 @@ export async function updateUser(id: string, formData: FormData) {
         }
     }
 
+    // Lo que le haya cambiado al lote —una matrícula más, una menos, otra unidad— queda en su historial.
+    await auditarLotesDesdeElPanel([id]);
     revalidatePath("/admin/users");
     return updatedUser;
 }
@@ -643,6 +649,7 @@ export async function deleteAllUsers() {
     await exigirPermiso("mantenimiento", "deleteAllUsers");
     try {
         await prisma.user.deleteMany({});
+        await auditarLotesDesdeElPanel();
         revalidatePath('/admin/users');
         return true;
     } catch (error) {
@@ -771,6 +778,7 @@ export async function importUserBatch(users: any[]) {
         }
     }
 
+    await auditarLotesDesdeElPanel();
     revalidatePath("/admin/users");
     return { success: true, count: successCount, failed: failCount, errors };
 }
@@ -974,6 +982,7 @@ export async function quickRegisterPlate(plate: string, name: string, unitName?:
         }
     });
     
+    await auditarLotesDesdeElPanel([user.id]);
     return { 
         success: true, 
         user: { id: user.id, name: user.name },

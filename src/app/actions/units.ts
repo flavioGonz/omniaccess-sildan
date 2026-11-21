@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { auditarLotesDesdeElPanel } from "@/lib/lote-auditoria";
 import { revalidatePath } from "next/cache";
 
 import { UnitType } from "@prisma/client";
@@ -193,6 +194,7 @@ export async function assignUserToUnit(userId: string, unitId: string) {
         where: { id: userId },
         data: { unitId }
     });
+    await auditarLotesDesdeElPanel([userId]);
     revalidatePath("/admin/units");
 }
 
@@ -201,6 +203,7 @@ export async function unassignUserFromUnit(userId: string) {
         where: { id: userId },
         data: { unitId: null }
     });
+    await auditarLotesDesdeElPanel([userId]);
     revalidatePath("/admin/units");
 }
 

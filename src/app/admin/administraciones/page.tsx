@@ -1,17 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, CheckCircle2, FileUp, Loader2, Mail, MapPinned, Pencil, Phone, Plus, Truck, Upload, Users } from "lucide-react";
+import { Building2, CheckCircle2, FileUp, History, Loader2, Mail, MapPinned, Pencil, Phone, Plus, Truck, Upload, Users } from "lucide-react";
 import { sileo as toast } from "sileo";
 import {
-    administraciones, borrarAdministracion, borrarContactoAdm, borrarServicioAdm, detalleAdministracion, guardarAdministracion, guardarContactoAdm, guardarServicioAdm,
-    type ContactoAdm, type DetalleAdministracion, type LoteAdm, type ResumenAdministracion, type ServicioAdm,
+    administraciones, borrarAdministracion, borrarContactoAdm, borrarServicioAdm, cambiosDeLotes, detalleAdministracion, guardarAdministracion, guardarContactoAdm, guardarServicioAdm,
+    type CambioVisto, type ContactoAdm, type DetalleAdministracion, type LoteAdm, type ResumenAdministracion, type ServicioAdm,
 } from "@/app/actions/administraciones";
+import { CajonLote } from "@/components/lotes/CajonLote";
+import { HistorialLote } from "@/components/lotes/HistorialLote";
 import type { InformePadron } from "@/lib/padron-importar";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Chip, ErrorEstado, Vacio } from "@/components/ui/estados";
+import { Cargando, Chip, ErrorEstado, Vacio } from "@/components/ui/estados";
 import { Pestanias } from "@/components/ui/pestanias";
 import { Seek } from "@/components/ui/search";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
@@ -35,7 +37,7 @@ import { cn } from "@/lib/utils";
  * haría; recién después aplica. No borra nada y no manda correos.
  */
 
-type Pest = "contactos" | "servicios" | "lotes";
+type Pest = "contactos" | "servicios" | "lotes" | "cambios";
 type FiltroLotes = "todos" | "gente" | "sin" | "terrenos";
 const SITUACION: Record<string, { rotulo: string; tono: "quieto" | "info" | "aviso" }> = {
     TERRENO: { rotulo: "Terreno", tono: "quieto" }, DESARROLLADOR: { rotulo: "Del desarrollador", tono: "info" }, SIN_TITULAR: { rotulo: "Sin titular", tono: "aviso" },
@@ -57,6 +59,8 @@ export default function Administraciones() {
     const [editContacto, setEditContacto] = useState<Partial<ContactoAdm> | null>(null);
     const [editServicio, setEditServicio] = useState<Partial<ServicioAdm> | null>(null);
     const [importando, setImportando] = useState(false);
+    /** El lote abierto en su cajón: su gente, sus códigos del censo, sus matrículas y su historial. */
+    const [loteAbierto, setLoteAbierto] = useState<string | null>(null);
 
     /** Sube cada vez que hay que volver a traer todo (se guardó algo, se importó el padrón). */
     const [vuelta, setVuelta] = useState(0);
@@ -109,16 +113,18 @@ export default function Administraciones() {
                                             { valor: "contactos", rotulo: "Contactos", icono: Users, cuenta: elegida.contactos },
                                             { valor: "servicios", rotulo: "Servicios", icono: Truck, cuenta: elegida.servicios },
                                             { valor: "lotes", rotulo: "Lotes", icono: MapPinned, cuenta: elegida.lotes },
+                                            { valor: "cambios", rotulo: "Cambios", icono: History, ayuda: "Lo último que cambió en los lotes de esta administración: matrículas que entran o salen, gente que se suma o se va, y lo que cargan en el censo." },
                                         ]} />
                                         <div className="ml-auto">
                                             {pest === "contactos" && <Button size="sm" variant="outline" onClick={() => setEditContacto({})}><Plus size={14} /> Agregar contacto</Button>}
                                             {pest === "servicios" && <Button size="sm" variant="outline" onClick={() => setEditServicio({})}><Plus size={14} /> Agregar servicio</Button>}
                                         </div>
                                     </div>
-                                    {elegida.notas && pest !== "lotes" && <p className="mb-3 rounded-[10px] bg-muted/50 px-3.5 py-2.5 text-[12.5px] text-muted-foreground whitespace-pre-line">{elegida.notas}</p>}
+                                    {elegida.notas && pest !== "lotes" && pest !== "cambios" && <p className="mb-3 rounded-[10px] bg-muted/50 px-3.5 py-2.5 text-[12.5px] text-muted-foreground whitespace-pre-line">{elegida.notas}</p>}
                                     {pest === "contactos" && <Contactos filas={cargandoDetalle ? null : det?.contactos || []} alEditar={setEditContacto} alBorrar={async (id) => { await borrarContactoAdm(id); refrescar(); }} />}
                                     {pest === "servicios" && <Servicios filas={cargandoDetalle ? null : det?.servicios || []} alEditar={setEditServicio} alBorrar={async (id) => { await borrarServicioAdm(id); refrescar(); }} />}
-                                    {pest === "lotes" && <Lotes filas={cargandoDetalle ? null : det?.lotes || []} />}
+                                    {pest === "lotes" && <Lotes filas={cargandoDetalle ? null : det?.lotes || []} alAbrir={setLoteAbierto} />}
+                                    {pest === "cambios" && <Cambios administracionId={elegida.id} vuelta={vuelta} alAbrirLote={setLoteAbierto} />}
                                 </section>
                             )}
                         </>
@@ -128,6 +134,7 @@ export default function Administraciones() {
             {editContacto && sel && <FormContacto administracionId={sel} c={editContacto} alCerrar={() => setEditContacto(null)} alGuardar={() => { setEditContacto(null); refrescar(); }} />}
             {editServicio && sel && <FormServicio administracionId={sel} s={editServicio} alCerrar={() => setEditServicio(null)} alGuardar={() => { setEditServicio(null); refrescar(); }} />}
             {importando && <ImportarPadron alCerrar={() => setImportando(false)} alAplicar={refrescar} />}
+            <CajonLote unitId={loteAbierto} alCerrar={() => { setLoteAbierto(null); refrescar(); }} />
         </div>
     );
 }
@@ -208,7 +215,43 @@ function Servicios({ filas, alEditar, alBorrar }: { filas: ServicioAdm[] | null;
         vacio={{ icono: Truck, titulo: "Sin servicios cargados", ayuda: "Lo que contrata esta administración: jardinería, recolección, mantenimiento, piscinas. Con quién lo hace y cuándo viene, para que la guardia sepa a quién espera." }} />;
 }
 
-function Lotes({ filas }: { filas: LoteAdm[] | null }) {
+/**
+ * Lo último que cambió en los lotes de la administración. Es la misma lista que el historial de un
+ * lote, con todos mezclados: la pregunta acá es «¿qué se movió esta semana?», no «¿qué le pasó a
+ * este lote?». Cada renglón lleva a su lote.
+ */
+function Cambios({ administracionId, vuelta, alAbrirLote }: { administracionId: string; vuelta: number; alAbrirLote: (id: string) => void }) {
+    const [dias, setDias] = useState(30);
+    // La respuesta guarda para qué pedido es: al cambiar de administración o de período no se ve la anterior.
+    const [traido, setTraido] = useState<{ de: string; cambios: CambioVisto[]; auditadoDesde: string | null; hayMas: boolean; error: string | null } | null>(null);
+    const [otra, setOtra] = useState(0);
+    const llave = `${administracionId}|${dias}|${vuelta}|${otra}`;
+    useEffect(() => {
+        let vivo = true;
+        cambiosDeLotes({ administracionId, dias })
+            .then((r) => { if (vivo) setTraido({ de: llave, ...r, error: null }); })
+            .catch((e) => { if (vivo) setTraido({ de: llave, cambios: [], auditadoDesde: null, hayMas: false, error: e instanceof Error ? e.message : "No se pudieron traer los cambios." }); });
+        return () => { vivo = false; };
+    }, [administracionId, dias, llave]);
+    const d = traido?.de === llave ? traido : null;
+    const PERIODOS = [{ v: 7, r: "7 días" }, { v: 30, r: "30 días" }, { v: 365, r: "Un año" }];
+    return (
+        <div className="rounded-[10px] border border-border bg-card p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+                <p className="text-[12.5px] text-muted-foreground">Matrículas que entran o salen, gente que se suma o se va, y lo que cargan en el censo.</p>
+                <div className="ml-auto flex gap-1.5" role="group" aria-label="Período">
+                    {PERIODOS.map((o) => (
+                        <button key={o.v} type="button" aria-pressed={dias === o.v} onClick={() => setDias(o.v)}
+                            className={cn("h-7 px-2.5 rounded-full border text-[11.5px] font-semibold", dias === o.v ? "bg-foreground text-background border-foreground" : "border-border hover:bg-accent")}>{o.r}</button>))}
+                </div>
+            </div>
+            {!d ? <Cargando texto="Trayendo los cambios…" /> : d.error ? <ErrorEstado mensaje={d.error} alReintentar={() => setOtra((n) => n + 1)} />
+                : <HistorialLote cambios={d.cambios} conLote alAbrirLote={alAbrirLote} auditadoDesde={d.auditadoDesde} hayMas={d.hayMas} />}
+        </div>
+    );
+}
+
+function Lotes({ filas, alAbrir }: { filas: LoteAdm[] | null; alAbrir: (id: string) => void }) {
     const [q, setQ] = useState("");
     const [filtro, setFiltro] = useState<FiltroLotes>("todos");
     const todos = filas || [];
@@ -237,7 +280,7 @@ function Lotes({ filas }: { filas: LoteAdm[] | null }) {
     ], []);
     const OPC: { v: FiltroLotes; r: string }[] = [{ v: "todos", r: "Todos" }, { v: "gente", r: "Con gente" }, { v: "sin", r: "Sin nadie con correo" }, { v: "terrenos", r: "Terrenos" }];
     return (
-        <Tabla filas={vistos} cargando={!filas} clave={(l) => l.id} columnas={cols} alto="calc(100vh - 430px)" nombreArchivo="lotes"
+        <Tabla filas={vistos} cargando={!filas} clave={(l) => l.id} columnas={cols} alto="calc(100vh - 430px)" nombreArchivo="lotes" alClickFila={(l) => alAbrir(l.id)}
             barra={(
                 <div className="flex flex-wrap items-center gap-2">
                     <Seek value={q} onChange={setQ} placeholder="Lote, titular o persona" startOpen width={240} alto={34} />

@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
+import { auditarLotes } from "@/lib/lote-auditoria";
 import { nuevaClave } from "@/lib/censo-invitaciones";
 import { codigoDeNombreViejo, compartenNombre, leerPadron, mismoNombre, nombresCompatibles, type Padron } from "@/lib/padron-planilla";
 
@@ -228,5 +229,7 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
         const conGente = new Set(gente.flatMap((p) => p.vinculos.filter((v) => v.sigla === a.sigla).map((v) => v.codigo)));
         inf.porAdministracion.push({ sigla: a.sigla, nombre: a.nombre, lotes: suyos.length, terrenos: suyos.filter((l) => l.situacion === "TERRENO").length, conPersonas: conGente.size, personas: gente.length });
     }
+    // La gente que la planilla sumó a cada lote queda en su historial, firmada por quien la cargó.
+    if (escribir) await auditarLotes({ quien: o.quien, origen: "padron" });
     return inf;
 }

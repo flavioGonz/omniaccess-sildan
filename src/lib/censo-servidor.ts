@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { anotarEnLote, auditarLotes } from "@/lib/lote-auditoria";
 import { DIAS, TIPOS_SERVICIO, TIPOS_VEHICULO, type ServicioCargado, type VehiculoCargado } from "@/lib/registro-padron";
 
 /**
@@ -129,13 +130,18 @@ export async function aprobarSolicitud(id: string, quien: string): Promise<Resul
         where: { id },
         data: { estado: "aprobada", revisadaPor: quien, revisadaAt: new Date(), nota: avisos.join(" ") || null },
     });
+    /* El historial del lote. Lo que cambió —matrículas, gente— lo firma el residente, que es quien
+       lo declaró; quién lo aprobó queda en el renglón de la aprobación. */
+    await auditarLotes({ quien: persona.name, origen: "censo", personas: [persona.id] });
+    await anotarEnLote([unidad.id], { que: "CENSO_APROBADA", persona: persona.name, userId: persona.id, detalle: `${matriculas} ${matriculas === 1 ? "matrícula" : "matrículas"} en la carga.${avisos.length ? ` ${avisos.join(" ")}` : ""}` }, { quien, origen: "panel" });
     return { ok: true, unidad: unidad.name, persona: persona.name, matriculas, avisos };
 }
 
 export async function rechazarSolicitud(id: string, quien: string, motivo: string): Promise<{ ok: boolean; error?: string }> {
-    const s = await prisma.solicitudPadron.findUnique({ where: { id }, select: { estado: true } });
+    const s = await prisma.solicitudPadron.findUnique({ where: { id }, select: { estado: true, unitId: true, nombre: true, apellido: true } });
     if (!s) return { ok: false, error: "No existe esa carga." };
     if (s.estado !== "pendiente") return { ok: false, error: "Esa carga ya estaba resuelta." };
     await prisma.solicitudPadron.update({ where: { id }, data: { estado: "rechazada", revisadaPor: quien, revisadaAt: new Date(), nota: motivo.slice(0, 300) || null } });
+    await anotarEnLote([s.unitId], { que: "CENSO_RECHAZADA", persona: [s.nombre, s.apellido].filter(Boolean).join(" ").trim(), detalle: motivo.slice(0, 300) || undefined }, { quien, origen: "panel" });
     return { ok: true };
 }

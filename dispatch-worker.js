@@ -632,6 +632,18 @@ setInterval(async () => {
     try { const j = JSON.parse(r.body); if (j.que === "enviado" || j.que === "fallo" || j.que === "terminado") console.log(`[censo] envío de a poco: ${j.que}${j.error ? ` (${j.error})` : ""}`); } catch { /* respuesta rara: la próxima vuelta dirá */ }
 }, 30000);
 
+/**
+ * La auditoría de los lotes (21/11). Cada minuto se le pide a la aplicación que compare cada lote
+ * con su última foto: lo que cambió por un camino que no avisa —el bot de Telegram, WhatsApp, una
+ * importación— queda igual en el historial del lote, sin firma. Lo que cambia desde el panel o por
+ * el censo ya se anotó en el momento, firmado; esta pasada no encuentra nada que hacer con eso.
+ */
+setInterval(async () => {
+    const r = await getInternal("/api/lotes/vuelta").catch(() => null);
+    if (!r || !r.ok) return;
+    try { const j = JSON.parse(r.body); if (j.cambios > 0) console.log(`[lotes] ${j.cambios} cambios sin firma en ${j.lotes} lotes`); else if (j.primera) console.log(`[lotes] primera foto: ${j.lotes} lotes`); } catch { /* respuesta rara: la próxima vuelta dirá */ }
+}, 60000);
+
 worker.on("completed", (j) => console.log(`[dispatch-worker] ✅ completed ${j.id}`));
 worker.on("failed", (j, e) => console.error(`[dispatch-worker] ❌ failed ${j && j.id}: ${e && e.message}`));
 worker.on("error", (e) => console.error(`[dispatch-worker] error: ${e && e.message}`));

@@ -62,8 +62,56 @@ model Unit {
   children     Unit[]        @relation("SubUnits")
   users        User[]
   vinculos     UserUnidad[]
+  cambios      CambioLote[]
+  estadoVisto  LoteEstado?
 
   @@index([administracionId])
+}
+
+/// Lo que cambio en un lote: quien vive, con que matriculas entra, que cargo en el censo y que se
+/// le toco desde el panel (pedido de Nico, 21/11: «auditoria de cambios en cada lote; el objetivo
+/// es saber cuando un residente cambia sus matriculas»).
+///
+/// Las altas y bajas de matriculas y de personas NO las escribe cada pantalla que las toca —son
+/// mas de veinte caminos: el panel, el censo, la planilla, WhatsApp, Telegram, la importacion desde
+/// una camara— sino una comparacion: lo que el lote tiene ahora contra lo ultimo que se le vio
+/// (LoteEstado). Asi no hay camino que se escape, y el que se olvide de avisar igual queda anotado,
+/// sin firma, en la pasada de cada minuto. Ver src/lib/lote-auditoria.ts.
+model CambioLote {
+  id      String   @id @default(cuid())
+  unitId  String
+  unit    Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  cuando  DateTime @default(now())
+  /// MATRICULA_ALTA | MATRICULA_BAJA | PERSONA_ALTA | PERSONA_BAJA | CENSO_CARGA | CENSO_APROBADA |
+  /// CENSO_RECHAZADA | CODIGO_CAMBIADO
+  que     String
+  chapa   String?
+  /// De quien es la matricula, o quien entro o salio del lote. Como texto: tiene que seguir
+  /// diciendo quien era aunque a esa persona se la borre del padron.
+  persona String?
+  userId  String?
+  /// Quien hizo el cambio: el operador del panel, o el residente si fue por el censo. Nulo cuando
+  /// lo encontro la pasada automatica y nadie lo firmo.
+  quien   String?
+  /// panel | censo | padron | sistema
+  origen  String   @default("sistema")
+  detalle String?
+
+  @@index([unitId, cuando])
+  @@index([cuando])
+  @@index([chapa])
+}
+
+/// Lo ultimo que se le vio a un lote: su gente y sus matriculas. Es contra lo que se compara para
+/// saber que cambio. No es un dato del lote: es la memoria de la auditoria.
+model LoteEstado {
+  unitId   String   @id
+  unit     Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  /// [{ id, nombre }]
+  personas Json     @default("[]")
+  /// [{ chapa, userId }]
+  chapas   Json     @default("[]")
+  vistoAt  DateTime @default(now())
 }
 
 /// Una administracion del complejo: la comision de un grupo de lotes. San Nicolas se construyo por

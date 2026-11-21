@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { listaParaMatricula } from "@/lib/lista-negra";
 import { heredarListaNegraSiCorresponde } from "@/app/actions/watchlist";
 import { revalidatePath } from "next/cache";
+import { auditarLotesDesdeElPanel } from "@/lib/lote-auditoria";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
 import { Credential } from "@prisma/client";
 import { credencialesVisibles } from "@/lib/credenciales-visibles";
@@ -45,6 +46,7 @@ export async function deleteCredential(id: string) {
     }
 
     await prisma.credential.delete({ where: { id } });
+    if (credential?.type === "PLATE") await auditarLotesDesdeElPanel([credential.userId]);
     revalidatePath("/admin/credentials");
     revalidatePath("/admin/users");
 }
@@ -87,6 +89,7 @@ export async function createCredential(formData: FormData) {
         }
     }
 
+    if (type === "PLATE") await auditarLotesDesdeElPanel([userId]);
     revalidatePath("/admin/credentials");
     revalidatePath("/admin/users");
 }
@@ -124,6 +127,7 @@ export async function updateCredential(id: string, formData: FormData) {
         }
     }
 
+    if (newCredential.type === "PLATE" || oldCredential?.type === "PLATE") await auditarLotesDesdeElPanel([userId, oldCredential?.userId]);
     revalidatePath("/admin/credentials");
     revalidatePath("/admin/users");
 }

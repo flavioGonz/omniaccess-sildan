@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { EQUIPO_PUBLICO } from "@/lib/equipo-publico";
 import { Prisma, Vehicle } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { auditarLotesDesdeElPanel } from "@/lib/lote-auditoria";
 
 /**
  * El padrón de vehículos, con la última vez que el barrio vio cada chapa.
@@ -124,6 +125,7 @@ export async function createVehicle(data: any) {
             });
         }
 
+        await auditarLotesDesdeElPanel([data.userId]);
         revalidatePath("/admin/vehicles");
         return { success: true, vehicle };
     } catch (error: any) {
@@ -146,6 +148,8 @@ export async function updateVehicle(id: string, data: any) {
                 userId: data.userId,
             },
         });
+        // Sin acotar a una persona: el vehículo pudo pasar de una a otra, y cambian los lotes de las dos.
+        await auditarLotesDesdeElPanel();
         revalidatePath("/admin/vehicles");
         return { success: true, vehicle };
     } catch (error: any) {
@@ -156,9 +160,10 @@ export async function updateVehicle(id: string, data: any) {
 
 export async function deleteVehicle(id: string) {
     try {
-        await prisma.vehicle.delete({
+        const borrado = await prisma.vehicle.delete({
             where: { id },
         });
+        await auditarLotesDesdeElPanel([borrado.userId]);
         revalidatePath("/admin/vehicles");
         return { success: true };
     } catch (error: any) {

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { validarSolicitud } from "@/lib/registro-padron";
 import { normalizarClave } from "@/lib/censo-invitaciones";
+import { anotarEnLote, chapasDelLote } from "@/lib/lote-auditoria";
+import { diferenciaDeCarga, fraseDeCarga } from "@/lib/lote-cambios";
 import { exigirFuncion } from "@/lib/funcion-servidor";
 
 export const dynamic = "force-dynamic";
@@ -100,6 +102,13 @@ export async function POST(req: NextRequest) {
         // La invitación queda marcada como usada, pero NO se bloquea: un lote que se olvidó una
         // matrícula tiene que poder volver a entrar por el mismo enlace.
         if (invitacion) await prisma.invitacionCenso.update({ where: { id: invitacion.id }, data: { usadoAt: new Date() } }).catch(() => { });
+        /* El historial del lote: qué declaró, contra lo que el lote ya tenía. Es el momento en que
+           un residente «cambia sus matrículas» — todavía sin aprobar, pero ya dicho. */
+        if (unitId) {
+            const quien = [datos.nombre, datos.apellido].filter(Boolean).join(" ").trim() || datos.apellido;
+            const d = diferenciaDeCarga(await chapasDelLote(unitId), datos.vehiculos.map((v) => v.chapa));
+            await anotarEnLote([unitId], { que: "CENSO_CARGA", persona: quien, detalle: `${fraseDeCarga(d)} Espera que la administración la apruebe.` }, { quien, origen: "censo" });
+        }
         return NextResponse.json({ ok: true, id: fila.id });
     } catch {
         return NextResponse.json({ error: "No se pudo guardar. Probá de nuevo en un momento." }, { status: 503 });

@@ -5,6 +5,8 @@ import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { siglaDeEtapa } from "@/lib/padron-planilla";
+import { cambiarCodigoDeInvitacion, type CodigoCambiado } from "@/lib/censo-codigo";
+import { limpiarChapa } from "@/lib/lote-cambios";
 
 /**
  * Las administraciones del complejo (21/11, Nico: «el complejo se fue construyendo por proyectos
@@ -169,4 +171,84 @@ export async function borrarServicioAdm(id: string): Promise<{ ok: boolean }> {
     const c = await prisma.administracionServicio.delete({ where: { id } }).catch(() => null);
     if (c) await auditar(s, "administraciones.servicio.borrar", c.administracionId, true, c.rubro);
     return { ok: !!c };
+}
+
+
+/* ─────────── Un lote: su gente, sus códigos del censo, sus matrículas y su historial ─────────── */
+
+export type CambioVisto = {
+    id: string; unitId: string; lote: string; cuando: string; que: string;
+    chapa: string | null; persona: string | null; quien: string | null; origen: string; detalle: string | null;
+};
+export type PersonaEnLote = {
+    id: string; nombre: string; email: string | null; telefono: string | null; vinculo: string | null; chapas: string[];
+    /** Su invitación al censo. `clave` viene sólo para quien puede editar el padrón: es una llave. */
+    invitacion: { id: string; clave: string | null; estado: "listo" | "enviado" | "cargo"; enviadoAt: string | null; usadoAt: string | null } | null;
+};
+export type DetalleLote = {
+    id: string; nombre: string; administracion: string | null; titular: string | null; situacion: string | null; edificio: string | null;
+    puedeEditar: boolean; personas: PersonaEnLote[]; cambios: CambioVisto[];
+    /** Desde cuándo se lleva el historial: antes de esa fecha no hay nada que mostrar, y se dice. */
+    auditadoDesde: string | null;
+};
+
+const visto = (c: { id: string; unitId: string; cuando: Date; que: string; chapa: string | null; persona: string | null; quien: string | null; origen: string; detalle: string | null }, lote: string): CambioVisto =>
+    ({ id: c.id, unitId: c.unitId, lote, cuando: c.cuando.toISOString(), que: c.que, chapa: c.chapa, persona: c.persona, quien: c.quien, origen: c.origen, detalle: c.detalle });
+
+export async function detalleLote(unitId: string): Promise<DetalleLote | null> {
+    const s = await sesion("usuarios");
+    const puedeEditar = permisosDeSesion(s).includes("usuarios.editar");
+    const u = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true, name: true, titular: true, situacion: true, edificio: true, administracion: { select: { nombre: true } } } });
+    if (!u) return null;
+    const [gente, cambios, desde] = await Promise.all([
+        prisma.user.findMany({
+            where: { OR: [{ unitId }, { vinculos: { some: { unitId } } }] }, orderBy: { name: "asc" },
+            select: { id: true, name: true, email: true, phone: true, vinculos: { where: { unitId }, select: { vinculo: true } }, vehicles: { select: { plate: true } }, credentials: { where: { type: "PLATE" }, select: { value: true } } },
+        }),
+        prisma.cambioLote.findMany({ where: { unitId }, orderBy: { cuando: "desc" }, take: 300 }),
+        prisma.setting.findUnique({ where: { key: "LOTES_AUDITADOS_DESDE" } }),
+    ]);
+    const invs = gente.length ? await prisma.invitacionCenso.findMany({ where: { sitio: "", OR: [{ userId: { in: gente.map((g) => g.id) } }, { email: { in: gente.map((g) => (g.email || "").trim().toLowerCase()).filter(Boolean) } }] } }) : [];
+    const deQuien = (g: { id: string; email: string | null }) => invs.find((i) => i.userId === g.id) || invs.find((i) => !i.userId && !!g.email && i.email === g.email.trim().toLowerCase()) || null;
+    return {
+        id: u.id, nombre: u.name, administracion: u.administracion?.nombre || null, titular: u.titular, situacion: u.situacion, edificio: u.edificio,
+        puedeEditar, auditadoDesde: desde?.value || null,
+        personas: gente.map((g) => {
+            const i = deQuien(g);
+            return {
+                id: g.id, nombre: g.name, email: g.email, telefono: g.phone, vinculo: g.vinculos[0]?.vinculo || null,
+                chapas: [...new Set([...g.vehicles.map((v) => v.plate), ...g.credentials.map((c) => c.value)].map(limpiarChapa).filter(Boolean))].sort(),
+                invitacion: i ? { id: i.id, clave: puedeEditar ? i.clave : null, estado: i.usadoAt ? "cargo" : i.enviadoAt ? "enviado" : "listo", enviadoAt: i.enviadoAt?.toISOString() || null, usadoAt: i.usadoAt?.toISOString() || null } : null,
+            };
+        }),
+        cambios: cambios.map((c) => visto(c, u.name)),
+    };
+}
+
+/**
+ * Lo último que cambió en los lotes de una administración (o en todos): la respuesta a «¿quién
+ * cambió sus matrículas esta semana?» sin abrir lote por lote.
+ */
+export async function cambiosDeLotes(o: { administracionId?: string; dias?: number } = {}): Promise<{ cambios: CambioVisto[]; auditadoDesde: string | null; hayMas: boolean }> {
+    await sesion("usuarios");
+    const TOPE = 400;
+    const desde = new Date(Date.now() - Math.min(Math.max(o.dias || 30, 1), 366) * 86_400_000);
+    const [filas, marca] = await Promise.all([
+        prisma.cambioLote.findMany({
+            where: { cuando: { gte: desde }, ...(o.administracionId ? { unit: { administracionId: o.administracionId } } : {}) },
+            orderBy: { cuando: "desc" }, take: TOPE + 1, include: { unit: { select: { name: true } } },
+        }),
+        prisma.setting.findUnique({ where: { key: "LOTES_AUDITADOS_DESDE" } }),
+    ]);
+    return { cambios: filas.slice(0, TOPE).map((c) => visto(c, c.unit.name)), auditadoDesde: marca?.value || null, hayMas: filas.length > TOPE };
+}
+
+/** Cambiarle a una persona su código del censo. `clave` vacía pide uno nuevo, generado. */
+export async function cambiarCodigoCenso(invitacionId: string, clave: string | null): Promise<CodigoCambiado> {
+    const s = await sesion("usuarios.editar");
+    const quien = String(s.name || s.sub || "panel");
+    const r = await cambiarCodigoDeInvitacion(String(invitacionId || ""), clave == null || !String(clave).trim() ? null : String(clave), quien);
+    const inv = await prisma.invitacionCenso.findUnique({ where: { id: String(invitacionId || "") }, select: { nombre: true, lote: true } });
+    if (!(r.ok && r.igual)) await auditar(s, "censo.cambiar-codigo", `${inv?.nombre || "sin nombre"} · ${inv?.lote || ""}`, r.ok, r.ok ? (clave ? "puesto a mano" : "generado") : r.error);
+    return r;
 }

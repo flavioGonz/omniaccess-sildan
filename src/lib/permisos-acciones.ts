@@ -40,7 +40,7 @@ export const ACCIONES: Record<string, Archivo> = {
     // cuenta de pendientes es lectura y la resuelve LECTURA (`contar…`).
     censo: { defecto: P("usuarios.editar") },
     // Las administraciones del complejo: verlas es ver el padrón; cargar sus contactos y servicios, editarlo.
-    administraciones: { defecto: P("usuarios"), por: { guardarAdministracion: P("usuarios.editar"), borrarAdministracion: P("usuarios.editar"), guardarContactoAdm: P("usuarios.editar"), borrarContactoAdm: P("usuarios.editar"), guardarServicioAdm: P("usuarios.editar"), borrarServicioAdm: P("usuarios.editar") } },
+    administraciones: { defecto: P("usuarios"), por: { guardarAdministracion: P("usuarios.editar"), borrarAdministracion: P("usuarios.editar"), guardarContactoAdm: P("usuarios.editar"), borrarContactoAdm: P("usuarios.editar"), guardarServicioAdm: P("usuarios.editar"), borrarServicioAdm: P("usuarios.editar"), cambiarCodigoCenso: P("usuarios.editar") } },
     "clips-telegram": { defecto: P("grabaciones") },
     clips: { defecto: P("grabaciones") },
     compartir: { defecto: P("grabaciones") },
