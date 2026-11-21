@@ -619,6 +619,19 @@ function sweepClips() {
 sweepClips();
 setInterval(sweepClips, 60000);
 
+/**
+ * El envío de a poco de las invitaciones del censo (21/11). Cada medio minuto se le pide a la
+ * aplicación una vuelta: manda UNA invitación si toca (está en marcha, en horario y ya pasó la
+ * pausa), y si no, no hace nada. El ritmo y el horario se eligen en el Censo; acá sólo está el
+ * reloj, y vive en este proceso porque es el que manda todo lo demás que sale del sistema. Si el
+ * censo no está en uso, la vuelta contesta «apagado» y listo.
+ */
+setInterval(async () => {
+    const r = await getInternal("/api/censo/invitaciones/goteo").catch(() => null);
+    if (!r || !r.ok) return;
+    try { const j = JSON.parse(r.body); if (j.que === "enviado" || j.que === "fallo" || j.que === "terminado") console.log(`[censo] envío de a poco: ${j.que}${j.error ? ` (${j.error})` : ""}`); } catch { /* respuesta rara: la próxima vuelta dirá */ }
+}, 30000);
+
 worker.on("completed", (j) => console.log(`[dispatch-worker] ✅ completed ${j.id}`));
 worker.on("failed", (j, e) => console.error(`[dispatch-worker] ❌ failed ${j && j.id}: ${e && e.message}`));
 worker.on("error", (e) => console.error(`[dispatch-worker] error: ${e && e.message}`));

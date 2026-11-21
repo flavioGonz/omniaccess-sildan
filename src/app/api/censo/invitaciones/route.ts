@@ -4,14 +4,19 @@ import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { prisma } from "@/lib/prisma";
-import { getAppBranding } from "@/app/actions/settings";
-import { correoDeInvitacion, leerPlanilla, nuevaClave, type FilaPlanilla } from "@/lib/censo-invitaciones";
-import { configCorreo, enviarCorreo, probarCorreo } from "@/lib/correo";
+import { leerPlanilla, nuevaClave, type FilaPlanilla } from "@/lib/censo-invitaciones";
+import { configCorreo, probarCorreo } from "@/lib/correo";
+import { estadoDeGoteo, guardarGoteo, leerGoteoGuardado, mandarInvitacion } from "@/lib/censo-envio";
+import { leerGoteo } from "@/lib/censo-goteo";
 
 export const dynamic = "force-dynamic";
 const SIN_CACHE = { "Cache-Control": "no-store" };
 const PERMISO = "usuarios.editar";
-/** Un envío por vuelta: más que esto no entra en el tiempo de una petición y el servidor de correo corta. */
+/**
+ * Cuántas se pueden mandar «ya», de un saque. Es para reenviarle a alguien o para una tanda de
+ * prueba; el envío de todo el padrón va de a poco (accion «goteo»), que es lo que evita que 490
+ * correos iguales salgan en cinco minutos y terminen en spam.
+ */
 const POR_TANDA = 25;
 
 /**
@@ -19,8 +24,8 @@ const POR_TANDA = 25;
  *
  * GET    — la lista y el resumen.
  * POST   — la planilla (multipart, xlsx o csv): da de alta las invitaciones que faltan.
- * PUT    — { accion: "enviar" | "probar" | "clave" } : mandar la tanda, probar el correo, prender
- *          o apagar la clave por lote.
+ * PUT    — { accion: "goteo" | "enviar" | "probar" | "clave" } : poner en marcha o pausar el envío
+ *          de a poco, mandar unas pocas ya, probar el correo, prender o apagar la clave por lote.
  * DELETE — ?id= : sacar una invitación.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- la sesión es el JWT crudo
@@ -44,6 +49,7 @@ export async function GET() {
         conClave: await conClave(),
         correoListo: !!cfg,
         copiaAdmin: cfg?.copia || "",
+        goteo: await estadoDeGoteo(),
         invitaciones: filas.map((f) => ({
             id: f.id, lote: f.lote, email: f.email, nombre: f.nombre, clave: f.clave,
             enviadoAt: f.enviadoAt?.toISOString() || null, usadoAt: f.usadoAt?.toISOString() || null,
@@ -123,26 +129,41 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ conClave: valor }, { headers: SIN_CACHE });
     }
 
+    /* La dirección pública de este sitio, como la ve quien está en el panel: con ella se arman los enlaces. */
+    const origen = req.nextUrl.origin.replace(/^http:/, req.headers.get("x-forwarded-proto") === "https" ? "https:" : "http:");
+
+    if (b?.accion === "goteo") {
+        const antes = await leerGoteoGuardado();
+        const pedido = leerGoteo({ ...antes, ...(typeof b?.cadaSeg === "number" ? { cadaSeg: b.cadaSeg } : {}), ...(typeof b?.desde === "number" ? { desde: b.desde } : {}), ...(typeof b?.hasta === "number" ? { hasta: b.hasta } : {}) });
+        const activo = typeof b?.activo === "boolean" ? b.activo : antes.activo;
+        if (activo && !(await configCorreo())) return NextResponse.json({ error: "Falta configurar el servidor de correo (Ajustes → Correo)." }, { status: 400 });
+        /* Al ponerlo en marcha se empieza de cero: sin fallas arrastradas, sin motivo viejo, y el
+           primero sale en la próxima vuelta. Al pausarlo queda dicho quién lo pausó. */
+        const nuevo = activo && !antes.activo ? { ...pedido, activo: true, fallas: 0, motivo: null, proximo: null, origen }
+            : !activo && antes.activo ? { ...pedido, activo: false, proximo: null, motivo: `Pausado por ${q.quien}.` }
+                : { ...pedido, activo, origen: antes.origen || origen };
+        await guardarGoteo(nuevo);
+        if (activo !== antes.activo) await auditar(q.sesion, activo ? "censo.envio-de-a-poco.empezar" : "censo.envio-de-a-poco.pausar", `uno cada ${nuevo.cadaSeg} s, de ${nuevo.desde} a ${nuevo.hasta} h`, true, "");
+        return NextResponse.json({ goteo: await estadoDeGoteo() }, { headers: SIN_CACHE });
+    }
+
     if (b?.accion === "enviar") {
         const cfg = await configCorreo();
         if (!cfg) return NextResponse.json({ error: "Falta configurar el servidor de correo (Ajustes → Correo)." }, { status: 400 });
         const ids: string[] = Array.isArray(b?.ids) ? b.ids.slice(0, POR_TANDA) : [];
         const where = ids.length ? { id: { in: ids } } : { enviadoAt: null };
+        /* Sin elegir cuáles, «enviar» son todas las que faltan — y si son más que una tanda, eso es
+           un envío masivo: va de a poco o no va. */
+        if (!ids.length && (await prisma.invitacionCenso.count({ where })) > POR_TANDA) {
+            return NextResponse.json({ error: `Son más de ${POR_TANDA}: mandarlas todas juntas es la forma de terminar en spam. Usá el envío de a poco.` }, { status: 400 });
+        }
         const pendientes = await prisma.invitacionCenso.findMany({ where, orderBy: { lote: "asc" }, take: POR_TANDA });
         if (!pendientes.length) return NextResponse.json({ mandados: 0, fallados: 0, quedan: 0 }, { headers: SIN_CACHE });
 
-        const marca = await getAppBranding();
-        const origen = req.nextUrl.origin.replace(/^http:/, req.headers.get("x-forwarded-proto") === "https" ? "https:" : "http:");
         let mandados = 0, fallados = 0;
         for (const inv of pendientes) {
-            const { asunto, texto, html } = correoDeInvitacion({
-                barrio: marca.barrio || marca.name, lote: inv.lote, nombre: inv.nombre || undefined,
-                lotes: (Array.isArray(inv.lotes) ? (inv.lotes as { nombre?: unknown }[]) : []).map((l) => String(l?.nombre || "")).filter(Boolean),
-                clave: inv.clave, url: `${origen}/registro/${inv.clave}`,
-            });
-            const r = await enviarCorreo({ para: inv.email, asunto, texto, html });
-            if (r.ok) { mandados++; await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { enviadoAt: new Date(), intentos: { increment: 1 }, error: null } }); }
-            else { fallados++; await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { intentos: { increment: 1 }, error: r.error || "no se pudo" } }); }
+            const r = await mandarInvitacion(inv, origen);
+            if (r.ok) mandados++; else fallados++;
         }
         const quedan = await prisma.invitacionCenso.count({ where: { enviadoAt: null } });
         await auditar(q.sesion, "censo.enviar-invitaciones", `${pendientes.length} lotes`, mandados > 0, `${mandados} mandados, ${fallados} fallados, quedan ${quedan}`);

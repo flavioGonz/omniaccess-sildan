@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Clock, Download, Loader2, Mail, Send, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Check, Clock, Download, Loader2, Mail, Pause, Play, Send, Timer, Trash2, Upload } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Chip, Cargando, ErrorEstado } from "@/components/ui/estados";
-import { fechaHora } from "@/lib/fechas";
+import { diaSemana, fechaHora, hora } from "@/lib/fechas";
+import { RITMOS } from "@/lib/censo-goteo";
+import type { EstadoGoteo } from "@/lib/censo-envio";
 import { cn } from "@/lib/utils";
 
 /**
@@ -29,7 +31,7 @@ type Invitacion = {
     id: string; lote: string; email: string; nombre: string; clave: string;
     enviadoAt: string | null; usadoAt: string | null; intentos: number; error: string | null;
 };
-type Datos = { conClave: boolean; correoListo: boolean; copiaAdmin: string; invitaciones: Invitacion[] };
+type Datos = { conClave: boolean; correoListo: boolean; copiaAdmin: string; invitaciones: Invitacion[]; goteo: EstadoGoteo };
 
 export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alCerrar: () => void }) {
     const [d, setD] = useState<Datos | null>(null);
@@ -48,6 +50,25 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
         } catch (e) { setError(e instanceof Error ? e.message : "No se pudo traer"); }
     }, []);
     useEffect(() => { if (abierto) { setD(null); traer(); } }, [abierto, traer]);
+    /* Mientras el envío de a poco está en marcha, la lista se pone al día sola: es un proceso de
+       horas y quien lo mira quiere ver que avanza sin apretar nada. */
+    const enMarcha = !!d?.goteo.activo;
+    useEffect(() => { if (!abierto || !enMarcha) return; const iv = setInterval(traer, 15_000); return () => clearInterval(iv); }, [abierto, enMarcha, traer]);
+
+    const [cambiandoGoteo, setCambiandoGoteo] = useState(false);
+    /** Pone en marcha, pausa o cambia el ritmo y el horario del envío de a poco. */
+    async function goteo(cambio: { activo?: boolean; cadaSeg?: number; desde?: number; hasta?: number }) {
+        setCambiandoGoteo(true);
+        try {
+            const r = await fetch("/api/censo/invitaciones", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ accion: "goteo", ...cambio }) });
+            const j = await r.json();
+            if (!r.ok) { toast.error({ title: "No se pudo", description: j?.error }); return; }
+            setD((v) => (v ? { ...v, goteo: j.goteo } : v));
+            if (cambio.activo === true) toast.success({ title: "Envío en marcha", description: j.goteo.enHorario ? "Sale la primera en menos de un minuto. Podés cerrar esta ventana: sigue solo." : `Fuera de horario: arranca a las ${j.goteo.desde} h. Podés cerrar esta ventana: sigue solo.` });
+            if (cambio.activo === false) toast.success({ title: "Envío en pausa", description: "Las que faltan quedan sin enviar hasta que lo vuelvas a poner en marcha." });
+        } catch { toast.error({ title: "No se pudo" }); }
+        finally { setCambiandoGoteo(false); }
+    }
 
     async function importar(f: File) {
         setSubiendo(true); setAvisos([]);
@@ -66,8 +87,8 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
         finally { setSubiendo(false); if (archivo.current) archivo.current.value = ""; }
     }
 
-    /** Manda tanda tras tanda hasta que no queda ninguno: el servidor manda 25 por vuelta. */
-    async function enviar(ids?: string[]) {
+    /** Manda YA las elegidas (el «Enviar» o «Reenviar» de un renglón). Todo el padrón va de a poco, con `goteo`. */
+    async function enviar(ids: string[]) {
         setMandando(true);
         try {
             let total = 0, fallados = 0;
@@ -120,10 +141,17 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                         <Button variant="outline" onClick={() => archivo.current?.click()} disabled={subiendo}>
                             {subiendo ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Cargar planilla
                         </Button>
-                        <Button onClick={() => enviar()} disabled={mandando || !pendientes || !d.correoListo}>
-                            {mandando ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                            Enviar {pendientes || ""}
-                        </Button>
+                        {/* Mandar todo junto ya no se ofrece: 490 correos iguales en cinco minutos es como
+                            se llega a spam. Lo que hay es ponerlo en marcha y que salga de a uno. */}
+                        {d.goteo.activo ? (
+                            <Button variant="outline" onClick={() => goteo({ activo: false })} disabled={cambiandoGoteo}>
+                                {cambiandoGoteo ? <Loader2 size={14} className="animate-spin" /> : <Pause size={14} />} Pausar el envío
+                            </Button>
+                        ) : (
+                            <Button onClick={() => goteo({ activo: true })} disabled={cambiandoGoteo || !d.goteo.pendientes || !d.correoListo}>
+                                {cambiandoGoteo ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} Enviar de a poco {d.goteo.pendientes || ""}
+                            </Button>
+                        )}
                     </>
                 ) : undefined}>
 
@@ -165,6 +193,53 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                                 : "Sin copia a la administración: cargala en Ajustes → Correo para tener la constancia del envío."}
                                         </p>
                                     )}
+                                </CajonSeccion>
+
+                                <CajonSeccion titulo="Envío de a poco" icono={Timer} compacta
+                                    ayuda="Las invitaciones salen de a una, con una pausa que no es siempre igual, dentro del horario, y en un orden mezclado. Mandarlas todas juntas es la forma de que el correo las tome por propaganda. Si tres seguidas fallan, se frena solo.">
+                                    {(() => {
+                                        const g = d.goteo;
+                                        const enviadas = d.invitaciones.length - pendientes;
+                                        const termina = g.terminaAt ? `${diaSemana(g.terminaAt)} a las ${hora(g.terminaAt)}` : null;
+                                        const SELECTOR = "h-8 rounded-[6px] border border-border bg-background px-2 text-[12.5px] font-semibold disabled:opacity-60";
+                                        return (
+                                            <>
+                                                <div className={cn("rounded-[10px] border p-3.5", g.activo ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_7%,transparent)]" : "border-border")}>
+                                                    <p className="flex items-center gap-2 text-[13.5px] font-bold">
+                                                        <span className={cn("h-2 w-2 shrink-0 rounded-full", g.activo ? (g.enHorario ? "bg-[var(--bien)] animate-pulse" : "bg-[var(--aviso)]") : "bg-muted-foreground/40")} />
+                                                        {g.activo ? (g.enHorario ? "Enviando" : `En marcha, esperando a las ${g.desde} h`) : g.pendientes ? "Sin empezar" : "No queda ninguna por enviar"}
+                                                        <span className="ml-auto text-[12px] font-semibold tabular-nums text-muted-foreground">{enviadas} de {d.invitaciones.length}</span>
+                                                    </p>
+                                                    <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full bg-[var(--accion)] transition-[width] duration-500" style={{ width: `${d.invitaciones.length ? (enviadas / d.invitaciones.length) * 100 : 0}%` }} /></div>
+                                                    {g.pendientes > 0 && termina && (
+                                                        <p className="mt-2 text-[12px] leading-snug text-muted-foreground">
+                                                            {g.activo ? "A este ritmo termina el " : "Si lo ponés en marcha ahora, termina el "}<span className="font-semibold text-foreground">{termina}</span>.
+                                                            {g.activo && g.proximo && g.enHorario && <> La próxima sale a las {hora(g.proximo)}.</>}
+                                                        </p>
+                                                    )}
+                                                    {g.motivo && <p className={cn("mt-2 text-[12px] leading-snug", /fren|fallaron|No se sabe/.test(g.motivo) ? "tono-mal font-semibold" : "text-muted-foreground")}>{g.motivo}</p>}
+                                                    {g.conError > 0 && <p className="mt-1 text-[12px] tono-aviso">{g.conError} {g.conError === 1 ? "se intentó tres veces y no salió: no se vuelve" : "se intentaron tres veces y no salieron: no se vuelven"} a intentar sola{g.conError === 1 ? "" : "s"}. Corregí el correo y usá «Enviar» en su renglón.</p>}
+                                                </div>
+                                                <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px]">
+                                                    <label className="flex items-center gap-2">Ritmo
+                                                        <select value={g.cadaSeg} disabled={cambiandoGoteo} onChange={(e) => goteo({ cadaSeg: Number(e.target.value) })} className={SELECTOR}>
+                                                            {RITMOS.map((r) => <option key={r.seg} value={r.seg}>{r.rotulo}</option>)}
+                                                            {!RITMOS.some((r) => r.seg === g.cadaSeg) && <option value={g.cadaSeg}>Uno cada {g.cadaSeg} s</option>}
+                                                        </select>
+                                                    </label>
+                                                    <label className="flex items-center gap-2">De
+                                                        <select value={g.desde} disabled={cambiandoGoteo} onChange={(e) => goteo({ desde: Number(e.target.value) })} className={SELECTOR}>
+                                                            {Array.from({ length: 24 }, (_, h) => h).filter((h) => h < g.hasta).map((h) => <option key={h} value={h}>{h} h</option>)}
+                                                        </select>
+                                                        a
+                                                        <select value={g.hasta} disabled={cambiandoGoteo} onChange={(e) => goteo({ hasta: Number(e.target.value) })} className={SELECTOR}>
+                                                            {Array.from({ length: 24 }, (_, h) => h + 1).filter((h) => h > g.desde).map((h) => <option key={h} value={h}>{h} h</option>)}
+                                                        </select>
+                                                    </label>
+                                                </div>
+                                            </>
+                                        );
+                                    })()}
                                 </CajonSeccion>
 
                                 {avisos.length > 0 && (
