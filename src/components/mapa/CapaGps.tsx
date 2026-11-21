@@ -69,12 +69,19 @@ function icono(r: Rastreador): L.DivIcon {
     /* La flecha de rumbo va AFUERA del círculo y sólo si se está moviendo: un vehículo quieto no
        tiene rumbo, y el que informa el equipo parado es el último que tuvo. */
     const flecha = andando
-        ? `<div style="position:absolute;inset:-9px;transform:rotate(${r.rumbo || 0}deg);pointer-events:none"><div style="margin:0 auto;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid ${c}"></div></div>`
+        ? `<div class="gps-rumbo" style="position:absolute;inset:-9px;transform:rotate(${r.rumbo || 0}deg);transition:transform .6s linear;pointer-events:none"><div style="margin:0 auto;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid ${c}"></div></div>`
+        : "";
+    /* La velocidad, encima, sólo si se está moviendo. El NÚMERO no se escribe acá para siempre:
+       el ícono no se rehace con cada cambio de velocidad (parpadearía), así que `MarcadorGps`
+       busca `.gps-vel-n` y lo va llevando de un valor al otro. */
+    const cartel = andando
+        ? `<div class="gps-vel" style="position:absolute;left:50%;bottom:calc(100% + 13px);padding:2px 9px;border-radius:999px;background:#0a0e14;color:#fff;border:2px solid ${c};box-shadow:0 2px 8px rgba(0,0,0,.45);font:800 13px/17px Outfit,system-ui,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none"><span class="gps-vel-n">${r.velocidad || 0}</span><span style="font-weight:600;font-size:10px;opacity:.75"> km/h</span></div>`
         : "";
     return L.divIcon({
         className: "bg-transparent border-0",
         html: `<div style="display:flex;flex-direction:column;align-items:center;gap:3px">
             <div style="position:relative;width:36px;height:36px">
+                ${cartel}
                 ${flecha}
                 <div style="width:36px;height:36px;border-radius:50%;background:${c};border:3px solid ${r.cortado ? ROJO : "#fff"};box-shadow:0 2px 8px rgba(0,0,0,.45);display:grid;place-items:center">${trazo(dibujo.svg)}</div>
             </div>
@@ -376,6 +383,14 @@ export function CapaGps() {
             {/* El menú y el panel van afuera del mapa (portal): adentro, Leaflet les roba los clics. */}
             {typeof document !== "undefined" && createPortal(
                 <>
+                    {/* El cartel de velocidad entra de abajo cuando el vehículo arranca. Va con transform
+                        propio (translateX(-50%) para centrarlo) dentro de la animación, y se apaga
+                        con «reducir movimiento». */}
+                    <style>{`
+                        .gps-vel { transform: translateX(-50%); animation: gps-vel-entra .32s cubic-bezier(.2,.9,.3,1.2) both; }
+                        @keyframes gps-vel-entra { from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(.85); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
+                        @media (prefers-reduced-motion: reduce) { .gps-vel { animation: none; } }
+                    `}</style>
                     {menu && delMenu && (
                         <div className="fixed z-[600] bg-popover border border-border rounded-lg shadow-xl py-1 text-xs min-w-[230px]" style={{ left: menu.x, top: menu.y }}
                             onClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
@@ -631,6 +646,8 @@ const ROTULO_EVENTO: Record<string, string> = {
 const SALTO_MAX_M = 1500;
 /** Cuánto tarda en deslizarse entre dos posiciones: lo que tarda en llegar la siguiente andando. */
 const DESLIZ_MS = 10_000;
+/** Cuánto tarda el número de la velocidad en llegar al valor nuevo. */
+const CUENTA_MS = 900;
 
 /**
  * El marcador de un rastreador, que SE DESLIZA de una posición a la siguiente en vez de saltar.
@@ -685,8 +702,60 @@ function MarcadorGps({ r, seguir, eventHandlers, children }: { r: Rastreador; se
 
     /* El ícono sólo se rehace cuando cambia algo que se ve: si se rehiciera en cada refresco, el
        dibujo parpadearía en medio del deslizamiento. */
-    const tono = tonoDe(r), andando = (r.velocidad || 0) > 3, rumbo = Math.round((r.rumbo || 0) / 10) * 10;
+    const tono = tonoDe(r), andando = (r.velocidad || 0) > 3;
+    /* Ni el rumbo ni la velocidad rehacen el ícono: cambian con cada posición, y rehacerlo es
+       cambiar el elemento entero — el cartel de la velocidad volvería a «entrar» cada diez
+       segundos. Los dos se actualizan sobre el elemento que ya está (más abajo). */
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `icono(r)` sólo depende de lo listado
-    const ic = useMemo(() => icono(r), [tono, andando, rumbo, r.icono, r.nombre, r.matricula, r.cortado]);
+    const ic = useMemo(() => icono(r), [tono, andando, r.icono, r.nombre, r.matricula, r.cortado]);
+
+    /* La flecha gira hasta el rumbo nuevo por el camino corto: de 350° a 10° son 20° hacia
+       adelante, no 340° hacia atrás. Por eso se acumula el ángulo en vez de asignarlo. */
+    const angulo = useRef(r.rumbo || 0);
+    const iconoVisto = useRef<L.DivIcon | null>(null);
+    useEffect(() => {
+        const el = ref.current?.getElement()?.querySelector<HTMLElement>(".gps-rumbo");
+        const nuevo = r.rumbo || 0;
+        angulo.current += ((nuevo - (((angulo.current % 360) + 360) % 360) + 540) % 360) - 180;
+        if (!el) return;
+        /* Un ícono recién hecho nace apuntando a `rumbo` (entre 0 y 359) y el acumulado puede ser
+           370: animar de uno al otro sería una vuelta entera de la flecha. La primera vez se
+           pone sin transición. */
+        if (iconoVisto.current !== ic) {
+            iconoVisto.current = ic;
+            el.style.transition = "none";
+            el.style.transform = `rotate(${angulo.current}deg)`;
+            requestAnimationFrame(() => { el.style.transition = "transform .6s linear"; });
+            return;
+        }
+        el.style.transform = `rotate(${angulo.current}deg)`;
+    }, [r.rumbo, ic]);
+
+    /* El número de la velocidad sube o baja hasta el valor nuevo en vez de cambiar de golpe: de 42
+       a 67 pasando por los del medio, que es lo que hace un velocímetro. Se escribe en el DOM del
+       marcador directamente, por lo mismo que la posición. Depende también de `ic`: cuando el
+       ícono se rehace, el elemento es otro y hay que volver a ponerle el número. */
+    const mostrada = useRef(r.velocidad || 0);
+    const cuadroVel = useRef<number | null>(null);
+    useEffect(() => {
+        const el = ref.current?.getElement()?.querySelector<HTMLElement>(".gps-vel-n");
+        const a = r.velocidad || 0;
+        if (cuadroVel.current) cancelAnimationFrame(cuadroVel.current);
+        if (!el) { mostrada.current = a; return; }
+        const de = mostrada.current;
+        const quieto = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        if (de === a || quieto) { el.textContent = String(a); mostrada.current = a; return; }
+        const t0 = performance.now();
+        const paso = (t: number) => {
+            const k = Math.min(1, (t - t0) / CUENTA_MS);
+            /* Frena al llegar (ease-out): arranca rápido y se asienta en el valor, sin rebote. */
+            const v = Math.round(de + (a - de) * (1 - Math.pow(1 - k, 3)));
+            el.textContent = String(v); mostrada.current = v;
+            if (k < 1) cuadroVel.current = requestAnimationFrame(paso);
+        };
+        cuadroVel.current = requestAnimationFrame(paso);
+        return () => { if (cuadroVel.current) cancelAnimationFrame(cuadroVel.current); };
+    }, [r.velocidad, ic]);
+
     return <Marker ref={ref} position={inicial} icon={ic} zIndexOffset={1500} eventHandlers={eventHandlers}>{children}</Marker>;
 }
