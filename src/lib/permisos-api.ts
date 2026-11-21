@@ -71,6 +71,8 @@ export const RUTAS_API: [RegExp, ClaseApi][] = [
     [/^\/api\/users\/[^/]+\/face$/, P("usuarios.editar")],
     // La bandeja del censo: aprobar una carga da de alta un residente y sus matrículas.
     [/^\/api\/censo$/, P("usuarios.editar")],
+    // La planilla del padrón: crea lotes, personas y códigos del censo.
+    [/^\/api\/administraciones\/padron$/, P("usuarios.editar")],
     // Las invitaciones: cargar la planilla y mandar los correos con la clave de cada lote.
     [/^\/api\/censo\/invitaciones$/, P("usuarios.editar")],
     // La planilla en blanco para que la administración complete: mismo permiso que importarla.

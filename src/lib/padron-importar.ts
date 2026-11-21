@@ -1,0 +1,205 @@
+import ExcelJS from "exceljs";
+import { prisma } from "@/lib/prisma";
+import { nuevaClave } from "@/lib/censo-invitaciones";
+import { codigoDeNombreViejo, compartenNombre, leerPadron, mismoNombre, type Padron } from "@/lib/padron-planilla";
+
+/**
+ * Llevar la planilla del padrón a la base (21/11, Nico: «tomar esa info y crear los lotes,
+ * verificar lo que ya tenemos cargado, no borrar nada, crear los usuarios faltantes, actualizar»).
+ *
+ * Las reglas, que son promesas:
+ *
+ *  · **No borra nada.** Ni un lote, ni una persona, ni una invitación. Lo que está en la base y ya
+ *    no figura en la planilla se INFORMA, y lo decide una persona.
+ *  · **Se puede correr de nuevo.** La planilla va a tener una v9: volver a importarla actualiza lo
+ *    que cambió y crea lo que falta. Un lote es su administración y su código; una persona es su
+ *    correo.
+ *  · **Una clave ya creada no cambia nunca.** Si el correo con la clave ya salió, cambiarla deja
+ *    afuera a quien lo recibió.
+ *  · **Lo que alguien escribió a mano no se pisa**: el nombre de una persona que ya existía, la
+ *    descripción de un lote que ya la tenía, el lote principal de alguien que ya tenía uno.
+ *  · **No manda correos.** Deja las invitaciones listas; mandarlas es otro paso, que hace una
+ *    persona desde el Censo.
+ *
+ * Con `simulacro` hace todo el recorrido y no escribe: devuelve el mismo informe que devolvería al
+ * aplicar. Es lo que se mira antes de tocar el padrón de cuatrocientas familias.
+ */
+
+export type InformePadron = {
+    simulacro: boolean;
+    administraciones: { nuevas: number; total: number };
+    lotes: { nuevos: number; actualizados: number; iguales: number; adoptados: string[] };
+    personas: { nuevas: number; reconocidas: number; completadas: number };
+    vinculos: { nuevos: number; cambiados: number };
+    invitaciones: { nuevas: number; actualizadas: number; iguales: number };
+    /** Lo que la base tiene y la planilla no: se informa, no se toca. */
+    fueraDeLaPlanilla: { lotes: string[]; invitaciones: number };
+    porAdministracion: { sigla: string; nombre: string; lotes: number; terrenos: number; conPersonas: number; personas: number }[];
+    avisos: string[];
+};
+
+/** Las dos hojas que valen, como listas de filas. Se buscan por nombre; el orden de las hojas cambia entre versiones. */
+export async function hojasDelPadron(buf: Buffer | ArrayBuffer): Promise<{ lotes: unknown[][]; envios: unknown[][]; hojas: string[] }> {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf as ArrayBuffer);
+    const filasDe = (hoja: ExcelJS.Worksheet | undefined): unknown[][] => {
+        const out: unknown[][] = [];
+        hoja?.eachRow((fila) => {
+            const vals = Array.isArray(fila.values) ? fila.values.slice(1) : [];
+            /* Una celda con hipervínculo o con fórmula viene como objeto: lo que vale es su texto o su resultado. */
+            out.push(vals.map((v) => (v && typeof v === "object" && !(v instanceof Date) ? ((v as { text?: unknown; result?: unknown }).text ?? (v as { result?: unknown }).result ?? "") : v)));
+        });
+        return out;
+    };
+    const por = (re: RegExp) => wb.worksheets.find((h) => re.test(h.name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()));
+    return { lotes: filasDe(por(/^buscar lote/)), envios: filasDe(por(/^envio de codigos/)), hojas: wb.worksheets.map((h) => h.name) };
+}
+
+export async function importarPadronDesdeLibro(buf: Buffer | ArrayBuffer, o: { simulacro: boolean; quien: string }): Promise<InformePadron> {
+    const h = await hojasDelPadron(buf);
+    return importarPadron(leerPadron(h), o);
+}
+
+export async function importarPadron(padron: Padron, o: { simulacro: boolean; quien: string }): Promise<InformePadron> {
+    const escribir = !o.simulacro;
+    const inf: InformePadron = {
+        simulacro: o.simulacro,
+        administraciones: { nuevas: 0, total: 0 },
+        lotes: { nuevos: 0, actualizados: 0, iguales: 0, adoptados: [] },
+        personas: { nuevas: 0, reconocidas: 0, completadas: 0 },
+        vinculos: { nuevos: 0, cambiados: 0 },
+        invitaciones: { nuevas: 0, actualizadas: 0, iguales: 0 },
+        fueraDeLaPlanilla: { lotes: [], invitaciones: 0 },
+        porAdministracion: [],
+        avisos: [...padron.avisos],
+    };
+
+    // ── Las administraciones ──
+    const admins = await prisma.administracion.findMany();
+    const adminDe = new Map(admins.map((a) => [a.sigla, a.id]));
+    for (const a of padron.administraciones) {
+        if (adminDe.has(a.sigla)) continue;
+        inf.administraciones.nuevas++;
+        /* En el simulacro no hay id: se usa uno de mentira para seguir el recorrido. */
+        adminDe.set(a.sigla, escribir ? (await prisma.administracion.create({ data: { nombre: a.nombre, sigla: a.sigla, orden: a.orden }, select: { id: true } })).id : `simulacro:${a.sigla}`);
+    }
+    inf.administraciones.total = adminDe.size;
+
+    // ── Los lotes ──
+    const unidades = await prisma.unit.findMany({ select: { id: true, name: true, lot: true, description: true, administracionId: true, manzana: true, solar: true, subunidad: true, edificio: true, areaM2: true, titular: true, situacion: true, type: true, users: { select: { name: true } } } });
+    const siglaDe = new Map([...adminDe].map(([sigla, id]) => [id, sigla]));
+    const unidadDe = new Map<string, string>();            // «sigla|código» → id de la unidad
+    const ya = new Map(unidades.filter((u) => u.administracionId && u.lot).map((u) => [`${siglaDe.get(u.administracionId!)}|${u.lot}`, u]));
+    const enPlanilla = new Set(padron.lotes.map((l) => `${l.sigla}|${l.codigo}`));
+
+    /* Lo que estaba cargado antes de que existieran las administraciones («L1», «J11»): se busca
+       cuál de los lotes de la planilla es. El código solo no alcanza —«L 1» está en dos etapas—,
+       así que decide la gente: el lote cuyos titulares o contactos comparten apellido con quienes
+       viven en esa unidad. Si no se puede decidir, la unidad queda como está y se avisa. */
+    const personasDeLote = new Map<string, string[]>();
+    for (const p of padron.personas) for (const v of p.vinculos) { const k = `${v.sigla}|${v.codigo}`; personasDeLote.set(k, [...(personasDeLote.get(k) || []), p.nombre]); }
+    const adoptar = new Map<string, (typeof unidades)[number]>();
+    for (const u of unidades.filter((x) => !x.administracionId)) {
+        const codigo = codigoDeNombreViejo(u.name);
+        if (!codigo) continue;
+        const candidatos = padron.lotes.filter((l) => l.codigo === codigo && !ya.has(`${l.sigla}|${l.codigo}`) && !adoptar.has(`${l.sigla}|${l.codigo}`));
+        if (!candidatos.length) continue;
+        const gente = u.users.map((x) => x.name).join(" ");
+        const porGente = candidatos.filter((l) => compartenNombre(gente, [l.titular, ...(personasDeLote.get(`${l.sigla}|${l.codigo}`) || [])].join(" ")));
+        const elegido = porGente.length === 1 ? porGente[0] : candidatos.length === 1 ? candidatos[0] : null;
+        if (!elegido) { inf.avisos.push(`La unidad «${u.name}», que ya estaba cargada, puede ser ${candidatos.map((l) => l.nombre).join(" o ")}: no se pudo decidir cuál por quienes viven ahí. Quedó como estaba.`); continue; }
+        adoptar.set(`${elegido.sigla}|${elegido.codigo}`, u);
+        inf.lotes.adoptados.push(`${u.name} → ${elegido.nombre}`);
+    }
+
+    for (const l of padron.lotes) {
+        const clave = `${l.sigla}|${l.codigo}`;
+        const administracionId = adminDe.get(l.sigla)!;
+        const datos = { name: l.nombre, lot: l.codigo, administracionId, manzana: l.manzana, solar: l.solar, subunidad: l.subunidad, edificio: l.edificio, areaM2: l.areaM2, titular: l.titular, situacion: l.situacion };
+        const u = ya.get(clave) || adoptar.get(clave);
+        if (!u) {
+            inf.lotes.nuevos++;
+            unidadDe.set(clave, escribir ? (await prisma.unit.create({ data: { ...datos, type: "CASA", description: l.observaciones }, select: { id: true } })).id : `simulacro:${clave}`);
+            continue;
+        }
+        unidadDe.set(clave, u.id);
+        const cambia = (Object.keys(datos) as (keyof typeof datos)[]).some((k) => (u[k] ?? null) !== (datos[k] ?? null));
+        /* La descripción sólo se completa si estaba vacía: lo que alguien escribió ahí no se pisa. */
+        const conDescripcion = !u.description?.trim() && l.observaciones ? { description: l.observaciones } : {};
+        if (!cambia && !Object.keys(conDescripcion).length) { inf.lotes.iguales++; continue; }
+        inf.lotes.actualizados++;
+        if (escribir) await prisma.unit.update({ where: { id: u.id }, data: { ...datos, ...conDescripcion } });
+    }
+    inf.fueraDeLaPlanilla.lotes = unidades.filter((u) => u.administracionId && u.lot && !enPlanilla.has(`${siglaDe.get(u.administracionId)}|${u.lot}`)).map((u) => u.name);
+
+    // ── Las personas ──
+    const usuarios = await prisma.user.findMany({ select: { id: true, name: true, email: true, unitId: true, role: true } });
+    const porCorreo = new Map(usuarios.filter((u) => u.email?.trim()).map((u) => [u.email!.trim().toLowerCase(), u]));
+    const vinculosYa = new Map((await prisma.userUnidad.findMany({ select: { id: true, userId: true, unitId: true, vinculo: true } })).map((v) => [`${v.userId}|${v.unitId}`, v]));
+    const invitaciones = new Map((await prisma.invitacionCenso.findMany({ where: { sitio: "" } })).map((i) => [i.email.toLowerCase(), i]));
+    const clavesUsadas = new Set([...invitaciones.values()].map((i) => i.clave));
+    const tomados = new Set<string>();
+
+    for (const p of padron.personas) {
+        const suyos = p.vinculos.map((v) => ({ ...v, unitId: unidadDe.get(`${v.sigla}|${v.codigo}`)!, nombre: `${v.codigo} (${v.sigla})` })).filter((v) => v.unitId);
+        if (!suyos.length) continue;
+        const nombre = p.nombre || p.email;
+
+        /* ¿Ya está? Por el correo; si no, por el nombre escrito igual entre los residentes que no
+           tienen correo (los que se cargaron a mano antes del censo). Con dos que se llaman igual
+           no se elige: se crea aparte y se avisa. */
+        let u = porCorreo.get(p.email) || null;
+        if (!u && p.nombre) {
+            const iguales = usuarios.filter((x) => !x.email?.trim() && x.role === "RESIDENT" && !tomados.has(x.id) && mismoNombre(x.name, p.nombre));
+            if (iguales.length === 1) u = iguales[0];
+            else if (iguales.length > 1) inf.avisos.push(`Hay ${iguales.length} residentes sin correo que se llaman igual que un contacto de ${suyos[0].nombre}: no se eligió ninguno y se creó la persona aparte.`);
+        }
+        let userId: string;
+        if (u) {
+            tomados.add(u.id); userId = u.id;
+            inf.personas.reconocidas++;
+            const completar = { ...(!u.email?.trim() ? { email: p.email } : {}), ...(!u.unitId ? { unitId: suyos[0].unitId } : {}) };
+            if (Object.keys(completar).length) { inf.personas.completadas++; if (escribir) await prisma.user.update({ where: { id: u.id }, data: completar }); }
+        } else {
+            inf.personas.nuevas++;
+            userId = escribir
+                ? (await prisma.user.create({ data: { name: nombre, email: p.email, role: "RESIDENT", unitId: suyos[0].unitId, createdBy: `padrón (${o.quien})`, observations: p.observaciones }, select: { id: true } })).id
+                : `simulacro:${p.email}`;
+        }
+
+        for (const v of suyos) {
+            const hay = vinculosYa.get(`${userId}|${v.unitId}`);
+            if (!hay) { inf.vinculos.nuevos++; if (escribir) await prisma.userUnidad.create({ data: { userId, unitId: v.unitId, vinculo: v.vinculo } }); }
+            else if (hay.vinculo !== v.vinculo) { inf.vinculos.cambiados++; if (escribir) await prisma.userUnidad.update({ where: { id: hay.id }, data: { vinculo: v.vinculo } }); }
+        }
+
+        // ── Su invitación: una por persona, con todos sus lotes ──
+        const lotes = suyos.map((v) => ({ unitId: v.unitId, nombre: v.nombre, vinculo: v.vinculo }));
+        const rotulo = lotes.map((x) => x.nombre).join(", ");
+        const inv = invitaciones.get(p.email);
+        if (!inv) {
+            inf.invitaciones.nuevas++;
+            if (escribir) {
+                let clave = nuevaClave();
+                while (clavesUsadas.has(clave)) clave = nuevaClave();
+                clavesUsadas.add(clave);
+                await prisma.invitacionCenso.create({ data: { sitio: "", email: p.email, nombre: p.nombre, lote: rotulo, lotes, userId, clave } });
+            }
+        } else if (inv.lote !== rotulo || inv.nombre !== p.nombre || inv.userId !== userId || JSON.stringify(inv.lotes) !== JSON.stringify(lotes)) {
+            /* La clave y si ya se mandó NO se tocan. */
+            inf.invitaciones.actualizadas++;
+            if (escribir) await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { nombre: p.nombre, lote: rotulo, lotes, userId } });
+        } else inf.invitaciones.iguales++;
+    }
+    const correos = new Set(padron.personas.map((p) => p.email));
+    inf.fueraDeLaPlanilla.invitaciones = [...invitaciones.keys()].filter((e) => !correos.has(e)).length;
+
+    // ── El resumen por administración, de la planilla ──
+    for (const a of padron.administraciones) {
+        const suyos = padron.lotes.filter((l) => l.sigla === a.sigla);
+        const gente = padron.personas.filter((p) => p.vinculos.some((v) => v.sigla === a.sigla));
+        const conGente = new Set(gente.flatMap((p) => p.vinculos.filter((v) => v.sigla === a.sigla).map((v) => v.codigo)));
+        inf.porAdministracion.push({ sigla: a.sigla, nombre: a.nombre, lotes: suyos.length, terrenos: suyos.filter((l) => l.situacion === "TERRENO").length, conPersonas: conGente.size, personas: gente.length });
+    }
+    return inf;
+}

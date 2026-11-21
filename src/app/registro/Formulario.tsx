@@ -77,13 +77,16 @@ const CLAVE = "oa.censo.borrador";
 export function Formulario({ centro, invitacion }: {
     centro: [number, number];
     /** Cuando se entró por el enlace del correo: el lote y el correo los pone la invitación. */
-    invitacion?: { clave: string; lote: string; email: string; nombre: string };
+    invitacion?: { clave: string; lote: string; email: string; nombre: string; lotes?: { nombre: string; vinculo: string }[] };
 }) {
+    /** Quien alquila u ocupa arranca marcado como inquilino: es lo que la administración ya sabe de él. */
+    const tenenciaDe = (lote: string): Tenencia => { const v = invitacion?.lotes?.find((l) => l.nombre === lote)?.vinculo; return v === "INQUILINO" || v === "OCUPANTE" ? "INQUILINO" : "PROPIETARIO"; };
+    const delaInvitacion = invitacion ? { lote: invitacion.lote, email: invitacion.email, tenencia: tenenciaDe(invitacion.lote) } : null;
     const [marca, setMarca] = useState<{ name: string; barrio: string; logoUrl: string }>({ name: "OmniAccess", barrio: "", logoUrl: "" });
     const [paso, setPaso] = useState(0);
     /** Hacia dónde se va: el paso entra por donde se lo empujó y sale por el mismo lado. */
     const [sentido, setSentido] = useState(1);
-    const [f, setF] = useState<Form>(invitacion ? { ...VACIO, lote: invitacion.lote, email: invitacion.email } : VACIO);
+    const [f, setF] = useState<Form>(delaInvitacion ? { ...VACIO, ...delaInvitacion } : VACIO);
     const [enviando, setEnviando] = useState(false);
     const [errores, setErrores] = useState<string[]>([]);
     const [listo, setListo] = useState(false);
@@ -96,7 +99,9 @@ export function Formulario({ centro, invitacion }: {
             const guardado = JSON.parse(v);
             // El lote y el correo de la invitación le ganan al borrador: si no, el que entra con el
             // enlace del C7 después de haber mirado el del B4 carga el padrón equivocado.
-            setF({ ...VACIO, ...guardado, ...(invitacion ? { lote: invitacion.lote, email: invitacion.email || guardado.email || "" } : {}) });
+            /* Con varios lotes, el que venía eligiendo en el borrador vale si es uno de los suyos. */
+            const suyo = invitacion?.lotes?.some((l) => l.nombre === guardado.lote) ? guardado.lote : invitacion?.lote;
+            setF({ ...VACIO, ...guardado, ...(invitacion ? { lote: suyo, email: invitacion.email || guardado.email || "" } : {}) });
         } catch { /* sin borrador */ }
     }, [invitacion]);
     useEffect(() => { try { localStorage.setItem(CLAVE, JSON.stringify(f)); } catch { /* el navegador puede no dejar */ } }, [f]);
@@ -149,7 +154,7 @@ export function Formulario({ centro, invitacion }: {
                     <motion.div key={paso} custom={sentido} className="censo-paso"
                         initial={{ opacity: 0, x: 22 * sentido }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -22 * sentido }}
                         transition={RESORTE}>
-                        {paso === 0 && <PasoCasa f={f} set={set} centro={centro} loteFijo={!!invitacion} />}
+                        {paso === 0 && <PasoCasa f={f} set={set} centro={centro} loteFijo={!!invitacion} lotes={invitacion?.lotes} alElegirLote={(l) => setF((v) => ({ ...v, lote: l, tenencia: tenenciaDe(l) }))} />}
                         {paso === 1 && <PasoVehiculos f={f} set={set} />}
                         {paso === 2 && <PasoServicios f={f} set={set} />}
                     </motion.div>
@@ -346,15 +351,33 @@ function Seccion({ icono: I, titulo, children }: { icono: typeof Car; titulo: st
     );
 }
 
-function PasoCasa({ f, set, centro, loteFijo }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; centro: [number, number]; loteFijo?: boolean }) {
+function PasoCasa({ f, set, centro, loteFijo, lotes, alElegirLote }: {
+    f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; centro: [number, number]; loteFijo?: boolean;
+    /** Los lotes de la invitación, cuando son más de uno: se elige para cuál es esta carga. */
+    lotes?: { nombre: string; vinculo: string }[]; alElegirLote?: (lote: string) => void;
+}) {
+    const varios = (lotes?.length || 0) > 1;
     return (
         <Seccion icono={Home} titulo="Tu casa">
+            {/* Quien tiene más de un lote carga uno por vez: los vehículos de una casa no son los de la otra. */}
+            {varios && (
+                <div className="mb-3">
+                    <span className="block text-[13px] font-semibold mb-1.5">Tenés {lotes!.length} lotes. ¿Para cuál es esta carga?</span>
+                    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Lote">
+                        {lotes!.map((l) => (
+                            <button key={l.nombre} type="button" role="radio" aria-checked={f.lote === l.nombre} onClick={() => alElegirLote?.(l.nombre)}
+                                className={cn("h-11 px-4 rounded-full border text-[14px] font-bold tabular-nums transition-colors", f.lote === l.nombre ? "bg-foreground text-background border-foreground" : "border-border bg-background")}>{l.nombre}</button>
+                        ))}
+                    </div>
+                    <p className="mt-1.5 text-[12px] text-muted-foreground">Cuando termines con éste, entrás de nuevo por el mismo enlace y cargás el otro.</p>
+                </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
                 {/* Con invitación el lote no se escribe: lo trae la clave del correo, y dejarlo
                     editable sería ofrecer cargar el padrón del vecino. */}
                 <Campo rotulo="Lote" ayuda={loteFijo ? "Viene de tu invitación." : undefined}>
                     <input value={f.lote} onChange={(e) => set("lote", e.target.value)} placeholder="B4" readOnly={loteFijo}
-                        autoCapitalize="characters" className={cn(ENTRADA, "uppercase tabular-nums font-bold", loteFijo && "bg-muted/60 text-muted-foreground")} />
+                        autoCapitalize="characters" className={cn(ENTRADA, "tabular-nums font-bold", !loteFijo && "uppercase", loteFijo && "bg-muted/60 text-muted-foreground")} />
                 </Campo>
                 <Campo rotulo="Apellido"><input value={f.apellido} onChange={(e) => set("apellido", e.target.value)} placeholder="Pérez" autoCapitalize="words" className={ENTRADA} /></Campo>
             </div>

@@ -124,14 +124,20 @@ export function leerPlanilla(filas: unknown[][]): LecturaPlanilla {
 }
 
 /** El correo que recibe cada lote. Texto y HTML: el texto es el que llega cuando el HTML no se ve. */
-export function correoDeInvitacion({ barrio, lote, url, clave, nombre }: {
+export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre }: {
     barrio: string; lote: string; url: string; clave: string; nombre?: string;
+    /** Cuando la persona tiene más de un lote (el código es por persona): todos, como se leen. */
+    lotes?: string[];
 }): { asunto: string; texto: string; html: string } {
     const quien = nombre ? `${nombre}, ` : "";
     const casa = barrio || "el barrio";
-    const asunto = `Censo de vehículos · lote ${lote}`;
+    const varios = (lotes?.length || 0) > 1;
+    /* «A 2 (4-5) y C 1a (6ª)»: con dos o tres lotes se nombran todos, y el correo lo dice en plural. */
+    if (varios) lote = `${lotes!.slice(0, -1).join(", ")} y ${lotes![lotes!.length - 1]}`;
+    const asunto = `Censo de vehículos · ${varios ? "lotes" : "lote"} ${lote}`;
     const texto = [
-        `${quien}este es el registro de vehículos del lote ${lote} de ${casa}.`,
+        `${quien}este es el registro de vehículos ${varios ? `de tus lotes ${lote}` : `del lote ${lote}`} de ${casa}.`,
+        ...(varios ? [``, `El enlace sirve para todos: al entrar elegís para cuál cargás, y volvés a entrar para el otro.`] : []),
         ``,
         `Entrá por este enlace, que ya trae tu clave:`,
         url,
@@ -141,7 +147,7 @@ export function correoDeInvitacion({ barrio, lote, url, clave, nombre }: {
         `Cargás las matrículas que entran a tu casa y quién te visita seguido. Son dos minutos y lo`,
         `hacés una sola vez. La administración revisa lo que cargues antes de darlo de alta.`,
         ``,
-        `Este enlace es sólo para tu lote: no lo compartas.`,
+        `Este enlace es personal: no lo compartas.`,
         ``,
         `OmniAccess · Ve. Verifica. Avisa. · Un desarrollo de Ingeniería en Seguridad`,
     ].join("\n");
@@ -152,10 +158,10 @@ export function correoDeInvitacion({ barrio, lote, url, clave, nombre }: {
   <div style="font-size:12px;color:#64748b;margin-top:2px">${escaparHtml(casa)}</div>
 </td></tr>
 <tr><td style="padding:18px 24px 0">
-  <h1 style="margin:0;font-size:22px;line-height:1.2;color:#0a0e14;letter-spacing:-.02em">Censo de vehículos · lote ${escaparHtml(lote)}</h1>
+  <h1 style="margin:0;font-size:22px;line-height:1.2;color:#0a0e14;letter-spacing:-.02em">Censo de vehículos · ${varios ? "lotes" : "lote"} ${escaparHtml(lote)}</h1>
   <p style="margin:12px 0 0;font-size:15px;line-height:1.55;color:#334155">
     ${escaparHtml(quien)}cargá las matrículas que entran a tu casa y quién te visita seguido.
-    La cámara las lee en la entrada y la guardia ya sabe quién llega. Son dos minutos y lo hacés una sola vez.
+    La cámara las lee en la entrada y la guardia ya sabe quién llega. Son dos minutos y lo hacés una sola vez.${varios ? " El enlace sirve para todos tus lotes: al entrar elegís para cuál cargás." : ""}
   </p>
 </td></tr>
 <tr><td style="padding:20px 24px 0">
@@ -167,7 +173,7 @@ export function correoDeInvitacion({ barrio, lote, url, clave, nombre }: {
     <div style="font-size:21px;font-weight:800;letter-spacing:.12em;color:#0a0e14;margin-top:4px">${escaparHtml(clave)}</div>
   </div>
   <p style="margin:12px 0 0;font-size:12.5px;line-height:1.5;color:#64748b">
-    Este enlace es sólo para el lote ${escaparHtml(lote)}: no lo compartas. Lo que cargues lo revisa la
+    Este enlace es personal, para ${varios ? "tus lotes" : "el lote"} ${escaparHtml(lote)}: no lo compartas. Lo que cargues lo revisa la
     administración antes de darlo de alta.
   </p>
 </td></tr>

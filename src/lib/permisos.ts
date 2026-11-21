@@ -157,7 +157,7 @@ const SECCIONES: Seccion[] = [
     ] },
     // ── Padrón ──
     { modulo: "padron", seccion: "usuarios", nombre: "Personas", permisos: [
-        ["usuarios", "ver", "Personas", "La lista de residentes y demás personas del barrio, con sus matrículas.", ["/admin/users"]],
+        ["usuarios", "ver", "Personas", "La lista de residentes y demás personas del barrio, con sus matrículas, y las administraciones del complejo con sus contactos.", ["/admin/users", "/admin/administraciones"]],
         ["usuarios.editar", "operar", "Editar personas", "Dar de alta, editar y dar de baja personas, cargar su cara y aprobar lo que llega del censo.", ["/admin/censo"]],
     ] },
     { modulo: "padron", seccion: "unidades", nombre: "Unidades y lotes", permisos: [

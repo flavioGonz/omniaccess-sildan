@@ -106,7 +106,7 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
     return (
         <Cajon open={abierto} onOpenChange={(o) => { if (!o) alCerrar(); }}>
             <CajonContenido ancho="medio" titulo="Invitaciones del censo"
-                descripcion="Un correo por lote, con su clave, y con copia a la administración."
+                descripcion="Un correo por persona, con su clave para sus lotes, y con copia a la administración."
                 pie={d ? (
                     <>
                         {/* La planilla en blanco va ANTES de «Cargar»: es el paso que viene primero.
@@ -191,9 +191,10 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                             <div className="rounded-[10px] border border-border divide-y divide-border">
                                                 {d.invitaciones.map((i) => (
                                                     <div key={i.id} className="flex items-center gap-3 px-3 py-2.5">
-                                                        <span className="w-[74px] shrink-0 text-[13px] font-bold tabular-nums">{i.lote}</span>
+                                                        <span className="w-[112px] shrink-0 truncate text-[13px] font-bold tabular-nums" title={i.lote}>{i.lote}</span>
                                                         <div className="min-w-0 flex-1">
-                                                            <p className="truncate text-[12.5px]">{i.email}</p>
+                                                            {/* La invitación es por persona (21/11): el nombre va primero, que es por lo que se la busca. */}
+                                                            <p className="truncate text-[12.5px]">{i.nombre ? <><span className="font-semibold">{i.nombre}</span> <span className="text-muted-foreground">· {i.email}</span></> : i.email}</p>
                                                             <p className="truncate text-[11.5px] text-muted-foreground tabular-nums">
                                                                 {i.clave}
                                                                 {i.enviadoAt && ` · enviado ${fechaHora(i.enviadoAt)}`}

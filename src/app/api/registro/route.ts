@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
 
     // ── La clave del lote, si el barrio la pide ──
     let invitacion: { id: string; lote: string; clave: string } | null = null;
+    let unitId: string | null = null;
     const pideClave = (await prisma.setting.findUnique({ where: { key: "CENSO_CON_CLAVE" } }).catch(() => null))?.value === "true";
     if (pideClave) {
         const clave = normalizarClave((cuerpo as { clave?: string } | null)?.clave);
@@ -70,10 +71,17 @@ export async function POST(req: NextRequest) {
         // distinta por caso le dice a quien prueba claves cuál de ellas casi acierta.
         const mal = NextResponse.json({ errores: ["Esa clave no sirve. Entrá por el enlace del correo que te llegó."] }, { status: 403 });
         if (!clave) return mal;
-        const inv = await prisma.invitacionCenso.findUnique({ where: { clave }, select: { id: true, lote: true, clave: true } });
+        const inv = await prisma.invitacionCenso.findUnique({ where: { clave }, select: { id: true, lote: true, lotes: true, clave: true } });
         if (!inv) return mal;
         invitacion = inv;
-        datos.lote = inv.lote;
+        /* La invitación es por persona y puede traer más de un lote (21/11). La carga es para UNO
+           de los SUYOS: el que eligió en el formulario si es de su lista, y si no, el primero. Lo
+           que venga escrito y no sea suyo no vale: la clave no sirve para el lote del vecino. */
+        const suyos = (Array.isArray(inv.lotes) ? (inv.lotes as { unitId?: unknown; nombre?: unknown }[]) : []).filter((l) => typeof l?.nombre === "string");
+        const pedido = String((cuerpo as { lote?: unknown } | null)?.lote ?? "").replace(/\s+/g, " ").trim();
+        const elegido = suyos.find((l) => l.nombre === pedido) || suyos[0];
+        datos.lote = elegido ? String(elegido.nombre) : inv.lote;
+        unitId = elegido && typeof elegido.unitId === "string" ? elegido.unitId : null;
     }
 
     try {
@@ -87,7 +95,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ ok: true, id: igual.id, repetido: true });
         }
         const fila = await prisma.solicitudPadron.create({
-            data: { ...datos, vehiculos: datos.vehiculos, servicios: datos.servicios, clave: invitacion?.clave ?? null },
+            data: { ...datos, vehiculos: datos.vehiculos, servicios: datos.servicios, clave: invitacion?.clave ?? null, unitId },
         });
         // La invitación queda marcada como usada, pero NO se bloquea: un lote que se olvidó una
         // matrícula tiene que poder volver a entrar por el mismo enlace.

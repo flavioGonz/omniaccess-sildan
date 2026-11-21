@@ -42,10 +42,96 @@ model Unit {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   parentId     String?
+  /// La administracion (etapa / comision) a la que pertenece el lote. En un complejo hecho por
+  /// etapas el mismo codigo de lote se repite: «A 2» existe en las etapas 1-3 y en las 4-5.
+  administracionId String?
+  administracion   Administracion? @relation(fields: [administracionId], references: [id], onDelete: SetNull)
+  /// Como figura en el plano: manzana, solar, unidad dentro del solar (a, b...) y edificio (Proa 1).
+  manzana      String?
+  solar        String?
+  subunidad    String?
+  edificio     String?
+  areaM2       Float?
+  /// El titular segun la administracion, como texto: «X - Y» es un matrimonio, «X / Y» propietario
+  /// e inquilino. No es una persona del padron: es lo que dice la lista de gastos comunes.
+  titular      String?
+  /// TERRENO (sin construir) | DESARROLLADOR (sin vender) | SIN_TITULAR | null (una casa con su gente)
+  situacion    String?
   parkingSlots ParkingSlot[]
   parent       Unit?         @relation("SubUnits", fields: [parentId], references: [id])
   children     Unit[]        @relation("SubUnits")
   users        User[]
+  vinculos     UserUnidad[]
+
+  @@index([administracionId])
+}
+
+/// Una administracion del complejo: la comision de un grupo de lotes. San Nicolas se construyo por
+/// etapas y cada una tiene la suya («Etapas 1, 2 y 3», «Etapas 4 y 5», «6ª Etapa», «7ª Etapa»),
+/// con sus contactos, sus referentes y sus servicios contratados.
+model Administracion {
+  id        String   @id @default(cuid())
+  nombre    String   @unique
+  /// La forma corta que va entre parentesis en el nombre de cada lote: «1-3», «4-5», «6ª», «7ª».
+  sigla     String   @unique
+  notas     String?
+  orden     Int      @default(0)
+  contactos AdministracionContacto[]
+  servicios AdministracionServicio[]
+  unidades  Unit[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Una persona de la administracion: la administradora, el presidente de la comision, un referente.
+model AdministracionContacto {
+  id               String         @id @default(cuid())
+  administracionId String
+  administracion   Administracion @relation(fields: [administracionId], references: [id], onDelete: Cascade)
+  nombre           String
+  /// Texto libre: «Administradora», «Presidente de la comision», «Referente de seguridad».
+  rol              String         @default("")
+  telefono         String?
+  email            String?
+  notas            String?
+  orden            Int            @default(0)
+  createdAt        DateTime       @default(now())
+
+  @@index([administracionId])
+}
+
+/// Un servicio que contrata esa administracion: jardineria, recoleccion, mantenimiento, seguridad.
+model AdministracionServicio {
+  id               String         @id @default(cuid())
+  administracionId String
+  administracion   Administracion @relation(fields: [administracionId], references: [id], onDelete: Cascade)
+  rubro            String
+  proveedor        String?
+  contacto         String?
+  telefono         String?
+  email            String?
+  /// Cuando viene: «lunes y jueves, 8 a 12».
+  horario          String?
+  notas            String?
+  createdAt        DateTime       @default(now())
+
+  @@index([administracionId])
+}
+
+/// Que es una persona de un lote. Una persona puede tener mas de uno (27 de los 490 contactos de
+/// San Nicolas): `User.unitId` sigue siendo su lote principal, y aca estan todos, con el vinculo.
+model UserUnidad {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unitId    String
+  unit      Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  /// PROPIETARIO | INQUILINO | OCUPANTE | FAMILIA
+  vinculo   String   @default("PROPIETARIO")
+  createdAt DateTime @default(now())
+
+  @@unique([userId, unitId])
+  @@index([unitId])
 }
 
 model User {
@@ -80,6 +166,8 @@ model User {
   credentials     Credential[]
   parkingSlot     ParkingSlot?  @relation(fields: [parkingSlotId], references: [id])
   unit            Unit?         @relation(fields: [unitId], references: [id])
+  /// Todos sus lotes, con el vinculo (propietario, inquilino...). `unitId` es el principal.
+  vinculos        UserUnidad[]
   vehicles        Vehicle[]
   accessGroups    AccessGroup[] @relation("AccessGroupToUser")
   /// Acceso al panel: el rol de la aplicacion (que pantallas puede abrir). `role` sigue
@@ -1958,10 +2046,17 @@ model InvitacionCenso {
   id         String    @id @default(cuid())
   /// Por si manana hay mas de un barrio con su propio censo. Vacio = el unico de esta instalacion.
   sitio      String    @default("")
+  /// El lote como se lee («F 5 (4-5)»); si la persona tiene varios, todos, separados por coma.
   lote       String
   email      String
   nombre     String    @default("")
-  /// La clave que viaja en el enlace y en el correo. Unica: es la que identifica al lote.
+  /// Los lotes de esta persona: [{ unitId, nombre, vinculo }]. La invitacion es POR PERSONA (21/11,
+  /// lo que resolvio la administracion: «un codigo por persona; los matrimonios, uno cada uno»), y
+  /// una persona puede tener mas de un lote.
+  lotes      Json      @default("[]")
+  /// La persona del padron a la que corresponde, si ya esta cargada.
+  userId     String?
+  /// La clave que viaja en el enlace y en el correo. Unica: es la que identifica a la persona.
   clave      String    @unique
   enviadoAt  DateTime?
   /// Cuantas veces se intento mandar y que dijo el servidor de correo la ultima vez.
@@ -1972,7 +2067,7 @@ model InvitacionCenso {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  @@unique([sitio, lote])
+  @@unique([sitio, email])
   @@index([enviadoAt])
 }
 
@@ -2000,6 +2095,9 @@ model SolicitudPadron {
   lng        Float?
   /// La clave de la invitacion con la que entro, si el censo pide clave por lote.
   clave      String?
+  /// El lote del padron para el que es esta carga, cuando lo trae la invitacion. Con lotes que se
+  /// repiten entre etapas, el texto de `lote` solo no alcanza para saber cual es.
+  unitId     String?
   /// pendiente | aprobada | rechazada
   estado     String    @default("pendiente")
   revisadaPor String?

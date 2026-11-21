@@ -88,18 +88,22 @@ export async function POST(req: NextRequest) {
 
     let nuevas = 0, actualizadas = 0;
     for (const f of lectura.filas as FilaPlanilla[]) {
-        const hay = await prisma.invitacionCenso.findFirst({ where: { sitio: "", lote: f.lote }, select: { id: true, email: true } });
+        /* La invitación es por PERSONA (su correo) desde el 21/11: dos personas del mismo lote
+           tienen cada una la suya. Esta planilla simple (lote, nombre, correo) sigue sirviendo
+           para un barrio sin administraciones; el padrón de un complejo por etapas entra por
+           Administraciones › Importar padrón, que además crea los lotes y las personas. */
+        const hay = await prisma.invitacionCenso.findFirst({ where: { sitio: "", email: f.email }, select: { id: true, lote: true } });
         if (hay) {
             // La clave NO se cambia al reimportar: si ya se mandó el correo, cambiarla deja afuera
-            // a quien lo recibió. Sólo se corrige el correo y el nombre.
-            await prisma.invitacionCenso.update({ where: { id: hay.id }, data: { email: f.email, nombre: f.nombre } });
-            if (hay.email !== f.email) actualizadas++;
+            // a quien lo recibió. Sólo se corrige el lote y el nombre.
+            await prisma.invitacionCenso.update({ where: { id: hay.id }, data: { lote: f.lote, nombre: f.nombre } });
+            if (hay.lote !== f.lote) actualizadas++;
         } else {
             await prisma.invitacionCenso.create({ data: { sitio: "", lote: f.lote, email: f.email, nombre: f.nombre, clave: nuevaClave() } });
             nuevas++;
         }
     }
-    await auditar(q.sesion, "censo.importar-invitaciones", archivo.name, true, `${nuevas} nuevas, ${actualizadas} con el correo corregido, ${lectura.errores.length} avisos`);
+    await auditar(q.sesion, "censo.importar-invitaciones", archivo.name, true, `${nuevas} nuevas, ${actualizadas} con el lote corregido, ${lectura.errores.length} avisos`);
     return NextResponse.json({ nuevas, actualizadas, repetidos: lectura.repetidos, errores: lectura.errores }, { headers: SIN_CACHE });
 }
 
@@ -133,6 +137,7 @@ export async function PUT(req: NextRequest) {
         for (const inv of pendientes) {
             const { asunto, texto, html } = correoDeInvitacion({
                 barrio: marca.barrio || marca.name, lote: inv.lote, nombre: inv.nombre || undefined,
+                lotes: (Array.isArray(inv.lotes) ? (inv.lotes as { nombre?: unknown }[]) : []).map((l) => String(l?.nombre || "")).filter(Boolean),
                 clave: inv.clave, url: `${origen}/registro/${inv.clave}`,
             });
             const r = await enviarCorreo({ para: inv.email, asunto, texto, html });

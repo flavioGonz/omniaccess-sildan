@@ -350,6 +350,8 @@ export default function AdminLayout({
                             {puede("/admin/users") && (<SidebarItem icon={<Ban size={18} />} label="Lista negra" href="/admin/users?tab=listanegra" active={enListaNegra} collapsed={collapsed} insignia={enListaNegraN} />)}
                             {amarillaOn && puede("/admin/users") && (<SidebarItem icon={<Search size={18} />} label="Lista Amarilla" href="/admin/users?tab=listaamarilla" active={enListaAmarilla} collapsed={collapsed} insignia={enListaAmarillaN} tonoInsignia="aviso" />)}
                             {puede("/admin/units") && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
+                            {/* Las comisiones del complejo (21/11): sus contactos, lo que contratan y sus lotes. */}
+                            {puede("/admin/administraciones") && (<SidebarItem icon={<Building2 size={18} />} label="Administraciones" href="/admin/administraciones" active={pathname === "/admin/administraciones"} collapsed={collapsed} />)}
                             {/* El censo del barrio: lo que carga cada lote desde el QR, esperando que alguien lo apruebe. */}
                             {censoOn && puede("/admin/censo") && (<SidebarItem icon={<ClipboardList size={18} />} label="Censo" href="/admin/censo" active={pathname === "/admin/censo"} collapsed={collapsed} insignia={censoPendienteN} tonoInsignia="aviso" />)}
                             {/* Una sola entrada para toda la flota.

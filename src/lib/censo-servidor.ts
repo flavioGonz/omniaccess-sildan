@@ -55,7 +55,10 @@ export async function aprobarSolicitud(id: string, quien: string): Promise<Resul
     const nombreUnidad = `Lote ${s.lote}`;
     // El punto que marcó la persona, en el formato en que el resto del sistema guarda coordenadas.
     const punto = s.lat != null && s.lng != null ? `${s.lat}, ${s.lng}` : null;
-    let unidad = await prisma.unit.findFirst({ where: { OR: [{ lot: s.lote }, { name: nombreUnidad }] }, select: { id: true, name: true, coordinates: true } });
+    /* Si la carga vino por una invitación, el lote ya es uno del padrón y se usa ÉSE: con lotes
+       que se repiten entre etapas («A 2» está en dos), buscarlo por el texto traería cualquiera. */
+    let unidad = s.unitId ? await prisma.unit.findUnique({ where: { id: s.unitId }, select: { id: true, name: true, coordinates: true } }) : null;
+    if (!unidad) unidad = await prisma.unit.findFirst({ where: { OR: [{ name: s.lote }, { lot: s.lote }, { name: nombreUnidad }] }, select: { id: true, name: true, coordinates: true } });
     if (!unidad) unidad = await prisma.unit.create({ data: { name: nombreUnidad, lot: s.lote, type: "CASA", coordinates: punto }, select: { id: true, name: true, coordinates: true } });
     else if (punto && !unidad.coordinates?.trim()) {
         // Se completa la que falta, nunca se pisa la que ya está: la del mapa la dibujó la
@@ -68,7 +71,13 @@ export async function aprobarSolicitud(id: string, quien: string): Promise<Resul
 
     // ── La persona ──
     const nombre = [s.nombre, s.apellido].filter(Boolean).join(" ").trim() || s.apellido;
-    let persona = await prisma.user.findFirst({ where: { phone: s.telefono }, select: { id: true, name: true, observations: true } });
+    /* La persona: primero la de la invitación (el padrón ya la tiene, cargada desde la planilla
+       de la administración, sin teléfono todavía); si no, por el teléfono, como siempre. Sin esto
+       cada aprobación creaba una segunda ficha de alguien que ya estaba. */
+    const inv = s.clave ? await prisma.invitacionCenso.findUnique({ where: { clave: s.clave }, select: { userId: true } }).catch(() => null) : null;
+    let persona = inv?.userId ? await prisma.user.findUnique({ where: { id: inv.userId }, select: { id: true, name: true, observations: true, phone: true } }) : null;
+    const porInvitacion = !!persona;
+    if (!persona) persona = await prisma.user.findFirst({ where: { phone: s.telefono }, select: { id: true, name: true, observations: true, phone: true } });
     const anotacion = [
         `Censo ${new Date(s.createdAt).toLocaleDateString("es-UY")}: ${s.tenencia === "INQUILINO" ? "inquilino" : "propietario"}.`,
         ...servicios.map((x) => `Servicio: ${lineaDeServicio(x)}`),
@@ -78,15 +87,25 @@ export async function aprobarSolicitud(id: string, quien: string): Promise<Resul
     if (persona) {
         await prisma.user.update({
             where: { id: persona.id },
-            data: { unitId: unidad.id, email: s.email || undefined, observations: [persona.observations, anotacion].filter(Boolean).join("\n") },
+            data: {
+                /* A quien vino por su invitación no se le cambia el lote principal (puede tener
+                   varios): se le completa el teléfono, que es lo que el padrón no tenía. */
+                ...(porInvitacion ? (!persona.phone?.trim() ? { phone: s.telefono } : {}) : { unitId: unidad.id }),
+                email: s.email || undefined, observations: [persona.observations, anotacion].filter(Boolean).join("\n"),
+            },
         });
-        avisos.push(`Ya existía ${persona.name} con ese teléfono: se le sumó el lote y lo que cargó.`);
+        avisos.push(porInvitacion ? `${persona.name} ya estaba en el padrón: se le sumó lo que cargó.` : `Ya existía ${persona.name} con ese teléfono: se le sumó el lote y lo que cargó.`);
     } else {
         persona = await prisma.user.create({
             data: { name: nombre, phone: s.telefono, email: s.email || null, unitId: unidad.id, role: "RESIDENT", observations: anotacion, createdBy: quien },
-            select: { id: true, name: true, observations: true },
+            select: { id: true, name: true, observations: true, phone: true },
         });
     }
+    /* Que esa persona figure en ese lote, con lo que dijo que es (si ya figuraba, no se toca). */
+    await prisma.userUnidad.upsert({
+        where: { userId_unitId: { userId: persona.id, unitId: unidad.id } }, update: {},
+        create: { userId: persona.id, unitId: unidad.id, vinculo: s.tenencia === "INQUILINO" ? "INQUILINO" : "PROPIETARIO" },
+    }).catch(() => { });
 
     // ── Las matrículas ──
     let matriculas = 0;
