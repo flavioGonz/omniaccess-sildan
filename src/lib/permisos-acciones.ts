@@ -90,7 +90,7 @@ export const ACCIONES: Record<string, Archivo> = {
     // La base local de un lector (sus personas, tarjetas y rostros): leerla es mirar el equipo.
     "base-equipo": { defecto: P("dispositivos") },
     // Los rastreadores GPS: verlos es mirar equipos; darlos de alta o atarlos a un vehículo, editarlos.
-    gps: { defecto: P("dispositivos"), por: { darDeAltaGps: P("dispositivos.editar"), atarVehiculoGps: P("dispositivos.editar"), renombrarGps: P("dispositivos.editar"), cambiarIconoGps: P("dispositivos.editar"), guardarGeocercaGps: P("dispositivos.editar"), borrarGeocercaGps: P("dispositivos.editar") } },
+    gps: { defecto: P("dispositivos"), por: { darDeAltaGps: P("dispositivos.editar"), atarVehiculoGps: P("dispositivos.editar"), renombrarGps: P("dispositivos.editar"), cambiarIconoGps: P("dispositivos.editar"), guardarGeocercaGps: P("dispositivos.editar"), borrarGeocercaGps: P("dispositivos.editar"), cambiarPuertaGps: P("dispositivos.editar"), descartarGps: P("dispositivos.editar") } },
     // Abrir una puerta desde la ficha del portero: quien opera el acceso o quien administra equipos.
     // Comparar un rostro con un cuadro del portero no cambia nada: alcanza con ver dispositivos (se revisa por dentro).
     portero: { defecto: P("dispositivos.editar"), por: { abrirPuertaPortero: P("lpr.operar", "dispositivos.editar"), compararCaraPortero: S } },

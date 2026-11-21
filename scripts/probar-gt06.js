@@ -198,5 +198,92 @@ prueba("el latido REAL trae su código de alarma en cero", () => {
     assert.strictEqual(g.leer(H("78780a130406040002000e82250d0a")).estado.alarma, 0);
 });
 
+prueba("el silencio: estacionado avisa a los 15 minutos, andando a los 5, y una sola vez", () => {
+    const t0 = Date.parse("2026-11-21T12:00:00Z"), min = 60_000;
+    const quieto = { ultimoLatido: new Date(t0), cuando: new Date(t0 - 40 * min), velocidad: 0, sinReporteDesde: null };
+    assert.strictEqual(ev.seCallo(quieto, 0, t0 + 14 * min), false);
+    assert.strictEqual(ev.seCallo(quieto, 0, t0 + 15 * min), true);
+    const andando = { ultimoLatido: new Date(t0), cuando: new Date(t0 - 5_000), velocidad: 42, sinReporteDesde: null };
+    assert.strictEqual(ev.veniaAndando(andando), true);
+    assert.strictEqual(ev.seCallo(andando, 0, t0 + 4 * min), false);
+    assert.strictEqual(ev.seCallo(andando, 0, t0 + 5 * min), true);
+    // Ya avisado: no se repite.
+    assert.strictEqual(ev.seCallo({ ...andando, sinReporteDesde: new Date(t0) }, 0, t0 + 60 * min), false);
+    // Nunca habló: no hay silencio que medir.
+    assert.strictEqual(ev.seCallo({ ultimoLatido: null }, 0, t0), false);
+});
+prueba("bajo techo con una posición vieja a 40 km/h NO venía andando", () => {
+    const t0 = Date.parse("2026-11-21T12:00:00Z");
+    // Sigue mandando latidos, pero la última posición es de hace una hora: eso es estar guardado.
+    const e = { ultimoLatido: new Date(t0), cuando: new Date(t0 - 3600_000), velocidad: 40, sinReporteDesde: null };
+    assert.strictEqual(ev.veniaAndando(e), false);
+    assert.strictEqual(ev.seCallo(e, 0, t0 + 6 * 60_000), false);          // se juzga con los 15 minutos, no con los 5
+});
+prueba("si el receptor estuvo caído, el silencio se cuenta desde que arrancó", () => {
+    const t0 = Date.parse("2026-11-21T12:00:00Z"), min = 60_000;
+    const e = { ultimoLatido: new Date(t0), cuando: new Date(t0 - 60 * min), velocidad: 0, sinReporteDesde: null };
+    const arranque = t0 + 40 * min;                                          // el receptor volvió 40 minutos después
+    assert.strictEqual(ev.seCallo(e, arranque, arranque + 1 * min), false);  // los que no escuchamos fuimos nosotros
+    assert.strictEqual(ev.seCallo(e, arranque, arranque + 15 * min), true);
+});
+prueba("«dejó de reportar» andando es prioridad 2; estacionado, 3; la vibración no abre un caso", () => {
+    assert.strictEqual(ev.prioridadDe("GPS_SIN_REPORTE", { andando: true }), 2);
+    assert.strictEqual(ev.prioridadDe("GPS_SIN_REPORTE", { andando: false }), 3);
+    assert.strictEqual(ev.prioridadDe("GPS_SOS"), 1);
+    assert.strictEqual(ev.prioridadDe("GPS_VIBRACION"), null);
+    assert.strictEqual(ev.prioridadDe("GPS_GEOCERCA_SALE"), null);
+    assert.strictEqual(ev.prioridadDe("GPS_VOLVIO"), null);
+});
+prueba("una posición atrasada: a tiempo es 0, nueve minutos tarde son 540 s", () => {
+    const llego = Date.parse("2026-11-21T12:10:00Z");
+    assert.strictEqual(ev.atrasoDe(new Date(llego - 3_000), llego), 0);      // la demora normal: 2 a 4 segundos
+    assert.strictEqual(ev.atrasoDe(new Date(llego - 119_000), llego), 0);
+    assert.strictEqual(ev.atrasoDe(new Date(llego - 540_000), llego), 540);
+    assert.strictEqual(ev.atrasoDe(null, llego), 0);
+    // Una hora del futuro o de hace dos meses no es una hora.
+    assert.strictEqual(ev.horaCreible(new Date(llego + 3600_000), llego), false);
+    assert.strictEqual(ev.horaCreible(new Date(llego - 60 * 86_400_000), llego), false);
+    assert.strictEqual(ev.horaCreible(new Date(llego - 14 * 60_000), llego), true);
+});
+prueba("un salto imposible: 5 km en 10 segundos sí; 5 km en 10 minutos no; después de un hueco no se juzga", () => {
+    const t = Date.parse("2026-11-21T12:00:00Z");
+    const a = { lat: -34.9000, lon: -56.1600, cuando: t };
+    const lejos = { lat: -34.9450, lon: -56.1600 };                          // ~5 km al sur
+    assert.strictEqual(ev.esSaltoImposible(a, { ...lejos, cuando: t + 10_000 }), true);
+    assert.strictEqual(ev.esSaltoImposible(a, { ...lejos, cuando: t + 9.5 * 60_000 }), false);   // 31 km/h
+    assert.strictEqual(ev.esSaltoImposible(a, { ...lejos, cuando: t + 11 * 60_000 }), false);    // fuera de la ventana
+    // Ruido de GPS (300 m en 10 s son 108 km/h «imposibles» para un auto quieto, pero no llega a 2 km): no es esto.
+    assert.strictEqual(ev.esSaltoImposible(a, { lat: -34.9027, lon: -56.16, cuando: t + 10_000 }), false);
+    assert.strictEqual(ev.esSaltoImposible(null, { ...lejos, cuando: t }), false);
+});
+prueba("el lugar en palabras: adentro, cerca, y lejos no dice nada", () => {
+    const base = { nombre: "Base", lat: -34.9, lon: -56.16, radio: 100 };
+    assert.strictEqual(ev.lugarDe(-34.9, -56.16, [base]), "en Base");
+    assert.strictEqual(ev.lugarDe(-34.905, -56.16, [base]), "a 450 m de Base");
+    assert.strictEqual(ev.lugarDe(-35.2, -56.16, [base]), null);
+    assert.strictEqual(ev.lugarDe(-34.9, -56.16, []), null);
+    // Entre dos, gana la del borde más cercano.
+    const taller = { nombre: "Taller", lat: -34.906, lon: -56.16, radio: 50 };
+    assert.strictEqual(ev.lugarDe(-34.905, -56.16, [base, taller]), "a 60 m de Taller");
+});
+prueba("los lados de las geocercas sobreviven a un reinicio: la salida que pasó en el medio se avisa", () => {
+    const gc = [{ id: "g1", nombre: "Base", lat: -34.9, lon: -56.16, radio: 200 }];
+    const adentro = { conFix: true, lat: -34.9, lon: -56.16 }, afuera = { conFix: true, lat: -34.91, lon: -56.16 };
+    const v1 = ev.nuevoVigia();
+    v1.alUbicarse("a", gc, adentro);
+    const guardado = JSON.parse(JSON.stringify(v1.lados("a")));
+    assert.deepStrictEqual(guardado, { g1: true });
+    // Reinicio: un vigía nuevo, sembrado con lo guardado. El vehículo salió mientras tanto.
+    const v2 = ev.nuevoVigia();
+    v2.sembrarLados("a", guardado);
+    assert.deepStrictEqual(v2.alUbicarse("a", gc, afuera), []);            // primera: falta confirmar
+    const cruces = v2.alUbicarse("a", gc, afuera);
+    assert.strictEqual(cruces.length, 1); assert.strictEqual(cruces[0].tipo, "GPS_GEOCERCA_SALE");
+    assert.deepStrictEqual(v2.lados("a"), { g1: false });
+    // Sin sembrar (como era antes), ese mismo cruce se perdía.
+    const v3 = ev.nuevoVigia();
+    v3.alUbicarse("a", gc, afuera); assert.deepStrictEqual(v3.alUbicarse("a", gc, afuera), []);
+});
+
 console.log(`\n${ok} bien, ${mal} mal`);
 process.exit(mal ? 1 : 0);

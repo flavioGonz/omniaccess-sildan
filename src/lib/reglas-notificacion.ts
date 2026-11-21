@@ -75,6 +75,9 @@ const ETIQUETA: Record<string, string> = {
     GPS_OTRA: "Alarma del rastreador",
     GPS_GEOCERCA_ENTRA: "Entró a una geocerca",
     GPS_GEOCERCA_SALE: "Salió de una geocerca",
+    GPS_SIN_REPORTE: "Dejó de reportar",
+    GPS_VOLVIO: "Volvió a reportar",
+    GPS_SALTO: "Posición imposible",
 };
 const TIPO_CENTRAL: Record<string, string> = { ROBO: "Robo", PANICO: "Pánico", INCENDIO: "Incendio", SABOTAJE: "Sabotaje", COACCION: "Coacción", MEDICA: "Emergencia médica", GAS: "Gas", AGUA: "Pérdida de agua", TEMPERATURA: "Temperatura", GENERAL: "Alarma" };
 const CLASE: Record<string, string> = { human: "Persona", vehicle: "Vehículo" };

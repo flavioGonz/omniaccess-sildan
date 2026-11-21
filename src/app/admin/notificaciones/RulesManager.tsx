@@ -70,6 +70,8 @@ const EVENTOS: Record<string, { v: string; l: string; ayuda: string }[]> = {
     GPS: [
         { v: "GPS_SOS", l: "Botón de pánico (SOS)", ayuda: "Alguien apretó el botón de pánico conectado al rastreador." },
         { v: "GPS_CORTE", l: "Le cortaron la alimentación", ayuda: "El rastreador quedó sin la batería del vehículo: lo desconectaron, o desconectaron la batería. Sigue reportando un rato con la suya." },
+        { v: "GPS_SIN_REPORTE", l: "Dejó de reportar", ayuda: "El rastreador se calló: lo desconectaron, lo taparon con un inhibidor, se quedó sin señal o sin saldo. Avisa a los 5 minutos si venía andando y a los 15 si estaba detenido, una sola vez. Es la alarma que el equipo no puede mandar: la detecta OmniAccess." },
+        { v: "GPS_VOLVIO", l: "Volvió a reportar", ayuda: "Un rastreador que se había callado volvió a hablar. Dice cuánto estuvo sin reportar." },
         { v: "GPS_MOVIMIENTO", l: "Se mueve con el motor apagado", ayuda: "El vehículo se está trasladando a más de 10 km/h y el rastreador dice que el motor está apagado: un remolque, o se lo llevan. Sólo sirve si el cable de encendido (ACC) del rastreador está conectado; si no, el motor figura siempre apagado y esto avisa en cada viaje." },
         { v: "GPS_BATERIA", l: "Batería del vehículo baja", ayuda: "La batería del vehículo cayó por debajo de 11,8 V. Avisa una vez al caer, no mientras siga baja." },
         { v: "GPS_GEOCERCA_ENTRA", l: "Entró a una geocerca", ayuda: "El vehículo entró a una de las zonas dibujadas en el mapa (clic derecho sobre el rastreador › Geocercas). El aviso dice a cuál." },
@@ -78,6 +80,7 @@ const EVENTOS: Record<string, { v: string; l: string; ayuda: string }[]> = {
         { v: "GPS_VELOCIDAD", l: "Exceso de velocidad", ayuda: "Pasó la velocidad máxima configurada EN EL RASTREADOR (se le pone por SMS)." },
         { v: "GPS_DESARME", l: "Desarmaron el rastreador", ayuda: "Le abrieron la tapa o lo sacaron de su lugar." },
         { v: "GPS_BATERIA_EQUIPO", l: "Batería del rastreador baja", ayuda: "La batería interna del rastreador, la que usa cuando le cortan la alimentación." },
+        { v: "GPS_SALTO", l: "Posición imposible", ayuda: "El rastreador apareció a kilómetros de donde estaba hace instantes (más de 250 km/h): un error grande del GPS, u otro aparato presentándose con su mismo IMEI. El punto del mapa no se mueve hasta que se confirma." },
         { v: "GPS_OTRA", l: "Otra alarma", ayuda: "Una alarma del rastreador que no es ninguna de las anteriores." },
     ],
     LPR: [

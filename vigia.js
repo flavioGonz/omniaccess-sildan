@@ -163,6 +163,19 @@ async function porDocker(nombre) {
     }
 }
 
+const GPS_CONTROL = `http://127.0.0.1:${process.env.GPS_PUERTO_CONTROL || 10013}`;
+async function hayGps() {
+    try { const { stdout } = await correr("pm2 jlist", { timeout: 15_000, maxBuffer: 16 * 1024 * 1024 }); return JSON.parse(stdout).some((a) => a.name === "gps-receiver"); }
+    catch { return false; }
+}
+async function porGps() {
+    try {
+        const r = await fetch(`${GPS_CONTROL}/salud`, { signal: AbortSignal.timeout(5000) });
+        const j = await r.json();
+        return { ok: r.ok && j.ok === true, detalle: j.ok ? `escuchando · ${j.enLinea} en línea` : "no está escuchando en su puerto" };
+    } catch (e) { return { ok: false, detalle: (e && e.message) || "no contestó" }; }
+}
+
 async function porBase() {
     try { await prisma.$queryRaw`SELECT 1`; return { ok: true, detalle: "contesta" }; }
     catch (e) { return { ok: false, detalle: e.message }; }
@@ -361,6 +374,12 @@ async function vuelta() {
     await atender("webhooks", "los webhooks", () => porHttp(`${WEBHOOKS}/health`), levantarPm2("omniaccess-webhooks"));
     await atender("lector:contenedor", "el contenedor del lector", () => porDocker("omni-lpr"), levantarLector);
     await atender("lector:api", "la API del lector", () => porHttp(`${LECTOR}/api/health`), levantarLector);
+    /* El receptor de GPS, donde lo haya (una instalación sin rastreadores no lo corre). Se le
+       pregunta a ÉL si está escuchando: «online» en pm2 no dice que el puerto esté abierto. Es el
+       proceso que detecta que un rastreador dejó de reportar; si se cae él, se caen todos sin que
+       nadie avise. */
+    if (await hayGps()) await atender("gps", "el receptor de GPS", porGps, levantarPm2("gps-receiver"));
+
     const pausa = await visionEnPausa();
     if (pausa) {
         // Parado a propósito (un entrenamiento usa la GPU): no se levanta ni se avisa. Se dice

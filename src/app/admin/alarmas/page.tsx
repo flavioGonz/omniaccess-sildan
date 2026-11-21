@@ -5,8 +5,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
     Siren, Home, Ticket, CircleDashed, AlertTriangle, RefreshCw, Radar, ShieldAlert, ScanEye, Repeat, Car, Check, X, LogOut, Undo2,
     Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers, Loader2, NotebookPen, Image as ImageIcon,
-    Activity, Truck, Infinity as SinTiempo, RadioTower, ChevronRight, MessagesSquare,
+    Activity, Truck, Infinity as SinTiempo, RadioTower, ChevronRight, MessagesSquare, Satellite, MapPin, MapPinOff,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { getEnabledModules } from "@/app/actions/modules";
 import { useSessionRole } from "@/hooks/useSessionRole";
 import { VistaCentrales, ChipPrioridad } from "@/components/alarmas/MensajesCentrales";
@@ -87,8 +88,10 @@ const DE_ALARMAS: Ver[] = ["todo", "lpr", "intrusion", "hub"];
  */
 type Origen = FuenteAlarma | "central";
 const origenDe = (a: Alarma): Origen => (a.tipo === "CENTRAL" ? "central" : a.fuente);
-const GRUPO_DE_ORIGEN: Record<Origen, Exclude<Grupo, "todo">> = { lpr: "lpr", patron: "lpr", intrusion: "intrusion", vision: "intrusion", central: "hub" };
-const ORIGENES_DE: Record<Grupo, Origen[]> = { todo: ["central", "intrusion", "vision", "lpr", "patron"], lpr: ["lpr", "patron"], intrusion: ["intrusion", "vision"], hub: [] };
+/* Las alarmas de un rastreador no son de ninguno de los tres sistemas: viven en «Todo», con su
+   propio origen para filtrarlas (21/11). Si algún día son muchas, se les da su pestaña. */
+const GRUPO_DE_ORIGEN: Record<Origen, Exclude<Grupo, "todo"> | null> = { lpr: "lpr", patron: "lpr", intrusion: "intrusion", vision: "intrusion", central: "hub", gps: null };
+const ORIGENES_DE: Record<Grupo, Origen[]> = { todo: ["central", "intrusion", "vision", "lpr", "patron", "gps"], lpr: ["lpr", "patron"], intrusion: ["intrusion", "vision"], hub: [] };
 /** Las dos pestañas de lo registrado que no es del barrio: tienen la misma forma, cambia qué entra. */
 const esDeRegistrados = (v: Ver) => v === "visitas" || v === "proveedores";
 /**
@@ -105,8 +108,10 @@ type Datos = { horas: number; alarmas: Alarma[]; errorAlarmas: string | null; pr
 /** Cada cuánto se vuelve a pedir, además de con cada evento del socket. */
 const REFRESCO_MS = 20_000;
 
-const NOMBRE_FUENTE: Record<Origen, string> = { intrusion: "Intrusión", lpr: "LPR", patron: "Patrones", vision: "OmniVision", central: "Alarm Hub" };
-const ICONO_FUENTE: Record<Origen, typeof Radar> = { intrusion: Radar, lpr: ShieldAlert, patron: Repeat, vision: ScanEye, central: RadioTower };
+const NOMBRE_FUENTE: Record<Origen, string> = { intrusion: "Intrusión", lpr: "LPR", patron: "Patrones", vision: "OmniVision", central: "Alarm Hub", gps: "GPS" };
+const ICONO_FUENTE: Record<Origen, typeof Radar> = { intrusion: Radar, lpr: ShieldAlert, patron: Repeat, vision: ScanEye, central: RadioTower, gps: Satellite };
+/** El mapa de un evento de rastreador: Leaflet no existe en el servidor, entra sólo en el navegador. */
+const MapaEventoGps = dynamic(() => import("@/components/mapa/MapaEventoGps"), { ssr: false, loading: () => <div className="aspect-video w-full animate-pulse bg-card" /> });
 const NOMBRE_CLASE: Record<ClasePresencia, string> = {
     residente: "Residente", personal: "Personal", proveedor: "Proveedor", visita: "Visita", invitado: "Invitado", lista_blanca: "Lista blanca", no_registrado: "No registrado",
 };
@@ -154,6 +159,7 @@ function GestionAlarmas() {
     const { conectado } = useTiempoReal("access_event", latir);
     useTiempoReal("aviso_guardia", latir);
     useTiempoReal("general_detection", latir);
+    useTiempoReal("gps_evento", latir);
     useTiempoReal("alarma_atendida", latir);
     useTiempoReal("presencia", latir);
     useTiempoReal("visita", latir);
@@ -425,7 +431,8 @@ function GestionAlarmas() {
      */
     const etiquetaEstado = estado === "pendiente" ? "sin atender" : estado === "atendida" ? "atendidas" : "en total";
     // Los orígenes del grupo que se miran (en Alarm Hub hay uno solo: no se ofrece filtro).
-    const origenesBarra = ORIGENES_DE[grupo].filter((f) => (f !== "intrusion" || intrusionOn) && (f !== "central" || gestionOn));
+    // El origen GPS sólo aparece si hay alguna alarma de rastreador: una instalación sin GPS no tiene por qué verlo.
+    const origenesBarra = ORIGENES_DE[grupo].filter((f) => (f !== "intrusion" || intrusionOn) && (f !== "central" || gestionOn) && (f !== "gps" || alarmas.some((a) => a.fuente === "gps")));
     const barraAlarmas = (
         <div className="flex items-center gap-2 flex-wrap">
             <Filtros busqueda={busqueda} alBuscar={setBusqueda} placeholder="Matrícula, cámara o tipo"
@@ -443,7 +450,7 @@ function GestionAlarmas() {
                                 className={cn("relative h-[30px] w-[34px] rounded-md grid place-items-center transition-colors",
                                     on ? "bg-[var(--accion)] text-white" : "text-muted-foreground hover:text-foreground hover:bg-background", !n && !on && "opacity-40")}>
                                 <I size={15} />
-                                {n > 0 && <span className={cn("absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9.5px] font-bold tabular-nums grid place-items-center", on ? "bg-white text-[var(--accion)]" : f === "intrusion" || f === "lpr" || f === "central" ? "pleno-mal" : "bg-foreground text-background")}>{n > 99 ? "99+" : n}</span>}
+                                {n > 0 && <span className={cn("absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9.5px] font-bold tabular-nums grid place-items-center", on ? "bg-white text-[var(--accion)]" : f === "intrusion" || f === "lpr" || f === "central" || f === "gps" ? "pleno-mal" : "bg-foreground text-background")}>{n > 99 ? "99+" : n}</span>}
                             </button>
                         );
                     })}
@@ -700,6 +707,7 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
     // de lecturas LPR y OmniVision está en prueba; «atendida» sola no decía si había que corregir algo.
     /** Un evento de central de alarma se TRATA en su ficha, con cierre y texto (22/10): acá no se decide real/falsa. */
     const esCentral = a.tipo === "CENTRAL";
+    const esGps = a.fuente === "gps";
     const conVeredicto = !esCentral;
     const t = new Date(a.ts);
     const nota = usarNotaGestion(a.id, { nota: a.nota, por: a.notaPor, ts: a.notaAt });
@@ -748,8 +756,13 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                 </VisorEventoAcceso>
             ) : det ? (
                 <button type="button" onClick={() => setFichaIntrusion(true)} className="group relative block w-full text-left" aria-label="Abrir la ficha de la detección"><Foto src={foto} clip={clip} capa={fv?.fotoCruda ? fv.marcas : null} /><VerFichaEncima /></button>
+            ) : esGps ? (
+                /* Un rastreador no tiene cámara: lo que deja decidir es dónde pasó y por dónde venía. */
+                a.gps && a.gps.lat !== null && a.gps.lon !== null
+                    ? <MapaEventoGps imei={a.gps.imei} cuando={a.ts} lat={a.gps.lat} lon={a.gps.lon} tono={a.tono === "mal" ? "#ef4444" : "#f59e0b"} />
+                    : <div className="aspect-video bg-muted grid place-items-center text-center px-6"><div><MapPinOff size={22} className="mx-auto text-muted-foreground/60" /><p className="mt-2 text-[12.5px] font-semibold">Este evento llegó sin posición</p><p className="text-[11.5px] text-muted-foreground">El rastreador no tenía satélites: no se sabe dónde estaba.</p></div></div>
             ) : <Foto src={foto} clip={clip} capa={fv?.fotoCruda ? fv.marcas : null} />}
-            {a.deviceId && <AjusteVideoFicha chico lado="abajo" className="absolute top-2.5 right-2.5 z-[3]" />}
+            {a.deviceId && !esGps && <AjusteVideoFicha chico lado="abajo" className="absolute top-2.5 right-2.5 z-[3]" />}
             </div>
             <div className="px-5 pt-4 pb-5 flex flex-col gap-4">
                 {/* El comportamiento de la chapa, ENSEGUIDA debajo de la foto/video (18/10, Nico: «debe estar
@@ -782,12 +795,16 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                     {eventoId && (evento
                         ? <VisorEventoAcceso event={evento} timeStatus={null}><Button size="sm" variant="outline"><FileText size={14} /> Ver ficha</Button></VisorEventoAcceso>
                         : <Button size="sm" variant="outline" disabled><FileText size={14} /> Ver ficha</Button>)}
-                    {a.deviceId && <Button size="sm" variant="outline" onClick={() => setGrabacion(true)}><Film size={14} /> Grabación</Button>}
+                    {/* La «ficha» de una alarma de GPS es el mapa, con el evento marcado y su historial al lado. */}
+                    {esGps && a.gps && <Button size="sm" asChild><a href={`/admin/mapa?gps=${a.gps.imei}&evento=${a.gps.eventoId}`}><MapPin size={14} /> Ver en el mapa</a></Button>}
+                    {a.deviceId && !esGps && <Button size="sm" variant="outline" onClick={() => setGrabacion(true)}><Film size={14} /> Grabación</Button>}
                     {a.plate && <Button size="sm" variant="outline" asChild><a href={`/admin/history?search=${encodeURIComponent(a.plate)}`}><Clock size={14} /> Historial</a></Button>}
                 </div>
                 <div>
                     <Dato rotulo="Cuándo"><span className="tabular-nums">{t.toLocaleDateString("es-UY", { weekday: "short", day: "2-digit", month: "2-digit" })} · {t.toLocaleTimeString("es-UY", { hour12: false })}</span></Dato>
-                    {a.camara && <Dato rotulo="Cámara">{a.camara}</Dato>}
+                    {a.camara && <Dato rotulo={esGps ? "Rastreador" : "Cámara"}>{a.camara}</Dato>}
+                    {esGps && a.gps?.lugar && <Dato rotulo="Dónde">{a.gps.lugar}</Dato>}
+                    {esGps && a.gps?.tarde ? <Dato rotulo="Noticia"><span className="tono-aviso">llegó {Math.max(1, Math.round(a.gps.tarde / 60))} min después de pasar (el equipo estaba sin señal)</span></Dato> : null}
                     {a.estadia && <EstadiaEnZona e={a.estadia} />}
                     <Dato rotulo="Estado">{a.estado === "pendiente" ? <span className="tono-mal">Pendiente</span> : <span>{a.resultado === "falsa" ? "Falsa alarma" : a.resultado === "real" ? "Real" : "Atendida"}{a.atendidaPor ? ` · ${a.atendidaPor}` : ""}</span>}</Dato>
                 </div>

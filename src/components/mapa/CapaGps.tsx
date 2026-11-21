@@ -5,18 +5,20 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Circle, CircleMarker, Marker, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
-import { Bell, CircleDashed, Crosshair, EyeOff, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, ToggleLeft, ToggleRight, X } from "lucide-react";
+import { CircleDashed, Crosshair, EyeOff, History, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, ToggleLeft, ToggleRight, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import {
-    borrarGeocercaGps, cambiarIconoGps, comandoGps, estelaGps, eventosGps, geocercasGps, guardarGeocercaGps, rastreadoresGps, recorridoGps,
+    borrarGeocercaGps, cambiarIconoGps, comandoGps, entornoEventoGps, estelaGps, geocercasGps, guardarGeocercaGps, rastreadoresGps, recorridoGps, unEventoGps,
     type ComandoGps, type EventoGps, type Geocerca, type PuntoGps, type Rastreador, type RecorridoGps,
 } from "@/app/actions/gps";
+import { CajonEventosGps } from "@/components/mapa/CajonEventosGps";
+import { demoraLegible, fichaDeEventoGps, tituloDeEventoGps } from "@/lib/gps-eventos";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { metrosEntre, resumenDeRecorrido } from "@/lib/gps-recorrido";
 import { posicionEn, RETRASO_MS } from "@/lib/gps-reproducir";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";
-import { fechaHora, hace, hora } from "@/lib/fechas";
+import { fechaCorta, fechaHora, hace, hora, horaSeg } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 
 /**
@@ -31,6 +33,9 @@ import { cn } from "@/lib/utils";
  *  · **Ámbar** — en línea pero la posición es vieja: quedó bajo techo y sin satélites. El punto
  *    es dónde ENTRÓ. Pintarlo igual que el verde sería afirmar algo que el equipo no sabe.
  *  · **Gris** — no reporta. Es lo último que se supo.
+ *  · **Gris con aro rojo cortado y «sin reportar»** — se avisó que dejó de reportar (el receptor
+ *    lo detecta, ver lib-gps-eventos). No es lo mismo que el gris: ése es un equipo del que hace
+ *    rato no se sabe; éste es uno que se calló cuando no debía.
  *  · **Aro rojo** — tiene el relé accionado.
  *
  * El menú (clic derecho, o mantener apretado en una pantalla táctil) usa las mismas acciones que
@@ -69,6 +74,7 @@ function icono(r: Rastreador): L.DivIcon {
     const andando = (r.velocidad || 0) > 3 && c === VERDE;
     const rotulo = (r.matricula || r.nombre || r.imei.slice(-6)).replace(/[<>&]/g, "");
     const dibujo = ICONOS[r.icono || "auto"] || ICONOS.auto;
+    const callado = !!r.sinReporteDesde;
     /* La flecha de rumbo va AFUERA del círculo y sólo si se está moviendo: un vehículo quieto no
        tiene rumbo, y el que informa el equipo parado es el último que tuvo. */
     const flecha = andando
@@ -86,11 +92,11 @@ function icono(r: Rastreador): L.DivIcon {
             <div style="position:relative;width:36px;height:36px">
                 ${cartel}
                 ${flecha}
-                <div style="width:36px;height:36px;border-radius:50%;background:${c};border:3px solid ${r.cortado ? ROJO : "#fff"};box-shadow:0 2px 8px rgba(0,0,0,.45);display:grid;place-items:center">${trazo(dibujo.svg)}</div>
+                <div style="width:36px;height:36px;border-radius:50%;background:${c};border:3px ${callado ? "dashed" : "solid"} ${r.cortado || callado ? ROJO : "#fff"};box-shadow:0 2px 8px rgba(0,0,0,.45);display:grid;place-items:center">${trazo(dibujo.svg)}</div>
             </div>
-            <div style="padding:1px 7px;border-radius:999px;background:rgba(10,14,20,.85);color:#fff;font:700 11px/16px Outfit,system-ui,sans-serif;white-space:nowrap">${rotulo}</div>
+            <div style="padding:1px 7px;border-radius:999px;background:${callado ? ROJO : "rgba(10,14,20,.85)"};color:#fff;font:700 11px/16px Outfit,system-ui,sans-serif;white-space:nowrap">${rotulo}${callado ? " · sin reportar" : ""}</div>
         </div>`,
-        iconSize: [96, 62], iconAnchor: [48, 18], popupAnchor: [0, -20],
+        iconSize: [150, 62], iconAnchor: [75, 18], popupAnchor: [0, -20],
     });
 }
 
@@ -133,8 +139,12 @@ export function CapaGps() {
     useEffect(() => { trazarEstela(); }, [estela, trazarEstela]);
     /** La geocerca que acaba de cruzar alguien: se destaca unos segundos. */
     const [destello, setDestello] = useState<string | null>(null);
-    /** El panel de eventos de un rastreador. */
-    const [eventos, setEventos] = useState<{ imei: string; lista: EventoGps[] | null } | null>(null);
+    /** El cajón de eventos: de qué rastreador. */
+    const [cajon, setCajon] = useState<string | null>(null);
+    /** El evento marcado en el mapa, con el tramo que el vehículo venía recorriendo alrededor. */
+    const [evSel, setEvSel] = useState<{ e: EventoGps; entorno: PuntoGps[] } | null>(null);
+    /** Sube cuando pasa algo que el cajón no recibe por el socket (se accionó el relé desde acá). */
+    const [refrescoCajon, setRefrescoCajon] = useState(0);
     const [menu, setMenu] = useState<{ imei: string; x: number; y: number } | null>(null);
     const [armado, setArmado] = useState(false);
     const [mandando, setMandando] = useState<string | null>(null);
@@ -177,6 +187,7 @@ export function CapaGps() {
         catch { /* sin permiso o sin red: la capa no se dibuja y el mapa sigue andando */ }
     }, []);
     useEffect(() => { traer(); const iv = setInterval(traer, REFRESCO_MS); return () => clearInterval(iv); }, [traer]);
+    const traerRef = useRef(traer); traerRef.current = traer;
 
     const verRuta = useCallback(async (imei: string, horas: number, encuadrar = true) => {
         if (encuadrar) { setViajeSel(null); setEstela(null); }
@@ -213,21 +224,44 @@ export function CapaGps() {
 
     /* Lo que le pasa a un rastreador se ve en el mapa en el momento, haya o no una regla de
        notificación: el aviso por Telegram es para quien no está mirando. */
-    useTiempoReal<{ imei: string; tipo: string; rotulo: string; detalle: string; nombre: string; geocercaId?: string }>("gps_evento", (d) => {
+    useTiempoReal<{ imei: string; tipo: string; rotulo: string; detalle: string; nombre: string; geocercaId?: string; tarde?: number; lugar?: string | null }>("gps_evento", (d) => {
         const cruce = d.tipo === "GPS_GEOCERCA_ENTRA" || d.tipo === "GPS_GEOCERCA_SALE";
-        toast[d.tipo === "GPS_SOS" || d.tipo === "GPS_CORTE" || d.tipo === "GPS_MOVIMIENTO" ? "error" : "success"]({
-            title: cruce ? `${d.nombre} ${d.tipo === "GPS_GEOCERCA_ENTRA" ? "entró a" : "salió de"} «${d.detalle}»` : `${d.nombre}: ${d.rotulo}`,
-            description: cruce ? undefined : d.detalle || undefined,
+        const tono = fichaDeEventoGps(d.tipo).tono;
+        /* Lo que llegó tarde se dice: «entró a Base» de hace diez minutos no es «está entrando». */
+        const demora = demoraLegible(d.tarde);
+        const resto = [cruce ? null : d.detalle, d.lugar, demora ? `pasó hace ${demora}` : null].filter(Boolean).join(" · ");
+        toast[tono === "mal" ? "error" : tono === "aviso" ? "warning" : "success"]({
+            title: cruce ? `${d.nombre} ${d.tipo === "GPS_GEOCERCA_ENTRA" ? "entró a" : "salió de"} «${d.detalle}»` : `${d.nombre}: ${fichaDeEventoGps(d.tipo).rotulo}`,
+            description: resto || undefined,
         });
-        if (d.geocercaId) { setDestello(d.geocercaId); setTimeout(() => setDestello((x) => (x === d.geocercaId ? null : x)), 8000); }
-        setEventos((v) => (v && v.imei === d.imei ? { ...v, lista: null } : v));
+        /* Un cruce atrasado no enciende la geocerca: ya no está pasando. */
+        if (d.geocercaId && !demora) { setDestello(d.geocercaId); setTimeout(() => setDestello((x) => (x === d.geocercaId ? null : x)), 8000); }
+        if (d.tipo === "GPS_SIN_REPORTE" || d.tipo === "GPS_VOLVIO") traerRef.current();
     });
-    useEffect(() => {
-        if (!eventos || eventos.lista) return;
-        let vivo = true;
-        eventosGps(eventos.imei, 40).then((l) => { if (vivo) setEventos((v) => (v && v.imei === eventos.imei ? { ...v, lista: l } : v)); }).catch(() => { });
-        return () => { vivo = false; };
-    }, [eventos]);
+
+    /**
+     * Ir a donde pasó un evento. El punto queda centrado en la parte del mapa QUE SE VE: con el
+     * cajón abierto a la derecha, centrarlo en el mapa entero lo dejaba a medias tapado.
+     */
+    const irAlEvento = useCallback((lat: number, lon: number) => {
+        const z = Math.max(mapa.getZoom(), 17);
+        const cont = mapa.getContainer().getBoundingClientRect();
+        const caj = document.querySelector<HTMLElement>("[data-cajon-gps]")?.getBoundingClientRect();
+        const tapado = caj ? Math.max(0, Math.min(cont.right, caj.right) - Math.max(cont.left, caj.left)) : 0;
+        const centro = mapa.unproject(mapa.project([lat, lon], z).add([tapado / 2, 0]), z);
+        const quieto = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        if (quieto) mapa.setView(centro, z); else mapa.flyTo(centro, z, { duration: 0.7 });
+    }, [mapa]);
+
+    const elegirEvento = useCallback((e: EventoGps | null) => {
+        if (!e) { setEvSel(null); return; }
+        setSuelta(true);                       // quien va a mirar un evento no quiere que la cámara vuelva al vehículo
+        setEvSel({ e, entorno: [] });
+        if (e.lat === null || e.lon === null) return;
+        irAlEvento(e.lat, e.lon);
+        entornoEventoGps(e.imei, e.cuando, 5).then((entorno) => setEvSel((v) => (v && v.e.id === e.id ? { ...v, entorno } : v))).catch(() => { /* sin el tramo queda el pin, que es lo que importa */ });
+    }, [irAlEvento]);
+    const abrirCajon = useCallback((imei: string) => { setPanelCercas(false); setBorrador(null); setColocando(false); setEvSel(null); setCajon(imei); }, []);
 
     /* Arrastrar el mapa suelta la cámara del modo en vivo. */
     useEffect(() => {
@@ -258,9 +292,19 @@ export function CapaGps() {
         const r = pedido ? lista.find((x) => x.imei === pedido) : null;
         if (!r) return;
         volo.current = true;
+        let evento: string | null = null;
+        try { evento = new URLSearchParams(window.location.search).get("evento"); } catch { /* sin URL */ }
+        if (evento) {
+            /* Desde Gestión de alarmas: se llega con el evento ya marcado y su historial abierto. */
+            abrirCajon(r.imei);
+            unEventoGps(evento).then((e) => { if (e && e.imei === r.imei) elegirEvento(e); else mapa.setView([r.lat!, r.lon!], 17); }).catch(() => mapa.setView([r.lat!, r.lon!], 17));
+            return;
+        }
         mapa.setView([r.lat!, r.lon!], 17);
-        verRuta(r.imei, 24, false);
-    }, [lista, mapa, verRuta]);
+        let soloEventos = false;
+        try { soloEventos = new URLSearchParams(window.location.search).get("eventos") === "1"; } catch { /* sin URL */ }
+        if (soloEventos) abrirCajon(r.imei); else verRuta(r.imei, 24, false);
+    }, [lista, mapa, verRuta, abrirCajon, elegirEvento]);
 
     /* El menú se cierra con Escape, con un clic afuera o al mover el mapa. */
     useEffect(() => {
@@ -281,7 +325,7 @@ export function CapaGps() {
             /* Se muestra lo que contestó EL EQUIPO, textual: es la única palabra que vale. */
             if (!x.ok) toast.error({ title: accion.startsWith("rele.") ? "No se accionó" : "No contestó", description: x.error });
             else toast.success({ title: titulo, description: x.respuesta });
-            traer();
+            traer(); if (accion.startsWith("rele.")) setRefrescoCajon((n) => n + 1);
         } finally { setMandando(null); setMenu(null); }
     };
 
@@ -380,6 +424,18 @@ export function CapaGps() {
             )}
             {colocando && <ClicEnElMapa alTocar={(lat, lon) => { setColocando(false); setBorrador({ nombre: "", lat, lon, radio: 200, imeis: [], activa: true }); setPanelCercas(true); }} />}
 
+            {/* El evento elegido en el cajón: por dónde venía (cinco minutos antes y después) y el punto
+                exacto donde pasó, con qué fue y a qué hora. */}
+            {evSel && evSel.entorno.length > 1 && (
+                <>
+                    <Polyline positions={evSel.entorno.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: "#0a0e14", weight: 8, opacity: 0.5, lineCap: "round", lineJoin: "round" }} />
+                    <Polyline positions={evSel.entorno.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: "#fbbf24", weight: 4, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
+                </>
+            )}
+            {evSel && evSel.e.lat !== null && evSel.e.lon !== null && (
+                <Marker key={evSel.e.id} position={[evSel.e.lat, evSel.e.lon]} zIndexOffset={2200} interactive={false} icon={pinDeEvento(evSel.e)} />
+            )}
+
             {lista.map((r) => (
                 <MarcadorGps key={r.imei} r={r} seguir={seguido === r.imei} alMover={estela?.imei === r.imei ? alMoverEstela : undefined}
                     eventHandlers={{
@@ -394,12 +450,14 @@ export function CapaGps() {
                         <div style={{ font: "13px/1.45 Outfit,system-ui,sans-serif", minWidth: 215 }}>
                             <div style={{ fontWeight: 700, fontSize: 14 }}>{r.nombre || `Rastreador ${r.imei.slice(-6)}`}</div>
                             <div style={{ color: "#64748b", fontSize: 11.5, marginBottom: 6 }}>{r.matricula ? `${r.matricula} · ` : ""}IMEI {r.imei}</div>
-                            <Renglon icono={<Dibujo que="estado" vivo={r.enLinea} />} k="Estado" v={r.enLinea ? `En línea · reportó ${hace(r.ultimoLatido)}` : `Sin reportar desde ${hace(r.ultimoLatido, "nunca")}`} />
+                            <Renglon icono={<Dibujo que="estado" vivo={r.enLinea} />} k="Estado" v={r.sinReporteDesde ? `Dejó de reportar ${hace(r.sinReporteDesde)}` : r.enLinea ? `En línea · reportó ${hace(r.ultimoLatido)}` : `Sin reportar desde ${hace(r.ultimoLatido, "nunca")}`} />
                             <Renglon icono={<Dibujo que="posicion" vivo={tonoDe(r) === VERDE} tono={tonoDe(r)} />} k="Posición" v={`de ${hace(r.cuando)}`} aviso={tonoDe(r) === AMBAR ? "sin satélites desde entonces" : undefined} />
                             <Renglon icono={<Dibujo que="motor" vivo={r.encendido === true} />} k="Motor" v={r.encendido === null ? "—" : r.encendido ? "Encendido" : "Apagado"} />
                             <Renglon icono={<Dibujo que="velocidad" vivo={(r.velocidad || 0) > 3} valor={r.velocidad || 0} />} k="Velocidad" v={`${r.velocidad || 0} km/h`} />
                             <Renglon icono={<Dibujo que="bateria" vivo={r.voltaje !== null && r.voltaje >= 13.2} valor={r.voltaje ?? undefined} />} k="Batería del vehículo" v={r.voltaje !== null ? `${r.voltaje.toFixed(1).replace(".", ",")} V` : "—"} />
                             <Renglon icono={<Dibujo que="rele" vivo={r.cortado === true} />} k="Relé" v={r.cortado === null ? "—" : r.cortado ? "Accionado" : "En reposo"} />
+                            <button type="button" onClick={() => { mapa.closePopup(); abrirCajon(r.imei); }}
+                                style={{ marginTop: 8, width: "100%", height: 28, borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", font: "600 12px Outfit,system-ui,sans-serif", cursor: "pointer" }}>Ver sus eventos</button>
                             <div style={{ color: "#64748b", fontSize: 11.5, marginTop: 6 }}>Clic derecho: recorrido, controles e ícono.</div>
                         </div>
                     </Popup>
@@ -431,6 +489,13 @@ export function CapaGps() {
                         .gd-carga { animation: gd-carga 1.4s ease-in-out infinite; }
                         @keyframes gd-carga { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
                         .gd-alerta { animation: gd-carga .8s ease-in-out infinite; }
+                        /* El pin del evento elegido: cae a su lugar y late dos veces, para que el ojo lo encuentre
+                           después del vuelo del mapa. */
+                        .gps-pin { animation: gps-pin-cae .38s cubic-bezier(.2,.9,.3,1.25) both; transform-origin: 50% 100%; }
+                        @keyframes gps-pin-cae { from { opacity: 0; transform: translateY(-14px) scale(.7); } to { opacity: 1; transform: translateY(0) scale(1); } }
+                        .gps-pin-onda { animation: gps-pin-onda 1.6s ease-out 3; }
+                        @keyframes gps-pin-onda { 0% { transform: scale(.4); opacity: .8; } 100% { transform: scale(2.6); opacity: 0; } }
+                        @media (prefers-reduced-motion: reduce) { .gps-pin, .gps-pin-onda { animation: none; } .gps-pin-onda { opacity: 0; } }
                         @media (prefers-reduced-motion: reduce) { .gps-vel, .gd-onda, .gd-ping, .gd-late, .gd-tiembla, .gd-carga, .gd-alerta { animation: none; } .gd-aguja { transition: none; } }
                     `}</style>
                     {menu && delMenu && (
@@ -447,7 +512,7 @@ export function CapaGps() {
                                 ))}
                             </div>
                             {queSeVe(delMenu.imei) && <Item icono={EyeOff} onClick={() => { cerrarRecorrido(); setMenu(null); }}>Ocultar el recorrido</Item>}
-                            <Item icono={Bell} onClick={() => { setEventos({ imei: delMenu.imei, lista: null }); setMenu(null); }}>Ver sus eventos</Item>
+                            <Item icono={History} onClick={() => { abrirCajon(delMenu.imei); setMenu(null); }}>Ver sus eventos</Item>
                             <Item icono={Crosshair} onClick={() => { mapa.setView([delMenu.lat!, delMenu.lon!], Math.max(mapa.getZoom(), 17)); setMenu(null); }}>Centrar acá</Item>
 
                             <Rotulo>Controles</Rotulo>
@@ -462,8 +527,8 @@ export function CapaGps() {
                             )}
 
                             <Rotulo>Geocercas</Rotulo>
-                            <Item icono={Plus} onClick={() => { setBorrador({ nombre: "", lat: delMenu.lat!, lon: delMenu.lon!, radio: 200, imeis: [], activa: true }); setPanelCercas(true); setMenu(null); }}>Nueva alrededor de acá</Item>
-                            <Item icono={CircleDashed} onClick={() => { setPanelCercas(true); setMenu(null); }}>Ver las geocercas{cercas.length ? ` (${cercas.length})` : ""}</Item>
+                            <Item icono={Plus} onClick={() => { setCajon(null); setEvSel(null); setBorrador({ nombre: "", lat: delMenu.lat!, lon: delMenu.lon!, radio: 200, imeis: [], activa: true }); setPanelCercas(true); setMenu(null); }}>Nueva alrededor de acá</Item>
+                            <Item icono={CircleDashed} onClick={() => { setCajon(null); setEvSel(null); setPanelCercas(true); setMenu(null); }}>Ver las geocercas{cercas.length ? ` (${cercas.length})` : ""}</Item>
 
                             <Rotulo>Ícono</Rotulo>
                             <div className="px-3 pb-1.5 flex gap-1">
@@ -552,30 +617,9 @@ export function CapaGps() {
                         </div>
                     )}
 
-                    {eventos && (
-                        <div className="fixed top-20 left-[calc(50%-150px)] z-[500] w-[320px] max-h-[calc(100vh-320px)] flex flex-col rounded-[14px] border border-border bg-popover shadow-xl"
-                            onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border">
-                                <Bell size={15} className="text-muted-foreground" />
-                                <p className="text-[13px] font-bold flex-1 truncate">Eventos de {lista.find((r) => r.imei === eventos.imei)?.nombre || eventos.imei.slice(-6)}</p>
-                                <button type="button" onClick={() => setEventos(null)} aria-label="Cerrar" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent"><X size={14} /></button>
-                            </div>
-                            <div className="overflow-y-auto [scrollbar-width:thin] px-2 py-2">
-                                {!eventos.lista ? <p className="px-2 py-2 text-[12px] text-muted-foreground inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Trayendo…</p>
-                                    : eventos.lista.length === 0 ? <p className="px-2 py-2 text-[12px] text-muted-foreground">Todavía no le pasó nada.</p>
-                                        : eventos.lista.map((e) => (
-                                            <button key={e.id} type="button" disabled={e.lat === null || e.lon === null}
-                                                onClick={() => { if (e.lat !== null && e.lon !== null) mapa.setView([e.lat, e.lon], Math.max(mapa.getZoom(), 17)); }}
-                                                className="w-full flex items-baseline gap-2 px-2 py-1.5 rounded-[6px] text-left hover:bg-accent disabled:hover:bg-transparent">
-                                                <span className="text-[11px] text-muted-foreground tabular-nums w-[84px] shrink-0">{fechaHora(e.cuando)}</span>
-                                                <span className="min-w-0 flex-1">
-                                                    <span className="block text-[12.5px] font-semibold truncate">{ROTULO_EVENTO[e.tipo] || e.tipo}</span>
-                                                    {e.detalle && <span className="block text-[11px] text-muted-foreground truncate">{e.detalle}</span>}
-                                                </span>
-                                            </button>
-                                        ))}
-                            </div>
-                        </div>
+                    {cajon && (
+                        <CajonEventosGps key={cajon} imei={cajon} rastreador={lista.find((r) => r.imei === cajon)} elegido={evSel?.e.id || null}
+                            alElegir={elegirEvento} alCerrar={() => { setCajon(null); setEvSel(null); }} refresco={refrescoCajon} />
                     )}
 
                     {panelCercas && (
@@ -677,12 +721,30 @@ function ClicEnElMapa({ alTocar }: { alTocar: (lat: number, lon: number) => void
     return null;
 }
 
-const ROTULO_EVENTO: Record<string, string> = {
-    GPS_SOS: "Botón de pánico (SOS)", GPS_CORTE: "Le cortaron la alimentación", GPS_VIBRACION: "Vibración",
-    GPS_VELOCIDAD: "Exceso de velocidad", GPS_MOVIMIENTO: "Se mueve con el motor apagado", GPS_BATERIA: "Batería del vehículo baja",
-    GPS_BATERIA_EQUIPO: "Batería del rastreador baja", GPS_DESARME: "Desarmaron el rastreador", GPS_OTRA: "Alarma del rastreador",
-    GPS_GEOCERCA_ENTRA: "Entró a una geocerca", GPS_GEOCERCA_SALE: "Salió de una geocerca",
-};
+const COLOR_TONO: Record<string, string> = { mal: ROJO, aviso: AMBAR, bien: VERDE, info: CELESTE, quieto: GRIS };
+const limpio = (t: string) => t.replace(/[<>&]/g, "");
+
+/** El pin de un evento: del color de su tono, con qué fue y a qué hora encima. */
+function pinDeEvento(e: EventoGps): L.DivIcon {
+    const c = COLOR_TONO[fichaDeEventoGps(e.tipo).tono] || GRIS;
+    const { titulo } = tituloDeEventoGps(e);
+    return L.divIcon({
+        className: "bg-transparent border-0", iconSize: [260, 74], iconAnchor: [130, 70],
+        html: `<div style="display:flex;flex-direction:column;align-items:center;pointer-events:none">
+            <div class="gps-pin" style="display:flex;flex-direction:column;align-items:center">
+                <div style="max-width:250px;padding:3px 10px;border-radius:10px;background:#0a0e14;color:#fff;border:2px solid ${c};box-shadow:0 3px 12px rgba(0,0,0,.5);font:700 12px/16px Outfit,system-ui,sans-serif;text-align:center">
+                    <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${limpio(titulo)}</div>
+                    <div style="font-weight:600;font-size:10.5px;opacity:.75;font-variant-numeric:tabular-nums">${limpio(fechaCorta(e.cuando))} · ${limpio(horaSeg(e.cuando))}</div>
+                </div>
+                <div style="width:2px;height:12px;background:${c}"></div>
+            </div>
+            <div style="position:relative;width:14px;height:14px">
+                <div class="gps-pin-onda" style="position:absolute;inset:0;border-radius:50%;border:2px solid ${c}"></div>
+                <div style="position:absolute;inset:0;border-radius:50%;background:${c};border:2.5px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5)"></div>
+            </div>
+        </div>`,
+    });
+}
 
 /** Un salto más largo que esto no se desliza: es un hueco sin reportes, no un movimiento. */
 const SALTO_MAX_M = 1500;
@@ -788,7 +850,7 @@ function MarcadorGps({ r, seguir, alMover, eventHandlers, children }: {
        cambiar el elemento entero — el cartel de la velocidad volvería a «entrar» cada diez
        segundos. Los dos se actualizan sobre el elemento que ya está (más abajo). */
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `icono(r)` sólo depende de lo listado
-    const ic = useMemo(() => icono(r), [tono, andando, r.icono, r.nombre, r.matricula, r.cortado]);
+    const ic = useMemo(() => icono(r), [tono, andando, r.icono, r.nombre, r.matricula, r.cortado, r.sinReporteDesde]);
 
     /* La flecha gira hasta el rumbo nuevo por el camino corto: de 350° a 10° son 20° hacia
        adelante, no 340° hacia atrás. Por eso se acumula el ángulo en vez de asignarlo. */

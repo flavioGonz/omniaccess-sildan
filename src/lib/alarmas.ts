@@ -7,6 +7,7 @@ import { ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
 import { avisarPorSocket } from "@/lib/avisar";
 import { registrarGestion } from "@/lib/gestion-alarma";
 import { AVISOS_RETIRADOS } from "@/lib/vision-reglas";
+import { demoraLegible, fichaDeEventoGps, tituloDeEventoGps } from "@/lib/gps-eventos";
 
 /**
  * Gestión de alarmas (16/10, Nico: «un panel de gestión centralizado de todos los tipos de
@@ -18,12 +19,15 @@ import { AVISOS_RETIRADOS } from "@/lib/vision-reglas";
  *                de noche… (AvisoGuardia).
  *  · vision    — los avisos de las reglas de OmniVision: sentido contrario, merodeo, objeto
  *                retirado… (AvisoGuardia con tipo VISION_*).
+ *  · gps       — lo que le pasa a un rastreador y amerita un operador: SOS, le cortaron la
+ *                alimentación, dejó de reportar… (GpsEvento con prioridad; la lista de cuáles y
+ *                con qué prioridad vive en lib-gps-eventos.js, que es quien la pone al guardarlo).
  *
  * Cada una se atiende donde se guarda: la intrusión en Detection (acknowledged + ackKind), los
  * avisos en AvisoGuardia (atendidoAt), y las lecturas —que no se tocan— en AlarmaAtendida.
  */
 
-export type FuenteAlarma = "intrusion" | "lpr" | "patron" | "vision";
+export type FuenteAlarma = "intrusion" | "lpr" | "patron" | "vision" | "gps";
 export type TonoAlarma = "mal" | "aviso" | "info" | "neutro";
 
 export type Alarma = {
@@ -53,6 +57,11 @@ export type Alarma = {
     notaPor: string | null;
     notaAt: string | null;
     accessEventId: string | null;
+    /**
+     * Una alarma de rastreador: de cuál es y dónde pasó. Un GPS no tiene cámara: la verificación
+     * es el mapa —dónde estaba, por dónde venía— y la ficha lo abre con este evento ya marcado.
+     */
+    gps?: { imei: string; eventoId: string; lat: number | null; lon: number | null; lugar: string | null; tarde: number | null } | null;
     /**
      * «Se quedó en la zona» (OmniVision): desde cuándo está y, cuando se fue, hasta cuándo y cómo
      * terminó (salio · no-se-ve · reinicio; ver vision-reglas.js cerrarAvisoEstadia). Sin `hasta`,
@@ -85,7 +94,7 @@ export type Alarma = {
     } | null;
 };
 
-export const NOMBRE_FUENTE: Record<FuenteAlarma, string> = { intrusion: "Intrusión", lpr: "LPR", patron: "Patrones", vision: "OmniVision" };
+export const NOMBRE_FUENTE: Record<FuenteAlarma, string> = { intrusion: "Intrusión", lpr: "LPR", patron: "Patrones", vision: "OmniVision", gps: "GPS" };
 
 /** Rangos que ofrece la pantalla, en horas. */
 export const RANGOS_ALARMAS_H = [24, 72, 168] as const;
@@ -104,11 +113,17 @@ const NOMBRE_INTRUSION: Record<string, string> = { CENTRAL: "Alarma de central",
 
 export async function listarAlarmas(horas: number): Promise<Alarma[]> {
     const desde = new Date(Date.now() - horas * 3_600_000);
-    const [dets, avisos, vigiladas] = await Promise.all([
+    const [dets, avisos, vigiladas, gpsEvs] = await Promise.all([
         prisma.detection.findMany({ where: { timestamp: { gte: desde }, type: { not: "MOTION" } }, orderBy: { timestamp: "desc" }, take: MAX_POR_FUENTE }).catch(() => []),
         prisma.avisoGuardia.findMany({ where: { creado: { gte: desde }, tipo: { notIn: AVISOS_QUE_NO_SON_ALARMA } }, orderBy: { creado: "desc" }, take: MAX_POR_FUENTE }).catch(() => []),
         prisma.plateWatch.findMany({ where: { active: true, category: { in: ["BLACKLISTED", "SEARCH"] } }, select: { plate: true, category: true, motivo: true, label: true } }).catch(() => []),
+        // Los eventos de rastreadores que abren un caso: los que el receptor guardó con prioridad.
+        prisma.gpsEvento.findMany({ where: { cuando: { gte: desde }, prioridad: { not: null } }, orderBy: { cuando: "desc" }, take: MAX_POR_FUENTE }).catch(() => []),
     ]);
+    const gpsEquipos = gpsEvs.length ? await prisma.gpsEquipo.findMany({ where: { imei: { in: [...new Set(gpsEvs.map((g) => g.imei))] } }, select: { imei: true, nombre: true, deviceId: true, vehicleId: true } }).catch(() => []) : [];
+    const gpsVehs = gpsEquipos.some((e) => e.vehicleId) ? await prisma.vehicle.findMany({ where: { id: { in: gpsEquipos.map((e) => e.vehicleId).filter(Boolean) as string[] } }, select: { id: true, plate: true } }).catch(() => []) : [];
+    const gpsDe = new Map(gpsEquipos.map((e) => [e.imei, e]));
+    const chapaGps = new Map(gpsVehs.map((v) => [v.id, v.plate]));
     const vig = new Map(vigiladas.map((v) => [normalizarMatricula(v.plate), v]));
     const chapas = [...vig.keys()].filter(Boolean) as string[];
     const lecturas = chapas.length ? await prisma.accessEvent.findMany({
@@ -119,7 +134,7 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
     const [devs, atendidas] = await Promise.all([
         // Todos los equipos (son decenas): los de las detecciones por id y los de los avisos por nombre.
         ids.length || avisos.length ? prisma.device.findMany({ select: { id: true, name: true } }).catch(() => []) : Promise.resolve([]),
-        prisma.alarmaAtendida.findMany({ where: { clave: { in: [...dets.map((d) => `d:${d.id}`), ...avisos.map((a) => `a:${a.id}`), ...lecturas.map((l) => `l:${l.id}`)] } } }).catch(() => []),
+        prisma.alarmaAtendida.findMany({ where: { clave: { in: [...dets.map((d) => `d:${d.id}`), ...avisos.map((a) => `a:${a.id}`), ...lecturas.map((l) => `l:${l.id}`), ...gpsEvs.map((g) => `g:${g.id}`)] } } }).catch(() => []),
     ]);
     const prioridades = dets.some((d) => d.type === "CENTRAL") ? await leerPrioridadesGuardadas() : null;
     const nombre = new Map(devs.map((d) => [d.id, d.name]));
@@ -221,6 +236,26 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
             ...notaDe(at),
         });
     }
+    for (const g of gpsEvs) {
+        const eq = gpsDe.get(g.imei);
+        /* Sólo los de rastreadores dados de alta: el receptor ya no guarda eventos de los otros,
+           pero un rastreador que se dio de baja no tiene que seguir abriendo casos. */
+        if (!eq?.deviceId) continue;
+        const at = atendida.get(`g:${g.id}`);
+        const { titulo, resto } = tituloDeEventoGps(g);
+        const demora = demoraLegible(g.tarde);
+        out.push({
+            id: `g:${g.id}`, fuente: "gps", tipo: g.tipo, titulo,
+            detalle: [resto, g.lugar, demora ? `llegó ${demora} tarde` : null].filter(Boolean).join(" · ") || null,
+            ts: g.cuando.toISOString(), camara: eq.nombre || `Rastreador ${g.imei.slice(-6)}`, deviceId: eq.deviceId,
+            plate: (eq.vehicleId && chapaGps.get(eq.vehicleId)) || null, prioridad: g.prioridad,
+            foto: null, tono: fichaDeEventoGps(g.tipo).tono === "mal" ? "mal" : "aviso",
+            estado: at?.atendida ? "atendida" : "pendiente", atendidaPor: at?.atendida ? at.por || null : null, atendidaAt: at?.atendida ? at.ts.toISOString() : null,
+            resultado: at?.resultado || null, accessEventId: null,
+            gps: { imei: g.imei, eventoId: g.id, lat: g.lat, lon: g.lon, lugar: g.lugar, tarde: g.tarde },
+            ...notaDe(at),
+        });
+    }
     return out.sort((a, b) => (a.ts < b.ts ? 1 : -1));
 }
 
@@ -298,8 +333,10 @@ export async function leerGestion(id: string) {
  */
 export async function gestionarAlarma(id: string, g: { atender: boolean; resultado: "real" | "falsa" | null; nota: string | null }, por: string | null): Promise<boolean> {
     const [pref, rid] = [id.slice(0, 2), id.slice(2)];
-    if (!rid || rid.length > 64 || !["d:", "a:", "l:"].includes(pref)) return false;
-    const existe = pref === "d:" ? await prisma.detection.count({ where: { id: rid } }) : pref === "a:" ? await prisma.avisoGuardia.count({ where: { id: rid } }) : await prisma.accessEvent.count({ where: { id: rid } });
+    if (!rid || rid.length > 64 || !["d:", "a:", "l:", "g:"].includes(pref)) return false;
+    // Un evento de rastreador («g:») se gestiona como una lectura: su decisión vive en AlarmaAtendida.
+    const existe = pref === "d:" ? await prisma.detection.count({ where: { id: rid } }) : pref === "a:" ? await prisma.avisoGuardia.count({ where: { id: rid } })
+        : pref === "g:" ? await prisma.gpsEvento.count({ where: { id: rid, prioridad: { not: null } } }) : await prisma.accessEvent.count({ where: { id: rid } });
     if (!existe) return false;
     // Un evento de central se trata en su ficha, con cierre y texto (lib/centrales/tratamiento): acá no.
     if (g.atender && pref === "d:" && (await prisma.detection.count({ where: { id: rid, type: "CENTRAL" } }))) return false;

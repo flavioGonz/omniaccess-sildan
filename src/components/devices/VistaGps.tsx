@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, Loader2, MapPin, Pencil, Plus, Radio, Satellite } from "lucide-react";
+import { Check, DoorClosed, DoorOpen, FileSpreadsheet, History, Loader2, MapPin, Pencil, Plus, Radio, Satellite, TriangleAlert } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { atarVehiculoGps, comandoGps, darDeAltaGps, renombrarGps, type Rastreador } from "@/app/actions/gps";
+import { atarVehiculoGps, cambiarPuertaGps, comandoGps, darDeAltaGps, descartarGps, diagnosticoGps, puertaGps, renombrarGps, type DiagnosticoGps, type Rastreador } from "@/app/actions/gps";
+import { DeleteButton } from "@/components/ui/delete-button";
+import { Pista } from "@/components/ui/pista";
+import { Switch } from "@/components/ui/switch";
 import { arrastrarEquipos } from "@/components/devices/ArbolAreas";
 import { hace } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
@@ -41,7 +44,50 @@ export function VistaGps({ lista, busqueda, alCambiar }: {
     const q = (busqueda || "").trim().toLowerCase();
     const filas = q ? lista.filter((r) => [r.nombre, r.imei, r.matricula].some((x) => (x || "").toLowerCase().includes(q))) : lista;
 
+    /* El diagnóstico de instalación recorre un día de posiciones: se pide al entrar y cada cinco
+       minutos, no con cada refresco de la tabla. */
+    const [diag, setDiag] = useState<Record<string, DiagnosticoGps>>({});
+    useEffect(() => {
+        let vivo = true;
+        const traer = () => diagnosticoGps().then((d) => { if (vivo) setDiag(Object.fromEntries(d.map((x) => [x.imei, x]))); }).catch(() => { /* sin diagnóstico la tabla sigue andando */ });
+        traer(); const iv = setInterval(traer, 5 * 60_000);
+        return () => { vivo = false; clearInterval(iv); };
+    }, []);
+
+    /* La puerta del receptor: si un equipo desconocido que se presenta se anota o no. */
+    const [puerta, setPuerta] = useState<{ cerrada: boolean; pendientes: number } | null>(null);
+    const [cambiandoPuerta, setCambiandoPuerta] = useState(false);
+    useEffect(() => { puertaGps().then(setPuerta).catch(() => { }); }, [lista.length]);
+    const cambiarPuerta = async (cerrada: boolean) => {
+        setCambiandoPuerta(true);
+        try {
+            await cambiarPuertaGps(cerrada);
+            setPuerta((p) => (p ? { ...p, cerrada } : p));
+            toast.success({ title: cerrada ? "Puerta cerrada" : "Puerta abierta", description: cerrada ? "El receptor sólo atiende a los rastreadores dados de alta. Vale en menos de un minuto." : "Un rastreador nuevo que se conecte va a aparecer acá para darlo de alta. Vale en menos de un minuto." });
+        } catch (e) { toast.error({ title: "No se pudo cambiar", description: e instanceof Error ? e.message : undefined }); }
+        finally { setCambiandoPuerta(false); }
+    };
+
     return (
+        <>
+        {puerta && (
+            <div className="mb-3 flex items-center gap-3 rounded-[10px] border border-border bg-card/40 px-4 py-2.5">
+                <span className={cn("h-8 w-8 shrink-0 grid place-items-center rounded-full border", puerta.cerrada ? "chip-bien" : "chip-aviso")}>{puerta.cerrada ? <DoorClosed size={15} /> : <DoorOpen size={15} />}</span>
+                <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold">{puerta.cerrada ? "El receptor sólo atiende a los rastreadores dados de alta" : "El receptor anota a los rastreadores nuevos que se conectan"}</p>
+                    <p className="text-[11.5px] text-muted-foreground">
+                        {puerta.cerrada
+                            ? "Para instalar uno nuevo, abrí la puerta, esperá a que aparezca en la tabla, dalo de alta y volvé a cerrarla."
+                            : "Así se instala uno nuevo. El puerto está en internet: cuando no estés instalando, conviene cerrarla."}
+                        {puerta.pendientes > 0 && ` Hay ${puerta.pendientes} sin dar de alta.`}
+                    </p>
+                </div>
+                <label className="flex items-center gap-2 text-[12px] font-semibold shrink-0">
+                    {cambiandoPuerta && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
+                    Puerta cerrada <Switch checked={puerta.cerrada} disabled={cambiandoPuerta} onCheckedChange={cambiarPuerta} aria-label="Cerrar la puerta del receptor a rastreadores nuevos" />
+                </label>
+            </div>
+        )}
         <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
             <Table>
                 <TableHeader className="bg-card/60">
@@ -69,14 +115,15 @@ export function VistaGps({ lista, busqueda, alCambiar }: {
                             </TableCell>
                         </TableRow>
                     )}
-                    {filas.map((r) => <Fila key={r.imei} r={r} alCambiar={alCambiar} />)}
+                    {filas.map((r) => <Fila key={r.imei} r={r} d={diag[r.imei]} alCambiar={alCambiar} />)}
                 </TableBody>
             </Table>
         </div>
+        </>
     );
 }
 
-function Fila({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
+function Fila({ r, d, alCambiar }: { r: Rastreador; d?: DiagnosticoGps; alCambiar: () => void }) {
     const [trabajando, setTrabajando] = useState(false);
     const [nombre, setNombre] = useState("");
     /** El nombre en edición, o `null` si no se está cambiando. */
@@ -144,6 +191,13 @@ function Fila({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
                         ) : <p className="text-[13px] font-semibold truncate">{r.nombre || `Rastreador ${r.imei.slice(-6)}`}</p>}
                         <p className="text-[10.5px] text-muted-foreground tabular-nums truncate">IMEI {r.imei}{!r.deviceId && <span className="tono-aviso font-semibold"> · sin dar de alta</span>}</p>
                     </div>
+                    {/* Lo que los datos dicen de cómo quedó instalado (actions/gps, diagnosticoGps). */}
+                    {d && d.avisos.length > 0 && (
+                        <Pista ancho={320} lado="derecha" titulo={d.avisos.length === 1 ? "Para revisar en la instalación" : `${d.avisos.length} cosas para revisar en la instalación`}
+                            texto={<span className="block space-y-1.5">{d.avisos.map((a) => <span key={a} className="block">{a}</span>)}</span>}>
+                            <span className="h-6 px-1.5 rounded-full border chip-aviso text-[10.5px] font-bold inline-flex items-center gap-1 shrink-0 cursor-help"><TriangleAlert size={12} />{d.avisos.length}</span>
+                        </Pista>
+                    )}
                 </div>
             </TableCell>
 
@@ -162,10 +216,18 @@ function Fila({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
             </TableCell>
 
             <TableCell>
-                <span className={cn("h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit",
-                    r.enLinea ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/25" : "text-muted-foreground border-border bg-muted/40")}>
-                    <span className={cn("w-1.5 h-1.5 rounded-full", r.enLinea ? "bg-emerald-500" : "bg-muted-foreground/40")} />{r.enLinea ? "En línea" : "Sin reportar"}
-                </span>
+                {/* «Dejó de reportar» es un evento que se avisó (el receptor lo detecta), no sólo un equipo
+                    que hace rato no habla: por eso va en rojo y no en gris. */}
+                {r.sinReporteDesde ? (
+                    <span className="h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit chip-mal">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--mal)]" />Dejó de reportar
+                    </span>
+                ) : (
+                    <span className={cn("h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border w-fit",
+                        r.enLinea ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/25" : "text-muted-foreground border-border bg-muted/40")}>
+                        <span className={cn("w-1.5 h-1.5 rounded-full", r.enLinea ? "bg-emerald-500" : "bg-muted-foreground/40")} />{r.enLinea ? "En línea" : "Sin reportar"}
+                    </span>
+                )}
                 <p className="mt-0.5 text-[10.5px] text-muted-foreground">Reportó {hace(r.ultimoLatido, "nunca")}</p>
             </TableCell>
 
@@ -187,7 +249,7 @@ function Fila({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
                 {conPosicion ? (
                     <>
                         <p className="text-[12px] font-semibold tabular-nums">{r.lat!.toFixed(5)}, {r.lon!.toFixed(5)}</p>
-                        <p className="text-[10.5px] text-muted-foreground">de {hace(r.cuando)} · {r.posiciones} {r.posiciones === 1 ? "punto" : "puntos"}</p>
+                        <p className="text-[10.5px] text-muted-foreground">de {hace(r.cuando)}{d ? ` · ${d.posiciones.toLocaleString("es-UY")} ${d.posiciones === 1 ? "punto" : "puntos"}` : ""}</p>
                     </>
                 ) : <span className="text-[11.5px] text-muted-foreground">Sin satélites todavía</span>}
             </TableCell>
@@ -224,6 +286,10 @@ function Fila({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
                                 <Link href={`/admin/mapa?gps=${r.imei}`} title="Ver en el mapa"
                                     className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><MapPin size={14} /></Link>
                             )}
+                            <Link href={`/admin/mapa?gps=${r.imei}&eventos=1`} title="Ver sus eventos en el mapa"
+                                className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><History size={14} /></Link>
+                            <a href={`/api/gps/reporte?imei=${r.imei}&dias=7`} title="Descargar el reporte de los últimos 7 días (viajes, paradas y eventos)"
+                                className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><FileSpreadsheet size={14} /></a>
                             <button type="button" onClick={() => mandar("estado")} disabled={!!mandando || !r.enLinea} title="Preguntarle al equipo cómo está"
                                 className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40">
                                 {mandando === "estado" ? <Loader2 size={14} className="animate-spin" /> : <Radio size={14} />}</button>
@@ -242,6 +308,8 @@ function Fila({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
                             <Button size="sm" className="h-7 px-2.5 text-[11.5px]" disabled={trabajando} onClick={alta}>
                                 {trabajando ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Dar de alta
                             </Button>
+                            {/* No es de nadie: se puede descartar. Si vuelve a conectarse con la puerta abierta, vuelve a aparecer. */}
+                            <DeleteButton onConfirm={async () => { const x = await descartarGps(r.imei); if (!x.ok) toast.error({ title: "No se pudo descartar", description: x.error }); alCambiar(); }} />
                         </>
                     )}
                 </div>

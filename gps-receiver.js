@@ -15,9 +15,20 @@
  *   · alarma    → lo mismo, con su código; acuse.
  *
  * El puerto está abierto a internet (el GPS sale por la red celular, con IP que cambia), así que
- * acá llega de todo. Tres defensas: lo que no es una trama válida se ignora, una conexión que no
- * se presenta en un minuto se corta, y nada de lo que entra se confía — el IMEI identifica, no
- * autoriza: un equipo desconocido se anota, pero no hace nada más hasta que alguien lo ate.
+ * acá llega de todo, y el protocolo no tiene clave: el IMEI identifica, no autoriza. Las defensas
+ * (21/11, «el puerto acepta a cualquiera»):
+ *   · Lo que no es una trama válida se ignora, y quien no se presenta en 30 segundos se corta.
+ *   · Un equipo desconocido se ANOTA (para que alguien lo acepte en Dispositivos) y nada más: no
+ *     guarda historial, no dispara eventos, no se dibuja. Y de esos se anotan hasta
+ *     GPS_PENDIENTES_MAX: el número 21 no entra, así nadie llena la base inventando IMEI.
+ *   · Con la puerta cerrada (ajuste GPS_PUERTA) no se anota ninguno nuevo: sólo los aceptados.
+ *   · Una IP que acumula faltas (basura, conexiones sin login, IMEI rechazados) queda castigada un
+ *     rato. Castigada NO es bloqueada: detrás de la misma IP de la operadora puede haber un
+ *     rastreador legítimo, así que a los equipos aceptados se los sigue atendiendo.
+ *   · Topes de conexiones, y de tramas por minuto por conexión.
+ *   · Una posición que exigiría 250 km/h no mueve el punto del mapa (lib-gps-eventos).
+ * Lo que cierra el puerto de verdad es un APN privado con la operadora; esto es lo que se puede
+ * hacer del lado del servidor.
  *
  * Las tramas se anotan en crudo en el log mientras GPS_CRUDO no sea "0": hasta ver bastantes
  * tramas reales de posición, el hex es la única forma de arreglar el decodificador sin adivinar.
@@ -32,8 +43,19 @@ const evs = require("./lib-gps-eventos");
 const prisma = new PrismaClient();
 const PUERTO = Number(process.env.GPS_PUERTO || 1341);
 const CRUDO = process.env.GPS_CRUDO !== "0";
-/** Sin presentarse en este tiempo, se corta: un escáner no manda un login. */
-const SIN_LOGIN_MS = 60_000;
+/** Sin presentarse en este tiempo, se corta: un escáner no manda un login (el equipo lo manda al conectar). */
+const SIN_LOGIN_MS = 30_000;
+/** Lo mismo para una IP castigada: tiene que presentarse enseguida, y con un IMEI aceptado. */
+const SIN_LOGIN_CASTIGADA_MS = 5_000;
+/** Cuántos equipos «se presentó, sin dar de alta» se anotan como mucho. */
+const PENDIENTES_MAX = Number(process.env.GPS_PENDIENTES_MAX || 20);
+/** Topes de conexiones: en total, sin presentarse, y sin presentarse desde una misma IP. */
+const SOCKETS_MAX = 3000, SIN_LOGIN_MAX = 200, SIN_LOGIN_POR_IP = 8;
+/** Más tramas que esto en un minuto por una conexión no es un rastreador (el más charlatán manda 6 a 12). */
+const TRAMAS_POR_MIN_MAX = 300;
+/** Cinco faltas en diez minutos castigan a la IP un cuarto de hora. */
+const FALTAS_MAX = 5, FALTAS_VENTANA_MS = 10 * 60_000, CASTIGO_MS = 15 * 60_000;
+const ARRANQUE = Date.now();
 /** Un equipo que no dice nada en este tiempo se cayó sin avisar (túnel, sin señal). */
 const MUDO_MS = 10 * 60_000;
 /** Tope de lo que se junta sin encontrar una trama: lo demás es basura. */
@@ -41,6 +63,24 @@ const BASURA_MAX = 4096;
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const enLinea = new Map();   // imei → socket
+const abiertos = new Set();  // todos los sockets
+const cuenta = { tramas: 0, ultimaTrama: 0, rechazados: 0 };
+
+/** Las faltas de cada IP. Se olvidan solas: es memoria de un rato, no una lista negra. */
+const faltas = new Map();    // ip → { marcas: [ms], hasta: ms }
+function falta(ip, porque) {
+    const ahora = Date.now();
+    const f = faltas.get(ip) || { marcas: [], hasta: 0 };
+    f.marcas = f.marcas.filter((t) => ahora - t < FALTAS_VENTANA_MS); f.marcas.push(ahora);
+    if (f.marcas.length >= FALTAS_MAX && f.hasta < ahora) { f.hasta = ahora + CASTIGO_MS; log(ip, `castigada ${CASTIGO_MS / 60_000} min: ${f.marcas.length} faltas (la última: ${porque})`); }
+    faltas.set(ip, f);
+}
+const castigada = (ip) => (faltas.get(ip)?.hasta || 0) > Date.now();
+setInterval(() => { const ahora = Date.now(); for (const [ip, f] of faltas) if (f.hasta < ahora && !f.marcas.some((t) => ahora - t < FALTAS_VENTANA_MS)) faltas.delete(ip); }, 60_000).unref();
+
+/** Lo que se recuerda de cada equipo mientras el receptor está arriba (lo que importa además va a la base). */
+const memoria = new Map();   // imei → { ultPos, candidato, saltando, callado, ladosTxt }
+const mem = (imei) => { if (!memoria.has(imei)) memoria.set(imei, { ultPos: null, candidato: null, saltando: false, callado: false, ladosTxt: null }); return memoria.get(imei); };
 
 /**
  * Los comandos al equipo. La aplicación web no tiene el socket del rastreador —lo tiene este
@@ -81,6 +121,11 @@ function alResponder(imei, m) {
 require("http").createServer((req, res) => {
     const fin = (c, o) => { res.writeHead(c, { "content-type": "application/json" }); res.end(JSON.stringify(o)); };
     if (req.method === "GET" && req.url === "/enlinea") return fin(200, { imeis: [...enLinea.keys()] });
+    /* Para el vigía: que el proceso figure «online» en pm2 no dice que esté escuchando. */
+    if (req.method === "GET" && req.url === "/salud") {
+        let sinLogin = 0; for (const x of abiertos) if (!x.imei) sinLogin++;
+        return fin(200, { ok: servidor.listening, desde: new Date(ARRANQUE).toISOString(), enLinea: enLinea.size, conexiones: abiertos.size, sinLogin, tramas: cuenta.tramas, ultimaTrama: cuenta.ultimaTrama ? new Date(cuenta.ultimaTrama).toISOString() : null, rechazados: cuenta.rechazados, castigadas: [...faltas.values()].filter((f) => f.hasta > Date.now()).length, puerta });
+    }
     if (req.method !== "POST" || req.url !== "/comando") return fin(404, { error: "no existe" });
     let cuerpo = "";
     req.on("data", (c) => { cuerpo += c; if (cuerpo.length > 2000) req.destroy(); });
@@ -104,8 +149,17 @@ const motor = new Map();
 
 /** Las geocercas, releídas cada medio minuto: se editan en el mapa y el receptor es otro proceso. */
 let geocercas = [];
-async function leerGeocercas() { try { geocercas = await prisma.gpsGeocerca.findMany({ where: { activa: true } }); } catch { /* sin base: quedan las últimas */ } }
-leerGeocercas(); setInterval(leerGeocercas, 30_000).unref();
+/** «abierta»: un equipo nuevo se anota para que alguien lo acepte. «cerrada»: sólo los aceptados. */
+let puerta = "abierta";
+async function leerGeocercas() {
+    try { geocercas = await prisma.gpsGeocerca.findMany({ where: { activa: true } }); } catch { /* sin base: quedan las últimas */ }
+    try { puerta = (await prisma.setting.findUnique({ where: { key: "GPS_PUERTA" } }))?.value === "cerrada" ? "cerrada" : "abierta"; } catch { /* queda como estaba */ }
+}
+leerGeocercas(); setInterval(leerGeocercas, Number(process.env.GPS_RELEER_MS || 30_000)).unref();
+
+const HUSO = process.env.TZ_AVISOS || process.env.NEXT_PUBLIC_TZ || "America/Montevideo";
+const horaLocal = (d) => new Date(d).toLocaleTimeString("es-UY", { timeZone: HUSO, hour12: false, hour: "2-digit", minute: "2-digit" });
+const minutosDe = (s) => (s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min` : `${Math.max(1, Math.round(s / 60))} min`);
 
 /**
  * Lo que pasa, empujado a las pantallas abiertas por el socket del servidor de eventos (el mismo
@@ -134,58 +188,149 @@ async function avisarPorReglas(ev) {
     } catch (e) { log("reglas: no se pudo avisar:", e.message); }
 }
 
-async function alEvento(imei, tipo, p, detalle, extra) {
+/**
+ * `cuandoEquipo` es la hora en que PASÓ según el rastreador, cuando el evento sale de una trama
+ * suya. Si llegó con más de dos minutos de demora (estuvo sin señal y mandó todo junto), el
+ * evento se guarda con SU hora, se marca cuánto tardó, y el aviso lo dice: «pasó a las 14:32,
+ * llegó 9 min tarde». Antes un cruce de geocerca de hace diez minutos avisaba como si fuera ahora.
+ */
+async function alEvento(imei, tipo, p, detalle, extra, cuandoEquipo) {
     if (!tipo) return;
     log(imei, "EVENTO:", tipo, detalle || "");
     try {
         const e = await prisma.gpsEquipo.findUnique({ where: { imei } });
         /* Un equipo que se presentó solo y nadie aceptó no avisa a nadie: todavía no es de nadie. */
-        if (!e || !e.deviceId) return;
+        if (!e || !e.deviceId || e.deviceId === evs.DEVICE_DE_PRUEBA) return;
         const lat = p && p.conFix ? p.lat : e.lat, lon = p && p.conFix ? p.lon : e.lon;
-        await prisma.gpsEvento.create({ data: { imei, tipo, lat, lon, detalle: detalle || null } });
+        const llego = new Date();
+        const tarde = cuandoEquipo && evs.horaCreible(cuandoEquipo, llego.getTime()) ? evs.atrasoDe(cuandoEquipo, llego.getTime()) : 0;
+        const cuando = tarde ? new Date(cuandoEquipo) : llego;
+        const prioridad = evs.prioridadDe(tipo, extra);
+        /* En un cruce de geocerca el detalle YA es el lugar: no se repite. */
+        const lugar = tipo.startsWith("GPS_GEOCERCA_") ? null : evs.lugarDe(lat, lon, geocercas);
+        const fila = await prisma.gpsEvento.create({ data: { imei, tipo, cuando, llego, tarde: tarde || null, lat, lon, detalle: detalle || null, prioridad, lugar } });
         if (evs.SOLO_SE_ANOTA.has(tipo)) return;
         /* A la pantalla va siempre, haya o no una regla de notificación: que no se le avise a
            nadie por Telegram no quiere decir que quien está mirando el mapa no lo tenga que ver.
            (21/11, Nico: «la geocerca no hace nada cuando el GPS entra»: lo detectaba y lo
            guardaba, pero sin regla no salía ningún aviso y el mapa no mostraba nada.) */
-        emitir("gps_evento", { imei, tipo, rotulo: evs.ROTULO[tipo] || tipo, detalle: detalle || "", nombre: e.nombre || `Rastreador ${imei.slice(-6)}`, lat, lon, cuando: new Date().toISOString(), ...(extra || {}) });
+        const nombre = e.nombre || `Rastreador ${imei.slice(-6)}`;
+        emitir("gps_evento", { id: fila.id, imei, tipo, rotulo: evs.ROTULO[tipo] || tipo, detalle: detalle || "", nombre, lat, lon, cuando: cuando.toISOString(), tarde, prioridad, lugar, ...(extra || {}) });
         const veh = e.vehicleId ? await prisma.vehicle.findUnique({ where: { id: e.vehicleId }, select: { plate: true } }).catch(() => null) : null;
-        const lugar = lat != null && lon != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : "";
+        const punto = lat != null && lon != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : "";
+        const dicho = [detalle, lugar, tarde ? `pasó a las ${horaLocal(cuando)}, llegó ${minutosDe(tarde)} tarde` : null].filter(Boolean).join(" · ");
         avisarPorReglas({
-            modulo: "GPS", evento: tipo, deviceId: e.deviceId, deviceName: e.nombre || `Rastreador ${imei.slice(-6)}`,
+            modulo: "GPS", evento: tipo, deviceId: e.deviceId, deviceName: nombre,
             plate: veh ? veh.plate : null,
-            extra: { detalle: detalle || "", lugar, mapa: lugar ? `https://maps.google.com/?q=${lat},${lon}` : "", imei },
+            extra: { detalle: dicho, lugar: punto, mapa: punto ? `https://maps.google.com/?q=${lat},${lon}` : "", imei, gpsEventoId: fila.id },
         });
     } catch (err) { log(imei, "error guardando el evento:", err.message); }
 }
 
-async function alPresentarse(imei, ip) {
-    await prisma.gpsEquipo.upsert({
-        where: { imei },
-        create: { imei, ultimaIp: ip, ultimoLatido: new Date() },
-        update: { ultimaIp: ip, ultimoLatido: new Date() },
-    });
-    /* Se siembra lo último que se supo: reiniciar el receptor con la batería ya baja, o con el
-       motor ya apagado, no es una novedad y no tiene que avisar. */
-    const e = await prisma.gpsEquipo.findUnique({ where: { imei }, select: { voltaje: true, encendido: true } }).catch(() => null);
-    if (e) { vigia.sembrar(imei, e.voltaje); if (e.encendido !== null) motor.set(imei, e.encendido); }
+/**
+ * El silencio (ver lib-gps-eventos, seCallo). Cada medio minuto se mira quién dejó de reportar.
+ * Se avisa UNA vez —queda anotado en la base, así un reinicio no vuelve a avisar— y cuando el
+ * equipo vuelve a hablar se dice cuánto estuvo callado.
+ */
+async function revisarSilencios() {
+    let filas = [];
+    try { filas = await prisma.gpsEquipo.findMany({ where: { deviceId: { not: null }, NOT: { deviceId: evs.DEVICE_DE_PRUEBA }, sinReporteDesde: null, ultimoLatido: { not: null } } }); } catch { return; }
+    for (const e of filas) {
+        if (!evs.seCallo(e, ARRANQUE)) continue;
+        const andando = evs.veniaAndando(e);
+        const r = await prisma.gpsEquipo.updateMany({ where: { imei: e.imei, sinReporteDesde: null }, data: { sinReporteDesde: e.ultimoLatido } }).catch(() => ({ count: 0 }));
+        if (!r.count) continue;
+        mem(e.imei).callado = true;
+        await alEvento(e.imei, "GPS_SIN_REPORTE", null, `${andando ? `Iba a ${e.velocidad} km/h` : "Estaba detenido"} · último reporte ${horaLocal(e.ultimoLatido)}`, { andando });
+    }
+}
+setInterval(() => revisarSilencios().catch(() => {}), 30_000).unref();
+
+/** Llegó algo de un equipo: si se había avisado que estaba callado, volvió. */
+async function oyo(imei) {
+    const m = mem(imei);
+    if (!m.callado) return;
+    m.callado = false;
+    const e = await prisma.gpsEquipo.findUnique({ where: { imei }, select: { sinReporteDesde: true } }).catch(() => null);
+    if (!e || !e.sinReporteDesde) return;
+    const callado = (Date.now() - e.sinReporteDesde.getTime()) / 1000;
+    await prisma.gpsEquipo.update({ where: { imei }, data: { sinReporteDesde: null } }).catch(() => {});
+    await alEvento(imei, "GPS_VOLVIO", null, `Estuvo ${minutosDe(callado)} sin reportar`);
 }
 
+/**
+ * La retención. Una posición cada diez segundos son 8.640 filas por día de marcha por vehículo, y
+ * guardarlas para siempre no es una decisión, es un olvido. Dos plazos:
+ *  · las de pocos satélites (no mueven el mapa ni entran a los recorridos: sirven para entender
+ *    una mala noche) se van a los GPS_RETENCION_POBRES_DIAS, 30 por defecto;
+ *  · todas, y los eventos, a los GPS_RETENCION_DIAS, 365 por defecto.
+ */
+const RETENCION_DIAS = Number(process.env.GPS_RETENCION_DIAS || 365), RETENCION_POBRES_DIAS = Number(process.env.GPS_RETENCION_POBRES_DIAS || 30);
+async function podar() {
+    try {
+        const dia = 86_400_000, ahora = Date.now();
+        const a = await prisma.gpsPosicion.deleteMany({ where: { cuando: { lt: new Date(ahora - RETENCION_POBRES_DIAS * dia) }, satelites: { lt: evs.SATS_MIN } } });
+        const b = await prisma.gpsPosicion.deleteMany({ where: { cuando: { lt: new Date(ahora - RETENCION_DIAS * dia) } } });
+        const c = await prisma.gpsEvento.deleteMany({ where: { cuando: { lt: new Date(ahora - RETENCION_DIAS * dia) } } });
+        if (a.count || b.count || c.count) log(`retención: ${a.count} posiciones pobres de más de ${RETENCION_POBRES_DIAS} días, ${b.count} posiciones y ${c.count} eventos de más de ${RETENCION_DIAS} días`);
+    } catch (e) { log("retención: no se pudo podar:", e.message); }
+}
+setTimeout(podar, 5 * 60_000).unref(); setInterval(podar, 6 * 3600_000).unref();
+
+/**
+ * Un login. Devuelve la fila del equipo, o un motivo de rechazo («cerrada», «lleno», «castigada»).
+ * Sólo se CREA una fila si la puerta está abierta, hay lugar y la IP no viene acumulando faltas.
+ */
+async function alPresentarse(imei, ip) {
+    let e = await prisma.gpsEquipo.findUnique({ where: { imei } });
+    if (!e) {
+        if (puerta === "cerrada") return "cerrada";
+        if (castigada(ip)) return "castigada";
+        if ((await prisma.gpsEquipo.count({ where: { deviceId: null } })) >= PENDIENTES_MAX) return "lleno";
+        e = await prisma.gpsEquipo.create({ data: { imei, ultimaIp: ip, ultimoLatido: new Date() } });
+    } else {
+        if (!e.deviceId && castigada(ip)) return "castigada";
+        await prisma.gpsEquipo.update({ where: { imei }, data: { ultimaIp: ip, ultimoLatido: new Date() } });
+    }
+    /* Se siembra lo último que se supo: reiniciar el receptor con la batería ya baja, con el motor
+       ya apagado o con el vehículo ya adentro de una geocerca no es una novedad y no avisa. */
+    const m = mem(imei);
+    vigia.sembrar(imei, e.voltaje); vigia.sembrarLados(imei, e.lados);
+    if (m.ladosTxt === null) m.ladosTxt = JSON.stringify(vigia.lados(imei));
+    if (e.encendido !== null && !motor.has(imei)) motor.set(imei, e.encendido);
+    if (!m.ultPos && e.cuando && e.lat !== null && e.lon !== null) m.ultPos = { lat: e.lat, lon: e.lon, cuando: e.cuando.getTime() };
+    if (e.sinReporteDesde) m.callado = true;
+    return e;
+}
+
+/** El motor cambió de estado: se anota desde cuándo está así (el diagnóstico del cable ACC sale de acá). */
+const cambioDeMotor = (imei, encendido) => (encendido === undefined || encendido === null || motor.get(imei) === encendido ? {} : { encendidoDesde: new Date() });
+
 async function alLatido(imei, e) {
+    const cambio = cambioDeMotor(imei, e.encendido);
+    motor.set(imei, e.encendido);
     await prisma.gpsEquipo.update({
         where: { imei },
-        data: { encendido: e.encendido, bateria: e.bateria, senal: e.senal, cortado: e.cortado, ultimoLatido: new Date() },
+        data: { encendido: e.encendido, bateria: e.bateria, senal: e.senal, cortado: e.cortado, ultimoLatido: new Date(), ...cambio },
     }).catch(() => {});
 }
 
-async function alPosicion(imei, m) {
+/**
+ * Una posición. Devuelve qué se hizo con ella:
+ *   «nada»   — sin satélites, o con una hora que no puede ser: no se guarda.
+ *   «pobre»  — pocos satélites: queda guardada, no mueve el mapa.
+ *   «vieja»  — más vieja que la última que se tiene (llegó desordenada): queda guardada.
+ *   «salto»  — exigiría 250 km/h: queda guardada, no mueve el mapa (`primera` = recién empieza).
+ *   «buena»  — mueve el punto y puede cruzar geocercas.
+ */
+async function alPosicion(imei, m, aceptado) {
     const p = m.gps;
+    const tocar = () => prisma.gpsEquipo.update({ where: { imei }, data: { ultimoLatido: new Date() } }).catch(() => {});
     /* Sin satélites, o en el punto (0,0), no es una posición: es un equipo diciendo que no sabe. */
-    if (!p || !p.conFix || !p.fecha || (p.lat === 0 && p.lon === 0)) {
-        await prisma.gpsEquipo.update({ where: { imei }, data: { ultimoLatido: new Date() } }).catch(() => {});
-        return false;
-    }
-    await prisma.gpsPosicion.create({
+    if (!p || !p.conFix || !p.fecha || (p.lat === 0 && p.lon === 0) || !evs.horaCreible(p.fecha)) { await tocar(); return { que: "nada" }; }
+    /* El historial es sólo de los aceptados: uno que se presentó solo guarda dónde está (para que
+       quien lo acepte vea qué es) y nada más. */
+    if (aceptado) await prisma.gpsPosicion.create({
         data: {
             imei, cuando: p.fecha, lat: p.lat, lon: p.lon, velocidad: p.velocidad, rumbo: p.rumbo,
             satelites: p.satelites, encendido: m.encendido ?? null, alarma: m.tipo === "alarma" ? m.alarma : null,
@@ -194,89 +339,148 @@ async function alPosicion(imei, m) {
     /* Con pocos satélites la posición queda GUARDADA (es el dato crudo, y dice con cuántos
        satélites llegó) pero no mueve el punto del mapa: la noche del 20/11 el auto estacionado
        mandó 364 de éstas, saltando hasta 400 metros alrededor de su lugar. */
-    if (p.satelites < evs.SATS_MIN) {
-        await prisma.gpsEquipo.update({ where: { imei }, data: { ultimoLatido: new Date() } }).catch(() => {});
-        return "pobre";
+    if (p.satelites < evs.SATS_MIN) { await tocar(); return { que: "pobre" }; }
+    const mm = mem(imei), actual = { lat: p.lat, lon: p.lon, cuando: p.fecha.getTime() };
+    /* Más vieja que la que ya se tiene: antes pisaba la última posición y el auto retrocedía. */
+    if (mm.ultPos && actual.cuando <= mm.ultPos.cuando) { await tocar(); return { que: "vieja" }; }
+    if (evs.esSaltoImposible(mm.ultPos, actual)) {
+        /* Tres seguidas que se acompañan entre sí: el que estaba mal era el punto anterior. */
+        const sigue = mm.candidato && !evs.esSaltoImposible(mm.candidato, actual);
+        mm.candidato = { ...actual, cuenta: sigue ? mm.candidato.cuenta + 1 : 1 };
+        if (mm.candidato.cuenta < 3) { const primera = !mm.saltando; mm.saltando = true; await tocar(); return { que: "salto", primera }; }
     }
+    mm.candidato = null; mm.saltando = false; mm.ultPos = actual;
+    const tarde = evs.atrasoDe(p.fecha);
+    const cambio = cambioDeMotor(imei, m.encendido);
+    if (m.encendido !== undefined) motor.set(imei, m.encendido);
     const e = await prisma.gpsEquipo.update({
         where: { imei },
         data: {
             lat: p.lat, lon: p.lon, velocidad: p.velocidad, rumbo: p.rumbo, cuando: p.fecha, ultimoLatido: new Date(),
-            ...(m.encendido !== undefined ? { encendido: m.encendido } : {}),
+            ...(m.encendido !== undefined ? { encendido: m.encendido } : {}), ...cambio,
         },
     }).catch(() => null);
     /* Sólo los dados de alta viajan a las pantallas: uno que se presentó solo no es de nadie. */
-    if (e && e.deviceId) emitir("gps_posicion", { imei, lat: p.lat, lon: p.lon, velocidad: p.velocidad, rumbo: p.rumbo, cuando: p.fecha.toISOString() });
-    return true;
+    if (e && e.deviceId) emitir("gps_posicion", { imei, lat: p.lat, lon: p.lon, velocidad: p.velocidad, rumbo: p.rumbo, cuando: p.fecha.toISOString(), tarde });
+    return { que: "buena" };
 }
 
 const servidor = net.createServer((s) => {
-    const ip = s.remoteAddress || "?";
+    const ip = (s.remoteAddress || "?").replace(/^::ffff:/, "");
+    /* Los topes: sin lugar, o demasiadas conexiones mudas desde la misma IP, no se atiende. */
+    let mudos = 0, mudosDeEstaIp = 0;
+    for (const x of abiertos) if (!x.imei) { mudos++; if (x.ip === ip) mudosDeEstaIp++; }
+    if (abiertos.size >= SOCKETS_MAX || mudos >= SIN_LOGIN_MAX || mudosDeEstaIp >= SIN_LOGIN_POR_IP) { cuenta.rechazados++; s.destroy(); return; }
+    s.ip = ip; s.imei = null; abiertos.add(s);
     let buf = Buffer.alloc(0);
     let imei = null;
-    const sinLogin = setTimeout(() => { if (!imei) s.destroy(); }, SIN_LOGIN_MS);
+    /** Dado de alta en Dispositivos. Se vuelve a mirar cada tanto: lo pueden aceptar estando conectado. */
+    let aceptado = false, miradoAl = 0;
+    let enElMinuto = 0, minuto = 0;
+    const sinLogin = setTimeout(() => { if (!imei) { falta(ip, "no se presentó"); s.destroy(); } }, castigada(ip) ? SIN_LOGIN_CASTIGADA_MS : SIN_LOGIN_MS);
     s.setTimeout(MUDO_MS, () => s.destroy());
 
-    s.on("data", async (trozo) => {
+    /* Lo que llega por una conexión se procesa EN ORDEN, un trozo después del otro. Antes cada
+       trozo arrancaba su propio proceso y dos posiciones seguidas podían terminar de guardarse al
+       revés; ahora que una geocerca pide dos confirmaciones y una tanda atrasada se recorre a su
+       tiempo, el orden es parte del resultado. */
+    let cola = Promise.resolve(), enEspera = 0;
+    s.on("data", (trozo) => {
+        /* Si entra más rápido de lo que se procesa, no se acumula sin límite: se corta. */
+        enEspera += trozo.length;
+        if (enEspera > 256 * 1024) { falta(ip, "inundación"); s.destroy(); return; }
+        cola = cola.then(() => procesar(trozo)).catch((e) => log(imei || ip, "error procesando:", e && e.message)).finally(() => { enEspera -= trozo.length; });
+    });
+    async function procesar(trozo) {
+        if (s.destroyed) return;
         buf = Buffer.concat([buf, trozo]);
         const { tramas, resto } = g.partir(buf);
         buf = resto;
-        if (!tramas.length && buf.length > BASURA_MAX) { s.destroy(); return; }
+        if (!tramas.length && buf.length > BASURA_MAX) { falta(ip, "basura"); s.destroy(); return; }
+        /* Antes de presentarse, lo primero que manda un rastreador es su login. Si llegó otra
+           cosa (un escáner probando HTTP, TLS, lo que sea) no hay por qué esperar los 30
+           segundos: se corta y cuenta como falta. Un login que llegó partido en dos queda en
+           `buf` empezando con 78 78, y a ése sí se lo espera. */
+        const empezoUnaTrama = buf.length >= 2 && (buf[0] === 0x78 || buf[0] === 0x79) && buf[1] === buf[0];
+        if (!imei && !tramas.length && trozo.length >= 8 && !empezoUnaTrama) { falta(ip, "no habla el protocolo"); s.destroy(); return; }
+        const esteMinuto = Math.floor(Date.now() / 60_000);
+        if (esteMinuto !== minuto) { minuto = esteMinuto; enElMinuto = 0; }
+        enElMinuto += tramas.length;
+        if (enElMinuto > TRAMAS_POR_MIN_MAX) { log(imei || ip, `más de ${TRAMAS_POR_MIN_MAX} tramas por minuto: se corta`); falta(ip, "inundación"); s.destroy(); return; }
 
         for (const t of tramas) {
             const m = g.leer(t);
-            if (!m.ok) { log(ip, "trama con CRC roto, se ignora"); continue; }
+            if (!m.ok) { log(ip, "trama con CRC roto, se ignora"); if (!imei) falta(ip, "CRC roto"); continue; }
+            cuenta.tramas++; cuenta.ultimaTrama = Date.now();
             if (CRUDO) log(imei || ip, m.tipo, t.toString("hex"));
             try {
                 if (m.tipo === "login") {
-                    imei = m.imei;
+                    if (!/^\d{15}$/.test(m.imei || "")) { falta(ip, "IMEI mal formado"); s.destroy(); return; }
+                    const e = await alPresentarse(m.imei, ip);
+                    if (typeof e === "string") {
+                        /* Sin acuse: para el equipo es como si acá no hubiera nadie. */
+                        cuenta.rechazados++; log(ip, `login de ${m.imei} rechazado (${e})`); falta(ip, `IMEI rechazado: ${e}`); s.destroy(); return;
+                    }
+                    imei = m.imei; s.imei = imei; aceptado = !!e.deviceId; miradoAl = Date.now();
                     clearTimeout(sinLogin);
                     const viejo = enLinea.get(imei);
                     if (viejo && viejo !== s) viejo.destroy();   // el mismo equipo reconectó: la vieja está muerta
                     enLinea.set(imei, s);
-                    await alPresentarse(imei, ip);
                     log(imei, "se presentó desde", ip);
+                    await oyo(imei);
                 } else if (!imei) {
                     continue;                                     // nadie habla antes de presentarse
-                } else if (m.tipo === "estado") {
-                    motor.set(imei, m.estado.encendido);
-                    await alLatido(imei, m.estado);
-                    await alEvento(imei, evs.eventoDeAlarma(m.estado.alarma), null);
-                } else if (m.tipo === "posicion" || m.tipo === "alarma") {
-                    if (m.encendido !== undefined) motor.set(imei, m.encendido);
-                    const guardada = await alPosicion(imei, m);
-                    if (m.tipo === "alarma") { const tipoA = evs.eventoDeAlarma(m.alarma) || "GPS_OTRA"; await alEvento(imei, tipoA, m.gps, tipoA === "GPS_OTRA" ? g.nombreAlarma(m.alarma) : null); }
-                    else if (!guardada) log(imei, "posición sin satélites, no se guarda");
-                    /* Las geocercas y el «se mueve con el motor apagado» sólo miran posiciones
-                       buenas: con las otras, un auto quieto cruza cercas y «se traslada» solo. */
-                    if (m.gps && guardada === true) {
-                        const sabido = motor.has(imei) ? motor.get(imei) : null;
-                        const t = vigia.alMoverse(imei, { conFix: m.gps.conFix, velocidad: m.gps.velocidad, encendido: sabido });
-                        if (t) await alEvento(imei, t, m.gps, `${m.gps.velocidad} km/h`);
-                        for (const c of vigia.alUbicarse(imei, geocercas, m.gps)) await alEvento(imei, c.tipo, m.gps, c.geocerca.nombre, { geocercaId: c.geocerca.id });
+                } else {
+                    if (!aceptado && Date.now() - miradoAl > 30_000) {
+                        miradoAl = Date.now();
+                        aceptado = !!(await prisma.gpsEquipo.findUnique({ where: { imei }, select: { deviceId: true } }).catch(() => null))?.deviceId;
                     }
-                } else if (m.tipo === "respuesta") {
-                    alResponder(imei, m);
-                    continue;
-                } else if (m.tipo === "info") {
-                    const data = { ...(m.voltaje !== undefined ? { voltaje: m.voltaje } : {}), ...(m.iccid ? { iccid: m.iccid } : {}) };
-                    if (Object.keys(data).length) await prisma.gpsEquipo.update({ where: { imei }, data }).catch(() => {});
-                    if (m.voltaje !== undefined) {
-                        const t = vigia.alVoltaje(imei, m.voltaje);
-                        if (t) await alEvento(imei, t, null, `${m.voltaje.toFixed(1).replace(".", ",")} V`);
+                    await oyo(imei);
+                    if (m.tipo === "estado") {
+                        await alLatido(imei, m.estado);
+                        await alEvento(imei, evs.eventoDeAlarma(m.estado.alarma), null);
+                    } else if (m.tipo === "posicion" || m.tipo === "alarma") {
+                        const r = await alPosicion(imei, m, aceptado);
+                        const hora = m.gps && m.gps.fecha ? m.gps.fecha : null;
+                        if (m.tipo === "alarma") { const tipoA = evs.eventoDeAlarma(m.alarma) || "GPS_OTRA"; await alEvento(imei, tipoA, m.gps, tipoA === "GPS_OTRA" ? g.nombreAlarma(m.alarma) : null, null, hora); }
+                        else if (r.que === "nada") log(imei, "posición sin satélites, no se guarda");
+                        if (r.que === "salto" && r.primera) await alEvento(imei, "GPS_SALTO", m.gps, "Apareció a kilómetros de donde estaba hace instantes", null, hora);
+                        /* Las geocercas y el «se mueve con el motor apagado» sólo miran posiciones
+                           buenas: con las otras, un auto quieto cruza cercas y «se traslada» solo.
+                           Y se juzgan con la hora DEL EQUIPO: una tanda atrasada se recorre en su
+                           orden y a su tiempo, no toda «ahora». */
+                        if (r.que === "buena") {
+                            const sabido = motor.has(imei) ? motor.get(imei) : null;
+                            const t = vigia.alMoverse(imei, { conFix: m.gps.conFix, velocidad: m.gps.velocidad, encendido: sabido }, hora.getTime());
+                            if (t) await alEvento(imei, t, m.gps, `${m.gps.velocidad} km/h`, null, hora);
+                            for (const c of vigia.alUbicarse(imei, geocercas, m.gps)) await alEvento(imei, c.tipo, m.gps, c.geocerca.nombre, { geocercaId: c.geocerca.id }, hora);
+                            /* De qué lado quedó de cada geocerca, a la base si cambió. */
+                            const mm = mem(imei), txt = JSON.stringify(vigia.lados(imei));
+                            if (txt !== mm.ladosTxt) { mm.ladosTxt = txt; await prisma.gpsEquipo.update({ where: { imei }, data: { lados: JSON.parse(txt) } }).catch(() => {}); }
+                        }
+                    } else if (m.tipo === "respuesta") {
+                        alResponder(imei, m);
+                        continue;
+                    } else if (m.tipo === "info") {
+                        const data = { ...(m.voltaje !== undefined ? { voltaje: m.voltaje } : {}), ...(m.iccid ? { iccid: m.iccid } : {}) };
+                        if (Object.keys(data).length) await prisma.gpsEquipo.update({ where: { imei }, data }).catch(() => {});
+                        if (m.voltaje !== undefined) {
+                            const t = vigia.alVoltaje(imei, m.voltaje);
+                            if (t) await alEvento(imei, t, null, `${m.voltaje.toFixed(1).replace(".", ",")} V`);
+                        }
+                        continue;
+                    } else if (m.tipo === "hora") {
+                        s.write(g.acuseHora(m.serie));
+                        continue;
                     }
-                    continue;
-                } else if (m.tipo === "hora") {
-                    s.write(g.acuseHora(m.serie));
-                    continue;
                 }
             } catch (e) { log(imei || ip, "error guardando:", e.message); }
             /* Lo desconocido también se acusa: el acuse genérico no hace daño y evita que un
                mensaje que no entendemos tire abajo un enlace que anda. */
-            if (g.pideAcuse(m) || m.tipo === "desconocido") s.write(g.acuse(m.proto, m.serie));
+            if ((g.pideAcuse(m) || m.tipo === "desconocido") && !s.destroyed) s.write(g.acuse(m.proto, m.serie));
         }
-    });
-    s.on("close", () => { clearTimeout(sinLogin); if (imei && enLinea.get(imei) === s) { enLinea.delete(imei); log(imei, "se desconectó"); } });
+    }
+    s.on("close", () => { clearTimeout(sinLogin); abiertos.delete(s); if (imei && enLinea.get(imei) === s) { enLinea.delete(imei); log(imei, "se desconectó"); } });
     s.on("error", () => {});
 });
 

@@ -2049,6 +2049,14 @@ model GpsEquipo {
   icono        String?
   /// El rele del equipo esta accionado (corte de combustible o de alimentacion), segun el latido.
   cortado      Boolean?
+  /// Desde cuando figura el motor como esta ahora. Un motor "encendido" hace nueve horas en un
+  /// vehiculo que no se movio es un cable ACC mal conectado, no un motor en marcha.
+  encendidoDesde  DateTime?
+  /// Si se aviso que dejo de reportar: el ultimo contacto que se tuvo. Null mientras reporta.
+  sinReporteDesde DateTime?
+  /// De que lado de cada geocerca esta: { <geocercaId>: true|false }. El receptor lo guarda para
+  /// que un reinicio no le haga olvidar donde estaba cada vehiculo.
+  lados           Json?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 }
@@ -2085,8 +2093,19 @@ model GpsEvento {
   lon       Float?
   /// Lo que hace falta para entenderlo sin ir a buscar: «11,6 V», «32 km/h».
   detalle   String?
+  /// Cuando llego la noticia. `cuando` es la hora en que PASO segun el equipo: si el rastreador
+  /// estuvo sin senal, las dos pueden diferir en varios minutos.
+  llego     DateTime @default(now())
+  /// Segundos de demora entre que paso y que llego, si fueron mas de dos minutos. Null = a tiempo.
+  tarde     Int?
+  /// 1 (critica) a 5: si tiene prioridad, es una alarma para la consola del operador
+  /// (lib-gps-eventos.js, PRIORIDAD). Null = queda en el historial del rastreador y nada mas.
+  prioridad Int?
+  /// Donde fue, en palabras, segun las geocercas: «en Base», «a 300 m de Taller».
+  lugar     String?
 
   @@index([imei, cuando])
+  @@index([cuando])
 }
 
 /// Una zona sobre el mapa para los rastreadores GPS: avisa cuando uno entra o sale. Hoy es un

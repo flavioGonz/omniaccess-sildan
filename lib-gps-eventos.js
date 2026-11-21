@@ -55,7 +55,33 @@ const ROTULO = {
     GPS_GEOCERCA_SALE: "Salió de una geocerca",
     GPS_SIN_SATELITES: "Entró a una zona sin satélites",
     GPS_CON_SATELITES: "Volvió a tener satélites",
+    GPS_SIN_REPORTE: "Dejó de reportar",
+    GPS_VOLVIO: "Volvió a reportar",
+    GPS_SALTO: "Posición imposible (otro equipo o un error del GPS)",
 };
+
+/**
+ * Cuáles de estos son una ALARMA para la consola del operador (Gestión de alarmas), y con qué
+ * prioridad: 1 es lo más urgente, igual que en las centrales (lib/centrales/prioridades).
+ *
+ * Lo que no figura acá queda en el historial del rastreador y sale por las reglas de notificación
+ * si alguien armó una, pero no abre un caso: la vibración llegó 62 veces en un día con el auto
+ * estacionado (medido el 21/11), y una geocerca que se cruza todos los días al volver a la base
+ * no es algo que un operador tenga que «tratar». Una consola que suena por todo deja de mirarse.
+ */
+const PRIORIDAD = {
+    GPS_SOS: 1,
+    GPS_CORTE: 1,
+    GPS_DESARME: 1,
+    GPS_MOVIMIENTO: 2,
+    GPS_SALTO: 3,
+    GPS_BATERIA: 4,
+    GPS_VELOCIDAD: 4,
+    GPS_OTRA: 4,
+};
+/** «Dejó de reportar» pesa distinto según cómo se calló: andando es grave, estacionado es una falla. */
+const prioridadDe = (tipo, extra) => (tipo === "GPS_SIN_REPORTE" ? (extra && extra.andando ? 2 : 3) : PRIORIDAD[tipo] || null);
+
 
 /** Debajo de esto, la batería de 12 V de un vehículo en reposo está descargándose. */
 const VOLTAJE_BAJO = 11.8;
@@ -79,6 +105,109 @@ const dentroDe = (gc, lat, lon) => metros(gc.lat, gc.lon, lat, lon) <= gc.radio;
 
 /** ¿La geocerca vale para ese rastreador? Sin lista, vale para todos. */
 const aplicaA = (gc, imei) => !gc.imeis || !gc.imeis.length || gc.imeis.includes(imei);
+
+/**
+ * El «equipo» de los rastreadores de mentira de la prueba de carga (scripts/carga-gps.js). Tienen
+ * que estar aceptados para que el receptor haga con ellos todo el trabajo (guardar el historial,
+ * empujar a las pantallas, mirar geocercas), pero no son de nadie: no se listan, no abren casos y
+ * no se los declara mudos cuando la prueba termina.
+ */
+const DEVICE_DE_PRUEBA = "carga-prueba";
+
+/**
+ * EL SILENCIO. Un rastreador que deja de reportar no manda ninguna trama que lo diga: hay que
+ * darse cuenta de que falta. Es la alarma más importante del seguimiento —lo desconectaron, lo
+ * taparon con un inhibidor, entró a un contenedor— y es la única que el equipo no puede avisar.
+ *
+ * Los tiempos salen de medir al equipo de Nico (20 y 21/11, 2.472 tramas):
+ *  · Estacionado manda un latido cada 5 minutos, y en día y medio NUNCA pasó de 301 segundos
+ *    entre una trama y la siguiente (salvo los 588 s del día que se cayó el servidor). Quince
+ *    minutos son tres latidos perdidos.
+ *  · Andando reporta cada 10 segundos (p98: 20 s). De 715 posiciones en movimiento, sólo 2
+ *    llegaron con más de cinco minutos de hueco, y una fue la caída del servidor.
+ */
+const SILENCIO_ANDANDO_MS = Number(process.env.GPS_SILENCIO_ANDANDO_MIN || 5) * 60_000;
+const SILENCIO_QUIETO_MS = Number(process.env.GPS_SILENCIO_QUIETO_MIN || 15) * 60_000;
+/** La última posición es «de recién» respecto del último contacto: venía reportando posiciones, no sólo latidos. */
+const POSICION_FRESCA_MS = 2 * 60_000;
+
+/**
+ * ¿Venía andando cuando se supo de él por última vez? Hace falta que la última posición sea
+ * del mismo momento que el último contacto: un equipo bajo techo sigue mandando latidos durante
+ * horas con una posición vieja que dice «40 km/h», y eso no es estar andando.
+ */
+function veniaAndando(e) {
+    if (!e || !e.ultimoLatido || !e.cuando) return false;
+    const fresca = Math.abs(new Date(e.ultimoLatido).getTime() - new Date(e.cuando).getTime()) <= POSICION_FRESCA_MS;
+    return fresca && (e.velocidad || 0) >= VEL_TRASLADO;
+}
+
+/**
+ * ¿Hay que avisar que se calló? `arranque` es cuándo arrancó el receptor: el silencio se cuenta
+ * desde lo MÁS RECIENTE entre el último contacto y el arranque, porque si el receptor estuvo
+ * caído media hora los que no se escucharon fuimos nosotros, y al volver no puede declarar mudos
+ * a todos los equipos a la vez.
+ */
+function seCallo(e, arranque, ahora = Date.now()) {
+    if (!e || !e.ultimoLatido || e.sinReporteDesde) return false;      // nunca habló, o ya se avisó
+    const desde = Math.max(new Date(e.ultimoLatido).getTime(), arranque || 0);
+    return ahora - desde >= (veniaAndando(e) ? SILENCIO_ANDANDO_MS : SILENCIO_QUIETO_MS);
+}
+
+/**
+ * UNA POSICIÓN ATRASADA. Sin señal de celular el equipo guarda las posiciones y las manda juntas
+ * cuando vuelve: medido, 82 de 1.369 (6 %) llegaron con más de dos minutos de demora, y hasta con
+ * catorce. La hora que vale es la que dice el equipo (la toma de los satélites), no la de llegada:
+ * un cruce de geocerca de hace diez minutos no puede avisarse como si fuera de ahora.
+ */
+const ATRASO_MIN_S = 120;
+/** Segundos de demora entre lo que dice el equipo y la llegada; 0 si llegó a tiempo (o no se sabe). */
+function atrasoDe(cuandoEquipo, llego = Date.now()) {
+    if (!cuandoEquipo) return 0;
+    const s = Math.round((llego - new Date(cuandoEquipo).getTime()) / 1000);
+    return s >= ATRASO_MIN_S ? s : 0;
+}
+/** Una hora del equipo que no puede ser: del futuro, o de hace más de un mes. Se guarda nada. */
+function horaCreible(cuandoEquipo, llego = Date.now()) {
+    const d = llego - new Date(cuandoEquipo).getTime();
+    return Number.isFinite(d) && d > -5 * 60_000 && d < 31 * 86_400_000;
+}
+
+/**
+ * UN SALTO IMPOSIBLE. Dos posiciones buenas seguidas que exigirían ir a más de 250 km/h: o el GPS
+ * se equivocó feo, u otro aparato se está presentando con el mismo IMEI (el protocolo no tiene
+ * clave: quien conoce un IMEI puede mandar posiciones a su nombre). En los dos casos el punto
+ * del mapa no se mueve. Sólo se juzga con menos de diez minutos entre una y otra: después de un
+ * hueco largo no se sabe qué pasó en el medio, y un avión existe.
+ */
+const SALTO_KMH = 250, SALTO_MIN_M = 2000, SALTO_VENTANA_MS = 10 * 60_000;
+function esSaltoImposible(ant, p) {
+    if (!ant || !p) return false;
+    const dt = new Date(p.cuando).getTime() - new Date(ant.cuando).getTime();
+    if (!(dt > 0) || dt > SALTO_VENTANA_MS) return false;
+    const m = metros(ant.lat, ant.lon, p.lat, p.lon);
+    return m >= SALTO_MIN_M && (m / 1000) / (dt / 3_600_000) > SALTO_KMH;
+}
+
+/**
+ * DÓNDE FUE, en palabras. Sin un servicio de direcciones (mandarle a un tercero cada coordenada de
+ * cada vehículo es justamente lo que no se hace), el lugar se dice con lo que ya se sabe: las
+ * geocercas, que tienen el nombre que les puso quien las dibujó. «en Base», «a 300 m de Taller».
+ * Más lejos que LUGAR_CERCA_M de todas, no se dice nada: «a 14 km de Base» no ubica a nadie.
+ */
+const LUGAR_CERCA_M = 1500;
+function lugarDe(lat, lon, geocercas) {
+    if (lat == null || lon == null || !geocercas || !geocercas.length) return null;
+    let mejor = null;
+    for (const gc of geocercas) {
+        const borde = metros(gc.lat, gc.lon, lat, lon) - gc.radio;      // negativo = adentro
+        if (!mejor || borde < mejor.borde) mejor = { borde, nombre: gc.nombre };
+    }
+    if (!mejor || mejor.borde > LUGAR_CERCA_M) return null;
+    if (mejor.borde <= 0) return `en ${mejor.nombre}`;
+    const m = mejor.borde < 100 ? Math.max(10, Math.round(mejor.borde / 10) * 10) : Math.round(mejor.borde / 50) * 50;
+    return `a ${m >= 1000 ? `${(m / 1000).toFixed(1).replace(".", ",")} km` : `${m} m`} de ${mejor.nombre}`;
+}
 
 /**
  * Cuántas posiciones seguidas del otro lado hacen falta para creer que cruzó. Con una sola, un
@@ -115,6 +244,24 @@ function nuevoVigia() {
             }
             return cruces;
         },
+        /**
+         * De qué lado de cada geocerca está: `{ <geocercaId>: true|false }`. El receptor lo guarda
+         * en la base cada vez que cambia y lo vuelve a sembrar al arrancar. Sin esto, reiniciar el
+         * receptor (cada despliegue) era olvidar dónde estaba cada vehículo: el primer reporte
+         * después del reinicio «no era un cruce», y una salida que pasó en ese rato se perdía.
+         */
+        lados(imei) {
+            const o = {};
+            for (const [k, c] of cercas) if (k.startsWith(`${imei}|`)) o[k.slice(imei.length + 1)] = c.dentro;
+            return o;
+        },
+        sembrarLados(imei, o) {
+            if (!o || typeof o !== "object") return;
+            for (const [id, dentro] of Object.entries(o)) {
+                const clave = `${imei}|${id}`;
+                if (typeof dentro === "boolean" && !cercas.has(clave)) cercas.set(clave, { dentro, cuenta: 0 });
+            }
+        },
         sembrar(imei, voltaje) { if (typeof voltaje === "number") de(imei).baja = voltaje < VOLTAJE_BAJO; },
         /** Un voltaje nuevo. Devuelve "GPS_BATERIA" sólo cuando CAE por debajo del umbral. */
         alVoltaje(imei, v) {
@@ -149,4 +296,8 @@ function nuevoVigia() {
     };
 }
 
-module.exports = { eventoDeAlarma, nuevoVigia, dentroDe, metros, SOLO_SE_ANOTA, SATS_MIN, ROTULO, VOLTAJE_BAJO, VOLTAJE_RECUPERADO, VEL_TRASLADO };
+module.exports = {
+    eventoDeAlarma, nuevoVigia, dentroDe, metros, SOLO_SE_ANOTA, SATS_MIN, ROTULO, VOLTAJE_BAJO, VOLTAJE_RECUPERADO, VEL_TRASLADO,
+    PRIORIDAD, prioridadDe, seCallo, veniaAndando, SILENCIO_ANDANDO_MS, SILENCIO_QUIETO_MS,
+    atrasoDe, horaCreible, ATRASO_MIN_S, esSaltoImposible, lugarDe, DEVICE_DE_PRUEBA,
+};

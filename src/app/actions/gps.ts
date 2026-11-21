@@ -7,6 +7,7 @@ import { auditar } from "@/lib/centrales/sesion";
 import { leerEstadoRele, puedeAccionarRele } from "@/lib/gps-rele";
 import { aligerar, SATS_MIN, type ResumenRecorrido } from "@/lib/gps-recorrido";
 import { resumenDeViajes, viajesYParadas, type Parada, type Viaje } from "@/lib/gps-viajes";
+import { CLASES_EVENTO_GPS, EVENTOS_GPS, tiposDeClase, type ClaseEventoGps } from "@/lib/gps-eventos";
 
 /**
  * Los rastreadores GPS que se presentaron en gps-receiver.js, para la pantalla de Dispositivos.
@@ -21,6 +22,9 @@ import { resumenDeViajes, viajesYParadas, type Parada, type Viaje } from "@/lib/
  * tiene que llenar el árbol de equipos. Se muestra como «se presentó, sin dar de alta» y una
  * persona decide: el IMEI identifica, no autoriza.
  */
+
+/** El «equipo» de los rastreadores de la prueba de carga. El mismo valor que en lib-gps-eventos.js. */
+const DEVICE_DE_PRUEBA = "carga-prueba";
 
 /** Sin latido en este tiempo se lo da por fuera de línea (parado reporta cada 3 a 5 minutos). */
 const EN_LINEA_MS = 12 * 60_000;
@@ -44,7 +48,8 @@ export type Rastreador = {
     cortado: boolean | null;
     /** Con qué dibujo se lo ve en el mapa. */
     icono: string | null;
-    posiciones: number;
+    /** Si se avisó que dejó de reportar: desde cuándo no se sabe de él. */
+    sinReporteDesde: string | null;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- la sesión es el JWT crudo
@@ -57,16 +62,19 @@ async function sesion(permiso: string): Promise<any> {
 
 export async function rastreadoresGps(): Promise<Rastreador[]> {
     await sesion("dispositivos");
-    const equipos = await prisma.gpsEquipo.findMany({ orderBy: { createdAt: "asc" } });
+    /* Los de la prueba de carga (scripts/carga-gps.js) no son de nadie: no se listan. */
+    const equipos = await prisma.gpsEquipo.findMany({ where: { OR: [{ deviceId: null }, { NOT: { deviceId: DEVICE_DE_PRUEBA } }] }, orderBy: { createdAt: "asc" } });
     if (!equipos.length) return [];
-    const [devs, vehs, cuentas] = await Promise.all([
+    /* Antes acá se contaban TODAS las posiciones de cada rastreador, en cada refresco (cada 15 s
+       desde el mapa y cada 20 desde Dispositivos): recorrer la tabla entera para mostrar «1.369
+       puntos». Con un equipo no se nota; con doscientos son millones de filas por minuto. El
+       número pasó al diagnóstico, que se pide cada tanto (diagnosticoGps). */
+    const [devs, vehs] = await Promise.all([
         prisma.device.findMany({ where: { id: { in: equipos.map((e) => e.deviceId).filter(Boolean) as string[] } }, select: { id: true, name: true } }),
         prisma.vehicle.findMany({ where: { id: { in: equipos.map((e) => e.vehicleId).filter(Boolean) as string[] } }, select: { id: true, plate: true } }),
-        prisma.gpsPosicion.groupBy({ by: ["imei"], _count: { _all: true } }),
     ]);
     const nombreDe = new Map(devs.map((d) => [d.id, d.name]));
     const chapaDe = new Map(vehs.map((v) => [v.id, v.plate]));
-    const cuantas = new Map(cuentas.map((c) => [c.imei, c._count._all]));
     const ahora = Date.now();
     return equipos.map((e) => {
         /* Si el Device se borró, el rastreador vuelve a «sin dar de alta»: el vínculo no puede
@@ -80,7 +88,7 @@ export async function rastreadoresGps(): Promise<Rastreador[]> {
             lat: e.lat, lon: e.lon, cuando: e.cuando?.toISOString() || null,
             velocidad: e.velocidad, rumbo: e.rumbo, encendido: e.encendido,
             bateria: e.bateria, senal: e.senal, voltaje: e.voltaje, cortado: e.cortado, icono: e.icono,
-            posiciones: cuantas.get(e.imei) || 0,
+            sinReporteDesde: e.sinReporteDesde?.toISOString() || null,
         };
     });
 }
@@ -184,7 +192,20 @@ export async function estelaGps(imei: string, minutos = 10): Promise<PuntoGps[]>
     return filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
 }
 
-export type EventoGps = { id: string; imei: string; tipo: string; cuando: string; detalle: string | null; lat: number | null; lon: number | null };
+export type EventoGps = {
+    id: string; imei: string; tipo: string;
+    /** Cuándo PASÓ, según el equipo. */
+    cuando: string;
+    detalle: string | null; lat: number | null; lon: number | null;
+    /** Cuántos segundos tardó en llegar la noticia, si fueron más de dos minutos. */
+    tarde: number | null;
+    /** 1 a 5 si abrió un caso en Gestión de alarmas. */
+    prioridad: number | null;
+    /** Dónde fue en palabras, según las geocercas. */
+    lugar: string | null;
+};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- la fila de prisma
+const aEvento = (x: any): EventoGps => ({ id: x.id, imei: x.imei, tipo: x.tipo, cuando: x.cuando.toISOString(), detalle: x.detalle, lat: x.lat, lon: x.lon, tarde: x.tarde ?? null, prioridad: x.prioridad ?? null, lugar: x.lugar ?? null });
 
 /** Lo último que le pasó a un rastreador (o a todos): alarmas, cruces de geocerca, batería. */
 export async function eventosGps(imei?: string, cuantos = 30): Promise<EventoGps[]> {
@@ -195,7 +216,155 @@ export async function eventosGps(imei?: string, cuantos = 30): Promise<EventoGps
         where: { ...(imei ? { imei } : {}), tipo: { notIn: ["GPS_SIN_SATELITES", "GPS_CON_SATELITES"] } },
         orderBy: { cuando: "desc" }, take: Math.min(Math.max(cuantos, 1), 200),
     });
-    return f.map((x) => ({ id: x.id, imei: x.imei, tipo: x.tipo, cuando: x.cuando.toISOString(), detalle: x.detalle, lat: x.lat, lon: x.lon }));
+    return f.map(aEvento);
+}
+
+/** Un evento por su id: para llegar al mapa desde la consola de alarmas con ese evento ya marcado. */
+export async function unEventoGps(id: string): Promise<EventoGps | null> {
+    await sesion("dispositivos");
+    const f = await prisma.gpsEvento.findUnique({ where: { id: String(id || "") } }).catch(() => null);
+    return f ? aEvento(f) : null;
+}
+
+export type HistorialEventosGps = {
+    eventos: EventoGps[];
+    /** Hay más viejos que éstos: se piden con `antes` = la hora del último. */
+    hayMas: boolean;
+    /** Cuántos hay de cada clase en el período, sin importar el filtro: los números de las pestañas. */
+    cuenta: Record<ClaseEventoGps, number>;
+};
+
+/**
+ * TODO lo que le pasó a un rastreador, para su cajón de eventos en el mapa (21/11, Nico: «la lista
+ * de todos los eventos que le ocurrieron»). Acá sí entran los de satélites y los del relé: el
+ * cajón tiene pestañas para apartarlos y pliega las rachas, así que no tapan nada.
+ *
+ * Se pagina por la hora (`antes`): la lista crece hacia atrás sin volver a traer lo que ya está.
+ */
+export async function historialEventosGps(o: { imei: string; clase?: ClaseEventoGps | null; dias?: number | null; antes?: string | null; cuantos?: number }): Promise<HistorialEventosGps> {
+    await sesion("dispositivos");
+    const imei = String(o.imei || "");
+    const cuantos = Math.min(Math.max(o.cuantos || 60, 10), 200);
+    const desde = o.dias ? new Date(Date.now() - Math.min(Math.max(o.dias, 1), 366) * 86_400_000) : null;
+    const antes = o.antes ? new Date(o.antes) : null;
+    const clase = o.clase && CLASES_EVENTO_GPS.some((c) => c.clave === o.clase) ? o.clase : null;
+    const periodo = { imei, ...(desde ? { cuando: { gte: desde } } : {}) };
+    const [filas, porTipo] = await Promise.all([
+        prisma.gpsEvento.findMany({
+            where: {
+                imei, ...(clase ? { tipo: { in: tiposDeClase(clase) } } : {}),
+                ...(desde || antes ? { cuando: { ...(desde ? { gte: desde } : {}), ...(antes && !Number.isNaN(antes.getTime()) ? { lt: antes } : {}) } } : {}),
+            },
+            orderBy: [{ cuando: "desc" }, { id: "desc" }], take: cuantos + 1,
+        }),
+        prisma.gpsEvento.groupBy({ by: ["tipo"], where: periodo, _count: { _all: true } }),
+    ]);
+    const cuenta: Record<ClaseEventoGps, number> = { alarma: 0, geocerca: 0, conexion: 0, equipo: 0 };
+    for (const t of porTipo) cuenta[EVENTOS_GPS[t.tipo]?.clase || "equipo"] += t._count._all;
+    return { eventos: filas.slice(0, cuantos).map(aEvento), hayMas: filas.length > cuantos, cuenta };
+}
+
+/**
+ * Por dónde venía y para dónde siguió alrededor de un evento: las posiciones buenas de unos
+ * minutos antes y después. Es lo que convierte «un punto en el mapa» en «venía por esta calle,
+ * paró acá, y siguió para allá».
+ */
+export async function entornoEventoGps(imei: string, cuando: string, minutos = 5): Promise<PuntoGps[]> {
+    await sesion("dispositivos");
+    const t = new Date(cuando).getTime();
+    if (!Number.isFinite(t)) return [];
+    const ms = Math.min(Math.max(minutos, 1), 30) * 60_000;
+    const filas = await prisma.gpsPosicion.findMany({
+        where: { imei, cuando: { gte: new Date(t - ms), lte: new Date(t + ms) }, satelites: { gte: SATS_MIN } }, orderBy: { cuando: "asc" }, take: 600,
+        select: { lat: true, lon: true, cuando: true, velocidad: true },
+    });
+    return filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
+}
+
+export type DiagnosticoGps = {
+    imei: string;
+    /** Posiciones guardadas, en total. */
+    posiciones: number;
+    /** Lo que conviene revisar de la instalación o de la configuración, en palabras. */
+    avisos: string[];
+};
+
+/** A partir de cuántas horas con el motor «encendido» sin moverse se sospecha del cable. */
+const ACC_SOSPECHOSO_H = 3;
+
+/**
+ * Lo que los datos dicen de cómo está INSTALADO cada rastreador. No es una alarma: es lo que un
+ * técnico tendría que mirar. Sale de cosas que se midieron con el primer equipo (21/11):
+ *  · el motor figuró encendido 768 minutos de una noche con el auto estacionado — el cable de
+ *    encendido (ACC) estaba mal tomado, y con eso «se mueve con el motor apagado» no sirve;
+ *  · 62 alarmas de vibración en un día — el equipo quedó en guardia con la sensibilidad de fábrica;
+ *  · posiciones con pocos satélites ANDANDO — la antena no ve el cielo donde lo pusieron.
+ *
+ * Se pide cada varios minutos y no con cada refresco: recorre un día de posiciones.
+ */
+export async function diagnosticoGps(): Promise<DiagnosticoGps[]> {
+    await sesion("dispositivos");
+    const equipos = await prisma.gpsEquipo.findMany({ where: { deviceId: { not: null }, NOT: { deviceId: DEVICE_DE_PRUEBA } }, select: { imei: true, encendido: true, encendidoDesde: true } });
+    if (!equipos.length) return [];
+    const ayer = new Date(Date.now() - 86_400_000);
+    const imeis = equipos.map((e) => e.imei);
+    const [total, andando, andandoPobres, vibraciones] = await Promise.all([
+        prisma.gpsPosicion.groupBy({ by: ["imei"], where: { imei: { in: imeis } }, _count: { _all: true } }),
+        prisma.gpsPosicion.groupBy({ by: ["imei"], where: { imei: { in: imeis }, cuando: { gte: ayer }, velocidad: { gte: 10 } }, _count: { _all: true } }),
+        prisma.gpsPosicion.groupBy({ by: ["imei"], where: { imei: { in: imeis }, cuando: { gte: ayer }, velocidad: { gte: 10 }, satelites: { lt: SATS_MIN } }, _count: { _all: true } }),
+        prisma.gpsEvento.groupBy({ by: ["imei"], where: { imei: { in: imeis }, cuando: { gte: ayer }, tipo: "GPS_VIBRACION" }, _count: { _all: true } }),
+    ]);
+    const de = (g: { imei: string; _count: { _all: number } }[]) => new Map(g.map((x) => [x.imei, x._count._all]));
+    const mTotal = de(total), mAnd = de(andando), mPobres = de(andandoPobres), mVib = de(vibraciones);
+    const out: DiagnosticoGps[] = [];
+    for (const e of equipos) {
+        const avisos: string[] = [];
+        if (e.encendido === true && e.encendidoDesde && Date.now() - e.encendidoDesde.getTime() > ACC_SOSPECHOSO_H * 3600_000) {
+            /* «Encendido» hace horas: ¿se movió en ese tiempo? Si anduvo, es un viaje largo y está bien. */
+            const anduvo = await prisma.gpsPosicion.count({ where: { imei: e.imei, cuando: { gte: e.encendidoDesde }, velocidad: { gte: 10 }, satelites: { gte: SATS_MIN } } });
+            if (!anduvo) avisos.push(`El motor figura encendido hace ${Math.floor((Date.now() - e.encendidoDesde.getTime()) / 3600_000)} h y el vehículo no se movió: revisar el cable de encendido (ACC) del rastreador. Mientras esté así, «se mueve con el motor apagado» no puede avisar.`);
+        }
+        const vib = mVib.get(e.imei) || 0;
+        if (vib >= 20) avisos.push(`Mandó ${vib} alarmas de vibración en 24 h: está en guardia con la sensibilidad alta. Conviene bajársela o sacarlo de guardia (se configura en el rastreador).`);
+        const and = mAnd.get(e.imei) || 0, pobres = mPobres.get(e.imei) || 0;
+        if (and >= 30 && pobres / and > 0.3) avisos.push(`${Math.round((pobres / and) * 100)} % de sus posiciones andando llegó con pocos satélites: revisar dónde quedó instalado, la antena necesita ver el cielo.`);
+        out.push({ imei: e.imei, posiciones: mTotal.get(e.imei) || 0, avisos });
+    }
+    return out;
+}
+
+/**
+ * La puerta del receptor. «Abierta»: un equipo desconocido que se presenta se anota para que
+ * alguien lo acepte (así se da de alta uno nuevo). «Cerrada»: sólo se atiende a los aceptados, y
+ * el resto es como si el puerto no existiera. Lo razonable es tenerla cerrada y abrirla el rato
+ * que dura una instalación. El receptor la relee cada medio minuto.
+ */
+export async function puertaGps(): Promise<{ cerrada: boolean; pendientes: number }> {
+    await sesion("dispositivos");
+    const [f, pendientes] = await Promise.all([
+        prisma.setting.findUnique({ where: { key: "GPS_PUERTA" } }),
+        prisma.gpsEquipo.count({ where: { deviceId: null } }),
+    ]);
+    return { cerrada: f?.value === "cerrada", pendientes };
+}
+
+export async function cambiarPuertaGps(cerrada: boolean): Promise<{ ok: boolean }> {
+    const s = await sesion("dispositivos.editar");
+    const value = cerrada ? "cerrada" : "abierta";
+    await prisma.setting.upsert({ where: { key: "GPS_PUERTA" }, create: { key: "GPS_PUERTA", value }, update: { value } });
+    await auditar(s, "equipos.gps.puerta", "GPS_PUERTA", true, value);
+    return { ok: true };
+}
+
+/** Descarta a uno que se presentó y nadie aceptó: borra su registro. Si vuelve a presentarse con la puerta abierta, vuelve a anotarse. */
+export async function descartarGps(imei: string): Promise<{ ok: boolean; error?: string }> {
+    const s = await sesion("dispositivos.editar");
+    const e = await prisma.gpsEquipo.findUnique({ where: { imei } });
+    if (!e) return { ok: true };
+    if (e.deviceId && (await prisma.device.count({ where: { id: e.deviceId } }))) return { ok: false, error: "Ese rastreador está dado de alta: se quita desde Dispositivos." };
+    await prisma.gpsEquipo.delete({ where: { imei } });
+    await auditar(s, "equipos.gps.descartar", imei, true, `IMEI ${imei}`);
+    return { ok: true };
 }
 
 const ICONOS = new Set(["auto", "camion", "moto", "persona", "punto"]);
@@ -267,6 +436,11 @@ export async function comandoGps(imei: string, accion: ComandoGps): Promise<{ ok
         if (cortado !== null && cortado !== undefined) await prisma.gpsEquipo.update({ where: { imei }, data: { cortado } }).catch(() => { });
     }
     if (escribe) await auditar(s, "equipos.gps.rele", e.deviceId, r.ok, `IMEI ${imei} · ${accion === "rele.accionar" ? "accionar" : "soltar"} · ${r.ok ? `equipo: «${(r.respuesta || "").slice(0, 120)}»` : r.error}`);
+    /* Y al historial del rastreador: en su línea de tiempo, «le cortaron la alimentación» y «alguien
+       accionó el relé» tienen que poder leerse juntos. Con quién fue y lo que contestó el equipo. */
+    if (escribe && r.ok) await prisma.gpsEvento.create({
+        data: { imei, tipo: accion === "rele.accionar" ? "GPS_RELE_ACCIONADO" : "GPS_RELE_SOLTADO", lat: e.lat, lon: e.lon, detalle: `Por ${String(s?.name || s?.sub || "panel")} · equipo: «${(r.respuesta || "").replace(/\s+/g, " ").trim().slice(0, 80)}»` },
+    }).catch(() => { });
     return { ...r, cortado };
 }
 

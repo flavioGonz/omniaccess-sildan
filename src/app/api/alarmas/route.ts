@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     // ?id=<alarma>: sólo la gestión de esa alarma (la ficha de intrusión la pide al abrirse).
     const una = req.nextUrl.searchParams.get("id");
     if (una) {
-        if (!/^[dal]:[\w-]{1,64}$/.test(una)) return NextResponse.json({ error: "Alarma inválida." }, { status: 400 });
+        if (!/^[dalg]:[\w-]{1,64}$/.test(una)) return NextResponse.json({ error: "Alarma inválida." }, { status: 400 });
         return NextResponse.json({ gestion: await leerGestion(una) }, { headers: SIN_CACHE });
     }
     const pedido = Number(req.nextUrl.searchParams.get("h"));
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     if (!auth.authenticated) return unauthorizedResponse();
     if (auth.pantalla) return forbiddenResponse("Un enlace de pantalla no atiende alarmas.");
     const b = await req.json().catch(() => ({}));
-    if (typeof b?.id !== "string" || !/^[dal]:[\w-]{1,64}$/.test(b.id)) return NextResponse.json({ error: "Falta la alarma." }, { status: 400 });
+    if (typeof b?.id !== "string" || !/^[dalg]:[\w-]{1,64}$/.test(b.id)) return NextResponse.json({ error: "Falta la alarma." }, { status: 400 });
     const atender = b.atender === true;
     const resultado = b.resultado === "real" || b.resultado === "falsa" ? b.resultado : null;
     const nota = typeof b.nota === "string" ? b.nota.trim().slice(0, 1000) : null;
