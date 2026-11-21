@@ -664,6 +664,8 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
     const [openCamPopup, setOpenCamPopup] = useState<string | null>(null); // cámara con popup de video abierto (lazy)
     const [pantalla, setPantalla] = useState(false);
     const [q, setQ] = useState("");
+    /** El buscador vive en la barra de arriba, plegado en un ícono: abajo le pisaba el panel del recorrido del GPS (21/11). */
+    const [buscando, setBuscando] = useState(false);
     const [zoom, setZoom] = useState(16);
     const [movingCam, setMovingCam] = useState<string | null>(null);
     const [located, setLocated] = useState<{ type: "lote" | "camera"; id: string } | null>(null);
@@ -1440,6 +1442,20 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
                                 <Tooltip><TooltipTrigger asChild><button onClick={toggleVivo} disabled={!data.cameras.length} className={cn(gbtn, vivoTodas && "bg-red-600 text-white hover:bg-red-500 hover:text-white")}>{vivoTodas ? <EyeOff size={16} /> : <Eye size={16} />}</button></TooltipTrigger><TooltipContent>{vivoTodas ? "Apagar las cámaras en vivo" : "Ver todas las cámaras en vivo"}</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><button onClick={() => setAutoResaltar((v) => !v)} className={cn(gbtn, autoResaltar && "bg-emerald-600 text-white hover:bg-emerald-500 hover:text-white")}><Home size={16} /></button></TooltipTrigger><TooltipContent>{autoResaltar ? "Auto: resalta la casa al detectar matrícula (ON)" : "Resaltar la casa automáticamente al detectar matrícula"}</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><button onClick={alternarPantalla} className={gbtn}>{pantalla ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></TooltipTrigger><TooltipContent>{pantalla ? "Salir de pantalla completa" : "Pantalla completa"}</TooltipContent></Tooltip>
+                                {/* El buscador: un ícono que se despliega acá mismo. Escape o la cruz lo cierran y limpian lo buscado. */}
+                                {buscando ? (
+                                    <div className="flex items-center gap-1 h-9 pl-2.5 pr-1 rounded-xl border border-border bg-background/70">
+                                        <Search size={14} className="text-muted-foreground shrink-0" />
+                                        <input autoFocus value={q} onChange={(e) => setQ(e.target.value.toUpperCase())}
+                                            onKeyDown={(e) => { if (e.key === "Enter") buscar(); if (e.key === "Escape") { setBuscando(false); setQ(""); setLocated(null); } }}
+                                            placeholder="Lote, cámara o calle…" aria-label="Buscar en el mapa"
+                                            className="w-[190px] bg-transparent outline-none text-xs font-medium placeholder:text-muted-foreground/60" />
+                                        <button onClick={buscar} aria-label="Ir" className="h-7 w-7 rounded-lg bg-blue-600 text-white grid place-items-center hover:bg-blue-500 transition-colors"><LocateFixed size={13} /></button>
+                                        <button onClick={() => { setBuscando(false); setQ(""); setLocated(null); }} aria-label="Cerrar el buscador" className="h-7 w-7 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-accent"><X size={14} /></button>
+                                    </div>
+                                ) : (
+                                    <Tooltip><TooltipTrigger asChild><button onClick={() => setBuscando(true)} className={gbtn}><Search size={16} /></button></TooltipTrigger><TooltipContent>Buscar un lote, una cámara o una calle</TooltipContent></Tooltip>
+                                )}
                                 <div className="w-px h-6 bg-border mx-0.5" />
                                 <button onClick={() => { setMenuCapas(false); setVivoTodas(false); setEditing(true); }} className="h-9 px-3.5 flex items-center gap-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors"><Pencil size={14} /> Editar mapa</button>
                             </>
@@ -1472,19 +1488,6 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
                         </div>
                     )}
                 </div>}
-
-                {/* Buscador inferior glass */}
-                {!editing && !pared && (
-                    <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-[520] w-[min(520px,calc(100%-2rem))]">
-                        <div className="flex items-center gap-2 bg-card/90 backdrop-blur-2xl border border-border rounded-2xl shadow-2xl px-3 h-12">
-                            <Search size={16} className="text-muted-foreground shrink-0" />
-                            <input value={q} onChange={(e) => setQ(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === "Enter") buscar(); }}
-                                placeholder="Lote, cámara o calle…" className="flex-1 bg-transparent outline-none text-sm font-medium placeholder:text-muted-foreground/60" />
-                            {q && <button onClick={() => { setQ(""); setLocated(null); }} className="text-muted-foreground hover:text-foreground"><X size={15} /></button>}
-                            <button onClick={buscar} className="h-8 px-2.5 rounded-lg bg-blue-600 text-white flex items-center gap-1 text-xs font-bold hover:bg-blue-500 transition-colors"><LocateFixed size={14} /></button>
-                        </div>
-                    </div>
-                )}
 
                 {/* Panel contextual de edición */}
                 {editing && (

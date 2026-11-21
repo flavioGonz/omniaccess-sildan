@@ -13,6 +13,7 @@ import {
 } from "@/app/actions/gps";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { metrosEntre, resumenDeRecorrido } from "@/lib/gps-recorrido";
+import { posicionEn, RETRASO_MS } from "@/lib/gps-reproducir";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { fechaHora, hace, hora } from "@/lib/fechas";
@@ -41,6 +42,8 @@ const REFRESCO_MS = 15_000;
 /** Con una posición más vieja que esto, estando en línea, se entiende que perdió los satélites. */
 const POSICION_VIEJA_MS = 10 * 60_000;
 const VERDE = "#10b981", AMBAR = "#f59e0b", GRIS = "#64748b", ROJO = "#ef4444", CELESTE = "#38bdf8";
+/** Una lista vacía que es siempre LA MISMA: si fuera una nueva en cada render, react-leaflet vaciaría la línea. */
+const SIN_PUNTOS: [number, number][] = [];
 
 const tonoDe = (r: Rastreador) => {
     if (!r.enLinea) return GRIS;
@@ -110,6 +113,24 @@ export function CapaGps() {
      */
     const [estela, setEstela] = useState<{ imei: string; vivo: boolean; puntos: PuntoGps[] | null } | null>(null);
     const [suelta, setSuelta] = useState(false);
+    const lineaBorde = useRef<L.Polyline>(null), lineaColor = useRef<L.Polyline>(null);
+    const ptsEstelaRef = useRef<PuntoGps[]>([]);
+    /** Hasta dónde va dibujado el vehículo de la estela: su posición y la hora del equipo que le corresponde. */
+    const cabeza = useRef<{ lat: number; lon: number; t: number } | null>(null);
+    const trazarEstela = useCallback(() => {
+        const pts = ptsEstelaRef.current, c = cabeza.current;
+        let ll: [number, number][];
+        if (!c || c.t === Infinity) ll = pts.map((p) => [p.lat, p.lon]);
+        else {
+            const hasta = new Date(c.t).toISOString();
+            ll = pts.filter((p) => p.cuando <= hasta).map((p) => [p.lat, p.lon]);
+            ll.push([c.lat, c.lon]);
+        }
+        lineaBorde.current?.setLatLngs(ll); lineaColor.current?.setLatLngs(ll);
+    }, []);
+    const alMoverEstela = useCallback((lat: number, lon: number, t: number) => { cabeza.current = { lat, lon, t }; trazarEstela(); }, [trazarEstela]);
+    /* Cuando cambian los puntos (o se abre la estela) se vuelve a trazar con la cabeza que haya. */
+    useEffect(() => { trazarEstela(); }, [estela, trazarEstela]);
     /** La geocerca que acaba de cruzar alguien: se destaca unos segundos. */
     const [destello, setDestello] = useState<string | null>(null);
     /** El panel de eventos de un rastreador. */
@@ -169,6 +190,7 @@ export function CapaGps() {
 
     const verEstela = useCallback(async (imei: string, vivo: boolean) => {
         setRuta(null); setViajeSel(null); setSuelta(false);
+        cabeza.current = null;   // la cabeza era de la estela anterior (quizá de otro vehículo)
         setEstela((v) => ({ imei, vivo, puntos: v && v.imei === imei ? v.puntos : null }));
         try {
             const puntos = await estelaGps(imei, 10);
@@ -268,6 +290,7 @@ export function CapaGps() {
     const pts = ruta?.datos?.puntos || [];
     const deLaRuta = ruta ? lista.find((r) => r.imei === ruta.imei) : estela ? lista.find((r) => r.imei === estela.imei) : null;
     const ptsEstela = estela?.puntos || [];
+    ptsEstelaRef.current = ptsEstela;
     const cuentaEstela = resumenDeRecorrido(ptsEstela);
     /** A quién sigue la cámara: al del modo en vivo, mientras nadie haya arrastrado el mapa. */
     const seguido = estela?.vivo && !suelta ? estela.imei : null;
@@ -306,10 +329,13 @@ export function CapaGps() {
             {pts.length > 1 && <CircleMarker center={[pts[0].lat, pts[0].lon]} radius={6} pathOptions={{ color: "#fff", weight: 3, fillColor: CELESTE, fillOpacity: 1 }} />}
 
             {/* La estela de los últimos minutos (10 min y en vivo): una sola línea, tal cual. */}
-            {ptsEstela.length > 1 && (
+            {/* Las dos líneas se dibujan a mano (`trazarEstela`): la estela termina donde está DIBUJADO
+                el vehículo, que va trece segundos detrás de la última posición. Si la línea llegara
+                hasta la última, el auto andaría persiguiendo una línea que ya está pintada. */}
+            {estela && (
                 <>
-                    <Polyline positions={ptsEstela.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: "#0a0e14", weight: 7, opacity: 0.55, lineCap: "round", lineJoin: "round" }} />
-                    <Polyline positions={ptsEstela.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: estela?.vivo ? VERDE : CELESTE, weight: 4, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
+                    <Polyline ref={lineaBorde} positions={SIN_PUNTOS} pathOptions={{ color: "#0a0e14", weight: 7, opacity: 0.55, lineCap: "round", lineJoin: "round" }} />
+                    <Polyline ref={lineaColor} positions={SIN_PUNTOS} pathOptions={{ color: estela.vivo ? VERDE : CELESTE, weight: 4, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
                 </>
             )}
 
@@ -355,7 +381,7 @@ export function CapaGps() {
             {colocando && <ClicEnElMapa alTocar={(lat, lon) => { setColocando(false); setBorrador({ nombre: "", lat, lon, radio: 200, imeis: [], activa: true }); setPanelCercas(true); }} />}
 
             {lista.map((r) => (
-                <MarcadorGps key={r.imei} r={r} seguir={seguido === r.imei}
+                <MarcadorGps key={r.imei} r={r} seguir={seguido === r.imei} alMover={estela?.imei === r.imei ? alMoverEstela : undefined}
                     eventHandlers={{
                         contextmenu: (e) => {
                             const oe = (e as unknown as { originalEvent: MouseEvent }).originalEvent;
@@ -368,12 +394,12 @@ export function CapaGps() {
                         <div style={{ font: "13px/1.45 Outfit,system-ui,sans-serif", minWidth: 215 }}>
                             <div style={{ fontWeight: 700, fontSize: 14 }}>{r.nombre || `Rastreador ${r.imei.slice(-6)}`}</div>
                             <div style={{ color: "#64748b", fontSize: 11.5, marginBottom: 6 }}>{r.matricula ? `${r.matricula} · ` : ""}IMEI {r.imei}</div>
-                            <Renglon k="Estado" v={r.enLinea ? `En línea · reportó ${hace(r.ultimoLatido)}` : `Sin reportar desde ${hace(r.ultimoLatido, "nunca")}`} />
-                            <Renglon k="Posición" v={`de ${hace(r.cuando)}`} aviso={tonoDe(r) === AMBAR ? "sin satélites desde entonces" : undefined} />
-                            <Renglon k="Motor" v={r.encendido === null ? "—" : r.encendido ? "Encendido" : "Apagado"} />
-                            <Renglon k="Velocidad" v={`${r.velocidad || 0} km/h`} />
-                            <Renglon k="Batería del vehículo" v={r.voltaje !== null ? `${r.voltaje.toFixed(1).replace(".", ",")} V` : "—"} />
-                            <Renglon k="Relé" v={r.cortado === null ? "—" : r.cortado ? "Accionado" : "En reposo"} />
+                            <Renglon icono={<Dibujo que="estado" vivo={r.enLinea} />} k="Estado" v={r.enLinea ? `En línea · reportó ${hace(r.ultimoLatido)}` : `Sin reportar desde ${hace(r.ultimoLatido, "nunca")}`} />
+                            <Renglon icono={<Dibujo que="posicion" vivo={tonoDe(r) === VERDE} tono={tonoDe(r)} />} k="Posición" v={`de ${hace(r.cuando)}`} aviso={tonoDe(r) === AMBAR ? "sin satélites desde entonces" : undefined} />
+                            <Renglon icono={<Dibujo que="motor" vivo={r.encendido === true} />} k="Motor" v={r.encendido === null ? "—" : r.encendido ? "Encendido" : "Apagado"} />
+                            <Renglon icono={<Dibujo que="velocidad" vivo={(r.velocidad || 0) > 3} valor={r.velocidad || 0} />} k="Velocidad" v={`${r.velocidad || 0} km/h`} />
+                            <Renglon icono={<Dibujo que="bateria" vivo={r.voltaje !== null && r.voltaje >= 13.2} valor={r.voltaje ?? undefined} />} k="Batería del vehículo" v={r.voltaje !== null ? `${r.voltaje.toFixed(1).replace(".", ",")} V` : "—"} />
+                            <Renglon icono={<Dibujo que="rele" vivo={r.cortado === true} />} k="Relé" v={r.cortado === null ? "—" : r.cortado ? "Accionado" : "En reposo"} />
                             <div style={{ color: "#64748b", fontSize: 11.5, marginTop: 6 }}>Clic derecho: recorrido, controles e ícono.</div>
                         </div>
                     </Popup>
@@ -389,7 +415,23 @@ export function CapaGps() {
                     <style>{`
                         .gps-vel { transform: translateX(-50%); animation: gps-vel-entra .32s cubic-bezier(.2,.9,.3,1.2) both; }
                         @keyframes gps-vel-entra { from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(.85); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
-                        @media (prefers-reduced-motion: reduce) { .gps-vel { animation: none; } }
+                        /* Los dibujos del globo. Cada uno se mueve sólo cuando lo que muestra está pasando:
+                           un motor apagado no late, una posición vieja no emite. El movimiento es
+                           el dato, no un adorno. */
+                        .gd-onda { transform-origin: 8px 12px; animation: gd-onda 1.8s ease-out infinite; }
+                        .gd-onda.b { animation-delay: .45s; }
+                        @keyframes gd-onda { 0% { opacity: 0; } 25% { opacity: 1; } 100% { opacity: 0; } }
+                        .gd-ping { transform-origin: 8px 14px; animation: gd-ping 1.8s ease-out infinite; }
+                        @keyframes gd-ping { 0% { transform: scale(.3); opacity: .9; } 100% { transform: scale(1.5); opacity: 0; } }
+                        .gd-late { transform-origin: 8px 8px; animation: gd-late 1.1s ease-in-out infinite; }
+                        @keyframes gd-late { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.14); } }
+                        .gd-aguja { transform-origin: 8px 11px; transition: transform .9s cubic-bezier(.2,.8,.2,1); }
+                        .gd-tiembla { animation: gd-tiembla .5s ease-in-out infinite alternate; transform-origin: 8px 11px; }
+                        @keyframes gd-tiembla { from { transform: rotate(-2.5deg); } to { transform: rotate(2.5deg); } }
+                        .gd-carga { animation: gd-carga 1.4s ease-in-out infinite; }
+                        @keyframes gd-carga { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+                        .gd-alerta { animation: gd-carga .8s ease-in-out infinite; }
+                        @media (prefers-reduced-motion: reduce) { .gps-vel, .gd-onda, .gd-ping, .gd-late, .gd-tiembla, .gd-carga, .gd-alerta { animation: none; } .gd-aguja { transition: none; } }
                     `}</style>
                     {menu && delMenu && (
                         <div className="fixed z-[600] bg-popover border border-border rounded-lg shadow-xl py-1 text-xs min-w-[230px]" style={{ left: menu.x, top: menu.y }}
@@ -597,10 +639,10 @@ export function CapaGps() {
     );
 }
 
-function Renglon({ k, v, aviso }: { k: string; v: string; aviso?: string }) {
+function Renglon({ icono, k, v, aviso }: { icono?: React.ReactNode; k: string; v: string; aviso?: string }) {
     return (
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-            <span style={{ color: "#64748b" }}>{k}</span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, minHeight: 22 }}>
+            <span style={{ color: "#64748b", display: "inline-flex", alignItems: "center", gap: 6 }}>{icono}{k}</span>
             <span style={{ fontWeight: 600, textAlign: "right" }}>{v}{aviso ? <span style={{ display: "block", color: "#b45309", fontWeight: 500, fontSize: 11 }}>{aviso}</span> : null}</span>
         </div>
     );
@@ -644,29 +686,43 @@ const ROTULO_EVENTO: Record<string, string> = {
 
 /** Un salto más largo que esto no se desliza: es un hueco sin reportes, no un movimiento. */
 const SALTO_MAX_M = 1500;
-/** Cuánto tarda en deslizarse entre dos posiciones: lo que tarda en llegar la siguiente andando. */
-const DESLIZ_MS = 10_000;
+/** Y un silencio más largo que esto tampoco: lo que pasó en el medio no se sabe. */
+const HUECO_MS = 60_000;
 /** Cuánto tarda el número de la velocidad en llegar al valor nuevo. */
 const CUENTA_MS = 900;
 
 /**
- * El marcador de un rastreador, que SE DESLIZA de una posición a la siguiente en vez de saltar.
+ * El marcador de un rastreador, que ANDA por donde anduvo el vehículo en vez de saltar.
  *
- * Pedido de Nico (21/11): «¿podés animar mejor el desplazamiento del vehículo? más continuo,
- * similar a PedidosYa». El equipo manda una posición cada 10 segundos; dibujarlas tal cual es un
- * auto que se teletransporta cada 10 segundos. Acá el marcador viaja en línea recta desde donde
- * se lo ve hasta la posición nueva durante lo que tarda en llegar la siguiente, así que cuando
- * llega, el auto está justo ahí y sigue de largo: se ve andar.
+ * Pedido de Nico (21/11): «más continuo, similar a PedidosYa», y al ver la primera versión:
+ * «parecen movimientos por tramos, de tiros, y no fluido».
  *
- * Tres cuidados:
+ * La primera versión deslizaba el marcador hasta cada posición nueva en diez segundos fijos. Eso
+ * se ve a tirones por una razón precisa: las posiciones NO llegan cada diez segundos exactos. Un
+ * tramo que el auto hizo en cuatro segundos se dibujaba en diez (lento) y uno de quince, en diez
+ * (rápido, y después quieto cinco esperando). La velocidad del dibujo cambiaba en cada posición.
+ *
+ * Ahora se hace lo que hacen las aplicaciones de reparto: **se reproduce el camino con un retraso
+ * fijo**. Cada posición trae su hora; el marcador se dibuja donde el vehículo estaba hace
+ * RETRASO_MS, interpolando entre las dos posiciones que rodean ese instante. Cada tramo se
+ * recorre en lo que de verdad tardó, así que el dibujo va a la velocidad real y no frena en cada
+ * punto. El costo es que lo que se ve pasó hace trece segundos; los datos del globo son los de
+ * ahora.
+ *
+ * Cuidados:
  *  · Se mueve el marcador de Leaflet DIRECTAMENTE, no por estado de React: sesenta renders por
  *    segundo de toda la capa para mover un punto es tirar la pantalla abajo.
- *  · Si llega una posición nueva a mitad de camino, sale desde donde está dibujado, no desde la
- *    anterior: nunca pega un salto hacia atrás.
- *  · Un salto de más de 1,5 km no se desliza —es un hueco sin reportes— y con «reducir
- *    movimiento» activado en el sistema, tampoco.
+ *  · El reloj del equipo y el de esta máquina no tienen por qué coincidir: se usa la demora más
+ *    chica que se vio entre «hora del equipo» y «hora en que llegó», no la hora a secas.
+ *  · Un salto de más de 1,5 km o un silencio de más de un minuto no se reproducen: se salta.
+ *  · Con «reducir movimiento» activado en el sistema, se salta siempre.
  */
-function MarcadorGps({ r, seguir, eventHandlers, children }: { r: Rastreador; seguir: boolean; eventHandlers: L.LeafletEventHandlerFnMap; children: React.ReactNode }) {
+function MarcadorGps({ r, seguir, alMover, eventHandlers, children }: {
+    r: Rastreador; seguir: boolean;
+    /** Dónde se lo está dibujando y a qué hora del equipo corresponde (Infinity = llegó al final). */
+    alMover?: (lat: number, lon: number, t: number) => void;
+    eventHandlers: L.LeafletEventHandlerFnMap; children: React.ReactNode;
+}) {
     const mapa = useMap();
     const ref = useRef<L.Marker>(null);
     /* La posición inicial queda fija para React: después la mueve la animación. Si se le pasara la
@@ -674,28 +730,53 @@ function MarcadorGps({ r, seguir, eventHandlers, children }: { r: Rastreador; se
     const [inicial] = useState<[number, number]>([r.lat!, r.lon!]);
     const cuadro = useRef<number | null>(null);
     const sigue = useRef(seguir); sigue.current = seguir;
+    const avisa = useRef(alMover); avisa.current = alMover;
+    /** Las últimas posiciones con su hora (del equipo, en ms): el camino a reproducir. */
+    const cola = useRef<{ t: number; lat: number; lon: number }[]>([]);
+    /** La demora más chica vista entre la hora del equipo y la llegada: pasa de un reloj al otro. */
+    const desfase = useRef<number | null>(null);
+
+    const andar = useCallback(() => {
+        if (cuadro.current) return;
+        const paso = () => {
+            const mk = ref.current, c = cola.current;
+            if (!mk || !c.length) { cuadro.current = null; return; }
+            const tp = Date.now() - (desfase.current || 0) - RETRASO_MS;
+            const { lat, lon, llego } = posicionEn(c, tp)!;      // la cuenta está en lib/gps-reproducir, con sus pruebas
+            mk.setLatLng([lat, lon]);
+            avisa.current?.(lat, lon, llego ? Infinity : tp);
+            /* En vivo la cámara va con él, cuadro a cuadro: si se moviera de a saltos, el auto
+               se deslizaría y el mapa pegaría un tirón cada diez segundos. */
+            if (sigue.current) mapa.panTo([lat, lon], { animate: false });
+            /* Llegó a la última posición conocida: se queda ahí, sin gastar cuadros, hasta la próxima. */
+            cuadro.current = llego ? null : requestAnimationFrame(paso);
+        };
+        cuadro.current = requestAnimationFrame(paso);
+    }, [mapa]);
 
     useEffect(() => {
         const mk = ref.current; if (!mk) return;
-        const de = mk.getLatLng(), a = L.latLng(r.lat!, r.lon!);
-        const d = de.distanceTo(a);
-        if (cuadro.current) cancelAnimationFrame(cuadro.current);
+        const t = r.cuando ? Date.parse(r.cuando) : Date.now();
+        const c = cola.current, ult = c[c.length - 1];
+        if (ult && t <= ult.t) return;                      // la misma posición, traída otra vez por el refresco
+        const llegada = Date.now() - t;
+        if (desfase.current === null || llegada < desfase.current) desfase.current = llegada;
         const quieto = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-        if (d < 0.5) return;
-        if (d > SALTO_MAX_M || quieto) { mk.setLatLng(a); if (sigue.current) mapa.panTo(a, { animate: !quieto }); return; }
-        const t0 = performance.now();
-        const paso = (t: number) => {
-            const k = Math.min(1, (t - t0) / DESLIZ_MS);
-            const p = L.latLng(de.lat + (a.lat - de.lat) * k, de.lng + (a.lng - de.lng) * k);
-            mk.setLatLng(p);
-            /* En vivo la cámara va con él, cuadro a cuadro: si se moviera de a saltos, el auto
-               se deslizaría y el mapa pegaría un tirón cada diez segundos. */
-            if (sigue.current) mapa.panTo(p, { animate: false });
-            if (k < 1) cuadro.current = requestAnimationFrame(paso);
-        };
-        cuadro.current = requestAnimationFrame(paso);
-        return () => { if (cuadro.current) cancelAnimationFrame(cuadro.current); };
-    }, [r.lat, r.lon, mapa]);
+        const lejos = ult ? L.latLng(ult.lat, ult.lon).distanceTo([r.lat!, r.lon!]) > SALTO_MAX_M : false;
+        if (!ult || quieto || lejos || t - ult.t > HUECO_MS) {
+            /* Sin camino que reproducir (la primera, un hueco, un salto): se pone ahí y listo. */
+            cola.current = [{ t, lat: r.lat!, lon: r.lon! }];
+            if (cuadro.current) { cancelAnimationFrame(cuadro.current); cuadro.current = null; }
+            mk.setLatLng([r.lat!, r.lon!]);
+            avisa.current?.(r.lat!, r.lon!, Infinity);
+            if (sigue.current) mapa.panTo([r.lat!, r.lon!], { animate: !quieto });
+            return;
+        }
+        c.push({ t, lat: r.lat!, lon: r.lon! });
+        if (c.length > 16) c.shift();
+        andar();
+    }, [r.lat, r.lon, r.cuando, mapa, andar]);
+    useEffect(() => () => { if (cuadro.current) cancelAnimationFrame(cuadro.current); }, []);
 
     /* Al empezar a seguirlo, la cámara va a donde está AHORA (no espera a la próxima posición). */
     useEffect(() => { if (seguir && ref.current) mapa.setView(ref.current.getLatLng(), Math.max(mapa.getZoom(), 16)); }, [seguir, mapa]);
@@ -758,4 +839,92 @@ function MarcadorGps({ r, seguir, eventHandlers, children }: { r: Rastreador; se
     }, [r.velocidad, ic]);
 
     return <Marker ref={ref} position={inicial} icon={ic} zIndexOffset={1500} eventHandlers={eventHandlers}>{children}</Marker>;
+}
+
+/**
+ * Los dibujos de cada renglón del globo (pedido de Nico, 21/11: «iconografía a cada campo,
+ * animados»). Dibujos propios de 16×16, hechos acá porque cada uno tiene que moverse según el
+ * dato y un ícono de biblioteca no sabe cuánto es 73 km/h.
+ *
+ * La regla: **se mueve lo que está pasando**. Las ondas salen si está en línea; el punto late en
+ * el mapa si la posición es de recién; el motor late si está encendido; la aguja marca la
+ * velocidad de verdad y tiembla si anda; la batería se llena según el voltaje y parpadea su rayo
+ * si el alternador está cargando; el candado titila en rojo si el relé está accionado. Quieto y
+ * gris quiere decir exactamente eso.
+ */
+function Dibujo({ que, vivo, valor, tono }: { que: "estado" | "posicion" | "motor" | "velocidad" | "bateria" | "rele"; vivo: boolean; valor?: number; tono?: string }) {
+    const gris = "#94a3b8";
+    const p = { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", strokeWidth: 1.5, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, style: { flexShrink: 0 } };
+    switch (que) {
+        case "estado": {
+            const c = vivo ? VERDE : gris;
+            return (
+                <svg {...p} stroke={c}>
+                    <circle cx="8" cy="12" r="1.4" fill={c} stroke="none" />
+                    <path d="M5 9.2a4.2 4.2 0 0 1 6 0" className={vivo ? "gd-onda" : undefined} opacity={vivo ? undefined : 0.5} />
+                    <path d="M2.6 6.6a7.6 7.6 0 0 1 10.8 0" className={vivo ? "gd-onda b" : undefined} opacity={vivo ? undefined : 0.3} />
+                </svg>
+            );
+        }
+        case "posicion": {
+            const c = tono || (vivo ? VERDE : gris);
+            return (
+                <svg {...p} stroke={c}>
+                    {vivo && <ellipse cx="8" cy="14" rx="4" ry="1.4" className="gd-ping" stroke={c} strokeWidth="1" />}
+                    <path d="M8 14s4.2-3.9 4.2-7.3a4.2 4.2 0 0 0-8.4 0C3.8 10.1 8 14 8 14Z" fill="#fff" />
+                    <circle cx="8" cy="6.6" r="1.5" fill={c} stroke="none" />
+                </svg>
+            );
+        }
+        case "motor": {
+            const c = vivo ? VERDE : gris;
+            return (
+                <svg {...p} stroke={c}>
+                    <g className={vivo ? "gd-late" : undefined}>
+                        <path d="M8 2.2v5" />
+                        <path d="M11.4 4.3a5 5 0 1 1-6.8 0" />
+                    </g>
+                </svg>
+            );
+        }
+        case "velocidad": {
+            /* 0 km/h apunta a la izquierda, 140 a la derecha: la aguja dice cuánto, no sólo que hay algo. */
+            const grados = -90 + Math.min(1, Math.max(0, (valor || 0) / 140)) * 180;
+            const c = vivo ? ((valor || 0) > 110 ? AMBAR : VERDE) : gris;
+            return (
+                <svg {...p} stroke={c}>
+                    <path d="M2.4 11a5.6 5.6 0 0 1 11.2 0" />
+                    <g className={vivo ? "gd-tiembla" : undefined}>
+                        <g className="gd-aguja" style={{ transform: `rotate(${grados}deg)` }}>
+                            <path d="M8 11V6.4" strokeWidth="1.8" />
+                        </g>
+                    </g>
+                    <circle cx="8" cy="11" r="1.2" fill={c} stroke="none" />
+                </svg>
+            );
+        }
+        case "bateria": {
+            /* De 11,5 V (vacía) a 12,8 V (llena) en reposo; arriba de 13,2 está cargando el alternador. */
+            const nivel = valor === undefined ? 0 : Math.min(1, Math.max(0.08, (valor - 11.5) / 1.3));
+            const c = valor === undefined ? gris : valor < 11.8 ? AMBAR : VERDE;
+            return (
+                <svg {...p} stroke={c}>
+                    <rect x="1.6" y="4.6" width="11.2" height="6.8" rx="1.6" />
+                    <path d="M14.4 7v2" />
+                    <rect x="3" y="6" width={8.4 * nivel} height="4" rx="0.8" fill={c} stroke="none" opacity={vivo ? 0.45 : 0.9} />
+                    {vivo && <path d="M8.6 5.4 6.6 8.2h2.2L7 10.8" stroke="#fff" strokeWidth="1.3" className="gd-carga" />}
+                </svg>
+            );
+        }
+        case "rele": {
+            const c = vivo ? ROJO : gris;
+            return (
+                <svg {...p} stroke={c} className={vivo ? "gd-alerta" : undefined}>
+                    <rect x="3.4" y="7.4" width="9.2" height="6" rx="1.4" fill={vivo ? c : "none"} fillOpacity={vivo ? 0.18 : 0} />
+                    {/* Accionado: el candado cerrado. En reposo: abierto. */}
+                    <path d={vivo ? "M5.4 7.4V5.6a2.6 2.6 0 0 1 5.2 0v1.8" : "M5.4 7.4V5.6a2.6 2.6 0 0 1 5-1"} />
+                </svg>
+            );
+        }
+    }
 }
