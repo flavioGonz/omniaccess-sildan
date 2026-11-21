@@ -2,14 +2,17 @@
 
 import { useMemo } from "react";
 import {
-    Briefcase, CreditCard, Edit, Hash, KeyRound, Lock, Mail, MapPin, Phone, ScanFace,
-    Shield, ShieldAlert, Star, Trash2, Truck, UserCheck, UserX, Users,
+    AlertTriangle, Briefcase, Check, CreditCard, Edit, Hash, KeyRound, Loader2, Lock, Mail, MapPin, Phone, ScanFace,
+    Send, Shield, ShieldAlert, Star, Trash2, Truck, UserCheck, UserX, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Identidad, Matricula, Nada } from "@/components/ui/celdas";
 import { Chip } from "@/components/ui/estados";
 import { Pista } from "@/components/ui/pista";
+import { Button } from "@/components/ui/button";
+import { fechaCorta, fechaHora } from "@/lib/fechas";
+import type { EstadoCenso } from "@/lib/censo-estado";
 
 /**
  * El padrón de residentes.
@@ -102,10 +105,51 @@ function Pila({ items, icono: Icono, rotulo, mono }: {
     );
 }
 
+/**
+ * La columna del censo: en qué está la invitación de esta persona y el botón para mandársela.
+ *
+ * El botón está siempre a la vista, no al pasar por la fila como editar y borrar: es lo que se
+ * viene a hacer a esta columna, y en una pantalla táctil lo que aparece «al pasar» no aparece.
+ * Cuando todavía no se le mandó es un botón con su palabra; cuando ya salió queda sólo el ícono,
+ * porque reenviar es la excepción y no tiene que pesar lo mismo que el primer envío.
+ */
+function CeldaCenso({ u, estado, enviando, alEnviar }: { u: UsuarioFila; estado: EstadoCenso; enviando: boolean; alEnviar: (u: UsuarioFila) => void }) {
+    if (estado.que === "sin-correo") return <span className="text-[11px] italic text-muted-foreground">Sin correo</span>;
+    const enviar = (e: React.MouseEvent) => { e.stopPropagation(); alEnviar(u); };
+    const reenviar = (
+        <Button variant="ghost" size="icon-sm" className="h-7 w-7 text-muted-foreground" title="Volver a enviarle la invitación" disabled={enviando} onClick={enviar}>
+            {enviando ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+        </Button>
+    );
+    if (estado.que === "sin-enviar") return (
+        <Button variant="outline" size="sm" className="h-7 text-[12px]" disabled={enviando} onClick={enviar}>
+            {enviando ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Enviar
+        </Button>
+    );
+    return (
+        <span className="inline-flex items-center gap-1">
+            {estado.que === "cargo" ? <Chip tono="bien" icono={Check}><span title={`Cargó el ${fechaHora(estado.cuando)}`}>Cargó</span></Chip>
+                : estado.que === "error" ? (
+                    <Pista titulo="El correo no salió" texto={estado.error || "El servidor de correo no lo aceptó."}>
+                        <span className="cursor-help"><Chip tono="mal" icono={AlertTriangle}>No salió</Chip></span>
+                    </Pista>
+                ) : <Chip tono="quieto" icono={Mail}><span title={`Enviada el ${fechaHora(estado.cuando)}`}>Enviada {fechaCorta(estado.cuando)}</span></Chip>}
+            {reenviar}
+        </span>
+    );
+}
+
+const ROTULO_CENSO: Record<EstadoCenso["que"], string> = { "sin-correo": "Sin correo", "sin-enviar": "Sin enviar", enviada: "Enviada", cargo: "Cargó", error: "No salió" };
+
 export function TablaUsuarios({
     usuarios, cargando, error, alReintentar, hayMas, traerMas, alAbrir, alBorrar, barra, enListaNegra,
-    titulo = "Residente", plural = "residentes",
+    titulo = "Residente", plural = "residentes", censo,
 }: {
+    /**
+     * La invitación al censo de cada persona. Sin esto la columna no existe: sólo va en la pestaña
+     * de residentes, con la función del censo prendida y para quien puede manejarlo.
+     */
+    censo?: { de: (u: UsuarioFila) => EstadoCenso; alEnviar: (u: UsuarioFila) => void; enviando: string | null };
     /** El encabezado de la primera columna y cómo se cuentan, según la pestaña. */
     titulo?: string;
     plural?: string;
@@ -211,6 +255,13 @@ export function TablaUsuarios({
                 ? <span className="inline-flex items-center justify-center w-6 h-6 rounded-md chip-bien border" title="Rostro enrolado"><ScanFace size={12} /></span>
                 : <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-muted border border-border text-muted-foreground/50" title="Sin rostro"><ScanFace size={12} /></span>,
         },
+        ...(censo ? [{
+            clave: "censo", titulo: "Censo", alinear: "centro", ancho: 160,
+            tituloAyuda: "La invitación al censo de vehículos",
+            ayuda: "Si ya se le mandó el correo con su clave para cargar sus vehículos, y si ya cargó. El botón se la manda —o se la vuelve a mandar— sólo a esta persona, con copia a la administración.",
+            valor: (u) => { const e = censo.de(u); return e.cuando ? `${ROTULO_CENSO[e.que]} ${fechaCorta(e.cuando)}` : ROTULO_CENSO[e.que]; },
+            celda: (u) => <CeldaCenso u={u} estado={censo.de(u)} enviando={censo.enviando === u.id} alEnviar={censo.alEnviar} />,
+        } satisfies ColumnaTabla<UsuarioFila>] : []),
         {
             clave: "acciones", titulo: "", alinear: "der", ancho: 90, auxiliar: true,
             celda: (u) => (
@@ -230,7 +281,7 @@ export function TablaUsuarios({
                 </div>
             ),
         },
-    ], [alAbrir, alBorrar, enListaNegra, titulo]);
+    ], [alAbrir, alBorrar, enListaNegra, titulo, censo]);
 
     return (
         <Tabla<UsuarioFila>

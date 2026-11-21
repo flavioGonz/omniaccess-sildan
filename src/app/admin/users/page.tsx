@@ -18,7 +18,9 @@ import { getDevices, getLprSyncMap } from "@/app/actions/devices";
 import { UserRole } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Users, Plus, Camera, Home, Briefcase, Truck, DoorOpen, Ban, Search } from "lucide-react";
+import { Users, Plus, Camera, Home, Briefcase, Truck, DoorOpen, Ban, Search, Send } from "lucide-react";
+import { useConfirmar } from "@/components/ui/use-confirmar";
+import { buscadorDeCenso, conInvitacion, type InvitacionResumen } from "@/lib/censo-estado";
 import { CajonUsuario } from "@/components/users/CajonUsuario";
 import { CajonListaNegra } from "@/components/users/CajonListaNegra";
 import { TablaListaNegra } from "@/components/users/TablaListaNegra";
@@ -119,6 +121,48 @@ export default function UsersPage() {
     const [comportamiento, setComportamiento] = useState<Comportamiento>(normalizarComportamiento(COMPORTAMIENTO_DEFECTO));
     const [guardandoComp, setGuardandoComp] = useState(false);
     const [avisos, setAvisos] = useState<{ activas: number; total: number; canales: string[] } | null>(null);
+
+    /* La invitación al censo de cada residente (pedido de Nico, 21/11): una columna con en qué está
+       y un botón para mandársela a esa persona. Sólo con la función del censo prendida, y sólo si
+       la sesión puede manejarlo — si el servidor dice que no, la columna no se dibuja. */
+    const censoOn = useFuncion("PADRON_CENSO");
+    const [censo, setCenso] = useState<{ correoListo: boolean; copiaAdmin: string; aSpam: string | null; invitaciones: InvitacionResumen[] } | null>(null);
+    const [enviandoCenso, setEnviandoCenso] = useState<string | null>(null);
+    const { confirmar, elemento: confirmacion } = useConfirmar();
+    const traerCenso = useCallback(() => {
+        fetch("/api/censo/invitaciones?resumen=1", { cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : null)).then(setCenso).catch(() => setCenso(null));
+    }, []);
+    useEffect(() => { if (censoOn) traerCenso(); }, [censoOn, traerCenso]);
+    const estadoCenso = useMemo(() => buscadorDeCenso(censo?.invitaciones || []), [censo]);
+
+    /** Le manda la invitación a UNA persona. Pregunta antes: un clic de más es un correo a un vecino. */
+    const enviarCenso = useCallback(async (u: { id: string; name: string; email: string | null }) => {
+        if (!censo) return;
+        if (!censo.correoListo) { toast.error({ title: "Falta el servidor de correo", description: "Cargalo en Ajustes → Sistema → Correo (SMTP)." }); return; }
+        const ya = estadoCenso(u).que !== "sin-enviar";
+        const ok = await confirmar({
+            titulo: `${ya ? "Volver a enviarle" : "Enviarle"} la invitación del censo a ${u.name}`,
+            descripcion: [
+                `Sale ahora a ${u.email}${censo.copiaAdmin ? `, con copia a ${censo.copiaAdmin}` : ""}.`,
+                ya ? "Es el mismo enlace y la misma clave que ya tiene." : "",
+                censo.aSpam ? `Ojo: ${censo.aSpam} Mirá el aviso en Censo › Invitaciones antes de mandar.` : "",
+            ].filter(Boolean).join(" "),
+            accion: ya ? "Reenviar" : "Enviar", variante: "accion", icono: Send,
+        });
+        if (!ok) return;
+        setEnviandoCenso(u.id);
+        try {
+            const r = await fetch("/api/censo/invitaciones", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ accion: "persona", userId: u.id }) });
+            const j = await r.json().catch(() => null);
+            if (j?.invitacion) setCenso((c) => (c ? { ...c, invitaciones: conInvitacion(c.invitaciones, j.invitacion) } : c));
+            if (!r.ok || !j?.ok) toast.error({ title: "No se pudo enviar", description: j?.error || `El servidor respondió ${r.status}` });
+            else toast.success({ title: "Invitación enviada", description: `A ${j.invitacion?.email || u.email}.` });
+        } catch { toast.error({ title: "No se pudo enviar", description: "No hubo respuesta del servidor." }); }
+        finally { setEnviandoCenso(null); }
+    }, [censo, estadoCenso, confirmar]);
+    const columnaCenso = useMemo(() => (censoOn && censo && pestania === "residentes"
+        ? { de: estadoCenso, alEnviar: enviarCenso, enviando: enviandoCenso } : undefined), [censoOn, censo, pestania, estadoCenso, enviarCenso, enviandoCenso]);
 
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -362,6 +406,7 @@ export default function UsersPage() {
                             titulo={tab.columna}
                             plural={tab.plural}
                             enListaNegra={enListaNegra}
+                            censo={columnaCenso}
                             usuarios={aMostrar}
                             cargando={isLoading}
                             error={error}
@@ -375,6 +420,8 @@ export default function UsersPage() {
                     )}
                 </main>
             </div>
+
+            {confirmacion}
 
             <CajonUsuario
                 open={isFormOpen}

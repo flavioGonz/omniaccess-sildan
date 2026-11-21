@@ -6,7 +6,7 @@ import { auditar } from "@/lib/centrales/sesion";
 import { prisma } from "@/lib/prisma";
 import { leerPlanilla, nuevaClave, type FilaPlanilla } from "@/lib/censo-invitaciones";
 import { configCorreo, probarCorreo } from "@/lib/correo";
-import { estadoDeGoteo, guardarGoteo, leerGoteoGuardado, mandarInvitacion } from "@/lib/censo-envio";
+import { estadoDeGoteo, guardarGoteo, invitacionDePersona, leerGoteoGuardado, mandarInvitacion } from "@/lib/censo-envio";
 import { leerGoteo } from "@/lib/censo-goteo";
 import { revisarDominio } from "@/lib/correo-dominio";
 
@@ -24,9 +24,11 @@ const POR_TANDA = 25;
  * Las invitaciones del censo: un lote, su correo y su clave.
  *
  * GET    — la lista, el resumen y si el dominio del remitente está en condiciones de mandar.
+ *          `?resumen=1`: sólo en qué está cada invitación, sin claves — lo que usa el padrón.
  * POST   — la planilla (multipart, xlsx o csv): da de alta las invitaciones que faltan.
- * PUT    — { accion: "goteo" | "enviar" | "probar" | "clave" } : poner en marcha o pausar el envío
- *          de a poco, mandar unas pocas ya, probar el correo, prender o apagar la clave por lote.
+ * PUT    — { accion: "goteo" | "enviar" | "persona" | "probar" | "clave" } : poner en marcha o
+ *          pausar el envío de a poco, mandar unas pocas ya, mandársela a una persona del padrón,
+ *          probar el correo, prender o apagar la clave por lote.
  * DELETE — ?id= : sacar una invitación.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- la sesión es el JWT crudo
@@ -40,8 +42,24 @@ async function permitido(): Promise<NextResponse | { sesion: Sesion; quien: stri
 
 const conClave = async () => (await prisma.setting.findUnique({ where: { key: "CENSO_CON_CLAVE" } }))?.value === "true";
 
+const resumida = (f: { userId: string | null; email: string; enviadoAt: Date | null; usadoAt: Date | null; error: string | null }) =>
+    ({ userId: f.userId, email: f.email, enviadoAt: f.enviadoAt?.toISOString() || null, usadoAt: f.usadoAt?.toISOString() || null, error: f.error });
+
 export async function GET(req: NextRequest) {
     const q = await permitido(); if (q instanceof NextResponse) return q;
+    if (req.nextUrl.searchParams.get("resumen") === "1") {
+        const [filas, cfg] = await Promise.all([
+            prisma.invitacionCenso.findMany({ where: { sitio: "" }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true }, take: 5000 }),
+            configCorreo(),
+        ]);
+        const dominio = cfg ? await revisarDominio({ desde: cfg.desde, host: cfg.host }).catch(() => null) : null;
+        return NextResponse.json({
+            correoListo: !!cfg, copiaAdmin: cfg?.copia || "",
+            /* El padrón no muestra el detalle del DNS, pero quien va a mandar tiene que saberlo. */
+            aSpam: dominio?.estado === "mal" ? dominio.titulo : null,
+            invitaciones: filas.map(resumida),
+        }, { headers: SIN_CACHE });
+    }
     const [filas, cfg] = await Promise.all([
         prisma.invitacionCenso.findMany({ orderBy: [{ enviadoAt: "asc" }, { lote: "asc" }], take: 2000 }),
         configCorreo(),
@@ -149,6 +167,16 @@ export async function PUT(req: NextRequest) {
         await guardarGoteo(nuevo);
         if (activo !== antes.activo) await auditar(q.sesion, activo ? "censo.envio-de-a-poco.empezar" : "censo.envio-de-a-poco.pausar", `uno cada ${nuevo.cadaSeg} s, de ${nuevo.desde} a ${nuevo.hasta} h`, true, "");
         return NextResponse.json({ goteo: await estadoDeGoteo() }, { headers: SIN_CACHE });
+    }
+
+    if (b?.accion === "persona") {
+        if (!(await configCorreo())) return NextResponse.json({ error: "Falta configurar el servidor de correo (Ajustes → Correo)." }, { status: 400 });
+        const r = await invitacionDePersona(String(b?.userId || ""));
+        if ("error" in r) return NextResponse.json({ error: r.error }, { status: 400 });
+        const envio = await mandarInvitacion(r.inv, origen);
+        await auditar(q.sesion, "censo.enviar-invitacion", `${r.inv.nombre || "sin nombre"} · ${r.inv.lote}`, envio.ok, envio.ok ? "desde el padrón" : envio.error || "no se pudo");
+        const como = await prisma.invitacionCenso.findUnique({ where: { id: r.inv.id }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true } });
+        return NextResponse.json({ ok: envio.ok, error: envio.ok ? undefined : `No salió: ${envio.error || "el servidor de correo no lo aceptó"}`, invitacion: como ? resumida(como) : null }, { status: envio.ok ? 200 : 502, headers: SIN_CACHE });
     }
 
     if (b?.accion === "enviar") {

@@ -2,7 +2,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import { getAppBranding } from "@/app/actions/settings";
-import { CID_LOGO, LOGO_ALTO, LOGO_ANCHO, correoDeInvitacion } from "@/lib/censo-invitaciones";
+import { CID_LOGO, LOGO_ALTO, LOGO_ANCHO, correoDeInvitacion, correoSirve, nuevaClave } from "@/lib/censo-invitaciones";
 import { enviarCorreo } from "@/lib/correo";
 import { ZONA } from "@/lib/fechas";
 import { estimarFin, FALLAS_PARA_PAUSAR, leerGoteo, proximoEnvio, queToca, enHorario, type Goteo } from "@/lib/censo-goteo";
@@ -59,6 +59,56 @@ export async function mandarInvitacion(inv: Inv, origen: string): Promise<{ ok: 
     if (r.ok) await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { enviadoAt: new Date(), intentos: { increment: 1 }, error: null } });
     else await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { intentos: { increment: 1 }, error: r.error || "no se pudo" } });
     return r;
+}
+
+/**
+ * La invitación de UNA persona del padrón, para mandársela desde su renglón (pedido de Nico, 21/11:
+ * «en cada residente, un botón de enviarle la invitación al censo»).
+ *
+ * Si ya tiene una —la que le dejó el padrón— es ésa, con su clave: cambiársela dejaría sin efecto
+ * el correo que ya recibió. Si no tiene (un residente cargado a mano), se le arma con sus lotes.
+ * Sin correo o sin lote no hay invitación posible, y se dice cuál de las dos cosas falta.
+ */
+export async function invitacionDePersona(userId: string): Promise<{ inv: Inv } | { error: string }> {
+    const u = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true, unit: { select: { id: true, name: true } } } });
+    if (!u) return { error: "Esa persona ya no está en el padrón." };
+    const email = (u.email || "").trim().toLowerCase();
+    if (!correoSirve(email)) return { error: `${u.name} no tiene un correo cargado: cargalo en su ficha y volvé a enviar.` };
+
+    /* Sus lotes: los del padrón (puede tener varios) y, si no hay ninguno anotado ahí, su unidad. */
+    const vinculos = await prisma.userUnidad.findMany({ where: { userId }, select: { vinculo: true, unit: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } });
+    const lotes = vinculos.length
+        ? vinculos.map((v) => ({ unitId: v.unit.id, nombre: v.unit.name, vinculo: v.vinculo }))
+        : u.unit ? [{ unitId: u.unit.id, nombre: u.unit.name, vinculo: "PROPIETARIO" }] : [];
+
+    let inv = await prisma.invitacionCenso.findFirst({ where: { sitio: "", userId } })
+        ?? await prisma.invitacionCenso.findFirst({ where: { sitio: "", email } });
+    if (!inv) {
+        if (!lotes.length) return { error: `${u.name} no tiene ningún lote asignado: el censo carga los vehículos de un lote.` };
+        const lote = lotes.map((l) => l.nombre).join(", ");
+        // La clave es única: si justo sale una repetida, la base la rechaza y se prueba con otra.
+        for (let vuelta = 0; vuelta < 5 && !inv; vuelta++) {
+            inv = await prisma.invitacionCenso.create({ data: { sitio: "", email, nombre: u.name, lote, lotes, userId, clave: nuevaClave() } }).catch(() => null);
+        }
+        if (!inv) return { error: "No se pudo armar la invitación. Probá de nuevo." };
+        return { inv };
+    }
+    /* La encontró por el correo y es de otra persona del padrón (dos que comparten casilla): va a
+       la misma bandeja, así que se manda tal cual, sin pasarla de dueño ni cambiarle los lotes. */
+    if (inv.userId && inv.userId !== userId) return { inv };
+    /* Ya tenía. Se la pone al día con lo que el padrón dice hoy —el correo, si lo cambió; los lotes—
+       y la clave no se toca. El correo sólo se cambia si no hay otra invitación con ese mismo. */
+    const otra = inv.email !== email ? await prisma.invitacionCenso.findFirst({ where: { sitio: "", email, NOT: { id: inv.id } }, select: { id: true } }) : null;
+    inv = await prisma.invitacionCenso.update({
+        where: { id: inv.id },
+        data: {
+            userId, ...(inv.nombre ? {} : { nombre: u.name }),
+            ...(inv.email !== email && !otra ? { email } : {}),
+            ...(lotes.length ? { lotes, lote: lotes.map((l) => l.nombre).join(", ") } : {}),
+        },
+    });
+    if (inv.email !== email) return { error: `Hay otra invitación con el correo ${email}: borrá la que sobra en Censo › Invitaciones.` };
+    return { inv };
 }
 
 export async function leerGoteoGuardado(): Promise<Goteo> {
