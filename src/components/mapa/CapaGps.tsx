@@ -1,16 +1,18 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Circle, CircleMarker, Marker, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
-import { CircleDashed, Crosshair, EyeOff, Loader2, MapPin, Plus, Radio, Route, Server, ToggleLeft, ToggleRight, X } from "lucide-react";
+import { Bell, CircleDashed, Crosshair, EyeOff, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, ToggleLeft, ToggleRight, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import {
-    borrarGeocercaGps, cambiarIconoGps, comandoGps, geocercasGps, guardarGeocercaGps, rastreadoresGps, recorridoGps,
-    type ComandoGps, type Geocerca, type Rastreador, type RecorridoGps,
+    borrarGeocercaGps, cambiarIconoGps, comandoGps, estelaGps, eventosGps, geocercasGps, guardarGeocercaGps, rastreadoresGps, recorridoGps,
+    type ComandoGps, type EventoGps, type Geocerca, type PuntoGps, type Rastreador, type RecorridoGps,
 } from "@/app/actions/gps";
+import { useTiempoReal } from "@/lib/tiempo-real";
+import { metrosEntre, resumenDeRecorrido } from "@/lib/gps-recorrido";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { fechaHora, hace, hora } from "@/lib/fechas";
@@ -83,8 +85,9 @@ function icono(r: Rastreador): L.DivIcon {
 }
 
 /** Los tramos de tiempo que se ofrecen para el recorrido. */
-const TRAMOS: { horas: number; rotulo: string }[] = [
-    { horas: 6, rotulo: "6 h" }, { horas: 24, rotulo: "24 h" }, { horas: 72, rotulo: "3 días" }, { horas: 168, rotulo: "7 días" },
+const TRAMOS: { clave: string; rotulo: string }[] = [
+    { clave: "vivo", rotulo: "En vivo" }, { clave: "10m", rotulo: "10 min" },
+    { clave: "6", rotulo: "6 h" }, { clave: "24", rotulo: "24 h" }, { clave: "72", rotulo: "3 días" }, { clave: "168", rotulo: "7 días" },
 ];
 
 export function CapaGps() {
@@ -92,6 +95,18 @@ export function CapaGps() {
     const [lista, setLista] = useState<Rastreador[]>([]);
     /** El recorrido a la vista: de quién, de cuántas horas, y lo que trajo el servidor. */
     const [ruta, setRuta] = useState<{ imei: string; horas: number; datos: RecorridoGps | null } | null>(null);
+    /**
+     * La estela: las últimas posiciones tal cual, para «10 min» y para el modo en vivo. En vivo
+     * crece con cada posición que empuja el servidor y la cámara sigue al vehículo, hasta que
+     * alguien arrastra el mapa (`suelta`): quien mueve el mapa quiere mirar otra cosa, y una
+     * cámara que vuelve sola a su lugar es pelearse con la mano del que mira.
+     */
+    const [estela, setEstela] = useState<{ imei: string; vivo: boolean; puntos: PuntoGps[] | null } | null>(null);
+    const [suelta, setSuelta] = useState(false);
+    /** La geocerca que acaba de cruzar alguien: se destaca unos segundos. */
+    const [destello, setDestello] = useState<string | null>(null);
+    /** El panel de eventos de un rastreador. */
+    const [eventos, setEventos] = useState<{ imei: string; lista: EventoGps[] | null } | null>(null);
     const [menu, setMenu] = useState<{ imei: string; x: number; y: number } | null>(null);
     const [armado, setArmado] = useState(false);
     const [mandando, setMandando] = useState<string | null>(null);
@@ -115,7 +130,13 @@ export function CapaGps() {
         try {
             const x = await guardarGeocercaGps({ id: borrador.id, nombre: borrador.nombre, lat: borrador.lat, lon: borrador.lon, radio: borrador.radio, imeis: borrador.imeis, activa: borrador.activa });
             if (!x.ok) { toast.error({ title: "No se guardó", description: x.error }); return; }
-            toast.success({ title: "Geocerca guardada", description: "Empieza a valer en menos de un minuto." });
+            /* Lo que más confunde de una geocerca recién hecha: se la dibuja alrededor de un vehículo
+               y «no avisa que entró». No entró: ya estaba. Se dice acá, que es cuando importa. */
+            const adentro = lista.filter((r) => metrosEntre({ lat: borrador.lat, lon: borrador.lon }, { lat: r.lat!, lon: r.lon! }) <= borrador.radio).map((r) => r.nombre || r.matricula || r.imei.slice(-6));
+            toast.success({
+                title: "Geocerca guardada",
+                description: adentro.length ? `${adentro.join(", ")} ya está adentro: el primer aviso va a ser cuando salga.` : "Empieza a valer en menos de un minuto.",
+            });
             setBorrador(null); traerCercas();
         } finally { setGuardando(false); }
     };
@@ -130,7 +151,7 @@ export function CapaGps() {
     useEffect(() => { traer(); const iv = setInterval(traer, REFRESCO_MS); return () => clearInterval(iv); }, [traer]);
 
     const verRuta = useCallback(async (imei: string, horas: number, encuadrar = true) => {
-        if (encuadrar) setViajeSel(null);
+        if (encuadrar) { setViajeSel(null); setEstela(null); }
         setRuta((v) => ({ imei, horas, datos: v && v.imei === imei && v.horas === horas ? v.datos : null }));
         try {
             const datos = await recorridoGps(imei, horas);
@@ -139,10 +160,66 @@ export function CapaGps() {
         } catch { toast.error({ title: "No se pudo traer el recorrido" }); }
     }, [mapa]);
 
+    const verEstela = useCallback(async (imei: string, vivo: boolean) => {
+        setRuta(null); setViajeSel(null); setSuelta(false);
+        setEstela((v) => ({ imei, vivo, puntos: v && v.imei === imei ? v.puntos : null }));
+        try {
+            const puntos = await estelaGps(imei, 10);
+            setEstela((v) => (v && v.imei === imei ? { ...v, puntos } : v));
+            if (!vivo && puntos.length > 1) mapa.fitBounds(L.latLngBounds(puntos.map((p) => [p.lat, p.lon] as [number, number])), { padding: [80, 80], maxZoom: 17 });
+        } catch { toast.error({ title: "No se pudo traer la estela" }); }
+    }, [mapa]);
+
+    /* Las posiciones llegan empujadas por el servidor apenas el equipo las manda (cada 10 s
+       andando). Preguntar cada 15 s queda como respaldo, por si el socket se cae. */
+    useTiempoReal<{ imei: string; lat: number; lon: number; velocidad: number; rumbo: number; cuando: string }>("gps_posicion", (d) => {
+        setLista((v) => v.map((r) => (r.imei === d.imei ? { ...r, lat: d.lat, lon: d.lon, velocidad: d.velocidad, rumbo: d.rumbo, cuando: d.cuando, enLinea: true, ultimoLatido: d.cuando } : r)));
+        setEstela((v) => {
+            if (!v || v.imei !== d.imei || !v.puntos) return v;
+            if (v.puntos.length && v.puntos[v.puntos.length - 1].cuando >= d.cuando) return v;
+            const corte = new Date(Date.now() - 10 * 60_000).toISOString();
+            return { ...v, puntos: [...v.puntos.filter((p) => p.cuando >= corte), { lat: d.lat, lon: d.lon, cuando: d.cuando, velocidad: d.velocidad }] };
+        });
+    });
+
+    /* Lo que le pasa a un rastreador se ve en el mapa en el momento, haya o no una regla de
+       notificación: el aviso por Telegram es para quien no está mirando. */
+    useTiempoReal<{ imei: string; tipo: string; rotulo: string; detalle: string; nombre: string; geocercaId?: string }>("gps_evento", (d) => {
+        const cruce = d.tipo === "GPS_GEOCERCA_ENTRA" || d.tipo === "GPS_GEOCERCA_SALE";
+        toast[d.tipo === "GPS_SOS" || d.tipo === "GPS_CORTE" || d.tipo === "GPS_MOVIMIENTO" ? "error" : "success"]({
+            title: cruce ? `${d.nombre} ${d.tipo === "GPS_GEOCERCA_ENTRA" ? "entró a" : "salió de"} «${d.detalle}»` : `${d.nombre}: ${d.rotulo}`,
+            description: cruce ? undefined : d.detalle || undefined,
+        });
+        if (d.geocercaId) { setDestello(d.geocercaId); setTimeout(() => setDestello((x) => (x === d.geocercaId ? null : x)), 8000); }
+        setEventos((v) => (v && v.imei === d.imei ? { ...v, lista: null } : v));
+    });
+    useEffect(() => {
+        if (!eventos || eventos.lista) return;
+        let vivo = true;
+        eventosGps(eventos.imei, 40).then((l) => { if (vivo) setEventos((v) => (v && v.imei === eventos.imei ? { ...v, lista: l } : v)); }).catch(() => { });
+        return () => { vivo = false; };
+    }, [eventos]);
+
+    /* Arrastrar el mapa suelta la cámara del modo en vivo. */
+    useEffect(() => {
+        const soltar = () => setSuelta(true);
+        mapa.on("dragstart", soltar);
+        return () => { mapa.off("dragstart", soltar); };
+    }, [mapa]);
+
     /* El recorrido a la vista se vuelve a pedir con cada refresco, sin reencuadrar: si el vehículo
        está andando, la línea crece sola y el mapa no salta. */
     const rutaRef = useRef(ruta); rutaRef.current = ruta;
-    useEffect(() => { const r = rutaRef.current; if (r) verRuta(r.imei, r.horas, false); }, [lista, verRuta]);
+    const cadaRefresco = useRef(0);
+    useEffect(() => {
+        /* Sólo con el refresco por tiempo (cada 15 s), no con cada posición que empuja el socket:
+           `lista` cambia en los dos casos, y volver a pedir el recorrido diez veces por minuto no
+           suma nada. */
+        const ahora = Date.now();
+        if (ahora - cadaRefresco.current < REFRESCO_MS - 1000) return;
+        cadaRefresco.current = ahora;
+        const r = rutaRef.current; if (r) verRuta(r.imei, r.horas, false);
+    }, [lista, verRuta]);
 
     /* Llegar con ?gps=<imei> (desde Dispositivos) lleva el mapa al rastreador, una sola vez. */
     useEffect(() => {
@@ -182,7 +259,17 @@ export function CapaGps() {
     if (!lista.length) return null;
     const delMenu = menu ? lista.find((r) => r.imei === menu.imei) : null;
     const pts = ruta?.datos?.puntos || [];
-    const deLaRuta = ruta ? lista.find((r) => r.imei === ruta.imei) : null;
+    const deLaRuta = ruta ? lista.find((r) => r.imei === ruta.imei) : estela ? lista.find((r) => r.imei === estela.imei) : null;
+    const ptsEstela = estela?.puntos || [];
+    const cuentaEstela = resumenDeRecorrido(ptsEstela);
+    /** A quién sigue la cámara: al del modo en vivo, mientras nadie haya arrastrado el mapa. */
+    const seguido = estela?.vivo && !suelta ? estela.imei : null;
+    /** Qué se ve ahora, para marcar el botón: «vivo», «10m» o las horas del recorrido. */
+    const queSeVe = (imei: string): string | null => (estela?.imei === imei ? (estela.vivo ? "vivo" : "10m") : ruta?.imei === imei ? String(ruta.horas) : null);
+    const elegirTramo = (imei: string, clave: string) => { if (clave === "vivo") verEstela(imei, true); else if (clave === "10m") verEstela(imei, false); else verRuta(imei, Number(clave)); };
+    const cerrarRecorrido = () => { setRuta(null); setEstela(null); };
+    /** Quién está adentro de cada geocerca ahora, calculado acá con las posiciones a la vista. */
+    const adentroDe = (c: Geocerca) => lista.filter((r) => metrosEntre({ lat: c.lat, lon: c.lon }, { lat: r.lat!, lon: r.lon! }) <= c.radio);
     const viajes = ruta?.datos?.viajes || [];
     const paradas = ruta?.datos?.paradas || [];
     /* Los puntos de cada viaje, por su horario: cada uno es su propia línea. */
@@ -211,6 +298,14 @@ export function CapaGps() {
             {/* De dónde salió el primero: un aro. */}
             {pts.length > 1 && <CircleMarker center={[pts[0].lat, pts[0].lon]} radius={6} pathOptions={{ color: "#fff", weight: 3, fillColor: CELESTE, fillOpacity: 1 }} />}
 
+            {/* La estela de los últimos minutos (10 min y en vivo): una sola línea, tal cual. */}
+            {ptsEstela.length > 1 && (
+                <>
+                    <Polyline positions={ptsEstela.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: "#0a0e14", weight: 7, opacity: 0.55, lineCap: "round", lineJoin: "round" }} />
+                    <Polyline positions={ptsEstela.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: estela?.vivo ? VERDE : CELESTE, weight: 4, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
+                </>
+            )}
+
             {/* El viaje elegido, encima del recorrido: el resto queda de fondo. */}
             {ptsViaje.length > 1 && (
                 <Polyline positions={ptsViaje.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: "#fbbf24", weight: 6, opacity: 1, lineCap: "round", lineJoin: "round" }} />
@@ -223,11 +318,25 @@ export function CapaGps() {
             ))}
 
             {/* Las geocercas. La que se está corrigiendo se dibuja como borrador, no dos veces. */}
-            {cercas.filter((c) => c.id !== borrador?.id).map((c) => (
-                <Circle key={c.id} center={[c.lat, c.lon]} radius={c.radio}
-                    pathOptions={{ color: c.activa ? "#a78bfa" : GRIS, weight: 2, dashArray: c.activa ? undefined : "6 6", fillColor: c.activa ? "#a78bfa" : GRIS, fillOpacity: 0.12 }}
-                    eventHandlers={{ click: () => { setBorrador({ ...c }); setPanelCercas(true); } }} />
-            ))}
+            {cercas.filter((c) => c.id !== borrador?.id).map((c) => {
+                /* La geocerca dice sola cómo está: violeta vacía, verde con alguien adentro, y un
+                   borde grueso unos segundos cuando alguien la acaba de cruzar. Antes era un
+                   círculo mudo: el cruce se detectaba y se guardaba, y en el mapa no pasaba nada. */
+                const dentro = c.activa ? adentroDe(c) : [];
+                const color = !c.activa ? GRIS : dentro.length ? VERDE : "#a78bfa";
+                const cruzada = destello === c.id;
+                return (
+                    <React.Fragment key={c.id}>
+                        <Circle center={[c.lat, c.lon]} radius={c.radio}
+                            pathOptions={{ color, weight: cruzada ? 6 : 2, dashArray: c.activa ? undefined : "6 6", fillColor: color, fillOpacity: cruzada ? 0.3 : dentro.length ? 0.16 : 0.1 }}
+                            eventHandlers={{ click: () => { setBorrador({ ...c }); setPanelCercas(true); } }} />
+                        {/* El rótulo va en el borde de arriba del círculo: en el centro taparía al vehículo. */}
+                        <Marker position={[L.latLng(c.lat, c.lon).toBounds(c.radio * 2).getNorth(), c.lon]} interactive={false} zIndexOffset={900}
+                            icon={L.divIcon({ className: "bg-transparent border-0", iconSize: [180, 20], iconAnchor: [90, 10],
+                                html: `<div style="display:flex;justify-content:center"><div style="padding:1px 8px;border-radius:999px;background:${color};color:#fff;font:700 10.5px/16px Outfit,system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.4)">${c.nombre.replace(/[<>&]/g, "")}${dentro.length ? ` · ${dentro.length} adentro` : ""}</div></div>` })} />
+                    </React.Fragment>
+                );
+            })}
             {borrador && (
                 <>
                     <Circle center={[borrador.lat, borrador.lon]} radius={borrador.radio} pathOptions={{ color: "#fbbf24", weight: 2.5, dashArray: "8 6", fillColor: "#fbbf24", fillOpacity: 0.14 }} />
@@ -239,7 +348,7 @@ export function CapaGps() {
             {colocando && <ClicEnElMapa alTocar={(lat, lon) => { setColocando(false); setBorrador({ nombre: "", lat, lon, radio: 200, imeis: [], activa: true }); setPanelCercas(true); }} />}
 
             {lista.map((r) => (
-                <Marker key={r.imei} position={[r.lat!, r.lon!]} icon={icono(r)} zIndexOffset={1500}
+                <MarcadorGps key={r.imei} r={r} seguir={seguido === r.imei}
                     eventHandlers={{
                         contextmenu: (e) => {
                             const oe = (e as unknown as { originalEvent: MouseEvent }).originalEvent;
@@ -261,7 +370,7 @@ export function CapaGps() {
                             <div style={{ color: "#64748b", fontSize: 11.5, marginTop: 6 }}>Clic derecho: recorrido, controles e ícono.</div>
                         </div>
                     </Popup>
-                </Marker>
+                </MarcadorGps>
             ))}
 
             {/* El menú y el panel van afuera del mapa (portal): adentro, Leaflet les roba los clics. */}
@@ -274,13 +383,14 @@ export function CapaGps() {
                             <p className="px-3 pb-1.5 text-[10.5px] text-muted-foreground border-b border-border">{delMenu.enLinea ? `En línea · reportó ${hace(delMenu.ultimoLatido)}` : "Sin reportar"}</p>
 
                             <Rotulo>Recorrido</Rotulo>
-                            <div className="px-3 pb-1.5 flex gap-1">
+                            <div className="px-3 pb-1.5 flex flex-wrap gap-1">
                                 {TRAMOS.map((t) => (
-                                    <button key={t.horas} type="button" onClick={() => { verRuta(delMenu.imei, t.horas); setMenu(null); }}
-                                        className={cn("h-6 px-2 rounded-full border text-[11px] font-semibold", ruta?.imei === delMenu.imei && ruta.horas === t.horas ? "bg-foreground text-background border-foreground" : "border-border hover:bg-accent")}>{t.rotulo}</button>
+                                    <button key={t.clave} type="button" onClick={() => { elegirTramo(delMenu.imei, t.clave); setMenu(null); }}
+                                        className={cn("h-6 px-2 rounded-full border text-[11px] font-semibold", queSeVe(delMenu.imei) === t.clave ? "bg-foreground text-background border-foreground" : "border-border hover:bg-accent")}>{t.rotulo}</button>
                                 ))}
                             </div>
-                            {ruta?.imei === delMenu.imei && <Item icono={EyeOff} onClick={() => { setRuta(null); setMenu(null); }}>Ocultar el recorrido</Item>}
+                            {queSeVe(delMenu.imei) && <Item icono={EyeOff} onClick={() => { cerrarRecorrido(); setMenu(null); }}>Ocultar el recorrido</Item>}
+                            <Item icono={Bell} onClick={() => { setEventos({ imei: delMenu.imei, lista: null }); setMenu(null); }}>Ver sus eventos</Item>
                             <Item icono={Crosshair} onClick={() => { mapa.setView([delMenu.lat!, delMenu.lon!], Math.max(mapa.getZoom(), 17)); setMenu(null); }}>Centrar acá</Item>
 
                             <Rotulo>Controles</Rotulo>
@@ -314,20 +424,41 @@ export function CapaGps() {
                         </div>
                     )}
 
-                    {ruta && deLaRuta && (
-                        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[500] w-[min(560px,calc(100vw-32px))] rounded-[14px] border border-border bg-popover shadow-xl px-4 py-3">
+                    {(ruta || estela) && deLaRuta && (
+                        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[500] w-[min(640px,calc(100vw-32px))] rounded-[14px] border border-border bg-popover shadow-xl px-4 py-3">
                             <div className="flex items-center gap-2">
                                 <Route size={15} className="text-muted-foreground shrink-0" />
-                                <p className="text-[13px] font-bold truncate flex-1">Recorrido de {deLaRuta.nombre || deLaRuta.matricula || deLaRuta.imei.slice(-6)}</p>
+                                <p className="text-[13px] font-bold truncate flex-1">{deLaRuta.nombre || deLaRuta.matricula || deLaRuta.imei.slice(-6)}</p>
                                 <div className="flex gap-1">
                                     {TRAMOS.map((t) => (
-                                        <button key={t.horas} type="button" onClick={() => verRuta(ruta.imei, t.horas)}
-                                            className={cn("h-6 px-2 rounded-full border text-[11px] font-semibold", ruta.horas === t.horas ? "bg-foreground text-background border-foreground" : "border-border hover:bg-accent")}>{t.rotulo}</button>
+                                        <button key={t.clave} type="button" onClick={() => elegirTramo(deLaRuta.imei, t.clave)}
+                                            className={cn("h-6 px-2 rounded-full border text-[11px] font-semibold inline-flex items-center gap-1",
+                                                queSeVe(deLaRuta.imei) === t.clave ? (t.clave === "vivo" ? "bg-emerald-500 text-white border-emerald-500" : "bg-foreground text-background border-foreground") : "border-border hover:bg-accent")}>
+                                            {t.clave === "vivo" && <span className={cn("h-1.5 w-1.5 rounded-full", queSeVe(deLaRuta.imei) === "vivo" ? "bg-white animate-pulse" : "bg-emerald-500")} />}{t.rotulo}
+                                        </button>
                                     ))}
                                 </div>
-                                <button type="button" onClick={() => setRuta(null)} aria-label="Cerrar el recorrido" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent"><X size={14} /></button>
+                                <button type="button" onClick={cerrarRecorrido} aria-label="Cerrar el recorrido" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent"><X size={14} /></button>
                             </div>
-                            {!ruta.datos ? (
+                            {estela ? (
+                                !estela.puntos ? (
+                                    <p className="mt-2 text-[12px] text-muted-foreground inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Trayendo los últimos minutos…</p>
+                                ) : (
+                                    <>
+                                        <dl className="mt-2 grid grid-cols-4 gap-3 text-[12.5px]">
+                                            <Cifra k="Ahora" v={`${deLaRuta.velocidad || 0} km/h`} />
+                                            <Cifra k="En 10 min" v={`${cuentaEstela.km.toFixed(1).replace(".", ",")} km`} />
+                                            <Cifra k="Máxima" v={`${cuentaEstela.velMax} km/h`} />
+                                            <Cifra k="Reportó" v={hace(deLaRuta.cuando)} />
+                                        </dl>
+                                        {estela.vivo && suelta && (
+                                            <button type="button" onClick={() => { setSuelta(false); mapa.panTo([deLaRuta.lat!, deLaRuta.lon!]); }}
+                                                className="mt-2 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border border-border text-[11.5px] font-semibold hover:bg-accent"><LocateFixed size={13} /> Volver a seguirlo</button>
+                                        )}
+                                        {ptsEstela.length < 2 && <p className="mt-2 text-[12px] text-muted-foreground">Sin posiciones con buena señal en los últimos 10 minutos{estela.vivo ? ": va a aparecer apenas reporte." : "."}</p>}
+                                    </>
+                                )
+                            ) : !ruta ? null : !ruta.datos ? (
                                 <p className="mt-2 text-[12px] text-muted-foreground inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Trayendo el recorrido…</p>
                             ) : viajes.length === 0 ? (
                                 <p className="mt-2 text-[12px] text-muted-foreground">
@@ -341,7 +472,7 @@ export function CapaGps() {
                                     <Cifra k="Desde" v={fechaHora(ruta.datos.resumen.desde)} />
                                 </dl>
                             )}
-                            {viajes.length > 0 && (
+                            {!estela && viajes.length > 0 && (
                                 <div className="mt-2.5 border-t border-border pt-2">
                                     <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1">
                                         {viajes.length} {viajes.length === 1 ? "viaje" : "viajes"}{paradas.length ? ` · ${paradas.length} ${paradas.length === 1 ? "parada" : "paradas"}` : ""}
@@ -361,6 +492,32 @@ export function CapaGps() {
                                     </ul>
                                 </div>
                             )}
+                        </div>
+                    )}
+
+                    {eventos && (
+                        <div className="fixed top-20 left-[calc(50%-150px)] z-[500] w-[320px] max-h-[calc(100vh-320px)] flex flex-col rounded-[14px] border border-border bg-popover shadow-xl"
+                            onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border">
+                                <Bell size={15} className="text-muted-foreground" />
+                                <p className="text-[13px] font-bold flex-1 truncate">Eventos de {lista.find((r) => r.imei === eventos.imei)?.nombre || eventos.imei.slice(-6)}</p>
+                                <button type="button" onClick={() => setEventos(null)} aria-label="Cerrar" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent"><X size={14} /></button>
+                            </div>
+                            <div className="overflow-y-auto [scrollbar-width:thin] px-2 py-2">
+                                {!eventos.lista ? <p className="px-2 py-2 text-[12px] text-muted-foreground inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Trayendo…</p>
+                                    : eventos.lista.length === 0 ? <p className="px-2 py-2 text-[12px] text-muted-foreground">Todavía no le pasó nada.</p>
+                                        : eventos.lista.map((e) => (
+                                            <button key={e.id} type="button" disabled={e.lat === null || e.lon === null}
+                                                onClick={() => { if (e.lat !== null && e.lon !== null) mapa.setView([e.lat, e.lon], Math.max(mapa.getZoom(), 17)); }}
+                                                className="w-full flex items-baseline gap-2 px-2 py-1.5 rounded-[6px] text-left hover:bg-accent disabled:hover:bg-transparent">
+                                                <span className="text-[11px] text-muted-foreground tabular-nums w-[84px] shrink-0">{fechaHora(e.cuando)}</span>
+                                                <span className="min-w-0 flex-1">
+                                                    <span className="block text-[12.5px] font-semibold truncate">{ROTULO_EVENTO[e.tipo] || e.tipo}</span>
+                                                    {e.detalle && <span className="block text-[11px] text-muted-foreground truncate">{e.detalle}</span>}
+                                                </span>
+                                            </button>
+                                        ))}
+                            </div>
                         </div>
                     )}
 
@@ -403,14 +560,17 @@ export function CapaGps() {
                                         <button key={c.id} type="button" onClick={() => { setBorrador({ ...c }); mapa.fitBounds(L.latLng(c.lat, c.lon).toBounds(c.radio * 2.4)); }}
                                             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-[6px] text-left hover:bg-accent">
                                             <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", c.activa ? "bg-violet-400" : "bg-muted-foreground/40")} />
-                                            <span className="text-[12.5px] font-semibold truncate flex-1">{c.nombre}</span>
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block text-[12.5px] font-semibold truncate">{c.nombre}</span>
+                                                {c.activa && adentroDe(c).length > 0 && <span className="block text-[10.5px] tono-bien truncate">{adentroDe(c).map((r) => r.nombre || r.matricula || r.imei.slice(-6)).join(", ")} adentro</span>}
+                                            </span>
                                             <span className="text-[11px] text-muted-foreground tabular-nums">{c.radio >= 1000 ? `${(c.radio / 1000).toFixed(1).replace(".", ",")} km` : `${c.radio} m`}</span>
                                         </button>
                                     ))}
                                     <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => setColocando(true)} disabled={colocando}>
                                         <Plus size={13} /> {colocando ? "Tocá el mapa donde va el centro…" : "Nueva: tocar el mapa"}
                                     </Button>
-                                    <p className="px-2 pt-2 text-[11px] text-muted-foreground leading-snug">Para que avise, armá una regla de GPS con «Entró» o «Salió de una geocerca» en Notificaciones.</p>
+                                    <p className="px-2 pt-2 text-[11px] text-muted-foreground leading-snug">Un cruce se ve acá en el momento: la geocerca se enciende y sale un cartel. Para que además llegue por Telegram, WhatsApp o correo, armá una regla de GPS con «Entró» o «Salió de una geocerca» en Notificaciones.</p>
                                 </div>
                             )}
                         </div>
@@ -458,4 +618,75 @@ const duracion = (min: number) => (min >= 60 ? `${Math.floor(min / 60)} h ${min 
 function ClicEnElMapa({ alTocar }: { alTocar: (lat: number, lon: number) => void }) {
     useMapEvents({ click: (e) => alTocar(e.latlng.lat, e.latlng.lng) });
     return null;
+}
+
+const ROTULO_EVENTO: Record<string, string> = {
+    GPS_SOS: "Botón de pánico (SOS)", GPS_CORTE: "Le cortaron la alimentación", GPS_VIBRACION: "Vibración",
+    GPS_VELOCIDAD: "Exceso de velocidad", GPS_MOVIMIENTO: "Se mueve con el motor apagado", GPS_BATERIA: "Batería del vehículo baja",
+    GPS_BATERIA_EQUIPO: "Batería del rastreador baja", GPS_DESARME: "Desarmaron el rastreador", GPS_OTRA: "Alarma del rastreador",
+    GPS_GEOCERCA_ENTRA: "Entró a una geocerca", GPS_GEOCERCA_SALE: "Salió de una geocerca",
+};
+
+/** Un salto más largo que esto no se desliza: es un hueco sin reportes, no un movimiento. */
+const SALTO_MAX_M = 1500;
+/** Cuánto tarda en deslizarse entre dos posiciones: lo que tarda en llegar la siguiente andando. */
+const DESLIZ_MS = 10_000;
+
+/**
+ * El marcador de un rastreador, que SE DESLIZA de una posición a la siguiente en vez de saltar.
+ *
+ * Pedido de Nico (21/11): «¿podés animar mejor el desplazamiento del vehículo? más continuo,
+ * similar a PedidosYa». El equipo manda una posición cada 10 segundos; dibujarlas tal cual es un
+ * auto que se teletransporta cada 10 segundos. Acá el marcador viaja en línea recta desde donde
+ * se lo ve hasta la posición nueva durante lo que tarda en llegar la siguiente, así que cuando
+ * llega, el auto está justo ahí y sigue de largo: se ve andar.
+ *
+ * Tres cuidados:
+ *  · Se mueve el marcador de Leaflet DIRECTAMENTE, no por estado de React: sesenta renders por
+ *    segundo de toda la capa para mover un punto es tirar la pantalla abajo.
+ *  · Si llega una posición nueva a mitad de camino, sale desde donde está dibujado, no desde la
+ *    anterior: nunca pega un salto hacia atrás.
+ *  · Un salto de más de 1,5 km no se desliza —es un hueco sin reportes— y con «reducir
+ *    movimiento» activado en el sistema, tampoco.
+ */
+function MarcadorGps({ r, seguir, eventHandlers, children }: { r: Rastreador; seguir: boolean; eventHandlers: L.LeafletEventHandlerFnMap; children: React.ReactNode }) {
+    const mapa = useMap();
+    const ref = useRef<L.Marker>(null);
+    /* La posición inicial queda fija para React: después la mueve la animación. Si se le pasara la
+       nueva, react-leaflet la pondría de un salto y no habría nada que animar. */
+    const [inicial] = useState<[number, number]>([r.lat!, r.lon!]);
+    const cuadro = useRef<number | null>(null);
+    const sigue = useRef(seguir); sigue.current = seguir;
+
+    useEffect(() => {
+        const mk = ref.current; if (!mk) return;
+        const de = mk.getLatLng(), a = L.latLng(r.lat!, r.lon!);
+        const d = de.distanceTo(a);
+        if (cuadro.current) cancelAnimationFrame(cuadro.current);
+        const quieto = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        if (d < 0.5) return;
+        if (d > SALTO_MAX_M || quieto) { mk.setLatLng(a); if (sigue.current) mapa.panTo(a, { animate: !quieto }); return; }
+        const t0 = performance.now();
+        const paso = (t: number) => {
+            const k = Math.min(1, (t - t0) / DESLIZ_MS);
+            const p = L.latLng(de.lat + (a.lat - de.lat) * k, de.lng + (a.lng - de.lng) * k);
+            mk.setLatLng(p);
+            /* En vivo la cámara va con él, cuadro a cuadro: si se moviera de a saltos, el auto
+               se deslizaría y el mapa pegaría un tirón cada diez segundos. */
+            if (sigue.current) mapa.panTo(p, { animate: false });
+            if (k < 1) cuadro.current = requestAnimationFrame(paso);
+        };
+        cuadro.current = requestAnimationFrame(paso);
+        return () => { if (cuadro.current) cancelAnimationFrame(cuadro.current); };
+    }, [r.lat, r.lon, mapa]);
+
+    /* Al empezar a seguirlo, la cámara va a donde está AHORA (no espera a la próxima posición). */
+    useEffect(() => { if (seguir && ref.current) mapa.setView(ref.current.getLatLng(), Math.max(mapa.getZoom(), 16)); }, [seguir, mapa]);
+
+    /* El ícono sólo se rehace cuando cambia algo que se ve: si se rehiciera en cada refresco, el
+       dibujo parpadearía en medio del deslizamiento. */
+    const tono = tonoDe(r), andando = (r.velocidad || 0) > 3, rumbo = Math.round((r.rumbo || 0) / 10) * 10;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `icono(r)` sólo depende de lo listado
+    const ic = useMemo(() => icono(r), [tono, andando, rumbo, r.icono, r.nombre, r.matricula, r.cortado]);
+    return <Marker ref={ref} position={inicial} icon={ic} zIndexOffset={1500} eventHandlers={eventHandlers}>{children}</Marker>;
 }

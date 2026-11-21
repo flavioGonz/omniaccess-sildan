@@ -169,6 +169,35 @@ export async function recorridoGps(imei: string, horas = 24): Promise<RecorridoG
     };
 }
 
+/**
+ * La estela: las últimas posiciones buenas, tal cual, sin cortar en viajes. Para «últimos 10
+ * minutos» y para el modo en vivo, donde lo que se quiere ver es por dónde viene AHORA: cortar
+ * diez minutos en viajes y paradas no dice nada, y el viaje en curso todavía no terminó.
+ */
+export async function estelaGps(imei: string, minutos = 10): Promise<PuntoGps[]> {
+    await sesion("dispositivos");
+    const desde = new Date(Date.now() - Math.min(Math.max(minutos, 1), 120) * 60_000);
+    const filas = await prisma.gpsPosicion.findMany({
+        where: { imei, cuando: { gte: desde }, satelites: { gte: SATS_MIN } }, orderBy: { cuando: "asc" }, take: 2000,
+        select: { lat: true, lon: true, cuando: true, velocidad: true },
+    });
+    return filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
+}
+
+export type EventoGps = { id: string; imei: string; tipo: string; cuando: string; detalle: string | null; lat: number | null; lon: number | null };
+
+/** Lo último que le pasó a un rastreador (o a todos): alarmas, cruces de geocerca, batería. */
+export async function eventosGps(imei?: string, cuantos = 30): Promise<EventoGps[]> {
+    await sesion("dispositivos");
+    const f = await prisma.gpsEvento.findMany({
+        /* Entrar y salir de una zona sin satélites se anota para diagnóstico, pero no es algo que
+           le pasó al vehículo: en la lista sólo tapa lo que importa. */
+        where: { ...(imei ? { imei } : {}), tipo: { notIn: ["GPS_SIN_SATELITES", "GPS_CON_SATELITES"] } },
+        orderBy: { cuando: "desc" }, take: Math.min(Math.max(cuantos, 1), 200),
+    });
+    return f.map((x) => ({ id: x.id, imei: x.imei, tipo: x.tipo, cuando: x.cuando.toISOString(), detalle: x.detalle, lat: x.lat, lon: x.lon }));
+}
+
 const ICONOS = new Set(["auto", "camion", "moto", "persona", "punto"]);
 
 /** Con qué dibujo se ve el rastreador en el mapa. */

@@ -107,6 +107,21 @@ let geocercas = [];
 async function leerGeocercas() { try { geocercas = await prisma.gpsGeocerca.findMany({ where: { activa: true } }); } catch { /* sin base: quedan las últimas */ } }
 leerGeocercas(); setInterval(leerGeocercas, 30_000).unref();
 
+/**
+ * Lo que pasa, empujado a las pantallas abiertas por el socket del servidor de eventos (el mismo
+ * camino que usa alarm-receiver.js). Sin esto el mapa se enteraba preguntando cada 15 segundos:
+ * el vehículo avanzaba a saltos y un cruce de geocerca no se veía hasta el próximo refresco.
+ */
+const WEBHOOKS = Number(process.env.WEBHOOK_PORT || 10000);
+function emitir(evento, datos) {
+    try {
+        const cuerpo = JSON.stringify({ __event: evento, ...datos });
+        const req = require("http").request({ hostname: "127.0.0.1", port: WEBHOOKS, path: "/internal/emit", method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(cuerpo) }, timeout: 2000 });
+        req.on("error", () => {}); req.on("timeout", () => req.destroy());
+        req.write(cuerpo); req.end();
+    } catch { /* un aviso al panel que no sale no puede frenar la recepción */ }
+}
+
 async function avisarPorReglas(ev) {
     try {
         let token = process.env.TRACKING_TOKEN || "";
@@ -119,7 +134,7 @@ async function avisarPorReglas(ev) {
     } catch (e) { log("reglas: no se pudo avisar:", e.message); }
 }
 
-async function alEvento(imei, tipo, p, detalle) {
+async function alEvento(imei, tipo, p, detalle, extra) {
     if (!tipo) return;
     log(imei, "EVENTO:", tipo, detalle || "");
     try {
@@ -129,6 +144,11 @@ async function alEvento(imei, tipo, p, detalle) {
         const lat = p && p.conFix ? p.lat : e.lat, lon = p && p.conFix ? p.lon : e.lon;
         await prisma.gpsEvento.create({ data: { imei, tipo, lat, lon, detalle: detalle || null } });
         if (evs.SOLO_SE_ANOTA.has(tipo)) return;
+        /* A la pantalla va siempre, haya o no una regla de notificación: que no se le avise a
+           nadie por Telegram no quiere decir que quien está mirando el mapa no lo tenga que ver.
+           (21/11, Nico: «la geocerca no hace nada cuando el GPS entra»: lo detectaba y lo
+           guardaba, pero sin regla no salía ningún aviso y el mapa no mostraba nada.) */
+        emitir("gps_evento", { imei, tipo, rotulo: evs.ROTULO[tipo] || tipo, detalle: detalle || "", nombre: e.nombre || `Rastreador ${imei.slice(-6)}`, lat, lon, cuando: new Date().toISOString(), ...(extra || {}) });
         const veh = e.vehicleId ? await prisma.vehicle.findUnique({ where: { id: e.vehicleId }, select: { plate: true } }).catch(() => null) : null;
         const lugar = lat != null && lon != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : "";
         avisarPorReglas({
@@ -178,13 +198,15 @@ async function alPosicion(imei, m) {
         await prisma.gpsEquipo.update({ where: { imei }, data: { ultimoLatido: new Date() } }).catch(() => {});
         return "pobre";
     }
-    await prisma.gpsEquipo.update({
+    const e = await prisma.gpsEquipo.update({
         where: { imei },
         data: {
             lat: p.lat, lon: p.lon, velocidad: p.velocidad, rumbo: p.rumbo, cuando: p.fecha, ultimoLatido: new Date(),
             ...(m.encendido !== undefined ? { encendido: m.encendido } : {}),
         },
-    }).catch(() => {});
+    }).catch(() => null);
+    /* Sólo los dados de alta viajan a las pantallas: uno que se presentó solo no es de nadie. */
+    if (e && e.deviceId) emitir("gps_posicion", { imei, lat: p.lat, lon: p.lon, velocidad: p.velocidad, rumbo: p.rumbo, cuando: p.fecha.toISOString() });
     return true;
 }
 
@@ -231,7 +253,7 @@ const servidor = net.createServer((s) => {
                         const sabido = motor.has(imei) ? motor.get(imei) : null;
                         const t = vigia.alMoverse(imei, { conFix: m.gps.conFix, velocidad: m.gps.velocidad, encendido: sabido });
                         if (t) await alEvento(imei, t, m.gps, `${m.gps.velocidad} km/h`);
-                        for (const c of vigia.alUbicarse(imei, geocercas, m.gps)) await alEvento(imei, c.tipo, m.gps, c.geocerca.nombre);
+                        for (const c of vigia.alUbicarse(imei, geocercas, m.gps)) await alEvento(imei, c.tipo, m.gps, c.geocerca.nombre, { geocercaId: c.geocerca.id });
                     }
                 } else if (m.tipo === "respuesta") {
                     alResponder(imei, m);
