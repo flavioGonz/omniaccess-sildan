@@ -128,6 +128,7 @@ async function alEvento(imei, tipo, p, detalle) {
         if (!e || !e.deviceId) return;
         const lat = p && p.conFix ? p.lat : e.lat, lon = p && p.conFix ? p.lon : e.lon;
         await prisma.gpsEvento.create({ data: { imei, tipo, lat, lon, detalle: detalle || null } });
+        if (evs.SOLO_SE_ANOTA.has(tipo)) return;
         const veh = e.vehicleId ? await prisma.vehicle.findUnique({ where: { id: e.vehicleId }, select: { plate: true } }).catch(() => null) : null;
         const lugar = lat != null && lon != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : "";
         avisarPorReglas({
@@ -170,6 +171,13 @@ async function alPosicion(imei, m) {
             satelites: p.satelites, encendido: m.encendido ?? null, alarma: m.tipo === "alarma" ? m.alarma : null,
         },
     });
+    /* Con pocos satélites la posición queda GUARDADA (es el dato crudo, y dice con cuántos
+       satélites llegó) pero no mueve el punto del mapa: la noche del 20/11 el auto estacionado
+       mandó 364 de éstas, saltando hasta 400 metros alrededor de su lugar. */
+    if (p.satelites < evs.SATS_MIN) {
+        await prisma.gpsEquipo.update({ where: { imei }, data: { ultimoLatido: new Date() } }).catch(() => {});
+        return "pobre";
+    }
     await prisma.gpsEquipo.update({
         where: { imei },
         data: {
@@ -215,9 +223,11 @@ const servidor = net.createServer((s) => {
                 } else if (m.tipo === "posicion" || m.tipo === "alarma") {
                     if (m.encendido !== undefined) motor.set(imei, m.encendido);
                     const guardada = await alPosicion(imei, m);
-                    if (m.tipo === "alarma") await alEvento(imei, evs.eventoDeAlarma(m.alarma) || "GPS_OTRA", m.gps, g.nombreAlarma(m.alarma));
+                    if (m.tipo === "alarma") { const tipoA = evs.eventoDeAlarma(m.alarma) || "GPS_OTRA"; await alEvento(imei, tipoA, m.gps, tipoA === "GPS_OTRA" ? g.nombreAlarma(m.alarma) : null); }
                     else if (!guardada) log(imei, "posición sin satélites, no se guarda");
-                    if (m.gps) {
+                    /* Las geocercas y el «se mueve con el motor apagado» sólo miran posiciones
+                       buenas: con las otras, un auto quieto cruza cercas y «se traslada» solo. */
+                    if (m.gps && guardada === true) {
                         const sabido = motor.has(imei) ? motor.get(imei) : null;
                         const t = vigia.alMoverse(imei, { conFix: m.gps.conFix, velocidad: m.gps.velocidad, encendido: sabido });
                         if (t) await alEvento(imei, t, m.gps, `${m.gps.velocidad} km/h`);

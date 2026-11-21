@@ -173,6 +173,27 @@ prueba("una geocerca apagada, o de otro rastreador, no dice nada", () => {
     // Y sin satélites una posición no cruza nada.
     assert.deepStrictEqual(v.alUbicarse("a", [{ id: "g4", lat: 0, lon: 0, radio: 10 }], { conFix: false, lat: 0, lon: 0 }), []);
 });
+prueba("las alarmas REALES del equipo (21/11): corte, vibración y las dos de «zona sin GPS»", () => {
+    const reales = {
+        0x02: "787825161a0b150b072dcb03be42ae06060a2700d95f0902ec0ae7724e7a08d20604020202b518380d0a",
+        0x03: "787825161a0b140e1212c003be4303060609ee00c8000902ec0ae7724e7a050e06040302001fd25c0d0a",
+        0x0a: "787825161a0b15001732c003be313b0606330500c9320902ec0ae7724e7a038606040a02042ad76e0d0a",
+        0x0b: "787825161a0b15001733c003be313b0606330500c9320902ec0ae7724e7a038606040b02042b236d0d0a",
+    };
+    for (const [codigo, hex] of Object.entries(reales)) {
+        const m = g.leer(H(hex));
+        assert.ok(m.ok, "CRC"); assert.strictEqual(m.tipo, "alarma"); assert.strictEqual(m.alarma, Number(codigo));
+        assert.ok(g.pideAcuse(m));
+    }
+    assert.strictEqual(ev.eventoDeAlarma(0x02), "GPS_CORTE");
+    assert.strictEqual(ev.eventoDeAlarma(0x03), "GPS_VIBRACION");
+    // Entrar a un garage no es una alarma: se anota y no se avisa.
+    assert.ok(ev.SOLO_SE_ANOTA.has(ev.eventoDeAlarma(0x0a)) && ev.SOLO_SE_ANOTA.has(ev.eventoDeAlarma(0x0b)));
+    assert.ok(!ev.SOLO_SE_ANOTA.has("GPS_CORTE"));
+    // La alarma de corte llegó con 11 satélites y fix; la de vibración, sin satélites.
+    assert.strictEqual(g.leer(H(reales[0x02])).gps.conFix, true);
+    assert.strictEqual(g.leer(H(reales[0x03])).gps.conFix, false);
+});
 prueba("el latido REAL trae su código de alarma en cero", () => {
     assert.strictEqual(g.leer(H("78780a130406040002000e82250d0a")).estado.alarma, 0);
 });

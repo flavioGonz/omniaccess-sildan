@@ -8,7 +8,24 @@
  * ruido.
  */
 
-export type PuntoRecorrido = { lat: number; lon: number; cuando: string; velocidad: number };
+export type PuntoRecorrido = { lat: number; lon: number; cuando: string; velocidad: number; satelites?: number };
+
+/**
+ * Con menos satélites que esto, la posición no se usa para nada que se muestre o que avise.
+ *
+ * Medido el 21/11 con la primera noche real del equipo de Nico en un auto: de 1.126 posiciones,
+ * 364 llegaron con 7 satélites o menos, TODAS con el auto estacionado bajo techo, y decían que se
+ * movía a 4–6 km/h de promedio (60 de máxima) con saltos de hasta 400 metros. El propio equipo
+ * avisó esa noche que entraba y salía de «zona sin GPS». Con 11 o más satélites, en cambio,
+ * estaban los viajes de verdad. El resultado de usarlas fue una telaraña sobre el mapa y 29
+ * «viajes» donde hubo 8.
+ *
+ * El mismo número está en lib-gps-eventos.js (el receptor es JavaScript suelto y no importa de
+ * acá): si se cambia uno, se cambia el otro. Un rastreador sin BeiDou ve menos satélites y puede
+ * necesitar un umbral más bajo; este salió de un equipo que ve hasta quince.
+ */
+export const SATS_MIN = 8;
+export const esConfiable = (p: { satelites?: number }) => p.satelites === undefined || p.satelites >= SATS_MIN;
 export type ResumenRecorrido = {
     km: number;
     /** Minutos con el vehículo en movimiento. */

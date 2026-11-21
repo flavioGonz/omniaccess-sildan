@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { viajesYParadas } from "@/lib/gps-viajes";
+import { resumenDeViajes, viajesYParadas } from "@/lib/gps-viajes";
+import { esConfiable } from "@/lib/gps-recorrido";
 import type { PuntoRecorrido } from "@/lib/gps-recorrido";
 
 const T0 = Date.parse("2026-11-20T12:00:00Z");
@@ -59,4 +60,41 @@ test("mover el auto unos metros no es un viaje", () => {
         { lat: -34.9002, lon: -56.15, cuando: new Date(T0 + 30_000).toISOString(), velocidad: 0 },
     ];
     assert.equal(viajesYParadas(maniobra).viajes.length, 0);
+});
+
+test("la deriva de una noche con mala señal no es un viaje (lo medido el 21/11)", () => {
+    /* Lo que queda del equipo estacionado DESPUÉS de sacar las posiciones con pocos satélites:
+       saltos de decenas de metros alrededor del mismo lugar, CON velocidad (4 a 20 km/h),
+       durante horas. Recorre kilómetros de a pasitos y no se aleja nunca más de una cuadra.
+       (Los saltos de 300–400 m venían todos con 7 satélites o menos: esos los frena la otra
+       compuerta, `esConfiable`. Las dos hacen falta; ninguna sola alcanzó con los datos reales.) */
+    const deriva: PuntoRecorrido[] = Array.from({ length: 240 }, (_, i) => ({
+        lat: -34.8894 + Math.sin(i * 1.7) * 0.0006, lon: -56.1440 + Math.cos(i * 2.3) * 0.0006,
+        cuando: new Date(T0 + i * 20_000).toISOString(), velocidad: 4 + (i % 5) * 4,
+    }));
+    const r = viajesYParadas(deriva);
+    assert.equal(r.viajes.length, 0);
+    assert.equal(resumenDeViajes(r.viajes, null, null, deriva.length).km, 0);
+});
+
+test("una vuelta de 300 m que sí se aleja es un viaje", () => {
+    const r = viajesYParadas(tramo(0, 8, 30, -34.90));                       // ~630 m en línea recta
+    assert.equal(r.viajes.length, 1);
+});
+
+test("los kilómetros del tramo son la suma de los viajes, no de los puntos", () => {
+    const ida = tramo(0, 30, 36, -34.90);
+    const quieto = tramo(300, 60, 0, -34.90 + 29 * 0.0009);
+    const vuelta = tramo(900, 30, 36, -34.90 + 29 * 0.0009);
+    const r = viajesYParadas([...ida, ...quieto, ...vuelta]);
+    const s = resumenDeViajes(r.viajes, null, null, 120);
+    assert.equal(s.km, Math.round((r.viajes[0].km + r.viajes[1].km) * 100) / 100);
+    assert.equal(s.velMax, 36);
+});
+
+test("con pocos satélites la posición no es confiable", () => {
+    assert.equal(esConfiable({ satelites: 5 }), false);
+    assert.equal(esConfiable({ satelites: 7 }), false);
+    assert.equal(esConfiable({ satelites: 8 }), true);
+    assert.equal(esConfiable({}), true);          // un equipo que no informa satélites no se descarta por eso
 });

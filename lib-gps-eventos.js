@@ -19,10 +19,27 @@ const DE_ALARMA = {
     0x03: "GPS_VIBRACION",
     0x06: "GPS_VELOCIDAD",
     0x09: "GPS_MOVIMIENTO",     // el propio equipo detectó desplazamiento estando en guardia
+    0x0a: "GPS_SIN_SATELITES",  // entró a una zona sin GPS (un techo, un subsuelo)
+    0x0b: "GPS_CON_SATELITES",  // salió de la zona sin GPS
     0x0e: "GPS_BATERIA_EQUIPO", // la batería INTERNA del rastreador, no la del vehículo
     0x13: "GPS_DESARME",        // le sacaron la tapa / lo desarmaron
 };
 const eventoDeAlarma = (c) => (c ? DE_ALARMA[c] || "GPS_OTRA" : null);
+
+/**
+ * Lo que el equipo manda por el canal de alarmas y NO es una alarma. Se anota —sirve para entender
+ * después por qué una noche no hubo posiciones— pero no se le pasa al motor de reglas: una regla
+ * de «cualquier evento de GPS» no puede despertar a alguien porque el auto entró a un garage.
+ * Medido el 21/11: el equipo mandó cinco de éstas en una noche, estacionado bajo techo.
+ */
+const SOLO_SE_ANOTA = new Set(["GPS_SIN_SATELITES", "GPS_CON_SATELITES"]);
+
+/**
+ * Con menos satélites que esto la posición se guarda, pero no mueve el punto del mapa ni puede
+ * disparar una geocerca o un «se mueve con el motor apagado». Es el mismo número, y por la misma
+ * medición, que SATS_MIN en src/lib/gps-recorrido.ts: si se cambia uno, se cambia el otro.
+ */
+const SATS_MIN = Number(process.env.GPS_SATS_MIN || 8);
 
 const ROTULO = {
     GPS_SOS: "Botón de pánico (SOS)",
@@ -36,6 +53,8 @@ const ROTULO = {
     GPS_OTRA: "Alarma del rastreador",
     GPS_GEOCERCA_ENTRA: "Entró a una geocerca",
     GPS_GEOCERCA_SALE: "Salió de una geocerca",
+    GPS_SIN_SATELITES: "Entró a una zona sin satélites",
+    GPS_CON_SATELITES: "Volvió a tener satélites",
 };
 
 /** Debajo de esto, la batería de 12 V de un vehículo en reposo está descargándose. */
@@ -130,4 +149,4 @@ function nuevoVigia() {
     };
 }
 
-module.exports = { eventoDeAlarma, nuevoVigia, dentroDe, metros, ROTULO, VOLTAJE_BAJO, VOLTAJE_RECUPERADO, VEL_TRASLADO };
+module.exports = { eventoDeAlarma, nuevoVigia, dentroDe, metros, SOLO_SE_ANOTA, SATS_MIN, ROTULO, VOLTAJE_BAJO, VOLTAJE_RECUPERADO, VEL_TRASLADO };

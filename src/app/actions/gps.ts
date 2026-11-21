@@ -5,8 +5,8 @@ import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { leerEstadoRele, puedeAccionarRele } from "@/lib/gps-rele";
-import { aligerar, resumenDeRecorrido, type ResumenRecorrido } from "@/lib/gps-recorrido";
-import { viajesYParadas, type Parada, type Viaje } from "@/lib/gps-viajes";
+import { aligerar, SATS_MIN, type ResumenRecorrido } from "@/lib/gps-recorrido";
+import { resumenDeViajes, viajesYParadas, type Parada, type Viaje } from "@/lib/gps-viajes";
 
 /**
  * Los rastreadores GPS que se presentaron en gps-receiver.js, para la pantalla de Dispositivos.
@@ -132,24 +132,41 @@ export type PuntoGps = { lat: number; lon: number; cuando: string; velocidad: nu
 export type RecorridoGps = { puntos: PuntoGps[]; resumen: ResumenRecorrido; viajes: Viaje[]; paradas: Parada[] };
 
 /**
- * Por dónde anduvo en las últimas horas, del más viejo al más nuevo.
+ * Por dónde anduvo en las últimas horas: sus VIAJES, y nada más.
  *
- * Las cuentas (kilómetros, tiempo en movimiento, velocidad máxima) se hacen acá, sobre TODOS los
- * puntos, y recién después se aligera lo que viaja al mapa: una semana andando son decenas de
- * miles de puntos, y sumar la distancia sobre los que quedaron después de saltear daría de menos
- * en cada curva.
+ * La primera versión dibujaba todas las posiciones unidas por una línea, y la primera noche real
+ * (21/11) el mapa mostró una telaraña alrededor de un auto estacionado: 29 «viajes» y 48,8 km
+ * donde hubo 8 viajes y 37,5 km. Un auto quieto con mala señal no manda una posición fija: manda
+ * decenas de posiciones que saltan, con velocidad y todo.
+ *
+ * Así que ahora:
+ *  · Sólo entran las posiciones con satélites suficientes (SATS_MIN, ver lib/gps-recorrido).
+ *  · Se cortan los viajes (lib/gps-viajes), que exigen haberse alejado de donde se salió.
+ *  · Al mapa van únicamente los puntos que son parte de un viaje. Lo que pasó entre viaje y viaje
+ *    es una PARADA —un lugar y un tiempo—, no una línea.
+ *  · Los kilómetros, el tiempo y la velocidad máxima son los de los viajes.
  */
 export async function recorridoGps(imei: string, horas = 24): Promise<RecorridoGps> {
     await sesion("dispositivos");
     const desde = new Date(Date.now() - Math.min(Math.max(horas, 1), 24 * 31) * 3600_000);
     const filas = await prisma.gpsPosicion.findMany({
-        where: { imei, cuando: { gte: desde } }, orderBy: { cuando: "asc" }, take: 120_000,
+        where: { imei, cuando: { gte: desde }, satelites: { gte: SATS_MIN } }, orderBy: { cuando: "asc" }, take: 120_000,
         select: { lat: true, lon: true, cuando: true, velocidad: true },
     });
     const todos = filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
-    /* Los viajes y las paradas también se cortan sobre todos los puntos: con los aligerados, un
-       semáforo y una parada de cinco minutos se ven iguales. */
-    return { puntos: aligerar(todos, 3000), resumen: resumenDeRecorrido(todos), ...viajesYParadas(todos) };
+    const { viajes, paradas } = viajesYParadas(todos);
+    /* Los puntos de cada viaje, por su horario. Los dos están ordenados, así que se recorren juntos. */
+    const deViaje: PuntoGps[] = [];
+    let k = 0;
+    for (const v of viajes) {
+        while (k < todos.length && todos[k].cuando < v.desde) k++;
+        while (k < todos.length && todos[k].cuando <= v.hasta) deViaje.push(todos[k++]);
+    }
+    return {
+        puntos: aligerar(deViaje, 3000),
+        resumen: resumenDeViajes(viajes, todos[0]?.cuando || null, todos[todos.length - 1]?.cuando || null, todos.length),
+        viajes, paradas,
+    };
 }
 
 const ICONOS = new Set(["auto", "camion", "moto", "persona", "punto"]);

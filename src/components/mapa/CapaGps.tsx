@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Circle, CircleMarker, Marker, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
@@ -185,6 +185,8 @@ export function CapaGps() {
     const deLaRuta = ruta ? lista.find((r) => r.imei === ruta.imei) : null;
     const viajes = ruta?.datos?.viajes || [];
     const paradas = ruta?.datos?.paradas || [];
+    /* Los puntos de cada viaje, por su horario: cada uno es su propia línea. */
+    const tramos = viajes.map((v) => pts.filter((p) => p.cuando >= v.desde && p.cuando <= v.hasta));
     /* El viaje elegido se dibuja con los puntos del recorrido que caen en su horario. */
     const elViaje = viajeSel !== null ? viajes[viajeSel] : null;
     const ptsViaje = elViaje ? pts.filter((p) => p.cuando >= elViaje.desde && p.cuando <= elViaje.hasta) : [];
@@ -197,15 +199,17 @@ export function CapaGps() {
 
     return (
         <>
-            {pts.length > 1 && (
-                <>
+            {/* Una línea POR VIAJE. Unirlas todas dibujaba, entre el final de un viaje y el arranque
+                del siguiente, una recta que nadie recorrió. */}
+            {tramos.map((t, i) => t.length > 1 && (
+                <React.Fragment key={`tr-${i}`}>
                     {/* Un borde oscuro debajo: sobre el satélite, una línea celeste sola se pierde. */}
-                    <Polyline positions={pts.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: "#0a0e14", weight: 7, opacity: 0.55, lineCap: "round", lineJoin: "round" }} />
-                    <Polyline positions={pts.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: CELESTE, weight: 4, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
-                    {/* De dónde salió: un aro. El final es el propio rastreador. */}
-                    <CircleMarker center={[pts[0].lat, pts[0].lon]} radius={6} pathOptions={{ color: "#fff", weight: 3, fillColor: CELESTE, fillOpacity: 1 }} />
-                </>
-            )}
+                    <Polyline positions={t.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: "#0a0e14", weight: 7, opacity: 0.55, lineCap: "round", lineJoin: "round" }} />
+                    <Polyline positions={t.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: CELESTE, weight: 4, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
+                </React.Fragment>
+            ))}
+            {/* De dónde salió el primero: un aro. */}
+            {pts.length > 1 && <CircleMarker center={[pts[0].lat, pts[0].lon]} radius={6} pathOptions={{ color: "#fff", weight: 3, fillColor: CELESTE, fillOpacity: 1 }} />}
 
             {/* El viaje elegido, encima del recorrido: el resto queda de fondo. */}
             {ptsViaje.length > 1 && (
@@ -325,8 +329,10 @@ export function CapaGps() {
                             </div>
                             {!ruta.datos ? (
                                 <p className="mt-2 text-[12px] text-muted-foreground inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Trayendo el recorrido…</p>
-                            ) : ruta.datos.resumen.puntos < 2 ? (
-                                <p className="mt-2 text-[12px] text-muted-foreground">No hay posiciones con satélites en ese tramo.</p>
+                            ) : viajes.length === 0 ? (
+                                <p className="mt-2 text-[12px] text-muted-foreground">
+                                    {ruta.datos.resumen.puntos < 2 ? "No hay posiciones con buena señal en ese tramo." : "No hizo ningún viaje en ese tramo: estuvo en el mismo lugar."}
+                                </p>
                             ) : (
                                 <dl className="mt-2 grid grid-cols-4 gap-3 text-[12.5px]">
                                     <Cifra k="Recorrió" v={`${ruta.datos.resumen.km.toFixed(1).replace(".", ",")} km`} />
