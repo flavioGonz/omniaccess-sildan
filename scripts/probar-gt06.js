@@ -285,5 +285,81 @@ prueba("los lados de las geocercas sobreviven a un reinicio: la salida que pasó
     v3.alUbicarse("a", gc, afuera); assert.deepStrictEqual(v3.alUbicarse("a", gc, afuera), []);
 });
 
+console.log("lib-teltonika");
+const tk = require(path.join(__dirname, "..", "lib-teltonika.js"));
+/* Las dos tramas de ejemplo de la documentación pública del fabricante (Codec 8 y Codec 8
+   Extended). Que el CRC cierre es la prueba de que están bien copiadas. */
+const TK8 = "000000000000003608010000016B40D8EA30010000000000000000000000000000000105021503010101425E0F01F10000601A014E0000000000000000010000C7CF";
+const TK8E = "000000000000004A8E010000016B412CEE000100000000000000000000000000000000010005000100010100010011001D00010010015E2C880002000B000000003544C87A000E000000001DD7E06A00000100002994";
+/** Arma un paquete Codec 8 con un registro: para probar lo que los ejemplos no traen (una posición de verdad). */
+function paqueteTk({ cuando, lat, lon, vel = 0, rumbo = 0, sats = 10, prioridad = 0, evento = 0, es1 = {}, es2 = {} }) {
+    const r = Buffer.alloc(24);
+    r.writeBigUInt64BE(BigInt(cuando.getTime()), 0); r[8] = prioridad;
+    r.writeInt32BE(Math.round(lon * 1e7), 9); r.writeInt32BE(Math.round(lat * 1e7), 13);
+    r.writeInt16BE(40, 17); r.writeUInt16BE(rumbo, 19); r[21] = sats; r.writeUInt16BE(vel, 22);
+    const u = Object.entries(es1), d = Object.entries(es2);
+    const io = Buffer.concat([
+        Buffer.from([evento, u.length + d.length, u.length]), ...u.map(([id, v]) => Buffer.from([Number(id), v])),
+        Buffer.from([d.length]), ...d.map(([id, v]) => { const b = Buffer.alloc(3); b[0] = Number(id); b.writeUInt16BE(v, 1); return b; }),
+        Buffer.from([0, 0]),
+    ]);
+    const datos = Buffer.concat([Buffer.from([0x08, 1]), r, io, Buffer.from([1])]);
+    const cab = Buffer.alloc(8); cab.writeUInt32BE(datos.length, 4);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(tk.crc16(datos));
+    return Buffer.concat([cab, datos, crc]);
+}
+prueba("Teltonika: el CRC cierra en los dos ejemplos del fabricante", () => {
+    for (const [h, crc] of [[TK8, 0xc7cf], [TK8E, 0x2994]]) { const b = H(h); assert.strictEqual(tk.crc16(b.subarray(8, 8 + b.readUInt32BE(4))), crc); }
+});
+prueba("Teltonika: el ejemplo de Codec 8 dice lo que dice su documentación", () => {
+    const m = tk.leer(H(TK8));
+    assert.ok(m.ok); assert.strictEqual(m.registros.length, 1);
+    const r = m.registros[0];
+    assert.strictEqual(r.gps.fecha.toISOString(), "2019-06-10T10:04:46.000Z");
+    assert.strictEqual(r.prioridad, 1); assert.strictEqual(r.evento, 1);
+    assert.deepStrictEqual(r.es, { 1: 1, 21: 3, 66: 24079, 78: 0, 241: 24602 });   // entrada 1, señal 3, 24,079 V, operador
+    assert.strictEqual(r.voltaje, 24.079); assert.strictEqual(r.senal, 3);
+    assert.strictEqual(r.gps.conFix, false);                                          // el ejemplo viene sin satélites
+});
+prueba("Teltonika: el ejemplo de Codec 8 Extended (ids de dos bytes)", () => {
+    const m = tk.leer(H(TK8E));
+    assert.ok(m.ok); assert.strictEqual(m.codec, 0x8e);
+    assert.deepStrictEqual(m.registros[0].es, { 1: 1, 11: 893700218, 14: 500686954, 16: 22949000, 17: 29 });
+    assert.strictEqual(m.registros[0].gps.fecha.toISOString(), "2019-06-10T11:36:32.000Z");
+});
+prueba("Teltonika: una posición en Montevideo queda en el hemisferio correcto (enteros con signo)", () => {
+    const m = tk.leer(paqueteTk({ cuando: new Date("2026-11-21T12:00:00Z"), lat: -34.9011, lon: -56.1645, vel: 42, rumbo: 270, es1: { 239: 1 }, es2: { 66: 12650 } }));
+    assert.ok(m.ok);
+    const r = m.registros[0];
+    assert.strictEqual(r.gps.lat, -34.9011); assert.strictEqual(r.gps.lon, -56.1645);
+    assert.strictEqual(r.gps.velocidad, 42); assert.strictEqual(r.gps.rumbo, 270); assert.strictEqual(r.gps.satelites, 10); assert.ok(r.gps.conFix);
+    assert.strictEqual(r.encendido, true); assert.strictEqual(r.voltaje, 12.65);
+    assert.strictEqual(tk.eventoDe(r), null);                                         // un registro periódico no es un evento
+});
+prueba("Teltonika: el inhibidor, el desenchufe y el pánico; y un estado que sigue no vuelve a avisar", () => {
+    const base = { cuando: new Date("2026-11-21T12:00:00Z"), lat: -34.9, lon: -56.16 };
+    const r = (x) => tk.leer(paqueteTk({ ...base, ...x })).registros[0];
+    assert.strictEqual(tk.eventoDe(r({ evento: 249, es1: { 249: 1 } })), "GPS_INHIBIDOR");
+    assert.strictEqual(tk.eventoDe(r({ evento: 249, es1: { 249: 0 } })), null);        // el inhibidor se fue: no es otra alarma
+    assert.strictEqual(tk.eventoDe(r({ evento: 252, es1: { 252: 1 } })), "GPS_CORTE");
+    assert.strictEqual(tk.eventoDe(r({ evento: 0, es1: { 252: 1 } })), null);          // periódico, con el estado adentro
+    assert.strictEqual(tk.eventoDe(r({ prioridad: 2 })), "GPS_SOS");
+    assert.strictEqual(tk.eventoDe(r({ evento: 246, es1: { 246: 1 } })), "GPS_MOVIMIENTO");
+});
+prueba("Teltonika: el saludo se reconoce, un GT06 no se confunde, y dos paquetes pegados se separan", () => {
+    const saludo = Buffer.concat([Buffer.from([0x00, 0x0f]), Buffer.from("356307042441013")]);
+    assert.strictEqual(tk.esSaludo(saludo), true); assert.strictEqual(tk.imeiDeSaludo(saludo), "356307042441013");
+    assert.strictEqual(tk.esSaludo(saludo.subarray(0, 9)), null);                      // todavía no llegó entero
+    assert.strictEqual(tk.esSaludo(H(REALES[0])), false);                              // un login de GT06
+    assert.strictEqual(tk.esSaludo(Buffer.from("GET / HTTP/1.1")), false);
+    const dos = Buffer.concat([H(TK8), H(TK8E), H(TK8).subarray(0, 20)]);
+    const p = tk.partir(dos);
+    assert.strictEqual(p.paquetes.length, 2); assert.strictEqual(p.resto.length, 20); assert.strictEqual(p.roto, false);
+    assert.strictEqual(tk.partir(Buffer.from("esto no es un paquete, es basura")).roto, true);
+    // Un CRC roto no se da por bueno, y el acuse es la cuenta de registros en cuatro bytes.
+    const roto = H(TK8); roto[30] ^= 0xff; assert.strictEqual(tk.leer(roto).ok, false);
+    assert.strictEqual(tk.acusePaquete(1).toString("hex"), "00000001");
+});
+
 console.log(`\n${ok} bien, ${mal} mal`);
 process.exit(mal ? 1 : 0);

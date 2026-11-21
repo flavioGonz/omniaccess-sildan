@@ -13,6 +13,7 @@
  *   · sale de una geocerca cuyo lado estaba GUARDADO (como después de un reinicio) → avisa;
  *   · uno sin aceptar: se anota, no guarda historial; el que pasa el tope no entra; con la
  *     puerta cerrada no se anota ninguno, y el aceptado entra igual;
+ *   · un Teltonika por el mismo puerto: saludo, posición, voltaje, y el aviso de inhibidor;
  *   · cinco conexiones de un escáner castigan a la IP, y el aceptado sigue entrando.
  *
  * La base de mentira es lo justo que el receptor usa de Prisma, en memoria. No prueba SQL: prueba
@@ -101,6 +102,34 @@ const conectar = () => new Promise((ok) => { const s = net.connect(21341, "127.0
     // el silencio: se fuerza el reloj (último contacto hace 20 minutos y arranque viejo no se puede: se prueba la función en sus pruebas). Acá, /salud.
     const salud = await (await fetch("http://127.0.0.1:21013/salud")).json();
     assert.strictEqual(salud.ok, true); assert.strictEqual(salud.enLinea, 1);
+
+    // ── un Teltonika, por el MISMO puerto ──
+    const tk = require(OAS + "/lib-teltonika.js");
+    const T = "356307042441013";
+    db.equipos.set(T, { imei: T, nombre: "Camión", deviceId: "dev2", vehicleId: null, protocolo: "GT06", lat: null, lon: null, velocidad: null, rumbo: null, cuando: null, encendido: null, voltaje: null, sinReporteDesde: null, lados: null, encendidoDesde: null, ultimoLatido: null });
+    const paqueteTk = ({ cuando, lat, lon, vel = 0, evento = 0, es1 = {}, es2 = {} }) => {
+        const r = Buffer.alloc(24); r.writeBigUInt64BE(BigInt(cuando.getTime()), 0); r.writeInt32BE(Math.round(lon * 1e7), 9); r.writeInt32BE(Math.round(lat * 1e7), 13); r[21] = 11; r.writeUInt16BE(vel, 22);
+        const u = Object.entries(es1), d2 = Object.entries(es2);
+        const io = Buffer.concat([Buffer.from([evento, u.length + d2.length, u.length]), ...u.map(([id, v]) => Buffer.from([Number(id), v])), Buffer.from([d2.length]), ...d2.map(([id, v]) => { const b = Buffer.alloc(3); b[0] = Number(id); b.writeUInt16BE(v, 1); return b; }), Buffer.from([0, 0])]);
+        const datos = Buffer.concat([Buffer.from([0x08, 1]), r, io, Buffer.from([1])]);
+        const cab = Buffer.alloc(8); cab.writeUInt32BE(datos.length, 4); const crc = Buffer.alloc(4); crc.writeUInt32BE(tk.crc16(datos));
+        return Buffer.concat([cab, datos, crc]);
+    };
+    const st = await conectar();
+    st.write(Buffer.concat([Buffer.from([0x00, 0x0f]), Buffer.from(T)])); await dormir(120);
+    assert.strictEqual(st.recibido[0], "01", "el saludo de Teltonika se acepta con un 01");
+    assert.strictEqual(db.equipos.get(T).protocolo, "TELTONIKA");
+    st.write(paqueteTk({ cuando: new Date(), lat: -34.85, lon: -56.2, vel: 42, es1: { 239: 1, 21: 4 }, es2: { 66: 12650 } })); await dormir(120);
+    assert.strictEqual(st.recibido[1], "00000001", "el acuse es la cuenta de registros");
+    const eT = db.equipos.get(T);
+    assert.strictEqual(eT.lat, -34.85); assert.strictEqual(eT.velocidad, 42); assert.strictEqual(eT.encendido, true); assert.strictEqual(eT.voltaje, 12.65); assert.strictEqual(eT.senal, 4);
+    assert.strictEqual(db.posiciones.filter((p) => p.imei === T).length, 1);
+    // el inhibidor: lo que un GT06 no sabe avisar
+    st.write(paqueteTk({ cuando: new Date(), lat: -34.851, lon: -56.2, vel: 40, evento: 249, es1: { 249: 1 } })); await dormir(120);
+    assert.strictEqual(db.eventos.at(-1).tipo, "GPS_INHIBIDOR"); assert.strictEqual(db.eventos.at(-1).prioridad, 1); assert.strictEqual(db.eventos.at(-1).imei, T);
+    // y un comando a un Teltonika se rechaza con una explicación, no se le manda una trama de GT06
+    const com = await (await fetch("http://127.0.0.1:21013/comando", { method: "POST", body: JSON.stringify({ imei: T, texto: "STATUS#" }) })).json();
+    assert.strictEqual(com.ok, false); assert.match(com.error, /todavía no/);
 
     // ── los que no están aceptados ──
     const B = "111111111111111", s2 = await conectar();

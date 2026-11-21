@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 /**
- * Receptor de rastreadores GPS (protocolo GT06 / Concox y clones).
+ * Receptor de rastreadores GPS: GT06 (Concox y clones) y Teltonika (Codec 8 y 8E).
+ *
+ * Los dos protocolos entran por el MISMO puerto y se distinguen por los primeros bytes: un GT06
+ * empieza con 78 78, un Teltonika saluda con 00 0F y su IMEI. Lo que cambia entre uno y otro es
+ * cómo se leen las tramas y cómo se acusan; qué se hace con una posición, un evento o un silencio
+ * es lo mismo para los dos, y está una sola vez (alReporte, alEvento). Teltonika está escrito
+ * contra la documentación del fabricante y sus tramas de ejemplo: no pasó por un equipo real.
  *
  * Proceso propio, como alarm-receiver.js, y por la misma razón: un GPS no llama a una URL, abre
  * un TCP y lo deja abierto. Escucha en GPS_PUERTO (1341) y por cada trama:
@@ -38,6 +44,7 @@ require("dotenv").config({ quiet: true });
 const net = require("net");
 const { PrismaClient } = require("@prisma/client");
 const g = require("./lib-gt06");
+const tk = require("./lib-teltonika");
 const evs = require("./lib-gps-eventos");
 
 const prisma = new PrismaClient();
@@ -97,6 +104,7 @@ function mandarComando(imei, texto, conIdioma = true) {
     return new Promise((resolver) => {
         const s = enLinea.get(imei);
         if (!s) return resolver({ ok: false, error: "El rastreador no está en línea." });
+        if (s.protocolo !== "GT06") return resolver({ ok: false, error: "Los comandos a este modelo de rastreador todavía no están hechos: se le mandan por SMS." });
         const marca = marcaSig = (marcaSig + 1) & 0x7fffffff;
         const reloj = setTimeout(() => { esperando.delete(marca); resolver({ ok: false, error: "El rastreador no contestó a tiempo." }); }, ESPERA_RESPUESTA_MS);
         esperando.set(marca, { resolver, reloj, imei });
@@ -281,16 +289,16 @@ setTimeout(podar, 5 * 60_000).unref(); setInterval(podar, 6 * 3600_000).unref();
  * Un login. Devuelve la fila del equipo, o un motivo de rechazo («cerrada», «lleno», «castigada»).
  * Sólo se CREA una fila si la puerta está abierta, hay lugar y la IP no viene acumulando faltas.
  */
-async function alPresentarse(imei, ip) {
+async function alPresentarse(imei, ip, protocolo = "GT06") {
     let e = await prisma.gpsEquipo.findUnique({ where: { imei } });
     if (!e) {
         if (puerta === "cerrada") return "cerrada";
         if (castigada(ip)) return "castigada";
         if ((await prisma.gpsEquipo.count({ where: { deviceId: null } })) >= PENDIENTES_MAX) return "lleno";
-        e = await prisma.gpsEquipo.create({ data: { imei, ultimaIp: ip, ultimoLatido: new Date() } });
+        e = await prisma.gpsEquipo.create({ data: { imei, protocolo, ultimaIp: ip, ultimoLatido: new Date() } });
     } else {
         if (!e.deviceId && castigada(ip)) return "castigada";
-        await prisma.gpsEquipo.update({ where: { imei }, data: { ultimaIp: ip, ultimoLatido: new Date() } });
+        await prisma.gpsEquipo.update({ where: { imei }, data: { ultimaIp: ip, ultimoLatido: new Date(), ...(e.protocolo !== protocolo ? { protocolo } : {}) } });
     }
     /* Se siembra lo último que se supo: reiniciar el receptor con la batería ya baja, con el motor
        ya apagado o con el vehículo ya adentro de una geocerca no es una novedad y no avisa. */
@@ -365,13 +373,95 @@ async function alPosicion(imei, m, aceptado) {
     return { que: "buena" };
 }
 
+/**
+ * Un reporte con posición, del protocolo que sea: se guarda, y si es buena se la mira contra las
+ * geocercas y contra «se mueve con el motor apagado». `m.gps` tiene la misma forma en GT06 y en
+ * Teltonika ({ fecha, lat, lon, velocidad, rumbo, satelites, conFix }).
+ */
+async function alReporte(imei, m, aceptado) {
+    const r = await alPosicion(imei, m, aceptado);
+    const hora = m.gps && m.gps.fecha ? m.gps.fecha : null;
+    if (r.que === "salto" && r.primera) await alEvento(imei, "GPS_SALTO", m.gps, "Apareció a kilómetros de donde estaba hace instantes", null, hora);
+    /* Las geocercas y el «se mueve con el motor apagado» sólo miran posiciones buenas: con las
+       otras, un auto quieto cruza cercas y «se traslada» solo. Y se juzgan con la hora DEL
+       EQUIPO: una tanda atrasada se recorre en su orden y a su tiempo, no toda «ahora». */
+    if (r.que === "buena") {
+        const sabido = motor.has(imei) ? motor.get(imei) : null;
+        const t = vigia.alMoverse(imei, { conFix: m.gps.conFix, velocidad: m.gps.velocidad, encendido: sabido }, hora.getTime());
+        if (t) await alEvento(imei, t, m.gps, `${m.gps.velocidad} km/h`, null, hora);
+        for (const c of vigia.alUbicarse(imei, geocercas, m.gps)) await alEvento(imei, c.tipo, m.gps, c.geocerca.nombre, { geocercaId: c.geocerca.id }, hora);
+        /* De qué lado quedó de cada geocerca, a la base si cambió. */
+        const mm = mem(imei), txt = JSON.stringify(vigia.lados(imei));
+        if (txt !== mm.ladosTxt) { mm.ladosTxt = txt; await prisma.gpsEquipo.update({ where: { imei }, data: { lados: JSON.parse(txt) } }).catch(() => {}); }
+    }
+    return r;
+}
+
+/** Un voltaje nuevo de la alimentación, del protocolo que sea. */
+async function alVoltaje(imei, v) {
+    await prisma.gpsEquipo.update({ where: { imei }, data: { voltaje: v } }).catch(() => {});
+    const t = vigia.alVoltaje(imei, v);
+    if (t) await alEvento(imei, t, null, `${v.toFixed(1).replace(".", ",")} V`);
+}
+
+/**
+ * Lo que llega de un Teltonika. Devuelve `false` si hay que cortar la conexión. `c` es el estado
+ * de la conexión ({ imei, aceptado, buf }), que es el mismo objeto que usa la rama de GT06.
+ */
+async function procesarTeltonika(s, c, ip) {
+    if (!c.imei) {
+        const imei = tk.imeiDeSaludo(c.buf);
+        c.buf = c.buf.subarray(17);
+        const e = await alPresentarse(imei, ip, "TELTONIKA");
+        if (typeof e === "string") { cuenta.rechazados++; log(ip, `saludo de ${imei} rechazado (${e})`); falta(ip, `IMEI rechazado: ${e}`); s.write(tk.acuseSaludo(false)); return false; }
+        c.imei = imei; s.imei = imei; c.aceptado = !!e.deviceId; c.miradoAl = Date.now();
+        const viejo = enLinea.get(imei);
+        if (viejo && viejo !== s) viejo.destroy();
+        enLinea.set(imei, s);
+        s.write(tk.acuseSaludo(true));
+        log(imei, "se presentó desde", ip, "(Teltonika)");
+        await oyo(imei);
+    }
+    const { paquetes, resto, roto } = tk.partir(c.buf);
+    c.buf = resto;
+    if (roto) { log(c.imei, "paquete Teltonika que no se puede leer: se corta"); return false; }
+    for (const p of paquetes) {
+        cuenta.tramas++; cuenta.ultimaTrama = Date.now();
+        if (CRUDO) log(c.imei, "teltonika", p.toString("hex"));
+        const m = tk.leer(p);
+        /* Sin acuse: el equipo lo va a mandar de nuevo, que es lo que se quiere si no se pudo leer. */
+        if (!m.ok) { log(c.imei, "paquete Teltonika ilegible:", m.error); continue; }
+        if (!c.aceptado && Date.now() - c.miradoAl > 30_000) {
+            c.miradoAl = Date.now();
+            c.aceptado = !!(await prisma.gpsEquipo.findUnique({ where: { imei: c.imei }, select: { deviceId: true } }).catch(() => null))?.deviceId;
+        }
+        await oyo(c.imei);
+        for (const r of m.registros) {
+            try {
+                /* Lo que en GT06 viene en el latido, acá viene en cada registro. */
+                const estado = { ...(r.senal !== undefined ? { senal: r.senal } : {}), ...(r.cortado !== undefined ? { cortado: r.cortado } : {}) };
+                if (Object.keys(estado).length) await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: estado }).catch(() => {});
+                await alReporte(c.imei, { tipo: "posicion", gps: r.gps, ...(r.encendido !== undefined ? { encendido: r.encendido } : {}) }, c.aceptado);
+                if (r.voltaje !== undefined) await alVoltaje(c.imei, r.voltaje);
+                const tipo = tk.eventoDe(r);
+                if (tipo) await alEvento(c.imei, tipo, r.gps, tipo === "GPS_VELOCIDAD" ? `${r.gps.velocidad} km/h` : null, null, r.gps.fecha);
+            } catch (e) { log(c.imei, "error guardando:", e.message); }
+        }
+        /* El acuse dice CUÁNTOS registros se aceptaron: con otro número el equipo repite el paquete. */
+        if (!s.destroyed) s.write(tk.acusePaquete(m.registros.length));
+    }
+    return true;
+}
+
 const servidor = net.createServer((s) => {
     const ip = (s.remoteAddress || "?").replace(/^::ffff:/, "");
     /* Los topes: sin lugar, o demasiadas conexiones mudas desde la misma IP, no se atiende. */
     let mudos = 0, mudosDeEstaIp = 0;
     for (const x of abiertos) if (!x.imei) { mudos++; if (x.ip === ip) mudosDeEstaIp++; }
     if (abiertos.size >= SOCKETS_MAX || mudos >= SIN_LOGIN_MAX || mudosDeEstaIp >= SIN_LOGIN_POR_IP) { cuenta.rechazados++; s.destroy(); return; }
-    s.ip = ip; s.imei = null; abiertos.add(s);
+    s.ip = ip; s.imei = null; s.protocolo = "GT06"; abiertos.add(s);
+    /** Si resultó ser un Teltonika: el estado de su conexión (ver procesarTeltonika). */
+    let telto = null;
     let buf = Buffer.alloc(0);
     let imei = null;
     /** Dado de alta en Dispositivos. Se vuelve a mirar cada tanto: lo pueden aceptar estando conectado. */
@@ -393,7 +483,24 @@ const servidor = net.createServer((s) => {
     });
     async function procesar(trozo) {
         if (s.destroyed) return;
-        buf = Buffer.concat([buf, trozo]);
+        /* ¿Quién habla? Un Teltonika saluda con 00 0F y quince dígitos; todo lo demás sigue por
+           GT06, que es quien sabe decir que algo no es una trama. Una vez que se sabe que es un
+           Teltonika, lo suyo va a SU buffer y por su camino. */
+        if (telto) telto.buf = Buffer.concat([telto.buf, trozo]);
+        else {
+            buf = Buffer.concat([buf, trozo]);
+            if (!imei) {
+                const es = tk.esSaludo(buf);
+                if (es === null) return;                            // todavía no llegó el saludo entero
+                if (es) { telto = { imei: null, aceptado: false, miradoAl: 0, buf }; s.protocolo = "TELTONIKA"; buf = Buffer.alloc(0); }
+            }
+        }
+        if (telto) {
+            const sigue = await procesarTeltonika(s, telto, ip);
+            if (telto.imei && !imei) { imei = telto.imei; clearTimeout(sinLogin); }
+            if (!sigue) s.destroy();
+            return;
+        }
         const { tramas, resto } = g.partir(buf);
         buf = resto;
         if (!tramas.length && buf.length > BASURA_MAX) { falta(ip, "basura"); s.destroy(); return; }
@@ -440,34 +547,16 @@ const servidor = net.createServer((s) => {
                         await alLatido(imei, m.estado);
                         await alEvento(imei, evs.eventoDeAlarma(m.estado.alarma), null);
                     } else if (m.tipo === "posicion" || m.tipo === "alarma") {
-                        const r = await alPosicion(imei, m, aceptado);
+                        const r = await alReporte(imei, m, aceptado);
                         const hora = m.gps && m.gps.fecha ? m.gps.fecha : null;
                         if (m.tipo === "alarma") { const tipoA = evs.eventoDeAlarma(m.alarma) || "GPS_OTRA"; await alEvento(imei, tipoA, m.gps, tipoA === "GPS_OTRA" ? g.nombreAlarma(m.alarma) : null, null, hora); }
                         else if (r.que === "nada") log(imei, "posición sin satélites, no se guarda");
-                        if (r.que === "salto" && r.primera) await alEvento(imei, "GPS_SALTO", m.gps, "Apareció a kilómetros de donde estaba hace instantes", null, hora);
-                        /* Las geocercas y el «se mueve con el motor apagado» sólo miran posiciones
-                           buenas: con las otras, un auto quieto cruza cercas y «se traslada» solo.
-                           Y se juzgan con la hora DEL EQUIPO: una tanda atrasada se recorre en su
-                           orden y a su tiempo, no toda «ahora». */
-                        if (r.que === "buena") {
-                            const sabido = motor.has(imei) ? motor.get(imei) : null;
-                            const t = vigia.alMoverse(imei, { conFix: m.gps.conFix, velocidad: m.gps.velocidad, encendido: sabido }, hora.getTime());
-                            if (t) await alEvento(imei, t, m.gps, `${m.gps.velocidad} km/h`, null, hora);
-                            for (const c of vigia.alUbicarse(imei, geocercas, m.gps)) await alEvento(imei, c.tipo, m.gps, c.geocerca.nombre, { geocercaId: c.geocerca.id }, hora);
-                            /* De qué lado quedó de cada geocerca, a la base si cambió. */
-                            const mm = mem(imei), txt = JSON.stringify(vigia.lados(imei));
-                            if (txt !== mm.ladosTxt) { mm.ladosTxt = txt; await prisma.gpsEquipo.update({ where: { imei }, data: { lados: JSON.parse(txt) } }).catch(() => {}); }
-                        }
                     } else if (m.tipo === "respuesta") {
                         alResponder(imei, m);
                         continue;
                     } else if (m.tipo === "info") {
-                        const data = { ...(m.voltaje !== undefined ? { voltaje: m.voltaje } : {}), ...(m.iccid ? { iccid: m.iccid } : {}) };
-                        if (Object.keys(data).length) await prisma.gpsEquipo.update({ where: { imei }, data }).catch(() => {});
-                        if (m.voltaje !== undefined) {
-                            const t = vigia.alVoltaje(imei, m.voltaje);
-                            if (t) await alEvento(imei, t, null, `${m.voltaje.toFixed(1).replace(".", ",")} V`);
-                        }
+                        if (m.iccid) await prisma.gpsEquipo.update({ where: { imei }, data: { iccid: m.iccid } }).catch(() => {});
+                        if (m.voltaje !== undefined) await alVoltaje(imei, m.voltaje);
                         continue;
                     } else if (m.tipo === "hora") {
                         s.write(g.acuseHora(m.serie));
@@ -484,5 +573,5 @@ const servidor = net.createServer((s) => {
     s.on("error", () => {});
 });
 
-servidor.listen(PUERTO, "0.0.0.0", () => log(`gps-receiver escuchando en ${PUERTO} (GT06)`));
+servidor.listen(PUERTO, "0.0.0.0", () => log(`gps-receiver escuchando en ${PUERTO} (GT06 y Teltonika)`));
 process.on("SIGTERM", async () => { servidor.close(); await prisma.$disconnect(); process.exit(0); });

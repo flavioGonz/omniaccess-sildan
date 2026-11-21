@@ -78,6 +78,8 @@ const ETIQUETA: Record<string, string> = {
     GPS_SIN_REPORTE: "Dejó de reportar",
     GPS_VOLVIO: "Volvió a reportar",
     GPS_SALTO: "Posición imposible",
+    GPS_INHIBIDOR: "Detectó un inhibidor de señal",
+    GPS_CHOQUE: "Detectó un choque",
 };
 const TIPO_CENTRAL: Record<string, string> = { ROBO: "Robo", PANICO: "Pánico", INCENDIO: "Incendio", SABOTAJE: "Sabotaje", COACCION: "Coacción", MEDICA: "Emergencia médica", GAS: "Gas", AGUA: "Pérdida de agua", TEMPERATURA: "Temperatura", GENERAL: "Alarma" };
 const CLASE: Record<string, string> = { human: "Persona", vehicle: "Vehículo" };

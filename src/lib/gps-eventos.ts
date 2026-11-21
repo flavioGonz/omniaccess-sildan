@@ -20,6 +20,8 @@ export const EVENTOS_GPS: Record<string, Ficha> = {
     GPS_SOS: { rotulo: "Botón de pánico (SOS)", clase: "alarma", tono: "mal", dibujo: "sos" },
     GPS_CORTE: { rotulo: "Le cortaron la alimentación", clase: "alarma", tono: "mal", dibujo: "corte" },
     GPS_DESARME: { rotulo: "Desarmaron el rastreador", clase: "alarma", tono: "mal", dibujo: "desarme" },
+    GPS_INHIBIDOR: { rotulo: "Detectó un inhibidor de señal", clase: "alarma", tono: "mal", dibujo: "silencio" },
+    GPS_CHOQUE: { rotulo: "Detectó un choque", clase: "alarma", tono: "mal", dibujo: "alarma" },
     GPS_MOVIMIENTO: { rotulo: "Se mueve con el motor apagado", clase: "alarma", tono: "mal", dibujo: "movimiento" },
     GPS_SALTO: { rotulo: "Posición imposible", clase: "alarma", tono: "aviso", dibujo: "salto" },
     GPS_VELOCIDAD: { rotulo: "Exceso de velocidad", clase: "alarma", tono: "aviso", dibujo: "velocidad" },

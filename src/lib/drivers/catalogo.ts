@@ -165,7 +165,23 @@ export const SOPORTE: Soporte[] = [
             ruta: "TCP :1341 (GPS_PUERTO) — no es HTTP",
             como: "Por SMS al rastreador: SERVER,0,<IP pública de OmniAccess>,1341,0# y el APN de la SIM con APN,<apn>#. Se verifica con GPRSSET# (qué servidor tiene) y STATUS# (tiene que decir «GPRS:Link Up»). En el router hay que reenviar el TCP 1341 al servidor. El rastreador aparece solo en Dispositivos › GPS la primera vez que se conecta, y ahí se lo da de alta.",
         },
-        nota: "Probado contra un clon con firmware W16_NP: login, latido (motor, batería, señal), posición con satélites, voltaje del vehículo, y comandos por GPRS (estado, posición, consulta y accionamiento del relé). El equipo NO pasa del login si el servidor no le contesta el acuse: por SMS dice «GPRS:Link Down» con señal fuerte, y parece roto cuando sólo está esperando. Parcial porque falta: que sus alarmas (SOS, corte de alimentación) generen un aviso, geocercas, y verificar una posición en movimiento. El relé no se acciona con el vehículo andando (lib/gps-rele). Otros protocolos de rastreadores (Teltonika, Queclink, TK103) no están hechos: cada uno es un decodificador distinto.",
+        nota: "Probado contra un clon con firmware W16_NP: login, latido (motor, batería, señal), posición con satélites y en movimiento, voltaje del vehículo, sus alarmas (corte de alimentación y vibración llegaron de verdad; SOS todavía no se vio una real), y comandos por GPRS (estado, posición, consulta y accionamiento del relé). El equipo NO pasa del login si el servidor no le contesta el acuse: por SMS dice «GPRS:Link Down» con señal fuerte, y parece roto cuando sólo está esperando. Encima de lo que manda el equipo, OmniAccess detecta que DEJÓ DE REPORTAR (que el equipo no puede avisar), cruza geocercas, marca lo que llegó atrasado y abre un caso en Gestión de alarmas. Medido con 1.000 rastreadores simulados reportando cada 10 s (scripts/carga-gps.js): ninguna posición perdida y acuses en menos de 2 ms. Parcial porque falta: configurar el rastreador a distancia y la posición por antenas cuando no hay satélites. El relé no se acciona con el vehículo andando (lib/gps-rele).",
+    },
+    {
+        /*
+         * El segundo protocolo (21/11). Entra por el mismo puerto que GT06: el receptor los
+         * distingue por los primeros bytes. El rótulo dice «sin probar con un equipo» a propósito
+         * (los estados son tres y ninguno es ése): está escrito contra la documentación del
+         * fabricante y pasa sus tramas de ejemplo, pero un protocolo no está integrado hasta que
+         * un equipo de verdad lo habló.
+         */
+        marca: "TELTONIKA", rotulo: "Rastreadores GPS · Teltonika (Codec 8 y 8E) — sin probar con un equipo", estado: "parcial",
+        hace: ["posicion"],
+        hook: {
+            ruta: "TCP :1341 (GPS_PUERTO) — el mismo que GT06",
+            como: "En el configurador de Teltonika (o por SMS): GPRS › Server Settings con el dominio o la IP pública de OmniAccess, puerto 1341, protocolo TCP, y Data Protocol en Codec 8 o Codec 8 Extended. El rastreador aparece solo en Dispositivos › GPS la primera vez que se conecta.",
+        },
+        nota: "Posición, motor (E/S 239), voltaje del vehículo (66), señal (21) y la salida 1 como relé (179, sólo lectura). Avisa lo que un GT06 no sabe: INHIBIDOR de señal (249), desenchufado (252), remolque (246), choque (247), exceso de velocidad (255) y pánico (prioridad 2 o la E/S 236). Todo lo demás —dejó de reportar, geocercas, consola— es lo mismo que en GT06. NO PROBADO CON UN EQUIPO REAL: escrito contra la documentación pública y verificado con las tramas de ejemplo del fabricante. Falta: comandos (Codec 12), para accionar la salida desde OmniAccess.",
     },
 ];
 

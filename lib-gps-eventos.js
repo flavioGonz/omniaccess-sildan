@@ -58,6 +58,9 @@ const ROTULO = {
     GPS_SIN_REPORTE: "Dejó de reportar",
     GPS_VOLVIO: "Volvió a reportar",
     GPS_SALTO: "Posición imposible (otro equipo o un error del GPS)",
+    // Los dos que sólo sabe avisar un Teltonika (lib-teltonika.js).
+    GPS_INHIBIDOR: "Detectó un inhibidor de señal",
+    GPS_CHOQUE: "Detectó un choque",
 };
 
 /**
@@ -73,6 +76,8 @@ const PRIORIDAD = {
     GPS_SOS: 1,
     GPS_CORTE: 1,
     GPS_DESARME: 1,
+    GPS_INHIBIDOR: 1,
+    GPS_CHOQUE: 1,
     GPS_MOVIMIENTO: 2,
     GPS_SALTO: 3,
     GPS_BATERIA: 4,

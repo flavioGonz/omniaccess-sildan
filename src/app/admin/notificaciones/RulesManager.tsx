@@ -80,6 +80,8 @@ const EVENTOS: Record<string, { v: string; l: string; ayuda: string }[]> = {
         { v: "GPS_VELOCIDAD", l: "Exceso de velocidad", ayuda: "Pasó la velocidad máxima configurada EN EL RASTREADOR (se le pone por SMS)." },
         { v: "GPS_DESARME", l: "Desarmaron el rastreador", ayuda: "Le abrieron la tapa o lo sacaron de su lugar." },
         { v: "GPS_BATERIA_EQUIPO", l: "Batería del rastreador baja", ayuda: "La batería interna del rastreador, la que usa cuando le cortan la alimentación." },
+        { v: "GPS_INHIBIDOR", l: "Detectó un inhibidor", ayuda: "El rastreador detecta que le están tapando la señal de celular. Sólo lo avisan los Teltonika (y hay que tenerles activada la detección). Con cualquier otro modelo, un inhibidor se ve como «Dejó de reportar»." },
+        { v: "GPS_CHOQUE", l: "Detectó un choque", ayuda: "El acelerómetro del rastreador registró un golpe fuerte. Sólo los Teltonika." },
         { v: "GPS_SALTO", l: "Posición imposible", ayuda: "El rastreador apareció a kilómetros de donde estaba hace instantes (más de 250 km/h): un error grande del GPS, u otro aparato presentándose con su mismo IMEI. El punto del mapa no se mueve hasta que se confirma." },
         { v: "GPS_OTRA", l: "Otra alarma", ayuda: "Una alarma del rastreador que no es ninguna de las anteriores." },
     ],
