@@ -106,8 +106,19 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
         if (!candidatos.length) continue;
         const gente = u.users.map((x) => x.name).join(" ");
         const porGente = candidatos.filter((l) => compartenNombre(gente, [l.titular, ...(personasDeLote.get(`${l.sigla}|${l.codigo}`) || [])].join(" ")));
-        const elegido = porGente.length === 1 ? porGente[0] : candidatos.length === 1 ? candidatos[0] : null;
-        if (!elegido) { inf.avisos.push(`La unidad «${u.name}», que ya estaba cargada, puede ser ${candidatos.map((l) => l.nombre).join(" o ")}: no se pudo decidir cuál por quienes viven ahí. Quedó como estaba.`); continue; }
+        /* Sólo se reconoce por la GENTE, o si la unidad está vacía y hay un único lote posible.
+           La primera versión además la reconocía «porque hay un solo lote con ese código», y con
+           la planilla real eso iba a renombrar once unidades cuyos residentes no comparten una
+           sola palabra con los titulares ni con los contactos de ese lote: gente cargada a mano
+           (¿de prueba?, ¿de otro lote?) habría quedado viviendo en la casa de otra familia. Que
+           el código coincida no prueba que sea la misma casa. */
+        const elegido = porGente.length === 1 ? porGente[0] : !u.users.length && candidatos.length === 1 ? candidatos[0] : null;
+        if (!elegido) {
+            inf.avisos.push(u.users.length && !porGente.length
+                ? `La unidad «${u.name}» ya estaba cargada con ${u.users.length} ${u.users.length === 1 ? "persona que no figura" : "personas que no figuran"} en la planilla para ${candidatos.map((l) => l.nombre).join(" ni ")}: quedó como estaba, con su gente, y el lote de la planilla se creó aparte. Hay que decidir a mano si es el mismo.`
+                : `La unidad «${u.name}», que ya estaba cargada, puede ser ${candidatos.map((l) => l.nombre).join(" o ")}: no se pudo decidir cuál por quienes viven ahí. Quedó como estaba.`);
+            continue;
+        }
         adoptar.set(`${elegido.sigla}|${elegido.codigo}`, u);
         inf.lotes.adoptados.push(`${u.name} → ${elegido.nombre}`);
     }
