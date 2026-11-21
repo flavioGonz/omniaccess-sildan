@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { codigoDeNombreViejo, compartenNombre, leerPadron, mismoNombre, siglaDeEtapa } from "@/lib/padron-planilla";
+import { codigoDeNombreViejo, compartenNombre, leerPadron, mismoNombre, nombresCompatibles, siglaDeEtapa } from "@/lib/padron-planilla";
 
 /* Los datos de estas pruebas son inventados: la forma es la de la planilla de San Nicolás (v8),
    las personas no existen. */
@@ -100,4 +100,19 @@ test("un lote cargado antes («L1») se lleva al código del plano («L 1»), y 
     assert.ok(mismoNombre("  María  José Núñez ", "maria jose nuñez"));
     assert.ok(!mismoNombre("María Núñez", "María José Núñez"));
     assert.ok(!mismoNombre("", ""));
+});
+
+test("la misma persona escrita más corta o más larga se reconoce; un apellido solo, no", () => {
+    assert.ok(nombresCompatibles("Juan Pérez", "Juan Martín Pérez García"));
+    assert.ok(nombresCompatibles("MARIA JOSE NUÑEZ", "María José Núñez"));
+    assert.ok(!nombresCompatibles("Pérez", "Juan Pérez"));                       // un apellido solo no alcanza
+    assert.ok(!nombresCompatibles("Juan Pérez", "Ana Pérez"));                   // hermanos, no la misma persona
+    assert.ok(!nombresCompatibles("Juan Pérez", "Juan Rodríguez"));
+    assert.ok(!nombresCompatibles("", "Juan Pérez"));
+});
+
+test("el nombre de la administración no arrastra la versión del plano", () => {
+    const p = leerPadron({ lotes: [CAB_LOTES, ["7ª Etapa (V11)", "D", "4", null, "D 4", null, 1200, "Raúl Terreno", null, null, 0, "OK", null]], envios: [] });
+    assert.deepEqual(p.administraciones, [{ nombre: "7ª Etapa", sigla: "7ª", orden: 1 }]);
+    assert.equal(p.lotes[0].etapa, "7ª Etapa (V11)");                            // el lote guarda la etapa como vino
 });

@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { nuevaClave } from "@/lib/censo-invitaciones";
-import { codigoDeNombreViejo, compartenNombre, leerPadron, mismoNombre, type Padron } from "@/lib/padron-planilla";
+import { codigoDeNombreViejo, compartenNombre, leerPadron, mismoNombre, nombresCompatibles, type Padron } from "@/lib/padron-planilla";
 
 /**
  * Llevar la planilla del padrón a la base (21/11, Nico: «tomar esa info y crear los lotes,
@@ -153,6 +153,14 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
             const iguales = usuarios.filter((x) => !x.email?.trim() && x.role === "RESIDENT" && !tomados.has(x.id) && mismoNombre(x.name, p.nombre));
             if (iguales.length === 1) u = iguales[0];
             else if (iguales.length > 1) inf.avisos.push(`Hay ${iguales.length} residentes sin correo que se llaman igual que un contacto de ${suyos[0].nombre}: no se eligió ninguno y se creó la persona aparte.`);
+        }
+        if (!u && p.nombre) {
+            /* Y entre los que ya viven en SU lote, el que se llama igual pero escrito más corto o
+               más largo («Juan Pérez» / «Juan Martín Pérez García»): es quien se cargó a mano
+               antes. Fuera del mismo lote esta comparación no se hace. */
+            const casas = new Set(suyos.map((v) => v.unitId));
+            const vecinos = usuarios.filter((x) => !x.email?.trim() && x.role === "RESIDENT" && !tomados.has(x.id) && x.unitId && casas.has(x.unitId) && nombresCompatibles(x.name, p.nombre));
+            if (vecinos.length === 1) u = vecinos[0];
         }
         let userId: string;
         if (u) {

@@ -192,6 +192,21 @@ export const mismoNombre = (a: string | null | undefined, b: string | null | und
 };
 
 /**
+ * ¿Es la misma persona, escrita más corta o más larga? «Juan Pérez» y «Juan Martín Pérez García»:
+ * todas las palabras del nombre corto están en el largo, y el corto tiene al menos dos (un nombre
+ * y un apellido). Con una sola palabra en común no alcanza: «Pérez» solo es media guía telefónica.
+ *
+ * Sirve SÓLO entre gente del mismo lote (ahí lo usa el importador): en todo el padrón, dos
+ * personas distintas pueden llamarse parecido; en la misma casa, casi nunca.
+ */
+export function nombresCompatibles(a: string | null | undefined, b: string | null | undefined): boolean {
+    const de = (x: string | null | undefined) => [...new Set(sinTildes(String(x ?? "")).replace(/[^a-z0-9ñ ]+/g, " ").split(/\s+/).filter((p) => p.length >= 3))];
+    const pa = de(a), pb = de(b);
+    const [corto, largo] = pa.length <= pb.length ? [pa, new Set(pb)] : [pb, new Set(pa)];
+    return corto.length >= 2 && corto.every((p) => largo.has(p));
+}
+
+/**
  * Un lote cargado antes de las administraciones («L1», «J11», «G9») llevado al código del plano
  * («L 1», «J 11», «G 9»): la manzana son las letras del principio y el solar es el resto.
  * `null` si el nombre no tiene esa forma (y entonces no se lo intenta emparejar con nada).
