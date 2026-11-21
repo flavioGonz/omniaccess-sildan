@@ -8,6 +8,7 @@ import { leerPlanilla, nuevaClave, type FilaPlanilla } from "@/lib/censo-invitac
 import { configCorreo, probarCorreo } from "@/lib/correo";
 import { estadoDeGoteo, guardarGoteo, leerGoteoGuardado, mandarInvitacion } from "@/lib/censo-envio";
 import { leerGoteo } from "@/lib/censo-goteo";
+import { revisarDominio } from "@/lib/correo-dominio";
 
 export const dynamic = "force-dynamic";
 const SIN_CACHE = { "Cache-Control": "no-store" };
@@ -22,7 +23,7 @@ const POR_TANDA = 25;
 /**
  * Las invitaciones del censo: un lote, su correo y su clave.
  *
- * GET    — la lista y el resumen.
+ * GET    — la lista, el resumen y si el dominio del remitente está en condiciones de mandar.
  * POST   — la planilla (multipart, xlsx o csv): da de alta las invitaciones que faltan.
  * PUT    — { accion: "goteo" | "enviar" | "probar" | "clave" } : poner en marcha o pausar el envío
  *          de a poco, mandar unas pocas ya, probar el correo, prender o apagar la clave por lote.
@@ -39,7 +40,7 @@ async function permitido(): Promise<NextResponse | { sesion: Sesion; quien: stri
 
 const conClave = async () => (await prisma.setting.findUnique({ where: { key: "CENSO_CON_CLAVE" } }))?.value === "true";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
     const q = await permitido(); if (q instanceof NextResponse) return q;
     const [filas, cfg] = await Promise.all([
         prisma.invitacionCenso.findMany({ orderBy: [{ enviadoAt: "asc" }, { lote: "asc" }], take: 2000 }),
@@ -49,6 +50,9 @@ export async function GET() {
         conClave: await conClave(),
         correoListo: !!cfg,
         copiaAdmin: cfg?.copia || "",
+        /* Si el dominio del remitente no autoriza a este servidor, los correos van a spam: se dice
+           acá, antes de mandar. `?dns=1` vuelve a preguntarle al DNS (después de corregirlo). */
+        dominio: cfg ? await revisarDominio({ desde: cfg.desde, host: cfg.host }, req.nextUrl.searchParams.get("dns") === "1").catch(() => null) : null,
         goteo: await estadoDeGoteo(),
         invitaciones: filas.map((f) => ({
             id: f.id, lote: f.lote, email: f.email, nombre: f.nombre, clave: f.clave,

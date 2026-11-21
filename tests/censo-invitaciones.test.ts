@@ -1,7 +1,7 @@
 /** El censo con clave por lote (lib/censo-invitaciones). */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { correoDeInvitacion, correoSirve, leerPlanilla, normalizarClave, normalizarLoteInv, nuevaClave } from "@/lib/censo-invitaciones";
+import { CID_LOGO, correoDeInvitacion, correoSirve, leerPlanilla, normalizarClave, normalizarLoteInv, nuevaClave } from "@/lib/censo-invitaciones";
 
 test("la clave no usa caracteres que se confunden", () => {
     for (let i = 0; i < 200; i++) {
@@ -78,6 +78,19 @@ test("el correo lleva el enlace, la clave y el lote", () => {
     // Lo que entra del afuera va escapado: un apellido con < no puede romper el correo.
     const malo = correoDeInvitacion({ barrio: "<b>x", lote: "B4", url: "https://x", clave: "A", nombre: "<script>" });
     assert.equal(malo.html.includes("<script>"), false);
+});
+
+test("el logo va citado sólo cuando viaja adjunto", () => {
+    const base = { barrio: "San Nicolás", lote: "B4", url: "https://x/registro/ABCD-3456", clave: "ABCD-3456" };
+    const con = correoDeInvitacion({ ...base, conLogo: true });
+    assert.ok(con.html.includes(`src="cid:${CID_LOGO}"`));
+    // Sin el adjunto, una <img> sería un recuadro roto: la marca va escrita.
+    const sin = correoDeInvitacion(base);
+    assert.equal(sin.html.includes("<img"), false);
+    assert.match(sin.html, />OmniAccess<\/span>/);
+    // Sin nombre, la frase empieza con mayúscula.
+    assert.match(sin.html, /\n\s+Cargá las matrículas/);
+    assert.match(sin.texto, /^Este es el registro/);
 });
 
 test("qué es un correo y qué no", () => {

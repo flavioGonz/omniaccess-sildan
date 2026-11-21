@@ -123,11 +123,24 @@ export function leerPlanilla(filas: unknown[][]): LecturaPlanilla {
     return { filas: [...porLote.values()], errores, repetidos };
 }
 
+/**
+ * Con qué nombre viaja el logo adentro del correo. El HTML lo cita como `cid:` y quien manda lo
+ * adjunta en línea (`censo-envio.ts`). Va adentro y no como una dirección de este servidor porque
+ * una imagen de afuera el programa de correo la esconde hasta que la persona acepta «mostrar
+ * imágenes», y un correo que llega sin su marca es justo lo que no se quería.
+ */
+export const CID_LOGO = "logo@omniaccess";
+/** El tamaño al que se ve el logo, en px. El archivo viaja al triple para que no se vea borroso en un teléfono. */
+export const LOGO_ANCHO = 122;
+export const LOGO_ALTO = 30;
+
 /** El correo que recibe cada lote. Texto y HTML: el texto es el que llega cuando el HTML no se ve. */
-export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre }: {
+export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre, conLogo }: {
     barrio: string; lote: string; url: string; clave: string; nombre?: string;
     /** Cuando la persona tiene más de un lote (el código es por persona): todos, como se leen. */
     lotes?: string[];
+    /** El logo viaja adjunto con `CID_LOGO`. Sin eso la marca va escrita, que es lo que se ve si la imagen falta. */
+    conLogo?: boolean;
 }): { asunto: string; texto: string; html: string } {
     const quien = nombre ? `${nombre}, ` : "";
     const casa = barrio || "el barrio";
@@ -136,7 +149,7 @@ export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre }: 
     if (varios) lote = `${lotes!.slice(0, -1).join(", ")} y ${lotes![lotes!.length - 1]}`;
     const asunto = `Censo de vehículos · ${varios ? "lotes" : "lote"} ${lote}`;
     const texto = [
-        `${quien}este es el registro de vehículos ${varios ? `de tus lotes ${lote}` : `del lote ${lote}`} de ${casa}.`,
+        `${quien ? `${quien}este` : "Este"} es el registro de vehículos ${varios ? `de tus lotes ${lote}` : `del lote ${lote}`} de ${casa}.`,
         ...(varios ? [``, `El enlace sirve para todos: al entrar elegís para cuál cargás, y volvés a entrar para el otro.`] : []),
         ``,
         `Entrá por este enlace, que ya trae tu clave:`,
@@ -151,16 +164,25 @@ export function correoDeInvitacion({ barrio, lote, lotes, url, clave, nombre }: 
         ``,
         `OmniAccess · Ve. Verifica. Avisa. · Un desarrollo de Ingeniería en Seguridad`,
     ].join("\n");
+    /* La cabecera es la barra oscura del panel, con el barrio a la izquierda y el logo a la derecha
+       (pedido de Nico, 21/11). Oscura a propósito: el logo vigente es el claro, y un teléfono en
+       modo oscuro da vuelta los fondos blancos pero deja las imágenes como están — un logo de tinta
+       sobre una tarjeta que el teléfono oscureció no se lee. Una barra que ya es oscura no la toca. */
+    const marca = conLogo
+        ? `<img src="cid:${CID_LOGO}" width="${LOGO_ANCHO}" height="${LOGO_ALTO}" alt="OmniAccess" style="display:block;border:0;outline:none;color:#ffffff;font-size:17px;font-weight:700">`
+        : `<span style="font-size:17px;font-weight:700;color:#ffffff;letter-spacing:-.02em">OmniAccess</span>`;
     const html = `<!doctype html><html lang="es"><body style="margin:0;background:#f4f6f9;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e2e8f0">
-<tr><td style="padding:22px 24px 0">
-  <div style="font-size:17px;font-weight:700;color:#0a0e14;letter-spacing:-.02em">OmniAccess</div>
-  <div style="font-size:12px;color:#64748b;margin-top:2px">${escaparHtml(casa)}</div>
+<tr><td bgcolor="#0a0e14" style="padding:15px 24px;background:#0a0e14">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+    <td style="vertical-align:middle;font-size:14px;font-weight:600;color:#ffffff;letter-spacing:-.01em">${barrio ? escaparHtml(barrio) : ""}</td>
+    <td align="right" style="vertical-align:middle">${marca}</td>
+  </tr></table>
 </td></tr>
-<tr><td style="padding:18px 24px 0">
+<tr><td style="padding:20px 24px 0">
   <h1 style="margin:0;font-size:22px;line-height:1.2;color:#0a0e14;letter-spacing:-.02em">Censo de vehículos · ${varios ? "lotes" : "lote"} ${escaparHtml(lote)}</h1>
   <p style="margin:12px 0 0;font-size:15px;line-height:1.55;color:#334155">
-    ${escaparHtml(quien)}cargá las matrículas que entran a tu casa y quién te visita seguido.
+    ${quien ? `${escaparHtml(quien)}cargá` : "Cargá"} las matrículas que entran a tu casa y quién te visita seguido.
     La cámara las lee en la entrada y la guardia ya sabe quién llega. Son dos minutos y lo hacés una sola vez.${varios ? " El enlace sirve para todos tus lotes: al entrar elegís para cuál cargás." : ""}
   </p>
 </td></tr>

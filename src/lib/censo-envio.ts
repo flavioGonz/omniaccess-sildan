@@ -1,6 +1,8 @@
+import path from "node:path";
+import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import { getAppBranding } from "@/app/actions/settings";
-import { correoDeInvitacion } from "@/lib/censo-invitaciones";
+import { CID_LOGO, LOGO_ALTO, LOGO_ANCHO, correoDeInvitacion } from "@/lib/censo-invitaciones";
 import { enviarCorreo } from "@/lib/correo";
 import { ZONA } from "@/lib/fechas";
 import { estimarFin, FALLAS_PARA_PAUSAR, leerGoteo, proximoEnvio, queToca, enHorario, type Goteo } from "@/lib/censo-goteo";
@@ -19,15 +21,41 @@ export const INTENTOS_MAX = 3;
 
 type Inv = { id: string; lote: string; lotes: unknown; nombre: string; email: string; clave: string };
 
+/** La tinta de la marca: el fondo de la barra del correo y del logo que va sobre ella. */
+const TINTA = "#0a0e14";
+let logo: Promise<Buffer | null> | null = null;
+/**
+ * El logo que va en la cabecera del correo.
+ *
+ * Sale de `marca-omniaccess-v2.png`, que es el logo vigente (el mismo que marca los clips; ver
+ * `claude/marca-omniaccess.md`), y no de un archivo propio del correo: un segundo archivo es la
+ * forma de que un día queden dos épocas de la marca conviviendo, como pasó con el censo el 18/11.
+ *
+ * Se aplana sobre la tinta en vez de viajar transparente: si un programa de correo le saca el fondo
+ * a la barra, un logo blanco transparente desaparece; aplanado se lee igual.
+ *
+ * `null` si no se pudo armar: el correo sale con la marca escrita, no deja de salir.
+ */
+export function logoDelCorreo(): Promise<Buffer | null> {
+    logo ??= sharp(path.join(process.cwd(), "public", "marca-omniaccess-v2.png"))
+        .trim()
+        .resize(LOGO_ANCHO * 3, LOGO_ALTO * 3, { fit: "contain", background: TINTA })
+        .flatten({ background: TINTA })
+        .png({ compressionLevel: 9, palette: true })
+        .toBuffer()
+        .catch(() => { logo = null; return null; });
+    return logo;
+}
+
 /** Manda una invitación y anota en su fila cómo le fue. */
 export async function mandarInvitacion(inv: Inv, origen: string): Promise<{ ok: boolean; error?: string }> {
-    const marca = await getAppBranding();
+    const [marca, imagen] = await Promise.all([getAppBranding(), logoDelCorreo()]);
     const { asunto, texto, html } = correoDeInvitacion({
         barrio: marca.barrio || marca.name, lote: inv.lote, nombre: inv.nombre || undefined,
         lotes: (Array.isArray(inv.lotes) ? (inv.lotes as { nombre?: unknown }[]) : []).map((l) => String(l?.nombre || "")).filter(Boolean),
-        clave: inv.clave, url: `${origen}/registro/${inv.clave}`,
+        clave: inv.clave, url: `${origen}/registro/${inv.clave}`, conLogo: !!imagen,
     });
-    const r = await enviarCorreo({ para: inv.email, asunto, texto, html });
+    const r = await enviarCorreo({ para: inv.email, asunto, texto, html, enLinea: imagen ? [{ cid: CID_LOGO, nombre: "omniaccess.png", contenido: imagen }] : undefined });
     if (r.ok) await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { enviadoAt: new Date(), intentos: { increment: 1 }, error: null } });
     else await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { intentos: { increment: 1 }, error: r.error || "no se pudo" } });
     return r;

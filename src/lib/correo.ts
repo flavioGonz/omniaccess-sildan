@@ -43,7 +43,11 @@ export async function configCorreo(): Promise<ConfigCorreo | null> {
     };
 }
 
-export type Envio = { para: string; copia?: string; asunto: string; texto: string; html?: string };
+export type Envio = {
+    para: string; copia?: string; asunto: string; texto: string; html?: string;
+    /** Imágenes que el HTML cita como `cid:<cid>` (el logo). Viajan adentro del correo, no como adjunto a bajar. */
+    enLinea?: { cid: string; nombre: string; contenido: Buffer }[];
+};
 
 /**
  * Manda uno. Nunca tira: devuelve por qué no se pudo, porque quien lo llama está mandando
@@ -62,7 +66,10 @@ export async function enviarCorreo(e: Envio): Promise<{ ok: boolean; error?: str
             connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 20_000,
         });
         const copias = [cfg.copia, e.copia].filter(Boolean).join(", ");
-        await t.sendMail({ from: cfg.desde, to: e.para, cc: copias || undefined, subject: e.asunto, text: e.texto, html: e.html });
+        await t.sendMail({
+            from: cfg.desde, to: e.para, cc: copias || undefined, subject: e.asunto, text: e.texto, html: e.html,
+            attachments: e.enLinea?.map((a) => ({ filename: a.nombre, content: a.contenido, cid: a.cid, contentDisposition: "inline" as const })),
+        });
         return { ok: true };
     } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message.slice(0, 200) : "No se pudo mandar" };

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Clock, Download, Loader2, Mail, Pause, Play, Send, Timer, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Check, Clock, Download, Loader2, Mail, Pause, Play, RefreshCw, Send, ShieldCheck, Timer, Trash2, Upload } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
@@ -9,6 +9,7 @@ import { Chip, Cargando, ErrorEstado } from "@/components/ui/estados";
 import { diaSemana, fechaHora, hora } from "@/lib/fechas";
 import { RITMOS } from "@/lib/censo-goteo";
 import type { EstadoGoteo } from "@/lib/censo-envio";
+import type { JuicioDominio } from "@/lib/correo-dominio";
 import { cn } from "@/lib/utils";
 
 /**
@@ -25,13 +26,54 @@ import { cn } from "@/lib/utils";
  *    la conexión a la mitad; el botón sigue solo hasta que no quedan.
  *  · **El error del envío se guarda por fila.** «Se mandaron 280 de 300» sin decir cuáles
  *    fallaron obliga a adivinar; acá cada lote que falló dice por qué.
+ *  · **Dice si los correos van a llegar a spam antes de mandarlos** (21/11). La invitación de
+ *    prueba llegó a spam porque el dominio del remitente no autorizaba al servidor de salida: eso
+ *    está escrito en el DNS y se puede leer antes de mandar 490.
  */
 
 type Invitacion = {
     id: string; lote: string; email: string; nombre: string; clave: string;
     enviadoAt: string | null; usadoAt: string | null; intentos: number; error: string | null;
 };
-type Datos = { conClave: boolean; correoListo: boolean; copiaAdmin: string; invitaciones: Invitacion[]; goteo: EstadoGoteo };
+type Datos = { conClave: boolean; correoListo: boolean; copiaAdmin: string; dominio: JuicioDominio | null; invitaciones: Invitacion[]; goteo: EstadoGoteo };
+
+/**
+ * Si el dominio del remitente deja que este servidor mande en su nombre.
+ *
+ * Cuando está bien es un renglón; cuando no, ocupa lugar y trae lo que hay que cargar en el DNS,
+ * listo para copiar: quien lo tiene que arreglar casi nunca es quien está mirando esta pantalla.
+ */
+function EstadoDelDominio({ j, mirando, alMirar }: { j: JuicioDominio; mirando: boolean; alMirar: () => void }) {
+    const otraVez = (
+        <button type="button" onClick={alMirar} disabled={mirando} className="inline-flex items-center gap-1 font-semibold text-[var(--accion)] hover:underline disabled:opacity-60">
+            {mirando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Volver a mirar
+        </button>
+    );
+    if (j.estado === "bien") return (
+        <p className="mt-1.5 flex items-start gap-1.5 text-[12px] text-muted-foreground"><ShieldCheck size={13} className="mt-0.5 shrink-0 tono-bien" />{j.titulo}</p>
+    );
+    if (j.estado === "no-se") return (
+        <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">{j.titulo} {otraVez}</p>
+    );
+    return (
+        <div className={cn("mt-2.5 rounded-[10px] p-3 text-[12.5px] leading-snug", j.estado === "mal" ? "chip-mal" : "chip-aviso")}>
+            <p className="flex items-start gap-2 font-bold"><AlertTriangle size={14} className="mt-0.5 shrink-0" />{j.titulo}</p>
+            {j.renglones.length > 0 && <ul className="mt-1.5 space-y-1 pl-[22px]">{j.renglones.map((r, i) => <li key={i}>{r}</li>)}</ul>}
+            {j.arreglo.length > 0 && (
+                <div className="mt-2.5 space-y-2 pl-[22px]">
+                    <p className="font-semibold">Qué cargar en el DNS del dominio:</p>
+                    {j.arreglo.map((a, i) => (
+                        <div key={i}>
+                            <p className="text-[11.5px] font-semibold opacity-80">{a.donde}</p>
+                            <p className="mt-0.5 select-all break-words rounded-[6px] bg-background/70 px-2 py-1.5 text-foreground">{a.valor}</p>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <p className="mt-2.5 pl-[22px]">{j.estado === "mal" ? "Hasta que eso esté, conviene no mandar. " : ""}El cambio tarda unos minutos en verse. {otraVez}</p>
+        </div>
+    );
+}
 
 export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alCerrar: () => void }) {
     const [d, setD] = useState<Datos | null>(null);
@@ -54,6 +96,22 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
        horas y quien lo mira quiere ver que avanza sin apretar nada. */
     const enMarcha = !!d?.goteo.activo;
     useEffect(() => { if (!abierto || !enMarcha) return; const iv = setInterval(traer, 15_000); return () => clearInterval(iv); }, [abierto, enMarcha, traer]);
+
+    const [mirando, setMirando] = useState(false);
+    /** Vuelve a preguntarle al DNS: es lo que se aprieta después de corregir el dominio. */
+    async function mirarDominio() {
+        setMirando(true);
+        try {
+            const r = await fetch("/api/censo/invitaciones?dns=1", { cache: "no-store" });
+            const j = await r.json();
+            if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
+            setD(j);
+            if (j.dominio?.estado === "bien") toast.success({ title: "El dominio quedó bien", description: j.dominio.titulo });
+        } catch (e) { toast.error({ title: "No se pudo volver a mirar", description: e instanceof Error ? e.message : undefined }); }
+        finally { setMirando(false); }
+    }
+    /** El dominio manda a spam lo que sale de acá: el botón de empezar lo dice en vez de disimularlo. */
+    const aSpam = d?.dominio?.estado === "mal";
 
     const [cambiandoGoteo, setCambiandoGoteo] = useState(false);
     /** Pone en marcha, pausa o cambia el ritmo y el horario del envío de a poco. */
@@ -148,8 +206,8 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                 {cambiandoGoteo ? <Loader2 size={14} className="animate-spin" /> : <Pause size={14} />} Pausar el envío
                             </Button>
                         ) : (
-                            <Button onClick={() => goteo({ activo: true })} disabled={cambiandoGoteo || !d.goteo.pendientes || !d.correoListo}>
-                                {cambiandoGoteo ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} Enviar de a poco {d.goteo.pendientes || ""}
+                            <Button variant={aSpam ? "outline" : undefined} onClick={() => goteo({ activo: true })} disabled={cambiandoGoteo || !d.goteo.pendientes || !d.correoListo}>
+                                {cambiandoGoteo ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} {aSpam ? "Enviar igual" : "Enviar de a poco"} {d.goteo.pendientes || ""}
                             </Button>
                         )}
                     </>
@@ -193,6 +251,7 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                                 : "Sin copia a la administración: cargala en Ajustes → Correo para tener la constancia del envío."}
                                         </p>
                                     )}
+                                    {d.dominio && <EstadoDelDominio j={d.dominio} mirando={mirando} alMirar={mirarDominio} />}
                                 </CajonSeccion>
 
                                 <CajonSeccion titulo="Envío de a poco" icono={Timer} compacta
