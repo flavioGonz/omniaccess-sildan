@@ -60,6 +60,14 @@ export async function importarPadronDesdeLibro(buf: Buffer | ArrayBuffer, o: { s
     return importarPadron(leerPadron(h), o);
 }
 
+/**
+ * Los lotes de una invitación, en una forma que se pueda comparar. La base devuelve las claves de
+ * un JSON en SU orden, no en el que se escribieron: comparando el texto tal cual, la segunda
+ * pasada de la misma planilla informaba «490 códigos actualizados» sin haber cambiado ninguno.
+ */
+const canon = (lotes: unknown): string =>
+    JSON.stringify((Array.isArray(lotes) ? lotes : []).map((l) => { const x = (l || {}) as Record<string, unknown>; return [x.unitId ?? null, x.nombre ?? null, x.vinculo ?? null]; }));
+
 export async function importarPadron(padron: Padron, o: { simulacro: boolean; quien: string }): Promise<InformePadron> {
     const escribir = !o.simulacro;
     const inf: InformePadron = {
@@ -204,7 +212,7 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
                 clavesUsadas.add(clave);
                 await prisma.invitacionCenso.create({ data: { sitio: "", email: p.email, nombre: p.nombre, lote: rotulo, lotes, userId, clave } });
             }
-        } else if (inv.lote !== rotulo || inv.nombre !== p.nombre || inv.userId !== userId || JSON.stringify(inv.lotes) !== JSON.stringify(lotes)) {
+        } else if (inv.lote !== rotulo || inv.nombre !== p.nombre || inv.userId !== userId || canon(inv.lotes) !== canon(lotes)) {
             /* La clave y si ya se mandó NO se tocan. */
             inf.invitaciones.actualizadas++;
             if (escribir) await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { nombre: p.nombre, lote: rotulo, lotes, userId } });
