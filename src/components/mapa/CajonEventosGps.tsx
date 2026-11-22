@@ -2,11 +2,14 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    BatteryLow, BellRing, Car, ChevronDown, CloudOff, Gauge, History, Loader2, Lock, LogIn, LogOut, MapPinOff, Satellite, ScanLine, Share2, ShieldOff, Siren,
+    BatteryLow, BellRing, Car, ChevronDown, CloudOff, Gauge, History, Loader2, Lock, LogIn, LogOut, MapPinOff, Route, Satellite, ScanLine, Share2, ShieldOff, Siren,
     Unplug, Vibrate, Waypoints, Wifi, WifiOff, X,
 } from "lucide-react";
 import { historialEventosGps, type EventoGps, type HistorialEventosGps, type Rastreador } from "@/app/actions/gps";
-import { CLASES_EVENTO_GPS, demoraLegible, fichaDeEventoGps, plegarEventos, tituloDeEventoGps, type ClaseEventoGps, type DibujoEventoGps } from "@/lib/gps-eventos";
+import { FILTRO_INICIAL, filtrosPuestos, paraInputConHora, PERIODOS_GPS, rangoDeFiltro, sirveParaRecorrido, type FiltroGps, type PeriodoGps } from "@/lib/gps-filtro";
+import { RangoFechas } from "@/components/mapa/RangoFechas";
+import { Seek } from "@/components/ui/search";
+import { CLASES_EVENTO_GPS, demoraLegible, fichaDeEventoGps, plegarEventos, tituloDeEventoGps, type DibujoEventoGps } from "@/lib/gps-eventos";
 import { nivel } from "@/lib/centrales/prioridades";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { ErrorEstado, Vacio } from "@/components/ui/estados";
@@ -42,9 +45,6 @@ import { cn } from "@/lib/utils";
  * a la vez.
  */
 
-const PERIODOS: { dias: number | null; rotulo: string }[] = [
-    { dias: 1, rotulo: "24 h" }, { dias: 7, rotulo: "7 días" }, { dias: 30, rotulo: "30 días" }, { dias: null, rotulo: "Todo" },
-];
 const POR_PAGINA = 80;
 
 const DIBUJO: Record<DibujoEventoGps, typeof Siren> = {
@@ -61,7 +61,9 @@ function diaDe(iso: string): { clave: string; rotulo: string } {
     return { clave, rotulo: fechaCorta(iso) };
 }
 
-export function CajonEventosGps({ imei, rastreador, elegido, alElegir, alCerrar, refresco }: {
+export function CajonEventosGps({ imei, rastreador, elegido, alElegir, alCerrar, refresco, alVerRecorrido }: {
+    /** Pide el recorrido del período elegido sobre el mapa. `hasta` nulo es «hasta ahora». */
+    alVerRecorrido?: (desde: Date, hasta: Date | null) => void;
     imei: string;
     rastreador: Rastreador | undefined;
     /** El evento que está marcado en el mapa. */
@@ -71,8 +73,25 @@ export function CajonEventosGps({ imei, rastreador, elegido, alElegir, alCerrar,
     /** Cambia cuando la capa sabe que hay algo nuevo que este cajón no recibe por el socket (el relé). */
     refresco: number;
 }) {
-    const [clase, setClase] = useState<ClaseEventoGps | null>(null);
-    const [dias, setDias] = useState<number | null>(7);
+    /* Todos los filtros en un solo estado: se piden juntos, y «Limpiar» es volver al del principio. */
+    const [f, setF] = useState<FiltroGps>(FILTRO_INICIAL);
+    const clase = f.clase;
+    /* El texto se manda cuando se dejó de escribir: pedir la lista letra por letra la hace parpadear. */
+    const [texto, setTexto] = useState("");
+    useEffect(() => { const t = setTimeout(() => setF((v) => (v.texto === texto ? v : { ...v, texto })), 350); return () => clearTimeout(t); }, [texto]);
+    /* El rango se calcula cuando cambia el filtro, no en cada dibujo: si no, «últimas 24 h» sería un
+       período distinto en cada render y la lista se volvería a pedir sin parar. */
+    const rango = useMemo(() => rangoDeFiltro(f), [f]);
+    const pedir = useCallback((antes?: string) => historialEventosGps({
+        imei, clase: f.clase, tipos: f.tipos, texto: f.texto, soloCasos: f.soloCasos, cuantos: POR_PAGINA, antes,
+        desde: rango.desde?.toISOString() || null, hasta: rango.hasta?.toISOString() || null,
+    }), [imei, f, rango]);
+    const elegirPeriodo = (p: PeriodoGps) => setF((v) => {
+        if (p !== "rango" || v.periodo === "rango") return { ...v, periodo: p };
+        /* Al pasar a «Fechas», los campos arrancan con el período que se estaba viendo: se corrige una hora, no se carga todo de cero. */
+        const r = rangoDeFiltro(v);
+        return { ...v, periodo: p, desde: r.desde ? paraInputConHora(r.desde) : "", hasta: r.hasta ? paraInputConHora(r.hasta) : "" };
+    });
     const [datos, setDatos] = useState<HistorialEventosGps | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [trayendoMas, setTrayendoMas] = useState(false);
@@ -88,21 +107,27 @@ export function CajonEventosGps({ imei, rastreador, elegido, alElegir, alCerrar,
         const n = ++pedido.current;
         setError(null);
         try {
-            const r = await historialEventosGps({ imei, clase, dias, cuantos: POR_PAGINA });
+            if (rango.error) { setDatos({ eventos: [], hayMas: false, cuenta: { alarma: 0, geocerca: 0, conexion: 0, equipo: 0 }, porTipo: {} }); return; }
+            const r = await pedir();
             if (n === pedido.current) setDatos(r);
         } catch (e) {
             if (n === pedido.current) setError(e instanceof Error ? e.message : "No se pudo traer el historial.");
         }
-    }, [imei, clase, dias]);
+    }, [pedir, rango.error]);
     useEffect(() => { setDatos(null); setAbiertos(new Set()); traer(); }, [traer]);
     useEffect(() => { if (refresco) traer(); }, [refresco, traer]);
+
+    /* Dentro del oyente de tiempo real, `f` es la ficha del evento que llega: el filtro va con otro nombre. */
+    const filtro = f;
+    const traerRef = useRef(traer);
+    useEffect(() => { traerRef.current = traer; }, [traer]);
 
     const traerMas = async () => {
         if (!datos || !datos.eventos.length || trayendoMas) return;
         setTrayendoMas(true);
         const n = pedido.current;
         try {
-            const r = await historialEventosGps({ imei, clase, dias, cuantos: POR_PAGINA, antes: datos.eventos[datos.eventos.length - 1].cuando });
+            const r = await pedir(datos.eventos[datos.eventos.length - 1].cuando);
             if (n !== pedido.current) return;
             setDatos((v) => (v ? { ...v, eventos: [...v.eventos, ...r.eventos.filter((x) => !v.eventos.some((y) => y.id === x.id))], hayMas: r.hayMas } : v));
         } catch { setError("No se pudieron traer los más antiguos."); }
@@ -115,11 +140,16 @@ export function CajonEventosGps({ imei, rastreador, elegido, alElegir, alCerrar,
         const f = fichaDeEventoGps(d.tipo);
         setDatos((v) => {
             if (!v || v.eventos.some((x) => x.id === d.id)) return v;
+            /* Lo nuevo entra sólo si el período llega hasta ahora y pasa los filtros puestos. Con texto no
+               se adivina: se vuelve a pedir, que el que sabe buscar es el servidor. */
+            if (rango.hasta || (filtro.soloCasos && d.prioridad == null)) return v;
+            if (filtro.texto.trim()) { setTimeout(() => traerRef.current(), 0); return v; }
             const cuenta = { ...v.cuenta, [f.clase]: v.cuenta[f.clase] + 1 };
-            if (clase && f.clase !== clase) return { ...v, cuenta };
+            const porTipo = { ...v.porTipo, [d.tipo]: (v.porTipo[d.tipo] || 0) + 1 };
+            if ((clase && f.clase !== clase) || (filtro.tipos.length && !filtro.tipos.includes(d.tipo))) return { ...v, cuenta, porTipo };
             const e: EventoGps = { id: d.id, imei: d.imei, tipo: d.tipo, cuando: d.cuando, detalle: d.detalle || null, lat: d.lat ?? null, lon: d.lon ?? null, tarde: d.tarde || null, prioridad: d.prioridad ?? null, lugar: d.lugar ?? null };
             /* Uno atrasado no va arriba: va en su hora. */
-            return { ...v, cuenta, eventos: [...v.eventos, e].sort((a, b) => (a.cuando < b.cuando ? 1 : a.cuando > b.cuando ? -1 : 0)) };
+            return { ...v, cuenta, porTipo, eventos: [...v.eventos, e].sort((a, b) => (a.cuando < b.cuando ? 1 : a.cuando > b.cuando ? -1 : 0)) };
         });
         setRecien((s) => new Set(s).add(d.id));
         setTimeout(() => setRecien((s) => { const o = new Set(s); o.delete(d.id); return o; }), 6000);
@@ -188,18 +218,53 @@ export function CajonEventosGps({ imei, rastreador, elegido, alElegir, alCerrar,
 
                 {/* Las pestañas son los números del período: se lee cuánto hubo de cada cosa y se filtra con el mismo gesto. */}
                 <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Qué eventos se ven">
-                    <Pestania activa={clase === null} onClick={() => setClase(null)} rotulo="Todos" n={total} />
+                    <Pestania activa={clase === null} onClick={() => setF((v) => ({ ...v, clase: null, tipos: [] }))} rotulo="Todos" n={total} />
                     {CLASES_EVENTO_GPS.map((c) => (
-                        <Pestania key={c.clave} activa={clase === c.clave} onClick={() => setClase(clase === c.clave ? null : c.clave)} rotulo={c.rotulo} n={datos ? datos.cuenta[c.clave] : null}
+                        <Pestania key={c.clave} activa={clase === c.clave} onClick={() => setF((v) => ({ ...v, clase: v.clase === c.clave ? null : c.clave, tipos: [] }))} rotulo={c.rotulo} n={datos ? datos.cuenta[c.clave] : null}
                             alerta={c.clave === "alarma" && !!datos?.cuenta.alarma} />
                     ))}
                 </div>
-                <div className="mt-2 flex items-center gap-1" role="group" aria-label="Período">
-                    {PERIODOS.map((p) => (
-                        <button key={p.rotulo} type="button" onClick={() => setDias(p.dias)} aria-pressed={dias === p.dias}
-                            className={cn("h-6 px-2 rounded-[6px] text-[11px] font-semibold", dias === p.dias ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground")}>{p.rotulo}</button>
+                {/* Con una clase elegida, sus tipos: para quedarse con uno solo («sólo los cortes de alimentación»).
+                    Sólo los que hubo en el período: una lista de tipos en cero es ruido. */}
+                {clase && datos && (() => {
+                    const suyos = Object.entries(datos.porTipo).filter(([t]) => fichaDeEventoGps(t).clase === clase).sort((a, b) => b[1] - a[1]);
+                    return suyos.length > 1 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1" role="group" aria-label="Qué tipo">
+                            {suyos.map(([t, n]) => {
+                                const on = f.tipos.includes(t);
+                                return <button key={t} type="button" aria-pressed={on} onClick={() => setF((v) => ({ ...v, tipos: on ? v.tipos.filter((x) => x !== t) : [...v.tipos, t] }))}
+                                    className={cn("h-6 rounded-full border px-2 text-[11px] font-semibold inline-flex items-center gap-1", on ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:text-foreground")}>
+                                    {fichaDeEventoGps(t).rotulo}<span className="tabular-nums opacity-70">{n}</span></button>;
+                            })}
+                        </div>
+                    );
+                })()}
+
+                <div className="mt-2 flex flex-wrap items-center gap-1" role="group" aria-label="Período">
+                    {PERIODOS_GPS.map((p) => (
+                        <button key={p.clave} type="button" onClick={() => elegirPeriodo(p.clave)} aria-pressed={f.periodo === p.clave}
+                            className={cn("h-6 px-2 rounded-[6px] text-[11px] font-semibold", f.periodo === p.clave ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground")}>{p.rotulo}</button>
                     ))}
                 </div>
+                {f.periodo === "rango" && <RangoFechas className="mt-1.5" desde={f.desde} hasta={f.hasta} error={rango.error} alCambiar={(v) => setF((x) => ({ ...x, ...v }))} />}
+
+                <div className="mt-2 flex items-center gap-1.5">
+                    <Seek value={texto} onChange={setTexto} placeholder="Buscar: qué fue, el detalle o el lugar" startOpen width={210} alto={30} />
+                    <button type="button" aria-pressed={f.soloCasos} onClick={() => setF((v) => ({ ...v, soloCasos: !v.soloCasos }))} title="Sólo los que abrieron un caso en Gestión de alarmas"
+                        className={cn("h-[30px] shrink-0 rounded-full border px-2.5 text-[11.5px] font-semibold", f.soloCasos ? "border-foreground bg-foreground text-background" : "border-border hover:bg-accent")}>Sólo casos</button>
+                    {(filtrosPuestos(f) > 0 || texto) && (
+                        <button type="button" onClick={() => { setTexto(""); setF((v) => ({ ...FILTRO_INICIAL, periodo: v.periodo, desde: v.desde, hasta: v.hasta })); }}
+                            className="ml-auto shrink-0 text-[11.5px] font-semibold text-[var(--accion)] hover:underline">Limpiar</button>
+                    )}
+                </div>
+                {/* El mismo período, sobre el mapa: por dónde anduvo en esas fechas y horas. */}
+                {alVerRecorrido && (
+                    <button type="button" disabled={!sirveParaRecorrido(rango)} onClick={() => { if (rango.desde) alVerRecorrido(rango.desde, rango.hasta); }}
+                        title={sirveParaRecorrido(rango) ? "Dibuja en el mapa por dónde anduvo en este período" : f.periodo === "todo" ? "Elegí un período: «Todo» no tiene comienzo" : "El recorrido se puede pedir de hasta un mes"}
+                        className="mt-2 inline-flex h-7 w-full items-center justify-center gap-1.5 rounded-[6px] border border-border text-[11.5px] font-semibold hover:bg-accent disabled:opacity-50 disabled:hover:bg-transparent">
+                        <Route size={13} /> Ver en el mapa el recorrido de este período
+                    </button>
+                )}
             </header>
 
             <div ref={lista} className="flex-1 overflow-y-auto [scrollbar-width:thin]">
@@ -207,8 +272,8 @@ export function CajonEventosGps({ imei, rastreador, elegido, alElegir, alCerrar,
                     : !datos ? <Esqueleto />
                         : grupos.length === 0 ? (
                             <Vacio icono={History}
-                                titulo={clase ? "No hubo ninguno de esos en el período" : "No le pasó nada en el período"}
-                                ayuda={dias ? "Probá con un período más largo, o con «Todo»." : "Cuando el rastreador avise algo, o cruce una geocerca, aparece acá."} />
+                                titulo={rango.error ? "Ese período no existe" : filtrosPuestos(f) ? "Nada coincide con esos filtros" : "No le pasó nada en el período"}
+                                ayuda={rango.error ? rango.error : filtrosPuestos(f) ? "Probá con «Limpiar», o con un período más largo." : f.periodo !== "todo" ? "Probá con un período más largo, o con «Todo»." : "Cuando el rastreador avise algo, o cruce una geocerca, aparece acá."} />
                         ) : (
                             <ol className="pb-2">
                                 {grupos.map((g) => {
@@ -242,7 +307,7 @@ export function CajonEventosGps({ imei, rastreador, elegido, alElegir, alCerrar,
                                 className="w-full h-8 inline-flex items-center justify-center gap-2 rounded-[6px] border border-border text-[12px] font-semibold hover:bg-accent disabled:opacity-60">
                                 {trayendoMas && <Loader2 size={13} className="animate-spin" />} Traer más antiguos
                             </button>
-                        ) : <p className="text-center text-[11px] text-muted-foreground">Es todo lo que hay{dias ? " en el período" : ""}.</p>}
+                        ) : <p className="text-center text-[11px] text-muted-foreground">Es todo lo que hay{f.periodo !== "todo" ? " en el período" : ""}.</p>}
                         {error && <p className="mt-2 text-center text-[11px] tono-aviso">{error}</p>}
                     </div>
                 )}

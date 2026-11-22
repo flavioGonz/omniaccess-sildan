@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Circle, Marker, Polygon, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
-import { CircleDashed, Crosshair, EyeOff, History, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, Share2, ToggleLeft, ToggleRight, X } from "lucide-react";
+import { CalendarClock, CircleDashed, Crosshair, EyeOff, History, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, Share2, ToggleLeft, ToggleRight, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import {
     borrarGeocercaGps, cambiarIconoGps, comandoGps, entornoEventoGps, estelaGps, geocercasGps, guardarGeocercaGps, rastreadoresGps, recorridoGps, unEventoGps,
@@ -19,10 +19,13 @@ import { useTiempoReal } from "@/lib/tiempo-real";
 import { resumenDeRecorrido } from "@/lib/gps-recorrido";
 import { circuloDe, dentroDe, rotuloDeHorario, VERTICES_MAX, type AvisaCerca, type HorarioCerca } from "@/lib/gps-geocerca";
 import { duracionLarga } from "@/lib/gps-jornada";
+import { paraInputConHora, rangoDeFiltro, sirveParaRecorrido } from "@/lib/gps-filtro";
+import { RangoFechas } from "@/components/mapa/RangoFechas";
+import { alPedirGeocerca, avisarRastreadores } from "@/lib/gps-puente";
 import { posicionEn, RETRASO_MS } from "@/lib/gps-reproducir";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";
-import { fechaCorta, hace, horaSeg } from "@/lib/fechas";
+import { fechaCorta, fechaHora, hace, horaSeg } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 
 /**
@@ -104,6 +107,9 @@ function icono(r: Rastreador): L.DivIcon {
     });
 }
 
+/** Un recorrido pedido por fechas: instantes ISO. Sin `hasta`, llega hasta ahora. */
+type RangoRuta = { desde: string; hasta: string | null };
+
 /** Los tramos de tiempo que se ofrecen para el recorrido. */
 const TRAMOS: { clave: string; rotulo: string }[] = [
     { clave: "vivo", rotulo: "En vivo" }, { clave: "10m", rotulo: "10 min" },
@@ -114,7 +120,10 @@ export function CapaGps() {
     const mapa = useMap();
     const [lista, setLista] = useState<Rastreador[]>([]);
     /** El recorrido a la vista: de quién, de cuántas horas, y lo que trajo el servidor. */
-    const [ruta, setRuta] = useState<{ imei: string; horas: number; datos: RecorridoGps | null } | null>(null);
+    /** El recorrido a la vista: de las últimas `horas`, o de un `rango` con fecha y hora (su «hasta» nulo es hasta ahora). */
+    const [ruta, setRuta] = useState<{ imei: string; horas: number; rango?: RangoRuta | null; datos: RecorridoGps | null } | null>(null);
+    /** Los campos de «Fechas» del panel del recorrido, mientras se escriben. */
+    const [fechas, setFechas] = useState<{ desde: string; hasta: string } | null>(null);
     /**
      * La estela: las últimas posiciones tal cual, para «10 min» y para el modo en vivo. En vivo
      * crece con cada posición que empuja el servidor y la cámara sigue al vehículo, hasta que
@@ -199,12 +208,14 @@ export function CapaGps() {
     useEffect(() => { traer(); const iv = setInterval(traer, REFRESCO_MS); return () => clearInterval(iv); }, [traer]);
     const traerRef = useRef(traer); traerRef.current = traer;
 
-    const verRuta = useCallback(async (imei: string, horas: number, encuadrar = true) => {
+    const verRuta = useCallback(async (imei: string, horas: number, encuadrar = true, rango: RangoRuta | null = null) => {
         if (encuadrar) { setViajeSel(null); setCursor(null); setEstela(null); }
-        setRuta((v) => ({ imei, horas, datos: v && v.imei === imei && v.horas === horas ? v.datos : null }));
+        /* «El mismo recorrido» es el mismo rastreador y el mismo período: si se pidió otro mientras éste llegaba, la respuesta vieja no pisa nada. */
+        const mismo = (v: { imei: string; horas: number; rango?: RangoRuta | null } | null) => !!v && v.imei === imei && v.horas === horas && (v.rango?.desde || "") === (rango?.desde || "") && (v.rango?.hasta || "") === (rango?.hasta || "");
+        setRuta((v) => ({ imei, horas, rango, datos: mismo(v) ? v!.datos : null }));
         try {
-            const datos = await recorridoGps(imei, horas);
-            setRuta((v) => (v && v.imei === imei && v.horas === horas ? { ...v, datos } : v));
+            const datos = await recorridoGps(imei, horas, rango);
+            setRuta((v) => (mismo(v) ? { ...v!, datos } : v));
             if (encuadrar && datos.puntos.length > 1) mapa.fitBounds(L.latLngBounds(datos.puntos.map((p) => [p.lat, p.lon] as [number, number])), { padding: [60, 60], maxZoom: 17 });
         } catch { toast.error({ title: "No se pudo traer el recorrido" }); }
     }, [mapa]);
@@ -339,6 +350,17 @@ export function CapaGps() {
         } finally { setMandando(null); setMenu(null); }
     };
 
+    /* El menú contextual del mapa (BarrioMap) pide geocercas por el puente: acá se sabe dónde cae el
+       clic y acá vive el borrador. La forma libre arranca con su primer vértice donde se hizo clic. */
+    const hayRastreadores = lista.length > 0;
+    useEffect(() => { avisarRastreadores(hayRastreadores); return () => avisarRastreadores(false); }, [hayRastreadores]);
+    useEffect(() => alPedirGeocerca((p) => {
+        setCajon(null); setEvSel(null); setColocando(false); setPanelCercas(true);
+        if (p.que === "ver" || p.x == null || p.y == null) { setBorrador(null); return; }
+        const ll = mapa.mouseEventToLatLng({ clientX: p.x, clientY: p.y } as MouseEvent);
+        setBorrador({ ...BORRADOR_NUEVO, lat: ll.lat, lon: ll.lng, puntos: p.que === "libre" ? [[ll.lat, ll.lng]] : null });
+    }), [mapa]);
+
     if (!lista.length) return null;
     const delMenu = menu ? lista.find((r) => r.imei === menu.imei) : null;
     const pts = ruta?.datos?.puntos || [];
@@ -349,9 +371,12 @@ export function CapaGps() {
     /** A quién sigue la cámara: al del modo en vivo, mientras nadie haya arrastrado el mapa. */
     const seguido = estela?.vivo && !suelta ? estela.imei : null;
     /** Qué se ve ahora, para marcar el botón: «vivo», «10m» o las horas del recorrido. */
-    const queSeVe = (imei: string): string | null => (estela?.imei === imei ? (estela.vivo ? "vivo" : "10m") : ruta?.imei === imei ? String(ruta.horas) : null);
+    const queSeVe = (imei: string): string | null => (estela?.imei === imei ? (estela.vivo ? "vivo" : "10m") : ruta?.imei === imei ? (ruta.rango ? "rango" : String(ruta.horas)) : null);
     const elegirTramo = (imei: string, clave: string) => { if (clave === "vivo") verEstela(imei, true); else if (clave === "10m") verEstela(imei, false); else verRuta(imei, Number(clave)); };
-    const cerrarRecorrido = () => { setRuta(null); setEstela(null); setCursor(null); };
+    const cerrarRecorrido = () => { setRuta(null); setEstela(null); setCursor(null); setFechas(null); };
+    /** Los campos de «Fechas» del panel, leídos como instantes del sitio; y aplicarlos: el recorrido de ese rango. */
+    const rangoEscrito = fechas ? rangoDeFiltro({ periodo: "rango", desde: fechas.desde, hasta: fechas.hasta }) : null;
+    const verFechas = (imei: string) => { if (rangoEscrito?.desde && sirveParaRecorrido(rangoEscrito)) verRuta(imei, 0, true, { desde: rangoEscrito.desde.toISOString(), hasta: rangoEscrito.hasta?.toISOString() || null }); };
     /** Quién está adentro de cada geocerca ahora, calculado acá con las posiciones a la vista. */
     const adentroDe = (c: Geocerca) => lista.filter((r) => valePara(c, r.imei) && dentroDe(c, r.lat!, r.lon!));
     const viajes = ruta?.datos?.viajes || [];
@@ -370,7 +395,7 @@ export function CapaGps() {
         <>
             {/* El recorrido: una línea por viaje, pintada según a cuánto iba, con lo que pasó el límite
                 corriendo, el número de cada viaje y el vehículo de la barra (RecorridoGps). */}
-            {ruta?.datos && !estela && <LineasDelRecorrido partes={partes} viajeSel={viajeSel} cursor={cursor} alCursor={setCursor} />}
+            {ruta?.datos && !estela && <LineasDelRecorrido partes={partes} viajeSel={viajeSel} cursor={cursor} alCursor={setCursor} dibujo={(ICONOS[lista.find((r) => r.imei === ruta.imei)?.icono || "auto"] || ICONOS.auto).svg} />}
 
             {/* La estela de los últimos minutos (10 min y en vivo): una sola línea, tal cual. */}
             {/* Las dos líneas se dibujan a mano (`trazarEstela`): la estela termina donde está DIBUJADO
@@ -575,9 +600,25 @@ export function CapaGps() {
                                             {t.clave === "vivo" && <span className={cn("h-1.5 w-1.5 rounded-full", queSeVe(deLaRuta.imei) === "vivo" ? "bg-white animate-pulse" : "bg-emerald-500")} />}{t.rotulo}
                                         </button>
                                     ))}
+                                    {/* Un período con fecha y hora: «el jueves de dos a cuatro de la mañana». Abre los campos; arrancan con lo que se está viendo. */}
+                                    <button type="button" aria-pressed={!!fechas || queSeVe(deLaRuta.imei) === "rango"}
+                                        onClick={() => setFechas((v) => (v ? null : ruta?.rango ? { desde: paraInputConHora(new Date(ruta.rango.desde)), hasta: ruta.rango.hasta ? paraInputConHora(new Date(ruta.rango.hasta)) : "" } : { desde: paraInputConHora(new Date(Date.now() - (ruta?.horas || 24) * 3600_000)), hasta: "" }))}
+                                        className={cn("h-6 px-2 rounded-full border text-[11px] font-semibold inline-flex items-center gap-1", queSeVe(deLaRuta.imei) === "rango" ? "bg-foreground text-background border-foreground" : fechas ? "border-foreground" : "border-border hover:bg-accent")}>
+                                        <CalendarClock size={11} /> Fechas
+                                    </button>
                                 </div>
                                 <button type="button" onClick={cerrarRecorrido} aria-label="Cerrar el recorrido" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent"><X size={14} /></button>
                             </div>
+                            {fechas && (
+                                <div className="mt-2 flex items-start gap-2">
+                                    <RangoFechas className="min-w-0 flex-1" desde={fechas.desde} hasta={fechas.hasta} alCambiar={setFechas}
+                                        error={rangoEscrito?.error || (rangoEscrito?.desde && !sirveParaRecorrido(rangoEscrito) ? "Un recorrido puede ser de hasta un mes." : undefined)} />
+                                    <Button size="sm" className="h-8" disabled={!rangoEscrito || !sirveParaRecorrido(rangoEscrito)} onClick={() => verFechas(deLaRuta.imei)}>Ver</Button>
+                                </div>
+                            )}
+                            {ruta?.rango && !estela && (
+                                <p className="mt-1.5 text-[11.5px] tabular-nums text-muted-foreground">Del {fechaHora(ruta.rango.desde)} {ruta.rango.hasta ? `al ${fechaHora(ruta.rango.hasta)}` : "hasta ahora"}</p>
+                            )}
                             {estela ? (
                                 !estela.puntos ? (
                                     <p className="mt-2 text-[12px] text-muted-foreground inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Trayendo los últimos minutos…</p>
@@ -604,14 +645,15 @@ export function CapaGps() {
                                 </p>
                             ) : (
                                 <PanelDelRecorrido datos={ruta.datos} partes={partes} viajeSel={viajeSel} alViaje={verViaje} cursor={cursor} alCursor={setCursor}
-                                    hastaAhora alCambiarLimite={() => verRuta(ruta.imei, ruta.horas, false)} alLugar={lugarDe} />
+                                    hastaAhora={!ruta.rango?.hasta} alCambiarLimite={() => verRuta(ruta.imei, ruta.horas, false, ruta.rango)} alLugar={lugarDe} />
                             )}
                         </div>
                     )}
 
                     {cajon && (
                         <CajonEventosGps key={cajon} imei={cajon} rastreador={lista.find((r) => r.imei === cajon)} elegido={evSel?.e.id || null}
-                            alElegir={elegirEvento} alCerrar={() => { setCajon(null); setEvSel(null); }} refresco={refrescoCajon} />
+                            alElegir={elegirEvento} alCerrar={() => { setCajon(null); setEvSel(null); }} refresco={refrescoCajon}
+                            alVerRecorrido={(desde, hasta) => verRuta(cajon, 0, true, { desde: desde.toISOString(), hasta: hasta?.toISOString() || null })} />
                     )}
 
                     {compartiendo && <CompartirGps imei={compartiendo.imei} nombre={compartiendo.nombre} alCerrar={() => setCompartiendo(null)} />}

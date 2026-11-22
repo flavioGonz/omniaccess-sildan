@@ -48,7 +48,33 @@ type Partes = ReturnType<typeof usePartes>;
 
 /* ─────────────────────────── Sobre el mapa ─────────────────────────── */
 
-export function LineasDelRecorrido({ partes, viajeSel, cursor, alCursor }: { partes: Partes; viajeSel: number | null; cursor: number | null; alCursor: (i: number) => void }) {
+/** El dibujo de un auto (trazos de Lucide, licencia ISC), por si quien llama no pasa el del rastreador. */
+const AUTO = '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>';
+
+/**
+ * El vehículo que recorre el trayecto: el MISMO dibujo con que el rastreador se ve en el mapa (22/11,
+ * Nico: «en vez de una flecha, que sea el mismo autito, sin el círculo» — la primera versión era
+ * una flecha adentro de un aro). Va en ámbar, que es el color de «esto es lo que estoy recorriendo»,
+ * para no confundirlo con el vehículo de verdad, que sigue en su lugar y en su color. Encima, la
+ * velocidad de ese punto; y la flecha de rumbo por fuera, sólo si se movía.
+ */
+function autitoDelRecorrido(dibujo: string, p: PuntoGps, pasado: boolean): L.DivIcon {
+    const anda = p.velocidad > 3;
+    return L.divIcon({
+        className: "bg-transparent border-0", iconSize: [36, 36], iconAnchor: [18, 18],
+        html: `<div style="position:relative;width:36px;height:36px">`
+            + `<div style="position:absolute;left:50%;bottom:calc(100% + ${anda ? 12 : 5}px);transform:translateX(-50%);padding:1px 8px;border-radius:999px;background:${pasado ? "#ef4444" : "#0a0e14"};color:#fff;border:2px solid #fbbf24;box-shadow:0 2px 8px rgba(0,0,0,.45);font:800 12px/16px Outfit,system-ui,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap">${p.velocidad}<span style="font-weight:600;font-size:9.5px;opacity:.8"> km/h</span></div>`
+            + (anda ? `<div style="position:absolute;inset:-9px;transform:rotate(${p.rumbo || 0}deg)"><div style="margin:0 auto;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid #fbbf24"></div></div>` : "")
+            + `<div style="width:36px;height:36px;border-radius:50%;background:#fbbf24;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.5);display:grid;place-items:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#0a0e14" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${dibujo}</svg></div>`
+            + `</div>`,
+    });
+}
+
+export function LineasDelRecorrido({ partes, viajeSel, cursor, alCursor, dibujo = AUTO }: {
+    partes: Partes; viajeSel: number | null; cursor: number | null; alCursor: (i: number) => void;
+    /** El dibujo del rastreador (auto, camión, moto…): con él se ve el vehículo que recorre el trayecto. */
+    dibujo?: string;
+}) {
     const mapa = useMap();
     const { pts, porViaje, limite, excesos } = partes;
     /** El punto bajo el mouse: su velocidad y su hora, sin tener que tocar nada. */
@@ -96,15 +122,8 @@ export function LineasDelRecorrido({ partes, viajeSel, cursor, alCursor }: { par
                 </CircleMarker>
             )}
 
-            {/* El vehículo de la barra: una flecha con su rumbo, y un aro para encontrarlo. */}
-            {pc && (
-                <>
-                    <CircleMarker center={[pc.lat, pc.lon]} radius={20} interactive={false} pathOptions={{ color: "#fbbf24", weight: 1.5, fillColor: "#fbbf24", fillOpacity: 0.2 }} />
-                    <Marker position={[pc.lat, pc.lon]} interactive={false} zIndexOffset={2000}
-                        icon={L.divIcon({ className: "bg-transparent border-0", iconSize: [30, 30], iconAnchor: [15, 15],
-                            html: `<div style="width:30px;height:30px;transform:rotate(${pc.velocidad > 3 ? pc.rumbo || 0 : 0}deg)"><svg width="30" height="30" viewBox="0 0 30 30"><path d="M15 3 24 26 15 21 6 26Z" fill="#fbbf24" stroke="#0a0e14" stroke-width="2.5" stroke-linejoin="round"/></svg></div>` })} />
-                </>
-            )}
+            {/* El vehículo de la barra: el mismo dibujo del rastreador, sin aro alrededor. */}
+            {pc && <Marker position={[pc.lat, pc.lon]} interactive={false} zIndexOffset={2000} icon={autitoDelRecorrido(dibujo, pc, pc.velocidad > limite)} />}
         </>
     );
 }

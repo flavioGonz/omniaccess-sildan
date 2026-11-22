@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { DURACIONES, estadoDeEnlace, horasValidas } from "@/lib/gps-compartir";
 import { leerLimite } from "@/lib/gps-jornada";
+import { RECORRIDO_MAX_DIAS, tiposQueDicen } from "@/lib/gps-filtro";
 import { prisma } from "@/lib/prisma";
 import { circuloDe, leerHorario, puntosDe, rotuloDeHorario, VERTICES_MAX, type AvisaCerca, type HorarioCerca } from "@/lib/gps-geocerca";
 import { getSession } from "@/app/actions/auth";
@@ -164,11 +165,18 @@ export type RecorridoGps = {
  *    es una PARADA —un lugar y un tiempo—, no una línea.
  *  · Los kilómetros, el tiempo y la velocidad máxima son los de los viajes.
  */
-export async function recorridoGps(imei: string, horas = 24): Promise<RecorridoGps> {
+export async function recorridoGps(imei: string, horas = 24, rango?: { desde: string; hasta?: string | null } | null): Promise<RecorridoGps> {
     await sesion("dispositivos");
-    const desde = new Date(Date.now() - Math.min(Math.max(horas, 1), 24 * 31) * 3600_000);
+    /* Con `rango`, el recorrido es el de esas fechas y horas (22/11: «filtrar por fecha y hora
+       también»); si no, las últimas `horas`. Un rango de más de un mes se recorta desde su comienzo:
+       más que eso no es un recorrido que se pueda leer. */
+    const d0 = rango?.desde ? new Date(rango.desde) : null, h0 = rango?.hasta ? new Date(rango.hasta) : null;
+    const conRango = !!d0 && !Number.isNaN(d0.getTime());
+    const desde = conRango ? d0! : new Date(Date.now() - Math.min(Math.max(horas, 1), 24 * 31) * 3600_000);
+    const tope = new Date(desde.getTime() + RECORRIDO_MAX_DIAS * 86_400_000);
+    const hasta = conRango ? (h0 && !Number.isNaN(h0.getTime()) && h0 < tope ? h0 : h0 ? tope : null) : null;
     const filas = await prisma.gpsPosicion.findMany({
-        where: { imei, cuando: { gte: desde }, satelites: { gte: SATS_MIN } }, orderBy: { cuando: "asc" }, take: 120_000,
+        where: { imei, cuando: { gte: desde, ...(hasta ? { lte: hasta } : {}) }, satelites: { gte: SATS_MIN } }, orderBy: { cuando: "asc" }, take: 120_000,
         select: { lat: true, lon: true, cuando: true, velocidad: true, rumbo: true, satelites: true, encendido: true },
     });
     const todos: PuntoGps[] = filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad, rumbo: f.rumbo, sat: f.satelites, enc: f.encendido }));
@@ -255,6 +263,8 @@ export type HistorialEventosGps = {
     hayMas: boolean;
     /** Cuántos hay de cada clase en el período, sin importar el filtro: los números de las pestañas. */
     cuenta: Record<ClaseEventoGps, number>;
+    /** Lo mismo, tipo por tipo: para elegir uno solo dentro de una clase. */
+    porTipo: Record<string, number>;
 };
 
 /**
@@ -264,27 +274,55 @@ export type HistorialEventosGps = {
  *
  * Se pagina por la hora (`antes`): la lista crece hacia atrás sin volver a traer lo que ya está.
  */
-export async function historialEventosGps(o: { imei: string; clase?: ClaseEventoGps | null; dias?: number | null; antes?: string | null; cuantos?: number }): Promise<HistorialEventosGps> {
+export async function historialEventosGps(o: {
+    imei: string; clase?: ClaseEventoGps | null; dias?: number | null; antes?: string | null; cuantos?: number;
+    /** El período con fecha y hora (ISO). Gana sobre `dias`. Sin `hasta`, llega hasta ahora. */
+    desde?: string | null; hasta?: string | null;
+    /** Tipos concretos, dentro de la clase. */
+    tipos?: string[];
+    /** Lo que dice el evento, su detalle o el lugar. */
+    texto?: string;
+    /** Sólo los que abrieron un caso en la consola. */
+    soloCasos?: boolean;
+}): Promise<HistorialEventosGps> {
     await sesion("dispositivos");
     const imei = String(o.imei || "");
     const cuantos = Math.min(Math.max(o.cuantos || 60, 10), 200);
-    const desde = o.dias ? new Date(Date.now() - Math.min(Math.max(o.dias, 1), 366) * 86_400_000) : null;
-    const antes = o.antes ? new Date(o.antes) : null;
+    const fecha = (v: string | null | undefined) => { const d = v ? new Date(v) : null; return d && !Number.isNaN(d.getTime()) ? d : null; };
+    const desde = fecha(o.desde) ?? (o.dias ? new Date(Date.now() - Math.min(Math.max(o.dias, 1), 366) * 86_400_000) : null);
+    const hasta = fecha(o.hasta), antes = fecha(o.antes);
     const clase = o.clase && CLASES_EVENTO_GPS.some((c) => c.clave === o.clase) ? o.clase : null;
-    const periodo = { imei, ...(desde ? { cuando: { gte: desde } } : {}) };
+    const texto = String(o.texto || "").trim().slice(0, 60);
+    /* El texto se busca en lo que quedó escrito (el detalle, el lugar) y en el NOMBRE del evento,
+       que no está en la base: «corte» tiene que encontrar «Le cortaron la alimentación». */
+    const porTexto: Prisma.GpsEventoWhereInput | null = texto ? { OR: [
+        { detalle: { contains: texto, mode: "insensitive" } }, { lugar: { contains: texto, mode: "insensitive" } },
+        ...(tiposQueDicen(texto).length ? [{ tipo: { in: tiposQueDicen(texto) } }] : []),
+    ] } : null;
+    /* Lo que vale para la lista Y para los números de las pestañas: el período, el texto y «sólo
+       casos». La clase y el tipo no entran en los números — son justamente lo que las pestañas
+       dejan elegir, y si se filtraran a sí mismas dirían siempre cero en las demás. */
+    const base: Prisma.GpsEventoWhereInput = {
+        imei, ...(desde || hasta ? { cuando: { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } } : {}),
+        ...(o.soloCasos ? { prioridad: { not: null } } : {}), ...(porTexto ? { AND: [porTexto] } : {}),
+    };
+    const deLaClase = clase ? tiposDeClase(clase) : null;
+    const pedidos = (o.tipos || []).filter((t) => typeof t === "string" && EVENTOS_GPS[t] && (!deLaClase || deLaClase.includes(t)));
     const [filas, porTipo] = await Promise.all([
         prisma.gpsEvento.findMany({
             where: {
-                imei, ...(clase ? { tipo: { in: tiposDeClase(clase) } } : {}),
-                ...(desde || antes ? { cuando: { ...(desde ? { gte: desde } : {}), ...(antes && !Number.isNaN(antes.getTime()) ? { lt: antes } : {}) } } : {}),
+                ...base,
+                ...(pedidos.length ? { tipo: { in: pedidos } } : deLaClase ? { tipo: { in: deLaClase } } : {}),
+                ...(antes ? { cuando: { ...(desde ? { gte: desde } : {}), ...(hasta && hasta < antes ? { lte: hasta } : { lt: antes }) } } : {}),
             },
             orderBy: [{ cuando: "desc" }, { id: "desc" }], take: cuantos + 1,
         }),
-        prisma.gpsEvento.groupBy({ by: ["tipo"], where: periodo, _count: { _all: true } }),
+        prisma.gpsEvento.groupBy({ by: ["tipo"], where: base, _count: { _all: true } }),
     ]);
     const cuenta: Record<ClaseEventoGps, number> = { alarma: 0, geocerca: 0, conexion: 0, equipo: 0 };
-    for (const t of porTipo) cuenta[EVENTOS_GPS[t.tipo]?.clase || "equipo"] += t._count._all;
-    return { eventos: filas.slice(0, cuantos).map(aEvento), hayMas: filas.length > cuantos, cuenta };
+    const cuentaPorTipo: Record<string, number> = {};
+    for (const t of porTipo) { cuenta[EVENTOS_GPS[t.tipo]?.clase || "equipo"] += t._count._all; cuentaPorTipo[t.tipo] = t._count._all; }
+    return { eventos: filas.slice(0, cuantos).map(aEvento), hayMas: filas.length > cuantos, cuenta, porTipo: cuentaPorTipo };
 }
 
 /**

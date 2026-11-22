@@ -21,7 +21,8 @@ import { getSlotDetail, type SlotDetail } from "@/app/actions/plazas";
 import { getBitacoraPage } from "@/app/actions/bitacora";
 import { io } from "socket.io-client";
 import { FlowAnims, FlowColumn, useFlow } from "@/components/barrio/FlowLayer";
-import { LogIn, LogOut } from "lucide-react";
+import { CircleDashed, LogIn, LogOut } from "lucide-react";
+import { pedirGeocerca, useHayRastreadores } from "@/lib/gps-puente";
 import { getDevices } from "@/app/actions/devices";
 import { getIntrusionCameras, getAnalyticsGeometryBatch, ackAlarms, getDetectionHistory, getTodayIntrusionCounts, type IntrusionCam } from "@/app/actions/detections";
 import { LiveModal } from "@/components/intrusion/LiveModal";
@@ -651,6 +652,8 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
     const [selected, setSelected] = useState<{ type: SelKind; id: string } | null>(null);
     const [saving, setSaving] = useState(false);
     const [ctx, setCtx] = useState<{ x: number; y: number; type: CtxKind; id: string } | null>(null);
+    /** Hay rastreadores GPS en el mapa: el menú del plano ofrece sus geocercas. */
+    const hayGps = useHayRastreadores();
     const mapRef = useRef<L.Map | null>(null);
     const wrapRef = useRef<HTMLDivElement | null>(null);
     const [guards, setGuards] = useState<any[]>([]);
@@ -1552,6 +1555,16 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
                             <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Intrusión</div>
                             <button onClick={() => { setEditing(true); setIntrDrawer("line"); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Route size={13} className="text-sky-400" /> Definir cruce de línea</button>
                             <button onClick={() => { setEditing(true); setIntrDrawer("zone"); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><ShieldAlert size={13} className="text-sky-400" /> Definir zona de intrusión</button>
+                            {/* Geocercas de los rastreadores GPS (22/11): desde el clic derecho en el plano, con el
+                                centro —o el primer vértice— donde se hizo clic. Sólo si hay rastreadores: sin
+                                ninguno no hay a quién avisarle que entró o salió. */}
+                            {hayGps && (<>
+                                <div className="h-px bg-border my-1" />
+                                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Geocercas GPS</div>
+                                <button onClick={() => { pedirGeocerca({ que: "circulo", x: ctx.x, y: ctx.y }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><CircleDashed size={13} className="text-violet-400" /> Nueva geocerca acá</button>
+                                <button onClick={() => { pedirGeocerca({ que: "libre", x: ctx.x, y: ctx.y }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Hexagon size={13} className="text-violet-400" /> Nueva de forma libre, desde acá</button>
+                                <button onClick={() => { pedirGeocerca({ que: "ver" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-muted-foreground">Ver las geocercas</button>
+                            </>)}
                         </>) : ctx.type === "intr" ? (() => {
                             const g = ((data as any).intrusions || []).find((x: any) => x.id === ctx.id);
                             if (!g) return <button onClick={() => { removeIntr(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar</button>;
