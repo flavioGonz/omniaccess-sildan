@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CircleMarker, Marker, Polyline, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import { ChevronLeft, ChevronRight, Gauge, Loader2, Pause, Play, SquareParking, TriangleAlert, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { guardarLimiteVelocidadGps, type PuntoGps, type RecorridoGps } from "@/app/actions/gps";
 import {
-    COLOR_FRANJA, duracionLarga, excesosDe, jornadaDe, minutosEstacionado, puntoMasCercano, resumenDeExcesos, rumboEnPalabras, trozosPorVelocidad,
+    COLOR_FRANJA, duracionLarga, excesosDe, jornadaDe, lineaDeTiempo, minutosEstacionado, posicionEnLinea, puntoMasCercano, resumenDeExcesos, rumboEnPalabras, rumboEntre, tiempoEnLinea, trozosPorVelocidad,
     type Exceso, type Tramo,
 } from "@/lib/gps-jornada";
 import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
@@ -52,39 +52,104 @@ type Partes = ReturnType<typeof usePartes>;
 const AUTO = '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>';
 
 /**
+ * Por dónde va la barra: una posición con decimales sobre los puntos del recorrido (12,4 es «a
+ * cuatro décimos del camino entre el punto 12 y el 13»), o null si está suelta.
+ *
+ * NO es estado de React, a propósito. La primera versión lo era, y al darle a reproducir cada paso
+ * volvía a dibujar la capa entera del GPS —todos los rastreadores, las geocercas, las líneas— y
+ * rehacía el marcador del auto desde cero: iba a los saltos y parpadeaba (22/11, Nico: «se corta
+ * mucho y no es continuo ni fluido»). Ahora cambia sesenta veces por segundo sin que React se
+ * entere: el auto y la raya del perfil se mueven tocando su propio elemento, y sólo el cuadro de
+ * datos se vuelve a dibujar, y sólo cuando se pasa a otro reporte.
+ */
+export type CursorDeRuta = { get(): number | null; set(v: number | null): void; oir(f: () => void): () => void };
+export function crearCursor(): CursorDeRuta {
+    let v: number | null = null;
+    const oyentes = new Set<() => void>();
+    return {
+        get: () => v,
+        set: (n) => { if (n === v) return; v = n; for (const f of oyentes) f(); },
+        oir: (f) => { oyentes.add(f); return () => { oyentes.delete(f); }; },
+    };
+}
+
+/**
  * El vehículo que recorre el trayecto: el MISMO dibujo con que el rastreador se ve en el mapa (22/11,
  * Nico: «en vez de una flecha, que sea el mismo autito, sin el círculo» — la primera versión era
  * una flecha adentro de un aro). Va en ámbar, que es el color de «esto es lo que estoy recorriendo»,
  * para no confundirlo con el vehículo de verdad, que sigue en su lugar y en su color. Encima, la
  * velocidad de ese punto; y la flecha de rumbo por fuera, sólo si se movía.
+ *
+ * El dibujo se arma UNA vez. Lo que cambia mientras anda —el número, el color del cartel, hacia
+ * dónde apunta la flecha— lo cambia `VehiculoDelRecorrido` sobre estos mismos elementos.
  */
-function autitoDelRecorrido(dibujo: string, p: PuntoGps, pasado: boolean): L.DivIcon {
-    const anda = p.velocidad > 3;
+function autitoDelRecorrido(dibujo: string): L.DivIcon {
     return L.divIcon({
         className: "bg-transparent border-0", iconSize: [36, 36], iconAnchor: [18, 18],
         html: `<div style="position:relative;width:36px;height:36px">`
-            + `<div style="position:absolute;left:50%;bottom:calc(100% + ${anda ? 12 : 5}px);transform:translateX(-50%);padding:1px 8px;border-radius:999px;background:${pasado ? "#ef4444" : "#0a0e14"};color:#fff;border:2px solid #fbbf24;box-shadow:0 2px 8px rgba(0,0,0,.45);font:800 12px/16px Outfit,system-ui,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap">${p.velocidad}<span style="font-weight:600;font-size:9.5px;opacity:.8"> km/h</span></div>`
-            + (anda ? `<div style="position:absolute;inset:-9px;transform:rotate(${p.rumbo || 0}deg)"><div style="margin:0 auto;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid #fbbf24"></div></div>` : "")
+            + `<div class="rec-cartel" style="position:absolute;left:50%;bottom:calc(100% + 12px);transform:translateX(-50%);padding:1px 8px;border-radius:999px;background:#0a0e14;color:#fff;border:2px solid #fbbf24;box-shadow:0 2px 8px rgba(0,0,0,.45);font:800 12px/16px Outfit,system-ui,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap"><span class="rec-vel">0</span><span style="font-weight:600;font-size:9.5px;opacity:.8"> km/h</span></div>`
+            + `<div class="rec-rumbo" style="position:absolute;inset:-9px;will-change:transform"><div style="margin:0 auto;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid #fbbf24"></div></div>`
             + `<div style="width:36px;height:36px;border-radius:50%;background:#fbbf24;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.5);display:grid;place-items:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#0a0e14" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${dibujo}</svg></div>`
             + `</div>`,
     });
 }
 
-export function LineasDelRecorrido({ partes, viajeSel, cursor, alCursor, dibujo = AUTO }: {
-    partes: Partes; viajeSel: number | null; cursor: number | null; alCursor: (i: number) => void;
+/**
+ * El auto sobre el mapa. Se mueve a mano —`setLatLng` sobre un marcador que se crea una sola vez—
+ * cada vez que cambia el cursor: entre dos reportes está donde corresponde, no salta de uno a otro.
+ * El rumbo es el del tramo que está andando (calculado con los dos puntos), que gira parejo; el que
+ * informa el equipo viene de a un reporte y, quieto, es ruido.
+ */
+function VehiculoDelRecorrido({ pts, cur, limite, dibujo }: { pts: PuntoGps[]; cur: CursorDeRuta; limite: number; dibujo: string }) {
+    const mapa = useMap();
+    useEffect(() => {
+        let marca: L.Marker | null = null, vel: HTMLElement | null = null, cartel: HTMLElement | null = null, flecha: HTMLElement | null = null;
+        let dicho = -1, pasado: boolean | null = null, rumbo = 0, conFlecha: boolean | null = null, ultimoPaneo = 0;
+        const pintar = () => {
+            const pos = cur.get();
+            if (pos === null || !pts.length) { marca?.remove(); marca = null; return; }
+            const i = Math.min(Math.max(Math.floor(pos), 0), pts.length - 1), k = Math.min(Math.max(pos - i, 0), 1);
+            const a = pts[i], b = pts[Math.min(i + 1, pts.length - 1)];
+            const ll: [number, number] = [a.lat + (b.lat - a.lat) * k, a.lon + (b.lon - a.lon) * k];
+            if (!marca) {
+                marca = L.marker(ll, { icon: autitoDelRecorrido(dibujo), interactive: false, zIndexOffset: 2000, keyboard: false }).addTo(mapa);
+                const el = marca.getElement();
+                vel = el?.querySelector(".rec-vel") || null; cartel = el?.querySelector(".rec-cartel") || null; flecha = el?.querySelector(".rec-rumbo") || null;
+                dicho = -1; pasado = null; conFlecha = null;
+            } else marca.setLatLng(ll);
+            /* Sólo se toca lo que cambió: escribir el mismo número sesenta veces por segundo también cuesta. */
+            const v = Math.round(a.velocidad + (b.velocidad - a.velocidad) * k);
+            if (v !== dicho && vel) { vel.textContent = String(v); dicho = v; }
+            if ((v > limite) !== pasado && cartel) { pasado = v > limite; cartel.style.background = pasado ? "#ef4444" : "#0a0e14"; }
+            const anda = v > 3, r = rumboEntre(a, b);
+            if (r !== null) rumbo = r;
+            if (flecha) {
+                if (anda !== conFlecha) { conFlecha = anda; flecha.style.display = anda ? "" : "none"; }
+                if (anda) flecha.style.transform = `rotate(${rumbo.toFixed(1)}deg)`;
+            }
+            /* Que no se vaya de la vista: cuando se acerca al borde, el mapa lo alcanza con un solo
+               movimiento suave. No en cada cuadro —pelearía con el arrastre de quien mira— y no más
+               de una vez por segundo: dos paneos encimados es justo el tirón que se quería sacar. */
+            const ahora = Date.now();
+            if (ahora - ultimoPaneo > 900 && !mapa.getBounds().pad(-0.18).contains(ll)) { ultimoPaneo = ahora; mapa.panTo(ll, { animate: true, duration: 0.7, easeLinearity: 0.6 }); }
+        };
+        pintar();
+        const soltar = cur.oir(pintar);
+        return () => { soltar(); marca?.remove(); };
+    }, [pts, cur, limite, dibujo, mapa]);
+    return null;
+}
+
+export function LineasDelRecorrido({ partes, viajeSel, cur, dibujo = AUTO }: {
+    partes: Partes; viajeSel: number | null; cur: CursorDeRuta;
     /** El dibujo del rastreador (auto, camión, moto…): con él se ve el vehículo que recorre el trayecto. */
     dibujo?: string;
 }) {
-    const mapa = useMap();
     const { pts, porViaje, limite, excesos } = partes;
     /** El punto bajo el mouse: su velocidad y su hora, sin tener que tocar nada. */
     const [sobre, setSobre] = useState<number | null>(null);
     const trozos = useMemo(() => porViaje.map((r) => (r ? trozosPorVelocidad(pts.slice(r.i0, r.i1 + 1), limite) : [])), [porViaje, pts, limite]);
     const cercano = (e: L.LeafletMouseEvent) => puntoMasCercano(pts, e.latlng.lat, e.latlng.lng);
-
-    /* El vehículo de la barra se mantiene a la vista: si el punto cae fuera de lo que se ve, el mapa lo sigue. */
-    const pc = cursor !== null ? pts[cursor] : null;
-    useEffect(() => { if (pc && !mapa.getBounds().pad(-0.15).contains([pc.lat, pc.lon])) mapa.panTo([pc.lat, pc.lon], { animate: true }); }, [pc, mapa]);
 
     return (
         <>
@@ -94,7 +159,7 @@ export function LineasDelRecorrido({ partes, viajeSel, cursor, alCursor, dibujo 
                         la que escucha el mouse: más ancha que la de color, se le acierta sin apuntar. */}
                     <Polyline positions={pts.slice(r.i0, r.i1 + 1).map((p) => [p.lat, p.lon] as [number, number])}
                         pathOptions={{ color: "#0a0e14", weight: viajeSel === v ? 11 : 8, opacity: viajeSel !== null && viajeSel !== v ? 0.3 : 0.6, lineCap: "round", lineJoin: "round" }}
-                        eventHandlers={{ mousemove: (e) => setSobre(cercano(e)), mouseout: () => setSobre(null), click: (e) => { L.DomEvent.stopPropagation(e); alCursor(cercano(e)); } }} />
+                        eventHandlers={{ mousemove: (e) => setSobre(cercano(e)), mouseout: () => setSobre(null), click: (e) => { L.DomEvent.stopPropagation(e); cur.set(cercano(e)); } }} />
                     {trozos[v].map((tz, k) => (
                         <Polyline key={k} positions={tz.linea} interactive={false}
                             pathOptions={{ color: COLOR_FRANJA[tz.franja], weight: viajeSel === v ? 6 : 4, opacity: viajeSel !== null && viajeSel !== v ? 0.35 : 1, lineCap: "round", lineJoin: "round" }} />
@@ -114,7 +179,7 @@ export function LineasDelRecorrido({ partes, viajeSel, cursor, alCursor, dibujo 
                         html: `<div style="width:22px;height:22px;border-radius:50%;background:${viajeSel === v ? "#fbbf24" : "#0a0e14"};color:${viajeSel === v ? "#0a0e14" : "#fff"};border:2px solid #fff;font:800 11px/18px Outfit,system-ui,sans-serif;text-align:center;box-shadow:0 1px 5px rgba(0,0,0,.5)">${v + 1}</div>` })} />
             ))}
 
-            {sobre !== null && pts[sobre] && sobre !== cursor && (
+            {sobre !== null && pts[sobre] && (
                 <CircleMarker center={[pts[sobre].lat, pts[sobre].lon]} radius={5} interactive={false} pathOptions={{ color: "#fff", weight: 2, fillColor: "#0a0e14", fillOpacity: 1 }}>
                     <Tooltip permanent direction="top" offset={[0, -8]} opacity={1} className="!rounded-[6px] !border-0 !bg-[#0a0e14] !px-2 !py-1 !text-[11.5px] !font-bold !text-white !shadow-lg before:!hidden">
                         <span className={cn("tabular-nums", pts[sobre].velocidad > limite && "text-red-400")}>{pts[sobre].velocidad} km/h</span> <span className="font-normal opacity-70 tabular-nums">· {horaSeg(pts[sobre].cuando)}</span>
@@ -123,16 +188,16 @@ export function LineasDelRecorrido({ partes, viajeSel, cursor, alCursor, dibujo 
             )}
 
             {/* El vehículo de la barra: el mismo dibujo del rastreador, sin aro alrededor. */}
-            {pc && <Marker position={[pc.lat, pc.lon]} interactive={false} zIndexOffset={2000} icon={autitoDelRecorrido(dibujo, pc, pc.velocidad > limite)} />}
+            <VehiculoDelRecorrido pts={pts} cur={cur} limite={limite} dibujo={dibujo} />
         </>
     );
 }
 
 /* ─────────────────────────── El panel ─────────────────────────── */
 
-export function PanelDelRecorrido({ datos, partes, viajeSel, alViaje, cursor, alCursor, hastaAhora, alCambiarLimite, alLugar }: {
+export function PanelDelRecorrido({ datos, partes, viajeSel, alViaje, cur, hastaAhora, alCambiarLimite, alLugar }: {
     datos: RecorridoGps; partes: Partes; viajeSel: number | null; alViaje: (i: number) => void;
-    cursor: number | null; alCursor: (i: number | null) => void;
+    cur: CursorDeRuta;
     /** El período llega hasta ahora: lo estacionado después del último viaje sigue corriendo. */
     hastaAhora: boolean;
     alCambiarLimite: () => void;
@@ -175,7 +240,7 @@ export function PanelDelRecorrido({ datos, partes, viajeSel, alViaje, cursor, al
                 </ol>
             </div>
 
-            {hasta > desde && <Barra pts={pts} desde={desde} hasta={hasta} limite={limite} cursor={cursor} alCursor={alCursor} deViaje={viajeSel !== null ? viajeSel + 1 : null} />}
+            {hasta > desde && <Barra key={`${desde}-${hasta}`} pts={pts} desde={desde} hasta={hasta} limite={limite} cur={cur} deViaje={viajeSel !== null ? viajeSel + 1 : null} />}
         </>
     );
 }
@@ -235,7 +300,12 @@ function Limite({ limite, rex, alCambiar }: { limite: number; rex: ReturnType<ty
     );
 }
 
-const PASOS = [{ r: "×1", cada: 400, salto: 1 }, { r: "×4", cada: 120, salto: 1 }, { r: "×16", cada: 120, salto: 4 }];
+/**
+ * A qué ritmo se reproduce: segundos del viaje por cada segundo de reloj. A ×1 un viaje de veinte
+ * minutos se ve en uno; a ×16, en cuatro segundos. El auto va siempre de corrido: lo que cambia es
+ * cuánto camino hace por cuadro, no cada cuánto salta.
+ */
+const PASOS = [{ r: "×1", f: 20 }, { r: "×4", f: 80 }, { r: "×16", f: 320 }];
 
 /**
  * La barra para recorrer el trayecto. Arriba, la velocidad de todo el tramo como un perfil —rojo lo
@@ -245,23 +315,44 @@ const PASOS = [{ r: "×1", cada: 400, salto: 1 }, { r: "×4", cada: 120, salto: 
  * El eje es el número de reporte y no el reloj: así una hora estacionado en medio del período no
  * se come la mitad de la barra, y cada paso de la flecha es exactamente un reporte.
  */
-function Barra({ pts, desde, hasta, limite, cursor, alCursor, deViaje }: { pts: PuntoGps[]; desde: number; hasta: number; limite: number; cursor: number | null; alCursor: (i: number | null) => void; deViaje: number | null }) {
+function Barra({ pts, desde, hasta, limite, cur, deViaje }: { pts: PuntoGps[]; desde: number; hasta: number; limite: number; cur: CursorDeRuta; deViaje: number | null }) {
     const [andando, setAndando] = useState(false);
     const [paso, setPaso] = useState(1);
-    const i = cursor !== null ? Math.min(Math.max(cursor, desde), hasta) : null;
-    /* El reloj que lo hace andar lee de acá por dónde va: si dependiera de `i`, se rearmaría en cada paso. */
-    const ref = useRef({ i, hasta, desde });
-    useEffect(() => { ref.current = { i, hasta, desde }; }, [i, hasta, desde]);
+    /* El reporte en el que está parada la barra. De acá sale el cuadro de datos: se vuelve a dibujar
+       cuando se pasa a OTRO reporte, no en cada cuadro de la reproducción. */
+    const i = useSyncExternalStore(cur.oir, () => { const v = cur.get(); return v === null ? null : Math.min(Math.max(Math.round(v), desde), hasta); }, () => null);
+    const linea = useMemo(() => lineaDeTiempo(pts, desde, hasta), [pts, desde, hasta]);
+
+    /* La reproducción: un reloj que avanza con cada cuadro del navegador. Si la pestaña estuvo
+       tapada, al volver no se come de un salto todo lo que «pasó»: retoma de a un cuadro. */
     useEffect(() => {
         if (!andando) return;
-        const { cada, salto } = PASOS[paso];
-        const iv = setInterval(() => {
-            const a = ref.current.i ?? ref.current.desde;
-            if (a >= ref.current.hasta) { setAndando(false); return; }
-            alCursor(Math.min(a + salto, ref.current.hasta));
-        }, cada);
-        return () => clearInterval(iv);
-    }, [andando, paso, alCursor]);
+        let cuadro = 0, antes = performance.now(), seg = tiempoEnLinea(linea, cur.get() ?? desde);
+        const avanzar = (ahora: number) => {
+            seg += Math.min(0.1, Math.max(0, (ahora - antes) / 1000)) * PASOS[paso].f; antes = ahora;
+            if (seg >= linea.total) { cur.set(hasta); setAndando(false); return; }
+            cur.set(posicionEnLinea(linea, seg));
+            cuadro = requestAnimationFrame(avanzar);
+        };
+        cuadro = requestAnimationFrame(avanzar);
+        return () => cancelAnimationFrame(cuadro);
+    }, [andando, paso, linea, cur, desde, hasta]);
+
+    /* La raya sobre el perfil acompaña al auto de corrido: se mueve tocando su atributo, sin pasar por React. */
+    const raya = useRef<SVGLineElement>(null);
+    useEffect(() => {
+        const mover = () => {
+            const v = cur.get(), el = raya.current;
+            if (!el) return;
+            if (v === null) { el.style.display = "none"; return; }
+            const x = (((Math.min(Math.max(v, desde), hasta) - desde) / Math.max(1, hasta - desde)) * 300).toFixed(2);
+            el.style.display = ""; el.setAttribute("x1", x); el.setAttribute("x2", x);
+        };
+        mover();
+        return cur.oir(mover);
+    }, [cur, desde, hasta]);
+    /* Si la barra quedó sobre un punto de otro viaje, se suelta: su punto ya no es de lo que se está recorriendo. */
+    useEffect(() => { const v = cur.get(); if (v !== null && (v < desde || v > hasta)) cur.set(null); }, [cur, desde, hasta]);
 
     const n = hasta - desde, tope = Math.max(limite * 1.25, ...pts.slice(desde, hasta + 1).map((p) => p.velocidad), 1);
     const perfil = useMemo(() => {
@@ -272,30 +363,30 @@ function Barra({ pts, desde, hasta, limite, cursor, alCursor, deViaje }: { pts: 
         return { linea, rojos: rojos.join(""), yLim: y(limite), x };
     }, [pts, desde, hasta, n, tope, limite]);
     const p = i !== null ? pts[i] : null;
-    const mover = (d: number) => { setAndando(false); alCursor(Math.min(Math.max((i ?? desde) + d, desde), hasta)); };
+    const mover = (d: number) => { setAndando(false); cur.set(Math.min(Math.max((i ?? desde) + d, desde), hasta)); };
 
     return (
         <div className="mt-2.5 border-t border-border pt-2">
             <div className="flex items-center gap-2">
                 <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Recorrer {deViaje ? `el viaje ${deViaje}` : "el trayecto"}</p>
-                {p && <button type="button" onClick={() => { setAndando(false); alCursor(null); }} className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"><X size={11} /> Soltar</button>}
+                {p && <button type="button" onClick={() => { setAndando(false); cur.set(null); }} className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"><X size={11} /> Soltar</button>}
             </div>
             <div className="relative mt-1">
                 <svg viewBox="0 0 300 36" preserveAspectRatio="none" className="block h-9 w-full" aria-hidden>
                     <line x1="0" x2="300" y1={perfil.yLim} y2={perfil.yLim} stroke="currentColor" strokeOpacity="0.35" strokeDasharray="3 3" strokeWidth="1" vectorEffect="non-scaling-stroke" />
                     <polyline points={perfil.linea} fill="none" stroke="currentColor" strokeOpacity="0.55" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
                     {perfil.rojos && <path d={perfil.rojos} fill="none" stroke="#ef4444" strokeWidth="2" vectorEffect="non-scaling-stroke" />}
-                    {i !== null && <line x1={perfil.x(i)} x2={perfil.x(i)} y1="0" y2="36" stroke="#fbbf24" strokeWidth="2" vectorEffect="non-scaling-stroke" />}
+                    <line ref={raya} x1="0" x2="0" y1="0" y2="36" stroke="#fbbf24" strokeWidth="2" vectorEffect="non-scaling-stroke" style={{ display: "none" }} />
                 </svg>
                 {/* La barra va ENCIMA del perfil, invisible: se arrastra sobre el dibujo mismo. */}
                 <input type="range" min={desde} max={hasta} step={1} value={i ?? desde} aria-label="Punto del trayecto"
-                    onChange={(e) => { setAndando(false); alCursor(Number(e.target.value)); }}
+                    onChange={(e) => { setAndando(false); cur.set(Number(e.target.value)); }}
                     onKeyDown={(e) => { if (e.key === " ") { e.preventDefault(); setAndando((a) => !a); } }}
                     className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
             </div>
             <div className="mt-1 flex items-center gap-1.5">
                 <button type="button" onClick={() => mover(-1)} title="Un reporte atrás" className="grid h-7 w-7 place-items-center rounded-[6px] border border-border hover:bg-accent"><ChevronLeft size={14} /></button>
-                <button type="button" onClick={() => { if (i === null || i >= hasta) alCursor(desde); setAndando((a) => !a); }} title={andando ? "Pausar" : "Recorrerlo solo"}
+                <button type="button" onClick={() => { if (i === null || i >= hasta) cur.set(desde); setAndando((a) => !a); }} title={andando ? "Pausar" : "Recorrerlo solo"}
                     className="grid h-7 w-7 place-items-center rounded-[6px] bg-[var(--accion)] text-white">{andando ? <Pause size={13} /> : <Play size={13} />}</button>
                 <button type="button" onClick={() => mover(1)} title="Un reporte adelante" className="grid h-7 w-7 place-items-center rounded-[6px] border border-border hover:bg-accent"><ChevronRight size={14} /></button>
                 <div className="flex gap-0.5" role="group" aria-label="Rapidez">

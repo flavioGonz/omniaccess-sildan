@@ -1,7 +1,7 @@
 /** La jornada, la velocidad sobre la línea y los excesos de un recorrido (lib/gps-jornada). */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { duracionLarga, excesosDe, franjaDe, jornadaDe, leerLimite, minutosEstacionado, puntoMasCercano, resumenDeExcesos, rumboEnPalabras, trozosPorVelocidad, type PuntoDeRuta } from "@/lib/gps-jornada";
+import { lineaDeTiempo, posicionEnLinea, rumboEntre, tiempoEnLinea, duracionLarga, excesosDe, franjaDe, jornadaDe, leerLimite, minutosEstacionado, puntoMasCercano, resumenDeExcesos, rumboEnPalabras, trozosPorVelocidad, type PuntoDeRuta } from "@/lib/gps-jornada";
 import type { Viaje } from "@/lib/gps-viajes";
 
 const h = (hhmmss: string) => `2026-11-23T${hhmmss}.000Z`;
@@ -73,4 +73,44 @@ test("el punto más cercano a donde se tocó, el rumbo y las duraciones", () => 
     assert.equal(puntoMasCercano([], 0, 0), -1);
     assert.equal(rumboEnPalabras(0), "norte"); assert.equal(rumboEnPalabras(44), "noreste"); assert.equal(rumboEnPalabras(350), "norte"); assert.equal(rumboEnPalabras(null), null);
     assert.equal(duracionLarga(45), "45 min"); assert.equal(duracionLarga(135), "2 h 15 min"); assert.equal(duracionLarga(540), "9 h"); assert.equal(duracionLarga(1440 * 3 + 240), "3 días 4 h");
+});
+
+test("la reproducción anda por el reloj del viaje: entre dos reportes el auto está en el medio", () => {
+    const p = ruta([50, 50, 50, 50]);                       // un reporte cada diez segundos
+    const l = lineaDeTiempo(p, 0, 3);
+    assert.deepEqual(l.t, [0, 10, 20, 30]); assert.equal(l.total, 30);
+    assert.equal(posicionEnLinea(l, 0), 0);
+    assert.equal(posicionEnLinea(l, 5), 0.5);               // a mitad de camino entre el primero y el segundo
+    assert.equal(posicionEnLinea(l, 24), 2.4);
+    assert.equal(posicionEnLinea(l, 30), 3); assert.equal(posicionEnLinea(l, 99), 3);
+    // Y al revés: dónde retomar si se soltó la barra en 2,4.
+    assert.ok(Math.abs(tiempoEnLinea(l, 2.4) - 24) < 1e-9);
+    assert.equal(tiempoEnLinea(l, 3), 30);
+});
+
+test("una espera no clava al auto, y entre dos viajes salta en vez de volar en línea recta", () => {
+    const p = ruta([40, 0, 40, 40]);
+    const mas = (i: number, seg: number) => { p[i].cuando = new Date(Date.parse(p[i - 1].cuando) + seg * 1000).toISOString(); };
+    mas(1, 10); mas(2, 60); mas(3, 3 * 3600);               // un semáforo de un minuto, y tres horas hasta el viaje siguiente
+    const l = lineaDeTiempo(p, 0, 3);
+    assert.deepEqual(l.salto, [false, false, false, true]);
+    assert.deepEqual(l.t, [0, 10, 22, 23.5]);               // el minuto cuenta doce segundos; las tres horas, un instante
+    // En el salto el auto se queda en el punto 2 hasta que termina, y recién ahí aparece en el 3.
+    assert.equal(posicionEnLinea(l, 22.7), 2);
+    assert.equal(posicionEnLinea(l, 23.5), 3);
+});
+
+test("recorrer sólo un viaje: la línea arranca en su primer punto", () => {
+    const l = lineaDeTiempo(ruta([10, 20, 30, 40, 50]), 2, 4);
+    assert.equal(l.desde, 2); assert.equal(l.total, 20);
+    assert.equal(posicionEnLinea(l, 0), 2); assert.equal(posicionEnLinea(l, 15), 3.5); assert.equal(posicionEnLinea(l, 20), 4);
+    assert.equal(tiempoEnLinea(l, 2), 0); assert.equal(tiempoEnLinea(l, 1), 0);     // antes del comienzo es el comienzo
+});
+
+test("el rumbo sale del tramo que se anda, y quieto no hay rumbo", () => {
+    const a = { lat: -34.9, lon: -56.1 };
+    assert.ok(Math.abs(rumboEntre(a, { lat: -34.89, lon: -56.1 })!) < 0.01);                // al norte
+    assert.ok(Math.abs(rumboEntre(a, { lat: -34.9, lon: -56.09 })! - 90) < 0.01);           // al este
+    assert.ok(Math.abs(rumboEntre(a, { lat: -34.91, lon: -56.1 })! - 180) < 0.01);          // al sur
+    assert.equal(rumboEntre(a, { lat: -34.90001, lon: -56.1 }), null);                      // un metro: es ruido
 });

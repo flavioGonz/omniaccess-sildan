@@ -13,7 +13,7 @@ import {
 } from "@/app/actions/gps";
 import { CajonEventosGps } from "@/components/mapa/CajonEventosGps";
 import { CompartirGps } from "@/components/mapa/CompartirGps";
-import { LineasDelRecorrido, PanelDelRecorrido, usePartes } from "@/components/mapa/RecorridoGps";
+import { crearCursor, LineasDelRecorrido, PanelDelRecorrido, usePartes } from "@/components/mapa/RecorridoGps";
 import { demoraLegible, fichaDeEventoGps, tituloDeEventoGps } from "@/lib/gps-eventos";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { resumenDeRecorrido } from "@/lib/gps-recorrido";
@@ -174,7 +174,9 @@ export function CapaGps() {
     /** El viaje resaltado dentro del recorrido a la vista. */
     const [viajeSel, setViajeSel] = useState<number | null>(null);
     /** El punto del trayecto en el que está parada la barra de recorrerlo (índice en los puntos). */
-    const [cursor, setCursor] = useState<number | null>(null);
+    /* No es estado: la reproducción lo cambia sesenta veces por segundo y esta capa no tiene que
+       redibujarse por eso (ver `crearCursor`). Se crea una vez y vive lo que vive la capa. */
+    const [cur] = useState(crearCursor);
     /* Los viajes, sus puntos, el límite y los excesos: una sola cuenta para las líneas del mapa y para el panel. */
     const partes = usePartes(ruta?.datos || null, viajeSel);
 
@@ -209,7 +211,7 @@ export function CapaGps() {
     const traerRef = useRef(traer); traerRef.current = traer;
 
     const verRuta = useCallback(async (imei: string, horas: number, encuadrar = true, rango: RangoRuta | null = null) => {
-        if (encuadrar) { setViajeSel(null); setCursor(null); setEstela(null); }
+        if (encuadrar) { setViajeSel(null); cur.set(null); setEstela(null); }
         /* «El mismo recorrido» es el mismo rastreador y el mismo período: si se pidió otro mientras éste llegaba, la respuesta vieja no pisa nada. */
         const mismo = (v: { imei: string; horas: number; rango?: RangoRuta | null } | null) => !!v && v.imei === imei && v.horas === horas && (v.rango?.desde || "") === (rango?.desde || "") && (v.rango?.hasta || "") === (rango?.hasta || "");
         setRuta((v) => ({ imei, horas, rango, datos: mismo(v) ? v!.datos : null }));
@@ -218,7 +220,7 @@ export function CapaGps() {
             setRuta((v) => (mismo(v) ? { ...v!, datos } : v));
             if (encuadrar && datos.puntos.length > 1) mapa.fitBounds(L.latLngBounds(datos.puntos.map((p) => [p.lat, p.lon] as [number, number])), { padding: [60, 60], maxZoom: 17 });
         } catch { toast.error({ title: "No se pudo traer el recorrido" }); }
-    }, [mapa]);
+    }, [mapa, cur]);
 
     const verEstela = useCallback(async (imei: string, vivo: boolean) => {
         setRuta(null); setViajeSel(null); setSuelta(false);
@@ -373,7 +375,7 @@ export function CapaGps() {
     /** Qué se ve ahora, para marcar el botón: «vivo», «10m» o las horas del recorrido. */
     const queSeVe = (imei: string): string | null => (estela?.imei === imei ? (estela.vivo ? "vivo" : "10m") : ruta?.imei === imei ? (ruta.rango ? "rango" : String(ruta.horas)) : null);
     const elegirTramo = (imei: string, clave: string) => { if (clave === "vivo") verEstela(imei, true); else if (clave === "10m") verEstela(imei, false); else verRuta(imei, Number(clave)); };
-    const cerrarRecorrido = () => { setRuta(null); setEstela(null); setCursor(null); setFechas(null); };
+    const cerrarRecorrido = () => { setRuta(null); setEstela(null); cur.set(null); setFechas(null); };
     /** Los campos de «Fechas» del panel, leídos como instantes del sitio; y aplicarlos: el recorrido de ese rango. */
     const rangoEscrito = fechas ? rangoDeFiltro({ periodo: "rango", desde: fechas.desde, hasta: fechas.hasta }) : null;
     const verFechas = (imei: string) => { if (rangoEscrito?.desde && sirveParaRecorrido(rangoEscrito)) verRuta(imei, 0, true, { desde: rangoEscrito.desde.toISOString(), hasta: rangoEscrito.hasta?.toISOString() || null }); };
@@ -384,7 +386,7 @@ export function CapaGps() {
     const verViaje = (i: number) => {
         const v = viajes[i]; if (!v) return;
         /* Al cambiar de viaje la barra se suelta: su punto era del viaje anterior. */
-        setViajeSel(i === viajeSel ? null : i); setCursor(null);
+        setViajeSel(i === viajeSel ? null : i); cur.set(null);
         const suyos = pts.filter((p) => p.cuando >= v.desde && p.cuando <= v.hasta);
         if (suyos.length > 1) mapa.fitBounds(L.latLngBounds(suyos.map((p) => [p.lat, p.lon] as [number, number])), { padding: [60, 60], maxZoom: 17 });
     };
@@ -395,7 +397,7 @@ export function CapaGps() {
         <>
             {/* El recorrido: una línea por viaje, pintada según a cuánto iba, con lo que pasó el límite
                 corriendo, el número de cada viaje y el vehículo de la barra (RecorridoGps). */}
-            {ruta?.datos && !estela && <LineasDelRecorrido partes={partes} viajeSel={viajeSel} cursor={cursor} alCursor={setCursor} dibujo={(ICONOS[lista.find((r) => r.imei === ruta.imei)?.icono || "auto"] || ICONOS.auto).svg} />}
+            {ruta?.datos && !estela && <LineasDelRecorrido partes={partes} viajeSel={viajeSel} cur={cur} dibujo={(ICONOS[lista.find((r) => r.imei === ruta.imei)?.icono || "auto"] || ICONOS.auto).svg} />}
 
             {/* La estela de los últimos minutos (10 min y en vivo): una sola línea, tal cual. */}
             {/* Las dos líneas se dibujan a mano (`trazarEstela`): la estela termina donde está DIBUJADO
@@ -644,7 +646,7 @@ export function CapaGps() {
                                     {ruta.datos.resumen.puntos < 2 ? "No hay posiciones con buena señal en ese tramo." : "No hizo ningún viaje en ese tramo: estuvo en el mismo lugar."}
                                 </p>
                             ) : (
-                                <PanelDelRecorrido datos={ruta.datos} partes={partes} viajeSel={viajeSel} alViaje={verViaje} cursor={cursor} alCursor={setCursor}
+                                <PanelDelRecorrido datos={ruta.datos} partes={partes} viajeSel={viajeSel} alViaje={verViaje} cur={cur}
                                     hastaAhora={!ruta.rango?.hasta} alCambiarLimite={() => verRuta(ruta.imei, ruta.horas, false, ruta.rango)} alLugar={lugarDe} />
                             )}
                         </div>

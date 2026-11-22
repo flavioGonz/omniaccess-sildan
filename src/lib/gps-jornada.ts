@@ -146,3 +146,68 @@ export function duracionLarga(min: number): string {
     if (min < 1440) { const h = Math.floor(min / 60), m = min % 60; return m ? `${h} h ${m} min` : `${h} h`; }
     const d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60); return h ? `${d} ${d === 1 ? "día" : "días"} ${h} h` : `${d} ${d === 1 ? "día" : "días"}`;
 }
+
+/* ---------- Reproducirlo, de corrido ---------- */
+
+/**
+ * La línea de tiempo con la que se reproduce un trayecto.
+ *
+ * La primera versión avanzaba «un reporte cada tanto» y el auto iba a los saltos (22/11, Nico: «se
+ * corta mucho y no es continuo ni fluido»). Para que ANDE hace falta un reloj: el auto tiene que
+ * estar en cada instante entre dos reportes, no sólo sobre ellos, y tardar entre uno y otro lo que
+ * tardó de verdad — así va rápido en la ruta y despacio en la ciudad, como fue.
+ *
+ * Pero no puede ser el reloj real tal cual:
+ *  · Una espera larga (un semáforo de dos minutos, una hora estacionado entre dos viajes) dejaría
+ *    el auto clavado todo ese rato. Cada tramo cuenta como mucho TRAMO_MAX_S.
+ *  · Entre el final de un viaje y el comienzo del siguiente no hay camino: unirlos haría volar al
+ *    auto en línea recta por encima de las manzanas. Esos tramos son un SALTO: el auto espera un
+ *    instante donde quedó y aparece donde arranca el otro.
+ *
+ * `t[k]` es el segundo (del reloj de la reproducción) en que el auto está sobre el punto `desde + k`.
+ */
+export type LineaDeTiempo = { desde: number; t: number[]; salto: boolean[]; total: number };
+const TRAMO_MAX_S = 12;
+/** Más que esto entre dos reportes, o más lejos que esto, no es un tramo andado: es otro viaje. */
+const SALTO_S = 120;
+const SALTO_M = 1500;
+
+export function lineaDeTiempo(p: PuntoDeRuta[], desde: number, hasta: number): LineaDeTiempo {
+    const t = [0], salto = [false];
+    for (let i = desde + 1; i <= hasta; i++) {
+        const seg = (new Date(p[i].cuando).getTime() - new Date(p[i - 1].cuando).getTime()) / 1000;
+        const esSalto = seg > SALTO_S || metrosEntre(p[i - 1], p[i]) > SALTO_M;
+        // Un reporte repetido en el mismo segundo no puede valer cero: el reloj tiene que avanzar siempre.
+        t.push(t[t.length - 1] + (esSalto ? 1.5 : Math.min(Math.max(seg, 0.2), TRAMO_MAX_S)));
+        salto.push(esSalto);
+    }
+    return { desde, t, salto, total: t[t.length - 1] };
+}
+
+/**
+ * Dónde está el auto en el segundo `seg` de la reproducción: un índice con decimales (12,4 es
+ * «a cuatro décimos del camino entre el punto 12 y el 13»). En un salto no hay decimales: se queda
+ * en el punto de antes hasta el final del tramo.
+ */
+export function posicionEnLinea(l: LineaDeTiempo, seg: number): number {
+    const n = l.t.length - 1;
+    if (seg <= 0 || n <= 0) return l.desde;
+    if (seg >= l.total) return l.desde + n;
+    let a = 0, b = n;                       // el último k con t[k] <= seg
+    while (b - a > 1) { const m = (a + b) >> 1; if (l.t[m] <= seg) a = m; else b = m; }
+    return l.desde + a + (l.salto[a + 1] ? 0 : (seg - l.t[a]) / (l.t[a + 1] - l.t[a]));
+}
+
+/** El segundo de la reproducción que corresponde a una posición: para seguir desde donde se soltó la barra. */
+export function tiempoEnLinea(l: LineaDeTiempo, pos: number): number {
+    const k = Math.min(Math.max(pos - l.desde, 0), l.t.length - 1), a = Math.floor(k);
+    return a >= l.t.length - 1 ? l.total : l.t[a] + (k - a) * (l.t[a + 1] - l.t[a]);
+}
+
+/** Hacia dónde apunta el tramo de `a` a `b`, en grados desde el norte. Null si no se movió lo suficiente para saberlo. */
+export function rumboEntre(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number | null {
+    if (metrosEntre(a, b) < 3) return null;
+    const rad = Math.PI / 180, dLon = (b.lon - a.lon) * rad;
+    const y = Math.sin(dLon) * Math.cos(b.lat * rad), x = Math.cos(a.lat * rad) * Math.sin(b.lat * rad) - Math.sin(a.lat * rad) * Math.cos(b.lat * rad) * Math.cos(dLon);
+    return (Math.atan2(y, x) / rad + 360) % 360;
+}
