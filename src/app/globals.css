@@ -2576,3 +2576,11 @@ tr.omni-fila-p1-viva > td { animation-duration: .9s; }
 @media (prefers-contrast: more) {
     .censo-barra { background: var(--background); border-top-color: var(--foreground); }
 }
+
+
+/* El tramo de un recorrido de GPS que pasó la velocidad permitida «corre»: es lo que el ojo
+   tiene que encontrar primero en una línea de veinte kilómetros. Con movimiento reducido queda
+   rayado y quieto, que igual lo distingue. */
+.gps-exceso { stroke-dasharray: 10 9; animation: gps-exceso 0.6s linear infinite; }
+@keyframes gps-exceso { to { stroke-dashoffset: -19; } }
+@media (prefers-reduced-motion: reduce) { .gps-exceso { animation: none; } }

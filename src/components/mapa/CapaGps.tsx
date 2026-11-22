@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Circle, CircleMarker, Marker, Polygon, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
+import { Circle, Marker, Polygon, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { CircleDashed, Crosshair, EyeOff, History, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, Share2, ToggleLeft, ToggleRight, X } from "lucide-react";
 import { sileo as toast } from "sileo";
@@ -13,14 +13,16 @@ import {
 } from "@/app/actions/gps";
 import { CajonEventosGps } from "@/components/mapa/CajonEventosGps";
 import { CompartirGps } from "@/components/mapa/CompartirGps";
+import { LineasDelRecorrido, PanelDelRecorrido, usePartes } from "@/components/mapa/RecorridoGps";
 import { demoraLegible, fichaDeEventoGps, tituloDeEventoGps } from "@/lib/gps-eventos";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { resumenDeRecorrido } from "@/lib/gps-recorrido";
 import { circuloDe, dentroDe, rotuloDeHorario, VERTICES_MAX, type AvisaCerca, type HorarioCerca } from "@/lib/gps-geocerca";
+import { duracionLarga } from "@/lib/gps-jornada";
 import { posicionEn, RETRASO_MS } from "@/lib/gps-reproducir";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";
-import { fechaCorta, fechaHora, hace, hora, horaSeg } from "@/lib/fechas";
+import { fechaCorta, hace, horaSeg } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 
 /**
@@ -162,6 +164,10 @@ export function CapaGps() {
     const [compartiendo, setCompartiendo] = useState<{ imei: string; nombre: string } | null>(null);
     /** El viaje resaltado dentro del recorrido a la vista. */
     const [viajeSel, setViajeSel] = useState<number | null>(null);
+    /** El punto del trayecto en el que está parada la barra de recorrerlo (índice en los puntos). */
+    const [cursor, setCursor] = useState<number | null>(null);
+    /* Los viajes, sus puntos, el límite y los excesos: una sola cuenta para las líneas del mapa y para el panel. */
+    const partes = usePartes(ruta?.datos || null, viajeSel);
 
     const traerCercas = useCallback(async () => { try { setCercas(await geocercasGps()); } catch { /* sin permiso: no se dibujan */ } }, []);
     useEffect(() => { traerCercas(); }, [traerCercas]);
@@ -194,7 +200,7 @@ export function CapaGps() {
     const traerRef = useRef(traer); traerRef.current = traer;
 
     const verRuta = useCallback(async (imei: string, horas: number, encuadrar = true) => {
-        if (encuadrar) { setViajeSel(null); setEstela(null); }
+        if (encuadrar) { setViajeSel(null); setCursor(null); setEstela(null); }
         setRuta((v) => ({ imei, horas, datos: v && v.imei === imei && v.horas === horas ? v.datos : null }));
         try {
             const datos = await recorridoGps(imei, horas);
@@ -345,36 +351,26 @@ export function CapaGps() {
     /** Qué se ve ahora, para marcar el botón: «vivo», «10m» o las horas del recorrido. */
     const queSeVe = (imei: string): string | null => (estela?.imei === imei ? (estela.vivo ? "vivo" : "10m") : ruta?.imei === imei ? String(ruta.horas) : null);
     const elegirTramo = (imei: string, clave: string) => { if (clave === "vivo") verEstela(imei, true); else if (clave === "10m") verEstela(imei, false); else verRuta(imei, Number(clave)); };
-    const cerrarRecorrido = () => { setRuta(null); setEstela(null); };
+    const cerrarRecorrido = () => { setRuta(null); setEstela(null); setCursor(null); };
     /** Quién está adentro de cada geocerca ahora, calculado acá con las posiciones a la vista. */
     const adentroDe = (c: Geocerca) => lista.filter((r) => valePara(c, r.imei) && dentroDe(c, r.lat!, r.lon!));
     const viajes = ruta?.datos?.viajes || [];
     const paradas = ruta?.datos?.paradas || [];
-    /* Los puntos de cada viaje, por su horario: cada uno es su propia línea. */
-    const tramos = viajes.map((v) => pts.filter((p) => p.cuando >= v.desde && p.cuando <= v.hasta));
-    /* El viaje elegido se dibuja con los puntos del recorrido que caen en su horario. */
-    const elViaje = viajeSel !== null ? viajes[viajeSel] : null;
-    const ptsViaje = elViaje ? pts.filter((p) => p.cuando >= elViaje.desde && p.cuando <= elViaje.hasta) : [];
     const verViaje = (i: number) => {
         const v = viajes[i]; if (!v) return;
-        setViajeSel(i === viajeSel ? null : i);
+        /* Al cambiar de viaje la barra se suelta: su punto era del viaje anterior. */
+        setViajeSel(i === viajeSel ? null : i); setCursor(null);
         const suyos = pts.filter((p) => p.cuando >= v.desde && p.cuando <= v.hasta);
         if (suyos.length > 1) mapa.fitBounds(L.latLngBounds(suyos.map((p) => [p.lat, p.lon] as [number, number])), { padding: [60, 60], maxZoom: 17 });
     };
+    /** Dónde es, en palabras, según las geocercas: «en Base», o nada si no cae en ninguna. */
+    const lugarDe = (lat: number, lon: number) => { const c = cercas.find((x) => dentroDe(x, lat, lon)); return c ? `en ${c.nombre}` : null; };
 
     return (
         <>
-            {/* Una línea POR VIAJE. Unirlas todas dibujaba, entre el final de un viaje y el arranque
-                del siguiente, una recta que nadie recorrió. */}
-            {tramos.map((t, i) => t.length > 1 && (
-                <React.Fragment key={`tr-${i}`}>
-                    {/* Un borde oscuro debajo: sobre el satélite, una línea celeste sola se pierde. */}
-                    <Polyline positions={t.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: "#0a0e14", weight: 7, opacity: 0.55, lineCap: "round", lineJoin: "round" }} />
-                    <Polyline positions={t.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: CELESTE, weight: 4, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
-                </React.Fragment>
-            ))}
-            {/* De dónde salió el primero: un aro. */}
-            {pts.length > 1 && <CircleMarker center={[pts[0].lat, pts[0].lon]} radius={6} pathOptions={{ color: "#fff", weight: 3, fillColor: CELESTE, fillOpacity: 1 }} />}
+            {/* El recorrido: una línea por viaje, pintada según a cuánto iba, con lo que pasó el límite
+                corriendo, el número de cada viaje y el vehículo de la barra (RecorridoGps). */}
+            {ruta?.datos && !estela && <LineasDelRecorrido partes={partes} viajeSel={viajeSel} cursor={cursor} alCursor={setCursor} />}
 
             {/* La estela de los últimos minutos (10 min y en vivo): una sola línea, tal cual. */}
             {/* Las dos líneas se dibujan a mano (`trazarEstela`): la estela termina donde está DIBUJADO
@@ -387,15 +383,11 @@ export function CapaGps() {
                 </>
             )}
 
-            {/* El viaje elegido, encima del recorrido: el resto queda de fondo. */}
-            {ptsViaje.length > 1 && (
-                <Polyline positions={ptsViaje.map((p) => [p.lat, p.lon] as [number, number])} pathOptions={{ color: "#fbbf24", weight: 6, opacity: 1, lineCap: "round", lineJoin: "round" }} />
-            )}
             {/* Las paradas: dónde quedó entre un viaje y otro, y cuánto. */}
             {paradas.map((pa, i) => (
                 <Marker key={`pa-${i}`} position={[pa.lat, pa.lon]} zIndexOffset={1200} interactive={false}
-                    icon={L.divIcon({ className: "bg-transparent border-0", iconSize: [64, 20], iconAnchor: [32, 10],
-                        html: `<div style="padding:1px 7px;border-radius:999px;background:#0a0e14;color:#fff;border:2px solid ${CELESTE};font:700 10.5px/14px Outfit,system-ui,sans-serif;white-space:nowrap;text-align:center">P · ${duracion(pa.minutos)}</div>` })} />
+                    icon={L.divIcon({ className: "bg-transparent border-0", iconSize: [96, 20], iconAnchor: [48, 10],
+                        html: `<div style="padding:1px 7px;border-radius:999px;background:#0a0e14;color:#fff;border:2px solid ${CELESTE};font:700 10.5px/14px Outfit,system-ui,sans-serif;white-space:nowrap;text-align:center">P · ${duracionLarga(pa.minutos)}</div>` })} />
             ))}
 
             {/* Las geocercas. La que se está corrigiendo se dibuja como borrador, no dos veces. */}
@@ -611,32 +603,8 @@ export function CapaGps() {
                                     {ruta.datos.resumen.puntos < 2 ? "No hay posiciones con buena señal en ese tramo." : "No hizo ningún viaje en ese tramo: estuvo en el mismo lugar."}
                                 </p>
                             ) : (
-                                <dl className="mt-2 grid grid-cols-4 gap-3 text-[12.5px]">
-                                    <Cifra k="Recorrió" v={`${ruta.datos.resumen.km.toFixed(1).replace(".", ",")} km`} />
-                                    <Cifra k="En movimiento" v={ruta.datos.resumen.enMovimientoMin >= 60 ? `${Math.floor(ruta.datos.resumen.enMovimientoMin / 60)} h ${ruta.datos.resumen.enMovimientoMin % 60} min` : `${ruta.datos.resumen.enMovimientoMin} min`} />
-                                    <Cifra k="Velocidad máxima" v={`${ruta.datos.resumen.velMax} km/h`} />
-                                    <Cifra k="Desde" v={fechaHora(ruta.datos.resumen.desde)} />
-                                </dl>
-                            )}
-                            {!estela && viajes.length > 0 && (
-                                <div className="mt-2.5 border-t border-border pt-2">
-                                    <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-1">
-                                        {viajes.length} {viajes.length === 1 ? "viaje" : "viajes"}{paradas.length ? ` · ${paradas.length} ${paradas.length === 1 ? "parada" : "paradas"}` : ""}
-                                    </p>
-                                    <ul className="max-h-[132px] overflow-y-auto [scrollbar-width:thin] -mx-1">
-                                        {viajes.map((v, i) => (
-                                            <li key={v.desde}>
-                                                <button type="button" onClick={() => verViaje(i)}
-                                                    className={cn("w-full flex items-center gap-3 px-2 py-1 rounded-[6px] text-left text-[12px] tabular-nums", viajeSel === i ? "bg-amber-400/20" : "hover:bg-accent")}>
-                                                    <span className="font-bold w-[92px] shrink-0">{hora(v.desde)} → {hora(v.hasta)}</span>
-                                                    <span className="w-[62px] shrink-0">{v.km.toFixed(1).replace(".", ",")} km</span>
-                                                    <span className="w-[58px] shrink-0 text-muted-foreground">{duracion(v.minutos)}</span>
-                                                    <span className="text-muted-foreground truncate">máx {v.velMax} km/h · media {v.velMedia}</span>
-                                                </button>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
+                                <PanelDelRecorrido datos={ruta.datos} partes={partes} viajeSel={viajeSel} alViaje={verViaje} cursor={cursor} alCursor={setCursor}
+                                    hastaAhora alCambiarLimite={() => verRuta(ruta.imei, ruta.horas, false)} alLugar={lugarDe} />
                             )}
                         </div>
                     )}
@@ -840,7 +808,6 @@ function ReglasDeLaCerca({ b, alCambiar, rastreadores }: { b: Borrador; alCambia
 const RADIOS = [50, 75, 100, 150, 200, 300, 400, 500, 750, 1000, 1500, 2000, 3000, 5000, 10000];
 const indiceDeRadio = (r: number) => { let m = 0; RADIOS.forEach((x, i) => { if (Math.abs(x - r) < Math.abs(RADIOS[m] - r)) m = i; }); return m; };
 
-const duracion = (min: number) => (min >= 60 ? `${Math.floor(min / 60)} h ${min % 60} min` : `${min} min`);
 
 /** Espera UN clic en el mapa. Vive adentro del mapa porque es el mapa el que sabe dónde se tocó. */
 function ClicEnElMapa({ alTocar }: { alTocar: (lat: number, lon: number) => void }) {

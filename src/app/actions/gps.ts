@@ -3,6 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { DURACIONES, estadoDeEnlace, horasValidas } from "@/lib/gps-compartir";
+import { leerLimite } from "@/lib/gps-jornada";
 import { prisma } from "@/lib/prisma";
 import { circuloDe, leerHorario, puntosDe, rotuloDeHorario, VERTICES_MAX, type AvisaCerca, type HorarioCerca } from "@/lib/gps-geocerca";
 import { getSession } from "@/app/actions/auth";
@@ -140,8 +141,13 @@ export async function atarVehiculoGps(imei: string, matricula: string): Promise<
     return { ok: true };
 }
 
-export type PuntoGps = { lat: number; lon: number; cuando: string; velocidad: number };
-export type RecorridoGps = { puntos: PuntoGps[]; resumen: ResumenRecorrido; viajes: Viaje[]; paradas: Parada[] };
+/** `rumbo`, `sat` y `enc` son lo demás que reportó el equipo en ese punto: se ven al recorrer el trayecto. */
+export type PuntoGps = { lat: number; lon: number; cuando: string; velocidad: number; rumbo?: number | null; sat?: number | null; enc?: boolean | null };
+export type RecorridoGps = {
+    puntos: PuntoGps[]; resumen: ResumenRecorrido; viajes: Viaje[]; paradas: Parada[];
+    /** La velocidad permitida por la empresa (km/h): contra ella se marca el exceso en la línea. */
+    limite: number;
+};
 
 /**
  * Por dónde anduvo en las últimas horas: sus VIAJES, y nada más.
@@ -163,9 +169,9 @@ export async function recorridoGps(imei: string, horas = 24): Promise<RecorridoG
     const desde = new Date(Date.now() - Math.min(Math.max(horas, 1), 24 * 31) * 3600_000);
     const filas = await prisma.gpsPosicion.findMany({
         where: { imei, cuando: { gte: desde }, satelites: { gte: SATS_MIN } }, orderBy: { cuando: "asc" }, take: 120_000,
-        select: { lat: true, lon: true, cuando: true, velocidad: true },
+        select: { lat: true, lon: true, cuando: true, velocidad: true, rumbo: true, satelites: true, encendido: true },
     });
-    const todos = filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
+    const todos: PuntoGps[] = filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad, rumbo: f.rumbo, sat: f.satelites, enc: f.encendido }));
     const { viajes, paradas } = viajesYParadas(todos);
     /* Los puntos de cada viaje, por su horario. Los dos están ordenados, así que se recorren juntos. */
     const deViaje: PuntoGps[] = [];
@@ -178,7 +184,20 @@ export async function recorridoGps(imei: string, horas = 24): Promise<RecorridoG
         puntos: aligerar(deViaje, 3000),
         resumen: resumenDeViajes(viajes, todos[0]?.cuando || null, todos[todos.length - 1]?.cuando || null, todos.length),
         viajes, paradas,
+        limite: leerLimite((await prisma.setting.findUnique({ where: { key: LIMITE_GPS } }).catch(() => null))?.value),
     };
+}
+
+/** El ajuste con la velocidad permitida por la empresa. Uno para todos los vehículos. */
+const LIMITE_GPS = "GPS_VELOCIDAD_PERMITIDA";
+
+export async function guardarLimiteVelocidadGps(kmh: number): Promise<{ ok: boolean; limite?: number; error?: string }> {
+    const s = await sesion("dispositivos.editar");
+    const n = Math.round(Number(kmh));
+    if (!Number.isFinite(n) || n < 20 || n > 200) return { ok: false, error: "Poné una velocidad entre 20 y 200 km/h." };
+    await prisma.setting.upsert({ where: { key: LIMITE_GPS }, update: { value: String(n) }, create: { key: LIMITE_GPS, value: String(n) } });
+    await auditar(s, "equipos.gps.limite-velocidad", "todos", true, `${n} km/h`);
+    return { ok: true, limite: n };
 }
 
 /**
