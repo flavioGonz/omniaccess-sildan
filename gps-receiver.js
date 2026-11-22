@@ -36,8 +36,12 @@
  * Lo que cierra el puerto de verdad es un APN privado con la operadora; esto es lo que se puede
  * hacer del lado del servidor.
  *
- * Las tramas se anotan en crudo en el log mientras GPS_CRUDO no sea "0": hasta ver bastantes
- * tramas reales de posición, el hex es la única forma de arreglar el decodificador sin adivinar.
+ * Las tramas de rutina (posición, latido, hora, voltaje) se anotan en crudo en el log sólo con GPS_CRUDO=1.
+ * Estuvieron siempre anotadas hasta el 22/11, mientras se afinaba el decodificador con tramas
+ * reales; con una semana de viajes de verdad leídos bien (19 viajes, 2.347 posiciones) ya no hace
+ * falta, y el log dejaba escrito por dónde andaba cada vehículo. Lo que NO es rutina —una alarma,
+ * un tipo de trama que no se conoce— se sigue anotando siempre: es justo lo que hay que poder
+ * mirar después (todavía no llegó nunca un SOS real).
  */
 "use strict";
 require("dotenv").config({ quiet: true });
@@ -49,7 +53,8 @@ const evs = require("./lib-gps-eventos");
 
 const prisma = new PrismaClient();
 const PUERTO = Number(process.env.GPS_PUERTO || 1341);
-const CRUDO = process.env.GPS_CRUDO !== "0";
+const CRUDO = process.env.GPS_CRUDO === "1";
+const DE_RUTINA = new Set(["posicion", "estado", "login", "hora", "info", "respuesta"]);
 /** Sin presentarse en este tiempo, se corta: un escáner no manda un login (el equipo lo manda al conectar). */
 const SIN_LOGIN_MS = 30_000;
 /** Lo mismo para una IP castigada: tiene que presentarse enseguida, y con un IMEI aceptado. */
@@ -388,7 +393,9 @@ async function alPosicion(imei, m, aceptado) {
     if (aceptado) await prisma.gpsPosicion.create({
         data: {
             imei, cuando: p.fecha, lat: p.lat, lon: p.lon, velocidad: p.velocidad, rumbo: p.rumbo,
-            satelites: p.satelites, encendido: m.encendido ?? null, alarma: m.tipo === "alarma" ? m.alarma : null,
+            /* El contacto (ACC): estos equipos lo informan en el latido, no en cada posición. Se le
+               pone a la posición lo último que se supo, para que al recorrer un trayecto se vea. */
+            satelites: p.satelites, encendido: m.encendido ?? (motor.has(imei) ? motor.get(imei) : null), alarma: m.tipo === "alarma" ? m.alarma : null,
         },
     });
     /* Con pocos satélites la posición queda GUARDADA (es el dato crudo, y dice con cuántos
@@ -568,7 +575,7 @@ const servidor = net.createServer((s) => {
             const m = g.leer(t);
             if (!m.ok) { log(ip, "trama con CRC roto, se ignora"); if (!imei) falta(ip, "CRC roto"); continue; }
             cuenta.tramas++; cuenta.ultimaTrama = Date.now();
-            if (CRUDO) log(imei || ip, m.tipo, t.toString("hex"));
+            if (CRUDO || !DE_RUTINA.has(m.tipo)) log(imei || ip, m.tipo, t.toString("hex"));
             try {
                 if (m.tipo === "login") {
                     if (!/^\d{15}$/.test(m.imei || "")) { falta(ip, "IMEI mal formado"); s.destroy(); return; }

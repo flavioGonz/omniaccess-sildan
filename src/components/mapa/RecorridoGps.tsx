@@ -289,7 +289,8 @@ function Barra({ pts, desde, hasta, limite, cursor, alCursor, deViaje }: { pts: 
                     <Dato k="Hora" v={horaSeg(p.cuando)} />
                     <Dato k="Velocidad" v={`${p.velocidad} km/h`} mal={p.velocidad > limite} />
                     <Dato k="Rumbo" v={p.velocidad > 3 ? rumboEnPalabras(p.rumbo) || "—" : "detenido"} />
-                    <Dato k="Motor" v={p.enc == null ? "no informa" : p.enc ? "encendido" : "apagado"} />
+                    {/* Andando con el contacto «apagado» no es un motor apagado: es el cable de contacto sin conectar. Se dice así. */}
+                    <Dato k="Contacto" v={p.enc == null ? "no informa" : p.enc ? "encendido" : p.velocidad >= 10 ? "sin cable (ACC)" : "apagado"} />
                     <Dato k="Satélites" v={p.sat != null ? String(p.sat) : "—"} />
                     <Dato k="Desde el anterior" v={i! > desde ? `${Math.round((t(p) - t(pts[i! - 1])) / 1000)} s` : "—"} />
                     <div className="col-span-2 min-w-0"><dt className="text-[10.5px] text-muted-foreground">Posición</dt><dd className="truncate font-bold tabular-nums">{p.lat.toFixed(5)}, {p.lon.toFixed(5)}</dd></div>
