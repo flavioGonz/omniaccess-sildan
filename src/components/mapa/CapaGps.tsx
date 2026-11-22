@@ -3,18 +3,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Circle, CircleMarker, Marker, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
+import { Circle, CircleMarker, Marker, Polygon, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
-import { CircleDashed, Crosshair, EyeOff, History, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, ToggleLeft, ToggleRight, X } from "lucide-react";
+import { CircleDashed, Crosshair, EyeOff, History, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, Share2, ToggleLeft, ToggleRight, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import {
     borrarGeocercaGps, cambiarIconoGps, comandoGps, entornoEventoGps, estelaGps, geocercasGps, guardarGeocercaGps, rastreadoresGps, recorridoGps, unEventoGps,
     type ComandoGps, type EventoGps, type Geocerca, type PuntoGps, type Rastreador, type RecorridoGps,
 } from "@/app/actions/gps";
 import { CajonEventosGps } from "@/components/mapa/CajonEventosGps";
+import { CompartirGps } from "@/components/mapa/CompartirGps";
 import { demoraLegible, fichaDeEventoGps, tituloDeEventoGps } from "@/lib/gps-eventos";
 import { useTiempoReal } from "@/lib/tiempo-real";
-import { metrosEntre, resumenDeRecorrido } from "@/lib/gps-recorrido";
+import { resumenDeRecorrido } from "@/lib/gps-recorrido";
+import { circuloDe, dentroDe, rotuloDeHorario, VERTICES_MAX, type AvisaCerca, type HorarioCerca } from "@/lib/gps-geocerca";
 import { posicionEn, RETRASO_MS } from "@/lib/gps-reproducir";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";
@@ -156,6 +158,8 @@ export function CapaGps() {
     /** Esperando un clic en el mapa para poner el centro de una geocerca nueva. */
     const [colocando, setColocando] = useState(false);
     const [guardando, setGuardando] = useState(false);
+    /** El rastreador cuyo diálogo de «compartir la posición» está abierto. */
+    const [compartiendo, setCompartiendo] = useState<{ imei: string; nombre: string } | null>(null);
     /** El viaje resaltado dentro del recorrido a la vista. */
     const [viajeSel, setViajeSel] = useState<number | null>(null);
 
@@ -166,11 +170,11 @@ export function CapaGps() {
         if (!borrador) return;
         setGuardando(true);
         try {
-            const x = await guardarGeocercaGps({ id: borrador.id, nombre: borrador.nombre, lat: borrador.lat, lon: borrador.lon, radio: borrador.radio, imeis: borrador.imeis, activa: borrador.activa });
+            const x = await guardarGeocercaGps({ id: borrador.id, nombre: borrador.nombre, lat: borrador.lat, lon: borrador.lon, radio: borrador.radio, imeis: borrador.imeis, activa: borrador.activa, puntos: borrador.puntos, horario: borrador.horario, avisa: borrador.avisa });
             if (!x.ok) { toast.error({ title: "No se guardó", description: x.error }); return; }
             /* Lo que más confunde de una geocerca recién hecha: se la dibuja alrededor de un vehículo
                y «no avisa que entró». No entró: ya estaba. Se dice acá, que es cuando importa. */
-            const adentro = lista.filter((r) => metrosEntre({ lat: borrador.lat, lon: borrador.lon }, { lat: r.lat!, lon: r.lon! }) <= borrador.radio).map((r) => r.nombre || r.matricula || r.imei.slice(-6));
+            const adentro = lista.filter((r) => valePara(borrador, r.imei) && dentroDe(borrador, r.lat!, r.lon!)).map((r) => r.nombre || r.matricula || r.imei.slice(-6));
             toast.success({
                 title: "Geocerca guardada",
                 description: adentro.length ? `${adentro.join(", ")} ya está adentro: el primer aviso va a ser cuando salga.` : "Empieza a valer en menos de un minuto.",
@@ -343,7 +347,7 @@ export function CapaGps() {
     const elegirTramo = (imei: string, clave: string) => { if (clave === "vivo") verEstela(imei, true); else if (clave === "10m") verEstela(imei, false); else verRuta(imei, Number(clave)); };
     const cerrarRecorrido = () => { setRuta(null); setEstela(null); };
     /** Quién está adentro de cada geocerca ahora, calculado acá con las posiciones a la vista. */
-    const adentroDe = (c: Geocerca) => lista.filter((r) => metrosEntre({ lat: c.lat, lon: c.lon }, { lat: r.lat!, lon: r.lon! }) <= c.radio);
+    const adentroDe = (c: Geocerca) => lista.filter((r) => valePara(c, r.imei) && dentroDe(c, r.lat!, r.lon!));
     const viajes = ruta?.datos?.viajes || [];
     const paradas = ruta?.datos?.paradas || [];
     /* Los puntos de cada viaje, por su horario: cada uno es su propia línea. */
@@ -404,17 +408,20 @@ export function CapaGps() {
                 const cruzada = destello === c.id;
                 return (
                     <React.Fragment key={c.id}>
-                        <Circle center={[c.lat, c.lon]} radius={c.radio}
-                            pathOptions={{ color, weight: cruzada ? 6 : 2, dashArray: c.activa ? undefined : "6 6", fillColor: color, fillOpacity: cruzada ? 0.3 : dentro.length ? 0.16 : 0.1 }}
-                            eventHandlers={{ click: () => { setBorrador({ ...c }); setPanelCercas(true); } }} />
-                        {/* El rótulo va en el borde de arriba del círculo: en el centro taparía al vehículo. */}
-                        <Marker position={[L.latLng(c.lat, c.lon).toBounds(c.radio * 2).getNorth(), c.lon]} interactive={false} zIndexOffset={900}
+                        {c.puntos
+                            ? <Polygon positions={c.puntos} pathOptions={{ color, weight: cruzada ? 6 : 2, dashArray: c.activa ? undefined : "6 6", fillColor: color, fillOpacity: cruzada ? 0.3 : dentro.length ? 0.16 : 0.1 }}
+                                eventHandlers={{ click: () => { setBorrador({ ...c }); setPanelCercas(true); } }} />
+                            : <Circle center={[c.lat, c.lon]} radius={c.radio}
+                                pathOptions={{ color, weight: cruzada ? 6 : 2, dashArray: c.activa ? undefined : "6 6", fillColor: color, fillOpacity: cruzada ? 0.3 : dentro.length ? 0.16 : 0.1 }}
+                                eventHandlers={{ click: () => { setBorrador({ ...c }); setPanelCercas(true); } }} />}
+                        {/* El rótulo va en el borde de arriba de la zona: en el centro taparía al vehículo. */}
+                        <Marker position={c.puntos ? [Math.max(...c.puntos.map((p) => p[0])), c.lon] : [L.latLng(c.lat, c.lon).toBounds(c.radio * 2).getNorth(), c.lon]} interactive={false} zIndexOffset={900}
                             icon={L.divIcon({ className: "bg-transparent border-0", iconSize: [180, 20], iconAnchor: [90, 10],
                                 html: `<div style="display:flex;justify-content:center"><div style="padding:1px 8px;border-radius:999px;background:${color};color:#fff;font:700 10.5px/16px Outfit,system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.4)">${c.nombre.replace(/[<>&]/g, "")}${dentro.length ? ` · ${dentro.length} adentro` : ""}</div></div>` })} />
                     </React.Fragment>
                 );
             })}
-            {borrador && (
+            {borrador && !borrador.puntos && (
                 <>
                     <Circle center={[borrador.lat, borrador.lon]} radius={borrador.radio} pathOptions={{ color: "#fbbf24", weight: 2.5, dashArray: "8 6", fillColor: "#fbbf24", fillOpacity: 0.14 }} />
                     <Marker position={[borrador.lat, borrador.lon]} draggable zIndexOffset={1800}
@@ -422,7 +429,22 @@ export function CapaGps() {
                         eventHandlers={{ dragend: (e) => { const ll = (e.target as L.Marker).getLatLng(); setBorrador((b) => (b ? { ...b, lat: ll.lat, lon: ll.lng } : b)); } }} />
                 </>
             )}
-            {colocando && <ClicEnElMapa alTocar={(lat, lon) => { setColocando(false); setBorrador({ nombre: "", lat, lon, radio: 200, imeis: [], activa: true }); setPanelCercas(true); }} />}
+            {/* De forma libre: cada toque en el mapa suma un vértice, y cada vértice se arrastra. Con
+                dos puntos todavía no hay zona: se ve la línea, para saber por dónde va. */}
+            {borrador?.puntos && (
+                <>
+                    {borrador.puntos.length >= 3
+                        ? <Polygon positions={borrador.puntos} interactive={false} pathOptions={{ color: "#fbbf24", weight: 2.5, dashArray: "8 6", fillColor: "#fbbf24", fillOpacity: 0.14 }} />
+                        : borrador.puntos.length === 2 && <Polyline positions={borrador.puntos} interactive={false} pathOptions={{ color: "#fbbf24", weight: 2.5, dashArray: "8 6" }} />}
+                    {borrador.puntos.map((p, i) => (
+                        <Marker key={`${i}-${borrador.puntos!.length}`} position={p} draggable zIndexOffset={1800}
+                            icon={L.divIcon({ className: "bg-transparent border-0", iconSize: [16, 16], iconAnchor: [8, 8], html: '<div style="width:16px;height:16px;border-radius:50%;background:#fbbf24;border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.5)"></div>' })}
+                            eventHandlers={{ dragend: (e) => { const ll = (e.target as L.Marker).getLatLng(); setBorrador((b) => (b?.puntos ? conCentro({ ...b, puntos: b.puntos.map((q, j) => (j === i ? [ll.lat, ll.lng] as [number, number] : q)) }) : b)); } }} />
+                    ))}
+                    {borrador.puntos.length < VERTICES_MAX && <ClicEnElMapa alTocar={(lat, lon) => setBorrador((b) => (b?.puntos ? conCentro({ ...b, puntos: [...b.puntos, [lat, lon]] }) : b))} />}
+                </>
+            )}
+            {colocando && <ClicEnElMapa alTocar={(lat, lon) => { setColocando(false); setBorrador({ ...BORRADOR_NUEVO, lat, lon }); setPanelCercas(true); }} />}
 
             {/* El evento elegido en el cajón: por dónde venía (cinco minutos antes y después) y el punto
                 exacto donde pasó, con qué fue y a qué hora. */}
@@ -526,8 +548,10 @@ export function CapaGps() {
                                 <Item icono={ToggleRight} cargando={mandando === "rele.accionar"} apagado={!delMenu.enLinea || !!mandando} onClick={() => setArmado(true)}>Accionar el relé…</Item>
                             )}
 
+                            <Item icono={Share2} onClick={() => { setCompartiendo({ imei: delMenu.imei, nombre: delMenu.nombre || delMenu.matricula || `Rastreador ${delMenu.imei.slice(-6)}` }); setMenu(null); }}>Compartir su posición…</Item>
+
                             <Rotulo>Geocercas</Rotulo>
-                            <Item icono={Plus} onClick={() => { setCajon(null); setEvSel(null); setBorrador({ nombre: "", lat: delMenu.lat!, lon: delMenu.lon!, radio: 200, imeis: [], activa: true }); setPanelCercas(true); setMenu(null); }}>Nueva alrededor de acá</Item>
+                            <Item icono={Plus} onClick={() => { setCajon(null); setEvSel(null); setBorrador({ ...BORRADOR_NUEVO, lat: delMenu.lat!, lon: delMenu.lon! }); setPanelCercas(true); setMenu(null); }}>Nueva alrededor de acá</Item>
                             <Item icono={CircleDashed} onClick={() => { setCajon(null); setEvSel(null); setPanelCercas(true); setMenu(null); }}>Ver las geocercas{cercas.length ? ` (${cercas.length})` : ""}</Item>
 
                             <Rotulo>Ícono</Rotulo>
@@ -622,6 +646,8 @@ export function CapaGps() {
                             alElegir={elegirEvento} alCerrar={() => { setCajon(null); setEvSel(null); }} refresco={refrescoCajon} />
                     )}
 
+                    {compartiendo && <CompartirGps imei={compartiendo.imei} nombre={compartiendo.nombre} alCerrar={() => setCompartiendo(null)} />}
+
                     {panelCercas && (
                         <div className="fixed top-20 right-4 z-[500] w-[300px] max-h-[calc(100vh-120px)] flex flex-col rounded-[14px] border border-border bg-popover shadow-xl"
                             onClick={(e) => e.stopPropagation()}>
@@ -632,26 +658,18 @@ export function CapaGps() {
                             </div>
 
                             {borrador ? (
-                                <div className="px-4 py-3 space-y-2.5">
+                                <div className="px-4 py-3 space-y-2.5 overflow-y-auto [scrollbar-width:thin]">
                                     <label className="block">
                                         <span className="block text-[11px] text-muted-foreground mb-1">Nombre (es lo que dice el aviso)</span>
                                         <input autoFocus value={borrador.nombre} onChange={(e) => setBorrador({ ...borrador, nombre: e.target.value })} placeholder="Ej. Base, Taller, Casa"
                                             className="h-8 w-full px-2.5 rounded-[6px] border border-border bg-background text-[12.5px]" />
                                     </label>
-                                    <label className="block">
-                                        <span className="flex justify-between text-[11px] text-muted-foreground mb-1"><span>Radio</span><b className="text-foreground tabular-nums">{borrador.radio >= 1000 ? `${(borrador.radio / 1000).toFixed(1).replace(".", ",")} km` : `${borrador.radio} m`}</b></span>
-                                        {/* La escala no es pareja: entre 50 y 500 m se necesita precisión; a 5 km, no. */}
-                                        <input type="range" min={0} max={RADIOS.length - 1} step={1} value={indiceDeRadio(borrador.radio)}
-                                            onChange={(e) => setBorrador({ ...borrador, radio: RADIOS[Number(e.target.value)] })} className="w-full" />
-                                    </label>
-                                    <label className="flex items-center gap-2 text-[12px]">
-                                        <input type="checkbox" checked={borrador.activa} onChange={(e) => setBorrador({ ...borrador, activa: e.target.checked })} /> Avisar cuando entren o salgan
-                                    </label>
-                                    <p className="text-[11px] text-muted-foreground leading-snug">Arrastrá el punto amarillo para mover el centro. Vale para todos los rastreadores.</p>
+                                    <FormaDeLaCerca b={borrador} alCambiar={setBorrador} />
+                                    <ReglasDeLaCerca b={borrador} alCambiar={setBorrador} rastreadores={lista} />
                                     <div className="flex items-center gap-2 pt-1">
                                         {borrador.id && <DeleteButton onConfirm={async () => { await borrarGeocercaGps(borrador.id!); setBorrador(null); traerCercas(); }} />}
                                         <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setBorrador(null)}>Cancelar</Button>
-                                        <Button size="sm" disabled={guardando || !borrador.nombre.trim()} onClick={guardarCerca}>{guardando && <Loader2 size={13} className="animate-spin" />} Guardar</Button>
+                                        <Button size="sm" disabled={guardando || !borrador.nombre.trim() || (!!borrador.puntos && borrador.puntos.length < 3)} onClick={guardarCerca}>{guardando && <Loader2 size={13} className="animate-spin" />} Guardar</Button>
                                     </div>
                                 </div>
                             ) : (
@@ -664,8 +682,12 @@ export function CapaGps() {
                                             <span className="min-w-0 flex-1">
                                                 <span className="block text-[12.5px] font-semibold truncate">{c.nombre}</span>
                                                 {c.activa && adentroDe(c).length > 0 && <span className="block text-[10.5px] tono-bien truncate">{adentroDe(c).map((r) => r.nombre || r.matricula || r.imei.slice(-6)).join(", ")} adentro</span>}
+                                                {/* Lo que la hace distinta de «avisa siempre, a todos»: se dice, porque es lo que explica un aviso que no llegó. */}
+                                                {(c.horario || c.avisa !== "ambos" || c.imeis.length > 0) && (
+                                                    <span className="block text-[10.5px] text-muted-foreground truncate">{[c.horario ? rotuloDeHorario(c.horario) : "", c.avisa === "entra" ? "sólo al entrar" : c.avisa === "sale" ? "sólo al salir" : "", c.imeis.length ? `${c.imeis.length} ${c.imeis.length === 1 ? "rastreador" : "rastreadores"}` : ""].filter(Boolean).join(" · ")}</span>
+                                                )}
                                             </span>
-                                            <span className="text-[11px] text-muted-foreground tabular-nums">{c.radio >= 1000 ? `${(c.radio / 1000).toFixed(1).replace(".", ",")} km` : `${c.radio} m`}</span>
+                                            <span className="text-[11px] text-muted-foreground tabular-nums">{c.puntos ? "forma libre" : c.radio >= 1000 ? `${(c.radio / 1000).toFixed(1).replace(".", ",")} km` : `${c.radio} m`}</span>
                                         </button>
                                     ))}
                                     <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => setColocando(true)} disabled={colocando}>
@@ -707,7 +729,112 @@ function Cifra({ k, v }: { k: string; v: string }) {
 }
 
 /** Una geocerca a medio dibujar o corrigiéndose: sin `id` todavía no existe. */
-type Borrador = { id?: string; nombre: string; lat: number; lon: number; radio: number; imeis: string[]; activa: boolean };
+type Borrador = {
+    id?: string; nombre: string; lat: number; lon: number; radio: number; imeis: string[]; activa: boolean;
+    /** De forma libre: los vértices que se van tocando en el mapa. Null = círculo. */
+    puntos: [number, number][] | null; horario: HorarioCerca | null; avisa: AvisaCerca;
+};
+const BORRADOR_NUEVO: Borrador = { nombre: "", lat: 0, lon: 0, radio: 200, imeis: [], activa: true, puntos: null, horario: null, avisa: "ambos" };
+const valePara = (c: { imeis: string[] }, imei: string) => !c.imeis.length || c.imeis.includes(imei);
+/** Una zona de forma libre lleva su centro al medio de sus vértices: es por donde se la encuadra. */
+const conCentro = (b: Borrador): Borrador => { const c = b.puntos ? circuloDe(b.puntos) : null; return c ? { ...b, lat: c.lat, lon: c.lon, radio: c.radio } : b; };
+
+const CAMPO_CERCA = "h-8 rounded-[6px] border border-border bg-background px-2 text-[12.5px]";
+const ELECCION = (activa: boolean) => cn("h-7 px-2.5 rounded-full border text-[11.5px] font-semibold", activa ? "bg-foreground text-background border-foreground" : "border-border hover:bg-accent");
+
+/**
+ * La forma: un círculo (un centro y un radio) o una zona de forma libre (los vértices que se tocan
+ * sobre el mapa). El círculo es más rápido de poner y alcanza para «cerca de casa»; la forma libre
+ * es para un predio, donde el círculo que lo contiene se come también la calle de al lado.
+ */
+function FormaDeLaCerca({ b, alCambiar }: { b: Borrador; alCambiar: (b: Borrador) => void }) {
+    return (
+        <div>
+            <span className="block text-[11px] text-muted-foreground mb-1">Forma</span>
+            <div className="flex gap-1.5" role="group" aria-label="Forma">
+                <button type="button" aria-pressed={!b.puntos} className={ELECCION(!b.puntos)} onClick={() => alCambiar({ ...b, puntos: null, radio: Math.min(Math.max(b.radio, 50), 10000) })}>Círculo</button>
+                <button type="button" aria-pressed={!!b.puntos} className={ELECCION(!!b.puntos)} onClick={() => alCambiar({ ...b, puntos: b.puntos || [] })}>Forma libre</button>
+            </div>
+            {!b.puntos ? (
+                <label className="mt-2 block">
+                    <span className="flex justify-between text-[11px] text-muted-foreground mb-1"><span>Radio</span><b className="text-foreground tabular-nums">{b.radio >= 1000 ? `${(b.radio / 1000).toFixed(1).replace(".", ",")} km` : `${b.radio} m`}</b></span>
+                    {/* La escala no es pareja: entre 50 y 500 m se necesita precisión; a 5 km, no. */}
+                    <input type="range" min={0} max={RADIOS.length - 1} step={1} value={indiceDeRadio(b.radio)} onChange={(e) => alCambiar({ ...b, radio: RADIOS[Number(e.target.value)] })} className="w-full" />
+                    <span className="block text-[11px] text-muted-foreground leading-snug">Arrastrá el punto amarillo para mover el centro.</span>
+                </label>
+            ) : (
+                <div className="mt-2 text-[11px] leading-snug text-muted-foreground">
+                    <p>{b.puntos.length < 3 ? <span className="tono-aviso font-semibold">Tocá el mapa en cada esquina de la zona{b.puntos.length ? ` (van ${b.puntos.length}, hacen falta 3)` : ""}.</span> : `${b.puntos.length} puntos. Tocá el mapa para sumar otro; cada punto se arrastra.`}</p>
+                    {b.puntos.length > 0 && (
+                        <button type="button" className="mt-1 font-semibold text-[var(--accion)] hover:underline" onClick={() => alCambiar(conCentro({ ...b, puntos: b.puntos!.slice(0, -1) }))}>Quitar el último punto</button>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+const DIAS_CERCA = [{ d: 1, r: "L" }, { d: 2, r: "M" }, { d: 3, r: "M" }, { d: 4, r: "J" }, { d: 5, r: "V" }, { d: 6, r: "S" }, { d: 0, r: "D" }];
+const NOMBRE_DIA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+/** Qué avisa, cuándo y para quién. Lo que no se toca queda en «todo, siempre, a todos». */
+function ReglasDeLaCerca({ b, alCambiar, rastreadores }: { b: Borrador; alCambiar: (b: Borrador) => void; rastreadores: Rastreador[] }) {
+    const h = b.horario;
+    return (
+        <>
+            <label className="flex items-center gap-2 text-[12px]">
+                <input type="checkbox" checked={b.activa} onChange={(e) => alCambiar({ ...b, activa: e.target.checked })} /> Avisar
+                <select value={b.avisa} disabled={!b.activa} onChange={(e) => alCambiar({ ...b, avisa: e.target.value as AvisaCerca })} className={cn(CAMPO_CERCA, "ml-auto h-7 disabled:opacity-50")} aria-label="Qué cruce avisa">
+                    <option value="ambos">al entrar y al salir</option><option value="entra">sólo al entrar</option><option value="sale">sólo al salir</option>
+                </select>
+            </label>
+
+            <div>
+                <label className="flex items-center gap-2 text-[12px]">
+                    <input type="checkbox" checked={!!h} onChange={(e) => alCambiar({ ...b, horario: e.target.checked ? { dias: [1, 2, 3, 4, 5, 6, 0], desde: "22:00", hasta: "06:00" } : null })} /> Sólo en un horario
+                </label>
+                {h && (
+                    <div className="mt-1.5 space-y-1.5 pl-[22px]">
+                        <div className="flex gap-1" role="group" aria-label="Días">
+                            {DIAS_CERCA.map((x) => {
+                                const on = h.dias.includes(x.d);
+                                return <button key={x.d} type="button" title={NOMBRE_DIA[x.d]} aria-label={NOMBRE_DIA[x.d]} aria-pressed={on}
+                                    onClick={() => alCambiar({ ...b, horario: { ...h, dias: on ? h.dias.filter((d) => d !== x.d) : [...h.dias, x.d] } })}
+                                    className={cn("h-7 w-7 rounded-full border text-[11px] font-bold", on ? "bg-foreground text-background border-foreground" : "border-border text-muted-foreground hover:bg-accent")}>{x.r}</button>;
+                            })}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[12px]">
+                            de <input type="time" value={h.desde} onChange={(e) => alCambiar({ ...b, horario: { ...h, desde: e.target.value } })} className={cn(CAMPO_CERCA, "h-7 tabular-nums")} aria-label="Desde" />
+                            a <input type="time" value={h.hasta} onChange={(e) => alCambiar({ ...b, horario: { ...h, hasta: e.target.value } })} className={cn(CAMPO_CERCA, "h-7 tabular-nums")} aria-label="Hasta" />
+                        </div>
+                        <p className="text-[11px] leading-snug text-muted-foreground">
+                            {h.dias.length === 0 ? <span className="tono-aviso font-semibold">Elegí al menos un día.</span>
+                                : h.desde > h.hasta ? "Cruza la medianoche: la madrugada cuenta como la noche del día anterior." : "Fuera de ese horario los cruces no avisan."}
+                        </p>
+                    </div>
+                )}
+            </div>
+
+            {rastreadores.length > 1 && (
+                <div>
+                    <label className="flex items-center gap-2 text-[12px]">
+                        <input type="checkbox" checked={b.imeis.length > 0} onChange={(e) => alCambiar({ ...b, imeis: e.target.checked ? rastreadores.map((r) => r.imei) : [] })} /> Sólo para algunos rastreadores
+                    </label>
+                    {b.imeis.length > 0 && (
+                        <ul className="mt-1 max-h-[120px] space-y-0.5 overflow-y-auto pl-[22px] [scrollbar-width:thin]">
+                            {rastreadores.map((r) => (
+                                <li key={r.imei}><label className="flex items-center gap-2 text-[12px]">
+                                    <input type="checkbox" checked={b.imeis.includes(r.imei)} onChange={(e) => alCambiar({ ...b, imeis: e.target.checked ? [...b.imeis, r.imei] : b.imeis.filter((i) => i !== r.imei) })} />
+                                    <span className="truncate">{r.nombre || r.matricula || r.imei.slice(-6)}</span>
+                                </label></li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            )}
+        </>
+    );
+}
 
 /** Los radios que ofrece la barra, en metros. */
 const RADIOS = [50, 75, 100, 150, 200, 300, 400, 500, 750, 1000, 1500, 2000, 3000, 5000, 10000];

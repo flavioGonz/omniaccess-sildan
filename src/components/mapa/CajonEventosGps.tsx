@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    BatteryLow, BellRing, Car, ChevronDown, CloudOff, Gauge, History, Loader2, Lock, LogIn, LogOut, MapPinOff, Satellite, ShieldOff, Siren,
+    BatteryLow, BellRing, Car, ChevronDown, CloudOff, Gauge, History, Loader2, Lock, LogIn, LogOut, MapPinOff, Satellite, ScanLine, Share2, ShieldOff, Siren,
     Unplug, Vibrate, Waypoints, Wifi, WifiOff, X,
 } from "lucide-react";
 import { historialEventosGps, type EventoGps, type HistorialEventosGps, type Rastreador } from "@/app/actions/gps";
@@ -49,7 +49,7 @@ const POR_PAGINA = 80;
 
 const DIBUJO: Record<DibujoEventoGps, typeof Siren> = {
     sos: Siren, corte: Unplug, vibracion: Vibrate, velocidad: Gauge, movimiento: Car, bateria: BatteryLow, desarme: ShieldOff, alarma: BellRing,
-    entra: LogIn, sale: LogOut, sinsat: CloudOff, consat: Satellite, silencio: WifiOff, volvio: Wifi, salto: Waypoints, rele: Lock,
+    entra: LogIn, sale: LogOut, sinsat: CloudOff, consat: Satellite, silencio: WifiOff, volvio: Wifi, salto: Waypoints, rele: Lock, compartido: Share2, camara: ScanLine,
 };
 
 /** «Hoy», «Ayer» o «jue 19 nov»: el corte de la lista. La clave es el día en la zona del barrio. */

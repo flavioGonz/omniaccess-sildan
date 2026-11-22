@@ -2254,8 +2254,33 @@ model GpsEvento {
   @@index([cuando])
 }
 
-/// Una zona sobre el mapa para los rastreadores GPS: avisa cuando uno entra o sale. Hoy es un
-/// circulo (centro y radio); el receptor las vuelve a leer cada medio minuto.
+/// Un enlace para que alguien de afuera vea por donde va UN rastreador, por un rato (22/11). Quien
+/// lo abre no tiene sesion: el token es todo lo que lo autoriza, y por eso vence solo, se puede
+/// cortar antes, y muestra nada mas que ese vehiculo desde que se compartio. Nunca el historial
+/// de antes ni los demas rastreadores.
+model GpsCompartido {
+  id          String    @id @default(cuid())
+  /// Lo que viaja en la direccion (/seguir/<token>). Al azar y largo: no se puede adivinar.
+  token       String    @unique
+  imei        String
+  /// Como se le presenta a quien lo abre: «Camioneta 3». No el IMEI ni la matricula, salvo que
+  /// quien comparte los escriba.
+  nombre      String
+  venceAt     DateTime
+  /// Si ademas del punto se ve el camino hecho desde que se compartio.
+  conRecorrido Boolean  @default(true)
+  creadoPor   String
+  revocadoAt  DateTime?
+  vistas      Int       @default(0)
+  ultimaVista DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([imei])
+}
+
+/// Una zona sobre el mapa para los rastreadores GPS: avisa cuando uno entra o sale. Es un circulo
+/// (centro y radio) o, con `puntos`, una zona de forma libre. El receptor las vuelve a leer cada
+/// medio minuto. La cuenta de que es «adentro» esta en lib-gps-geocercas.js.
 model GpsGeocerca {
   id        String   @id @default(cuid())
   nombre    String
@@ -2265,6 +2290,13 @@ model GpsGeocerca {
   radio     Int
   /// A que rastreadores les vale (IMEI). Vacio = a todos.
   imeis     String[] @default([])
+  /// Zona de forma libre: los vertices [[lat, lon], ...]. Null = circulo. Cuando hay vertices,
+  /// lat/lon/radio guardan el circulo que los contiene (para encuadrar y rotular).
+  puntos    Json?
+  /// Cuando vigila: { dias: [0..6] (0 = domingo), desde: "HH:MM", hasta: "HH:MM" }. Null = siempre.
+  horario   Json?
+  /// Que cruce avisa: ambos | entra | sale.
+  avisa     String   @default("ambos")
   activa    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

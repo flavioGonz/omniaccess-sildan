@@ -173,6 +173,61 @@ prueba("una geocerca apagada, o de otro rastreador, no dice nada", () => {
     // Y sin satélites una posición no cruza nada.
     assert.deepStrictEqual(v.alUbicarse("a", [{ id: "g4", lat: 0, lon: 0, radio: 10 }], { conFix: false, lat: 0, lon: 0 }), []);
 });
+prueba("una geocerca con horario avisa sólo cuando vigila, pero no pierde de qué lado quedó el vehículo", () => {
+    const v = ev.nuevoVigia(), UY = "America/Montevideo";
+    // «Que avise si sale del depósito de noche»: vigila de 22 a 6, sólo la salida.
+    const deposito = { id: "g5", nombre: "Depósito", lat: -34.8894, lon: -56.1440, radio: 200, avisa: "sale", horario: { dias: [0, 1, 2, 3, 4, 5, 6], desde: "22:00", hasta: "06:00" } };
+    const a = (iso, lat) => ({ conFix: true, lat, lon: -56.1440, fecha: new Date(`${iso}-03:00`) });
+    const DENTRO = -34.8894, FUERA = -34.8950;
+    assert.deepStrictEqual(v.alUbicarse("a", [deposito], a("2026-11-23T09:00:00", DENTRO), UY), []);   // primera vez
+    // Sale a las diez de la mañana: no es su horario, no avisa…
+    v.alUbicarse("a", [deposito], a("2026-11-23T10:00:00", FUERA), UY);
+    assert.deepStrictEqual(v.alUbicarse("a", [deposito], a("2026-11-23T10:00:10", FUERA), UY), []);
+    // …pero quedó anotado afuera: el primer reporte de la noche, todavía afuera, NO es una salida.
+    assert.deepStrictEqual(v.alUbicarse("a", [deposito], a("2026-11-23T22:30:00", FUERA), UY), []);
+    assert.deepStrictEqual(v.lados("a"), { g5: false });
+    // Vuelve de noche: entra, y esta geocerca sólo avisa la salida.
+    v.alUbicarse("a", [deposito], a("2026-11-23T23:00:00", DENTRO), UY);
+    assert.deepStrictEqual(v.alUbicarse("a", [deposito], a("2026-11-23T23:00:10", DENTRO), UY), []);
+    // Y a las tres de la mañana sale: ésa es la que avisa.
+    v.alUbicarse("a", [deposito], a("2026-11-24T03:00:00", FUERA), UY);
+    const sale = v.alUbicarse("a", [deposito], a("2026-11-24T03:00:10", FUERA), UY);
+    assert.strictEqual(sale.length, 1); assert.strictEqual(sale[0].tipo, "GPS_GEOCERCA_SALE");
+});
+prueba("una geocerca de forma libre se cruza por su forma, y el lugar se dice desde su borde", () => {
+    const v = ev.nuevoVigia();
+    // Un predio en L: el hueco de la L está adentro del círculo que lo contiene y afuera del predio.
+    const predio = { id: "g6", nombre: "Predio", lat: -34.901, lon: -56.099, radio: 150,
+        puntos: [[-34.900, -56.100], [-34.900, -56.098], [-34.901, -56.098], [-34.901, -56.099], [-34.902, -56.099], [-34.902, -56.100]] };
+    const brazo = { conFix: true, lat: -34.9005, lon: -56.0990 }, hueco = { conFix: true, lat: -34.9015, lon: -56.0985 };
+    assert.deepStrictEqual(v.alUbicarse("a", [predio], brazo), []);
+    v.alUbicarse("a", [predio], hueco);
+    assert.strictEqual(v.alUbicarse("a", [predio], hueco)[0].tipo, "GPS_GEOCERCA_SALE");
+    assert.strictEqual(ev.lugarDe(-34.9005, -56.0990, [predio]), "en Predio");
+    assert.match(ev.lugarDe(-34.899, -56.099, [predio]), /^a 1[01]0 m de Predio$/);
+});
+prueba("el cruce con la cámara: avisa cuando el rastreador está en otro lado, y sin dato no opina", () => {
+    const camara = { lat: -34.8560, lon: -56.0740 }, T = Date.parse("2026-11-23T15:00:00Z");
+    const en = (lat, seg) => ({ lat, lon: -56.0740, cuando: T - seg * 1000 });
+    // Pasando por la cámara: la posición de hace 8 s, a 60 m.
+    assert.strictEqual(ev.cruzarLectura({ camara, cuando: T, posicion: en(-34.8565, 8), vivo: true }).que, "coincide");
+    // Andando: hace 40 s estaba a 1,5 km. A velocidad de ruta pudo llegar: no se avisa.
+    assert.strictEqual(ev.cruzarLectura({ camara, cuando: T, posicion: en(-34.8695, 40), vivo: true }).que, "coincide");
+    // Andando, pero hace 10 s estaba a 14 km: no es él.
+    const lejos = ev.cruzarLectura({ camara, cuando: T, posicion: en(-34.982, 10), vivo: true });
+    assert.strictEqual(lejos.que, "lejos"); assert.ok(lejos.metros > 13000 && lejos.metros < 15000, String(lejos.metros));
+    // Estacionado en casa desde hace tres horas, latiendo: sigue ahí. Una chapa igual entra al barrio.
+    assert.strictEqual(ev.cruzarLectura({ camara, cuando: T, posicion: en(-34.982, 3 * 3600), vivo: true }).que, "lejos");
+    // La misma posición vieja, pero el equipo dejó de reportar: no se sabe dónde está. No se opina.
+    assert.strictEqual(ev.cruzarLectura({ camara, cuando: T, posicion: en(-34.982, 3 * 3600), vivo: false }).que, "sin-dato");
+    // Estacionado adentro del barrio, a 300 m de la cámara: es él.
+    assert.strictEqual(ev.cruzarLectura({ camara, cuando: T, posicion: en(-34.8587, 3 * 3600), vivo: true }).que, "coincide");
+    // Sin ninguna posición, o con una posterior a la lectura: sin dato.
+    assert.strictEqual(ev.cruzarLectura({ camara, cuando: T, posicion: null, vivo: true }).que, "sin-dato");
+    assert.strictEqual(ev.cruzarLectura({ camara, cuando: T, posicion: en(-34.982, -30), vivo: true }).que, "sin-dato");
+    assert.strictEqual(ev.distanciaLegible(14180), "14 km"); assert.strictEqual(ev.distanciaLegible(1840), "1,8 km"); assert.strictEqual(ev.distanciaLegible(830), "850 m");
+    assert.strictEqual(ev.PRIORIDAD.GPS_LPR_LEJOS, 2);
+});
 prueba("las alarmas REALES del equipo (21/11): corte, vibración y las dos de «zona sin GPS»", () => {
     const reales = {
         0x02: "787825161a0b150b072dcb03be42ae06060a2700d95f0902ec0ae7724e7a08d20604020202b518380d0a",

@@ -61,6 +61,8 @@ const ROTULO = {
     // Los dos que sólo sabe avisar un Teltonika (lib-teltonika.js).
     GPS_INHIBIDOR: "Detectó un inhibidor de señal",
     GPS_CHOQUE: "Detectó un choque",
+    // El cruce con las cámaras de matrículas (ver cruzarLectura).
+    GPS_LPR_LEJOS: "Una cámara leyó su matrícula y el rastreador está en otro lado",
 };
 
 /**
@@ -79,6 +81,7 @@ const PRIORIDAD = {
     GPS_INHIBIDOR: 1,
     GPS_CHOQUE: 1,
     GPS_MOVIMIENTO: 2,
+    GPS_LPR_LEJOS: 2,
     GPS_SALTO: 3,
     GPS_BATERIA: 4,
     GPS_VELOCIDAD: 4,
@@ -97,19 +100,11 @@ const VEL_TRASLADO = 10;
 /** Quieto este tiempo, el traslado terminó y el próximo vuelve a avisar. */
 const QUIETO_MS = 5 * 60_000;
 
-/** Metros entre dos puntos (haversine). */
-function metros(aLat, aLon, bLat, bLon) {
-    const R = 6371000, rad = Math.PI / 180;
-    const dLat = (bLat - aLat) * rad, dLon = (bLon - aLon) * rad;
-    const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLon / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(h));
-}
-
-/** ¿Ese punto está adentro de la geocerca? Hoy son círculos: un centro y un radio en metros. */
-const dentroDe = (gc, lat, lon) => metros(gc.lat, gc.lon, lat, lon) <= gc.radio;
-
-/** ¿La geocerca vale para ese rastreador? Sin lista, vale para todos. */
-const aplicaA = (gc, imei) => !gc.imeis || !gc.imeis.length || gc.imeis.includes(imei);
+/* La geometría y el horario de las geocercas viven en lib-gps-geocercas.js: los usa también el
+   mapa del panel, y tienen que dar lo mismo de los dos lados. */
+const { metros, dentroDe, bordeDe, aplicaA, avisaCruce, enHorario } = require("./lib-gps-geocercas.js");
+/** La zona horaria del sitio: con ella se lee el horario de una geocerca. */
+const ZONA = process.env.NEXT_PUBLIC_TZ || process.env.TZ_SITIO || "America/Montevideo";
 
 /**
  * El «equipo» de los rastreadores de mentira de la prueba de carga (scripts/carga-gps.js). Tienen
@@ -205,7 +200,7 @@ function lugarDe(lat, lon, geocercas) {
     if (lat == null || lon == null || !geocercas || !geocercas.length) return null;
     let mejor = null;
     for (const gc of geocercas) {
-        const borde = metros(gc.lat, gc.lon, lat, lon) - gc.radio;      // negativo = adentro
+        const borde = bordeDe(gc, lat, lon);      // negativo = adentro
         if (!mejor || borde < mejor.borde) mejor = { borde, nombre: gc.nombre };
     }
     if (!mejor || mejor.borde > LUGAR_CERCA_M) return null;
@@ -232,8 +227,13 @@ function nuevoVigia() {
          * La primera vez que se ve a un rastreador contra una geocerca no es un cruce: se anota
          * de qué lado está y nada más — si no, dar de alta una geocerca alrededor de la base
          * avisaría «entró» por cada vehículo que ya estaba adentro.
+         *
+         * Una geocerca que no avisa ese cruce —porque sólo avisa al salir, o porque a esa hora no
+         * está vigilando— igual anota de qué lado quedó el vehículo. Si no, al empezar su horario
+         * creería que sigue donde lo vio por última vez, y el primer reporte de la noche «cruzaría»
+         * una cerca que el vehículo cruzó al mediodía. La hora es la de la posición (la del equipo).
          */
-        alUbicarse(imei, geocercas, p) {
+        alUbicarse(imei, geocercas, p, zona) {
             const cruces = [];
             if (!p || !p.conFix) return cruces;
             for (const gc of geocercas || []) {
@@ -245,6 +245,7 @@ function nuevoVigia() {
                 if (ahora === c.dentro) { c.cuenta = 0; continue; }
                 if (++c.cuenta < CONFIRMACIONES) continue;
                 c.dentro = ahora; c.cuenta = 0;
+                if (!avisaCruce(gc, ahora) || !enHorario(gc.horario, p.fecha instanceof Date ? p.fecha : new Date(), zona || ZONA)) continue;
                 cruces.push({ tipo: ahora ? "GPS_GEOCERCA_ENTRA" : "GPS_GEOCERCA_SALE", geocerca: gc });
             }
             return cruces;
@@ -301,7 +302,41 @@ function nuevoVigia() {
     };
 }
 
+/**
+ * EL CRUCE CON LAS CÁMARAS. Una cámara del acceso leyó la matrícula de un vehículo que lleva
+ * rastreador: ¿el rastreador estaba ahí?
+ *
+ * Si no estaba, pasa una de tres cosas y las tres importan: otra chapa igual está entrando (una
+ * matrícula duplicada), la cámara leyó mal, o al vehículo le sacaron el rastreador. Desde acá no se
+ * sabe cuál: se avisa con la distancia, y lo decide una persona mirando la foto.
+ *
+ * Lo difícil es no avisar de más, porque un rastreador no reporta siempre:
+ *  · ANDANDO manda una posición cada diez segundos. Entre la última posición y la lectura el
+ *    vehículo pudo avanzar; se le da ese tramo de margen, a velocidad de ruta.
+ *  · ESTACIONADO deja de mandar posiciones y sólo late. Ahí «no hay posición reciente» no es falta
+ *    de dato: es que sigue donde estaba. Vale mientras el equipo esté vivo (`vivo`: latió hace
+ *    poco y no está marcado como que dejó de reportar).
+ *  · Si no se sabe ninguna de las dos cosas, no se opina: «sin-dato» no es «coincide».
+ *
+ * `posicion` es la última posición buena del rastreador a la hora de la lectura o antes.
+ */
+const CRUCE_MARGEN_M = 500;          // el GPS, el largo del predio, y dónde quedó puesta la cámara en el mapa
+const CRUCE_ANDANDO_S = 60;          // hasta acá, la posición es «de recién» y el vehículo pudo seguir andando
+const CRUCE_VELOCIDAD_MS = 36;       // 130 km/h: lo más que pudo alejarse en ese rato
+function cruzarLectura({ camara, cuando, posicion, vivo }) {
+    if (!camara || !posicion || camara.lat == null || posicion.lat == null) return { que: "sin-dato" };
+    const seg = Math.round((cuando - posicion.cuando) / 1000);
+    if (seg < 0) return { que: "sin-dato" };
+    const m = Math.round(metros(camara.lat, camara.lon, posicion.lat, posicion.lon));
+    if (seg <= CRUCE_ANDANDO_S) return { que: m > CRUCE_MARGEN_M + seg * CRUCE_VELOCIDAD_MS ? "lejos" : "coincide", metros: m, segundos: seg };
+    if (!vivo) return { que: "sin-dato", metros: m, segundos: seg };
+    return { que: m > CRUCE_MARGEN_M ? "lejos" : "coincide", metros: m, segundos: seg };
+}
+/** «a 14 km», «a 800 m». */
+const distanciaLegible = (m) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 0 : 1).replace(".", ",")} km` : `${Math.round(m / 50) * 50} m`);
+
 module.exports = {
+    cruzarLectura, distanciaLegible, CRUCE_MARGEN_M,
     eventoDeAlarma, nuevoVigia, dentroDe, metros, SOLO_SE_ANOTA, SATS_MIN, ROTULO, VOLTAJE_BAJO, VOLTAJE_RECUPERADO, VEL_TRASLADO,
     PRIORIDAD, prioridadDe, seCallo, veniaAndando, SILENCIO_ANDANDO_MS, SILENCIO_QUIETO_MS,
     atrasoDe, horaCreible, ATRASO_MIN_S, esSaltoImposible, lugarDe, DEVICE_DE_PRUEBA,

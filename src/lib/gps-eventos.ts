@@ -12,7 +12,7 @@
 
 export type ClaseEventoGps = "alarma" | "geocerca" | "conexion" | "equipo";
 export type TonoEventoGps = "mal" | "aviso" | "bien" | "info" | "quieto";
-export type DibujoEventoGps = "sos" | "corte" | "vibracion" | "velocidad" | "movimiento" | "bateria" | "desarme" | "alarma" | "entra" | "sale" | "sinsat" | "consat" | "silencio" | "volvio" | "salto" | "rele";
+export type DibujoEventoGps = "sos" | "corte" | "vibracion" | "velocidad" | "movimiento" | "bateria" | "desarme" | "alarma" | "entra" | "sale" | "sinsat" | "consat" | "silencio" | "volvio" | "salto" | "rele" | "compartido" | "camara";
 
 type Ficha = { rotulo: string; clase: ClaseEventoGps; tono: TonoEventoGps; dibujo: DibujoEventoGps };
 
@@ -32,6 +32,7 @@ export const EVENTOS_GPS: Record<string, Ficha> = {
     GPS_OTRA: { rotulo: "Alarma del rastreador", clase: "alarma", tono: "aviso", dibujo: "alarma" },
     GPS_GEOCERCA_ENTRA: { rotulo: "Entró a una geocerca", clase: "geocerca", tono: "info", dibujo: "entra" },
     GPS_GEOCERCA_SALE: { rotulo: "Salió de una geocerca", clase: "geocerca", tono: "info", dibujo: "sale" },
+    GPS_LPR_LEJOS: { rotulo: "Una cámara leyó su matrícula lejos de él", clase: "alarma", tono: "mal", dibujo: "camara" },
     GPS_SIN_REPORTE: { rotulo: "Dejó de reportar", clase: "conexion", tono: "mal", dibujo: "silencio" },
     GPS_VOLVIO: { rotulo: "Volvió a reportar", clase: "conexion", tono: "bien", dibujo: "volvio" },
     GPS_SIN_SATELITES: { rotulo: "Entró a una zona sin satélites", clase: "conexion", tono: "quieto", dibujo: "sinsat" },
@@ -41,10 +42,12 @@ export const EVENTOS_GPS: Record<string, Ficha> = {
     // Los dos del relé no los manda el equipo: los anota la aplicación cuando alguien lo acciona.
     GPS_RELE_ACCIONADO: { rotulo: "Relé accionado", clase: "equipo", tono: "mal", dibujo: "rele" },
     GPS_RELE_SOLTADO: { rotulo: "Relé en reposo", clase: "equipo", tono: "bien", dibujo: "rele" },
+    // Alguien del panel le pasó a una persona de afuera un enlace para verlo (lib/gps-compartir).
+    GPS_COMPARTIDO: { rotulo: "Posición compartida", clase: "equipo", tono: "info", dibujo: "compartido" },
 };
 
 /** Los que anota la aplicación y no el receptor (no figuran en lib-gps-eventos.js). */
-export const EVENTOS_DE_LA_APLICACION = ["GPS_RELE_ACCIONADO", "GPS_RELE_SOLTADO"];
+export const EVENTOS_DE_LA_APLICACION = ["GPS_RELE_ACCIONADO", "GPS_RELE_SOLTADO", "GPS_COMPARTIDO"];
 
 const DESCONOCIDO: Ficha = { rotulo: "Evento del rastreador", clase: "equipo", tono: "quieto", dibujo: "alarma" };
 export const fichaDeEventoGps = (tipo: string): Ficha => EVENTOS_GPS[tipo] || { ...DESCONOCIDO, rotulo: tipo };

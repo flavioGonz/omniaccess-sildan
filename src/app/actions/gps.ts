@@ -1,6 +1,10 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
+import { Prisma } from "@prisma/client";
+import { DURACIONES, estadoDeEnlace, horasValidas } from "@/lib/gps-compartir";
 import { prisma } from "@/lib/prisma";
+import { circuloDe, leerHorario, puntosDe, rotuloDeHorario, VERTICES_MAX, type AvisaCerca, type HorarioCerca } from "@/lib/gps-geocerca";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
@@ -449,26 +453,63 @@ export async function comandoGps(imei: string, accion: ComandoGps): Promise<{ ok
  * receptor (otro proceso), que las relee cada medio minuto: un cambio acá tarda hasta ese tiempo
  * en empezar a valer.
  */
-export type Geocerca = { id: string; nombre: string; lat: number; lon: number; radio: number; imeis: string[]; activa: boolean };
+export type Geocerca = {
+    id: string; nombre: string; lat: number; lon: number; radio: number; imeis: string[]; activa: boolean;
+    /** Zona de forma libre: sus vértices. Null = círculo. */
+    puntos: [number, number][] | null;
+    /** Cuándo vigila. Null = siempre. */
+    horario: HorarioCerca | null;
+    avisa: AvisaCerca;
+};
+
+const AVISA: AvisaCerca[] = ["ambos", "entra", "sale"];
 
 export async function geocercasGps(): Promise<Geocerca[]> {
     await sesion("dispositivos");
     const f = await prisma.gpsGeocerca.findMany({ orderBy: { createdAt: "asc" } });
-    return f.map((g) => ({ id: g.id, nombre: g.nombre, lat: g.lat, lon: g.lon, radio: g.radio, imeis: g.imeis, activa: g.activa }));
+    return f.map((g) => ({
+        id: g.id, nombre: g.nombre, lat: g.lat, lon: g.lon, radio: g.radio, imeis: g.imeis, activa: g.activa,
+        puntos: puntosDe({ puntos: g.puntos }), horario: leerHorario(g.horario), avisa: AVISA.includes(g.avisa as AvisaCerca) ? (g.avisa as AvisaCerca) : "ambos",
+    }));
 }
 
-export async function guardarGeocercaGps(g: { id?: string; nombre: string; lat: number; lon: number; radio: number; imeis?: string[]; activa?: boolean }): Promise<{ ok: boolean; id?: string; error?: string }> {
+export async function guardarGeocercaGps(g: {
+    id?: string; nombre: string; lat: number; lon: number; radio: number; imeis?: string[]; activa?: boolean;
+    puntos?: [number, number][] | null; horario?: HorarioCerca | null; avisa?: AvisaCerca;
+}): Promise<{ ok: boolean; id?: string; error?: string }> {
     const s = await sesion("dispositivos.editar");
     const nombre = String(g.nombre || "").trim().slice(0, 60);
     if (!nombre) return { ok: false, error: "La geocerca necesita un nombre: es lo que va a decir el aviso." };
-    if (!Number.isFinite(g.lat) || !Number.isFinite(g.lon) || Math.abs(g.lat) > 90 || Math.abs(g.lon) > 180) return { ok: false, error: "El centro no es un punto del mapa." };
-    /* Menos de 30 m es más chico que el ruido del propio GPS: avisaría sola. */
-    const radio = Math.round(Math.min(Math.max(Number(g.radio) || 0, 30), 50_000));
-    const data = { nombre, lat: g.lat, lon: g.lon, radio, imeis: (g.imeis || []).map(String).slice(0, 200), activa: g.activa !== false };
+
+    /* De forma libre: valen los vértices, y el centro y el radio que se guardan son los del círculo
+       que los contiene. Con menos de tres puntos no hay zona. */
+    let lat = g.lat, lon = g.lon, radio: number, puntos: [number, number][] | null = null;
+    if (g.puntos != null) {
+        puntos = puntosDe({ puntos: g.puntos });
+        if (!puntos) return { ok: false, error: "Una zona de forma libre necesita al menos tres puntos sobre el mapa." };
+        if (puntos.length > VERTICES_MAX) return { ok: false, error: `Son demasiados puntos (${puntos.length}). Con ${VERTICES_MAX} alcanza para cualquier predio.` };
+        const c = circuloDe(puntos)!;
+        lat = c.lat; lon = c.lon; radio = c.radio;
+    } else {
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return { ok: false, error: "El centro no es un punto del mapa." };
+        /* Menos de 30 m es más chico que el ruido del propio GPS: avisaría sola. */
+        radio = Math.round(Math.min(Math.max(Number(g.radio) || 0, 30), 50_000));
+    }
+    /* Un horario a medio cargar (sin días, o con la misma hora de los dos lados) no se guarda como
+       «nunca»: se rechaza, que es distinto de callarse. */
+    const horario = g.horario ? leerHorario(g.horario) : null;
+    if (g.horario && !horario) return { ok: false, error: "El horario necesita al menos un día y dos horas distintas." };
+    const avisa: AvisaCerca = AVISA.includes(g.avisa as AvisaCerca) ? (g.avisa as AvisaCerca) : "ambos";
+
+    const data = {
+        nombre, lat, lon, radio, imeis: [...new Set((g.imeis || []).map(String))].slice(0, 200), activa: g.activa !== false,
+        puntos: puntos ?? Prisma.DbNull, horario: horario ?? Prisma.DbNull, avisa,
+    };
     const fila = g.id
         ? await prisma.gpsGeocerca.update({ where: { id: g.id }, data, select: { id: true } })
         : await prisma.gpsGeocerca.create({ data, select: { id: true } });
-    await auditar(s, g.id ? "equipos.gps.geocerca.cambiar" : "equipos.gps.geocerca.alta", fila.id, true, `${nombre} · ${radio} m`);
+    await auditar(s, g.id ? "equipos.gps.geocerca.cambiar" : "equipos.gps.geocerca.alta", fila.id, true,
+        `${nombre} · ${puntos ? `forma libre, ${puntos.length} puntos` : `${radio} m`} · vigila ${rotuloDeHorario(horario)}${data.imeis.length ? ` · ${data.imeis.length} rastreadores` : ""}`);
     return { ok: true, id: fila.id };
 }
 
@@ -477,4 +518,46 @@ export async function borrarGeocercaGps(id: string): Promise<{ ok: boolean }> {
     const g = await prisma.gpsGeocerca.delete({ where: { id } }).catch(() => null);
     if (g) await auditar(s, "equipos.gps.geocerca.borrar", id, true, g.nombre);
     return { ok: !!g };
+}
+
+
+/* ─────────── Compartir la posición con alguien de afuera (lib/gps-compartir tiene el porqué) ─────────── */
+
+export type Compartido = { id: string; nombre: string; ruta: string; venceAt: string; conRecorrido: boolean; creadoPor: string; createdAt: string; vistas: number; ultimaVista: string | null };
+
+const comoCompartido = (c: { id: string; token: string; nombre: string; venceAt: Date; conRecorrido: boolean; creadoPor: string; createdAt: Date; vistas: number; ultimaVista: Date | null }): Compartido =>
+    ({ id: c.id, nombre: c.nombre, ruta: `/seguir/${c.token}`, venceAt: c.venceAt.toISOString(), conRecorrido: c.conRecorrido, creadoPor: c.creadoPor, createdAt: c.createdAt.toISOString(), vistas: c.vistas, ultimaVista: c.ultimaVista?.toISOString() || null });
+
+/** Los enlaces que hoy muestran a ese rastreador. Los vencidos y los cortados no se listan: ya no muestran nada. */
+export async function compartidosGps(imei: string): Promise<Compartido[]> {
+    await sesion("dispositivos.editar");
+    const f = await prisma.gpsCompartido.findMany({ where: { imei, revocadoAt: null, venceAt: { gt: new Date() } }, orderBy: { createdAt: "desc" } });
+    return f.map(comoCompartido);
+}
+
+export async function compartirGps(imei: string, o: { horas: number; nombre?: string; conRecorrido?: boolean }): Promise<{ ok: boolean; compartido?: Compartido; error?: string }> {
+    const s = await sesion("dispositivos.editar");
+    const e = await prisma.gpsEquipo.findUnique({ where: { imei }, select: { imei: true, nombre: true, deviceId: true, lat: true, lon: true } });
+    if (!e?.deviceId) return { ok: false, error: "Ese rastreador no está dado de alta." };
+    const horas = horasValidas(o.horas);
+    /* El nombre es lo que ve quien abre el enlace. Por defecto, el del rastreador; nunca el IMEI. */
+    const nombre = String(o.nombre || "").trim().slice(0, 60) || e.nombre || "Vehículo";
+    const quien = String(s?.name || s?.sub || "panel");
+    const fila = await prisma.gpsCompartido.create({
+        data: { token: randomBytes(18).toString("base64url"), imei, nombre, venceAt: new Date(Date.now() + horas * 3600_000), conRecorrido: o.conRecorrido !== false, creadoPor: quien },
+    });
+    const rotulo = DURACIONES.find((d) => d.horas === horas)?.rotulo || `${horas} h`;
+    await auditar(s, "equipos.gps.compartir", imei, true, `«${nombre}» por ${rotulo}${fila.conRecorrido ? ", con recorrido" : ""}`);
+    // En la línea de tiempo del rastreador: que alguien de afuera lo esté viendo es algo que le pasó.
+    await prisma.gpsEvento.create({ data: { imei, tipo: "GPS_COMPARTIDO", lat: e.lat, lon: e.lon, detalle: `Por ${quien} · ${rotulo}` } }).catch(() => { });
+    return { ok: true, compartido: comoCompartido(fila) };
+}
+
+export async function cortarCompartidoGps(id: string): Promise<{ ok: boolean }> {
+    const s = await sesion("dispositivos.editar");
+    const c = await prisma.gpsCompartido.findUnique({ where: { id } });
+    if (!c || estadoDeEnlace(c) !== "vigente") return { ok: !!c };
+    await prisma.gpsCompartido.update({ where: { id }, data: { revocadoAt: new Date() } });
+    await auditar(s, "equipos.gps.dejar-de-compartir", c.imei, true, `«${c.nombre}», lo había compartido ${c.creadoPor}`);
+    return { ok: true };
 }

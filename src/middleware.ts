@@ -162,6 +162,7 @@ export async function middleware(request: NextRequest) {
         // El censo del barrio: una URL pública con QR para que cada lote cargue sus vehículos
         // (src/lib/registro-padron.ts). Escribe en una bandeja, no en el padrón, y no consulta nada.
         pathname.startsWith('/registro') ||
+        pathname.startsWith('/seguir/') || pathname.startsWith('/api/gps/seguir/') ||   // el enlace compartido de un rastreador: sin sesión, el token es el permiso y la ruta lo verifica
         // La foto del celular para la pared (openspec pared-vms): sin usuario; la autoriza el token del QR.
         pathname.startsWith('/subir/') ||
         pathname.startsWith('/api/subida/')

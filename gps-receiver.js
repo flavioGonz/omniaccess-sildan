@@ -236,6 +236,53 @@ async function alEvento(imei, tipo, p, detalle, extra, cuandoEquipo) {
 }
 
 /**
+ * El cruce con las cámaras de matrículas (ver lib-gps-eventos, cruzarLectura). Cada medio minuto
+ * se miran las lecturas nuevas de las matrículas que llevan rastreador y se compara dónde estaba
+ * la cámara con dónde estaba el rastreador.
+ *
+ * Se juzga una lectura recién cuando tiene un minuto y medio: un rastreador que venía sin señal
+ * manda sus posiciones juntas y atrasadas (el 6 % llega con más de dos minutos de demora), y
+ * opinar antes sería avisar «está en otro lado» por una posición que todavía no llegó.
+ *
+ * Sólo cuentan las cámaras puestas en el mapa: sin saber dónde está la cámara no hay con qué
+ * comparar. Y arranca desde ahora: no revisa lo leído antes de que el receptor levantara.
+ */
+const CRUCE_ESPERA_MS = 90_000;
+let cruceDesde = new Date(Date.now() - CRUCE_ESPERA_MS);
+const cruceAvisado = new Map();      // `${imei}|${deviceId}` → cuándo se avisó: una vez cada diez minutos por cámara
+async function revisarLecturas() {
+    const hasta = new Date(Date.now() - CRUCE_ESPERA_MS);
+    if (hasta <= cruceDesde) return;
+    const equipos = await prisma.gpsEquipo.findMany({ where: { deviceId: { not: null }, vehicleId: { not: null }, NOT: { deviceId: evs.DEVICE_DE_PRUEBA } }, select: { imei: true, vehicleId: true, ultimoLatido: true, sinReporteDesde: true } });
+    if (!equipos.length) { cruceDesde = hasta; return; }
+    const vehiculos = await prisma.vehicle.findMany({ where: { id: { in: equipos.map((e) => e.vehicleId) } }, select: { id: true, plate: true } });
+    const equipoDe = new Map(vehiculos.map((v) => [v.plate.toUpperCase().replace(/[^A-Z0-9]/g, ""), equipos.find((e) => e.vehicleId === v.id)]));
+    if (!equipoDe.size) { cruceDesde = hasta; return; }
+    const lecturas = await prisma.accessEvent.findMany({
+        where: { timestamp: { gt: cruceDesde, lte: hasta }, plateDetected: { in: [...equipoDe.keys()] }, deviceId: { not: null } },
+        select: { id: true, timestamp: true, plateDetected: true, deviceId: true, device: { select: { name: true } } }, orderBy: { timestamp: "asc" }, take: 200,
+    });
+    cruceDesde = hasta;
+    if (!lecturas.length) return;
+    let camaras = [];
+    try { camaras = JSON.parse((await prisma.setting.findUnique({ where: { key: "BARRIO_MAP" } }))?.value || "{}").cameras || []; } catch { /* mapa ilegible: no hay cámaras ubicadas */ }
+    for (const l of lecturas) {
+        const e = equipoDe.get(l.plateDetected), cam = camaras.find((c) => c && c.deviceId === l.deviceId && Number.isFinite(c.lat) && Number.isFinite(c.lng));
+        if (!e || !cam) continue;
+        const p = await prisma.gpsPosicion.findFirst({ where: { imei: e.imei, cuando: { lte: l.timestamp }, satelites: { gte: evs.SATS_MIN } }, orderBy: { cuando: "desc" }, select: { lat: true, lon: true, cuando: true } });
+        const vivo = !e.sinReporteDesde && !!e.ultimoLatido && l.timestamp.getTime() - e.ultimoLatido.getTime() < evs.SILENCIO_QUIETO_MS;
+        const r = evs.cruzarLectura({ camara: { lat: cam.lat, lon: cam.lng }, cuando: l.timestamp.getTime(), posicion: p ? { lat: p.lat, lon: p.lon, cuando: p.cuando.getTime() } : null, vivo });
+        log(e.imei, "LPR:", l.plateDetected, "en", l.device?.name || l.deviceId, "→", r.que, r.metros != null ? `${r.metros} m` : "");
+        if (r.que !== "lejos") continue;
+        const clave = `${e.imei}|${l.deviceId}`;
+        if (Date.now() - (cruceAvisado.get(clave) || 0) < 10 * 60_000) continue;
+        cruceAvisado.set(clave, Date.now());
+        await alEvento(e.imei, "GPS_LPR_LEJOS", { conFix: true, lat: p.lat, lon: p.lon }, `${l.plateDetected} leída en ${l.device?.name || "una cámara"}; el rastreador estaba a ${evs.distanciaLegible(r.metros)}`, { accessEventId: l.id, camara: l.device?.name || null }, l.timestamp);
+    }
+}
+setInterval(() => revisarLecturas().catch((e) => log("-", "cruce con LPR:", e.message)), 30_000).unref();
+
+/**
  * El silencio (ver lib-gps-eventos, seCallo). Cada medio minuto se mira quién dejó de reportar.
  * Se avisa UNA vez —queda anotado en la base, así un reinicio no vuelve a avisar— y cuando el
  * equipo vuelve a hablar se dice cuánto estuvo callado.
@@ -389,7 +436,9 @@ async function alReporte(imei, m, aceptado) {
         const sabido = motor.has(imei) ? motor.get(imei) : null;
         const t = vigia.alMoverse(imei, { conFix: m.gps.conFix, velocidad: m.gps.velocidad, encendido: sabido }, hora.getTime());
         if (t) await alEvento(imei, t, m.gps, `${m.gps.velocidad} km/h`, null, hora);
-        for (const c of vigia.alUbicarse(imei, geocercas, m.gps)) await alEvento(imei, c.tipo, m.gps, c.geocerca.nombre, { geocercaId: c.geocerca.id }, hora);
+        /* La hora con que se lee el horario de una geocerca es la de la posición, no la de ahora:
+           una tanda atrasada cruza cada cerca a la hora en que de verdad la cruzó. */
+        for (const c of vigia.alUbicarse(imei, geocercas, { ...m.gps, fecha: hora })) await alEvento(imei, c.tipo, m.gps, c.geocerca.nombre, { geocercaId: c.geocerca.id }, hora);
         /* De qué lado quedó de cada geocerca, a la base si cambió. */
         const mm = mem(imei), txt = JSON.stringify(vigia.lados(imei));
         if (txt !== mm.ladosTxt) { mm.ladosTxt = txt; await prisma.gpsEquipo.update({ where: { imei }, data: { lados: JSON.parse(txt) } }).catch(() => {}); }

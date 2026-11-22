@@ -78,6 +78,7 @@ const ETIQUETA: Record<string, string> = {
     GPS_SIN_REPORTE: "Dejó de reportar",
     GPS_VOLVIO: "Volvió a reportar",
     GPS_SALTO: "Posición imposible",
+    GPS_LPR_LEJOS: "Matrícula leída lejos del rastreador",
     GPS_INHIBIDOR: "Detectó un inhibidor de señal",
     GPS_CHOQUE: "Detectó un choque",
 };
