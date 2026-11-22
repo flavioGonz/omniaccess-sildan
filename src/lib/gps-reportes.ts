@@ -247,7 +247,8 @@ export function nuevoInforme(ctx: ContextoRep, claves: ClaveReporte[]) {
         if (quiere.has("fuera") && ctx.horario) for (const vj of viajes.filter(fueraDe)) { suma.fueraMin += vj.minutos; suma.fueraKm += vj.km; filas.fuera.push([quien, f.dia(vj.desde), f.hora(vj.desde), f.hora(vj.hasta), vj.minutos, vj.km, donde(vj.inicio.lat, vj.inicio.lon), donde(vj.fin.lat, vj.fin.lon)]); }
         if (quiere.has("eventos")) for (const e of v.eventos) {
             const { titulo, resto } = tituloDeEventoGps(e);
-            filas.eventos.push([quien, f.dia(e.cuando), f.hora(e.cuando), titulo, resto, e.lugar, e.prioridad, demoraLegible(e.tarde), e.lat !== null && e.lon !== null ? { lugar: null, lat: e.lat, lon: e.lon } : null]);
+            /* Hay equipos que mandan como detalle el mismo nombre del evento («Vibración»): repetido no dice nada. */
+            filas.eventos.push([quien, f.dia(e.cuando), f.hora(e.cuando), titulo, resto && resto.trim().toLowerCase() !== titulo.toLowerCase() ? resto : null, e.lugar, e.prioridad, demoraLegible(e.tarde), e.lat !== null && e.lon !== null ? { lugar: null, lat: e.lat, lon: e.lon } : null]);
         }
         if (quiere.has("posiciones")) for (const p of v.puntos) {
             if (filas.posiciones.length >= POSICIONES_MAX) { suma.posicionesDeMas++; continue; }

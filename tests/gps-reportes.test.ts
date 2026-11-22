@@ -170,3 +170,14 @@ test("el listado de posiciones trae todas, también las de mala señal", () => {
     assert.equal(col(t, "Contacto")(t.filas[0]), "encendido");
     assert.equal(col(t, "Contacto")(t.filas[1]), null);
 });
+
+test("un detalle que repite el nombre del evento no se escribe dos veces", () => {
+    const ev = (tipo: string, detalle: string | null) => ({ tipo, cuando: iso(100), detalle, lugar: null, prioridad: null, tarde: null, lat: null, lon: null });
+    const inf = nuevoInforme(ctx(), ["eventos"]);
+    inf.sumar(auto({ eventos: [ev("GPS_VIBRACION", "Vibración"), ev("GPS_BATERIA", "11,6 V"), ev("GPS_GEOCERCA_ENTRA", "Base")] }));
+    const t = tabla(inf.tablas(), "eventos"), evento = col(t, "Evento"), detalle = col(t, "Detalle");
+    assert.equal(detalle(t.filas[0]), null);
+    assert.equal(detalle(t.filas[1]), "11,6 V");
+    assert.equal(evento(t.filas[2]), "Entró a Base");
+    assert.equal(col(t, "Dónde")(t.filas[0]), null, "sin posición no hay enlace al mapa");
+});
