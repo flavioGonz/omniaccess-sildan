@@ -7,6 +7,7 @@ import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { atarVehiculoGps, cambiarPuertaGps, comandoGps, darDeAltaGps, descartarGps, diagnosticoGps, puertaGps, renombrarGps, type DiagnosticoGps, type Rastreador } from "@/app/actions/gps";
+import { ReportesGps, type InicioDeReportes } from "@/components/mapa/ReportesGps";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { Pista } from "@/components/ui/pista";
 import { Switch } from "@/components/ui/switch";
@@ -68,8 +69,13 @@ export function VistaGps({ lista, busqueda, alCambiar }: {
         finally { setCambiandoPuerta(false); }
     };
 
+    /* Los reportes: de un vehículo (el ícono de su fila) o de todos (el botón de arriba). */
+    const [reportes, setReportes] = useState<InicioDeReportes | null>(null);
+    const hayDeAlta = lista.some((r) => r.deviceId);
+
     return (
         <>
+        <ReportesGps abierto={!!reportes} alCerrar={() => setReportes(null)} rastreadores={lista} inicio={reportes || undefined} />
         {puerta && (
             <div className="mb-3 flex items-center gap-3 rounded-[10px] border border-border bg-card/40 px-4 py-2.5">
                 <span className={cn("h-8 w-8 shrink-0 grid place-items-center rounded-full border", puerta.cerrada ? "chip-bien" : "chip-aviso")}>{puerta.cerrada ? <DoorClosed size={15} /> : <DoorOpen size={15} />}</span>
@@ -86,6 +92,11 @@ export function VistaGps({ lista, busqueda, alCambiar }: {
                     {cambiandoPuerta && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
                     Puerta cerrada <Switch checked={puerta.cerrada} disabled={cambiandoPuerta} onCheckedChange={cambiarPuerta} aria-label="Cerrar la puerta del receptor a rastreadores nuevos" />
                 </label>
+            </div>
+        )}
+        {hayDeAlta && (
+            <div className="mb-2 flex justify-end">
+                <Button variant="outline" size="sm" className="h-8 gap-1.5 text-[12px]" onClick={() => setReportes({})}><FileSpreadsheet size={14} /> Reportes de rastreo</Button>
             </div>
         )}
         <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
@@ -115,7 +126,7 @@ export function VistaGps({ lista, busqueda, alCambiar }: {
                             </TableCell>
                         </TableRow>
                     )}
-                    {filas.map((r) => <Fila key={r.imei} r={r} d={diag[r.imei]} alCambiar={alCambiar} />)}
+                    {filas.map((r) => <Fila key={r.imei} r={r} d={diag[r.imei]} alCambiar={alCambiar} alReportes={() => setReportes({ imeis: [r.imei] })} />)}
                 </TableBody>
             </Table>
         </div>
@@ -123,7 +134,7 @@ export function VistaGps({ lista, busqueda, alCambiar }: {
     );
 }
 
-function Fila({ r, d, alCambiar }: { r: Rastreador; d?: DiagnosticoGps; alCambiar: () => void }) {
+function Fila({ r, d, alCambiar, alReportes }: { r: Rastreador; d?: DiagnosticoGps; alCambiar: () => void; alReportes: () => void }) {
     const [trabajando, setTrabajando] = useState(false);
     const [nombre, setNombre] = useState("");
     /** El nombre en edición, o `null` si no se está cambiando. */
@@ -288,8 +299,8 @@ function Fila({ r, d, alCambiar }: { r: Rastreador; d?: DiagnosticoGps; alCambia
                             )}
                             <Link href={`/admin/mapa?gps=${r.imei}&eventos=1`} title="Ver sus eventos en el mapa"
                                 className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><History size={14} /></Link>
-                            <a href={`/api/gps/reporte?imei=${r.imei}&dias=7`} title="Descargar el reporte de los últimos 7 días (viajes, paradas y eventos)"
-                                className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><FileSpreadsheet size={14} /></a>
+                            <button type="button" onClick={alReportes} title="Reportes de este vehículo: viajes, paradas, excesos, geocercas… en Excel o PDF"
+                                className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><FileSpreadsheet size={14} /></button>
                             <button type="button" onClick={() => mandar("estado")} disabled={!!mandando || !r.enLinea} title="Preguntarle al equipo cómo está"
                                 className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-40">
                                 {mandando === "estado" ? <Loader2 size={14} className="animate-spin" /> : <Radio size={14} />}</button>

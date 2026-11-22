@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CircleMarker, Marker, Polyline, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
-import { ChevronLeft, ChevronRight, FileText, Gauge, Loader2, LocateFixed, Pause, Play, SquareParking, TriangleAlert, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileSpreadsheet, FileText, Gauge, Loader2, LocateFixed, Pause, Play, SquareParking, TriangleAlert, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { guardarLimiteVelocidadGps, historialEventosGps, type PuntoGps, type RecorridoGps } from "@/app/actions/gps";
 import { fichaDeEventoGps, tituloDeEventoGps } from "@/lib/gps-eventos";
@@ -266,7 +266,7 @@ const COLOR_DE_TONO: Record<string, string> = { mal: "#ef4444", aviso: "#f59e0b"
 /** Qué eventos se marcan sobre el perfil: los que alguien querría ir a mirar. La vibración y los satélites, no. */
 const SE_MARCAN = new Set(["alarma", "geocerca", "conexion"]);
 
-export function PanelDelRecorrido({ imei, datos, partes, viajeSel, alViaje, cur, hastaAhora, alCambiarLimite, alLugar, compacto, alCompactar, informe }: {
+export function PanelDelRecorrido({ imei, datos, partes, viajeSel, alViaje, cur, hastaAhora, alCambiarLimite, alLugar, compacto, alCompactar, informe, alReportes }: {
     imei: string;
     datos: RecorridoGps; partes: Partes; viajeSel: number | null; alViaje: (i: number) => void;
     cur: CursorDeRuta;
@@ -275,6 +275,8 @@ export function PanelDelRecorrido({ imei, datos, partes, viajeSel, alViaje, cur,
     alCambiarLimite: () => void;
     /** Dónde es, en palabras (según las geocercas). Null si no se sabe. */
     alLugar: (lat: number, lon: number) => string | null;
+    /** Abrir los reportes (Excel y PDF) de este vehículo y este período. */
+    alReportes?: () => void;
     /** Achicado a la barra: para mirar el mapa mientras se reproduce. */
     compacto: boolean; alCompactar: (v: boolean) => void;
     /** La dirección del informe imprimible de este mismo período. */
@@ -330,7 +332,10 @@ export function PanelDelRecorrido({ imei, datos, partes, viajeSel, alViaje, cur,
                     <span key={f.franja} className="inline-flex items-center gap-1.5 tabular-nums"><span className="h-[5px] w-4 rounded-full" style={{ background: COLOR_FRANJA[f.franja] }} />{f.rotulo}</span>
                 ))}
                 <span>km/h</span>
-                {informe && <a href={informe} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 font-semibold text-[var(--accion)] hover:underline"><FileText size={12} /> Informe para imprimir</a>}
+                <span className="ml-auto inline-flex items-center gap-3">
+                    {alReportes && <button type="button" onClick={alReportes} className="inline-flex items-center gap-1 font-semibold text-[var(--accion)] hover:underline"><FileSpreadsheet size={12} /> Reportes</button>}
+                    {informe && <a href={informe} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-[var(--accion)] hover:underline"><FileText size={12} /> Informe con mapa</a>}
+                </span>
             </div>
 
             <div className="mt-2.5 border-t border-border pt-2">

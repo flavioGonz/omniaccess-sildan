@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Circle, Marker, Polygon, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
-import { CalendarClock, CircleDashed, Crosshair, Maximize2, Minimize2, EyeOff, History, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, Share2, ToggleLeft, ToggleRight, X } from "lucide-react";
+import { CalendarClock, CircleDashed, Crosshair, FileSpreadsheet, Maximize2, Minimize2, EyeOff, History, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, Share2, ToggleLeft, ToggleRight, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import {
     borrarGeocercaGps, cambiarIconoGps, comandoGps, entornoEventoGps, estelaGps, geocercasGps, guardarGeocercaGps, rastreadoresGps, recorridoGps, unEventoGps,
@@ -13,6 +13,7 @@ import {
 } from "@/app/actions/gps";
 import { CajonEventosGps } from "@/components/mapa/CajonEventosGps";
 import { CompartirGps } from "@/components/mapa/CompartirGps";
+import { ReportesGps, type InicioDeReportes } from "@/components/mapa/ReportesGps";
 import { crearCursor, LineasDelRecorrido, PanelDelRecorrido, usePartes } from "@/components/mapa/RecorridoGps";
 import { demoraLegible, fichaDeEventoGps, tituloDeEventoGps } from "@/lib/gps-eventos";
 import { useTiempoReal } from "@/lib/tiempo-real";
@@ -154,6 +155,8 @@ export function CapaGps() {
     const [destello, setDestello] = useState<string | null>(null);
     /** El cajón de eventos: de qué rastreador. */
     const [cajon, setCajon] = useState<string | null>(null);
+    /* Los reportes (Excel y PDF): se abren con el vehículo y el período que se estaban mirando. */
+    const [reportes, setReportes] = useState<InicioDeReportes | null>(null);
     /** El evento marcado en el mapa, con el tramo que el vehículo venía recorriendo alrededor. */
     const [evSel, setEvSel] = useState<{ e: EventoGps; entorno: PuntoGps[] } | null>(null);
     /** Sube cuando pasa algo que el cajón no recibe por el socket (se accionó el relé desde acá). */
@@ -562,6 +565,7 @@ export function CapaGps() {
                             )}
 
                             <Item icono={Share2} onClick={() => { setCompartiendo({ imei: delMenu.imei, nombre: delMenu.nombre || delMenu.matricula || `Rastreador ${delMenu.imei.slice(-6)}` }); setMenu(null); }}>Compartir su posición…</Item>
+                            <Item icono={FileSpreadsheet} onClick={() => { setReportes({ imeis: [delMenu.imei] }); setMenu(null); }}>Reportes: Excel y PDF…</Item>
 
                             <Rotulo>Geocercas</Rotulo>
                             <Item icono={Plus} onClick={() => { setCajon(null); setEvSel(null); setBorrador({ ...BORRADOR_NUEVO, lat: delMenu.lat!, lon: delMenu.lon! }); setPanelCercas(true); setMenu(null); }}>Nueva alrededor de acá</Item>
@@ -651,6 +655,7 @@ export function CapaGps() {
                                 <PanelDelRecorrido imei={ruta.imei} datos={ruta.datos} partes={partes} viajeSel={viajeSel} alViaje={verViaje} cur={cur}
                                     compacto={compacto} alCompactar={setCompacto}
                                     informe={`/informe/recorrido?imei=${encodeURIComponent(ruta.imei)}&desde=${encodeURIComponent(ruta.rango?.desde || ruta.datos.resumen.desde || "")}${ruta.rango?.hasta ? `&hasta=${encodeURIComponent(ruta.rango.hasta)}` : ""}`}
+                                    alReportes={() => setReportes({ imeis: [ruta.imei], ...(ruta.rango?.desde ? { desde: paraInputConHora(new Date(ruta.rango.desde)), hasta: ruta.rango.hasta ? paraInputConHora(new Date(ruta.rango.hasta)) : "" } : {}) })}
                                     hastaAhora={!ruta.rango?.hasta} alCambiarLimite={() => verRuta(ruta.imei, ruta.horas, false, ruta.rango)} alLugar={lugarDe} />
                             )}
                         </div>
@@ -661,6 +666,8 @@ export function CapaGps() {
                             alElegir={elegirEvento} alCerrar={() => { setCajon(null); setEvSel(null); }} refresco={refrescoCajon}
                             alVerRecorrido={(desde, hasta) => verRuta(cajon, 0, true, { desde: desde.toISOString(), hasta: hasta?.toISOString() || null })} />
                     )}
+
+                    <ReportesGps abierto={!!reportes} alCerrar={() => setReportes(null)} rastreadores={lista} inicio={reportes || undefined} />
 
                     {compartiendo && <CompartirGps imei={compartiendo.imei} nombre={compartiendo.nombre} alCerrar={() => setCompartiendo(null)} />}
 

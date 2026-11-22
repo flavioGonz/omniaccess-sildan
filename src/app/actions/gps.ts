@@ -15,6 +15,8 @@ import { leerEstadoRele, puedeAccionarRele } from "@/lib/gps-rele";
 import { aligerar, SATS_MIN, type ResumenRecorrido } from "@/lib/gps-recorrido";
 import { resumenDeViajes, viajesYParadas, type Parada, type Viaje } from "@/lib/gps-viajes";
 import { CLASES_EVENTO_GPS, EVENTOS_GPS, tiposDeClase, type ClaseEventoGps } from "@/lib/gps-eventos";
+import { CLAVES_REPORTE, type ClaveReporte } from "@/lib/gps-reportes-catalogo";
+import { armarReporteGps, HORARIO_LABORAL_GPS, horarioLaboral, type ReporteGps } from "@/lib/gps-reportes-servidor";
 
 /**
  * Los rastreadores GPS que se presentaron en gps-receiver.js, para la pantalla de Dispositivos.
@@ -639,4 +641,49 @@ export async function diasConMovimientoGps(imei: string, mes: string): Promise<R
         FROM "GpsPosicion" WHERE "imei" = ${String(imei || "")} AND "cuando" >= ${desde} AND "cuando" < ${hasta} AND "velocidad" >= 10 AND "satelites" >= ${SATS_MIN}
         GROUP BY 1`;
     return Object.fromEntries(filas.map((f) => [f.dia, Number(f.n)]));
+}
+
+/* ---------- Reportes ---------- */
+
+/** Filas por tabla en la vista previa: alcanza para ver qué trae; el archivo las trae todas. */
+const PREVIA_FILAS = 60;
+
+/**
+ * Lo que va a salir en el Excel y en el PDF, para mirarlo antes de bajarlo (22/11: «reportes en
+ * Excel y PDF; debe tener todo lo que tiene un soft de rastreo satelital»).
+ *
+ * Es la MISMA cuenta que la descarga (lib/gps-reportes-servidor), con las tablas recortadas a las
+ * primeras filas: `filasTotales` dice cuántas hay de verdad. El listado de posiciones no se
+ * calcula acá —son cientos de miles de renglones para mostrar sesenta—: va sólo al Excel.
+ */
+export async function vistaPreviaReportesGps(o: { imeis: string[] | null; desde: string; hasta: string | null; reportes: ClaveReporte[] }): Promise<{ ok: true; reporte: ReporteGps } | { ok: false; error: string }> {
+    await sesion("dispositivos");
+    const desde = new Date(o.desde), hasta = o.hasta ? new Date(o.hasta) : null;
+    if (Number.isNaN(desde.getTime()) || (hasta && Number.isNaN(hasta.getTime()))) return { ok: false, error: "El período no se entiende." };
+    if (hasta && hasta <= desde) return { ok: false, error: "El «hasta» es anterior al «desde»." };
+    const claves = CLAVES_REPORTE.filter((c) => c !== "posiciones" && (o.reportes || []).includes(c));
+    if (!claves.length) return { ok: false, error: "Elegí al menos un reporte." };
+    const imeis = o.imeis ? o.imeis.map((x) => String(x).replace(/\D/g, "").slice(0, 20)).filter(Boolean) : null;
+    const r = await armarReporteGps({ imeis: imeis && imeis.length ? imeis : null, desde, hasta, claves });
+    return { ok: true, reporte: { ...r, tablas: r.tablas.map((t) => ({ ...t, filas: t.filas.slice(0, PREVIA_FILAS) })) } };
+}
+
+/** El horario laboral: contra él se marca el uso fuera de horario. Uno para todos los vehículos. */
+export async function horarioLaboralGps(): Promise<HorarioCerca | null> {
+    await sesion("dispositivos");
+    return horarioLaboral();
+}
+
+export async function guardarHorarioLaboralGps(h: HorarioCerca | null): Promise<{ ok: boolean; horario?: HorarioCerca | null; error?: string }> {
+    const s = await sesion("dispositivos.editar");
+    if (h === null) {
+        await prisma.setting.deleteMany({ where: { key: HORARIO_LABORAL_GPS } });
+        await auditar(s, "equipos.gps.horario-laboral", "todos", true, "sin horario");
+        return { ok: true, horario: null };
+    }
+    const limpio = leerHorario(h);
+    if (!limpio) return { ok: false, error: "Elegí al menos un día, y dos horas distintas." };
+    await prisma.setting.upsert({ where: { key: HORARIO_LABORAL_GPS }, update: { value: JSON.stringify(limpio) }, create: { key: HORARIO_LABORAL_GPS, value: JSON.stringify(limpio) } });
+    await auditar(s, "equipos.gps.horario-laboral", "todos", true, rotuloDeHorario(limpio));
+    return { ok: true, horario: limpio };
 }
