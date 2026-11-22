@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { DURACIONES, estadoDeEnlace, horasValidas } from "@/lib/gps-compartir";
 import { leerLimite } from "@/lib/gps-jornada";
+import { limitesDelDia, ZONA } from "@/lib/fechas";
 import { RECORRIDO_MAX_DIAS, tiposQueDicen } from "@/lib/gps-filtro";
 import { prisma } from "@/lib/prisma";
 import { circuloDe, leerHorario, puntosDe, rotuloDeHorario, VERTICES_MAX, type AvisaCerca, type HorarioCerca } from "@/lib/gps-geocerca";
@@ -617,4 +618,25 @@ export async function cortarCompartidoGps(id: string): Promise<{ ok: boolean }> 
     await prisma.gpsCompartido.update({ where: { id }, data: { revocadoAt: new Date() } });
     await auditar(s, "equipos.gps.dejar-de-compartir", c.imei, true, `«${c.nombre}», lo había compartido ${c.creadoPor}`);
     return { ok: true };
+}
+
+
+/**
+ * Qué días de un mes anduvo: cuántos reportes en movimiento tuvo cada día del sitio. Es lo que pinta
+ * los puntos del calendario del recorrido (22/11: elegir el día sin escribir fechas, y viendo de
+ * antemano en cuáles hubo algo que mirar).
+ */
+export async function diasConMovimientoGps(imei: string, mes: string): Promise<Record<string, number>> {
+    await sesion("dispositivos");
+    if (!/^\d{4}-\d{2}$/.test(mes || "")) return {};
+    const [a, m] = mes.split("-").map(Number);
+    const desde = limitesDelDia(`${mes}-01`)?.inicio, hasta = limitesDelDia(`${m === 12 ? a + 1 : a}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01`)?.inicio;
+    if (!desde || !hasta) return {};
+    /* El día se corta en la zona del sitio, no en la de la base: un viaje de las 22:00 de Montevideo
+       es del mismo día, aunque en UTC ya sea el siguiente. */
+    const filas = await prisma.$queryRaw<{ dia: string; n: bigint }[]>`
+        SELECT to_char(("cuando" AT TIME ZONE 'UTC') AT TIME ZONE ${ZONA}, 'YYYY-MM-DD') AS dia, count(*) AS n
+        FROM "GpsPosicion" WHERE "imei" = ${String(imei || "")} AND "cuando" >= ${desde} AND "cuando" < ${hasta} AND "velocidad" >= 10 AND "satelites" >= ${SATS_MIN}
+        GROUP BY 1`;
+    return Object.fromEntries(filas.map((f) => [f.dia, Number(f.n)]));
 }

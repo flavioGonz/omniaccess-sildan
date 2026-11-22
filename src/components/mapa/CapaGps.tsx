@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Circle, Marker, Polygon, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
-import { CalendarClock, CircleDashed, Crosshair, EyeOff, History, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, Share2, ToggleLeft, ToggleRight, X } from "lucide-react";
+import { CalendarClock, CircleDashed, Crosshair, Maximize2, Minimize2, EyeOff, History, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, Share2, ToggleLeft, ToggleRight, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import {
     borrarGeocercaGps, cambiarIconoGps, comandoGps, entornoEventoGps, estelaGps, geocercasGps, guardarGeocercaGps, rastreadoresGps, recorridoGps, unEventoGps,
@@ -18,14 +18,14 @@ import { demoraLegible, fichaDeEventoGps, tituloDeEventoGps } from "@/lib/gps-ev
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { resumenDeRecorrido } from "@/lib/gps-recorrido";
 import { circuloDe, dentroDe, rotuloDeHorario, VERTICES_MAX, type AvisaCerca, type HorarioCerca } from "@/lib/gps-geocerca";
-import { duracionLarga } from "@/lib/gps-jornada";
 import { paraInputConHora, rangoDeFiltro, sirveParaRecorrido } from "@/lib/gps-filtro";
 import { RangoFechas } from "@/components/mapa/RangoFechas";
+import { CalendarioGps } from "@/components/mapa/CalendarioGps";
 import { alPedirGeocerca, avisarRastreadores } from "@/lib/gps-puente";
 import { posicionEn, RETRASO_MS } from "@/lib/gps-reproducir";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";
-import { fechaCorta, fechaHora, hace, horaSeg } from "@/lib/fechas";
+import { fechaCorta, fechaHora, hace, horaSeg, limitesDelDia } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 
 /**
@@ -178,7 +178,9 @@ export function CapaGps() {
        redibujarse por eso (ver `crearCursor`). Se crea una vez y vive lo que vive la capa. */
     const [cur] = useState(crearCursor);
     /* Los viajes, sus puntos, el límite y los excesos: una sola cuenta para las líneas del mapa y para el panel. */
-    const partes = usePartes(ruta?.datos || null, viajeSel);
+    const partes = usePartes(ruta?.datos || null, viajeSel, !ruta?.rango?.hasta);
+    /** El panel del recorrido achicado a su barra: para mirar el mapa mientras se reproduce. */
+    const [compacto, setCompacto] = useState(false);
 
     const traerCercas = useCallback(async () => { try { setCercas(await geocercasGps()); } catch { /* sin permiso: no se dibujan */ } }, []);
     useEffect(() => { traerCercas(); }, [traerCercas]);
@@ -382,7 +384,6 @@ export function CapaGps() {
     /** Quién está adentro de cada geocerca ahora, calculado acá con las posiciones a la vista. */
     const adentroDe = (c: Geocerca) => lista.filter((r) => valePara(c, r.imei) && dentroDe(c, r.lat!, r.lon!));
     const viajes = ruta?.datos?.viajes || [];
-    const paradas = ruta?.datos?.paradas || [];
     const verViaje = (i: number) => {
         const v = viajes[i]; if (!v) return;
         /* Al cambiar de viaje la barra se suelta: su punto era del viaje anterior. */
@@ -409,13 +410,6 @@ export function CapaGps() {
                     <Polyline ref={lineaColor} positions={SIN_PUNTOS} pathOptions={{ color: estela.vivo ? VERDE : CELESTE, weight: 4, opacity: 0.95, lineCap: "round", lineJoin: "round" }} />
                 </>
             )}
-
-            {/* Las paradas: dónde quedó entre un viaje y otro, y cuánto. */}
-            {paradas.map((pa, i) => (
-                <Marker key={`pa-${i}`} position={[pa.lat, pa.lon]} zIndexOffset={1200} interactive={false}
-                    icon={L.divIcon({ className: "bg-transparent border-0", iconSize: [96, 20], iconAnchor: [48, 10],
-                        html: `<div style="padding:1px 7px;border-radius:999px;background:#0a0e14;color:#fff;border:2px solid ${CELESTE};font:700 10.5px/14px Outfit,system-ui,sans-serif;white-space:nowrap;text-align:center">P · ${duracionLarga(pa.minutos)}</div>` })} />
-            ))}
 
             {/* Las geocercas. La que se está corrigiendo se dibuja como borrador, no dos veces. */}
             {cercas.filter((c) => c.id !== borrador?.id).map((c) => {
@@ -609,11 +603,19 @@ export function CapaGps() {
                                         <CalendarClock size={11} /> Fechas
                                     </button>
                                 </div>
+                                {/* Achicar el panel a su barra, y volver: el mapa es lo que se vino a mirar. */}
+                                {ruta?.datos && !estela && (
+                                    <button type="button" onClick={() => setCompacto((v) => !v)} aria-pressed={compacto} title={compacto ? "Ver la jornada y los datos" : "Achicar a la barra, para ver el mapa"}
+                                        className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent">{compacto ? <Maximize2 size={13} /> : <Minimize2 size={13} />}</button>
+                                )}
                                 <button type="button" onClick={cerrarRecorrido} aria-label="Cerrar el recorrido" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent"><X size={14} /></button>
                             </div>
                             {fechas && (
-                                <div className="mt-2 flex items-start gap-2">
-                                    <RangoFechas className="min-w-0 flex-1" desde={fechas.desde} hasta={fechas.hasta} alCambiar={setFechas}
+                                <div className="mt-2 flex flex-wrap items-start gap-3">
+                                    {/* Un día entero se elige en el calendario, que además dice cuáles tuvieron viajes; las horas, en los campos. */}
+                                    <CalendarioGps imei={deLaRuta.imei} elegido={fechas.desde && fechas.hasta && fechas.desde.slice(0, 10) === fechas.hasta.slice(0, 10) ? fechas.desde.slice(0, 10) : null}
+                                        alElegir={(dia) => { const l = limitesDelDia(dia); if (!l) return; setFechas({ desde: `${dia}T00:00`, hasta: `${dia}T23:59` }); verRuta(deLaRuta.imei, 0, true, { desde: l.inicio.toISOString(), hasta: l.fin.toISOString() }); }} />
+                                    <RangoFechas className="min-w-[230px] flex-1" desde={fechas.desde} hasta={fechas.hasta} alCambiar={setFechas}
                                         error={rangoEscrito?.error || (rangoEscrito?.desde && !sirveParaRecorrido(rangoEscrito) ? "Un recorrido puede ser de hasta un mes." : undefined)} />
                                     <Button size="sm" className="h-8" disabled={!rangoEscrito || !sirveParaRecorrido(rangoEscrito)} onClick={() => verFechas(deLaRuta.imei)}>Ver</Button>
                                 </div>
@@ -646,7 +648,9 @@ export function CapaGps() {
                                     {ruta.datos.resumen.puntos < 2 ? "No hay posiciones con buena señal en ese tramo." : "No hizo ningún viaje en ese tramo: estuvo en el mismo lugar."}
                                 </p>
                             ) : (
-                                <PanelDelRecorrido datos={ruta.datos} partes={partes} viajeSel={viajeSel} alViaje={verViaje} cur={cur}
+                                <PanelDelRecorrido imei={ruta.imei} datos={ruta.datos} partes={partes} viajeSel={viajeSel} alViaje={verViaje} cur={cur}
+                                    compacto={compacto} alCompactar={setCompacto}
+                                    informe={`/informe/recorrido?imei=${encodeURIComponent(ruta.imei)}&desde=${encodeURIComponent(ruta.rango?.desde || ruta.datos.resumen.desde || "")}${ruta.rango?.hasta ? `&hasta=${encodeURIComponent(ruta.rango.hasta)}` : ""}`}
                                     hastaAhora={!ruta.rango?.hasta} alCambiarLimite={() => verRuta(ruta.imei, ruta.horas, false, ruta.rango)} alLugar={lugarDe} />
                             )}
                         </div>

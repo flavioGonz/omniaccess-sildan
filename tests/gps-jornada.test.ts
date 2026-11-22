@@ -1,7 +1,7 @@
 /** La jornada, la velocidad sobre la línea y los excesos de un recorrido (lib/gps-jornada). */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { lineaDeTiempo, posicionEnLinea, rumboEntre, tiempoEnLinea, duracionLarga, excesosDe, franjaDe, jornadaDe, leerLimite, minutosEstacionado, puntoMasCercano, resumenDeExcesos, rumboEnPalabras, trozosPorVelocidad, type PuntoDeRuta } from "@/lib/gps-jornada";
+import { franjasDe, indiceEnHora, jornadaPorDia, restoDelTrayecto, lineaDeTiempo, posicionEnLinea, rumboEntre, tiempoEnLinea, duracionLarga, excesosDe, franjaDe, jornadaDe, leerLimite, minutosEstacionado, puntoMasCercano, resumenDeExcesos, rumboEnPalabras, trozosPorVelocidad, type PuntoDeRuta } from "@/lib/gps-jornada";
 import type { Viaje } from "@/lib/gps-viajes";
 
 const h = (hhmmss: string) => `2026-11-23T${hhmmss}.000Z`;
@@ -113,4 +113,40 @@ test("el rumbo sale del tramo que se anda, y quieto no hay rumbo", () => {
     assert.ok(Math.abs(rumboEntre(a, { lat: -34.9, lon: -56.09 })! - 90) < 0.01);           // al este
     assert.ok(Math.abs(rumboEntre(a, { lat: -34.91, lon: -56.1 })! - 180) < 0.01);          // al sur
     assert.equal(rumboEntre(a, { lat: -34.90001, lon: -56.1 }), null);                      // un metro: es ruido
+});
+
+test("la jornada por día: un encabezado por día con sus viajes, kilómetros y tiempo andando", () => {
+    const dia = (iso: string) => new Date(Date.parse(iso) - 3 * 3600e3).toISOString().slice(0, 10);      // el día en Montevideo
+    const v = (d: string, desde: string, hasta: string): Viaje => ({ ...viaje(desde, hasta, CASA, OBRA), desde: `${d}T${desde}.000Z`, hasta: `${d}T${hasta}.000Z` });
+    const j = jornadaDe([v("2026-11-20", "11:10:00", "11:40:00"), v("2026-11-20", "20:40:00", "21:15:00"), v("2026-11-21", "12:00:00", "12:30:00")], { desde: "2026-11-20T03:00:00.000Z", hasta: "2026-11-21T15:00:00.000Z" });
+    const d = jornadaPorDia(j, dia);
+    assert.deepEqual(d.map((x) => [x.dia, x.viajes, x.km, x.andandoMin]), [["2026-11-20", 2, 20, 60], ["2026-11-21", 1, 10, 30]]);
+    // Lo estacionado de la noche del 20 al 21 va en el día en que empezó.
+    assert.deepEqual(d[0].tramos.map((t) => t.tipo), ["estacionado", "viaje", "estacionado", "viaje", "estacionado"]);
+    assert.deepEqual(d[1].tramos.map((t) => t.tipo), ["viaje", "estacionado"]);
+});
+
+test("ubicar una hora sobre el trayecto: el reporte más cercano", () => {
+    const p = ruta([10, 20, 30, 40, 50]);                    // 12:00:00, :10, :20, :30, :40
+    assert.equal(indiceEnHora(p, h("12:00:14")), 1);
+    assert.equal(indiceEnHora(p, h("12:00:16")), 2);
+    assert.equal(indiceEnHora(p, h("11:00:00")), 0); assert.equal(indiceEnHora(p, h("13:00:00")), 4);
+    assert.equal(indiceEnHora(p, h("12:00:40"), 1, 3), 3);  // acotado a un viaje
+    assert.equal(indiceEnHora([], h("12:00:00")), -1);
+});
+
+test("lo que queda por recorrer: desde donde está el auto, y un viaje por línea", () => {
+    const p = ruta([10, 20, 30, 40, 50, 60]);
+    const viajes = [{ i0: 0, i1: 2 }, null, { i0: 3, i1: 5 }];
+    const r = restoDelTrayecto(p, viajes, 1.5, 5);
+    assert.equal(r.length, 2);
+    // El primero arranca a mitad de camino entre el punto 1 y el 2, y termina en el 2.
+    assert.equal(r[0].length, 2); assert.ok(Math.abs(r[0][0][0] - (p[1].lat + p[2].lat) / 2) < 1e-9);
+    assert.equal(r[1].length, 3);                            // el segundo viaje, entero
+    assert.deepEqual(restoDelTrayecto(p, viajes, 5, 5), []); // al final no queda nada
+    assert.equal(restoDelTrayecto(p, viajes, 0, 2).length, 1);   // recorriendo sólo el primer viaje
+});
+
+test("la leyenda dice las franjas con el límite de la empresa", () => {
+    assert.deepEqual(franjasDe(90).map((f) => f.rotulo), ["hasta 36", "36 a 77", "77 a 90", "más de 90"]);
 });

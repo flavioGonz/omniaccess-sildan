@@ -333,6 +333,22 @@ export async function middleware(request: NextRequest) {
         }
     }
 
+    // --- Los informes para imprimir (/informe/*) ---
+    // Viven fuera de /admin para que el marco del panel no corte la hoja al imprimir, pero son del
+    // panel: piden sesión. Los datos igual los cuidan las acciones del servidor, con su permiso;
+    // esto es para que quien abre el enlace sin sesión llegue a entrar y no a una hoja con un error.
+    if (pathname.startsWith('/informe/')) {
+        const session = request.cookies.get('session')?.value
+        const aEntrar = NextResponse.redirect(new URL('/login?volver=' + encodeURIComponent(pathname + request.nextUrl.search), request.url))
+        if (!session || !key) return aEntrar
+        try {
+            await jwtVerify(session, key, { algorithms: ['HS256'] })
+            return NextResponse.next()
+        } catch {
+            return aEntrar
+        }
+    }
+
     /*
      * La raíz.
      *

@@ -211,3 +211,62 @@ export function rumboEntre(a: { lat: number; lon: number }, b: { lat: number; lo
     const y = Math.sin(dLon) * Math.cos(b.lat * rad), x = Math.cos(a.lat * rad) * Math.sin(b.lat * rad) - Math.sin(a.lat * rad) * Math.cos(b.lat * rad) * Math.cos(dLon);
     return (Math.atan2(y, x) / rad + 360) % 360;
 }
+
+/* ---------- La jornada por día, y dónde cae una hora ---------- */
+
+export type DiaDeJornada = { dia: string; tramos: Tramo[]; viajes: number; km: number; andandoMin: number };
+
+/**
+ * La jornada cortada por día. En un recorrido de una semana la fecha se repetía en cada renglón y
+ * lo partía en dos; con un encabezado por día cada viaje vuelve a entrar en una línea, y el
+ * encabezado dice lo que se pregunta de un día: cuántos viajes, cuántos kilómetros, cuánto anduvo.
+ *
+ * `claveDeDia` da el día del SITIO de un instante («2026-11-20»): la cuenta no puede depender de en
+ * qué huso está el navegador. Lo estacionado va en el día en que empezó, aunque termine en otro.
+ */
+export function jornadaPorDia(j: Tramo[], claveDeDia: (iso: string) => string): DiaDeJornada[] {
+    const dias: DiaDeJornada[] = [];
+    for (const t of j) {
+        const dia = claveDeDia(t.tipo === "viaje" ? t.viaje.desde : t.desde);
+        let d = dias[dias.length - 1];
+        if (!d || d.dia !== dia) { d = { dia, tramos: [], viajes: 0, km: 0, andandoMin: 0 }; dias.push(d); }
+        d.tramos.push(t);
+        if (t.tipo === "viaje") { d.viajes++; d.km = Math.round((d.km + t.viaje.km) * 100) / 100; d.andandoMin += t.viaje.minutos; }
+    }
+    return dias;
+}
+
+/**
+ * El reporte más cercano a una hora, entre `desde` y `hasta`. Es lo que ubica sobre el trayecto algo
+ * que no es un reporte: una alarma, un cruce de geocerca, el comienzo de un estacionado.
+ */
+export function indiceEnHora(p: PuntoDeRuta[], iso: string, desde = 0, hasta = p.length - 1): number {
+    if (hasta < desde) return -1;
+    const t = new Date(iso).getTime(), de = (i: number) => new Date(p[i].cuando).getTime();
+    let a = desde, b = hasta;
+    while (b - a > 1) { const m = (a + b) >> 1; if (de(m) <= t) a = m; else b = m; }
+    return Math.abs(de(b) - t) < Math.abs(de(a) - t) ? b : a;
+}
+
+/** Lo que queda por recorrer desde `pos`, viaje por viaje: cada uno es su propia línea (entre dos viajes no hay camino). */
+export function restoDelTrayecto(p: PuntoDeRuta[], viajes: ({ i0: number; i1: number } | null)[], pos: number, hasta: number): [number, number][][] {
+    const lineas: [number, number][][] = [];
+    for (const r of viajes) {
+        if (!r || r.i1 <= pos || r.i0 > hasta) continue;
+        const fin = Math.min(r.i1, hasta), linea: [number, number][] = [];
+        if (pos > r.i0) {
+            // El viaje en el que está el auto: desde donde está (con sus decimales) hasta el final.
+            const i = Math.floor(pos), k = pos - i, a = p[i], b = p[Math.min(i + 1, fin)];
+            linea.push([a.lat + (b.lat - a.lat) * k, a.lon + (b.lon - a.lon) * k]);
+            for (let x = i + 1; x <= fin; x++) linea.push([p[x].lat, p[x].lon]);
+        } else for (let x = r.i0; x <= fin; x++) linea.push([p[x].lat, p[x].lon]);
+        if (linea.length > 1) lineas.push(linea);
+    }
+    return lineas;
+}
+
+/** Los límites de cada franja, en km/h, para la leyenda: «hasta 36 · hasta 76 · hasta 90 · más de 90». */
+export function franjasDe(limite: number): { franja: Franja; rotulo: string }[] {
+    const lento = Math.round(limite * 0.4), normal = Math.round(limite * 0.85);
+    return [{ franja: "lento", rotulo: `hasta ${lento}` }, { franja: "normal", rotulo: `${lento} a ${normal}` }, { franja: "borde", rotulo: `${normal} a ${limite}` }, { franja: "exceso", rotulo: `más de ${limite}` }];
+}
