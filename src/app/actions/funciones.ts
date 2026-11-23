@@ -84,6 +84,15 @@ export async function toggleFuncion(id: FuncionId, encendida: boolean): Promise<
         const { auditar } = await import("@/lib/centrales/sesion");
         await auditar(s, encendida ? "FUNCION_PRENDIDA" : "FUNCION_APAGADA", def.nombre, true, id);
     }
+    /* Las direcciones son una función con un servicio detrás (omni-geo): prenderla lo instala o lo
+       levanta, apagarla lo detiene. Sin esperar: la primera vez tarda un cuarto de hora, y el avance
+       se ve en Dispositivos › GPS. Si Docker no está, la función queda prendida y la pantalla lo dice. */
+    if (id === "GPS_DIRECCIONES") {
+        const { prenderOmniGeo, apagarOmniGeo } = await import("@/lib/omni-geo");
+        const { olvidarServicio } = await import("@/lib/direcciones");
+        olvidarServicio();
+        await (encendida ? prenderOmniGeo() : apagarOmniGeo()).catch(() => { });
+    }
     revalidatePath("/admin/settings");
     revalidatePath("/admin/mapa");
     return { ok: true };

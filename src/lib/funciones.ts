@@ -19,7 +19,7 @@ import type { ModuleId } from "@/lib/module-definitions";
 
 export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS" | "LPR_PLAZAS" | "LPR_BUSQUEDA" | "LPR_MIN_INTERIOR"
     | "FUNC_INTRUSION" | "FUNC_ALARMAS_RECEPCION" | "FUNC_ALARMAS_GESTION" | "EQUIPOS_USUARIOS" | "PADRON_CENSO"
-    | "FACE_DOBLE_VERIFICACION";
+    | "FACE_DOBLE_VERIFICACION" | "GPS_DIRECCIONES";
 
 export interface Funcion {
     id: FuncionId;
@@ -158,6 +158,15 @@ export const FUNCIONES: Funcion[] = [
         nombre: "Doble verificación de rostros",
         que: "Pone una al lado de la otra las dos opiniones sobre la misma pasada por un portero o un control de acceso: a quién reconoció el EQUIPO y a quién reconocimos NOSOTROS con OmniVision, y si coinciden. Se mira en OmniVision › Rostros › Doble verificación.",
         siSeApaga: "La comparación se sigue pudiendo mirar, pero no se usa para nada más: no marca pasadas ni avisa cuando los dos no coinciden.",
+        porDefecto: false,
+    },
+    {
+        id: "GPS_DIRECCIONES",
+        alcance: "instalacion",
+        nombre: "Direcciones de los lugares",
+        que: "Dice dónde está cada rastreador con palabras —«Cavour 3230, Parque Batlle, Montevideo»— en vez de coordenadas: en el mapa, en el recorrido y en los reportes. Lo averigua un servicio que corre en este mismo equipo (omni-geo, con el mapa de OpenStreetMap); por dónde anda cada vehículo no se le manda a nadie. Al prenderla se instala sola: la primera vez baja el mapa y tarda unos quince minutos.",
+        siSeApaga: "Los lugares vuelven a verse con el nombre de la geocerca o con coordenadas, y el servicio se detiene y libera su memoria. Ni el mapa ni las direcciones ya averiguadas se borran: al prenderla otra vez anda en segundos.",
+        // Apagada de fábrica: ocupa cerca de 1 GB de memoria y 4 GB de disco, y sólo le sirve a quien tiene rastreadores.
         porDefecto: false,
     },
 ];

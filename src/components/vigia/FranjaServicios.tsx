@@ -40,6 +40,8 @@ const NOMBRES: Record<string, string> = {
     "lector:api": "Lector (API)",
     "vision:contenedor": "omni-vision (contenedor)",
     "vision:api": "omni-vision (API)",
+    "geo:contenedor": "omni-geo (contenedor)",
+    "geo:api": "omni-geo (direcciones)",
     "pm2:vision-worker": "Visión (registro y análisis)",
     "pm2:omniaccess-web": "Proceso del sitio",
     "pm2:omniaccess-webhooks": "Proceso de webhooks",

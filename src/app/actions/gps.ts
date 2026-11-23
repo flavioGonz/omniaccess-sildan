@@ -19,6 +19,8 @@ import { CLAVES_REPORTE, type ClaveReporte } from "@/lib/gps-reportes-catalogo";
 import { armarReporteGps, conDirecciones, HORARIO_LABORAL_GPS, horarioLaboral, type ReporteGps } from "@/lib/gps-reportes-servidor";
 import { AJUSTE_GEO, direccionesDe, olvidarServicio, probarServicio, servicioDeDirecciones, urlValida } from "@/lib/direcciones";
 import { claveDeLugar } from "@/lib/direccion-texto";
+import { estadoOmniGeo, fraseDeFase, prenderOmniGeo, URL_GEO, type FaseGeo } from "@/lib/omni-geo";
+import { funcionActiva } from "@/app/actions/funciones";
 
 /**
  * Los rastreadores GPS que se presentaron en gps-receiver.js, para la pantalla de Dispositivos.
@@ -702,24 +704,54 @@ export async function guardarHorarioLaboralGps(h: HorarioCerca | null): Promise<
 
 /* ---------- Direcciones ---------- */
 
+export type ServicioDirecciones = {
+    /** La función «Direcciones de los lugares» está prendida. */
+    funcion: boolean;
+    /** Se usa el servicio incorporado (omni-geo, en este equipo) y no uno de afuera. */
+    propio: boolean;
+    /** El servicio de afuera, si se cargó uno. */
+    url: string | null;
+    /** En qué anda el incorporado. Null si no se usa. */
+    fase: FaseGeo | null;
+    /** Lo mismo, en una frase. */
+    frase: string | null;
+    ok: boolean; ejemplo: string | null; guardadas: number;
+};
+
 /**
- * El servicio de direcciones: dónde está y si contesta. Es un Nominatim propio de IES (contenedor
- * «omni-geo»); sin él todo anda igual, pero los lugares se dicen con coordenadas.
+ * Las direcciones: si están prendidas, quién las contesta y si contesta. El servicio es omni-geo,
+ * un contenedor de OmniAccess (`lib/omni-geo`); sin él todo anda igual, pero los lugares se dicen
+ * con coordenadas.
  */
-export async function servicioDireccionesGps(): Promise<{ url: string | null; ok: boolean; ejemplo: string | null; guardadas: number }> {
+export async function servicioDireccionesGps(): Promise<ServicioDirecciones> {
     await sesion("dispositivos");
-    const url = await servicioDeDirecciones();
-    const [p, guardadas] = await Promise.all([url ? probarServicio(url) : Promise.resolve({ ok: false, ejemplo: null }), prisma.geoDireccion.count().catch(() => 0)]);
-    return { url, ...p, guardadas };
+    const guardadas = await prisma.geoDireccion.count().catch(() => 0);
+    if (!(await funcionActiva("GPS_DIRECCIONES"))) return { funcion: false, propio: true, url: null, fase: null, frase: null, ok: false, ejemplo: null, guardadas };
+    const s = await servicioDeDirecciones();
+    if (!s.propio) { const p = await probarServicio(s.url!); return { funcion: true, propio: false, url: s.url, fase: null, frase: null, ...p, guardadas }; }
+    const e = await estadoOmniGeo();
+    const p = e.fase === "listo" ? await probarServicio(URL_GEO) : { ok: false, ejemplo: null };
+    return { funcion: true, propio: true, url: null, fase: e.fase, frase: fraseDeFase(e), ...p, guardadas };
 }
 
+/** Levantar el servicio incorporado: instalarlo si falta, arrancarlo si está parado. No espera a que termine. */
+export async function levantarDireccionesGps(): Promise<{ ok: boolean; error?: string }> {
+    const s = await sesion("dispositivos.editar");
+    if (!(await funcionActiva("GPS_DIRECCIONES"))) return { ok: false, error: "Primero hay que prender «Direcciones de los lugares» en Ajustes › Características." };
+    const e = await prenderOmniGeo();
+    olvidarServicio();
+    await auditar(s, "equipos.gps.direcciones", "omni-geo", e.fase !== "sin-docker", `levantar → ${e.fase}`);
+    return e.fase === "sin-docker" ? { ok: false, error: fraseDeFase(e) } : { ok: true };
+}
+
+/** Usar OTRO servicio de direcciones en vez del incorporado (uno central, compartido). Vacío vuelve al de este equipo. */
 export async function guardarServicioDireccionesGps(url: string): Promise<{ ok: boolean; error?: string; ejemplo?: string | null }> {
     const s = await sesion("dispositivos.editar");
     const limpia = (url || "").trim();
     if (!limpia) {
         await prisma.setting.deleteMany({ where: { key: AJUSTE_GEO } });
         olvidarServicio();
-        await auditar(s, "equipos.gps.direcciones", "servicio", true, "sin servicio");
+        await auditar(s, "equipos.gps.direcciones", "servicio", true, "el incorporado");
         return { ok: true };
     }
     const u = urlValida(limpia);

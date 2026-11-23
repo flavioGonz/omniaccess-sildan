@@ -97,6 +97,7 @@ const RECORDAR_MIN = Number(process.env.VIGIA_RECORDAR_MIN || 30);
 const PM2_APPS = ["omniaccess-web", "omniaccess-webhooks", "tracking-worker", "dispatch-worker", "vision-worker"];
 const LECTOR = process.env.OMNI_LPR_URL || "http://127.0.0.1:8000";
 const VISION = process.env.VISION_URL || "http://127.0.0.1:8010";
+const GEO = `http://127.0.0.1:${process.env.OMNI_GEO_PUERTO || 8020}`;
 const WEB = process.env.INTERNAL_BASE_URL || "http://127.0.0.1:10001";
 const WEBHOOKS = process.env.WEBHOOK_URL || "http://127.0.0.1:10000";
 
@@ -252,6 +253,38 @@ async function visionEnPausa() {
 }
 
 /**
+ * omni-geo (las direcciones de los lugares) se vigila sólo si la función está prendida Y el
+ * contenedor existe: apagada la función se lo detiene a propósito, y una instalación que nunca la
+ * prendió no lo tiene. En ninguno de los dos casos está «caído».
+ */
+async function hayGeo() {
+    if ((await ajuste("GPS_DIRECCIONES", "false")) !== "true") return false;
+    try { await correr("docker inspect omni-geo --format '{{.Id}}'", { timeout: 15_000 }); return true; }
+    catch { return false; }
+}
+/**
+ * ¿Ya terminó de prepararse? La primera vez baja el mapa y lo importa (un cuarto de hora) y en ese
+ * rato no contesta. Eso no es una caída: lo deja dicho en /datos/estado, y hasta que diga «listo»
+ * a la API no se le pide nada. Sin esto el vigía lo reiniciaría en medio de la importación, que
+ * volvería a empezar, y así para siempre.
+ */
+async function geoListo() {
+    try { const { stdout } = await correr("docker exec omni-geo cat /datos/estado", { timeout: 15_000 }); return stdout.trim() === "listo"; }
+    catch { return false; }
+}
+async function levantarGeo() {
+    try {
+        await correr("docker start omni-geo", { timeout: 90_000 });
+        return "contenedor levantado";
+    } catch (e) {
+        if (!/failed to create task|EOF|Unavailable/i.test(e.message || "")) throw e;
+        log("omni-geo no pudo crear su tarea; se recrea el contenedor");
+        await correr("SIN_BUILD=1 sh /opt/OmniAccess/services/omni-geo/run.sh", { timeout: 180_000 });
+        return "contenedor recreado";
+    }
+}
+
+/**
  * ¿Está instalado omni-vision? Una instalación sin el detector no tiene por qué figurar
  * caída ni recibir intentos de levantarlo: se mira sólo si el contenedor existe.
  */
@@ -388,6 +421,11 @@ async function vuelta() {
     } else if (await hayVision()) {
         await atender("vision:contenedor", "el contenedor de omni-vision", () => porDocker("omni-vision"), levantarVision);
         await atender("vision:api", "la API de omni-vision", () => porHttp(`${VISION}/salud`), levantarVision);
+    }
+
+    if (await hayGeo()) {
+        await atender("geo:contenedor", "el contenedor de omni-geo", () => porDocker("omni-geo"), levantarGeo);
+        if (await geoListo()) await atender("geo:api", "la API de omni-geo", () => porHttp(`${GEO}/status`), () => correr("docker restart omni-geo", { timeout: 120_000 }).then(() => "contenedor reiniciado"));
     }
 
     await publicarEstado();

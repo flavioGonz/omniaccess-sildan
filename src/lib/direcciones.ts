@@ -1,13 +1,17 @@
 import { prisma } from "@/lib/prisma";
 import { claveDeLugar, textoDeDireccion, type PartesOsm } from "@/lib/direccion-texto";
+import { funcionActiva } from "@/app/actions/funciones";
+import { URL_GEO } from "@/lib/omni-geo";
 
 /**
- * Averiguar la dirección de un punto, preguntándole al servicio de direcciones de IES y guardando
- * lo que contesta (23/11).
+ * Averiguar la dirección de un punto, preguntándole al servicio de direcciones y guardando lo que
+ * contesta (23/11).
  *
- * El servicio es un Nominatim propio (contenedor «omni-geo», con el mapa de OpenStreetMap de
- * Uruguay). Es propio a propósito —decisión de Nico—: por dónde anda cada vehículo de un cliente
- * no se le manda a un tercero.
+ * El servicio es omni-geo: un Nominatim con el mapa de OpenStreetMap que corre como contenedor de
+ * OmniAccess en este mismo equipo (`services/omni-geo`, `lib/omni-geo`) y se prende con la función
+ * «Direcciones de los lugares». Es propio a propósito —decisión de Nico—: por dónde anda cada
+ * vehículo de un cliente no se le manda a un tercero. Con el ajuste `GEO_URL` se puede apuntar a
+ * otro Nominatim (uno central, compartido por varias instalaciones); si está, manda él.
  *
  * Tres cuidados, porque de esto cuelgan el mapa en vivo y los reportes:
  *
@@ -22,7 +26,7 @@ import { claveDeLugar, textoDeDireccion, type PartesOsm } from "@/lib/direccion-
  *    contestó que ahí no hay nada (agua, campo sin caminos).
  */
 
-/** El ajuste con la dirección del servicio: «http://172.26.20.186:8080». Sin él, no hay direcciones. */
+/** El ajuste para usar OTRO servicio en vez del incorporado: «http://172.26.20.186:8080». Vacío = el de este equipo. */
 export const AJUSTE_GEO = "GEO_URL";
 /** Cuánto se espera cada respuesta. El servicio está en la misma red: si tarda más que esto, está mal. */
 const ESPERA_MS = 2500;
@@ -31,7 +35,7 @@ const A_LA_VEZ = 4;
 export const NUEVAS_MAX = 2000;
 const FALLAS_PARA_CAIDO = 3, CAIDO_MS = 60_000;
 
-let leido: { url: string | null; hasta: number } | null = null;
+let leido: { url: string | null; propio: boolean; hasta: number } | null = null;
 let fallas = 0, caidoHasta = 0;
 
 export const urlValida = (x: string | null | undefined): string | null => {
@@ -39,12 +43,20 @@ export const urlValida = (x: string | null | undefined): string | null => {
     return /^https?:\/\/[\w.\-]+(:\d{1,5})?(\/[\w.\-/]*)?$/.test(u) ? u : null;
 };
 
-/** Dónde está el servicio. Se relee cada minuto: cambiarlo en Ajustes vale sin reiniciar nada. */
-export async function servicioDeDirecciones(): Promise<string | null> {
-    if (leido && leido.hasta > Date.now()) return leido.url;
-    const f = await prisma.setting.findUnique({ where: { key: AJUSTE_GEO } }).catch(() => null);
-    leido = { url: urlValida(f?.value) || urlValida(process.env.GEO_URL), hasta: Date.now() + 60_000 };
-    return leido.url;
+/**
+ * A quién se le pregunta. Con la función apagada, a nadie (`url` nulo): ni siquiera se muestra lo
+ * ya averiguado, porque «apagada» tiene que querer decir apagada. Prendida: el servicio de afuera
+ * si se cargó uno, y si no el incorporado. Se relee cada medio minuto.
+ */
+export async function servicioDeDirecciones(): Promise<{ url: string | null; propio: boolean }> {
+    if (leido && leido.hasta > Date.now()) return leido;
+    if (!(await funcionActiva("GPS_DIRECCIONES"))) leido = { url: null, propio: false, hasta: Date.now() + 30_000 };
+    else {
+        const f = await prisma.setting.findUnique({ where: { key: AJUSTE_GEO } }).catch(() => null);
+        const otro = urlValida(f?.value) || urlValida(process.env.GEO_URL);
+        leido = { url: otro || URL_GEO, propio: !otro, hasta: Date.now() + 30_000 };
+    }
+    return leido;
 }
 /** Para que un cambio del ajuste valga en el acto, y no al minuto. */
 export const olvidarServicio = () => { leido = null; fallas = 0; caidoHasta = 0; };
@@ -69,13 +81,15 @@ export async function direccionesDe(puntos: { lat: number; lon: number }[], o: {
     for (const p of puntos) if (Number.isFinite(p.lat) && Number.isFinite(p.lon)) porClave.set(claveDeLugar(p.lat, p.lon), p);
     const sabidas = new Map<string, string>();
     if (!porClave.size) return sabidas;
+    const servicio = await servicioDeDirecciones();
+    if (!servicio.url) return sabidas;
     const claves = [...porClave.keys()], vistas = new Set<string>();
     for (let i = 0; i < claves.length; i += 5000) {
         const filas = await prisma.geoDireccion.findMany({ where: { clave: { in: claves.slice(i, i + 5000) } }, select: { clave: true, texto: true } }).catch(() => []);
         for (const f of filas) { vistas.add(f.clave); if (f.texto) sabidas.set(f.clave, f.texto); }
     }
     const faltan = claves.filter((c) => !vistas.has(c)).slice(0, o.nuevasMax ?? NUEVAS_MAX);
-    const url = faltan.length && Date.now() >= caidoHasta ? await servicioDeDirecciones() : null;
+    const url = faltan.length && Date.now() >= caidoHasta ? servicio.url : null;
     if (!url) return sabidas;
 
     const nuevas: { clave: string; texto: string; calle: string | null; barrio: string | null; ciudad: string | null }[] = [];
