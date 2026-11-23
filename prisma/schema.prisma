@@ -2191,6 +2191,12 @@ model GpsEquipo {
   voltaje      Float?
   /// El ICCID de la SIM que lleva puesta.
   iccid        String?
+  /// Rastreadores OBD: el numero de chasis que el equipo leyo del vehiculo.
+  vin          String?
+  /// El cuentakilometros que lleva el equipo, en metros.
+  odometro     Int?
+  /// Lo ultimo que leyo del motor, con su hora: { rpm, agua, carga, acelerador, ..., cuando }.
+  motor        Json?
   /// Con que dibujo se lo ve en el mapa: auto | camion | moto | persona | punto.
   icono        String?
   /// El rele del equipo esta accionado (corte de combustible o de alimentacion), segun el latido.
@@ -2223,6 +2229,12 @@ model GpsPosicion {
   encendido Boolean?
   /// El codigo de alarma si esta posicion vino con una (SOS, corte de alimentacion...).
   alarma    Int?
+  /// Pocos satelites PARA ESE EQUIPO (cada protocolo trae su minimo): queda guardada y no se usa
+  /// para el mapa, el recorrido, los viajes ni los reportes.
+  pobre     Boolean  @default(false)
+  /// Lo que el rastreador le leyo al motor en ese momento, si es de los que se enchufan al
+  /// conector OBD: { rpm, agua, carga, acelerador, presion, aire, combustible }.
+  motor     Json?
 
   @@index([imei, cuando])
 }

@@ -29,6 +29,41 @@ import { CAMPO, ChipEstado, Dato, estadoDe, ICONOS_GPS, Insignia, nombreDe, pild
 
 type Filtro = "todos" | ClaveEstado;
 
+/** A partir de cuántos grados el refrigerante se marca: un motor sano trabaja entre 85 y 105 °C. */
+const AGUA_ALTA = 110;
+
+/**
+ * Lo que el rastreador le lee al motor (23/11). Sólo en los que se enchufan al conector OBD del
+ * vehículo —el primero, un TorchX 110—: en los demás este bloque no existe, no aparece vacío.
+ *
+ * Son los últimos valores que llegaron, y se dice de cuándo: con el motor apagado el equipo no manda
+ * nada, y mostrar «96 °C» sin la hora sería decir que el motor está caliente ahora. Cada dato puede
+ * faltar, porque no todos los vehículos contestan todo: el que falta no se dibuja.
+ */
+function MotorObd({ r }: { r: Rastreador }) {
+    const m = r.motor;
+    if (!m && !r.vin && r.odometroKm === null) return null;
+    return (
+        <div className="mt-3 rounded-[10px] border border-border bg-card/40 p-3.5">
+            <div className="flex items-baseline justify-between gap-3">
+                <p className="text-[12px] font-medium text-muted-foreground">Motor, por el conector OBD</p>
+                {m?.cuando && <p className="text-[11.5px] text-muted-foreground">leído {hace(m.cuando)}</p>}
+            </div>
+            <div className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+                {m?.rpm !== undefined && <Dato k="Vueltas del motor">{m.rpm.toLocaleString("es-UY")} rpm</Dato>}
+                {m?.agua !== undefined && <Dato k="Refrigerante" tono={m.agua >= AGUA_ALTA ? "tono-mal" : undefined}>{m.agua} °C</Dato>}
+                {m?.carga !== undefined && <Dato k="Carga del motor">{m.carga} %</Dato>}
+                {m?.acelerador !== undefined && <Dato k="Acelerador">{m.acelerador} %</Dato>}
+                {m?.combustible !== undefined && <Dato k="Combustible">{m.combustible} %</Dato>}
+                {m?.aire !== undefined && <Dato k="Aire de admisión">{m.aire} °C</Dato>}
+                {m?.presion !== undefined && <Dato k="Presión de admisión">{m.presion} kPa</Dato>}
+                {r.odometroKm !== null && <Dato k="Recorrido con el equipo">{r.odometroKm.toLocaleString("es-UY")} km</Dato>}
+                {r.vin && <Dato k="Chasis" className="col-span-2 sm:col-span-3">{r.vin}</Dato>}
+            </div>
+        </div>
+    );
+}
+
 export function VehiculosGps({ lista, puede, alCambiar, alIr }: {
     lista: Rastreador[];
     puede: (que: QueGps) => boolean;
@@ -166,6 +201,7 @@ function Ficha({ r, puede, alCambiar, alIr }: { r: Rastreador; puede: (que: QueG
                         <Dato k="Señal">{r.senal === null ? "—" : SENAL[Math.min(4, r.senal)]}</Dato>
                         <Dato k="Corte de motor" tono={r.cortado ? "tono-mal" : undefined}>{r.cortado === null ? "Sin dato" : r.cortado ? "Cortado" : "En reposo"}</Dato>
                     </div>
+                    <MotorObd r={r} />
                 </section>
 
                 {/* ── Adónde ir con este vehículo ── */}

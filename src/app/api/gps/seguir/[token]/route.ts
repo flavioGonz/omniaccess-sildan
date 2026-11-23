@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { estadoDeEnlace, type VistaCompartida } from "@/lib/gps-compartir";
-import { aligerar, SATS_MIN } from "@/lib/gps-recorrido";
+import { aligerar } from "@/lib/gps-recorrido";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     if (!e?.deviceId) return NO();
 
     const recorrido = c.conRecorrido
-        ? aligerar(await prisma.gpsPosicion.findMany({ where: { imei: c.imei, cuando: { gte: c.createdAt }, satelites: { gte: SATS_MIN } }, orderBy: { cuando: "asc" }, take: 5000, select: { lat: true, lon: true } }), 400).map((p) => [p.lat, p.lon] as [number, number])
+        ? aligerar(await prisma.gpsPosicion.findMany({ where: { imei: c.imei, cuando: { gte: c.createdAt }, pobre: false }, orderBy: { cuando: "asc" }, take: 5000, select: { lat: true, lon: true } }), 400).map((p) => [p.lat, p.lon] as [number, number])
         : [];
     // Cuántas veces se miró y cuándo fue la última: quien compartió lo ve en su lista. Una vez por minuto alcanza.
     if (!c.ultimaVista || Date.now() - c.ultimaVista.getTime() > 60_000) await prisma.gpsCompartido.update({ where: { id: c.id }, data: { vistas: { increment: 1 }, ultimaVista: new Date() } }).catch(() => { });

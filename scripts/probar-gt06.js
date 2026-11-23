@@ -480,13 +480,31 @@ prueba("TopFly: lo guardado sin cobertura llega marcado como historia, no como �
     const viva = H(TF_POS_MOTOR); viva[15 + 9] &= 0x7f;
     assert.strictEqual(tf.leer(viva).gps.enVivo, true);
 });
-prueba("TopFly: lo que le lee al motor por OBD (1395 rpm y 96 °C), y nada cuando el motor no contesta", () => {
-    const m = tf.leer(H(TF_POS_MOTOR));
-    assert.strictEqual(m.rpm, 1395); assert.strictEqual(m.refrigerante, 96);
-    const p = tf.leer(H(TF_POS_PARADO));
-    assert.strictEqual(p.rpm, undefined); assert.strictEqual(p.refrigerante, undefined);
-    // Con el motor parado la temperatura llega en cero crudo: no se informa como −40 °C ni como 0.
-    assert.strictEqual(tf.leer(H(TF_CORTE)).refrigerante, undefined);
+prueba("TopFly: lo que le lee al motor por OBD en una trama real, y nada cuando el motor no contesta", () => {
+    /* Un motor en marcha lenta: los cinco números cierran entre sí. */
+    assert.deepStrictEqual(tf.leer(H(TF_POS_MOTOR)).motor, { rpm: 1395, agua: 96, carga: 8, acelerador: 14, presion: 46 });
+    assert.strictEqual(tf.leer(H(TF_POS_PARADO)).motor, undefined);                    // todo en FF: no hay dato
+    // Con el motor parado las temperaturas llegan en cero crudo: no se informan como −40 °C.
+    const parado = tf.leer(H(TF_CORTE)).motor;
+    assert.strictEqual(parado.rpm, 0); assert.strictEqual(parado.agua, undefined); assert.strictEqual(parado.aire, undefined);
+    // El combustible sólo cuando viene en porcentaje, y el consumo no se lee (la unidad no cierra).
+    const con = H(TF_POS_MOTOR); con[15 + 67] = 62; assert.strictEqual(tf.leer(con).motor.combustible, 62);
+    con[15 + 67] = 0x80 | 40; assert.strictEqual(tf.leer(con).motor.combustible, undefined);
+    assert.strictEqual(tf.leer(H(TF_POS_MOTOR)).motor.consumo, undefined);
+});
+prueba("TopFly: el número de chasis que lee del vehículo (tipo 09), y lo demás de ese tipo se acusa sin leer", () => {
+    /* Con la forma del mensaje real y un chasis inventado: el del auto de la prueba no va a un archivo. */
+    const vin = "1ABCD23EFGH456789";
+    const datos = Buffer.concat([H("4105"), Buffer.from(vin), H("c6")]);
+    const cont = Buffer.concat([H("260909154238"), H("55aaa0"), Buffer.from([datos.length]), datos, H("0d0a")]);
+    const t = Buffer.concat([H("262609"), Buffer.from([0, 15 + cont.length]), H("0019"), H("0867284063826343"), cont]);
+    assert.strictEqual(t.length, 47);                                                  // el largo del mensaje real
+    const m = tf.leer(t);
+    assert.strictEqual(m.tipo, "vehiculo"); assert.strictEqual(m.vin, vin);
+    assert.strictEqual(tf.acuse(m).toString("hex"), "262609000f00190867284063826343");
+    // Un chasis con letras que no existen en un chasis (I, O, Q) no se da por bueno.
+    const malo = Buffer.from(t); Buffer.from("IOQ").copy(malo, 15 + 6 + 4 + 2);
+    assert.strictEqual(tf.leer(malo).tipo, "desconocido");
 });
 prueba("TopFly: sin posición no inventa coordenadas (ahí vienen las antenas de celular)", () => {
     const m = tf.leer(H(TF_CORTE));

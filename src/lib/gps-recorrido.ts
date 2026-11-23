@@ -24,6 +24,10 @@ export type PuntoRecorrido = { lat: number; lon: number; cuando: string; velocid
  * acá): si se cambia uno, se cambia el otro. Un rastreador sin BeiDou ve menos satélites y puede
  * necesitar un umbral más bajo; este salió de un equipo que ve hasta quince.
  */
+/* (23/11) Este número se midió con un GT06. Otro equipo cuenta los satélites de otra forma —un
+   TopFly anda bien con 5 a 7—, así que al GUARDAR cada posición el receptor anota si es pobre para
+   SU equipo (`GpsPosicion.pobre`) y las consultas filtran por eso. El 8 queda para lo que no trae
+   esa marca: puntos armados a mano en pruebas y datos de antes. */
 export const SATS_MIN = 8;
 export const esConfiable = (p: { satelites?: number }) => p.satelites === undefined || p.satelites >= SATS_MIN;
 export type ResumenRecorrido = {

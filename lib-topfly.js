@@ -225,16 +225,49 @@ function leerPosicion(t) {
 }
 
 /**
- * Las vueltas del motor y la temperatura del refrigerante, cuando vienen (visto 23/11: 1395 rpm y
- * 96 °C con el motor en marcha; FF FF con el motor apagado). El resto de lo que trae ese bloque
- * —consumo, carga del motor, acelerador, nivel de combustible— no se lee todavía.
+ * Lo que le lee al motor por el conector OBD, que viene pegado a cada posición. FF es «el vehículo
+ * no lo contesta», y con el motor apagado viene todo en FF.
+ *
+ * Visto en tramas reales (23/11, un motor en marcha lenta): 1395 vueltas, 96 °C de refrigerante,
+ * 8 % de carga, 14 % de acelerador y 46 kPa en la admisión — números que cierran entre sí.
+ * NO se leen los dos de consumo de combustible: en esas mismas tramas dan un consumo imposible
+ * (cinco litros en setecientos metros), así que la unidad no es la que dicen las fuentes.
  */
 function motorDe(c) {
-    if (c.length < 64) return {};
-    const rpm = c.readUInt16BE(59), agua = c[63];
+    if (c.length < 68) return {};
+    const rpm = c.readUInt16BE(59);
     if (rpm === 0xffff) return {};
-    /* Con el motor parado la temperatura llega en cero crudo (−40 °C): no es una medida. */
-    return { rpm, ...(rpm > 0 && agua !== 0xff ? { refrigerante: agua - 40 } : {}) };
+    const dato = (o, f = (v) => v) => (c[o] === 0xff ? undefined : f(c[o]));
+    const nivel = c[67];
+    const motor = {
+        rpm,
+        /* Con el motor parado las temperaturas llegan en cero crudo (−40 °C): no son una medida. */
+        agua: rpm > 0 ? dato(63, (v) => v - 40) : undefined,
+        aire: rpm > 0 ? dato(64, (v) => v - 40) : undefined,
+        carga: dato(65), acelerador: dato(66), presion: dato(62),
+        /* El nivel de combustible, sólo cuando viene en porcentaje (el bit alto dice que son litros). */
+        combustible: nivel !== 0xff && !(nivel & 0x80) ? nivel : undefined,
+    };
+    for (const k of Object.keys(motor)) if (motor[k] === undefined) delete motor[k];
+    return { motor };
+}
+
+/**
+ * Un mensaje del vehículo por OBD (tipo 09): hora(6) | 55 AA | largo(2) | datos. Por ahora se lee
+ * uno solo, el número de chasis (datos 41 05 + 17 letras + un byte de control), que se vio en las
+ * tramas reales. Los códigos de falla usan el mismo sobre (41 03 / 41 0A) y NO se leen todavía: no
+ * llegó ninguno, y un código de falla mal leído mostrado a un cliente es peor que no mostrarlo.
+ */
+function leerVehiculo(t) {
+    const c = t.subarray(SOBRE + 6);
+    if (c.length < 6 || c[0] !== 0x55 || c[1] !== 0xaa) return {};
+    const largo = ((c[2] & 0x0f) << 8) | c[3];
+    const d = c.subarray(4, 4 + largo);
+    if (d.length >= 20 && d[0] === 0x41 && d[1] === 0x05) {
+        const vin = d.subarray(2, 19).toString("latin1");
+        if (/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) return { vin };
+    }
+    return {};
 }
 
 /** Los datos de la SIM y de la red (tipo 11): cada campo va precedido de su largo. */
@@ -269,6 +302,7 @@ function leer(t) {
         return { ...m, tipo: DE_ALARMA.has(tipoCrudo) ? "alarma" : "posicion", ...p };
     }
     if (tipoCrudo === TIPO.RED) return { ...m, tipo: "red", ...leerRed(t) };
+    if (tipoCrudo === TIPO.OBD) { const v = leerVehiculo(t); return v.vin ? { ...m, tipo: "vehiculo", ...v } : { ...m, tipo: "desconocido" }; }
     if (tipoCrudo === TIPO.RESPUESTA) {
         /* Lo que contesta a un comando: un byte de qué clase de mensaje es y el texto en UTF-16. */
         const texto = t.subarray(SOBRE + 1).toString("utf16le").replace(/\0+$/, "");

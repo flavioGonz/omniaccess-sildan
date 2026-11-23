@@ -279,7 +279,7 @@ async function revisarLecturas() {
     for (const l of lecturas) {
         const e = equipoDe.get(l.plateDetected), cam = camaras.find((c) => c && c.deviceId === l.deviceId && Number.isFinite(c.lat) && Number.isFinite(c.lng));
         if (!e || !cam) continue;
-        const p = await prisma.gpsPosicion.findFirst({ where: { imei: e.imei, cuando: { lte: l.timestamp }, satelites: { gte: evs.SATS_MIN } }, orderBy: { cuando: "desc" }, select: { lat: true, lon: true, cuando: true } });
+        const p = await prisma.gpsPosicion.findFirst({ where: { imei: e.imei, cuando: { lte: l.timestamp }, pobre: false }, orderBy: { cuando: "desc" }, select: { lat: true, lon: true, cuando: true } });
         const vivo = !e.sinReporteDesde && !!e.ultimoLatido && l.timestamp.getTime() - e.ultimoLatido.getTime() < evs.SILENCIO_QUIETO_MS;
         const r = evs.cruzarLectura({ camara: { lat: cam.lat, lon: cam.lng }, cuando: l.timestamp.getTime(), posicion: p ? { lat: p.lat, lon: p.lon, cuando: p.cuando.getTime() } : null, vivo });
         log(e.imei, "LPR:", l.plateDetected, "en", l.device?.name || l.deviceId, "→", r.que, r.metros != null ? `${r.metros} m` : "");
@@ -334,7 +334,7 @@ const RETENCION_DIAS = Number(process.env.GPS_RETENCION_DIAS || 365), RETENCION_
 async function podar() {
     try {
         const dia = 86_400_000, ahora = Date.now();
-        const a = await prisma.gpsPosicion.deleteMany({ where: { cuando: { lt: new Date(ahora - RETENCION_POBRES_DIAS * dia) }, satelites: { lt: evs.SATS_MIN } } });
+        const a = await prisma.gpsPosicion.deleteMany({ where: { cuando: { lt: new Date(ahora - RETENCION_POBRES_DIAS * dia) }, pobre: true } });
         const b = await prisma.gpsPosicion.deleteMany({ where: { cuando: { lt: new Date(ahora - RETENCION_DIAS * dia) } } });
         const c = await prisma.gpsEvento.deleteMany({ where: { cuando: { lt: new Date(ahora - RETENCION_DIAS * dia) } } });
         if (a.count || b.count || c.count) log(`retención: ${a.count} posiciones pobres de más de ${RETENCION_POBRES_DIAS} días, ${b.count} posiciones y ${c.count} eventos de más de ${RETENCION_DIAS} días`);
@@ -401,6 +401,9 @@ async function alPosicion(imei, m, aceptado) {
             /* El contacto (ACC): estos equipos lo informan en el latido, no en cada posición. Se le
                pone a la posición lo último que se supo, para que al recorrer un trayecto se vea. */
             satelites: p.satelites, encendido: m.encendido ?? (motor.has(imei) ? motor.get(imei) : null), alarma: m.tipo === "alarma" ? m.alarma : null,
+            /* Pocos satélites PARA ESTE EQUIPO: lo que después deja afuera del recorrido y los viajes. */
+            pobre: p.satelites < (p.satsMin ?? evs.SATS_MIN),
+            ...(m.motor ? { motor: m.motor } : {}),
         },
     });
     /* Con pocos satélites la posición queda GUARDADA (es el dato crudo, y dice con cuántos
@@ -541,7 +544,7 @@ async function procesarTopfly(s, c, ip) {
         cuenta.tramas++; cuenta.ultimaTrama = Date.now();
         /* De rutina: la posición y el latido. Los datos de la SIM tampoco se anotan en crudo, nunca:
            traen el número de la línea. Lo demás sí, siempre: es lo que hay que poder mirar después. */
-        if (m.tipo !== "red" && (CRUDO || (m.tipo !== "posicion" && m.tipo !== "latido"))) log(c.imei || m.imei, "topfly", m.tipo, t.toString("hex"));
+        if (m.tipo !== "red" && !m.vin && (CRUDO || (m.tipo !== "posicion" && m.tipo !== "latido"))) log(c.imei || m.imei, "topfly", m.tipo, t.toString("hex"));
         try {
             if (!c.imei) {
                 const e = await alPresentarse(m.imei, ip, "TOPFLY");
@@ -578,6 +581,8 @@ async function procesarTopfly(s, c, ip) {
                 }
                 const r = await alReporte(c.imei, m, c.aceptado);
                 if (reciente && m.voltaje !== undefined) await alVoltaje(c.imei, m.voltaje);
+                /* Lo del motor y el cuentakilómetros, a la ficha: lo último que se supo, con su hora. */
+                if (reciente) await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: { odometro: m.odometro, ...(m.motor ? { motor: { ...m.motor, cuando: (hora || new Date()).toISOString() } } : {}) } }).catch(() => {});
                 if (m.tipo === "alarma") {
                     const tipoA = tf.eventoDeAlarma(m.alarma);
                     /* Una alarma con una hora que no se puede creer (más de un mes atrás, o del futuro)
@@ -591,6 +596,9 @@ async function procesarTopfly(s, c, ip) {
                 await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: { ultimoLatido: new Date() } }).catch(() => {});
             } else if (m.tipo === "red") {
                 if (m.iccid) await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: { iccid: m.iccid } }).catch(() => {});
+            } else if (m.tipo === "vehiculo") {
+                /* El número de chasis que leyó del auto. A la ficha; al log no: identifica al vehículo. */
+                if (m.vin) await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: { vin: m.vin } }).catch(() => {});
             } else if (m.tipo === "respuesta") {
                 log(c.imei, "contestó:", m.texto);
             }

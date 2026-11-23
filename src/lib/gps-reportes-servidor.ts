@@ -70,14 +70,14 @@ export async function armarReporteGps(o: { imeis: string[] | null; desde: Date; 
     /* De a uno, a propósito: las posiciones de un vehículo se sueltan antes de traer las del siguiente. */
     for (const e of equipos) {
         const [puntos, eventos] = await Promise.all([
-            prisma.gpsPosicion.findMany({ where: { imei: e.imei, cuando: { gte: o.desde, lte: hasta } }, orderBy: { cuando: "asc" }, take: POSICIONES_POR_VEHICULO, select: { lat: true, lon: true, cuando: true, velocidad: true, rumbo: true, satelites: true, encendido: true } }),
+            prisma.gpsPosicion.findMany({ where: { imei: e.imei, cuando: { gte: o.desde, lte: hasta } }, orderBy: { cuando: "asc" }, take: POSICIONES_POR_VEHICULO, select: { lat: true, lon: true, cuando: true, velocidad: true, rumbo: true, satelites: true, pobre: true, encendido: true } }),
             prisma.gpsEvento.findMany({ where: { imei: e.imei, cuando: { gte: o.desde, lte: hasta } }, orderBy: { cuando: "asc" }, take: EVENTOS_POR_VEHICULO, select: { tipo: true, cuando: true, detalle: true, lugar: true, prioridad: true, tarde: true, lat: true, lon: true } }),
         ]);
         const v = { imei: e.imei, nombre: nombreDe.get(e.deviceId!) || e.nombre || `Rastreador ${e.imei.slice(-6)}`, matricula: (e.vehicleId && chapaDe.get(e.vehicleId)) || null };
         vehiculos.push(v);
         informe.sumar({
             ...v,
-            puntos: puntos.map((p) => ({ lat: p.lat, lon: p.lon, cuando: p.cuando.toISOString(), velocidad: p.velocidad, rumbo: p.rumbo, sat: p.satelites, enc: p.encendido })),
+            puntos: puntos.map((p) => ({ lat: p.lat, lon: p.lon, cuando: p.cuando.toISOString(), velocidad: p.velocidad, rumbo: p.rumbo, sat: p.satelites, pobre: p.pobre, enc: p.encendido })),
             eventos: eventos.map((x) => ({ ...x, cuando: x.cuando.toISOString() })),
         });
     }

@@ -167,12 +167,21 @@ const conectar = () => new Promise((ok) => { const s = net.connect(21341, "127.0
     assert.ok(Math.abs(eF.lat - -34.8892) < 0.001 && Math.abs(eF.lon - -56.144) < 0.001, "la posición en vivo mueve el punto");
     assert.strictEqual(eF.encendido, true); assert.strictEqual(eF.voltaje, 14.86); assert.strictEqual(eF.bateria, 6); assert.strictEqual(eF.senal, 3, "68 % de señal son tres rayas");
     assert.strictEqual(db.posiciones.filter((p) => p.imei === F).length, 1);
+    // lo del motor queda en la posición y en la ficha, con su hora; y la posición no es «pobre»
+    assert.strictEqual(db.posiciones.at(-1).motor.rpm, 1395); assert.strictEqual(db.posiciones.at(-1).pobre, false);
+    assert.strictEqual(eF.motor.agua, 96); assert.ok(eF.motor.cuando); assert.strictEqual(eF.odometro, 527);
     // con SEIS satélites (lo que informa andando) también mueve el punto: su mínimo no es el 8 de un GT06
     const reales = hx(REAL); reales[15 + 9] = 0x46; hx(bcdDe(new Date(Date.now() + 1000))).copy(reales, 15 + 25); reales.writeUInt16BE(0x23, 5);
     reales.writeFloatLE(-34.8895, 15 + 39);
     sf.write(reales); await dormir(150);
     assert.ok(Math.abs(db.equipos.get(F).lat - -34.8895) < 0.0001, "con 6 satélites el punto se mueve");
     assert.ok(emitidos.some((e) => e.__event === "gps_posicion" && e.imei === F), "y viaja a las pantallas");
+    assert.strictEqual(db.posiciones.at(-1).pobre, false, "seis satélites no es poco para este equipo");
+    // el chasis que lee del auto va a la ficha
+    const datosVin = Buffer.concat([hx("4105"), Buffer.from("1ABCD23EFGH456789"), hx("c6")]);
+    const contVin = Buffer.concat([hx("260909154238"), hx("55aaa0"), Buffer.from([datosVin.length]), datosVin, hx("0d0a")]);
+    sf.write(Buffer.concat([hx("262609"), Buffer.from([0, 15 + contVin.length]), hx("0040"), hx("0" + F), contVin])); await dormir(120);
+    assert.strictEqual(db.equipos.get(F).vin, "1ABCD23EFGH456789");
     // «arrancó el motor» (0x15) llega como alarma y no lo es
     sf.write(tramaTf({ tipo: 0x04, serie: 0x21, cuando: new Date(), alarma: 0x15 })); await dormir(120);
     assert.strictEqual(sf.recibido.at(-1), "26260400100021086728406382634315");

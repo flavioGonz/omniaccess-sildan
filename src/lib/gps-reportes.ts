@@ -27,7 +27,7 @@ import { REPORTES_GPS, type Celda, type ClaveReporte, type Columna, type Lugar, 
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- el lugar en palabras lo dice el mismo archivo que usa el receptor
 const { lugarDe } = require("../../lib-gps-eventos.js") as { lugarDe(lat: number, lon: number, cercas: (FormaDeCerca & { nombre: string })[]): string | null };
 
-export type PuntoRep = { lat: number; lon: number; cuando: string; velocidad: number; rumbo?: number | null; sat: number; enc?: boolean | null };
+export type PuntoRep = { lat: number; lon: number; cuando: string; velocidad: number; rumbo?: number | null; sat: number; pobre?: boolean; enc?: boolean | null };
 export type EventoRep = { tipo: string; cuando: string; detalle: string | null; lugar: string | null; prioridad: number | null; tarde: number | null; lat: number | null; lon: number | null };
 export type CercaRep = FormaDeCerca & { id: string; nombre: string; imeis: string[] };
 export type VehiculoRep = { imei: string; nombre: string; matricula: string | null; puntos: PuntoRep[]; eventos: EventoRep[] };
@@ -167,7 +167,8 @@ export function nuevoInforme(ctx: ContextoRep, claves: ClaveReporte[]) {
     let informanContacto = 0, cercasQueAplican = 0;
 
     function sumar(v: VehiculoRep) {
-        const buenos = v.puntos.filter((p) => p.sat >= SATS_MIN);
+        /* Si la posición ya dice si es pobre para su equipo, vale eso; el número de la casa queda para lo que no lo trae. */
+        const buenos = v.puntos.filter((p) => (p.pobre === undefined ? p.sat >= SATS_MIN : !p.pobre));
         const { viajes } = viajesYParadas(buenos);
         const cercas = ctx.cercas.filter((c) => aplicaA(c, v.imei));
         cercasQueAplican += cercas.length;

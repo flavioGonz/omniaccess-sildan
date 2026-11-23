@@ -14,7 +14,7 @@ import { puedeGps, type QueGps } from "@/lib/gps-permisos";
 import { armarComando, comandoPorClave, comandosDe, palabraDeConfirmacion, pareceRechazo, type NivelComando, type Valores } from "@/lib/gps-comandos";
 import { auditar } from "@/lib/centrales/sesion";
 import { leerEstadoRele, puedeAccionarRele } from "@/lib/gps-rele";
-import { aligerar, SATS_MIN, type ResumenRecorrido } from "@/lib/gps-recorrido";
+import { aligerar, type ResumenRecorrido } from "@/lib/gps-recorrido";
 import { resumenDeViajes, viajesYParadas, type Parada, type Viaje } from "@/lib/gps-viajes";
 import { CLASES_EVENTO_GPS, EVENTOS_GPS, tiposDeClase, type ClaseEventoGps } from "@/lib/gps-eventos";
 import { CLAVES_REPORTE, type ClaveReporte } from "@/lib/gps-reportes-catalogo";
@@ -69,7 +69,13 @@ export type Rastreador = {
     direccion: string | null;
     /** Qué protocolo habla (GT06, TELTONIKA, TOPFLY): de eso depende qué comandos se le pueden mandar. */
     protocolo: string;
+    /** Sólo los que se enchufan al conector OBD: lo último que le leyó al motor, el chasis y su cuentakilómetros. */
+    motor: MotorGps | null;
+    vin: string | null;
+    odometroKm: number | null;
 };
+/** Lo que un rastreador OBD le lee al motor. Cada dato puede faltar: no todos los vehículos contestan todo. */
+export type MotorGps = { rpm?: number; agua?: number; carga?: number; acelerador?: number; presion?: number; aire?: number; combustible?: number; cuando?: string };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- la sesión es el JWT crudo
 async function sesion(que: QueGps): Promise<any> {
@@ -113,6 +119,7 @@ export async function rastreadoresGps(): Promise<Rastreador[]> {
             sinReporteDesde: e.sinReporteDesde?.toISOString() || null,
             direccion: (e.lat !== null && e.lon !== null && dir.get(claveDeLugar(e.lat, e.lon))) || null,
             protocolo: e.protocolo || "GT06",
+            motor: (e.motor as MotorGps | null) || null, vin: e.vin, odometroKm: e.odometro === null ? null : Math.round(e.odometro / 100) / 10,
         };
     });
 }
@@ -179,7 +186,8 @@ export type RecorridoGps = {
  * decenas de posiciones que saltan, con velocidad y todo.
  *
  * Así que ahora:
- *  · Sólo entran las posiciones con satélites suficientes (SATS_MIN, ver lib/gps-recorrido).
+ *  · Sólo entran las posiciones con satélites suficientes PARA SU EQUIPO (las que no son `pobre`:
+ *    lo decide el receptor al guardarlas, con el mínimo de cada protocolo).
  *  · Se cortan los viajes (lib/gps-viajes), que exigen haberse alejado de donde se salió.
  *  · Al mapa van únicamente los puntos que son parte de un viaje. Lo que pasó entre viaje y viaje
  *    es una PARADA —un lugar y un tiempo—, no una línea.
@@ -196,7 +204,7 @@ export async function recorridoGps(imei: string, horas = 24, rango?: { desde: st
     const tope = new Date(desde.getTime() + RECORRIDO_MAX_DIAS * 86_400_000);
     const hasta = conRango ? (h0 && !Number.isNaN(h0.getTime()) && h0 < tope ? h0 : h0 ? tope : null) : null;
     const filas = await prisma.gpsPosicion.findMany({
-        where: { imei, cuando: { gte: desde, ...(hasta ? { lte: hasta } : {}) }, satelites: { gte: SATS_MIN } }, orderBy: { cuando: "asc" }, take: 120_000,
+        where: { imei, cuando: { gte: desde, ...(hasta ? { lte: hasta } : {}) }, pobre: false }, orderBy: { cuando: "asc" }, take: 120_000,
         select: { lat: true, lon: true, cuando: true, velocidad: true, rumbo: true, satelites: true, encendido: true },
     });
     const todos: PuntoGps[] = filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad, rumbo: f.rumbo, sat: f.satelites, enc: f.encendido }));
@@ -245,7 +253,7 @@ export async function estelaGps(imei: string, minutos = 10): Promise<PuntoGps[]>
     await sesion("ver");
     const desde = new Date(Date.now() - Math.min(Math.max(minutos, 1), 120) * 60_000);
     const filas = await prisma.gpsPosicion.findMany({
-        where: { imei, cuando: { gte: desde }, satelites: { gte: SATS_MIN } }, orderBy: { cuando: "asc" }, take: 2000,
+        where: { imei, cuando: { gte: desde }, pobre: false }, orderBy: { cuando: "asc" }, take: 2000,
         select: { lat: true, lon: true, cuando: true, velocidad: true },
     });
     return filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
@@ -364,7 +372,7 @@ export async function entornoEventoGps(imei: string, cuando: string, minutos = 5
     if (!Number.isFinite(t)) return [];
     const ms = Math.min(Math.max(minutos, 1), 30) * 60_000;
     const filas = await prisma.gpsPosicion.findMany({
-        where: { imei, cuando: { gte: new Date(t - ms), lte: new Date(t + ms) }, satelites: { gte: SATS_MIN } }, orderBy: { cuando: "asc" }, take: 600,
+        where: { imei, cuando: { gte: new Date(t - ms), lte: new Date(t + ms) }, pobre: false }, orderBy: { cuando: "asc" }, take: 600,
         select: { lat: true, lon: true, cuando: true, velocidad: true },
     });
     return filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
@@ -400,7 +408,7 @@ export async function diagnosticoGps(): Promise<DiagnosticoGps[]> {
     const [total, andando, andandoPobres, vibraciones] = await Promise.all([
         prisma.gpsPosicion.groupBy({ by: ["imei"], where: { imei: { in: imeis } }, _count: { _all: true } }),
         prisma.gpsPosicion.groupBy({ by: ["imei"], where: { imei: { in: imeis }, cuando: { gte: ayer }, velocidad: { gte: 10 } }, _count: { _all: true } }),
-        prisma.gpsPosicion.groupBy({ by: ["imei"], where: { imei: { in: imeis }, cuando: { gte: ayer }, velocidad: { gte: 10 }, satelites: { lt: SATS_MIN } }, _count: { _all: true } }),
+        prisma.gpsPosicion.groupBy({ by: ["imei"], where: { imei: { in: imeis }, cuando: { gte: ayer }, velocidad: { gte: 10 }, pobre: true }, _count: { _all: true } }),
         prisma.gpsEvento.groupBy({ by: ["imei"], where: { imei: { in: imeis }, cuando: { gte: ayer }, tipo: "GPS_VIBRACION" }, _count: { _all: true } }),
     ]);
     const de = (g: { imei: string; _count: { _all: number } }[]) => new Map(g.map((x) => [x.imei, x._count._all]));
@@ -410,7 +418,7 @@ export async function diagnosticoGps(): Promise<DiagnosticoGps[]> {
         const avisos: string[] = [];
         if (e.encendido === true && e.encendidoDesde && Date.now() - e.encendidoDesde.getTime() > ACC_SOSPECHOSO_H * 3600_000) {
             /* «Encendido» hace horas: ¿se movió en ese tiempo? Si anduvo, es un viaje largo y está bien. */
-            const anduvo = await prisma.gpsPosicion.count({ where: { imei: e.imei, cuando: { gte: e.encendidoDesde }, velocidad: { gte: 10 }, satelites: { gte: SATS_MIN } } });
+            const anduvo = await prisma.gpsPosicion.count({ where: { imei: e.imei, cuando: { gte: e.encendidoDesde }, velocidad: { gte: 10 }, pobre: false } });
             if (!anduvo) avisos.push(`El motor figura encendido hace ${Math.floor((Date.now() - e.encendidoDesde.getTime()) / 3600_000)} h y el vehículo no se movió: revisar el cable de encendido (ACC) del rastreador. Mientras esté así, «se mueve con el motor apagado» no puede avisar.`);
         }
         const vib = mVib.get(e.imei) || 0;
@@ -747,7 +755,7 @@ export async function diasConMovimientoGps(imei: string, mes: string): Promise<R
        es del mismo día, aunque en UTC ya sea el siguiente. */
     const filas = await prisma.$queryRaw<{ dia: string; n: bigint }[]>`
         SELECT to_char(("cuando" AT TIME ZONE 'UTC') AT TIME ZONE ${ZONA}, 'YYYY-MM-DD') AS dia, count(*) AS n
-        FROM "GpsPosicion" WHERE "imei" = ${String(imei || "")} AND "cuando" >= ${desde} AND "cuando" < ${hasta} AND "velocidad" >= 10 AND "satelites" >= ${SATS_MIN}
+        FROM "GpsPosicion" WHERE "imei" = ${String(imei || "")} AND "cuando" >= ${desde} AND "cuando" < ${hasta} AND "velocidad" >= 10 AND NOT "pobre"
         GROUP BY 1`;
     return Object.fromEntries(filas.map((f) => [f.dia, Number(f.n)]));
 }
