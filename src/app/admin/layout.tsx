@@ -2,14 +2,14 @@
 
 import { useFuncion } from "@/lib/funciones-cliente";
 import { hayEquiposDeAcceso } from "@/app/actions/bitacora-equipos";
-import React, { useRef, useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useSessionRole } from "@/hooks/useSessionRole";
 import { OnlineUsersWidget } from "@/components/OnlineUsersWidget";
 import { GpuPulso } from "@/components/GpuPulso";
 import { OmniLogo } from "@/components/brand/OmniLogo";
 import LiveEdgeKeeper from "@/components/LiveEdgeKeeper";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ShieldCheck, ChevronLeft, PanelLeftClose, Pin, ChevronRight, LogOut } from "lucide-react";
+import { ShieldCheck, PanelLeftClose, PanelLeftOpen, Pin, PinOff, ChevronRight, LogOut } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
@@ -22,15 +22,17 @@ import { AvisosLpr } from "@/components/avisos/AvisosLpr";
 import { CargarMarcasCamara } from "@/components/CargarMarcasCamara";
 import { VivoProvider } from "@/components/vivo/PanelVivo";
 
-/** El ancho del menú desplegado (w-64) y cuánto más allá puede irse el mouse sin que se esconda. */
-const MENU_ANCHO_PX = 256;
-const MENU_MARGEN_PX = 28;
-
 import { contarListaNegra, contarListaAmarilla } from "@/app/actions/watchlist";
 import { contarCensoPendiente } from "@/app/actions/censo";
 import { hayRastreadoresGps } from "@/app/actions/gps";
 import { activoDe, armarMenu } from "@/lib/menu";
 import { MenuLateral } from "@/components/menu/MenuLateral";
+import { useMenuLateral } from "@/hooks/useMenuLateral";
+import { DONDE_VALE } from "@/lib/menu-estado";
+import { Pista } from "@/components/ui/pista";
+
+/** Los botones que mueven el menú, en el pie: 36 px, sin fondo hasta que se les pasa por encima. */
+const BOTON_MENU = "grid h-9 w-9 place-items-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--accion)]";
 import { SECCIONES_OMNIVISION } from "@/components/vision/NavOmniVision";
 
 export default function AdminLayout({
@@ -59,69 +61,12 @@ export default function AdminLayout({
     const [hayGps, setHayGps] = useState(false);
     useEffect(() => { hayRastreadoresGps().then(setHayGps).catch(() => { }); }, [pathname]);
     const router = useRouter();
-    const [angosto, setCollapsed] = useState(false);
-    /*
-     * El menú lateral, oculto (13/11). Nació para Monitor CCTV («el sidebar debe ocultarse sin
-     * bordes para poder usarlo como VMS más cómodo; algo flotante que lo llame, oculto y premium»)
-     * y esa misma tarde Nico lo pidió para todo: «me encantó el sidebar que se oculta, debe ser así
-     * para todo OmniAccess».
-     *
-     * El menú sale del todo —sin la columna de 70 px ni su borde— y la pantalla ocupa el ancho
-     * entero. Se lo llama acercando el mouse al borde izquierdo (o tocando la pestaña): aparece
-     * FLOTANDO sobre la pantalla, sin empujarla (una pared de cámaras no se reacomoda ni
-     * reconecta), y se va al sacarle el mouse, al elegir adónde ir, con Esc o tocando afuera.
-     * Quien lo prefiera a la vista lo clava con el alfiler; se recuerda en este navegador.
-     */
-    const [menu, setMenu] = useState<"oculto" | "fijo">("oculto");
-    const [asomado, setAsomado] = useState(false);
-    // `oa.cctv.menu` era la clave cuando valía sólo para Monitor CCTV: quien lo había clavado ahí lo conserva.
-    useEffect(() => { try { if ((localStorage.getItem("oa.menu") ?? localStorage.getItem("oa.cctv.menu")) === "fijo") setMenu("fijo"); } catch { /* sin almacenamiento: oculto */ } }, []);
-    const fijarMenu = (m: "oculto" | "fijo") => { setMenu(m); setAsomado(false); try { localStorage.setItem("oa.menu", m); } catch { /* idem */ } };
-    /* En un celular el menú es SIEMPRE el que flota (23/11): fijo ocupa 256 px de los 390 que hay, y
-       lo que queda no es una pantalla. Quien lo tenía clavado en el escritorio lo sigue teniendo ahí. */
-    const [celular, setCelular] = useState(false);
-    useEffect(() => {
-        const m = window.matchMedia("(max-width: 639px)");
-        const leer = () => setCelular(m.matches);
-        leer(); m.addEventListener("change", leer);
-        return () => m.removeEventListener("change", leer);
-    }, []);
-    const sinMenu = menu === "oculto" || celular;
-    // Oculto se muestra siempre entero: la versión de íconos solos es para cuando queda fijo.
-    const collapsed = angosto && !sinMenu;
-    /* Sacar el mouse lo esconde con una pausa: al rozar el borde de la ventana el navegador avisa
-       «salió», y sin pausa el menú se cerraba en la cara. Volver a entrar la cancela. */
-    const irse = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const quedarse = () => { if (irse.current) { clearTimeout(irse.current); irse.current = null; } };
-    const asomar = () => { quedarse(); setAsomado(true); };
-    const esconder = (ms = 260) => { quedarse(); irse.current = setTimeout(() => setAsomado(false), ms); };
-    useEffect(() => () => quedarse(), []);
-    /* Una pantalla puede pedir el menú con su propio botón (Gestión GPS lo hace en el celular, donde
-       la pestaña del borde es fina para un pulgar): avisa con `oa:menu` y acá se lo asoma. */
-    useEffect(() => {
-        const abrir = () => { quedarse(); setAsomado(true); };
-        window.addEventListener("oa:menu", abrir);
-        return () => window.removeEventListener("oa:menu", abrir);
-    }, []);
-    useEffect(() => { if (!sinMenu) setAsomado(false); }, [sinMenu]);
-    // Se eligió adónde ir: el menú ya cumplió.
-    useEffect(() => { quedarse(); setAsomado(false); }, [pathname, searchParams]);
-    /*
-     * Cuándo se va: por DÓNDE está el mouse, no por «entró / salió» del menú. El menú llega
-     * deslizándose debajo de un puntero que quizá está quieto, y el navegador no avisa «entró»
-     * hasta que el puntero se mueve; con entradas y salidas quedaba abierto para siempre si el
-     * mouse se iba antes de que el menú llegara (visto al probarlo). Lejos del menú, se va.
-     */
-    useEffect(() => {
-        if (!asomado) return;
-        const k = (e: KeyboardEvent) => { if (e.key === "Escape") setAsomado(false); };
-        const m = (e: MouseEvent) => { if (e.clientX > MENU_ANCHO_PX + MENU_MARGEN_PX) { if (!irse.current) esconder(); } else quedarse(); };
-        window.addEventListener("keydown", k); window.addEventListener("mousemove", m);
-        return () => { window.removeEventListener("keydown", k); window.removeEventListener("mousemove", m); };
-    }, [asomado]); // eslint-disable-line react-hooks/exhaustive-deps
+    /* El menú lateral: a la vista, sólo íconos u oculto, según la pantalla y lo que la persona haya
+       elegido (lib/menu-estado.ts tiene la regla; hooks/useMenuLateral, el ir y venir cuando flota). */
+    const { estado: estadoMenu, clase: claseMenu, celular, sinMenu, asomado, plegado: collapsed, elegir: elegirMenu, asomar, cerrar: cerrarMenu, animar } = useMenuLateral(pathname || "", searchParams?.toString() || "");
     // El menú se arma por permiso del rol de aplicación (lib/permisos), no por "es admin":
     // cada entrada pregunta si el rol puede abrir su pantalla (lib/menu.ts).
-    const { loaded: roleLoaded, tiene, puede } = useSessionRole();
+    const { loaded: roleLoaded, tiene, puede, name: quien, rolApp } = useSessionRole();
     const [loggingOut, setLoggingOut] = useState(false);
     const [modules, setModules] = useState<Record<ModuleId, boolean>>({
         MODULE_LPR: true,
@@ -197,7 +142,6 @@ export default function AdminLayout({
          */
         <VivoProvider>
         <div className="flex min-h-screen bg-background text-foreground font-sans">
-            {/* Sidebar */}
             {/* El menú oculto: una franja invisible en el borde izquierdo lo llama al acercar el mouse, y una
                 pestaña fina a media altura dice que está (y sirve para el dedo, que no «pasa por encima»). */}
             {sinMenu && !asomado && (
@@ -210,108 +154,104 @@ export default function AdminLayout({
                 </>
             )}
             {/* Con el dedo no hay «sacar el mouse»: tocar afuera lo cierra. */}
-            {sinMenu && asomado && <div aria-hidden="true" onClick={() => setAsomado(false)} className="fixed inset-0 z-[39]" />}
+            {sinMenu && asomado && <div aria-hidden="true" onClick={cerrarMenu} className="fixed inset-0 z-[39]" />}
             <aside
+                data-menu={estadoMenu}
                 className={cn(
-                    "border-border flex flex-col fixed h-full bg-card/80 backdrop-blur-xl transition-all duration-300 ease-in-out",
+                    "border-border flex flex-col fixed h-full bg-card/80 backdrop-blur-xl",
+                    animar ? "transition-[width,translate] duration-300 ease-in-out" : "transition-none",
                     collapsed ? "w-[70px]" : "w-64",
                     // Oculto: fuera de la pantalla, sin borde; asomado, flota sobre lo que haya.
-                    sinMenu ? cn("z-40 border-r-0", asomado ? "translate-x-0 shadow-[var(--sombra-flotante)]" : "-translate-x-full pointer-events-none") : "z-20 border-r"
+                    sinMenu ? cn("z-40 border-r-0", asomado ? "translate-x-0 shadow-[var(--sombra-flotante)]" : "-translate-x-full pointer-events-none")
+                        /* `max-sm:`: lo que el servidor manda no sabe si es un celular, y hasta que el navegador
+                           toma la página el menú salía fijo, ocupando dos tercios de la pantalla del teléfono. */
+                        : "z-20 border-r max-sm:-translate-x-full max-sm:pointer-events-none"
                 )}
             >
-                <div className="p-4 border-b border-border bg-foreground/[0.02] flex items-center justify-between h-[60px]">
-                    <div className={cn("flex items-center gap-2 overflow-hidden transition-all", collapsed ? "w-0 opacity-0" : "w-auto opacity-100")}>
-                        <OmniLogo size={24} className="shrink-0" />
-                        <div className="whitespace-nowrap">
+                {/* Arriba, sólo de quién es esto. Los botones que mueven el menú bajaron al pie (23/11): acá
+                    arriba quedaban pegados al nombre, y en la columna de íconos el de achicar ocupaba el
+                    lugar del logo —el menú angosto no decía de qué programa era—. */}
+                <div className={cn("flex h-[60px] shrink-0 items-center gap-2 border-b border-border px-4", collapsed && "justify-center px-0")}>
+                    <OmniLogo size={24} className="shrink-0" />
+                    {!collapsed && (
+                        <div className="min-w-0 whitespace-nowrap">
                             {/* El nombre escrito normal y la bajada en gris: sin mayúsculas espaciadas ni un color por modo. */}
                             <h2 className="text-[14px] font-semibold leading-tight text-foreground">OmniAccess</h2>
                             <p className="text-[11.5px] leading-tight text-muted-foreground">{modules.MODULE_QUEUE ? "Control de filas" : "Control y acceso"}</p>
                         </div>
-                    </div>
-
-                    {/* Clavarlo a la vista, o volver a esconderlo para que la pantalla ocupe todo. */}
-                    {!collapsed && (
-                        <button onClick={() => fijarMenu(sinMenu ? "fijo" : "oculto")} title={sinMenu ? "Dejar el menú fijo, a la vista" : "Ocultar el menú: la pantalla a todo el ancho"} aria-label={sinMenu ? "Dejar el menú fijo" : "Ocultar el menú"}
-                            className="ml-auto mr-1 p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors">
-                            {sinMenu ? <Pin size={15} /> : <PanelLeftClose size={16} />}
-                        </button>
-                    )}
-                    {/* Achicarlo a íconos sólo tiene sentido cuando está fijo. */}
-                    {!sinMenu && (
-                        <button
-                            onClick={() => setCollapsed(!angosto)}
-                            title={collapsed ? "Mostrar los nombres" : "Dejar sólo los íconos"}
-                            className={cn(
-                                "p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors",
-                                collapsed && "mx-auto"
-                            )}
-                        >
-                            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-                        </button>
                     )}
                 </div>
 
                 <nav className="flex-1 overflow-y-auto px-2 pb-3 pt-2 custom-scrollbar" aria-label="Menú de OmniAccess">
-                    {!(modulosListos && roleLoaded) ? <EsqueletoMenu collapsed={collapsed} /> : (<>
-                    {/* Qué entradas hay lo dice lib/menu.ts; cómo se ven, components/menu/MenuLateral. */}
-                    <MenuLateral menu={arbol} activo={activoMenu} plegado={collapsed} />
-                                    </>)}
+                    {!(modulosListos && roleLoaded) ? <EsqueletoMenu collapsed={collapsed} /> : (
+                        /* Qué entradas hay lo dice lib/menu.ts; cómo se ven, components/menu/MenuLateral. */
+                        <MenuLateral menu={arbol} activo={activoMenu} plegado={collapsed} />
+                    )}
                 </nav>
 
-                <div className="p-3 border-t border-border space-y-2">
+                <div className="shrink-0 space-y-2 border-t border-border p-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom,0px))]">
                     {/* Quien esta mirando y cuanto esta trabajando la placa, en la misma
                         linea: son las dos cosas que se miran de reojo sin entrar a ningun lado. */}
                     <div className={cn("flex items-center gap-2", collapsed && "flex-col gap-1.5")}>
                         <div className="flex-1 min-w-0"><OnlineUsersWidget collapsed={collapsed} /></div>
                         <GpuPulso collapsed={collapsed} />
                     </div>
-                    <div className={cn("flex items-center gap-3 group p-2 rounded-2xl hover:bg-accent/50 transition-colors", collapsed && "justify-center p-0 hover:bg-transparent")}>
-                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-lg shadow-blue-500/20 shrink-0">
-                            A
-                        </div>
+                    {/* Quién entró. Decía «Admin User · Super Admin» escrito a mano, para cualquiera que
+                        entrara: un operador veía que era súper administrador. Ahora es el nombre y el rol
+                        de la sesión, y mientras no se sabe no dice nada. */}
+                    <div className={cn("flex items-center gap-2.5 px-1", collapsed && "flex-col gap-1.5 px-0")}>
+                        <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-muted text-[12px] font-semibold uppercase text-foreground">{(quien || "").trim().charAt(0) || "·"}</span>
                         {!collapsed && (
-                            <div className="overflow-hidden">
-                                <p className="text-sm font-bold text-foreground leading-tight truncate">Admin User</p>
-                                <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tighter truncate">Super Admin</p>
+                            <div className="min-w-0 flex-1">
+                                <p className="truncate text-[13px] font-medium leading-tight text-foreground">{quien || " "}</p>
+                                <p className="truncate text-[11.5px] leading-tight text-muted-foreground">{rolApp || " "}</p>
                             </div>
                         )}
-                        {!collapsed && (
-                            <div className="ml-auto flex items-center gap-1.5">
-                                {/* Sin campana: contaba alertas de equipos y llevaba a Notificaciones, que no
-                                    las muestra. Las notificaciones viven en Configuración → Notificaciones. */}
-                                <ThemeToggle />
-                                <button
-                                    onClick={handleLogout}
-                                    disabled={loggingOut}
-                                    className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                    title="Cerrar sesión"
-                                >
-                                    <LogOut size={14} />
+                        <button onClick={handleLogout} disabled={loggingOut} title="Cerrar sesión" aria-label="Cerrar sesión" className={cn(BOTON_MENU, "shrink-0 disabled:opacity-50")}>
+                            <LogOut size={15} />
+                        </button>
+                    </div>
+                    {/*
+                      * Los dos botones que mueven el menú, abajo y en las puntas como en el de Cloudflare:
+                      * a la izquierda, achicarlo a íconos; a la derecha, soltarlo (se oculta y aparece al
+                      * acercar el mouse) o clavarlo. Lo que se elige vale para la clase de pantalla en la
+                      * que se está, y el cartel lo dice: sin eso, ocultarlo en un monitor y encontrarlo
+                      * a la vista en Residentes parecería que «no lo guardó».
+                      * En un celular no están: ahí el menú siempre flota. Entre los dos, el tema claro u oscuro.
+                      */}
+                    {/* En la columna de íconos van al revés, así el de achicar queda en el mismo lugar —abajo de todo—
+                        y se lo puede volver a tocar sin mover el mouse. */}
+                    <div className={cn("flex items-center gap-0.5", collapsed && "flex-col-reverse")}>
+                        {/* Achicarlo a íconos sólo tiene sentido cuando está fijo. */}
+                        {!sinMenu && (
+                            <Pista lado={collapsed ? "derecha" : "arriba"} texto={collapsed ? "Mostrar los nombres" : `Achicar a íconos ${DONDE_VALE[claseMenu]}`}>
+                                <button type="button" onClick={() => elegirMenu(collapsed ? "vista" : "iconos")} aria-label={collapsed ? "Mostrar los nombres del menú" : "Achicar el menú a íconos"} className={BOTON_MENU}>
+                                    {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
                                 </button>
-                            </div>
+                            </Pista>
+                        )}
+                        {/* Sin campana: contaba alertas de equipos y llevaba a Notificaciones, que no
+                            las muestra. Las notificaciones viven en Configuración → Notificaciones. */}
+                        <span className={cn(!collapsed && "ml-auto")}><ThemeToggle discreto /></span>
+                        {!collapsed && !celular && (
+                            <Pista lado="arriba"
+                                titulo={sinMenu ? "Dejarlo a la vista" : "Ocultarlo"}
+                                texto={sinMenu ? `El menú queda fijo ${DONDE_VALE[claseMenu]}.` : `El menú se va ${DONDE_VALE[claseMenu]} y la pantalla ocupa todo el ancho. Vuelve al acercar el mouse al borde izquierdo.`}>
+                                <button type="button" onClick={() => elegirMenu(sinMenu ? "vista" : "oculto")} aria-label={sinMenu ? "Dejar el menú a la vista" : "Ocultar el menú"} className={BOTON_MENU}>
+                                    {sinMenu ? <Pin size={15} /> : <PinOff size={15} />}
+                                </button>
+                            </Pista>
                         )}
                     </div>
-                    {collapsed && (
-                        <div className="w-full flex justify-center mb-1"><ThemeToggle /></div>
-                    )}
-                    {collapsed && (
-                        <button
-                            onClick={handleLogout}
-                            disabled={loggingOut}
-                            className="w-full flex justify-center p-2 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                            title="Cerrar sesión"
-                        >
-                            <LogOut size={16} />
-                        </button>
-                    )}
                 </div>
             </aside>
 
             <main
                 className={cn(
                     /* `dvh` donde exista: en un celular, 100vh incluye la barra del navegador y el final de la página queda tapado. */
-                    "flex-1 overflow-y-auto custom-scrollbar transition-all duration-300 ease-in-out font-sans h-screen supports-[height:100dvh]:h-dvh",
-                    sinMenu ? "ml-0" : collapsed ? "ml-[70px]" : "ml-64"
+                    "flex-1 overflow-y-auto custom-scrollbar font-sans h-screen supports-[height:100dvh]:h-dvh",
+                    animar ? "transition-[margin] duration-300 ease-in-out" : "transition-none",
+                    sinMenu ? "ml-0" : collapsed ? "sm:ml-[70px]" : "sm:ml-64"
                 )}
             >
                 {/* El corte real lo hace el middleware (redirige a /admin/sin-permiso); esto es
