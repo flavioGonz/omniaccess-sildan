@@ -416,5 +416,46 @@ prueba("Teltonika: el saludo se reconoce, un GT06 no se confunde, y dos paquetes
     assert.strictEqual(tk.acusePaquete(1).toString("hex"), "00000001");
 });
 
+
+console.log("lib-topfly");
+const tf = require(path.join(__dirname, "..", "lib-topfly.js"));
+/* Lo que mandó de verdad el TorchX 110 de Nico el 23/11, una y otra vez, mientras el receptor lo
+   cortaba por «no habla el protocolo» (capturado en el puerto, antes de escribir el driver). */
+const TF_LOGIN = "2626010023000508672840638263430102000026052510111103020503010503020412";
+prueba("TopFly: la presentación real del TorchX trae su IMEI, la serie y el modelo", () => {
+    const m = tf.leer(H(TF_LOGIN));
+    assert.strictEqual(m.ok, true); assert.strictEqual(m.tipo, "login");
+    assert.strictEqual(m.imei, "867284063826343"); assert.strictEqual(m.serie, 5);
+    assert.strictEqual(m.modelo, 0x0102);
+});
+prueba("TopFly: el acuse de la presentación es el mismo sobre, sin contenido y con largo 15", () => {
+    const a = tf.acuse(tf.leer(H(TF_LOGIN)));
+    assert.strictEqual(a.toString("hex"), "262601000f00050867284063826343");
+    assert.strictEqual(a.readUInt16BE(3), a.length);
+});
+prueba("TopFly: se reconoce por los dos primeros bytes, y no se confunde con GT06 ni con Teltonika", () => {
+    assert.strictEqual(tf.esInicio(H(TF_LOGIN)), true);
+    assert.strictEqual(tf.esInicio(H("26")), null);                                    // todavía no alcanza
+    assert.strictEqual(tf.esInicio(H(REALES[0])), false);                              // un login de GT06
+    assert.strictEqual(tf.esInicio(Buffer.from([0x00, 0x0f])), false);                 // el saludo de un Teltonika
+    assert.strictEqual(tk.esSaludo(H(TF_LOGIN)), false);
+    assert.strictEqual(tf.esInicio(H("2525010023")), false);                           // otra familia de la marca: no se lee
+});
+prueba("TopFly: dos tramas pegadas se separan, una por la mitad se espera, y la basura se corta", () => {
+    const dos = Buffer.concat([H(TF_LOGIN), H(TF_LOGIN)]);
+    assert.strictEqual(tf.partir(dos).tramas.length, 2);
+    const p = tf.partir(dos.subarray(0, 50));
+    assert.strictEqual(p.tramas.length, 1); assert.strictEqual(p.resto.length, 15); assert.strictEqual(p.roto, false);
+    assert.strictEqual(tf.partir(H("262601")).roto, false);                            // ni el largo llegó: se espera
+    assert.strictEqual(tf.partir(Buffer.from("GET / HTTP/1.1\r\n")).roto, true);
+    assert.strictEqual(tf.partir(H("2626010003000508")).roto, true);                   // un largo menor que el sobre
+    assert.strictEqual(tf.partir(H("262601ffff000508")).roto, true);                   // un largo que no es de un rastreador
+    assert.strictEqual(tf.partir(Buffer.concat([H(TF_LOGIN), Buffer.from("xx")])).roto, true);
+});
+prueba("TopFly: un IMEI que no son quince dígitos no se da por bueno", () => {
+    const t = H(TF_LOGIN); t[8] = 0xff;
+    assert.strictEqual(tf.leer(t).ok, false);
+});
+
 console.log(`\n${ok} bien, ${mal} mal`);
 process.exit(mal ? 1 : 0);

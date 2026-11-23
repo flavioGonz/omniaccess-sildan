@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
- * Receptor de rastreadores GPS: GT06 (Concox y clones) y Teltonika (Codec 8 y 8E).
+ * Receptor de rastreadores GPS: GT06 (Concox y clones), Teltonika (Codec 8 y 8E) y TOPFLYtech
+ * de la familia OBD (TorchX, TLD).
  *
- * Los dos protocolos entran por el MISMO puerto y se distinguen por los primeros bytes: un GT06
- * empieza con 78 78, un Teltonika saluda con 00 0F y su IMEI. Lo que cambia entre uno y otro es
+ * Los tres protocolos entran por el MISMO puerto y se distinguen por los primeros bytes: un GT06
+ * empieza con 78 78, un Teltonika saluda con 00 0F y su IMEI, un TopFly empieza con 26 26. Lo que
+ * cambia entre uno y otro es
  * cómo se leen las tramas y cómo se acusan; qué se hace con una posición, un evento o un silencio
- * es lo mismo para los dos, y está una sola vez (alReporte, alEvento). Teltonika está escrito
+ * es lo mismo para todos, y está una sola vez (alReporte, alEvento). Teltonika está escrito
  * contra la documentación del fabricante y sus tramas de ejemplo: no pasó por un equipo real.
  *
  * Proceso propio, como alarm-receiver.js, y por la misma razón: un GPS no llama a una URL, abre
@@ -49,6 +51,7 @@ const net = require("net");
 const { PrismaClient } = require("@prisma/client");
 const g = require("./lib-gt06");
 const tk = require("./lib-teltonika");
+const tf = require("./lib-topfly");
 const evs = require("./lib-gps-eventos");
 
 const prisma = new PrismaClient();
@@ -509,6 +512,73 @@ async function procesarTeltonika(s, c, ip) {
     return true;
 }
 
+/**
+ * Lo que llega de un TopFly (familia 26 26). Devuelve `false` si hay que cortar la conexión. `c` es
+ * el estado de la conexión, como en Teltonika.
+ *
+ * Dos cosas distintas de los otros dos protocolos:
+ *   · TODA trama trae el IMEI. Se presenta con la primera que llegue, sea o no la de presentación:
+ *     un equipo que reconecta en el medio de una tanda no tiene por qué perderla. Y si en la misma
+ *     conexión aparece otro IMEI, no es un rastreador: se corta.
+ *   · La posición trae pegado lo que un GT06 manda en el latido (motor, señal, relé, batería) y en
+ *     la trama de información (voltaje): de una sola trama salen las tres cosas.
+ */
+async function procesarTopfly(s, c, ip) {
+    const { tramas, resto, roto } = tf.partir(c.buf);
+    c.buf = resto;
+    const esteMinuto = Math.floor(Date.now() / 60_000);
+    if (esteMinuto !== c.minuto) { c.minuto = esteMinuto; c.enElMinuto = 0; }
+    c.enElMinuto += tramas.length;
+    if (c.enElMinuto > TRAMAS_POR_MIN_MAX) { log(c.imei || ip, `más de ${TRAMAS_POR_MIN_MAX} tramas por minuto: se corta`); falta(ip, "inundación"); return false; }
+    for (const t of tramas) {
+        const m = tf.leer(t);
+        if (!m.ok) { log(c.imei || ip, "trama TopFly que no se puede leer:", m.error); if (!c.imei) { falta(ip, m.error); return false; } continue; }
+        if (c.imei && m.imei !== c.imei) { log(c.imei, `llegó una trama con otro IMEI (${m.imei}): se corta`); falta(ip, "IMEI cambiado en la conexión"); return false; }
+        cuenta.tramas++; cuenta.ultimaTrama = Date.now();
+        /* De rutina: la posición y el latido. Los datos de la SIM tampoco se anotan en crudo, nunca:
+           traen el número de la línea. Lo demás sí, siempre: es lo que hay que poder mirar después. */
+        if (m.tipo !== "red" && (CRUDO || (m.tipo !== "posicion" && m.tipo !== "latido"))) log(c.imei || m.imei, "topfly", m.tipo, t.toString("hex"));
+        try {
+            if (!c.imei) {
+                const e = await alPresentarse(m.imei, ip, "TOPFLY");
+                /* Sin acuse: para el equipo es como si acá no hubiera nadie. */
+                if (typeof e === "string") { cuenta.rechazados++; log(ip, `presentación de ${m.imei} rechazada (${e})`); falta(ip, `IMEI rechazado: ${e}`); return false; }
+                c.imei = m.imei; s.imei = m.imei; c.aceptado = !!e.deviceId; c.miradoAl = Date.now();
+                const viejo = enLinea.get(m.imei);
+                if (viejo && viejo !== s) viejo.destroy();          // el mismo equipo reconectó: la vieja está muerta
+                enLinea.set(m.imei, s);
+                log(m.imei, "se presentó desde", ip, m.tipo === "login" && m.programa ? `(TopFly, modelo ${m.modelo}, programa ${m.programa})` : "(TopFly)");
+            }
+            if (!c.aceptado && Date.now() - c.miradoAl > 30_000) {
+                c.miradoAl = Date.now();
+                c.aceptado = !!(await prisma.gpsEquipo.findUnique({ where: { imei: c.imei }, select: { deviceId: true } }).catch(() => null))?.deviceId;
+            }
+            await oyo(c.imei);
+            if (m.tipo === "posicion" || m.tipo === "alarma") {
+                /* La batería interna viene en porcentaje; el resto del receptor la lleva de 0 a 6, como la informa un GT06. */
+                await alLatido(c.imei, { encendido: m.encendido, cortado: m.cortado, senal: m.senal, bateria: m.cargaInterna !== undefined ? Math.round(m.cargaInterna * 6 / 100) : undefined });
+                const r = await alReporte(c.imei, m, c.aceptado);
+                if (m.voltaje !== undefined) await alVoltaje(c.imei, m.voltaje);
+                if (m.tipo === "alarma") {
+                    const tipoA = tf.eventoDeAlarma(m.alarma);
+                    if (tipoA) await alEvento(c.imei, tipoA, m.gps, tipoA === "GPS_VELOCIDAD" ? `${m.gps.velocidad} km/h` : tipoA === "GPS_OTRA" ? `Código ${m.alarma} del equipo` : null, null, m.gps.fecha);
+                } else if (r.que === "nada") log(c.imei, "posición sin satélites, no se guarda");
+            } else if (m.tipo === "latido") {
+                await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: { ultimoLatido: new Date() } }).catch(() => {});
+            } else if (m.tipo === "red") {
+                if (m.iccid) await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: { iccid: m.iccid } }).catch(() => {});
+            } else if (m.tipo === "respuesta") {
+                log(c.imei, "contestó:", m.texto);
+            }
+        } catch (e) { log(c.imei || ip, "error guardando:", e.message); }
+        /* Se acusa todo, también lo que todavía no se lee: lo que no se le acusa, el equipo lo
+           guarda y lo vuelve a mandar. */
+        if (tf.pideAcuse(m) && !s.destroyed) s.write(tf.acuse(m));
+    }
+    if (roto) { log(c.imei || ip, "lo que llegó no es una trama TopFly: se corta"); if (!c.imei) falta(ip, "basura"); return false; }
+    return true;
+}
+
 const servidor = net.createServer((s) => {
     const ip = (s.remoteAddress || "?").replace(/^::ffff:/, "");
     /* Los topes: sin lugar, o demasiadas conexiones mudas desde la misma IP, no se atiende. */
@@ -518,6 +588,8 @@ const servidor = net.createServer((s) => {
     s.ip = ip; s.imei = null; s.protocolo = "GT06"; abiertos.add(s);
     /** Si resultó ser un Teltonika: el estado de su conexión (ver procesarTeltonika). */
     let telto = null;
+    /** Lo mismo si resultó ser un TopFly (ver procesarTopfly). */
+    let topfly = null;
     let buf = Buffer.alloc(0);
     let imei = null;
     /** Dado de alta en Dispositivos. Se vuelve a mirar cada tanto: lo pueden aceptar estando conectado. */
@@ -539,17 +611,28 @@ const servidor = net.createServer((s) => {
     });
     async function procesar(trozo) {
         if (s.destroyed) return;
-        /* ¿Quién habla? Un Teltonika saluda con 00 0F y quince dígitos; todo lo demás sigue por
-           GT06, que es quien sabe decir que algo no es una trama. Una vez que se sabe que es un
-           Teltonika, lo suyo va a SU buffer y por su camino. */
+        /* ¿Quién habla? Un TopFly empieza con 26 26 y un Teltonika saluda con 00 0F y quince dígitos;
+           todo lo demás sigue por GT06, que es quien sabe decir que algo no es una trama. Una vez
+           que se sabe quién es, lo suyo va a SU buffer y por su camino. */
         if (telto) telto.buf = Buffer.concat([telto.buf, trozo]);
+        else if (topfly) topfly.buf = Buffer.concat([topfly.buf, trozo]);
         else {
             buf = Buffer.concat([buf, trozo]);
             if (!imei) {
-                const es = tk.esSaludo(buf);
-                if (es === null) return;                            // todavía no llegó el saludo entero
-                if (es) { telto = { imei: null, aceptado: false, miradoAl: 0, buf }; s.protocolo = "TELTONIKA"; buf = Buffer.alloc(0); }
+                /* Un TopFly empieza con 26 26: con dos bytes ya se sabe, y ni GT06 ni Teltonika empiezan así. */
+                if (tf.esInicio(buf)) { topfly = { imei: null, aceptado: false, miradoAl: 0, buf, minuto: 0, enElMinuto: 0 }; s.protocolo = "TOPFLY"; buf = Buffer.alloc(0); }
+                else {
+                    const es = tk.esSaludo(buf);
+                    if (es === null) return;                        // todavía no llegó el saludo entero
+                    if (es) { telto = { imei: null, aceptado: false, miradoAl: 0, buf }; s.protocolo = "TELTONIKA"; buf = Buffer.alloc(0); }
+                }
             }
+        }
+        if (topfly) {
+            const sigue = await procesarTopfly(s, topfly, ip);
+            if (topfly.imei && !imei) { imei = topfly.imei; clearTimeout(sinLogin); }
+            if (!sigue) s.destroy();
+            return;
         }
         if (telto) {
             const sigue = await procesarTeltonika(s, telto, ip);
@@ -629,5 +712,5 @@ const servidor = net.createServer((s) => {
     s.on("error", () => {});
 });
 
-servidor.listen(PUERTO, "0.0.0.0", () => log(`gps-receiver escuchando en ${PUERTO} (GT06 y Teltonika)`));
+servidor.listen(PUERTO, "0.0.0.0", () => log(`gps-receiver escuchando en ${PUERTO} (GT06, Teltonika y TopFly)`));
 process.on("SIGTERM", async () => { servidor.close(); await prisma.$disconnect(); process.exit(0); });
