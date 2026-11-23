@@ -55,3 +55,33 @@ test("el deslizamiento de antes, con esos mismos intervalos, sí se frenaba (por
     }
     assert.ok(quieto > 30, `quieto ${quieto} cuadros`);      // más de 3 segundos parado en 37 de recorrido
 });
+
+/* ---------- la huella ---------- */
+import { colaSeguida, huellaEn, HUELLA_FRESCA_MS, HUELLA_MS } from "@/lib/gps-reproducir";
+
+test("la huella llega hasta donde está dibujado el vehículo, no hasta la última posición", () => {
+    const rastro = [0, 10, 20, 30].map((s) => ({ t: s * 1000, lat: s, lon: 0 }));
+    const h = huellaEn(rastro, 25_000, { lat: 25, lon: 0 });
+    assert.deepEqual(h.fresca, [[0, 0], [10, 0], [20, 0], [25, 0]], "la posición de los 30 s todavía no se dibujó");
+    assert.deepEqual(h.vieja, []);
+});
+
+test("lo viejo y lo fresco de la huella se tocan en un punto, y lo de hace más de diez minutos se va", () => {
+    const min = 60_000, rastro = [0, 2, 4, 6, 8, 10, 12].map((m) => ({ t: m * min, lat: m, lon: 0 }));
+    const tp = 12 * min, h = huellaEn(rastro, tp, { lat: 12, lon: 0 });
+    assert.equal(HUELLA_MS, 10 * min); assert.equal(HUELLA_FRESCA_MS, 3 * min);
+    assert.deepEqual(h.vieja, [[2, 0], [4, 0], [6, 0], [8, 0]], "desde el minuto 2 (diez atrás) hasta el 9 (tres atrás)");
+    assert.deepEqual(h.fresca, [[8, 0], [10, 0], [12, 0], [12, 0]], "arranca en el último punto viejo: sin hueco entre los dos tonos");
+});
+
+test("un vehículo que recién aparece no tiene huella: un punto solo no es una línea", () => {
+    assert.deepEqual(huellaEn([{ t: 0, lat: 1, lon: 1 }], 0, null), { vieja: [], fresca: [] });
+    assert.deepEqual(huellaEn([], 5000, { lat: 1, lon: 1 }), { vieja: [], fresca: [] });
+});
+
+test("al abrir el mapa, la huella arranca después del último hueco largo", () => {
+    const s = (seg: number) => ({ t: seg * 1000, lat: seg, lon: 0 });
+    assert.deepEqual(colaSeguida([s(0), s(10), s(200), s(210), s(220)]).map((p) => p.lat), [200, 210, 220]);
+    assert.deepEqual(colaSeguida([s(0), s(10), s(20)]).map((p) => p.lat), [0, 10, 20]);
+    assert.deepEqual(colaSeguida([]), []);
+});

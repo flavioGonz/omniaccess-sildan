@@ -23,7 +23,8 @@ import { paraInputConHora, rangoDeFiltro, sirveParaRecorrido } from "@/lib/gps-f
 import { RangoFechas } from "@/components/mapa/RangoFechas";
 import { CalendarioGps } from "@/components/mapa/CalendarioGps";
 import { alPedirGeocerca, avisarRastreadores } from "@/lib/gps-puente";
-import { posicionEn, RETRASO_MS } from "@/lib/gps-reproducir";
+import { colaSeguida, HUELLA_HUECO_MS, HUELLA_MS, huellaEn, posicionEn, RETRASO_MS, type Punto } from "@/lib/gps-reproducir";
+import { crearCamara, ponerFino } from "@/lib/mapa-fino";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { fechaCorta, fechaHora, hace, horaSeg, limitesDelDia } from "@/lib/fechas";
@@ -476,6 +477,8 @@ export function CapaGps() {
 
             {lista.map((r) => (
                 <MarcadorGps key={r.imei} r={r} seguir={seguido === r.imei} alMover={estela?.imei === r.imei ? alMoverEstela : undefined}
+                    /* La huella sola, salvo que ya haya una línea suya a la vista (la estela o el recorrido): dos líneas encimadas no dicen más. */
+                    huella={queSeVe(r.imei) === null}
                     eventHandlers={{
                         contextmenu: (e) => {
                             const oe = (e as unknown as { originalEvent: MouseEvent }).originalEvent;
@@ -923,13 +926,18 @@ const CUENTA_MS = 900;
  * Cuidados:
  *  · Se mueve el marcador de Leaflet DIRECTAMENTE, no por estado de React: sesenta renders por
  *    segundo de toda la capa para mover un punto es tirar la pantalla abajo.
+ *  · Se lo pone con fracción de píxel, y la cámara que lo sigue también (lib/mapa-fino, 23/11:
+ *    «sin tanto mini saltito… como si tuviera más Hz»). Leaflet redondea al píxel entero, y a la
+ *    escala de una calle eso son siete pasos por segundo, no sesenta.
  *  · El reloj del equipo y el de esta máquina no tienen por qué coincidir: se usa la demora más
  *    chica que se vio entre «hora del equipo» y «hora en que llegó», no la hora a secas.
  *  · Un salto de más de 1,5 km o un silencio de más de un minuto no se reproducen: se salta.
  *  · Con «reducir movimiento» activado en el sistema, se salta siempre.
  */
-function MarcadorGps({ r, seguir, alMover, eventHandlers, children }: {
+function MarcadorGps({ r, seguir, huella, alMover, eventHandlers, children }: {
     r: Rastreador; seguir: boolean;
+    /** Si deja marcado por dónde anduvo en los últimos minutos (lib/gps-reproducir, `huellaEn`). */
+    huella: boolean;
     /** Dónde se lo está dibujando y a qué hora del equipo corresponde (Infinity = llegó al final). */
     alMover?: (lat: number, lon: number, t: number) => void;
     eventHandlers: L.LeafletEventHandlerFnMap; children: React.ReactNode;
@@ -944,6 +952,58 @@ function MarcadorGps({ r, seguir, alMover, eventHandlers, children }: {
     const avisa = useRef(alMover); avisa.current = alMover;
     /** Las últimas posiciones con su hora (del equipo, en ms): el camino a reproducir. */
     const cola = useRef<{ t: number; lat: number; lon: number }[]>([]);
+    const camara = useMemo(() => crearCamara(mapa), [mapa]);
+
+    /**
+     * La huella: por dónde se lo dibujó en los últimos minutos (23/11: «debe marcar el recorrido,
+     * ¿no?»). Hasta acá el auto andaba por el mapa sin dejar nada atrás, salvo que alguien abriera
+     * «10 min» o «En vivo». Son tres líneas hechas a mano, por lo mismo que la posición: la punta
+     * de la línea va pegada al auto, y eso cambia en cada cuadro.
+     */
+    const rastro = useRef<Punto[]>([]);
+    const lineas = useRef<{ borde: L.Polyline; vieja: L.Polyline; fresca: L.Polyline } | null>(null);
+    const conHuella = useRef(huella);
+    const trazarHuella = useCallback((tp?: number, cabeza?: { lat: number; lon: number }) => {
+        const mk = ref.current, ll = mk?.getLatLng();
+        const h = conHuella.current
+            ? huellaEn(rastro.current, tp ?? Date.now() - (desfase.current || 0) - RETRASO_MS, cabeza ?? (ll ? { lat: ll.lat, lon: ll.lng } : null))
+            : { vieja: [], fresca: [] };
+        if (!lineas.current) {
+            if (!h.vieja.length && !h.fresca.length) return;        // sin nada que dibujar no se crea nada: la mayoría de los vehículos están quietos
+            const o = { interactive: false, lineCap: "round", lineJoin: "round" } as const;
+            lineas.current = {
+                /* El borde oscuro debajo: sobre el satélite, una línea de color sola se pierde. */
+                borde: L.polyline([], { ...o, color: "#0a0e14", weight: 6.5, opacity: 0.45 }).addTo(mapa),
+                vieja: L.polyline([], { ...o, color: VERDE, weight: 3.5, opacity: 0.45 }).addTo(mapa),
+                fresca: L.polyline([], { ...o, color: VERDE, weight: 3.5, opacity: 0.95 }).addTo(mapa),
+            };
+        }
+        const l = lineas.current;
+        l.borde.setLatLngs(h.vieja.length ? [...h.vieja, ...h.fresca.slice(1)] : h.fresca);
+        l.vieja.setLatLngs(h.vieja); l.fresca.setLatLngs(h.fresca);
+    }, [mapa]);
+    useEffect(() => { conHuella.current = huella; trazarHuella(); }, [huella, trazarHuella]);
+    /* Quieto no corre ningún cuadro, y la huella igual tiene que irse apagando: se la mira cada tanto. */
+    useEffect(() => {
+        const iv = setInterval(() => { if (!cuadro.current && rastro.current.length > 1) trazarHuella(); }, 20_000);
+        return () => { clearInterval(iv); const l = lineas.current; if (l) { l.borde.remove(); l.vieja.remove(); l.fresca.remove(); lineas.current = null; } };
+    }, [trazarHuella]);
+    /* Si al abrir el mapa ya venía andando, se le pide de dónde viene: si no, la huella arrancaría
+       vacía y parecería que el auto apareció ahí. Sólo a los que andan: no es una consulta por vehículo. */
+    useEffect(() => {
+        if (!r.enLinea || (r.velocidad || 0) <= 3) return;
+        let vivo = true;
+        estelaGps(r.imei, HUELLA_MS / 60_000).then((pts) => {
+            if (!vivo) return;
+            const primero = rastro.current[0];
+            const antes = colaSeguida(pts.map((x) => ({ t: Date.parse(x.cuando), lat: x.lat, lon: x.lon }))).filter((x) => !primero || x.t < primero.t);
+            if (!antes.length || (primero && primero.t - antes[antes.length - 1].t > HUELLA_HUECO_MS)) return;
+            rastro.current = [...antes, ...rastro.current];
+            trazarHuella();
+        }).catch(() => { /* sin lo de antes, la huella empieza desde ahora */ });
+        return () => { vivo = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- una vez, cuando aparece el vehículo
+    }, []);
     /** La demora más chica vista entre la hora del equipo y la llegada: pasa de un reloj al otro. */
     const desfase = useRef<number | null>(null);
 
@@ -954,16 +1014,18 @@ function MarcadorGps({ r, seguir, alMover, eventHandlers, children }: {
             if (!mk || !c.length) { cuadro.current = null; return; }
             const tp = Date.now() - (desfase.current || 0) - RETRASO_MS;
             const { lat, lon, llego } = posicionEn(c, tp)!;      // la cuenta está en lib/gps-reproducir, con sus pruebas
-            mk.setLatLng([lat, lon]);
+            /* Andando, con fracción de píxel. Al llegar, en píxeles enteros: quieto tiene que verse nítido. */
+            if (llego) mk.setLatLng([lat, lon]); else ponerFino(mapa, mk, [lat, lon]);
+            trazarHuella(tp, { lat, lon });
             avisa.current?.(lat, lon, llego ? Infinity : tp);
             /* En vivo la cámara va con él, cuadro a cuadro: si se moviera de a saltos, el auto
                se deslizaría y el mapa pegaría un tirón cada diez segundos. */
-            if (sigue.current) mapa.panTo([lat, lon], { animate: false });
+            if (sigue.current) camara.llevar([lat, lon]);
             /* Llegó a la última posición conocida: se queda ahí, sin gastar cuadros, hasta la próxima. */
             cuadro.current = llego ? null : requestAnimationFrame(paso);
         };
         cuadro.current = requestAnimationFrame(paso);
-    }, [mapa]);
+    }, [mapa, camara, trazarHuella]);
 
     useEffect(() => {
         const mk = ref.current; if (!mk) return;
@@ -977,17 +1039,25 @@ function MarcadorGps({ r, seguir, alMover, eventHandlers, children }: {
         if (!ult || quieto || lejos || t - ult.t > HUECO_MS) {
             /* Sin camino que reproducir (la primera, un hueco, un salto): se pone ahí y listo. */
             cola.current = [{ t, lat: r.lat!, lon: r.lon! }];
+            /* Lo de antes de un hueco o de un salto es otro camino: la huella empieza de nuevo. Con
+               «reducir movimiento» el auto salta de posición en posición, pero el camino es el mismo. */
+            if (ult && quieto && !lejos && t - ult.t <= HUECO_MS) rastro.current.push({ t, lat: r.lat!, lon: r.lon! });
+            else rastro.current = [{ t, lat: r.lat!, lon: r.lon! }];
             if (cuadro.current) { cancelAnimationFrame(cuadro.current); cuadro.current = null; }
             mk.setLatLng([r.lat!, r.lon!]);
             avisa.current?.(r.lat!, r.lon!, Infinity);
+            trazarHuella(t, { lat: r.lat!, lon: r.lon! });
             if (sigue.current) mapa.panTo([r.lat!, r.lon!], { animate: !quieto });
             return;
         }
         c.push({ t, lat: r.lat!, lon: r.lon! });
         if (c.length > 16) c.shift();
+        const h = rastro.current;
+        h.push({ t, lat: r.lat!, lon: r.lon! });
+        while (h.length > 2 && h[0].t < t - HUELLA_MS - HUELLA_HUECO_MS) h.shift();
         andar();
-    }, [r.lat, r.lon, r.cuando, mapa, andar]);
-    useEffect(() => () => { if (cuadro.current) cancelAnimationFrame(cuadro.current); }, []);
+    }, [r.lat, r.lon, r.cuando, mapa, andar, trazarHuella]);
+    useEffect(() => () => { if (cuadro.current) cancelAnimationFrame(cuadro.current); camara.soltar(); }, [camara]);
 
     /* Al empezar a seguirlo, la cámara va a donde está AHORA (no espera a la próxima posición). */
     useEffect(() => { if (seguir && ref.current) mapa.setView(ref.current.getLatLng(), Math.max(mapa.getZoom(), 16)); }, [seguir, mapa]);

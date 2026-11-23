@@ -12,6 +12,7 @@ import {
     type Exceso, type Tramo,
 } from "@/lib/gps-jornada";
 import { diaSemana, hora, horaSeg, paraInput } from "@/lib/fechas";
+import { crearCamara, ponerFino, QUIETO_MS } from "@/lib/mapa-fino";
 import { cn } from "@/lib/utils";
 
 /**
@@ -121,6 +122,8 @@ function VehiculoDelRecorrido({ pts, cur, limite, dibujo }: { pts: PuntoGps[]; c
     useEffect(() => {
         let marca: L.Marker | null = null, vel: HTMLElement | null = null, cartel: HTMLElement | null = null, flecha: HTMLElement | null = null;
         let dicho = -1, pasado: boolean | null = null, rumbo = 0, conFlecha: boolean | null = null, ultimoPaneo = 0;
+        const camara = crearCamara(mapa);
+        let quieto: ReturnType<typeof setTimeout> | null = null;
         const pintar = () => {
             const pos = cur.get();
             if (pos === null || !pts.length) { marca?.remove(); marca = null; return; }
@@ -132,7 +135,14 @@ function VehiculoDelRecorrido({ pts, cur, limite, dibujo }: { pts: PuntoGps[]; c
                 const el = marca.getElement();
                 vel = el?.querySelector(".rec-vel") || null; cartel = el?.querySelector(".rec-cartel") || null; flecha = el?.querySelector(".rec-rumbo") || null;
                 dicho = -1; pasado = null; conFlecha = null;
-            } else marca.setLatLng(ll);
+            } else {
+                /* Con fracción de píxel (lib/mapa-fino): a velocidad real, el redondeo de Leaflet son
+                   pasos de un píxel varias veces por segundo. Al quedarse quieto vuelve a píxeles
+                   enteros, que es como se ve nítido. */
+                ponerFino(mapa, marca, ll);
+                if (quieto) clearTimeout(quieto);
+                quieto = setTimeout(() => { if (marca) marca.setLatLng(marca.getLatLng()); }, QUIETO_MS);
+            }
             /* Sólo se toca lo que cambió: escribir el mismo número sesenta veces por segundo también cuesta. */
             const v = Math.round(a.velocidad + (b.velocidad - a.velocidad) * k);
             if (v !== dicho && vel) { vel.textContent = String(v); dicho = v; }
@@ -149,7 +159,7 @@ function VehiculoDelRecorrido({ pts, cur, limite, dibujo }: { pts: PuntoGps[]; c
             const ahora = Date.now();
             /* Con «seguir», la cámara va clavada en el auto: se mueve con él en cada cuadro, sin
                animación propia (dos animaciones encimadas es el tirón de antes). */
-            if (cur.sigue()) mapa.panTo(ll, { animate: false });
+            if (cur.sigue()) camara.llevar(ll);
             else if (ahora - ultimoPaneo > 900 && !mapa.getBounds().pad(-0.18).contains(ll)) { ultimoPaneo = ahora; mapa.panTo(ll, { animate: true, duration: 0.7, easeLinearity: 0.6 }); }
         };
         pintar();
@@ -157,7 +167,7 @@ function VehiculoDelRecorrido({ pts, cur, limite, dibujo }: { pts: PuntoGps[]; c
         /* Quien arrastra el mapa quiere mirar otra cosa: se le devuelve el mapa. */
         const alArrastrar = () => cur.seguir(false);
         mapa.on("dragstart", alArrastrar);
-        return () => { soltar(); mapa.off("dragstart", alArrastrar); marca?.remove(); };
+        return () => { soltar(); mapa.off("dragstart", alArrastrar); if (quieto) clearTimeout(quieto); camara.soltar(); marca?.remove(); };
     }, [pts, cur, limite, dibujo, mapa]);
     return null;
 }
