@@ -96,17 +96,17 @@ function fechaDe(buf, o) {
 }
 
 /**
- * La señal, de la escala del módem (0 a 31, el «CSQ») a las cinco rayas que usa el resto del
- * receptor (0 a 4, como la manda un GT06).
+ * La señal, a las cinco rayas que usa el resto del receptor (0 a 4, como la manda un GT06).
  *
- * El TorchX 110 (4G) NO manda esa escala: en sus tramas reales el campo vale entre 55 y 86, que no
- * puede ser un CSQ. No se sabe todavía si es un porcentaje o un índice de potencia de 4G, así que
- * no se dibujan rayas con un número que no se sabe leer: queda sin señal informada hasta medirlo
- * contra lo que muestra el configurador del equipo.
+ * En esta familia el campo es un PORCENTAJE, no la escala del módem (el «CSQ», de 0 a 31) que
+ * mandan los equipos 2G. Dos indicios, ninguno del fabricante: en las tramas reales del TorchX vale
+ * entre 55 y 86 —imposible para un CSQ— y 0 en las que grabó sin cobertura; y flespi, que integra
+ * estos mismos equipos, publica la señal de la familia en porcentaje. Falta contrastarlo con lo que
+ * muestra el configurador del equipo: hasta entonces, las rayas de un TopFly son aproximadas.
  */
-function rayas(csq) {
-    if (csq > 31) return undefined;
-    return csq === 0 ? 0 : csq < 10 ? 1 : csq < 15 ? 2 : csq < 20 ? 3 : 4;
+function rayas(porcentaje) {
+    if (!Number.isFinite(porcentaje) || porcentaje > 100) return undefined;
+    return porcentaje === 0 ? 0 : porcentaje < 25 ? 1 : porcentaje < 50 ? 2 : porcentaje < 75 ? 3 : 4;
 }
 
 /**

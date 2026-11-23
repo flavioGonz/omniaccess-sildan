@@ -522,10 +522,12 @@ prueba("TopFly: a una alarma se le devuelve su código; a lo demás, el sobre so
     assert.strictEqual(tf.acuse(tf.leer(H(TF_ARRANCO))).toString("hex"), "26260400100012086728406382634315");
     assert.strictEqual(tf.acuse(tf.leer(H(TF_POS_MOTOR))).toString("hex"), "262602000f00870867284063826343");
 });
-prueba("TopFly: la señal del TorchX no es la escala del módem: no se dibujan rayas con un número que no se sabe leer", () => {
-    assert.strictEqual(tf.leer(H(TF_POS_MOTOR)).senal, undefined);                     // el campo vale 0x44 = 68
-    assert.strictEqual(tf.rayas(0), 0); assert.strictEqual(tf.rayas(9), 1); assert.strictEqual(tf.rayas(31), 4);
-    assert.strictEqual(tf.rayas(68), undefined);
+prueba("TopFly: la señal viene en porcentaje, no en la escala del módem (68 % son tres rayas, no «fuera de escala»)", () => {
+    assert.strictEqual(tf.leer(H(TF_POS_MOTOR)).senal, 3);                             // el campo vale 0x44 = 68
+    assert.strictEqual(tf.leer(H(TF_CORTE)).senal, 3);                                 // 0x3e = 62
+    assert.strictEqual(tf.rayas(0), 0); assert.strictEqual(tf.rayas(20), 1); assert.strictEqual(tf.rayas(49), 2);
+    assert.strictEqual(tf.rayas(86), 4); assert.strictEqual(tf.rayas(100), 4);
+    assert.strictEqual(tf.rayas(127), undefined);                                      // no es un porcentaje: no se dibuja
 });
 prueba("TopFly: los datos de la SIM (operadora y número de la tarjeta), y lo que todavía no se lee se acusa igual", () => {
     /* Armada como la real, con una línea inventada: la del equipo no va a un archivo. */

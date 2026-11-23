@@ -570,7 +570,9 @@ async function procesarTopfly(s, c, ip) {
                 const reciente = m.gps.enVivo || (hora && Date.now() - hora.getTime() < ESTADO_VIEJO_MS && evs.horaCreible(hora));
                 if (reciente) {
                     /* La batería interna viene en porcentaje; el resto del receptor la lleva de 0 a 6, como la informa un GT06. */
-                    await alLatido(c.imei, { encendido: m.encendido, cortado: m.cortado, senal: m.senal, bateria: m.cargaInterna !== undefined ? Math.round(m.cargaInterna * 6 / 100) : undefined });
+                    /* La señal que no se pudo leer se guarda como «no se sabe», no se deja la última: la primera
+                       hora de este equipo quedó en «0 rayas» por una trama grabada sin cobertura. */
+                    await alLatido(c.imei, { encendido: m.encendido, cortado: m.cortado, senal: m.senal ?? null, bateria: m.cargaInterna !== undefined ? Math.round(m.cargaInterna * 6 / 100) : undefined });
                 }
                 const r = await alReporte(c.imei, m, c.aceptado);
                 if (reciente && m.voltaje !== undefined) await alVoltaje(c.imei, m.voltaje);

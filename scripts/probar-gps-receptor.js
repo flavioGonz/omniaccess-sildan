@@ -165,7 +165,7 @@ const conectar = () => new Promise((ok) => { const s = net.connect(21341, "127.0
     sf.write(tramaTf({ serie: 0x20, cuando: new Date() })); await dormir(150);
     const eF = db.equipos.get(F);
     assert.ok(Math.abs(eF.lat - -34.8892) < 0.001 && Math.abs(eF.lon - -56.144) < 0.001, "la posición en vivo mueve el punto");
-    assert.strictEqual(eF.encendido, true); assert.strictEqual(eF.voltaje, 14.86); assert.strictEqual(eF.bateria, 6); assert.ok(eF.senal == null, "la señal queda sin informar");
+    assert.strictEqual(eF.encendido, true); assert.strictEqual(eF.voltaje, 14.86); assert.strictEqual(eF.bateria, 6); assert.strictEqual(eF.senal, 3, "68 % de señal son tres rayas");
     assert.strictEqual(db.posiciones.filter((p) => p.imei === F).length, 1);
     // «arrancó el motor» (0x15) llega como alarma y no lo es
     sf.write(tramaTf({ tipo: 0x04, serie: 0x21, cuando: new Date(), alarma: 0x15 })); await dormir(120);
