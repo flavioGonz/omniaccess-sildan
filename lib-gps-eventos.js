@@ -61,6 +61,12 @@ const ROTULO = {
     // Los dos que sólo sabe avisar un Teltonika (lib-teltonika.js).
     GPS_INHIBIDOR: "Detectó un inhibidor de señal",
     GPS_CHOQUE: "Detectó un choque",
+    // Los que salen de un rastreador enchufado al motor (lib-topfly.js).
+    GPS_FRENADA: "Frenada brusca",
+    GPS_ACELERACION: "Aceleración brusca",
+    GPS_GIRO: "Giro brusco",
+    GPS_FALLA_MOTOR: "El motor guardó un código de falla",
+    GPS_TEMPERATURA: "Temperatura del motor alta",
     // El cruce con las cámaras de matrículas (ver cruzarLectura).
     GPS_LPR_LEJOS: "Una cámara leyó su matrícula y el rastreador está en otro lado",
 };
@@ -86,6 +92,8 @@ const PRIORIDAD = {
     GPS_BATERIA: 4,
     GPS_VELOCIDAD: 4,
     GPS_OTRA: 4,
+    GPS_TEMPERATURA: 3,
+    GPS_FALLA_MOTOR: 4,
 };
 /** «Dejó de reportar» pesa distinto según cómo se calló: andando es grave, estacionado es una falla. */
 const prioridadDe = (tipo, extra) => (tipo === "GPS_SIN_REPORTE" ? (extra && extra.andando ? 2 : 3) : PRIORIDAD[tipo] || null);

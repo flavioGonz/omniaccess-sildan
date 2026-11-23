@@ -182,13 +182,36 @@ const conectar = () => new Promise((ok) => { const s = net.connect(21341, "127.0
     const contVin = Buffer.concat([hx("260909154238"), hx("55aaa0"), Buffer.from([datosVin.length]), datosVin, hx("0d0a")]);
     sf.write(Buffer.concat([hx("262609"), Buffer.from([0, 15 + contVin.length]), hx("0040"), hx("0" + F), contVin])); await dormir(120);
     assert.strictEqual(db.equipos.get(F).vin, "1ABCD23EFGH456789");
+    // los códigos de falla del motor: a la ficha, y un aviso por los nuevos (no otro si repite los mismos)
+    const obd = (datos, serie) => { const cont = Buffer.concat([hx(bcdDe(new Date())), hx("55aaa0"), Buffer.from([datos.length]), datos, hx("0d0a")]); return Buffer.concat([hx("262609"), Buffer.from([0, 15 + cont.length]), hx(serie), hx("0" + F), cont]); };
+    const nEv = db.eventos.length;
+    sf.write(obd(hx("410300030100ee"), "0041")); await dormir(130);
+    assert.deepStrictEqual(db.equipos.get(F).fallas.codigos, ["P0301"]);
+    assert.strictEqual(db.eventos.at(-1).tipo, "GPS_FALLA_MOTOR"); assert.strictEqual(db.eventos.at(-1).detalle, "P0301");
+    sf.write(obd(hx("410300030100ee"), "0042")); await dormir(130);
+    assert.strictEqual(db.eventos.length, nEv + 1, "la misma falla no avisa dos veces");
+    sf.write(obd(hx("410300ee"), "0043")); await dormir(130);
+    assert.deepStrictEqual(db.equipos.get(F).fallas.codigos, [], "sin códigos: ya no tiene fallas");
+    // el motor recalentando: un aviso al pasar los 110 °C, y uno solo mientras siga caliente
+    const caliente = (serie, grados) => { const t = tramaTf({ serie, cuando: new Date(Date.now() + serie * 1000) }); t[15 + 63] = grados + 40; t.writeFloatLE(-34.8895 - serie / 1e5, 15 + 39); return t; };
+    sf.write(caliente(0x50, 112)); await dormir(130);
+    assert.strictEqual(db.eventos.at(-1).tipo, "GPS_TEMPERATURA"); assert.strictEqual(db.eventos.at(-1).detalle, "112 °C"); assert.strictEqual(db.eventos.at(-1).prioridad, 3);
+    const nT = db.eventos.length;
+    sf.write(caliente(0x51, 113)); await dormir(130);
+    assert.strictEqual(db.eventos.length, nT, "sigue caliente: no avisa de nuevo");
+    assert.strictEqual(db.equipos.get(F).motor.consumo, 3.3); assert.strictEqual(db.equipos.get(F).motor.agua, 113);
+    // una frenada brusca: va a la línea de tiempo con su lugar, y no abre un caso
+    const pt = Buffer.alloc(24); hx(bcdDe(new Date())).copy(pt, 0); pt.writeFloatLE(-56.16, 10); pt.writeFloatLE(-34.9, 14); hx("0623").copy(pt, 18); pt.writeUInt16BE(2100, 22);
+    sf.write(Buffer.concat([hx("2626"), Buffer.from([0x05, 0, 15 + 25]), hx("0060"), hx("0" + F), Buffer.from([0]), pt])); await dormir(130);
+    assert.strictEqual(db.eventos.at(-1).tipo, "GPS_FRENADA"); assert.match(db.eventos.at(-1).detalle, /62 km\/h · 2100 rpm/); assert.ok(!db.eventos.at(-1).prioridad);
+    const antesTf2 = db.eventos.length;
     // «arrancó el motor» (0x15) llega como alarma y no lo es
     sf.write(tramaTf({ tipo: 0x04, serie: 0x21, cuando: new Date(), alarma: 0x15 })); await dormir(120);
     assert.strictEqual(sf.recibido.at(-1), "26260400100021086728406382634315");
-    assert.strictEqual(db.eventos.length, antesTf, "un arranque no es una alarma, y menos un inhibidor");
+    assert.strictEqual(db.eventos.length, antesTf2, "un arranque no es una alarma, y menos un inhibidor");
     // el corte de alimentación, en vivo: un caso de prioridad 1, y nada de «batería del vehículo baja»
     sf.write(tramaTf({ tipo: 0x04, serie: 0x22, cuando: new Date(), es: 0xc000, alarma: 0x01, volt: "0071" })); await dormir(150);
-    assert.strictEqual(db.eventos.length, antesTf + 1);
+    assert.strictEqual(db.eventos.length, antesTf2 + 1);
     assert.strictEqual(db.eventos.at(-1).tipo, "GPS_CORTE"); assert.strictEqual(db.eventos.at(-1).prioridad, 1); assert.strictEqual(db.eventos.at(-1).imei, F);
     assert.strictEqual(db.equipos.get(F).voltaje, 14.86, "desenchufado no pisa el voltaje del vehículo con 0,71 V");
     // el latido, y un mensaje que todavía no se lee: los dos se acusan

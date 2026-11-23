@@ -480,17 +480,62 @@ prueba("TopFly: lo guardado sin cobertura llega marcado como historia, no como �
     const viva = H(TF_POS_MOTOR); viva[15 + 9] &= 0x7f;
     assert.strictEqual(tf.leer(viva).gps.enVivo, true);
 });
-prueba("TopFly: lo que le lee al motor por OBD en una trama real, y nada cuando el motor no contesta", () => {
-    /* Un motor en marcha lenta: los cinco números cierran entre sí. */
-    assert.deepStrictEqual(tf.leer(H(TF_POS_MOTOR)).motor, { rpm: 1395, agua: 96, carga: 8, acelerador: 14, presion: 46 });
-    assert.strictEqual(tf.leer(H(TF_POS_PARADO)).motor, undefined);                    // todo en FF: no hay dato
-    // Con el motor parado el vehículo contesta ceros en todo: no se informan como medidas.
-    const parado = tf.leer(H(TF_CORTE)).motor;
-    assert.deepStrictEqual(parado, { rpm: 0 });                                        // ni 0 % de carga ni 0 kPa: sólo que no gira
-    // El combustible sólo cuando viene en porcentaje, y el consumo no se lee (la unidad no cierra).
-    const con = H(TF_POS_MOTOR); con[15 + 67] = 62; assert.strictEqual(tf.leer(con).motor.combustible, 62);
-    con[15 + 67] = 0x80 | 40; assert.strictEqual(tf.leer(con).motor.combustible, undefined);
-    assert.strictEqual(tf.leer(H(TF_POS_MOTOR)).motor.consumo, undefined);
+prueba("TopFly: TODO lo que le lee al motor en una trama real, y el consumo en la unidad que cierra", () => {
+    /* Un motor regulando: los números cierran entre sí, y el consumo —3,3 litros por hora— es el
+       que corresponde a ese motor a esas vueltas y esa presión. Leído en mililitros, como dicen
+       las fuentes, daba 33 litros por hora. */
+    assert.deepStrictEqual(tf.leer(H(TF_POS_MOTOR)).motor, { consumido: 0.247, rpm: 1395, consumo: 3.3, agua: 96, carga: 8, acelerador: 14, presion: 46 });
+    /* El acumulado y el instantáneo están en la misma unidad: entre estas dos tramas reales pasaron
+       41 segundos y el acumulado subió lo que dice el instantáneo (con un 15 % de margen). */
+    const antes = tf.leer(H(TF_POS_PARADO)).motor.consumido, despues = tf.leer(H(TF_POS_MOTOR)).motor.consumido;
+    const porHora = (despues - antes) / 41 * 3600;
+    assert.ok(Math.abs(porHora - 3.3) / 3.3 < 0.15, `el acumulado subió a razón de ${porHora.toFixed(2)} l/h`);
+    // Con el motor sin contestar (todo en FF) queda sólo lo acumulado; parado, además, que no gira.
+    assert.deepStrictEqual(tf.leer(H(TF_POS_PARADO)).motor, { consumido: 0.213 });
+    assert.deepStrictEqual(tf.leer(H(TF_CORTE)).motor, { consumido: 0.395, rpm: 0 });   // ni 0 % de carga ni 0 kPa
+    // Lo que el auto de la prueba no contesta: caudal de aire, y combustible en porcentaje o en litros.
+    const con = H(TF_POS_MOTOR); con[15 + 61] = 9; con[15 + 67] = 62;
+    assert.strictEqual(tf.leer(con).motor.caudal, 9); assert.strictEqual(tf.leer(con).motor.combustible, 62);
+    con[15 + 67] = 0x80 | 40; assert.strictEqual(tf.leer(con).motor.combustible, undefined); assert.strictEqual(tf.leer(con).motor.combustibleL, 40);
+});
+/** Arma un mensaje del vehículo (tipo 09) con la forma del real: hora | 55 AA | largo | datos | fin. */
+const tfObd = (datos, serie = "0019") => { const cont = Buffer.concat([H("261123200000"), H("55aaa0"), Buffer.from([datos.length]), datos, H("0d0a")]); return Buffer.concat([H("262609"), Buffer.from([0, 15 + cont.length]), H(serie), H("0867284063826343"), cont]); };
+prueba("TopFly: los códigos de falla del motor (como los lee el códec del fabricante; todavía no llegó ninguno real)", () => {
+    // P0301 (falla de encendido, cilindro 1), C1234, B2345 y U0100, cada uno en tres bytes.
+    const m = tf.leer(tfObd(H("410300" + "030100" + "523400" + "a34500" + "c10000" + "ee")));
+    assert.strictEqual(m.tipo, "vehiculo"); assert.deepStrictEqual(m.fallas, ["P0301", "C1234", "B2345", "U0100"]);
+    assert.strictEqual(m.norma, "J1979"); assert.strictEqual(m.fecha.toISOString(), "2026-11-23T20:00:00.000Z");
+    // Repetidos y ceros de relleno no cuentan, y sin ninguno la lista viene vacía: «no tiene fallas».
+    assert.deepStrictEqual(tf.leer(tfObd(H("410a00" + "030100" + "030100" + "000000" + "ee"))).fallas, ["P0301"]);
+    assert.deepStrictEqual(tf.leer(tfObd(H("410300" + "ee"))).fallas, []);
+    assert.strictEqual(tf.leer(tfObd(H("410301" + "042000" + "ee"))).norma, "J1939");
+    // El resultado de pedirle que las borre.
+    assert.strictEqual(tf.leer(tfObd(H("410401ee"))).borradas, true);
+    // Y el mensaje del vehículo que ninguna fuente documenta (el real empieza así): no se inventa nada.
+    assert.strictEqual(tf.leer(tfObd(H("4801410a7c333230357c334343467cee"))).tipo, "desconocido");
+});
+prueba("TopFly: frenada, aceleración y giro bruscos, y el choque (leídos como el códec del fabricante; sin ver)", () => {
+    const punto = (lat, lon, vel, rumbo, rpm) => { const b = Buffer.alloc(24); H("261123200500").copy(b, 0); b.writeFloatLE(40, 6); b.writeFloatLE(lon, 10); b.writeFloatLE(lat, 14); H(vel).copy(b, 18); b.writeUInt16BE(rumbo, 20); b.writeUInt16BE(rpm, 22); return b; };
+    const sobre = (tipo, cont) => Buffer.concat([H("2626"), Buffer.from([tipo, 0, 15 + cont.length]), H("0001"), H("0867284063826343"), cont]);
+    // 05: por el GPS. Tipo par, frenada; impar, aceleración.
+    const fr = tf.leer(sobre(0x05, Buffer.concat([Buffer.from([2]), punto(-34.9, -56.16, "0623", 90, 2100), punto(-34.9001, -56.16, "0310", 90, 1200)])));
+    assert.strictEqual(fr.tipo, "conduccion"); assert.strictEqual(fr.que, "frenada");
+    assert.ok(Math.abs(fr.gps.lat - -34.9) < 1e-4 && Math.abs(fr.gps.lon - -56.16) < 1e-4); assert.strictEqual(fr.gps.velocidad, 62); assert.strictEqual(fr.rpm, 2100);
+    assert.strictEqual(fr.gps.fecha.toISOString(), "2026-11-23T20:05:00.000Z");
+    assert.strictEqual(tf.leer(sobre(0x05, Buffer.concat([Buffer.from([1]), punto(-34.9, -56.16, "0400", 0, 3000)]))).que, "aceleracion");
+    // 06: por el acelerómetro. Hora, estado y cinco bytes de aceleración antes del punto.
+    const p = punto(-34.91, -56.17, "0450", 180, 1800);
+    const acel = (que) => sobre(0x06, Buffer.concat([Buffer.from([que]), p.subarray(0, 6), Buffer.from([0x46, 1, 2, 3, 4, 5]), p.subarray(6)]));
+    const giro = tf.leer(acel(2));
+    assert.strictEqual(giro.que, "giro"); assert.ok(Math.abs(giro.gps.lat - -34.91) < 1e-4); assert.strictEqual(giro.gps.velocidad, 45);
+    assert.strictEqual(tf.leer(acel(0)).que, "frenada"); assert.strictEqual(tf.leer(acel(1)).que, "aceleracion");
+    // 07: el choque, con su tanda de muestras de 30 bytes.
+    const muestra = Buffer.concat([p.subarray(0, 6), Buffer.from([0x46, 9, 9, 9, 9, 9]), p.subarray(6)]);
+    const ch = tf.leer(sobre(0x07, Buffer.concat([Buffer.from([0]), muestra, muestra, muestra])));
+    assert.strictEqual(ch.tipo, "choque"); assert.ok(ch.gps.conFix && Math.abs(ch.gps.lon - -56.17) < 1e-4);
+    assert.strictEqual(tf.acuse(ch).toString("hex"), "262607000f00010867284063826343");
+    // Una cortada no rompe.
+    assert.strictEqual(tf.leer(sobre(0x05, Buffer.from([0, 1, 2]))).tipo, "desconocido");
 });
 prueba("TopFly: el número de chasis que lee del vehículo (tipo 09), y lo demás de ese tipo se acusa sin leer", () => {
     /* Con la forma del mensaje real y un chasis inventado: el del auto de la prueba no va a un archivo. */

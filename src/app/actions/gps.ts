@@ -71,11 +71,21 @@ export type Rastreador = {
     protocolo: string;
     /** Sólo los que se enchufan al conector OBD: lo último que le leyó al motor, el chasis y su cuentakilómetros. */
     motor: MotorGps | null;
+    fallas: FallasGps | null;
     vin: string | null;
     odometroKm: number | null;
 };
 /** Lo que un rastreador OBD le lee al motor. Cada dato puede faltar: no todos los vehículos contestan todo. */
-export type MotorGps = { rpm?: number; agua?: number; carga?: number; acelerador?: number; presion?: number; aire?: number; combustible?: number; cuando?: string };
+export type MotorGps = {
+    rpm?: number; agua?: number; aire?: number; carga?: number; acelerador?: number; presion?: number; caudal?: number;
+    /** Nivel de combustible, en porcentaje o en litros según lo dé el vehículo. */
+    combustible?: number; combustibleL?: number;
+    /** Litros por hora en ese instante, y litros quemados desde que el equipo está puesto. */
+    consumo?: number; consumido?: number;
+    cuando?: string;
+};
+/** Los códigos de falla que el vehículo tiene guardados, según el rastreador. Lista vacía: no tiene. */
+export type FallasGps = { codigos: string[]; norma?: string; cuando?: string };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- la sesión es el JWT crudo
 async function sesion(que: QueGps): Promise<any> {
@@ -119,7 +129,7 @@ export async function rastreadoresGps(): Promise<Rastreador[]> {
             sinReporteDesde: e.sinReporteDesde?.toISOString() || null,
             direccion: (e.lat !== null && e.lon !== null && dir.get(claveDeLugar(e.lat, e.lon))) || null,
             protocolo: e.protocolo || "GT06",
-            motor: (e.motor as MotorGps | null) || null, vin: e.vin, odometroKm: e.odometro === null ? null : Math.round(e.odometro / 100) / 10,
+            motor: (e.motor as MotorGps | null) || null, fallas: (e.fallas as FallasGps | null) || null, vin: e.vin, odometroKm: e.odometro === null ? null : Math.round(e.odometro / 100) / 10,
         };
     });
 }

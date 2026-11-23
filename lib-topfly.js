@@ -225,51 +225,131 @@ function leerPosicion(t) {
 }
 
 /**
- * Lo que le lee al motor por el conector OBD, que viene pegado a cada posición. FF es «el vehículo
- * no lo contesta», y con el motor apagado viene todo en FF.
+ * Lo que le lee al motor por el conector OBD, que viene pegado a cada posición: TODO el bloque.
+ * FF es «el vehículo no lo contesta», y con el motor apagado viene casi todo en FF.
  *
  * Visto en tramas reales (23/11, un motor en marcha lenta): 1395 vueltas, 96 °C de refrigerante,
  * 8 % de carga, 14 % de acelerador y 46 kPa en la admisión — números que cierran entre sí.
- * NO se leen los dos de consumo de combustible: en esas mismas tramas dan un consumo imposible
- * (cinco litros en setecientos metros), así que la unidad no es la que dicen las fuentes.
+ *
+ * EL CONSUMO DE COMBUSTIBLE, y cómo se llegó a su unidad. Las fuentes lo dividen por mil (mililitros)
+ * y así daba un disparate: 33 litros por hora en marcha lenta. No estaba mal el dato, estaba mal la
+ * unidad, y las mismas tramas la dicen de dos formas independientes:
+ *   · el instantáneo valía 33.000 mientras el acumulado subía 337 en 41 segundos, que son 29.600 por
+ *     hora: los dos están en la MISMA unidad, uno por hora;
+ *   · a 1395 vueltas y 46 kPa un motor de dos litros aspira unos 10 g/s de aire y quema unos 3,3 l/h.
+ * Con décimas de mililitro cierran las dos: 33.000 → 3,3 l/h, y el acumulado desde que se enchufó el
+ * equipo, 0,5 litros para 700 metros y varios minutos regulando. Es una deducción sobre un solo
+ * vehículo: está anotado en el catálogo como tal.
  */
+const DECIMAS_DE_ML = 10_000;
 function motorDe(c) {
     if (c.length < 68) return {};
-    const rpm = c.readUInt16BE(59);
-    if (rpm === 0xffff) return {};
-    /* Motor parado: el vehículo contesta ceros en todo (visto al apagarlo: 0 % de carga, 0 kPa en la
-       admisión, que no existe). Lo único cierto ahí es que no gira. */
-    if (rpm === 0) return { motor: { rpm: 0 } };
-    const dato = (o, f = (v) => v) => (c[o] === 0xff ? undefined : f(c[o]));
-    const nivel = c[67];
-    const motor = {
-        rpm,
-        agua: dato(63, (v) => v - 40),
-        aire: dato(64, (v) => v - 40),
-        carga: dato(65), acelerador: dato(66), presion: dato(62),
-        /* El nivel de combustible, sólo cuando viene en porcentaje (el bit alto dice que son litros). */
-        combustible: nivel !== 0xff && !(nivel & 0x80) ? nivel : undefined,
-    };
+    const motor = {};
+    const total = c.readUInt32BE(51), ahora = c.readUInt32BE(55), rpm = c.readUInt16BE(59);
+    /* Lo que quemó desde que el equipo está puesto, en litros: vale también con el motor apagado. */
+    if (total !== 0xffffffff) motor.consumido = Math.round(total / DECIMAS_DE_ML * 1000) / 1000;
+    if (rpm !== 0xffff) {
+        motor.rpm = rpm;
+        /* Motor parado: el vehículo contesta ceros en todo (visto al apagarlo: 0 % de carga, 0 kPa en
+           la admisión, que no existe). Lo único cierto ahí es que no gira. */
+        if (rpm > 0) {
+            const dato = (o, f = (v) => v) => (c[o] === 0xff ? undefined : f(c[o]));
+            const nivel = c[67];
+            Object.assign(motor, {
+                /* Litros por hora, en este instante. */
+                consumo: ahora !== 0xffffffff ? Math.round(ahora / DECIMAS_DE_ML * 10) / 10 : undefined,
+                agua: dato(63, (v) => v - 40),
+                aire: dato(64, (v) => v - 40),
+                carga: dato(65), acelerador: dato(66), presion: dato(62),
+                /* El caudal de aire que mide el motor, en gramos por segundo. Sin ver: el auto de la prueba no lo contesta. */
+                caudal: dato(61),
+                /* El nivel de combustible: en porcentaje, o en litros si el bit alto lo dice. Sin ver, por lo mismo. */
+                combustible: nivel !== 0xff && !(nivel & 0x80) ? nivel : undefined,
+                combustibleL: nivel !== 0xff && nivel & 0x80 ? nivel & 0x7f : undefined,
+            });
+        }
+    }
     for (const k of Object.keys(motor)) if (motor[k] === undefined) delete motor[k];
-    return { motor };
+    return Object.keys(motor).length ? { motor } : {};
+}
+
+/** Un código de falla del motor, de sus tres bytes a como se lo nombra («P0301»). */
+function codigoDeFalla(hex6) {
+    const n = parseInt(hex6[0], 16);
+    return "PCBU"[n >> 2] + (n & 3) + hex6.slice(1, 4).toUpperCase();
 }
 
 /**
- * Un mensaje del vehículo por OBD (tipo 09): hora(6) | 55 AA | largo(2) | datos. Por ahora se lee
- * uno solo, el número de chasis (datos 41 05 + 17 letras + un byte de control), que se vio en las
- * tramas reales. Los códigos de falla usan el mismo sobre (41 03 / 41 0A) y NO se leen todavía: no
- * llegó ninguno, y un código de falla mal leído mostrado a un cliente es peor que no mostrarlo.
+ * Un mensaje del vehículo por OBD (tipo 09): hora(6) | 55 AA | largo(2) | datos.
+ *   41 05  el número de chasis (17 letras + un byte de control). VISTO en tramas reales.
+ *   41 03 / 41 0A  los códigos de falla guardados en el motor: un byte con la norma (0 = J1979,
+ *          la de los autos; 1 = J1939, la de los camiones) y de a tres bytes por código. Leído como
+ *          lo hace el códec del fabricante; NO llegó ninguno real todavía (el auto no tiene fallas).
+ *   41 04  el resultado de pedirle que borre las fallas.
+ * Hay un cuarto mensaje (datos que empiezan con 48 01 y campos separados por «|») que el equipo
+ * manda varias veces por viaje y que no figura en ninguna de las dos fuentes: se anota en crudo.
  */
 function leerVehiculo(t) {
+    const fecha = fechaDe(t, SOBRE);
     const c = t.subarray(SOBRE + 6);
     if (c.length < 6 || c[0] !== 0x55 || c[1] !== 0xaa) return {};
     const largo = ((c[2] & 0x0f) << 8) | c[3];
     const d = c.subarray(4, 4 + largo);
-    if (d.length >= 20 && d[0] === 0x41 && d[1] === 0x05) {
+    if (d.length < 3 || d[0] !== 0x41) return {};
+    if (d[1] === 0x05 && d.length >= 20) {
         const vin = d.subarray(2, 19).toString("latin1");
         if (/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) return { vin };
     }
+    if (d[1] === 0x03 || d[1] === 0x0a) {
+        const hex = d.subarray(3, d.length - 1).toString("hex");
+        const fallas = [];
+        for (let i = 0; i + 6 <= hex.length; i += 6) { const k = codigoDeFalla(hex.slice(i, i + 6)); if (hex.slice(i, i + 6) !== "000000" && !fallas.includes(k)) fallas.push(k); }
+        return { fallas, norma: d[2] === 1 ? "J1939" : "J1979", fecha };
+    }
+    if (d[1] === 0x04) return { borradas: d[2] === 0x01 };
     return {};
+}
+
+/** Un punto de los mensajes de conducción y de choque: los mismos números que la posición, sin el resto. */
+function puntoDe(b, o) {
+    const fecha = fechaDe(b, o);
+    const lon = b.readFloatLE(o + 10), lat = b.readFloatLE(o + 14);
+    const conFix = Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0);
+    const vel = bcd(b, o + 18, 2), rpm = b.readUInt16BE(o + 22);
+    return {
+        gps: { fecha, lat: conFix ? +lat.toFixed(6) : 0, lon: conFix ? +lon.toFixed(6) : 0, velocidad: vel ? Math.min(255, Math.round(Number(vel) / 10)) : 0, rumbo: b.readUInt16BE(o + 20) % 360, satelites: 0, conFix, enVivo: true },
+        ...(rpm !== 0xffff ? { rpm } : {}),
+    };
+}
+
+/**
+ * Conducción brusca. Llega de dos formas, según cómo lo detectó el equipo:
+ *   05  por el GPS (cambió la velocidad de golpe): tipo(1) y el punto donde empezó
+ *       [hora(6) altura(4) longitud(4) latitud(4) velocidad(2) rumbo(2) vueltas(2)]. Tipos pares,
+ *       frenada; impares, aceleración (0-1 a alta velocidad, 2-3 media, 4-5 baja).
+ *   06  por el acelerómetro: tipo(1) (0 frenada, 1 aceleración, 2 giro), hora(6), estado(1),
+ *       aceleración(5) y el mismo punto.
+ * Y el choque (07): tipo(1) y una tanda de muestras de 30 bytes del acelerómetro alrededor del golpe.
+ * NINGUNO de los tres se vio todavía en una trama real: están leídos como el códec del fabricante.
+ */
+function leerConduccion(t) {
+    const c = t.subarray(SOBRE);
+    try {
+        if (t[2] === TIPO.CONDUCCION_GPS && c.length >= 25) return { que: c[0] % 2 === 0 ? "frenada" : "aceleracion", ...puntoDe(c, 1) };
+        if (t[2] === TIPO.CONDUCCION_ACEL && c.length >= 31) {
+            /* El punto va después de la hora, el estado y la aceleración: se arma con la hora de adelante. */
+            const p = puntoDe(Buffer.concat([c.subarray(1, 7), c.subarray(13)]), 0);
+            return { que: c[0] === 0 ? "frenada" : c[0] === 1 ? "aceleracion" : "giro", ...p };
+        }
+        if (t[2] === TIPO.CHOQUE && c.length >= 31) {
+            /* De la tanda, la primera muestra que traiga posición. */
+            for (let o = 1; o + 30 <= c.length; o += 30) {
+                const p = puntoDe(Buffer.concat([c.subarray(o, o + 6), c.subarray(o + 12, o + 30)]), 0);
+                if (p.gps.conFix || o + 60 > c.length) return { que: "choque", ...p };
+            }
+        }
+    } catch { /* una trama más corta de lo que dice: no se lee */ }
+    return null;
 }
 
 /** Los datos de la SIM y de la red (tipo 11): cada campo va precedido de su largo. */
@@ -304,16 +384,19 @@ function leer(t) {
         return { ...m, tipo: DE_ALARMA.has(tipoCrudo) ? "alarma" : "posicion", ...p };
     }
     if (tipoCrudo === TIPO.RED) return { ...m, tipo: "red", ...leerRed(t) };
-    if (tipoCrudo === TIPO.OBD) { const v = leerVehiculo(t); return v.vin ? { ...m, tipo: "vehiculo", ...v } : { ...m, tipo: "desconocido" }; }
+    if (tipoCrudo === TIPO.OBD) { const v = leerVehiculo(t); return Object.keys(v).length ? { ...m, tipo: "vehiculo", ...v } : { ...m, tipo: "desconocido" }; }
+    if (tipoCrudo === TIPO.CONDUCCION_GPS || tipoCrudo === TIPO.CONDUCCION_ACEL || tipoCrudo === TIPO.CHOQUE) {
+        const v = leerConduccion(t);
+        return v ? { ...m, tipo: v.que === "choque" ? "choque" : "conduccion", ...v } : { ...m, tipo: "desconocido" };
+    }
     if (tipoCrudo === TIPO.RESPUESTA) {
         /* Lo que contesta a un comando: un byte de qué clase de mensaje es y el texto en UTF-16. */
         const texto = t.subarray(SOBRE + 1).toString("utf16le").replace(/\0+$/, "");
         return { ...m, tipo: "respuesta", texto };
     }
-    /* Conducción brusca, los datos del vehículo por OBD (tipo 09: ahí viene el número de chasis y los
-       códigos de falla; el TorchX mandó 19 en su primer minuto), etiquetas Bluetooth, WiFi, y la
-       posición «libre» (62/64): se sabe qué son y todavía no se leen. Se acusan igual, para que el
-       equipo no las guarde y las repita. */
+    /* Etiquetas Bluetooth, WiFi, la posición «libre» (62/64) y el mensaje del vehículo que no está
+       documentado: se sabe que existen y todavía no se leen. Se acusan igual, para que el equipo no
+       las guarde y las repita. */
     return { ...m, tipo: "desconocido" };
 }
 

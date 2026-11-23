@@ -2197,6 +2197,8 @@ model GpsEquipo {
   odometro     Int?
   /// Lo ultimo que leyo del motor, con su hora: { rpm, agua, carga, acelerador, ..., cuando }.
   motor        Json?
+  /// Los codigos de falla que el vehiculo tiene guardados, segun el equipo: { codigos, norma, cuando }.
+  fallas       Json?
   /// Con que dibujo se lo ve en el mapa: auto | camion | moto | persona | punto.
   icono        String?
   /// El rele del equipo esta accionado (corte de combustible o de alimentacion), segun el latido.

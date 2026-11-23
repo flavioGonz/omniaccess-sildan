@@ -1,0 +1,1 @@
+ALTER TABLE "GpsEquipo" ADD COLUMN "fallas" JSONB;

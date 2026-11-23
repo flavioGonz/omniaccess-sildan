@@ -81,6 +81,11 @@ const ETIQUETA: Record<string, string> = {
     GPS_LPR_LEJOS: "Matrícula leída lejos del rastreador",
     GPS_INHIBIDOR: "Detectó un inhibidor de señal",
     GPS_CHOQUE: "Detectó un choque",
+    GPS_TEMPERATURA: "Temperatura del motor alta",
+    GPS_FALLA_MOTOR: "El motor guardó un código de falla",
+    GPS_FRENADA: "Frenada brusca",
+    GPS_ACELERACION: "Aceleración brusca",
+    GPS_GIRO: "Giro brusco",
 };
 const TIPO_CENTRAL: Record<string, string> = { ROBO: "Robo", PANICO: "Pánico", INCENDIO: "Incendio", SABOTAJE: "Sabotaje", COACCION: "Coacción", MEDICA: "Emergencia médica", GAS: "Gas", AGUA: "Pérdida de agua", TEMPERATURA: "Temperatura", GENERAL: "Alarma" };
 const CLASE: Record<string, string> = { human: "Persona", vehicle: "Vehículo" };

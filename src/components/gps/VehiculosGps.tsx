@@ -41,8 +41,9 @@ const AGUA_ALTA = 110;
  * faltar, porque no todos los vehículos contestan todo: el que falta no se dibuja.
  */
 function MotorObd({ r }: { r: Rastreador }) {
-    const m = r.motor;
-    if (!m && !r.vin && r.odometroKm === null) return null;
+    const m = r.motor, f = r.fallas;
+    if (!m && !f && !r.vin && r.odometroKm === null) return null;
+    const litros = (v: number, d: number) => v.toLocaleString("es-UY", { minimumFractionDigits: d, maximumFractionDigits: d });
     return (
         <div className="mt-3 rounded-[10px] border border-border bg-card/40 p-3.5">
             <div className="flex items-baseline justify-between gap-3">
@@ -54,10 +55,20 @@ function MotorObd({ r }: { r: Rastreador }) {
                 {m?.agua !== undefined && <Dato k="Refrigerante" tono={m.agua >= AGUA_ALTA ? "tono-mal" : undefined}>{m.agua} °C</Dato>}
                 {m?.carga !== undefined && <Dato k="Carga del motor">{m.carga} %</Dato>}
                 {m?.acelerador !== undefined && <Dato k="Acelerador">{m.acelerador} %</Dato>}
+                {m?.consumo !== undefined && <Dato k="Consumo ahora">{litros(m.consumo, 1)} l/h</Dato>}
                 {m?.combustible !== undefined && <Dato k="Combustible">{m.combustible} %</Dato>}
+                {m?.combustibleL !== undefined && <Dato k="Combustible">{m.combustibleL} l</Dato>}
                 {m?.aire !== undefined && <Dato k="Aire de admisión">{m.aire} °C</Dato>}
                 {m?.presion !== undefined && <Dato k="Presión de admisión">{m.presion} kPa</Dato>}
+                {m?.caudal !== undefined && <Dato k="Caudal de aire">{m.caudal} g/s</Dato>}
+                {m?.consumido !== undefined && <Dato k="Combustible consumido">{litros(m.consumido, 2)} l</Dato>}
                 {r.odometroKm !== null && <Dato k="Recorrido con el equipo">{r.odometroKm.toLocaleString("es-UY")} km</Dato>}
+                {/* Las fallas: sólo cuando el equipo las informó. «Sin fallas» es un dato; no haber preguntado, no. */}
+                {f && (
+                    <Dato k={f.cuando ? `Fallas del motor · ${hace(f.cuando)}` : "Fallas del motor"} tono={f.codigos.length ? "tono-mal" : "tono-bien"} className="col-span-2 sm:col-span-3">
+                        {f.codigos.length ? f.codigos.join(" · ") : "Sin códigos de falla"}
+                    </Dato>
+                )}
                 {r.vin && <Dato k="Chasis" className="col-span-2 sm:col-span-3">{r.vin}</Dato>}
             </div>
         </div>

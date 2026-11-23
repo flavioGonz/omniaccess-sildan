@@ -75,6 +75,8 @@ const ARRANQUE = Date.now();
 const MUDO_MS = 10 * 60_000;
 /** Hasta cuánto de vieja puede ser una trama guardada de un TopFly para que su motor, su voltaje y su batería valgan como «ahora». */
 const ESTADO_VIEJO_MS = 10 * 60_000;
+/** A partir de cuántos grados de refrigerante se avisa: un motor sano trabaja entre 85 y 105 °C. */
+const AGUA_ALTA = Number(process.env.GPS_AGUA_ALTA || 110);
 /** Tope de lo que se junta sin encontrar una trama: lo demás es basura. */
 const BASURA_MAX = 4096;
 
@@ -581,6 +583,12 @@ async function procesarTopfly(s, c, ip) {
                 }
                 const r = await alReporte(c.imei, m, c.aceptado);
                 if (reciente && m.voltaje !== undefined) await alVoltaje(c.imei, m.voltaje);
+                /* El motor recalentando: un aviso al pasar los 110 °C, y no otro hasta que baje de 105. */
+                if (reciente && m.motor && m.motor.agua !== undefined) {
+                    const mm = mem(c.imei);
+                    if (m.motor.agua >= AGUA_ALTA && !mm.caliente) { mm.caliente = true; await alEvento(c.imei, "GPS_TEMPERATURA", m.gps, `${m.motor.agua} °C`, null, hora); }
+                    else if (m.motor.agua < AGUA_ALTA - 5) mm.caliente = false;
+                }
                 /* Lo del motor y el cuentakilómetros, a la ficha: lo último que se supo, con su hora. */
                 if (reciente) await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: { odometro: m.odometro, ...(m.motor ? { motor: { ...m.motor, cuando: (hora || new Date()).toISOString() } } : {}) } }).catch(() => {});
                 if (m.tipo === "alarma") {
@@ -599,6 +607,22 @@ async function procesarTopfly(s, c, ip) {
             } else if (m.tipo === "vehiculo") {
                 /* El número de chasis que leyó del auto. A la ficha; al log no: identifica al vehículo. */
                 if (m.vin) await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: { vin: m.vin } }).catch(() => {});
+                if (m.fallas) {
+                    /* Los códigos de falla del motor: a la ficha siempre (una lista vacía es «ya no tiene»),
+                       y un aviso sólo por los que no estaban. */
+                    const antes = await prisma.gpsEquipo.findUnique({ where: { imei: c.imei }, select: { fallas: true } }).catch(() => null);
+                    const sabidos = new Set((antes && antes.fallas && antes.fallas.codigos) || []);
+                    const nuevos = m.fallas.filter((k) => !sabidos.has(k));
+                    await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: { fallas: { codigos: m.fallas, norma: m.norma, cuando: (m.fecha || new Date()).toISOString() } } }).catch(() => {});
+                    if (nuevos.length) await alEvento(c.imei, "GPS_FALLA_MOTOR", null, nuevos.join(", "));
+                }
+                if (m.borradas !== undefined) log(c.imei, m.borradas ? "borró los códigos de falla del motor" : "no pudo borrar los códigos de falla");
+            } else if (m.tipo === "conduccion" || m.tipo === "choque") {
+                /* Una frenada, una aceleración o un giro bruscos, y el choque. Con su hora; lo que el
+                   equipo traía guardado de hace más de un mes no se avisa. */
+                const hora = m.gps.fecha;
+                const tipoC = m.tipo === "choque" ? "GPS_CHOQUE" : { frenada: "GPS_FRENADA", aceleracion: "GPS_ACELERACION", giro: "GPS_GIRO" }[m.que];
+                if (hora && evs.horaCreible(hora)) await alEvento(c.imei, tipoC, m.gps, `${m.gps.velocidad} km/h${m.rpm ? ` · ${m.rpm} rpm` : ""}`, null, hora);
             } else if (m.tipo === "respuesta") {
                 log(c.imei, "contestó:", m.texto);
             }

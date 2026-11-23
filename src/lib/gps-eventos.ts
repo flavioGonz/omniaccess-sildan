@@ -22,6 +22,12 @@ export const EVENTOS_GPS: Record<string, Ficha> = {
     GPS_DESARME: { rotulo: "Desarmaron el rastreador", clase: "alarma", tono: "mal", dibujo: "desarme" },
     GPS_INHIBIDOR: { rotulo: "Detectó un inhibidor de señal", clase: "alarma", tono: "mal", dibujo: "silencio" },
     GPS_CHOQUE: { rotulo: "Detectó un choque", clase: "alarma", tono: "mal", dibujo: "alarma" },
+    GPS_TEMPERATURA: { rotulo: "Temperatura del motor alta", clase: "alarma", tono: "mal", dibujo: "alarma" },
+    GPS_FALLA_MOTOR: { rotulo: "El motor guardó un código de falla", clase: "alarma", tono: "aviso", dibujo: "alarma" },
+    /* La conducción brusca va con el equipo, como la vibración: pasa varias veces por viaje y no abre un caso. */
+    GPS_FRENADA: { rotulo: "Frenada brusca", clase: "equipo", tono: "aviso", dibujo: "velocidad" },
+    GPS_ACELERACION: { rotulo: "Aceleración brusca", clase: "equipo", tono: "aviso", dibujo: "velocidad" },
+    GPS_GIRO: { rotulo: "Giro brusco", clase: "equipo", tono: "aviso", dibujo: "velocidad" },
     GPS_MOVIMIENTO: { rotulo: "Se mueve con el motor apagado", clase: "alarma", tono: "mal", dibujo: "movimiento" },
     GPS_SALTO: { rotulo: "Posición imposible", clase: "alarma", tono: "aviso", dibujo: "salto" },
     GPS_VELOCIDAD: { rotulo: "Exceso de velocidad", clase: "alarma", tono: "aviso", dibujo: "velocidad" },
