@@ -16,7 +16,9 @@ import { aligerar, SATS_MIN, type ResumenRecorrido } from "@/lib/gps-recorrido";
 import { resumenDeViajes, viajesYParadas, type Parada, type Viaje } from "@/lib/gps-viajes";
 import { CLASES_EVENTO_GPS, EVENTOS_GPS, tiposDeClase, type ClaseEventoGps } from "@/lib/gps-eventos";
 import { CLAVES_REPORTE, type ClaveReporte } from "@/lib/gps-reportes-catalogo";
-import { armarReporteGps, HORARIO_LABORAL_GPS, horarioLaboral, type ReporteGps } from "@/lib/gps-reportes-servidor";
+import { armarReporteGps, conDirecciones, HORARIO_LABORAL_GPS, horarioLaboral, type ReporteGps } from "@/lib/gps-reportes-servidor";
+import { AJUSTE_GEO, direccionesDe, olvidarServicio, probarServicio, servicioDeDirecciones, urlValida } from "@/lib/direcciones";
+import { claveDeLugar } from "@/lib/direccion-texto";
 
 /**
  * Los rastreadores GPS que se presentaron en gps-receiver.js, para la pantalla de Dispositivos.
@@ -59,6 +61,8 @@ export type Rastreador = {
     icono: string | null;
     /** Si se avisó que dejó de reportar: desde cuándo no se sabe de él. */
     sinReporteDesde: string | null;
+    /** Dónde está, en palabras: «Cavour 3230, La Blanqueada, Montevideo». Null si no hay servicio de direcciones o no hay nada que decir. */
+    direccion: string | null;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- la sesión es el JWT crudo
@@ -85,6 +89,9 @@ export async function rastreadoresGps(): Promise<Rastreador[]> {
     const nombreDe = new Map(devs.map((d) => [d.id, d.name]));
     const chapaDe = new Map(vehs.map((v) => [v.id, v.plate]));
     const ahora = Date.now();
+    /* La dirección de cada uno. Casi siempre sale de lo guardado; las preguntas nuevas tienen tope
+       para que la lista —que se pide cada quince segundos— no espere nunca a nadie. */
+    const dir = await direccionesDe(equipos.flatMap((e) => (e.lat !== null && e.lon !== null ? [{ lat: e.lat, lon: e.lon }] : [])), { nuevasMax: 40 });
     return equipos.map((e) => {
         /* Si el Device se borró, el rastreador vuelve a «sin dar de alta»: el vínculo no puede
            apuntar a un equipo que ya no existe. */
@@ -98,6 +105,7 @@ export async function rastreadoresGps(): Promise<Rastreador[]> {
             velocidad: e.velocidad, rumbo: e.rumbo, encendido: e.encendido,
             bateria: e.bateria, senal: e.senal, voltaje: e.voltaje, cortado: e.cortado, icono: e.icono,
             sinReporteDesde: e.sinReporteDesde?.toISOString() || null,
+            direccion: (e.lat !== null && e.lon !== null && dir.get(claveDeLugar(e.lat, e.lon))) || null,
         };
     });
 }
@@ -151,6 +159,8 @@ export type RecorridoGps = {
     puntos: PuntoGps[]; resumen: ResumenRecorrido; viajes: Viaje[]; paradas: Parada[];
     /** La velocidad permitida por la empresa (km/h): contra ella se marca el exceso en la línea. */
     limite: number;
+    /** La dirección de donde empezó y terminó cada viaje, por la clave del punto (`claveDeLugar`). Vacío si no hay servicio de direcciones. */
+    lugares: Record<string, string>;
 };
 
 /**
@@ -191,7 +201,9 @@ export async function recorridoGps(imei: string, horas = 24, rango?: { desde: st
         while (k < todos.length && todos[k].cuando < v.desde) k++;
         while (k < todos.length && todos[k].cuando <= v.hasta) deViaje.push(todos[k++]);
     }
+    const lugares = await direccionesDe(viajes.flatMap((v) => [v.inicio, v.fin]), { nuevasMax: 400 });
     return {
+        lugares: Object.fromEntries(lugares),
         puntos: aligerar(deViaje, 3000),
         resumen: resumenDeViajes(viajes, todos[0]?.cuando || null, todos[todos.length - 1]?.cuando || null, todos.length),
         viajes, paradas,
@@ -665,7 +677,7 @@ export async function vistaPreviaReportesGps(o: { imeis: string[] | null; desde:
     if (!claves.length) return { ok: false, error: "Elegí al menos un reporte." };
     const imeis = o.imeis ? o.imeis.map((x) => String(x).replace(/\D/g, "").slice(0, 20)).filter(Boolean) : null;
     const r = await armarReporteGps({ imeis: imeis && imeis.length ? imeis : null, desde, hasta, claves });
-    return { ok: true, reporte: { ...r, tablas: r.tablas.map((t) => ({ ...t, filas: t.filas.slice(0, PREVIA_FILAS) })) } };
+    return { ok: true, reporte: await conDirecciones({ ...r, tablas: r.tablas.map((t) => ({ ...t, filas: t.filas.slice(0, PREVIA_FILAS) })) }) };
 }
 
 /** El horario laboral: contra él se marca el uso fuera de horario. Uno para todos los vehículos. */
@@ -686,4 +698,37 @@ export async function guardarHorarioLaboralGps(h: HorarioCerca | null): Promise<
     await prisma.setting.upsert({ where: { key: HORARIO_LABORAL_GPS }, update: { value: JSON.stringify(limpio) }, create: { key: HORARIO_LABORAL_GPS, value: JSON.stringify(limpio) } });
     await auditar(s, "equipos.gps.horario-laboral", "todos", true, rotuloDeHorario(limpio));
     return { ok: true, horario: limpio };
+}
+
+/* ---------- Direcciones ---------- */
+
+/**
+ * El servicio de direcciones: dónde está y si contesta. Es un Nominatim propio de IES (contenedor
+ * «omni-geo»); sin él todo anda igual, pero los lugares se dicen con coordenadas.
+ */
+export async function servicioDireccionesGps(): Promise<{ url: string | null; ok: boolean; ejemplo: string | null; guardadas: number }> {
+    await sesion("dispositivos");
+    const url = await servicioDeDirecciones();
+    const [p, guardadas] = await Promise.all([url ? probarServicio(url) : Promise.resolve({ ok: false, ejemplo: null }), prisma.geoDireccion.count().catch(() => 0)]);
+    return { url, ...p, guardadas };
+}
+
+export async function guardarServicioDireccionesGps(url: string): Promise<{ ok: boolean; error?: string; ejemplo?: string | null }> {
+    const s = await sesion("dispositivos.editar");
+    const limpia = (url || "").trim();
+    if (!limpia) {
+        await prisma.setting.deleteMany({ where: { key: AJUSTE_GEO } });
+        olvidarServicio();
+        await auditar(s, "equipos.gps.direcciones", "servicio", true, "sin servicio");
+        return { ok: true };
+    }
+    const u = urlValida(limpia);
+    if (!u) return { ok: false, error: "Tiene que ser una dirección como http://172.26.20.186:8080" };
+    /* Se prueba ANTES de guardar: una dirección mal escrita dejaría todo sin direcciones sin que nadie sepa por qué. */
+    const p = await probarServicio(u);
+    if (!p.ok) return { ok: false, error: "Ese servicio no contesta. No se guardó." };
+    await prisma.setting.upsert({ where: { key: AJUSTE_GEO }, update: { value: u }, create: { key: AJUSTE_GEO, value: u } });
+    olvidarServicio();
+    await auditar(s, "equipos.gps.direcciones", "servicio", true, u);
+    return { ok: true, ejemplo: p.ejemplo };
 }

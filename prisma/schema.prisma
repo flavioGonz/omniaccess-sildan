@@ -2278,6 +2278,21 @@ model GpsCompartido {
   @@index([imei])
 }
 
+/// Una direccion ya averiguada: que calle hay en un punto del mapa (23/11). Se guarda para no
+/// volver a preguntarle al servicio de direcciones por el mismo lugar: un vehiculo vuelve todos
+/// los dias a los mismos sitios, y un reporte de un mes pregunta por miles de puntos.
+/// `texto` vacio quiere decir que se pregunto y no hay nada que decir (agua, campo sin caminos):
+/// tambien se guarda, para no insistir.
+model GeoDireccion {
+  /// El punto, redondeado a cuatro decimales (unos once metros): "-34.8893,-56.1440".
+  clave     String   @id
+  texto     String
+  calle     String?
+  barrio    String?
+  ciudad    String?
+  createdAt DateTime @default(now())
+}
+
 /// Una zona sobre el mapa para los rastreadores GPS: avisa cuando uno entra o sale. Es un circulo
 /// (centro y radio) o, con `puntos`, una zona de forma libre. El receptor las vuelve a leer cada
 /// medio minuto. La cuenta de que es «adentro» esta en lib-gps-geocercas.js.

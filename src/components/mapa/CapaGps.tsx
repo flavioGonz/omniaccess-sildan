@@ -25,6 +25,7 @@ import { CalendarioGps } from "@/components/mapa/CalendarioGps";
 import { alPedirGeocerca, avisarRastreadores } from "@/lib/gps-puente";
 import { colaSeguida, HUELLA_HUECO_MS, HUELLA_MS, huellaEn, posicionEn, RETRASO_MS, type Punto } from "@/lib/gps-reproducir";
 import { crearCamara, ponerFino } from "@/lib/mapa-fino";
+import { lugarConDireccion } from "@/lib/direccion-texto";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { fechaCorta, fechaHora, hace, horaSeg, limitesDelDia } from "@/lib/fechas";
@@ -491,6 +492,15 @@ export function CapaGps() {
                         <div style={{ font: "13px/1.45 Outfit,system-ui,sans-serif", minWidth: 215 }}>
                             <div style={{ fontWeight: 700, fontSize: 14 }}>{r.nombre || `Rastreador ${r.imei.slice(-6)}`}</div>
                             <div style={{ color: "#64748b", fontSize: 11.5, marginBottom: 6 }}>{r.matricula ? `${r.matricula} · ` : ""}IMEI {r.imei}</div>
+                            {/* Dónde está, en palabras: la geocerca si está en una, y la calle. Va arriba y en un renglón
+                                propio —no como un dato más de la lista— porque es lo primero que se pregunta y porque
+                                una dirección es larga: a la derecha de un rótulo se partiría en tres. */}
+                            {lugarConDireccion(lugarDe(r.lat!, r.lon!), r.direccion) && (
+                                <div style={{ display: "flex", gap: 6, alignItems: "flex-start", margin: "-2px 0 7px", fontWeight: 600, lineHeight: 1.3, maxWidth: 260 }}>
+                                    <MapPin size={13} style={{ flexShrink: 0, marginTop: 2, color: tonoDe(r) }} />
+                                    <span>{lugarConDireccion(lugarDe(r.lat!, r.lon!), r.direccion)}</span>
+                                </div>
+                            )}
                             <Renglon icono={<Dibujo que="estado" vivo={r.enLinea} />} k="Estado" v={r.sinReporteDesde ? `Dejó de reportar ${hace(r.sinReporteDesde)}` : r.enLinea ? `En línea · reportó ${hace(r.ultimoLatido)}` : `Sin reportar desde ${hace(r.ultimoLatido, "nunca")}`} />
                             <Renglon icono={<Dibujo que="posicion" vivo={tonoDe(r) === VERDE} tono={tonoDe(r)} />} k="Posición" v={`de ${hace(r.cuando)}`} aviso={tonoDe(r) === AMBAR ? "sin satélites desde entonces" : undefined} />
                             <Renglon icono={<Dibujo que="motor" vivo={r.encendido === true} />} k="Motor" v={r.encendido === null ? "—" : r.encendido ? "Encendido" : "Apagado"} />

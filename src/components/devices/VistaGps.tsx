@@ -6,7 +6,7 @@ import { Check, DoorClosed, DoorOpen, FileSpreadsheet, History, Loader2, MapPin,
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { atarVehiculoGps, cambiarPuertaGps, comandoGps, darDeAltaGps, descartarGps, diagnosticoGps, puertaGps, renombrarGps, type DiagnosticoGps, type Rastreador } from "@/app/actions/gps";
+import { atarVehiculoGps, cambiarPuertaGps, comandoGps, darDeAltaGps, descartarGps, diagnosticoGps, guardarServicioDireccionesGps, puertaGps, renombrarGps, servicioDireccionesGps, type DiagnosticoGps, type Rastreador } from "@/app/actions/gps";
 import { ReportesGps, type InicioDeReportes } from "@/components/mapa/ReportesGps";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { Pista } from "@/components/ui/pista";
@@ -94,6 +94,7 @@ export function VistaGps({ lista, busqueda, alCambiar }: {
                 </label>
             </div>
         )}
+        <ServicioDeDirecciones />
         {hayDeAlta && (
             <div className="mb-2 flex justify-end">
                 <Button variant="outline" size="sm" className="h-8 gap-1.5 text-[12px]" onClick={() => setReportes({})}><FileSpreadsheet size={14} /> Reportes de rastreo</Button>
@@ -131,6 +132,60 @@ export function VistaGps({ lista, busqueda, alCambiar }: {
             </Table>
         </div>
         </>
+    );
+}
+
+/**
+ * El servicio de direcciones: dónde está y si contesta (23/11).
+ *
+ * Es un Nominatim propio de IES —no un servicio de afuera: por dónde anda cada vehículo no se le
+ * manda a un tercero—, y OmniAccess sólo necesita saber en qué dirección de la red está. Va acá,
+ * al lado de la puerta del receptor, porque es la otra pieza de afuera de la que dependen los
+ * rastreadores. Sin él todo anda igual, pero los lugares se dicen con coordenadas: por eso se ve
+ * siempre cómo está, y no sólo cuando alguien lo va a buscar.
+ */
+function ServicioDeDirecciones() {
+    const [e, setE] = useState<Awaited<ReturnType<typeof servicioDireccionesGps>> | null>(null);
+    const [borrador, setBorrador] = useState<string | null>(null);
+    const [guardando, setGuardando] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [vuelta, setVuelta] = useState(0);
+    useEffect(() => { servicioDireccionesGps().then(setE).catch(() => { /* sin saber cómo está, no se muestra nada: no es un error de esta pantalla */ }); }, [vuelta]);
+    if (!e) return null;
+    const guardar = async () => {
+        setGuardando(true); setError(null);
+        try {
+            const r = await guardarServicioDireccionesGps(borrador || "");
+            if (!r.ok) { setError(r.error || "No se pudo guardar."); return; }
+            setBorrador(null); setVuelta((n) => n + 1);
+            toast.success({ title: borrador ? "Servicio de direcciones guardado" : "Sin servicio de direcciones", description: r.ejemplo ? `Contesta. Por ejemplo: «${r.ejemplo}».` : undefined });
+        } catch (x) { setError(x instanceof Error ? x.message : "No se pudo guardar."); }
+        finally { setGuardando(false); }
+    };
+    const bien = !!e.url && e.ok;
+    return (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-[10px] border border-border bg-card/40 px-4 py-2.5">
+            <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-full border", bien ? "chip-bien" : e.url ? "chip-mal" : "chip-quieto")}><MapPin size={15} /></span>
+            <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-semibold">{bien ? "Los lugares se dicen con su dirección" : e.url ? "El servicio de direcciones no contesta" : "Sin servicio de direcciones"}</p>
+                <p className="text-[11.5px] text-muted-foreground">
+                    {bien ? <>Servicio propio en <span className="tabular-nums">{e.url}</span>{e.ejemplo ? ` · por ejemplo, «${e.ejemplo}»` : ""}{e.guardadas ? ` · ${e.guardadas.toLocaleString("es-UY")} direcciones ya averiguadas` : ""}.</>
+                        : e.url ? <>Está cargado <span className="tabular-nums">{e.url}</span> y no responde. Mientras tanto los lugares se ven con coordenadas{e.guardadas ? "; los ya averiguados siguen saliendo con su dirección" : ""}.</>
+                        : "Las paradas, los reportes y el mapa muestran coordenadas. Cargá la dirección del servicio propio de IES para que digan la calle."}
+                </p>
+                {borrador !== null && (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <input value={borrador} onChange={(x) => setBorrador(x.target.value)} placeholder="http://172.26.20.186:8080" autoFocus aria-label="Dirección del servicio"
+                            onKeyDown={(x) => { if (x.key === "Enter") guardar(); if (x.key === "Escape") setBorrador(null); }}
+                            className="h-8 w-[260px] max-w-full rounded-[6px] border border-border bg-background px-2 text-[12.5px] tabular-nums outline-none focus:border-[var(--accion)]" />
+                        <Button size="sm" className="h-8 px-2.5 text-[12px]" disabled={guardando} onClick={guardar}>{guardando && <Loader2 size={13} className="animate-spin" />} Probar y guardar</Button>
+                        <Button size="sm" variant="ghost" className="h-8 px-2.5 text-[12px]" disabled={guardando} onClick={() => { setBorrador(null); setError(null); }}>Cancelar</Button>
+                        {error && <p className="tono-mal w-full text-[11.5px] font-semibold" role="alert">{error}</p>}
+                    </div>
+                )}
+            </div>
+            {borrador === null && <Button variant="outline" size="sm" className="h-8 shrink-0 text-[12px]" onClick={() => { setError(null); setBorrador(e.url || ""); }}>{e.url ? "Cambiar" : "Cargar"}</Button>}
+        </div>
     );
 }
 
@@ -259,7 +314,10 @@ function Fila({ r, d, alCambiar, alReportes }: { r: Rastreador; d?: DiagnosticoG
             <TableCell>
                 {conPosicion ? (
                     <>
-                        <p className="text-[12px] font-semibold tabular-nums">{r.lat!.toFixed(5)}, {r.lon!.toFixed(5)}</p>
+                        {/* La calle si se sabe; las coordenadas quedan al pasar el mouse, para quien las necesite copiar. */}
+                        {r.direccion
+                            ? <p className="max-w-[230px] truncate text-[12px] font-semibold" title={`${r.direccion} (${r.lat!.toFixed(5)}, ${r.lon!.toFixed(5)})`}>{r.direccion}</p>
+                            : <p className="text-[12px] font-semibold tabular-nums">{r.lat!.toFixed(5)}, {r.lon!.toFixed(5)}</p>}
                         <p className="text-[10.5px] text-muted-foreground">de {hace(r.cuando)}{d ? ` · ${d.posiciones.toLocaleString("es-UY")} ${d.posiciones === 1 ? "punto" : "puntos"}` : ""}</p>
                     </>
                 ) : <span className="text-[11.5px] text-muted-foreground">Sin satélites todavía</span>}

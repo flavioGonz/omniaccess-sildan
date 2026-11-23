@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CircleMarker, Marker, Polyline, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
-import { ChevronLeft, ChevronRight, FileSpreadsheet, FileText, Gauge, Loader2, LocateFixed, Pause, Play, SquareParking, TriangleAlert, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileSpreadsheet, FileText, Gauge, Loader2, LocateFixed, MapPin, Pause, Play, SquareParking, TriangleAlert, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { guardarLimiteVelocidadGps, historialEventosGps, type PuntoGps, type RecorridoGps } from "@/app/actions/gps";
 import { fichaDeEventoGps, tituloDeEventoGps } from "@/lib/gps-eventos";
@@ -13,6 +13,7 @@ import {
 } from "@/lib/gps-jornada";
 import { diaSemana, hora, horaSeg, paraInput } from "@/lib/fechas";
 import { crearCamara, ponerFino, QUIETO_MS } from "@/lib/mapa-fino";
+import { claveDeLugar, lugarConDireccion } from "@/lib/direccion-texto";
 import { cn } from "@/lib/utils";
 
 /**
@@ -292,6 +293,8 @@ export function PanelDelRecorrido({ imei, datos, partes, viajeSel, alViaje, cur,
     /** La dirección del informe imprimible de este mismo período. */
     informe?: string;
 }) {
+    /** Un lugar en palabras: la geocerca si cae en una, y la calle que averiguó el servicio de direcciones. */
+    const donde = (lat: number, lon: number) => lugarConDireccion(alLugar(lat, lon), datos.lugares?.[claveDeLugar(lat, lon)]);
     const { pts, porViaje, desde, hasta, limite, excesos, jornada } = partes;
     const dias = useMemo(() => jornadaPorDia(jornada, (iso) => paraInput(iso)), [jornada]);
     const rex = resumenDeExcesos(excesos);
@@ -358,7 +361,7 @@ export function PanelDelRecorrido({ imei, datos, partes, viajeSel, alViaje, cur,
                                 <span className="text-[11px] tabular-nums text-muted-foreground">{d.viajes ? `${d.viajes} ${d.viajes === 1 ? "viaje" : "viajes"} · ${fmtKm(d.km)} · ${duracionLarga(d.andandoMin)} andando` : "sin viajes"}</span>
                             </li>
                             {d.tramos.map((tr, i) => tr.tipo === "viaje" ? (
-                                <FilaViaje key={`v${tr.n}`} tr={tr} elegido={viajeSel === tr.n - 1} excesos={excesosDeViaje(tr.n - 1)} cuando={hora} alElegir={() => alViaje(tr.n - 1)} />
+                                <FilaViaje key={`v${tr.n}`} tr={tr} elegido={viajeSel === tr.n - 1} excesos={excesosDeViaje(tr.n - 1)} cuando={hora} alElegir={() => alViaje(tr.n - 1)} destino={donde(tr.viaje.fin.lat, tr.viaje.fin.lon)} />
                             ) : (
                                 <li key={`e${i}`}>
                                     <button type="button" onClick={() => { const k = indiceEnHora(pts, tr.desde); if (k >= 0) cur.set(k); }} title="Ir a donde quedó estacionado"
@@ -367,7 +370,7 @@ export function PanelDelRecorrido({ imei, datos, partes, viajeSel, alViaje, cur,
                                         <span className="min-w-0 flex-1 truncate">
                                             <span className="font-semibold text-foreground">{tr.sigue ? `Estacionado desde las ${hora(tr.desde)}` : `Estacionado ${duracionLarga(tr.minutos)}`}</span>
                                             {tr.sigue ? ` · lleva ${duracionLarga(tr.minutos)}` : <span className="tabular-nums"> · {hora(tr.desde)} a {hora(tr.hasta)}</span>}
-                                            {alLugar(tr.lat, tr.lon) && ` · ${alLugar(tr.lat, tr.lon)}`}
+                                            {donde(tr.lat, tr.lon) && ` · ${donde(tr.lat, tr.lon)}`}
                                         </span>
                                     </button>
                                 </li>
@@ -386,7 +389,7 @@ function Dato({ k, v, mal }: { k: string; v: string; mal?: boolean }) {
     return <div className="min-w-0"><dt className="text-[10.5px] text-muted-foreground">{k}</dt><dd className={cn("font-bold tabular-nums truncate", mal && "tono-mal")}>{v}</dd></div>;
 }
 
-function FilaViaje({ tr, elegido, excesos, cuando, alElegir }: { tr: Extract<Tramo, { tipo: "viaje" }>; elegido: boolean; excesos: Exceso[]; cuando: (iso: string) => string; alElegir: () => void }) {
+function FilaViaje({ tr, elegido, excesos, cuando, alElegir, destino }: { tr: Extract<Tramo, { tipo: "viaje" }>; elegido: boolean; excesos: Exceso[]; cuando: (iso: string) => string; alElegir: () => void; /** A dónde llegó, en palabras. */ destino?: string | null }) {
     const v = tr.viaje, r = resumenDeExcesos(excesos);
     return (
         <li>
@@ -396,7 +399,10 @@ function FilaViaje({ tr, elegido, excesos, cuando, alElegir }: { tr: Extract<Tra
                 <span className="w-[98px] shrink-0 font-bold">{cuando(v.desde)} → {hora(v.hasta)}</span>
                 <span className="w-[54px] shrink-0">{fmtKm(v.km)}</span>
                 <span className="w-[62px] shrink-0 text-muted-foreground">{duracionLarga(v.minutos)}</span>
-                <span className="min-w-0 flex-1 truncate text-muted-foreground">máx {v.velMax} · media {v.velMedia} km/h</span>
+                {/* Con dirección, lo que se lee es A DÓNDE fue: las velocidades quedan al pasar el mouse (y la máxima, al lado). */}
+                {destino
+                    ? <span className="min-w-0 flex-1 truncate text-muted-foreground" title={`Llegó a ${destino} · máxima ${v.velMax} km/h · media ${v.velMedia} km/h`}><MapPin size={10} className="mr-1 inline align-[-1px]" />{destino} <span className="opacity-70">· máx {v.velMax}</span></span>
+                    : <span className="min-w-0 flex-1 truncate text-muted-foreground">máx {v.velMax} · media {v.velMedia} km/h</span>}
                 {r.veces > 0 && <span className="inline-flex shrink-0 items-center gap-1 font-bold tono-mal" title={`${r.veces} ${r.veces === 1 ? "vez" : "veces"} sobre el límite, ${r.segundos} s en total, hasta ${r.velMax} km/h`}><TriangleAlert size={11} /> {r.veces}</span>}
             </button>
         </li>

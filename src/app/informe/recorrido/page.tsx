@@ -9,6 +9,7 @@ import { OmniLogo } from "@/components/brand/OmniLogo";
 import { Button } from "@/components/ui/button";
 import { duracionLarga, excesosDe, franjasDe, COLOR_FRANJA, jornadaDe, jornadaPorDia, minutosEstacionado, resumenDeExcesos, type Exceso } from "@/lib/gps-jornada";
 import { diaSemana, fechaHora, hora, horaSeg, paraInput } from "@/lib/fechas";
+import { claveDeLugar } from "@/lib/direccion-texto";
 
 const Mapa = dynamic(() => import("./MapaInforme"), { ssr: false, loading: () => <div className="grid h-full place-items-center text-neutral-400"><Loader2 className="animate-spin" /></div> });
 
@@ -109,7 +110,7 @@ function Informe() {
                         <thead><tr><th style={{ width: 34 }}>N.º</th><th>Qué</th><th>Desde</th><th>Hasta</th><th>Duró</th><th>Recorrió</th><th>Máx.</th><th>Media</th></tr></thead>
                         <tbody>
                             {cuentas.dias.map((dia) => (
-                                <FilasDelDia key={dia.dia} dia={dia} />
+                                <FilasDelDia key={dia.dia} dia={dia} lugares={datos.lugares || {}} />
                             ))}
                         </tbody>
                     </table>
@@ -136,7 +137,7 @@ function Informe() {
     );
 }
 
-function FilasDelDia({ dia }: { dia: ReturnType<typeof jornadaPorDia>[number] }) {
+function FilasDelDia({ dia, lugares }: { dia: ReturnType<typeof jornadaPorDia>[number]; /** La dirección de cada lugar donde quedó estacionado, por la clave del punto. */ lugares: Record<string, string> }) {
     const km = (x: number) => `${x.toFixed(1).replace(".", ",")} km`;
     const primero = dia.tramos[0], iso = primero.tipo === "viaje" ? primero.viaje.desde : primero.desde, n = diaSemana(iso);
     return (
@@ -145,7 +146,7 @@ function FilasDelDia({ dia }: { dia: ReturnType<typeof jornadaPorDia>[number] })
             {dia.tramos.map((t, i) => t.tipo === "viaje" ? (
                 <tr key={i}><td><b>{t.n}</b></td><td>Viaje</td><td>{hora(t.viaje.desde)}</td><td>{hora(t.viaje.hasta)}</td><td>{duracionLarga(t.viaje.minutos)}</td><td>{km(t.viaje.km)}</td><td>{t.viaje.velMax} km/h</td><td>{t.viaje.velMedia} km/h</td></tr>
             ) : (
-                <tr key={i} style={{ color: "#6b7280" }}><td /><td>Estacionado{t.sigue ? " (sigue)" : ""}</td><td>{hora(t.desde)}</td><td>{t.sigue ? "—" : hora(t.hasta)}</td><td>{duracionLarga(t.minutos)}</td><td /><td /><td /></tr>
+                <tr key={i} style={{ color: "#6b7280" }}><td /><td>Estacionado{t.sigue ? " (sigue)" : ""}</td><td>{hora(t.desde)}</td><td>{t.sigue ? "—" : hora(t.hasta)}</td><td>{duracionLarga(t.minutos)}</td><td colSpan={3}>{lugares[claveDeLugar(t.lat, t.lon)] || ""}</td></tr>
             ))}
         </>
     );

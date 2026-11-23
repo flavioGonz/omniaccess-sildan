@@ -5,6 +5,9 @@ import { RECORRIDO_MAX_DIAS } from "@/lib/gps-filtro";
 import { nuevoInforme, type CercaRep } from "@/lib/gps-reportes";
 import type { ClaveReporte, TablaReporte, TotalesDeReporte } from "@/lib/gps-reportes-catalogo";
 import { ZONA } from "@/lib/fechas";
+import { direccionesDe } from "@/lib/direcciones";
+import { claveDeLugar, lugarConDireccion } from "@/lib/direccion-texto";
+import { esLugar } from "@/lib/gps-reportes-catalogo";
 
 /**
  * Traer de la base lo que hace falta para los reportes de rastreo y pasárselo a la cuenta
@@ -83,6 +86,22 @@ export async function armarReporteGps(o: { imeis: string[] | null; desde: Date; 
         desde: o.desde.toISOString(), hasta: hasta.toISOString(), hastaAhora, recortado,
         limite, horario, horarioRotulo: horario ? rotuloDeHorario(horario) : null, zona: ZONA, generado: ahora.toISOString(),
     };
+}
+
+/**
+ * Ponerles dirección a los lugares de las tablas: «Cavour 3230, La Blanqueada» donde había dos
+ * números. El nombre de la geocerca, si lo hay, sigue adelante («en Base · Cavour 3230»).
+ *
+ * Va aparte de armar el reporte porque la vista previa lo llama con las tablas ya recortadas: no
+ * tiene sentido averiguar la dirección de mil paradas para mostrar sesenta.
+ */
+export async function conDirecciones(r: ReporteGps): Promise<ReporteGps> {
+    const lugares = r.tablas.flatMap((t) => t.filas.flatMap((f) => f.filter(esLugar)));
+    if (!lugares.length) return r;
+    const dir = await direccionesDe(lugares);
+    if (!dir.size) return r;
+    for (const l of lugares) l.lugar = lugarConDireccion(l.lugar, dir.get(claveDeLugar(l.lat, l.lon)));
+    return r;
 }
 
 /** «del 20/11/2026 08:00 al 22/11/2026 18:30», en la hora del sitio. Lo dicen igual el Excel, el PDF y la pantalla. */

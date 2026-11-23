@@ -3,7 +3,7 @@ import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { leerClaves } from "@/lib/gps-reportes-catalogo";
-import { armarReporteGps } from "@/lib/gps-reportes-servidor";
+import { armarReporteGps, conDirecciones } from "@/lib/gps-reportes-servidor";
 import { leerMarca } from "@/lib/informes/marca";
 import { RECORRIDO_MAX_DIAS } from "@/lib/gps-filtro";
 import { paraInput } from "@/lib/fechas";
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     if (desde > new Date()) return NextResponse.json({ error: "El período todavía no empezó." }, { status: 400 });
 
     const t0 = Date.now();
-    const r = await armarReporteGps({ imeis, desde, hasta, claves: leerClaves(q.get("reportes")) });
+    const r = await conDirecciones(await armarReporteGps({ imeis, desde, hasta, claves: leerClaves(q.get("reportes")) }));
     if (!r.vehiculos.length) return NextResponse.json({ error: imeis ? "Ese rastreador no existe o no está dado de alta." : "No hay rastreadores dados de alta." }, { status: 404 });
     const marca = await leerMarca();
 
