@@ -44,7 +44,8 @@ const limpio = (x: string | undefined) => (x || "").trim() || null;
 export function textoDeDireccion(a: PartesOsm | null | undefined): Direccion | null {
     if (!a) return null;
     const via = limpio(a.road) || limpio(a.pedestrian) || limpio(a.residential) || limpio(a.footway) || limpio(a.cycleway) || limpio(a.path);
-    const numero = limpio(a.house_number);
+    /* El mapa a veces trae varios números para una misma puerta («3232,3232 BIS», «1104;1106»): alcanza con el primero. */
+    const numero = limpio((a.house_number || "").split(/[,;]/)[0]);
     const calle = via ? (numero ? `${via} ${numero}` : via) : null;
     const barrio = limpio(a.suburb) || limpio(a.neighbourhood) || limpio(a.quarter) || limpio(a.city_district);
     const ciudad = limpio(a.city) || limpio(a.town) || limpio(a.village) || limpio(a.hamlet) || limpio(a.municipality) || limpio(a.county) || limpio(a.state);

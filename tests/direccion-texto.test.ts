@@ -45,3 +45,8 @@ test("la geocerca manda y la dirección la ubica", () => {
     assert.equal(lugarConDireccion("a 300 m de Taller", null), "a 300 m de Taller");
     assert.equal(lugarConDireccion(null, null), null);
 });
+
+test("de varios números para una misma puerta va el primero", () => {
+    assert.equal(textoDeDireccion({ road: "Cavour", house_number: "3232,3232 BIS", suburb: "Parque Batlle", city: "Montevideo" })?.texto, "Cavour 3232, Parque Batlle, Montevideo");
+    assert.equal(textoDeDireccion({ road: "Félix Buxareo", house_number: "1104;1106" })?.calle, "Félix Buxareo 1104");
+});
