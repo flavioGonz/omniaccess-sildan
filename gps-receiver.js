@@ -116,6 +116,18 @@ function mandarComando(imei, texto, conIdioma = true) {
     return new Promise((resolver) => {
         const s = enLinea.get(imei);
         if (!s) return resolver({ ok: false, error: "El rastreador no está en línea." });
+        if (s.protocolo === "TOPFLY") {
+            /* A un TopFly, sólo las consultas de su lista (lib-topfly, CONSULTAS). Sin marca: su respuesta
+               no trae con qué emparejarla, y se le entrega al único comando que ese equipo tiene pendiente. */
+            if (!tf.CONSULTAS.has(texto)) return resolver({ ok: false, error: "Ese comando todavía no está en la lista de este modelo de rastreador." });
+            const marca = marcaSig = (marcaSig + 1) & 0x7fffffff;
+            const reloj = setTimeout(() => { esperando.delete(marca); resolver({ ok: false, error: "El rastreador no contestó a tiempo." }); }, ESPERA_RESPUESTA_MS);
+            esperando.set(marca, { resolver, reloj, imei });
+            const t = tf.comando(imei, texto);
+            log(imei, "COMANDO →", texto, t.toString("hex"));
+            s.write(t);
+            return;
+        }
         if (s.protocolo !== "GT06") return resolver({ ok: false, error: "Los comandos a este modelo de rastreador todavía no están hechos: se le mandan por SMS." });
         const marca = marcaSig = (marcaSig + 1) & 0x7fffffff;
         const reloj = setTimeout(() => { esperando.delete(marca); resolver({ ok: false, error: "El rastreador no contestó a tiempo." }); }, ESPERA_RESPUESTA_MS);
@@ -624,7 +636,7 @@ async function procesarTopfly(s, c, ip) {
                 const tipoC = m.tipo === "choque" ? "GPS_CHOQUE" : { frenada: "GPS_FRENADA", aceleracion: "GPS_ACELERACION", giro: "GPS_GIRO" }[m.que];
                 if (hora && evs.horaCreible(hora)) await alEvento(c.imei, tipoC, m.gps, `${m.gps.velocidad} km/h${m.rpm ? ` · ${m.rpm} rpm` : ""}`, null, hora);
             } else if (m.tipo === "respuesta") {
-                log(c.imei, "contestó:", m.texto);
+                alResponder(c.imei, m);
             }
         } catch (e) { log(c.imei || ip, "error guardando:", e.message); }
         /* Se acusa todo, también lo que todavía no se lee: lo que no se le acusa, el equipo lo

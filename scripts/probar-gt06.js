@@ -618,6 +618,12 @@ prueba("TopFly: una posición cortada no rompe, y lo que el equipo contesta a un
     const r = tf.leer(resp);
     assert.strictEqual(r.tipo, "respuesta"); assert.strictEqual(r.texto, "OK"); assert.strictEqual(tf.pideAcuse(r), false);
 });
+prueba("TopFly: el comando se arma como el ejemplo del fabricante (largo fijo en 16), y la lista es cerrada", () => {
+    /* Su documentación trae VERSION# para la familia 25 25: 25 25 81 00 10 00 01 | IMEI | 01 | el texto.
+       Acá es lo mismo con la cabecera de esta familia y el IMEI del equipo. */
+    assert.strictEqual(tf.comando("867284063826343", "VERSION#").toString("hex"), "2626810010000108672840638263430156455253494f4e23");
+    assert.ok(tf.CONSULTAS.has("VERSION#")); assert.ok(!tf.CONSULTAS.has("REBOOT#")); assert.strictEqual(tf.CONSULTAS.size, 1);
+});
 prueba("TopFly: un IMEI que no son quince dígitos no se da por bueno", () => {
     const t = H(TF_LOGIN); t[8] = 0xff;
     assert.strictEqual(tf.leer(t).ok, false);

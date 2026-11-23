@@ -414,7 +414,25 @@ function acuse(m) {
     return b;
 }
 
+/**
+ * Un comando al equipo: el mismo texto que se le manda por SMS, por la conexión que ya tiene abierta.
+ *   26 26 81 | 00 10 | 00 01 | IMEI(8) | 01 | el texto en ASCII
+ * El largo va SIEMPRE en 16: cuenta hasta el byte de clase y no el texto. Así lo arma el códec del
+ * fabricante y así es el ejemplo de su documentación (VERSION# para la familia 25 25); Traccar pone
+ * el largo de la trama entera. Se sigue al fabricante. El equipo contesta con un mensaje del mismo
+ * tipo y el texto en UTF-16 (ver `leer`, tipo «respuesta»).
+ */
+function comando(imei, texto) {
+    return Buffer.concat([Buffer.from([CABECERA, CABECERA, TIPO.RESPUESTA, 0x00, 0x10, 0x00, 0x01]), Buffer.from("0" + imei, "hex"), Buffer.from([0x01]), Buffer.from(texto, "latin1")]);
+}
+/**
+ * Lo único que se le puede mandar por ahora: consultas que no cambian nada en el equipo. La lista de
+ * comandos de este modelo no se tiene (hay que pedírsela al fabricante); VERSION# es el que trae su
+ * propia documentación como ejemplo. Lista cerrada, como con el GT06: acá no entra texto libre.
+ */
+const CONSULTAS = new Set(["VERSION#"]);
+
 /** Lo que el equipo contesta a un comando no se acusa: es él el que está contestando. */
 const pideAcuse = (m) => m.tipo !== "respuesta";
 
-module.exports = { esInicio, partir, leer, acuse, pideAcuse, eventoDeAlarma, rayas, TIPO, SOBRE, SATS_MIN };
+module.exports = { esInicio, partir, leer, acuse, pideAcuse, eventoDeAlarma, rayas, comando, CONSULTAS, TIPO, SOBRE, SATS_MIN };

@@ -220,9 +220,18 @@ const conectar = () => new Promise((ok) => { const s = net.connect(21341, "127.0
     sf.write(hx("26260900220031086728406382634326090915423755aa80084801410a7c7c7c0d0a")); await dormir(100);
     assert.strictEqual(sf.recibido.at(-1), "262609000f00310867284063826343");
     assert.ok(!sf.cerrado, "la conexión sigue abierta");
-    // y un comando a un TopFly se rechaza con una explicación
+    // un comando que no está en la lista de este modelo se rechaza con una explicación, y no viaja
+    const nAntes = sf.recibido.length;
     const comF = await (await fetch("http://127.0.0.1:21013/comando", { method: "POST", body: JSON.stringify({ imei: F, texto: "STATUS#" }) })).json();
-    assert.strictEqual(comF.ok, false); assert.match(comF.error, /todavía no/);
+    assert.strictEqual(comF.ok, false); assert.match(comF.error, /todavía no/); assert.strictEqual(sf.recibido.length, nAntes);
+    // la consulta de la lista sí: viaja armada como el ejemplo del fabricante, y lo que contesta el equipo vuelve
+    const pedido = fetch("http://127.0.0.1:21013/comando", { method: "POST", body: JSON.stringify({ imei: F, texto: "VERSION#" }) }).then((x) => x.json());
+    await dormir(120);
+    assert.strictEqual(sf.recibido.at(-1), "2626810010000108672840638263430156455253494f4e23");
+    const dicho = Buffer.from("IMEI:867284063826343 APP:V1.0", "utf16le");
+    sf.write(Buffer.concat([hx("262681"), Buffer.from([0, 16 + dicho.length]), hx("0001"), hx("0" + F), Buffer.from([0x01]), dicho]));
+    const resp = await pedido;
+    assert.strictEqual(resp.ok, true); assert.match(resp.respuesta, /APP:V1\.0/);
     sf.destroy(); await dormir(80);
 
     // ── los que no están aceptados ──
