@@ -27,7 +27,7 @@ import { contarCensoPendiente } from "@/app/actions/censo";
 import { hayRastreadoresGps } from "@/app/actions/gps";
 import { activoDe, armarMenu, hojasDe } from "@/lib/menu";
 import { MenuLateral } from "@/components/menu/MenuLateral";
-import { Buscador, BotonBuscar } from "@/components/menu/Buscador";
+import { Buscador } from "@/components/menu/Buscador";
 import { useMenuLateral } from "@/hooks/useMenuLateral";
 import { DONDE_VALE } from "@/lib/menu-estado";
 import { Pista } from "@/components/ui/pista";
@@ -185,9 +185,6 @@ export default function AdminLayout({
                     )}
                 </div>
 
-                {/* El buscador, fijo arriba de la lista: no se va al desplazarla (Ctrl K lo abre desde cualquier lado). */}
-                {listoMenu && <div className={cn("shrink-0 px-2 pt-2.5", collapsed && "pt-2")}><BotonBuscar plegado={collapsed} /></div>}
-
                 <nav className="flex-1 overflow-y-auto px-2 pb-3 pt-2 custom-scrollbar" aria-label="Menú de OmniAccess">
                     {!listoMenu ? <EsqueletoMenu collapsed={collapsed} /> : (
                         /* Qué entradas hay lo dice lib/menu.ts; cómo se ven, components/menu/MenuLateral. */
@@ -279,7 +276,8 @@ export default function AdminLayout({
             {/* Los eventos de las centrales de alarma: su propia ficha, que se trata (22/10). */}
             {gestionOn && <AlertaCentralGlobal />}
             {/* Los avisos de toda la app, en una sola pila abajo al centro (20/10): intrusión, lista negra, merodeo, patrones y OmniVision. */}
-            {/* El buscador de pantallas: sale del mismo árbol que el menú, así que no ofrece nada que el rol no vea ahí. */}
+            {/* El buscador de pantallas (Ctrl K): sale del mismo árbol que el menú, así que no ofrece nada que el rol no
+                vea ahí. No tiene botón en el menú: Nico lo sacó de ahí el mismo día (23/11). */}
             {listoMenu && <Buscador hojas={hojasDe(arbol)} />}
             <AvisosLpr />
             <PilaAvisos />

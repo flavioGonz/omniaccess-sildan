@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import type { HojaConGrupo } from "@/lib/menu";
 import { buscarPantallas } from "@/lib/menu-buscar";
 import { ICONOS_MENU } from "@/components/menu/MenuLateral";
-import { cn } from "@/lib/utils";
 
 /**
  * El buscador del panel (23/11): Ctrl K desde cualquier pantalla, escribir dos letras, Enter.
@@ -24,15 +22,15 @@ import { cn } from "@/lib/utils";
  * lista se le apaga el filtro de la pieza porque el nuestro ignora tildes y conoce los sinónimos
  * («cámaras» → Monitor CCTV), y porque el paso que sigue trae matrículas, personas y tags del
  * servidor, que ya vienen filtrados.
+ *
+ * No tiene un botón en el menú. Lo tuvo unas horas —una caja «Buscar…» arriba de la lista, como en
+ * el menú de Cloudflare— y Nico la sacó («pensándolo bien, retirá el buscador del sidebar»): se abre
+ * con el atajo, o desde la pantalla que quiera ofrecerlo con `abrirBuscador()`.
  */
 
 /** Cualquier pantalla puede abrirlo: `window.dispatchEvent(new Event("oa:buscar"))`. */
 const PEDIDO = "oa:buscar";
 export const abrirBuscador = () => window.dispatchEvent(new Event(PEDIDO));
-
-/* En una Mac la tecla es ⌘. El servidor no sabe qué teclado hay: dice «Ctrl K» y el navegador corrige. */
-const nunca = () => () => { };
-const useEsMac = () => useSyncExternalStore(nunca, () => /Mac|iPhone|iPad/i.test(navigator.platform || ""), () => false);
 
 export function Buscador({ hojas }: { hojas: HojaConGrupo[] }) {
     const router = useRouter();
@@ -101,27 +99,4 @@ export function Buscador({ hojas }: { hojas: HojaConGrupo[] }) {
 
 function Tecla({ children }: { children: React.ReactNode }) {
     return <kbd className="rounded border border-border bg-muted/60 px-1.5 py-px font-sans text-[10.5px] font-medium text-foreground/80">{children}</kbd>;
-}
-
-/** El botón que lo abre, arriba del menú. Plegado, la lupa sola. */
-export function BotonBuscar({ plegado }: { plegado: boolean }) {
-    const mac = useEsMac();
-    if (plegado) {
-        return (
-            <button type="button" onClick={abrirBuscador} title={`Buscar una pantalla (${mac ? "⌘" : "Ctrl "}K)`} aria-label="Buscar una pantalla"
-                className="mx-auto grid h-9 w-[54px] place-items-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-accent/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--accion)]">
-                <Search size={16} strokeWidth={1.7} />
-            </button>
-        );
-    }
-    return (
-        <button type="button" onClick={abrirBuscador} aria-label="Buscar una pantalla"
-            className={cn("flex h-9 w-full items-center gap-2.5 rounded-lg border border-border bg-background px-2.5 text-left text-[13.5px] text-muted-foreground outline-none transition-colors",
-                "hover:border-foreground/25 hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--accion)]")}>
-            <Search size={15} strokeWidth={1.7} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate">Buscar…</span>
-            {/* El atajo, donde hay teclado. */}
-            <kbd className="shrink-0 rounded border border-border px-1.5 font-sans text-[10.5px] font-medium leading-[17px] max-sm:hidden">{mac ? "⌘K" : "Ctrl K"}</kbd>
-        </button>
-    );
 }
