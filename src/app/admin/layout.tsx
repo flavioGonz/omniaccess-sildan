@@ -3,56 +3,13 @@
 import { useFuncion } from "@/lib/funciones-cliente";
 import { hayEquiposDeAcceso } from "@/app/actions/bitacora-equipos";
 import React, { useRef, useState, useEffect } from "react";
-import { pantallaInicio } from "@/lib/landing";
 import { useSessionRole } from "@/hooks/useSessionRole";
 import { OnlineUsersWidget } from "@/components/OnlineUsersWidget";
 import { GpuPulso } from "@/components/GpuPulso";
 import { OmniLogo } from "@/components/brand/OmniLogo";
 import LiveEdgeKeeper from "@/components/LiveEdgeKeeper";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import {
-    LayoutDashboard,
-    Radar,
-    Siren, Cctv,
-    Users,
-    Car,
-    Settings,
-    ShieldCheck,
-    History,
-    DoorOpen,
-    HelpCircle,
-    LayoutGrid,
-    Map,
-    Video,
-    ScanFace,
-    Calendar,
-    ChevronLeft,
-    PanelLeftClose,
-    Pin,
-    ChevronRight,
-    Menu,
-    Activity,
-    CreditCard,
-    AlignHorizontalJustifyCenter,
-    TrendingUp,
-    Bell,
-    Send,
-    FileBarChart, Clock,
-    Rows3,
-    LogOut,
-    SlidersHorizontal,
-    Building2,
-    Map as MapIcon,
-    Sparkles,
-    Ticket,
-    MonitorPlay,
-    Ban,
-    FileSearch,
-    Search,
-    ScanEye, ClipboardList, FileVideo,
-    Satellite,
-} from "lucide-react";
+import { ShieldCheck, ChevronLeft, PanelLeftClose, Pin, ChevronRight, LogOut } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
@@ -65,52 +22,16 @@ import { AvisosLpr } from "@/components/avisos/AvisosLpr";
 import { CargarMarcasCamara } from "@/components/CargarMarcasCamara";
 import { VivoProvider } from "@/components/vivo/PanelVivo";
 
-interface SidebarItemProps {
-    icon: React.ReactNode;
-    label: string;
-    href: string;
-    active: boolean;
-    collapsed: boolean;
-}
-
 /** El ancho del menú desplegado (w-64) y cuánto más allá puede irse el mouse sin que se esconda. */
 const MENU_ANCHO_PX = 256;
 const MENU_MARGEN_PX = 28;
 
-function SidebarItem({ icon, label, href, active, collapsed, insignia, tonoInsignia = "mal" }: SidebarItemProps & { insignia?: number; tonoInsignia?: "mal" | "aviso" }) {
-    return (
-        <Link
-            href={href}
-            className={cn(
-                "flex items-center gap-3 px-3 py-2 text-xs font-medium rounded-lg transition-all group relative",
-                active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                collapsed && "justify-center px-2"
-            )}
-        >
-            <div className={cn("shrink-0", active ? "text-blue-500" : "group-hover:text-blue-400")}>
-                {icon}
-            </div>
-            {!collapsed && (
-                <span className="whitespace-nowrap transition-opacity duration-300">{label}</span>
-            )}
-            {/* Una cuenta que importa: a la derecha, en el tono de su lista (rojo la negra, ámbar la
-                amarilla); plegado, un punto sobre el ícono. */}
-            {!!insignia && (collapsed
-                ? <span className={cn("absolute top-1 right-1 h-2 w-2 rounded-full", tonoInsignia === "aviso" ? "bg-[var(--aviso)]" : "bg-[var(--mal)]")} />
-                : <span className={cn("ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full text-[10px] font-bold tabular-nums grid place-items-center", tonoInsignia === "aviso" ? "pleno-aviso" : "pleno-mal")}>{insignia > 99 ? "99+" : insignia}</span>)}
-            {collapsed && (
-                <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-popover border border-border text-popover-foreground text-[10px] uppercase font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 whitespace-nowrap">
-                    {label}
-                </div>
-            )}
-        </Link>
-    );
-}
-
-import { getSetting } from "@/app/actions/settings";
 import { contarListaNegra, contarListaAmarilla } from "@/app/actions/watchlist";
 import { contarCensoPendiente } from "@/app/actions/censo";
 import { hayRastreadoresGps } from "@/app/actions/gps";
+import { activoDe, armarMenu } from "@/lib/menu";
+import { MenuLateral } from "@/components/menu/MenuLateral";
+import { SECCIONES_OMNIVISION } from "@/components/vision/NavOmniVision";
 
 export default function AdminLayout({
     children,
@@ -126,8 +47,6 @@ export default function AdminLayout({
     const recepcionOn = useFuncion("FUNC_ALARMAS_RECEPCION") === true;
     const gestionOn = useFuncion("FUNC_ALARMAS_GESTION") === true;
     const searchParams = useSearchParams();
-    // La pestaña Lista negra tiene su entrada en el menú: las dos viven en /admin/users.
-    const enListaNegra = pathname === "/admin/users" && searchParams?.get("tab") === "listanegra";
     // Y la Lista Amarilla la suya (12/11, Nico), sólo con la función de LPR prendida.
     const amarillaOn = useFuncion("LPR_BUSQUEDA") === true;
     const censoOn = useFuncion("PADRON_CENSO") === true;
@@ -139,7 +58,6 @@ export default function AdminLayout({
        cambiar de pantalla, así aparece sola después de dar de alta el primero en Dispositivos. */
     const [hayGps, setHayGps] = useState(false);
     useEffect(() => { hayRastreadoresGps().then(setHayGps).catch(() => { }); }, [pathname]);
-    const enListaAmarilla = pathname === "/admin/users" && searchParams?.get("tab") === "listaamarilla";
     const router = useRouter();
     const [angosto, setCollapsed] = useState(false);
     /*
@@ -201,11 +119,9 @@ export default function AdminLayout({
         window.addEventListener("keydown", k); window.addEventListener("mousemove", m);
         return () => { window.removeEventListener("keydown", k); window.removeEventListener("mousemove", m); };
     }, [asomado]); // eslint-disable-line react-hooks/exhaustive-deps
-    const { role: sessionRole, loaded: roleLoaded, tiene, puede } = useSessionRole();
-    const isAdmin = sessionRole === "ADMIN";
     // El menú se arma por permiso del rol de aplicación (lib/permisos), no por "es admin":
-    // cada ítem pregunta por la clave de su pantalla. `ve` es sólo azúcar para leerlo.
-    const ve = tiene;
+    // cada entrada pregunta si el rol puede abrir su pantalla (lib/menu.ts).
+    const { loaded: roleLoaded, tiene, puede } = useSessionRole();
     const [loggingOut, setLoggingOut] = useState(false);
     const [modules, setModules] = useState<Record<ModuleId, boolean>>({
         MODULE_LPR: true,
@@ -238,6 +154,18 @@ export default function AdminLayout({
     useEffect(() => {
         getEnabledModules().then(setModules).catch(() => { }).finally(() => setModulosListos(true));
     }, []);
+
+    /* El menú de esta instalación para este rol (lib/menu.ts tiene el árbol y el porqué de su orden).
+       Se arma en cada dibujo: son cincuenta renglones, y memorizarlo pediría que `puede` no cambiara. */
+    const arbol = armarMenu({
+        modos: { lpr: modules.MODULE_LPR, rostro: modules.MODULE_FACE, filas: modules.MODULE_QUEUE, guardia: modules.MODULE_GUARD },
+        func: { intrusion: intrusionOn, recepcion: recepcionOn, amarilla: amarillaOn, censo: censoOn, plazas: plazasOn === true },
+        hay: { accesos: hayAccesos, gps: hayGps },
+        cuentas: { negra: enListaNegraN, amarilla: enListaAmarillaN, censo: censoPendienteN },
+        puede, tiene,
+        omnivision: SECCIONES_OMNIVISION.map((x) => ({ href: x.href, rotulo: x.rotulo })),
+    });
+    const activoMenu = activoDe(arbol, pathname || "", searchParams?.toString() || "");
 
     const handleLogout = async () => {
         setLoggingOut(true);
@@ -295,12 +223,9 @@ export default function AdminLayout({
                     <div className={cn("flex items-center gap-2 overflow-hidden transition-all", collapsed ? "w-0 opacity-0" : "w-auto opacity-100")}>
                         <OmniLogo size={24} className="shrink-0" />
                         <div className="whitespace-nowrap">
-                            <h2 className="text-xs font-bold text-foreground uppercase tracking-[0.2em]">
-                                OmniAccess
-                            </h2>
-                            <p className={cn("text-[8px] font-bold uppercase tracking-widest", modules.MODULE_QUEUE ? "text-violet-500" : "text-muted-foreground")}>
-                                {modules.MODULE_QUEUE ? "Control de Filas" : "Control y acceso"}
-                            </p>
+                            {/* El nombre escrito normal y la bajada en gris: sin mayúsculas espaciadas ni un color por modo. */}
+                            <h2 className="text-[14px] font-semibold leading-tight text-foreground">OmniAccess</h2>
+                            <p className="text-[11.5px] leading-tight text-muted-foreground">{modules.MODULE_QUEUE ? "Control de filas" : "Control y acceso"}</p>
                         </div>
                     </div>
 
@@ -326,130 +251,10 @@ export default function AdminLayout({
                     )}
                 </div>
 
-                <nav className="flex-1 p-3 space-y-1 overflow-y-auto custom-scrollbar">
+                <nav className="flex-1 overflow-y-auto px-2 pb-3 pt-2 custom-scrollbar" aria-label="Menú de OmniAccess">
                     {!(modulosListos && roleLoaded) ? <EsqueletoMenu collapsed={collapsed} /> : (<>
-                    {modules.MODULE_QUEUE ? (
-                        puede("/admin/monitor-queue") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-queue" active={pathname === "/admin/monitor-queue"} collapsed={collapsed} />)
-                    ) : modules.MODULE_FACE ? (
-                        puede("/admin/monitor-face") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-face" active={pathname === "/admin/monitor-face"} collapsed={collapsed} />)
-                    ) : (
-                        puede("/admin/monitor-lpr") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor LPR" href="/admin/monitor-lpr" active={pathname === "/admin/monitor-lpr"} collapsed={collapsed} />)
-                    )}
-                    {/* Los monitores juntos y en este orden (21/10, Nico): LPR, Intrusión, CCTV. */}
-                    {intrusionOn && puede("/admin/monitor-intrusion") && (<SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />)}
-                    {!modules.MODULE_QUEUE && (
-                        puede("/admin/monitor-cctv") && (<SidebarItem icon={<Cctv size={18} />} label="Monitor CCTV" href="/admin/monitor-cctv" active={pathname === "/admin/monitor-cctv"} collapsed={collapsed} />)
-                    )}
-                    {/* Gestión de alarmas también junta lo de LPR (atención, presencia): sigue en Matrículas y Rostro
-                        como antes, y en Filas aparece si hay intrusión o centrales. */}
-                    {(!modules.MODULE_QUEUE || intrusionOn || recepcionOn) && puede("/admin/alarmas") && (<SidebarItem icon={<Siren size={18} />} label="Gestión de alarmas" href="/admin/alarmas" active={pathname === "/admin/alarmas"} collapsed={collapsed} />)}
-                    {modules.MODULE_QUEUE ? (
-                        puede("/admin/flujo-filas") && (<SidebarItem icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />)
-                    ) : (
-                        puede("/admin/history") && (<SidebarItem icon={<History size={18} />} label="Historial de Acceso" href="/admin/history" active={pathname === "/admin/history"} collapsed={collapsed} />)
-                    )}
-                    {/* Porteros y controles de acceso: su propia bitácora, cuando hay alguno (18/11). El
-                        Historial es de matrículas; acá el sujeto es una persona frente a una puerta. */}
-                    {hayAccesos && puede("/admin/bitacora-equipos") && (<SidebarItem icon={<DoorOpen size={18} />} label="Bitácora de equipos" href="/admin/bitacora-equipos" active={pathname === "/admin/bitacora-equipos"} collapsed={collapsed} />)}
-                    {/* La flota con rastreador: vehículos, zonas, reportes, comandos y ajustes, en una sola entrada (23/11). */}
-                    {hayGps && puede("/admin/gps") && (<SidebarItem icon={<Satellite size={18} />} label="Gestión GPS" href="/admin/gps" active={!!pathname?.startsWith("/admin/gps")} collapsed={collapsed} />)}
-                    {/* Lo grabado y lo mandado, en un solo lugar (16/11). Con el permiso de grabaciones. */}
-                    {puede("/admin/evidencias") && (<SidebarItem icon={<FileVideo size={18} />} label="Evidencias" href="/admin/evidencias" active={pathname === "/admin/evidencias"} collapsed={collapsed} />)}
-                    {modules.MODULE_QUEUE && (
-                        puede("/admin/mapas") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapas" href="/admin/mapas" active={pathname === "/admin/mapas"} collapsed={collapsed} />)
-                    )}
-                    {/* Con Filas, Monitores sigue arriba (ese barrio no tiene sección Gestión); si no, va en Gestión. */}
-                    {modules.MODULE_QUEUE && puede("/admin/monitores") && (<SidebarItem icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />)}
-
-                    {!modules.MODULE_QUEUE && (
-                        <>
-                            {!collapsed && <div className="pt-3 pb-1 px-3 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider transition-opacity">Gestión</div>}
-                            {collapsed && <div className="my-2 border-t border-border" />}
-                            {puede("/admin/users") && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users" && !enListaNegra && !enListaAmarilla} collapsed={collapsed} />)}
-                            {/* Monitores y Mapa pasaron a Gestión (21/10, Nico): arriba quedan sólo los monitores en vivo. */}
-                            {puede("/admin/monitores") && (<SidebarItem icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />)}
-                            {puede("/admin/mapa") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapa" href="/admin/mapa" active={pathname === "/admin/mapa"} collapsed={collapsed} />)}
-                            {/* Entrada propia (San Nicolás, 15/10): desde que la «Lista de vigilancia» pasó a ser una pestaña
-                                de Usuarios, la guardia no la encontraba. Es lo que más se busca con apuro. */}
-                            {puede("/admin/users") && (<SidebarItem icon={<Ban size={18} />} label="Lista negra" href="/admin/users?tab=listanegra" active={enListaNegra} collapsed={collapsed} insignia={enListaNegraN} />)}
-                            {amarillaOn && puede("/admin/users") && (<SidebarItem icon={<Search size={18} />} label="Lista Amarilla" href="/admin/users?tab=listaamarilla" active={enListaAmarilla} collapsed={collapsed} insignia={enListaAmarillaN} tonoInsignia="aviso" />)}
-                            {puede("/admin/units") && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
-                            {/* Las comisiones del complejo (21/11): sus contactos, lo que contratan y sus lotes. */}
-                            {puede("/admin/administraciones") && (<SidebarItem icon={<Building2 size={18} />} label="Administraciones" href="/admin/administraciones" active={pathname === "/admin/administraciones"} collapsed={collapsed} />)}
-                            {/* El censo del barrio: lo que carga cada lote desde el QR, esperando que alguien lo apruebe. */}
-                            {censoOn && puede("/admin/censo") && (<SidebarItem icon={<ClipboardList size={18} />} label="Censo" href="/admin/censo" active={pathname === "/admin/censo"} collapsed={collapsed} insignia={censoPendienteN} tonoInsignia="aviso" />)}
-                            {/* Una sola entrada para toda la flota.
-                                Antes había tres —una por módulo—, y cada una llevaba su propio
-                                `?type=`. O sea que desde el menú NUNCA se llegaba a la lista
-                                completa: se entraba siempre filtrado, y la pestaña "Todos" había
-                                que ir a buscarla. Además el `active` de las tres comparaba
-                                `pathname` contra "type=LPR", y usePathname() no devuelve la query
-                                — asi que ninguna de las tres se marcaba nunca como elegida.
-                                Los dispositivos no son de un módulo: son el parque. */}
-                            {puede("/admin/devices") && (<SidebarItem icon={<Video size={18} />} label="Dispositivos" href="/admin/devices" active={!!pathname?.startsWith("/admin/devices")} collapsed={collapsed} />)}
-                            {puede("/admin/calendar") && (<SidebarItem icon={<Calendar size={18} />} label="Calendario" href="/admin/calendar" active={pathname === "/admin/calendar"} collapsed={collapsed} />)}
-                            {modules.MODULE_LPR && puede("/admin/invitados") && (<SidebarItem icon={<Ticket size={18} />} label="Invitados" href="/admin/invitados" active={pathname === "/admin/invitados"} collapsed={collapsed} />)}
-                        </>
-                    )}
-
-                    {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
-                        <>
-                            {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-amber-500/60 uppercase tracking-widest">LPR</div>}
-                            {puede("/admin/vehicles") && (<SidebarItem icon={<Car size={18} />} label="Vehículos / Matrículas" href="/admin/vehicles" active={pathname === "/admin/vehicles" || pathname === "/admin/credentials"} collapsed={collapsed} />)}
-                            {puede("/admin/lecturas-camara") && (<SidebarItem icon={<FileSearch size={18} />} label="Lecturas de cámara" href="/admin/lecturas-camara" active={pathname === "/admin/lecturas-camara"} collapsed={collapsed} />)}
-                            {/* «Búsqueda inteligente» salió del menú (21/10): mezclaba la búsqueda propia con la del grabador.
-                                Ahora vive en el buscador del Historial, con un botón por motor (OmniVision, Grabador IA). */}
-                        </>
-                    )}
-
-                    {modules.MODULE_FACE && !modules.MODULE_QUEUE && (
-                        <>
-                            {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-teal-500/60 uppercase tracking-widest">Face</div>}
-                        </>
-                    )}
-
-                    {modules.MODULE_QUEUE && (
-                        <>
-                            {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-violet-500/60 uppercase tracking-widest">Filas</div>}
-                            {puede("/admin/filas") && (<SidebarItem icon={<Rows3 size={18} />} label="Filas" href="/admin/filas" active={pathname === "/admin/filas"} collapsed={collapsed} />)}
-                            {puede("/admin/despachos") && (<SidebarItem icon={<Send size={18} />} label="Despachos" href="/admin/despachos" active={pathname === "/admin/despachos"} collapsed={collapsed} />)}
-                            {puede("/admin/reportes-queue") && (<SidebarItem icon={<FileBarChart size={18} />} label="Reportes" href="/admin/reportes-queue" active={pathname === "/admin/reportes-queue"} collapsed={collapsed} />)}
-                            {puede("/admin/horarios-filas") && (<SidebarItem icon={<Calendar size={18} />} label="Horarios de Filas" href="/admin/horarios-filas" active={pathname === "/admin/horarios-filas"} collapsed={collapsed} />)}
-                            {puede("/admin/kiosko") && (<SidebarItem icon={<LayoutGrid size={18} />} label="Pantalla / Kiosko" href="/admin/kiosko" active={pathname === "/admin/kiosko"} collapsed={collapsed} />)}
-                            {puede("/admin/calibracion-aforo") && (<SidebarItem icon={<SlidersHorizontal size={18} />} label="Calibración" href="/admin/calibracion-aforo" active={pathname === "/admin/calibracion-aforo"} collapsed={collapsed} />)}
-                        </>
-                    )}
-
-                    {!modules.MODULE_QUEUE && (
-                        <>
-                            {puede("/admin/rfid") && (<SidebarItem icon={<CreditCard size={18} />} label="Tags RFID" href="/admin/rfid" active={pathname === "/admin/rfid"} collapsed={collapsed} />)}
-                            {puede("/admin/groups") && (<SidebarItem icon={<Users size={18} />} label="Grupos de Acceso" href="/admin/groups" active={pathname === "/admin/groups"} collapsed={collapsed} />)}
-                        </>
-                    )}
-
-                    {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
-                        puede("/admin/plazas") && plazasOn && (<SidebarItem icon={<LayoutGrid size={18} />} label="Plazas de Parking" href="/admin/plazas" active={pathname === "/admin/plazas"} collapsed={collapsed} />)
-                    )}
-
-                    {modules.MODULE_LPR && modules.MODULE_GUARD && (
-                        <>
-                            {!collapsed && <div className="pt-3 pb-1 px-3 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider transition-opacity">Guardia</div>}
-                            {collapsed && <div className="my-2 border-t border-border" />}
-                            {ve("guardia") && (<SidebarItem icon={<ShieldCheck size={18} />} label="Consola de Guardia" href="/guard" active={pathname === "/guard"} collapsed={collapsed} />)}
-                            {puede("/admin/bitacora") && (<SidebarItem icon={<FileBarChart size={18} />} label="Bitácora" href="/admin/bitacora" active={pathname === "/admin/bitacora"} collapsed={collapsed} />)}
-                            {puede("/admin/visitas") && (<SidebarItem icon={<Clock size={18} />} label="Visitas" href="/admin/visitas" active={pathname === "/admin/visitas"} collapsed={collapsed} />)}
-                            {puede("/admin/consolas") && (<SidebarItem icon={<ShieldCheck size={18} />} label="Consola / Puesto" href="/admin/consolas" active={pathname === "/admin/consolas"} collapsed={collapsed} />)}
-                        </>
-                    )}
-
-                    <div className="my-2 border-t border-border" />
-                    {/* Manuales salió de acá (21/10, Nico): es una entrada del menú de Configuración, y
-                        mientras se está en él queda marcada Configuración. */}
-                    {/* OmniVision y Auditoría viven dentro de Configuración; quien los tiene sin Ajustes (un
-                        operador de monitoreo, un auditor) no tendría por dónde entrar (roles-y-permisos). */}
-                    {!puede("/admin/settings") && puede("/admin/vision") && (<SidebarItem icon={<ScanEye size={18} />} label="OmniVision" href="/admin/vision" active={!!pathname?.startsWith("/admin/vision")} collapsed={collapsed} />)}
-                    {!puede("/admin/settings") && puede("/admin/audit") && (<SidebarItem icon={<ClipboardList size={18} />} label="Auditoría" href="/admin/audit" active={pathname === "/admin/audit"} collapsed={collapsed} />)}
-                    {puede("/admin/settings") && (<SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings" || pathname === "/admin/manuales"} collapsed={collapsed} />)}
+                    {/* Qué entradas hay lo dice lib/menu.ts; cómo se ven, components/menu/MenuLateral. */}
+                    <MenuLateral menu={arbol} activo={activoMenu} plegado={collapsed} />
                                     </>)}
                 </nav>
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Car, CircleDashed, FileSpreadsheet, Map as MapaIcono, Menu, SlidersHorizontal, TerminalSquare } from "lucide-react";
 import { rastreadoresGps, type Rastreador } from "@/app/actions/gps";
 import { Cargando, ErrorEstado } from "@/components/ui/estados";
@@ -52,18 +53,12 @@ export function GestionGps() {
     /** El vehículo con el que se llega a Comandos o a Reportes desde su ficha. */
     const [imei, setImei] = useState<string | null>(null);
 
-    /* La dirección manda al entrar; después se la va escribiendo sin recargar. Se lee en un efecto y
-       no con useSearchParams, que obliga a toda la página a esperar en el servidor. */
-    useEffect(() => {
-        const leer = () => {
-            const q = new URLSearchParams(window.location.search);
-            const t = q.get("t");
-            setPestana(esPestana(t) ? t : "vehiculos"); setImei(q.get("v"));
-        };
-        leer();
-        window.addEventListener("popstate", leer);
-        return () => window.removeEventListener("popstate", leer);
-    }, []);
+    /* La dirección manda: al entrar, al volver atrás y cuando el menú lateral lleva a otra pestaña de
+       esta misma pantalla (cada pestaña es un sub-elemento del módulo, con su enlace). Next mantiene
+       `useSearchParams` al día también con lo que se escribe acá con pushState. */
+    const consulta = useSearchParams();
+    const tUrl = consulta?.get("t") ?? null, vUrl = consulta?.get("v") ?? null;
+    useEffect(() => { setPestana(esPestana(tUrl) ? tUrl : "vehiculos"); setImei(vUrl); }, [tUrl, vUrl]);
     const ir = useCallback((t: Pestana, v: string | null = null) => {
         setPestana(t); setImei(v);
         const q = new URLSearchParams();
