@@ -484,9 +484,9 @@ prueba("TopFly: lo que le lee al motor por OBD en una trama real, y nada cuando 
     /* Un motor en marcha lenta: los cinco números cierran entre sí. */
     assert.deepStrictEqual(tf.leer(H(TF_POS_MOTOR)).motor, { rpm: 1395, agua: 96, carga: 8, acelerador: 14, presion: 46 });
     assert.strictEqual(tf.leer(H(TF_POS_PARADO)).motor, undefined);                    // todo en FF: no hay dato
-    // Con el motor parado las temperaturas llegan en cero crudo: no se informan como −40 °C.
+    // Con el motor parado el vehículo contesta ceros en todo: no se informan como medidas.
     const parado = tf.leer(H(TF_CORTE)).motor;
-    assert.strictEqual(parado.rpm, 0); assert.strictEqual(parado.agua, undefined); assert.strictEqual(parado.aire, undefined);
+    assert.deepStrictEqual(parado, { rpm: 0 });                                        // ni 0 % de carga ni 0 kPa: sólo que no gira
     // El combustible sólo cuando viene en porcentaje, y el consumo no se lee (la unidad no cierra).
     const con = H(TF_POS_MOTOR); con[15 + 67] = 62; assert.strictEqual(tf.leer(con).motor.combustible, 62);
     con[15 + 67] = 0x80 | 40; assert.strictEqual(tf.leer(con).motor.combustible, undefined);

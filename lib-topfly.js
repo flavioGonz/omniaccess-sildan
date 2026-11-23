@@ -237,13 +237,15 @@ function motorDe(c) {
     if (c.length < 68) return {};
     const rpm = c.readUInt16BE(59);
     if (rpm === 0xffff) return {};
+    /* Motor parado: el vehículo contesta ceros en todo (visto al apagarlo: 0 % de carga, 0 kPa en la
+       admisión, que no existe). Lo único cierto ahí es que no gira. */
+    if (rpm === 0) return { motor: { rpm: 0 } };
     const dato = (o, f = (v) => v) => (c[o] === 0xff ? undefined : f(c[o]));
     const nivel = c[67];
     const motor = {
         rpm,
-        /* Con el motor parado las temperaturas llegan en cero crudo (−40 °C): no son una medida. */
-        agua: rpm > 0 ? dato(63, (v) => v - 40) : undefined,
-        aire: rpm > 0 ? dato(64, (v) => v - 40) : undefined,
+        agua: dato(63, (v) => v - 40),
+        aire: dato(64, (v) => v - 40),
         carga: dato(65), acelerador: dato(66), presion: dato(62),
         /* El nivel de combustible, sólo cuando viene en porcentaje (el bit alto dice que son litros). */
         combustible: nivel !== 0xff && !(nivel & 0x80) ? nivel : undefined,
