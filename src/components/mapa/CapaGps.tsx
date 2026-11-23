@@ -28,7 +28,10 @@ import { crearCamara, ponerFino } from "@/lib/mapa-fino";
 import { lugarConDireccion } from "@/lib/direccion-texto";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";
-import { PanelObdGps, tieneObd } from "@/components/mapa/PanelObdGps";
+import { ANCHO_OBD, PanelObdGps, tieneObd } from "@/components/mapa/PanelObdGps";
+
+/** Hasta dónde se abre el globo de un vehículo: la columna del estado, la del motor y el aire entre las dos. */
+const ANCHO_GLOBO = 262 + 12 + ANCHO_OBD + 14;
 import { fechaCorta, fechaHora, hace, horaSeg, limitesDelDia } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 
@@ -122,6 +125,8 @@ const TRAMOS: { clave: string; rotulo: string }[] = [
 
 export function CapaGps() {
     const mapa = useMap();
+    /* En una pantalla donde las dos columnas del globo no entran lado a lado (un teléfono), la del motor va debajo. */
+    const globoAngosto = typeof window !== "undefined" && window.innerWidth < ANCHO_GLOBO + 90;
     const [lista, setLista] = useState<Rastreador[]>([]);
     /** El recorrido a la vista: de quién, de cuántas horas, y lo que trajo el servidor. */
     /** El recorrido a la vista: de las últimas `horas`, o de un `rango` con fecha y hora (su «hasta» nulo es hasta ahora). */
@@ -506,12 +511,15 @@ export function CapaGps() {
                             setMenu({ imei: r.imei, x: Math.min(oe.clientX, window.innerWidth - 250), y: Math.min(oe.clientY, window.innerHeight - 380) });
                         },
                     }}>
-                    {/* Con un rastreador que lee el motor, el globo lleva acoplado a la derecha su tablero (PanelObdGps).
-                        El ancho máximo se abre para que entren los dos; en una pantalla angosta no entran lado
-                        a lado y el tablero baja debajo. */}
-                    <Popup maxWidth={tieneObd(r) ? Math.min(540, (typeof window === "undefined" ? 540 : window.innerWidth) - 48) : 300}>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-start" }}>
-                        <div style={{ font: "13px/1.45 Outfit,system-ui,sans-serif", minWidth: 215, flex: "1 1 215px", maxWidth: 270 }}>
+                    {/* Con un rastreador que lee el motor, el globo lleva acoplada a la derecha la columna del motor
+                        (PanelObdGps). El ancho máximo va SIEMPRE abierto: Leaflet lo toma al crear el globo y no lo
+                        vuelve a mirar, así que atarlo a «tiene datos del motor» dejaba el globo en sus 300 px de
+                        fábrica y la columna caía abajo (lo que Nico mostró en la captura). Un globo sin esa columna
+                        igual mide lo que mide su contenido. Sólo en una pantalla angosta va debajo. */}
+                    <Popup maxWidth={ANCHO_GLOBO}>
+                        <div style={{ display: "flex", flexWrap: globoAngosto ? "wrap" : "nowrap", gap: 12, alignItems: "flex-start" }}>
+                        {/* La columna del estado queda EXACTAMENTE como era: su ancho lo da su contenido, entre 215 y 262. */}
+                        <div style={{ font: "13px/1.45 Outfit,system-ui,sans-serif", minWidth: 215, maxWidth: 262, flex: globoAngosto ? "1 1 215px" : "0 0 auto" }}>
                             <div style={{ fontWeight: 700, fontSize: 14 }}>{r.nombre || `Rastreador ${r.imei.slice(-6)}`}</div>
                             <div style={{ color: "#64748b", fontSize: 11.5, marginBottom: 6 }}>{r.matricula ? `${r.matricula} · ` : ""}IMEI {r.imei}</div>
                             {/* Dónde está, en palabras: la geocerca si está en una, y la calle. Va arriba y en un renglón
@@ -533,7 +541,7 @@ export function CapaGps() {
                                 style={{ marginTop: 8, width: "100%", height: 28, borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", font: "600 12px Outfit,system-ui,sans-serif", cursor: "pointer" }}>Ver sus eventos</button>
                             <div style={{ color: "#64748b", fontSize: 11.5, marginTop: 6 }}>Clic derecho: recorrido, controles e ícono.</div>
                         </div>
-                        {tieneObd(r) && <PanelObdGps r={r} />}
+                        {tieneObd(r) && <PanelObdGps r={r} abajo={globoAngosto} />}
                         </div>
                     </Popup>
                 </MarcadorGps>
