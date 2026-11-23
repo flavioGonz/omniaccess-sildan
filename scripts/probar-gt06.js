@@ -618,11 +618,30 @@ prueba("TopFly: una posición cortada no rompe, y lo que el equipo contesta a un
     const r = tf.leer(resp);
     assert.strictEqual(r.tipo, "respuesta"); assert.strictEqual(r.texto, "OK"); assert.strictEqual(tf.pideAcuse(r), false);
 });
-prueba("TopFly: el comando se arma como el ejemplo del fabricante (largo fijo en 16), y la lista es cerrada", () => {
+prueba("TopFly: el comando se arma como el ejemplo del fabricante (largo fijo en 16)", () => {
     /* Su documentación trae VERSION# para la familia 25 25: 25 25 81 00 10 00 01 | IMEI | 01 | el texto.
-       Acá es lo mismo con la cabecera de esta familia y el IMEI del equipo. */
+       Acá es lo mismo con la cabecera de esta familia. Así viajó al equipo real, que contestó. */
     assert.strictEqual(tf.comando("867284063826343", "VERSION#").toString("hex"), "2626810010000108672840638263430156455253494f4e23");
-    assert.ok(tf.CONSULTAS.has("VERSION#")); assert.ok(!tf.CONSULTAS.has("REBOOT#")); assert.strictEqual(tf.CONSULTAS.size, 1);
+    /* Y lo que contestó de verdad (23/11), armado como lo manda: tipo 81, un byte de clase y el texto en UTF-16. */
+    const dicho = Buffer.from("IMEI:867284063826343,SET VERSION OK:APP:V1.0,HW:V1.0,MODEL:TorchX 110#", "utf16le");
+    const r = tf.leer(Buffer.concat([H("262681"), Buffer.from([0, 16 + dicho.length]), H("0001"), H("0867284063826343"), Buffer.from([0x01]), dicho]));
+    assert.strictEqual(r.tipo, "respuesta"); assert.match(r.texto, /SET VERSION OK:APP:V1\.0,HW:V1\.0,MODEL:TorchX 110#$/);
+});
+prueba("TopFly: la lista de lo que se le puede mandar es cerrada, por su forma", () => {
+    for (const t of ["VERSION#", "TIMER,0000,40:600:15:0#", "HBT,0000,5#", "SPEED,0000,120#", "DRAG,0000,150#", "TIMER,abc123,3:0:0:0#"]) assert.strictEqual(tf.aceptaComando(t), true, t);
+    /* Lo que puede dejarlo sin reportar o sin poder mandarle nada más no pasa, aunque el manual lo traiga. */
+    for (const t of ["IP,0000,1.2.3.4,1341#", "APN,0000,claro,,#", "PASSWORD,0000,1234#", "TRACK,0000,1#", "MANAGERA,0000,1:099123456#", "FORWARD,0000,*222#,x#", "REBOOT#", "FACTORY#"]) assert.strictEqual(tf.aceptaComando(t), false, t);
+    /* Ni dos comandos en uno, ni texto de más, ni otra cosa que un texto. */
+    for (const t of ["VERSION#IP,0000,1.2.3.4,1#", "TIMER,0000,40:600:15:0#\n", "TIMER,0000,40:600:15#", "HBT,0000,5#HBT,0000,6#", " VERSION#", "version#", "", null, 7]) assert.strictEqual(tf.aceptaComando(t), false, String(t));
+    // Al log va sin la clave del equipo.
+    assert.strictEqual(tf.sinClave("TIMER,4321,40:600:15:0#"), "TIMER,····,40:600:15:0#"); assert.strictEqual(tf.sinClave("VERSION#"), "VERSION#");
+});
+prueba("TopFly: cómo está configurado lo dice el equipo en cada posición (no hay comando para preguntarlo)", () => {
+    /* La trama real: 40 s andando, 600 detenido, 15° de giro, sin distancia, latido de 5 min — lo mismo que su configurador. */
+    assert.deepStrictEqual(tf.leer(H(TF_POS_MOTOR)).ajustes, { andando: 40, detenido: 600, angulo: 15, distancia: 0, velocidad: 0, latido: 5, remolque: 0 });
+    // El límite de velocidad viaja en los nueve bits de arriba del mismo campo que la señal.
+    const con = H(TF_POS_MOTOR); con.writeUInt16BE((120 << 7) | 68, 15 + 7); con.writeUInt16BE(150, 15 + 14);
+    const a = tf.leer(con).ajustes; assert.strictEqual(a.velocidad, 120); assert.strictEqual(a.remolque, 150); assert.strictEqual(tf.leer(con).senal, 3);
 });
 prueba("TopFly: un IMEI que no son quince dígitos no se da por bueno", () => {
     const t = H(TF_LOGIN); t[8] = 0xff;

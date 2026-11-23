@@ -144,3 +144,40 @@ test("un rechazo del equipo se reconoce; un éxito y un valor, no", () => {
     assert.equal(pareceRechazo("Timer:10,10;"), false);
     assert.equal(pareceRechazo(""), false);
 });
+
+/* ── TOPFLYtech (TorchX, TLD) ── */
+import { CLAVE_EQUIPO, COMANDOS_TOPFLY } from "@/lib/gps-comandos";
+
+test("TopFly: tiene su propia lista, corta, y nada que pueda dejarlo sin reportar", () => {
+    assert.deepEqual(comandosDe("TOPFLY").map((c) => c.clave), ["version", "reporte.intervalo", "reporte.latido", "alarma.velocidad", "alarma.remolque"]);
+    for (const c of COMANDOS_TOPFLY) {
+        assert.ok(c.nivel === "consulta" || c.nivel === "ajuste", `${c.clave} no es de instalación ni de relé`);
+        const texto = c.texto(valoresPorDefecto(c));
+        assert.ok(!/^(IP|APN|PASSWORD|TRACK|MANAGER|FORWARD)/.test(texto), texto);
+    }
+    assert.equal(comandoPorClave("TOPFLY", "rele.accionar"), null);       // este modelo no tiene relé
+});
+
+test("TopFly: cada ajuste lleva la clave del equipo como marca, y en el historial va tapada", () => {
+    const def = comandoPorClave("TOPFLY", "reporte.intervalo")!;
+    const a = armarComando(def, { andando: 40, detenido: 600, angulo: 15, distancia: 0 });
+    assert.ok(a.ok); if (!a.ok) return;
+    assert.equal(a.texto, `TIMER,${CLAVE_EQUIPO},40:600:15:0#`);
+    assert.equal(def.paraAnotar!(a.valores), "TIMER,····,40:600:15:0#");
+    for (const c of COMANDOS_TOPFLY.filter((x) => x.nivel !== "consulta")) {
+        const v = valoresPorDefecto(c);
+        assert.ok(c.texto(v).includes(CLAVE_EQUIPO), c.clave); assert.ok(!c.paraAnotar!(v).includes(CLAVE_EQUIPO) && c.paraAnotar!(v).includes("····"), c.clave);
+    }
+});
+
+test("TopFly: los valores fuera de rango no se arman, y el formulario se llena con lo que informó el equipo", () => {
+    const def = comandoPorClave("TOPFLY", "reporte.intervalo")!;
+    assert.equal(armarComando(def, { andando: 2, detenido: 600, angulo: 15, distancia: 0 }).ok, false);    // menos de 3 s
+    assert.equal(armarComando(def, { andando: 40, detenido: 600, angulo: 91, distancia: 0 }).ok, false);
+    assert.equal(armarComando(comandoPorClave("TOPFLY", "reporte.latido")!, { minutos: 0 }).ok, false);
+    const informado = { andando: 40, detenido: 600, angulo: 15, distancia: 0, velocidad: 110, latido: 5, remolque: 150 };
+    assert.deepEqual(def.deAjustes!(informado), { andando: 40, detenido: 600, angulo: 15, distancia: 0 });
+    assert.deepEqual(comandoPorClave("TOPFLY", "alarma.velocidad")!.deAjustes!(informado), { limite: 110 });
+    assert.deepEqual(comandoPorClave("TOPFLY", "alarma.remolque")!.deAjustes!(informado), { metros: 150 });
+    assert.deepEqual(comandoPorClave("TOPFLY", "reporte.latido")!.deAjustes!(informado), { minutos: 5 });
+});

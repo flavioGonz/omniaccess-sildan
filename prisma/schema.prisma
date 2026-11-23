@@ -2204,6 +2204,9 @@ model GpsEquipo {
   tanqueLitros      Float?
   tanqueLlenoEn     Float?
   tanqueLlenoCuando DateTime?
+  /// Como esta configurado el equipo, segun el mismo lo informa en cada posicion (los que lo hacen):
+  /// { andando, detenido, angulo, distancia, velocidad, latido, remolque }.
+  ajustes           Json?
   /// Con que dibujo se lo ve en el mapa: auto | camion | moto | persona | punto.
   icono        String?
   /// El rele del equipo esta accionado (corte de combustible o de alimentacion), segun el latido.

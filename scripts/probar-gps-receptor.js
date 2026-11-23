@@ -223,7 +223,7 @@ const conectar = () => new Promise((ok) => { const s = net.connect(21341, "127.0
     // un comando que no está en la lista de este modelo se rechaza con una explicación, y no viaja
     const nAntes = sf.recibido.length;
     const comF = await (await fetch("http://127.0.0.1:21013/comando", { method: "POST", body: JSON.stringify({ imei: F, texto: "STATUS#" }) })).json();
-    assert.strictEqual(comF.ok, false); assert.match(comF.error, /todavía no/); assert.strictEqual(sf.recibido.length, nAntes);
+    assert.strictEqual(comF.ok, false); assert.match(comF.error, /no está en la lista/); assert.strictEqual(sf.recibido.length, nAntes);
     // la consulta de la lista sí: viaja armada como el ejemplo del fabricante, y lo que contesta el equipo vuelve
     const pedido = fetch("http://127.0.0.1:21013/comando", { method: "POST", body: JSON.stringify({ imei: F, texto: "VERSION#" }) }).then((x) => x.json());
     await dormir(120);
@@ -232,6 +232,17 @@ const conectar = () => new Promise((ok) => { const s = net.connect(21341, "127.0
     sf.write(Buffer.concat([hx("262681"), Buffer.from([0, 16 + dicho.length]), hx("0001"), hx("0" + F), Buffer.from([0x01]), dicho]));
     const resp = await pedido;
     assert.strictEqual(resp.ok, true); assert.match(resp.respuesta, /APP:V1\.0/);
+    // un ajuste de la lista viaja con su clave; lo que puede dejarlo mudo, no
+    const aj = fetch("http://127.0.0.1:21013/comando", { method: "POST", body: JSON.stringify({ imei: F, texto: "HBT,0000,5#" }) }).then((x) => x.json());
+    await dormir(120);
+    assert.strictEqual(Buffer.from(sf.recibido.at(-1), "hex").subarray(16).toString("latin1"), "HBT,0000,5#");
+    const ok = Buffer.from("IMEI:867284063826343,SET HBT OK#", "utf16le");
+    sf.write(Buffer.concat([hx("262681"), Buffer.from([0, 16 + ok.length]), hx("0001"), hx("0" + F), Buffer.from([0x01]), ok]));
+    assert.match((await aj).respuesta, /SET HBT OK/);
+    const noVa = await (await fetch("http://127.0.0.1:21013/comando", { method: "POST", body: JSON.stringify({ imei: F, texto: "IP,0000,1.2.3.4,1341#" }) })).json();
+    assert.strictEqual(noVa.ok, false);
+    // y la configuración que informó en su última posición quedó en la ficha
+    assert.deepStrictEqual(db.equipos.get(F).ajustes, { andando: 40, detenido: 600, angulo: 15, distancia: 0, velocidad: 0, latido: 5, remolque: 0 });
     sf.destroy(); await dormir(80);
 
     // ── los que no están aceptados ──

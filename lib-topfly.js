@@ -218,6 +218,11 @@ function leerPosicion(t) {
         ...(carga ? { cargaInterna: Number(carga) === 0 ? 100 : Number(carga) } : {}),
         /* El cuentakilómetros que lleva el equipo, en metros. */
         odometro: c.readUInt32BE(20),
+        /* Cómo está configurado, que el equipo repite en CADA posición: cada cuánto reporta andando
+           y detenido (segundos), el ángulo y la distancia que fuerzan un reporte, el límite de
+           velocidad que avisa (km/h), el latido (minutos) y la distancia de remolque (metros). No
+           hay comando para preguntárselo: se lee de acá. */
+        ajustes: { andando: c.readUInt16BE(0), detenido: c.readUInt16BE(2), angulo: c[4], distancia: c.readUInt16BE(5), velocidad: Math.round(((c.readUInt16BE(7) & 0x7f80) >> 7) * (c.readUInt16BE(7) & 0x8000 ? 1.609344 : 1)), latido: c[12], remolque: c.readUInt16BE(14) },
         /* Lo que le lee al motor por el conector OBD. Con el motor apagado manda FF: no hay dato. */
         ...motorDe(c),
         alarma,
@@ -426,13 +431,36 @@ function comando(imei, texto) {
     return Buffer.concat([Buffer.from([CABECERA, CABECERA, TIPO.RESPUESTA, 0x00, 0x10, 0x00, 0x01]), Buffer.from("0" + imei, "hex"), Buffer.from([0x01]), Buffer.from(texto, "latin1")]);
 }
 /**
- * Lo único que se le puede mandar por ahora: consultas que no cambian nada en el equipo. La lista de
- * comandos de este modelo no se tiene (hay que pedírsela al fabricante); VERSION# es el que trae su
- * propia documentación como ejemplo. Lista cerrada, como con el GT06: acá no entra texto libre.
+ * Lo que se le puede mandar: lista cerrada, por su forma. Acá no entra texto libre (como con el GT06),
+ * y esta lista es la última puerta: aunque algo de más arriba armara otro texto, no viaja.
+ *
+ * De dónde sale: el fabricante no publica la lista de comandos de este modelo y Nico no tiene trato
+ * con el proveedor. Sí están publicados los manuales de usuario del TorchX 100 y del TLD1, de la misma
+ * familia, con sus «comandos de uso frecuente» por SMS; y el códec del fabricante dice que el mismo
+ * texto se manda por la conexión. Todos llevan la clave del equipo (de fábrica, 0000) después del
+ * nombre, y contestan «SET <NOMBRE> OK»; si algo está mal, el equipo NO contesta.
+ *   VERSION#                         visto: contestó con su modelo y versiones.
+ *   TIMER,<clave>,a:b:c:d#           cada cuánto reporta andando (s) y detenido (s), ángulo y distancia.
+ *   HBT,<clave>,n#                   el latido, en minutos.
+ *   SPEED,<clave>,n#                 aviso de exceso de velocidad, en km/h (0 lo apaga).
+ *   DRAG,<clave>,n#                  aviso de remolque, en metros (0 lo apaga).
+ * Quedan AFUERA a propósito, aunque el manual los trae: IP y APN (un valor mal deja al equipo sin
+ * reportar y hay que ir a buscarlo), PASSWORD (cambia la clave y no se le puede mandar nada más),
+ * TRACK (en 1 deja de mandar datos) y los de teléfonos y SMS.
  */
-const CONSULTAS = new Set(["VERSION#"]);
+const CLAVE = "[A-Za-z0-9]{1,10}";
+const PERMITIDOS = [
+    /^VERSION#$/,
+    new RegExp(`^TIMER,${CLAVE},\\d{1,5}:\\d{1,5}:\\d{1,2}:\\d{1,5}#$`),
+    new RegExp(`^HBT,${CLAVE},\\d{1,3}#$`),
+    new RegExp(`^SPEED,${CLAVE},\\d{1,5}#$`),
+    new RegExp(`^DRAG,${CLAVE},\\d{1,5}#$`),
+];
+const aceptaComando = (texto) => typeof texto === "string" && PERMITIDOS.some((r) => r.test(texto));
+/** El mismo comando sin la clave del equipo, para dejarlo escrito en un log. */
+const sinClave = (texto) => String(texto).replace(/^([A-Z]+),[^,#]+,/, "$1,····,");
 
 /** Lo que el equipo contesta a un comando no se acusa: es él el que está contestando. */
 const pideAcuse = (m) => m.tipo !== "respuesta";
 
-module.exports = { esInicio, partir, leer, acuse, pideAcuse, eventoDeAlarma, rayas, comando, CONSULTAS, TIPO, SOBRE, SATS_MIN };
+module.exports = { esInicio, partir, leer, acuse, pideAcuse, eventoDeAlarma, rayas, comando, aceptaComando, sinClave, TIPO, SOBRE, SATS_MIN };

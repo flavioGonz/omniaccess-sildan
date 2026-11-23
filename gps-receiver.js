@@ -117,14 +117,15 @@ function mandarComando(imei, texto, conIdioma = true) {
         const s = enLinea.get(imei);
         if (!s) return resolver({ ok: false, error: "El rastreador no está en línea." });
         if (s.protocolo === "TOPFLY") {
-            /* A un TopFly, sólo las consultas de su lista (lib-topfly, CONSULTAS). Sin marca: su respuesta
+            /* A un TopFly, sólo lo que está en su lista (lib-topfly, aceptaComando). Sin marca: su respuesta
                no trae con qué emparejarla, y se le entrega al único comando que ese equipo tiene pendiente. */
-            if (!tf.CONSULTAS.has(texto)) return resolver({ ok: false, error: "Ese comando todavía no está en la lista de este modelo de rastreador." });
+            if (!tf.aceptaComando(texto)) return resolver({ ok: false, error: "Ese comando no está en la lista de este modelo de rastreador." });
             const marca = marcaSig = (marcaSig + 1) & 0x7fffffff;
             const reloj = setTimeout(() => { esperando.delete(marca); resolver({ ok: false, error: "El rastreador no contestó a tiempo." }); }, ESPERA_RESPUESTA_MS);
             esperando.set(marca, { resolver, reloj, imei });
             const t = tf.comando(imei, texto);
-            log(imei, "COMANDO →", texto, t.toString("hex"));
+            /* Al log va sin la clave del equipo, y sin los bytes (que la traen igual). */
+            log(imei, "COMANDO →", tf.sinClave(texto));
             s.write(t);
             return;
         }
@@ -602,7 +603,7 @@ async function procesarTopfly(s, c, ip) {
                     else if (m.motor.agua < AGUA_ALTA - 5) mm.caliente = false;
                 }
                 /* Lo del motor y el cuentakilómetros, a la ficha: lo último que se supo, con su hora. */
-                if (reciente) await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: { odometro: m.odometro, ...(m.motor ? { motor: { ...m.motor, cuando: (hora || new Date()).toISOString() } } : {}) } }).catch(() => {});
+                if (reciente) await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: { odometro: m.odometro, ajustes: m.ajustes, ...(m.motor ? { motor: { ...m.motor, cuando: (hora || new Date()).toISOString() } } : {}) } }).catch(() => {});
                 if (m.tipo === "alarma") {
                     const tipoA = tf.eventoDeAlarma(m.alarma);
                     /* Una alarma con una hora que no se puede creer (más de un mes atrás, o del futuro)

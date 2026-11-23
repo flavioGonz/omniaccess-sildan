@@ -97,6 +97,11 @@ export type DefComando = {
     puedeCallar?: boolean;
     /** Cómo se anota en el historial, si el texto lleva algo que no tiene que quedar escrito (una contraseña). */
     paraAnotar?: (v: Valores) => string;
+    /**
+     * Para los equipos que no tienen una consulta por comando pero informan su configuración en cada
+     * posición (TopFly): saca los valores del formulario de ahí. Recibe lo último que informó.
+     */
+    deAjustes?: (ajustes: Record<string, number>) => Valores | null;
 };
 
 /* ── Leer lo que contesta el equipo ───────────────────────────────────────── */
@@ -332,8 +337,61 @@ export const COMANDOS_GT06: DefComando[] = [
 ];
 
 /** Los comandos de un rastreador según el protocolo que habla. Vacío: todavía no hay ninguno hecho. */
+/**
+ * Los comandos de un TOPFLYtech de la familia OBD (TorchX, TLD). 24/11.
+ *
+ * El fabricante no publica la lista de este modelo y Nico no tiene trato con el proveedor («no tengo
+ * acceso al proveedor»). Salen de los manuales de usuario publicados del TorchX 100 y del TLD1 —la
+ * misma familia—, sección «comandos de uso frecuente». Dos diferencias con un GT06:
+ *   · Cada comando lleva la CLAVE del equipo después del nombre (de fábrica, 0000). Acá va como
+ *     `{CLAVE}` y la pone el servidor al mandar; en el historial queda tapada.
+ *   · No hay comandos para PREGUNTAR cómo está algo. El equipo lo dice solo: en cada posición informa
+ *     sus intervalos, su latido y sus umbrales, y de ahí se llena el formulario (`deAjustes`).
+ * Si un valor está mal, el equipo no contesta nada: «no contestó» puede ser un rechazo.
+ *
+ * Probado con el equipo real: sólo VERSION#. Los demás están armados como dice el manual y NO se le
+ * mandaron todavía. No están, a propósito, los que pueden dejarlo sin reportar o sin poder
+ * mandarle nada más (servidor, APN, cambio de clave, modo SMS): ver lib-topfly, PERMITIDOS.
+ */
+export const CLAVE_EQUIPO = "{CLAVE}";
+const NO_PROBADO = "Armado como dice el manual del fabricante; todavía no se le mandó a un equipo real. Si no contesta, el equipo lo rechazó o la clave del equipo no es la de fábrica.";
+export const COMANDOS_TOPFLY: DefComando[] = [
+    { clave: "version", grupo: "preguntar", titulo: "Qué equipo es", nivel: "consulta", texto: () => "VERSION#",
+        ayuda: "El modelo y las versiones del programa y de la placa." },
+    { clave: "reporte.intervalo", grupo: "reporte", titulo: "Intervalo de posiciones", nivel: "ajuste",
+        ayuda: "Cada cuántos segundos manda su posición andando y detenido, y qué giro o qué distancia lo hacen reportar antes.",
+        campos: [
+            { clave: "andando", rotulo: "Andando, cada", tipo: "entero", min: 3, max: 65535, unidad: "s", defecto: 25 },
+            { clave: "detenido", rotulo: "Detenido, cada", tipo: "entero", min: 0, max: 65535, unidad: "s", defecto: 600, ayuda: "0 es «no reporta detenido». Si no es 0, de 3 para arriba." },
+            { clave: "angulo", rotulo: "Reporta al doblar más de", tipo: "entero", min: 0, max: 90, unidad: "°", defecto: 30 },
+            { clave: "distancia", rotulo: "Reporta cada", tipo: "entero", min: 0, max: 65535, unidad: "m", defecto: 0, ayuda: "0 es «no reporta por distancia»." },
+        ],
+        texto: (v) => `TIMER,${CLAVE_EQUIPO},${v.andando}:${v.detenido}:${v.angulo}:${v.distancia}#`, paraAnotar: (v) => `TIMER,····,${v.andando}:${v.detenido}:${v.angulo}:${v.distancia}#`,
+        deAjustes: (a) => ({ andando: a.andando, detenido: a.detenido, angulo: a.angulo, distancia: a.distancia }),
+        cuidado: `Más seguido es un recorrido más fino, más datos de la SIM y más batería del vehículo con el motor apagado. ${NO_PROBADO}` },
+    { clave: "reporte.latido", grupo: "reporte", titulo: "Latido", nivel: "ajuste",
+        ayuda: "Cada cuántos minutos avisa que sigue vivo cuando no tiene posiciones que mandar.",
+        campos: [{ clave: "minutos", rotulo: "Cada", tipo: "entero", min: 1, max: 255, unidad: "min", defecto: 5 }],
+        texto: (v) => `HBT,${CLAVE_EQUIPO},${v.minutos}#`, paraAnotar: (v) => `HBT,····,${v.minutos}#`,
+        deAjustes: (a) => ({ minutos: a.latido }),
+        cuidado: `OmniAccess da por caído a un rastreador detenido a los 15 minutos sin noticias: un latido más largo que eso lo haría figurar como «dejó de reportar». ${NO_PROBADO}` },
+    { clave: "alarma.velocidad", grupo: "alarmas", titulo: "Exceso de velocidad", nivel: "ajuste",
+        ayuda: "A partir de cuántos km/h el propio equipo avisa. Con 0 no avisa.",
+        campos: [{ clave: "limite", rotulo: "Avisa a más de", tipo: "entero", min: 0, max: 255, unidad: "km/h", defecto: 0 }],
+        texto: (v) => `SPEED,${CLAVE_EQUIPO},${v.limite}#`, paraAnotar: (v) => `SPEED,····,${v.limite}#`,
+        deAjustes: (a) => ({ limite: a.velocidad }),
+        cuidado: `Es el aviso DEL EQUIPO. El límite de velocidad de OmniAccess (Gestión GPS › Ajustes) no depende de esto. ${NO_PROBADO}` },
+    { clave: "alarma.remolque", grupo: "alarmas", titulo: "Remolque", nivel: "ajuste",
+        ayuda: "Avisa si el vehículo se mueve esa distancia con el motor apagado. Con 0 no avisa.",
+        campos: [{ clave: "metros", rotulo: "Avisa si se mueve más de", tipo: "entero", min: 0, max: 65535, unidad: "m", defecto: 0, ayuda: "El fabricante recomienda 100 o más: con menos avisa por el error del GPS." }],
+        texto: (v) => `DRAG,${CLAVE_EQUIPO},${v.metros}#`, paraAnotar: (v) => `DRAG,····,${v.metros}#`,
+        deAjustes: (a) => ({ metros: a.remolque }),
+        cuidado: NO_PROBADO },
+];
+
 export function comandosDe(protocolo: string | null | undefined): DefComando[] {
-    return (protocolo || "GT06") === "GT06" ? COMANDOS_GT06 : [];
+    const p = protocolo || "GT06";
+    return p === "GT06" ? COMANDOS_GT06 : p === "TOPFLY" ? COMANDOS_TOPFLY : [];
 }
 export const comandoPorClave = (protocolo: string | null | undefined, clave: string): DefComando | null =>
     comandosDe(protocolo).find((c) => c.clave === clave) || null;

@@ -182,7 +182,8 @@ function Comando({ def, r, permitido, abierto, alAbrir, alTerminar }: {
 function Formulario({ def, r, sinCampos, alTerminar }: { def: DefComando; r: Rastreador; sinCampos: boolean; alTerminar: () => void }) {
     const [valores, setValores] = useState<Valores>(() => valoresPorDefecto(def));
     /* Cómo está hoy: `null` mientras se pregunta. Los comandos sin campos no preguntan nada al abrirse. */
-    const preguntaAlAbrir = !sinCampos && !!def.pregunta && r.enLinea;
+    /* Los que informan su configuración en cada posición (`deAjustes`) no necesitan estar en línea: se lee lo último que dijeron. */
+    const preguntaAlAbrir = !sinCampos && ((!!def.pregunta && r.enLinea) || !!def.deAjustes);
     const [hoy, setHoy] = useState<{ respuesta?: string; leido: boolean; error?: string } | null>(preguntaAlAbrir ? null : { leido: false });
     useEffect(() => {
         if (!preguntaAlAbrir) return;

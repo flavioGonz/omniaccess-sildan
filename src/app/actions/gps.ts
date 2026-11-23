@@ -11,7 +11,7 @@ import { circuloDe, leerHorario, puntosDe, rotuloDeHorario, VERTICES_MAX, type A
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { puedeGps, type QueGps } from "@/lib/gps-permisos";
-import { armarComando, comandoPorClave, comandosDe, palabraDeConfirmacion, pareceRechazo, type NivelComando, type Valores } from "@/lib/gps-comandos";
+import { armarComando, CLAVE_EQUIPO, comandoPorClave, comandosDe, palabraDeConfirmacion, pareceRechazo, type NivelComando, type Valores } from "@/lib/gps-comandos";
 import { auditar } from "@/lib/centrales/sesion";
 import { leerEstadoRele, puedeAccionarRele } from "@/lib/gps-rele";
 import { aligerar, type ResumenRecorrido } from "@/lib/gps-recorrido";
@@ -584,11 +584,16 @@ export async function mandarComandoGps(imei: string, clave: string, valores?: Va
         if (!v.ok) {
             await auditar(s, "equipos.gps.rele", e.deviceId, false, `IMEI ${e.imei} · accionar · frenado: ${v.motivo}`);
             await anotar(false, `No se mandó. ${v.motivo}`);
-            return { ok: false, error: v.motivo, texto: armado.texto };
+            return { ok: false, error: v.motivo, texto: anotado };
         }
     }
 
-    const r = await alEquipo(e.imei, armado.texto);
+    /* Los comandos de un TopFly llevan la clave del equipo: la pone el servidor acá, no viaja desde la
+       pantalla ni queda en el historial (ahí va `anotado`, que la trae tapada). De fábrica es 0000. */
+    const viaja = armado.texto.includes(CLAVE_EQUIPO)
+        ? armado.texto.replace(CLAVE_EQUIPO, ((await prisma.setting.findUnique({ where: { key: "GPS_TOPFLY_CLAVE" } }).catch(() => null))?.value || "0000").replace(/[^A-Za-z0-9]/g, "").slice(0, 10) || "0000")
+        : armado.texto;
+    const r = await alEquipo(e.imei, viaja);
     /* Después de una escritura se le pregunta al equipo cómo quedó, en vez de suponerlo. Para el relé
        importa (el latido que trae ese dato puede tardar cinco minutos); para lo demás, es la única
        prueba de que este clon entendió el comando. Lo que reinicia el equipo no se pregunta: no va a contestar. */
@@ -639,6 +644,15 @@ export async function valoresActualesGps(imei: string, clave: string): Promise<{
     const def = e ? comandoPorClave(e.protocolo, String(clave)) : null;
     if (!e || !def) return { ok: false, error: "Ese comando no existe." };
     if (!e.deviceId) return { ok: false, error: "Primero hay que dar de alta el rastreador." };
+    /* Los que no se pueden preguntar por comando pero informan su configuración en cada posición. */
+    if (def.deAjustes) {
+        const a = (await prisma.gpsEquipo.findUnique({ where: { imei: e.imei }, select: { ajustes: true } }))?.ajustes as Record<string, number> | null;
+        const valores = a ? def.deAjustes(a) : null;
+        if (!valores) return { ok: true, valores: null };
+        /* Lo que «dice» el equipo, armado con los nombres del formulario: «Andando, cada 40 s · Detenido, cada 600 s». */
+        const dicho = (def.campos || []).map((c) => `${c.rotulo} ${valores[c.clave]}${"unidad" in c && c.unidad ? ` ${c.unidad}` : ""}`).join(" · ");
+        return { ok: true, respuesta: `${dicho} (informado en su última posición)`, valores };
+    }
     if (!def.pregunta) return { ok: true, valores: null };
     const r = await alEquipo(e.imei, def.pregunta);
     if (!r.ok) return { ok: false, error: r.error };
