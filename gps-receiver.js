@@ -73,6 +73,8 @@ const FALTAS_MAX = 5, FALTAS_VENTANA_MS = 10 * 60_000, CASTIGO_MS = 15 * 60_000;
 const ARRANQUE = Date.now();
 /** Un equipo que no dice nada en este tiempo se cayó sin avisar (túnel, sin señal). */
 const MUDO_MS = 10 * 60_000;
+/** Hasta cuánto de vieja puede ser una trama guardada de un TopFly para que su motor, su voltaje y su batería valgan como «ahora». */
+const ESTADO_VIEJO_MS = 10 * 60_000;
 /** Tope de lo que se junta sin encontrar una trama: lo demás es basura. */
 const BASURA_MAX = 4096;
 
@@ -555,14 +557,32 @@ async function procesarTopfly(s, c, ip) {
             }
             await oyo(c.imei);
             if (m.tipo === "posicion" || m.tipo === "alarma") {
-                /* La batería interna viene en porcentaje; el resto del receptor la lleva de 0 a 6, como la informa un GT06. */
-                await alLatido(c.imei, { encendido: m.encendido, cortado: m.cortado, senal: m.senal, bateria: m.cargaInterna !== undefined ? Math.round(m.cargaInterna * 6 / 100) : undefined });
+                /*
+                 * Al conectarse, este equipo descarga TODO lo que guardó sin cobertura, marcado como
+                 * historia: el TorchX de Nico mandó 350 tramas en su primer minuto, las primeras de
+                 * dos meses y medio atrás. El recorrido se guarda igual —cada posición con su hora—,
+                 * pero el ESTADO (motor, voltaje, batería) es de cuando se grabó la trama: tomarlo
+                 * como de ahora dejaba el motor «encendido» por un arranque de septiembre y podía
+                 * avisar una batería baja que ya no lo está. Vale el de las tramas en vivo y el de
+                 * las guardadas hace instantes (un corte corto de señal).
+                 */
+                const hora = m.gps.fecha;
+                const reciente = m.gps.enVivo || (hora && Date.now() - hora.getTime() < ESTADO_VIEJO_MS && evs.horaCreible(hora));
+                if (reciente) {
+                    /* La batería interna viene en porcentaje; el resto del receptor la lleva de 0 a 6, como la informa un GT06. */
+                    await alLatido(c.imei, { encendido: m.encendido, cortado: m.cortado, senal: m.senal, bateria: m.cargaInterna !== undefined ? Math.round(m.cargaInterna * 6 / 100) : undefined });
+                }
                 const r = await alReporte(c.imei, m, c.aceptado);
-                if (m.voltaje !== undefined) await alVoltaje(c.imei, m.voltaje);
+                if (reciente && m.voltaje !== undefined) await alVoltaje(c.imei, m.voltaje);
                 if (m.tipo === "alarma") {
                     const tipoA = tf.eventoDeAlarma(m.alarma);
-                    if (tipoA) await alEvento(c.imei, tipoA, m.gps, tipoA === "GPS_VELOCIDAD" ? `${m.gps.velocidad} km/h` : tipoA === "GPS_OTRA" ? `Código ${m.alarma} del equipo` : null, null, m.gps.fecha);
-                } else if (r.que === "nada") log(c.imei, "posición sin satélites, no se guarda");
+                    /* Una alarma con una hora que no se puede creer (más de un mes atrás, o del futuro)
+                       no se avisa: alEvento la fecharía «ahora», y un corte de alimentación de
+                       septiembre entraría a la consola como si estuviera pasando. Las atrasadas de
+                       verdad sí pasan, con su hora y su «llegó tarde». */
+                    if (tipoA && !(hora && evs.horaCreible(hora))) log(c.imei, `alarma ${tipoA} con hora ${hora ? hora.toISOString() : "ilegible"}: es historia vieja, no se avisa`);
+                    else if (tipoA) await alEvento(c.imei, tipoA, m.gps, tipoA === "GPS_VELOCIDAD" ? `${m.gps.velocidad} km/h` : tipoA === "GPS_OTRA" ? `Código 0x${m.alarma.toString(16).padStart(2, "0")} del equipo` : null, null, hora);
+                } else if (r.que === "nada" && m.gps.enVivo) log(c.imei, "posición sin satélites, no se guarda");
             } else if (m.tipo === "latido") {
                 await prisma.gpsEquipo.update({ where: { imei: c.imei }, data: { ultimoLatido: new Date() } }).catch(() => {});
             } else if (m.tipo === "red") {

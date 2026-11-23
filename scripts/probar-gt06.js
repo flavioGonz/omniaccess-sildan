@@ -452,6 +452,105 @@ prueba("TopFly: dos tramas pegadas se separan, una por la mitad se espera, y la 
     assert.strictEqual(tf.partir(H("262601ffff000508")).roto, true);                   // un largo que no es de un rastreador
     assert.strictEqual(tf.partir(Buffer.concat([H(TF_LOGIN), Buffer.from("xx")])).roto, true);
 });
+/* Posiciones y alarmas reales del mismo equipo. Las primeras son de septiembre: las traía guardadas
+   y las descargó en cuanto el receptor le contestó. */
+const TF_POS_MOTOR = "262602005300870867284063826343002802580f00000044c6000005000000400000000000020f00260909154321cdcc9e42709360c28b8e0bc20000000014860000000009a4000080e80573ff2e88ff080eff";
+const TF_POS_PARADO = "262602005300860867284063826343002802580f00000048c6000005000000400000000000020f00260909154240cdcc9e42709360c28b8e0bc2000000001484000000000853000080e8ffffffffffffffffff";
+const TF_ARRANCO = "262604005300120867284063826343002802580f00000044d000000506000040001500000002b9002611231915309a9999bec09460c23c900bc2000000fa14840000ffffffffffffffffffffffffffffffffff";
+const TF_CORTE = "262604005300130867284063826343002802580f0000003e80000005060000c00001000000020f1026112319210682ec000a004e7a02e7720062006200000071000000000f71000000000000ff0028ff0000ff";
+const TF_VOLVIO = "262604005300140867284063826343002802580f0000003e80000005060000400023000000020f0026112319211582ec000a004e7a02e77200620062000014860000ffffffffffffffffffffffffffffffffff";
+const TF_APAGO = "262604005300150867284063826343002802580f0000003e80000005010000000016000000020f0026112319235582ec000a004e7a02e7720062004500621244000000000f7000000000ffffffffffffffffff";
+prueba("TopFly: una posición real cae en Montevideo, con su hora, sus satélites y el motor encendido", () => {
+    const m = tf.leer(H(TF_POS_MOTOR));
+    assert.strictEqual(m.tipo, "posicion"); assert.strictEqual(m.serie, 0x87);
+    // Los dos hemisferios bien: sur y oeste. El número viene con el byte menos significativo primero.
+    assert.ok(Math.abs(m.gps.lat - -34.8892) < 0.001, `latitud ${m.gps.lat}`);
+    assert.ok(Math.abs(m.gps.lon - -56.144) < 0.001, `longitud ${m.gps.lon}`);
+    assert.strictEqual(m.gps.conFix, true); assert.strictEqual(m.gps.satelites, 6);
+    assert.strictEqual(m.gps.fecha.toISOString(), "2026-09-09T15:43:21.000Z");
+    assert.strictEqual(m.encendido, true); assert.strictEqual(m.cortado, false); assert.strictEqual(m.sinAlimentacion, false);
+    // El mismo voltaje que mostraba el configurador del equipo con el motor en marcha.
+    assert.strictEqual(m.voltaje, 14.86);
+    assert.strictEqual(m.odometro, 527);
+});
+prueba("TopFly: lo guardado sin cobertura llega marcado como historia, no como «ahora»", () => {
+    assert.strictEqual(tf.leer(H(TF_POS_MOTOR)).gps.enVivo, false);
+    const viva = H(TF_POS_MOTOR); viva[15 + 9] &= 0x7f;
+    assert.strictEqual(tf.leer(viva).gps.enVivo, true);
+});
+prueba("TopFly: lo que le lee al motor por OBD (1395 rpm y 96 °C), y nada cuando el motor no contesta", () => {
+    const m = tf.leer(H(TF_POS_MOTOR));
+    assert.strictEqual(m.rpm, 1395); assert.strictEqual(m.refrigerante, 96);
+    const p = tf.leer(H(TF_POS_PARADO));
+    assert.strictEqual(p.rpm, undefined); assert.strictEqual(p.refrigerante, undefined);
+    // Con el motor parado la temperatura llega en cero crudo: no se informa como −40 °C ni como 0.
+    assert.strictEqual(tf.leer(H(TF_CORTE)).refrigerante, undefined);
+});
+prueba("TopFly: sin posición no inventa coordenadas (ahí vienen las antenas de celular)", () => {
+    const m = tf.leer(H(TF_CORTE));
+    assert.strictEqual(m.gps.conFix, false); assert.strictEqual(m.gps.lat, 0); assert.strictEqual(m.gps.lon, 0);
+    assert.strictEqual(m.gps.fecha.toISOString(), "2026-11-23T19:21:06.000Z");
+});
+prueba("TopFly: los códigos de alarma van en HEXADECIMAL — 0x15 es «arrancó», no un inhibidor", () => {
+    /* Lo que desmintió a la tabla de Traccar: 0x15 es 21 en decimal, que ahí figura como inhibidor.
+       En la trama real el motor pasa a encendido y el voltaje sube a 14,84 V: arrancó el auto. */
+    const arranco = tf.leer(H(TF_ARRANCO));
+    assert.strictEqual(arranco.tipo, "alarma"); assert.strictEqual(arranco.alarma, 0x15);
+    assert.strictEqual(arranco.encendido, true); assert.strictEqual(arranco.voltaje, 14.84);
+    assert.strictEqual(tf.eventoDeAlarma(0x15), null);
+    const apago = tf.leer(H(TF_APAGO));
+    assert.strictEqual(apago.alarma, 0x16); assert.strictEqual(apago.encendido, false); assert.strictEqual(tf.eventoDeAlarma(0x16), null);
+    assert.strictEqual(tf.leer(H(TF_VOLVIO)).alarma, 0x23); assert.strictEqual(tf.eventoDeAlarma(0x23), null);
+    assert.strictEqual(tf.eventoDeAlarma(0x21), "GPS_INHIBIDOR");
+    assert.strictEqual(tf.eventoDeAlarma(0x03), "GPS_SOS");
+    assert.strictEqual(tf.eventoDeAlarma(0x05), null);                                 // geocerca del equipo: usamos las nuestras
+    assert.strictEqual(tf.eventoDeAlarma(0x7e), "GPS_OTRA");                           // lo que no se conoce se anota, no se calla
+    assert.strictEqual(tf.eventoDeAlarma(0), null);
+});
+prueba("TopFly: el corte de alimentación real — avisa, y no informa como «batería del vehículo» lo que mide desenchufado", () => {
+    const m = tf.leer(H(TF_CORTE));
+    assert.strictEqual(m.alarma, 0x01); assert.strictEqual(tf.eventoDeAlarma(m.alarma), "GPS_CORTE");
+    assert.strictEqual(m.sinAlimentacion, true);
+    // La trama dice 0,71 V: no es la batería de ningún auto, y avisaría «batería baja» de más.
+    assert.strictEqual(m.voltaje, undefined);
+    assert.strictEqual(m.cargaInterna, 10);
+    // Y cuando vuelve, el voltaje vuelve con ella.
+    assert.strictEqual(tf.leer(H(TF_VOLVIO)).voltaje, 14.86);
+});
+prueba("TopFly: a una alarma se le devuelve su código; a lo demás, el sobre solo", () => {
+    assert.strictEqual(tf.acuse(tf.leer(H(TF_CORTE))).toString("hex"), "26260400100013086728406382634301");
+    assert.strictEqual(tf.acuse(tf.leer(H(TF_ARRANCO))).toString("hex"), "26260400100012086728406382634315");
+    assert.strictEqual(tf.acuse(tf.leer(H(TF_POS_MOTOR))).toString("hex"), "262602000f00870867284063826343");
+});
+prueba("TopFly: la señal del TorchX no es la escala del módem: no se dibujan rayas con un número que no se sabe leer", () => {
+    assert.strictEqual(tf.leer(H(TF_POS_MOTOR)).senal, undefined);                     // el campo vale 0x44 = 68
+    assert.strictEqual(tf.rayas(0), 0); assert.strictEqual(tf.rayas(9), 1); assert.strictEqual(tf.rayas(31), 4);
+    assert.strictEqual(tf.rayas(68), undefined);
+});
+prueba("TopFly: los datos de la SIM (operadora y número de la tarjeta), y lo que todavía no se lee se acusa igual", () => {
+    /* Armada como la real, con una línea inventada: la del equipo no va a un archivo. */
+    const campo = (t, codif = "latin1") => { const b = Buffer.from(t, codif); return Buffer.concat([Buffer.from([b.length]), b]); };
+    const cont = Buffer.concat([H("261123194139"), campo("Claro UY", "utf16le"), campo("CAT-1"), campo("CAT-1 66"), campo("748100000000000"), campo("8959810000000000000F")]);
+    const red = Buffer.concat([H("262611"), Buffer.from([0, 15 + cont.length]), H("0002"), H("0867284063826343"), cont]);
+    const m = tf.leer(red);
+    assert.strictEqual(m.tipo, "red"); assert.strictEqual(m.operadora, "Claro UY"); assert.strictEqual(m.tecnologia, "CAT-1");
+    assert.strictEqual(m.iccid, "8959810000000000000F");
+    assert.strictEqual(tf.acuse(m).toString("hex"), "262611000f00020867284063826343");
+    // Un mensaje del vehículo por OBD (tipo 09), como los que mandó: no se lee, se acusa.
+    const obd = H("26260900220017086728406382634326090915423755aa80084801410a7c7c7c0d0a");
+    const o = tf.leer(obd);
+    assert.strictEqual(o.ok, true); assert.strictEqual(o.tipo, "desconocido");
+    assert.strictEqual(tf.acuse(o).toString("hex"), "262609000f00170867284063826343");
+    assert.strictEqual(tf.pideAcuse(o), true);
+});
+prueba("TopFly: una posición cortada no rompe, y lo que el equipo contesta a un comando no se acusa", () => {
+    const corta = Buffer.concat([H("262602"), Buffer.from([0, 25]), H("0001"), H("0867284063826343"), Buffer.alloc(10)]);
+    assert.strictEqual(tf.leer(corta).tipo, "desconocido");
+    const txt = Buffer.from("OK", "utf16le");
+    const resp = Buffer.concat([H("262681"), Buffer.from([0, 16 + txt.length]), H("0001"), H("0867284063826343"), Buffer.from([0x01]), txt]);
+    const r = tf.leer(resp);
+    assert.strictEqual(r.tipo, "respuesta"); assert.strictEqual(r.texto, "OK"); assert.strictEqual(tf.pideAcuse(r), false);
+});
 prueba("TopFly: un IMEI que no son quince dígitos no se da por bueno", () => {
     const t = H(TF_LOGIN); t[8] = 0xff;
     assert.strictEqual(tf.leer(t).ok, false);

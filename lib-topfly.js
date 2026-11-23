@@ -13,6 +13,10 @@
  * protocolo —el códec que publica el fabricante (github.com/TopFlyTech/TopflytechCodec) y el
  * decodificador «t800x» de Traccar—. No se copió código de ninguno: se leyeron para saber qué hay
  * en cada byte, y lo que sólo sale de ahí y todavía no se vio en una trama real está marcado.
+ * Contra las tramas reales quedó verificado: la presentación, el acuse, la posición (cae en
+ * Montevideo, con el signo bien), la hora, el voltaje (14,84 V, el mismo que mostraba el
+ * configurador), el motor encendido, el corte de alimentación y los datos de la SIM. Y quedó
+ * DESMENTIDA una cosa de las fuentes: los códigos de alarma (ver EVENTO_DE_ALARMA).
  *
  * Cómo habla:
  *   1. Toda trama:  26 26 | tipo(1) | largo(2, de la trama entera) | serie(2) | IMEI(8, BCD con un 0 adelante) | contenido
@@ -93,31 +97,51 @@ function fechaDe(buf, o) {
 
 /**
  * La señal, de la escala del módem (0 a 31, el «CSQ») a las cinco rayas que usa el resto del
- * receptor (0 a 4, como la manda un GT06). 99 es «no sabe».
+ * receptor (0 a 4, como la manda un GT06).
+ *
+ * El TorchX 110 (4G) NO manda esa escala: en sus tramas reales el campo vale entre 55 y 86, que no
+ * puede ser un CSQ. No se sabe todavía si es un porcentaje o un índice de potencia de 4G, así que
+ * no se dibujan rayas con un número que no se sabe leer: queda sin señal informada hasta medirlo
+ * contra lo que muestra el configurador del equipo.
  */
 function rayas(csq) {
-    if (csq === 99 || csq > 31) return undefined;
+    if (csq > 31) return undefined;
     return csq === 0 ? 0 : csq < 10 ? 1 : csq < 15 ? 2 : csq < 20 ? 3 : 4;
 }
 
 /**
- * Qué evento nuestro es cada código de alarma del equipo. Los que no están acá se anotan como
- * «alarma del rastreador» con su número, para poder agregarlos cuando se vea qué son.
- * Sale de la tabla de Traccar para esta familia; NINGUNO se vio todavía en una trama real.
+ * Qué evento nuestro es cada código de alarma del equipo.
+ *
+ * LOS CÓDIGOS VAN EN HEXADECIMAL, y eso no es un detalle. La tabla de Traccar para esta familia los
+ * trae como números decimales («21 = inhibidor, 23 = volvió la alimentación»), y la primera versión
+ * de este archivo la copió así. La primera hora del equipo real la desmintió: mandó 0x15 (que en
+ * decimal es 21) cada vez que el motor ARRANCABA —las entradas pasaban a «encendido» y el voltaje
+ * saltaba de 12 a 14,8 V—, y 0x23 cada vez que volvía la alimentación. Leído en decimal, cada
+ * arranque del auto era un «detectó un inhibidor de señal», que acá abre un caso de prioridad 1.
+ * Los números de esa tabla son los dígitos del código en hexadecimal: 0x21 es el inhibidor.
+ *
+ * VISTO en tramas reales (23/11): 0x01, 0x15, 0x16 y 0x23. El resto sale de esa tabla, leída así,
+ * y no se vio todavía. Lo que no está acá se anota como «alarma del rastreador» con su código.
  */
 const EVENTO_DE_ALARMA = {
-    1: "GPS_CORTE",            // se quedó sin alimentación externa
-    2: "GPS_BATERIA_EQUIPO",
-    3: "GPS_SOS",
-    4: "GPS_VELOCIDAD",
-    7: "GPS_MOVIMIENTO",       // remolque: se mueve con el motor apagado
-    8: "GPS_VIBRACION",
-    10: "GPS_VIBRACION",
-    21: "GPS_INHIBIDOR",
-    24: "GPS_BATERIA",         // alimentación externa baja
+    0x01: "GPS_CORTE",            // visto: se quedó sin alimentación externa (las entradas lo marcan y el voltaje cae)
+    0x02: "GPS_BATERIA_EQUIPO",
+    0x03: "GPS_SOS",
+    0x04: "GPS_VELOCIDAD",
+    0x07: "GPS_MOVIMIENTO",       // remolque: se mueve con el motor apagado
+    0x08: "GPS_VIBRACION",
+    0x10: "GPS_VIBRACION",
+    0x21: "GPS_INHIBIDOR",
+    0x24: "GPS_BATERIA",          // alimentación externa baja
 };
-/** Códigos que no son una alarma para nosotros: las geocercas del equipo (usamos las nuestras) y «volvió la alimentación». */
-const ALARMA_QUE_NO_SE_AVISA = new Set([5, 6, 23]);
+/**
+ * Códigos que el equipo manda como «alarma» y para nosotros no lo son: avisan un cambio de estado
+ * que ya viene en la misma trama (y de ahí se toma).
+ *   0x05, 0x06  entró / salió de una geocerca DEL EQUIPO: usamos las nuestras.
+ *   0x15, 0x16  visto: arrancó / se apagó el motor.
+ *   0x23        visto: volvió la alimentación externa.
+ */
+const ALARMA_QUE_NO_SE_AVISA = new Set([0x05, 0x06, 0x15, 0x16, 0x23]);
 function eventoDeAlarma(codigo) {
     if (!codigo || ALARMA_QUE_NO_SE_AVISA.has(codigo)) return null;
     return EVENTO_DE_ALARMA[codigo] || "GPS_OTRA";
@@ -146,6 +170,7 @@ function leerPosicion(t) {
     const satelites = estado & 0x1f;
     let valida = (estado & 0x40) !== 0;
     const es = c.readUInt16BE(16);
+    const sinAlimentacion = (es & 0x8000) !== 0;
     const alarma = c[18];
     const fecha = fechaDe(c, 25);
     /* Sin posición, en el lugar de la latitud y la longitud vienen las antenas de celular que ve
@@ -171,17 +196,36 @@ function leerPosicion(t) {
             enVivo: !historia,
         },
         encendido: (es & 0x4000) !== 0,
+        /* Desenchufado: quedó andando con su batería interna. */
+        sinAlimentacion,
         /* El relé de corte de motor, accionado. */
         cortado: (es & 0x0400) !== 0,
         ...(senal !== undefined ? { senal } : {}),
-        /* La alimentación externa (la batería del vehículo), en volts. 0 es «no la mide». */
-        ...(volt && Number(volt) > 0 ? { voltaje: Number(volt) / 100 } : {}),
+        /* La alimentación externa (la batería del vehículo), en volts. 0 es «no la mide». Desenchufado
+           no se informa: lo que mide ahí (0,71 V en la trama real, 5 V colgado del cable del
+           configurador) no es la batería de ningún vehículo, y avisaría «batería baja» de más. */
+        ...(volt && Number(volt) > 0 && !sinAlimentacion ? { voltaje: Number(volt) / 100 } : {}),
         /* La batería interna, en porcentaje. El equipo manda 00 cuando está llena. */
         ...(carga ? { cargaInterna: Number(carga) === 0 ? 100 : Number(carga) } : {}),
         /* El cuentakilómetros que lleva el equipo, en metros. */
         odometro: c.readUInt32BE(20),
+        /* Lo que le lee al motor por el conector OBD. Con el motor apagado manda FF: no hay dato. */
+        ...motorDe(c),
         alarma,
     };
+}
+
+/**
+ * Las vueltas del motor y la temperatura del refrigerante, cuando vienen (visto 23/11: 1395 rpm y
+ * 96 °C con el motor en marcha; FF FF con el motor apagado). El resto de lo que trae ese bloque
+ * —consumo, carga del motor, acelerador, nivel de combustible— no se lee todavía.
+ */
+function motorDe(c) {
+    if (c.length < 64) return {};
+    const rpm = c.readUInt16BE(59), agua = c[63];
+    if (rpm === 0xffff) return {};
+    /* Con el motor parado la temperatura llega en cero crudo (−40 °C): no es una medida. */
+    return { rpm, ...(rpm > 0 && agua !== 0xff ? { refrigerante: agua - 40 } : {}) };
 }
 
 /** Los datos de la SIM y de la red (tipo 11): cada campo va precedido de su largo. */
@@ -221,9 +265,10 @@ function leer(t) {
         const texto = t.subarray(SOBRE + 1).toString("utf16le").replace(/\0+$/, "");
         return { ...m, tipo: "respuesta", texto };
     }
-    /* Conducción brusca, datos del motor por OBD, etiquetas Bluetooth, WiFi, y la posición «libre»
-       (62/64): se sabe qué son y todavía no se leen. Se acusan igual, para que el equipo no las
-       guarde y las repita. */
+    /* Conducción brusca, los datos del vehículo por OBD (tipo 09: ahí viene el número de chasis y los
+       códigos de falla; el TorchX mandó 19 en su primer minuto), etiquetas Bluetooth, WiFi, y la
+       posición «libre» (62/64): se sabe qué son y todavía no se leen. Se acusan igual, para que el
+       equipo no las guarde y las repita. */
     return { ...m, tipo: "desconocido" };
 }
 

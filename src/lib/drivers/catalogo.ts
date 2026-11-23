@@ -183,6 +183,21 @@ export const SOPORTE: Soporte[] = [
         },
         nota: "Posición, motor (E/S 239), voltaje del vehículo (66), señal (21) y la salida 1 como relé (179, sólo lectura). Avisa lo que un GT06 no sabe: INHIBIDOR de señal (249), desenchufado (252), remolque (246), choque (247), exceso de velocidad (255) y pánico (prioridad 2 o la E/S 236). Todo lo demás —dejó de reportar, geocercas, consola— es lo mismo que en GT06. NO PROBADO CON UN EQUIPO REAL: escrito contra la documentación pública y verificado con las tramas de ejemplo del fabricante. Falta: comandos (Codec 12), para accionar la salida desde OmniAccess.",
     },
+    {
+        /*
+         * El tercer protocolo (23/11), y el primero con datos del motor: TOPFLYtech, familia OBD
+         * (cabecera 26 26). A diferencia de Teltonika, éste SÍ pasó por un equipo: un TorchX 110 de
+         * Nico, que el receptor venía cortando por «no habla el protocolo». Lo que dice la nota como
+         * visto, se vio en sus tramas; lo demás está marcado.
+         */
+        marca: "TOPFLY", rotulo: "Rastreadores GPS · TOPFLYtech OBD (TorchX, TLD)", estado: "parcial",
+        hace: ["posicion"],
+        hook: {
+            ruta: "TCP :1341 (GPS_PUERTO) — el mismo que GT06",
+            como: "En el configurador de TOPFLYtech (por USB o Bluetooth): Network › IP1 con la IP pública o el dominio de OmniAccess y el puerto 1341; IP2 queda en 0.0.0.0. Se verifica en Status: IP1 tiene que decir «Connected». El rastreador aparece solo en Dispositivos › GPS la primera vez que se conecta.",
+        },
+        nota: "Probado con un TorchX 110: presentación, posición con satélites, hora, motor encendido, voltaje del vehículo, batería interna, corte de alimentación (abre un caso), y los datos de la SIM. Al conectarse descarga lo que guardó sin cobertura: el recorrido se guarda con su hora, y el estado y las alarmas viejas no se toman como de ahora. Lee del motor las vueltas y la temperatura, pero todavía no se guardan ni se muestran. Los códigos de alarma van en hexadecimal: 0x15 y 0x16 son «arrancó» y «se apagó», no alarmas. SIN VER en una trama real: pánico, exceso de velocidad, remolque, vibración e inhibidor. Falta: la señal (no usa la escala común), comandos, número de chasis y códigos de falla (tipo 09), conducción brusca, choque y etiquetas Bluetooth — se acusan y no se leen. Las otras familias de la marca (25 25, 27 27) no se leen.",
+    },
 ];
 
 export const soporteDe = (marca: string) => SOPORTE.find((s) => s.marca === marca);

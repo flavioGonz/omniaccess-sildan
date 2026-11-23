@@ -67,7 +67,7 @@ export type Rastreador = {
     sinReporteDesde: string | null;
     /** Dónde está, en palabras: «Cavour 3230, La Blanqueada, Montevideo». Null si no hay servicio de direcciones o no hay nada que decir. */
     direccion: string | null;
-    /** Qué protocolo habla (GT06, TELTONIKA): de eso depende qué comandos se le pueden mandar. */
+    /** Qué protocolo habla (GT06, TELTONIKA, TOPFLY): de eso depende qué comandos se le pueden mandar. */
     protocolo: string;
 };
 

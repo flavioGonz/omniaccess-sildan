@@ -14,6 +14,8 @@
  *   · uno sin aceptar: se anota, no guarda historial; el que pasa el tope no entra; con la
  *     puerta cerrada no se anota ninguno, y el aceptado entra igual;
  *   · un Teltonika por el mismo puerto: saludo, posición, voltaje, y el aviso de inhibidor;
+ *   · un TopFly por el mismo puerto: lo guardado de hace meses no cambia el estado ni abre casos,
+ *     lo que llega en vivo sí; «arrancó el motor» no es una alarma; el corte de alimentación sí;
  *   · cinco conexiones de un escáner castigan a la IP, y el aceptado sigue entrando.
  *
  * La base de mentira es lo justo que el receptor usa de Prisma, en memoria. No prueba SQL: prueba
@@ -130,6 +132,60 @@ const conectar = () => new Promise((ok) => { const s = net.connect(21341, "127.0
     // y un comando a un Teltonika se rechaza con una explicación, no se le manda una trama de GT06
     const com = await (await fetch("http://127.0.0.1:21013/comando", { method: "POST", body: JSON.stringify({ imei: T, texto: "STATUS#" }) })).json();
     assert.strictEqual(com.ok, false); assert.match(com.error, /todavía no/);
+
+    // ── un TopFly (TorchX 110), también por el MISMO puerto ──
+    const tf = require(OAS + "/lib-topfly.js");
+    const F = "867284063826343";
+    db.equipos.set(F, { imei: F, nombre: "Camioneta", deviceId: "dev3", vehicleId: null, protocolo: "GT06", lat: null, lon: null, velocidad: null, rumbo: null, cuando: null, encendido: null, voltaje: null, senal: null, bateria: null, cortado: null, iccid: null, sinReporteDesde: null, encendidoDesde: null, lados: null, ultimoLatido: null, ultimaIp: null });
+    const hx = (x) => Buffer.from(x, "hex");
+    /* Una trama real del equipo, con la hora, el estado, las entradas, la alarma y el voltaje cambiados. */
+    const REAL = "262602005300870867284063826343002802580f00000044c6000005000000400000000000020f00260909154321cdcc9e42709360c28b8e0bc20000000014860000000009a4000080e80573ff2e88ff080eff";
+    const bcdDe = (d) => [d.getUTCFullYear() % 100, d.getUTCMonth() + 1, d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()].map((n) => String(n).padStart(2, "0")).join("");
+    const tramaTf = ({ tipo = 0x02, serie, cuando, estado = 0x4c, es = 0x4000, alarma = 0, volt = "1486" }) => {
+        const t = hx(REAL); t[2] = tipo; t.writeUInt16BE(serie, 5); t[15 + 9] = estado; t.writeUInt16BE(es, 15 + 16); t[15 + 18] = alarma;
+        if (cuando) hx(bcdDe(cuando)).copy(t, 15 + 25);
+        hx(volt).copy(t, 15 + 47);
+        return t;
+    };
+    const sf = await conectar();
+    sf.write(hx("2626010023000508672840638263430102000026052510111103020503010503020412")); await dormir(120);
+    assert.strictEqual(sf.recibido[0], "262601000f00050867284063826343", "la presentación se acusa con el mismo sobre");
+    assert.strictEqual(db.equipos.get(F).protocolo, "TOPFLY");
+    // lo que traía guardado de septiembre: se acusa, y NO cambia el estado de ahora
+    const antesTf = db.eventos.length;
+    sf.write(hx(REAL)); await dormir(120);
+    assert.strictEqual(sf.recibido[1], "262602000f00870867284063826343");
+    assert.strictEqual(db.equipos.get(F).encendido, null, "un arranque de septiembre no prende el motor de hoy");
+    assert.strictEqual(db.equipos.get(F).voltaje, null); assert.strictEqual(db.equipos.get(F).lat, null);
+    // una alarma de septiembre tampoco entra como si estuviera pasando
+    sf.write(tramaTf({ tipo: 0x04, serie: 0x10, estado: 0xc6, es: 0xc000, alarma: 0x01, volt: "0502" })); await dormir(120);
+    assert.strictEqual(sf.recibido[2], "26260400100010086728406382634301", "igual se le acusa, con su código");
+    assert.strictEqual(db.eventos.length, antesTf, "el corte de septiembre no abre un caso hoy");
+    // en vivo: mueve el punto, y de la misma trama salen el motor y el voltaje
+    sf.write(tramaTf({ serie: 0x20, cuando: new Date() })); await dormir(150);
+    const eF = db.equipos.get(F);
+    assert.ok(Math.abs(eF.lat - -34.8892) < 0.001 && Math.abs(eF.lon - -56.144) < 0.001, "la posición en vivo mueve el punto");
+    assert.strictEqual(eF.encendido, true); assert.strictEqual(eF.voltaje, 14.86); assert.strictEqual(eF.bateria, 6); assert.ok(eF.senal == null, "la señal queda sin informar");
+    assert.strictEqual(db.posiciones.filter((p) => p.imei === F).length, 1);
+    // «arrancó el motor» (0x15) llega como alarma y no lo es
+    sf.write(tramaTf({ tipo: 0x04, serie: 0x21, cuando: new Date(), alarma: 0x15 })); await dormir(120);
+    assert.strictEqual(sf.recibido.at(-1), "26260400100021086728406382634315");
+    assert.strictEqual(db.eventos.length, antesTf, "un arranque no es una alarma, y menos un inhibidor");
+    // el corte de alimentación, en vivo: un caso de prioridad 1, y nada de «batería del vehículo baja»
+    sf.write(tramaTf({ tipo: 0x04, serie: 0x22, cuando: new Date(), es: 0xc000, alarma: 0x01, volt: "0071" })); await dormir(150);
+    assert.strictEqual(db.eventos.length, antesTf + 1);
+    assert.strictEqual(db.eventos.at(-1).tipo, "GPS_CORTE"); assert.strictEqual(db.eventos.at(-1).prioridad, 1); assert.strictEqual(db.eventos.at(-1).imei, F);
+    assert.strictEqual(db.equipos.get(F).voltaje, 14.86, "desenchufado no pisa el voltaje del vehículo con 0,71 V");
+    // el latido, y un mensaje que todavía no se lee: los dos se acusan
+    sf.write(hx("262603000f00300867284063826343")); await dormir(100);
+    assert.strictEqual(sf.recibido.at(-1), "262603000f00300867284063826343");
+    sf.write(hx("26260900220031086728406382634326090915423755aa80084801410a7c7c7c0d0a")); await dormir(100);
+    assert.strictEqual(sf.recibido.at(-1), "262609000f00310867284063826343");
+    assert.ok(!sf.cerrado, "la conexión sigue abierta");
+    // y un comando a un TopFly se rechaza con una explicación
+    const comF = await (await fetch("http://127.0.0.1:21013/comando", { method: "POST", body: JSON.stringify({ imei: F, texto: "STATUS#" }) })).json();
+    assert.strictEqual(comF.ok, false); assert.match(comF.error, /todavía no/);
+    sf.destroy(); await dormir(80);
 
     // ── los que no están aceptados ──
     const B = "111111111111111", s2 = await conectar();
