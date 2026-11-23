@@ -14,6 +14,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { prisma } from "@/lib/prisma";
+import { isotipoSvg } from "@/components/brand/OmniLogo";
 
 export const COLOR = {
     tinta: "#0b1220", texto: "#1f2937", gris: "#6b7280", grisClaro: "#9ca3af", linea: "#e5e7eb", superficie: "#f4f6f9", fondo: "#ffffff",
@@ -58,6 +59,27 @@ export async function leerMarca(): Promise<Marca> {
         primario: hex(v.REPORT_PRIMARY) || hex(v.APP_BRAND_PRIMARY) || COLOR.tinta,
         logo, portada: await leerImagen(v.REPORT_COVER_URL || ""),
     };
+}
+
+/**
+ * El isotipo de OmniAccess como imagen, para ponerlo en un PDF. Sale del componente de marca
+ * (`isotipoSvg`) y no de un archivo de `public/` ni de un dibujo hecho a mano acá: así no puede
+ * colarse una versión vieja (pasó el 18/11 en el formulario del censo). `trazo` es el color de las
+ * esquinas y la lente: blanco sobre una tapa oscura, tinta sobre papel. El punto violeta es de la
+ * marca y no cambia. Null si no se pudo armar: el informe sale igual, con el nombre solo.
+ */
+const isotipos = new Map<string, Buffer>();
+export async function isotipoPng(trazo: string, lado = 512): Promise<Buffer | null> {
+    const clave = `${trazo}:${lado}`;
+    if (isotipos.has(clave)) return isotipos.get(clave)!;
+    try {
+        const sharp = (await import("sharp")).default;
+        /* Un margen alrededor: el trazo es redondeado y sin aire el borde del dibujo sale cortado. */
+        const svg = isotipoSvg(trazo, lado).replace('viewBox="0 0 64 64"', 'viewBox="-2 -2 68 68"');
+        const png = await sharp(Buffer.from(svg), { density: 600 }).resize(lado, lado).png().toBuffer();
+        isotipos.set(clave, png);
+        return png;
+    } catch { return null; }
 }
 
 /** Outfit, en base64, para registrarla en jsPDF. Se lee una vez por proceso. */
