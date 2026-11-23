@@ -23,7 +23,8 @@ import { cn } from "@/lib/utils";
  * a la lista larga que se quería sacar.
  */
 
-const ICONOS: Record<IconoMenu, React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>> = {
+/** El dibujo de cada entrada. Lo usa también el buscador (Buscador.tsx), para que una pantalla se vea igual en los dos lados. */
+export const ICONOS_MENU: Record<IconoMenu, React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>> = {
     alarmas: Siren, mapa: MapaIcono, historial: History, evidencias: FileVideo, matriculas: Car, rostro: ScanFace, intrusion: Radar, video: Cctv, gps: MapPin,
     guardia: ShieldCheck, vision: ScanEye, filas: Rows3, personas: Users, unidades: Building2, tags: CreditCard, grupos: KeyRound, calendario: CalendarDays, equipos: Cpu, ajustes: SlidersHorizontal,
 };
@@ -72,7 +73,7 @@ export function MenuLateral({ menu, activo, plegado }: {
 }
 
 function Entrada({ e, activo, plegado, abierto, alAlternar }: { e: EntradaMenu; activo: { id: string; grupo: string | null } | null; plegado: boolean; abierto: boolean; alAlternar: () => void }) {
-    const Icono = ICONOS[e.icono];
+    const Icono = ICONOS_MENU[e.icono];
     const dibujo = <Icono size={16} strokeWidth={1.7} className="shrink-0 text-muted-foreground group-hover:text-foreground group-data-[activa=true]:text-foreground" />;
     /* Plegado no hay dónde escribir el nombre: lo dice el navegador al pasar el mouse. Un cartel propio
        al costado quedaba cortado por la lista, que tiene su propio desplazamiento. */
