@@ -27,7 +27,16 @@ import L from "leaflet";
  * si faltaran, cae al camino de siempre: se ve a saltitos, pero anda.
  */
 
-type MapaPorDentro = L.Map & { _rawPanBy?: (d: L.Point) => void; _getMapPanePos?: () => L.Point; _animatingZoom?: boolean };
+type MapaPorDentro = L.Map & { _rawPanBy?: (d: L.Point) => void; _getMapPanePos?: () => L.Point; _animatingZoom?: boolean; _mapPane?: HTMLElement; _loaded?: boolean };
+
+/**
+ * ¿El mapa sigue existiendo? Al salir de la pantalla, react-leaflet destruye el mapa ANTES de que
+ * corran las limpiezas de lo que había adentro (lo hace al soltar la referencia, que es un paso
+ * anterior). Quien llegue después y le pida algo al mapa se encuentra con un mapa sin paneles, y
+ * Leaflet revienta con «Cannot read properties of undefined (reading '_leaflet_pos')». Pasó el
+ * 23/11: cada vez que se salía del mapa con un rastreador a la vista, dos errores en la consola.
+ */
+const vive = (m: MapaPorDentro): boolean => !!m._mapPane && !!m._loaded;
 type ConPosicion = HTMLElement & { _leaflet_pos?: L.Point };
 
 /** Mientras el mapa anima un zoom, las cuentas de píxeles son las del zoom viejo: no se toca nada. */
@@ -48,6 +57,7 @@ function afinar(el: HTMLElement | null | undefined, resto: L.Point) {
  * cartel si están abiertos: si no, el auto iría suave y el globo a saltitos al lado.
  */
 export function ponerFino(mapa: L.Map, marca: L.Marker, ll: [number, number]) {
+    if (!vive(mapa as MapaPorDentro)) return;
     marca.setLatLng(ll);
     if (enZoom(mapa)) return;
     const fino = puntoFino(mapa, ll), resto = fino.subtract(fino.round());
@@ -75,12 +85,14 @@ export function crearCamara(mapa: L.Map) {
     let ultimoAviso = 0, debe = false, reloj: ReturnType<typeof setTimeout> | null = null;
     const soltar = () => {
         if (reloj) { clearTimeout(reloj); reloj = null; }
-        if (m._getMapPanePos) L.DomUtil.setTransform(mapa.getPane("mapPane")!, m._getMapPanePos());
+        /* Se la suelta también al desmontar, y ahí el mapa puede no existir más: no hay nada que acomodar ni a quién avisar. */
+        if (!vive(m)) { debe = false; return; }
+        if (m._getMapPanePos) L.DomUtil.setTransform(m._mapPane!, m._getMapPanePos());
         if (debe) { debe = false; ultimoAviso = Date.now(); mapa.fire("moveend"); }
     };
     return {
         llevar(ll: [number, number]) {
-            if (enZoom(mapa)) return;
+            if (!vive(m) || enZoom(mapa)) return;
             if (!m._rawPanBy || !m._getMapPanePos) { mapa.panTo(ll, { animate: false }); return; }      // el camino de siempre
             const centro = mapa.getSize().divideBy(2);
             /* Cuánto hay que correr el mapa para que el punto quede en el centro. */
@@ -90,7 +102,7 @@ export function crearCamara(mapa: L.Map) {
             const entero = falta.round();
             if (entero.x || entero.y) m._rawPanBy(entero);
             const resto = falta.subtract(entero), base = m._getMapPanePos();
-            L.DomUtil.setTransform(mapa.getPane("mapPane")!, L.point(base.x - resto.x, base.y - resto.y));
+            L.DomUtil.setTransform(m._mapPane!, L.point(base.x - resto.x, base.y - resto.y));
             mapa.fire("move");
             debe = true;
             const ahora = Date.now();
