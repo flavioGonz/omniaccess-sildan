@@ -467,6 +467,8 @@ prueba("TopFly: una posición real cae en Montevideo, con su hora, sus satélite
     assert.ok(Math.abs(m.gps.lat - -34.8892) < 0.001, `latitud ${m.gps.lat}`);
     assert.ok(Math.abs(m.gps.lon - -56.144) < 0.001, `longitud ${m.gps.lon}`);
     assert.strictEqual(m.gps.conFix, true); assert.strictEqual(m.gps.satelites, 6);
+    // Seis satélites es lo normal en este equipo: trae su propio mínimo, que no es el 8 de la casa.
+    assert.strictEqual(m.gps.satsMin, 4); assert.ok(m.gps.satelites >= m.gps.satsMin);
     assert.strictEqual(m.gps.fecha.toISOString(), "2026-09-09T15:43:21.000Z");
     assert.strictEqual(m.encendido, true); assert.strictEqual(m.cortado, false); assert.strictEqual(m.sinAlimentacion, false);
     // El mismo voltaje que mostraba el configurador del equipo con el motor en marcha.

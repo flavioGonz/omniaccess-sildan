@@ -41,6 +41,8 @@ const CABECERA = 0x26;
 const SOBRE = 15;
 /** Una trama más larga que esto no es de un rastreador (la más larga que manda, Bluetooth con varias etiquetas, no llega). */
 const LARGO_MAX = 2048;
+/** Los satélites que hacen falta para dar por buena una posición que el equipo marca como válida (ver leerPosicion). */
+const SATS_MIN = 4;
 
 const TIPO = {
     LOGIN: 0x01, POSICION: 0x02, LATIDO: 0x03, ALARMA: 0x04,
@@ -194,6 +196,13 @@ function leerPosicion(t) {
             conFix: valida,
             /* Lo que el equipo guardó sin cobertura y manda después llega marcado: no es «ahora». */
             enVivo: !historia,
+            /* Con cuántos satélites vale una posición de ESTE equipo. El receptor pide 8, medido con
+               un GT06 que informa 12 o más y que con menos saltaba 400 m estacionado. El TorchX
+               informa entre 5 y 7 andando por la calle con la posición bien (23/11: trece seguidas
+               a 17-33 km/h, cada una a 25 m de la anterior): con el 8 de la casa, TODAS quedaban
+               guardadas como «pobres» y el punto del mapa no se movía. Acá manda la marca de
+               posición válida del propio equipo, con el mínimo de una posición en tres dimensiones. */
+            satsMin: SATS_MIN,
         },
         encendido: (es & 0x4000) !== 0,
         /* Desenchufado: quedó andando con su batería interna. */
@@ -289,4 +298,4 @@ function acuse(m) {
 /** Lo que el equipo contesta a un comando no se acusa: es él el que está contestando. */
 const pideAcuse = (m) => m.tipo !== "respuesta";
 
-module.exports = { esInicio, partir, leer, acuse, pideAcuse, eventoDeAlarma, rayas, TIPO, SOBRE };
+module.exports = { esInicio, partir, leer, acuse, pideAcuse, eventoDeAlarma, rayas, TIPO, SOBRE, SATS_MIN };

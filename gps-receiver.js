@@ -406,7 +406,9 @@ async function alPosicion(imei, m, aceptado) {
     /* Con pocos satélites la posición queda GUARDADA (es el dato crudo, y dice con cuántos
        satélites llegó) pero no mueve el punto del mapa: la noche del 20/11 el auto estacionado
        mandó 364 de éstas, saltando hasta 400 metros alrededor de su lugar. */
-    if (p.satelites < evs.SATS_MIN) { await tocar(); return { que: "pobre" }; }
+    /* El mínimo es el de la casa salvo que el protocolo traiga el suyo (`satsMin`): cuántos
+       satélites «son pocos» depende de cómo los cuenta cada equipo (ver lib-topfly, leerPosicion). */
+    if (p.satelites < (p.satsMin ?? evs.SATS_MIN)) { await tocar(); return { que: "pobre" }; }
     const mm = mem(imei), actual = { lat: p.lat, lon: p.lon, cuando: p.fecha.getTime() };
     /* Más vieja que la que ya se tiene: antes pisaba la última posición y el auto retrocedía. */
     if (mm.ultPos && actual.cuando <= mm.ultPos.cuando) { await tocar(); return { que: "vieja" }; }
