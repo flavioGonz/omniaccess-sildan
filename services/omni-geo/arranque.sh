@@ -31,6 +31,8 @@ work_mem = 24MB
 max_wal_size = 1GB
 CONF
 fi
+# La bitácora la escribe PostgreSQL con su usuario, y /datos es de root: se le deja el archivo hecho.
+touch "$DATOS/postgres.log" && chown postgres: "$DATOS/postgres.log"
 runuser -u postgres -- "$BIN/pg_ctl" -D "$PG" -w -t 120 -l "$DATOS/postgres.log" start >/dev/null || fallo "PostgreSQL no arrancó (ver /datos/postgres.log)"
 apagar() { runuser -u postgres -- "$BIN/pg_ctl" -D "$PG" -m fast stop >/dev/null 2>&1; exit 0; }
 trap apagar TERM INT
