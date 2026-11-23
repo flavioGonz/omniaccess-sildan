@@ -370,6 +370,23 @@ export function CapaGps() {
         setBorrador({ ...BORRADOR_NUEVO, lat: ll.lat, lon: ll.lng, puntos: p.que === "libre" ? [[ll.lat, ll.lng]] : null });
     }), [mapa]);
 
+    /* Llegar con ?zona=<id> (desde Gestión GPS › Zonas) abre esa zona lista para corregir, y con
+       ?zona=nueva deja el mapa esperando el toque donde va el centro. Una sola vez: si no, cada
+       refresco de las zonas volvería a abrir el panel que la persona acaba de cerrar. */
+    const zonaAtendida = useRef(false);
+    useEffect(() => {
+        if (zonaAtendida.current) return;
+        let pedida: string | null = null;
+        try { pedida = new URLSearchParams(window.location.search).get("zona"); } catch { /* sin URL */ }
+        if (!pedida) { zonaAtendida.current = true; return; }
+        if (pedida === "nueva") { zonaAtendida.current = true; setCajon(null); setEvSel(null); setBorrador(null); setPanelCercas(true); setColocando(true); return; }
+        const c = cercas.find((x) => x.id === pedida);
+        if (!c) return;                                             // todavía no llegaron las zonas
+        zonaAtendida.current = true;
+        setCajon(null); setEvSel(null); setColocando(false); setPanelCercas(true); setBorrador({ ...c });
+        mapa.fitBounds(L.latLng(c.lat, c.lon).toBounds(c.radio * 2.4));
+    }, [cercas, mapa]);
+
     if (!lista.length) return null;
     const delMenu = menu ? lista.find((r) => r.imei === menu.imei) : null;
     const pts = ruta?.datos?.puntos || [];
@@ -685,7 +702,7 @@ export function CapaGps() {
                     {compartiendo && <CompartirGps imei={compartiendo.imei} nombre={compartiendo.nombre} alCerrar={() => setCompartiendo(null)} />}
 
                     {panelCercas && (
-                        <div className="fixed top-20 right-4 z-[500] w-[300px] max-h-[calc(100vh-120px)] flex flex-col rounded-[14px] border border-border bg-popover shadow-xl"
+                        <div className="fixed top-20 right-4 z-[500] w-[300px] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-120px)] flex flex-col rounded-[14px] border border-border bg-popover shadow-xl"
                             onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border">
                                 <CircleDashed size={15} className="text-muted-foreground" />

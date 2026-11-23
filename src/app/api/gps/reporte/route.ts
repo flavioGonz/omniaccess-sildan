@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
+import { puedeGps } from "@/lib/gps-permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { leerClaves } from "@/lib/gps-reportes-catalogo";
 import { armarReporteGps, conDirecciones } from "@/lib/gps-reportes-servidor";
@@ -28,7 +29,8 @@ export async function GET(req: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- la sesión es el JWT crudo
     const s: any = await getSession().catch(() => null);
     if (!s) return NextResponse.json({ error: "Hace falta iniciar sesión." }, { status: 401 });
-    if (!permisosDeSesion(s).includes("dispositivos")) return NextResponse.json({ error: "Tu rol no puede ver los equipos." }, { status: 403 });
+    /* Bajar el archivo es «operar la flota»; mirarlo en pantalla, «ver» (lib/gps-permisos). */
+    if (!puedeGps(permisosDeSesion(s), "operar")) return NextResponse.json({ error: "Tu rol puede ver los reportes en pantalla, pero no bajarlos." }, { status: 403 });
 
     const q = req.nextUrl.searchParams;
     const formato = q.get("formato") === "pdf" ? "pdf" : "xlsx";

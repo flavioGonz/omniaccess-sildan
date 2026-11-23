@@ -17,8 +17,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     Plus, Loader2, Pencil, Trash2, Copy, ShieldCheck, ShieldAlert, KeyRound, User as UserIco, Lock, Camera, Upload, Check, Info, AlertTriangle,
-    Eye, Hand, Settings2, LayoutGrid, Car, Video, Radar, RadioTower, ScanEye, ScanFace, Rows3, ShieldHalf, Users, Cpu, SlidersHorizontal, FileStack, Minus,
-} from "lucide-react";
+    Eye, Hand, Settings2, LayoutGrid, Car, Video, Radar, RadioTower, ScanEye, ScanFace, Rows3, ShieldHalf, Users, Cpu, SlidersHorizontal, FileStack, Minus, Satellite } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
@@ -50,7 +49,7 @@ const fotoUrl = (cara?: string | null) => (cara ? (cara.startsWith("/") || cara.
 
 const ICONO_MODULO: Record<ModuloId, React.ComponentType<{ size?: number; className?: string }>> = {
     operacion: LayoutGrid, lpr: Car, video: Video, intrusion: Radar, hub: RadioTower, vision: ScanEye, rostro: ScanFace,
-    filas: Rows3, guardia: ShieldHalf, padron: Users, equipos: Cpu, administracion: SlidersHorizontal,
+    filas: Rows3, guardia: ShieldHalf, gps: Satellite, padron: Users, equipos: Cpu, administracion: SlidersHorizontal,
 };
 const ICONO_NIVEL: Record<Nivel, React.ComponentType<{ size?: number; className?: string }>> = { ver: Eye, operar: Hand, configurar: Settings2 };
 
@@ -64,7 +63,7 @@ function useModulosActivos(): Record<ModuloId, boolean> | null {
     const intrusion = useFuncion("FUNC_INTRUSION"), recepcion = useFuncion("FUNC_ALARMAS_RECEPCION");
     if (!modos) return null;
     return {
-        operacion: true, video: true, vision: true, guardia: true, padron: true, equipos: true, administracion: true,
+        operacion: true, video: true, vision: true, guardia: true, gps: true, padron: true, equipos: true, administracion: true,
         lpr: !!modos.MODULE_LPR, rostro: !!modos.MODULE_FACE, filas: !!modos.MODULE_QUEUE,
         intrusion: intrusion !== false, hub: recepcion === true,
     };

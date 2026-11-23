@@ -155,7 +155,8 @@ function CajonContenido({
                         </span>
                     ) : (
                     <DialogPrimitive.Close
-                        className="w-8 h-8 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                        /* 40 px en el celular: ahí el cajón ocupa la pantalla y la X es la única salida a la vista. */
+                        className="w-10 h-10 sm:w-8 sm:h-8 shrink-0 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                         aria-label="Cerrar">
                         <X size={17} />
                     </DialogPrimitive.Close>

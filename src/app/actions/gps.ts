@@ -10,6 +10,8 @@ import { prisma } from "@/lib/prisma";
 import { circuloDe, leerHorario, puntosDe, rotuloDeHorario, VERTICES_MAX, type AvisaCerca, type HorarioCerca } from "@/lib/gps-geocerca";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
+import { puedeGps, type QueGps } from "@/lib/gps-permisos";
+import { armarComando, comandoPorClave, comandosDe, palabraDeConfirmacion, pareceRechazo, type NivelComando, type Valores } from "@/lib/gps-comandos";
 import { auditar } from "@/lib/centrales/sesion";
 import { leerEstadoRele, puedeAccionarRele } from "@/lib/gps-rele";
 import { aligerar, SATS_MIN, type ResumenRecorrido } from "@/lib/gps-recorrido";
@@ -65,18 +67,20 @@ export type Rastreador = {
     sinReporteDesde: string | null;
     /** Dónde está, en palabras: «Cavour 3230, La Blanqueada, Montevideo». Null si no hay servicio de direcciones o no hay nada que decir. */
     direccion: string | null;
+    /** Qué protocolo habla (GT06, TELTONIKA): de eso depende qué comandos se le pueden mandar. */
+    protocolo: string;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- la sesión es el JWT crudo
-async function sesion(permiso: string): Promise<any> {
+async function sesion(que: QueGps): Promise<any> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const s: any = await getSession().catch(() => null);
-    if (!s || !permisosDeSesion(s).includes(permiso)) throw new Error("Tu rol no puede hacer eso con los equipos.");
+    if (!s || !puedeGps(permisosDeSesion(s), que)) throw new Error("Tu rol no puede hacer eso con los rastreadores.");
     return s;
 }
 
 export async function rastreadoresGps(): Promise<Rastreador[]> {
-    await sesion("dispositivos");
+    await sesion("ver");
     /* Los de la prueba de carga (scripts/carga-gps.js) no son de nadie: no se listan. */
     const equipos = await prisma.gpsEquipo.findMany({ where: { OR: [{ deviceId: null }, { NOT: { deviceId: DEVICE_DE_PRUEBA } }] }, orderBy: { createdAt: "asc" } });
     if (!equipos.length) return [];
@@ -108,13 +112,14 @@ export async function rastreadoresGps(): Promise<Rastreador[]> {
             bateria: e.bateria, senal: e.senal, voltaje: e.voltaje, cortado: e.cortado, icono: e.icono,
             sinReporteDesde: e.sinReporteDesde?.toISOString() || null,
             direccion: (e.lat !== null && e.lon !== null && dir.get(claveDeLugar(e.lat, e.lon))) || null,
+            protocolo: e.protocolo || "GT06",
         };
     });
 }
 
 /** Da de alta como equipo a un rastreador que se presentó. Devuelve el id del Device creado. */
 export async function darDeAltaGps(imei: string, nombre: string): Promise<{ ok: boolean; deviceId?: string; error?: string }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("equipo");
     const e = await prisma.gpsEquipo.findUnique({ where: { imei } });
     if (!e) return { ok: false, error: "Ese rastreador no se presentó nunca." };
     const limpio = nombre.trim().slice(0, 60) || `GPS ${imei.slice(-6)}`;
@@ -132,7 +137,7 @@ export async function darDeAltaGps(imei: string, nombre: string): Promise<{ ok: 
 
 /** Le cambia el nombre a un rastreador ya dado de alta (al equipo y a su registro). */
 export async function renombrarGps(imei: string, nombre: string): Promise<{ ok: boolean; error?: string }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("config");
     const limpio = nombre.trim().slice(0, 60);
     if (!limpio) return { ok: false, error: "El nombre no puede quedar vacío." };
     const e = await prisma.gpsEquipo.findUnique({ where: { imei } });
@@ -145,7 +150,7 @@ export async function renombrarGps(imei: string, nombre: string): Promise<{ ok: 
 
 /** Ata el rastreador a un vehículo del padrón por su matrícula (vacía = lo desata). */
 export async function atarVehiculoGps(imei: string, matricula: string): Promise<{ ok: boolean; error?: string }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("config");
     const chapa = matricula.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
     if (!chapa) { await prisma.gpsEquipo.update({ where: { imei }, data: { vehicleId: null } }); return { ok: true }; }
     const v = await prisma.vehicle.findUnique({ where: { plate: chapa }, select: { id: true } });
@@ -181,7 +186,7 @@ export type RecorridoGps = {
  *  · Los kilómetros, el tiempo y la velocidad máxima son los de los viajes.
  */
 export async function recorridoGps(imei: string, horas = 24, rango?: { desde: string; hasta?: string | null } | null): Promise<RecorridoGps> {
-    await sesion("dispositivos");
+    await sesion("ver");
     /* Con `rango`, el recorrido es el de esas fechas y horas (22/11: «filtrar por fecha y hora
        también»); si no, las últimas `horas`. Un rango de más de un mes se recorta desde su comienzo:
        más que eso no es un recorrido que se pueda leer. */
@@ -216,8 +221,14 @@ export async function recorridoGps(imei: string, horas = 24, rango?: { desde: st
 /** El ajuste con la velocidad permitida por la empresa. Uno para todos los vehículos. */
 const LIMITE_GPS = "GPS_VELOCIDAD_PERMITIDA";
 
+/** La velocidad permitida hoy. Para la pestaña Ajustes de Gestión GPS, que la muestra sin pedir un recorrido entero. */
+export async function limiteVelocidadGps(): Promise<number> {
+    await sesion("ver");
+    return leerLimite((await prisma.setting.findUnique({ where: { key: LIMITE_GPS } }).catch(() => null))?.value);
+}
+
 export async function guardarLimiteVelocidadGps(kmh: number): Promise<{ ok: boolean; limite?: number; error?: string }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("config");
     const n = Math.round(Number(kmh));
     if (!Number.isFinite(n) || n < 20 || n > 200) return { ok: false, error: "Poné una velocidad entre 20 y 200 km/h." };
     await prisma.setting.upsert({ where: { key: LIMITE_GPS }, update: { value: String(n) }, create: { key: LIMITE_GPS, value: String(n) } });
@@ -231,7 +242,7 @@ export async function guardarLimiteVelocidadGps(kmh: number): Promise<{ ok: bool
  * diez minutos en viajes y paradas no dice nada, y el viaje en curso todavía no terminó.
  */
 export async function estelaGps(imei: string, minutos = 10): Promise<PuntoGps[]> {
-    await sesion("dispositivos");
+    await sesion("ver");
     const desde = new Date(Date.now() - Math.min(Math.max(minutos, 1), 120) * 60_000);
     const filas = await prisma.gpsPosicion.findMany({
         where: { imei, cuando: { gte: desde }, satelites: { gte: SATS_MIN } }, orderBy: { cuando: "asc" }, take: 2000,
@@ -257,7 +268,7 @@ const aEvento = (x: any): EventoGps => ({ id: x.id, imei: x.imei, tipo: x.tipo, 
 
 /** Lo último que le pasó a un rastreador (o a todos): alarmas, cruces de geocerca, batería. */
 export async function eventosGps(imei?: string, cuantos = 30): Promise<EventoGps[]> {
-    await sesion("dispositivos");
+    await sesion("ver");
     const f = await prisma.gpsEvento.findMany({
         /* Entrar y salir de una zona sin satélites se anota para diagnóstico, pero no es algo que
            le pasó al vehículo: en la lista sólo tapa lo que importa. */
@@ -269,7 +280,7 @@ export async function eventosGps(imei?: string, cuantos = 30): Promise<EventoGps
 
 /** Un evento por su id: para llegar al mapa desde la consola de alarmas con ese evento ya marcado. */
 export async function unEventoGps(id: string): Promise<EventoGps | null> {
-    await sesion("dispositivos");
+    await sesion("ver");
     const f = await prisma.gpsEvento.findUnique({ where: { id: String(id || "") } }).catch(() => null);
     return f ? aEvento(f) : null;
 }
@@ -302,7 +313,7 @@ export async function historialEventosGps(o: {
     /** Sólo los que abrieron un caso en la consola. */
     soloCasos?: boolean;
 }): Promise<HistorialEventosGps> {
-    await sesion("dispositivos");
+    await sesion("ver");
     const imei = String(o.imei || "");
     const cuantos = Math.min(Math.max(o.cuantos || 60, 10), 200);
     const fecha = (v: string | null | undefined) => { const d = v ? new Date(v) : null; return d && !Number.isNaN(d.getTime()) ? d : null; };
@@ -348,7 +359,7 @@ export async function historialEventosGps(o: {
  * paró acá, y siguió para allá».
  */
 export async function entornoEventoGps(imei: string, cuando: string, minutos = 5): Promise<PuntoGps[]> {
-    await sesion("dispositivos");
+    await sesion("ver");
     const t = new Date(cuando).getTime();
     if (!Number.isFinite(t)) return [];
     const ms = Math.min(Math.max(minutos, 1), 30) * 60_000;
@@ -381,7 +392,7 @@ const ACC_SOSPECHOSO_H = 3;
  * Se pide cada varios minutos y no con cada refresco: recorre un día de posiciones.
  */
 export async function diagnosticoGps(): Promise<DiagnosticoGps[]> {
-    await sesion("dispositivos");
+    await sesion("ver");
     const equipos = await prisma.gpsEquipo.findMany({ where: { deviceId: { not: null }, NOT: { deviceId: DEVICE_DE_PRUEBA } }, select: { imei: true, encendido: true, encendidoDesde: true } });
     if (!equipos.length) return [];
     const ayer = new Date(Date.now() - 86_400_000);
@@ -418,7 +429,7 @@ export async function diagnosticoGps(): Promise<DiagnosticoGps[]> {
  * que dura una instalación. El receptor la relee cada medio minuto.
  */
 export async function puertaGps(): Promise<{ cerrada: boolean; pendientes: number }> {
-    await sesion("dispositivos");
+    await sesion("ver");
     const [f, pendientes] = await Promise.all([
         prisma.setting.findUnique({ where: { key: "GPS_PUERTA" } }),
         prisma.gpsEquipo.count({ where: { deviceId: null } }),
@@ -427,7 +438,7 @@ export async function puertaGps(): Promise<{ cerrada: boolean; pendientes: numbe
 }
 
 export async function cambiarPuertaGps(cerrada: boolean): Promise<{ ok: boolean }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("equipo");
     const value = cerrada ? "cerrada" : "abierta";
     await prisma.setting.upsert({ where: { key: "GPS_PUERTA" }, create: { key: "GPS_PUERTA", value }, update: { value } });
     await auditar(s, "equipos.gps.puerta", "GPS_PUERTA", true, value);
@@ -436,7 +447,7 @@ export async function cambiarPuertaGps(cerrada: boolean): Promise<{ ok: boolean 
 
 /** Descarta a uno que se presentó y nadie aceptó: borra su registro. Si vuelve a presentarse con la puerta abierta, vuelve a anotarse. */
 export async function descartarGps(imei: string): Promise<{ ok: boolean; error?: string }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("equipo");
     const e = await prisma.gpsEquipo.findUnique({ where: { imei } });
     if (!e) return { ok: true };
     if (e.deviceId && (await prisma.device.count({ where: { id: e.deviceId } }))) return { ok: false, error: "Ese rastreador está dado de alta: se quita desde Dispositivos." };
@@ -449,26 +460,18 @@ const ICONOS = new Set(["auto", "camion", "moto", "persona", "punto"]);
 
 /** Con qué dibujo se ve el rastreador en el mapa. */
 export async function cambiarIconoGps(imei: string, icono: string): Promise<{ ok: boolean; error?: string }> {
-    await sesion("dispositivos.editar");
+    await sesion("config");
     if (!ICONOS.has(icono)) return { ok: false, error: "Ese ícono no existe." };
     await prisma.gpsEquipo.update({ where: { imei }, data: { icono } });
     return { ok: true };
 }
 
 /**
- * Los comandos que la pantalla puede mandarle a un rastreador. Es una lista cerrada, no texto
- * libre: el equipo acepta por este canal lo mismo que por SMS —incluido cambiarle el servidor o
- * reiniciarlo de fábrica—, y eso no tiene que quedar a un campo de texto de distancia.
+ * Los comandos al rastreador. La lista —qué hay, qué valores lleva cada uno, qué permiso pide— está
+ * en lib/gps-comandos, que tiene también el porqué de que sea una lista cerrada y no texto libre.
+ * Acá está lo que hace falta un servidor para hacer: exigir el permiso, aplicar la regla del relé,
+ * mandar, preguntarle al equipo cómo quedó, y dejar escrito quién mandó qué.
  */
-const COMANDOS = {
-    estado: "STATUS#",
-    posicion: "WHERE#",
-    rele: "RELAY#",
-    "rele.accionar": "RELAY,1#",
-    "rele.soltar": "RELAY,0#",
-} as const;
-export type ComandoGps = keyof typeof COMANDOS;
-
 const CONTROL = `http://127.0.0.1:${process.env.GPS_PUERTO_CONTROL || 10013}`;
 
 async function alEquipo(imei: string, texto: string): Promise<{ ok: boolean; respuesta?: string; error?: string }> {
@@ -481,45 +484,137 @@ async function alEquipo(imei: string, texto: string): Promise<{ ok: boolean; res
     } catch { return { ok: false, error: "No se pudo hablar con el receptor de GPS." }; }
 }
 
-/**
- * Manda un comando y devuelve LO QUE EL EQUIPO CONTESTÓ, tal cual. No se traduce ni se resume:
- * cuando se trata de un relé, la palabra del equipo es el dato.
- */
-export async function comandoGps(imei: string, accion: ComandoGps): Promise<{ ok: boolean; respuesta?: string; error?: string; cortado?: boolean | null }> {
-    const texto = COMANDOS[accion];
-    if (!texto) return { ok: false, error: "Ese comando no existe." };
-    const escribe = accion === "rele.accionar" || accion === "rele.soltar";
-    const s = await sesion(escribe ? "dispositivos.editar" : "dispositivos");
+/** Qué hay que poder para mandar cada clase de comando. */
+const PERMISO_DE_NIVEL: Record<NivelComando, QueGps> = { consulta: "operar", ajuste: "config", rele: "rele", instalacion: "equipo" };
 
-    const e = await prisma.gpsEquipo.findUnique({ where: { imei } });
+export type RespuestaComando = {
+    /** El equipo contestó. Que haya ACEPTADO lo dice `respuesta`, y `rechazo` si parece que no. */
+    ok: boolean;
+    /** Lo que contestó el equipo, textual. */
+    respuesta?: string;
+    error?: string;
+    /** Lo que contestó cuando, después de una escritura, se le preguntó cómo quedó. */
+    quedo?: string | null;
+    rechazo?: boolean;
+    /** El relé, si el comando lo tocó o lo consultó. */
+    cortado?: boolean | null;
+    /** El texto que viajó. */
+    texto?: string;
+};
+
+/**
+ * Manda un comando del catálogo y devuelve LO QUE EL EQUIPO CONTESTÓ, tal cual. No se traduce ni
+ * se resume: cuando se trata de un relé o de a qué servidor reporta, la palabra del equipo es el dato.
+ *
+ * `confirmacion` es lo que la persona tipeó para los comandos que no tienen vuelta. Se comprueba
+ * acá y no sólo en la pantalla: un pedido armado a mano no se saltea la pregunta.
+ */
+export async function mandarComandoGps(imei: string, clave: string, valores?: Valores | null, confirmacion?: string | null): Promise<RespuestaComando> {
+    await sesion("operar");
+    const e = await prisma.gpsEquipo.findUnique({ where: { imei: String(imei) } });
     if (!e) return { ok: false, error: "Ese rastreador no existe." };
+    const def = comandoPorClave(e.protocolo, String(clave));
+    if (!def) return { ok: false, error: comandosDe(e.protocolo).length ? "Ese comando no existe." : "Los comandos a este modelo de rastreador todavía no están hechos." };
+    const s = await sesion(PERMISO_DE_NIVEL[def.nivel]);
     /* A uno que se presentó solo no se le manda nada: todavía no es de nadie. */
     if (!e.deviceId) return { ok: false, error: "Primero hay que dar de alta el rastreador." };
 
-    if (accion === "rele.accionar") {
+    const armado = armarComando(def, valores);
+    if (!armado.ok) return { ok: false, error: armado.error };
+    if (def.confirmar === "escribir" && String(confirmacion || "").trim() !== palabraDeConfirmacion(e.imei)) {
+        return { ok: false, error: `Para confirmar hay que escribir los últimos cuatro números del IMEI (${palabraDeConfirmacion(e.imei)}).` };
+    }
+    const quien = String(s?.name || s?.sub || "panel");
+    const anotado = def.paraAnotar ? def.paraAnotar(armado.valores) : armado.texto;
+    const anotar = (ok: boolean, respuesta: string | null, quedo: string | null = null) =>
+        prisma.gpsComando.create({ data: { imei: e.imei, clave: def.clave, texto: anotado, ok, respuesta: respuesta?.slice(0, 500) ?? null, quedo: quedo?.slice(0, 500) ?? null, quien } }).catch(() => { /* el historial no puede tirar abajo el comando */ });
+    const esConsulta = def.nivel === "consulta";
+
+    if (def.clave === "rele.accionar") {
         const v = puedeAccionarRele({ velocidad: e.velocidad, cuando: e.cuando, encendido: e.encendido, ultimoLatido: e.ultimoLatido });
         if (!v.ok) {
-            await auditar(s, "equipos.gps.rele", e.deviceId, false, `IMEI ${imei} · accionar · frenado: ${v.motivo}`);
-            return { ok: false, error: v.motivo };
+            await auditar(s, "equipos.gps.rele", e.deviceId, false, `IMEI ${e.imei} · accionar · frenado: ${v.motivo}`);
+            await anotar(false, `No se mandó. ${v.motivo}`);
+            return { ok: false, error: v.motivo, texto: armado.texto };
         }
     }
 
-    const r = await alEquipo(imei, texto);
-    let cortado: boolean | null | undefined;
-    if (escribe || accion === "rele") {
-        /* Después de tocar el relé se le pregunta al equipo cómo quedó, en vez de suponerlo: el
-           latido que trae ese dato puede tardar cinco minutos. */
-        const c = accion === "rele" ? r : await alEquipo(imei, COMANDOS.rele);
-        cortado = c.ok ? leerEstadoRele(c.respuesta || "") : null;
-        if (cortado !== null && cortado !== undefined) await prisma.gpsEquipo.update({ where: { imei }, data: { cortado } }).catch(() => { });
+    const r = await alEquipo(e.imei, armado.texto);
+    /* Después de una escritura se le pregunta al equipo cómo quedó, en vez de suponerlo. Para el relé
+       importa (el latido que trae ese dato puede tardar cinco minutos); para lo demás, es la única
+       prueba de que este clon entendió el comando. Lo que reinicia el equipo no se pregunta: no va a contestar. */
+    let quedo: string | null = null;
+    if (!esConsulta && r.ok && def.pregunta && !def.puedeCallar) {
+        const c = await alEquipo(e.imei, def.pregunta);
+        quedo = c.ok ? c.respuesta || "" : null;
     }
-    if (escribe) await auditar(s, "equipos.gps.rele", e.deviceId, r.ok, `IMEI ${imei} · ${accion === "rele.accionar" ? "accionar" : "soltar"} · ${r.ok ? `equipo: «${(r.respuesta || "").slice(0, 120)}»` : r.error}`);
+    let cortado: boolean | null | undefined;
+    if (def.grupo === "rele") {
+        const dicho = def.clave === "rele" ? (r.ok ? r.respuesta || "" : null) : quedo;
+        cortado = dicho === null ? null : leerEstadoRele(dicho);
+        if (cortado !== null && cortado !== undefined) await prisma.gpsEquipo.update({ where: { imei: e.imei }, data: { cortado } }).catch(() => { });
+    }
+
+    const respuesta = r.ok ? (r.respuesta || "").replace(/\s+/g, " ").trim() : null;
+    /* Un equipo que se reinicia puede no llegar a contestar: no es que el comando haya fallado. */
+    const error = r.ok ? undefined : def.puedeCallar && /no contestó/i.test(r.error || "") ? "El equipo no llegó a contestar. Con este comando es esperable: se reinicia. Mirá si vuelve a estar en línea en un par de minutos." : r.error;
+    await anotar(r.ok, r.ok ? respuesta : error || null, quedo);
+    if (!esConsulta) {
+        const esRele = def.nivel === "rele";
+        await auditar(s, esRele ? "equipos.gps.rele" : "equipos.gps.comando", e.deviceId, r.ok,
+            `IMEI ${e.imei} · ${esRele ? (def.clave === "rele.accionar" ? "accionar" : "soltar") : `${def.titulo} · ${anotado}`} · ${r.ok ? `equipo: «${(respuesta || "").slice(0, 120)}»` : error}`);
+    }
     /* Y al historial del rastreador: en su línea de tiempo, «le cortaron la alimentación» y «alguien
        accionó el relé» tienen que poder leerse juntos. Con quién fue y lo que contestó el equipo. */
-    if (escribe && r.ok) await prisma.gpsEvento.create({
-        data: { imei, tipo: accion === "rele.accionar" ? "GPS_RELE_ACCIONADO" : "GPS_RELE_SOLTADO", lat: e.lat, lon: e.lon, detalle: `Por ${String(s?.name || s?.sub || "panel")} · equipo: «${(r.respuesta || "").replace(/\s+/g, " ").trim().slice(0, 80)}»` },
+    if (def.nivel === "rele" && r.ok) await prisma.gpsEvento.create({
+        data: { imei: e.imei, tipo: def.clave === "rele.accionar" ? "GPS_RELE_ACCIONADO" : "GPS_RELE_SOLTADO", lat: e.lat, lon: e.lon, detalle: `Por ${quien} · equipo: «${(respuesta || "").slice(0, 80)}»` },
     }).catch(() => { });
-    return { ...r, cortado };
+    return { ok: r.ok, respuesta: respuesta ?? undefined, error, quedo, rechazo: r.ok && pareceRechazo(respuesta), cortado, texto: anotado };
+}
+
+/** Los cinco comandos de antes, con los nombres con que los llaman el mapa y Dispositivos. Son los mismos del catálogo. */
+export type ComandoGps = "estado" | "posicion" | "rele" | "rele.accionar" | "rele.soltar";
+export async function comandoGps(imei: string, accion: ComandoGps): Promise<{ ok: boolean; respuesta?: string; error?: string; cortado?: boolean | null }> {
+    const r = await mandarComandoGps(imei, accion);
+    return { ok: r.ok, respuesta: r.respuesta, error: r.error, cortado: r.cortado };
+}
+
+/**
+ * Cómo tiene el equipo, hoy, lo que un comando cambia: para que el formulario arranque con lo que
+ * hay y no con valores de fábrica. Le pregunta al equipo (una consulta, no cambia nada) y devuelve
+ * también la respuesta textual, por si este firmware la escribe de una forma que no se sabe leer.
+ */
+export async function valoresActualesGps(imei: string, clave: string): Promise<{ ok: boolean; respuesta?: string; valores?: Valores | null; error?: string }> {
+    await sesion("operar");
+    const e = await prisma.gpsEquipo.findUnique({ where: { imei: String(imei) }, select: { imei: true, protocolo: true, deviceId: true } });
+    const def = e ? comandoPorClave(e.protocolo, String(clave)) : null;
+    if (!e || !def) return { ok: false, error: "Ese comando no existe." };
+    if (!e.deviceId) return { ok: false, error: "Primero hay que dar de alta el rastreador." };
+    if (!def.pregunta) return { ok: true, valores: null };
+    const r = await alEquipo(e.imei, def.pregunta);
+    if (!r.ok) return { ok: false, error: r.error };
+    return { ok: true, respuesta: r.respuesta, valores: def.leer ? def.leer(r.respuesta || "") : null };
+}
+
+export type ComandoMandado = { id: string; imei: string; clave: string; titulo: string; texto: string; ok: boolean; respuesta: string | null; quedo: string | null; quien: string; cuando: string };
+
+/** Lo último que se le mandó a un rastreador (o a todos), del más nuevo al más viejo. */
+export async function historialComandosGps(imei?: string | null, cuantos = 30): Promise<ComandoMandado[]> {
+    await sesion("ver");
+    const filas = await prisma.gpsComando.findMany({ where: imei ? { imei: String(imei) } : {}, orderBy: { cuando: "desc" }, take: Math.min(Math.max(1, cuantos), 200) });
+    return filas.map((f) => ({ id: f.id, imei: f.imei, clave: f.clave, titulo: comandoPorClave("GT06", f.clave)?.titulo || f.clave, texto: f.texto, ok: f.ok, respuesta: f.respuesta, quedo: f.quedo, quien: f.quien, cuando: f.cuando.toISOString() }));
+}
+
+/**
+ * ¿Hay algún rastreador? Para que el menú muestre «Gestión GPS» sólo donde hay flota: en un barrio
+ * sin rastreadores sería una entrada que lleva a una pantalla vacía. No tira si el rol no puede
+ * ver los rastreadores: contesta que no, que para ese rol es la verdad.
+ */
+export async function hayRastreadoresGps(): Promise<boolean> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const s: any = await getSession().catch(() => null);
+    if (!s || !puedeGps(permisosDeSesion(s), "ver")) return false;
+    return (await prisma.gpsEquipo.count({ where: { OR: [{ deviceId: null }, { NOT: { deviceId: DEVICE_DE_PRUEBA } }] } })) > 0;
 }
 
 /**
@@ -539,7 +634,7 @@ export type Geocerca = {
 const AVISA: AvisaCerca[] = ["ambos", "entra", "sale"];
 
 export async function geocercasGps(): Promise<Geocerca[]> {
-    await sesion("dispositivos");
+    await sesion("ver");
     const f = await prisma.gpsGeocerca.findMany({ orderBy: { createdAt: "asc" } });
     return f.map((g) => ({
         id: g.id, nombre: g.nombre, lat: g.lat, lon: g.lon, radio: g.radio, imeis: g.imeis, activa: g.activa,
@@ -551,7 +646,7 @@ export async function guardarGeocercaGps(g: {
     id?: string; nombre: string; lat: number; lon: number; radio: number; imeis?: string[]; activa?: boolean;
     puntos?: [number, number][] | null; horario?: HorarioCerca | null; avisa?: AvisaCerca;
 }): Promise<{ ok: boolean; id?: string; error?: string }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("config");
     const nombre = String(g.nombre || "").trim().slice(0, 60);
     if (!nombre) return { ok: false, error: "La geocerca necesita un nombre: es lo que va a decir el aviso." };
 
@@ -588,7 +683,7 @@ export async function guardarGeocercaGps(g: {
 }
 
 export async function borrarGeocercaGps(id: string): Promise<{ ok: boolean }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("config");
     const g = await prisma.gpsGeocerca.delete({ where: { id } }).catch(() => null);
     if (g) await auditar(s, "equipos.gps.geocerca.borrar", id, true, g.nombre);
     return { ok: !!g };
@@ -604,13 +699,13 @@ const comoCompartido = (c: { id: string; token: string; nombre: string; venceAt:
 
 /** Los enlaces que hoy muestran a ese rastreador. Los vencidos y los cortados no se listan: ya no muestran nada. */
 export async function compartidosGps(imei: string): Promise<Compartido[]> {
-    await sesion("dispositivos.editar");
+    await sesion("compartir");
     const f = await prisma.gpsCompartido.findMany({ where: { imei, revocadoAt: null, venceAt: { gt: new Date() } }, orderBy: { createdAt: "desc" } });
     return f.map(comoCompartido);
 }
 
 export async function compartirGps(imei: string, o: { horas: number; nombre?: string; conRecorrido?: boolean }): Promise<{ ok: boolean; compartido?: Compartido; error?: string }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("compartir");
     const e = await prisma.gpsEquipo.findUnique({ where: { imei }, select: { imei: true, nombre: true, deviceId: true, lat: true, lon: true } });
     if (!e?.deviceId) return { ok: false, error: "Ese rastreador no está dado de alta." };
     const horas = horasValidas(o.horas);
@@ -628,7 +723,7 @@ export async function compartirGps(imei: string, o: { horas: number; nombre?: st
 }
 
 export async function cortarCompartidoGps(id: string): Promise<{ ok: boolean }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("compartir");
     const c = await prisma.gpsCompartido.findUnique({ where: { id } });
     if (!c || estadoDeEnlace(c) !== "vigente") return { ok: !!c };
     await prisma.gpsCompartido.update({ where: { id }, data: { revocadoAt: new Date() } });
@@ -643,7 +738,7 @@ export async function cortarCompartidoGps(id: string): Promise<{ ok: boolean }> 
  * antemano en cuáles hubo algo que mirar).
  */
 export async function diasConMovimientoGps(imei: string, mes: string): Promise<Record<string, number>> {
-    await sesion("dispositivos");
+    await sesion("ver");
     if (!/^\d{4}-\d{2}$/.test(mes || "")) return {};
     const [a, m] = mes.split("-").map(Number);
     const desde = limitesDelDia(`${mes}-01`)?.inicio, hasta = limitesDelDia(`${m === 12 ? a + 1 : a}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01`)?.inicio;
@@ -671,7 +766,7 @@ const PREVIA_FILAS = 60;
  * calcula acá —son cientos de miles de renglones para mostrar sesenta—: va sólo al Excel.
  */
 export async function vistaPreviaReportesGps(o: { imeis: string[] | null; desde: string; hasta: string | null; reportes: ClaveReporte[] }): Promise<{ ok: true; reporte: ReporteGps } | { ok: false; error: string }> {
-    await sesion("dispositivos");
+    await sesion("ver");
     const desde = new Date(o.desde), hasta = o.hasta ? new Date(o.hasta) : null;
     if (Number.isNaN(desde.getTime()) || (hasta && Number.isNaN(hasta.getTime()))) return { ok: false, error: "El período no se entiende." };
     if (hasta && hasta <= desde) return { ok: false, error: "El «hasta» es anterior al «desde»." };
@@ -684,12 +779,12 @@ export async function vistaPreviaReportesGps(o: { imeis: string[] | null; desde:
 
 /** El horario laboral: contra él se marca el uso fuera de horario. Uno para todos los vehículos. */
 export async function horarioLaboralGps(): Promise<HorarioCerca | null> {
-    await sesion("dispositivos");
+    await sesion("ver");
     return horarioLaboral();
 }
 
 export async function guardarHorarioLaboralGps(h: HorarioCerca | null): Promise<{ ok: boolean; horario?: HorarioCerca | null; error?: string }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("config");
     if (h === null) {
         await prisma.setting.deleteMany({ where: { key: HORARIO_LABORAL_GPS } });
         await auditar(s, "equipos.gps.horario-laboral", "todos", true, "sin horario");
@@ -724,7 +819,7 @@ export type ServicioDirecciones = {
  * con coordenadas.
  */
 export async function servicioDireccionesGps(): Promise<ServicioDirecciones> {
-    await sesion("dispositivos");
+    await sesion("ver");
     const guardadas = await prisma.geoDireccion.count().catch(() => 0);
     if (!(await funcionActiva("GPS_DIRECCIONES"))) return { funcion: false, propio: true, url: null, fase: null, frase: null, ok: false, ejemplo: null, guardadas };
     const s = await servicioDeDirecciones();
@@ -736,7 +831,7 @@ export async function servicioDireccionesGps(): Promise<ServicioDirecciones> {
 
 /** Levantar el servicio incorporado: instalarlo si falta, arrancarlo si está parado. No espera a que termine. */
 export async function levantarDireccionesGps(): Promise<{ ok: boolean; error?: string }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("config");
     if (!(await funcionActiva("GPS_DIRECCIONES"))) return { ok: false, error: "Primero hay que prender «Direcciones de los lugares» en Ajustes › Características." };
     const e = await prenderOmniGeo();
     olvidarServicio();
@@ -746,7 +841,7 @@ export async function levantarDireccionesGps(): Promise<{ ok: boolean; error?: s
 
 /** Usar OTRO servicio de direcciones en vez del incorporado (uno central, compartido). Vacío vuelve al de este equipo. */
 export async function guardarServicioDireccionesGps(url: string): Promise<{ ok: boolean; error?: string; ejemplo?: string | null }> {
-    const s = await sesion("dispositivos.editar");
+    const s = await sesion("config");
     const limpia = (url || "").trim();
     if (!limpia) {
         await prisma.setting.deleteMany({ where: { key: AJUSTE_GEO } });

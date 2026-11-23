@@ -2254,6 +2254,30 @@ model GpsEvento {
   @@index([cuando])
 }
 
+/// Un comando que se le mando a un rastreador desde el panel, y lo que contesto (23/11). Es el
+/// historial que se ve en Gestion GPS: quien le cambio el intervalo, cuando, y que dijo el equipo.
+/// Se guarda tambien lo que NO se mando (la regla del rele lo freno, el equipo no estaba en linea):
+/// un intento de cortar un motor que fallo tambien es algo que paso.
+model GpsComando {
+  id        String   @id @default(cuid())
+  imei      String
+  /// La clave del catalogo (lib/gps-comandos): estado | reporte.intervalo | rele.accionar ...
+  clave     String
+  /// El texto que viajo al equipo, tal cual: "TIMER,10,10#".
+  texto     String
+  /// El equipo contesto. No dice que haya aceptado: eso lo dice `respuesta`.
+  ok        Boolean
+  /// Lo que contesto el equipo, textual. Si no se mando o no contesto, el motivo.
+  respuesta String?
+  /// Como quedo: la respuesta a la consulta que se le hace despues de una escritura.
+  quedo     String?
+  /// Quien lo mando.
+  quien     String
+  cuando    DateTime @default(now())
+
+  @@index([imei, cuando])
+}
+
 /// Un enlace para que alguien de afuera vea por donde va UN rastreador, por un rato (22/11). Quien
 /// lo abre no tiene sesion: el token es todo lo que lo autoriza, y por eso vence solo, se puede
 /// cortar antes, y muestra nada mas que ese vehiculo desde que se compartio. Nunca el historial

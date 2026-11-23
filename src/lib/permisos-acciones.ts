@@ -23,6 +23,8 @@ type Archivo = { defecto: ClaseAccion; por?: Record<string, ClaseAccion>; sinLec
 /** Los nombres de las lecturas: get…, listar…, leer…, estado…, ficha… (ver el porqué de cada excepción en `por`). */
 export const LECTURA = /^(get|list|leer|buscar|contar|obtener|estado|datos|ficha|resumen|opciones|search|is[A-Z]|has[A-Z]|cobertura|preview|queSe|donde|retencion|capacidades|celdas|medir|vivo|logs|corridas|conversaciones|mensajes|actividad|eventos|relecturas|visitas|avisos|canales|calcular|tomarCuadro|rolesDe|logosPor|nombreDel|resolveHost|resolveBy|puede|grabaciones)/;
 
+import { PUEDE_GPS } from "@/lib/gps-permisos";
+
 const S = "sesion" as const;
 const P = (...claves: string[]) => claves as readonly string[];
 
@@ -91,8 +93,20 @@ export const ACCIONES: Record<string, Archivo> = {
     "rostro-comportamiento": { defecto: P("historial", "rostros", "vision") },
     // La base local de un lector (sus personas, tarjetas y rostros): leerla es mirar el equipo.
     "base-equipo": { defecto: P("dispositivos") },
-    // Los rastreadores GPS: verlos es mirar equipos; darlos de alta o atarlos a un vehículo, editarlos.
-    gps: { defecto: P("dispositivos"), por: { darDeAltaGps: P("dispositivos.editar"), atarVehiculoGps: P("dispositivos.editar"), renombrarGps: P("dispositivos.editar"), cambiarIconoGps: P("dispositivos.editar"), guardarGeocercaGps: P("dispositivos.editar"), borrarGeocercaGps: P("dispositivos.editar"), cambiarPuertaGps: P("dispositivos.editar"), descartarGps: P("dispositivos.editar"), guardarLimiteVelocidadGps: P("dispositivos.editar"), guardarHorarioLaboralGps: P("dispositivos.editar"), guardarServicioDireccionesGps: P("dispositivos.editar"), levantarDireccionesGps: P("dispositivos.editar"), compartirGps: P("dispositivos.editar"), compartidosGps: P("dispositivos.editar"), cortarCompartidoGps: P("dispositivos.editar") } },
+    // Los rastreadores GPS. Tienen su módulo (Gestión GPS) desde el 23/11; el permiso de Dispositivos
+    // sigue valiendo para lo mismo que antes. Qué alcanza para cada cosa está en lib/gps-permisos, y
+    // cada acción lo vuelve a exigir por dentro: los comandos, según lo que el comando haga.
+    gps: { defecto: P(...PUEDE_GPS.ver), por: {
+        darDeAltaGps: P(...PUEDE_GPS.equipo), cambiarPuertaGps: P(...PUEDE_GPS.equipo), descartarGps: P(...PUEDE_GPS.equipo),
+        renombrarGps: P(...PUEDE_GPS.config), atarVehiculoGps: P(...PUEDE_GPS.config), cambiarIconoGps: P(...PUEDE_GPS.config),
+        guardarGeocercaGps: P(...PUEDE_GPS.config), borrarGeocercaGps: P(...PUEDE_GPS.config), guardarLimiteVelocidadGps: P(...PUEDE_GPS.config),
+        guardarHorarioLaboralGps: P(...PUEDE_GPS.config), guardarServicioDireccionesGps: P(...PUEDE_GPS.config), levantarDireccionesGps: P(...PUEDE_GPS.config),
+        compartirGps: P(...PUEDE_GPS.compartir), compartidosGps: P(...PUEDE_GPS.compartir), cortarCompartidoGps: P(...PUEDE_GPS.compartir),
+        // Un comando puede ser una pregunta o un corte de motor: la puerta deja pasar a quien puede lo menos, y la acción decide.
+        comandoGps: P(...PUEDE_GPS.operar), mandarComandoGps: P(...PUEDE_GPS.operar), valoresActualesGps: P(...PUEDE_GPS.operar),
+        // El menú la pregunta con cualquier sesión, para saber si mostrar la entrada: contesta «no» a quien no puede ver.
+        hayRastreadoresGps: S,
+    } },
     // Abrir una puerta desde la ficha del portero: quien opera el acceso o quien administra equipos.
     // Comparar un rostro con un cuadro del portero no cambia nada: alcanza con ver dispositivos (se revisa por dentro).
     portero: { defecto: P("dispositivos.editar"), por: { abrirPuertaPortero: P("lpr.operar", "dispositivos.editar"), compararCaraPortero: S } },

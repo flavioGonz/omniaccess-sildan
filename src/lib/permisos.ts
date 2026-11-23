@@ -29,7 +29,7 @@ export const NIVELES: { id: Nivel; nombre: string; ayuda: string }[] = [
     { id: "configurar", nombre: "Configurar", ayuda: "Cambiar cómo funciona: reglas, catálogos, alta de equipos." },
 ];
 
-export type ModuloId = "operacion" | "lpr" | "video" | "intrusion" | "hub" | "vision" | "rostro" | "filas" | "guardia" | "padron" | "equipos" | "administracion";
+export type ModuloId = "operacion" | "lpr" | "video" | "intrusion" | "hub" | "vision" | "rostro" | "filas" | "guardia" | "gps" | "padron" | "equipos" | "administracion";
 export type Modulo = { id: ModuloId; nombre: string; descripcion: string };
 export const MODULOS: Modulo[] = [
     { id: "operacion", nombre: "Operación", descripcion: "Lo común a toda la instalación: la gestión de alarmas, el historial, el mapa y los monitores de pared." },
@@ -41,6 +41,7 @@ export const MODULOS: Modulo[] = [
     { id: "rostro", nombre: "Rostro", descripcion: "Reconocimiento facial: el monitor, las listas y la carga de caras." },
     { id: "filas", nombre: "Filas", descripcion: "El módulo de colas: conteo, despachos, reportes." },
     { id: "guardia", nombre: "Guardia", descripcion: "El puesto: la consola, la bitácora y las visitas registradas." },
+    { id: "gps", nombre: "Rastreo GPS", descripcion: "La flota: dónde está cada vehículo, por dónde anduvo, sus zonas, sus reportes y los comandos al rastreador." },
     { id: "padron", nombre: "Padrón", descripcion: "Quién es quién: personas, unidades, vehículos y grupos de acceso." },
     { id: "equipos", nombre: "Equipos", descripcion: "Cámaras, grabadores, lectoras y centrales dadas de alta." },
     { id: "administracion", nombre: "Administración", descripcion: "La configuración del sistema y quién entra al panel." },
@@ -154,6 +155,21 @@ const SECCIONES: Seccion[] = [
     ] },
     { modulo: "guardia", seccion: "visitas", nombre: "Visitas y proveedores", permisos: [
         ["visitas", "operar", "Visitas y proveedores", "Registrar, extender y cerrar visitas, los avisos de vencimiento y la planilla de los proveedores.", ["/admin/visitas"]],
+    ] },
+    // ── Rastreo GPS ──
+    // Módulo propio desde el 23/11 (Nico: «tenemos que generar un elemento del menú nuevo, Gestión GPS»).
+    // Hasta ahí todo lo del GPS pedía «Dispositivos»: para que un encargado de flota viera por dónde
+    // andaba una camioneta había que darle las cámaras y las lectoras. Quien ya tenía Dispositivos
+    // sigue pudiendo lo mismo que antes (TAMBIEN_ABREN y lib/permisos-acciones, archivo gps).
+    { modulo: "gps", seccion: "gps", nombre: "Gestión GPS", permisos: [
+        ["gps", "ver", "Gestión GPS", "Ver los vehículos, dónde están, por dónde anduvieron, sus eventos, sus zonas y los reportes.", ["/admin/gps"]],
+        ["gps.operar", "operar", "Operar la flota", "Preguntarle al rastreador cómo está y dónde está, bajar los reportes en Excel y PDF y compartir la posición de un vehículo con un enlace."],
+        ["gps.config", "configurar", "Configurar el rastreo", "Las zonas, el límite de velocidad, el horario laboral, el nombre y el vehículo de cada rastreador, y los comandos que cambian cada cuánto reporta y qué avisa."],
+    ] },
+    // Aparte y delicado: no va con «operar la flota». Bajar un reporte no es dejar un vehículo sin motor.
+    { modulo: "gps", seccion: "gps-rele", nombre: "Corte de motor", permisos: [
+        ["gps.rele", "operar", "Cortar y devolver el motor", "Accionar y soltar el relé del rastreador. Sólo se acciona con el vehículo detenido, y cada orden queda en Auditoría.", [],
+            "El relé corta el combustible o el encendido del vehículo."],
     ] },
     // ── Padrón ──
     { modulo: "padron", seccion: "usuarios", nombre: "Personas", permisos: [
@@ -326,6 +342,8 @@ export function permisoDeRuta(pathname: string): Permiso | null {
  */
 export const TAMBIEN_ABREN: Record<string, string[]> = {
     "/admin/alarmas": ["hub", "intrusion", "lpr", "vision"],
+    // Gestión GPS: quien ya administraba los rastreadores desde Dispositivos la sigue abriendo.
+    "/admin/gps": ["dispositivos"],
 };
 
 export function puedeAbrir(permisos: string[] | null | undefined, pathname: string): boolean {
@@ -371,15 +389,17 @@ export const PLANTILLAS_ROL: { id: string; nombre: string; descripcion: string; 
     { id: "supervisor", nombre: "Supervisor", descripcion: "Ve y opera todo lo del día, revisa la auditoría y edita el padrón. No toca la configuración ni los accesos.", permisos: normalizarPermisos([
         "alarmas.atender", "historial.exportar", "mapa", "monitores", "lpr.operar", "vigilancia", "invitados.gestionar", "plazas",
         "video", "grabaciones", "acuseek", "intrusion.atender", "hub.tratar", "vision", "rostros.listas", "filas", "guardia", "visitas",
-        "usuarios.editar", "unidades.editar", "vehiculos.editar", "dispositivos", "auditoria"]) },
+        "usuarios.editar", "unidades.editar", "vehiculos.editar", "dispositivos", "gps.operar", "auditoria"]) },
     { id: "monitoreo", nombre: "Operador de monitoreo", descripcion: "El centro de monitoreo: atiende alarmas, intrusiones y eventos de las centrales con video y grabaciones.", permisos: normalizarPermisos([
         "alarmas.atender", "historial", "mapa", "monitores", "lpr", "video", "grabaciones", "intrusion.atender", "hub.tratar", "vision"]) },
     { id: "garita", nombre: "Guardia de garita", descripcion: "El puesto de entrada: matrículas, invitados, visitas, la bitácora y la lista de vigilancia.", permisos: normalizarPermisos([
         "alarmas.atender", "historial", "lpr.operar", "vigilancia", "invitados.gestionar", "guardia", "visitas", "usuarios", "vehiculos"]) },
     { id: "tecnico", nombre: "Técnico", descripcion: "Instala y ajusta: equipos, reglas de intrusión, OmniVision, centrales, mapas, plazas, filas y monitores.", permisos: normalizarPermisos([
-        "dispositivos.editar", "intrusion.reglas", "video", "grabaciones", "vision.config", "hub.config", "monitores.config", "mapa.editar", "plazas.config", "filas.config", "historial"]) },
+        "dispositivos.editar", "intrusion.reglas", "video", "grabaciones", "vision.config", "hub.config", "monitores.config", "mapa.editar", "plazas.config", "filas.config", "gps.config", "historial"]) },
+    { id: "flota", nombre: "Encargado de flota", descripcion: "Los vehículos con rastreador: dónde están, sus recorridos, zonas y reportes. No corta motores ni toca cámaras.", permisos: normalizarPermisos([
+        "gps.operar", "gps.config", "mapa", "vehiculos"]) },
     { id: "administracion", nombre: "Administración del barrio", descripcion: "El padrón: personas, unidades, vehículos, grupos, invitados y plazas, con el historial para consultar.", permisos: normalizarPermisos([
         "usuarios.editar", "unidades.editar", "vehiculos.editar", "grupos", "invitados.gestionar", "plazas", "historial.exportar", "visitas"]) },
     { id: "auditor", nombre: "Auditor", descripcion: "Sólo mira: todas las pantallas en modo ver, y la auditoría.", permisos: normalizarPermisos([
-        ...verDe("operacion", "lpr", "video", "intrusion", "hub", "vision", "rostro", "filas", "padron", "equipos"), "auditoria"]) },
+        ...verDe("operacion", "lpr", "video", "intrusion", "hub", "vision", "rostro", "filas", "gps", "padron", "equipos"), "auditoria"]) },
 ];

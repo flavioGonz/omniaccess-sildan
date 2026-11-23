@@ -51,6 +51,7 @@ import {
     FileSearch,
     Search,
     ScanEye, ClipboardList, FileVideo,
+    Satellite,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -109,6 +110,7 @@ function SidebarItem({ icon, label, href, active, collapsed, insignia, tonoInsig
 import { getSetting } from "@/app/actions/settings";
 import { contarListaNegra, contarListaAmarilla } from "@/app/actions/watchlist";
 import { contarCensoPendiente } from "@/app/actions/censo";
+import { hayRastreadoresGps } from "@/app/actions/gps";
 
 export default function AdminLayout({
     children,
@@ -133,6 +135,10 @@ export default function AdminLayout({
        una promesa que no se cumple. Se pregunta una vez al entrar. */
     const [hayAccesos, setHayAccesos] = useState(false);
     useEffect(() => { hayEquiposDeAcceso().then(setHayAccesos).catch(() => { }); }, []);
+    /* Gestión GPS, lo mismo: aparece donde hay algún rastreador (23/11). Se vuelve a preguntar al
+       cambiar de pantalla, así aparece sola después de dar de alta el primero en Dispositivos. */
+    const [hayGps, setHayGps] = useState(false);
+    useEffect(() => { hayRastreadoresGps().then(setHayGps).catch(() => { }); }, [pathname]);
     const enListaAmarilla = pathname === "/admin/users" && searchParams?.get("tab") === "listaamarilla";
     const router = useRouter();
     const [angosto, setCollapsed] = useState(false);
@@ -153,7 +159,16 @@ export default function AdminLayout({
     // `oa.cctv.menu` era la clave cuando valía sólo para Monitor CCTV: quien lo había clavado ahí lo conserva.
     useEffect(() => { try { if ((localStorage.getItem("oa.menu") ?? localStorage.getItem("oa.cctv.menu")) === "fijo") setMenu("fijo"); } catch { /* sin almacenamiento: oculto */ } }, []);
     const fijarMenu = (m: "oculto" | "fijo") => { setMenu(m); setAsomado(false); try { localStorage.setItem("oa.menu", m); } catch { /* idem */ } };
-    const sinMenu = menu === "oculto";
+    /* En un celular el menú es SIEMPRE el que flota (23/11): fijo ocupa 256 px de los 390 que hay, y
+       lo que queda no es una pantalla. Quien lo tenía clavado en el escritorio lo sigue teniendo ahí. */
+    const [celular, setCelular] = useState(false);
+    useEffect(() => {
+        const m = window.matchMedia("(max-width: 639px)");
+        const leer = () => setCelular(m.matches);
+        leer(); m.addEventListener("change", leer);
+        return () => m.removeEventListener("change", leer);
+    }, []);
+    const sinMenu = menu === "oculto" || celular;
     // Oculto se muestra siempre entero: la versión de íconos solos es para cuando queda fijo.
     const collapsed = angosto && !sinMenu;
     /* Sacar el mouse lo esconde con una pausa: al rozar el borde de la ventana el navegador avisa
@@ -163,6 +178,13 @@ export default function AdminLayout({
     const asomar = () => { quedarse(); setAsomado(true); };
     const esconder = (ms = 260) => { quedarse(); irse.current = setTimeout(() => setAsomado(false), ms); };
     useEffect(() => () => quedarse(), []);
+    /* Una pantalla puede pedir el menú con su propio botón (Gestión GPS lo hace en el celular, donde
+       la pestaña del borde es fina para un pulgar): avisa con `oa:menu` y acá se lo asoma. */
+    useEffect(() => {
+        const abrir = () => { quedarse(); setAsomado(true); };
+        window.addEventListener("oa:menu", abrir);
+        return () => window.removeEventListener("oa:menu", abrir);
+    }, []);
     useEffect(() => { if (!sinMenu) setAsomado(false); }, [sinMenu]);
     // Se eligió adónde ir: el menú ya cumplió.
     useEffect(() => { quedarse(); setAsomado(false); }, [pathname, searchParams]);
@@ -329,6 +351,8 @@ export default function AdminLayout({
                     {/* Porteros y controles de acceso: su propia bitácora, cuando hay alguno (18/11). El
                         Historial es de matrículas; acá el sujeto es una persona frente a una puerta. */}
                     {hayAccesos && puede("/admin/bitacora-equipos") && (<SidebarItem icon={<DoorOpen size={18} />} label="Bitácora de equipos" href="/admin/bitacora-equipos" active={pathname === "/admin/bitacora-equipos"} collapsed={collapsed} />)}
+                    {/* La flota con rastreador: vehículos, zonas, reportes, comandos y ajustes, en una sola entrada (23/11). */}
+                    {hayGps && puede("/admin/gps") && (<SidebarItem icon={<Satellite size={18} />} label="Gestión GPS" href="/admin/gps" active={!!pathname?.startsWith("/admin/gps")} collapsed={collapsed} />)}
                     {/* Lo grabado y lo mandado, en un solo lugar (16/11). Con el permiso de grabaciones. */}
                     {puede("/admin/evidencias") && (<SidebarItem icon={<FileVideo size={18} />} label="Evidencias" href="/admin/evidencias" active={pathname === "/admin/evidencias"} collapsed={collapsed} />)}
                     {modules.MODULE_QUEUE && (
@@ -480,7 +504,8 @@ export default function AdminLayout({
 
             <main
                 className={cn(
-                    "flex-1 overflow-y-auto custom-scrollbar transition-all duration-300 ease-in-out font-sans h-screen",
+                    /* `dvh` donde exista: en un celular, 100vh incluye la barra del navegador y el final de la página queda tapado. */
+                    "flex-1 overflow-y-auto custom-scrollbar transition-all duration-300 ease-in-out font-sans h-screen supports-[height:100dvh]:h-dvh",
                     sinMenu ? "ml-0" : collapsed ? "ml-[70px]" : "ml-64"
                 )}
             >
