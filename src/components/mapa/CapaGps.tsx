@@ -28,6 +28,7 @@ import { crearCamara, ponerFino } from "@/lib/mapa-fino";
 import { lugarConDireccion } from "@/lib/direccion-texto";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";
+import { PanelObdGps, tieneObd } from "@/components/mapa/PanelObdGps";
 import { fechaCorta, fechaHora, hace, horaSeg, limitesDelDia } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 
@@ -505,8 +506,12 @@ export function CapaGps() {
                             setMenu({ imei: r.imei, x: Math.min(oe.clientX, window.innerWidth - 250), y: Math.min(oe.clientY, window.innerHeight - 380) });
                         },
                     }}>
-                    <Popup>
-                        <div style={{ font: "13px/1.45 Outfit,system-ui,sans-serif", minWidth: 215 }}>
+                    {/* Con un rastreador que lee el motor, el globo lleva acoplado a la derecha su tablero (PanelObdGps).
+                        El ancho máximo se abre para que entren los dos; en una pantalla angosta no entran lado
+                        a lado y el tablero baja debajo. */}
+                    <Popup maxWidth={tieneObd(r) ? Math.min(540, (typeof window === "undefined" ? 540 : window.innerWidth) - 48) : 300}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-start" }}>
+                        <div style={{ font: "13px/1.45 Outfit,system-ui,sans-serif", minWidth: 215, flex: "1 1 215px", maxWidth: 270 }}>
                             <div style={{ fontWeight: 700, fontSize: 14 }}>{r.nombre || `Rastreador ${r.imei.slice(-6)}`}</div>
                             <div style={{ color: "#64748b", fontSize: 11.5, marginBottom: 6 }}>{r.matricula ? `${r.matricula} · ` : ""}IMEI {r.imei}</div>
                             {/* Dónde está, en palabras: la geocerca si está en una, y la calle. Va arriba y en un renglón
@@ -527,6 +532,8 @@ export function CapaGps() {
                             <button type="button" onClick={() => { mapa.closePopup(); abrirCajon(r.imei); }}
                                 style={{ marginTop: 8, width: "100%", height: 28, borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", font: "600 12px Outfit,system-ui,sans-serif", cursor: "pointer" }}>Ver sus eventos</button>
                             <div style={{ color: "#64748b", fontSize: 11.5, marginTop: 6 }}>Clic derecho: recorrido, controles e ícono.</div>
+                        </div>
+                        {tieneObd(r) && <PanelObdGps r={r} />}
                         </div>
                     </Popup>
                 </MarcadorGps>

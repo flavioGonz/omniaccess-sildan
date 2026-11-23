@@ -15,6 +15,7 @@ import { armarComando, comandoPorClave, comandosDe, palabraDeConfirmacion, parec
 import { auditar } from "@/lib/centrales/sesion";
 import { leerEstadoRele, puedeAccionarRele } from "@/lib/gps-rele";
 import { aligerar, type ResumenRecorrido } from "@/lib/gps-recorrido";
+import { nivelDelTanque, rendimiento, type NivelTanque } from "@/lib/gps-combustible";
 import { resumenDeViajes, viajesYParadas, type Parada, type Viaje } from "@/lib/gps-viajes";
 import { CLASES_EVENTO_GPS, EVENTOS_GPS, tiposDeClase, type ClaseEventoGps } from "@/lib/gps-eventos";
 import { CLAVES_REPORTE, type ClaveReporte } from "@/lib/gps-reportes-catalogo";
@@ -71,6 +72,10 @@ export type Rastreador = {
     protocolo: string;
     /** Sólo los que se enchufan al conector OBD: lo último que le leyó al motor, el chasis y su cuentakilómetros. */
     motor: MotorGps | null;
+    /** Cuánto queda en el tanque: lo que dice el vehículo, o lo que se estima (lib/gps-combustible). */
+    tanque: NivelTanque & { capacidad: number | null };
+    /** Litros cada 100 km desde que el equipo está puesto; null si anduvo poco para decirlo. */
+    rendimiento: number | null;
     fallas: FallasGps | null;
     vin: string | null;
     odometroKm: number | null;
@@ -129,6 +134,8 @@ export async function rastreadoresGps(): Promise<Rastreador[]> {
             sinReporteDesde: e.sinReporteDesde?.toISOString() || null,
             direccion: (e.lat !== null && e.lon !== null && dir.get(claveDeLugar(e.lat, e.lon))) || null,
             protocolo: e.protocolo || "GT06",
+            tanque: { ...nivelDelTanque(e.motor as MotorGps | null, { capacidad: e.tanqueLitros, llenoEn: e.tanqueLlenoEn, llenoCuando: e.tanqueLlenoCuando?.toISOString() || null }), capacidad: e.tanqueLitros },
+            rendimiento: rendimiento((e.motor as MotorGps | null)?.consumido, e.odometro === null ? null : e.odometro / 1000),
             motor: (e.motor as MotorGps | null) || null, fallas: (e.fallas as FallasGps | null) || null, vin: e.vin, odometroKm: e.odometro === null ? null : Math.round(e.odometro / 100) / 10,
         };
     });
@@ -481,6 +488,30 @@ export async function cambiarIconoGps(imei: string, icono: string): Promise<{ ok
     await sesion("config");
     if (!ICONOS.has(icono)) return { ok: false, error: "Ese ícono no existe." };
     await prisma.gpsEquipo.update({ where: { imei }, data: { icono } });
+    return { ok: true };
+}
+
+/** Cuántos litros entran en el tanque de este vehículo. Vacío lo borra. Lo usa la estimación del nivel. */
+export async function guardarTanqueGps(imei: string, litros: number | null): Promise<{ ok: boolean; error?: string }> {
+    await sesion("config");
+    const n = litros === null ? null : Number(litros);
+    if (n !== null && (!Number.isFinite(n) || n < 5 || n > 2000)) return { ok: false, error: "La capacidad del tanque va entre 5 y 2.000 litros." };
+    await prisma.gpsEquipo.update({ where: { imei: String(imei) }, data: { tanqueLitros: n } });
+    return { ok: true };
+}
+
+/**
+ * «Llené el tanque»: desde acá se empieza a descontar lo que quema el motor. Se anota cuánto llevaba
+ * consumido el equipo en este momento; si el equipo todavía no lo informó, no hay desde dónde contar.
+ */
+export async function tanqueLlenoGps(imei: string): Promise<{ ok: boolean; error?: string }> {
+    await sesion("operar");
+    const e = await prisma.gpsEquipo.findUnique({ where: { imei: String(imei) }, select: { motor: true, tanqueLitros: true } });
+    if (!e) return { ok: false, error: "Ese rastreador no existe." };
+    if (!e.tanqueLitros) return { ok: false, error: "Primero cargá cuántos litros entran en el tanque." };
+    const consumido = (e.motor as MotorGps | null)?.consumido;
+    if (consumido === undefined) return { ok: false, error: "El equipo todavía no informó cuánto lleva consumido: probá con el motor en marcha." };
+    await prisma.gpsEquipo.update({ where: { imei: String(imei) }, data: { tanqueLlenoEn: consumido, tanqueLlenoCuando: new Date() } });
     return { ok: true };
 }
 

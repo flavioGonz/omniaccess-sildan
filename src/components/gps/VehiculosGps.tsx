@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, FileSpreadsheet, History, Loader2, MapPin, Radio, Satellite, Share2, TerminalSquare } from "lucide-react";
 import { sileo as toast } from "sileo";
-import { atarVehiculoGps, cambiarIconoGps, renombrarGps, type Rastreador } from "@/app/actions/gps";
+import { atarVehiculoGps, cambiarIconoGps, guardarTanqueGps, renombrarGps, tanqueLlenoGps, type Rastreador } from "@/app/actions/gps";
 import { Button } from "@/components/ui/button";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Vacio } from "@/components/ui/estados";
@@ -40,7 +40,16 @@ const AGUA_ALTA = 110;
  * nada, y mostrar «96 °C» sin la hora sería decir que el motor está caliente ahora. Cada dato puede
  * faltar, porque no todos los vehículos contestan todo: el que falta no se dibuja.
  */
-function MotorObd({ r }: { r: Rastreador }) {
+/** Lo del motor en un renglón, para la lista: «1.395 rpm · 96 °C · 3,3 l/h». Vacío si el equipo no lo trae. */
+function resumenMotor(r: Rastreador): string {
+    const m = r.motor;
+    if (!m) return "";
+    const fallas = r.fallas?.codigos.length ? `${r.fallas.codigos.length} ${r.fallas.codigos.length === 1 ? "falla" : "fallas"}` : null;
+    if (!m.rpm) return [m.rpm === 0 ? "Parado" : null, fallas].filter(Boolean).join(" · ");
+    return [`${m.rpm.toLocaleString("es-UY")} rpm`, m.agua !== undefined ? `${m.agua} °C` : null, m.consumo !== undefined ? `${m.consumo.toLocaleString("es-UY", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} l/h` : null, fallas].filter(Boolean).join(" · ");
+}
+
+function MotorObd({ r, puedeTanque, alCambiar }: { r: Rastreador; puedeTanque: boolean; alCambiar: () => void }) {
     const m = r.motor, f = r.fallas;
     if (!m && !f && !r.vin && r.odometroKm === null) return null;
     const litros = (v: number, d: number) => v.toLocaleString("es-UY", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -56,8 +65,12 @@ function MotorObd({ r }: { r: Rastreador }) {
                 {m?.carga !== undefined && <Dato k="Carga del motor">{m.carga} %</Dato>}
                 {m?.acelerador !== undefined && <Dato k="Acelerador">{m.acelerador} %</Dato>}
                 {m?.consumo !== undefined && <Dato k="Consumo ahora">{litros(m.consumo, 1)} l/h</Dato>}
-                {m?.combustible !== undefined && <Dato k="Combustible">{m.combustible} %</Dato>}
-                {m?.combustibleL !== undefined && <Dato k="Combustible">{m.combustibleL} l</Dato>}
+                {(r.tanque.pct !== null || r.tanque.litros !== null) && (
+                    <Dato k={r.tanque.fuente === "estimado" ? "Tanque (estimado)" : "Tanque"} tono={r.tanque.pct !== null && r.tanque.pct <= 15 ? "tono-mal" : undefined}>
+                        {[r.tanque.pct !== null ? `${r.tanque.pct} %` : null, r.tanque.litros !== null ? `${litros(r.tanque.litros, 1)} l` : null].filter(Boolean).join(" · ")}
+                    </Dato>
+                )}
+                {r.rendimiento !== null && <Dato k="Rendimiento">{litros(r.rendimiento, 1)} l/100 km</Dato>}
                 {m?.aire !== undefined && <Dato k="Aire de admisión">{m.aire} °C</Dato>}
                 {m?.presion !== undefined && <Dato k="Presión de admisión">{m.presion} kPa</Dato>}
                 {m?.caudal !== undefined && <Dato k="Caudal de aire">{m.caudal} g/s</Dato>}
@@ -71,6 +84,44 @@ function MotorObd({ r }: { r: Rastreador }) {
                 )}
                 {r.vin && <Dato k="Chasis" className="col-span-2 sm:col-span-3">{r.vin}</Dato>}
             </div>
+            {puedeTanque && <Tanque key={r.imei} r={r} alCambiar={alCambiar} />}
+        </div>
+    );
+}
+
+/**
+ * El tanque (23/11). Hay vehículos que no le dicen al rastreador cuánto combustible tienen; el equipo
+ * sí informa cuánto quemó el motor, así que con la capacidad del tanque y el momento en que se lo
+ * llenó se estima lo que queda (lib/gps-combustible). Acá se cargan esas dos cosas.
+ */
+function Tanque({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
+    const [cap, setCap] = useState(r.tanque.capacidad ? String(r.tanque.capacidad) : "");
+    const [ocupado, setOcupado] = useState(false);
+    const hacer = async (que: () => Promise<{ ok: boolean; error?: string }>, dicho: string) => {
+        setOcupado(true);
+        try { const x = await que(); if (x.ok) { toast.success({ title: dicho }); alCambiar(); } else toast.error({ title: x.error || "No se pudo guardar" }); }
+        catch { toast.error({ title: "No se pudo guardar: probá de nuevo" }); }
+        finally { setOcupado(false); }
+    };
+    const numero = cap.trim() === "" ? null : Number(cap.replace(",", "."));
+    const cambio = (numero ?? null) !== (r.tanque.capacidad ?? null);
+    return (
+        <div className="mt-3 border-t border-border pt-3">
+            <p className="text-[12px] font-medium text-muted-foreground">Tanque de combustible</p>
+            <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">
+                {r.tanque.fuente === "vehiculo" ? "Este vehículo informa su nivel: la capacidad sirve para decirlo también en litros."
+                    : "Este vehículo no informa su nivel. Con la capacidad del tanque y el aviso de cada vez que se llena, se estima cuánto queda por lo que quema el motor."}
+            </p>
+            <div className="mt-2.5 flex flex-wrap items-end gap-2">
+                <label className="min-w-0 flex-1">
+                    <span className="block text-[11px] text-muted-foreground">Capacidad, en litros</span>
+                    <input inputMode="decimal" value={cap} onChange={(e) => setCap(e.target.value)} placeholder="66" className={cn(CAMPO, "mt-1 w-full tabular-nums")} />
+                </label>
+                <Button variant="outline" disabled={ocupado || !cambio || (numero !== null && !Number.isFinite(numero))} onClick={() => hacer(() => guardarTanqueGps(r.imei, numero), "Capacidad guardada")}>Guardar</Button>
+                <Button disabled={ocupado || !r.tanque.capacidad || cambio} onClick={() => hacer(() => tanqueLlenoGps(r.imei), "Tanque lleno: se empieza a descontar desde acá")}>Llené el tanque</Button>
+            </div>
+            {r.tanque.desde && <p className="mt-1.5 text-[11.5px] text-muted-foreground">Último llenado anotado {hace(r.tanque.desde)}.</p>}
+            {r.tanque.falta && r.tanque.capacidad ? <p className="mt-1.5 text-[11.5px] text-muted-foreground">{r.tanque.falta}.</p> : null}
         </div>
     );
 }
@@ -99,6 +150,7 @@ export function VehiculosGps({ lista, puede, alCambiar, alIr }: {
     }, [lista, filtro, q]);
     const deLaFicha = fichaDe ? lista.find((r) => r.imei === fichaDe) || null : null;
 
+    const hayObd = lista.some((r) => r.motor || r.fallas);
     const columnas = useMemo<ColumnaTabla<Rastreador>[]>(() => [
         { clave: "vehiculo", titulo: "Vehículo", ordenable: true, valor: (r) => nombreDe(r),
             celda: (r) => (
@@ -120,11 +172,15 @@ export function VehiculosGps({ lista, puede, alCambiar, alIr }: {
             )) },
         { clave: "motor", titulo: "Motor", valor: (r) => (r.encendido === null ? "" : r.encendido ? "Encendido" : "Apagado"),
             celda: (r) => (r.encendido === null ? <span className="text-muted-foreground">—</span> : <span className={cn("text-[12.5px] font-semibold", r.encendido ? "tono-bien" : "text-muted-foreground")}>{r.encendido ? "Encendido" : "Apagado"}</span>) },
+        /* Lo del motor a la vista en la lista, no sólo adentro de la ficha (Nico no lo encontraba). La
+           columna está sólo si algún rastreador es de los que se enchufan al conector OBD. */
+        ...(hayObd ? [{ clave: "obd", titulo: "Motor (OBD)", valor: (r: Rastreador) => resumenMotor(r),
+            celda: (r: Rastreador) => (resumenMotor(r) ? <span className="whitespace-nowrap text-[12.5px] font-semibold tabular-nums">{resumenMotor(r)}</span> : <span className="text-muted-foreground">—</span>) }] : []),
         { clave: "bateria", titulo: "Batería", alinear: "der", ordenable: true, valor: (r) => r.voltaje ?? "",
             celda: (r) => (r.voltaje === null ? <span className="text-muted-foreground">—</span> : <span className={cn("text-[12.5px] font-semibold tabular-nums", r.voltaje < VOLTAJE_BAJO && "tono-aviso")}>{voltios(r.voltaje)}</span>) },
         { clave: "reporto", titulo: "Reportó", valor: (r) => hace(r.ultimoLatido, "nunca"), celda: (r) => <span className="whitespace-nowrap text-[12.5px] text-muted-foreground">{hace(r.ultimoLatido, "nunca")}</span> },
         { clave: "ir", titulo: "", auxiliar: true, ancho: 36, celda: () => <ChevronRight size={15} className="text-muted-foreground" /> },
-    ], []);
+    ], [hayObd]);
 
     const FILTROS: [Filtro, string][] = [["todos", "Todos"], ["andando", "Andando"], ["detenido", "Detenidos"], ["sin-reportar", "Sin reportar"], ["sin-alta", "Sin dar de alta"]];
     const sinNada = !lista.length;
@@ -165,6 +221,7 @@ export function VehiculosGps({ lista, puede, alCambiar, alIr }: {
                                     <span>{r.lat === null ? `reportó ${hace(r.ultimoLatido, "nunca")}` : `de ${hace(r.cuando)}`}</span>
                                     {r.encendido !== null && <span>motor {r.encendido ? "encendido" : "apagado"}</span>}
                                     {r.voltaje !== null && <span className={cn("tabular-nums", r.voltaje < VOLTAJE_BAJO && "tono-aviso font-semibold")}>{voltios(r.voltaje)}</span>}
+                                    {resumenMotor(r) && <span className="tabular-nums">{resumenMotor(r)}</span>}
                                     {r.cortado && <span className="tono-mal font-semibold">motor cortado</span>}
                                 </span>
                             </span>
@@ -212,7 +269,7 @@ function Ficha({ r, puede, alCambiar, alIr }: { r: Rastreador; puede: (que: QueG
                         <Dato k="Señal">{r.senal === null ? "—" : SENAL[Math.min(4, r.senal)]}</Dato>
                         <Dato k="Corte de motor" tono={r.cortado ? "tono-mal" : undefined}>{r.cortado === null ? "Sin dato" : r.cortado ? "Cortado" : "En reposo"}</Dato>
                     </div>
-                    <MotorObd r={r} />
+                    <MotorObd r={r} puedeTanque={!!r.deviceId && puede("config")} alCambiar={alCambiar} />
                 </section>
 
                 {/* ── Adónde ir con este vehículo ── */}

@@ -2199,6 +2199,11 @@ model GpsEquipo {
   motor        Json?
   /// Los codigos de falla que el vehiculo tiene guardados, segun el equipo: { codigos, norma, cuando }.
   fallas       Json?
+  /// El tanque, para ESTIMAR cuanto queda cuando el vehiculo no informa el nivel: la capacidad en
+  /// litros (la carga una persona) y cuanto llevaba consumido el motor la ultima vez que se lleno.
+  tanqueLitros      Float?
+  tanqueLlenoEn     Float?
+  tanqueLlenoCuando DateTime?
   /// Con que dibujo se lo ve en el mapa: auto | camion | moto | persona | punto.
   icono        String?
   /// El rele del equipo esta accionado (corte de combustible o de alimentacion), segun el latido.

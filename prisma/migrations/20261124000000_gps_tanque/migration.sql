@@ -1,0 +1,3 @@
+ALTER TABLE "GpsEquipo" ADD COLUMN "tanqueLitros" DOUBLE PRECISION;
+ALTER TABLE "GpsEquipo" ADD COLUMN "tanqueLlenoEn" DOUBLE PRECISION;
+ALTER TABLE "GpsEquipo" ADD COLUMN "tanqueLlenoCuando" TIMESTAMP(3);
