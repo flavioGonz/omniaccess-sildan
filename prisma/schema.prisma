@@ -2113,13 +2113,17 @@ model InvitacionCenso {
   lote       String
   email      String
   nombre     String    @default("")
-  /// Los lotes de esta persona: [{ unitId, nombre, vinculo }]. La invitacion es POR PERSONA (21/11,
-  /// lo que resolvio la administracion: «un codigo por persona; los matrimonios, uno cada uno»), y
-  /// una persona puede tener mas de un lote.
+  /// El lote de la invitacion: [{ unitId, nombre, vinculo }]. Desde el 25/11 la invitacion es POR
+  /// LOTE (Nico: «es un codigo por lote, no por cada integrante; cada lote tiene un correo
+  /// principal»): un solo elemento. Antes era por persona, con todos sus lotes.
   lotes      Json      @default("[]")
-  /// La persona del padron a la que corresponde, si ya esta cargada.
+  /// El lote al que pertenece (uno solo; ver `lotes`). Null = invitacion vieja, por persona.
+  unitId     String?
+  /// La persona principal del lote, a quien le llega el correo.
   userId     String?
-  /// La clave que viaja en el enlace y en el correo. Unica: es la que identifica a la persona.
+  /// El principal lo eligio alguien a mano en el cajon del lote: la planilla no lo cambia.
+  aMano      Boolean   @default(false)
+  /// La clave que viaja en el enlace y en el correo. Unica: es la que identifica al lote.
   clave      String    @unique
   enviadoAt  DateTime?
   /// La cuenta desde la que salio: la de la administracion de sus lotes (25/11), o la general.
@@ -2132,7 +2136,8 @@ model InvitacionCenso {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  @@unique([sitio, email])
+  @@unique([sitio, unitId])
+  @@index([sitio, email])
   @@index([enviadoAt])
 }
 

@@ -7,7 +7,8 @@ import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Cargando, Chip, ErrorEstado } from "@/components/ui/estados";
 import { Matricula } from "@/components/ui/celdas";
 import { fechaHora } from "@/lib/fechas";
-import { detalleLote, type DetalleLote } from "@/app/actions/administraciones";
+import { detalleLote, elegirPrincipal, type DetalleLote } from "@/app/actions/administraciones";
+import { sileo as toast } from "sileo";
 import { EditorCodigo } from "@/components/lotes/EditorCodigo";
 import { HistorialLote } from "@/components/lotes/HistorialLote";
 
@@ -37,6 +38,17 @@ export function CajonLote({ unitId, alCerrar }: { unitId: string | null; alCerra
         return () => { vivo = false; };
     }, [unitId, vuelta]);
     const suyo = traido && traido.de === unitId ? traido : null;
+    /** Elegir a mano a quién le llega el código del lote (25/11: un código por lote, a su principal). */
+    const [eligiendo, setEligiendo] = useState<string | null>(null);
+    const hacerPrincipal = async (userId: string) => {
+        if (!unitId) return;
+        setEligiendo(userId);
+        try {
+            const r = await elegirPrincipal(unitId, userId);
+            if (!r.ok) toast.error({ title: "No se cambió", description: r.error });
+            else { toast.success({ title: "Listo", description: "El código del lote le va a llegar a esta persona." }); refrescar(); }
+        } finally { setEligiendo(null); }
+    };
     const d = suyo?.d || null;
     const chapas = d ? d.personas.reduce((n, p) => n + p.chapas.length, 0) : 0;
 
@@ -57,7 +69,9 @@ export function CajonLote({ unitId, alCerrar }: { unitId: string | null; alCerra
                                     </div>
                                 )}
                                 <CajonSeccion titulo={`Personas · ${d.personas.length}`} icono={Users} compacta
-                                    ayuda={d.puedeEditar ? "Cada persona carga en el censo con su propio código. Se puede cambiar a mano con el lápiz." : undefined}>
+                                    ayuda={d.principal
+                                        ? `El código del censo es del lote y le llega a una sola persona, la principal${d.principal.aMano ? " (elegida a mano)" : ""}: ella carga el censo de todo el lote.${d.puedeEditar ? " Se cambia con «Que le llegue a esta persona»." : ""}`
+                                        : "Este lote todavía no tiene código del censo: le llega a la persona principal, la primera con correo."}>
                                     {d.personas.length === 0 ? <p className="text-[12.5px] text-muted-foreground">Nadie figura en este lote.</p> : (
                                         <ul className="divide-y divide-border rounded-[10px] border border-border">
                                             {d.personas.map((p) => (
@@ -65,8 +79,11 @@ export function CajonLote({ unitId, alCerrar }: { unitId: string | null; alCerra
                                                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                                         <span className="text-[13.5px] font-bold">{p.nombre}</span>
                                                         {p.vinculo && <span className="text-[11.5px] text-muted-foreground">{VINCULO[p.vinculo] || p.vinculo}</span>}
+                                                        {p.invitacion && <Chip tono="info">Principal</Chip>}
                                                         <span className="ml-auto">
-                                                            {!p.invitacion ? <Chip tono="neutro">Sin código</Chip>
+                                                            {!p.invitacion ? (d.puedeEditar && p.email
+                                                                ? <button type="button" disabled={eligiendo === p.id} onClick={() => hacerPrincipal(p.id)} className="h-7 px-2.5 rounded-full border border-border text-[11.5px] font-semibold hover:border-[var(--accion)] hover:text-[var(--accion)] disabled:opacity-50">{eligiendo === p.id ? "Cambiando…" : "Que le llegue a esta persona"}</button>
+                                                                : <span className="text-[11.5px] text-muted-foreground">{p.email ? "Sin código: lo carga la principal" : "Sin correo"}</span>)
                                                                 : p.invitacion.estado === "cargo" ? <Chip tono="bien"><span title={`Cargó el ${fechaHora(p.invitacion.usadoAt)}`}>Cargó</span></Chip>
                                                                     : p.invitacion.estado === "enviado" ? <Chip tono="quieto"><span title={`Enviado el ${fechaHora(p.invitacion.enviadoAt)}`}>Enviado</span></Chip>
                                                                         : <Chip tono="aviso">Sin enviar</Chip>}

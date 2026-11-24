@@ -43,6 +43,8 @@ export type LotePlanilla = {
     /** El estado como lo escribió la administración, tal cual. */
     estado: string | null;
     observaciones: string | null;
+    /** El correo principal del lote (25/11): el primer propietario con correo; si no hay, el primer inquilino. A él le llega el código del censo. */
+    principal?: string | null;
 };
 export type VinculoPlanilla = { sigla: string; codigo: string; vinculo: Vinculo };
 export type PersonaPlanilla = { nombre: string; email: string; vinculos: VinculoPlanilla[]; observaciones: string | null };
@@ -219,7 +221,7 @@ export function leerPadronDeLotes(filas: unknown[][]): Padron {
         const lote: LotePlanilla = {
             etapa, sigla, codigo, nombre: nombreDeLote(codigo, sigla),
             manzana: undefined, solar: undefined, subunidad: undefined, edificio: undefined, areaM2: undefined,
-            titular, situacion: situacionDe(estado || "", titular), estado, observaciones: texto(f[c.obs]) || null,
+            titular, situacion: situacionDe(estado || "", titular), estado, observaciones: texto(f[c.obs]) || null, principal: null,
         };
         lotes.push(lote); porClave.set(clave, lote);
 
@@ -229,6 +231,8 @@ export function leerPadronDeLotes(filas: unknown[][]): Padron {
                 const correo = (linea.match(/[^\s@—]+@[^\s@—()]+/) || [])[0]?.toLowerCase() || "";
                 if (!correo || !correoSirve(correo)) { avisos.push(`${lote.nombre}: «${linea.split("—")[0].trim()}» no tiene un correo que sirva; no recibe código.`); continue; }
                 const nombre = texto(linea.split("—")[0]).replace(/[,;]$/, "");
+                /* Las columnas van en orden (propietarios, después inquilinos) y las líneas también: el primero que sirve es el principal. */
+                if (!lote.principal) lote.principal = correo;
                 const nota = /\((a confirmar[^)]*)\)/i.exec(linea)?.[1] || null;
                 if (nota) avisos.push(`${lote.nombre}: el correo de un ${vinculo === "INQUILINO" ? "inquilino" : "propietario"} figura «${nota}»; se usa igual (el lote recibe código).`);
                 let p = porCorreo.get(correo);

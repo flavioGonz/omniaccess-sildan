@@ -29,11 +29,12 @@ const ESTADOS: Record<Estado, { rotulo: string; color: string }> = {
     nadie: { rotulo: "Sin nadie con correo", color: "var(--mal)" },
     terreno: { rotulo: "Terreno o sin vender", color: "var(--quieto, #8a8f98)" },
 };
+/* El estado es del lote: lo lleva su persona principal (un código por lote, 25/11). */
 function estadoDe(l: LoteAdm): Estado {
-    const c = l.personas.map((p) => p.codigo);
-    if (c.includes("cargo")) return "cargo";
-    if (c.includes("enviado")) return "enviado";
-    if (c.length) return "listo";
+    const p = l.personas.find((x) => x.principal);
+    if (p?.codigo === "cargo") return "cargo";
+    if (p?.codigo === "enviado") return "enviado";
+    if (l.personas.length) return "listo";
     return l.situacion === "TERRENO" || l.situacion === "DESARROLLADOR" ? "terreno" : "nadie";
 }
 const ORDEN: Estado[] = ["cargo", "enviado", "listo", "nadie", "terreno"];

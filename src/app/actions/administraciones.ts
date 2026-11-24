@@ -9,6 +9,7 @@ import { leerPlanoLotes } from "@/lib/plano-lotes";
 import { cambiarCodigoDeInvitacion, type CodigoCambiado } from "@/lib/censo-codigo";
 import { limpiarChapa } from "@/lib/lote-cambios";
 import { copiaFija, enviarCorreo, limpiarClaveDeAplicacion, probarCuenta } from "@/lib/correo";
+import { correoSirve, nuevaClave } from "@/lib/censo-invitaciones";
 
 /**
  * Las administraciones del complejo (21/11, Nico: «el complejo se fue construyendo por proyectos
@@ -33,7 +34,7 @@ export type ResumenAdministracion = {
     id: string; nombre: string; sigla: string; notas: string | null;
     lotes: number; terrenos: number; sinGente: number;
     personas: number;
-    /** De sus personas: cuántas tienen su código del censo, a cuántas se les mandó y cuántas ya cargaron. */
+    /** De sus lotes: cuántos tienen su código del censo, a cuántos se les mandó y cuántos ya cargaron (un código por lote desde el 25/11). */
     conCodigo: number; enviados: number; cargaron: number;
     contactos: number; servicios: number;
     /** A quién llamar primero: el primer contacto cargado. */
@@ -49,15 +50,16 @@ export async function administraciones(): Promise<ResumenAdministracion[]> {
         prisma.administracion.findMany({ orderBy: [{ orden: "asc" }, { nombre: "asc" }], include: { contactos: { orderBy: [{ orden: "asc" }, { createdAt: "asc" }] }, _count: { select: { servicios: true } } } }),
         prisma.unit.findMany({ where: { administracionId: { not: null } }, select: { id: true, administracionId: true, situacion: true } }),
         prisma.userUnidad.findMany({ select: { userId: true, unitId: true } }),
-        prisma.invitacionCenso.findMany({ where: { userId: { not: null } }, select: { userId: true, enviadoAt: true, usadoAt: true } }),
+        prisma.invitacionCenso.findMany({ where: { sitio: "", unitId: { not: null } }, select: { unitId: true, enviadoAt: true, usadoAt: true } }),
     ]);
     const adminDeUnidad = new Map(unidades.map((u) => [u.id, u.administracionId!]));
-    const inv = new Map(invitaciones.map((i) => [i.userId!, i]));
+    /* El censo es por LOTE desde el 25/11: se cuentan los lotes con código, no las personas. */
+    const inv = new Map(invitaciones.map((i) => [i.unitId!, i]));
     return admins.map((a) => {
         const suyas = unidades.filter((u) => u.administracionId === a.id);
         const gente = new Set<string>(), conGente = new Set<string>();
         for (const v of vinculos) if (adminDeUnidad.get(v.unitId) === a.id) { gente.add(v.userId); conGente.add(v.unitId); }
-        const invs = [...gente].map((id) => inv.get(id)).filter(Boolean);
+        const invs = suyas.map((u) => inv.get(u.id)).filter(Boolean);
         const c = a.contactos[0];
         return {
             id: a.id, nombre: a.nombre, sigla: a.sigla, notas: a.notas,
@@ -73,7 +75,9 @@ export async function administraciones(): Promise<ResumenAdministracion[]> {
 
 export type ContactoAdm = { id: string; nombre: string; rol: string; telefono: string | null; email: string | null; notas: string | null };
 export type ServicioAdm = { id: string; rubro: string; proveedor: string | null; contacto: string | null; telefono: string | null; email: string | null; horario: string | null; notas: string | null };
-export type PersonaDeLote = { id: string; nombre: string; email: string | null; telefono: string | null; vinculo: string; codigo: "sin" | "listo" | "enviado" | "cargo" };
+export type PersonaDeLote = { id: string; nombre: string; email: string | null; telefono: string | null; vinculo: string; codigo: "sin" | "listo" | "enviado" | "cargo";
+    /** Es la persona principal del lote: a ella le llega el código del censo (uno por lote, 25/11). */
+    principal: boolean };
 export type LoteAdm = {
     id: string; nombre: string; codigo: string; manzana: string | null; edificio: string | null; areaM2: number | null;
     titular: string | null; situacion: string | null; observaciones: string | null; personas: PersonaDeLote[];
@@ -92,9 +96,9 @@ export async function detalleAdministracion(id: string): Promise<DetalleAdminist
         },
     });
     if (!a) return null;
-    const ids = a.unidades.flatMap((u) => u.vinculos.map((v) => v.userId));
-    const invs = new Map((ids.length ? await prisma.invitacionCenso.findMany({ where: { userId: { in: ids } }, select: { userId: true, enviadoAt: true, usadoAt: true } }) : []).map((i) => [i.userId!, i]));
-    const estado = (userId: string): PersonaDeLote["codigo"] => { const i = invs.get(userId); return !i ? "sin" : i.usadoAt ? "cargo" : i.enviadoAt ? "enviado" : "listo"; };
+    /* Un código por lote (25/11): el estado es del lote, y lo lleva su persona principal; el resto de la gente del lote no tiene código. */
+    const invs = new Map((await prisma.invitacionCenso.findMany({ where: { sitio: "", unitId: { in: a.unidades.map((u) => u.id) } }, select: { unitId: true, userId: true, enviadoAt: true, usadoAt: true } })).map((i) => [i.unitId!, i]));
+    const estado = (unitId: string, userId: string): PersonaDeLote["codigo"] => { const i = invs.get(unitId); return !i || i.userId !== userId ? "sin" : i.usadoAt ? "cargo" : i.enviadoAt ? "enviado" : "listo"; };
     /* Orden del plano: por manzana, y dentro de la manzana por el número del solar (10 después de 9, no de 1). */
     const num = (s: string | null) => parseInt(String(s || "").replace(/\D+/g, "")) || 0;
     const lotes = [...a.unidades].sort((x, y) => (x.manzana || "").localeCompare(y.manzana || "") || num(x.solar) - num(y.solar) || (x.lot || "").localeCompare(y.lot || ""));
@@ -105,7 +109,7 @@ export async function detalleAdministracion(id: string): Promise<DetalleAdminist
         lotes: lotes.map((u) => ({
             id: u.id, nombre: u.name, codigo: u.lot || u.name, manzana: u.manzana, edificio: u.edificio, areaM2: u.areaM2, titular: u.titular, situacion: u.situacion, observaciones: u.description,
             planoX: u.planoX, planoY: u.planoY, coordenadas: u.coordinates?.trim() || null,
-            personas: u.vinculos.map((v) => ({ id: v.user.id, nombre: v.user.name, email: v.user.email, telefono: v.user.phone, vinculo: v.vinculo, codigo: estado(v.userId) })),
+            personas: u.vinculos.map((v) => ({ id: v.user.id, nombre: v.user.name, email: v.user.email, telefono: v.user.phone, vinculo: v.vinculo, codigo: estado(u.id, v.userId), principal: invs.get(u.id)?.userId === v.userId })),
         })),
     };
 }
@@ -224,6 +228,8 @@ export type DetalleLote = {
     puedeEditar: boolean; personas: PersonaEnLote[]; cambios: CambioVisto[];
     /** Dónde está: «lat, lng» (para abrirlo en un mapa) y si tiene su punto en el croquis. */
     coordenadas: string | null; enElPlano: boolean;
+    /** A quién le llega el código del lote (uno por lote, 25/11), y si lo eligió alguien a mano. */
+    principal: { userId: string | null; email: string; aMano: boolean } | null;
     /** Desde cuándo se lleva el historial: antes de esa fecha no hay nada que mostrar, y se dice. */
     auditadoDesde: string | null;
 };
@@ -244,11 +250,13 @@ export async function detalleLote(unitId: string): Promise<DetalleLote | null> {
         prisma.cambioLote.findMany({ where: { unitId }, orderBy: { cuando: "desc" }, take: 300 }),
         prisma.setting.findUnique({ where: { key: "LOTES_AUDITADOS_DESDE" } }),
     ]);
-    const invs = gente.length ? await prisma.invitacionCenso.findMany({ where: { sitio: "", OR: [{ userId: { in: gente.map((g) => g.id) } }, { email: { in: gente.map((g) => (g.email || "").trim().toLowerCase()).filter(Boolean) } }] } }) : [];
-    const deQuien = (g: { id: string; email: string | null }) => invs.find((i) => i.userId === g.id) || invs.find((i) => !i.userId && !!g.email && i.email === g.email.trim().toLowerCase()) || null;
+    /* Un código por lote (25/11): la invitación es del lote y la lleva su persona principal. */
+    const delLote = await prisma.invitacionCenso.findFirst({ where: { sitio: "", unitId } });
+    const deQuien = (g: { id: string }) => (delLote && delLote.userId === g.id ? delLote : null);
     return {
         id: u.id, nombre: u.name, administracion: u.administracion?.nombre || null, titular: u.titular, situacion: u.situacion, edificio: u.edificio,
         puedeEditar, auditadoDesde: desde?.value || null, coordenadas: u.coordinates?.trim() || null, enElPlano: u.planoX !== null,
+        principal: delLote ? { userId: delLote.userId, email: delLote.email, aMano: delLote.aMano } : null,
         personas: gente.map((g) => {
             const i = deQuien(g);
             return {
@@ -259,6 +267,31 @@ export async function detalleLote(unitId: string): Promise<DetalleLote | null> {
         }),
         cambios: cambios.map((c) => visto(c, u.name)),
     };
+}
+
+/**
+ * Elegir a mano la persona principal de un lote: a ella le llega el código del censo (25/11). Queda
+ * marcado `aMano`, así una planilla nueva del padrón no lo cambia. Si cambia de persona y el código
+ * todavía no se usó, vuelve a quedar pendiente: lo mandado a la anterior no le llegó a ésta.
+ */
+export async function elegirPrincipal(unitId: string, userId: string): Promise<{ ok: boolean; error?: string }> {
+    const s = await sesion("usuarios.editar");
+    const v = await prisma.userUnidad.findFirst({ where: { unitId, userId }, select: { vinculo: true, unit: { select: { name: true } }, user: { select: { name: true, email: true } } } });
+    if (!v) return { ok: false, error: "Esa persona no está anotada en este lote." };
+    const email = (v.user.email || "").trim().toLowerCase();
+    if (!correoSirve(email)) return { ok: false, error: `${v.user.name} no tiene un correo cargado: sin correo no puede recibir el código.` };
+    const ya = await prisma.invitacionCenso.findFirst({ where: { sitio: "", unitId } });
+    const datos = { userId, email, nombre: v.user.name, aMano: true, lote: v.unit.name, lotes: [{ unitId, nombre: v.unit.name, vinculo: v.vinculo }] };
+    if (ya) {
+        const otra = ya.userId !== userId && ya.email !== email;
+        await prisma.invitacionCenso.update({ where: { id: ya.id }, data: { ...datos, ...(otra && !ya.usadoAt ? { enviadoAt: null, enviadoDesde: null, intentos: 0, error: null } : {}) } });
+    } else {
+        let hecho = false;
+        for (let i = 0; i < 5 && !hecho; i++) hecho = !!(await prisma.invitacionCenso.create({ data: { sitio: "", unitId, clave: nuevaClave(), ...datos } }).catch(() => null));
+        if (!hecho) return { ok: false, error: "No se pudo armar el código del lote. Probá de nuevo." };
+    }
+    await auditar(s, "censo.principal-del-lote", unitId, true, `${v.unit.name} · ${v.user.name}`);
+    return { ok: true };
 }
 
 /**

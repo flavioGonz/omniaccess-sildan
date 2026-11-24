@@ -464,12 +464,12 @@ function Lotes({ filas, alAbrir, filtro, alFiltrar: setFiltro }: { filas: LoteAd
         { clave: "titular", titulo: "Titular según la administración", ayuda: "Como figura en la lista de gastos comunes. «X - Y» es un matrimonio; «X / Y», propietario e inquilino. Es un texto de la administración, no una persona del padrón.",
             valor: (l) => l.titular || "", celda: (l) => (
                 <div className="leading-tight min-w-0"><div className="text-[12.5px] truncate">{l.titular || <span className="text-muted-foreground">—</span>}</div>{l.observaciones && <div className="text-[11px] text-muted-foreground line-clamp-1" title={l.observaciones}>{l.observaciones}</div>}</div>) },
-        { clave: "personas", titulo: "Personas con correo", ayuda: "Quienes reciben su código del censo por este lote. El punto dice cómo va: gris sin código, ámbar listo sin enviar, azul enviado, verde ya cargó.",
+        { clave: "personas", titulo: "Personas con correo", ayuda: "La gente del lote con correo. El código del censo es uno por lote y le llega a la principal (la marcada): el punto dice cómo va: ámbar listo sin enviar, azul enviado, verde ya cargó. El resto no tiene código.",
             valor: (l) => l.personas.map((p) => `${p.nombre} (${VINCULO[p.vinculo] || p.vinculo})`).join("; "), celda: (l) => l.personas.length === 0 ? <span className="text-[12px] text-muted-foreground">—</span> : (
                 <ul className="space-y-0.5">{l.personas.map((p) => (
                     <li key={p.id} className="flex items-center gap-1.5 text-[12.5px] min-w-0" title={`${p.email || "sin correo"} · ${CODIGO[p.codigo].dice}`}>
                         <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", CODIGO[p.codigo].punto)} />
-                        <span className="truncate">{p.nombre}</span><span className="shrink-0 text-[11px] text-muted-foreground">{VINCULO[p.vinculo] || p.vinculo}</span>
+                        <span className={cn("truncate", p.principal && "font-semibold")}>{p.nombre}</span><span className="shrink-0 text-[11px] text-muted-foreground">{VINCULO[p.vinculo] || p.vinculo}{p.principal ? " · principal" : ""}</span>
                     </li>))}</ul>) },
         { clave: "situacion", titulo: "Situación", ancho: 150, valor: (l) => (l.situacion ? SITUACION[l.situacion]?.rotulo || l.situacion : ""), celda: (l) => (l.situacion && SITUACION[l.situacion] ? <Chip tono={SITUACION[l.situacion].tono}>{SITUACION[l.situacion].rotulo}</Chip> : null) },
         { clave: "area", titulo: "Área", ancho: 100, alinear: "der", ordenable: true, valor: (l) => l.areaM2 ?? "", celda: (l) => (l.areaM2 ? <span className="text-[12px] tabular-nums text-muted-foreground">{Math.round(l.areaM2).toLocaleString("es-UY")} m²</span> : null) },

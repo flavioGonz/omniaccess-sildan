@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { leerPlanilla, nuevaClave, type FilaPlanilla } from "@/lib/censo-invitaciones";
 import { configCorreo, copiaFija, probarCorreo } from "@/lib/correo";
 import { hayDesdeDondeMandar } from "@/lib/correo-administracion";
-import { estadoDeGoteo, guardarGoteo, invitacionDePersona, leerGoteoGuardado, mandarInvitacion } from "@/lib/censo-envio";
+import { estadoDeGoteo, guardarGoteo, invitacionesDePersona, leerGoteoGuardado, mandarInvitacion } from "@/lib/censo-envio";
 import { leerGoteo } from "@/lib/censo-goteo";
 import { revisarDominio } from "@/lib/correo-dominio";
 import { origenPublico } from "@/lib/origen-publico";
@@ -129,18 +129,19 @@ export async function POST(req: NextRequest) {
 
     let nuevas = 0, actualizadas = 0;
     for (const f of lectura.filas as FilaPlanilla[]) {
-        /* La invitación es por PERSONA (su correo) desde el 21/11: dos personas del mismo lote
-           tienen cada una la suya. Esta planilla simple (lote, nombre, correo) sigue sirviendo
-           para un barrio sin administraciones; el padrón de un complejo por etapas entra por
-           Administraciones › Importar padrón, que además crea los lotes y las personas. */
-        const hay = await prisma.invitacionCenso.findFirst({ where: { sitio: "", email: f.email }, select: { id: true, lote: true } });
+        /* Esta planilla simple (lote, nombre, correo) sigue sirviendo para un barrio sin
+           administraciones; el padrón de un complejo por etapas entra por Administraciones ›
+           Importar padrón, que además crea los lotes y las personas. */
+        /* Desde el 25/11, una por LOTE: el renglón dice a qué correo le llega el código de ese lote. */
+        const unidad = await prisma.unit.findFirst({ where: { OR: [{ name: f.lote }, { lot: f.lote }] }, select: { id: true, name: true } });
+        const hay = await prisma.invitacionCenso.findFirst({ where: { sitio: "", ...(unidad ? { unitId: unidad.id } : { lote: f.lote }) }, select: { id: true, email: true } });
         if (hay) {
             // La clave NO se cambia al reimportar: si ya se mandó el correo, cambiarla deja afuera
-            // a quien lo recibió. Sólo se corrige el lote y el nombre.
-            await prisma.invitacionCenso.update({ where: { id: hay.id }, data: { lote: f.lote, nombre: f.nombre } });
-            if (hay.lote !== f.lote) actualizadas++;
+            // a quien lo recibió. Se corrige a quién le llega y el nombre.
+            await prisma.invitacionCenso.update({ where: { id: hay.id }, data: { email: f.email, nombre: f.nombre, aMano: true } });
+            if (hay.email !== f.email) actualizadas++;
         } else {
-            await prisma.invitacionCenso.create({ data: { sitio: "", lote: f.lote, email: f.email, nombre: f.nombre, clave: nuevaClave() } });
+            await prisma.invitacionCenso.create({ data: { sitio: "", lote: unidad?.name || f.lote, unitId: unidad?.id || null, lotes: unidad ? [{ unitId: unidad.id, nombre: unidad.name, vinculo: "PROPIETARIO" }] : [], email: f.email, nombre: f.nombre, clave: nuevaClave(), aMano: true } });
             nuevas++;
         }
     }
@@ -188,13 +189,18 @@ export async function PUT(req: NextRequest) {
 
     if (b?.accion === "persona") {
         if (!(await hayDesdeDondeMandar())) return NextResponse.json({ error: "No hay desde dónde mandar: cargá la cuenta de correo de cada administración (Administraciones › Correo)." }, { status: 400 });
-        const r = await invitacionDePersona(String(b?.userId || ""));
-        if ("error" in r) return NextResponse.json({ error: r.error }, { status: 400 });
         if (!origen) return sinOrigen();
-        const envio = await mandarInvitacion(r.inv, origen);
-        await auditar(q.sesion, "censo.enviar-invitacion", `${r.inv.nombre || "sin nombre"} · ${r.inv.lote}`, envio.ok, envio.ok ? "desde el padrón" : envio.error || "no se pudo");
-        const como = await prisma.invitacionCenso.findUnique({ where: { id: r.inv.id }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true } });
-        return NextResponse.json({ ok: envio.ok, error: envio.ok ? undefined : `No salió: ${envio.error || "el servidor de correo no lo aceptó"}`, invitacion: como ? resumida(como) : null }, { status: envio.ok ? 200 : 502, headers: SIN_CACHE });
+        /* Un código por lote (25/11): se le manda el de cada lote donde es la principal, uno por lote. */
+        const r = await invitacionesDePersona(String(b?.userId || ""));
+        if ("error" in r) return NextResponse.json({ error: r.error }, { status: 400 });
+        let ok = 0; const fallas: string[] = [];
+        for (const inv of r.invs) {
+            const envio = await mandarInvitacion(inv, origen);
+            await auditar(q.sesion, "censo.enviar-invitacion", `${inv.nombre || "sin nombre"} · ${inv.lote}`, envio.ok, envio.ok ? "desde el padrón" : envio.error || "no se pudo");
+            if (envio.ok) ok++; else fallas.push(`${inv.lote}: ${envio.error || "el servidor de correo no lo aceptó"}`);
+        }
+        const como = await prisma.invitacionCenso.findFirst({ where: { id: { in: r.invs.map((i) => i.id) } }, orderBy: { enviadoAt: "desc" }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true } });
+        return NextResponse.json({ ok: !fallas.length, enviadas: ok, error: fallas.length ? `No salió: ${fallas.join(" · ")}` : undefined, invitacion: como ? resumida(como) : null }, { status: fallas.length && !ok ? 502 : 200, headers: SIN_CACHE });
     }
 
     if (b?.accion === "enviar") {

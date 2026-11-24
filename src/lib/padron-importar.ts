@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
+import { sincronizarInvitacionesPorLote } from "@/lib/censo-por-lote-servidor";
 import { auditarLotes } from "@/lib/lote-auditoria";
-import { nuevaClave } from "@/lib/censo-invitaciones";
 import { codigoDeNombreViejo, compartenNombre, leerPadron, leerPadronDeLotes, mismoNombre, nombresCompatibles, type Padron } from "@/lib/padron-planilla";
 
 /**
@@ -74,14 +74,6 @@ export async function importarPadronDesdeLibro(buf: Buffer | ArrayBuffer, o: { s
     if (h.unica.length && !h.lotes.length) return importarPadron(leerPadronDeLotes(h.unica), o);
     return importarPadron(leerPadron(h), o);
 }
-
-/**
- * Los lotes de una invitación, en una forma que se pueda comparar. La base devuelve las claves de
- * un JSON en SU orden, no en el que se escribieron: comparando el texto tal cual, la segunda
- * pasada de la misma planilla informaba «490 códigos actualizados» sin haber cambiado ninguno.
- */
-const canon = (lotes: unknown): string =>
-    JSON.stringify((Array.isArray(lotes) ? lotes : []).map((l) => { const x = (l || {}) as Record<string, unknown>; return [x.unitId ?? null, x.nombre ?? null, x.vinculo ?? null]; }));
 
 export async function importarPadron(padron: Padron, o: { simulacro: boolean; quien: string }): Promise<InformePadron> {
     const escribir = !o.simulacro;
@@ -178,8 +170,6 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
     const principalDe = new Map<string, string[]>(); // userId → sus lotes según la planilla
     const porCorreo = new Map(usuarios.filter((u) => u.email?.trim()).map((u) => [u.email!.trim().toLowerCase(), u]));
     const vinculosYa = new Map((await prisma.userUnidad.findMany({ select: { id: true, userId: true, unitId: true, vinculo: true } })).map((v) => [`${v.userId}|${v.unitId}`, v]));
-    const invitaciones = new Map((await prisma.invitacionCenso.findMany({ where: { sitio: "" } })).map((i) => [i.email.toLowerCase(), i]));
-    const clavesUsadas = new Set([...invitaciones.values()].map((i) => i.clave));
     const tomados = new Set<string>();
 
     for (const p of padron.personas) {
@@ -228,27 +218,7 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
             if (!hay) { inf.vinculos.nuevos++; if (escribir) await prisma.userUnidad.create({ data: { userId, unitId: v.unitId, vinculo: v.vinculo } }); }
             else if (hay.vinculo !== v.vinculo) { inf.vinculos.cambiados++; if (escribir) await prisma.userUnidad.update({ where: { id: hay.id }, data: { vinculo: v.vinculo } }); }
         }
-
-        // ── Su invitación: una por persona, con todos sus lotes ──
-        const lotes = suyos.map((v) => ({ unitId: v.unitId, nombre: v.nombre, vinculo: v.vinculo }));
-        const rotulo = lotes.map((x) => x.nombre).join(", ");
-        const inv = invitaciones.get(p.email);
-        if (!inv) {
-            inf.invitaciones.nuevas++;
-            if (escribir) {
-                let clave = nuevaClave();
-                while (clavesUsadas.has(clave)) clave = nuevaClave();
-                clavesUsadas.add(clave);
-                await prisma.invitacionCenso.create({ data: { sitio: "", email: p.email, nombre: p.nombre, lote: rotulo, lotes, userId, clave } });
-            }
-        } else if (inv.lote !== rotulo || inv.nombre !== p.nombre || inv.userId !== userId || canon(inv.lotes) !== canon(lotes)) {
-            /* La clave y si ya se mandó NO se tocan. */
-            inf.invitaciones.actualizadas++;
-            if (escribir) await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { nombre: p.nombre, lote: rotulo, lotes, userId } });
-        } else inf.invitaciones.iguales++;
     }
-    const correos = new Set(padron.personas.map((p) => p.email));
-    inf.fueraDeLaPlanilla.invitaciones = [...invitaciones.keys()].filter((e) => !correos.has(e)).length;
 
     /*
      * ── Planilla validada: que la base diga lo mismo que ella (24/11) ──
@@ -286,13 +256,25 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
             }
             if (x.unitId && lotesPlanilla.has(x.unitId) && !suyos.includes(x.unitId)) { corr.principales++; if (escribir) await prisma.user.update({ where: { id: x.id }, data: { unitId: suyos[0] } }); }
         }
-        for (const [correo, inv] of invitaciones) {
-            if (correos.has(correo)) continue;
-            if (inv.enviadoAt || inv.usadoAt) { corr.invitacionesYaEnviadas++; continue; }
-            corr.invitacionesQuitadas++;
-            if (escribir) await prisma.invitacionCenso.delete({ where: { id: inv.id } }).catch(() => { });
-        }
     }
+
+    /*
+     * ── Las invitaciones del censo: una por LOTE, a su correo principal (25/11) ──
+     *
+     * Nico: «es un código por lote, no por cada integrante; cada lote tiene un correo principal». El
+     * principal es el que la planilla nombra primero en el lote (ver lib/censo-por-lote). Las viejas
+     * por persona pasan a ser de su primer lote con la misma clave; las de quien no es principal de
+     * ningún lote se quitan si no se usaron. En el simulacro se calcula sobre lo que ya está en la base
+     * (las personas nuevas de esta planilla todavía no existen), así que es aproximado.
+     */
+    const preferidos = new Map<string, string>();
+    for (const l of padron.lotes) { const id = unidadDe.get(`${l.sigla}|${l.codigo}`); if (id && l.principal) preferidos.set(id, l.principal); }
+    const censo = await sincronizarInvitacionesPorLote({ simulacro: !escribir, preferidos });
+    inf.invitaciones.nuevas = censo.nuevas;
+    inf.invitaciones.actualizadas = censo.convertidas + censo.actualizadas;
+    inf.invitaciones.iguales = censo.iguales;
+    inf.fueraDeLaPlanilla.invitaciones = censo.usadasQueQuedan;
+    if (corr) corr.invitacionesQuitadas = censo.borradas;
 
     // ── El resumen por administración, de la planilla ──
     for (const a of padron.administraciones) {
