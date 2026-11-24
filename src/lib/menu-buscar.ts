@@ -36,6 +36,7 @@ export const TAMBIEN_SE_DICE: Record<string, string> = {
     "lpr-plazas": "estacionamiento parking cocheras",
     "rostro-monitor": "caras facial vivo entrada salida",
     "rostro-capturas": "caras rostros capturas porteros reconocimiento facial bitacora equipos face",
+    "rostro-equipos": "porteros faciales terminales control de acceso lectores face dispositivos",
     "intrusion-monitor": "perímetro cerco alarma vivo",
     "video-cctv": "cámaras vivo grabaciones nvr reproducción",
     "video-pared": "videowall cámaras televisores",

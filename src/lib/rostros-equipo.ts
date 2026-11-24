@@ -590,3 +590,44 @@ export async function tarjetasDePagina(d: EquipoHik, personas: { legajo: string;
         return m;
     }
 }
+
+/**
+ * Todas las personas del equipo, de a 30 (25/11). La base de los lectores dejó de paginar: Nico
+ * pidió «agrupar mejor la info» y unir en un bloque a la persona, su cara y sus tarjetas, y eso no
+ * se puede hacer de a 30 —la cara de alguien de la página 9 aparecía suelta—. Con 402 personas son
+ * 14 pedidos; se guarda unos minutos (`baseCompleta` en actions/base-equipo).
+ */
+export async function todasLasPersonas(d: EquipoHik, tope = 3000): Promise<PersonaEquipo[]> {
+    const out: PersonaEquipo[] = [];
+    for (let desde = 0, vuelta = 0; desde < tope && vuelta < 200; vuelta++) {
+        const p = await listarPersonas(d, desde);
+        out.push(...p.personas);
+        desde += p.personas.length;
+        if (!p.personas.length || out.length >= p.total) break;
+    }
+    return out;
+}
+
+/** Todas las tarjetas del equipo con su legajo, de a 30, con la misma búsqueda mientras diga MORE. */
+export async function todasLasTarjetas(d: EquipoHik, tope = 10000): Promise<Map<string, string[]>> {
+    const m = new Map<string, string[]>();
+    const searchID = `oa-tt-${crypto.randomBytes(3).toString("hex")}`;
+    for (let pos = 0, vuelta = 0; pos < tope && vuelta < 400; vuelta++) {
+        const r = await authenticatedRequest("POST", "/ISAPI/AccessControl/CardInfo/Search?format=json", cred(d) as never, {
+            data: { CardInfoSearchCond: { searchID, searchResultPosition: pos, maxResults: 30 } },
+            contentType: "application/json", accept: "application/json", responseType: "json", timeout: 12000,
+        });
+        const b = r?.CardInfoSearch;
+        if (!b) break;
+        const lista = (b.CardInfo || []) as Record<string, unknown>[];
+        for (const c of lista) {
+            if (c.employeeNo == null || !c.cardNo) continue;
+            const k = String(c.employeeNo);
+            if (!m.has(k)) m.set(k, []);
+            m.get(k)!.push(String(c.cardNo));
+        }
+        pos += lista.length;
+        if (!lista.length || b.responseStatusStrg !== "MORE") break;
+    }
+    return m;
+}

@@ -2,14 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { AlertTriangle, Check, CreditCard, DoorOpen, Fingerprint, KeyRound, Layers, Radio, ScanFace, Search, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Check, CreditCard, Database, DoorOpen, Fingerprint, KeyRound, Layers, Radio, ScanFace, ScanSearch, Search, ShieldAlert, ShieldCheck, UserCheck } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { monitorFace, resumenMonitorFace, type MonitorFace, type EquipoDeAcceso, type CapturaFace, type ResumenFace } from "@/app/actions/monitor-face";
 import { rostroDesdeEvento } from "@/app/actions/rostros";
 import { Cargando, ErrorEstado, Vacio } from "@/components/ui/estados";
 import { Pista } from "@/components/ui/pista";
 import { Switch } from "@/components/ui/switch";
-import { BaseDeEquipos } from "@/components/rostro/monitor-face/BaseDeEquipos";
+import { BaseDeLectores } from "@/components/rostro/monitor-face/BaseDeLectores";
+import { Pestanias } from "@/components/ui/pestanias";
 import { FranjaAnalisis } from "@/components/rostro/monitor-face/FranjaAnalisis";
 import { HojaCaptura } from "@/components/rostro/monitor-face/HojaCaptura";
 import { CajonRostro } from "@/components/vision/rostros/CajonRostro";
@@ -55,6 +56,8 @@ const RESORTE = { type: "spring" as const, bounce: 0, duration: 0.35 };
 const SUAVE = { duration: 0.14, ease: "easeOut" as const };
 
 const ICONO_TIPO: Record<string, typeof ScanFace> = { FACE: ScanFace, TAG: CreditCard, PIN: KeyRound, FINGERPRINT: Fingerprint };
+/** Un dibujo por filtro de las capturas: se reconoce sin leer. */
+const ICONO_QUE: Record<QueMostrar, typeof ScanFace> = { todas: Layers, identificadas: UserCheck, "sin-comparar": ScanSearch, negadas: ShieldAlert, tarjeta: CreditCard };
 const ICONO_EQUIPO: Record<string, typeof DoorOpen> = { DOOR_INTERCOM: DoorOpen, ACCESS_CONTROL: KeyRound, FACE_TERMINAL: ScanFace };
 
 const hace = (iso: string) => {
@@ -184,13 +187,18 @@ export function VistaMonitorFace() {
                     </div>
 
                     {/* Las dos miradas. Píldoras: en este sistema la píldora significa elegir. */}
-                    <Segmentado id="vista" valor={vista} alCambiar={setVista} opciones={[["capturas", "Capturas"], ["base", "Base de los lectores"]]} className="ml-1" />
+                    {/* Las dos miradas, con las pestañas de la casa (ícono e indicador que se desliza): Nico no
+                        quiere «tabs tipo chips» (25/11). */}
+                    <Pestanias valor={vista} alElegir={setVista} className="ml-1" opciones={[
+                        { valor: "capturas", rotulo: "Capturas", icono: ScanFace, ayuda: "Las caras que pasaron por los porteros y las cámaras, y qué se decidió con cada una." },
+                        { valor: "base", rotulo: "Base de los lectores", icono: Database, ayuda: "Lo que cada lector tiene guardado adentro: personas, tarjetas y caras." },
+                    ]} />
 
                     <div className="ml-auto flex items-center gap-2 flex-wrap">
                         <label className={cn("relative", vista === "base" && "hidden")}>
                             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nombre, código, tarjeta o legajo"
-                                className="h-9 w-[220px] pl-8 pr-3 rounded-full border border-border bg-card/70 text-[12.5px] outline-none transition-shadow focus:ring-2 focus:ring-[var(--accion)]/35" />
+                                className="h-[38px] w-[240px] pl-8 pr-3 rounded-[10px] border border-border bg-card/70 text-[12.5px] outline-none transition-shadow focus:ring-2 focus:ring-[var(--accion)]/35" />
                         </label>
                         {vista === "capturas" && (
                             <>
@@ -205,28 +213,17 @@ export function VistaMonitorFace() {
             {/* Donde la barra toca el contenido: un degradado, no una línea. */}
             <div className="relative z-10 h-5 -mt-5 shrink-0 bg-gradient-to-b from-background/80 to-transparent pointer-events-none" />
 
-            <div className="flex-1 min-h-0 overflow-y-auto">
+            {/* La base tiene dos paneles con su propio scroll (el contenido y la barra lateral fija). */}
+            <div className={cn("flex-1 min-h-0", vista === "base" ? "overflow-hidden" : "overflow-y-auto")}>
                 {vista === "base" ? (
-                    <BaseDeEquipos equipos={datos.equipos.map((e) => ({ id: e.id, nombre: e.nombre }))}
-                        elegido={equipos[0] || null} alElegir={(id) => setEquipos([id])} />
+                    <BaseDeLectores />
                 ) : (
                 <div className="px-6 lg:px-8 pb-10 space-y-4">
                     <FranjaAnalisis r={resumen} cargando={!resumen} />
 
                     {/* Qué mostrar, y si juntar las ráfagas. */}
                     <div className="flex items-center gap-3 flex-wrap">
-                        <div className="inline-flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Qué capturas mostrar">
-                            {QUE_MOSTRAR.map((o) => (
-                                <Pista key={o.id} texto={o.ayuda} titulo={o.rotulo}>
-                                    <button type="button" role="radio" aria-checked={que === o.id} onClick={() => setQue(o.id)}
-                                        className={cn("h-8 px-3 rounded-full border text-[12.5px] font-semibold inline-flex items-center gap-1.5 transition-colors",
-                                            que === o.id ? "border-foreground bg-foreground text-background" : "border-border bg-card hover:bg-accent/60")}>
-                                        {o.rotulo}
-                                        {cuantas[o.id] != null && <span className={cn("tabular-nums text-[11px]", que === o.id ? "text-background/70" : "text-muted-foreground")}>{cuantas[o.id]!.toLocaleString("es-UY")}</span>}
-                                    </button>
-                                </Pista>
-                            ))}
-                        </div>
+                        <Pestanias valor={que} alElegir={setQue} opciones={QUE_MOSTRAR.map((o) => ({ valor: o.id, rotulo: o.rotulo, icono: ICONO_QUE[o.id], ayuda: o.ayuda, cuenta: cuantas[o.id], tono: o.id === "negadas" ? "mal" as const : o.id === "sin-comparar" ? "aviso" as const : undefined }))} />
                         <label className="ml-auto inline-flex items-center gap-2 text-[12.5px] font-semibold cursor-pointer select-none">
                             <Layers size={14} className="text-muted-foreground" />
                             <Pista texto="Las capturas seguidas de un mismo equipo que pueden ser una sola persona van juntas, con la mejor cara al frente. Lo que contó el equipo no se junta nunca: cada una es una decisión de la puerta.">
@@ -281,12 +278,14 @@ export function VistaMonitorFace() {
 /** Un control segmentado de píldoras, con el fondo del elegido deslizándose. */
 function Segmentado<T extends string>({ id, valor, alCambiar, opciones, className }: { id: string; valor: T; alCambiar: (v: T) => void; opciones: readonly (readonly [T, string])[]; className?: string }) {
     return (
-        <div className={cn("relative inline-flex items-center rounded-full border border-border bg-card/70 p-0.5", className)}>
+        /* La misma superficie que las pestañas de la casa (ui/pestanias): el elegido es una placa clara que
+           se desliza, no una píldora negra (25/11, Nico: «no me gustan los tabs tipo chips»). */
+        <div className={cn("relative inline-flex h-[38px] items-center rounded-[10px] bg-muted/60 p-[3px]", className)}>
             {opciones.map(([v, rotulo]) => (
                 <button key={v} type="button" onClick={() => alCambiar(v)}
-                    className={cn("relative h-8 px-3.5 rounded-full text-[12.5px] font-semibold transition-colors",
-                        valor === v ? "text-background" : "text-muted-foreground hover:text-foreground")}>
-                    {valor === v && <motion.span layoutId={`${id}-activo`} transition={RESORTE} className="absolute inset-0 rounded-full bg-foreground" />}
+                    className={cn("relative h-full px-3 rounded-[8px] text-[12.5px] font-semibold transition-colors",
+                        valor === v ? "text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                    {valor === v && <motion.span layoutId={`${id}-activo`} transition={RESORTE} className="absolute inset-0 rounded-[8px] bg-background ring-1 ring-border/60" />}
                     <span className="relative">{rotulo}</span>
                 </button>
             ))}
@@ -390,7 +389,7 @@ function ElegirEquipos({ equipos, elegidos, alCambiar, abierto, alAbrir, rotulo 
     return (
         <div className="relative" ref={caja}>
             <button type="button" onClick={() => alAbrir(!abierto)}
-                className={cn("h-9 px-3.5 rounded-full border text-[12.5px] font-semibold inline-flex items-center gap-2 transition-colors",
+                className={cn("h-[38px] px-3.5 rounded-[10px] border text-[12.5px] font-semibold inline-flex items-center gap-2 transition-colors",
                     elegidos.length ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]" : "border-border bg-card/70 hover:bg-accent/60")}>
                 <DoorOpen size={14} /> {rotulo}
             </button>

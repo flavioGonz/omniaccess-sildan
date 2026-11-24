@@ -133,9 +133,13 @@ export function armarMenu(c: ContextoMenu): SeccionMenu[] {
         /* El Monitor Face (las capturas de rostros de porteros y controles de acceso) vive con las caras y
            no en Dispositivos (24/11, Nico: «es un historial de Face… no tiene que ver con bitácora»). Está
            también sin el modo face: un portero cuenta sus propias caras aunque OmniVision no mire. */
-        ...grupo("rostro", "Rostro", "rostro", [
+        /* El módulo Face (25/11, Nico: «un sub módulo Face que contendrá Monitor Face, Dispositivos Face
+           —que va a Dispositivos filtrando por porteros faciales— y Sincronización Face»). La
+           sincronización entra cuando esté su pantalla. */
+        ...grupo("rostro", "Face", "rostro", [
             ...hoja(!m.filas && (c.hay.accesos || m.rostro), { id: "rostro-capturas", rotulo: "Monitor Face", href: "/admin/face", unico: "Monitor Face" }),
             ...hoja(m.rostro && !m.filas, { id: "rostro-monitor", rotulo: "En vivo: entrada y salida", href: "/admin/monitor-face" }),
+            ...hoja(!m.filas && c.hay.accesos, { id: "rostro-equipos", rotulo: "Dispositivos Face", href: "/admin/devices?type=DOOR_INTERCOM" }),
         ]),
         ...grupo("intrusion", "Intrusión", "intrusion", hoja(f.intrusion, { id: "intrusion-monitor", rotulo: "Monitor de intrusión", href: "/admin/monitor-intrusion" })),
         ...grupo("video", "Video", "video", [
