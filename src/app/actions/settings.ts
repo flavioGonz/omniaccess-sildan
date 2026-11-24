@@ -18,6 +18,7 @@ import axios from "axios";
 import { fechaHora } from "@/lib/fechas";
 import { getSession } from "@/app/actions/auth";
 import { leerAjuste } from "@/lib/ajustes-db";
+import { COLOR } from "@/lib/informes/paleta";
 
 /**
  * La consola de la garita usa algunas de estas acciones sin sesión del panel, con el guardia
@@ -1055,6 +1056,27 @@ export async function getReportBranding() {
         preparedBy: m.REPORT_PREPARED_BY || "",
         authorizedBy: m.REPORT_AUTHORIZED_BY || "",
         coverUrl: m.REPORT_COVER_URL || "",
+    };
+}
+
+/**
+ * La marca para los informes que dibuja el NAVEGADOR (/informe/*, 24/11): lo mismo que `leerMarca`
+ * (lib/informes/marca) les da a los PDF que arma el servidor, pero con la dirección del logo en vez
+ * de la imagen ya leída —acá la pide el navegador, con su sesión—.
+ *
+ * No se reusa `getReportBranding` porque devuelve un violeta cuando no hay color elegido, y ese
+ * violeta no es de OmniAccess: sin color elegido, una tapa va en tinta.
+ */
+export async function marcaDeInformes(): Promise<{ empresa: string; logoUrl: string; primario: string; preparadoPor: string }> {
+    const rows = await prisma.setting.findMany({ where: { key: { in: ["REPORT_COMPANY", "REPORT_LOGO_URL", "REPORT_PRIMARY", "REPORT_PREPARED_BY", "APP_BRAND_NAME", "APP_BRAND_LOGO_URL", "APP_BRAND_PRIMARY"] } } }).catch(() => []);
+    const m: Record<string, string> = {};
+    for (const r of rows) m[r.key] = (r.value || "").trim();
+    const hex = (x?: string) => (x && /^#[0-9a-fA-F]{6}$/.test(x) ? x : null);
+    return {
+        empresa: m.REPORT_COMPANY || m.APP_BRAND_NAME || "OmniAccess",
+        logoUrl: m.REPORT_LOGO_URL || m.APP_BRAND_LOGO_URL || "",
+        primario: hex(m.REPORT_PRIMARY) || hex(m.APP_BRAND_PRIMARY) || COLOR.tinta,
+        preparadoPor: m.REPORT_PREPARED_BY || "",
     };
 }
 

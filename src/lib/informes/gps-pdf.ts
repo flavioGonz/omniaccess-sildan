@@ -12,6 +12,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { COLOR, rgb, fuentesOutfit, isotipoPng, type Marca } from "@/lib/informes/marca";
+import { EN_TAPA } from "@/lib/informes/paleta";
 import { duracionDeReporte, esNumero, textoDeCelda, type TablaReporte } from "@/lib/gps-reportes-catalogo";
 import { periodoEnPalabras, vehiculosEnPalabras, type ReporteGps } from "@/lib/gps-reportes-servidor";
 
@@ -107,7 +108,7 @@ export async function reporteGpsPdf(r: ReporteGps, marca: Marca, generadoPor: st
             [t.km.toFixed(1).replace(".", ",") + " km", "recorridos"], [String(t.viajes), t.viajes === 1 ? "viaje" : "viajes"], [duracionDeReporte(t.andandoMin), "andando"],
             [t.ralentiMin === null ? "—" : duracionDeReporte(t.ralentiMin), "en ralentí"], [t.velMax ? `${t.velMax} km/h` : "—", "velocidad máxima"],
             /* Sobre el fondo oscuro los tonos de estado van en su versión clara: el rojo y el ámbar de papel se apagan. */
-            [String(t.excesos), t.excesos === 1 ? "exceso de velocidad" : "excesos de velocidad", t.excesos ? "#ff6b84" : undefined], [String(t.alarmas), t.alarmas === 1 ? "alarma" : "alarmas", t.alarmas ? "#f5b544" : undefined],
+            [String(t.excesos), t.excesos === 1 ? "exceso de velocidad" : "excesos de velocidad", t.excesos ? EN_TAPA.mal : undefined], [String(t.alarmas), t.alarmas === 1 ? "alarma" : "alarmas", t.alarmas ? EN_TAPA.aviso : undefined],
         ];
         const yK = 160, cw = (W - MT * 2) / cifras.length;
         conOpacidad(0.16, () => { color("#ffffff", "linea"); doc.setLineWidth(0.25); doc.line(MT, yK - 13, W - MT, yK - 13); });

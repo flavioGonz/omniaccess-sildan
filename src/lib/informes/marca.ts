@@ -15,19 +15,11 @@ import fs from "fs/promises";
 import path from "path";
 import { prisma } from "@/lib/prisma";
 import { isotipoSvg } from "@/components/brand/OmniLogo";
+import { COLOR, rgb, suave } from "@/lib/informes/paleta";
 
-export const COLOR = {
-    tinta: "#0b1220", texto: "#1f2937", gris: "#6b7280", grisClaro: "#9ca3af", linea: "#e5e7eb", superficie: "#f4f6f9", fondo: "#ffffff",
-    accion: "#0073e9", accionClaro: "#7fb6f5",
-    bien: "#009965", aviso: "#db8d0f", avisoTexto: "#a85e00", mal: "#e32a4e", info: "#1c8be3", quieto: "#8e65df",
-} as const;
-
-export const rgb = (hex: string): [number, number, number] => {
-    const m = hex.replace("#", "");
-    return [parseInt(m.slice(0, 2), 16), parseInt(m.slice(2, 4), 16), parseInt(m.slice(4, 6), 16)];
-};
-/** El mismo color, mezclado con blanco: los fondos suaves de las celdas y las bandas. */
-export const suave = (hex: string, k = 0.86): string => "#" + rgb(hex).map((c) => Math.round(c + (255 - c) * k).toString(16).padStart(2, "0")).join("");
+/* La paleta vive en ./paleta: es pura, y así la usa también lo que dibuja el navegador (la tapa de
+   los informes imprimibles), que no puede traer este archivo —lee del disco y de la base—. */
+export { COLOR, rgb, suave };
 
 export type Marca = {
     empresa: string; contacto: string; preparadoPor: string; autorizadoPor: string; pie: string;
