@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, Eye, Ban, Camera, Check, CheckCircle2, CircleDot, CircleHelp, Clock, Flame, Hand, History, Info, ListChecks, Loader2, MessageSquareText, Phone, RotateCcw, ShieldAlert, ShieldCheck, ShieldOff, Siren, SkipForward, Timer, UserRound, Users, Wrench, X } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Eye, Ban, Camera, Check, CheckCircle2, CircleDot, CircleHelp, Clock, Flame, Hand, History, Info, ListChecks, MessageSquareText, Phone, RotateCcw, ShieldAlert, ShieldCheck, ShieldOff, Siren, SkipForward, Timer, UserRound, Users, Wrench, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Pista } from "@/components/ui/pista";
 import { useSessionRole } from "@/hooks/useSessionRole";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";

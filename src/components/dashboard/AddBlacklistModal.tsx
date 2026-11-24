@@ -2,7 +2,8 @@
 
 import React, { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ShieldAlert, Camera, Loader2, UserPlus, CheckCircle2 } from "lucide-react";
+import { X, ShieldAlert, Camera, UserPlus, CheckCircle2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { registerFace } from "@/app/actions/users";
 import { syncFaceToAllDevicesAction } from "@/app/actions/face-sync";
 import { sileo as toast } from "sileo";

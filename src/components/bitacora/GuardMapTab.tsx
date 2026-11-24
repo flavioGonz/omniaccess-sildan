@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import dynamic from 'next/dynamic';
-import { MapPin, Shield, Users, Loader2, Maximize2 } from "lucide-react";
+import { MapPin, Shield, Users, Maximize2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 

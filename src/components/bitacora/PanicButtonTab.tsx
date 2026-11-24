@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Siren, Shield, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { Siren, Shield, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { motion, AnimatePresence } from "framer-motion";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";

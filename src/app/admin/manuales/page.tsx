@@ -8,9 +8,10 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useConfirmar } from "@/components/ui/use-confirmar";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-    BookOpen, Save, Hammer, Camera, Download, FileText, Image as ImageIcon, Loader2, Check,
+    BookOpen, Save, Hammer, Camera, Download, FileText, Image as ImageIcon, Check,
     AlertTriangle, Eye, Code2, Columns2, Trash2, RefreshCw, Clipboard, Plus, ExternalLink, X, Wand2,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 

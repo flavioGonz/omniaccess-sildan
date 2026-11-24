@@ -1,7 +1,8 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import { Ban, Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Loader2, Server, ShieldAlert, Sparkles, XCircle, Siren } from "lucide-react";
+import { Ban, Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Server, ShieldAlert, Sparkles, XCircle, Siren } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { CartelRequerida } from "@/components/CartelRequerida";
 import { cn } from "@/lib/utils";
 import { chapaDe, esSinVehiculo, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";

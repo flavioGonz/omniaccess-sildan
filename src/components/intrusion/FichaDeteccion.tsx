@@ -6,10 +6,11 @@ import { AjusteVideoFicha } from "@/components/video/AjusteVideoFicha";
 import { useClipEvento } from "@/lib/clip-evento";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Check, ChevronLeft, ChevronRight, Clock, Cctv, Eye, EyeOff, ImageOff, Loader2, PlayCircle, Radar,
+    Check, ChevronLeft, ChevronRight, Clock, Cctv, Eye, EyeOff, ImageOff, PlayCircle, Radar,
     ScanEye, ScanSearch, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen, Repeat, UserRound, Download, Image as IconoFoto, Radio, RefreshCw,
     History, Images, ThumbsUp, ThumbsDown, SlidersHorizontal,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { useZoomFoto } from "@/components/visor/useZoomFoto";
 import { CapaEscena } from "@/components/vision/CapaEscena";
 // El menú flotante de la pared de cámaras: el mismo para lo que se toca sobre una foto.

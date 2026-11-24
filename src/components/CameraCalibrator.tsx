@@ -14,9 +14,10 @@ const toast = {
 };
 import {
     Wand2, Timer, Signal, Layers, Sun, ShieldCheck, Moon, Focus, Car,
-    X, Check, Loader2, RefreshCw, Maximize2, Volume2, AlertTriangle, Sparkles,
+    X, Check, RefreshCw, Maximize2, Volume2, AlertTriangle, Sparkles,
     SquareDashed, Save, RotateCcw, Crosshair,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 
 /* ─────────────────────────── Video en vivo (go2rtc) ─────────────────────────── */
 function LiveVideo({ streamName, deviceId }: { streamName: string; deviceId: string }) {

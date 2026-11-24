@@ -8,7 +8,8 @@ import { Pista } from "@/components/ui/pista";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { CreditCard, User as UserIcon, RadioTower, Loader2, RefreshCw } from "lucide-react";
+import { CreditCard, User as UserIcon, RadioTower, RefreshCw } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { TarjetaAnimada } from "./TarjetaAnimada";
 import {
     createTag, updateTag, unassignTag, reenviarTag, destinosDeTag,

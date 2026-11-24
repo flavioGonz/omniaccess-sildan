@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, NotebookPen, Check } from "lucide-react";
+import { NotebookPen, Check } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 
 /**

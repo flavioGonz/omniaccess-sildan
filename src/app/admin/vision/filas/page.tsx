@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ListOrdered, Activity, Info, Plus, ArrowDownToLine, ArrowUpFromLine, Hourglass, Timer, Settings2, BellRing, ShieldAlert, Camera, Radio, Pencil, Check, Loader2, Trash2 } from "lucide-react";
+import { ListOrdered, Activity, Info, Plus, ArrowDownToLine, ArrowUpFromLine, Hourglass, Timer, Settings2, BellRing, ShieldAlert, Camera, Radio, Pencil, Check, Trash2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { ModalEscena, BloquePanel, CifraPanel, BotonPanel } from "@/components/vision/ModalEscena";

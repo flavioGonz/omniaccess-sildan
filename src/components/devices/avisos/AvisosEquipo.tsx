@@ -11,8 +11,9 @@
  */
 import { useEffect, useState } from "react";
 import {
-    Aperture, BellRing, Clock, EyeOff, HardDrive, Hourglass, Loader2, Move, ScanLine, Send, WifiOff, type LucideIcon,
+    Aperture, BellRing, Clock, EyeOff, HardDrive, Hourglass, Move, ScanLine, Send, WifiOff, type LucideIcon,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";

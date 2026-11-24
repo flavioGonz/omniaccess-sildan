@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Users, Clock, Maximize, Loader2, List, Check } from "lucide-react";
+import { Users, Clock, Maximize, List, Check } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { getQueueWaitEstimate, getQueueAlerts, getQueueDevices } from "@/app/actions/queue";
 import { getAppBranding } from "@/app/actions/settings";
 import { hora } from "@/lib/fechas";

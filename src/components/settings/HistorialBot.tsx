@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, CheckCheck, EyeOff, Loader2, MessageSquareOff, RefreshCw, ShieldOff, Users } from "lucide-react";
+import { Bot, CheckCheck, EyeOff, MessageSquareOff, RefreshCw, ShieldOff, Users } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Seek } from "@/components/ui/search";
 import { Pista } from "@/components/ui/pista";

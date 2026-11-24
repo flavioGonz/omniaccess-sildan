@@ -17,7 +17,6 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import {
-    Loader2,
     CheckCircle2,
     AlertTriangle,
     Save,
@@ -29,6 +28,7 @@ import {
     Info,
     RotateCw
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { importFaceBatch } from "@/app/actions/devices"; // We will create this
 import { cn } from "@/lib/utils";

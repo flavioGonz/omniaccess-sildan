@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Camera, History, Loader2, Maximize2, Minimize2, Plus, VideoOff, X } from "lucide-react";
+import { Camera, History, Maximize2, Minimize2, Plus, VideoOff, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Vivo, Foto, vivoDe, reproduceH265, usaHls } from "@/components/monitor/camaras/piezas";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
 import { cn } from "@/lib/utils";

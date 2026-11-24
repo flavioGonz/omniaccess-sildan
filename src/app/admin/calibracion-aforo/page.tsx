@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { SlidersHorizontal, RefreshCw, Activity, Waves, CheckCircle2, Info, Loader2, Timer, Camera, HelpCircle, Gauge } from "lucide-react";
+import { SlidersHorizontal, RefreshCw, Activity, Waves, CheckCircle2, Info, Timer, Camera, HelpCircle, Gauge } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { getQueueRawVsStable, getQueueDevices } from "@/app/actions/queue";
 
 type Pt = { t: number; v: number };

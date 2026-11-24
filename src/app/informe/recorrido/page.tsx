@@ -3,7 +3,8 @@
 import dynamic from "next/dynamic";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Loader2, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { rastreadoresGps, recorridoGps, type Rastreador, type RecorridoGps } from "@/app/actions/gps";
 import { marcaDeInformes } from "@/app/actions/settings";
 import { getSession } from "@/app/actions/auth";

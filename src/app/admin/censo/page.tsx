@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Car, Check, ClipboardList, Clock, Download, Home, Loader2, Mail, MapPin, MessageSquare, Phone, QrCode, Send, Users, Wrench, X } from "lucide-react";
+import { Car, Check, ClipboardList, Clock, Download, Home, Mail, MapPin, MessageSquare, Phone, QrCode, Send, Users, Wrench, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import dynamic from "next/dynamic";

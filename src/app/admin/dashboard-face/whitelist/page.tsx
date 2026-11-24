@@ -3,12 +3,13 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-    ShieldCheck, Trash2, Loader2, Star,
+    ShieldCheck, Trash2, Star,
     ChevronLeft, Search, User,
     Calendar, History, MoreHorizontal, UserCheck,
     MessageSquare, Clock, MapPin, CheckCircle2,
     Zap
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Badge } from "@/components/ui/badge";
 import { sileo as toast } from "sileo";
 import { getWhitelist, toggleBlacklist } from "@/app/actions/users";

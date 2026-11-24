@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Upload, FileJson, Loader2, CheckCircle2, AlertTriangle, Database } from "lucide-react";
+import { Upload, FileJson, CheckCircle2, AlertTriangle, Database } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { fecha, fechaHora } from "@/lib/fechas";
 

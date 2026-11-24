@@ -4,8 +4,9 @@ import { useState, useCallback } from "react";
 import {
     Activity, Wifi, RefreshCw, ChevronDown, ChevronRight,
     Radio, Users, Eye, Layers, Zap, AlertCircle, CheckCircle2,
-    Copy, Loader2, Search,
+    Copy, Search,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";

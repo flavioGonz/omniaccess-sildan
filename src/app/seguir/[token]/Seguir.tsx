@@ -2,7 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import { Loader2, MapPinOff } from "lucide-react";
+import { MapPinOff } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { OmniLogo } from "@/components/brand/OmniLogo";
 import { quedaLegible, type VistaCompartida } from "@/lib/gps-compartir";
 import { hace, hora } from "@/lib/fechas";

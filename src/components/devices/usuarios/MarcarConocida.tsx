@@ -4,7 +4,8 @@
  * aviso y deja en Auditoría quién lo reconoció y por qué (openspec usuarios-de-equipos).
  */
 import { useEffect, useState } from "react";
-import { ShieldCheck, Loader2 } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

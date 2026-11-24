@@ -7,11 +7,12 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import {
     MousePointer2, Hexagon, Video, Trash2, Save, Pencil, X, Check,
-    Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
+    MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
     Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
     Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
     BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home, Route, ShieldAlert, Volume2, VolumeX, Play, Activity, ListFilter,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";

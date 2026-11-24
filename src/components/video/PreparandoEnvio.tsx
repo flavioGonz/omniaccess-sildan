@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Loader2, Send } from "lucide-react";
+import { Check, Send } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
 

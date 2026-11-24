@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback } from "react";
 import {
     Calendar, Clock, Plus, Trash2, Pencil, RotateCcw, Power,
-    Store, X, Check, Loader2, CalendarClock, Repeat, AlertTriangle,
+    Store, X, Check, CalendarClock, Repeat, AlertTriangle,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import {
     getQueueSchedules, createQueueSchedule, updateQueueSchedule,
     deleteQueueSchedule, runQueueReset,

@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Tooltip } from "react-tooltip";
 import {
-    Users, Sparkles, Tag, Type, MapPin, Plug, Network, User, KeyRound, ShieldCheck, Lock, Unlock, Loader2, Save, X,
+    Users, Sparkles, Tag, Type, MapPin, Plug, Network, User, KeyRound, ShieldCheck, Lock, Unlock, Save, X,
     Activity, ExternalLink, AlertTriangle, Check, ListOrdered,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Bloque, Campo, Etiqueta, Opcion, TT_FICHA } from "@/components/devices/CajonDispositivo";

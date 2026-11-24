@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronRight, FileSpreadsheet, History, Loader2, MapPin, Radio, Satellite, Share2, TerminalSquare } from "lucide-react";
+import { ChevronRight, FileSpreadsheet, History, MapPin, Radio, Satellite, Share2, TerminalSquare } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { atarVehiculoGps, cambiarIconoGps, guardarTanqueGps, renombrarGps, tanqueLlenoGps, type Rastreador } from "@/app/actions/gps";
 import { limpiarMatricula } from "@/lib/gps-matricula";

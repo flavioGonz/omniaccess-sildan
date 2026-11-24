@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { Check } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { leerDestinoEventos, guardarDestinoEventos } from "@/app/actions/destino-eventos";

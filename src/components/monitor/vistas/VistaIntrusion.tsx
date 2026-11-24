@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, Clock, Camera, ShieldAlert, ShieldCheck, ShieldQuestion, PanelRightOpen, Maximize2, Loader2, ChevronRight, ChevronLeft, Ban, PlayCircle, ScanEye } from "lucide-react";
+import { Server, Clock, Camera, ShieldAlert, ShieldCheck, ShieldQuestion, PanelRightOpen, Maximize2, ChevronRight, ChevronLeft, Ban, PlayCircle, ScanEye } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { fondoDe, type TonoFondo } from "@/lib/monitor/fondos";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";

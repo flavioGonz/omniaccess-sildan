@@ -3,7 +3,8 @@
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CircleMarker, Marker, Polyline, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
-import { ChevronLeft, ChevronRight, FileSpreadsheet, FileText, Gauge, Loader2, LocateFixed, MapPin, Pause, Play, Route, SquareParking, TriangleAlert, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileSpreadsheet, FileText, Gauge, LocateFixed, MapPin, Pause, Play, Route, SquareParking, TriangleAlert, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Pista } from "@/components/ui/pista";
 import { sileo as toast } from "sileo";
 import { guardarLimiteVelocidadGps, historialEventosGps, type PuntoGps, type RecorridoGps } from "@/app/actions/gps";

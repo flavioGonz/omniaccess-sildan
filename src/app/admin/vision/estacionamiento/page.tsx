@@ -4,7 +4,8 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { sileo as toast } from "sileo";
-import { AlertTriangle, Car, Check, Clock, Loader2, Minus, Pencil, Plus, RefreshCw, ScanEye, SquareParking, Trash2 } from "lucide-react";
+import { AlertTriangle, Car, Check, Clock, Minus, Pencil, Plus, RefreshCw, ScanEye, SquareParking, Trash2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Switch } from "@/components/ui/switch";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { ElegirCamara } from "@/components/devices/ElegirCamara";

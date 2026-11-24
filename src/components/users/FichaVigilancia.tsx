@@ -3,7 +3,8 @@
 import { Switch } from "@/components/ui/switch";
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ShieldAlert, Loader2, Bell, BellOff, Ban, RotateCcw, Save, User as UserIco, History, Images, ImagePlus, ScanFace } from "lucide-react";
+import { ShieldAlert, Bell, BellOff, Ban, RotateCcw, Save, User as UserIco, History, Images, ImagePlus, ScanFace } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";

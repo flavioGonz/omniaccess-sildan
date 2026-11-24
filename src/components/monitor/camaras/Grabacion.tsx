@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car, User, PawPrint, Boxes, ZoomIn, ZoomOut, ChevronLeft, Server, History, VideoOff, GripHorizontal } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, CalendarDays, Clock, Car, User, PawPrint, Boxes, ZoomIn, ZoomOut, ChevronLeft, Server, History, VideoOff, GripHorizontal } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { geomDeIntrusion } from "@/lib/vision-capa";
 import { Scrub, type MarcaScrub, type BandaScrub, type ScrubMando } from "@/components/Scrub";

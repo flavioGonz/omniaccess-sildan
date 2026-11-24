@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { IdCard, Loader2, ScanFace, UserPlus, X } from "lucide-react";
+import { IdCard, ScanFace, UserPlus, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import type { CapturaFace } from "@/app/actions/monitor-face";
 import { explicarIdentidad, rotuloIdentidad, TONO_IDENTIDAD, type Rafaga, type UmbralesFace } from "@/lib/monitor-face";
 import { Button } from "@/components/ui/button";

@@ -5,7 +5,6 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useConfirmar } from "@/components/ui/use-confirmar";
 import {
     Camera,
-    Loader2,
     LogIn,
     LogOut,
     RefreshCcw,
@@ -61,6 +60,7 @@ import {
     ScanSearch,
     Video
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";

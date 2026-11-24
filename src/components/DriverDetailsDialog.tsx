@@ -7,7 +7,8 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Check, ShieldCheck, Server, BookOpen, Download, ExternalLink, FileText, Activity, Plus, Trash2, Save, Zap, Workflow, Code, Car, ChevronsUpDown, Loader2, Search, Pencil, X, AlertTriangle, Copy, Radio, ArrowRight, Database, Camera, Bell, Cpu, RefreshCw } from "lucide-react";
+import { Check, ShieldCheck, Server, BookOpen, Download, ExternalLink, FileText, Activity, Plus, Trash2, Save, Zap, Workflow, Code, Car, ChevronsUpDown, Search, Pencil, X, AlertTriangle, Copy, Radio, ArrowRight, Database, Camera, Bell, Cpu, RefreshCw } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DRIVER_MODELS, type DeviceBrand } from "@/lib/driver-models";
 import { Button } from "@/components/ui/button";

@@ -53,11 +53,11 @@ import {
     X,
     MapPin,
     Home,
-    Loader2,
     UserPlus,
     PlayCircle,
     Radar
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";

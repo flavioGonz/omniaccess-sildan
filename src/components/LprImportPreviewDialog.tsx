@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import {
     ArrowRight,
     Download,
-    Loader2,
     Database,
     HardDrive,
     CheckCircle2,
@@ -25,6 +24,7 @@ import {
     X,
     ShieldCheck
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { importPlateBatch } from "@/app/actions/devices";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";

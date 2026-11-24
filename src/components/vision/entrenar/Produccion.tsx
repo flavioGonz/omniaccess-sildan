@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { BellRing, Check, ChevronRight, CircleDashed, FlaskConical, GraduationCap, Loader2, Pause, ShieldCheck, X } from "lucide-react";
+import { BellRing, Check, ChevronRight, CircleDashed, FlaskConical, GraduationCap, Pause, ShieldCheck, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

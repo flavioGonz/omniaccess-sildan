@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Eye, GraduationCap, Loader2, SkipForward, Undo2 } from "lucide-react";
+import { ArrowLeft, Eye, GraduationCap, SkipForward, Undo2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { MIN_POR_CLASE, RECOMENDADO_POR_CLASE } from "@/lib/zona-entrenable";

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Archive, CircleCheck, Cpu, Loader2, Moon, Pause, Play, Power, Square, Thermometer, Trash2, Zap } from "lucide-react";
+import { Archive, CircleCheck, Cpu, Moon, Pause, Play, Power, Square, Thermometer, Trash2, Zap } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Cerebro, type EstadoCerebro } from "./Cerebro";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { sileo as toast } from "sileo";

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { CreditCard, ImagePlus, Loader2, Plus, ScanFace, Search, Trash2, UserRound, X } from "lucide-react";
+import { CreditCard, ImagePlus, Plus, ScanFace, Search, Trash2, UserRound, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { DeleteButton } from "@/components/ui/delete-button";

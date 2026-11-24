@@ -10,7 +10,8 @@
  * segundo más que tarda en llegar el aviso. 10 s alcanzan para entender qué pasó en un teléfono.
  */
 import { useEffect, useState } from "react";
-import { BellRing, Loader2, Save } from "lucide-react";
+import { BellRing, Save } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

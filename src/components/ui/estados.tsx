@@ -1,6 +1,7 @@
 "use client";
 
-import { AlertTriangle, Inbox, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Inbox, RefreshCw } from "lucide-react";
+import { IsotipoAnimado } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 
 /**
@@ -24,11 +25,15 @@ import { cn } from "@/lib/utils";
  * reintentar deja al operador sin nada que hacer más que recargar la página a ciegas.
  */
 
-/** Lo que se dibuja mientras se espera. Ocupa el lugar que van a ocupar los datos. */
+/**
+ * Lo que se dibuja mientras se espera. Ocupa el lugar que van a ocupar los datos. Desde el 24/11 es
+ * el isotipo animado (components/brand/CargaOmni) y asoma con una demora corta: lo que carga rápido
+ * no dibuja un destello.
+ */
 export function Cargando({ texto = "Cargando…", className }: { texto?: string; className?: string }) {
     return (
-        <div className={cn("flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground", className)}>
-            <Loader2 size={20} className="animate-spin opacity-70" />
+        <div role="status" aria-live="polite" className={cn("oa-carga-asoma flex flex-col items-center justify-center gap-3 py-12 text-muted-foreground", className)}>
+            <IsotipoAnimado size={36} className="text-foreground/80" />
             <span className="text-[12px]">{texto}</span>
         </div>
     );

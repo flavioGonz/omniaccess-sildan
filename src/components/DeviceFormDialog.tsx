@@ -37,11 +37,11 @@ import {
     HardDrive,
     Key,
     Activity,
-    Loader2,
     ImagePlus,
     Camera,
     MapPin
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import Image from "next/image";
 import { BookOpen, ChevronDown, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";

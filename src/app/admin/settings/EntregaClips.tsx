@@ -7,7 +7,8 @@
  * es tiempo de espera y peso, no sólo nitidez.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Save, FileVideo, Package } from "lucide-react";
+import { Save, FileVideo, Package } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

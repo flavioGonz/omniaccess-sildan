@@ -5,9 +5,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { Tooltip } from "react-tooltip";
 import {
-    DoorOpen, DoorClosed, Zap, Tag, Type, MapPin, Plug, Network, User, KeyRound, ShieldCheck, Loader2, Save, X, AlertTriangle, Check,
+    DoorOpen, DoorClosed, Zap, Tag, Type, MapPin, Plug, Network, User, KeyRound, ShieldCheck, Save, X, AlertTriangle, Check,
     ListChecks, History, LogIn, LogOut, Hash, RefreshCw, BellRing, Lock, ExternalLink, PlugZap, Fingerprint, ScanFace, Sparkles,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Switch } from "@/components/ui/switch";
 import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Activity, Camera, Car, Cpu, Film, Gauge, Image as ImageIcon, Loader2, PawPrint, Plus, PowerOff, ScanEye, Server, ShieldAlert, TriangleAlert, User, Video } from "lucide-react";
+import { Activity, Camera, Car, Cpu, Film, Gauge, Image as ImageIcon, PawPrint, Plus, PowerOff, ScanEye, Server, ShieldAlert, TriangleAlert, User, Video } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { hace } from "@/lib/fechas";

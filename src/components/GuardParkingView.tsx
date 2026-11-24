@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Car, MapPin, RefreshCw, Loader2, Maximize2, Minus, Plus, Search, X } from "lucide-react";
+import { Car, MapPin, RefreshCw, Maximize2, Minus, Plus, Search, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { io } from "socket.io-client";
 import { getParkingSlots, getParkingMap, getParkingElements, getParkingOccupancy, type SlotOccupancy } from "@/app/actions/plazas";
 

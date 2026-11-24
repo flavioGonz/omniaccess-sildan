@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { CircleCheck, GraduationCap, Loader2, SkipForward, TriangleAlert, Undo2, X } from "lucide-react";
+import { CircleCheck, GraduationCap, SkipForward, TriangleAlert, Undo2, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { MuestraVista } from "@/components/vision/entrenar/Piezas";

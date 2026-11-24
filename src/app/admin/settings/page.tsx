@@ -39,7 +39,6 @@ import {
     Plus,
     Pencil,
     User as UserIcon,
-    Loader2,
     Palette,
     Layers,
     Server,
@@ -53,6 +52,7 @@ import {
     BookOpen,
 ToggleRight, Mail,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { useRouter } from "next/navigation";
 import { SECCIONES_OMNIVISION } from "@/components/vision/NavOmniVision";
 import nextDynamic from "next/dynamic";

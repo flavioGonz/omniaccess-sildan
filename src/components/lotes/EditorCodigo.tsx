@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Loader2, Pencil, RefreshCw, X } from "lucide-react";
+import { Check, Pencil, RefreshCw, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { cambiarCodigoCenso } from "@/app/actions/administraciones";

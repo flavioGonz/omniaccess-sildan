@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Tooltip } from "react-tooltip";
 import {
-    Camera, Radar, HardDrive, Network, MapPin, Rocket, ScanSearch, Loader2, Check, X, AlertTriangle, Info,
+    Camera, Radar, HardDrive, Network, MapPin, Rocket, ScanSearch, Check, X, AlertTriangle, Info,
     LogIn, LogOut, KeyRound, User, Cpu, Fingerprint, Clock, BellRing, ScanLine, Film, Video, ListChecks, Server,
     ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users, Sparkles, Image as ImageIcon,
     FolderTree, Plus,
     Siren, Trash2,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { leerAreas, crearArea, type Area } from "@/app/actions/areas";
 import { guardarGrupo } from "@/app/actions/groups";
 import { DestinoEventos } from "@/components/devices/DestinoEventos";

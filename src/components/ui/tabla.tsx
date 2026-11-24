@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, Columns3, Download, Loader2, Rows3 } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Columns3, Download, Rows3 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { Pista } from "@/components/ui/pista";
 import { ErrorEstado, Vacio } from "@/components/ui/estados";

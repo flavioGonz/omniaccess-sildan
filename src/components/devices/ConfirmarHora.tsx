@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Tooltip } from "react-tooltip";
-import { Clock, TimerReset, Loader2, Check, X, Info, AlertTriangle, Server, Car, Radar } from "lucide-react";
+import { Clock, TimerReset, Check, X, Info, AlertTriangle, Server, Car, Radar } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Copy, ImagePlus, Loader2, RefreshCw, ScanFace, Trash2 } from "lucide-react";
+import { Copy, ImagePlus, RefreshCw, ScanFace, Trash2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { getImagePath } from "@/lib/image-path";

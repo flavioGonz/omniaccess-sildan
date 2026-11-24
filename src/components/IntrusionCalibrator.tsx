@@ -4,9 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { sileo } from "sileo";
 import {
-    Wand2, X, Check, Loader2, RefreshCw, AlertTriangle, Minus, Hexagon, ArrowLeftRight, ArrowRight, ArrowLeft,
+    Wand2, X, Check, RefreshCw, AlertTriangle, Minus, Hexagon, ArrowLeftRight, ArrowRight, ArrowLeft,
     Gauge, PersonStanding, Car, BellRing, Send, Save, RotateCcw, Trash2, Radar, MousePointer2, Users,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { PtzControls } from "@/components/PtzControls";
 

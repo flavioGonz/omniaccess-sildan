@@ -9,7 +9,8 @@
  * se descarga.
  */
 import { useEffect, useState } from "react";
-import { Calendar as CalendarIcon, Camera, Check, Download, FileSpreadsheet, FileText, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Calendar as CalendarIcon, Camera, Check, Download, FileSpreadsheet, FileText, Image as ImageIcon } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";

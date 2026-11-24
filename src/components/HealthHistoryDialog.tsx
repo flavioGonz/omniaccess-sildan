@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X, Activity, MemoryStick, Timer, AlertTriangle, CheckCircle2, Loader2, Wifi } from "lucide-react";
+import { X, Activity, MemoryStick, Timer, AlertTriangle, CheckCircle2, Wifi } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { fecha, hora } from "@/lib/fechas";
 
 type Sample = { ts: string; reachable: boolean; latencyMs: number | null; memPct: number | null; driftSec: number | null; disksOk: boolean | null; viewers: number | null };

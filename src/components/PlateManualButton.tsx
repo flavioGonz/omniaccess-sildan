@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Keyboard, Loader2, CheckCircle2, UserCheck, UserX, ShieldAlert } from "lucide-react";
+import { Keyboard, CheckCircle2, UserCheck, UserX, ShieldAlert } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { setEventPlate } from "@/app/actions/history";
 import { native } from "@/lib/guard-native";

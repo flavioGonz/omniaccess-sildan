@@ -1,6 +1,7 @@
 "use client";
 
-import { HardDrive, Loader2, ScanSearch, Calculator } from "lucide-react";
+import { HardDrive, ScanSearch, Calculator } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import type { FilaGrabacion } from "@/app/actions/grabaciones";
 

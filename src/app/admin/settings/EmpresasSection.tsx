@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bike, Building2, Car, ImageOff, ImageUp, Loader2, Package, Plus, Trash2 } from "lucide-react";
+import { Bike, Building2, Car, ImageOff, ImageUp, Package, Plus, Trash2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { toast } from "@/lib/avisos";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

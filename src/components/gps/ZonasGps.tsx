@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { CircleDashed, Loader2, MapPin, Plus } from "lucide-react";
+import { CircleDashed, MapPin, Plus } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { borrarGeocercaGps, geocercasGps, guardarGeocercaGps, type Geocerca, type Rastreador } from "@/app/actions/gps";
 import { Button } from "@/components/ui/button";

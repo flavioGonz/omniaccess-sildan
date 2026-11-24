@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ExternalLink, Globe, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
+import { ExternalLink, Globe, RefreshCw, TriangleAlert } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { estiloCasilla } from "@/components/monitor/camaras/piezas";
 import type { Casilla } from "@/lib/monitor/disposiciones";
 import { TEXTO_AVISO, type FuenteWeb } from "@/lib/monitor/fuentes-web";

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CalendarClock, Camera, Loader2, Pause, Pencil, Play, Plus, Save, Trash2, VideoOff } from "lucide-react";
+import { AlertTriangle, CalendarClock, Camera, Pause, Pencil, Play, Plus, Save, Trash2, VideoOff } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Camera, CircleParking, History, Loader2, LogIn, LogOut, MoveRight, Radio, RefreshCw, X } from "lucide-react";
+import { Camera, CircleParking, History, LogIn, LogOut, MoveRight, Radio, RefreshCw, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { getImagePath } from "@/lib/image-path";

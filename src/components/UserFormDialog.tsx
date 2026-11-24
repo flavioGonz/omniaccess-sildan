@@ -51,7 +51,8 @@ import { cn } from "@/lib/utils";
 import { createUser, updateUser } from "@/app/actions/users";
 import { addDevicePlate } from "@/app/actions/devices";
 import { syncUserToDevice } from "@/app/actions/deviceMemory";
-import { Loader2, AlertCircle, CheckCircle2, ScanFace } from "lucide-react";
+import { AlertCircle, CheckCircle2, ScanFace } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 
 type UserWithRelations = User & {
     unit: Unit | null;

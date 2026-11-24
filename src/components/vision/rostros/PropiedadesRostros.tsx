@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Eraser, Loader2, RotateCcw, Search, SlidersHorizontal, Video } from "lucide-react";
+import { Check, Eraser, RotateCcw, Search, SlidersHorizontal, Video } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";

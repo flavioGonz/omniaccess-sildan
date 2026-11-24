@@ -4,7 +4,8 @@ import { ChipModo } from "@/components/devices/ModoCamara";
 import { modoIntrusionDe } from "@/lib/modo-camara";
 
 import { useEffect, useMemo, useState } from "react";
-import { Radar, Server, BellRing, BellOff, Crosshair, Settings2, Trash2, Search, Loader2, Camera, Activity, PowerOff } from "lucide-react";
+import { Radar, Server, BellRing, BellOff, Crosshair, Settings2, Trash2, Search, Camera, Activity, PowerOff } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Tooltip } from "react-tooltip";
 import { cn } from "@/lib/utils";
 import { getIntrusionCameras, type IntrusionCam } from "@/app/actions/detections";

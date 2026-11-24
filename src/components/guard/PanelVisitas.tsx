@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Clock, X, Check, Search, Loader2, Bike, Wrench, HardHat, Users, Ticket, LogOut, AlertTriangle, BellRing } from "lucide-react";
+import { Plus, Clock, X, Check, Search, Bike, Wrench, HardHat, Users, Ticket, LogOut, AlertTriangle, BellRing } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/avisos";
 import {

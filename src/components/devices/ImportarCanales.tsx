@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { AlertTriangle, BadgeCheck, Camera, Eye, Loader2, Route, ScanEye, ShieldAlert, Sparkles } from "lucide-react";
+import { AlertTriangle, BadgeCheck, Camera, Eye, Route, ScanEye, ShieldAlert, Sparkles } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";

@@ -17,7 +17,6 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import {
-    Loader2,
     RefreshCw,
     AlertTriangle,
     Download,
@@ -29,6 +28,7 @@ import {
     User,
     Power
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { getDeviceFaces, exportAllToDevice } from "@/app/actions/deviceMemory";
 import { getUsers } from "@/app/actions/users";

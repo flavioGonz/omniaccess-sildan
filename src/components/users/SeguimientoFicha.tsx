@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Activity, Ban, CalendarClock, Clock, Loader2, NotebookPen, RotateCw, ScanSearch, Video } from "lucide-react";
+import { Activity, Ban, CalendarClock, Clock, NotebookPen, RotateCw, ScanSearch, Video } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { CajonSeccion } from "@/components/ui/cajon";

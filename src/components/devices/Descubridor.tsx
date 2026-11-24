@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import {
-    AlertTriangle, BadgeCheck, Check, Clock, Cpu, HardDrive, Link2, Loader2, Radar, Video,
+    AlertTriangle, BadgeCheck, Check, Clock, Cpu, HardDrive, Link2, Radar, Video,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";

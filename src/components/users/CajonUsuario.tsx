@@ -8,9 +8,10 @@ import Image from "next/image";
 import type { User, Unit, AccessGroup, Credential } from "@prisma/client";
 import {
     Building2, Camera, Car, Check, CreditCard, DoorOpen, Home,
-    KeyRound, Loader2, MapPin, Users, ParkingSquare, Phone, Save, ScanFace, Server,
+    KeyRound, MapPin, Users, ParkingSquare, Phone, Save, ScanFace, Server,
     Shield, ShieldAlert, Upload, User as UserIcon, HelpCircle, History, X, Truck, Timer, Info, Star, ChevronDown, ExternalLink,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Switch } from "@/components/ui/switch";
 import { getAjustesVisitas } from "@/app/actions/visitas";
 import { ElegirEmpresa } from "@/components/empresas/ElegirEmpresa";

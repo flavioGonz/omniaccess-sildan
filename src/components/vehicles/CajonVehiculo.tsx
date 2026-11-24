@@ -5,9 +5,10 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import type { User } from "@prisma/client";
 import {
-    Bike, Bus, Camera, Car, Check, ChevronDown, FileText, Hash, Loader2, Palette,
+    Bike, Bus, Camera, Car, Check, ChevronDown, FileText, Hash, Palette,
     Plus, Save, Server, Truck, User as UserIcon,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";

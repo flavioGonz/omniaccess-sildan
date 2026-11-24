@@ -5,9 +5,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     ShieldAlert, Search, UserPlus, X, Camera,
     ChevronRight, AlertCircle, Trash2, ShieldCheck, Shield,
-    Loader2, CameraOff, UserCheck, AlertTriangle, RefreshCw,
+    CameraOff, UserCheck, AlertTriangle, RefreshCw,
     Image as ImageIcon, Fingerprint
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";

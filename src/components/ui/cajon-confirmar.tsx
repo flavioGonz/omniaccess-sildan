@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, ListChecks, Loader2, ShieldAlert, Trash2, Undo2 } from "lucide-react";
+import { AlertTriangle, ListChecks, ShieldAlert, Trash2, Undo2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Cajon, CajonContenido, CajonDisparador, CajonSeccion } from "@/components/ui/cajon";

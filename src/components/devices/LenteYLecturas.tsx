@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Crosshair, Focus, Loader2, ScanLine, ZoomIn, ZoomOut, Plus, Minus } from "lucide-react";
+import { Crosshair, Focus, ScanLine, ZoomIn, ZoomOut, Plus, Minus } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { useTiempoReal } from "@/lib/tiempo-real";

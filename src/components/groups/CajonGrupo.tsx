@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BellRing, Camera, Check, DoorOpen, Info, KeyRound, Loader2, Navigation, ScanFace, ShieldCheck, Users } from "lucide-react";
+import { BellRing, Camera, Check, DoorOpen, Info, KeyRound, Navigation, ScanFace, ShieldCheck, Users } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { toast } from "@/lib/avisos";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

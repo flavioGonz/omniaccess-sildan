@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Polygon, Tooltip as LTooltip, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import { Loader2, MapPin, Pentagon } from "lucide-react";
+import { MapPin, Pentagon } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { getBarrioMap, type BarrioMapData } from "@/app/actions/barriomap";
 

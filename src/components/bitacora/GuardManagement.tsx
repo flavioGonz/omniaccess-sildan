@@ -5,13 +5,13 @@ import {
     Shield,
     Plus,
     X,
-    Loader2,
     Pencil,
     Trash2,
     Upload,
     Camera,
     User as UserIcon
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import {
     Table,
     TableBody,

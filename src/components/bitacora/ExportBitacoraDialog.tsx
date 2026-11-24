@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Calendar as CalendarIcon, Download, Loader2, FileSpreadsheet } from "lucide-react";
+import { Calendar as CalendarIcon, Download, FileSpreadsheet } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { getBitacoraForReport, getBitacoraGuards } from "@/app/actions/bitacora";
 import ExcelJS from "exceljs";
 import { toast } from "@/lib/avisos";

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Camera, Crosshair, Plus, Trash2, Loader2, Search, X, Eye, EyeOff, ShieldAlert } from "lucide-react";
+import { Camera, Crosshair, Plus, Trash2, Search, X, Eye, EyeOff, ShieldAlert } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { setVisualTrackLinks, type TrackLink } from "@/app/actions/detections";
 import { Vivo, vivoDe, ubicacion, idCanal, type Canal, type Alerta } from "./piezas";
 import { avisoDeVecina, tituloDeAviso, type AvisoVecina } from "@/lib/aviso-vecina";

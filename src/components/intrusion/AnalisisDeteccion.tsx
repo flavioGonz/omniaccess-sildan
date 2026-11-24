@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { Brain, Car, Loader2, MapPin } from "lucide-react";
+import { Brain, Car, MapPin } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import type { AnalisisDeteccion as Datos, Indicio } from "@/lib/intrusion/analisis";
 import { cn } from "@/lib/utils";
 

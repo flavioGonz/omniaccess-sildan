@@ -3,9 +3,10 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import {
     Plus, Trash2, Save, Clock, Bell, Zap, Tag, Send, Timer, Video, CalendarDays, PanelRightOpen,
-    MessageCircle, Mail, Smartphone, Loader2, HelpCircle,
+    MessageCircle, Mail, Smartphone, HelpCircle,
     ShieldCheck,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/avisos";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";

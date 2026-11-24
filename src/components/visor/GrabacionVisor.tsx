@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVideoQueSeSuelta } from "@/lib/video-soltar";
 import { AnimatePresence, motion } from "framer-motion";
-import { Car, Check, ChevronLeft, ChevronRight, Crosshair, Download, Film, Loader2, Pause, Play, RefreshCw, SkipBack, SkipForward, VideoOff } from "lucide-react";
+import { Car, Check, ChevronLeft, ChevronRight, Crosshair, Download, Film, Pause, Play, RefreshCw, SkipBack, SkipForward, VideoOff } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { canalDe } from "@/components/video/VerGrabacion";

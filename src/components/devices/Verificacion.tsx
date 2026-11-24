@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, BadgeCheck, Loader2, Radio, RefreshCw, Video } from "lucide-react";
+import { AlertTriangle, BadgeCheck, Radio, RefreshCw, Video } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { montarVivo } from "@/lib/vivo";

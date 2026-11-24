@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Loader2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { LiveModal } from "@/components/intrusion/LiveModal";
 import type { IntrusionCam } from "@/app/actions/detections";
 

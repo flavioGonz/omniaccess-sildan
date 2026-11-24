@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Boxes, Camera, ChevronDown, ChevronRight, ImagePlus, Info, Loader2, Pencil, Plus, ScanEye, Video, X } from "lucide-react";
+import { ArrowLeft, Boxes, Camera, ChevronDown, ChevronRight, ImagePlus, Info, Pencil, Plus, ScanEye, Video, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { CAJAS_META, CAJAS_MINIMO, LARGO_NOMBRE, type Caja, type ClaseResumen, type FotoFila } from "@/lib/detector-propio";

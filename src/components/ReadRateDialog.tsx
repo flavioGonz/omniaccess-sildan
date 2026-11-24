@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { X, ScanLine, Loader2, ArrowRightCircle, ArrowLeftCircle, TrendingUp, AlertTriangle, RotateCw, Radar } from "lucide-react";
+import { X, ScanLine, ArrowRightCircle, ArrowLeftCircle, TrendingUp, AlertTriangle, RotateCw, Radar } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 
 /**

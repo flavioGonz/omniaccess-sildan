@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { X, Camera, RefreshCcw, Loader2 } from "lucide-react";
+import { X, Camera, RefreshCcw } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 
 interface OCRScannerProps {

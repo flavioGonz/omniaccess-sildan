@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ImagePlus, Loader2, MonitorPlay, Power, RefreshCcw, ScanFace, UserPlus } from "lucide-react";
+import { ImagePlus, MonitorPlay, Power, RefreshCcw, ScanFace, UserPlus } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Filtros } from "@/components/ui/filtros";

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, Eye, ImageUp, Loader2, Radio, ScanSearch, TriangleAlert } from "lucide-react";
+import { Camera, Eye, ImageUp, Radio, ScanSearch, TriangleAlert } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Filtros } from "@/components/ui/filtros";

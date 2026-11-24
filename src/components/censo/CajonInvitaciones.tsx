@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Clock, Download, Loader2, Mail, Pause, Play, RefreshCw, Send, ShieldCheck, Timer, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Check, Clock, Download, Mail, Pause, Play, RefreshCw, Send, ShieldCheck, Timer, Trash2, Upload } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";

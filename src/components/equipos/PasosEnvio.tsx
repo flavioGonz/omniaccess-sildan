@@ -1,7 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, Check, Loader2, RotateCw } from "lucide-react";
+import { AlertCircle, Check, RotateCw } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 

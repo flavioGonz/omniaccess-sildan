@@ -11,9 +11,9 @@ import {
     Scan, Car, Home, ParkingSquare, ShieldAlert, Star, Search as Lupa,
     UserPlus, Radio, LogIn, LogOut, Image as IconoFoto, Video, Eye, EyeOff,
     PlayCircle, Download, Archive, ShieldBan, ScanFace, Sparkles, Activity, GalleryHorizontal, Cctv, Undo2, Share2, ScanSearch,
-    Repeat, Loader2,
-    Siren,
+    Repeat, Siren,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { REQUERIDA_CORTA, REQUERIDA_POLICIA, esRequerida } from "@/lib/min-interior";
 import { CartelRequerida } from "@/components/CartelRequerida";
 import { cn } from "@/lib/utils";

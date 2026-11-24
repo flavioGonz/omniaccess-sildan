@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
-import { Bot, Calendar as CalendarIcon, Camera, Car, Check, Download, Filter, KeyRound, Loader2, ScanLine, ShieldAlert, Sparkles, Ticket } from "lucide-react";
+import { Bot, Calendar as CalendarIcon, Camera, Car, Check, Download, Filter, KeyRound, ScanLine, ShieldAlert, Sparkles, Ticket } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { getAccessEvents, getReporteComplementario, getLecturasInteriores, opcionesExportacion, visionParaExportar } from "@/app/actions/history";
 import { getReportBranding } from "@/app/actions/settings";

@@ -7,8 +7,9 @@ import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import {
     Ticket, Search, UserPlus, LogIn, LogOut, Circle, Clock, Home, Car, ShieldCheck, ShieldAlert,
-    X, Trash2, Loader2, Users, MessageCircle, Globe, UserCheck, CalendarClock, QrCode, ScanLine, Download, Copy, Camera, KeyRound, Home as HomeIcon,
+    X, Trash2, Users, MessageCircle, Globe, UserCheck, CalendarClock, QrCode, ScanLine, Download, Copy, Camera, KeyRound, Home as HomeIcon,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import {
     listActiveGuests, searchGuests, markEntry, revokeInvitation, quickInvite, getQrSvg, resolveByQr,
     getOrCreatePortalToken, listResidentsForPortal,

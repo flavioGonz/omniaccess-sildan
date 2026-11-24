@@ -6,9 +6,10 @@ import { LiveModal } from "@/components/intrusion/LiveModal";
 import { AnimatePresence, motion } from "framer-motion";
 import { Tooltip } from "react-tooltip";
 import {
-    Car, Radar, Ban, Loader2, Link2, LogIn, LogOut, Download, Search, Network, ImageOff, Layers,
+    Car, Radar, Ban, Link2, LogIn, LogOut, Download, Search, Network, ImageOff, Layers,
     Sparkles, Users, X, HardDrive, ScanEye, AlertTriangle, Play, Info,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";

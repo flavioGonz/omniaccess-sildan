@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import io from "socket.io-client";
-import { ShieldAlert, Check, X, Volume2, VolumeX, Radar, Clock, MonitorPlay, Loader2, Eye, Hand, ArrowRightLeft, UserRound } from "lucide-react";
+import { ShieldAlert, Check, X, Volume2, VolumeX, Radar, Clock, MonitorPlay, Eye, Hand, ArrowRightLeft, UserRound } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { getActiveAlarms, ackAlarms, setAttending, getIntrusionCameras, reclasificarComoFalsa, getIntrusionesConfirmadas, getOperadores, tomarGestion, pasarGestion, getAnalyticsGeometryBatch, type ActiveAlarm, type OperadorVista, type IntrusionCam } from "@/app/actions/detections";
 import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";

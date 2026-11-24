@@ -4,7 +4,8 @@ import { useRef, useState, useEffect, useMemo, memo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, Polyline, Polygon, Tooltip as LTooltip, ZoomControl } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Locate, ShieldAlert, X, Home, Car, Loader2, Clock, LogIn, LogOut } from 'lucide-react';
+import { Locate, ShieldAlert, X, Home, Car, Clock, LogIn, LogOut } from 'lucide-react';
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { getBarrioMap, type BarrioMapData } from '@/app/actions/barriomap';
 import { getSlotDetail, type SlotDetail } from '@/app/actions/plazas';
 

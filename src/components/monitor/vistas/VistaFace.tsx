@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, ArrowUpRight, Clock, Fingerprint, History, Home, IdCard, Loader2, LogIn, LogOut, RefreshCw, ScanFace, ShieldCheck, ShieldX, Sparkles, UserCheck, UserPlus, UserRound, UserX } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Clock, Fingerprint, History, Home, IdCard, LogIn, LogOut, RefreshCw, ScanFace, ShieldCheck, ShieldX, Sparkles, UserCheck, UserPlus, UserRound, UserX } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { CajonRostro, ACCIONES_ROSTRO } from "@/components/vision/rostros/CajonRostro";
 import { rostroDesdeEvento } from "@/app/actions/rostros";

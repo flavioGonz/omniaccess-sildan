@@ -2,9 +2,10 @@
 
 import { useMemo } from "react";
 import {
-    AlertTriangle, Briefcase, Check, CreditCard, Edit, Hash, KeyRound, Loader2, Lock, Mail, MapPin, Phone, ScanFace,
+    AlertTriangle, Briefcase, Check, CreditCard, Edit, Hash, KeyRound, Lock, Mail, MapPin, Phone, ScanFace,
     Send, Shield, ShieldAlert, Star, Trash2, Truck, UserCheck, UserX, Users,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Identidad, Matricula, Nada } from "@/components/ui/celdas";

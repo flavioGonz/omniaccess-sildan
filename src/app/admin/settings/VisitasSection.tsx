@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DoorOpen, DoorClosed, Plus, Trash2, Save, Loader2, Clock, BellRing, Timer, Footprints } from "lucide-react";
+import { DoorOpen, DoorClosed, Plus, Trash2, Save, Clock, BellRing, Timer, Footprints } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/avisos";
 import { Button } from "@/components/ui/button";

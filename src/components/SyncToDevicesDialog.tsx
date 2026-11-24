@@ -5,9 +5,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Tooltip } from "react-tooltip";
 import { Button } from "@/components/ui/button";
 import {
-    Loader2, Camera, CheckCircle2, XCircle, Database, Plus, Trash2, ShieldCheck, RefreshCw, Lock, Wifi, WifiOff,
+    Camera, CheckCircle2, XCircle, Database, Plus, Trash2, ShieldCheck, RefreshCw, Lock, Wifi, WifiOff,
     ListChecks, Zap, Info, Search, UserRound, Home, Check, X, Ban, LogIn, LogOut, Upload, ScanLine,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import {

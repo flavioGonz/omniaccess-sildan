@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { ImageIcon, Loader2, Scan, X } from "lucide-react";
+import { ImageIcon, Scan, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { ICONO_GRUPO, nombreClase } from "@/components/vision/ObjetoRegistro";
 

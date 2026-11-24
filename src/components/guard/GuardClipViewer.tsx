@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Loader2, Download, RotateCw } from "lucide-react";
+import { X, Download, RotateCw } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 
 // Reproductor de grabación LIVIANO para la tablet de guardias: clip corto (~14s) centrado en
 // el evento, SIN bordes — solo la hora y el video. Usa el MP4 completo (whole=1) para que

@@ -6,7 +6,7 @@
  * evidencia: salen como las entrega el grabador). Se muestra cómo queda, no se describe.
  */
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Switch } from "@/components/ui/switch";
 import { getSetting, updateSetting } from "@/app/actions/settings";

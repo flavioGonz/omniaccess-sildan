@@ -3,7 +3,8 @@
 import { Switch } from "@/components/ui/switch";
 import { MatriculaEnBase, useMatriculasEnBase } from "@/components/registro/MatriculaEnBase";
 import { useEffect, useMemo, useState } from "react";
-import { Ban, Bell, BellOff, CalendarClock, ChevronRight, Loader2, Plus, RotateCcw, Search, ShieldAlert, ShieldX, Siren, Cctv, Star, X } from "lucide-react";
+import { Ban, Bell, BellOff, CalendarClock, ChevronRight, Plus, RotateCcw, Search, ShieldAlert, ShieldX, Siren, Cctv, Star, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { REVISION_DIAS } from "@/lib/padron";
 import { Tooltip } from "react-tooltip";
 import "react-tooltip/dist/react-tooltip.css";

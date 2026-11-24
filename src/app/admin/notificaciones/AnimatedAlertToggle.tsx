@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Film, Server, HardDrive, ImageOff, Loader2 } from "lucide-react";
+import { Film, Server, HardDrive, ImageOff } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { getSetting, updateSetting } from "@/app/actions/settings";
 import { coberturaClipAlertas, type CoberturaCamara } from "@/app/actions/clips";
 import { Chip } from "@/components/ui/estados";

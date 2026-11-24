@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
-    Ticket, Plus, X, Loader2, Car, Clock, LogIn, QrCode, Trash2, CalendarPlus, Users,
+    Ticket, Plus, X, Car, Clock, LogIn, QrCode, Trash2, CalendarPlus, Users,
     PartyPopper, UserPlus, Copy, Download, ShieldCheck, Home, Check,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import {
     listMyInvitations, createMyInvitation, addMyGuest, revokeMyInvitation, extendMyInvitation, getQrSvg, nombreDelBarrio,
     type MyInvitation, type MyGuest, type PortalHost,

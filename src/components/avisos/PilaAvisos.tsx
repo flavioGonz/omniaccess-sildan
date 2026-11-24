@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Speech, Siren, ShieldAlert, Eye, Hand, ArrowRightLeft, Check, X, Power, History, Volume2, VolumeX, SlidersHorizontal, ChevronUp, ChevronDown, UserRound, Loader2, Radar, ScanEye, Repeat, Search } from "lucide-react";
+import { Speech, Siren, ShieldAlert, Eye, Hand, ArrowRightLeft, Check, X, Power, History, Volume2, VolumeX, SlidersHorizontal, ChevronUp, ChevronDown, UserRound, Radar, ScanEye, Repeat, Search } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { hora } from "@/lib/fechas";
 import { Switch } from "@/components/ui/switch";

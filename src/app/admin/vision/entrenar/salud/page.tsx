@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Activity, AlertTriangle, ArrowLeft, Cpu, Gauge, Loader2, RefreshCcw, Snowflake, Thermometer, Zap } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, Cpu, Gauge, RefreshCcw, Snowflake, Thermometer, Zap } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
 

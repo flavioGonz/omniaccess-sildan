@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Smartphone, Image as ImageIcon, Video, Type, Palette, Save, Loader2, Upload, Layers } from "lucide-react";
+import { Smartphone, Image as ImageIcon, Video, Type, Palette, Save, Upload, Layers } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { getSplashConfig, saveSplashConfig, uploadBrandingFile } from "@/app/actions/settings";
 import { toast } from "@/lib/avisos";
 

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, Loader2, Trash2, Undo2, X, Ban } from "lucide-react";
+import { Check, Trash2, Undo2, X, Ban } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { CAJA_MIN, type Caja, type ClaseResumen, type FotoFila } from "@/lib/detector-propio";
 

@@ -10,8 +10,9 @@ import {
     SlidersHorizontal, Upload, Trash2, Map as MapIcon, Bell, Settings,
     Users, UserPlus, Ban, ArrowLeft, MoreVertical, Check, X,
     ScanFace, Cpu, ShieldAlert, ShieldCheck, Info, Activity,
-    Search, RefreshCcw, UserSearch, Loader2, Maximize2, ChevronUp
+    Search, RefreshCcw, UserSearch, Maximize2, ChevronUp
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 
 import { Badge } from "@/components/ui/badge";

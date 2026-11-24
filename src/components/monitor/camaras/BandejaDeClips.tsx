@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Clapperboard, ChevronDown, Download, Share2, X, RotateCcw, Check, Play, TriangleAlert, Loader2 } from "lucide-react";
+import { Clapperboard, ChevronDown, Download, Share2, X, RotateCcw, Check, Play, TriangleAlert } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { getImagePath } from "@/lib/image-path";

@@ -3,9 +3,10 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Activity, BatteryLow, BellRing, CardSim, CircleHelp, Clock3, CornerUpRight, Cpu, Factory, Gauge, Globe, HeartPulse, History, KeyRound, KeySquare, Link2,
-    Loader2, Lock, MapPin, MessageCircleQuestion, Minus, Move, Network, Phone, PhoneCall, Plus, Power, PowerOff, Radio, RefreshCw, RotateCcw, Satellite, Send,
+    Lock, MapPin, MessageCircleQuestion, Minus, Move, Network, Phone, PhoneCall, Plus, Power, PowerOff, Radio, RefreshCw, RotateCcw, Satellite, Send,
     Server, ShieldCheck, Signal, SlidersHorizontal, Timer, TriangleAlert, Truck, Undo2, Unplug, Vibrate, Waves, Wrench, Zap, type LucideIcon, type LucideProps,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { claveTopflyGps, guardarClaveTopflyGps, historialComandosGps, leerClaveTopflyGps, mandarComandoGps, valoresActualesGps, type ComandoMandado, type Rastreador, type RespuestaComando } from "@/app/actions/gps";
 import { Button } from "@/components/ui/button";
 import { ErrorEstado, Vacio } from "@/components/ui/estados";

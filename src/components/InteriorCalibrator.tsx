@@ -5,9 +5,10 @@ import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
 import { sileo as toast } from "sileo";
 import {
-    X, Loader2, Save, RotateCcw, SquareDashed, ParkingSquare, ScanLine,
+    X, Save, RotateCcw, SquareDashed, ParkingSquare, ScanLine,
     Minus, Gauge, Timer, Crosshair, Sparkles, Trash2, ArrowLeftRight, CheckCircle2, XCircle,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { IconBar } from "@/components/ui/icon-bar";

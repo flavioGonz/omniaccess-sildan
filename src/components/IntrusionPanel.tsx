@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Camera, Radar, ShieldAlert, Shapes, Video, RefreshCw, Loader2, Check, X, ScanEye, ChevronDown } from "lucide-react";
+import { ArrowUpRight, Camera, Radar, ShieldAlert, Shapes, Video, RefreshCw, Check, X, ScanEye, ChevronDown } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { getAnalyticsGeometryBatch, type DetItem, type ResumenDetecciones } from "@/app/actions/detections";
 import { useDestello, useTiempoReal } from "@/lib/tiempo-real";
 import { Estado, type Tono } from "@/components/ui/celdas";

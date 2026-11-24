@@ -1,7 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, Check, Database, ImageIcon, Loader2, ScanSearch, Server, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, Database, ImageIcon, ScanSearch, Server, Sparkles } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 
 /**

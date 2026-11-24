@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, Route } from "lucide-react";
+import { Route } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { levantarRutasGps, servicioRutasGps, type ServicioRutas } from "@/app/actions/gps";
 import { Button } from "@/components/ui/button";

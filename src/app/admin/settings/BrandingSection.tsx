@@ -2,7 +2,8 @@
 
 import { Entrada } from "@/components/ui/entrada";
 import { useEffect, useState, useRef } from "react";
-import { Palette, Upload, Save, Image as ImageIcon, Loader2, Eye, Smartphone, X, MessageSquareQuote, Copy, ExternalLink, FileText } from "lucide-react";
+import { Palette, Upload, Save, Image as ImageIcon, Eye, Smartphone, X, MessageSquareQuote, Copy, ExternalLink, FileText } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { getAppBranding, saveAppBranding, uploadBrandingFile, savePwaIcon, getReportBranding } from "@/app/actions/settings";
 import { toast } from "@/lib/avisos";
 import { cn } from "@/lib/utils";

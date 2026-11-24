@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Check, HelpCircle, Loader2, MapPin, Route, Search, SquareParking, Trash2, UserPlus } from "lucide-react";
+import { ArrowRight, Check, HelpCircle, MapPin, Route, Search, SquareParking, Trash2, UserPlus } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pista } from "@/components/ui/pista";

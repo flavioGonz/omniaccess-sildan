@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Settings, Minus, Plus, Loader2, Check, Camera } from "lucide-react";
+import { Settings, Minus, Plus, Check, Camera } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { guardarVentanaFicha, useVentanaFicha, type VentanaFicha } from "@/lib/clip-evento";
 import { ALERTA_ANTES_MAX, ALERTA_DESPUES_MAX } from "@/lib/clips";

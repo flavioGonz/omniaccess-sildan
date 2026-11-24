@@ -10,7 +10,8 @@
  * tiempo del grabador, que tienen otro trabajo (ver lib/ventana-playback.ts).
  */
 import { useEffect, useState } from "react";
-import { Film, Loader2, Save } from "lucide-react";
+import { Film, Save } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

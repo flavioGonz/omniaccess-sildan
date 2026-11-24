@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, Fingerprint, ImagePlus, Loader2, RefreshCw, ScanFace, TriangleAlert, UserCheck, UserPlus, X } from "lucide-react";
+import { Check, Fingerprint, ImagePlus, RefreshCw, ScanFace, TriangleAlert, UserCheck, UserPlus, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";

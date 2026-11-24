@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Siren, Server, KeyRound, Copy, Eye, EyeOff, Loader2, Plus, Trash2, RefreshCw, ShieldCheck, ShieldOff, Home, Lock, Unlock, Radio, FlaskConical, Wifi, Globe, Check, Camera, X, Info, Network, CircleCheck, Wrench, Activity, Ban, CircleSlash, Flame, WifiOff, AlertTriangle, HeartPulse, MapPin, UserRound, Layers, LockKeyhole, CheckCheck } from "lucide-react";
+import { Siren, Server, KeyRound, Copy, Eye, EyeOff, Plus, Trash2, RefreshCw, ShieldCheck, ShieldOff, Home, Lock, Unlock, Radio, FlaskConical, Wifi, Globe, Check, Camera, X, Info, Network, CircleCheck, Wrench, Activity, Ban, CircleSlash, Flame, WifiOff, AlertTriangle, HeartPulse, MapPin, UserRound, Layers, LockKeyhole, CheckCheck } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Pista } from "@/components/ui/pista";
 import { POR_RECEPTOR, PUERTO_CMS } from "@/lib/centrales/limites";
 import { sileo as toast } from "sileo";

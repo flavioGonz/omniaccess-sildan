@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Clock, FileSpreadsheet, FileText, Loader2, MapPin } from "lucide-react";
+import { Clock, FileSpreadsheet, FileText, MapPin } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { guardarHorarioLaboralGps, horarioLaboralGps, rastreadoresGps, vistaPreviaReportesGps, type Rastreador } from "@/app/actions/gps";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";

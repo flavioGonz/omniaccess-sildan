@@ -1,6 +1,7 @@
 "use client";
 
-import { Loader2, Sparkles, type LucideIcon } from "lucide-react";
+import { Sparkles, type LucideIcon } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { COLOR_GRUPO, COLOR_OTRO, ICONO_CLASE, ICONO_GRUPO } from "@/components/vision/CapaAnalisis";
 import type { ObjetoAnalizado } from "@/lib/vision-capa";

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, CheckCircle2, FileUp, History, Loader2, Mail, MapPinned, Pencil, Phone, Plus, Truck, Upload, Users } from "lucide-react";
+import { Building2, CheckCircle2, FileUp, History, Mail, MapPinned, Pencil, Phone, Plus, Truck, Upload, Users } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import {
     administraciones, borrarAdministracion, borrarContactoAdm, borrarServicioAdm, cambiosDeLotes, detalleAdministracion, guardarAdministracion, guardarContactoAdm, guardarServicioAdm,

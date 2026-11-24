@@ -2,9 +2,10 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    BatteryLow, BellRing, Car, ChevronDown, CloudOff, Gauge, History, Loader2, Lock, LogIn, LogOut, MapPinOff, Route, Satellite, ScanLine, Share2, ShieldOff, Siren,
+    BatteryLow, BellRing, Car, ChevronDown, CloudOff, Gauge, History, Lock, LogIn, LogOut, MapPinOff, Route, Satellite, ScanLine, Share2, ShieldOff, Siren,
     Unplug, Vibrate, Waypoints, Wifi, WifiOff, X,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { historialEventosGps, type EventoGps, type HistorialEventosGps, type Rastreador } from "@/app/actions/gps";
 import { FILTRO_INICIAL, filtrosPuestos, paraInputConHora, PERIODOS_GPS, rangoDeFiltro, sirveParaRecorrido, type FiltroGps, type PeriodoGps } from "@/lib/gps-filtro";
 import { RangoFechas } from "@/components/mapa/RangoFechas";

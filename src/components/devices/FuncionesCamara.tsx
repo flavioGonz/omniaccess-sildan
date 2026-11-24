@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, BellRing, Camera, Eye, Loader2, RefreshCw, Route, ScanEye, ShieldAlert } from "lucide-react";
+import { AlertTriangle, BellRing, Camera, Eye, RefreshCw, Route, ScanEye, ShieldAlert } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

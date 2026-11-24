@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Car, ExternalLink, Loader2, Plus, UserMinus, Users } from "lucide-react";
+import { AlertTriangle, Car, ExternalLink, Plus, UserMinus, Users } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

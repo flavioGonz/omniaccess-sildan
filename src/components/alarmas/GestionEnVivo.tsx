@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRightLeft, Hand, Loader2, UserRound } from "lucide-react";
+import { ArrowRightLeft, Hand, UserRound } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { getHistorialGestion, tomarGestion, pasarGestion, type OperadorVista } from "@/app/actions/detections";

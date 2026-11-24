@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarClock, Camera, Check, ClipboardPaste, ImagePlus, Link2, Loader2, Upload, Video, X } from "lucide-react";
+import { CalendarClock, Camera, Check, ClipboardPaste, ImagePlus, Link2, Upload, Video, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Input } from "@/components/ui/input";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";

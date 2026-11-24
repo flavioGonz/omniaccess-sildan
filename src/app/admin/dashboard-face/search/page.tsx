@@ -2,7 +2,8 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Image as ImageIcon, Loader2, Fingerprint, ChevronLeft, RefreshCw } from "lucide-react";
+import { Search, Image as ImageIcon, Fingerprint, ChevronLeft, RefreshCw } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { sileo as toast } from "sileo";

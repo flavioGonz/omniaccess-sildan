@@ -2,7 +2,8 @@
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, Check, ImageUp, Loader2, RotateCcw, ScanSearch, Send, TimerOff } from "lucide-react";
+import { Camera, Check, ImageUp, RotateCcw, ScanSearch, Send, TimerOff } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 
 /**

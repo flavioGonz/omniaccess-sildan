@@ -2,7 +2,8 @@
 /* eslint-disable */
 
 import { useRef, useState, useEffect } from "react";
-import { Camera, X, Loader2, RefreshCcw, Image as ImageIcon, ScanLine } from "lucide-react";
+import { Camera, X, RefreshCcw, Image as ImageIcon, ScanLine } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import * as Tesseract from 'tesseract.js';
 import { cn } from "@/lib/utils";

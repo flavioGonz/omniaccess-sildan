@@ -8,13 +8,13 @@ import {
     Mic, 
     Square, 
     Play, 
-    Loader2, 
     Shield, 
     User, 
     MapPin, 
     Building2, 
     FileText 
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { LogIn, LogOut, Camera, ParkingCircle, Loader2, ShieldCheck, ShieldX, Clock, Eye } from "lucide-react";
+import { LogIn, LogOut, Camera, ParkingCircle, ShieldCheck, ShieldX, Clock, Eye } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { horaSeg } from "@/lib/fechas";
 

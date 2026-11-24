@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { sileo as toast } from "sileo";
-import { ScanLine, Loader2, ArrowRight, Cpu, Video, Route } from "lucide-react";
+import { ScanLine, ArrowRight, Cpu, Video, Route } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 
 /**

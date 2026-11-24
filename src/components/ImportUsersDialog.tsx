@@ -18,7 +18,8 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import { Loader2, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, X, Download } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, X, Download } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import ExcelJS from "exceljs";
 import { sileo as toast } from "sileo";
 import { importUserBatch } from "@/app/actions/users";

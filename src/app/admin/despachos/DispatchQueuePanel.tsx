@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback } from "react";
 import {
     Send, FileText, Bell, RefreshCw, Clock, CheckCircle2, XCircle,
-    Loader2, RotateCcw, AlertTriangle, BarChart3, Film,
+    RotateCcw, AlertTriangle, BarChart3, Film,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/avisos";
 import { getDispatchJobs, getDispatchStats, retryDispatchJob, enqueueReportDispatch, getDispatchSeries } from "@/app/actions/queue";

@@ -9,7 +9,8 @@ import {
     DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Loader2, ArrowRight, UserCheck, UserX, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { Sparkles, ArrowRight, UserCheck, UserX, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { setEventPlate } from "@/app/actions/history";
 
 /**

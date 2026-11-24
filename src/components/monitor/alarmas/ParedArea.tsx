@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Camera, ChevronLeft, ChevronRight, History, LayoutGrid, Loader2, Maximize2, Minimize2, ShieldAlert, VideoOff } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, History, LayoutGrid, Maximize2, Minimize2, ShieldAlert, VideoOff } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Vivo, Foto, Glifo, estiloCasilla, fotoDe, vivoDe, idCanal, ubicacion, reproduceH265, usaHls, FOTO_MS, type Canal, type Modo } from "@/components/monitor/camaras/piezas";
 import { DISPOSICIONES, type Disposicion } from "@/lib/monitor/disposiciones";
 import { VerGrabacion } from "@/components/video/VerGrabacion";

@@ -11,7 +11,8 @@
  * grabador entrega a tiempo real, así que cada segundo de acá es espera antes de ver el video.
  */
 import { useEffect, useState } from "react";
-import { Repeat, Loader2, Save } from "lucide-react";
+import { Repeat, Save } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

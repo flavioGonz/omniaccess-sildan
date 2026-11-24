@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BellRing, Check, Ear, Loader2, RefreshCcw, Server, ShieldAlert, Wifi } from "lucide-react";
+import { BellRing, Check, Ear, RefreshCcw, Server, ShieldAlert, Wifi } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

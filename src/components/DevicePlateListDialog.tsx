@@ -34,7 +34,6 @@ import {
     Search,
     Trash2,
     Database,
-    Loader2,
     ArrowDownToLine,
     Circle,
     Plus,
@@ -51,6 +50,7 @@ import {
     Camera,
     X
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 

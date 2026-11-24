@@ -5,7 +5,8 @@
  * equipo; lo único que cambia es la marca de «conocida», que vive en OmniAccess.
  */
 import { useMemo, useState } from "react";
-import { Info, Loader2, RefreshCw, ShieldCheck, UserRound, Users, Wifi, Lock } from "lucide-react";
+import { Info, RefreshCw, ShieldCheck, UserRound, Users, Wifi, Lock } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Button } from "@/components/ui/button";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Momento } from "@/components/ui/celdas";

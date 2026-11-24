@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, MapPin } from "lucide-react";
+import { MapPin } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { guardarServicioDireccionesGps, levantarDireccionesGps, servicioDireccionesGps, type ServicioDirecciones } from "@/app/actions/gps";
 import { Button } from "@/components/ui/button";

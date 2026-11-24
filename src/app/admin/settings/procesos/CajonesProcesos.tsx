@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, Box, HelpCircle, CalendarClock, Cpu, FileText, History, Info, Loader2, MemoryStick, Pause, Play, RefreshCw, RotateCcw, Server, Terminal, Timer } from "lucide-react";
+import { Activity, AlertTriangle, Box, HelpCircle, CalendarClock, Cpu, FileText, History, Info, MemoryStick, Pause, Play, RefreshCw, RotateCcw, Server, Terminal, Timer } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Linea, Pulso, tiempoArriba } from "./vivo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

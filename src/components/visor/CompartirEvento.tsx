@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, Check, Loader2, MessageCircle, Search, Send, Share2, X } from "lucide-react";
+import { AlertTriangle, Check, MessageCircle, Search, Send, Share2, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
 import { PreparandoEnvio } from "@/components/video/PreparandoEnvio";

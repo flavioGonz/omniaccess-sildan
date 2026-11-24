@@ -14,9 +14,10 @@ import axios from "axios";
 import { sileo as toast } from "sileo";
 import {
     ScanLine, Video, Plus, RefreshCw, Play, Square, Camera as CamIcon,
-    Loader2, Terminal, CheckCircle2, XCircle, BookOpen, Cpu, Zap,
+    Terminal, CheckCircle2, XCircle, BookOpen, Cpu, Zap,
     MemoryStick, Thermometer, AlertTriangle, SlidersHorizontal, Waypoints, HelpCircle,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Button } from "@/components/ui/button";
 import { Pista } from "@/components/ui/pista";
 import { cn } from "@/lib/utils";

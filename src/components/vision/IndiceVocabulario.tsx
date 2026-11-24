@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Database, Loader2 } from "lucide-react";
+import { Database } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Pista } from "@/components/ui/pista";
 import { cn } from "@/lib/utils";
 

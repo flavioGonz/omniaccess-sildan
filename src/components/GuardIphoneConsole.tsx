@@ -10,11 +10,11 @@ import {
     Camera, Mic, Trash2, Volume2, CheckCircle2,
     X, MoreVertical, Shield, Settings, Landmark,
     Building2, FileText, UserCheck, Briefcase, Plus,
-    Flame, Home, Download, Clock, ImageIcon, Loader2,
-    Car, Bike, Smartphone, ChevronRight, Square,
+    Flame, Home, Download, Clock, ImageIcon, Car, Bike, Smartphone, ChevronRight, Square,
     ShieldAlert, UserX, CarFront, Filter, RefreshCw, AlertTriangle, Scan,
     ChevronUp
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { sileo as toast } from "sileo";

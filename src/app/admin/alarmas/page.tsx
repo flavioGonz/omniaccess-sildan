@@ -4,9 +4,10 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
     Siren, Home, Ticket, CircleDashed, AlertTriangle, RefreshCw, Radar, ShieldAlert, ScanEye, Repeat, Car, Check, X, LogOut, Undo2,
-    Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers, Loader2, NotebookPen, Image as ImageIcon,
+    Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText, Layers, NotebookPen, Image as ImageIcon,
     Activity, Truck, Infinity as SinTiempo, RadioTower, ChevronRight, MessagesSquare, Satellite, MapPin, MapPinOff,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import dynamic from "next/dynamic";
 import { getEnabledModules } from "@/app/actions/modules";
 import { useSessionRole } from "@/hooks/useSessionRole";

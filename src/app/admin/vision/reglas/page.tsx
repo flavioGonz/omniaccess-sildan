@@ -5,10 +5,11 @@ import { ComoFunciona } from "@/components/vision/ComoFunciona";
 import type { ClaveComportamiento } from "@/lib/comportamientos";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
+    Spline, ArrowLeftRight, Timer, Users, Plus, Save, Trash2, Activity, Camera, BellRing, BellOff, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
     PersonStanding, Car, Bike, Dog, Backpack, Boxes, Gauge, ListOrdered, Luggage, Ambulance, HardHat, ArrowUpToLine,
     TriangleAlert, ScanEye, ChevronDown, Check, Layers, Maximize2, Copy, PanelRight, X, type LucideIcon,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";

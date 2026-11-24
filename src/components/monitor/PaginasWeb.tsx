@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ExternalLink, Globe, Loader2, MonitorPlay, Plus, RefreshCw, Trash2, TriangleAlert, ZoomIn } from "lucide-react";
+import { ExternalLink, Globe, MonitorPlay, Plus, RefreshCw, Trash2, TriangleAlert, ZoomIn } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

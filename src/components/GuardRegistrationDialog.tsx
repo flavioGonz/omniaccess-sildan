@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ClipboardPlus, Home, UserPlus, Loader2, CheckCircle2 } from "lucide-react";
+import { ClipboardPlus, Home, UserPlus, CheckCircle2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { submitRegistrationSuggestion } from "@/app/actions/registrations";
 

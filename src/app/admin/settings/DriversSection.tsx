@@ -13,8 +13,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
     BadgeCheck, AlertTriangle, CircleSlash, Car, ScanFace, Nfc, ScrollText,
     DoorOpen, Users as UsersIcon, Video, UserCog, Wifi, Cpu, Check, X, Blocks,
-    Upload, Loader2, Trash2, ImageIcon, Siren, Radar, Webhook, MapPin, TerminalSquare,
+    Upload, Trash2, ImageIcon, Siren, Radar, Webhook, MapPin, TerminalSquare,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Pista } from "@/components/ui/pista";
 import { sileo as toast } from "sileo";

@@ -8,8 +8,9 @@ import {
     ChevronRight, Folder, FolderOpen, FolderPlus, Pencil, Trash2, Layers, Inbox, Car, Radar, HardDrive, Cpu,
     KeyRound, Satellite, Siren, DoorOpen, ScanFace, Users,
     Eye, EyeOff, ChevronsDownUp, ChevronsUpDown, GripVertical, Check, X, Palette, MousePointerClick, PanelLeftClose, PanelLeftOpen,
-    Power, PowerOff, Loader2, ShieldCheck, Plus,
+    Power, PowerOff, ShieldCheck, Plus,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";

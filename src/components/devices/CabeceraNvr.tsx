@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Activity, AlertTriangle, Check, ExternalLink, HardDrive, Loader2, MemoryStick, Network, Plus, RefreshCw, ScanSearch, SlidersHorizontal, Sparkles, Timer, Wifi, X } from "lucide-react";
+import { Activity, AlertTriangle, Check, ExternalLink, HardDrive, MemoryStick, Network, Plus, RefreshCw, ScanSearch, SlidersHorizontal, Sparkles, Timer, Wifi, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
 import { TIPOS_REGLA, TIPOS_RETIRADOS, type ReglaVision } from "@/lib/vision-reglas";
 import { CajonCerrar } from "@/components/ui/cajon";

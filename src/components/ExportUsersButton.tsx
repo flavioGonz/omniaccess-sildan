@@ -2,7 +2,8 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Download, Loader2 } from "lucide-react";
+import { Download } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import ExcelJS from "exceljs";
 import { getReportBranding } from "@/app/actions/settings";
 import { useState } from "react";

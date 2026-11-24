@@ -5,7 +5,8 @@ import nextDynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { AnimatePresence, motion } from "framer-motion";
-import { Backpack, Camera, Car, ChevronLeft, Loader2, PawPrint, RefreshCw, ScanSearch, Smartphone, User, VideoOff, X } from "lucide-react";
+import { Backpack, Camera, Car, ChevronLeft, PawPrint, RefreshCw, ScanSearch, Smartphone, User, VideoOff, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import type { RutasParecidos } from "@/components/visor/BuscarParecidos";
 /* La búsqueda de parecidos entra sin SSR: se dibuja en un portal al <body> (pantalla completa) y
    un portal necesita el documento. Además pesa, y nadie la ve hasta que la pide. */

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ChevronLeft, ChevronRight, CircleCheck, CircleSlash, Keyboard, Loader2, Trash2, Undo2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleCheck, CircleSlash, Keyboard, Trash2, Undo2, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { CAJA_MIN, type Caja, type ClaseResumen, type FotoFila } from "@/lib/detector-propio";

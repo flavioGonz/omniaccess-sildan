@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Radar, Loader2, Check, Globe, KeyRound, Lock, LockOpen, Plus, ShieldAlert, X } from "lucide-react";
+import { Radar, Check, Globe, KeyRound, Lock, LockOpen, Plus, ShieldAlert, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";

@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    ScanEye, PersonStanding, Tag, Layers, Radio, Type, Gauge, Cpu, Loader2, Camera, RefreshCw,
+    ScanEye, PersonStanding, Tag, Layers, Radio, Type, Gauge, Cpu, Camera, RefreshCw,
     EyeOff, FlaskConical, Info, Square, Play, Sparkles, X,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { SUGERENCIAS_VOCABULARIO } from "@/lib/vocabulario";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";

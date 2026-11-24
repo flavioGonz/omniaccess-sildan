@@ -9,8 +9,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     X, Play, Pause, ChevronLeft, ChevronRight, Radio, Film, ImageIcon,
-    Calendar, Rewind, FastForward, Car, AlertTriangle, Loader2, Clock, Download, Hourglass,
+    Calendar, Rewind, FastForward, Car, AlertTriangle, Clock, Download, Hourglass,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { DurationPicker } from "@/components/ui/duration-picker";
 import { fecha, fechaCorta, hora, horaSeg } from "@/lib/fechas";

@@ -2,10 +2,11 @@
 
 import React, { useRef, useState, useEffect } from "react";
 import {
-    X, Camera, Loader2, RefreshCcw, ShieldAlert, UserCheck,
+    X, Camera, RefreshCcw, ShieldAlert, UserCheck,
     UserX, Zap, History, CheckCircle2, ScanFace,
     FlipHorizontal
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { motion, AnimatePresence } from "framer-motion";
 import { searchByPhotoAction } from "@/app/actions/face-verify";
 import { createBitacoraEntry } from "@/app/actions/bitacora";

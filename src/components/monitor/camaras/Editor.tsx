@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { X, Search, Save, Trash2, Loader2, Server, Plus, ShieldAlert, Car, GripVertical, Globe, TriangleAlert } from "lucide-react";
+import { X, Search, Save, Trash2, Server, Plus, ShieldAlert, Car, GripVertical, Globe, TriangleAlert } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Button } from "@/components/ui/button";
 import { DISPOSICIONES, disposicionDe, NOMBRE_VISTA_MAX, type VistaCamaras } from "@/lib/monitor/disposiciones";
 import { guardarVistaCamaras, borrarVistaCamaras } from "@/app/actions/monitores";

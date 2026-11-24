@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ScanFace, UserCheck, UserPlus, Merge, Trash2, Loader2, Check, X, Video, Clock, ExternalLink, Search, Tag, Sparkles, CalendarDays } from "lucide-react";
+import { ScanFace, UserCheck, UserPlus, Merge, Trash2, Check, X, Video, Clock, ExternalLink, Search, Tag, Sparkles, CalendarDays } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";

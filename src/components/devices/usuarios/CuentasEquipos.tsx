@@ -15,9 +15,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-    AlertTriangle, ChevronRight, Cpu, Globe, HardDrive, KeyRound, Loader2, Lock, ScanSearch, ScrollText, Server,
+    AlertTriangle, ChevronRight, Cpu, Globe, HardDrive, KeyRound, Lock, ScanSearch, ScrollText, Server,
     ShieldCheck, ShieldQuestion, UserCheck, UserRound, Users, UserX, Wifi, type LucideIcon,
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";

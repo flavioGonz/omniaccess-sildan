@@ -2,7 +2,7 @@
 
 import { lineasDe, zonasDe } from "@/lib/geom-intrusion";
 import { useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import type { Disposicion } from "@/lib/monitor/disposiciones";
 import { colaDeSiluetas, ritmoParaAtraso, primerDatoDeVideo, relojDeAtraso } from "@/lib/siluetas-sincronia";
 import { cn } from "@/lib/utils";

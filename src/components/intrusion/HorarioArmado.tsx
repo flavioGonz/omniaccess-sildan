@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Clock, Loader2, Check, Globe2, Camera, Radar, ShieldAlert, ShieldCheck, ShieldOff, Infinity as InfinityIco, Moon, Briefcase, SlidersHorizontal, CheckCircle2, XCircle, BellOff, BellRing, Eye } from "lucide-react";
+import { Clock, Check, Globe2, Camera, Radar, ShieldAlert, ShieldCheck, ShieldOff, Infinity as InfinityIco, Moon, Briefcase, SlidersHorizontal, CheckCircle2, XCircle, BellOff, BellRing, Eye } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { motion, AnimatePresence } from "framer-motion";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";

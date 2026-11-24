@@ -37,7 +37,6 @@ import {
     UserPlus,
     CheckCircle2,
     AlertCircle,
-    Loader2,
     DownloadCloud,
     Camera,
     Tag,
@@ -63,6 +62,7 @@ import {
     Activity,
     Eye
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import {
     getDeviceFaces,
     deleteDeviceFace,

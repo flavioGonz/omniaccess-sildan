@@ -16,8 +16,9 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    Plus, Loader2, Pencil, Trash2, Copy, ShieldCheck, ShieldAlert, KeyRound, User as UserIco, Lock, Camera, Upload, Check, Info, AlertTriangle,
+    Plus, Pencil, Trash2, Copy, ShieldCheck, ShieldAlert, KeyRound, User as UserIco, Lock, Camera, Upload, Check, Info, AlertTriangle,
     Eye, Hand, Settings2, LayoutGrid, Car, Video, Radar, RadioTower, ScanEye, ScanFace, Rows3, ShieldHalf, Users, Cpu, SlidersHorizontal, FileStack, Minus, Satellite } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";

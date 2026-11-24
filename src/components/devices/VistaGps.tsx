@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, DoorClosed, DoorOpen, FileSpreadsheet, History, Loader2, MapPin, Pencil, Plus, Radio, Satellite, TriangleAlert } from "lucide-react";
+import { Check, DoorClosed, DoorOpen, FileSpreadsheet, History, MapPin, Pencil, Plus, Radio, Satellite, TriangleAlert } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";

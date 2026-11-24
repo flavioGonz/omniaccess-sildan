@@ -46,7 +46,6 @@ import {
     Lock,
     Unlock,
     Database,
-    Loader2,
     DoorOpen,
     DoorClosed,
     RefreshCw,
@@ -66,6 +65,7 @@ import {
     Play,
     ScanLine
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo } from "sileo";
 // Adaptador estilo sonner (title, {description}) → sileo ({title, description})
 const toast = {

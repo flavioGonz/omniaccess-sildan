@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Clock, Gauge, Loader2, MapPin, Route, Satellite } from "lucide-react";
+import { Clock, Gauge, MapPin, Route, Satellite } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { guardarLimiteVelocidadGps, limiteVelocidadGps } from "@/app/actions/gps";
 import { Button } from "@/components/ui/button";

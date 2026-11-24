@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PreparandoEnvio } from "./PreparandoEnvio";
 import { motion } from "framer-motion";
-import { Download, Send, X, Check, Plus, Loader2, AlertTriangle, MessageCircle, Search, Film, Clock, Info } from "lucide-react";
+import { Download, Send, X, Check, Plus, AlertTriangle, MessageCircle, Search, Film, Clock, Info } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { buscarDestinatariosClip, enviarClipPorWhatsApp, estadoWhatsApp, type DestinatarioClip, type ResultadoEnvioClip } from "@/app/actions/clips";
 import { enviarClipPorTelegram, estadoTelegram, type EstadoTelegram, type ResultadoEnvioTelegram } from "@/app/actions/clips-telegram";

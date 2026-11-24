@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, ExternalLink, Eye, Info, Loader2, ShieldAlert, UserPlus } from "lucide-react";
+import { ArrowRight, Check, ExternalLink, Eye, Info, ShieldAlert, UserPlus } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Estado, Matricula } from "@/components/ui/celdas";

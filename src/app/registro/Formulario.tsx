@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowUpRight, Car, Check, ChevronLeft, ChevronRight, Crosshair, Home, Loader2, MapPin, Plus, Sparkles, Trash2, Wrench, X } from "lucide-react";
+import { ArrowUpRight, Car, Check, ChevronLeft, ChevronRight, Crosshair, Home, MapPin, Plus, Sparkles, Trash2, Wrench, X } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { getAppBranding } from "@/app/actions/settings";
 import { OmniLogo } from "@/components/brand/OmniLogo";
 import { normalizarChapa } from "@/lib/formato-chapa";

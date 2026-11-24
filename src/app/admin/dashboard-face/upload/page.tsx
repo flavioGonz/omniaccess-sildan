@@ -3,11 +3,11 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-    Camera, UserPlus, ShieldAlert, UserCheck, Loader2,
-    ChevronLeft, RefreshCw, Upload, Database,
+    Camera, UserPlus, ShieldAlert, UserCheck, ChevronLeft, RefreshCw, Upload, Database,
     MessageSquare, Tag, Fingerprint, Star,
     AlertTriangle, ShieldCheck, Zap
 } from "lucide-react";
+import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { sileo as toast } from "sileo";
