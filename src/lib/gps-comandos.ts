@@ -65,7 +65,8 @@ export const GRUPOS_COMANDO: { clave: GrupoComando; titulo: string; ayuda: strin
 
 type Base = { clave: string; rotulo: string; ayuda?: string };
 export type CampoComando =
-    | (Base & { tipo: "entero"; min: number; max: number; unidad?: string; defecto: number })
+    /** `sugeridos`: los valores que se suelen elegir, para ponerlos de un toque. No acotan nada: el rango es `min`–`max`. */
+    | (Base & { tipo: "entero"; min: number; max: number; unidad?: string; defecto: number; sugeridos?: number[] })
     | (Base & { tipo: "opcion"; opciones: { valor: string; rotulo: string }[]; defecto: string })
     | (Base & { tipo: "telefono"; opcional?: boolean })
     | (Base & { tipo: "texto"; patron: RegExp; largo: number; ejemplo: string; opcional?: boolean });
@@ -166,8 +167,8 @@ export const COMANDOS_GT06: DefComando[] = [
     { clave: "reporte.intervalo", grupo: "reporte", titulo: "Intervalo de posiciones", nivel: "ajuste",
         ayuda: "Cada cuántos segundos manda una posición, con el contacto puesto y con el contacto cortado.",
         campos: [
-            { clave: "andando", rotulo: "Con el contacto puesto", tipo: "entero", min: 5, max: 18000, unidad: "s", defecto: 10 },
-            { clave: "quieto", rotulo: "Con el contacto cortado", tipo: "entero", min: 5, max: 18000, unidad: "s", defecto: 10, ayuda: "Detenido el GPS se duerme igual a los pocos minutos: lo que sigue llegando es el latido." },
+            { clave: "andando", rotulo: "Con el contacto puesto", tipo: "entero", min: 5, max: 18000, unidad: "s", defecto: 10, sugeridos: [10, 15, 20, 30, 60] },
+            { clave: "quieto", rotulo: "Con el contacto cortado", tipo: "entero", min: 5, max: 18000, unidad: "s", defecto: 10, sugeridos: [10, 60, 300, 600], ayuda: "Detenido el GPS se duerme igual a los pocos minutos: lo que sigue llegando es el latido." },
         ],
         texto: (v) => `TIMER,${v.andando},${v.quieto}#`, pregunta: "TIMER#",
         leer: (r) => { const n = numeros(r); return n.length >= 2 ? { andando: n[0], quieto: n[1] } : null; },
@@ -347,43 +348,48 @@ export const COMANDOS_GT06: DefComando[] = [
  *     `{CLAVE}` y la pone el servidor al mandar; en el historial queda tapada.
  *   · No hay comandos para PREGUNTAR cómo está algo. El equipo lo dice solo: en cada posición informa
  *     sus intervalos, su latido y sus umbrales, y de ahí se llena el formulario (`deAjustes`).
- * Si un valor está mal, el equipo no contesta nada: «no contestó» puede ser un rechazo.
  *
- * Probado con el equipo real: sólo VERSION#. Los demás están armados como dice el manual y NO se le
- * mandaron todavía. No están, a propósito, los que pueden dejarlo sin reportar o sin poder
- * mandarle nada más (servidor, APN, cambio de clave, modo SMS): ver lib-topfly, PERMITIDOS.
+ * Probado con el equipo real: VERSION# contesta. El primer ajuste que se le mandó (24/11, un
+ * TorchX 110: `TIMER` con 10:600:10:0) NO entró: contestó «SET TIMER ERROR:[-102]». Dos cosas que
+ * eso enseñó:
+ *   · Cuando rechaza, CONTESTA, con un código entre corchetes. Los manuales dicen que no contesta
+ *     nada, y para este modelo no es así. Qué quiere decir cada código no está publicado
+ *     (`codigoDeRechazo` lo saca para decirlo en pantalla, sin inventarle un significado).
+ *   · Queda por saber si fue la clave o el rango: se sabe mandándole los mismos valores que ya tiene.
+ * No están, a propósito, los que pueden dejarlo sin reportar o sin poder mandarle nada más
+ * (servidor, APN, cambio de clave, modo SMS): ver lib-topfly, PERMITIDOS.
  */
 export const CLAVE_EQUIPO = "{CLAVE}";
-const NO_PROBADO = "Armado como dice el manual del fabricante; todavía no se le mandó a un equipo real. Si no contesta, el equipo lo rechazó o la clave del equipo no es la de fábrica.";
+const NO_PROBADO = "Este modelo todavía no aceptó ningún ajuste: probá primero con los mismos valores que ya tiene.";
 export const COMANDOS_TOPFLY: DefComando[] = [
     { clave: "version", grupo: "preguntar", titulo: "Qué equipo es", nivel: "consulta", texto: () => "VERSION#",
         ayuda: "El modelo y las versiones del programa y de la placa." },
     { clave: "reporte.intervalo", grupo: "reporte", titulo: "Intervalo de posiciones", nivel: "ajuste",
         ayuda: "Cada cuántos segundos manda su posición andando y detenido, y qué giro o qué distancia lo hacen reportar antes.",
         campos: [
-            { clave: "andando", rotulo: "Andando, cada", tipo: "entero", min: 3, max: 65535, unidad: "s", defecto: 25 },
-            { clave: "detenido", rotulo: "Detenido, cada", tipo: "entero", min: 0, max: 65535, unidad: "s", defecto: 600, ayuda: "0 es «no reporta detenido». Si no es 0, de 3 para arriba." },
-            { clave: "angulo", rotulo: "Reporta al doblar más de", tipo: "entero", min: 0, max: 90, unidad: "°", defecto: 30 },
-            { clave: "distancia", rotulo: "Reporta cada", tipo: "entero", min: 0, max: 65535, unidad: "m", defecto: 0, ayuda: "0 es «no reporta por distancia»." },
+            { clave: "andando", rotulo: "Andando, cada", tipo: "entero", min: 3, max: 65535, unidad: "s", defecto: 25, sugeridos: [10, 20, 30, 40, 60], ayuda: "Con el motor en marcha. A 10 s el recorrido sigue las calles; a 40 s corta por las manzanas." },
+            { clave: "detenido", rotulo: "Detenido, cada", tipo: "entero", min: 0, max: 65535, unidad: "s", defecto: 600, sugeridos: [0, 300, 600, 1800, 3600], ayuda: "Con el motor apagado. 0 es «no reporta detenido». Si no es 0, de 3 para arriba." },
+            { clave: "angulo", rotulo: "Reporta al doblar más de", tipo: "entero", min: 0, max: 90, unidad: "°", defecto: 30, sugeridos: [0, 10, 15, 30, 45], ayuda: "Manda una posición extra cuando el rumbo cambia más que esto, sin esperar al intervalo: es lo que hace que las esquinas no salgan cortadas. 0 lo apaga." },
+            { clave: "distancia", rotulo: "Reporta cada", tipo: "entero", min: 0, max: 65535, unidad: "m", defecto: 0, sugeridos: [0, 100, 200, 500], ayuda: "Una posición extra cada tantos metros recorridos. 0 es «no reporta por distancia»." },
         ],
         texto: (v) => `TIMER,${CLAVE_EQUIPO},${v.andando}:${v.detenido}:${v.angulo}:${v.distancia}#`, paraAnotar: (v) => `TIMER,····,${v.andando}:${v.detenido}:${v.angulo}:${v.distancia}#`,
         deAjustes: (a) => ({ andando: a.andando, detenido: a.detenido, angulo: a.angulo, distancia: a.distancia }),
         cuidado: `Más seguido es un recorrido más fino, más datos de la SIM y más batería del vehículo con el motor apagado. ${NO_PROBADO}` },
     { clave: "reporte.latido", grupo: "reporte", titulo: "Latido", nivel: "ajuste",
         ayuda: "Cada cuántos minutos avisa que sigue vivo cuando no tiene posiciones que mandar.",
-        campos: [{ clave: "minutos", rotulo: "Cada", tipo: "entero", min: 1, max: 255, unidad: "min", defecto: 5 }],
+        campos: [{ clave: "minutos", rotulo: "Cada", tipo: "entero", min: 1, max: 255, unidad: "min", defecto: 5, sugeridos: [3, 5, 10] }],
         texto: (v) => `HBT,${CLAVE_EQUIPO},${v.minutos}#`, paraAnotar: (v) => `HBT,····,${v.minutos}#`,
         deAjustes: (a) => ({ minutos: a.latido }),
         cuidado: `OmniAccess da por caído a un rastreador detenido a los 15 minutos sin noticias: un latido más largo que eso lo haría figurar como «dejó de reportar». ${NO_PROBADO}` },
     { clave: "alarma.velocidad", grupo: "alarmas", titulo: "Exceso de velocidad", nivel: "ajuste",
         ayuda: "A partir de cuántos km/h el propio equipo avisa. Con 0 no avisa.",
-        campos: [{ clave: "limite", rotulo: "Avisa a más de", tipo: "entero", min: 0, max: 255, unidad: "km/h", defecto: 0 }],
+        campos: [{ clave: "limite", rotulo: "Avisa a más de", tipo: "entero", min: 0, max: 255, unidad: "km/h", defecto: 0, sugeridos: [0, 60, 90, 110, 120] }],
         texto: (v) => `SPEED,${CLAVE_EQUIPO},${v.limite}#`, paraAnotar: (v) => `SPEED,····,${v.limite}#`,
         deAjustes: (a) => ({ limite: a.velocidad }),
         cuidado: `Es el aviso DEL EQUIPO. El límite de velocidad de OmniAccess (Gestión GPS › Ajustes) no depende de esto. ${NO_PROBADO}` },
     { clave: "alarma.remolque", grupo: "alarmas", titulo: "Remolque", nivel: "ajuste",
         ayuda: "Avisa si el vehículo se mueve esa distancia con el motor apagado. Con 0 no avisa.",
-        campos: [{ clave: "metros", rotulo: "Avisa si se mueve más de", tipo: "entero", min: 0, max: 65535, unidad: "m", defecto: 0, ayuda: "El fabricante recomienda 100 o más: con menos avisa por el error del GPS." }],
+        campos: [{ clave: "metros", rotulo: "Avisa si se mueve más de", tipo: "entero", min: 0, max: 65535, unidad: "m", defecto: 0, sugeridos: [0, 100, 200, 500], ayuda: "El fabricante recomienda 100 o más: con menos avisa por el error del GPS." }],
         texto: (v) => `DRAG,${CLAVE_EQUIPO},${v.metros}#`, paraAnotar: (v) => `DRAG,····,${v.metros}#`,
         deAjustes: (a) => ({ metros: a.remolque }),
         cuidado: NO_PROBADO },
@@ -457,6 +463,16 @@ export const palabraDeConfirmacion = (imei: string) => imei.slice(-4);
  */
 export const pareceRechazo = (respuesta: string | null | undefined): boolean =>
     /\b(error|fail(ed|ure)?|invalid|illegal|not\s+support(ed)?|unknown|wrong|refuse)/i.test(respuesta || "");
+
+/**
+ * El código con el que un TopFly rechaza un comando: «SET TIMER ERROR:[-102]#» → -102. Null si la
+ * respuesta no trae uno. Se saca para mostrarlo aparte y decir qué conviene probar; lo que significa
+ * cada número no está publicado, y acá no se le inventa uno.
+ */
+export const codigoDeRechazo = (respuesta: string | null | undefined): number | null => {
+    const m = /ERROR\s*:?\s*\[\s*(-?\d{1,5})\s*\]/i.exec(respuesta || "");
+    return m ? Number(m[1]) : null;
+};
 
 /* ── Leer el estado general ───────────────────────────────────────────────── */
 

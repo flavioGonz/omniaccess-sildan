@@ -679,13 +679,50 @@ export async function valoresActualesGps(imei: string, clave: string): Promise<{
     return { ok: true, respuesta: r.respuesta, valores: def.leer ? def.leer(r.respuesta || "") : null };
 }
 
+/* ---------- La clave de los equipos TopFly ---------- */
+
+/** Cómo es una clave de equipo: de 4 a 10 letras o números. De fábrica, 0000. */
+const CLAVE_TOPFLY = /^[A-Za-z0-9]{4,10}$/;
+
+/**
+ * ¿Hay una clave propia cargada, o se usa la de fábrica? No devuelve la clave: quien la cargó la
+ * sabe, y a los demás no les hace falta verla para mandar un comando (la pone el servidor).
+ */
+export async function claveTopflyGps(): Promise<{ propia: boolean }> {
+    await sesion("ver");
+    const f = await prisma.setting.findUnique({ where: { key: "GPS_TOPFLY_CLAVE" } }).catch(() => null);
+    return { propia: !!f?.value && f.value !== "0000" };
+}
+
+/**
+ * Carga la clave con la que los TopFly aceptan comandos (24/11). Vacía, vuelve a la de fábrica.
+ *
+ * Hacía falta una pantalla para esto: la clave estaba sólo como un ajuste escrito en la base, y el
+ * primer comando que rechazó un equipo real dejó la duda de si era la clave —sin dónde cargarla—.
+ * Es una sola para todos los TopFly de la instalación; por equipo, cuando haya dos con claves distintas.
+ * No se le manda nada al equipo: esto NO le cambia la clave, sólo dice cuál usar.
+ */
+export async function guardarClaveTopflyGps(clave: string): Promise<{ ok: boolean; error?: string }> {
+    const s = await sesion("equipo");
+    const v = String(clave || "").trim();
+    if (!v) {
+        await prisma.setting.deleteMany({ where: { key: "GPS_TOPFLY_CLAVE" } });
+        await auditar(s, "equipos.gps.clave-topfly", "GPS_TOPFLY_CLAVE", true, "Vuelve a la de fábrica");
+        return { ok: true };
+    }
+    if (!CLAVE_TOPFLY.test(v)) return { ok: false, error: "La clave del equipo tiene de 4 a 10 letras o números, sin espacios." };
+    await prisma.setting.upsert({ where: { key: "GPS_TOPFLY_CLAVE" }, create: { key: "GPS_TOPFLY_CLAVE", value: v }, update: { value: v } });
+    await auditar(s, "equipos.gps.clave-topfly", "GPS_TOPFLY_CLAVE", true, "Se cargó una clave propia");
+    return { ok: true };
+}
+
 export type ComandoMandado = { id: string; imei: string; clave: string; titulo: string; texto: string; ok: boolean; respuesta: string | null; quedo: string | null; quien: string; cuando: string };
 
 /** Lo último que se le mandó a un rastreador (o a todos), del más nuevo al más viejo. */
 export async function historialComandosGps(imei?: string | null, cuantos = 30): Promise<ComandoMandado[]> {
     await sesion("ver");
     const filas = await prisma.gpsComando.findMany({ where: imei ? { imei: String(imei) } : {}, orderBy: { cuando: "desc" }, take: Math.min(Math.max(1, cuantos), 200) });
-    return filas.map((f) => ({ id: f.id, imei: f.imei, clave: f.clave, titulo: comandoPorClave("GT06", f.clave)?.titulo || f.clave, texto: f.texto, ok: f.ok, respuesta: f.respuesta, quedo: f.quedo, quien: f.quien, cuando: f.cuando.toISOString() }));
+    return filas.map((f) => ({ id: f.id, imei: f.imei, clave: f.clave, titulo: comandoPorClave("GT06", f.clave)?.titulo || comandoPorClave("TOPFLY", f.clave)?.titulo || f.clave, texto: f.texto, ok: f.ok, respuesta: f.respuesta, quedo: f.quedo, quien: f.quien, cuando: f.cuando.toISOString() }));
 }
 
 /**

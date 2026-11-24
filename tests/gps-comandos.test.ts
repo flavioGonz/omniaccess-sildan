@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { armarComando, comandoPorClave, comandosDe, COMANDOS_GT06, GRUPOS_COMANDO, leerConexion, leerEstadoDelEquipo, palabraDeConfirmacion, pareceRechazo, valoresPorDefecto } from "@/lib/gps-comandos";
+import { armarComando, codigoDeRechazo, comandoPorClave, comandosDe, COMANDOS_GT06, GRUPOS_COMANDO, leerConexion, leerEstadoDelEquipo, palabraDeConfirmacion, pareceRechazo, valoresPorDefecto } from "@/lib/gps-comandos";
 
 /* Lo que contestó el equipo de Nico (firmware W16_NP_v01) el 23/11, tal cual, consulta por consulta. */
 const MEDIDO: Record<string, string> = {
@@ -180,4 +180,21 @@ test("TopFly: los valores fuera de rango no se arman, y el formulario se llena c
     assert.deepEqual(comandoPorClave("TOPFLY", "alarma.velocidad")!.deAjustes!(informado), { limite: 110 });
     assert.deepEqual(comandoPorClave("TOPFLY", "alarma.remolque")!.deAjustes!(informado), { metros: 150 });
     assert.deepEqual(comandoPorClave("TOPFLY", "reporte.latido")!.deAjustes!(informado), { minutos: 5 });
+});
+
+test("el rechazo de un TopFly trae un código: se lo saca, y cuenta como rechazo", () => {
+    // Lo que contestó el TorchX 110 real el 24/11 al primer TIMER (sin el IMEI).
+    const real = "IMEI:860000000000001,SET TIMER ERROR:[-102]#";
+    assert.equal(codigoDeRechazo(real), -102);
+    assert.equal(pareceRechazo(real), true);
+    assert.equal(codigoDeRechazo("IMEI:860000000000001,SET VERSION OK:APP:V1.0,HW:V1.0,MODEL:TorchX 110#"), null);
+    assert.equal(codigoDeRechazo("SET TIMER OK"), null);
+    assert.equal(codigoDeRechazo(null), null);
+});
+
+test("los valores sugeridos de un campo están dentro de su rango", () => {
+    for (const p of ["GT06", "TOPFLY"]) for (const d of comandosDe(p)) for (const c of d.campos || []) {
+        if (c.tipo !== "entero" || !c.sugeridos) continue;
+        for (const s of c.sugeridos) assert.ok(s >= c.min && s <= c.max, `${p} ${d.clave} ${c.clave}: ${s} fuera de ${c.min}–${c.max}`);
+    }
 });
