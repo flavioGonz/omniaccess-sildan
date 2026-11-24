@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { AlertTriangle, CalendarClock, CreditCard, Fingerprint, Plus, RefreshCw, ScanFace, ScrollText, ShieldCheck, ShieldX, UserRound, Users } from "lucide-react";
+import { CalendarClock, CreditCard, Fingerprint, Plus, RefreshCw, ScanFace, ScrollText, ShieldCheck, ShieldX, UserRound, Users } from "lucide-react";
 import { baseDelEquipo, type BaseEquipo, type PersonaDeBase } from "@/app/actions/base-equipo";
 import { Button } from "@/components/ui/button";
 import { Cargando, ErrorEstado } from "@/components/ui/estados";
@@ -121,25 +121,13 @@ export function BaseDeEquipos({ equipos, elegido, alElegir }: {
                         nota={numerosPagina ? (numerosAjenos ? `${numerosAjenos} de esta página no son de esa persona en el padrón` : "las de esta página coinciden con el padrón") : null}
                         tono={numerosAjenos ? "aviso" : undefined} />
                     <Cifra icono={ScanFace} titulo="Rostros" valor={c.rostros}
-                        nota={datos.rostrosBiblioteca > 0 && datos.rostrosAtados === 0 ? "ninguno atado a una persona" : datos.rostrosAtados ? `${datos.rostrosAtados} de esta página con su cara` : null}
-                        tono={datos.rostrosBiblioteca > 0 && datos.rostrosAtados === 0 ? "aviso" : undefined} />
+                        nota={datos.rostrosAtados ? `${datos.rostrosAtados} de esta página con su cara` : datos.rostrosBiblioteca ? "ninguna de esta página tiene cara" : null} />
                     <Cifra icono={Fingerprint} titulo="Huellas" valor={c.huellas ? "Las maneja" : "No las maneja"} apagado={!c.huellas} />
                     <Cifra icono={ScrollText} titulo="Bitácora" valor={c.bitacora ? "Se puede pedir" : "No la guarda"} apagado={!c.bitacora} />
                 </div>
             </div>
 
             {datos.error && <p className="text-[12.5px] tono-aviso">{datos.error}</p>}
-
-            {/* Medido el 19/11: en los equipos de producción las caras están cargadas con un
-                identificador propio («414ad2», «arquitecto1») y sin nombre, así que no se atan a
-                ninguna persona de la lista. Decirlo es el punto de la pantalla: una cara que puede
-                abrir la puerta y no se sabe de quién es, es exactamente lo que hay que ver. */}
-            {datos.rostrosBiblioteca > 0 && datos.rostrosAtados === 0 && (
-                <p className="flex items-start gap-2 rounded-[12px] chip-aviso border px-3.5 py-2.5 text-[12.5px] leading-snug">
-                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                    <span>Las {datos.rostrosBiblioteca} caras de este equipo están cargadas con un identificador propio, sin nombre y sin legajo: ninguna se puede atar a una persona de la lista. Se ven todas más abajo.</span>
-                </p>
-            )}
 
             {/* ── Las personas ── */}
             {datos.personas.length > 0 && (
@@ -181,8 +169,17 @@ export function BaseDeEquipos({ equipos, elegido, alElegir }: {
     );
 }
 
-/** Las iniciales para la baldosa sin foto: dicen de quién es sin inventar una cara. */
-const iniciales = (n: string | null) => (n || "").trim().split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join("") || null;
+/**
+ * Lo que va en el cuadrado de la baldosa sin foto: las iniciales, que dicen de quién es sin inventar
+ * una cara. Un nombre sin letras es un número de unidad («608», como carga el terminal a muchos): las
+ * iniciales de «608» serían «6», que no dice nada; se muestra entero si entra.
+ */
+function iniciales(n: string | null): string | null {
+    const t = (n || "").trim();
+    if (!t) return null;
+    if (!/[A-Za-zÀ-ÿ]/.test(t)) return t.length <= 4 ? t : null;
+    return t.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join("") || null;
+}
 
 /** Alto de una fila del bento de personas; con el hueco entre baldosas, cada fila suma `FILA_PX + 10`. */
 const FILA_PX = 20;
@@ -241,7 +238,7 @@ function Baldosa({ x, deviceId, quieto, alAbrir }: { x: PersonaDeBase; deviceId:
             <span className="flex min-h-0 flex-1 flex-col p-3">
                 <span className="flex items-center gap-2.5">
                     {!hayFoto && (
-                        <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-[10px] text-[14px] font-bold",
+                        <span className={cn("grid h-10 min-w-10 shrink-0 place-items-center rounded-[10px] px-1 text-[14px] font-bold tabular-nums",
                             negra ? "pleno-mal" : x.padron ? "chip-bien" : "bg-muted text-muted-foreground")}>
                             {iniciales(x.nombre) || <UserRound size={16} />}
                         </span>
@@ -251,7 +248,11 @@ function Baldosa({ x, deviceId, quieto, alAbrir }: { x: PersonaDeBase; deviceId:
                         <span className="block text-[11px] text-muted-foreground tabular-nums">Legajo {x.legajo}</span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1">
-                        {x.rostros > 0 && !hayFoto && <Pista texto={`${x.rostros} ${x.rostros === 1 ? "cara cargada" : "caras cargadas"} en el equipo`}><span className="grid h-6 w-6 place-items-center rounded-full chip-info"><ScanFace size={12} /></span></Pista>}
+                        {x.caraEnEquipo && !hayFoto && (
+                            <Pista texto="Tiene una cara cargada en el equipo: la puerta lo reconoce. La foto no se ve porque el equipo guarda sólo la plantilla con la que reconoce.">
+                                <span className="inline-flex h-6 items-center gap-1 rounded-full border chip-info px-2 text-[10.5px] font-bold"><ScanFace size={11} /> Cara</span>
+                            </Pista>
+                        )}
                         {x.huellas > 0 && <Pista texto={`${x.huellas} ${x.huellas === 1 ? "huella" : "huellas"}`}><span className="grid h-6 w-6 place-items-center rounded-full chip-quieto"><Fingerprint size={12} /></span></Pista>}
                     </span>
                 </span>

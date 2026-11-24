@@ -3,7 +3,7 @@ import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { prisma } from "@/lib/prisma";
-import { altaRostro, borrarRostro, copiarRostro, daFotos, listarRostros, type EquipoHik, type RostroEquipo } from "@/lib/rostros-equipo";
+import { altaRostro, borrarRostro, copiarRostro, daFotos, guardaFotoDeCaras, listarRostros, nombresDe, olvidarRostrosDe, type EquipoHik, type RostroEquipo } from "@/lib/rostros-equipo";
 
 export const dynamic = "force-dynamic";
 const VER = "dispositivos";
@@ -42,11 +42,24 @@ export async function GET(req: NextRequest) {
            declara una faceURL para las 71 y esa URL contesta 404, así que creerle llenaba la
            pantalla de imágenes rotas (ver `daFotos` en lib/rostros-equipo). */
         const foto = await daFotos(d, rostros);
+        /* Lo que hace falta para que una cara sin foto igual diga de quién es (24/11): el nombre que
+           tiene en el equipo, y si en el padrón esa persona tiene foto, ésa (marcada como del padrón). */
+        const sinNombre = rostros.filter((r) => !r.nombre).map((r) => r.fpid);
+        const [nombres, guarda, padron] = await Promise.all([
+            sinNombre.length ? nombresDe(d, sinNombre) : Promise.resolve(new Map<string, string>()),
+            foto ? Promise.resolve(true) : guardaFotoDeCaras(d),
+            prisma.user.findMany({ where: { legajoEquipos: { in: rostros.map((r) => r.fpid) } }, select: { id: true, name: true, cara: true, legajoEquipos: true } }).catch(() => []),
+        ]);
+        const delPadron = new Map(padron.map((u) => [u.legajoEquipos!, u]));
         return NextResponse.json({
             total,
             daFoto: foto,
             daPlantilla: rostros.some((r) => !!r.modelo),
-            rostros: rostros.map((r) => ({ fpid: r.fpid, nombre: r.nombre, foto: foto && !!r.fotoUrl, plantilla: !!r.modelo })),
+            guardaFotos: guarda,
+            rostros: rostros.map((r) => {
+                const u = delPadron.get(r.fpid);
+                return { fpid: r.fpid, nombre: r.nombre || nombres.get(r.fpid) || null, foto: foto && !!r.fotoUrl, plantilla: !!r.modelo, padron: u ? { id: u.id, nombre: u.name, cara: u.cara || null } : null };
+            }),
         }, { headers: { "Cache-Control": "no-store" } });
     } catch (e) {
         return NextResponse.json({ error: e instanceof Error ? e.message.slice(0, 200) : "No se pudieron leer los rostros" }, { status: 502 });
@@ -66,6 +79,7 @@ export async function POST(req: NextRequest) {
     if (b?.accion === "alta") {
         if (!b.fpid || !b.jpegB64) return NextResponse.json({ error: "Falta el legajo o la foto." }, { status: 400 });
         const r = await altaRostro(d, b.fpid, b.nombre || null, Buffer.from(b.jpegB64, "base64"));
+        olvidarRostrosDe(d);
         await auditar(s, "equipos.rostro.alta", d.id, r.ok, `${d.name} · ${b.fpid}${r.error ? ` · ${r.error}` : ""}`);
         return NextResponse.json(r, { status: r.ok ? 200 : 502 });
     }
@@ -76,6 +90,7 @@ export async function POST(req: NextRequest) {
     if (b?.accion === "borrar") {
         const hechos: { fpid: string; ok: boolean; error?: string }[] = [];
         for (const f of fpids) hechos.push({ fpid: f, ...(await borrarRostro(d, f)) });
+        olvidarRostrosDe(d);
         const ok = hechos.filter((x) => x.ok).length;
         await auditar(s, "equipos.rostro.borrar", d.id, ok === fpids.length, `${d.name} · ${ok} de ${fpids.length} borrados`);
         return NextResponse.json({ ok: ok === fpids.length, hechos });
@@ -92,6 +107,7 @@ export async function POST(req: NextRequest) {
             if (!r) { hechos.push({ fpid: f, ok: false, error: "ya no está en el equipo de origen" }); continue; }
             hechos.push({ fpid: f, ...(await copiarRostro(d, destino, r)) });
         }
+        olvidarRostrosDe(destino);
         const ok = hechos.filter((x) => x.ok).length;
         await auditar(s, "equipos.rostro.copiar", d.id, ok === fpids.length, `${d.name} → ${destino.name} · ${ok} de ${fpids.length}`);
         return NextResponse.json({ ok: ok === fpids.length, hechos });

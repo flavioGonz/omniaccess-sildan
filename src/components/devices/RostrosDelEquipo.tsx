@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, ImagePlus, Loader2, RefreshCw, ScanFace, Trash2 } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
+import { getImagePath } from "@/lib/image-path";
 import { cn } from "@/lib/utils";
 
 /**
@@ -15,8 +16,16 @@ import { cn } from "@/lib/utils";
  * facial entrega la plantilla pero no la foto, y el portero al revés (ver lib/rostros-equipo).
  */
 
-type Fila = { fpid: string; nombre: string | null; foto: boolean; plantilla: boolean };
-type Lista = { total: number; daFoto: boolean; daPlantilla: boolean; rostros: Fila[] };
+/** Las iniciales (o el número de unidad, si el nombre es eso) para una cara sin foto. */
+function monograma(n: string | null): string | null {
+    const t = (n || "").trim();
+    if (!t) return null;
+    if (!/[A-Za-zÀ-ÿ]/.test(t)) return t.length <= 5 ? t : null;
+    return t.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join("");
+}
+
+type Fila = { fpid: string; nombre: string | null; foto: boolean; plantilla: boolean; padron?: { id: string; nombre: string; cara: string | null } | null };
+type Lista = { total: number; daFoto: boolean; daPlantilla: boolean; guardaFotos?: boolean | null; rostros: Fila[] };
 
 export function RostrosDelEquipo({ id, otros, amplio = false }: {
     id: string;
@@ -87,6 +96,12 @@ export function RostrosDelEquipo({ id, otros, amplio = false }: {
                 </button>
             </div>
 
+            {amplio && !lista.daFoto && lista.guardaFotos === false && (
+                <p className="rounded-[10px] border chip-aviso px-3 py-2 text-[12px] leading-snug">
+                    Este equipo está configurado para no guardar la foto de las caras que se le cargan: guarda sólo la plantilla con la que reconoce. Por eso acá se ven sus nombres y no sus caras. Se puede activar en el equipo («guardar la foto de la cara») para las que se carguen de ahora en más; las que ya están no tienen foto.
+                </p>
+            )}
+
             {lista.rostros.length === 0 ? (
                 <p className="text-[12.5px] text-muted-foreground">Este equipo no tiene ninguna cara cargada.</p>
             ) : (
@@ -95,23 +110,38 @@ export function RostrosDelEquipo({ id, otros, amplio = false }: {
                     : "grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(84px,1fr))] max-h-[280px] overflow-y-auto pr-1"}>
                     {lista.rostros.map((r) => {
                         const sel = elegidos.has(r.fpid);
-                        if (amplio) return (
-                            <button key={r.fpid} type="button" onClick={() => alternar(r.fpid)} aria-pressed={sel}
-                                className={cn("group relative aspect-[4/5] overflow-hidden rounded-[14px] border text-left transition-colors",
-                                    sel ? "border-[var(--accion)] ring-2 ring-[var(--accion)]/30" : "border-border hover:border-foreground/25", r.foto ? "bg-black" : "bg-card")}>
-                                {r.foto
-                                    /* eslint-disable-next-line @next/next/no-img-element */
-                                    ? <img src={`/api/devices/rostros-equipo/foto?deviceId=${encodeURIComponent(id)}&fpid=${encodeURIComponent(r.fpid)}`} alt="" loading="lazy"
-                                        className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
-                                    : <span className="absolute inset-0 grid place-items-center text-muted-foreground/60"><ScanFace size={26} /></span>}
-                                {r.foto && <span className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />}
-                                {sel && <span className="absolute right-2 top-2 h-5 w-5 rounded-full bg-[var(--accion)] ring-2 ring-white grid place-items-center text-white text-[11px] font-bold">✓</span>}
-                                <span className={cn("absolute inset-x-0 bottom-0 p-2.5", r.foto ? "text-white" : "text-foreground")}>
-                                    <span className="block truncate text-[12.5px] font-bold">{r.nombre || r.fpid}</span>
-                                    <span className={cn("block truncate text-[10.5px] tabular-nums", r.foto ? "text-white/70" : "text-muted-foreground")}>{r.nombre ? r.fpid : r.foto ? "sin nombre en el equipo" : r.plantilla ? "con plantilla, sin foto" : "sin foto"}</span>
-                                </span>
-                            </button>
-                        );
+                        if (amplio) {
+                            /* Sin foto del equipo, la del padrón si esa persona la tiene, MARCADA como del padrón:
+                               es la cara que cargó alguien en OmniAccess, no la que tiene el equipo. */
+                            const src = r.foto ? `/api/devices/rostros-equipo/foto?deviceId=${encodeURIComponent(id)}&fpid=${encodeURIComponent(r.fpid)}` : getImagePath(r.padron?.cara);
+                            const nombre = r.nombre || r.padron?.nombre || null;
+                            return (
+                                <button key={r.fpid} type="button" onClick={() => alternar(r.fpid)} aria-pressed={sel}
+                                    className={cn("group relative aspect-[4/5] overflow-hidden rounded-[14px] border text-left transition-colors",
+                                        sel ? "border-[var(--accion)] ring-2 ring-[var(--accion)]/30" : "border-border hover:border-foreground/25", src ? "bg-black" : "bg-card")}>
+                                    {src
+                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                        ? <img src={src} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+                                        : (
+                                            <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_50%_38%,var(--muted),transparent_70%)]">
+                                                <span className="grid h-14 min-w-14 place-items-center rounded-full bg-muted px-2 text-[17px] font-bold tabular-nums text-muted-foreground">{monograma(nombre) || <ScanFace size={22} />}</span>
+                                            </span>
+                                        )}
+                                    {src && <span className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />}
+                                    <span className="absolute left-2 top-2 flex flex-col items-start gap-1">
+                                        {!r.foto && r.padron?.cara && <span className="inline-flex h-[18px] items-center rounded-full pleno-info px-1.5 text-[9.5px] font-bold">Foto del padrón</span>}
+                                        {r.padron && !r.padron.cara && <span className="inline-flex h-[18px] items-center rounded-full chip-bien border px-1.5 text-[9.5px] font-bold">En el padrón</span>}
+                                    </span>
+                                    {sel && <span className="absolute right-2 top-2 h-5 w-5 rounded-full bg-[var(--accion)] ring-2 ring-white grid place-items-center text-white text-[11px] font-bold">✓</span>}
+                                    <span className={cn("absolute inset-x-0 bottom-0 p-2.5", src ? "text-white" : "text-foreground")}>
+                                        <span className="block truncate text-[12.5px] font-bold">{nombre || `Legajo ${r.fpid}`}</span>
+                                        <span className={cn("block truncate text-[10.5px] tabular-nums", src ? "text-white/70" : "text-muted-foreground")}>
+                                            {nombre ? `Legajo ${r.fpid}` : "sin nombre en el equipo"}{!r.foto && r.plantilla ? " · plantilla" : ""}
+                                        </span>
+                                    </span>
+                                </button>
+                            );
+                        }
                         return (
                             <button key={r.fpid} type="button" onClick={() => alternar(r.fpid)}
                                 className={cn("text-left rounded-[8px] border p-1 transition-colors", sel ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent/50")}>

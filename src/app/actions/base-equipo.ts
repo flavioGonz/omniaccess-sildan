@@ -32,6 +32,12 @@ export type PersonaDeBase = PersonaEquipo & {
      * sin explicación.
      */
     fpid: string | null;
+    /**
+     * Tiene una cara cargada en la biblioteca del equipo con su legajo, se pueda bajar la foto o no
+     * (24/11). Antes esto sólo se sabía si había foto, y en el terminal —que no guarda fotos— ninguna
+     * persona figuraba con cara aunque el equipo la reconociera.
+     */
+    caraEnEquipo: boolean;
     /** El usuario del padrón que le corresponde, si lo hay. */
     padron: { id: string; nombre: string; unidad: string | null } | null;
     /** Cómo se encontró: por su legajo o por el nombre exacto. */
@@ -79,7 +85,7 @@ export async function baseDelEquipo(deviceId: string, desde = 0): Promise<BaseEq
            vínculo es FPID = legajo, y cuando no lo es (producción) no se ata nada. */
         const [cuenta, pagina, caras] = await Promise.all([
             contarBase(d), listarPersonas(d, desde),
-            listarRostros(d, 300).catch(() => ({ rostros: [] as RostroEquipo[], total: 0 })),
+            listarRostros(d).catch(() => ({ rostros: [] as RostroEquipo[], total: 0 })),
         ]);
         const numeros = await tarjetasDePagina(d, pagina.personas).catch(() => new Map<string, string[]>());
         const todas = [...numeros.values()].flat();
@@ -92,6 +98,7 @@ export async function baseDelEquipo(deviceId: string, desde = 0): Promise<BaseEq
            medición la fila mostraba una imagen rota por cada coincidencia casual. */
         const conFoto = caras.rostros.length ? await daFotos(d, caras.rostros) : false;
         const fpids = new Set(conFoto ? caras.rostros.map((r) => r.fpid) : []);
+        const enBiblioteca = new Set(caras.rostros.map((r) => r.fpid));
 
         /* El cruce con el padrón: primero por legajo contra las credenciales (es lo que el equipo
            usa para identificar), y si no hay, por nombre exacto. */
@@ -122,6 +129,7 @@ export async function baseDelEquipo(deviceId: string, desde = 0): Promise<BaseEq
             return {
                 ...x,
                 fpid: fpids.has(x.legajo) ? x.legajo : null,
+                caraEnEquipo: enBiblioteca.has(x.legajo) || x.rostros > 0,
                 padron: u ? { id: u.id, nombre: u.name, unidad: u.apartment || null } : null,
                 porQue: porNuestro ? "sincronizada" : porCredencial ? "legajo" : porNom ? "nombre" : null,
                 numeros: (numeros.get(x.legajo) || []).map((n) => ({ numero: n, padron: duenoDe.get(n) ? { id: duenoDe.get(n)!.id, nombre: duenoDe.get(n)!.name } : null })),
@@ -132,7 +140,7 @@ export async function baseDelEquipo(deviceId: string, desde = 0): Promise<BaseEq
             equipo: cabecera, cuenta, personas, total: pagina.total, desde,
             enPadron: personas.filter((x) => x.padron).length,
             rostrosBiblioteca: caras.total || caras.rostros.length,
-            rostrosAtados: personas.filter((x) => x.fpid).length,
+            rostrosAtados: personas.filter((x) => x.caraEnEquipo).length,
         };
     } catch (e) {
         return {

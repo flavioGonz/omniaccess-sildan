@@ -59,10 +59,39 @@ const LIB = { faceLibType: "blackFD", FDID: "1" };
 const cred = (d: EquipoHik) => ({ ip: d.ip, username: d.username || "admin", password: d.password || "", authType: d.authType || "DIGEST", httpPort: d.httpPort || undefined });
 
 /** Todos los rostros del equipo, de a páginas (el equipo corta en 30 por pedido). */
+/**
+ * Lo leído de cada equipo, un minuto: la base de los lectores pide la biblioteca entera para atar las
+ * caras a las personas, y la grilla de rostros la pide otra vez al mismo tiempo. Con el terminal
+ * (3 caras por pedido, ver abajo) eran dos tandas de 24 pedidos seguidas. Lo que cambia la
+ * biblioteca (cargar, borrar, copiar) la olvida: `olvidarRostrosDe`.
+ */
+const BIBLIOTECA_MS = 60_000;
+const bibliotecas = new Map<string, { t: number; max: number; r: Promise<{ rostros: RostroEquipo[]; total: number }> }>();
+export const olvidarRostrosDe = (d: EquipoHik) => { bibliotecas.delete(`${d.ip}:${d.httpPort || 80}`); };
+
+/**
+ * Todos los rostros del equipo, de a páginas.
+ *
+ * Corregido el 24/11 (Nico: «no veo los rostros cargados»): se cortaba cuando una página traía menos
+ * de 30, dando por hecho que era la última. El terminal DS-K1T343 devuelve **3 por pedido** aunque
+ * se le pidan 30 —trae la plantilla de cada cara, que pesa—, y avisa `MORE`. La pantalla mostraba 3
+ * de 71. Ahora se avanza por lo que llegó y se sigue mientras el equipo diga que hay más.
+ */
 export async function listarRostros(d: EquipoHik, max = ROSTROS_MAX): Promise<{ rostros: RostroEquipo[]; total: number }> {
+    const clave = `${d.ip}:${d.httpPort || 80}`;
+    const ya = bibliotecas.get(clave);
+    if (ya && Date.now() - ya.t < BIBLIOTECA_MS && ya.max >= max) return ya.r.then((x) => ({ rostros: x.rostros.slice(0, max), total: x.total }));
+    const r = leerBiblioteca(d, max);
+    bibliotecas.set(clave, { t: Date.now(), max, r });
+    r.catch(() => bibliotecas.delete(clave));
+    return r;
+}
+
+async function leerBiblioteca(d: EquipoHik, max: number): Promise<{ rostros: RostroEquipo[]; total: number }> {
     const out: RostroEquipo[] = [];
     let total = 0;
-    for (let pos = 0; pos < max; pos += POR_PAGINA) {
+    /* El tope de vueltas cuida de un equipo que contestara MORE para siempre: con 1 por pedido alcanza para `max`. */
+    for (let pos = 0, vuelta = 0; pos < max && vuelta < max; vuelta++) {
         const r = await authenticatedRequest("POST", "/ISAPI/Intelligent/FDLib/FDSearch?format=json", cred(d) as never, {
             data: { searchResultPosition: pos, maxResults: POR_PAGINA, ...LIB },
             contentType: "application/json", accept: "application/json", responseType: "json", timeout: 15000,
@@ -78,9 +107,52 @@ export async function listarRostros(d: EquipoHik, max = ROSTROS_MAX): Promise<{ 
                 modelo: (m.modelData as string) || null,
             });
         }
-        if (lista.length < POR_PAGINA || out.length >= total) break;
+        pos += lista.length;
+        if (r?.responseStatusStrg !== "MORE" || (total && out.length >= total)) break;
     }
     return { rostros: out, total: total || out.length };
+}
+
+/**
+ * Los nombres de unas personas del equipo, por legajo, de a 30 por pedido. La biblioteca de caras
+ * del terminal no trae el nombre (sólo el FPID, que es el legajo): sin esto una cara se veía como
+ * «812ad1» y había que ir a buscar a quién era.
+ */
+export async function nombresDe(d: EquipoHik, legajos: string[]): Promise<Map<string, string>> {
+    const m = new Map<string, string>();
+    const unicos = [...new Set(legajos.filter(Boolean))];
+    for (let i = 0; i < unicos.length; i += 30) {
+        const tanda = unicos.slice(i, i + 30);
+        try {
+            const searchID = `oa-nom-${crypto.randomBytes(3).toString("hex")}`;
+            for (let pos = 0, vuelta = 0; vuelta < 10; vuelta++) {
+                const r = await authenticatedRequest("POST", "/ISAPI/AccessControl/UserInfo/Search?format=json", cred(d) as never, {
+                    data: { UserInfoSearchCond: { searchID, searchResultPosition: pos, maxResults: 30, EmployeeNoList: tanda.map((e) => ({ employeeNo: e })) } },
+                    contentType: "application/json", accept: "application/json", responseType: "json", timeout: 12000,
+                });
+                const b = r?.UserInfoSearch || {};
+                const lista = (b.UserInfo || []) as Record<string, unknown>[];
+                for (const u of lista) if (u.employeeNo != null && u.name) m.set(String(u.employeeNo), String(u.name));
+                pos += lista.length;
+                if (!lista.length || b.responseStatusStrg !== "MORE") break;
+            }
+        } catch { /* un equipo que no acepta la lista: las caras quedan con su legajo */ }
+    }
+    return m;
+}
+
+/**
+ * ¿El equipo guarda la foto de las caras que se le cargan? Medido el 24/11: el terminal DS-K1T343
+ * tiene `saveFacePic: false` —guarda la plantilla y tira la foto—, y por eso su faceURL contesta 404
+ * pidiéndola por sesión o por digest. No es una falla de OmniAccess ni del equipo: está configurado
+ * así. `null`: el equipo no tiene ese ajuste (el portero) o no contestó.
+ */
+export async function guardaFotoDeCaras(d: EquipoHik): Promise<boolean | null> {
+    try {
+        const r = await authenticatedRequest("GET", "/ISAPI/AccessControl/AcsCfg?format=json", cred(d) as never, { accept: "application/json", responseType: "json", timeout: 8000 });
+        const v = r?.AcsCfg?.saveFacePic;
+        return typeof v === "boolean" ? v : null;
+    } catch { return null; }
 }
 
 /* ── La sesión web del equipo, sólo para bajar fotos (ver el comentario de arriba) ────────── */
@@ -287,6 +359,7 @@ export async function borrarTarjeta(d: EquipoHik, numero: string): Promise<{ ok:
 
 /** Borra a la persona del control de acceso (con su cara, sus tarjetas y sus permisos). */
 export async function borrarUsuario(d: EquipoHik, fpid: string): Promise<{ ok: boolean; error?: string }> {
+    olvidarRostrosDe(d); // cambia la biblioteca: lo leído hace un rato ya no vale
     try {
         const r = await authenticatedRequest("PUT", "/ISAPI/AccessControl/UserInfo/Delete?format=json", cred(d) as never, {
             data: { UserInfoDelCond: { EmployeeNoList: [{ employeeNo: fpid }] } },
@@ -312,6 +385,7 @@ export async function borrarUsuario(d: EquipoHik, fpid: string): Promise<{ ok: b
  * ese equipo está marcado.
  */
 export async function altaRostro(d: EquipoHik, fpid: string, nombre: string | null, jpeg: Buffer): Promise<{ ok: boolean; error?: string; creoPersona?: boolean }> {
+    olvidarRostrosDe(d); // cambia la biblioteca: lo leído hace un rato ya no vale
     const subir = async () => {
         const { cuerpo, tipo } = multipart({ ...LIB, FPID: fpid, ...(nombre ? { name: nombre } : {}) }, jpeg);
         return authenticatedRequest("PUT", "/ISAPI/Intelligent/FDLib/FDSetUp?format=json&FDID=1&faceLibType=blackFD", cred(d) as never, {
@@ -334,6 +408,7 @@ export async function altaRostro(d: EquipoHik, fpid: string, nombre: string | nu
 
 /** Borra una cara del equipo por su FPID. También escribe: mismo guardia. */
 export async function borrarRostro(d: EquipoHik, fpid: string): Promise<{ ok: boolean; error?: string }> {
+    olvidarRostrosDe(d); // cambia la biblioteca: lo leído hace un rato ya no vale
     try {
         const r = await authenticatedRequest("PUT", `/ISAPI/Intelligent/FDLib/FDSearch/Delete?format=json&FDID=1&faceLibType=blackFD`, cred(d) as never, {
             data: { FPID: [{ value: fpid }] }, contentType: "application/json", accept: "application/json", responseType: "json", timeout: 15000,
