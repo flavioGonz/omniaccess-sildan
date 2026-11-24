@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CarFront, History, Users } from "lucide-react";
+import { CarFront, History, MapPin, Users } from "lucide-react";
+import { EnElMapa } from "@/components/administraciones/PlanoLotes";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Cargando, Chip, ErrorEstado } from "@/components/ui/estados";
 import { Matricula } from "@/components/ui/celdas";
@@ -47,6 +48,14 @@ export function CajonLote({ unitId, alCerrar }: { unitId: string | null; alCerra
                     : !d ? <div className="p-6"><Cargando texto="Trayendo el lote…" /></div>
                         : (
                             <>
+                                {/* Dónde está (25/11): con el croquis cargado, cada lote sabe su punto en la Tierra. */}
+                                {d.coordenadas && (
+                                    <div className="flex items-center gap-2 border-b border-border px-6 py-3 text-[12.5px]">
+                                        <MapPin size={13} className="text-muted-foreground" />
+                                        <span className="tabular-nums text-muted-foreground">{d.coordenadas}</span>
+                                        <EnElMapa coordenadas={d.coordenadas} className="ml-auto text-[12.5px] font-semibold" />
+                                    </div>
+                                )}
                                 <CajonSeccion titulo={`Personas · ${d.personas.length}`} icono={Users} compacta
                                     ayuda={d.puedeEditar ? "Cada persona carga en el censo con su propio código. Se puede cambiar a mano con el lápiz." : undefined}>
                                     {d.personas.length === 0 ? <p className="text-[12.5px] text-muted-foreground">Nadie figura en este lote.</p> : (

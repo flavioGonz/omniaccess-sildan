@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { enHorario, estimarFin, GOTEO_DEFECTO, horaEn, leerGoteo, proximoEnvio, queToca, type Goteo } from "@/lib/censo-goteo";
+import { enHorario, esTopeDeGmail, estimarFin, GOTEO_DEFECTO, horaEn, inicioDelDia, leerGoteo, mananaAlArranque, proximoEnvio, queToca, TOPE_DIARIO_POR_CUENTA, type Goteo } from "@/lib/censo-goteo";
 
 const ZONA = "America/Montevideo";                       // UTC-3, sin horario de verano
 const a = (iso: string) => new Date(iso);
@@ -56,4 +56,26 @@ test("lo guardado se lee con cuidado: basura, un ritmo de locos o un horario al 
     assert.equal(leerGoteo({ origen: "https://omniaccess.ies.com.uy" }).origen, "https://omniaccess.ies.com.uy");
     assert.equal(leerGoteo({ origen: "javascript:alert(1)" }).origen, "");
     assert.equal(leerGoteo({ origen: "https://sitio.uy/con/camino" }).origen, "");
+});
+
+test("goteo: el tope por casilla y lo que dice Gmail cuando frena (25/11)", () => {
+    assert.ok(TOPE_DIARIO_POR_CUENTA >= 100 && TOPE_DIARIO_POR_CUENTA < 500, "lejos del tope de Gmail, aun contando las copias");
+    assert.ok(esTopeDeGmail("550 5.4.5 Daily user sending limit exceeded. For more information"));
+    assert.ok(esTopeDeGmail("421 4.7.28 Our system has detected an unusual rate"));
+    assert.ok(!esTopeDeGmail("550 5.1.1 The email account that you tried to reach does not exist"), "un correo que no existe es culpa del correo, no de la casilla");
+    assert.ok(!esTopeDeGmail("535-5.7.8 Username and Password not accepted"));
+    assert.ok(!esTopeDeGmail(null));
+});
+test("goteo: el día empieza a medianoche del barrio, y la casilla frenada descansa hasta mañana a la hora de arranque", () => {
+    const zona = "America/Montevideo";                          // UTC-3 todo el año
+    const ahora = new Date("2026-11-25T20:37:12.345Z");         // 17:37 en Montevideo
+    assert.equal(inicioDelDia(ahora, zona).toISOString(), "2026-11-25T03:00:00.000Z");
+    assert.equal(mananaAlArranque({ ...GOTEO_DEFECTO, desde: 9 }, ahora, zona).toISOString(), "2026-11-26T12:00:00.000Z");
+    const tarde = new Date("2026-11-26T02:30:00.000Z");         // 23:30 del 25 en Montevideo
+    assert.equal(inicioDelDia(tarde, zona).toISOString(), "2026-11-25T03:00:00.000Z");
+});
+test("goteo: las casillas frenadas se leen sanas y lo raro se descarta", () => {
+    const g = leerGoteo(JSON.stringify({ frenadas: { "a@gmail.com": "2026-11-26T12:00:00.000Z", "sin-arroba": "2026-11-26T12:00:00.000Z", "b@gmail.com": "no es fecha" } }));
+    assert.deepEqual(g.frenadas, { "a@gmail.com": "2026-11-26T12:00:00.000Z" });
+    assert.deepEqual(leerGoteo("{}").frenadas, {});
 });

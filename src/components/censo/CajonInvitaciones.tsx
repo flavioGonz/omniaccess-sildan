@@ -291,7 +291,15 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                                                         <span className="block truncate font-semibold">{c.nombre}</span>
                                                                         <span className={cn("block truncate text-[11px]", c.lista ? "text-muted-foreground" : "tono-aviso")}>{c.administracionId ? (c.lista ? `desde ${c.cuenta}` : c.cuenta ? `${c.cuenta}: falta la clave de aplicación` : "sin cuenta de correo: sus invitaciones esperan") : "desde el servidor general"}</span>
                                                                     </span>
-                                                                    <span className="shrink-0 tabular-nums text-muted-foreground">{c.enviadas} de {c.enviadas + c.pendientes}</span>
+                                                                    <span className="shrink-0 text-right leading-tight">
+                                                                        <span className="block tabular-nums text-muted-foreground">{c.enviadas} de {c.enviadas + c.pendientes}</span>
+                                                                        {/* El tope diario de la casilla (25/11): cuántas salieron hoy, y si Gmail la frenó. */}
+                                                                        {c.administracionId && c.tope > 0 && (
+                                                                            <span className={cn("block text-[10.5px] tabular-nums", c.frenadaHasta ? "tono-aviso font-semibold" : c.hoy >= c.tope ? "tono-info" : "text-muted-foreground")}
+                                                                                title={c.frenadaHasta ? "Gmail frenó esta casilla por tope de envíos: descansa hasta mañana y las demás siguen." : `Cada casilla manda hasta ${c.tope} por día; lo que no entra sigue mañana.`}>
+                                                                                {c.frenadaHasta ? "Gmail la frenó: sigue mañana" : `hoy ${c.hoy}/${c.tope}`}
+                                                                            </span>)}
+                                                                    </span>
                                                                 </li>
                                                             ))}
                                                         </ul>

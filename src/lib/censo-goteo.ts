@@ -32,9 +32,14 @@ export type Goteo = {
     motivo: string | null;
     /** La dirección pública con la que se arman los enlaces: la de quien lo puso en marcha. */
     origen: string;
+    /**
+     * Las casillas que Gmail frenó por tope de envíos, y hasta cuándo se las deja descansar (25/11).
+     * Las demás siguen mandando: una administración frenada no para a las otras tres.
+     */
+    frenadas: Record<string, string>;
 };
 
-export const GOTEO_DEFECTO: Goteo = { activo: false, cadaSeg: 60, desde: 9, hasta: 20, proximo: null, fallas: 0, motivo: null, origen: "" };
+export const GOTEO_DEFECTO: Goteo = { activo: false, cadaSeg: 60, desde: 9, hasta: 20, proximo: null, fallas: 0, motivo: null, origen: "", frenadas: {} };
 /** Los ritmos que se ofrecen. Más rápido que uno cada 30 segundos ya no es «de a poco». */
 export const RITMOS: { seg: number; rotulo: string }[] = [
     { seg: 30, rotulo: "Uno cada 30 segundos" }, { seg: 60, rotulo: "Uno por minuto" }, { seg: 120, rotulo: "Uno cada 2 minutos" }, { seg: 300, rotulo: "Uno cada 5 minutos" },
@@ -56,8 +61,33 @@ export function leerGoteo(v: unknown): Goteo {
         fallas: num(g.fallas, 0, 0, 99),
         motivo: typeof g.motivo === "string" && g.motivo ? g.motivo.slice(0, 300) : null,
         origen: typeof g.origen === "string" && /^https?:\/\/[^\s/]+$/.test(g.origen) ? g.origen : "",
+        frenadas: Object.fromEntries(Object.entries(g.frenadas && typeof g.frenadas === "object" ? (g.frenadas as Record<string, unknown>) : {})
+            .filter(([k, v]) => k.includes("@") && typeof v === "string" && !Number.isNaN(Date.parse(v))) as [string, string][]),
     };
 }
+
+/**
+ * Cuántas invitaciones manda cada casilla por día, como mucho (25/11).
+ *
+ * Gmail corta a una cuenta personal que pasa de unos 500 envíos por día, y no dice si las copias
+ * cuentan: cada invitación sale con tres (María, Flavio y la propia casilla). Las casillas de las
+ * administraciones son nuevas y una cuenta nueva que de golpe manda cientos de correos parecidos es
+ * justo lo que Gmail mira con lupa. 150 por día deja a la más cargada (Etapas 1-3, ~200) en dos días
+ * y lejos de cualquier tope, con o sin copias. Las que llegan al tope esperan a mañana; las demás
+ * siguen.
+ */
+export const TOPE_DIARIO_POR_CUENTA = 150;
+
+/** Gmail dice que llegó al tope de envíos (o que vaya más despacio): no es un correo malo, es la casilla. */
+export const esTopeDeGmail = (error: string | null | undefined): boolean =>
+    /\b5\.4\.5\b|\b4\.7\.28\b|sending limit|limit exceeded|rate limit|too many (?:messages|recipients|login)/i.test(String(error || ""));
+
+/** El comienzo del día de hoy, en la hora del barrio. */
+export function inicioDelDia(ahora: Date, zona: string): Date {
+    return new Date(ahora.getTime() - Math.round(horaEn(ahora, zona) * 3600_000) - ahora.getUTCSeconds() * 1000 - ahora.getUTCMilliseconds());
+}
+/** Mañana, a la hora de arranque del envío: hasta ahí descansa una casilla que llegó al tope. */
+export const mananaAlArranque = (g: Goteo, ahora: Date, zona: string): Date => new Date(inicioDelDia(ahora, zona).getTime() + (24 + g.desde) * 3600_000);
 
 /** La hora del día (0 a 23,99) en una zona. */
 export function horaEn(ahora: Date, zona: string): number {

@@ -1,22 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, CheckCircle2, FileUp, History, Mail, MapPinned, Pencil, Phone, Plus, Truck, Upload, Users } from "lucide-react";
+import {
+    AlertTriangle, ArrowDown, ArrowUp, Building2, CheckCircle2, ChevronRight, FileUp, History, Home, Mail, Map as MapIcon, MapPinned, NotebookPen, Pencil, Phone, Plus, Sparkles, Trees, Truck, Upload, UserRound, Users,
+} from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import {
-    administraciones, borrarAdministracion, borrarContactoAdm, borrarServicioAdm, cambiosDeLotes, copiaDeLosCorreos, detalleAdministracion, guardarAdministracion, guardarContactoAdm, guardarServicioAdm,
+    administraciones, borrarAdministracion, borrarContactoAdm, borrarServicioAdm, cambiosDeLotes, copiaDeLosCorreos, detalleAdministracion, guardarAdministracion, guardarContactoAdm, guardarServicioAdm, moverAdministracion,
     type CambioVisto, type ContactoAdm, type DetalleAdministracion, type LoteAdm, type ResumenAdministracion, type ServicioAdm,
 } from "@/app/actions/administraciones";
 import { CajonLote } from "@/components/lotes/CajonLote";
 import { CorreoAdministracion } from "@/components/administraciones/CorreoAdministracion";
+import { PlanoLotes } from "@/components/administraciones/PlanoLotes";
 import { HistorialLote } from "@/components/lotes/HistorialLote";
 import type { InformePadron } from "@/lib/padron-importar";
+import { nombreDeLote, siglaDeEtapa } from "@/lib/padron-planilla";
 import { Button } from "@/components/ui/button";
+import { Cajon, CajonCampo, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Cargando, Chip, ErrorEstado, Vacio } from "@/components/ui/estados";
 import { Pestanias } from "@/components/ui/pestanias";
+import { Pista } from "@/components/ui/pista";
 import { Seek } from "@/components/ui/search";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { cn } from "@/lib/utils";
@@ -30,16 +36,26 @@ import { cn } from "@/lib/utils";
  * contactos, servicios de cada comisión, referentes».
  *
  * La pregunta que contesta esta pantalla es de guardia y de madrugada: pasó algo en el lote tal —
- * ¿de quién depende, y a quién se llama? Por eso arriba van las administraciones con su referente
- * a la vista, y de cada una tres cosas: su GENTE (a quién llamar), lo que CONTRATA (quién entra a
- * trabajar y cuándo) y sus LOTES (qué casas son, quién vive, y cómo va el censo).
+ * ¿de quién depende, y a quién se llama? De cada administración, tres cosas: su GENTE (a quién
+ * llamar), lo que CONTRATA (quién entra a trabajar y cuándo) y sus LOTES (qué casas son, quién vive,
+ * y cómo va el censo).
+ *
+ * La forma (25/11, Nico: «las administraciones no deben estar arriba; debe ser un sidebar derecho,
+ * con las 4 administraciones en un bloque fijo vertical, que hace scroll junto a la tabla y tabs.
+ * Nueva administración debe ser un drawer estilizado»):
+ *   · A la derecha, la columna de las administraciones, pegada mientras se baja por la tabla: se
+ *     cambia de una a otra sin volver arriba. Arriba de la columna, el complejo entero en una línea.
+ *   · A la izquierda, la administración elegida: su ficha (cifras, a quién llamar, desde qué casilla
+ *     escribe y QUÉ LE FALTA, cada cosa con su atajo) y debajo sus pestañas.
+ *   · Altas y cambios en cajones laterales, no en ventanas al medio: se edita sin perder de vista la
+ *     lista (ver ui/cajon).
  *
  * Los lotes no se cargan a mano: llegan con la planilla del padrón («Importar padrón»), que se
  * puede volver a subir cada vez que la administración manda una versión nueva. Primero muestra qué
  * haría; recién después aplica. No borra nada y no manda correos.
  */
 
-type Pest = "contactos" | "servicios" | "lotes" | "cambios" | "correo";
+type Pest = "contactos" | "servicios" | "lotes" | "plano" | "cambios" | "correo";
 type FiltroLotes = "todos" | "gente" | "sin" | "terrenos";
 const SITUACION: Record<string, { rotulo: string; tono: "quieto" | "info" | "aviso" }> = {
     TERRENO: { rotulo: "Terreno", tono: "quieto" }, DESARROLLADOR: { rotulo: "Del desarrollador", tono: "info" }, SIN_TITULAR: { rotulo: "Sin titular", tono: "aviso" },
@@ -49,7 +65,11 @@ const CODIGO: Record<string, { punto: string; dice: string }> = {
     sin: { punto: "bg-muted-foreground/40", dice: "sin código del censo" }, listo: { punto: "bg-[var(--aviso)]", dice: "código listo, sin enviar" },
     enviado: { punto: "bg-[var(--info)]", dice: "código enviado" }, cargo: { punto: "bg-[var(--bien)]", dice: "ya cargó su censo" },
 };
-const ENTRADA = "h-9 w-full px-3 rounded-[6px] border border-border bg-background text-[13px]";
+const ENTRADA = "h-9 w-full px-3 rounded-[6px] border border-border bg-background text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]/40 focus-visible:border-[var(--accion)]";
+
+/** La cuenta de correo está lista para mandar: casilla, clave, y Gmail la aceptó. */
+const correoListo = (a: ResumenAdministracion) => !!a.correo.cuenta && a.correo.conClave && !a.correo.error && !!a.correo.probadoAt;
+const porciento = (n: number, de: number) => (de ? Math.round((n / de) * 100) : 0);
 
 export default function Administraciones() {
     const [lista, setLista] = useState<ResumenAdministracion[] | null>(null);
@@ -57,6 +77,7 @@ export default function Administraciones() {
     const [sel, setSel] = useState<string | null>(null);
     const [det, setDet] = useState<DetalleAdministracion | null>(null);
     const [pest, setPest] = useState<Pest>("contactos");
+    const [filtroLotes, setFiltroLotes] = useState<FiltroLotes>("todos");
     const [editAdm, setEditAdm] = useState<Partial<ResumenAdministracion> | null>(null);
     const [editContacto, setEditContacto] = useState<Partial<ContactoAdm> | null>(null);
     const [editServicio, setEditServicio] = useState<Partial<ServicioAdm> | null>(null);
@@ -86,108 +107,270 @@ export default function Administraciones() {
     const elegida = lista?.find((a) => a.id === sel) || null;
     const cargandoDetalle = !!sel && det?.id !== sel;
 
+    /** Ir a una pestaña desde un atajo de la ficha («12 lotes sin nadie con correo» → Lotes, filtrado). */
+    const irA = (p: Pest, filtro?: FiltroLotes) => { setPest(p); if (filtro) setFiltroLotes(filtro); };
+    const elegir = (id: string) => { setSel(id); setFiltroLotes("todos"); };
+    const mover = async (id: string, hacia: "arriba" | "abajo") => {
+        /* Se ve el cambio enseguida y se confirma con el servidor: subir una fila no debería esperar una vuelta. */
+        setLista((l) => {
+            if (!l) return l;
+            const i = l.findIndex((a) => a.id === id), j = hacia === "arriba" ? i - 1 : i + 1;
+            if (i < 0 || j < 0 || j >= l.length) return l;
+            const c = [...l]; [c[i], c[j]] = [c[j], c[i]]; return c;
+        });
+        const r = await moverAdministracion(id, hacia).catch(() => ({ ok: false }));
+        if (!r.ok) { toast.error({ title: "No se pudo cambiar el orden" }); refrescar(); }
+    };
+
     return (
-        <div className="p-6 max-w-[1500px] mx-auto">
-            <div className="flex flex-wrap items-end gap-3 mb-5">
-                <div className="min-w-0 flex-1">
-                    <h1 className="text-[22px] font-bold tracking-tight">Administraciones</h1>
-                    <p className="text-[13px] text-muted-foreground">Las comisiones del complejo: a quién se llama, qué contrata cada una y cuáles son sus lotes.</p>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => setImportando(true)}><FileUp size={14} /> Importar padrón</Button>
-                <Button size="sm" onClick={() => setEditAdm({})}><Plus size={14} /> Nueva administración</Button>
+        <div className="p-6 max-w-[1600px] mx-auto">
+            <div className="mb-5">
+                <h1 className="text-[22px] font-bold tracking-tight">Administraciones</h1>
+                <p className="text-[13px] text-muted-foreground">Las comisiones del complejo: a quién se llama, qué contrata cada una y cuáles son sus lotes.</p>
             </div>
 
             {error ? <ErrorEstado mensaje={error} alReintentar={refrescar} />
-                : !lista ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-[150px] rounded-[10px] bg-card animate-pulse" />)}</div>
-                    : lista.length === 0 ? (
-                        <div className="rounded-[10px] border border-dashed border-border">
-                            <Vacio icono={Building2} titulo="Todavía no hay ninguna administración"
-                                ayuda="Subí la planilla del padrón y se crean solas, con sus lotes y su gente. O creá una a mano y cargale sus contactos."
-                                accion={<Button size="sm" onClick={() => setImportando(true)}><FileUp size={14} /> Importar padrón</Button>} />
-                        </div>
-                    ) : (
-                        <>
-                            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" role="tablist" aria-label="Administraciones">
-                                {lista.map((a) => <Tarjeta key={a.id} a={a} activa={a.id === sel} alElegir={() => setSel(a.id)} alEditar={() => setEditAdm(a)} />)}
-                            </div>
-
+                : !lista ? (
+                    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+                        <div className="space-y-4"><div className="h-[230px] rounded-[14px] bg-card animate-pulse" /><div className="h-[360px] rounded-[14px] bg-card animate-pulse" /></div>
+                        <div className="h-[420px] rounded-[14px] bg-card animate-pulse" />
+                    </div>
+                ) : lista.length === 0 ? (
+                    <div className="rounded-[14px] border border-dashed border-border">
+                        <Vacio icono={Building2} titulo="Todavía no hay ninguna administración"
+                            ayuda="Subí la planilla del padrón y se crean solas, con sus lotes y su gente. O creá una a mano y cargale sus contactos."
+                            accion={<div className="flex gap-2"><Button size="sm" onClick={() => setImportando(true)}><FileUp size={14} /> Importar padrón</Button><Button size="sm" variant="outline" onClick={() => setEditAdm({})}><Plus size={14} /> Nueva administración</Button></div>} />
+                    </div>
+                ) : (
+                    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px] items-start">
+                        {/* ── La administración elegida ── */}
+                        <div className="min-w-0 order-2 lg:order-1">
                             {elegida && (
-                                <section className="mt-5" aria-label={elegida.nombre}>
-                                    <div className="flex flex-wrap items-center gap-3 mb-3">
+                                <section aria-label={elegida.nombre}>
+                                    <Ficha a={elegida} alEditar={() => setEditAdm(elegida)} alIr={irA} alAgregarContacto={() => setEditContacto({})} />
+                                    <div className="mt-5 flex flex-wrap items-center gap-3 mb-3">
                                         <Pestanias<Pest> valor={pest} alElegir={setPest} opciones={[
                                             { valor: "contactos", rotulo: "Contactos", icono: Users, cuenta: elegida.contactos },
                                             { valor: "servicios", rotulo: "Servicios", icono: Truck, cuenta: elegida.servicios },
                                             { valor: "lotes", rotulo: "Lotes", icono: MapPinned, cuenta: elegida.lotes },
+                                            { valor: "plano", rotulo: "Plano", icono: MapIcon, ayuda: "Sus lotes sobre el croquis del complejo, del color de cómo va su censo. Tocá un punto para abrir el lote." },
                                             { valor: "cambios", rotulo: "Cambios", icono: History, ayuda: "Lo último que cambió en los lotes de esta administración: matrículas que entran o salen, gente que se suma o se va, y lo que cargan en el censo." },
-                                            { valor: "correo", rotulo: "Correo", icono: Mail, tono: elegida.correo.cuenta && elegida.correo.conClave && !elegida.correo.error ? undefined : "aviso", ayuda: "La casilla de Gmail desde la que esta administración les escribe a sus lotes." },
+                                            { valor: "correo", rotulo: "Correo", icono: Mail, tono: correoListo(elegida) ? undefined : "aviso", ayuda: "La casilla de Gmail desde la que esta administración les escribe a sus lotes." },
                                         ]} />
                                         <div className="ml-auto">
                                             {pest === "contactos" && <Button size="sm" variant="outline" onClick={() => setEditContacto({})}><Plus size={14} /> Agregar contacto</Button>}
                                             {pest === "servicios" && <Button size="sm" variant="outline" onClick={() => setEditServicio({})}><Plus size={14} /> Agregar servicio</Button>}
                                         </div>
                                     </div>
-                                    {elegida.notas && pest !== "lotes" && pest !== "cambios" && <p className="mb-3 rounded-[10px] bg-muted/50 px-3.5 py-2.5 text-[12.5px] text-muted-foreground whitespace-pre-line">{elegida.notas}</p>}
                                     {pest === "contactos" && <Contactos filas={cargandoDetalle ? null : det?.contactos || []} alEditar={setEditContacto} alBorrar={async (id) => { await borrarContactoAdm(id); refrescar(); }} />}
                                     {pest === "servicios" && <Servicios filas={cargandoDetalle ? null : det?.servicios || []} alEditar={setEditServicio} alBorrar={async (id) => { await borrarServicioAdm(id); refrescar(); }} />}
-                                    {pest === "lotes" && <Lotes filas={cargandoDetalle ? null : det?.lotes || []} alAbrir={setLoteAbierto} />}
+                                    {pest === "lotes" && <Lotes filas={cargandoDetalle ? null : det?.lotes || []} alAbrir={setLoteAbierto} filtro={filtroLotes} alFiltrar={setFiltroLotes} />}
+                                    {pest === "plano" && <PlanoLotes lotes={cargandoDetalle ? null : det?.lotes || []} alAbrir={setLoteAbierto} />}
                                     {pest === "cambios" && <Cambios administracionId={elegida.id} vuelta={vuelta} alAbrirLote={setLoteAbierto} />}
                                     {pest === "correo" && <CorreoAdministracion key={elegida.id} id={elegida.id} nombre={elegida.nombre} correo={elegida.correo} copia={copia} alCambiar={refrescar} />}
                                 </section>
                             )}
-                        </>
-                    )}
+                        </div>
 
-            {editAdm && <FormAdministracion a={editAdm} alCerrar={() => setEditAdm(null)} alGuardar={(id) => { setEditAdm(null); if (id) setSel(id); refrescar(); }} />}
-            {editContacto && sel && <FormContacto administracionId={sel} c={editContacto} alCerrar={() => setEditContacto(null)} alGuardar={() => { setEditContacto(null); refrescar(); }} />}
-            {editServicio && sel && <FormServicio administracionId={sel} s={editServicio} alCerrar={() => setEditServicio(null)} alGuardar={() => { setEditServicio(null); refrescar(); }} />}
+                        {/* ── La columna de las administraciones: pegada mientras se baja por la tabla ── */}
+                        <aside className="order-1 lg:order-2 lg:sticky lg:top-4" aria-label="Administraciones del complejo">
+                            <Columna lista={lista} sel={sel} alElegir={elegir} alMover={mover} alNueva={() => setEditAdm({})} alImportar={() => setImportando(true)} />
+                        </aside>
+                    </div>
+                )}
+
+            {editAdm && <FormAdministracion a={editAdm} alCerrar={() => setEditAdm(null)} alGuardar={(id) => { setEditAdm(null); if (id) elegir(id); refrescar(); }} />}
+            {editContacto && sel && <FormContacto administracionId={sel} nombreAdm={elegida?.nombre || ""} c={editContacto} alCerrar={() => setEditContacto(null)} alGuardar={() => { setEditContacto(null); refrescar(); }} />}
+            {editServicio && sel && <FormServicio administracionId={sel} nombreAdm={elegida?.nombre || ""} s={editServicio} alCerrar={() => setEditServicio(null)} alGuardar={() => { setEditServicio(null); refrescar(); }} />}
             {importando && <ImportarPadron alCerrar={() => setImportando(false)} alAplicar={refrescar} />}
             <CajonLote unitId={loteAbierto} alCerrar={() => { setLoteAbierto(null); refrescar(); }} />
         </div>
     );
 }
 
-/** Una administración, de un vistazo: cuántos lotes, cuánta gente, cómo va el censo y a quién llamar. */
-function Tarjeta({ a, activa, alElegir, alEditar }: { a: ResumenAdministracion; activa: boolean; alElegir: () => void; alEditar: () => void }) {
-    const pct = (n: number) => (a.conCodigo ? Math.round((n / a.conCodigo) * 100) : 0);
+/** Un anillo chico: cuánto del censo ya se cargó. El arco es lo cargado; el tenue, lo enviado sin cargar. */
+function Anillo({ cargaron, enviados, de, size = 30 }: { cargaron: number; enviados: number; de: number; size?: number }) {
+    const r = 12, L = 2 * Math.PI * r;
+    const c = de ? cargaron / de : 0, e = de ? Math.max(0, enviados - cargaron) / de : 0;
     return (
-        <div role="tab" aria-selected={activa} tabIndex={0} onClick={alElegir} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); alElegir(); } }}
-            className={cn("group relative cursor-pointer rounded-[10px] border p-4 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]",
-                activa ? "border-[var(--accion)] bg-card" : "border-border bg-card/40 hover:bg-card")}>
-            <div className="flex items-start gap-2">
+        <svg width={size} height={size} viewBox="0 0 30 30" className="shrink-0 -rotate-90" aria-hidden>
+            <circle cx="15" cy="15" r={r} fill="none" stroke="currentColor" strokeWidth="3" className="text-muted" />
+            {e > 0 && <circle cx="15" cy="15" r={r} fill="none" stroke="var(--info)" strokeOpacity="0.55" strokeWidth="3" strokeDasharray={`${L * (c + e)} ${L}`} strokeLinecap="round" />}
+            {c > 0 && <circle cx="15" cy="15" r={r} fill="none" stroke="var(--bien)" strokeWidth="3" strokeDasharray={`${L * c} ${L}`} strokeLinecap="round" />}
+        </svg>
+    );
+}
+
+/**
+ * La columna de la derecha: el complejo entero arriba, y una fila por administración.
+ *
+ * Cada fila dice lo justo para elegir: la sigla (que es como se las nombra en la guardia), cuántos
+ * lotes y personas, cómo va su censo (el anillo) y si su casilla de correo está lista. Con las
+ * flechas del teclado se pasa de una a otra; el orden se cambia con las flechitas que aparecen al
+ * pasar el mouse, y es el mismo en todo el sistema.
+ */
+function Columna({ lista, sel, alElegir, alMover, alNueva, alImportar }: {
+    lista: ResumenAdministracion[]; sel: string | null; alElegir: (id: string) => void; alMover: (id: string, hacia: "arriba" | "abajo") => void; alNueva: () => void; alImportar: () => void;
+}) {
+    const t = lista.reduce((s, a) => ({ lotes: s.lotes + a.lotes, personas: s.personas + a.personas, conCodigo: s.conCodigo + a.conCodigo, enviados: s.enviados + a.enviados, cargaron: s.cargaron + a.cargaron }), { lotes: 0, personas: 0, conCodigo: 0, enviados: 0, cargaron: 0 });
+    const filas = useRef<Record<string, HTMLDivElement | null>>({});
+    const teclas = (e: React.KeyboardEvent, i: number) => {
+        const j = e.key === "ArrowDown" ? i + 1 : e.key === "ArrowUp" ? i - 1 : -1;
+        if (j < 0 || j >= lista.length || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
+        e.preventDefault(); alElegir(lista[j].id); filas.current[lista[j].id]?.focus();
+    };
+    return (
+        <div className="rounded-[14px] border border-border bg-card overflow-hidden">
+            {/* El complejo entero, de un vistazo. */}
+            <div className="px-4 pt-4 pb-3.5 border-b border-border">
+                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">El complejo</p>
+                <div className="mt-2 flex items-center gap-3">
+                    <Anillo cargaron={t.cargaron} enviados={t.enviados} de={t.conCodigo} size={38} />
+                    <div className="min-w-0 leading-tight">
+                        <p className="text-[13px] font-semibold tabular-nums">{t.lotes} lotes · {t.personas} personas</p>
+                        <p className="text-[11.5px] text-muted-foreground tabular-nums">Censo: {t.cargaron} cargaron · {t.enviados} enviados de {t.conCodigo}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div role="tablist" aria-orientation="vertical" aria-label="Administraciones" className="p-1.5 space-y-0.5">
+                {lista.map((a, i) => {
+                    const activa = a.id === sel, lista_ = correoListo(a);
+                    return (
+                        <div key={a.id} ref={(el) => { filas.current[a.id] = el; }} role="tab" aria-selected={activa} tabIndex={activa ? 0 : -1}
+                            onClick={() => alElegir(a.id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); alElegir(a.id); } else teclas(e, i); }}
+                            className={cn("group relative flex items-center gap-3 rounded-[10px] px-2.5 py-2.5 cursor-pointer outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--accion)]",
+                                activa ? "bg-[var(--accion)]/[0.08]" : "hover:bg-accent/60")}>
+                            {/* La marca de la elegida: una línea del azul de acción al borde, no un recuadro entero. */}
+                            <span className={cn("absolute left-0 top-2 bottom-2 w-[3px] rounded-full transition-opacity", activa ? "bg-[var(--accion)] opacity-100" : "opacity-0")} />
+                            <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-[10px] text-[13px] font-bold tabular-nums tracking-tight",
+                                activa ? "bg-[var(--accion)] text-white" : "bg-muted text-foreground/80")}>{a.sigla}</span>
+                            <div className="min-w-0 flex-1 leading-tight">
+                                <p className={cn("text-[13.5px] font-semibold truncate", activa && "text-[var(--accion)]")}>{a.nombre}</p>
+                                <p className="mt-0.5 text-[11.5px] text-muted-foreground tabular-nums truncate">{a.lotes} lotes · {a.personas} personas</p>
+                                <p className={cn("mt-0.5 flex items-center gap-1 text-[11px] truncate", lista_ ? "text-muted-foreground" : "tono-aviso")}>
+                                    {lista_ ? <CheckCircle2 size={11} className="tono-bien shrink-0" /> : <AlertTriangle size={11} className="shrink-0" />}
+                                    <span className="truncate">{lista_ ? a.correo.cuenta : !a.correo.cuenta ? "Sin casilla de correo" : "Casilla sin probar"}</span>
+                                </p>
+                            </div>
+                            <Pista titulo={`Censo · ${a.sigla}`} texto={`${a.cargaron} ya cargaron · ${a.enviados} con el código enviado · ${a.conCodigo - a.enviados} sin enviar (de ${a.conCodigo} con código).`} ancho={240}>
+                                <span className="relative grid place-items-center transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+                                    <Anillo cargaron={a.cargaron} enviados={a.enviados} de={a.conCodigo} />
+                                    <span className="absolute text-[8.5px] font-bold tabular-nums text-muted-foreground">{porciento(a.cargaron, a.conCodigo)}</span>
+                                </span>
+                            </Pista>
+                            {/* Cambiar el orden: aparece en el lugar del anillo al pasar el mouse o con el foco en la fila. */}
+                            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 hidden flex-col gap-1 group-hover:flex group-focus-within:flex">
+                                <button type="button" disabled={i === 0} onClick={(e) => { e.stopPropagation(); alMover(a.id, "arriba"); }} aria-label={`Subir ${a.nombre}`}
+                                    className="grid h-6 w-7 place-items-center rounded-[6px] border border-border bg-card text-muted-foreground hover:text-[var(--accion)] disabled:opacity-30"><ArrowUp size={12} /></button>
+                                <button type="button" disabled={i === lista.length - 1} onClick={(e) => { e.stopPropagation(); alMover(a.id, "abajo"); }} aria-label={`Bajar ${a.nombre}`}
+                                    className="grid h-6 w-7 place-items-center rounded-[6px] border border-border bg-card text-muted-foreground hover:text-[var(--accion)] disabled:opacity-30"><ArrowDown size={12} /></button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            <div className="p-3 border-t border-border grid gap-2">
+                <Button size="sm" onClick={alNueva} className="w-full"><Plus size={14} /> Nueva administración</Button>
+                <Button size="sm" variant="ghost" onClick={alImportar} className="w-full text-muted-foreground"><FileUp size={14} /> Importar padrón</Button>
+            </div>
+        </div>
+    );
+}
+
+/**
+ * La ficha de la elegida: quién es, sus cifras, a quién se llama, desde dónde escribe, y lo que le
+ * falta. Cada cifra que pide algo es un atajo: «12 sin nadie con correo» abre los lotes ya
+ * filtrados; «falta un referente» abre el alta del contacto. La idea es que no haya que salir a
+ * buscar qué está incompleto: se ve, y se arregla desde donde se vio.
+ */
+function Ficha({ a, alEditar, alIr, alAgregarContacto }: { a: ResumenAdministracion; alEditar: () => void; alIr: (p: Pest, f?: FiltroLotes) => void; alAgregarContacto: () => void }) {
+    const sinEnviar = Math.max(0, a.conCodigo - a.enviados);
+    const falta: { texto: string; accion: () => void }[] = [];
+    if (!a.referente) falta.push({ texto: "Cargar a quién se llama", accion: alAgregarContacto });
+    if (!correoListo(a)) falta.push({ texto: !a.correo.cuenta ? "Cargar su casilla de correo" : "Probar su casilla de correo", accion: () => alIr("correo") });
+    if (a.sinGente > 0) falta.push({ texto: `${a.sinGente} ${a.sinGente === 1 ? "lote" : "lotes"} sin nadie con correo`, accion: () => alIr("lotes", "sin") });
+    if (a.servicios === 0) falta.push({ texto: "Cargar los servicios que contrata", accion: () => alIr("servicios") });
+    return (
+        <div className="rounded-[14px] border border-border bg-card">
+            <div className="flex items-start gap-4 p-5 pb-4">
+                <span className="grid h-14 w-14 shrink-0 place-items-center rounded-[12px] bg-[var(--accion)] text-white text-[17px] font-bold tracking-tight tabular-nums">{a.sigla}</span>
                 <div className="min-w-0 flex-1">
                     <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Administración · {a.sigla}</p>
-                    <h2 className="text-[16px] font-bold tracking-tight truncate">{a.nombre}</h2>
+                    <h2 className="text-[22px] font-bold tracking-tight leading-tight sm:truncate">{a.nombre}</h2>
+                    {a.notas && <p className="mt-1 text-[12.5px] text-muted-foreground line-clamp-2 whitespace-pre-line">{a.notas}</p>}
                 </div>
-                <button type="button" onClick={(e) => { e.stopPropagation(); alEditar(); }} aria-label={`Editar ${a.nombre}`}
-                    className="h-7 w-7 grid place-items-center rounded-[6px] text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-accent"><Pencil size={13} /></button>
+                <Button size="sm" variant="outline" onClick={alEditar}><Pencil size={13} /> Editar</Button>
             </div>
-            <dl className="mt-3 flex items-baseline gap-5">
-                <div><dd className="text-[24px] font-bold leading-none tabular-nums">{a.lotes}</dd><dt className="mt-1 text-[11px] text-muted-foreground">lotes</dt></div>
-                <div><dd className="text-[24px] font-bold leading-none tabular-nums">{a.personas}</dd><dt className="mt-1 text-[11px] text-muted-foreground">personas</dt></div>
-                {a.terrenos > 0 && <div><dd className="text-[24px] font-bold leading-none tabular-nums text-muted-foreground">{a.terrenos}</dd><dt className="mt-1 text-[11px] text-muted-foreground">terrenos</dt></div>}
-            </dl>
-            {/* El censo de esta administración: de los que tienen código, a cuántos se les mandó y cuántos ya cargaron. */}
-            {a.conCodigo > 0 && (
-                <div className="mt-3" title={`${a.conCodigo} con código · ${a.enviados} enviados · ${a.cargaron} ya cargaron`}>
-                    <div className="h-1.5 rounded-full bg-muted overflow-hidden flex">
-                        <span className="h-full bg-[var(--bien)]" style={{ width: `${pct(a.cargaron)}%` }} />
-                        <span className="h-full bg-[var(--info)]" style={{ width: `${pct(Math.max(0, a.enviados - a.cargaron))}%` }} />
+
+            {/* Las cifras. Las que piden algo llevan a donde se arregla. */}
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-px bg-border border-t border-border">
+                <Cuadro icono={Home} n={a.lotes} rotulo="lotes" extra={a.terrenos ? `${a.terrenos} terrenos` : undefined} alTocar={() => alIr("lotes", "todos")} />
+                <Cuadro icono={Users} n={a.personas} rotulo="personas con correo" alTocar={() => alIr("lotes", "gente")} />
+                <Cuadro icono={a.sinGente ? AlertTriangle : Trees} n={a.sinGente} rotulo="lotes sin nadie con correo" tono={a.sinGente ? "aviso" : undefined} alTocar={() => alIr("lotes", "sin")} />
+                <div className="bg-card px-5 py-4">
+                    <p className="text-[11px] text-muted-foreground">Censo</p>
+                    <p className="mt-0.5 text-[22px] font-bold leading-none tabular-nums">{porciento(a.cargaron, a.conCodigo)}<span className="text-[13px] font-semibold text-muted-foreground">%</span></p>
+                    <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden flex">
+                        <span className="h-full bg-[var(--bien)]" style={{ width: `${porciento(a.cargaron, a.conCodigo)}%` }} />
+                        <span className="h-full bg-[var(--info)]/60" style={{ width: `${porciento(Math.max(0, a.enviados - a.cargaron), a.conCodigo)}%` }} />
                     </div>
-                    <p className="mt-1.5 text-[11px] text-muted-foreground tabular-nums">Censo: {a.cargaron} cargaron · {a.enviados} enviados · {a.conCodigo - a.enviados} sin enviar</p>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground tabular-nums">{a.cargaron} cargaron · {a.enviados} enviados · {sinEnviar} sin enviar</p>
                 </div>
-            )}
-            {/* Desde qué casilla les escribe a sus lotes. */}
-            <p className={cn("mt-3 flex items-center gap-1.5 text-[11.5px] truncate", a.correo.cuenta && a.correo.conClave && !a.correo.error ? "text-muted-foreground" : "tono-aviso")}>
-                <Mail size={12} className="shrink-0" />
-                <span className="truncate">{!a.correo.cuenta ? "Sin cuenta de correo" : !a.correo.conClave ? `${a.correo.cuenta} · falta la clave` : a.correo.error ? `${a.correo.cuenta} · Gmail no la acepta` : a.correo.cuenta}</span>
-                {a.correo.cuenta && a.correo.conClave && !a.correo.error && a.correo.probadoAt && <CheckCircle2 size={12} className="tono-bien shrink-0" />}
-            </p>
-            <p className="mt-2 border-t border-border pt-2.5 text-[12px] truncate">
-                {a.referente
-                    ? <><span className="font-semibold">{a.referente.nombre}</span>{a.referente.rol && <span className="text-muted-foreground"> · {a.referente.rol}</span>}{a.referente.telefono && <span className="text-muted-foreground tabular-nums"> · {a.referente.telefono}</span>}</>
-                    : <span className="text-muted-foreground">Sin contactos cargados todavía</span>}
-            </p>
+            </div>
+
+            {/* A quién se llama, desde dónde escribe, y lo que le falta. */}
+            <div className="grid gap-3 border-t border-border p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <div className="flex items-center gap-3 rounded-[10px] bg-muted/40 px-3.5 py-3 min-w-0">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-card text-muted-foreground"><UserRound size={16} /></span>
+                    {a.referente ? (
+                        <>
+                            <div className="min-w-0 flex-1 leading-tight">
+                                <p className="text-[13px] font-semibold truncate">{a.referente.nombre}</p>
+                                <p className="text-[11.5px] text-muted-foreground truncate">{a.referente.rol || "Referente"}{a.referente.telefono ? ` · ${a.referente.telefono}` : ""}</p>
+                            </div>
+                            {a.referente.telefono && <a href={`tel:${a.referente.telefono.replace(/[^\d+]/g, "")}`} aria-label={`Llamar a ${a.referente.nombre}`} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-card text-[var(--accion)] hover:bg-accent"><Phone size={14} /></a>}
+                            {a.referente.email && <a href={`mailto:${a.referente.email}`} aria-label={`Escribirle a ${a.referente.nombre}`} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-card text-[var(--accion)] hover:bg-accent"><Mail size={14} /></a>}
+                        </>
+                    ) : (
+                        <button type="button" onClick={alAgregarContacto} className="min-w-0 flex-1 text-left leading-tight">
+                            <p className="text-[13px] font-semibold">Sin referente</p>
+                            <p className="text-[11.5px] text-[var(--accion)]">Cargar a quién se llama</p>
+                        </button>
+                    )}
+                </div>
+                <button type="button" onClick={() => alIr("correo")} className={cn("flex items-center gap-3 rounded-[10px] px-3.5 py-3 min-w-0 text-left transition-colors", correoListo(a) ? "bg-muted/40 hover:bg-muted/70" : "chip-aviso border")}>
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-card text-muted-foreground"><Mail size={16} /></span>
+                    <div className="min-w-0 flex-1 leading-tight">
+                        <p className="text-[13px] font-semibold truncate">{a.correo.cuenta || "Sin casilla de correo"}</p>
+                        <p className="text-[11.5px] text-muted-foreground truncate">{correoListo(a) ? "Desde acá les escribe a sus lotes" : a.correo.error ? "Gmail no la acepta" : a.correo.cuenta ? "Falta probarla" : "Sus lotes no reciben correos"}</p>
+                    </div>
+                    {correoListo(a) ? <CheckCircle2 size={16} className="tono-bien shrink-0" /> : <ChevronRight size={16} className="shrink-0 opacity-60" />}
+                </button>
+                {falta.length > 0 ? (
+                    <div className="md:col-span-2 flex flex-wrap items-center gap-1.5">
+                        <span className="mr-1 inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-muted-foreground"><Sparkles size={12} /> Le falta</span>
+                        {falta.map((f) => (
+                            <button key={f.texto} type="button" onClick={f.accion} className="h-7 px-2.5 rounded-full border border-border bg-background text-[11.5px] font-semibold hover:border-[var(--accion)] hover:text-[var(--accion)] inline-flex items-center gap-1">
+                                {f.texto}<ChevronRight size={12} className="opacity-60" />
+                            </button>))}
+                    </div>
+                ) : (
+                    <p className="md:col-span-2 inline-flex items-center gap-1.5 text-[11.5px] font-semibold tono-bien"><CheckCircle2 size={13} /> Completa: referente, casilla de correo, servicios y lotes con gente.</p>
+                )}
+            </div>
         </div>
+    );
+}
+
+function Cuadro({ icono: Icono, n, rotulo, extra, tono, alTocar }: { icono: React.ComponentType<{ size?: number; className?: string }>; n: number; rotulo: string; extra?: string; tono?: "aviso"; alTocar: () => void }) {
+    return (
+        <button type="button" onClick={alTocar} className="group bg-card px-5 py-4 text-left hover:bg-accent/40 transition-colors">
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Icono size={12} className={cn(tono === "aviso" && "tono-aviso")} />{rotulo}</p>
+            <p className={cn("mt-0.5 text-[22px] font-bold leading-none tabular-nums", tono === "aviso" && "tono-aviso")}>{n}</p>
+            <p className="mt-1.5 text-[11px] text-muted-foreground">{extra || <span className="opacity-0 group-hover:opacity-100 text-[var(--accion)]">Ver en la lista →</span>}</p>
+        </button>
     );
 }
 
@@ -264,9 +447,9 @@ function Cambios({ administracionId, vuelta, alAbrirLote }: { administracionId: 
     );
 }
 
-function Lotes({ filas, alAbrir }: { filas: LoteAdm[] | null; alAbrir: (id: string) => void }) {
+/** Los lotes. El filtro lo tiene la página: los atajos de la ficha («12 sin nadie con correo») llegan acá ya filtrados. */
+function Lotes({ filas, alAbrir, filtro, alFiltrar: setFiltro }: { filas: LoteAdm[] | null; alAbrir: (id: string) => void; filtro: FiltroLotes; alFiltrar: (f: FiltroLotes) => void }) {
     const [q, setQ] = useState("");
-    const [filtro, setFiltro] = useState<FiltroLotes>("todos");
     const todos = filas || [];
     const n = { todos: todos.length, gente: todos.filter((l) => l.personas.length).length, sin: todos.filter((l) => !l.situacion && !l.personas.length).length, terrenos: todos.filter((l) => l.situacion === "TERRENO").length };
     const vistos = useMemo(() => {
@@ -293,7 +476,7 @@ function Lotes({ filas, alAbrir }: { filas: LoteAdm[] | null; alAbrir: (id: stri
     ], []);
     const OPC: { v: FiltroLotes; r: string }[] = [{ v: "todos", r: "Todos" }, { v: "gente", r: "Con gente" }, { v: "sin", r: "Sin nadie con correo" }, { v: "terrenos", r: "Terrenos" }];
     return (
-        <Tabla filas={vistos} cargando={!filas} clave={(l) => l.id} columnas={cols} alto="calc(100vh - 430px)" nombreArchivo="lotes" alClickFila={(l) => alAbrir(l.id)}
+        <Tabla filas={vistos} cargando={!filas} clave={(l) => l.id} columnas={cols} alto="calc(100vh - 260px)" nombreArchivo="lotes" alClickFila={(l) => alAbrir(l.id)}
             barra={(
                 <div className="flex flex-wrap items-center gap-2">
                     <Seek value={q} onChange={setQ} placeholder="Lote, titular o persona" startOpen width={240} alto={34} />
@@ -309,41 +492,86 @@ function Lotes({ filas, alAbrir }: { filas: LoteAdm[] | null; alAbrir: (id: stri
     );
 }
 
-function Campo({ rotulo, ayuda, children }: { rotulo: string; ayuda?: string; children: React.ReactNode }) {
-    return <label className="block"><span className="block text-[12px] font-semibold mb-1">{rotulo}</span>{children}{ayuda && <span className="block mt-1 text-[11px] text-muted-foreground">{ayuda}</span>}</label>;
-}
 
+/**
+ * Alta y cambio de una administración, en un cajón (25/11, Nico: «Nueva administración debe ser un
+ * drawer estilizado, no un modal»).
+ *
+ * La sigla se ve como va a quedar en el nombre de un lote («A 2 (4-5)») mientras se escribe, porque
+ * es lo único de este formulario que después no se puede cambiar con lotes cargados: conviene verla
+ * puesta antes de guardar. Vacía, sale del nombre, y también se muestra cuál saldría.
+ */
 function FormAdministracion({ a, alCerrar, alGuardar }: { a: Partial<ResumenAdministracion>; alCerrar: () => void; alGuardar: (id?: string) => void }) {
     const [f, setF] = useState({ nombre: a.nombre || "", sigla: a.sigla || "", notas: a.notas || "" });
     const [guardando, setGuardando] = useState(false);
+    const conLotes = !!a.id && (a.lotes || 0) > 0;
+    const sigla = f.sigla.trim() || (f.nombre.trim() ? siglaDeEtapa(f.nombre) : "");
     const guardar = async () => {
         setGuardando(true);
-        try { const r = await guardarAdministracion({ id: a.id, ...f }); if (!r.ok) toast.error({ title: "No se guardó", description: r.error }); else alGuardar(r.id); }
-        catch (e) { toast.error({ title: "No se guardó", description: e instanceof Error ? e.message : undefined }); }
+        try {
+            const r = await guardarAdministracion({ id: a.id, ...f });
+            if (!r.ok) toast.error({ title: "No se guardó", description: r.error });
+            else { toast.success({ title: a.id ? "Administración guardada" : "Administración creada", description: a.id ? undefined : "Ahora cargale a quién se llama y su casilla de correo." }); alGuardar(r.id); }
+        } catch (e) { toast.error({ title: "No se guardó", description: e instanceof Error ? e.message : undefined }); }
         finally { setGuardando(false); }
     };
     return (
-        <Dialog open onOpenChange={(x) => { if (!x) alCerrar(); }}>
-            <DialogContent className="max-w-md">
-                <DialogHeader><DialogTitle>{a.id ? "Editar la administración" : "Nueva administración"}</DialogTitle><DialogDescription>Una comisión del complejo, con su grupo de lotes.</DialogDescription></DialogHeader>
-                <div className="space-y-3">
-                    <Campo rotulo="Nombre" ayuda="Como le dicen: «Etapas 4 y 5», «6ª Etapa»."><input autoFocus value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} className={ENTRADA} /></Campo>
-                    <Campo rotulo="Sigla" ayuda="Lo que va entre paréntesis en el nombre de cada lote: «A 2 (4-5)». Vacía, sale del nombre. Con lotes cargados no se puede cambiar.">
-                        <input value={f.sigla} onChange={(e) => setF({ ...f, sigla: e.target.value })} placeholder="4-5" className={cn(ENTRADA, "w-28")} /></Campo>
-                    <Campo rotulo="Notas" ayuda="Lo que conviene saber de esta comisión: cuándo se reúne, cómo prefiere que le avisen.">
-                        <textarea value={f.notas} onChange={(e) => setF({ ...f, notas: e.target.value })} rows={3} className={cn(ENTRADA, "h-auto py-2")} /></Campo>
+        <Cajon open onOpenChange={(x) => { if (!x && !guardando) alCerrar(); }}>
+            <CajonContenido ancho="angosto" titulo={a.id ? `Editar ${a.nombre}` : "Nueva administración"} descripcion="Una comisión del complejo, con su grupo de lotes."
+                pie={<>
+                    <Button variant="ghost" onClick={alCerrar} disabled={guardando}>Cancelar</Button>
+                    <Button onClick={guardar} disabled={guardando || !f.nombre.trim()}>{guardando ? <Loader2 size={14} /> : a.id ? <CheckCircle2 size={14} /> : <Plus size={14} />} {a.id ? "Guardar" : "Crear administración"}</Button>
+                </>}>
+                {/* Cómo se va a ver: la ficha de la columna, armándose mientras se escribe. */}
+                <div className="px-6 pt-6">
+                    <div className="flex items-center gap-3 rounded-[12px] border border-border bg-card px-4 py-3.5">
+                        <span className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-[10px] text-[15px] font-bold tabular-nums tracking-tight transition-colors", sigla ? "bg-[var(--accion)] text-white" : "bg-muted text-muted-foreground")}>{sigla || "?"}</span>
+                        <div className="min-w-0 leading-tight">
+                            <p className="text-[15px] font-bold truncate">{f.nombre.trim() || "Sin nombre todavía"}</p>
+                            <p className="mt-0.5 text-[12px] text-muted-foreground">Sus lotes se llaman <span className="font-semibold text-foreground tabular-nums">{nombreDeLote("A 2", sigla || "…")}</span></p>
+                        </div>
+                    </div>
                 </div>
-                <DialogFooter className="items-center">
-                    {a.id && a.lotes === 0 && <div className="mr-auto"><DeleteButton onConfirm={async () => { const r = await borrarAdministracion(a.id!); if (!r.ok) toast.error({ title: "No se borró", description: r.error }); else alGuardar(); }} /></div>}
-                    <Button variant="ghost" onClick={alCerrar}>Cancelar</Button>
-                    <Button onClick={guardar} disabled={guardando || !f.nombre.trim()}>{guardando && <Loader2 size={14} className="animate-spin" />} Guardar</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+                <CajonSeccion titulo="Cómo se llama" icono={Building2}>
+                    <CajonCampo etiqueta="Nombre" ayuda="Como le dicen en el complejo: «Etapas 4 y 5», «6ª Etapa».">
+                        <input autoFocus value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} placeholder="Etapas 4 y 5" className={ENTRADA} />
+                    </CajonCampo>
+                    <CajonCampo etiqueta="Sigla" ayuda={conLotes ? "Tiene lotes cargados: la sigla es parte del nombre de cada uno y no se puede cambiar." : f.sigla.trim() ? "Lo que va entre paréntesis en el nombre de cada lote." : sigla ? `Vacía, sale del nombre: «${sigla}».` : "Vacía, sale del nombre."}
+                        pista="La administración la pone entre paréntesis después del lote: «A 2 (4-5)». Con ella se reconoce a qué comisión pertenece cada lote cuando se importa el padrón.">
+                        <input value={f.sigla} onChange={(e) => setF({ ...f, sigla: e.target.value })} placeholder={f.nombre.trim() ? siglaDeEtapa(f.nombre) : "4-5"} disabled={conLotes} className={cn(ENTRADA, "w-32 tabular-nums disabled:opacity-60")} />
+                    </CajonCampo>
+                </CajonSeccion>
+                <CajonSeccion titulo="Lo que conviene saber" icono={NotebookPen}>
+                    <CajonCampo etiqueta="Notas" ayuda="Cuándo se reúne, cómo prefiere que le avisen, quién decide qué.">
+                        <textarea value={f.notas} onChange={(e) => setF({ ...f, notas: e.target.value })} rows={4} className={cn(ENTRADA, "h-auto py-2 leading-snug")} />
+                    </CajonCampo>
+                </CajonSeccion>
+                {a.id ? (
+                    <CajonSeccion titulo="Lo que tiene" icono={MapPinned}>
+                        <div className="grid grid-cols-2 gap-2">
+                            <Cifra n={a.lotes || 0} k="lotes" /><Cifra n={a.personas || 0} k="personas" />
+                            <Cifra n={a.contactos || 0} k="contactos" /><Cifra n={a.servicios || 0} k="servicios" />
+                        </div>
+                        {conLotes
+                            ? <p className="text-[11.5px] text-muted-foreground">Con lotes adentro no se puede borrar: quedarían sin administración. Los lotes se mueven con el padrón.</p>
+                            : <div className="flex items-center gap-3 rounded-[10px] border border-dashed border-border px-3.5 py-3"><p className="flex-1 text-[12px] text-muted-foreground">No tiene lotes: se puede borrar, con sus contactos y servicios.</p>
+                                <div className="scale-[.8] origin-right -my-2"><DeleteButton onConfirm={async () => { const r = await borrarAdministracion(a.id!); if (!r.ok) toast.error({ title: "No se borró", description: r.error }); else alGuardar(); }} /></div></div>}
+                    </CajonSeccion>
+                ) : (
+                    <CajonSeccion titulo="Lo que sigue" icono={Sparkles}>
+                        <ol className="space-y-2.5 text-[12.5px]">
+                            {[["A quién se llama", "el referente o la administradora, en Contactos."], ["Su casilla de correo", "el Gmail desde el que les escribe a sus lotes, en Correo."], ["Sus lotes", "llegan con la planilla del padrón («Importar padrón»)."]].map(([t, d], k) => (
+                                <li key={t} className="flex gap-2.5"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-muted text-[10.5px] font-bold tabular-nums">{k + 1}</span><span><b>{t}</b>: <span className="text-muted-foreground">{d}</span></span></li>))}
+                        </ol>
+                    </CajonSeccion>
+                )}
+            </CajonContenido>
+        </Cajon>
     );
 }
 
-function FormContacto({ administracionId, c, alCerrar, alGuardar }: { administracionId: string; c: Partial<ContactoAdm>; alCerrar: () => void; alGuardar: () => void }) {
+const ROLES = ["Administradora", "Administrador", "Presidente de la comisión", "Secretaria de la comisión", "Tesorero", "Referente de seguridad", "Referente"];
+function FormContacto({ administracionId, nombreAdm, c, alCerrar, alGuardar }: { administracionId: string; nombreAdm: string; c: Partial<ContactoAdm>; alCerrar: () => void; alGuardar: () => void }) {
     const [f, setF] = useState({ nombre: c.nombre || "", rol: c.rol || "", telefono: c.telefono || "", email: c.email || "", notas: c.notas || "" });
     const [guardando, setGuardando] = useState(false);
     const guardar = async () => {
@@ -353,26 +581,33 @@ function FormContacto({ administracionId, c, alCerrar, alGuardar }: { administra
         finally { setGuardando(false); }
     };
     return (
-        <Dialog open onOpenChange={(x) => { if (!x) alCerrar(); }}>
-            <DialogContent className="max-w-md">
-                <DialogHeader><DialogTitle>{c.id ? "Editar el contacto" : "Agregar un contacto"}</DialogTitle><DialogDescription>Alguien de la administración o de la comisión a quien se puede llamar.</DialogDescription></DialogHeader>
-                <div className="space-y-3">
-                    <Campo rotulo="Nombre"><input autoFocus value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} className={ENTRADA} /></Campo>
-                    <Campo rotulo="Qué es"><input value={f.rol} onChange={(e) => setF({ ...f, rol: e.target.value })} placeholder="Administradora, presidente de la comisión, referente…" className={ENTRADA} list="roles-adm" />
-                        <datalist id="roles-adm">{["Administradora", "Administrador", "Presidente de la comisión", "Secretaria de la comisión", "Tesorero", "Referente de seguridad", "Referente"].map((r) => <option key={r} value={r} />)}</datalist></Campo>
-                    <div className="grid grid-cols-2 gap-3">
-                        <Campo rotulo="Teléfono"><input value={f.telefono} onChange={(e) => setF({ ...f, telefono: e.target.value })} inputMode="tel" className={cn(ENTRADA, "tabular-nums")} /></Campo>
-                        <Campo rotulo="Correo"><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} inputMode="email" className={ENTRADA} /></Campo>
+        <Cajon open onOpenChange={(x) => { if (!x && !guardando) alCerrar(); }}>
+            <CajonContenido ancho="angosto" titulo={c.id ? "Editar el contacto" : "Agregar un contacto"} descripcion={`Alguien de ${nombreAdm || "la administración"} a quien se puede llamar.`}
+                pie={<><Button variant="ghost" onClick={alCerrar} disabled={guardando}>Cancelar</Button><Button onClick={guardar} disabled={guardando || !f.nombre.trim()}>{guardando ? <Loader2 size={14} /> : <CheckCircle2 size={14} />} Guardar</Button></>}>
+                <CajonSeccion titulo="Quién es" icono={UserRound}>
+                    <CajonCampo etiqueta="Nombre"><input autoFocus value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} className={ENTRADA} /></CajonCampo>
+                    <CajonCampo etiqueta="Qué es" ayuda="El primero de la lista es el que se muestra como referente.">
+                        <input value={f.rol} onChange={(e) => setF({ ...f, rol: e.target.value })} placeholder="Administradora, presidente de la comisión…" className={ENTRADA} />
+                    </CajonCampo>
+                    {/* Los roles de siempre a un toque: tipear «Presidente de la comisión» cada vez es como se terminan escribiendo de cinco formas. */}
+                    <div className="flex flex-wrap gap-1.5 -mt-1">
+                        {ROLES.map((r) => (
+                            <button key={r} type="button" onClick={() => setF({ ...f, rol: r })} aria-pressed={f.rol === r}
+                                className={cn("h-7 px-2.5 rounded-full border text-[11.5px] font-semibold", f.rol === r ? "bg-foreground text-background border-foreground" : "border-border hover:bg-accent")}>{r}</button>))}
                     </div>
-                    <Campo rotulo="Notas"><textarea value={f.notas} onChange={(e) => setF({ ...f, notas: e.target.value })} rows={2} placeholder="Horario en que atiende, por dónde prefiere que le avisen…" className={cn(ENTRADA, "h-auto py-2")} /></Campo>
-                </div>
-                <DialogFooter><Button variant="ghost" onClick={alCerrar}>Cancelar</Button><Button onClick={guardar} disabled={guardando || !f.nombre.trim()}>{guardando && <Loader2 size={14} className="animate-spin" />} Guardar</Button></DialogFooter>
-            </DialogContent>
-        </Dialog>
+                </CajonSeccion>
+                <CajonSeccion titulo="Cómo se lo ubica" icono={Phone}>
+                    <CajonCampo etiqueta="Teléfono"><input value={f.telefono} onChange={(e) => setF({ ...f, telefono: e.target.value })} inputMode="tel" placeholder="099 123 456" className={cn(ENTRADA, "tabular-nums")} /></CajonCampo>
+                    <CajonCampo etiqueta="Correo"><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} inputMode="email" className={ENTRADA} /></CajonCampo>
+                    <CajonCampo etiqueta="Notas"><textarea value={f.notas} onChange={(e) => setF({ ...f, notas: e.target.value })} rows={3} placeholder="Horario en que atiende, por dónde prefiere que le avisen…" className={cn(ENTRADA, "h-auto py-2 leading-snug")} /></CajonCampo>
+                </CajonSeccion>
+            </CajonContenido>
+        </Cajon>
     );
 }
 
-function FormServicio({ administracionId, s, alCerrar, alGuardar }: { administracionId: string; s: Partial<ServicioAdm>; alCerrar: () => void; alGuardar: () => void }) {
+const RUBROS = ["Jardinería", "Recolección de residuos", "Mantenimiento", "Piscinas", "Seguridad", "Limpieza", "Iluminación", "Caminería", "Fumigación"];
+function FormServicio({ administracionId, nombreAdm, s, alCerrar, alGuardar }: { administracionId: string; nombreAdm: string; s: Partial<ServicioAdm>; alCerrar: () => void; alGuardar: () => void }) {
     const [f, setF] = useState({ rubro: s.rubro || "", proveedor: s.proveedor || "", contacto: s.contacto || "", telefono: s.telefono || "", email: s.email || "", horario: s.horario || "", notas: s.notas || "" });
     const [guardando, setGuardando] = useState(false);
     const guardar = async () => {
@@ -382,24 +617,29 @@ function FormServicio({ administracionId, s, alCerrar, alGuardar }: { administra
         finally { setGuardando(false); }
     };
     return (
-        <Dialog open onOpenChange={(x) => { if (!x) alCerrar(); }}>
-            <DialogContent className="max-w-md">
-                <DialogHeader><DialogTitle>{s.id ? "Editar el servicio" : "Agregar un servicio"}</DialogTitle><DialogDescription>Algo que contrata esta administración para sus lotes o sus áreas comunes.</DialogDescription></DialogHeader>
-                <div className="space-y-3">
-                    <Campo rotulo="Servicio"><input autoFocus value={f.rubro} onChange={(e) => setF({ ...f, rubro: e.target.value })} placeholder="Jardinería, recolección, mantenimiento…" className={ENTRADA} list="rubros-adm" />
-                        <datalist id="rubros-adm">{["Jardinería", "Recolección de residuos", "Mantenimiento", "Piscinas", "Seguridad", "Limpieza", "Iluminación", "Caminería", "Fumigación"].map((r) => <option key={r} value={r} />)}</datalist></Campo>
-                    <div className="grid grid-cols-2 gap-3">
-                        <Campo rotulo="Empresa"><input value={f.proveedor} onChange={(e) => setF({ ...f, proveedor: e.target.value })} className={ENTRADA} /></Campo>
-                        <Campo rotulo="Persona de contacto"><input value={f.contacto} onChange={(e) => setF({ ...f, contacto: e.target.value })} className={ENTRADA} /></Campo>
-                        <Campo rotulo="Teléfono"><input value={f.telefono} onChange={(e) => setF({ ...f, telefono: e.target.value })} inputMode="tel" className={cn(ENTRADA, "tabular-nums")} /></Campo>
-                        <Campo rotulo="Correo"><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} inputMode="email" className={ENTRADA} /></Campo>
+        <Cajon open onOpenChange={(x) => { if (!x && !guardando) alCerrar(); }}>
+            <CajonContenido ancho="angosto" titulo={s.id ? "Editar el servicio" : "Agregar un servicio"} descripcion={`Algo que contrata ${nombreAdm || "esta administración"} para sus lotes o sus áreas comunes.`}
+                pie={<><Button variant="ghost" onClick={alCerrar} disabled={guardando}>Cancelar</Button><Button onClick={guardar} disabled={guardando || !f.rubro.trim()}>{guardando ? <Loader2 size={14} /> : <CheckCircle2 size={14} />} Guardar</Button></>}>
+                <CajonSeccion titulo="Qué servicio" icono={Truck}>
+                    <CajonCampo etiqueta="Servicio"><input autoFocus value={f.rubro} onChange={(e) => setF({ ...f, rubro: e.target.value })} placeholder="Jardinería, recolección, mantenimiento…" className={ENTRADA} /></CajonCampo>
+                    <div className="flex flex-wrap gap-1.5 -mt-1">
+                        {RUBROS.map((r) => (
+                            <button key={r} type="button" onClick={() => setF({ ...f, rubro: r })} aria-pressed={f.rubro === r}
+                                className={cn("h-7 px-2.5 rounded-full border text-[11.5px] font-semibold", f.rubro === r ? "bg-foreground text-background border-foreground" : "border-border hover:bg-accent")}>{r}</button>))}
                     </div>
-                    <Campo rotulo="Cuándo viene"><input value={f.horario} onChange={(e) => setF({ ...f, horario: e.target.value })} placeholder="Lunes y jueves, de 8 a 12" className={ENTRADA} /></Campo>
-                    <Campo rotulo="Notas"><textarea value={f.notas} onChange={(e) => setF({ ...f, notas: e.target.value })} rows={2} className={cn(ENTRADA, "h-auto py-2")} /></Campo>
-                </div>
-                <DialogFooter><Button variant="ghost" onClick={alCerrar}>Cancelar</Button><Button onClick={guardar} disabled={guardando || !f.rubro.trim()}>{guardando && <Loader2 size={14} className="animate-spin" />} Guardar</Button></DialogFooter>
-            </DialogContent>
-        </Dialog>
+                    <CajonCampo etiqueta="Cuándo viene" ayuda="Para que la guardia sepa a quién espera y cuándo."><input value={f.horario} onChange={(e) => setF({ ...f, horario: e.target.value })} placeholder="Lunes y jueves, de 8 a 12" className={ENTRADA} /></CajonCampo>
+                </CajonSeccion>
+                <CajonSeccion titulo="Quién lo hace" icono={Building2}>
+                    <CajonCampo etiqueta="Empresa"><input value={f.proveedor} onChange={(e) => setF({ ...f, proveedor: e.target.value })} className={ENTRADA} /></CajonCampo>
+                    <CajonCampo etiqueta="Persona de contacto"><input value={f.contacto} onChange={(e) => setF({ ...f, contacto: e.target.value })} className={ENTRADA} /></CajonCampo>
+                    <div className="grid grid-cols-2 gap-3">
+                        <CajonCampo etiqueta="Teléfono"><input value={f.telefono} onChange={(e) => setF({ ...f, telefono: e.target.value })} inputMode="tel" className={cn(ENTRADA, "tabular-nums")} /></CajonCampo>
+                        <CajonCampo etiqueta="Correo"><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} inputMode="email" className={ENTRADA} /></CajonCampo>
+                    </div>
+                    <CajonCampo etiqueta="Notas"><textarea value={f.notas} onChange={(e) => setF({ ...f, notas: e.target.value })} rows={3} className={cn(ENTRADA, "h-auto py-2 leading-snug")} /></CajonCampo>
+                </CajonSeccion>
+            </CajonContenido>
+        </Cajon>
     );
 }
 

@@ -52,6 +52,11 @@ model Unit {
   subunidad    String?
   edificio     String?
   areaM2       Float?
+  /// Donde esta el lote en el croquis del complejo (25/11): el punto del numero del solar, en pixeles
+  /// de la imagen guardada en Setting PLANO_LOTES. Con la calibracion de esa misma Setting sale su
+  /// latitud y longitud (que va en `coordinates`).
+  planoX       Float?
+  planoY       Float?
   /// El titular segun la administracion, como texto: «X - Y» es un matrimonio, «X / Y» propietario
   /// e inquilino. No es una persona del padron: es lo que dice la lista de gastos comunes.
   titular      String?

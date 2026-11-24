@@ -6,7 +6,7 @@ import { CID_LOGO, LOGO_ALTO, LOGO_ANCHO, correoDeInvitacion, correoSirve, nueva
 import { enviarCorreo } from "@/lib/correo";
 import { administracionesParaCorreo, lotesDeInvitacion, remitenteDe, remitenteDeLotes, type Remitente } from "@/lib/correo-administracion";
 import { ZONA } from "@/lib/fechas";
-import { estimarFin, FALLAS_PARA_PAUSAR, leerGoteo, proximoEnvio, queToca, enHorario, type Goteo } from "@/lib/censo-goteo";
+import { enHorario, esTopeDeGmail, estimarFin, FALLAS_PARA_PAUSAR, inicioDelDia, leerGoteo, mananaAlArranque, proximoEnvio, queToca, TOPE_DIARIO_POR_CUENTA, type Goteo } from "@/lib/censo-goteo";
 
 /**
  * Mandar las invitaciones del censo: una, y de a poco (ver censo-goteo.ts para el porqué).
@@ -133,7 +133,16 @@ export async function guardarGoteo(g: Goteo): Promise<void> {
 const PENDIENTES = { enviadoAt: null, intentos: { lt: INTENTOS_MAX } } as const;
 
 /** Cómo va cada cuenta: desde qué casilla sale cada grupo, cuántas faltan y cuántas salieron. */
-export type EnvioPorCuenta = { administracionId: string | null; nombre: string; cuenta: string | null; lista: boolean; pendientes: number; enviadas: number };
+export type EnvioPorCuenta = {
+    administracionId: string | null; nombre: string; cuenta: string | null; lista: boolean; pendientes: number; enviadas: number;
+    /** Cuántas salieron hoy desde esta casilla, contra el tope diario; y si Gmail la frenó, hasta cuándo descansa. */
+    hoy: number; tope: number; frenadaHasta: string | null;
+};
+/** Cuántas salieron hoy desde cada casilla (en la hora del barrio). */
+async function enviadasHoyPorCuenta(ahora: Date): Promise<Map<string, number>> {
+    const filas = await prisma.invitacionCenso.groupBy({ by: ["enviadoDesde"], where: { enviadoAt: { gte: inicioDelDia(ahora, ZONA) }, enviadoDesde: { not: null } }, _count: { _all: true } });
+    return new Map(filas.map((f) => [String(f.enviadoDesde).toLowerCase(), f._count._all]));
+}
 export type EstadoGoteo = Goteo & { pendientes: number; conError: number; enHorario: boolean; terminaAt: string | null; porCuenta: EnvioPorCuenta[] };
 export async function estadoDeGoteo(): Promise<EstadoGoteo> {
     const [g, pendientes, conError, todas, admins] = await Promise.all([
@@ -141,19 +150,27 @@ export async function estadoDeGoteo(): Promise<EstadoGoteo> {
         prisma.invitacionCenso.findMany({ where: { sitio: "" }, select: { lotes: true, enviadoAt: true, intentos: true } }),
         administracionesParaCorreo(),
     ]);
-    const unidades = await prisma.unit.findMany({ where: { id: { in: [...new Set(todas.flatMap((i) => lotesDeInvitacion(i.lotes)))] } }, select: { id: true, administracionId: true } });
+    const ahora = new Date();
+    const [unidades, hoy] = await Promise.all([
+        prisma.unit.findMany({ where: { id: { in: [...new Set(todas.flatMap((i) => lotesDeInvitacion(i.lotes)))] } }, select: { id: true, administracionId: true } }),
+        enviadasHoyPorCuenta(ahora),
+    ]);
     const adminDeUnidad = new Map(unidades.map((u) => [u.id, u.administracionId]));
     const grupos = new Map<string, EnvioPorCuenta>();
     for (const i of todas) {
         const r = remitenteDeLotes(lotesDeInvitacion(i.lotes), adminDeUnidad, admins);
         const k = r.tipo === "general" ? "" : r.administracionId;
-        if (!grupos.has(k)) grupos.set(k, r.tipo === "general"
-            ? { administracionId: null, nombre: "Sin administración", cuenta: null, lista: true, pendientes: 0, enviadas: 0 }
-            : { administracionId: r.administracionId, nombre: r.nombre, cuenta: admins.get(r.administracionId)?.correoCuenta || null, lista: r.tipo === "administracion", pendientes: 0, enviadas: 0 });
+        if (!grupos.has(k)) {
+            const cuenta = r.tipo === "general" ? null : admins.get(r.administracionId)?.correoCuenta || null;
+            const frenada = cuenta ? g.frenadas[cuenta.toLowerCase()] : undefined;
+            grupos.set(k, r.tipo === "general"
+                ? { administracionId: null, nombre: "Sin administración", cuenta: null, lista: true, pendientes: 0, enviadas: 0, hoy: 0, tope: 0, frenadaHasta: null }
+                : { administracionId: r.administracionId, nombre: r.nombre, cuenta, lista: r.tipo === "administracion", pendientes: 0, enviadas: 0,
+                    hoy: cuenta ? hoy.get(cuenta.toLowerCase()) || 0 : 0, tope: TOPE_DIARIO_POR_CUENTA, frenadaHasta: frenada && Date.parse(frenada) > ahora.getTime() ? frenada : null });
+        }
         const x = grupos.get(k)!;
         if (i.enviadoAt) x.enviadas++; else if (i.intentos < INTENTOS_MAX) x.pendientes++;
     }
-    const ahora = new Date();
     return { ...g, pendientes, conError, enHorario: enHorario(g, ahora, ZONA), terminaAt: estimarFin(g, pendientes, ahora, ZONA)?.toISOString() || null,
         porCuenta: [...grupos.values()].sort((a, b) => (a.administracionId ? 0 : 1) - (b.administracionId ? 0 : 1) || a.nombre.localeCompare(b.nombre)) };
 }
@@ -178,13 +195,27 @@ export async function vueltaDeGoteo(): Promise<{ que: string; lote?: string; err
             prisma.unit.findMany({ where: { id: { in: [...new Set(pendientes.flatMap((p) => lotesDeInvitacion(p.lotes)))] } }, select: { id: true, administracionId: true } }),
         ]);
         const adminDeUnidad = new Map(unidades.map((u) => [u.id, u.administracionId]));
+        /* El tope por casilla (ver TOPE_DIARIO_POR_CUENTA): la que ya mandó lo suyo hoy, o la que Gmail
+           frenó, se saltea; las invitaciones de las otras siguen saliendo. */
+        const hoy = await enviadasHoyPorCuenta(ahora);
+        const descansa = (cuenta: string) => {
+            const c = cuenta.toLowerCase(), f = g.frenadas[c];
+            return (hoy.get(c) || 0) >= TOPE_DIARIO_POR_CUENTA || (!!f && Date.parse(f) > ahora.getTime());
+        };
         let remitente: Remitente | null = null;
-        const sinCuenta = new Set<string>();
+        const sinCuenta = new Set<string>(), enTope = new Set<string>();
         const inv = pendientes.find((p) => {
             const r = remitenteDeLotes(lotesDeInvitacion(p.lotes), adminDeUnidad, admins);
             if (r.tipo === "sin-cuenta") { sinCuenta.add(r.nombre); return false; }
+            if (r.tipo === "administracion" && descansa(r.cuenta.cuenta)) { enTope.add(r.nombre); return false; }
             remitente = r; return true;
         });
+        if (!inv && enTope.size) {
+            /* No se apaga: se duerme hasta mañana a la hora de arranque, y ahí sigue solo. */
+            const manana = mananaAlArranque(g, ahora, ZONA);
+            await guardarGoteo({ ...g, proximo: manana.toISOString(), motivo: `Hoy ya salió lo de cada casilla (hasta ${TOPE_DIARIO_POR_CUENTA} por día): ${[...enTope].join(", ")}. Sigue solo mañana a las ${g.desde}.` });
+            return { que: "tope" };
+        }
         if (!inv && sinCuenta.size) {
             await guardarGoteo({ ...g, activo: false, proximo: null, motivo: `Esperando las cuentas de correo de ${[...sinCuenta].join(", ")}: cargalas en Administraciones › Correo y volvé a ponerlo en marcha.` });
             return { que: "sin-cuenta" };
@@ -200,6 +231,14 @@ export async function vueltaDeGoteo(): Promise<{ que: string; lote?: string; err
         const r = await mandarInvitacion(inv, g.origen, remitente || undefined);
         const ahoraG = await leerGoteoGuardado();                 // pudieron pausarlo mientras se mandaba
         if (r.ok) { await guardarGoteo({ ...ahoraG, fallas: 0, motivo: null }); return { que: "enviado", lote: inv.lote }; }
+        /* Gmail frenó la casilla por tope: no es culpa de esta invitación (se le devuelve el intento) ni
+           de las otras casillas (no suma a las fallas que frenan todo). Esa casilla descansa hasta mañana. */
+        const de = remitente as Remitente | null;
+        if (de?.tipo === "administracion" && esTopeDeGmail(r.error)) {
+            await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { intentos: { decrement: 1 }, error: null } }).catch(() => null);
+            await guardarGoteo({ ...ahoraG, frenadas: { ...ahoraG.frenadas, [de.cuenta.cuenta.toLowerCase()]: mananaAlArranque(ahoraG, new Date(), ZONA).toISOString() } });
+            return { que: "frenada", lote: inv.lote, error: r.error };
+        }
         const fallas = ahoraG.fallas + 1;
         await guardarGoteo(fallas >= FALLAS_PARA_PAUSAR
             ? { ...ahoraG, activo: false, fallas, proximo: null, motivo: `Se frenó solo: ${fallas} envíos seguidos fallaron. El último dijo: «${r.error || "sin detalle"}».` }

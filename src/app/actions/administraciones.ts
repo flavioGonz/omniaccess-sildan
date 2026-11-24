@@ -5,6 +5,7 @@ import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { siglaDeEtapa } from "@/lib/padron-planilla";
+import { leerPlanoLotes } from "@/lib/plano-lotes";
 import { cambiarCodigoDeInvitacion, type CodigoCambiado } from "@/lib/censo-codigo";
 import { limpiarChapa } from "@/lib/lote-cambios";
 import { copiaFija, enviarCorreo, limpiarClaveDeAplicacion, probarCuenta } from "@/lib/correo";
@@ -36,7 +37,7 @@ export type ResumenAdministracion = {
     conCodigo: number; enviados: number; cargaron: number;
     contactos: number; servicios: number;
     /** A quién llamar primero: el primer contacto cargado. */
-    referente: { nombre: string; rol: string; telefono: string | null } | null;
+    referente: { nombre: string; rol: string; telefono: string | null; email: string | null } | null;
     /** Desde qué cuenta les escribe a sus lotes (25/11). La clave nunca sale del servidor: sólo si hay una. */
     correo: CorreoAdm;
 };
@@ -64,7 +65,7 @@ export async function administraciones(): Promise<ResumenAdministracion[]> {
             sinGente: suyas.filter((u) => !u.situacion && !conGente.has(u.id)).length,
             personas: gente.size, conCodigo: invs.length, enviados: invs.filter((i) => i!.enviadoAt).length, cargaron: invs.filter((i) => i!.usadoAt).length,
             contactos: a.contactos.length, servicios: a._count.servicios,
-            referente: c ? { nombre: c.nombre, rol: c.rol, telefono: c.telefono } : null,
+            referente: c ? { nombre: c.nombre, rol: c.rol, telefono: c.telefono, email: c.email } : null,
             correo: { cuenta: a.correoCuenta, nombre: a.correoNombre, conClave: !!a.correoClave, probadoAt: a.correoProbadoAt?.toISOString() || null, error: a.correoError },
         };
     });
@@ -76,6 +77,8 @@ export type PersonaDeLote = { id: string; nombre: string; email: string | null; 
 export type LoteAdm = {
     id: string; nombre: string; codigo: string; manzana: string | null; edificio: string | null; areaM2: number | null;
     titular: string | null; situacion: string | null; observaciones: string | null; personas: PersonaDeLote[];
+    /** Su punto en el croquis (píxeles de la imagen original) y sus coordenadas «lat, lng», si las tiene (25/11). */
+    planoX: number | null; planoY: number | null; coordenadas: string | null;
 };
 export type DetalleAdministracion = { id: string; nombre: string; sigla: string; notas: string | null; contactos: ContactoAdm[]; servicios: ServicioAdm[]; lotes: LoteAdm[] };
 
@@ -101,9 +104,17 @@ export async function detalleAdministracion(id: string): Promise<DetalleAdminist
         servicios: a.servicios.map((s) => ({ id: s.id, rubro: s.rubro, proveedor: s.proveedor, contacto: s.contacto, telefono: s.telefono, email: s.email, horario: s.horario, notas: s.notas })),
         lotes: lotes.map((u) => ({
             id: u.id, nombre: u.name, codigo: u.lot || u.name, manzana: u.manzana, edificio: u.edificio, areaM2: u.areaM2, titular: u.titular, situacion: u.situacion, observaciones: u.description,
+            planoX: u.planoX, planoY: u.planoY, coordenadas: u.coordinates?.trim() || null,
             personas: u.vinculos.map((v) => ({ id: v.user.id, nombre: v.user.name, email: v.user.email, telefono: v.user.phone, vinculo: v.vinculo, codigo: estado(v.userId) })),
         })),
     };
+}
+
+/** El croquis de los lotes, si hay uno cargado (ver lib/plano-lotes): título y tamaño, sin la calibración. */
+export async function planoDeLotes(): Promise<{ titulo: string; ancho: number; alto: number; georef: boolean } | null> {
+    await sesion("usuarios");
+    const p = leerPlanoLotes((await prisma.setting.findUnique({ where: { key: "PLANO_LOTES" } }).catch(() => null))?.value);
+    return p ? { titulo: p.titulo, ancho: p.ancho, alto: p.alto, georef: !!p.georef } : null;
 }
 
 const corto = (v: unknown, n: number): string => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, n);
@@ -130,6 +141,24 @@ export async function guardarAdministracion(d: { id?: string; nombre: string; si
     const a = await prisma.administracion.create({ data: { nombre, sigla, notas: oNada(d.notas, 2000), orden }, select: { id: true } });
     await auditar(s, "administraciones.alta", a.id, true, nombre);
     return { ok: true, id: a.id };
+}
+
+/**
+ * Subir o bajar una administración en la lista (25/11). El orden es el de la columna de la derecha
+ * y el de todos los lugares donde aparecen juntas: la guardia las busca siempre en el mismo lugar,
+ * así que el orden lo decide quien administra, no el alfabeto. Se renumera todo de 1 en adelante
+ * para que dos con el mismo `orden` (las que se crearon a la vez) no queden trabadas.
+ */
+export async function moverAdministracion(id: string, hacia: "arriba" | "abajo"): Promise<{ ok: boolean }> {
+    const s = await sesion("usuarios.editar");
+    const todas = await prisma.administracion.findMany({ orderBy: [{ orden: "asc" }, { nombre: "asc" }], select: { id: true, nombre: true } });
+    const i = todas.findIndex((a) => a.id === id);
+    const j = hacia === "arriba" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= todas.length) return { ok: false };
+    [todas[i], todas[j]] = [todas[j], todas[i]];
+    await prisma.$transaction(todas.map((a, n) => prisma.administracion.update({ where: { id: a.id }, data: { orden: n + 1 } })));
+    await auditar(s, "administraciones.orden", id, true, `${todas[j].nombre} · ${hacia}`);
+    return { ok: true };
 }
 
 /** Sólo una administración vacía de lotes: con lotes adentro, borrarla los dejaría sin etapa. */
@@ -193,6 +222,8 @@ export type PersonaEnLote = {
 export type DetalleLote = {
     id: string; nombre: string; administracion: string | null; titular: string | null; situacion: string | null; edificio: string | null;
     puedeEditar: boolean; personas: PersonaEnLote[]; cambios: CambioVisto[];
+    /** Dónde está: «lat, lng» (para abrirlo en un mapa) y si tiene su punto en el croquis. */
+    coordenadas: string | null; enElPlano: boolean;
     /** Desde cuándo se lleva el historial: antes de esa fecha no hay nada que mostrar, y se dice. */
     auditadoDesde: string | null;
 };
@@ -203,7 +234,7 @@ const visto = (c: { id: string; unitId: string; cuando: Date; que: string; chapa
 export async function detalleLote(unitId: string): Promise<DetalleLote | null> {
     const s = await sesion("usuarios");
     const puedeEditar = permisosDeSesion(s).includes("usuarios.editar");
-    const u = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true, name: true, titular: true, situacion: true, edificio: true, administracion: { select: { nombre: true } } } });
+    const u = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true, name: true, titular: true, situacion: true, edificio: true, coordinates: true, planoX: true, administracion: { select: { nombre: true } } } });
     if (!u) return null;
     const [gente, cambios, desde] = await Promise.all([
         prisma.user.findMany({
@@ -217,7 +248,7 @@ export async function detalleLote(unitId: string): Promise<DetalleLote | null> {
     const deQuien = (g: { id: string; email: string | null }) => invs.find((i) => i.userId === g.id) || invs.find((i) => !i.userId && !!g.email && i.email === g.email.trim().toLowerCase()) || null;
     return {
         id: u.id, nombre: u.name, administracion: u.administracion?.nombre || null, titular: u.titular, situacion: u.situacion, edificio: u.edificio,
-        puedeEditar, auditadoDesde: desde?.value || null,
+        puedeEditar, auditadoDesde: desde?.value || null, coordenadas: u.coordinates?.trim() || null, enElPlano: u.planoX !== null,
         personas: gente.map((g) => {
             const i = deQuien(g);
             return {
