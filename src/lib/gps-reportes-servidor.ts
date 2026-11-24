@@ -52,16 +52,15 @@ export async function armarReporteGps(o: { imeis: string[] | null; desde: Date; 
     /* Sólo los dados de alta: uno que se presentó y nadie reconoció no es un vehículo de nadie. */
     const equipos = await prisma.gpsEquipo.findMany({
         where: { deviceId: { not: null }, NOT: { deviceId: DEVICE_DE_PRUEBA }, ...(o.imeis ? { imei: { in: o.imeis } } : {}) },
-        orderBy: { createdAt: "asc" }, take: VEHICULOS_MAX, select: { imei: true, nombre: true, deviceId: true, vehicleId: true },
+        orderBy: { createdAt: "asc" }, take: VEHICULOS_MAX, select: { imei: true, nombre: true, deviceId: true, matricula: true },
     });
-    const [devs, vehs, cercasCrudas, ajuste, horario] = await Promise.all([
+    const [devs, cercasCrudas, ajuste, horario] = await Promise.all([
         prisma.device.findMany({ where: { id: { in: equipos.map((e) => e.deviceId!) } }, select: { id: true, name: true } }),
-        prisma.vehicle.findMany({ where: { id: { in: equipos.map((e) => e.vehicleId).filter(Boolean) as string[] } }, select: { id: true, plate: true } }),
         prisma.gpsGeocerca.findMany({ orderBy: { createdAt: "asc" } }),
         prisma.setting.findUnique({ where: { key: LIMITE_GPS } }).catch(() => null),
         horarioLaboral(),
     ]);
-    const nombreDe = new Map(devs.map((d) => [d.id, d.name])), chapaDe = new Map(vehs.map((v) => [v.id, v.plate]));
+    const nombreDe = new Map(devs.map((d) => [d.id, d.name]));
     const cercas: CercaRep[] = cercasCrudas.map((g) => ({ id: g.id, nombre: g.nombre, lat: g.lat, lon: g.lon, radio: g.radio, puntos: puntosDe({ puntos: g.puntos }), imeis: g.imeis }));
     const limite = leerLimite(ajuste?.value);
 
@@ -73,7 +72,7 @@ export async function armarReporteGps(o: { imeis: string[] | null; desde: Date; 
             prisma.gpsPosicion.findMany({ where: { imei: e.imei, cuando: { gte: o.desde, lte: hasta } }, orderBy: { cuando: "asc" }, take: POSICIONES_POR_VEHICULO, select: { lat: true, lon: true, cuando: true, velocidad: true, rumbo: true, satelites: true, pobre: true, encendido: true } }),
             prisma.gpsEvento.findMany({ where: { imei: e.imei, cuando: { gte: o.desde, lte: hasta } }, orderBy: { cuando: "asc" }, take: EVENTOS_POR_VEHICULO, select: { tipo: true, cuando: true, detalle: true, lugar: true, prioridad: true, tarde: true, lat: true, lon: true } }),
         ]);
-        const v = { imei: e.imei, nombre: nombreDe.get(e.deviceId!) || e.nombre || `Rastreador ${e.imei.slice(-6)}`, matricula: (e.vehicleId && chapaDe.get(e.vehicleId)) || null };
+        const v = { imei: e.imei, nombre: nombreDe.get(e.deviceId!) || e.nombre || `Rastreador ${e.imei.slice(-6)}`, matricula: e.matricula || null };
         vehiculos.push(v);
         informe.sumar({
             ...v,

@@ -7,6 +7,7 @@ import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { atarVehiculoGps, cambiarPuertaGps, comandoGps, darDeAltaGps, descartarGps, diagnosticoGps, puertaGps, renombrarGps, type DiagnosticoGps, type Rastreador } from "@/app/actions/gps";
+import { limpiarMatricula } from "@/lib/gps-matricula";
 import { ReportesGps, type InicioDeReportes } from "@/components/mapa/ReportesGps";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { Pista } from "@/components/ui/pista";
@@ -187,9 +188,11 @@ function Fila({ r, d, alCambiar, alReportes }: { r: Rastreador; d?: DiagnosticoG
     const atar = async () => {
         setTrabajando(true);
         try {
+            /* La matrícula es del rastreador (24/11): no hace falta que esté en el padrón, y esta pantalla ya no
+               manda a nadie a cargarla allá. Si no está, se dice, porque cambia qué se sabe del vehículo, no si anda. */
             const x = await atarVehiculoGps(r.imei, chapa);
-            if (!x.ok) toast.error({ title: "No se pudo atar", description: x.error });
-            else { toast.success({ title: chapa ? "Atado al vehículo" : "Desatado" }); alCambiar(); }
+            if (!x.ok) toast.error({ title: "No se pudo guardar la matrícula", description: x.error });
+            else { toast.success({ title: chapa ? "Matrícula guardada" : "Matrícula quitada", description: chapa && !x.enPadron ? "No está en el padrón de vehículos. Para rastrearlo no hace falta." : undefined }); setChapa(limpiarMatricula(chapa)); alCambiar(); }
         } finally { setTrabajando(false); }
     };
 
@@ -224,9 +227,9 @@ function Fila({ r, d, alCambiar, alReportes }: { r: Rastreador; d?: DiagnosticoG
                     <div className="flex items-center gap-1.5">
                         <input value={chapa} onChange={(e) => setChapa(e.target.value.toUpperCase())} placeholder="Matrícula" aria-label="Matrícula del vehículo"
                             className="h-7 w-[92px] px-2 rounded-[6px] border border-border bg-background text-[12px] font-semibold tabular-nums" />
-                        {chapa !== (r.matricula || "") && (
+                        {limpiarMatricula(chapa) !== (r.matricula || "") && (
                             <Button variant="outline" size="sm" className="h-7 px-2 text-[11.5px]" disabled={trabajando} onClick={atar}>
-                                {trabajando ? <Loader2 size={12} className="animate-spin" /> : chapa ? "Atar" : "Desatar"}
+                                {trabajando ? <Loader2 size={12} className="animate-spin" /> : chapa ? "Guardar" : "Quitar"}
                             </Button>
                         )}
                     </div>

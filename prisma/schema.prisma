@@ -2169,9 +2169,14 @@ model GpsEquipo {
   nombre       String?
   /// El Device de tipo GPS que lo representa en el arbol de equipos, si lo dieron de alta.
   deviceId     String?
-  /// El vehiculo del padron que lleva este rastreador. Sin relacion a proposito: borrar el
-  /// vehiculo no borra por donde anduvo.
+  /// El vehiculo del padron que lleva este rastreador, SI esa matricula esta en el padron. Sin
+  /// relacion a proposito: borrar el vehiculo no borra por donde anduvo.
   vehicleId    String?
+  /// La matricula del vehiculo que lo lleva, sin espacios y en mayusculas. Es del rastreador: no
+  /// hace falta que este en el padron (ahi un vehiculo es siempre de una persona, y una camioneta
+  /// de la empresa no es de ningun residente). De aca la leen el mapa, los reportes y el cruce con
+  /// las camaras.
+  matricula    String?
   protocolo    String    @default("GT06")
   lat          Float?
   lon          Float?

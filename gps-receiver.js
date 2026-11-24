@@ -249,12 +249,11 @@ async function alEvento(imei, tipo, p, detalle, extra, cuandoEquipo) {
            guardaba, pero sin regla no salía ningún aviso y el mapa no mostraba nada.) */
         const nombre = e.nombre || `Rastreador ${imei.slice(-6)}`;
         emitir("gps_evento", { id: fila.id, imei, tipo, rotulo: evs.ROTULO[tipo] || tipo, detalle: detalle || "", nombre, lat, lon, cuando: cuando.toISOString(), tarde, prioridad, lugar, ...(extra || {}) });
-        const veh = e.vehicleId ? await prisma.vehicle.findUnique({ where: { id: e.vehicleId }, select: { plate: true } }).catch(() => null) : null;
         const punto = lat != null && lon != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : "";
         const dicho = [detalle, lugar, tarde ? `pasó a las ${horaLocal(cuando)}, llegó ${minutosDe(tarde)} tarde` : null].filter(Boolean).join(" · ");
         avisarPorReglas({
             modulo: "GPS", evento: tipo, deviceId: e.deviceId, deviceName: nombre,
-            plate: veh ? veh.plate : null,
+            plate: e.matricula || null,
             extra: { detalle: dicho, lugar: punto, mapa: punto ? `https://maps.google.com/?q=${lat},${lon}` : "", imei, gpsEventoId: fila.id },
         });
     } catch (err) { log(imei, "error guardando el evento:", err.message); }
@@ -278,10 +277,10 @@ const cruceAvisado = new Map();      // `${imei}|${deviceId}` → cuándo se avi
 async function revisarLecturas() {
     const hasta = new Date(Date.now() - CRUCE_ESPERA_MS);
     if (hasta <= cruceDesde) return;
-    const equipos = await prisma.gpsEquipo.findMany({ where: { deviceId: { not: null }, vehicleId: { not: null }, NOT: { deviceId: evs.DEVICE_DE_PRUEBA } }, select: { imei: true, vehicleId: true, ultimoLatido: true, sinReporteDesde: true } });
+    const equipos = await prisma.gpsEquipo.findMany({ where: { deviceId: { not: null }, matricula: { not: null }, NOT: { deviceId: evs.DEVICE_DE_PRUEBA } }, select: { imei: true, matricula: true, ultimoLatido: true, sinReporteDesde: true } });
     if (!equipos.length) { cruceDesde = hasta; return; }
-    const vehiculos = await prisma.vehicle.findMany({ where: { id: { in: equipos.map((e) => e.vehicleId) } }, select: { id: true, plate: true } });
-    const equipoDe = new Map(vehiculos.map((v) => [v.plate.toUpperCase().replace(/[^A-Z0-9]/g, ""), equipos.find((e) => e.vehicleId === v.id)]));
+    /* La matrícula es del rastreador (24/11): ya no hace falta que el vehículo esté en el padrón para cruzarlo. */
+    const equipoDe = new Map(equipos.map((e) => [e.matricula.toUpperCase().replace(/[^A-Z0-9]/g, ""), e]));
     if (!equipoDe.size) { cruceDesde = hasta; return; }
     const lecturas = await prisma.accessEvent.findMany({
         where: { timestamp: { gt: cruceDesde, lte: hasta }, plateDetected: { in: [...equipoDe.keys()] }, deviceId: { not: null } },

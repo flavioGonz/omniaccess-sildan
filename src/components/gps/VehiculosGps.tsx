@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronRight, FileSpreadsheet, History, Loader2, MapPin, Radio, Satellite, Share2, TerminalSquare } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { atarVehiculoGps, cambiarIconoGps, guardarTanqueGps, renombrarGps, tanqueLlenoGps, type Rastreador } from "@/app/actions/gps";
+import { limpiarMatricula } from "@/lib/gps-matricula";
 import { Button } from "@/components/ui/button";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Vacio } from "@/components/ui/estados";
@@ -294,7 +295,7 @@ function Ficha({ r, puede, alCambiar, alIr }: { r: Rastreador; puede: (que: QueG
     );
 }
 
-/** Cómo se llama, qué vehículo del padrón es y con qué dibujo se lo ve. */
+/** Cómo se llama, qué matrícula lleva y con qué dibujo se lo ve. */
 function Datos({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
     const [nombre, setNombre] = useState(r.nombre || "");
     const [chapa, setChapa] = useState(r.matricula || "");
@@ -303,13 +304,14 @@ function Datos({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
     const [error, setError] = useState<string | null>(null);
     /* Si otro lo cambió mientras la ficha estaba abierta y acá no se tocó nada, se muestra lo nuevo. */
     useEffect(() => { setIcono(r.icono || "auto"); }, [r.icono]);
-    const cambio = nombre.trim() !== (r.nombre || "") || chapa.trim().toUpperCase() !== (r.matricula || "");
+    /* Se compara como se guarda: «SC J8731» y «SCJ8731» son la misma, y no tiene que ofrecer guardar. */
+    const cambio = nombre.trim() !== (r.nombre || "") || limpiarMatricula(chapa) !== (r.matricula || "");
 
     const guardar = async () => {
         setGuardando(true); setError(null);
         try {
             if (nombre.trim() !== (r.nombre || "")) { const x = await renombrarGps(r.imei, nombre); if (!x.ok) { setError(x.error || "No se pudo cambiar el nombre."); return; } }
-            if (chapa.trim().toUpperCase() !== (r.matricula || "")) { const x = await atarVehiculoGps(r.imei, chapa.trim().toUpperCase()); if (!x.ok) { setError(x.error || "No se pudo atar a ese vehículo."); return; } }
+            if (limpiarMatricula(chapa) !== (r.matricula || "")) { const x = await atarVehiculoGps(r.imei, chapa); if (!x.ok) { setError(x.error || "No se pudo guardar la matrícula."); return; } }
             toast.success({ title: "Guardado" }); alCambiar();
         } catch (e) { setError(e instanceof Error ? e.message : "No se pudo guardar."); }
         finally { setGuardando(false); }
@@ -329,8 +331,13 @@ function Datos({ r, alCambiar }: { r: Rastreador; alCambiar: () => void }) {
                 </label>
                 <label className="block">
                     <span className="mb-1.5 block text-[12.5px] font-semibold">Matrícula del vehículo</span>
-                    <input value={chapa} onChange={(e) => setChapa(e.target.value.toUpperCase())} maxLength={12} autoCapitalize="characters" autoCorrect="off" spellCheck={false} placeholder="La de un vehículo del padrón" className={cn(CAMPO, "tabular-nums")} />
-                    <span className="mt-1.5 block text-[11.5px] leading-snug text-muted-foreground">Atarlo a su matrícula es lo que permite cruzar lo que dice el GPS con lo que leen las cámaras. Vacía, lo desata.</span>
+                    <input value={chapa} onChange={(e) => setChapa(e.target.value.toUpperCase())} maxLength={12} autoCapitalize="characters" autoCorrect="off" spellCheck={false} placeholder="Ej. SCJ 8731" className={cn(CAMPO, "tabular-nums")} />
+                    {/* No hace falta que esté en el padrón (24/11): ahí un vehículo es siempre de una persona, y una
+                        camioneta de la empresa no es de ningún residente. Si además está, se dice. */}
+                    <span className="mt-1.5 block text-[11.5px] leading-snug text-muted-foreground">
+                        Con la matrícula sale en los reportes y se cruza lo que dice el GPS con lo que leen las cámaras. No hace falta cargarlo en el padrón de vehículos.
+                        {r.matricula && limpiarMatricula(chapa) === r.matricula && <> {r.enPadron ? "Esta matrícula además está en el padrón." : "Esta matrícula no está en el padrón."}</>}
+                    </span>
                 </label>
                 {error && <p className="tono-mal text-[12.5px] font-semibold" role="alert">{error}</p>}
                 {cambio && <Button onClick={guardar} disabled={guardando} className="h-11 w-full text-[14px] sm:h-9 sm:w-auto sm:text-[13px]">{guardando && <Loader2 size={15} className="animate-spin" />} Guardar</Button>}

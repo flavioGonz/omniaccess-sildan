@@ -120,10 +120,8 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
         // Los eventos de rastreadores que abren un caso: los que el receptor guardó con prioridad.
         prisma.gpsEvento.findMany({ where: { cuando: { gte: desde }, prioridad: { not: null } }, orderBy: { cuando: "desc" }, take: MAX_POR_FUENTE }).catch(() => []),
     ]);
-    const gpsEquipos = gpsEvs.length ? await prisma.gpsEquipo.findMany({ where: { imei: { in: [...new Set(gpsEvs.map((g) => g.imei))] } }, select: { imei: true, nombre: true, deviceId: true, vehicleId: true } }).catch(() => []) : [];
-    const gpsVehs = gpsEquipos.some((e) => e.vehicleId) ? await prisma.vehicle.findMany({ where: { id: { in: gpsEquipos.map((e) => e.vehicleId).filter(Boolean) as string[] } }, select: { id: true, plate: true } }).catch(() => []) : [];
+    const gpsEquipos = gpsEvs.length ? await prisma.gpsEquipo.findMany({ where: { imei: { in: [...new Set(gpsEvs.map((g) => g.imei))] } }, select: { imei: true, nombre: true, deviceId: true, matricula: true } }).catch(() => []) : [];
     const gpsDe = new Map(gpsEquipos.map((e) => [e.imei, e]));
-    const chapaGps = new Map(gpsVehs.map((v) => [v.id, v.plate]));
     const vig = new Map(vigiladas.map((v) => [normalizarMatricula(v.plate), v]));
     const chapas = [...vig.keys()].filter(Boolean) as string[];
     const lecturas = chapas.length ? await prisma.accessEvent.findMany({
@@ -248,7 +246,7 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
             id: `g:${g.id}`, fuente: "gps", tipo: g.tipo, titulo,
             detalle: [resto, g.lugar, demora ? `llegó ${demora} tarde` : null].filter(Boolean).join(" · ") || null,
             ts: g.cuando.toISOString(), camara: eq.nombre || `Rastreador ${g.imei.slice(-6)}`, deviceId: eq.deviceId,
-            plate: (eq.vehicleId && chapaGps.get(eq.vehicleId)) || null, prioridad: g.prioridad,
+            plate: eq.matricula || null, prioridad: g.prioridad,
             foto: null, tono: fichaDeEventoGps(g.tipo).tono === "mal" ? "mal" : "aviso",
             estado: at?.atendida ? "atendida" : "pendiente", atendidaPor: at?.atendida ? at.por || null : null, atendidaAt: at?.atendida ? at.ts.toISOString() : null,
             resultado: at?.resultado || null, accessEventId: null,

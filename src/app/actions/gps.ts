@@ -24,6 +24,7 @@ import { AJUSTE_GEO, direccionesDe, olvidarServicio, probarServicio, servicioDeD
 import { claveDeLugar } from "@/lib/direccion-texto";
 import { estadoOmniGeo, fraseDeFase, prenderOmniGeo, URL_GEO, type FaseGeo } from "@/lib/omni-geo";
 import { funcionActiva } from "@/app/actions/funciones";
+import { leerMatriculaGps } from "@/lib/gps-matricula";
 
 /**
  * Los rastreadores GPS que se presentaron en gps-receiver.js, para la pantalla de Dispositivos.
@@ -51,6 +52,8 @@ export type Rastreador = {
     /** El Device que lo representa, si alguien lo dio de alta. */
     deviceId: string | null;
     matricula: string | null;
+    /** Esa matrícula además está en el padrón de vehículos. No hace falta para rastrearlo. */
+    enPadron: boolean;
     enLinea: boolean;
     ultimoLatido: string | null;
     /** La última posición CON satélites. Puede ser vieja: `cuando` dice de cuándo. */
@@ -111,10 +114,11 @@ export async function rastreadoresGps(): Promise<Rastreador[]> {
        número pasó al diagnóstico, que se pide cada tanto (diagnosticoGps). */
     const [devs, vehs] = await Promise.all([
         prisma.device.findMany({ where: { id: { in: equipos.map((e) => e.deviceId).filter(Boolean) as string[] } }, select: { id: true, name: true } }),
-        prisma.vehicle.findMany({ where: { id: { in: equipos.map((e) => e.vehicleId).filter(Boolean) as string[] } }, select: { id: true, plate: true } }),
+        /* La matrícula es del rastreador; al padrón sólo se le pregunta si además está ahí. */
+        prisma.vehicle.findMany({ where: { plate: { in: equipos.map((e) => e.matricula).filter(Boolean) as string[] } }, select: { plate: true } }),
     ]);
     const nombreDe = new Map(devs.map((d) => [d.id, d.name]));
-    const chapaDe = new Map(vehs.map((v) => [v.id, v.plate]));
+    const enPadron = new Set(vehs.map((v) => v.plate));
     const ahora = Date.now();
     /* La dirección de cada uno. Casi siempre sale de lo guardado; las preguntas nuevas tienen tope
        para que la lista —que se pide cada quince segundos— no espere nunca a nadie. */
@@ -125,7 +129,7 @@ export async function rastreadoresGps(): Promise<Rastreador[]> {
         const vivo = e.deviceId && nombreDe.has(e.deviceId) ? e.deviceId : null;
         return {
             imei: e.imei, nombre: (vivo && nombreDe.get(vivo)) || e.nombre, deviceId: vivo,
-            matricula: (e.vehicleId && chapaDe.get(e.vehicleId)) || null,
+            matricula: e.matricula || null, enPadron: !!e.matricula && enPadron.has(e.matricula),
             enLinea: !!e.ultimoLatido && ahora - e.ultimoLatido.getTime() < EN_LINEA_MS,
             ultimoLatido: e.ultimoLatido?.toISOString() || null,
             lat: e.lat, lon: e.lon, cuando: e.cuando?.toISOString() || null,
@@ -172,16 +176,32 @@ export async function renombrarGps(imei: string, nombre: string): Promise<{ ok: 
     return { ok: true };
 }
 
-/** Ata el rastreador a un vehículo del padrón por su matrícula (vacía = lo desata). */
-export async function atarVehiculoGps(imei: string, matricula: string): Promise<{ ok: boolean; error?: string }> {
+/**
+ * Le pone al rastreador la matrícula del vehículo que lo lleva (vacía = se la saca).
+ *
+ * No hace falta que la matrícula esté en el padrón (lib/gps-matricula dice por qué). Si está, queda
+ * además atado a ese vehículo, y `enPadron` lo cuenta para que la pantalla lo diga.
+ *
+ * Una matrícula la lleva un solo rastreador: el cruce con las cámaras busca «el rastreador de esta
+ * chapa», y con dos no sabría contra cuál comparar. Casi siempre es un error de tipeo o un equipo
+ * que se cambió y quedó el viejo con la matrícula; el mensaje dice cuál la tiene.
+ */
+export async function atarVehiculoGps(imei: string, matricula: string): Promise<{ ok: boolean; error?: string; enPadron?: boolean }> {
     const s = await sesion("config");
-    const chapa = matricula.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
-    if (!chapa) { await prisma.gpsEquipo.update({ where: { imei }, data: { vehicleId: null } }); return { ok: true }; }
+    const leida = leerMatriculaGps(matricula);
+    if ("error" in leida) return { ok: false, error: leida.error };
+    const chapa = leida.chapa;
+    if (!chapa) {
+        await prisma.gpsEquipo.update({ where: { imei }, data: { matricula: null, vehicleId: null } });
+        await auditar(s, "equipos.gps.vehiculo", imei, true, `IMEI ${imei} → sin matrícula`);
+        return { ok: true };
+    }
+    const otro = await prisma.gpsEquipo.findFirst({ where: { matricula: chapa, imei: { not: imei } }, select: { imei: true, nombre: true } });
+    if (otro) return { ok: false, error: `La matrícula ${chapa} ya la lleva otro rastreador: ${otro.nombre || `el que termina en ${otro.imei.slice(-6)}`}. Sacásela a ese primero.` };
     const v = await prisma.vehicle.findUnique({ where: { plate: chapa }, select: { id: true } });
-    if (!v) return { ok: false, error: `No hay ningún vehículo con la matrícula ${chapa} en el padrón.` };
-    await prisma.gpsEquipo.update({ where: { imei }, data: { vehicleId: v.id } });
-    await auditar(s, "equipos.gps.vehiculo", imei, true, `IMEI ${imei} → ${chapa}`);
-    return { ok: true };
+    await prisma.gpsEquipo.update({ where: { imei }, data: { matricula: chapa, vehicleId: v?.id ?? null } });
+    await auditar(s, "equipos.gps.vehiculo", imei, true, `IMEI ${imei} → ${chapa}${v ? "" : " (no está en el padrón)"}`);
+    return { ok: true, enPadron: !!v };
 }
 
 /** `rumbo`, `sat` y `enc` son lo demás que reportó el equipo en ese punto: se ven al recorrer el trayecto. */
