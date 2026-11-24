@@ -23,6 +23,16 @@ const R = require("./lib-rostros");
 
 /** Cada cuánto, como mucho, se le pide a go2rtc un cuadro del stream principal para una misma pista. */
 const HD_CADA_MS = 3000;
+/**
+ * El otro cuadro principal: el de cuando la persona está MÁS CERCA (24/11). El de arriba se pide
+ * cuando la detección de la persona gana confianza, y eso no dice nada de la cara: medido en el lab
+ * del 17 al 24/11, en el portero la mitad de las caras medía menos de 78 px en ese cuadro y el 55 %
+ * de las pasadas quedó sin comparar por cara chica. Quien camina hacia un portero tiene la cara más
+ * grande justo antes de llegar, y ese momento no coincide con el de más confianza. Se pide otro
+ * cuadro cada vez que la caja de la persona crece esto en área, como mucho uno por `CERCA_CADA_MS`.
+ */
+const CRECE_PARA_CERCA = 1.3;
+const CERCA_CADA_MS = 1000;
 /** Cuánto se agranda la caja de la persona al recortarla: la cabeza suele quedar al borde, y el cuadro principal llega un instante después. */
 const MARGEN_PERSONA = 0.35;
 /** Cuánto aire se deja alrededor de la cara en el recorte que se guarda y se enrola. */
@@ -39,7 +49,7 @@ const MOTOR_MS = 12_000;
 const LOTE = 200;
 
 function crear({ prisma, log, bajar, subir, borrar, emitir, sharp, go2rtc }) {
-    const contadores = { miradas: 0, sinRostro: 0, sinCalidad: 0, nuevas: 0, sumadas: 0, padron: 0, conHd: 0, conAire: 0, errores: 0, ultimoError: null };
+    const contadores = { miradas: 0, sinRostro: 0, sinCalidad: 0, nuevas: 0, sumadas: 0, padron: 0, conHd: 0, conCerca: 0, conAire: 0, errores: 0, ultimoError: null };
     const falla = (e) => { contadores.errores++; contadores.ultimoError = String(e?.message || e).slice(0, 200); };
 
     /** ¿Esta pista es de una persona en una cámara donde se miran caras? */
@@ -53,12 +63,35 @@ function crear({ prisma, log, bajar, subir, borrar, emitir, sharp, go2rtc }) {
     async function cuadroPrincipal(cam, p, o, ajustes) {
         if (!aplica(p, ajustes) || Date.now() - (p.hdCaraT || 0) < HD_CADA_MS) return;
         p.hdCaraT = Date.now();
+        const b = await pedirPrincipal(cam);
+        if (b) p.hdCara = { jpeg: b, caja: o.caja_norm };
+    }
+
+    /** Un cuadro del stream principal, o null si la cámara no lo entregó a tiempo. */
+    async function pedirPrincipal(cam) {
         try {
             const r = await fetch(`${go2rtc}/api/frame.jpeg?src=${encodeURIComponent(`lpr_${cam.id}_hd`)}`, { signal: AbortSignal.timeout(6000) });
-            if (!r.ok) return;
+            if (!r.ok) return null;
             const b = Buffer.from(await r.arrayBuffer());
-            if (b.length > 1000) p.hdCara = { jpeg: b, caja: o.caja_norm };
-        } catch { /* la cámara no entregó el principal a tiempo */ }
+            return b.length > 1000 ? b : null;
+        } catch { return null; }
+    }
+
+    /**
+     * Se llama en CADA cuadro de la pista (es una cuenta, no una red, salvo cuando crece): guarda el
+     * cuadro principal del momento en que la persona está más cerca. Ver `CRECE_PARA_CERCA`.
+     */
+    function cuadroMasCerca(cam, p, o, ajustes) {
+        if (!aplica(p, ajustes) || !Array.isArray(o.caja_norm) || p.hdCercaPidiendo) return;
+        const [x1, y1, x2, y2] = o.caja_norm;
+        const area = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+        if (area < (p.hdCercaArea || 0) * CRECE_PARA_CERCA || Date.now() - (p.hdCercaT || 0) < CERCA_CADA_MS) return;
+        p.hdCercaT = Date.now(); p.hdCercaPidiendo = true;
+        /* Sin await: corre en cada cuadro de la pista, y una cámara que tarda en entregar el principal
+           no puede frenar el seguimiento de todas las demás. Uno por vez por pista. */
+        const caja = o.caja_norm;
+        pedirPrincipal(cam).then((b) => { if (b && !p.cerrada) { p.hdCerca = { jpeg: b, caja }; p.hdCercaArea = area; } })
+            .finally(() => { p.hdCercaPidiendo = false; });
     }
 
     /**
@@ -172,12 +205,25 @@ function crear({ prisma, log, bajar, subir, borrar, emitir, sharp, go2rtc }) {
      */
     async function reconocer(p, ajustes) {
         if (!aplica(p, ajustes)) return;
-        const hd = p.hdCara; p.hdCara = null;
+        const cerca = p.hdCerca, porConfianza = p.hdCara;
+        p.hdCara = null; p.hdCerca = null; p.cerrada = true;
         try {
             contadores.miradas++;
-            // Primero el cuadro principal; si ahí no hay cara (llegó tarde, la persona ya giró), el chico.
-            let rec = null, cara = null, conHd = false;
-            if (hd) { rec = await recortePersona(hd.jpeg, hd.caja); cara = await mirar(ajustes, rec.jpeg); conHd = !!cara; }
+            /*
+             * Primero los cuadros principales: el de la persona más cerca y, si en ése la cara no
+             * alcanza (la persona ya bajaba la cabeza, o se dio vuelta), el de más confianza. Se queda
+             * la cara más grande de los dos. Sin cara en ninguno, el cuadro chico de la pista.
+             */
+            const UMBRAL_PX = R.umbrales({ pxMin: ajustes.facePxMin }).pxMin;
+            let rec = null, cara = null, hd = null;
+            for (const c of [cerca, porConfianza]) {
+                if (!c || (cara && cara.px >= UMBRAL_PX)) continue;
+                const r = await recortePersona(c.jpeg, c.caja);
+                const k = await mirar(ajustes, r.jpeg);
+                if (k && (!cara || k.px > cara.px)) { rec = r; cara = k; hd = c; }
+            }
+            const conHd = !!cara;
+            if (conHd && hd === cerca) contadores.conCerca++;
             if (!cara) { rec = await recortePersona(await bajar(p.foto), p.caja); cara = await mirar(ajustes, rec.jpeg); }
             if (!cara) { contadores.sinRostro++; return; } // sin cara a la vista no es un acceso FACE
             const jpeg = rec.jpeg;
@@ -299,7 +345,7 @@ function crear({ prisma, log, bajar, subir, borrar, emitir, sharp, go2rtc }) {
         }
     }
 
-    return { contadores, aplica, cuadroPrincipal, reconocer, limpiar };
+    return { contadores, aplica, cuadroPrincipal, cuadroMasCerca, reconocer, limpiar };
 }
 
-module.exports = { crear, HD_CADA_MS, MISMA_PASADA_MS };
+module.exports = { crear, HD_CADA_MS, CRECE_PARA_CERCA, CERCA_CADA_MS, MISMA_PASADA_MS };

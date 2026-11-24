@@ -416,6 +416,7 @@ async function abrir(cam, o, jpeg, r, ahora) {
     abiertas.set(`${cam.id}:${o.pista}`, p);
     await cuadroParaRotulo(cam, p, o);
     await rostrero?.cuadroPrincipal(cam, p, o, ajustes);
+    rostrero?.cuadroMasCerca(cam, p, o, ajustes);
     contadores.abiertas++;
 }
 
@@ -433,6 +434,8 @@ async function seguir(p, o, jpeg, r, ahora) {
         await cuadroParaRotulo({ id: p.deviceId }, p, o);
         await rostrero?.cuadroPrincipal({ id: p.deviceId }, p, o, ajustes);
     }
+    // La cara se mira mejor de cerca, y estar más cerca no es tener más confianza: va aparte (vision-rostros).
+    rostrero?.cuadroMasCerca({ id: p.deviceId }, p, o, ajustes);
     if (mejoro || Date.now() - p.escrita > REFRESCO_PISTA_MS) {
         await prisma.objetoVisto.update({ where: { id: p.id }, data: fila(p) });
         p.escrita = Date.now();
@@ -532,7 +535,7 @@ async function cerrar(clave, p) {
     contadores.cerradas++;
     // Modo face: una vez por pista, sin await (nunca bloquea el cierre ni el camino de matrículas).
     if (rostrero) rostrero.reconocer(p, ajustes).catch(() => { });
-    else p.hdCara = null;
+    else { p.hdCara = null; p.hdCerca = null; }
 }
 
 const round = (v) => Math.round(v * 10000) / 10000;
