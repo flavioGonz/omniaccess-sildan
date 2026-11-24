@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { auditarLotes } from "@/lib/lote-auditoria";
 import { nuevaClave } from "@/lib/censo-invitaciones";
-import { codigoDeNombreViejo, compartenNombre, leerPadron, mismoNombre, nombresCompatibles, type Padron } from "@/lib/padron-planilla";
+import { codigoDeNombreViejo, compartenNombre, leerPadron, leerPadronDeLotes, mismoNombre, nombresCompatibles, type Padron } from "@/lib/padron-planilla";
 
 /**
  * Llevar la planilla del padrón a la base (21/11, Nico: «tomar esa info y crear los lotes,
@@ -36,11 +36,23 @@ export type InformePadron = {
     /** Lo que la base tiene y la planilla no: se informa, no se toca. */
     fueraDeLaPlanilla: { lotes: string[]; invitaciones: number };
     porAdministracion: { sigla: string; nombre: string; lotes: number; terrenos: number; conPersonas: number; personas: number }[];
+    /** Sólo con una planilla validada: lo que se corrigió para que la base diga lo mismo que ella. */
+    correcciones: {
+        nombres: number; principales: number;
+        /** Vínculos persona–lote que la planilla ya no tiene, de gente que cargó el padrón: se quitaron. */
+        vinculosQuitados: number; lotesConBajas: string[];
+        /** Los mismos, de gente cargada a mano en el panel: se informan y quedan. */
+        vinculosAMano: number;
+        /** Personas que cargó el padrón y que la planilla ya no nombra: quedan, sin lote. */
+        sinLote: number;
+        /** Invitaciones de correos que la planilla ya no tiene. Sin enviar: se quitan (si no, el envío del censo les escribiría). Enviadas: quedan. */
+        invitacionesQuitadas: number; invitacionesYaEnviadas: number;
+    } | null;
     avisos: string[];
 };
 
 /** Las dos hojas que valen, como listas de filas. Se buscan por nombre; el orden de las hojas cambia entre versiones. */
-export async function hojasDelPadron(buf: Buffer | ArrayBuffer): Promise<{ lotes: unknown[][]; envios: unknown[][]; hojas: string[] }> {
+export async function hojasDelPadron(buf: Buffer | ArrayBuffer): Promise<{ lotes: unknown[][]; envios: unknown[][]; unica: unknown[][]; hojas: string[] }> {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as ArrayBuffer);
     const filasDe = (hoja: ExcelJS.Worksheet | undefined): unknown[][] => {
@@ -53,11 +65,13 @@ export async function hojasDelPadron(buf: Buffer | ArrayBuffer): Promise<{ lotes
         return out;
     };
     const por = (re: RegExp) => wb.worksheets.find((h) => re.test(h.name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()));
-    return { lotes: filasDe(por(/^buscar lote/)), envios: filasDe(por(/^envio de codigos/)), hojas: wb.worksheets.map((h) => h.name) };
+    return { lotes: filasDe(por(/^buscar lote/)), envios: filasDe(por(/^envio de codigos/)), unica: filasDe(por(/^lotes$/)), hojas: wb.worksheets.map((h) => h.name) };
 }
 
 export async function importarPadronDesdeLibro(buf: Buffer | ArrayBuffer, o: { simulacro: boolean; quien: string }): Promise<InformePadron> {
     const h = await hojasDelPadron(buf);
+    /* La planilla auditada del 24/11 viene en una sola hoja, «Lotes», con la gente adentro de cada lote. */
+    if (h.unica.length && !h.lotes.length) return importarPadron(leerPadronDeLotes(h.unica), o);
     return importarPadron(leerPadron(h), o);
 }
 
@@ -80,8 +94,10 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
         invitaciones: { nuevas: 0, actualizadas: 0, iguales: 0 },
         fueraDeLaPlanilla: { lotes: [], invitaciones: 0 },
         porAdministracion: [],
+        correcciones: padron.validada ? { nombres: 0, principales: 0, vinculosQuitados: 0, lotesConBajas: [], vinculosAMano: 0, sinLote: 0, invitacionesQuitadas: 0, invitacionesYaEnviadas: 0 } : null,
         avisos: [...padron.avisos],
     };
+    const corr = inf.correcciones;
 
     // ── Las administraciones ──
     const admins = await prisma.administracion.findMany();
@@ -135,7 +151,9 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
     for (const l of padron.lotes) {
         const clave = `${l.sigla}|${l.codigo}`;
         const administracionId = adminDe.get(l.sigla)!;
-        const datos = { name: l.nombre, lot: l.codigo, administracionId, manzana: l.manzana, solar: l.solar, subunidad: l.subunidad, edificio: l.edificio, areaM2: l.areaM2, titular: l.titular, situacion: l.situacion };
+        /* Sólo lo que la planilla trae: lo `undefined` (columna que esta planilla no tiene) no se toca. */
+        const todo = { name: l.nombre, lot: l.codigo, administracionId, manzana: l.manzana, solar: l.solar, subunidad: l.subunidad, edificio: l.edificio, areaM2: l.areaM2, titular: l.titular, situacion: l.situacion };
+        const datos = Object.fromEntries(Object.entries(todo).filter(([, v]) => v !== undefined)) as Partial<typeof todo> & { name: string; lot: string; administracionId: string };
         const u = ya.get(clave) || adoptar.get(clave);
         if (!u) {
             inf.lotes.nuevos++;
@@ -153,7 +171,11 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
     inf.fueraDeLaPlanilla.lotes = unidades.filter((u) => u.administracionId && u.lot && !enPlanilla.has(`${siglaDe.get(u.administracionId)}|${u.lot}`)).map((u) => u.name);
 
     // ── Las personas ──
-    const usuarios = await prisma.user.findMany({ select: { id: true, name: true, email: true, unitId: true, role: true } });
+    const usuarios = await prisma.user.findMany({ select: { id: true, name: true, email: true, unitId: true, role: true, createdBy: true } });
+    /** La cargó una planilla del padrón (y no una persona en el panel): una planilla validada la puede corregir. */
+    const delPadron = (x: { createdBy: string | null }) => /^padr[oó]n/i.test(x.createdBy || "");
+    const enLaPlanilla = new Set<string>();          // «userId|unitId» que la planilla nombra
+    const principalDe = new Map<string, string[]>(); // userId → sus lotes según la planilla
     const porCorreo = new Map(usuarios.filter((u) => u.email?.trim()).map((u) => [u.email!.trim().toLowerCase(), u]));
     const vinculosYa = new Map((await prisma.userUnidad.findMany({ select: { id: true, userId: true, unitId: true, vinculo: true } })).map((v) => [`${v.userId}|${v.unitId}`, v]));
     const invitaciones = new Map((await prisma.invitacionCenso.findMany({ where: { sitio: "" } })).map((i) => [i.email.toLowerCase(), i]));
@@ -186,7 +208,11 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
         if (u) {
             tomados.add(u.id); userId = u.id;
             inf.personas.reconocidas++;
-            const completar = { ...(!u.email?.trim() ? { email: p.email } : {}), ...(!u.unitId ? { unitId: suyos[0].unitId } : {}) };
+            /* Con una planilla validada, el nombre de quien cargó el padrón se corrige; el de alguien
+               cargado a mano en el panel, no. */
+            const corregirNombre = corr && delPadron(u) && p.nombre && !mismoNombre(u.name, p.nombre) ? { name: p.nombre } : {};
+            if (corregirNombre.name) corr!.nombres++;
+            const completar = { ...(!u.email?.trim() ? { email: p.email } : {}), ...(!u.unitId ? { unitId: suyos[0].unitId } : {}), ...corregirNombre };
             if (Object.keys(completar).length) { inf.personas.completadas++; if (escribir) await prisma.user.update({ where: { id: u.id }, data: completar }); }
         } else {
             inf.personas.nuevas++;
@@ -195,7 +221,9 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
                 : `simulacro:${p.email}`;
         }
 
+        principalDe.set(userId, suyos.map((v) => v.unitId));
         for (const v of suyos) {
+            enLaPlanilla.add(`${userId}|${v.unitId}`);
             const hay = vinculosYa.get(`${userId}|${v.unitId}`);
             if (!hay) { inf.vinculos.nuevos++; if (escribir) await prisma.userUnidad.create({ data: { userId, unitId: v.unitId, vinculo: v.vinculo } }); }
             else if (hay.vinculo !== v.vinculo) { inf.vinculos.cambiados++; if (escribir) await prisma.userUnidad.update({ where: { id: hay.id }, data: { vinculo: v.vinculo } }); }
@@ -221,6 +249,50 @@ export async function importarPadron(padron: Padron, o: { simulacro: boolean; qu
     }
     const correos = new Set(padron.personas.map((p) => p.email));
     inf.fueraDeLaPlanilla.invitaciones = [...invitaciones.keys()].filter((e) => !correos.has(e)).length;
+
+    /*
+     * ── Planilla validada: que la base diga lo mismo que ella (24/11) ──
+     *
+     * Nico: «esta planilla acaba de ser auditada y validada… estamos a punto de configurar el SMTP para
+     * enviar el censo a todos». Con una planilla de trabajo (la v8) lo que faltaba se informaba y no se
+     * tocaba. Con una auditada eso no alcanza: una invitación de alguien que vendió la casa saldría con
+     * el envío del censo. Se corrige SÓLO lo que cargó una planilla; lo cargado a mano se informa.
+     *   · Vínculo persona–lote que la planilla ya no tiene (de gente del padrón) → se quita.
+     *   · Su lote principal, si quedó apuntando a un lote que ya no es suyo → el primero de los suyos, o ninguno.
+     *   · Invitación de un correo que la planilla ya no tiene → sin enviar, se quita; enviada, queda.
+     * Las personas no se borran: quien ya no figura queda en el padrón, sin lote.
+     */
+    if (corr) {
+        const lotesPlanilla = new Set(padron.lotes.map((l) => unidadDe.get(`${l.sigla}|${l.codigo}`)).filter((x): x is string => !!x));
+        const porId = new Map(usuarios.map((x) => [x.id, x]));
+        const nombreLote = new Map(padron.lotes.map((l) => [unidadDe.get(`${l.sigla}|${l.codigo}`), l.nombre]));
+        const bajas = new Set<string>();
+        for (const v of vinculosYa.values()) {
+            if (!lotesPlanilla.has(v.unitId) || enLaPlanilla.has(`${v.userId}|${v.unitId}`)) continue;
+            const x = porId.get(v.userId);
+            if (!x || !delPadron(x)) { corr.vinculosAMano++; continue; }
+            corr.vinculosQuitados++;
+            bajas.add(nombreLote.get(v.unitId) || v.unitId);
+            if (escribir) await prisma.userUnidad.delete({ where: { id: v.id } }).catch(() => { });
+        }
+        corr.lotesConBajas = [...bajas].sort();
+        for (const x of usuarios) {
+            if (!delPadron(x)) continue;
+            const suyos = principalDe.get(x.id) || [];
+            if (!suyos.length) {
+                /* Ya no figura: queda en el padrón, sin lote si el que tenía era de la planilla. */
+                if (x.unitId && lotesPlanilla.has(x.unitId)) { corr.sinLote++; if (escribir) await prisma.user.update({ where: { id: x.id }, data: { unitId: null } }); }
+                continue;
+            }
+            if (x.unitId && lotesPlanilla.has(x.unitId) && !suyos.includes(x.unitId)) { corr.principales++; if (escribir) await prisma.user.update({ where: { id: x.id }, data: { unitId: suyos[0] } }); }
+        }
+        for (const [correo, inv] of invitaciones) {
+            if (correos.has(correo)) continue;
+            if (inv.enviadoAt || inv.usadoAt) { corr.invitacionesYaEnviadas++; continue; }
+            corr.invitacionesQuitadas++;
+            if (escribir) await prisma.invitacionCenso.delete({ where: { id: inv.id } }).catch(() => { });
+        }
+    }
 
     // ── El resumen por administración, de la planilla ──
     for (const a of padron.administraciones) {

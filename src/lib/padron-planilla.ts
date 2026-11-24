@@ -35,8 +35,9 @@ export type LotePlanilla = {
     codigo: string;
     /** Como se lo nombra en el sistema, sin ambigüedad: «A 2 (4-5)». */
     nombre: string;
-    manzana: string | null; solar: string | null; subunidad: string | null; edificio: string | null;
-    areaM2: number | null;
+    /* `undefined`: la planilla no trae esa columna y no se toca lo que haya (la del 24/11 no las trae). */
+    manzana: string | null | undefined; solar: string | null | undefined; subunidad: string | null | undefined; edificio: string | null | undefined;
+    areaM2: number | null | undefined;
     titular: string | null;
     situacion: Situacion;
     /** El estado como lo escribió la administración, tal cual. */
@@ -46,7 +47,9 @@ export type LotePlanilla = {
 export type VinculoPlanilla = { sigla: string; codigo: string; vinculo: Vinculo };
 export type PersonaPlanilla = { nombre: string; email: string; vinculos: VinculoPlanilla[]; observaciones: string | null };
 export type AdministracionPlanilla = { nombre: string; sigla: string; orden: number };
-export type Padron = { administraciones: AdministracionPlanilla[]; lotes: LotePlanilla[]; personas: PersonaPlanilla[]; avisos: string[] };
+export type Padron = { administraciones: AdministracionPlanilla[]; lotes: LotePlanilla[]; personas: PersonaPlanilla[]; avisos: string[];
+    /** Planilla auditada: lo que dice corrige lo cargado (padron-importar › `validada`). */
+    validada?: boolean };
 
 const texto = (v: unknown): string => String(v ?? "").replace(/\s+/g, " ").trim();
 const sinTildes = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -173,6 +176,73 @@ export function leerPadron(hojas: { lotes: unknown[][]; envios: unknown[][] }): 
         }
     }
     return { administraciones, lotes, personas, avisos };
+}
+
+/**
+ * La planilla auditada del 24/11 (`2026-11-24_San_Nicolas_Lotes.xlsx`): UNA hoja, «Lotes», un renglón
+ * por lote con todo adentro — etapa, lote, titular (gastos comunes), propietarios e inquilinos
+ * («Nombre — correo», uno por renglón de la celda), estado y observaciones. Reemplaza a las dos hojas
+ * de la v8: la gente sale de cada lote, no de una hoja de envíos aparte.
+ *
+ * Nico: «esta planilla acaba de ser auditada y validada». Por eso se lee distinto en dos cosas:
+ *   · `validada`: lo que dice manda (ver padron-importar › `validada`).
+ *   · Lo que esta planilla NO trae (manzana, solar, unidad, edificio, área) queda `undefined`, que
+ *     quiere decir «no sé», y el importador no lo toca. Con `null` habría borrado lo que la v8 cargó.
+ *
+ * «(a confirmar)» después de un correo es una nota de la administración: el correo se usa igual (el
+ * estado del lote dice «Recibe código») y queda en las observaciones de la persona y en los avisos.
+ */
+export function leerPadronDeLotes(filas: unknown[][]): Padron {
+    const avisos: string[] = [];
+    const lotes: LotePlanilla[] = [];
+    const administraciones: AdministracionPlanilla[] = [];
+    const porClave = new Map<string, LotePlanilla>();
+    const personas: PersonaPlanilla[] = [];
+    const porCorreo = new Map<string, PersonaPlanilla>();
+
+    const fl = (filas || []).filter((f) => Array.isArray(f) && f.some((c) => texto(c)));
+    if (fl.length < 2) return { administraciones, lotes, personas, avisos: ["La hoja «Lotes» está vacía."], validada: true };
+    const c = columnas(fl[0], { etapa: /^etapa/, lote: /^lote/, titular: /^titular/, propietarios: /^propietari/, inquilinos: /^inquilin/, estado: /^estado/, obs: /^observ/ });
+    if (c.etapa === undefined || c.lote === undefined) return { administraciones, lotes, personas, avisos: ["La hoja «Lotes» no tiene las columnas «Etapa» y «Lote»."], validada: true };
+
+    for (let i = 1; i < fl.length; i++) {
+        const f = fl[i];
+        const etapa = texto(f[c.etapa]), codigo = codigoDeLote(f[c.lote]);
+        if (!etapa || !codigo) { avisos.push(`Renglón ${i + 1}: falta la etapa o el lote.`); continue; }
+        const sigla = siglaDeEtapa(etapa);
+        /* «1, 2 y 3» → «Etapas 1, 2 y 3»; «6» → «6ª Etapa»: los nombres que ya tienen las administraciones. */
+        if (!administraciones.some((a) => a.sigla === sigla)) administraciones.push({ nombre: /\d.*\d/.test(etapa) ? `Etapas ${etapa}` : `${sigla} Etapa`, sigla, orden: 0 });
+        const clave = `${sigla}|${codigo}`;
+        if (porClave.has(clave)) { avisos.push(`Renglón ${i + 1}: ${nombreDeLote(codigo, sigla)} está dos veces; vale el primero.`); continue; }
+        const titular = texto(f[c.titular]) || null;
+        const estado = texto(f[c.estado]) || null;
+        const lote: LotePlanilla = {
+            etapa, sigla, codigo, nombre: nombreDeLote(codigo, sigla),
+            manzana: undefined, solar: undefined, subunidad: undefined, edificio: undefined, areaM2: undefined,
+            titular, situacion: situacionDe(estado || "", titular), estado, observaciones: texto(f[c.obs]) || null,
+        };
+        lotes.push(lote); porClave.set(clave, lote);
+
+        for (const [col, vinculo] of [[c.propietarios, "PROPIETARIO"], [c.inquilinos, "INQUILINO"]] as const) {
+            if (col === undefined) continue;
+            for (const linea of String(f[col] ?? "").split(/\n/).map((x) => x.trim()).filter(Boolean)) {
+                const correo = (linea.match(/[^\s@—]+@[^\s@—()]+/) || [])[0]?.toLowerCase() || "";
+                if (!correo || !correoSirve(correo)) { avisos.push(`${lote.nombre}: «${linea.split("—")[0].trim()}» no tiene un correo que sirva; no recibe código.`); continue; }
+                const nombre = texto(linea.split("—")[0]).replace(/[,;]$/, "");
+                const nota = /\((a confirmar[^)]*)\)/i.exec(linea)?.[1] || null;
+                if (nota) avisos.push(`${lote.nombre}: el correo de un ${vinculo === "INQUILINO" ? "inquilino" : "propietario"} figura «${nota}»; se usa igual (el lote recibe código).`);
+                let p = porCorreo.get(correo);
+                if (!p) { p = { nombre, email: correo, vinculos: [], observaciones: nota ? `Correo ${nota} (planilla del 24/11)` : null }; personas.push(p); porCorreo.set(correo, p); }
+                else if (!p.nombre && nombre) p.nombre = nombre;
+                /* Propietario e inquilino del mismo lote a la vez: vale propietario. */
+                const ya = p.vinculos.find((v) => v.sigla === sigla && v.codigo === codigo);
+                if (!ya) p.vinculos.push({ sigla, codigo, vinculo });
+                else if (vinculo === "PROPIETARIO") ya.vinculo = "PROPIETARIO";
+            }
+        }
+    }
+    administraciones.sort((a, b) => parseInt(a.sigla) - parseInt(b.sigla) || a.sigla.localeCompare(b.sigla)).forEach((a, i) => { a.orden = i + 1; });
+    return { administraciones, lotes, personas, avisos, validada: true };
 }
 
 /** Un nombre llevado a palabras comparables: sin tildes, sin signos, en minúsculas. */

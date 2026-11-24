@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { codigoDeNombreViejo, compartenNombre, leerPadron, mismoNombre, nombresCompatibles, siglaDeEtapa } from "@/lib/padron-planilla";
+import { codigoDeNombreViejo, compartenNombre, leerPadron, leerPadronDeLotes, mismoNombre, nombresCompatibles, siglaDeEtapa } from "@/lib/padron-planilla";
 
 /* Los datos de estas pruebas son inventados: la forma es la de la planilla de San Nicolás (v8),
    las personas no existen. */
@@ -115,4 +115,37 @@ test("el nombre de la administración no arrastra la versión del plano", () => 
     const p = leerPadron({ lotes: [CAB_LOTES, ["7ª Etapa (V11)", "D", "4", null, "D 4", null, 1200, "Raúl Terreno", null, null, 0, "OK", null]], envios: [] });
     assert.deepEqual(p.administraciones, [{ nombre: "7ª Etapa", sigla: "7ª", orden: 1 }]);
     assert.equal(p.lotes[0].etapa, "7ª Etapa (V11)");                            // el lote guarda la etapa como vino
+});
+
+/* ── La planilla auditada del 24/11: una sola hoja, la gente adentro de cada lote ── */
+
+const CAB = ["Etapa", "Lote", "Titular (gastos comunes)", "Propietarios (nombre — mail)", "Inquilinos (nombre — mail)", "Estado", "Observaciones"];
+
+test("la hoja única: lotes, administraciones y la gente de cada lote con su vínculo", () => {
+    const p = leerPadronDeLotes([
+        CAB,
+        ["1, 2 y 3", "A 2", "Ana Uno - Beto Dos", "Ana Uno — ana@ejemplo.uy\nBeto Dos — beto@ejemplo.uy", null, "Recibe código", null],
+        ["4 y 5", "A 2", "Carla Tres / Dani Cuatro", "Carla Tres — carla@ejemplo.uy", "Dani Cuatro — DANI@ejemplo.uy", "Recibe código", "Inquilino recién mudado"],
+        ["7", "G 9", null, null, null, "Terreno: sin código", null],
+        ["4 y 5", "C 4", "Carla Tres", "Carla Tres — carla@ejemplo.uy (a confirmar)", null, "Recibe código", null],
+    ]);
+    assert.equal(p.validada, true);
+    assert.deepEqual(p.administraciones.map((a) => a.sigla), ["1-3", "4-5", "7ª"]);
+    assert.deepEqual(p.lotes.map((l) => l.nombre), ["A 2 (1-3)", "A 2 (4-5)", "G 9 (7ª)", "C 4 (4-5)"]);
+    assert.equal(p.lotes[2].situacion, "TERRENO");
+    // Lo que esta planilla no trae queda «no sé», para no borrar lo de la v8.
+    assert.equal(p.lotes[0].manzana, undefined);
+    assert.equal(p.lotes[0].areaM2, undefined);
+    const carla = p.personas.find((x) => x.email === "carla@ejemplo.uy")!;
+    assert.deepEqual(carla.vinculos.map((v) => `${v.codigo} (${v.sigla}) ${v.vinculo}`), ["A 2 (4-5) PROPIETARIO", "C 4 (4-5) PROPIETARIO"], "una persona, sus dos lotes");
+    assert.equal(p.personas.find((x) => x.email === "dani@ejemplo.uy")!.vinculos[0].vinculo, "INQUILINO", "el correo se guarda en minúsculas");
+    assert.equal(p.personas.length, 4);
+    assert.ok(p.avisos.some((a) => /a confirmar/.test(a)));
+});
+
+test("una línea sin correo que sirva no recibe código y se avisa", () => {
+    const p = leerPadronDeLotes([CAB, ["6", "B 1", "Eva Cinco", "Eva Cinco — sin correo", null, "Recibe código", null]]);
+    assert.equal(p.personas.length, 0);
+    assert.equal(p.lotes.length, 1);
+    assert.ok(p.avisos.some((a) => /no tiene un correo/.test(a)));
 });
