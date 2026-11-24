@@ -81,6 +81,17 @@ test("cifrado: el middleware cifra al escribir un Device sin tocar el objeto de 
     assert.equal(datos.password, "secreta", "el que llama la sigue teniendo en claro");
     assert.equal(r.password, "secreta", "y al leerla vuelve en claro");
 });
+test("cifrado: todo campo que se cifra al escribir vuelve en claro al leer (la clave de correo de una administración)", async () => {
+    // 25/11: `correoClave` se cifraba al guardar y no se descifraba al leer, y a Gmail le llegaba cifrada.
+    const mw = middlewareCifrado();
+    let guardado: any = null;
+    await mw({ model: "Administracion", action: "update", args: { where: { id: "a" }, data: { correoClave: "abcdabcdabcdabcd" } } }, async (p: any) => { guardado = p.args.data; return null; });
+    assert.ok(estaCifrado(guardado.correoClave), "en la base va cifrada");
+    const leida: any = await mw({ model: "Administracion", action: "findUnique", args: { where: { id: "a" } } }, async () => ({ correoCuenta: "x@gmail.com", correoClave: guardado.correoClave }));
+    assert.equal(leida.correoClave, "abcdabcdabcdabcd", "y al leerla vuelve en claro");
+    const usuario: any = await mw({ model: "User", action: "findMany", args: {} }, async () => [{ claveEquipos: cifrarDato("k") }]);
+    assert.equal(usuario[0].claveEquipos, "k");
+});
 test("cifrado: el upsert cifra create y update; otro modelo no se toca", async () => {
     const mw = middlewareCifrado();
     let args: any = null;

@@ -58,9 +58,10 @@ function descifrar(valor) {
  *    nada (la instalación sigue como antes, en claro).
  * Compatible hacia atrás: lo que ya estaba en claro se lee igual. Gemelo de src/lib/cifrado-datos.ts.
  */
-const CAMPOS = new Set(["password", "rtspUrl", "claveEquipos", "passwordAnterior"]);
 /** Qué campos se cifran al escribir cada modelo. User sólo la clave de equipos: su `password` no existe y no se toca. */
-const CIFRAR_EN = { Device: ["password", "rtspUrl", "passwordAnterior"], User: ["claveEquipos"] };
+const CIFRAR_EN = { Device: ["password", "rtspUrl", "passwordAnterior"], User: ["claveEquipos"], Administracion: ["correoClave"] };
+// Lo que se descifra sale de la misma lista que lo que se cifra (ver src/lib/cifrado-datos.ts, 25/11).
+const CAMPOS = new Set(Object.values(CIFRAR_EN).flat());
 function descifrarProfundo(x, n = 0) {
     if (!x || typeof x !== "object" || n > 6) return x;
     if (Array.isArray(x)) { for (const y of x) descifrarProfundo(y, n + 1); return x; }

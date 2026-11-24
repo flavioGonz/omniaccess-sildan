@@ -36,9 +36,14 @@ export function descifrarDato(valor: string | null | undefined) {
 }
 
 /* ── Credenciales de equipos (punto 5): gemelo de enPrisma() en lib-cifrado-datos.js ── */
-const CAMPOS = new Set(["password", "rtspUrl", "claveEquipos", "passwordAnterior"]);
 /** Qué campos se cifran al escribir cada modelo. User sólo la clave de equipos: su `password` no existe y no se toca. */
 const CIFRAR_EN: Record<string, string[]> = { Device: ["password", "rtspUrl", "passwordAnterior"], User: ["claveEquipos"], Administracion: ["correoClave"] };
+/* Lo que se descifra al leer sale de la misma lista que lo que se cifra al escribir (25/11). Eran dos
+   listas a mano: `correoClave` se agregó a la de cifrar y no a la de descifrar, y la clave de
+   aplicación de cada administración se guardaba bien pero se le mandaba cifrada a Gmail, que la
+   rechazaba con un 535 — después de haberla aceptado al guardarla, cuando todavía estaba en claro.
+   Con una sola lista no hay forma de agregar un campo a medias. */
+const CAMPOS = new Set(Object.values(CIFRAR_EN).flat());
 export function descifrarProfundo<T>(x: T, n = 0): T {
     if (!x || typeof x !== "object" || n > 6) return x;
     if (Array.isArray(x)) { for (const y of x) descifrarProfundo(y, n + 1); return x; }
