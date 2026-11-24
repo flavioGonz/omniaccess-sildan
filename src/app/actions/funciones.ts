@@ -93,6 +93,13 @@ export async function toggleFuncion(id: FuncionId, encendida: boolean): Promise<
         olvidarServicio();
         await (encendida ? prenderOmniGeo() : apagarOmniGeo()).catch(() => { });
     }
+    /* Lo mismo para el ajuste de los recorridos a la calle (omni-rutas). */
+    if (id === "GPS_POR_CALLE") {
+        const { prenderOmniRutas, apagarOmniRutas } = await import("@/lib/omni-rutas");
+        const { olvidarServicioDeRutas } = await import("@/lib/rutas");
+        olvidarServicioDeRutas();
+        await (encendida ? prenderOmniRutas() : apagarOmniRutas()).catch(() => { });
+    }
     revalidatePath("/admin/settings");
     revalidatePath("/admin/mapa");
     return { ok: true };

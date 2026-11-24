@@ -98,6 +98,7 @@ const PM2_APPS = ["omniaccess-web", "omniaccess-webhooks", "tracking-worker", "d
 const LECTOR = process.env.OMNI_LPR_URL || "http://127.0.0.1:8000";
 const VISION = process.env.VISION_URL || "http://127.0.0.1:8010";
 const GEO = `http://127.0.0.1:${process.env.OMNI_GEO_PUERTO || 8020}`;
+const RUTAS = `http://127.0.0.1:${process.env.OMNI_RUTAS_PUERTO || 8021}`;
 const WEB = process.env.INTERNAL_BASE_URL || "http://127.0.0.1:10001";
 const WEBHOOKS = process.env.WEBHOOK_URL || "http://127.0.0.1:10000";
 
@@ -285,6 +286,32 @@ async function levantarGeo() {
 }
 
 /**
+ * omni-rutas (los recorridos por la calle), con la misma regla que omni-geo: se vigila sólo si la
+ * función está prendida y el contenedor existe, y a la API no se le pide nada hasta que el arranque
+ * deja dicho «listo» —mientras prepara el mapa no contesta, y reiniciarlo ahí lo haría empezar de nuevo—.
+ */
+async function hayRutas() {
+    if ((await ajuste("GPS_POR_CALLE", "false")) !== "true") return false;
+    try { await correr("docker inspect omni-rutas --format '{{.Id}}'", { timeout: 15_000 }); return true; }
+    catch { return false; }
+}
+async function rutasListo() {
+    try { const { stdout } = await correr("docker exec omni-rutas cat /datos/estado", { timeout: 15_000 }); return stdout.trim() === "listo"; }
+    catch { return false; }
+}
+async function levantarRutas() {
+    try {
+        await correr("docker start omni-rutas", { timeout: 90_000 });
+        return "contenedor levantado";
+    } catch (e) {
+        if (!/failed to create task|EOF|Unavailable/i.test(e.message || "")) throw e;
+        log("omni-rutas no pudo crear su tarea; se recrea el contenedor");
+        await correr("SIN_BUILD=1 sh /opt/OmniAccess/services/omni-rutas/run.sh", { timeout: 180_000 });
+        return "contenedor recreado";
+    }
+}
+
+/**
  * ¿Está instalado omni-vision? Una instalación sin el detector no tiene por qué figurar
  * caída ni recibir intentos de levantarlo: se mira sólo si el contenedor existe.
  */
@@ -426,6 +453,11 @@ async function vuelta() {
     if (await hayGeo()) {
         await atender("geo:contenedor", "el contenedor de omni-geo", () => porDocker("omni-geo"), levantarGeo);
         if (await geoListo()) await atender("geo:api", "la API de omni-geo", () => porHttp(`${GEO}/status`), () => correr("docker restart omni-geo", { timeout: 120_000 }).then(() => "contenedor reiniciado"));
+    }
+
+    if (await hayRutas()) {
+        await atender("rutas:contenedor", "el contenedor de omni-rutas", () => porDocker("omni-rutas"), levantarRutas);
+        if (await rutasListo()) await atender("rutas:api", "la API de omni-rutas", () => porHttp(`${RUTAS}/nearest/v1/driving/-56.16,-34.9`), () => correr("docker restart omni-rutas", { timeout: 120_000 }).then(() => "contenedor reiniciado"));
     }
 
     await publicarEstado();

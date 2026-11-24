@@ -19,7 +19,7 @@ import type { ModuleId } from "@/lib/module-definitions";
 
 export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS" | "LPR_PLAZAS" | "LPR_BUSQUEDA" | "LPR_MIN_INTERIOR"
     | "FUNC_INTRUSION" | "FUNC_ALARMAS_RECEPCION" | "FUNC_ALARMAS_GESTION" | "EQUIPOS_USUARIOS" | "PADRON_CENSO"
-    | "FACE_DOBLE_VERIFICACION" | "GPS_DIRECCIONES";
+    | "FACE_DOBLE_VERIFICACION" | "GPS_DIRECCIONES" | "GPS_POR_CALLE";
 
 export interface Funcion {
     id: FuncionId;
@@ -167,6 +167,15 @@ export const FUNCIONES: Funcion[] = [
         que: "Dice dónde está cada rastreador con palabras —«Cavour 3230, Parque Batlle, Montevideo»— en vez de coordenadas: en el mapa, en el recorrido y en los reportes. Lo averigua un servicio que corre en este mismo equipo (omni-geo, con el mapa de OpenStreetMap); por dónde anda cada vehículo no se le manda a nadie. Al prenderla se instala sola: la primera vez baja el mapa y tarda unos quince minutos.",
         siSeApaga: "Los lugares vuelven a verse con el nombre de la geocerca o con coordenadas, y el servicio se detiene y libera su memoria. Ni el mapa ni las direcciones ya averiguadas se borran: al prenderla otra vez anda en segundos.",
         // Apagada de fábrica: ocupa cerca de 1 GB de memoria y 4 GB de disco, y sólo le sirve a quien tiene rastreadores.
+        porDefecto: false,
+    },
+    {
+        id: "GPS_POR_CALLE",
+        alcance: "instalacion",
+        nombre: "Recorridos por la calle",
+        que: "Dibuja el trayecto de cada rastreador siguiendo la calle, en vez de unir sus posiciones con líneas rectas que cortan por las manzanas: en el mapa en vivo, en el recorrido y en el informe con mapa. Lo calcula un servicio que corre en este mismo equipo (omni-rutas, con el mapa de OpenStreetMap); por dónde anda cada vehículo no se le manda a nadie. Al prenderla se instala sola: la primera vez baja el mapa y tarda unos minutos.",
+        siSeApaga: "Los trayectos vuelven a dibujarse en línea recta entre posición y posición, y el servicio se detiene y libera su memoria. No se pierde nada: las posiciones guardadas son siempre las que mandó el equipo.",
+        // Apagada de fábrica: ocupa unos 200 MB de memoria y 200 MB de disco, y sólo le sirve a quien tiene rastreadores.
         porDefecto: false,
     },
 ];

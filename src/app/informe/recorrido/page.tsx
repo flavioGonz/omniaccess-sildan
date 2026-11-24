@@ -160,7 +160,7 @@ function Informe() {
                 )}
 
                 <p className="mt-6 border-t border-neutral-300 pt-2 text-[10px] leading-snug text-neutral-500">
-                    Hecho con las posiciones que reportó el rastreador ({datos.resumen.puntos.toLocaleString("es-UY")} con buena señal en el período). Un viaje es un tramo en que se alejó más de 250 m; una espera de menos de 4 minutos no lo corta.
+                    Hecho con las posiciones que reportó el rastreador ({datos.resumen.puntos.toLocaleString("es-UY")} con buena señal en el período). Un viaje es un tramo en que se alejó más de 250 m; una espera de menos de 4 minutos no lo corta.{datos.porCalle ? " Entre posición y posición el trazo del mapa sigue la calle más probable; los kilómetros y las velocidades son los que reportó el equipo." : ""}
                     Emitido el {conAnio(new Date())} · OmniAccess · Ingeniería en Seguridad
                 </p>
             </div>

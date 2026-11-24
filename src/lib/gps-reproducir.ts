@@ -72,6 +72,26 @@ export function huellaEn(rastro: Punto[], tp: number, cabeza: { lat: number; lon
 }
 
 /**
+ * El camino por la calle que mandó el servidor, más lo propio que sea más nuevo (24/11).
+ *
+ * En vivo las posiciones llegan de a una, crudas, y el camino por la calle se pide después de cada
+ * una. La respuesta trae todo lo anterior ya puesto sobre la calle —con los puntos del medio—, pero
+ * puede llegar cuando ya entró otra posición: lo que se tiene y es posterior al final del camino no
+ * se pierde, queda al final, en recta, hasta la próxima respuesta.
+ */
+export function conCamino(propios: Punto[], camino: Punto[]): Punto[] {
+    if (!camino.length) return propios;
+    const fin = camino[camino.length - 1].t;
+    return [...camino, ...propios.filter((p) => p.t > fin + 500)];
+}
+/** De ese camino, lo que le falta recorrer al dibujo que va por `tp`: desde el último punto que ya pasó. */
+export function loQueFalta(camino: Punto[], tp: number): Punto[] {
+    let i = camino.length - 1;
+    while (i > 0 && camino[i].t > tp) i--;
+    return camino.slice(i);
+}
+
+/**
  * De una tanda de posiciones (las de los últimos minutos, al abrir el mapa), el tramo final que
  * es UN solo camino: se corta en el último hueco largo. Lo de antes del hueco es otro viaje.
  */

@@ -8,7 +8,7 @@ import L from "leaflet";
 import { CalendarClock, CircleDashed, Crosshair, FileSpreadsheet, Maximize2, Minimize2, EyeOff, History, Loader2, LocateFixed, MapPin, Plus, Radio, Route, Server, Share2, ToggleLeft, ToggleRight, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import {
-    borrarGeocercaGps, cambiarIconoGps, comandoGps, entornoEventoGps, estelaGps, geocercasGps, guardarGeocercaGps, rastreadoresGps, recorridoGps, unEventoGps,
+    ajusteACalleGps, borrarGeocercaGps, cambiarIconoGps, comandoGps, entornoEventoGps, estelaGps, geocercasGps, guardarGeocercaGps, rastreadoresGps, recorridoGps, unEventoGps,
     type ComandoGps, type EventoGps, type Geocerca, type PuntoGps, type Rastreador, type RecorridoGps,
 } from "@/app/actions/gps";
 import { CajonEventosGps } from "@/components/mapa/CajonEventosGps";
@@ -23,7 +23,7 @@ import { paraInputConHora, rangoDeFiltro, sirveParaRecorrido } from "@/lib/gps-f
 import { RangoFechas } from "@/components/mapa/RangoFechas";
 import { CalendarioGps } from "@/components/mapa/CalendarioGps";
 import { alPedirGeocerca, avisarRastreadores } from "@/lib/gps-puente";
-import { colaSeguida, HUELLA_HUECO_MS, HUELLA_MS, huellaEn, posicionEn, RETRASO_MS, type Punto } from "@/lib/gps-reproducir";
+import { colaSeguida, conCamino, HUELLA_HUECO_MS, HUELLA_MS, huellaEn, loQueFalta, posicionEn, RETRASO_MS, type Punto } from "@/lib/gps-reproducir";
 import { crearCamara, ponerFino } from "@/lib/mapa-fino";
 import { lugarConDireccion } from "@/lib/direccion-texto";
 import { Button } from "@/components/ui/button";
@@ -140,6 +140,12 @@ export function CapaGps() {
      * cámara que vuelve sola a su lugar es pelearse con la mano del que mira.
      */
     const [estela, setEstela] = useState<{ imei: string; vivo: boolean; puntos: PuntoGps[] | null } | null>(null);
+    /* ¿Los recorridos van por la calle acá? (función «Recorridos por la calle», 24/11). Se pregunta una
+       vez: de eso depende que, en vivo, después de cada posición se pida el camino hasta ella. */
+    const [porCalle, setPorCalle] = useState(false);
+    useEffect(() => { let vivo = true; ajusteACalleGps().then((si) => { if (vivo) setPorCalle(si); }).catch(() => { /* sin eso, en recta como siempre */ }); return () => { vivo = false; }; }, []);
+    const enVivoDe = useRef<string | null>(null);
+    useEffect(() => { enVivoDe.current = porCalle && estela?.vivo ? estela.imei : null; }, [porCalle, estela]);
     const [suelta, setSuelta] = useState(false);
     const lineaBorde = useRef<L.Polyline>(null), lineaColor = useRef<L.Polyline>(null);
     const ptsEstelaRef = useRef<PuntoGps[]>([]);
@@ -256,6 +262,14 @@ export function CapaGps() {
             const corte = new Date(Date.now() - 10 * 60_000).toISOString();
             return { ...v, puntos: [...v.puntos.filter((p) => p.cuando >= corte), { lat: d.lat, lon: d.lon, cuando: d.cuando, velocidad: d.velocidad }] };
         });
+        /* La posición entra cruda, ya, y enseguida se pide el camino por la calle hasta ella. Si mientras
+           tanto llegó otra más nueva, esa respuesta no pisa nada: la que vale es la de la última. */
+        if (enVivoDe.current === d.imei) {
+            estelaGps(d.imei, 10).then((puntos) => setEstela((v) => {
+                const ult = v?.puntos?.[v.puntos.length - 1];
+                return v && v.imei === d.imei && puntos.length && (!ult || puntos[puntos.length - 1].cuando >= ult.cuando) ? { ...v, puntos } : v;
+            })).catch(() => { /* queda la recta hasta la próxima posición */ });
+        }
     });
 
     /* Lo que le pasa a un rastreador se ve en el mapa en el momento, haya o no una regla de
@@ -500,7 +514,7 @@ export function CapaGps() {
             )}
 
             {lista.map((r) => (
-                <MarcadorGps key={r.imei} r={r} seguir={seguido === r.imei} alMover={estela?.imei === r.imei ? alMoverEstela : undefined}
+                <MarcadorGps key={r.imei} r={r} seguir={seguido === r.imei} porCalle={porCalle} alMover={estela?.imei === r.imei ? alMoverEstela : undefined}
                     /* La huella sola, salvo que ya haya una línea suya a la vista (la estela o el recorrido): dos líneas encimadas no dicen más. */
                     huella={queSeVe(r.imei) === null}
                     eventHandlers={{
@@ -976,8 +990,10 @@ const CUENTA_MS = 900;
  *  · Un salto de más de 1,5 km o un silencio de más de un minuto no se reproducen: se salta.
  *  · Con «reducir movimiento» activado en el sistema, se salta siempre.
  */
-function MarcadorGps({ r, seguir, huella, alMover, eventHandlers, children }: {
+function MarcadorGps({ r, seguir, huella, porCalle, alMover, eventHandlers, children }: {
     r: Rastreador; seguir: boolean;
+    /** Los recorridos van por la calle: después de cada posición nueva se pide el camino hasta ella. */
+    porCalle: boolean;
     /** Si deja marcado por dónde anduvo en los últimos minutos (lib/gps-reproducir, `huellaEn`). */
     huella: boolean;
     /** Dónde se lo está dibujando y a qué hora del equipo corresponde (Infinity = llegó al final). */
@@ -1069,6 +1085,31 @@ function MarcadorGps({ r, seguir, huella, alMover, eventHandlers, children }: {
         cuadro.current = requestAnimationFrame(paso);
     }, [mapa, camara, trazarHuella]);
 
+    /**
+     * El camino por la calle hasta la posición que acaba de entrar (24/11: «no está bien alineado con
+     * las calles»). La posición entra cruda y el dibujo va trece segundos atrás, así que la respuesta
+     * llega antes de que el auto empiece a recorrer ese tramo: cuando lo recorre, ya dobla en la esquina.
+     *
+     * No se pide con el mapa alejado (a esa escala la calle y la recta son la misma línea), ni con la
+     * pestaña escondida, ni mientras hay otro pedido de este vehículo en camino.
+     */
+    const conCalle = useRef(porCalle); conCalle.current = porCalle;
+    const pidiendo = useRef(false);
+    const elImei = r.imei;
+    const pedirCamino = useCallback(() => {
+        if (!conCalle.current || pidiendo.current || mapa.getZoom() < 14 || (typeof document !== "undefined" && document.hidden)) return;
+        pidiendo.current = true;
+        estelaGps(elImei, HUELLA_MS / 60_000).then((pts) => {
+            const camino = colaSeguida(pts.map((x) => ({ t: Date.parse(x.cuando), lat: x.lat, lon: x.lon })));
+            const mio = cola.current[cola.current.length - 1];
+            /* Si el camino no llega ni cerca de lo último que se tiene, es de otro momento: no se toca nada. */
+            if (!mio || !camino.length || mio.t - camino[camino.length - 1].t > HUECO_MS) return;
+            rastro.current = conCamino(rastro.current, camino);
+            cola.current = loQueFalta(conCamino(cola.current, camino), Date.now() - (desfase.current || 0) - RETRASO_MS);
+            if (!cuadro.current) trazarHuella();
+        }).catch(() => { /* queda la recta hasta la próxima posición */ }).finally(() => { pidiendo.current = false; });
+    }, [elImei, mapa, trazarHuella]);
+
     useEffect(() => {
         const mk = ref.current; if (!mk) return;
         const t = r.cuando ? Date.parse(r.cuando) : Date.now();
@@ -1093,12 +1134,14 @@ function MarcadorGps({ r, seguir, huella, alMover, eventHandlers, children }: {
             return;
         }
         c.push({ t, lat: r.lat!, lon: r.lon! });
-        if (c.length > 16) c.shift();
+        /* Con el camino por la calle la cola trae además los puntos de cada esquina: hace falta más lugar. */
+        if (c.length > 120) c.shift();
         const h = rastro.current;
         h.push({ t, lat: r.lat!, lon: r.lon! });
         while (h.length > 2 && h[0].t < t - HUELLA_MS - HUELLA_HUECO_MS) h.shift();
         andar();
-    }, [r.lat, r.lon, r.cuando, mapa, andar, trazarHuella]);
+        pedirCamino();
+    }, [r.lat, r.lon, r.cuando, mapa, andar, trazarHuella, pedirCamino]);
     useEffect(() => () => { if (cuadro.current) cancelAnimationFrame(cuadro.current); camara.soltar(); }, [camara]);
 
     /* Al empezar a seguirlo, la cámara va a donde está AHORA (no espera a la próxima posición). */

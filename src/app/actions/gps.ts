@@ -11,6 +11,9 @@ import { circuloDe, leerHorario, puntosDe, rotuloDeHorario, VERTICES_MAX, type A
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { puedeGps, type QueGps } from "@/lib/gps-permisos";
+import { olvidarServicioDeRutas, porLaCalleDe, servicioDeRutas } from "@/lib/rutas";
+import { estadoOmniRutas, fraseDeRutas, prenderOmniRutas, type FaseRutas } from "@/lib/omni-rutas";
+import { SILENCIO_MAX_S } from "@/lib/gps-calle";
 import { armarComando, CLAVE_EQUIPO, comandoPorClave, comandosDe, palabraDeConfirmacion, pareceRechazo, type NivelComando, type Valores } from "@/lib/gps-comandos";
 import { auditar } from "@/lib/centrales/sesion";
 import { leerEstadoRele, puedeAccionarRele } from "@/lib/gps-rele";
@@ -205,13 +208,20 @@ export async function atarVehiculoGps(imei: string, matricula: string): Promise<
 }
 
 /** `rumbo`, `sat` y `enc` son lo demás que reportó el equipo en ese punto: se ven al recorrer el trayecto. */
-export type PuntoGps = { lat: number; lon: number; cuando: string; velocidad: number; rumbo?: number | null; sat?: number | null; enc?: boolean | null };
+/**
+ * `via`: el punto no lo reportó el equipo; es del camino por la calle entre dos que sí reportó
+ * (lib/gps-calle). Dibuja la línea y lleva al auto que la recorre, con la hora y la velocidad que le
+ * tocan por dónde está entre los dos; no cuenta como posición.
+ */
+export type PuntoGps = { lat: number; lon: number; cuando: string; velocidad: number; rumbo?: number | null; sat?: number | null; enc?: boolean | null; via?: true };
 export type RecorridoGps = {
     puntos: PuntoGps[]; resumen: ResumenRecorrido; viajes: Viaje[]; paradas: Parada[];
     /** La velocidad permitida por la empresa (km/h): contra ella se marca el exceso en la línea. */
     limite: number;
     /** La dirección de donde empezó y terminó cada viaje, por la clave del punto (`claveDeLugar`). Vacío si no hay servicio de direcciones. */
     lugares: Record<string, string>;
+    /** El trazo va por la calle entre posición y posición (función «Recorridos por la calle»). Si no, en línea recta. */
+    porCalle: boolean;
 };
 
 /**
@@ -247,16 +257,22 @@ export async function recorridoGps(imei: string, horas = 24, rango?: { desde: st
     const todos: PuntoGps[] = filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad, rumbo: f.rumbo, sat: f.satelites, enc: f.encendido }));
     const { viajes, paradas } = viajesYParadas(todos);
     /* Los puntos de cada viaje, por su horario. Los dos están ordenados, así que se recorren juntos. */
-    const deViaje: PuntoGps[] = [];
+    const porViaje: PuntoGps[][] = [];
     let k = 0;
     for (const v of viajes) {
+        const suyos: PuntoGps[] = [];
         while (k < todos.length && todos[k].cuando < v.desde) k++;
-        while (k < todos.length && todos[k].cuando <= v.hasta) deViaje.push(todos[k++]);
+        while (k < todos.length && todos[k].cuando <= v.hasta) suyos.push(todos[k++]);
+        porViaje.push(suyos);
     }
-    const lugares = await direccionesDe(viajes.flatMap((v) => [v.inicio, v.fin]), { nuevasMax: 400 });
+    /* Cada viaje, por la calle (24/11: «no está bien alineado con las calles»). Los kilómetros, los
+       viajes y las paradas ya se contaron con las posiciones del equipo: esto sólo cambia el dibujo. */
+    const [lugares, calle] = await Promise.all([direccionesDe(viajes.flatMap((v) => [v.inicio, v.fin]), { nuevasMax: 400 }), porLaCalleDe(porViaje)]);
     return {
         lugares: Object.fromEntries(lugares),
-        puntos: aligerar(deViaje, 3000),
+        /* El tope sube cuando va por la calle: cada posición trae además los puntos de su camino. */
+        puntos: aligerar(calle.tramos.flat(), calle.ajustado ? 8000 : 3000),
+        porCalle: calle.ajustado,
         resumen: resumenDeViajes(viajes, todos[0]?.cuando || null, todos[todos.length - 1]?.cuando || null, todos.length),
         viajes, paradas,
         limite: leerLimite((await prisma.setting.findUnique({ where: { key: LIMITE_GPS } }).catch(() => null))?.value),
@@ -293,7 +309,20 @@ export async function estelaGps(imei: string, minutos = 10): Promise<PuntoGps[]>
         where: { imei, cuando: { gte: desde }, pobre: false }, orderBy: { cuando: "asc" }, take: 2000,
         select: { lat: true, lon: true, cuando: true, velocidad: true },
     });
-    return filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
+    const puntos: PuntoGps[] = filas.map((f) => ({ lat: f.lat, lon: f.lon, cuando: f.cuando.toISOString(), velocidad: f.velocidad }));
+    /* Por la calle, de a tramos seguidos: donde el equipo calló más de dos minutos no se dibuja un camino (ni se le pregunta por él). */
+    const seguidos: PuntoGps[][] = [];
+    for (const p of puntos) {
+        const t = seguidos[seguidos.length - 1], ult = t?.[t.length - 1];
+        if (ult && Date.parse(p.cuando) - Date.parse(ult.cuando) <= SILENCIO_MAX_S * 1000) t.push(p); else seguidos.push([p]);
+    }
+    return (await porLaCalleDe(seguidos)).tramos.flat();
+}
+
+/** ¿Los recorridos van por la calle en esta instalación? El mapa en vivo lo pregunta una vez, para saber si vale la pena pedir el camino de cada posición nueva. */
+export async function ajusteACalleGps(): Promise<boolean> {
+    await sesion("ver");
+    return !!(await servicioDeRutas());
 }
 
 export type EventoGps = {
@@ -915,6 +944,33 @@ export async function guardarHorarioLaboralGps(h: HorarioCerca | null): Promise<
     await prisma.setting.upsert({ where: { key: HORARIO_LABORAL_GPS }, update: { value: JSON.stringify(limpio) }, create: { key: HORARIO_LABORAL_GPS, value: JSON.stringify(limpio) } });
     await auditar(s, "equipos.gps.horario-laboral", "todos", true, rotuloDeHorario(limpio));
     return { ok: true, horario: limpio };
+}
+
+/* ---------- Recorridos por la calle ---------- */
+
+export type ServicioRutas = {
+    /** La función «Recorridos por la calle» está prendida. */
+    funcion: boolean;
+    fase: FaseRutas;
+    /** En qué anda, en una frase. */
+    frase: string;
+    /** Anda: los recorridos salen por la calle. */
+    ok: boolean;
+};
+/** Cómo está el servicio que pone los recorridos sobre la calle (omni-rutas), para la pantalla de Ajustes. */
+export async function servicioRutasGps(): Promise<ServicioRutas> {
+    await sesion("ver");
+    const funcion = await funcionActiva("GPS_POR_CALLE");
+    const e = await estadoOmniRutas();
+    return { funcion, fase: e.fase, frase: fraseDeRutas(e), ok: funcion && e.fase === "listo" };
+}
+export async function levantarRutasGps(): Promise<{ ok: boolean; error?: string }> {
+    const s = await sesion("config");
+    if (!(await funcionActiva("GPS_POR_CALLE"))) return { ok: false, error: "Primero hay que prender «Recorridos por la calle» en Ajustes › Características." };
+    const e = await prenderOmniRutas();
+    olvidarServicioDeRutas();
+    await auditar(s, "equipos.gps.rutas", "omni-rutas", e.fase !== "sin-docker", fraseDeRutas(e));
+    return e.fase === "sin-docker" ? { ok: false, error: fraseDeRutas(e) } : { ok: true };
 }
 
 /* ---------- Direcciones ---------- */

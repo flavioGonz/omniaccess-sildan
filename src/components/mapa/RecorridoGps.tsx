@@ -3,7 +3,8 @@
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CircleMarker, Marker, Polyline, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
-import { ChevronLeft, ChevronRight, FileSpreadsheet, FileText, Gauge, Loader2, LocateFixed, MapPin, Pause, Play, SquareParking, TriangleAlert, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileSpreadsheet, FileText, Gauge, Loader2, LocateFixed, MapPin, Pause, Play, Route, SquareParking, TriangleAlert, X } from "lucide-react";
+import { Pista } from "@/components/ui/pista";
 import { sileo as toast } from "sileo";
 import { guardarLimiteVelocidadGps, historialEventosGps, type PuntoGps, type RecorridoGps } from "@/app/actions/gps";
 import { fichaDeEventoGps, tituloDeEventoGps } from "@/lib/gps-eventos";
@@ -345,6 +346,12 @@ export function PanelDelRecorrido({ imei, datos, partes, viajeSel, alViaje, cur,
                     <span key={f.franja} className="inline-flex items-center gap-1.5 tabular-nums"><span className="h-[5px] w-4 rounded-full" style={{ background: COLOR_FRANJA[f.franja] }} />{f.rotulo}</span>
                 ))}
                 <span>km/h</span>
+                {/* Que el trazo siga la calle es una deducción entre dos posiciones: se dice, y dónde no vale. */}
+                {datos.porCalle && (
+                    <Pista ancho={270} titulo="El trazo sigue la calle" texto="Entre una posición y la siguiente se dibuja el camino por la calle más probable. Donde no es creíble, o el equipo calló más de dos minutos, queda la recta. Los kilómetros y las velocidades son los que reportó el equipo.">
+                        <span className="inline-flex cursor-help items-center gap-1"><Route size={12} /> Por la calle</span>
+                    </Pista>
+                )}
                 <span className="ml-auto inline-flex items-center gap-3">
                     {alReportes && <button type="button" onClick={alReportes} className="inline-flex items-center gap-1 font-semibold text-[var(--accion)] hover:underline"><FileSpreadsheet size={12} /> Reportes</button>}
                     {informe && <a href={informe} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-[var(--accion)] hover:underline"><FileText size={12} /> Informe con mapa</a>}

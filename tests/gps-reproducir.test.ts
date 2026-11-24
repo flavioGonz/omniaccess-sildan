@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { posicionEn, RETRASO_MS, type Punto } from "@/lib/gps-reproducir";
+import { conCamino, loQueFalta, posicionEn, RETRASO_MS, type Punto } from "@/lib/gps-reproducir";
 import { metrosEntre } from "@/lib/gps-recorrido";
 
 test("entre dos posiciones interpola por la hora, no por partes iguales", () => {
@@ -84,4 +84,17 @@ test("al abrir el mapa, la huella arranca después del último hueco largo", () 
     assert.deepEqual(colaSeguida([s(0), s(10), s(200), s(210), s(220)]).map((p) => p.lat), [200, 210, 220]);
     assert.deepEqual(colaSeguida([s(0), s(10), s(20)]).map((p) => p.lat), [0, 10, 20]);
     assert.deepEqual(colaSeguida([]), []);
+});
+
+test("el camino por la calle reemplaza lo anterior y conserva lo que entró después", () => {
+    const propios = [{ t: 0, lat: 0, lon: 0 }, { t: 10_000, lat: 0.001, lon: 0 }, { t: 20_000, lat: 0.002, lon: 0 }];
+    /* El servidor contestó hasta la segunda posición, con un punto del medio (la esquina). */
+    const camino = [{ t: 0, lat: 0, lon: 0 }, { t: 5_000, lat: 0.0005, lon: 0.0002 }, { t: 10_000, lat: 0.001, lon: 0 }];
+    const junto = conCamino(propios, camino);
+    assert.deepEqual(junto.map((p) => p.t), [0, 5_000, 10_000, 20_000], "la tercera, que entró mientras tanto, queda al final");
+    assert.deepEqual(conCamino(propios, []), propios);
+    /* El dibujo va por los 7 s: lo que falta arranca en el último punto que ya pasó. */
+    assert.deepEqual(loQueFalta(junto, 7_000).map((p) => p.t), [5_000, 10_000, 20_000]);
+    assert.deepEqual(loQueFalta(junto, -1).map((p) => p.t), [0, 5_000, 10_000, 20_000]);
+    assert.deepEqual(loQueFalta(junto, 99_000).map((p) => p.t), [20_000]);
 });

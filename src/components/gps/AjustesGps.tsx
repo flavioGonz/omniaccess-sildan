@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Clock, Gauge, Loader2, MapPin, Satellite } from "lucide-react";
+import { Clock, Gauge, Loader2, MapPin, Route, Satellite } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { guardarLimiteVelocidadGps, limiteVelocidadGps } from "@/app/actions/gps";
 import { Button } from "@/components/ui/button";
 import { HorarioLaboral } from "@/components/mapa/ReportesGps";
 import { ServicioDeDirecciones } from "@/components/gps/ServicioDeDirecciones";
+import { ServicioDeRutas } from "@/components/gps/ServicioDeRutas";
 import { CAMPO, Panel } from "@/components/gps/piezas";
 
 /**
@@ -19,7 +20,9 @@ import { CAMPO, Panel } from "@/components/gps/piezas";
  */
 export function AjustesGps({ puedeConfig, puedeEquipo }: { puedeConfig: boolean; puedeEquipo: boolean }) {
     return (
-        <div className="mx-auto max-w-3xl space-y-4">
+        /* A dos columnas donde entra (24/11: «se ve pobre, encerrado en el centro»): son bloques
+           independientes, y apilados en una columna angosta dejaban media pantalla vacía. */
+        <div className="grid items-start gap-4 xl:grid-cols-2">
             <Bloque icono={Gauge} titulo="Velocidad permitida" ayuda="La vara de la empresa, una para todos los vehículos. Con ella se pinta el recorrido y se arma el reporte de excesos.">
                 <Limite puedeConfig={puedeConfig} />
             </Bloque>
@@ -29,6 +32,9 @@ export function AjustesGps({ puedeConfig, puedeEquipo }: { puedeConfig: boolean;
             </Bloque>
             <Bloque icono={MapPin} titulo="Direcciones de los lugares" ayuda="Que una parada diga «Cavour 3230, Parque Batlle» y no dos números.">
                 <ServicioDeDirecciones puedeConfig={puedeConfig} />
+            </Bloque>
+            <Bloque icono={Route} titulo="Recorridos por la calle" ayuda="Que el trayecto siga la calle y no corte por las manzanas entre una posición y la siguiente.">
+                <ServicioDeRutas puedeConfig={puedeConfig} />
             </Bloque>
             <Bloque icono={Satellite} titulo="Los rastreadores" ayuda="Dar de alta uno nuevo y la puerta del receptor siguen en Dispositivos: es trabajo de quien instala.">
                 {puedeEquipo
