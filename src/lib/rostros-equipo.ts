@@ -472,3 +472,46 @@ export async function tarjetasDe(d: EquipoHik, legajo: string): Promise<string[]
         return ((r?.CardInfoSearch?.CardInfo || []) as Record<string, unknown>[]).map((c) => String(c.cardNo ?? "")).filter(Boolean);
     } catch { return []; }
 }
+
+/**
+ * Las tarjetas de una página entera de personas, en un recorrido (24/11, Nico: «se deben ver los
+ * datos, rostros, número de tarjeta»). Antes la base mostraba cuántas tarjetas tenía cada uno y no
+ * cuáles, y para ver el número había que abrir a la persona.
+ *
+ * Medido el 24/11 en el terminal DS-K1T343: las 30 personas de una página tienen 90 tarjetas, el
+ * equipo devuelve 30 por pedido y avisa `MORE`, así que se sigue pidiendo con la misma búsqueda.
+ * Si el equipo no acepta la lista de legajos se pregunta de a una persona, sólo por las que dicen
+ * tener tarjeta, de a cuatro a la vez: más lento, pero el dato llega igual.
+ */
+export async function tarjetasDePagina(d: EquipoHik, personas: { legajo: string; tarjetas: number }[]): Promise<Map<string, string[]>> {
+    const conTarjeta = personas.filter((p) => p.legajo && p.tarjetas > 0);
+    const m = new Map<string, string[]>();
+    if (!conTarjeta.length) return m;
+    const sumar = (legajo: string, numero: string) => { if (!m.has(legajo)) m.set(legajo, []); if (!m.get(legajo)!.includes(numero)) m.get(legajo)!.push(numero); };
+    try {
+        const searchID = `oa-tp-${crypto.randomBytes(3).toString("hex")}`;
+        let pos = 0;
+        // Tope de vueltas: 30 personas con 5 tarjetas cada una son 150, cinco pedidos.
+        for (let vuelta = 0; vuelta < 12; vuelta++) {
+            const r = await authenticatedRequest("POST", "/ISAPI/AccessControl/CardInfo/Search?format=json", cred(d) as never, {
+                data: { CardInfoSearchCond: { searchID, searchResultPosition: pos, maxResults: 30, EmployeeNoList: conTarjeta.map((p) => ({ employeeNo: p.legajo })) } },
+                contentType: "application/json", accept: "application/json", responseType: "json", timeout: 12000,
+            });
+            const b = r?.CardInfoSearch;
+            if (!b) throw new Error("sin respuesta de tarjetas");
+            const lista = (b.CardInfo || []) as Record<string, unknown>[];
+            for (const c of lista) if (c.employeeNo != null && c.cardNo) sumar(String(c.employeeNo), String(c.cardNo));
+            pos += lista.length;
+            if (!lista.length || b.responseStatusStrg !== "MORE" || pos >= Number(b.totalMatches || 0)) break;
+        }
+        return m;
+    } catch {
+        m.clear();
+        for (let i = 0; i < conTarjeta.length; i += 4) {
+            const tanda = conTarjeta.slice(i, i + 4);
+            const r = await Promise.all(tanda.map((p) => tarjetasDe(d, p.legajo)));
+            tanda.forEach((p, k) => r[k].forEach((n) => sumar(p.legajo, n)));
+        }
+        return m;
+    }
+}

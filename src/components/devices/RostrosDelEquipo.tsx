@@ -18,10 +18,16 @@ import { cn } from "@/lib/utils";
 type Fila = { fpid: string; nombre: string | null; foto: boolean; plantilla: boolean };
 type Lista = { total: number; daFoto: boolean; daPlantilla: boolean; rostros: Fila[] };
 
-export function RostrosDelEquipo({ id, otros }: {
+export function RostrosDelEquipo({ id, otros, amplio = false }: {
     id: string;
     /** Los otros equipos de acceso a los que se puede copiar. */
     otros: { id: string; nombre: string }[];
+    /**
+     * A todo el ancho, en la base de los lectores del Monitor Face (24/11, Nico: «se deben ver los
+     * rostros»): caras grandes y todas a la vista. En el cajón del portero queda la grilla chica
+     * con su propio scroll, porque ahí comparte lugar con la ficha del equipo.
+     */
+    amplio?: boolean;
 }) {
     const [lista, setLista] = useState<Lista | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -84,9 +90,28 @@ export function RostrosDelEquipo({ id, otros }: {
             {lista.rostros.length === 0 ? (
                 <p className="text-[12.5px] text-muted-foreground">Este equipo no tiene ninguna cara cargada.</p>
             ) : (
-                <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(84px,1fr))] max-h-[280px] overflow-y-auto pr-1">
+                <div className={amplio
+                    ? "grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(132px,1fr))]"
+                    : "grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(84px,1fr))] max-h-[280px] overflow-y-auto pr-1"}>
                     {lista.rostros.map((r) => {
                         const sel = elegidos.has(r.fpid);
+                        if (amplio) return (
+                            <button key={r.fpid} type="button" onClick={() => alternar(r.fpid)} aria-pressed={sel}
+                                className={cn("group relative aspect-[4/5] overflow-hidden rounded-[14px] border text-left transition-colors",
+                                    sel ? "border-[var(--accion)] ring-2 ring-[var(--accion)]/30" : "border-border hover:border-foreground/25", r.foto ? "bg-black" : "bg-card")}>
+                                {r.foto
+                                    /* eslint-disable-next-line @next/next/no-img-element */
+                                    ? <img src={`/api/devices/rostros-equipo/foto?deviceId=${encodeURIComponent(id)}&fpid=${encodeURIComponent(r.fpid)}`} alt="" loading="lazy"
+                                        className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+                                    : <span className="absolute inset-0 grid place-items-center text-muted-foreground/60"><ScanFace size={26} /></span>}
+                                {r.foto && <span className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />}
+                                {sel && <span className="absolute right-2 top-2 h-5 w-5 rounded-full bg-[var(--accion)] ring-2 ring-white grid place-items-center text-white text-[11px] font-bold">✓</span>}
+                                <span className={cn("absolute inset-x-0 bottom-0 p-2.5", r.foto ? "text-white" : "text-foreground")}>
+                                    <span className="block truncate text-[12.5px] font-bold">{r.nombre || r.fpid}</span>
+                                    <span className={cn("block truncate text-[10.5px] tabular-nums", r.foto ? "text-white/70" : "text-muted-foreground")}>{r.nombre ? r.fpid : r.foto ? "sin nombre en el equipo" : r.plantilla ? "con plantilla, sin foto" : "sin foto"}</span>
+                                </span>
+                            </button>
+                        );
                         return (
                             <button key={r.fpid} type="button" onClick={() => alternar(r.fpid)}
                                 className={cn("text-left rounded-[8px] border p-1 transition-colors", sel ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent/50")}>

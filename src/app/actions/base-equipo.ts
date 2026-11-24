@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { TIPOS_CARA } from "@/lib/caras-vivo";
-import { contarBase, daFotos, listarPersonas, listarRostros, type PersonaEquipo, type RostroEquipo } from "@/lib/rostros-equipo";
+import { contarBase, daFotos, listarPersonas, listarRostros, tarjetasDePagina, type PersonaEquipo, type RostroEquipo } from "@/lib/rostros-equipo";
 
 /**
  * La base local de un lector: qué tiene guardado adentro y cuánto de eso coincide con OmniAccess.
@@ -36,6 +36,11 @@ export type PersonaDeBase = PersonaEquipo & {
     padron: { id: string; nombre: string; unidad: string | null } | null;
     /** Cómo se encontró: por su legajo o por el nombre exacto. */
     porQue: "sincronizada" | "legajo" | "nombre" | null;
+    /**
+     * Los números de sus tarjetas, y de quién es cada una en el padrón (24/11). Una tarjeta cargada
+     * en la puerta que en el padrón es de OTRA persona —o de nadie— es lo que hay que poder ver.
+     */
+    numeros: { numero: string; padron: { id: string; nombre: string } | null }[];
 };
 
 export type BaseEquipo = {
@@ -76,6 +81,12 @@ export async function baseDelEquipo(deviceId: string, desde = 0): Promise<BaseEq
             contarBase(d), listarPersonas(d, desde),
             listarRostros(d, 300).catch(() => ({ rostros: [] as RostroEquipo[], total: 0 })),
         ]);
+        const numeros = await tarjetasDePagina(d, pagina.personas).catch(() => new Map<string, string[]>());
+        const todas = [...numeros.values()].flat();
+        const duenos = todas.length
+            ? await prisma.credential.findMany({ where: { value: { in: todas } }, select: { value: true, user: { select: { id: true, name: true } } } }).catch(() => [])
+            : [];
+        const duenoDe = new Map(duenos.filter((c) => c.user).map((c) => [c.value, c.user!]));
         /* Y además hay que PODER bajar la foto: el terminal declara una URL por cara que después
            contesta 404, y algunos de sus FPID son números que coinciden con un legajo. Sin esta
            medición la fila mostraba una imagen rota por cada coincidencia casual. */
@@ -113,6 +124,7 @@ export async function baseDelEquipo(deviceId: string, desde = 0): Promise<BaseEq
                 fpid: fpids.has(x.legajo) ? x.legajo : null,
                 padron: u ? { id: u.id, nombre: u.name, unidad: u.apartment || null } : null,
                 porQue: porNuestro ? "sincronizada" : porCredencial ? "legajo" : porNom ? "nombre" : null,
+                numeros: (numeros.get(x.legajo) || []).map((n) => ({ numero: n, padron: duenoDe.get(n) ? { id: duenoDe.get(n)!.id, nombre: duenoDe.get(n)!.name } : null })),
             };
         });
 
