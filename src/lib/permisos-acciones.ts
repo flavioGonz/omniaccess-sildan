@@ -88,7 +88,7 @@ export const ACCIONES: Record<string, Archivo> = {
     // equipo (se revisa por dentro, con el permiso de dispositivos).
     caras: { defecto: P("dispositivos.editar"), por: { leerCaraMin: S } },
     // La bitácora de los equipos de acceso: es el historial de esos equipos, con su permiso.
-    "bitacora-equipos": { defecto: P("historial") },
+    "monitor-face": { defecto: P("historial") },
     // El comportamiento de una cara: la misma lectura que el de una matrícula.
     "rostro-comportamiento": { defecto: P("historial", "rostros", "vision") },
     // La base local de un lector (sus personas, tarjetas y rostros): leerla es mirar el equipo.

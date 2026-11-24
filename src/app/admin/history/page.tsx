@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
 import { horaSeg, limiteDeFiltro, periodoConHora } from "@/lib/fechas";
 import type { CamaraHistorial } from "@/app/api/history/camaras/route";
-import { hayEquiposDeAcceso } from "@/app/actions/bitacora-equipos";
+import { hayEquiposDeAcceso } from "@/app/actions/monitor-face";
 
 /**
  * El historial: accesos y seguimiento en un solo registro.

@@ -130,7 +130,13 @@ export function armarMenu(c: ContextoMenu): SeccionMenu[] {
             ...hoja(true, { id: "lpr-invitados", rotulo: "Invitados", href: "/admin/invitados" }),
             ...hoja(f.plazas, { id: "lpr-plazas", rotulo: "Plazas de parking", href: "/admin/plazas" }),
         ]) : []),
-        ...grupo("rostro", "Rostro", "rostro", hoja(m.rostro && !m.filas, { id: "rostro-monitor", rotulo: "Monitor facial", href: "/admin/monitor-face" })),
+        /* El Monitor Face (las capturas de rostros de porteros y controles de acceso) vive con las caras y
+           no en Dispositivos (24/11, Nico: «es un historial de Face… no tiene que ver con bitácora»). Está
+           también sin el modo face: un portero cuenta sus propias caras aunque OmniVision no mire. */
+        ...grupo("rostro", "Rostro", "rostro", [
+            ...hoja(!m.filas && (c.hay.accesos || m.rostro), { id: "rostro-capturas", rotulo: "Monitor Face", href: "/admin/face", unico: "Monitor Face" }),
+            ...hoja(m.rostro && !m.filas, { id: "rostro-monitor", rotulo: "En vivo: entrada y salida", href: "/admin/monitor-face" }),
+        ]),
         ...grupo("intrusion", "Intrusión", "intrusion", hoja(f.intrusion, { id: "intrusion-monitor", rotulo: "Monitor de intrusión", href: "/admin/monitor-intrusion" })),
         ...grupo("video", "Video", "video", [
             ...hoja(!m.filas, { id: "video-cctv", rotulo: "Monitor CCTV", href: "/admin/monitor-cctv" }),
@@ -182,8 +188,6 @@ export function armarMenu(c: ContextoMenu): SeccionMenu[] {
     const sistema: EntradaMenu[] = [
         ...grupo("equipos", "Dispositivos", "equipos", [
             ...hoja(!m.filas, { id: "equipos-lista", rotulo: "Equipos", href: "/admin/devices", prefijo: true }),
-            /* Sólo si hay porteros o controles de acceso: en un barrio sin ninguno sería una pantalla vacía. */
-            ...hoja(c.hay.accesos, { id: "equipos-bitacora", rotulo: "Bitácora de equipos", href: "/admin/bitacora-equipos", unico: "Bitácora de equipos" }),
         ]),
         ...grupo("config", "Configuración", "ajustes", [
             ...hoja(true, { id: "config-ajustes", rotulo: "Ajustes", href: "/admin/settings" }),

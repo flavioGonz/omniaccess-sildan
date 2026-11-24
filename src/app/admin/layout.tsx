@@ -1,7 +1,7 @@
 "use client";
 
 import { useFuncion } from "@/lib/funciones-cliente";
-import { hayEquiposDeAcceso } from "@/app/actions/bitacora-equipos";
+import { hayEquiposDeAcceso } from "@/app/actions/monitor-face";
 import React, { useState, useEffect } from "react";
 import { useSessionRole } from "@/hooks/useSessionRole";
 import { OnlineUsersWidget } from "@/components/OnlineUsersWidget";

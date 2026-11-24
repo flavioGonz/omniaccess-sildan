@@ -6,7 +6,7 @@ import { CreditCard, Fingerprint, Plus, ScanFace, ScrollText, ShieldCheck, UserR
 import { baseDelEquipo, type BaseEquipo, type PersonaDeBase } from "@/app/actions/base-equipo";
 import { Cargando, ErrorEstado } from "@/components/ui/estados";
 import { RostrosDelEquipo } from "@/components/devices/RostrosDelEquipo";
-import { FichaPersonaEquipo } from "@/components/devices/bitacora/FichaPersonaEquipo";
+import { FichaPersonaEquipo } from "@/components/rostro/monitor-face/FichaPersonaEquipo";
 import { cn } from "@/lib/utils";
 
 /**

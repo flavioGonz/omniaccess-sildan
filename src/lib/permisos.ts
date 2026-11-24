@@ -75,7 +75,7 @@ const SECCIONES: Seccion[] = [
         ["alarmas.atender", "operar", "Atender alarmas", "Marcar una alarma como real, falsa o atendida, tomarla y pasarla, dejar una nota y marcar que un auto salió."],
     ] },
     { modulo: "operacion", seccion: "historial", nombre: "Historial y lecturas", permisos: [
-        ["historial", "ver", "Historial", "El historial de accesos, las fichas de los eventos, las lecturas de las cámaras y la bitácora de los porteros y controles de acceso.", ["/admin/history", "/admin/lecturas-camara", "/admin/bitacora-equipos"]],
+        ["historial", "ver", "Historial", "El historial de accesos, las fichas de los eventos, las lecturas de las cámaras y el Monitor Face (las capturas de rostros de porteros y controles de acceso).", ["/admin/history", "/admin/lecturas-camara", "/admin/face", "/admin/bitacora-equipos"]],
         ["historial.exportar", "operar", "Exportar y corregir", "Exportar el reporte Excel y corregir la matrícula de una lectura."],
     ] },
     { modulo: "operacion", seccion: "mapa", nombre: "Mapa y seguimiento", permisos: [

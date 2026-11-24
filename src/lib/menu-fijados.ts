@@ -23,12 +23,18 @@ export const FIJADOS_DE_FABRICA = ["lpr-monitor"];
 export const FIJADOS_MAX = 8;
 
 /** Lee lo guardado. `null` (nunca se guardó nada) es «los de fábrica»; una lista vacía es «sacó todos», y se respeta. */
+/**
+ * Hojas que cambiaron de id: quien la tenía fijada la sigue teniendo. «Bitácora de equipos» pasó a
+ * ser el Monitor Face, en el módulo Rostro (24/11).
+ */
+export const RENOMBRADAS: Record<string, string> = { "equipos-bitacora": "rostro-capturas" };
+
 export function leerFijados(crudo: string | null | undefined): string[] {
     if (crudo === null || crudo === undefined || crudo === "") return FIJADOS_DE_FABRICA;
     try {
         const l = JSON.parse(crudo);
         if (!Array.isArray(l)) return FIJADOS_DE_FABRICA;
-        return [...new Set(l.filter((x): x is string => typeof x === "string" && x.length > 0 && x.length < 80))].slice(0, FIJADOS_MAX);
+        return [...new Set(l.filter((x): x is string => typeof x === "string" && x.length > 0 && x.length < 80).map((x) => RENOMBRADAS[x] || x))].slice(0, FIJADOS_MAX);
     } catch { return FIJADOS_DE_FABRICA; }
 }
 

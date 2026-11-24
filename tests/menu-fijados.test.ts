@@ -65,3 +65,7 @@ test("hay un tope, y lo guardado roto o raro no rompe", () => {
     assert.deepEqual(leerFijados(JSON.stringify(["mapa", 7, null, "", "mapa", "tags"])), ["mapa", "tags"]);
     assert.equal(leerFijados(JSON.stringify(Array.from({ length: 30 }, (_, i) => `x${i}`))).length, FIJADOS_MAX);
 });
+
+test("una hoja que cambió de id sigue fijada con el id nuevo", () => {
+    assert.deepEqual(leerFijados(JSON.stringify(["lpr-monitor", "equipos-bitacora"])), ["lpr-monitor", "rostro-capturas"]);
+});

@@ -20,7 +20,8 @@ test("un barrio completo: cuatro secciones, lo común arriba y el historial ahí
     assert.deepEqual(m.map((s) => s.titulo), [null, "Módulos", "Padrón", "Sistema"]);
     assert.deepEqual(rotulos(m, "comun"), ["Gestión de alarmas", "Mapa", "Historial", "Evidencias"]);
     assert.deepEqual(hijos(m, "historial"), ["Accesos", "Lecturas de cámara"]);
-    assert.deepEqual(rotulos(m, "modulos"), ["Matrículas", "Intrusión", "Video", "Rastreo GPS", "Guardia", "OmniVision"]);
+    /* Con porteros, el Monitor Face está aunque no esté el modo face (el portero cuenta sus caras). */
+    assert.deepEqual(rotulos(m, "modulos"), ["Matrículas", "Monitor Face", "Intrusión", "Video", "Rastreo GPS", "Guardia", "OmniVision"]);
     assert.deepEqual(rotulos(m, "padron"), ["Personas", "Unidades", "Tags RFID", "Grupos de acceso", "Calendario"]);
     assert.deepEqual(rotulos(m, "sistema"), ["Dispositivos", "Configuración"]);
 });
@@ -91,7 +92,7 @@ test("la consola de guardia pide el permiso de guardia, no una ruta del panel", 
 test("una instalación de rostro: su monitor, y las listas quedan con las personas", () => {
     const m = armarMenu(barrio({ modos: { lpr: false, rostro: true, filas: false, guardia: false } }));
     assert.deepEqual(rotulos(m, "modulos"), ["Rostro", "Intrusión", "Video", "Rastreo GPS", "OmniVision"]);
-    assert.equal(m.flatMap((s) => s.entradas).find((e) => e.rotulo === "Rostro")!.href, "/admin/monitor-face");
+    assert.deepEqual(hijos(m, "rostro"), ["Monitor Face", "En vivo: entrada y salida"]);
     assert.deepEqual(hijos(m, "personas"), ["Residentes", "Lista negra", "Lista amarilla", "Censo"]);
     assert.equal(m.flatMap((s) => s.entradas).find((e) => e.rotulo === "Historial")!.href, "/admin/history");
 });
@@ -118,7 +119,9 @@ test("qué entrada se marca: gana la que nombra la pestaña", () => {
 
 test("qué entrada se marca: las pantallas que cuelgan de otra y las rutas hermanas", () => {
     const m = armarMenu(barrio());
-    assert.deepEqual(activoDe(m, "/admin/devices/abc", ""), { id: "equipos-lista", grupo: "equipos" });
+    /* Dispositivos quedó con una sola pantalla (el Monitor Face se fue a Rostro): es una entrada suelta. */
+    assert.deepEqual(activoDe(m, "/admin/devices/abc", ""), { id: "equipos-lista", grupo: null });
+    assert.deepEqual(activoDe(m, "/admin/face", ""), { id: "rostro-capturas", grupo: null });
     assert.deepEqual(activoDe(m, "/admin/credentials", ""), { id: "lpr-vehiculos", grupo: "matriculas" });
     assert.deepEqual(activoDe(m, "/admin/vision/analiticas/estacionamiento", ""), { id: "vision-analiticas", grupo: "vision" });
     assert.equal(activoDe(m, "/admin/changelog", ""), null);
