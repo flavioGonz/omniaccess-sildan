@@ -38,7 +38,7 @@ export function descifrarDato(valor: string | null | undefined) {
 /* ── Credenciales de equipos (punto 5): gemelo de enPrisma() en lib-cifrado-datos.js ── */
 const CAMPOS = new Set(["password", "rtspUrl", "claveEquipos", "passwordAnterior"]);
 /** Qué campos se cifran al escribir cada modelo. User sólo la clave de equipos: su `password` no existe y no se toca. */
-const CIFRAR_EN: Record<string, string[]> = { Device: ["password", "rtspUrl", "passwordAnterior"], User: ["claveEquipos"] };
+const CIFRAR_EN: Record<string, string[]> = { Device: ["password", "rtspUrl", "passwordAnterior"], User: ["claveEquipos"], Administracion: ["correoClave"] };
 export function descifrarProfundo<T>(x: T, n = 0): T {
     if (!x || typeof x !== "object" || n > 6) return x;
     if (Array.isArray(x)) { for (const y of x) descifrarProfundo(y, n + 1); return x; }

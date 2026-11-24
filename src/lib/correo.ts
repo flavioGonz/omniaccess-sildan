@@ -43,6 +43,27 @@ export async function configCorreo(): Promise<ConfigCorreo | null> {
     };
 }
 
+/**
+ * Una cuenta propia desde la que se manda (25/11): la de una administración del complejo. San Nicolás
+ * tiene cuatro comisiones y cada una le escribe a sus lotes desde su casilla de Gmail, con su clave de
+ * aplicación. Gmail es fijo (smtp.gmail.com, 465 con TLS): las cuatro son Gmail y pedirle a quien la
+ * carga servidor y puerto es pedirle que se equivoque.
+ */
+export type CuentaCorreo = { cuenta: string; clave: string; nombre?: string | null };
+const GMAIL = { host: "smtp.gmail.com", port: 465, secure: true } as const;
+/** La clave de aplicación de Gmail se muestra en cuatro grupos («abcd efgh …»): los espacios no son parte de ella. */
+export const limpiarClaveDeAplicacion = (c: string) => String(c || "").replace(/\s+/g, "");
+
+/**
+ * La copia fija de todo lo que se manda (Ajustes › Correo › Copia), leída aparte: con cuentas por
+ * administración puede no haber servidor general, y la copia tiene que ir igual. Admite varias,
+ * separadas por coma (25/11: María y Flavio).
+ */
+export async function copiaFija(): Promise<string> {
+    const f = await prisma.setting.findUnique({ where: { key: "SMTP_COPIA" } }).catch(() => null);
+    return (f?.value || "").split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean).join(", ");
+}
+
 export type Envio = {
     para: string; copia?: string; asunto: string; texto: string; html?: string;
     /** Imágenes que el HTML cita como `cid:<cid>` (el logo). Viajan adentro del correo, no como adjunto a bajar. */
@@ -53,26 +74,56 @@ export type Envio = {
  * Manda uno. Nunca tira: devuelve por qué no se pudo, porque quien lo llama está mandando
  * trescientos y uno que falla no puede cortar los otros doscientos noventa y nueve.
  */
-export async function enviarCorreo(e: Envio): Promise<{ ok: boolean; error?: string }> {
-    const cfg = await configCorreo();
-    if (!cfg) return { ok: false, error: "Falta configurar el servidor de correo (Ajustes → Correo)." };
-    if (!cfg.desde) return { ok: false, error: "Falta el remitente (SMTP_DESDE)." };
+export async function enviarCorreo(e: Envio, o: { desde?: CuentaCorreo | null; sinCopia?: boolean } = {}): Promise<{ ok: boolean; error?: string; desde?: string }> {
+    /* Desde una cuenta propia (la de una administración) o desde el servidor general. */
+    let transporte: Parameters<typeof nodemailer.createTransport>[0];
+    let remitente: string, cuenta: string;
+    if (o.desde) {
+        transporte = { ...GMAIL, auth: { user: o.desde.cuenta, pass: limpiarClaveDeAplicacion(o.desde.clave) } };
+        remitente = o.desde.nombre ? `"${o.desde.nombre.replace(/"/g, "")}" <${o.desde.cuenta}>` : o.desde.cuenta;
+        cuenta = o.desde.cuenta;
+    } else {
+        const cfg = await configCorreo();
+        if (!cfg) return { ok: false, error: "Falta configurar el servidor de correo (Ajustes → Correo)." };
+        if (!cfg.desde) return { ok: false, error: "Falta el remitente (SMTP_DESDE)." };
+        transporte = { host: cfg.host, port: cfg.puerto, secure: cfg.seguro, auth: cfg.usuario ? { user: cfg.usuario, pass: cfg.clave } : undefined };
+        remitente = cfg.desde;
+        cuenta = cfg.usuario || cfg.desde;
+    }
     try {
         const t = nodemailer.createTransport({
-            host: cfg.host, port: cfg.puerto, secure: cfg.seguro,
-            auth: cfg.usuario ? { user: cfg.usuario, pass: cfg.clave } : undefined,
+            ...(transporte as object),
             // Un servidor que no contesta en quince segundos no va a contestar: mejor fallar y
             // reintentar esa fila que dejar la cola entera esperando.
             connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 20_000,
         });
-        const copias = [cfg.copia, e.copia].filter(Boolean).join(", ");
+        /* La copia fija va en todo. Y cuando sale de la cuenta de una administración, la propia cuenta
+           también va en copia (25/11, Nico: «debe ir en copia, cada envío, al mismo remitente que
+           envía; no son IMAP, deben tener una copia en el mail»): así la casilla tiene cada correo en
+           su bandeja, además de en Enviados. */
+        const copias = [...new Set([...(o.sinCopia ? [] : [await copiaFija()]), e.copia, o.desde?.cuenta]
+            .flatMap((x) => String(x || "").split(/,\s*/)).map((x) => x.trim().toLowerCase()).filter((x) => x && x !== e.para.trim().toLowerCase()))].join(", ");
         await t.sendMail({
-            from: cfg.desde, to: e.para, cc: copias || undefined, subject: e.asunto, text: e.texto, html: e.html,
+            from: remitente, to: e.para, cc: copias || undefined, subject: e.asunto, text: e.texto, html: e.html,
             attachments: e.enLinea?.map((a) => ({ filename: a.nombre, content: a.contenido, cid: a.cid, contentDisposition: "inline" as const })),
         });
-        return { ok: true };
+        return { ok: true, desde: cuenta };
     } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message.slice(0, 200) : "No se pudo mandar" };
+    }
+}
+
+/** Probar una cuenta propia sin mandarle nada a nadie: Gmail dice si acepta la cuenta y la clave. */
+export async function probarCuenta(c: CuentaCorreo): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const t = nodemailer.createTransport({ ...GMAIL, auth: { user: c.cuenta, pass: limpiarClaveDeAplicacion(c.clave) }, connectionTimeout: 12_000, greetingTimeout: 12_000 });
+        await t.verify();
+        return { ok: true };
+    } catch (err) {
+        const m = err instanceof Error ? err.message : "No contestó";
+        /* El rechazo más común tiene una causa conocida: se cargó la clave de la cuenta y no una de aplicación. */
+        if (/535|Username and Password not accepted|BadCredentials/i.test(m)) return { ok: false, error: "Gmail no aceptó la cuenta con esa clave. Tiene que ser una clave de aplicación (16 letras), no la clave de la cuenta, y la cuenta tiene que tener la verificación en dos pasos prendida." };
+        return { ok: false, error: m.slice(0, 200) };
     }
 }
 

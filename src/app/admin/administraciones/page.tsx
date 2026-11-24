@@ -5,10 +5,11 @@ import { Building2, CheckCircle2, FileUp, History, Mail, MapPinned, Pencil, Phon
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import {
-    administraciones, borrarAdministracion, borrarContactoAdm, borrarServicioAdm, cambiosDeLotes, detalleAdministracion, guardarAdministracion, guardarContactoAdm, guardarServicioAdm,
+    administraciones, borrarAdministracion, borrarContactoAdm, borrarServicioAdm, cambiosDeLotes, copiaDeLosCorreos, detalleAdministracion, guardarAdministracion, guardarContactoAdm, guardarServicioAdm,
     type CambioVisto, type ContactoAdm, type DetalleAdministracion, type LoteAdm, type ResumenAdministracion, type ServicioAdm,
 } from "@/app/actions/administraciones";
 import { CajonLote } from "@/components/lotes/CajonLote";
+import { CorreoAdministracion } from "@/components/administraciones/CorreoAdministracion";
 import { HistorialLote } from "@/components/lotes/HistorialLote";
 import type { InformePadron } from "@/lib/padron-importar";
 import { Button } from "@/components/ui/button";
@@ -38,7 +39,7 @@ import { cn } from "@/lib/utils";
  * haría; recién después aplica. No borra nada y no manda correos.
  */
 
-type Pest = "contactos" | "servicios" | "lotes" | "cambios";
+type Pest = "contactos" | "servicios" | "lotes" | "cambios" | "correo";
 type FiltroLotes = "todos" | "gente" | "sin" | "terrenos";
 const SITUACION: Record<string, { rotulo: string; tono: "quieto" | "info" | "aviso" }> = {
     TERRENO: { rotulo: "Terreno", tono: "quieto" }, DESARROLLADOR: { rotulo: "Del desarrollador", tono: "info" }, SIN_TITULAR: { rotulo: "Sin titular", tono: "aviso" },
@@ -79,6 +80,9 @@ export default function Administraciones() {
         detalleAdministracion(sel).then((d) => { if (vivo) setDet(d); }).catch(() => toast.error({ title: "No se pudo traer esa administración" }));
         return () => { vivo = false; };
     }, [sel, vuelta]);
+    /* La copia fija de todos los envíos, para decirla al lado de cada cuenta de correo. */
+    const [copia, setCopia] = useState("");
+    useEffect(() => { copiaDeLosCorreos().then(setCopia).catch(() => { }); }, [vuelta]);
     const elegida = lista?.find((a) => a.id === sel) || null;
     const cargandoDetalle = !!sel && det?.id !== sel;
 
@@ -115,6 +119,7 @@ export default function Administraciones() {
                                             { valor: "servicios", rotulo: "Servicios", icono: Truck, cuenta: elegida.servicios },
                                             { valor: "lotes", rotulo: "Lotes", icono: MapPinned, cuenta: elegida.lotes },
                                             { valor: "cambios", rotulo: "Cambios", icono: History, ayuda: "Lo último que cambió en los lotes de esta administración: matrículas que entran o salen, gente que se suma o se va, y lo que cargan en el censo." },
+                                            { valor: "correo", rotulo: "Correo", icono: Mail, tono: elegida.correo.cuenta && elegida.correo.conClave && !elegida.correo.error ? undefined : "aviso", ayuda: "La casilla de Gmail desde la que esta administración les escribe a sus lotes." },
                                         ]} />
                                         <div className="ml-auto">
                                             {pest === "contactos" && <Button size="sm" variant="outline" onClick={() => setEditContacto({})}><Plus size={14} /> Agregar contacto</Button>}
@@ -126,6 +131,7 @@ export default function Administraciones() {
                                     {pest === "servicios" && <Servicios filas={cargandoDetalle ? null : det?.servicios || []} alEditar={setEditServicio} alBorrar={async (id) => { await borrarServicioAdm(id); refrescar(); }} />}
                                     {pest === "lotes" && <Lotes filas={cargandoDetalle ? null : det?.lotes || []} alAbrir={setLoteAbierto} />}
                                     {pest === "cambios" && <Cambios administracionId={elegida.id} vuelta={vuelta} alAbrirLote={setLoteAbierto} />}
+                                    {pest === "correo" && <CorreoAdministracion key={elegida.id} id={elegida.id} nombre={elegida.nombre} correo={elegida.correo} copia={copia} alCambiar={refrescar} />}
                                 </section>
                             )}
                         </>
@@ -170,7 +176,13 @@ function Tarjeta({ a, activa, alElegir, alEditar }: { a: ResumenAdministracion; 
                     <p className="mt-1.5 text-[11px] text-muted-foreground tabular-nums">Censo: {a.cargaron} cargaron · {a.enviados} enviados · {a.conCodigo - a.enviados} sin enviar</p>
                 </div>
             )}
-            <p className="mt-3 border-t border-border pt-2.5 text-[12px] truncate">
+            {/* Desde qué casilla les escribe a sus lotes. */}
+            <p className={cn("mt-3 flex items-center gap-1.5 text-[11.5px] truncate", a.correo.cuenta && a.correo.conClave && !a.correo.error ? "text-muted-foreground" : "tono-aviso")}>
+                <Mail size={12} className="shrink-0" />
+                <span className="truncate">{!a.correo.cuenta ? "Sin cuenta de correo" : !a.correo.conClave ? `${a.correo.cuenta} · falta la clave` : a.correo.error ? `${a.correo.cuenta} · Gmail no la acepta` : a.correo.cuenta}</span>
+                {a.correo.cuenta && a.correo.conClave && !a.correo.error && a.correo.probadoAt && <CheckCircle2 size={12} className="tono-bien shrink-0" />}
+            </p>
+            <p className="mt-2 border-t border-border pt-2.5 text-[12px] truncate">
                 {a.referente
                     ? <><span className="font-semibold">{a.referente.nombre}</span>{a.referente.rol && <span className="text-muted-foreground"> · {a.referente.rol}</span>}{a.referente.telefono && <span className="text-muted-foreground tabular-nums"> · {a.referente.telefono}</span>}</>
                     : <span className="text-muted-foreground">Sin contactos cargados todavía</span>}

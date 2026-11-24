@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppBranding } from "@/app/actions/settings";
 import { CID_LOGO, LOGO_ALTO, LOGO_ANCHO, correoDeInvitacion, correoSirve, nuevaClave } from "@/lib/censo-invitaciones";
 import { enviarCorreo } from "@/lib/correo";
+import { administracionesParaCorreo, lotesDeInvitacion, remitenteDe, remitenteDeLotes, type Remitente } from "@/lib/correo-administracion";
 import { ZONA } from "@/lib/fechas";
 import { estimarFin, FALLAS_PARA_PAUSAR, leerGoteo, proximoEnvio, queToca, enHorario, type Goteo } from "@/lib/censo-goteo";
 
@@ -47,16 +48,25 @@ export function logoDelCorreo(): Promise<Buffer | null> {
     return logo;
 }
 
-/** Manda una invitación y anota en su fila cómo le fue. */
-export async function mandarInvitacion(inv: Inv, origen: string): Promise<{ ok: boolean; error?: string }> {
+/**
+ * Manda una invitación y anota en su fila cómo le fue, y desde qué cuenta salió.
+ *
+ * Sale desde la cuenta de la administración de sus lotes (lib/correo-administracion). Si esa
+ * administración todavía no tiene cuenta, NO sale y no cuenta como intento: no es culpa del correo
+ * de esa persona, y gastarle los tres intentos la dejaría afuera cuando la cuenta se cargue.
+ */
+export async function mandarInvitacion(inv: Inv, origen: string, remitente?: Remitente): Promise<{ ok: boolean; error?: string; sinCuenta?: boolean }> {
+    const de = remitente || await remitenteDe(lotesDeInvitacion(inv.lotes));
+    if (de.tipo === "sin-cuenta") return { ok: false, sinCuenta: true, error: `${de.nombre} todavía no tiene su cuenta de correo cargada (Administraciones › Correo).` };
     const [marca, imagen] = await Promise.all([getAppBranding(), logoDelCorreo()]);
     const { asunto, texto, html } = correoDeInvitacion({
         barrio: marca.barrio || marca.name, lote: inv.lote, nombre: inv.nombre || undefined,
         lotes: (Array.isArray(inv.lotes) ? (inv.lotes as { nombre?: unknown }[]) : []).map((l) => String(l?.nombre || "")).filter(Boolean),
         clave: inv.clave, url: `${origen}/registro/${inv.clave}`, conLogo: !!imagen,
     });
-    const r = await enviarCorreo({ para: inv.email, asunto, texto, html, enLinea: imagen ? [{ cid: CID_LOGO, nombre: "omniaccess.png", contenido: imagen }] : undefined });
-    if (r.ok) await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { enviadoAt: new Date(), intentos: { increment: 1 }, error: null } });
+    const r = await enviarCorreo({ para: inv.email, asunto, texto, html, enLinea: imagen ? [{ cid: CID_LOGO, nombre: "omniaccess.png", contenido: imagen }] : undefined },
+        { desde: de.tipo === "administracion" ? de.cuenta : null });
+    if (r.ok) await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { enviadoAt: new Date(), enviadoDesde: r.desde || null, intentos: { increment: 1 }, error: null } });
     else await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { intentos: { increment: 1 }, error: r.error || "no se pudo" } });
     return r;
 }
@@ -122,13 +132,30 @@ export async function guardarGoteo(g: Goteo): Promise<void> {
 /** Las que todavía se pueden mandar: sin enviar y sin haber fallado tres veces. */
 const PENDIENTES = { enviadoAt: null, intentos: { lt: INTENTOS_MAX } } as const;
 
-export type EstadoGoteo = Goteo & { pendientes: number; conError: number; enHorario: boolean; terminaAt: string | null };
+/** Cómo va cada cuenta: desde qué casilla sale cada grupo, cuántas faltan y cuántas salieron. */
+export type EnvioPorCuenta = { administracionId: string | null; nombre: string; cuenta: string | null; lista: boolean; pendientes: number; enviadas: number };
+export type EstadoGoteo = Goteo & { pendientes: number; conError: number; enHorario: boolean; terminaAt: string | null; porCuenta: EnvioPorCuenta[] };
 export async function estadoDeGoteo(): Promise<EstadoGoteo> {
-    const [g, pendientes, conError] = await Promise.all([
+    const [g, pendientes, conError, todas, admins] = await Promise.all([
         leerGoteoGuardado(), prisma.invitacionCenso.count({ where: PENDIENTES }), prisma.invitacionCenso.count({ where: { enviadoAt: null, intentos: { gte: INTENTOS_MAX } } }),
+        prisma.invitacionCenso.findMany({ where: { sitio: "" }, select: { lotes: true, enviadoAt: true, intentos: true } }),
+        administracionesParaCorreo(),
     ]);
+    const unidades = await prisma.unit.findMany({ where: { id: { in: [...new Set(todas.flatMap((i) => lotesDeInvitacion(i.lotes)))] } }, select: { id: true, administracionId: true } });
+    const adminDeUnidad = new Map(unidades.map((u) => [u.id, u.administracionId]));
+    const grupos = new Map<string, EnvioPorCuenta>();
+    for (const i of todas) {
+        const r = remitenteDeLotes(lotesDeInvitacion(i.lotes), adminDeUnidad, admins);
+        const k = r.tipo === "general" ? "" : r.administracionId;
+        if (!grupos.has(k)) grupos.set(k, r.tipo === "general"
+            ? { administracionId: null, nombre: "Sin administración", cuenta: null, lista: true, pendientes: 0, enviadas: 0 }
+            : { administracionId: r.administracionId, nombre: r.nombre, cuenta: admins.get(r.administracionId)?.correoCuenta || null, lista: r.tipo === "administracion", pendientes: 0, enviadas: 0 });
+        const x = grupos.get(k)!;
+        if (i.enviadoAt) x.enviadas++; else if (i.intentos < INTENTOS_MAX) x.pendientes++;
+    }
     const ahora = new Date();
-    return { ...g, pendientes, conError, enHorario: enHorario(g, ahora, ZONA), terminaAt: estimarFin(g, pendientes, ahora, ZONA)?.toISOString() || null };
+    return { ...g, pendientes, conError, enHorario: enHorario(g, ahora, ZONA), terminaAt: estimarFin(g, pendientes, ahora, ZONA)?.toISOString() || null,
+        porCuenta: [...grupos.values()].sort((a, b) => (a.administracionId ? 0 : 1) - (b.administracionId ? 0 : 1) || a.nombre.localeCompare(b.nombre)) };
 }
 
 let enVuelta = false;
@@ -143,7 +170,25 @@ export async function vueltaDeGoteo(): Promise<{ que: string; lote?: string; err
         if (que !== "enviar") return { que };
         /* El orden es el de la clave, que es al azar: así no salen seguidos los dos del mismo lote
            ni toda una manzana en fila, y el orden no cambia entre una vuelta y la otra. */
-        const inv = await prisma.invitacionCenso.findFirst({ where: PENDIENTES, orderBy: { clave: "asc" } });
+        /* La primera que tenga desde dónde salir: las de una administración sin cuenta esperan, y
+           las demás siguen (25/11: cada administración manda desde su casilla). */
+        const pendientes = await prisma.invitacionCenso.findMany({ where: PENDIENTES, orderBy: { clave: "asc" } });
+        const [admins, unidades] = await Promise.all([
+            administracionesParaCorreo(),
+            prisma.unit.findMany({ where: { id: { in: [...new Set(pendientes.flatMap((p) => lotesDeInvitacion(p.lotes)))] } }, select: { id: true, administracionId: true } }),
+        ]);
+        const adminDeUnidad = new Map(unidades.map((u) => [u.id, u.administracionId]));
+        let remitente: Remitente | null = null;
+        const sinCuenta = new Set<string>();
+        const inv = pendientes.find((p) => {
+            const r = remitenteDeLotes(lotesDeInvitacion(p.lotes), adminDeUnidad, admins);
+            if (r.tipo === "sin-cuenta") { sinCuenta.add(r.nombre); return false; }
+            remitente = r; return true;
+        });
+        if (!inv && sinCuenta.size) {
+            await guardarGoteo({ ...g, activo: false, proximo: null, motivo: `Esperando las cuentas de correo de ${[...sinCuenta].join(", ")}: cargalas en Administraciones › Correo y volvé a ponerlo en marcha.` });
+            return { que: "sin-cuenta" };
+        }
         if (!inv) {
             const conError = await prisma.invitacionCenso.count({ where: { enviadoAt: null } });
             await guardarGoteo({ ...g, activo: false, proximo: null, fallas: 0, motivo: conError ? `Terminó. Quedaron ${conError} sin poder enviarse: mirá el motivo de cada una en la lista.` : "Terminó: se enviaron todas." });
@@ -152,7 +197,7 @@ export async function vueltaDeGoteo(): Promise<{ que: string; lote?: string; err
         if (!g.origen) { await guardarGoteo({ ...g, activo: false, motivo: "No se sabe con qué dirección armar los enlaces: volvé a ponerlo en marcha desde esta pantalla." }); return { que: "sin-origen" }; }
         /* El próximo se anota ANTES de mandar: si esta vuelta tarda, la siguiente no manda otro encima. */
         await guardarGoteo({ ...g, proximo: proximoEnvio(g, ahora).toISOString() });
-        const r = await mandarInvitacion(inv, g.origen);
+        const r = await mandarInvitacion(inv, g.origen, remitente || undefined);
         const ahoraG = await leerGoteoGuardado();                 // pudieron pausarlo mientras se mandaba
         if (r.ok) { await guardarGoteo({ ...ahoraG, fallas: 0, motivo: null }); return { que: "enviado", lote: inv.lote }; }
         const fallas = ahoraG.fallas + 1;

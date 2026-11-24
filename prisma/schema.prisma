@@ -124,6 +124,16 @@ model Administracion {
   sigla     String   @unique
   notas     String?
   orden     Int      @default(0)
+  /// La cuenta desde la que esta administracion manda los correos a sus lotes (25/11): una casilla de
+  /// Gmail con su clave de aplicacion. Sin cuenta, a sus lotes no se les manda nada.
+  correoCuenta    String?
+  /// Lo que ve quien recibe como remitente: «San Nicolas · 7a Etapa».
+  correoNombre    String?
+  /// La clave de aplicacion de Gmail. Cifrada en la base (lib/cifrado-datos) y nunca vuelve al navegador.
+  correoClave     String?
+  /// La ultima vez que Gmail acepto la cuenta, y lo que contesto la ultima vez que no.
+  correoProbadoAt DateTime?
+  correoError     String?
   contactos AdministracionContacto[]
   servicios AdministracionServicio[]
   unidades  Unit[]
@@ -2107,6 +2117,8 @@ model InvitacionCenso {
   /// La clave que viaja en el enlace y en el correo. Unica: es la que identifica a la persona.
   clave      String    @unique
   enviadoAt  DateTime?
+  /// La cuenta desde la que salio: la de la administracion de sus lotes (25/11), o la general.
+  enviadoDesde String?
   /// Cuantas veces se intento mandar y que dijo el servidor de correo la ultima vez.
   intentos   Int       @default(0)
   error      String?

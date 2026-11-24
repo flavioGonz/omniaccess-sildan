@@ -36,6 +36,8 @@ import { cn } from "@/lib/utils";
 type Invitacion = {
     id: string; lote: string; email: string; nombre: string; clave: string;
     enviadoAt: string | null; usadoAt: string | null; intentos: number; error: string | null;
+    /** Desde qué cuenta salió (25/11): la de la administración de sus lotes, o la general. */
+    enviadoDesde?: string | null;
 };
 type Datos = { conClave: boolean; correoListo: boolean; copiaAdmin: string; dominio: JuicioDominio | null; invitaciones: Invitacion[]; goteo: EstadoGoteo };
 
@@ -243,8 +245,8 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                     {!d.correoListo && (
                                         <p className="mt-2.5 flex items-start gap-2 rounded-[10px] chip-aviso p-3 text-[12.5px] leading-snug">
                                             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                                            Falta el servidor de correo: cargalo en Ajustes → Sistema → Correo (SMTP). Sin eso se pueden
-                                            cargar las invitaciones pero no sale ninguna.
+                                            No hay desde dónde mandar: cada administración manda desde su cuenta de Gmail, que se carga en
+                                            Administraciones › Correo. Sin ninguna se pueden cargar las invitaciones pero no sale ninguna.
                                         </p>
                                     )}
                                     {d.correoListo && (
@@ -278,7 +280,22 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                                             {g.activo && g.proximo && g.enHorario && <> La próxima sale a las {hora(g.proximo)}.</>}
                                                         </p>
                                                     )}
-                                                    {g.motivo && <p className={cn("mt-2 text-[12px] leading-snug", /fren|fallaron|No se sabe/.test(g.motivo) ? "tono-mal font-semibold" : "text-muted-foreground")}>{g.motivo}</p>}
+                                                    {g.motivo && <p className={cn("mt-2 text-[12px] leading-snug", /fren|fallaron|No se sabe|Esperando las cuentas/.test(g.motivo) ? "tono-mal font-semibold" : "text-muted-foreground")}>{g.motivo}</p>}
+                                                    {/* Desde qué cuenta sale cada grupo (25/11): cada administración, desde su casilla. */}
+                                                    {g.porCuenta?.length > 0 && (
+                                                        <ul className="mt-3 space-y-1.5 border-t border-border pt-3">
+                                                            {g.porCuenta.map((c) => (
+                                                                <li key={c.administracionId || "general"} className="flex items-center gap-2 text-[12px]">
+                                                                    <span className={cn("grid h-6 w-6 shrink-0 place-items-center rounded-[6px]", c.lista ? "chip-bien" : "chip-aviso")}><Mail size={12} /></span>
+                                                                    <span className="min-w-0 flex-1">
+                                                                        <span className="block truncate font-semibold">{c.nombre}</span>
+                                                                        <span className={cn("block truncate text-[11px]", c.lista ? "text-muted-foreground" : "tono-aviso")}>{c.administracionId ? (c.lista ? `desde ${c.cuenta}` : c.cuenta ? `${c.cuenta}: falta la clave de aplicación` : "sin cuenta de correo: sus invitaciones esperan") : "desde el servidor general"}</span>
+                                                                    </span>
+                                                                    <span className="shrink-0 tabular-nums text-muted-foreground">{c.enviadas} de {c.enviadas + c.pendientes}</span>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    )}
                                                     {g.conError > 0 && <p className="mt-1 text-[12px] tono-aviso">{g.conError} {g.conError === 1 ? "se intentó tres veces y no salió: no se vuelve" : "se intentaron tres veces y no salieron: no se vuelven"} a intentar sola{g.conError === 1 ? "" : "s"}. Corregí el correo y usá «Enviar» en su renglón.</p>}
                                                 </div>
                                                 <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px]">
@@ -335,7 +352,7 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                                             <EditorCodigo className="mt-0.5" invitacionId={i.id} clave={i.clave} yaEnviado={!!i.enviadoAt} alCambiar={traer} />
                                                             {(i.enviadoAt || i.error) && (
                                                                 <p className="truncate text-[11.5px] text-muted-foreground tabular-nums">
-                                                                    {[i.enviadoAt ? `enviado ${fechaHora(i.enviadoAt)}` : "", i.error || ""].filter(Boolean).join(" · ")}
+                                                                    {[i.enviadoAt ? `enviado ${fechaHora(i.enviadoAt)}${i.enviadoDesde ? ` desde ${i.enviadoDesde}` : ""}` : "", i.error || ""].filter(Boolean).join(" · ")}
                                                                 </p>
                                                             )}
                                                         </div>

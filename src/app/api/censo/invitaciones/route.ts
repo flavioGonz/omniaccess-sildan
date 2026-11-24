@@ -5,7 +5,8 @@ import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { prisma } from "@/lib/prisma";
 import { leerPlanilla, nuevaClave, type FilaPlanilla } from "@/lib/censo-invitaciones";
-import { configCorreo, probarCorreo } from "@/lib/correo";
+import { configCorreo, copiaFija, probarCorreo } from "@/lib/correo";
+import { hayDesdeDondeMandar } from "@/lib/correo-administracion";
 import { estadoDeGoteo, guardarGoteo, invitacionDePersona, leerGoteoGuardado, mandarInvitacion } from "@/lib/censo-envio";
 import { leerGoteo } from "@/lib/censo-goteo";
 import { revisarDominio } from "@/lib/correo-dominio";
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
         ]);
         const dominio = cfg ? await revisarDominio({ desde: cfg.desde, host: cfg.host }).catch(() => null) : null;
         return NextResponse.json({
-            correoListo: !!cfg, copiaAdmin: cfg?.copia || "",
+            correoListo: await hayDesdeDondeMandar(), copiaAdmin: await copiaFija(),
             /* El padrón no muestra el detalle del DNS, pero quien va a mandar tiene que saberlo. */
             aSpam: dominio?.estado === "mal" ? dominio.titulo : null,
             invitaciones: filas.map(resumida),
@@ -66,8 +67,9 @@ export async function GET(req: NextRequest) {
     ]);
     return NextResponse.json({
         conClave: await conClave(),
-        correoListo: !!cfg,
-        copiaAdmin: cfg?.copia || "",
+        /* Hay desde dónde mandar: el servidor general o alguna administración con su cuenta (25/11). */
+        correoListo: await hayDesdeDondeMandar(),
+        copiaAdmin: await copiaFija(),
         /* Si el dominio del remitente no autoriza a este servidor, los correos van a spam: se dice
            acá, antes de mandar. `?dns=1` vuelve a preguntarle al DNS (después de corregirlo). */
         dominio: cfg ? await revisarDominio({ desde: cfg.desde, host: cfg.host }, req.nextUrl.searchParams.get("dns") === "1").catch(() => null) : null,
@@ -75,7 +77,7 @@ export async function GET(req: NextRequest) {
         invitaciones: filas.map((f) => ({
             id: f.id, lote: f.lote, email: f.email, nombre: f.nombre, clave: f.clave,
             enviadoAt: f.enviadoAt?.toISOString() || null, usadoAt: f.usadoAt?.toISOString() || null,
-            intentos: f.intentos, error: f.error,
+            intentos: f.intentos, error: f.error, enviadoDesde: f.enviadoDesde,
         })),
     }, { headers: SIN_CACHE });
 }
@@ -158,7 +160,7 @@ export async function PUT(req: NextRequest) {
         const antes = await leerGoteoGuardado();
         const pedido = leerGoteo({ ...antes, ...(typeof b?.cadaSeg === "number" ? { cadaSeg: b.cadaSeg } : {}), ...(typeof b?.desde === "number" ? { desde: b.desde } : {}), ...(typeof b?.hasta === "number" ? { hasta: b.hasta } : {}) });
         const activo = typeof b?.activo === "boolean" ? b.activo : antes.activo;
-        if (activo && !(await configCorreo())) return NextResponse.json({ error: "Falta configurar el servidor de correo (Ajustes → Correo)." }, { status: 400 });
+        if (activo && !(await hayDesdeDondeMandar())) return NextResponse.json({ error: "No hay desde dónde mandar: cargá la cuenta de correo de cada administración (Administraciones › Correo)." }, { status: 400 });
         /* Al ponerlo en marcha se empieza de cero: sin fallas arrastradas, sin motivo viejo, y el
            primero sale en la próxima vuelta. Al pausarlo queda dicho quién lo pausó. */
         const nuevo = activo && !antes.activo ? { ...pedido, activo: true, fallas: 0, motivo: null, proximo: null, origen }
@@ -170,7 +172,7 @@ export async function PUT(req: NextRequest) {
     }
 
     if (b?.accion === "persona") {
-        if (!(await configCorreo())) return NextResponse.json({ error: "Falta configurar el servidor de correo (Ajustes → Correo)." }, { status: 400 });
+        if (!(await hayDesdeDondeMandar())) return NextResponse.json({ error: "No hay desde dónde mandar: cargá la cuenta de correo de cada administración (Administraciones › Correo)." }, { status: 400 });
         const r = await invitacionDePersona(String(b?.userId || ""));
         if ("error" in r) return NextResponse.json({ error: r.error }, { status: 400 });
         const envio = await mandarInvitacion(r.inv, origen);
@@ -180,8 +182,7 @@ export async function PUT(req: NextRequest) {
     }
 
     if (b?.accion === "enviar") {
-        const cfg = await configCorreo();
-        if (!cfg) return NextResponse.json({ error: "Falta configurar el servidor de correo (Ajustes → Correo)." }, { status: 400 });
+        if (!(await hayDesdeDondeMandar())) return NextResponse.json({ error: "No hay desde dónde mandar: cargá la cuenta de correo de cada administración (Administraciones › Correo)." }, { status: 400 });
         const ids: string[] = Array.isArray(b?.ids) ? b.ids.slice(0, POR_TANDA) : [];
         const where = ids.length ? { id: { in: ids } } : { enviadoAt: null };
         /* Sin elegir cuáles, «enviar» son todas las que faltan — y si son más que una tanda, eso es

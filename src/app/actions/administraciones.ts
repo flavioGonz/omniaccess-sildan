@@ -7,6 +7,7 @@ import { auditar } from "@/lib/centrales/sesion";
 import { siglaDeEtapa } from "@/lib/padron-planilla";
 import { cambiarCodigoDeInvitacion, type CodigoCambiado } from "@/lib/censo-codigo";
 import { limpiarChapa } from "@/lib/lote-cambios";
+import { copiaFija, enviarCorreo, limpiarClaveDeAplicacion, probarCuenta } from "@/lib/correo";
 
 /**
  * Las administraciones del complejo (21/11, Nico: «el complejo se fue construyendo por proyectos
@@ -36,7 +37,10 @@ export type ResumenAdministracion = {
     contactos: number; servicios: number;
     /** A quién llamar primero: el primer contacto cargado. */
     referente: { nombre: string; rol: string; telefono: string | null } | null;
+    /** Desde qué cuenta les escribe a sus lotes (25/11). La clave nunca sale del servidor: sólo si hay una. */
+    correo: CorreoAdm;
 };
+export type CorreoAdm = { cuenta: string | null; nombre: string | null; conClave: boolean; probadoAt: string | null; error: string | null };
 
 export async function administraciones(): Promise<ResumenAdministracion[]> {
     await sesion("usuarios");
@@ -61,6 +65,7 @@ export async function administraciones(): Promise<ResumenAdministracion[]> {
             personas: gente.size, conCodigo: invs.length, enviados: invs.filter((i) => i!.enviadoAt).length, cargaron: invs.filter((i) => i!.usadoAt).length,
             contactos: a.contactos.length, servicios: a._count.servicios,
             referente: c ? { nombre: c.nombre, rol: c.rol, telefono: c.telefono } : null,
+            correo: { cuenta: a.correoCuenta, nombre: a.correoNombre, conClave: !!a.correoClave, probadoAt: a.correoProbadoAt?.toISOString() || null, error: a.correoError },
         };
     });
 }
@@ -251,4 +256,68 @@ export async function cambiarCodigoCenso(invitacionId: string, clave: string | n
     const inv = await prisma.invitacionCenso.findUnique({ where: { id: String(invitacionId || "") }, select: { nombre: true, lote: true } });
     if (!(r.ok && r.igual)) await auditar(s, "censo.cambiar-codigo", `${inv?.nombre || "sin nombre"} · ${inv?.lote || ""}`, r.ok, r.ok ? (clave ? "puesto a mano" : "generado") : r.error);
     return r;
+}
+
+/* ── La cuenta de correo de cada administración (25/11) ──────────────────────────────────── */
+
+/**
+ * Nico: «tenemos que cargar una cuenta de correo para cada administración, con su clave de app cada
+ * una, todas son Gmail… debo poder distinguir de qué cuenta se envió y mantener en copia de todos los
+ * envíos a María». Qué cuenta usa cada lote: lib/correo-administracion.
+ *
+ * La clave de aplicación entra por acá y no vuelve: se guarda cifrada (lib/cifrado-datos) y la
+ * pantalla sólo sabe si hay una. Al guardar se le pregunta a Gmail si la acepta, y queda escrito.
+ */
+const CORREO_GMAIL = /^[^@\s]+@(gmail|googlemail)\.com$/i;
+
+export async function guardarCorreoAdm(id: string, d: { cuenta: string; nombre?: string; clave?: string }): Promise<{ ok: boolean; error?: string; probada?: boolean; aviso?: string }> {
+    const s = await sesion("usuarios.editar");
+    const a = await prisma.administracion.findUnique({ where: { id }, select: { id: true, nombre: true, correoCuenta: true, correoClave: true } });
+    if (!a) return { ok: false, error: "Esa administración ya no existe." };
+    const cuenta = String(d.cuenta || "").trim().toLowerCase();
+    if (!CORREO_GMAIL.test(cuenta)) return { ok: false, error: "Tiene que ser una casilla de Gmail (…@gmail.com)." };
+    const otra = await prisma.administracion.findFirst({ where: { correoCuenta: cuenta, NOT: { id } }, select: { nombre: true } });
+    if (otra) return { ok: false, error: `Esa casilla ya es la de ${otra.nombre}.` };
+    const nueva = limpiarClaveDeAplicacion(d.clave || "");
+    if (nueva && !/^[a-z]{16}$/i.test(nueva)) return { ok: false, error: "La clave de aplicación de Gmail tiene 16 letras (se muestra en cuatro grupos de cuatro)." };
+    /* Cambiar de casilla sin clave nueva dejaría la clave de la anterior: no sirve para la nueva. */
+    const clave = nueva || (a.correoCuenta === cuenta ? a.correoClave : null);
+    const nombre = oNada(d.nombre, 80);
+    let probada = false, error: string | null = null;
+    if (clave) { const p = await probarCuenta({ cuenta, clave }); probada = p.ok; error = p.ok ? null : p.error || "Gmail no la aceptó"; }
+    await prisma.administracion.update({
+        where: { id },
+        data: { correoCuenta: cuenta, correoNombre: nombre, ...(nueva ? { correoClave: nueva } : a.correoCuenta !== cuenta ? { correoClave: null } : {}), correoProbadoAt: probada ? new Date() : null, correoError: error },
+    });
+    await auditar(s, "administraciones.correo", id, probada, `${a.nombre} · ${cuenta}${nueva ? " · clave nueva" : ""} · ${probada ? "Gmail la aceptó" : clave ? `Gmail no la aceptó: ${error}` : "sin clave"}`);
+    return { ok: true, probada, aviso: !clave ? "Falta la clave de aplicación: sin ella no sale nada desde esta cuenta." : error || undefined };
+}
+
+/** Probar la cuenta; con `mandarA`, además manda un correo de prueba (sin las copias fijas, para no llenarles la casilla). */
+export async function probarCorreoAdm(id: string, mandarA?: string | null): Promise<{ ok: boolean; error?: string }> {
+    const s = await sesion("usuarios.editar");
+    const a = await prisma.administracion.findUnique({ where: { id }, select: { id: true, nombre: true, correoCuenta: true, correoClave: true, correoNombre: true } });
+    if (!a?.correoCuenta || !a.correoClave) return { ok: false, error: "Primero cargá la casilla y su clave de aplicación." };
+    const cuenta = { cuenta: a.correoCuenta, clave: a.correoClave, nombre: a.correoNombre || a.nombre };
+    const p = await probarCuenta(cuenta);
+    await prisma.administracion.update({ where: { id }, data: { correoProbadoAt: p.ok ? new Date() : null, correoError: p.ok ? null : p.error || "Gmail no la aceptó" } });
+    if (!p.ok || !mandarA) return p;
+    const para = String(mandarA).trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(para)) return { ok: false, error: "Ese destinatario no tiene forma de correo." };
+    const r = await enviarCorreo({ para, asunto: `Prueba de correo · ${a.nombre}`, texto: `Este es un correo de prueba de OmniAccess.\n\nSi lo recibís, ${a.nombre} ya puede escribirles a sus lotes desde ${a.correoCuenta}.` }, { desde: cuenta, sinCopia: true });
+    await auditar(s, "administraciones.correo.prueba", id, r.ok, `${a.nombre} · desde ${a.correoCuenta} · ${r.ok ? "salió" : r.error}`);
+    return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
+
+export async function quitarCorreoAdm(id: string): Promise<{ ok: boolean }> {
+    const s = await sesion("usuarios.editar");
+    const a = await prisma.administracion.update({ where: { id }, data: { correoCuenta: null, correoNombre: null, correoClave: null, correoProbadoAt: null, correoError: null }, select: { nombre: true } }).catch(() => null);
+    if (a) await auditar(s, "administraciones.correo.quitar", id, true, a.nombre);
+    return { ok: !!a };
+}
+
+/** La copia fija de todos los envíos (Ajustes › Correo), para decirla al lado de cada cuenta. */
+export async function copiaDeLosCorreos(): Promise<string> {
+    await sesion("usuarios");
+    return copiaFija();
 }
