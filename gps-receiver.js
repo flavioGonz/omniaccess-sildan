@@ -123,6 +123,8 @@ function mandarComando(imei, texto, conIdioma = true) {
             const marca = marcaSig = (marcaSig + 1) & 0x7fffffff;
             const reloj = setTimeout(() => { esperando.delete(marca); resolver({ ok: false, error: "El rastreador no contestó a tiempo." }); }, ESPERA_RESPUESTA_MS);
             esperando.set(marca, { resolver, reloj, imei });
+            /* Lo que conteste en los próximos dos minutos puede traer su clave: va tapado al log. */
+            if (texto === "MYSELF#") mem(imei).pidioClave = Date.now();
             const t = tf.comando(imei, texto);
             /* Al log va sin la clave del equipo, y sin los bytes (que la traen igual). */
             log(imei, "COMANDO →", tf.sinClave(texto));
@@ -140,7 +142,10 @@ function mandarComando(imei, texto, conIdioma = true) {
 }
 
 function alResponder(imei, m) {
-    log(imei, "RESPUESTA ←", JSON.stringify(m.texto));
+    /* La respuesta a MYSELF# trae la clave del equipo: al log va tapada (lib-topfly, respuestaSinClave).
+       A quien la pidió le llega entera: es la acción del panel la que la guarda como secreto. */
+    const pidioClave = Date.now() - (mem(imei).pidioClave || 0) < 120_000;
+    log(imei, "RESPUESTA ←", JSON.stringify(tf.respuestaSinClave(m.texto, pidioClave)));
     /* Por la marca, y si el equipo no la devuelve bien, al único comando que ese equipo tiene
        pendiente: no perder una respuesta por un detalle del clon. */
     let e = esperando.get(m.marca);

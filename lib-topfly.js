@@ -444,6 +444,11 @@ function comando(imei, texto) {
  *   HBT,<clave>,n#                   el latido, en minutos.
  *   SPEED,<clave>,n#                 aviso de exceso de velocidad, en km/h (0 lo apaga).
  *   DRAG,<clave>,n#                  aviso de remolque, en metros (0 lo apaga).
+ *   MYSELF#                          pregunta: contesta su IMEI y su CLAVE ACTUAL (si no tiene un teléfono
+ *                                    administrador cargado). Entró el 24/11: el TorchX rechazó TIMER y HBT
+ *                                    con el mismo «ERROR:[-102]» llevando la clave de fábrica, y la única
+ *                                    forma de saber la clave sin ir al proveedor es preguntársela. La
+ *                                    respuesta trae un secreto: ver `respuestaSinClave`.
  * Quedan AFUERA a propósito, aunque el manual los trae: IP y APN (un valor mal deja al equipo sin
  * reportar y hay que ir a buscarlo), PASSWORD (cambia la clave y no se le puede mandar nada más),
  * TRACK (en 1 deja de mandar datos) y los de teléfonos y SMS.
@@ -451,6 +456,7 @@ function comando(imei, texto) {
 const CLAVE = "[A-Za-z0-9]{1,10}";
 const PERMITIDOS = [
     /^VERSION#$/,
+    /^MYSELF#$/,
     new RegExp(`^TIMER,${CLAVE},\\d{1,5}:\\d{1,5}:\\d{1,2}:\\d{1,5}#$`),
     new RegExp(`^HBT,${CLAVE},\\d{1,3}#$`),
     new RegExp(`^SPEED,${CLAVE},\\d{1,5}#$`),
@@ -460,7 +466,36 @@ const aceptaComando = (texto) => typeof texto === "string" && PERMITIDOS.some((r
 /** El mismo comando sin la clave del equipo, para dejarlo escrito en un log. */
 const sinClave = (texto) => String(texto).replace(/^([A-Z]+),[^,#]+,/, "$1,····,");
 
+/** Palabras que una respuesta trae y no son la clave. */
+const PALABRAS = new Set(["IMEI", "SET", "MYSELF", "OK", "PIN", "PASSWORD", "PWD", "ERROR", "CURRENT", "IS"]);
+/** ¿La respuesta puede traer una clave? Sólo la de MYSELF, o una que la nombre. */
+const traeClave = (texto) => /MYSELF|PIN|PASSWORD|PWD/i.test(String(texto || ""));
+/**
+ * La respuesta, para un log o un historial, sin la clave del equipo. El formato exacto de la respuesta
+ * a MYSELF no está publicado, así que no se busca «la clave» en un lugar: se tapa TODO lo que no sea
+ * el IMEI o una palabra conocida. Se pierde algo de texto en el log y no se filtra el secreto.
+ * `forzar`: tapar aunque no nombre la clave (es la respuesta a un MYSELF# que se acaba de mandar,
+ * y puede venir como «IMEI,1234#» sin decir que eso es una clave).
+ */
+function respuestaSinClave(texto, forzar = false) {
+    const t = String(texto || "");
+    if (!forzar && !traeClave(t)) return t;
+    return t.replace(/[A-Za-z0-9]+/g, (x) => (/^\d{15}$/.test(x) || PALABRAS.has(x.toUpperCase()) ? x : "····"));
+}
+/**
+ * La clave que dijo el equipo al contestar MYSELF#. Si hay una palabra PIN/PASSWORD, lo que la sigue;
+ * si no, el único dato de 4 a 10 letras o números que no es el IMEI ni una palabra conocida. Si hay
+ * más de uno y nada los distingue, `null`: guardar una clave adivinada haría que el equipo rechace todo.
+ */
+function claveDeRespuesta(texto) {
+    const t = String(texto || "");
+    const nombrada = /(?:PIN|PASSWORD|PWD)\s*[:=]?\s*([A-Za-z0-9]{4,10})\b/i.exec(t);
+    if (nombrada && !PALABRAS.has(nombrada[1].toUpperCase())) return nombrada[1];
+    const datos = [...new Set((t.match(/[A-Za-z0-9]+/g) || []).filter((x) => !/^\d{15}$/.test(x) && !PALABRAS.has(x.toUpperCase()) && /^[A-Za-z0-9]{4,10}$/.test(x)))];
+    return datos.length === 1 ? datos[0] : null;
+}
+
 /** Lo que el equipo contesta a un comando no se acusa: es él el que está contestando. */
 const pideAcuse = (m) => m.tipo !== "respuesta";
 
-module.exports = { esInicio, partir, leer, acuse, pideAcuse, eventoDeAlarma, rayas, comando, aceptaComando, sinClave, TIPO, SOBRE, SATS_MIN };
+module.exports = { esInicio, partir, leer, acuse, pideAcuse, eventoDeAlarma, rayas, comando, aceptaComando, sinClave, respuestaSinClave, claveDeRespuesta, TIPO, SOBRE, SATS_MIN };

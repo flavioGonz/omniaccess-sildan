@@ -6,12 +6,12 @@ import {
     Loader2, Lock, MapPin, MessageCircleQuestion, Minus, Move, Network, Phone, PhoneCall, Plus, Power, PowerOff, Radio, RefreshCw, RotateCcw, Satellite, Send,
     Server, ShieldCheck, Signal, SlidersHorizontal, Timer, TriangleAlert, Truck, Undo2, Unplug, Vibrate, Waves, Wrench, Zap, type LucideIcon, type LucideProps,
 } from "lucide-react";
-import { claveTopflyGps, guardarClaveTopflyGps, historialComandosGps, mandarComandoGps, valoresActualesGps, type ComandoMandado, type Rastreador, type RespuestaComando } from "@/app/actions/gps";
+import { claveTopflyGps, guardarClaveTopflyGps, historialComandosGps, leerClaveTopflyGps, mandarComandoGps, valoresActualesGps, type ComandoMandado, type Rastreador, type RespuestaComando } from "@/app/actions/gps";
 import { Button } from "@/components/ui/button";
 import { ErrorEstado, Vacio } from "@/components/ui/estados";
 import { Pista } from "@/components/ui/pista";
 import { Switch } from "@/components/ui/switch";
-import { armarComando, codigoDeRechazo, comandosDe, GRUPOS_COMANDO, leerEstadoDelEquipo, palabraDeConfirmacion, pareceRechazo, valoresPorDefecto, type CampoComando, type DefComando, type GrupoComando, type NivelComando, type Valores } from "@/lib/gps-comandos";
+import { armarComando, CLAVE_EQUIPO, codigoDeRechazo, comandosDe, GRUPOS_COMANDO, leerEstadoDelEquipo, palabraDeConfirmacion, pareceRechazo, valoresPorDefecto, type CampoComando, type DefComando, type GrupoComando, type NivelComando, type Valores } from "@/lib/gps-comandos";
 import type { QueGps } from "@/lib/gps-permisos";
 import { hace } from "@/lib/fechas";
 import { cn } from "@/lib/utils";
@@ -163,7 +163,7 @@ export function ComandosGps({ lista, imei, alElegir, puede, alCambiar }: {
                 })}
             </div>
 
-            <FichaDelEquipo r={r} puede={puede} />
+            <FichaDelEquipo r={r} puede={puede} alLeerClave={() => setVuelta((n) => n + 1)} />
 
             {!comandos.length ? (
                 <Panel><Vacio icono={Radio} titulo="A este modelo todavía no se le pueden mandar comandos" ayuda={`Habla ${r.protocolo}. Por ahora se lo configura por SMS o con el programa del fabricante.`} /></Panel>
@@ -219,7 +219,7 @@ export function ComandosGps({ lista, imei, alElegir, puede, alCambiar }: {
 }
 
 /** Lo que se sabe del equipo sin preguntarle nada: lo último que reportó. */
-function FichaDelEquipo({ r, puede }: { r: Rastreador; puede: (que: QueGps) => boolean }) {
+function FichaDelEquipo({ r, puede, alLeerClave }: { r: Rastreador; puede: (que: QueGps) => boolean; alLeerClave: () => void }) {
     const senal = r.senal === null ? null : SENAL[Math.max(0, Math.min(4, r.senal))];
     const datos: { icono: LucideIcon; k: string; v: React.ReactNode; tono?: string; pista: string }[] = [
         { icono: Clock3, k: "Última noticia", v: hace(r.ultimoLatido, "nunca"), tono: r.enLinea ? undefined : "tono-aviso", pista: "La última vez que el equipo habló con OmniAccess, con una posición o con un latido. Los comandos viajan por esa misma conexión: si hace rato que no habla, no le llegan." },
@@ -257,7 +257,7 @@ function FichaDelEquipo({ r, puede }: { r: Rastreador; puede: (que: QueGps) => b
                     <span>No está en línea. Los comandos viajan por la conexión que el propio rastreador mantiene abierta: hasta que vuelva a reportar no se le puede mandar nada.</span>
                 </p>
             )}
-            {r.protocolo === "TOPFLY" && <ClaveDelEquipo puedeCambiarla={puede("equipo")} />}
+            {r.protocolo === "TOPFLY" && <ClaveDelEquipo imei={r.imei} enLinea={r.enLinea} puedeCambiarla={puede("equipo")} alLeer={alLeerClave} />}
         </Panel>
     );
 }
@@ -266,12 +266,27 @@ function FichaDelEquipo({ r, puede }: { r: Rastreador; puede: (que: QueGps) => b
  * La clave con la que un TopFly acepta comandos. Estaba sólo como un ajuste escrito en la base: el
  * 24/11 un equipo real rechazó el primer cambio y no había dónde probar con otra clave.
  */
-function ClaveDelEquipo({ puedeCambiarla }: { puedeCambiarla: boolean }) {
+function ClaveDelEquipo({ imei, enLinea, puedeCambiarla, alLeer }: { imei: string; enLinea: boolean; puedeCambiarla: boolean; alLeer: () => void }) {
     const [propia, setPropia] = useState<boolean | null>(null);
     const [editando, setEditando] = useState(false);
     const [clave, setClave] = useState("");
     const [guardando, setGuardando] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [leyendo, setLeyendo] = useState(false);
+    const [leida, setLeida] = useState<{ tono: "bien" | "aviso" | "mal"; texto: string } | null>(null);
+    /* Preguntársela al equipo (MYSELF#): la única forma de saberla sin el proveedor. La clave no vuelve
+       acá; el servidor la guarda si la respuesta la deja saber con certeza (actions/gps › leerClaveTopflyGps). */
+    const leer = async () => {
+        setLeyendo(true); setError(null); setLeida(null);
+        try {
+            const x = await leerClaveTopflyGps(imei);
+            if (!x.ok) setLeida({ tono: "mal", texto: x.error || "No se pudo." });
+            else if (x.guardada) { setPropia(true); setLeida({ tono: "bien", texto: "El equipo dijo su clave y quedó guardada. Ya podés mandar el ajuste otra vez." }); }
+            else if (x.deFabrica) { setPropia(false); setLeida({ tono: "aviso", texto: "El equipo dice que su clave es la de fábrica, la que ya se usaba. Entonces el rechazo no es por la clave: es algún valor que este modelo no admite." }); }
+            else setLeida({ tono: "aviso", texto: x.error || "Contestó, pero no se pudo saber la clave." });
+        } catch (e) { setLeida({ tono: "mal", texto: e instanceof Error ? e.message : "No se pudo." }); }
+        finally { setLeyendo(false); alLeer(); }
+    };
     useEffect(() => { let vivo = true; claveTopflyGps().then((x) => { if (vivo) setPropia(x.propia); }).catch(() => { if (vivo) setPropia(false); }); return () => { vivo = false; }; }, []);
     const guardar = async (valor: string) => {
         setGuardando(true); setError(null);
@@ -301,12 +316,16 @@ function ClaveDelEquipo({ puedeCambiarla }: { puedeCambiarla: boolean }) {
                     <Button type="button" variant="ghost" size="sm" className="h-11 sm:h-9" onClick={() => { setEditando(false); setClave(""); setError(null); }}>Cancelar</Button>
                 </form>
             ) : puedeCambiarla ? (
-                <div className="flex items-center gap-2">
-                    {propia && <Button variant="ghost" size="sm" className="h-9 text-[12px]" disabled={guardando} onClick={() => guardar("")}>Volver a la de fábrica</Button>}
-                    <Button variant="outline" size="sm" className="h-9 text-[12px]" onClick={() => setEditando(true)}>Cambiar</Button>
+                <div className="flex flex-wrap items-center gap-2">
+                    {propia && <Button variant="ghost" size="sm" className="h-9 text-[12px]" disabled={guardando || leyendo} onClick={() => guardar("")}>Volver a la de fábrica</Button>}
+                    <Button variant="outline" size="sm" className="h-9 text-[12px]" disabled={leyendo} onClick={() => setEditando(true)}>Escribirla</Button>
+                    <Pista ancho={300} titulo="Preguntarle la clave al equipo" texto="Le manda MYSELF#, que no cambia nada: el equipo contesta su IMEI y la clave que tiene puesta, salvo que tenga un teléfono administrador cargado (entonces sólo le contesta a ese teléfono por SMS). Si la dice, queda guardada sin mostrarse.">
+                        <Button size="sm" className="h-9 text-[12px]" disabled={leyendo || !enLinea} onClick={leer}>{leyendo ? <Loader2 size={14} className="animate-spin" /> : <KeySquare size={14} />} Preguntársela al equipo</Button>
+                    </Pista>
                 </div>
             ) : <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground"><Lock size={13} /> La cambia quien instala los equipos.</span>}
             {error && <p className="tono-mal basis-full text-[12.5px] font-semibold" role="alert">{error}</p>}
+            {leida && <p className={cn("basis-full rounded-[6px] border px-3 py-2 text-[12.5px] leading-snug", `chip-${leida.tono}`)} role="status">{leida.texto}</p>}
         </div>
     );
 }
@@ -591,7 +610,10 @@ function Resultado({ def, x }: { def: DefComando; x: RespuestaComando }) {
             {/* El fabricante no publica qué quiere decir cada código: se dice eso, y qué probar, en vez de inventarle un significado. */}
             {codigo !== null && (
                 <p className="mt-1.5 text-[12px] leading-snug text-foreground">
-                    Lo rechazó con el código <span className="font-bold tabular-nums">{codigo}</span>, y no cambió nada. El fabricante no publica qué significa cada código. Suele ser una de dos cosas: la clave del equipo no es la que está cargada, o algún valor no lo admite este modelo. Para saber cuál, mandale los mismos valores que ya tiene: si eso entra, es un valor; si no, es la clave.
+                    Lo rechazó con el código <span className="font-bold tabular-nums">{codigo}</span>, y no cambió nada. El fabricante no publica qué significa cada código. Suele ser una de dos cosas: la clave del equipo no es la que está cargada, o algún valor no lo admite este modelo.
+                    {def.texto({}).includes(CLAVE_EQUIPO)
+                        ? <> Si otro ajuste ya lo rechazó con el mismo código, casi seguro es la clave: tocá <b>«Preguntársela al equipo»</b>, arriba en la ficha.</>
+                        : <> Para saber cuál, mandale los mismos valores que ya tiene: si eso entra, es un valor; si no, es la clave.</>}
                 </p>
             )}
             {x.quedo && <p className="mt-1.5 break-words text-[12.5px] leading-snug text-foreground">Y al preguntarle cómo quedó: <span className="font-semibold">«{x.quedo}»</span></p>}

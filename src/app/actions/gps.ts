@@ -14,6 +14,7 @@ import { puedeGps, type QueGps } from "@/lib/gps-permisos";
 import { olvidarServicioDeRutas, porLaCalleDe, servicioDeRutas } from "@/lib/rutas";
 import { estadoOmniRutas, fraseDeRutas, prenderOmniRutas, type FaseRutas } from "@/lib/omni-rutas";
 import { SILENCIO_MAX_S } from "@/lib/gps-calle";
+import { respuestaSinClave, claveDeRespuesta } from "@/lib/topfly-clave";
 import { armarComando, CLAVE_EQUIPO, comandoPorClave, comandosDe, palabraDeConfirmacion, pareceRechazo, type NivelComando, type Valores } from "@/lib/gps-comandos";
 import { auditar } from "@/lib/centrales/sesion";
 import { leerEstadoRele, puedeAccionarRele } from "@/lib/gps-rele";
@@ -745,13 +746,56 @@ export async function guardarClaveTopflyGps(clave: string): Promise<{ ok: boolea
     return { ok: true };
 }
 
+/**
+ * Le pregunta al TopFly su clave (MYSELF#) y, si la dice, la guarda como la clave con que se le
+ * mandan los ajustes (24/11).
+ *
+ * Por qué: el TorchX rechazó dos comandos distintos —TIMER con valores dentro del rango y HBT con 3
+ * minutos— con el mismo «ERROR:[-102]», los dos con la clave de fábrica. Lo común a los dos es la
+ * clave. Nico no tiene trato con el proveedor que lo configuró, y el manual de la familia dice que
+ * MYSELF# contesta «el IMEI y la clave actual» cuando el equipo no tiene un teléfono administrador.
+ *
+ * La clave no vuelve a la pantalla ni queda en el historial: se guarda en el ajuste secreto y lo que
+ * contestó el equipo se anota tapado. Si la respuesta no deja saber con certeza cuál es, no se guarda
+ * nada: una clave adivinada haría que el equipo rechace todo lo que se le mande.
+ */
+export async function leerClaveTopflyGps(imei: string): Promise<{ ok: boolean; guardada?: boolean; deFabrica?: boolean; respuesta?: string; error?: string }> {
+    const s = await sesion("equipo");
+    const e = await prisma.gpsEquipo.findUnique({ where: { imei: String(imei) }, select: { imei: true, protocolo: true, deviceId: true } });
+    if (!e || e.protocolo !== "TOPFLY") return { ok: false, error: "Esto es sólo para los rastreadores TopFly." };
+    if (!e.deviceId) return { ok: false, error: "Primero hay que dar de alta el rastreador." };
+    const quien = String(s?.name || s?.sub || "panel");
+    const r = await alEquipo(e.imei, "MYSELF#");
+    const tapada = r.ok ? respuestaSinClave((r.respuesta || "").replace(/\s+/g, " ").trim(), true) : null;
+    await prisma.gpsComando.create({ data: { imei: e.imei, clave: "clave.leer", texto: "MYSELF#", ok: r.ok, respuesta: (r.ok ? tapada : r.error || null)?.slice(0, 500) ?? null, quien } }).catch(() => { });
+    if (!r.ok) {
+        await auditar(s, "equipos.gps.clave-topfly", e.deviceId, false, `IMEI ${e.imei} · leer la clave · ${r.error}`);
+        return { ok: false, error: /no contestó/i.test(r.error || "")
+            ? "El equipo no contestó. Pasa cuando tiene un teléfono administrador cargado: a MYSELF# sólo le contesta a ese teléfono, por SMS. Ahí la clave la sabe quien lo configuró."
+            : r.error };
+    }
+    const clave = claveDeRespuesta(r.respuesta || "");
+    if (!clave || !CLAVE_TOPFLY.test(clave)) {
+        await auditar(s, "equipos.gps.clave-topfly", e.deviceId, false, `IMEI ${e.imei} · leer la clave · la respuesta no la deja saber`);
+        return { ok: true, guardada: false, respuesta: tapada || undefined, error: "Contestó, pero la respuesta no deja saber con certeza cuál es la clave, y no se guardó nada." };
+    }
+    if (clave === "0000") {
+        await prisma.setting.deleteMany({ where: { key: "GPS_TOPFLY_CLAVE" } });
+        await auditar(s, "equipos.gps.clave-topfly", e.deviceId, true, `IMEI ${e.imei} · leída del equipo: es la de fábrica`);
+        return { ok: true, guardada: false, deFabrica: true, respuesta: tapada || undefined };
+    }
+    await prisma.setting.upsert({ where: { key: "GPS_TOPFLY_CLAVE" }, create: { key: "GPS_TOPFLY_CLAVE", value: clave }, update: { value: clave } });
+    await auditar(s, "equipos.gps.clave-topfly", e.deviceId, true, `IMEI ${e.imei} · leída del equipo y guardada`);
+    return { ok: true, guardada: true, respuesta: tapada || undefined };
+}
+
 export type ComandoMandado = { id: string; imei: string; clave: string; titulo: string; texto: string; ok: boolean; respuesta: string | null; quedo: string | null; quien: string; cuando: string };
 
 /** Lo último que se le mandó a un rastreador (o a todos), del más nuevo al más viejo. */
 export async function historialComandosGps(imei?: string | null, cuantos = 30): Promise<ComandoMandado[]> {
     await sesion("ver");
     const filas = await prisma.gpsComando.findMany({ where: imei ? { imei: String(imei) } : {}, orderBy: { cuando: "desc" }, take: Math.min(Math.max(1, cuantos), 200) });
-    return filas.map((f) => ({ id: f.id, imei: f.imei, clave: f.clave, titulo: comandoPorClave("GT06", f.clave)?.titulo || comandoPorClave("TOPFLY", f.clave)?.titulo || f.clave, texto: f.texto, ok: f.ok, respuesta: f.respuesta, quedo: f.quedo, quien: f.quien, cuando: f.cuando.toISOString() }));
+    return filas.map((f) => ({ id: f.id, imei: f.imei, clave: f.clave, titulo: comandoPorClave("GT06", f.clave)?.titulo || comandoPorClave("TOPFLY", f.clave)?.titulo || (f.clave === "clave.leer" ? "Leer la clave del equipo" : f.clave), texto: f.texto, ok: f.ok, respuesta: f.respuesta, quedo: f.quedo, quien: f.quien, cuando: f.cuando.toISOString() }));
 }
 
 /**
