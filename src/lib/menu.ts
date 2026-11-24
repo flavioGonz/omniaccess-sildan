@@ -120,8 +120,11 @@ export function armarMenu(c: ContextoMenu): SeccionMenu[] {
 
     const modulos: EntradaMenu[] = [
         ...(conMatriculas ? grupo("matriculas", "Matrículas", "matriculas", [
-            /* Con rostro prendido, el monitor de la instalación es el facial (así era antes). */
-            ...hoja(!m.rostro, { id: "lpr-monitor", rotulo: "Monitor LPR", href: "/admin/monitor-lpr" }),
+            /* Con matrículas prendido el Monitor LPR está SIEMPRE, también donde además hay rostro. Antes
+               se escondía ahí («el monitor de la instalación es el facial»), y en una instalación con
+               los dos módulos no había forma de llegar por el menú a la pantalla que Nico quiere
+               primera de todas (24/11: «comenzando por Monitor LPR arriba del todo»). */
+            ...hoja(true, { id: "lpr-monitor", rotulo: "Monitor LPR", href: "/admin/monitor-lpr" }),
             ...hoja(true, { id: "lpr-vehiculos", rotulo: "Vehículos y matrículas", href: "/admin/vehicles", tambien: ["/admin/credentials"] }),
             ...listas,
             ...hoja(true, { id: "lpr-invitados", rotulo: "Invitados", href: "/admin/invitados" }),

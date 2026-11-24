@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Building2, CalendarDays, Car, Cctv, ChevronRight, Cpu, CreditCard, FileVideo, History, KeyRound, Map as MapaIcono, MapPin, Radar, Rows3, ScanEye, ScanFace, ShieldCheck, Siren, SlidersHorizontal, Users } from "lucide-react";
-import { insigniaDeGrupo, type EntradaMenu, type IconoMenu, type Insignia, type SeccionMenu } from "@/lib/menu";
+import { Building2, CalendarDays, Car, Cctv, ChevronRight, Cpu, CreditCard, FileVideo, History, KeyRound, Map as MapaIcono, MapPin, Pin, PinOff, Radar, Rows3, ScanEye, ScanFace, ShieldCheck, Siren, SlidersHorizontal, Users } from "lucide-react";
+import { insigniaDeGrupo, type EntradaMenu, type HojaConGrupo, type IconoMenu, type Insignia, type SeccionMenu } from "@/lib/menu";
+import { FIJADOS_MAX } from "@/lib/menu-fijados";
 import { cn } from "@/lib/utils";
 
 /**
@@ -38,12 +39,42 @@ function Cuenta({ i, punto }: { i: Insignia; punto?: boolean }) {
 const FILA = "group relative flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13.5px] text-foreground/80 outline-none transition-colors hover:bg-accent/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--accion)]";
 const ACTIVA = "bg-accent font-medium text-foreground";
 
-export function MenuLateral({ menu, activo, plegado }: {
+/** Lo que hace falta para fijar y soltar: qué está fijado y cómo cambiarlo. */
+type Fijar = { ids: string[]; alternar: (id: string) => void };
+
+/**
+ * El alfiler de cada pantalla (24/11). Nico: «cada elemento del menú debe tener un ícono invisible
+ * que al pasar por encima se ve, para fijar el elemento arriba del todo».
+ *
+ * Invisible hasta que el mouse está sobre el renglón (o el foco del teclado sobre él): treinta
+ * alfileres a la vista serían treinta cosas más para mirar en un menú que se acaba de ordenar. Va
+ * AL LADO del enlace y no adentro —un botón adentro de un enlace no es válido, y apretarlo navegaría—,
+ * encima del lugar de la insignia, que mientras tanto queda tapada: en ese momento se está eligiendo
+ * qué fijar, no leyendo cuántas hay.
+ */
+function Alfiler({ id, rotulo, fijar }: { id: string; rotulo: string; fijar: Fijar }) {
+    const fijada = fijar.ids.includes(id);
+    const lleno = !fijada && fijar.ids.length >= FIJADOS_MAX;
+    const dicho = fijada ? "Quitar de arriba" : lleno ? `Ya hay ${FIJADOS_MAX} fijadas: quitá una para fijar otra` : "Fijar arriba del menú";
+    return (
+        <button type="button" disabled={lleno} onClick={() => fijar.alternar(id)} title={dicho} aria-label={`${fijada ? "Quitar de arriba" : "Fijar arriba"}: ${rotulo}`} aria-pressed={fijada}
+            className="absolute right-1 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md bg-accent text-muted-foreground opacity-0 outline-none transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--accion)] disabled:cursor-not-allowed group-hover/fila:opacity-100">
+            {fijada ? <PinOff size={13} /> : <Pin size={13} />}
+        </button>
+    );
+}
+/** Cómo se ve el enlace de un renglón mientras el mouse está sobre su alfiler (que es su vecino, no su hijo). */
+const SOBRE_LA_FILA = "group-hover/fila:bg-accent/70 group-hover/fila:text-foreground";
+
+export function MenuLateral({ menu, activo, plegado, fijadas, fijar }: {
     menu: SeccionMenu[];
     /** La pantalla en la que se está (lib/menu, `activoDe`), o null si no está en el menú. */
     activo: { id: string; grupo: string | null } | null;
     /** Sólo íconos. */
     plegado: boolean;
+    /** Las pantallas fijadas arriba de todo, en su orden (lib/menu-fijados). */
+    fijadas: HojaConGrupo[];
+    fijar: Fijar;
 }) {
     /* Lo que se abrió a mano, anotado junto con la pantalla en la que se estaba: al cambiar de
        pantalla deja de valer solo, sin un efecto que lo limpie. */
@@ -58,13 +89,33 @@ export function MenuLateral({ menu, activo, plegado }: {
 
     return (
         <>
+            {/* ── Lo fijado: los atajos de quien usa este puesto. Cada uno sigue estando, además, en su módulo. ── */}
+            {fijadas.length > 0 && (
+                <div className="mb-1.5 border-b border-border pb-1.5">
+                    <ul className="space-y-0.5">
+                        {fijadas.map((h) => {
+                            const Icono = ICONOS_MENU[h.icono], esta = activo?.id === h.id;
+                            return (
+                                <li key={h.id} className="group/fila relative">
+                                    <Link href={h.href} title={plegado ? h.rotulo : undefined} aria-label={plegado ? h.rotulo : undefined} data-activa={esta} className={cn(FILA, SOBRE_LA_FILA, esta && ACTIVA, plegado && "justify-center px-0")}>
+                                        <Icono size={16} strokeWidth={1.7} className="shrink-0 text-muted-foreground group-hover:text-foreground group-data-[activa=true]:text-foreground" />
+                                        {!plegado && <span className="min-w-0 flex-1 truncate">{h.rotulo}{h.rotuloGrupo && <span className="ml-1.5 text-[11.5px] font-normal text-muted-foreground">{h.rotuloGrupo}</span>}</span>}
+                                        {h.insignia && <Cuenta i={h.insignia} punto={plegado} />}
+                                    </Link>
+                                    {!plegado && <Alfiler id={h.id} rotulo={h.rotulo} fijar={fijar} />}
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </div>
+            )}
             {menu.map((s, n) => (
                 <div key={s.id}>
                     {s.titulo && (plegado
                         ? <div className="mx-2 my-2 border-t border-border" />
                         : <div className={cn("px-2.5 pb-1 text-[12px] font-medium text-muted-foreground", n ? "pt-4" : "pt-1")}>{s.titulo}</div>)}
                     <ul className="space-y-0.5">
-                        {s.entradas.map((e) => <li key={e.id}><Entrada e={e} activo={activo} plegado={plegado} abierto={!!e.hijos && estaAbierto(e.id)} alAlternar={() => alternar(e.id)} /></li>)}
+                        {s.entradas.map((e) => <li key={e.id} className={e.hijos ? undefined : "group/fila relative"}><Entrada e={e} activo={activo} plegado={plegado} abierto={!!e.hijos && estaAbierto(e.id)} alAlternar={() => alternar(e.id)} fijar={fijar} /></li>)}
                     </ul>
                 </div>
             ))}
@@ -72,7 +123,7 @@ export function MenuLateral({ menu, activo, plegado }: {
     );
 }
 
-function Entrada({ e, activo, plegado, abierto, alAlternar }: { e: EntradaMenu; activo: { id: string; grupo: string | null } | null; plegado: boolean; abierto: boolean; alAlternar: () => void }) {
+function Entrada({ e, activo, plegado, abierto, alAlternar, fijar }: { e: EntradaMenu; activo: { id: string; grupo: string | null } | null; plegado: boolean; abierto: boolean; alAlternar: () => void; fijar: Fijar }) {
     const Icono = ICONOS_MENU[e.icono];
     const dibujo = <Icono size={16} strokeWidth={1.7} className="shrink-0 text-muted-foreground group-hover:text-foreground group-data-[activa=true]:text-foreground" />;
     /* Plegado no hay dónde escribir el nombre: lo dice el navegador al pasar el mouse. Un cartel propio
@@ -83,11 +134,14 @@ function Entrada({ e, activo, plegado, abierto, alAlternar }: { e: EntradaMenu; 
     if (!e.hijos) {
         const esta = activo?.id === e.id;
         return (
-            <Link href={e.href} title={nombre} aria-label={nombre} data-activa={esta} aria-current={esta ? "page" : undefined} className={cn(FILA, esta && ACTIVA, plegado && "justify-center px-0")}>
-                {dibujo}
-                {!plegado && <span className="min-w-0 flex-1 truncate">{e.rotulo}</span>}
-                {e.insignia && <Cuenta i={e.insignia} punto={plegado} />}
-            </Link>
+            <>
+                <Link href={e.href} title={nombre} aria-label={nombre} data-activa={esta} aria-current={esta ? "page" : undefined} className={cn(FILA, SOBRE_LA_FILA, esta && ACTIVA, plegado && "justify-center px-0")}>
+                    {dibujo}
+                    {!plegado && <span className="min-w-0 flex-1 truncate">{e.rotulo}</span>}
+                    {e.insignia && <Cuenta i={e.insignia} punto={plegado} />}
+                </Link>
+                {!plegado && <Alfiler id={e.id} rotulo={e.rotulo} fijar={fijar} />}
+            </>
         );
     }
 
@@ -119,11 +173,12 @@ function Entrada({ e, activo, plegado, abierto, alAlternar }: { e: EntradaMenu; 
                     {e.hijos.map((h) => {
                         const esta = activo?.id === h.id;
                         return (
-                            <li key={h.id}>
-                                <Link href={h.href} data-activa={esta} aria-current={esta ? "page" : undefined} className={cn(FILA, "h-[33px] text-[13px]", esta && ACTIVA)}>
+                            <li key={h.id} className="group/fila relative">
+                                <Link href={h.href} data-activa={esta} aria-current={esta ? "page" : undefined} className={cn(FILA, SOBRE_LA_FILA, "h-[33px] text-[13px]", esta && ACTIVA)}>
                                     <span className="min-w-0 flex-1 truncate">{h.rotulo}</span>
                                     {h.insignia && <Cuenta i={h.insignia} />}
                                 </Link>
+                                <Alfiler id={h.id} rotulo={h.rotulo} fijar={fijar} />
                             </li>
                         );
                     })}

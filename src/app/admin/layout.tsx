@@ -29,6 +29,8 @@ import { activoDe, armarMenu, hojasDe } from "@/lib/menu";
 import { MenuLateral } from "@/components/menu/MenuLateral";
 import { Buscador } from "@/components/menu/Buscador";
 import { useMenuLateral } from "@/hooks/useMenuLateral";
+import { useMenuFijados } from "@/hooks/useMenuFijados";
+import { hojasFijadas } from "@/lib/menu-fijados";
 import { DONDE_VALE } from "@/lib/menu-estado";
 import { Pista } from "@/components/ui/pista";
 
@@ -112,6 +114,8 @@ export default function AdminLayout({
         omnivision: SECCIONES_OMNIVISION.map((x) => ({ href: x.href, rotulo: x.rotulo })),
     });
     const activoMenu = activoDe(arbol, pathname || "", searchParams?.toString() || "");
+    /* Las pantallas que este puesto fijó arriba del menú (lib/menu-fijados; de fábrica, el Monitor LPR). */
+    const { fijados, alternar: alternarFijado } = useMenuFijados();
     /* Hasta saber el modo y los permisos no hay menú que mostrar, ni pantallas que buscar. */
     const listoMenu = modulosListos && roleLoaded;
 
@@ -188,7 +192,7 @@ export default function AdminLayout({
                 <nav className="flex-1 overflow-y-auto px-2 pb-3 pt-2 custom-scrollbar" aria-label="Menú de OmniAccess">
                     {!listoMenu ? <EsqueletoMenu collapsed={collapsed} /> : (
                         /* Qué entradas hay lo dice lib/menu.ts; cómo se ven, components/menu/MenuLateral. */
-                        <MenuLateral menu={arbol} activo={activoMenu} plegado={collapsed} />
+                        <MenuLateral menu={arbol} activo={activoMenu} plegado={collapsed} fijadas={hojasFijadas(arbol, fijados)} fijar={{ ids: fijados, alternar: alternarFijado }} />
                     )}
                 </nav>
 
