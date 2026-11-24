@@ -125,10 +125,10 @@ export function CorreoAdministracion({ id, nombre, correo, copia, alCambiar }: {
                 )}
 
                 <div className="rounded-[14px] border border-border bg-card p-4 text-[12.5px] leading-snug">
-                    <p className="font-semibold">Quién recibe copia de cada correo</p>
+                    <p className="font-semibold">Quién recibe copia oculta de cada correo</p>
                     <ul className="mt-2 space-y-1.5 text-muted-foreground">
                         <li className="flex items-start gap-2"><Mail size={13} className="mt-0.5 shrink-0" /><span>La propia casilla{correo.cuenta ? <> (<b className="text-foreground">{correo.cuenta}</b>)</> : ""}: así cada envío le queda en la bandeja, además de en Enviados.</span></li>
-                        <li className="flex items-start gap-2"><Mail size={13} className="mt-0.5 shrink-0" /><span>{copia ? <>La copia fija: <b className="text-foreground">{copia}</b>.</> : "No hay copia fija cargada (Ajustes › Correo › Copia)."}</span></li>
+                        <li className="flex items-start gap-2"><Mail size={13} className="mt-0.5 shrink-0" /><span>{copia ? <>La copia fija: <b className="text-foreground">{copia}</b>.</> : "No hay copia fija cargada (Ajustes › Correo › Copia)."} El vecino no ve ninguna de las dos.</span></li>
                     </ul>
                 </div>
             </section>

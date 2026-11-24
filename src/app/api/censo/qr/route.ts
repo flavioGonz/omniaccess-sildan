@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { origenPublico } from "@/lib/origen-publico";
 import QRCode from "qrcode";
 import sharp from "sharp";
 import { getSession } from "@/app/actions/auth";
@@ -24,9 +25,11 @@ export async function GET(req: NextRequest) {
     const sp = req.nextUrl.searchParams;
     const formato = sp.get("formato") === "png" ? "png" : "svg";
     const tam = Math.min(TAM_MAX, Math.max(240, Number(sp.get("tam")) || 1024));
-    // La URL se arma con el host por el que entró quien pide el QR: es la que va a funcionar
-    // desde afuera, y no una escrita a mano que mañana cambia.
-    const origen = req.nextUrl.origin.replace(/^http:/, req.headers.get("x-forwarded-proto") === "https" ? "https:" : "http:");
+    // La URL pública del sistema (ver lib/origen-publico): `req.nextUrl.origin` detrás del proxy es
+    // localhost:10001, y un QR impreso con eso no abre en ningún teléfono (el mismo error que
+    // mandó los primeros correos del censo con localhost, 25/11).
+    const origen = await origenPublico({ pedido: req.headers });
+    if (!origen) return NextResponse.json({ error: "No se sabe la dirección pública del sistema: cargala en Ajustes (URL pública, BASE_URL)." }, { status: 400 });
     const url = `${origen}/registro`;
 
     const opciones = { errorCorrectionLevel: "H" as const, margin: 2, color: { dark: "#0b1220", light: "#ffffff" } };

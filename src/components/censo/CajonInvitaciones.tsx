@@ -166,7 +166,7 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
             }
             toast[total ? "success" : "error"]({
                 title: total ? `${total} ${total === 1 ? "correo enviado" : "correos enviados"}` : "No salió ninguno",
-                description: fallados ? `${fallados} fallaron: mirá el motivo en la lista.` : "Con copia a la administración.",
+                description: fallados ? `${fallados} fallaron: mirá el motivo en la lista.` : "Con copia oculta a cada administración.",
             });
             traer();
         } finally { setMandando(false); }
@@ -189,7 +189,7 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
     return (
         <Cajon open={abierto} onOpenChange={(o) => { if (!o) alCerrar(); }}>
             <CajonContenido ancho="medio" titulo="Invitaciones del censo"
-                descripcion="Un correo por persona, con su clave para sus lotes, y con copia a la administración."
+                descripcion="Un correo por persona, con su clave para sus lotes, desde la casilla de su administración y con copia oculta."
                 pie={d ? (
                     <>
                         {/* La planilla en blanco va ANTES de «Cargar»: es el paso que viene primero.
@@ -251,8 +251,8 @@ export function CajonInvitaciones({ abierto, alCerrar }: { abierto: boolean; alC
                                     )}
                                     {d.correoListo && (
                                         <p className="mt-2.5 text-[12px] text-muted-foreground">
-                                            {d.copiaAdmin ? <>Cada correo va con copia a <span className="font-semibold text-foreground">{d.copiaAdmin}</span>.</>
-                                                : "Sin copia a la administración: cargala en Ajustes → Correo para tener la constancia del envío."}
+                                            {d.copiaAdmin ? <>Cada correo sale desde la casilla de su administración, con copia oculta a esa misma casilla y a <span className="font-semibold text-foreground">{d.copiaAdmin}</span>.</>
+                                                : "Cada correo sale desde la casilla de su administración, con copia oculta a esa misma casilla."}
                                         </p>
                                     )}
                                     {d.dominio && <EstadoDelDominio j={d.dominio} mirando={mirando} alMirar={mirarDominio} />}

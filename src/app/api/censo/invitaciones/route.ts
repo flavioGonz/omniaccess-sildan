@@ -10,6 +10,7 @@ import { hayDesdeDondeMandar } from "@/lib/correo-administracion";
 import { estadoDeGoteo, guardarGoteo, invitacionDePersona, leerGoteoGuardado, mandarInvitacion } from "@/lib/censo-envio";
 import { leerGoteo } from "@/lib/censo-goteo";
 import { revisarDominio } from "@/lib/correo-dominio";
+import { origenPublico } from "@/lib/origen-publico";
 
 export const dynamic = "force-dynamic";
 const SIN_CACHE = { "Cache-Control": "no-store" };
@@ -46,6 +47,16 @@ const conClave = async () => (await prisma.setting.findUnique({ where: { key: "C
 const resumida = (f: { userId: string | null; email: string; enviadoAt: Date | null; usadoAt: Date | null; error: string | null }) =>
     ({ userId: f.userId, email: f.email, enviadoAt: f.enviadoAt?.toISOString() || null, usadoAt: f.usadoAt?.toISOString() || null, error: f.error });
 
+/**
+ * Si lo que falta mandar pasa por el servidor general (Ajustes › Correo). Desde el 25/11 cada
+ * administración manda desde su Gmail, y Gmail firma y autoriza lo suyo: el aviso de que el dominio
+ * del servidor general (infratec.com.uy) manda a spam sólo vale para las invitaciones de lotes sin
+ * administración. Con todas por las casillas de las administraciones, ese aviso en rojo asustaba
+ * por un servidor que no se iba a usar (Nico: «debés arreglar eso en rojo, ya que el envío es desde
+ * las cuentas de administraciones, que son Gmail»).
+ */
+const usaElServidorGeneral = (g: Awaited<ReturnType<typeof estadoDeGoteo>>) => g.porCuenta.some((c) => !c.administracionId && c.pendientes > 0);
+
 export async function GET(req: NextRequest) {
     const q = await permitido(); if (q instanceof NextResponse) return q;
     if (req.nextUrl.searchParams.get("resumen") === "1") {
@@ -53,7 +64,7 @@ export async function GET(req: NextRequest) {
             prisma.invitacionCenso.findMany({ where: { sitio: "" }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true }, take: 5000 }),
             configCorreo(),
         ]);
-        const dominio = cfg ? await revisarDominio({ desde: cfg.desde, host: cfg.host }).catch(() => null) : null;
+        const dominio = cfg && usaElServidorGeneral(await estadoDeGoteo()) ? await revisarDominio({ desde: cfg.desde, host: cfg.host }).catch(() => null) : null;
         return NextResponse.json({
             correoListo: await hayDesdeDondeMandar(), copiaAdmin: await copiaFija(),
             /* El padrón no muestra el detalle del DNS, pero quien va a mandar tiene que saberlo. */
@@ -61,9 +72,9 @@ export async function GET(req: NextRequest) {
             invitaciones: filas.map(resumida),
         }, { headers: SIN_CACHE });
     }
-    const [filas, cfg] = await Promise.all([
+    const [filas, cfg, goteo] = await Promise.all([
         prisma.invitacionCenso.findMany({ orderBy: [{ enviadoAt: "asc" }, { lote: "asc" }], take: 2000 }),
-        configCorreo(),
+        configCorreo(), estadoDeGoteo(),
     ]);
     return NextResponse.json({
         conClave: await conClave(),
@@ -72,8 +83,8 @@ export async function GET(req: NextRequest) {
         copiaAdmin: await copiaFija(),
         /* Si el dominio del remitente no autoriza a este servidor, los correos van a spam: se dice
            acá, antes de mandar. `?dns=1` vuelve a preguntarle al DNS (después de corregirlo). */
-        dominio: cfg ? await revisarDominio({ desde: cfg.desde, host: cfg.host }, req.nextUrl.searchParams.get("dns") === "1").catch(() => null) : null,
-        goteo: await estadoDeGoteo(),
+        dominio: cfg && usaElServidorGeneral(goteo) ? await revisarDominio({ desde: cfg.desde, host: cfg.host }, req.nextUrl.searchParams.get("dns") === "1").catch(() => null) : null,
+        goteo,
         invitaciones: filas.map((f) => ({
             id: f.id, lote: f.lote, email: f.email, nombre: f.nombre, clave: f.clave,
             enviadoAt: f.enviadoAt?.toISOString() || null, usadoAt: f.usadoAt?.toISOString() || null,
@@ -153,19 +164,23 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ conClave: valor }, { headers: SIN_CACHE });
     }
 
-    /* La dirección pública de este sitio, como la ve quien está en el panel: con ella se arman los enlaces. */
-    const origen = req.nextUrl.origin.replace(/^http:/, req.headers.get("x-forwarded-proto") === "https" ? "https:" : "http:");
+    /* La dirección pública de este sitio: con ella se arman los enlaces (ver lib/origen-publico). Antes
+       salía de `req.nextUrl.origin`, que detrás del proxy es localhost:10001, y así salieron los
+       primeros correos del censo (25/11). Sin una dirección pública no se manda nada. */
+    const origen = await origenPublico({ pedido: req.headers });
+    const sinOrigen = () => NextResponse.json({ error: "No se sabe la dirección pública del sistema para armar los enlaces: cargala en Ajustes (URL pública, BASE_URL)." }, { status: 400 });
 
     if (b?.accion === "goteo") {
         const antes = await leerGoteoGuardado();
         const pedido = leerGoteo({ ...antes, ...(typeof b?.cadaSeg === "number" ? { cadaSeg: b.cadaSeg } : {}), ...(typeof b?.desde === "number" ? { desde: b.desde } : {}), ...(typeof b?.hasta === "number" ? { hasta: b.hasta } : {}) });
         const activo = typeof b?.activo === "boolean" ? b.activo : antes.activo;
+        if (activo && !origen) return sinOrigen();
         if (activo && !(await hayDesdeDondeMandar())) return NextResponse.json({ error: "No hay desde dónde mandar: cargá la cuenta de correo de cada administración (Administraciones › Correo)." }, { status: 400 });
         /* Al ponerlo en marcha se empieza de cero: sin fallas arrastradas, sin motivo viejo, y el
            primero sale en la próxima vuelta. Al pausarlo queda dicho quién lo pausó. */
-        const nuevo = activo && !antes.activo ? { ...pedido, activo: true, fallas: 0, motivo: null, proximo: null, origen }
+        const nuevo = activo && !antes.activo ? { ...pedido, activo: true, fallas: 0, motivo: null, proximo: null, origen: origen! }
             : !activo && antes.activo ? { ...pedido, activo: false, proximo: null, motivo: `Pausado por ${q.quien}.` }
-                : { ...pedido, activo, origen: antes.origen || origen };
+                : { ...pedido, activo, origen: origen || antes.origen };
         await guardarGoteo(nuevo);
         if (activo !== antes.activo) await auditar(q.sesion, activo ? "censo.envio-de-a-poco.empezar" : "censo.envio-de-a-poco.pausar", `uno cada ${nuevo.cadaSeg} s, de ${nuevo.desde} a ${nuevo.hasta} h`, true, "");
         return NextResponse.json({ goteo: await estadoDeGoteo() }, { headers: SIN_CACHE });
@@ -175,6 +190,7 @@ export async function PUT(req: NextRequest) {
         if (!(await hayDesdeDondeMandar())) return NextResponse.json({ error: "No hay desde dónde mandar: cargá la cuenta de correo de cada administración (Administraciones › Correo)." }, { status: 400 });
         const r = await invitacionDePersona(String(b?.userId || ""));
         if ("error" in r) return NextResponse.json({ error: r.error }, { status: 400 });
+        if (!origen) return sinOrigen();
         const envio = await mandarInvitacion(r.inv, origen);
         await auditar(q.sesion, "censo.enviar-invitacion", `${r.inv.nombre || "sin nombre"} · ${r.inv.lote}`, envio.ok, envio.ok ? "desde el padrón" : envio.error || "no se pudo");
         const como = await prisma.invitacionCenso.findUnique({ where: { id: r.inv.id }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true } });
@@ -190,6 +206,7 @@ export async function PUT(req: NextRequest) {
         if (!ids.length && (await prisma.invitacionCenso.count({ where })) > POR_TANDA) {
             return NextResponse.json({ error: `Son más de ${POR_TANDA}: mandarlas todas juntas es la forma de terminar en spam. Usá el envío de a poco.` }, { status: 400 });
         }
+        if (!origen) return sinOrigen();
         const pendientes = await prisma.invitacionCenso.findMany({ where, orderBy: { lote: "asc" }, take: POR_TANDA });
         if (!pendientes.length) return NextResponse.json({ mandados: 0, fallados: 0, quedan: 0 }, { headers: SIN_CACHE });
 

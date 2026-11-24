@@ -97,14 +97,19 @@ export async function enviarCorreo(e: Envio, o: { desde?: CuentaCorreo | null; s
             // reintentar esa fila que dejar la cola entera esperando.
             connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 20_000,
         });
-        /* La copia fija va en todo. Y cuando sale de la cuenta de una administración, la propia cuenta
-           también va en copia (25/11, Nico: «debe ir en copia, cada envío, al mismo remitente que
-           envía; no son IMAP, deben tener una copia en el mail»): así la casilla tiene cada correo en
-           su bandeja, además de en Enviados. */
-        const copias = [...new Set([...(o.sinCopia ? [] : [await copiaFija()]), e.copia, o.desde?.cuenta]
-            .flatMap((x) => String(x || "").split(/,\s*/)).map((x) => x.trim().toLowerCase()).filter((x) => x && x !== e.para.trim().toLowerCase()))].join(", ");
+        /* La copia fija va en todo, y cuando sale de la cuenta de una administración la propia cuenta
+           también (25/11, Nico: «no son IMAP, deben tener una copia en el mail»). */
+        /* Las copias van OCULTAS (25/11, Nico: «sólo el remitente de cada administración debe estar en
+           copia oculta, igual que flaviogonzalezdesign@gmail.com; cada administración recibirá una copia
+           de lo enviado en copia oculta»). El vecino ve un correo de su administración para él, sin
+           direcciones de terceros a la vista; la casilla que manda y la copia fija lo reciben igual.
+           La copia que pide quien llama (`e.copia`) sí va a la vista: es parte del mensaje. */
+        const limpias = (xs: unknown[]) => [...new Set(xs.flatMap((x) => String(x || "").split(/[,;\s]+/)).map((x) => x.trim().toLowerCase())
+            .filter((x) => x && x.includes("@") && x !== e.para.trim().toLowerCase()))];
+        const visibles = limpias([e.copia]);
+        const ocultas = limpias([...(o.sinCopia ? [] : [await copiaFija()]), o.desde?.cuenta]).filter((x) => !visibles.includes(x));
         await t.sendMail({
-            from: remitente, to: e.para, cc: copias || undefined, subject: e.asunto, text: e.texto, html: e.html,
+            from: remitente, to: e.para, cc: visibles.join(", ") || undefined, bcc: ocultas.join(", ") || undefined, subject: e.asunto, text: e.texto, html: e.html,
             attachments: e.enLinea?.map((a) => ({ filename: a.nombre, content: a.contenido, cid: a.cid, contentDisposition: "inline" as const })),
         });
         return { ok: true, desde: cuenta };

@@ -6,6 +6,7 @@ import { CID_LOGO, LOGO_ALTO, LOGO_ANCHO, correoDeInvitacion, correoSirve, nueva
 import { enviarCorreo } from "@/lib/correo";
 import { administracionesParaCorreo, lotesDeInvitacion, remitenteDe, remitenteDeLotes, type Remitente } from "@/lib/correo-administracion";
 import { ZONA } from "@/lib/fechas";
+import { esOrigenLocal, origenPublico } from "@/lib/origen-publico";
 import { enHorario, esTopeDeGmail, estimarFin, FALLAS_PARA_PAUSAR, inicioDelDia, leerGoteo, mananaAlArranque, proximoEnvio, queToca, TOPE_DIARIO_POR_CUENTA, type Goteo } from "@/lib/censo-goteo";
 
 /**
@@ -56,6 +57,8 @@ export function logoDelCorreo(): Promise<Buffer | null> {
  * de esa persona, y gastarle los tres intentos la dejaría afuera cuando la cuenta se cargue.
  */
 export async function mandarInvitacion(inv: Inv, origen: string, remitente?: Remitente): Promise<{ ok: boolean; error?: string; sinCuenta?: boolean }> {
+    /* Un enlace que sólo existe adentro del servidor no se manda (25/11: salieron con https://localhost:10001). */
+    if (esOrigenLocal(origen)) return { ok: false, error: `La dirección de los enlaces (${origen}) no es pública: cargá la URL pública en Ajustes.` };
     const de = remitente || await remitenteDe(lotesDeInvitacion(inv.lotes));
     if (de.tipo === "sin-cuenta") return { ok: false, sinCuenta: true, error: `${de.nombre} todavía no tiene su cuenta de correo cargada (Administraciones › Correo).` };
     const [marca, imagen] = await Promise.all([getAppBranding(), logoDelCorreo()]);
@@ -225,10 +228,12 @@ export async function vueltaDeGoteo(): Promise<{ que: string; lote?: string; err
             await guardarGoteo({ ...g, activo: false, proximo: null, fallas: 0, motivo: conError ? `Terminó. Quedaron ${conError} sin poder enviarse: mirá el motivo de cada una en la lista.` : "Terminó: se enviaron todas." });
             return { que: "terminado" };
         }
-        if (!g.origen) { await guardarGoteo({ ...g, activo: false, motivo: "No se sabe con qué dirección armar los enlaces: volvé a ponerlo en marcha desde esta pantalla." }); return { que: "sin-origen" }; }
+        /* La dirección de los enlaces: nunca una local (ver lib/origen-publico; 25/11 salieron con localhost). */
+        const origen = await origenPublico({ guardado: g.origen });
+        if (!origen) { await guardarGoteo({ ...g, activo: false, motivo: "No se sabe la dirección pública para armar los enlaces: cargala en Ajustes (URL pública, BASE_URL) y volvé a ponerlo en marcha." }); return { que: "sin-origen" }; }
         /* El próximo se anota ANTES de mandar: si esta vuelta tarda, la siguiente no manda otro encima. */
         await guardarGoteo({ ...g, proximo: proximoEnvio(g, ahora).toISOString() });
-        const r = await mandarInvitacion(inv, g.origen, remitente || undefined);
+        const r = await mandarInvitacion(inv, origen, remitente || undefined);
         const ahoraG = await leerGoteoGuardado();                 // pudieron pausarlo mientras se mandaba
         if (r.ok) { await guardarGoteo({ ...ahoraG, fallas: 0, motivo: null }); return { que: "enviado", lote: inv.lote }; }
         /* Gmail frenó la casilla por tope: no es culpa de esta invitación (se le devuelve el intento) ni
