@@ -6,7 +6,7 @@ import { CID_LOGO, LOGO_ALTO, LOGO_ANCHO, correoDeInvitacion, correoSirve } from
 import { enviarCorreo } from "@/lib/correo";
 import { administracionesParaCorreo, lotesDeInvitacion, remitenteDe, remitenteDeLotes, type Remitente } from "@/lib/correo-administracion";
 import { ZONA } from "@/lib/fechas";
-import { sincronizarInvitacionesPorLote } from "@/lib/censo-por-lote-servidor";
+import { sincronizarCopiasCenso, sincronizarInvitacionesPorLote } from "@/lib/censo-por-lote-servidor";
 import { esOrigenLocal, origenPublico } from "@/lib/origen-publico";
 import { enHorario, esTopeDeGmail, estimarFin, FALLAS_PARA_PAUSAR, inicioDelDia, leerGoteo, mananaAlArranque, proximoEnvio, queToca, TOPE_DIARIO_POR_CUENTA, type Goteo } from "@/lib/censo-goteo";
 
@@ -22,7 +22,16 @@ const AJUSTE = "CENSO_GOTEO";
 /** Con tres intentos fallidos una invitación se deja: su correo está mal, y reintentarla frena a las demás. */
 export const INTENTOS_MAX = 3;
 
-type Inv = { id: string; lote: string; lotes: unknown; nombre: string; email: string; clave: string };
+/**
+ * Lo que se manda: la invitación del lote (a su principal) o una copia del mismo código a otro
+ * residente del lote (`copia`: el id de la fila de CopiaCenso; 25/11, «a todos los residentes»).
+ */
+type Inv = { id: string; lote: string; lotes: unknown; nombre: string; email: string; clave: string; copia?: string };
+
+/** Una copia pendiente, con lo de su invitación, en la forma de lo que se manda. */
+type CopiaConInv = { id: string; email: string; nombre: string; invitacion: { id: string; lote: string; lotes: unknown; clave: string } };
+const comoEnvio = (c: CopiaConInv): Inv => ({ id: c.invitacion.id, lote: c.invitacion.lote, lotes: c.invitacion.lotes, clave: c.invitacion.clave, nombre: c.nombre, email: c.email, copia: c.id });
+const CON_INV = { invitacion: { select: { id: true, lote: true, lotes: true, clave: true } } } as const;
 
 /** La tinta de la marca: el fondo de la barra del correo y del logo que va sobre ella. */
 const TINTA = "#0a0e14";
@@ -66,12 +75,13 @@ export async function mandarInvitacion(inv: Inv, origen: string, remitente?: Rem
     const { asunto, texto, html } = correoDeInvitacion({
         barrio: marca.barrio || marca.name, lote: inv.lote, nombre: inv.nombre || undefined,
         lotes: (Array.isArray(inv.lotes) ? (inv.lotes as { nombre?: unknown }[]) : []).map((l) => String(l?.nombre || "")).filter(Boolean),
-        clave: inv.clave, url: `${origen}/registro/${inv.clave}`, conLogo: !!imagen,
+        clave: inv.clave, url: `${origen}/registro/${inv.clave}${inv.copia ? `?de=${encodeURIComponent(inv.copia)}` : ""}`, conLogo: !!imagen,
     });
     const r = await enviarCorreo({ para: inv.email, asunto, texto, html, enLinea: imagen ? [{ cid: CID_LOGO, nombre: "omniaccess.png", contenido: imagen }] : undefined },
         { desde: de.tipo === "administracion" ? de.cuenta : null });
-    if (r.ok) await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { enviadoAt: new Date(), enviadoDesde: r.desde || null, intentos: { increment: 1 }, error: null } });
-    else await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { intentos: { increment: 1 }, error: r.error || "no se pudo" } });
+    const anota = r.ok ? { enviadoAt: new Date(), enviadoDesde: r.desde || null, intentos: { increment: 1 }, error: null } : { intentos: { increment: 1 }, error: r.error || "no se pudo" };
+    if (inv.copia) await prisma.copiaCenso.update({ where: { id: inv.copia }, data: anota });
+    else await prisma.invitacionCenso.update({ where: { id: inv.id }, data: anota });
     return r;
 }
 
@@ -91,8 +101,13 @@ export async function invitacionesDePersona(userId: string): Promise<{ invs: Inv
     const lotes = [...new Set([...(await prisma.userUnidad.findMany({ where: { userId }, select: { unitId: true } })).map((v) => v.unitId)])];
     if (!lotes.length) return { error: `${u.name} no está anotada en ningún lote: el censo carga los vehículos de un lote.` };
     await sincronizarInvitacionesPorLote({ simulacro: false, soloLotes: lotes });
-    const invs = await prisma.invitacionCenso.findMany({ where: { sitio: "", unitId: { in: lotes }, userId } });
-    if (invs.length) return { invs };
+    await sincronizarCopiasCenso({ soloLotes: lotes });
+    /* Las de los lotes donde es la principal, y la copia del código de cada otro lote suyo (25/11: a todos). */
+    const [invs, copias] = await Promise.all([
+        prisma.invitacionCenso.findMany({ where: { sitio: "", unitId: { in: lotes }, userId } }),
+        prisma.copiaCenso.findMany({ where: { userId, invitacion: { sitio: "", unitId: { in: lotes } } }, select: { id: true, email: true, nombre: true, ...CON_INV } }),
+    ]);
+    if (invs.length || copias.length) return { invs: [...invs, ...copias.map(comoEnvio)] };
     const deOtro = await prisma.invitacionCenso.findFirst({ where: { sitio: "", unitId: { in: lotes } }, select: { lote: true, nombre: true, email: true } });
     return { error: deOtro ? `El código de ${deOtro.lote} le llega a ${deOtro.nombre || deOtro.email}, que es la persona principal del lote. Se cambia en el cajón del lote.` : `Ninguno de los lotes de ${u.name} tiene a quién mandarle el código.` };
 }
@@ -116,16 +131,28 @@ export type EnvioPorCuenta = {
 };
 /** Cuántas salieron hoy desde cada casilla (en la hora del barrio). */
 async function enviadasHoyPorCuenta(ahora: Date): Promise<Map<string, number>> {
-    const filas = await prisma.invitacionCenso.groupBy({ by: ["enviadoDesde"], where: { enviadoAt: { gte: inicioDelDia(ahora, ZONA) }, enviadoDesde: { not: null } }, _count: { _all: true } });
-    return new Map(filas.map((f) => [String(f.enviadoDesde).toLowerCase(), f._count._all]));
+    const where = { enviadoAt: { gte: inicioDelDia(ahora, ZONA) }, enviadoDesde: { not: null } };
+    const [a, b] = await Promise.all([
+        prisma.invitacionCenso.groupBy({ by: ["enviadoDesde"], where, _count: { _all: true } }),
+        prisma.copiaCenso.groupBy({ by: ["enviadoDesde"], where, _count: { _all: true } }),   // las copias salen de la misma casilla y cuentan para su tope
+    ]);
+    const m = new Map<string, number>();
+    for (const f of [...a, ...b]) { const k = String(f.enviadoDesde).toLowerCase(); m.set(k, (m.get(k) || 0) + f._count._all); }
+    return m;
 }
 export type EstadoGoteo = Goteo & { pendientes: number; conError: number; enHorario: boolean; terminaAt: string | null; porCuenta: EnvioPorCuenta[] };
 export async function estadoDeGoteo(): Promise<EstadoGoteo> {
-    const [g, pendientes, conError, todas, admins] = await Promise.all([
-        leerGoteoGuardado(), prisma.invitacionCenso.count({ where: PENDIENTES }), prisma.invitacionCenso.count({ where: { enviadoAt: null, intentos: { gte: INTENTOS_MAX } } }),
+    const [g, pi, pc, ei, ec, invs, copias, admins] = await Promise.all([
+        leerGoteoGuardado(),
+        prisma.invitacionCenso.count({ where: PENDIENTES }), prisma.copiaCenso.count({ where: PENDIENTES }),
+        prisma.invitacionCenso.count({ where: { enviadoAt: null, intentos: { gte: INTENTOS_MAX } } }), prisma.copiaCenso.count({ where: { enviadoAt: null, intentos: { gte: INTENTOS_MAX } } }),
         prisma.invitacionCenso.findMany({ where: { sitio: "" }, select: { lotes: true, enviadoAt: true, intentos: true } }),
+        prisma.copiaCenso.findMany({ select: { enviadoAt: true, intentos: true, invitacion: { select: { lotes: true } } } }),
         administracionesParaCorreo(),
     ]);
+    /* Las copias (25/11, a todos) cuentan en cada casilla igual que las invitaciones: salen de la misma. */
+    const pendientes = pi + pc, conError = ei + ec;
+    const todas = [...invs, ...copias.map((c) => ({ lotes: c.invitacion.lotes, enviadoAt: c.enviadoAt, intentos: c.intentos }))];
     const ahora = new Date();
     const [unidades, hoy] = await Promise.all([
         prisma.unit.findMany({ where: { id: { in: [...new Set(todas.flatMap((i) => lotesDeInvitacion(i.lotes)))] } }, select: { id: true, administracionId: true } }),
@@ -152,6 +179,9 @@ export async function estadoDeGoteo(): Promise<EstadoGoteo> {
 }
 
 let enVuelta = false;
+/** Cada cuánto el envío de a poco vuelve a armar las copias (ver sincronizarCopiasCenso). */
+const COPIAS_CADA_MS = 10 * 60 * 1000;
+let copiasAlDia = 0;
 /** Una vuelta: manda UNA si toca. La llama el proceso de despachos cada medio minuto. */
 export async function vueltaDeGoteo(): Promise<{ que: string; lote?: string; error?: string }> {
     if (enVuelta) return { que: "ocupado" };
@@ -165,7 +195,14 @@ export async function vueltaDeGoteo(): Promise<{ que: string; lote?: string; err
            ni toda una manzana en fila, y el orden no cambia entre una vuelta y la otra. */
         /* La primera que tenga desde dónde salir: las de una administración sin cuenta esperan, y
            las demás siguen (25/11: cada administración manda desde su casilla). */
-        const pendientes = await prisma.invitacionCenso.findMany({ where: PENDIENTES, orderBy: { clave: "asc" } });
+        /* Cada tanto se ponen al día las copias (25/11): quien se suma al padrón después también recibe el código de su lote. */
+        if (Date.now() - copiasAlDia > COPIAS_CADA_MS) { copiasAlDia = Date.now(); await sincronizarCopiasCenso().catch(() => null); }
+        /* Primero las invitaciones (a la principal de cada lote) y después las copias al resto. Las
+           copias van por correo, que también es un orden que no deja juntos a los del mismo lote. */
+        const pendientes: Inv[] = [
+            ...await prisma.invitacionCenso.findMany({ where: PENDIENTES, orderBy: { clave: "asc" } }),
+            ...(await prisma.copiaCenso.findMany({ where: PENDIENTES, orderBy: { email: "asc" }, select: { id: true, email: true, nombre: true, ...CON_INV } })).map(comoEnvio),
+        ];
         const [admins, unidades] = await Promise.all([
             administracionesParaCorreo(),
             prisma.unit.findMany({ where: { id: { in: [...new Set(pendientes.flatMap((p) => lotesDeInvitacion(p.lotes)))] } }, select: { id: true, administracionId: true } }),
@@ -197,7 +234,7 @@ export async function vueltaDeGoteo(): Promise<{ que: string; lote?: string; err
             return { que: "sin-cuenta" };
         }
         if (!inv) {
-            const conError = await prisma.invitacionCenso.count({ where: { enviadoAt: null } });
+            const conError = await prisma.invitacionCenso.count({ where: { enviadoAt: null } }) + await prisma.copiaCenso.count({ where: { enviadoAt: null } });
             await guardarGoteo({ ...g, activo: false, proximo: null, fallas: 0, motivo: conError ? `Terminó. Quedaron ${conError} sin poder enviarse: mirá el motivo de cada una en la lista.` : "Terminó: se enviaron todas." });
             return { que: "terminado" };
         }
@@ -213,7 +250,8 @@ export async function vueltaDeGoteo(): Promise<{ que: string; lote?: string; err
            de las otras casillas (no suma a las fallas que frenan todo). Esa casilla descansa hasta mañana. */
         const de = remitente as Remitente | null;
         if (de?.tipo === "administracion" && esTopeDeGmail(r.error)) {
-            await prisma.invitacionCenso.update({ where: { id: inv.id }, data: { intentos: { decrement: 1 }, error: null } }).catch(() => null);
+            const devuelve = { intentos: { decrement: 1 }, error: null };
+            await (inv.copia ? prisma.copiaCenso.update({ where: { id: inv.copia }, data: devuelve }) : prisma.invitacionCenso.update({ where: { id: inv.id }, data: devuelve })).catch(() => null);
             await guardarGoteo({ ...ahoraG, frenadas: { ...ahoraG.frenadas, [de.cuenta.cuenta.toLowerCase()]: mananaAlArranque(ahoraG, new Date(), ZONA).toISOString() } });
             return { que: "frenada", lote: inv.lote, error: r.error };
         }

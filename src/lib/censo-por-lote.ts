@@ -111,3 +111,87 @@ export function planDeInvitaciones(lotes: LoteParaCenso[], existentes: Invitacio
     }
     return plan;
 }
+
+/* ───────────────────────── El código del lote, a TODOS (25/11) ─────────────────────────
+ *
+ * Nico, el mismo día, después de mandar las 390: «un detalle importante del censo, que fue un error
+ * mío: necesito que se envíe el correo del censo a todos los residentes, no a uno por lote, con el
+ * mismo esquema». Y eligió que a cada uno le llegue EL MISMO código del lote (no uno propio).
+ *
+ * La invitación sigue siendo una por lote, con su clave, y le llega a la principal. A cada otro
+ * residente del lote con correo se le manda una COPIA: el mismo código y el mismo correo, con su
+ * propio estado de envío. El enlace de la copia lleva quién es (?de=…), para que el formulario lo
+ * salude por su nombre y la carga sepa de quién es.
+ */
+
+export type CopiaExistente = { id: string; invitacionId: string; email: string; enviadoAt: Date | string | null; usadoAt: Date | string | null };
+export type LoteConInvitacion = { invitacionId: string; emailPrincipal: string; miembros: Miembro[] };
+export type PlanCopias = {
+    crear: { invitacionId: string; userId: string; email: string; nombre: string }[];
+    /** Copias sin mandar de alguien que ya no es del lote, o que ahora es la principal (le llega la invitación). */
+    borrar: string[];
+    iguales: number;
+};
+
+/** Qué copias hay que crear y cuáles sobran, para que cada residente con correo tenga el código de su lote. */
+export function planDeCopias(lotes: LoteConInvitacion[], existentes: CopiaExistente[]): PlanCopias {
+    const plan: PlanCopias = { crear: [], borrar: [], iguales: 0 };
+    const deInv = new Map<string, CopiaExistente[]>();
+    for (const c of existentes) deInv.set(c.invitacionId, [...(deInv.get(c.invitacionId) || []), c]);
+    const vistas = new Set<string>();
+    for (const l of lotes) {
+        const principal = l.emailPrincipal.trim().toLowerCase();
+        const ya = deInv.get(l.invitacionId) || [];
+        const quiere = new Map<string, Miembro>();
+        for (const m of l.miembros) {
+            const e = correoDe(m);
+            if (!correoSirve(e) || e === principal || quiere.has(e)) continue;
+            quiere.set(e, m);
+        }
+        for (const c of ya) {
+            vistas.add(c.id);
+            const e = c.email.trim().toLowerCase();
+            if (quiere.has(e)) { plan.iguales++; quiere.delete(e); continue; }
+            // Lo que ya salió o ya se usó queda: es historia de lo que se mandó.
+            if (!c.enviadoAt && !c.usadoAt) plan.borrar.push(c.id);
+        }
+        for (const [email, m] of quiere) plan.crear.push({ invitacionId: l.invitacionId, userId: m.userId, email, nombre: m.nombre });
+    }
+    return plan;
+}
+
+const sinTildes = (t: string | null | undefined) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+/** Dos teléfonos son el mismo si coinciden los últimos ocho dígitos (09x xxx xxx contra 598 9x xxx xxx). */
+export const mismoTelefono = (a: string | null | undefined, b: string | null | undefined): boolean => {
+    const x = String(a || "").replace(/\D/g, ""), y = String(b || "").replace(/\D/g, "");
+    return x.length >= 8 && y.length >= 8 && x.slice(-8) === y.slice(-8);
+};
+
+/**
+ * De quién es una carga del censo, entre la gente del lote. Con el mismo código en manos de toda la
+ * familia, «la persona de la invitación» ya no alcanza: hasta el 25/11 la aprobación le sumaba
+ * todo a la principal, aunque hubiera cargado otro.
+ *
+ * El orden: lo que la persona escribió de sí misma vale más que el enlace por el que entró (un
+ * enlace se reenvía: la esposa carga desde el correo del marido).
+ *   1. El correo que escribió, si es de alguien del lote.
+ *   2. El teléfono que escribió.
+ *   3. A quién le llegó el enlace (la copia).
+ *   4. El nombre y apellido, sin tildes ni mayúsculas.
+ *   5. La principal, sólo si no escribió correo (como era antes, para no perder ese caso).
+ * Null: no es nadie del lote. Quien llama la busca por teléfono en todo el padrón, o la crea.
+ */
+export function personaDeLaCarga(
+    miembros: { id: string; name: string; email: string | null; phone: string | null }[],
+    carga: { email: string; telefono: string; nombre: string; paraUserId?: string | null },
+    principalId?: string | null,
+): string | null {
+    const correo = carga.email.trim().toLowerCase();
+    const m = (correo && miembros.find((x) => String(x.email || "").trim().toLowerCase() === correo))
+        || miembros.find((x) => mismoTelefono(x.phone, carga.telefono))
+        || (carga.paraUserId && miembros.find((x) => x.id === carga.paraUserId))
+        || (sinTildes(carga.nombre) && miembros.find((x) => sinTildes(x.name) === sinTildes(carga.nombre)))
+        || (!correo && principalId && miembros.find((x) => x.id === principalId))
+        || null;
+    return m ? m.id : null;
+}

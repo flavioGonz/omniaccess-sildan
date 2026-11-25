@@ -66,6 +66,8 @@ export async function POST(req: NextRequest) {
     // ── La clave del lote, si el barrio la pide ──
     let invitacion: { id: string; lote: string; clave: string } | null = null;
     let unitId: string | null = null;
+    /** La copia del código del lote por la que entró (25/11: el código le llega a todos los del lote). */
+    let copia: { id: string; userId: string | null } | null = null;
     const pideClave = (await prisma.setting.findUnique({ where: { key: "CENSO_CON_CLAVE" } }).catch(() => null))?.value === "true";
     if (pideClave) {
         const clave = normalizarClave((cuerpo as { clave?: string } | null)?.clave);
@@ -84,6 +86,9 @@ export async function POST(req: NextRequest) {
         const elegido = suyos.find((l) => l.nombre === pedido) || suyos[0];
         datos.lote = elegido ? String(elegido.nombre) : inv.lote;
         unitId = elegido && typeof elegido.unitId === "string" ? elegido.unitId : null;
+        /* Sólo vale una copia de ESTA invitación: la de otro lote no dice nada de quién carga acá. */
+        const de = String((cuerpo as { de?: unknown } | null)?.de ?? "").slice(0, 40);
+        if (de) copia = await prisma.copiaCenso.findFirst({ where: { id: de, invitacionId: inv.id }, select: { id: true, userId: true } }).catch(() => null);
     }
 
     try {
@@ -97,11 +102,14 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ ok: true, id: igual.id, repetido: true });
         }
         const fila = await prisma.solicitudPadron.create({
-            data: { ...datos, vehiculos: datos.vehiculos, servicios: datos.servicios, clave: invitacion?.clave ?? null, unitId },
+            data: { ...datos, vehiculos: datos.vehiculos, servicios: datos.servicios, clave: invitacion?.clave ?? null, unitId, paraUserId: copia?.userId ?? null },
         });
         // La invitación queda marcada como usada, pero NO se bloquea: un lote que se olvidó una
         // matrícula tiene que poder volver a entrar por el mismo enlace.
-        if (invitacion) await prisma.invitacionCenso.update({ where: { id: invitacion.id }, data: { usadoAt: new Date() } }).catch(() => { });
+        /* Quien entró por su copia la marca a ella, no a la invitación de la principal: el padrón
+           muestra quién cargó, persona por persona. */
+        if (copia) await prisma.copiaCenso.update({ where: { id: copia.id }, data: { usadoAt: new Date() } }).catch(() => { });
+        else if (invitacion) await prisma.invitacionCenso.update({ where: { id: invitacion.id }, data: { usadoAt: new Date() } }).catch(() => { });
         /* El historial del lote: qué declaró, contra lo que el lote ya tenía. Es el momento en que
            un residente «cambia sus matrículas» — todavía sin aprobar, pero ya dicho. */
         if (unitId) {

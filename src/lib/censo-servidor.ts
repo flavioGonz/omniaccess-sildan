@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { anotarEnLote, auditarLotes } from "@/lib/lote-auditoria";
+import { personaDeLaCarga } from "@/lib/censo-por-lote";
 import { DIAS, TIPOS_SERVICIO, TIPOS_VEHICULO, type ServicioCargado, type VehiculoCargado } from "@/lib/registro-padron";
 
 /**
@@ -72,13 +73,19 @@ export async function aprobarSolicitud(id: string, quien: string): Promise<Resul
 
     // ── La persona ──
     const nombre = [s.nombre, s.apellido].filter(Boolean).join(" ").trim() || s.apellido;
-    /* La persona: primero la de la invitación (el padrón ya la tiene, cargada desde la planilla
-       de la administración, sin teléfono todavía); si no, por el teléfono, como siempre. Sin esto
-       cada aprobación creaba una segunda ficha de alguien que ya estaba. */
+    /* La persona: alguien del lote si se la reconoce (el padrón ya la tiene, cargada desde la
+       planilla de la administración, sin teléfono todavía); si no, por el teléfono, como siempre.
+       Sin esto cada aprobación creaba una segunda ficha de alguien que ya estaba.
+       Desde el 25/11 el código del lote le llega a TODOS sus residentes: «la persona de la
+       invitación» ya no dice quién cargó. Se la reconoce entre la gente del lote por lo que
+       escribió de sí misma (ver personaDeLaCarga). */
+    const SEL = { id: true, name: true, observations: true, phone: true } as const;
     const inv = s.clave ? await prisma.invitacionCenso.findUnique({ where: { clave: s.clave }, select: { userId: true } }).catch(() => null) : null;
-    let persona = inv?.userId ? await prisma.user.findUnique({ where: { id: inv.userId }, select: { id: true, name: true, observations: true, phone: true } }) : null;
+    const delLote = (await prisma.userUnidad.findMany({ where: { unitId: unidad.id }, select: { user: { select: { id: true, name: true, email: true, phone: true } } } })).map((v) => v.user);
+    const suId = personaDeLaCarga(delLote, { email: s.email || "", telefono: s.telefono, nombre, paraUserId: s.paraUserId }, inv?.userId);
+    let persona = suId ? await prisma.user.findUnique({ where: { id: suId }, select: SEL }) : null;
     const porInvitacion = !!persona;
-    if (!persona) persona = await prisma.user.findFirst({ where: { phone: s.telefono }, select: { id: true, name: true, observations: true, phone: true } });
+    if (!persona) persona = await prisma.user.findFirst({ where: { phone: s.telefono }, select: SEL });
     const anotacion = [
         `Censo ${new Date(s.createdAt).toLocaleDateString("es-UY")}: ${s.tenencia === "INQUILINO" ? "inquilino" : "propietario"}.`,
         ...servicios.map((x) => `Servicio: ${lineaDeServicio(x)}`),

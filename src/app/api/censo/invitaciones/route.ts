@@ -11,6 +11,7 @@ import { estadoDeGoteo, guardarGoteo, invitacionesDePersona, leerGoteoGuardado, 
 import { leerGoteo } from "@/lib/censo-goteo";
 import { revisarDominio } from "@/lib/correo-dominio";
 import { origenPublico } from "@/lib/origen-publico";
+import { sincronizarCopiasCenso } from "@/lib/censo-por-lote-servidor";
 
 export const dynamic = "force-dynamic";
 const SIN_CACHE = { "Cache-Control": "no-store" };
@@ -61,8 +62,9 @@ const usaElServidorGeneral = (g: Awaited<ReturnType<typeof estadoDeGoteo>>) => g
 export async function GET(req: NextRequest) {
     const q = await permitido(); if (q instanceof NextResponse) return q;
     if (req.nextUrl.searchParams.get("resumen") === "1") {
-        const [filas, cfg] = await Promise.all([
+        const [filas, copias, cfg] = await Promise.all([
             prisma.invitacionCenso.findMany({ where: { sitio: "" }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true, unitId: true, lote: true, nombre: true }, take: 5000 }),
+            prisma.copiaCenso.findMany({ where: { invitacion: { sitio: "" } }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true, nombre: true, invitacion: { select: { lote: true } } }, take: 5000 }),
             configCorreo(),
         ]);
         const dominio = cfg && usaElServidorGeneral(await estadoDeGoteo()) ? await revisarDominio({ desde: cfg.desde, host: cfg.host }).catch(() => null) : null;
@@ -75,7 +77,9 @@ export async function GET(req: NextRequest) {
                 const vinc = await prisma.userUnidad.findMany({ where: { unitId: { in: filas.map((f) => f.unitId).filter((x): x is string => !!x) } }, select: { unitId: true, userId: true } });
                 const miembros = new Map<string, string[]>();
                 for (const v of vinc) miembros.set(v.unitId, [...(miembros.get(v.unitId) || []), v.userId]);
-                return filas.map((f) => resumida(f, f.unitId ? miembros.get(f.unitId) || [] : undefined));
+                /* Y la copia de cada otro residente (25/11, a todos): sin lote, para que el padrón la encuentre por la persona y no la confunda con la del lote. */
+                return [...filas.map((f) => resumida(f, f.unitId ? miembros.get(f.unitId) || [] : undefined)),
+                    ...copias.map((c) => resumida({ ...c, unitId: null, lote: c.invitacion.lote }))];
             })(),
         }, { headers: SIN_CACHE });
     }
@@ -186,6 +190,8 @@ export async function PUT(req: NextRequest) {
         if (activo && !(await hayDesdeDondeMandar())) return NextResponse.json({ error: "No hay desde dónde mandar: cargá la cuenta de correo de cada administración (Administraciones › Correo)." }, { status: 400 });
         /* Al ponerlo en marcha se empieza de cero: sin fallas arrastradas, sin motivo viejo, y el
            primero sale en la próxima vuelta. Al pausarlo queda dicho quién lo pausó. */
+        /* Al arrancar, las copias para el resto de cada lote quedan armadas ya (25/11, a todos). */
+        if (activo && !antes.activo) await sincronizarCopiasCenso().catch(() => null);
         const nuevo = activo && !antes.activo ? { ...pedido, activo: true, fallas: 0, motivo: null, proximo: null, origen: origen! }
             : !activo && antes.activo ? { ...pedido, activo: false, proximo: null, motivo: `Pausado por ${q.quien}.` }
                 : { ...pedido, activo, origen: origen || antes.origen };
@@ -206,8 +212,12 @@ export async function PUT(req: NextRequest) {
             await auditar(q.sesion, "censo.enviar-invitacion", `${inv.nombre || "sin nombre"} · ${inv.lote}`, envio.ok, envio.ok ? "desde el padrón" : envio.error || "no se pudo");
             if (envio.ok) ok++; else fallas.push(`${inv.lote}: ${envio.error || "el servidor de correo no lo aceptó"}`);
         }
-        const como = await prisma.invitacionCenso.findFirst({ where: { id: { in: r.invs.map((i) => i.id) } }, orderBy: { enviadoAt: "desc" }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true, unitId: true, lote: true, nombre: true } });
-        return NextResponse.json({ ok: !fallas.length, enviadas: ok, error: fallas.length ? `No salió: ${fallas.join(" · ")}` : undefined, invitacion: como ? resumida(como) : null }, { status: fallas.length && !ok ? 502 : 200, headers: SIN_CACHE });
+        /* Cómo quedó, para el renglón: su invitación de principal si la tiene, y si no, su copia. */
+        const propias = r.invs.filter((i) => !i.copia).map((i) => i.id), deCopia = r.invs.filter((i) => i.copia).map((i) => i.copia!);
+        const como = propias.length ? await prisma.invitacionCenso.findFirst({ where: { id: { in: propias } }, orderBy: { enviadoAt: "desc" }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true, unitId: true, lote: true, nombre: true } }) : null;
+        const copia = !como && deCopia.length ? await prisma.copiaCenso.findFirst({ where: { id: { in: deCopia } }, orderBy: { enviadoAt: "desc" }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true, nombre: true, invitacion: { select: { lote: true } } } }) : null;
+        const resumen = como ? resumida(como) : copia ? resumida({ ...copia, unitId: null, lote: copia.invitacion.lote }) : null;
+        return NextResponse.json({ ok: !fallas.length, enviadas: ok, error: fallas.length ? `No salió: ${fallas.join(" · ")}` : undefined, invitacion: resumen }, { status: fallas.length && !ok ? 502 : 200, headers: SIN_CACHE });
     }
 
     if (b?.accion === "enviar") {

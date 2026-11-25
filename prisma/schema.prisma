@@ -2135,9 +2135,37 @@ model InvitacionCenso {
   usadoAt    DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
+  /// Los demas residentes del lote a quienes tambien se les manda ESTE codigo (25/11).
+  copias     CopiaCenso[]
 
   @@unique([sitio, unitId])
   @@index([sitio, email])
+  @@index([enviadoAt])
+}
+
+/// El codigo del lote, mandado a otro residente del mismo lote (25/11). Nico: «necesito que se
+/// envie el correo del censo a todos los residentes, no a uno por lote, con el mismo esquema».
+/// El codigo es el del lote (el de la invitacion); esta fila es solo el envio a otra persona, con
+/// su propio estado, y el enlace la nombra (?de=<id>) para saber quien cargo.
+model CopiaCenso {
+  id           String          @id @default(cuid())
+  invitacionId String
+  invitacion   InvitacionCenso @relation(fields: [invitacionId], references: [id], onDelete: Cascade)
+  /// La persona del padron a quien le llega.
+  userId       String?
+  email        String
+  nombre       String          @default("")
+  enviadoAt    DateTime?
+  /// La casilla desde la que salio (la de la administracion del lote, o la general).
+  enviadoDesde String?
+  intentos     Int             @default(0)
+  error        String?
+  /// Cuando cargo el censo entrando por su enlace.
+  usadoAt      DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([invitacionId, email])
   @@index([enviadoAt])
 }
 
@@ -2168,6 +2196,9 @@ model SolicitudPadron {
   /// El lote del padron para el que es esta carga, cuando lo trae la invitacion. Con lotes que se
   /// repiten entre etapas, el texto de `lote` solo no alcanza para saber cual es.
   unitId     String?
+  /// A quien le llego el enlace con el que se cargo (una copia del codigo del lote, 25/11). Sirve
+  /// para saber de quien es la carga cuando el codigo del lote lo tienen varios.
+  paraUserId String?
   /// pendiente | aprobada | rechazada
   estado     String    @default("pendiente")
   revisadaPor String?

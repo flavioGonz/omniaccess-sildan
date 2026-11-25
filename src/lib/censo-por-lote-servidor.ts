@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { nuevaClave } from "@/lib/censo-invitaciones";
-import { planDeInvitaciones, type LoteParaCenso, type PlanCenso } from "@/lib/censo-por-lote";
+import { planDeCopias, planDeInvitaciones, type LoteParaCenso, type PlanCenso } from "@/lib/censo-por-lote";
 
 /**
  * Deja una invitación del censo por lote, a su persona principal (ver lib/censo-por-lote). La usan
@@ -66,4 +66,34 @@ export async function sincronizarInvitacionesPorLote(o: { simulacro: boolean; pr
         if (creada) inf.ids.creadas.push(creada.id);
     }
     return { ...inf, plan };
+}
+
+/**
+ * Deja una copia del código de cada lote para cada otro residente del lote con correo (ver
+ * planDeCopias). La llaman el envío de a poco —cada tanto, para que alguien sumado al padrón
+ * después también lo reciba— y el botón de mandarle el censo a una persona.
+ */
+export async function sincronizarCopiasCenso(o: { soloLotes?: string[] } = {}): Promise<{ creadas: number; borradas: number; iguales: number }> {
+    const invs = await prisma.invitacionCenso.findMany({
+        where: { sitio: "", unitId: o.soloLotes ? { in: o.soloLotes } : { not: null } },
+        select: { id: true, unitId: true, email: true, copias: { select: { id: true, invitacionId: true, email: true, enviadoAt: true, usadoAt: true } } },
+    });
+    if (!invs.length) return { creadas: 0, borradas: 0, iguales: 0 };
+    const vinc = await prisma.userUnidad.findMany({
+        where: { unitId: { in: invs.map((i) => i.unitId!) } },
+        select: { unitId: true, vinculo: true, createdAt: true, user: { select: { id: true, name: true, email: true } } },
+    });
+    const porLote = new Map<string, typeof vinc>();
+    for (const v of vinc) porLote.set(v.unitId, [...(porLote.get(v.unitId) || []), v]);
+    const plan = planDeCopias(
+        invs.map((i) => ({ invitacionId: i.id, emailPrincipal: i.email, miembros: (porLote.get(i.unitId!) || []).map((v) => ({ userId: v.user.id, nombre: v.user.name, email: v.user.email, vinculo: v.vinculo, desde: v.createdAt.getTime() })) })),
+        invs.flatMap((i) => i.copias),
+    );
+    if (plan.borrar.length) await prisma.copiaCenso.deleteMany({ where: { id: { in: plan.borrar } } });
+    let creadas = 0;
+    for (const c of plan.crear) {
+        const r = await prisma.copiaCenso.create({ data: c }).catch(() => null);   // carrera con otra vuelta: la única la frena
+        if (r) creadas++;
+    }
+    return { creadas, borradas: plan.borrar.length, iguales: plan.iguales };
 }

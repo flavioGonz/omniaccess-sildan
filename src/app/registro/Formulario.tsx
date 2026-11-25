@@ -80,7 +80,9 @@ export function Formulario({ centro, invitacion }: {
     /** Cuando se entró por el enlace del correo: el lote y el correo los pone la invitación. */
     invitacion?: { clave: string; lote: string; email: string; nombre: string; lotes?: { nombre: string; vinculo: string }[];
         /** Dónde queda el lote según el plano del barrio (25/11): el punto ya viene puesto. */
-        ubicacion?: [number, number] | null };
+        ubicacion?: [number, number] | null;
+        /** A quién le llegó este enlace, cuando es la copia del código del lote a otro residente (25/11). */
+        de?: string };
 }) {
     /** Quien alquila u ocupa arranca marcado como inquilino: es lo que la administración ya sabe de él. */
     const tenenciaDe = (lote: string): Tenencia => { const v = invitacion?.lotes?.find((l) => l.nombre === lote)?.vinculo; return v === "INQUILINO" || v === "OCUPANTE" ? "INQUILINO" : "PROPIETARIO"; };
@@ -129,7 +131,7 @@ export function Formulario({ centro, invitacion }: {
     async function enviar() {
         setEnviando(true); setErrores([]);
         try {
-            const r = await fetch("/api/registro", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...f, clave: invitacion?.clave }) });
+            const r = await fetch("/api/registro", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...f, clave: invitacion?.clave, de: invitacion?.de }) });
             const j = await r.json().catch(() => ({}));
             if (!r.ok) { setErrores(j?.errores?.length ? j.errores : [j?.error || "No se pudo enviar. Probá de nuevo."]); return; }
             try { localStorage.removeItem(CLAVE); } catch { /* da igual */ }

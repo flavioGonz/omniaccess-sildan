@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planDeInvitaciones, principalDeLote, type InvitacionExistente, type Miembro } from "@/lib/censo-por-lote";
+import { mismoTelefono, personaDeLaCarga, planDeCopias, planDeInvitaciones, principalDeLote, type InvitacionExistente, type Miembro } from "@/lib/censo-por-lote";
 
 const m = (userId: string, vinculo: string, desde: number, email: string | null = `${userId}@ejemplo.uy`): Miembro => ({ userId, nombre: userId.toUpperCase(), email, vinculo, desde });
 const inv = (id: string, x: Partial<InvitacionExistente>): InvitacionExistente => ({ id, unitId: null, userId: null, email: "", nombre: "", lote: "", lotes: [], enviadoAt: null, usadoAt: null, aMano: false, ...x });
@@ -61,4 +61,38 @@ test("padrón: a quien no es la principal se le muestra el estado de su lote y a
     assert.equal(de({ id: "beto", email: "beto@ejemplo.uy" }).que, "enviada");
     assert.equal(de({ id: "dani", email: null }).que, "cargo", "aunque no tenga correo, su lote ya cargó");
     assert.equal(de({ id: "eva", email: "eva@ejemplo.uy" }).que, "sin-enviar", "sin lote con código: se le puede mandar");
+});
+
+test("censo a todos: una copia del código del lote para cada otro residente con correo, no para la principal", () => {
+    const gente = [m("ana", "PROPIETARIO", 1), m("beto", "PROPIETARIO", 2), m("caro", "FAMILIA", 3, null), m("dani", "INQUILINO", 4, "ANA@ejemplo.uy")];
+    const p = planDeCopias([{ invitacionId: "i1", emailPrincipal: "ana@ejemplo.uy", miembros: gente }], []);
+    assert.deepEqual(p.crear.map((c) => c.email), ["beto@ejemplo.uy"], "sin correo no hay copia; el mismo correo de la principal tampoco");
+    assert.equal(p.crear[0].invitacionId, "i1");
+});
+test("censo a todos: no repite copias; borra sólo las sin mandar de quien ya no está", () => {
+    const gente = [m("ana", "PROPIETARIO", 1), m("beto", "PROPIETARIO", 2)];
+    const p = planDeCopias([{ invitacionId: "i1", emailPrincipal: "ana@ejemplo.uy", miembros: gente }], [
+        { id: "c1", invitacionId: "i1", email: "beto@ejemplo.uy", enviadoAt: null, usadoAt: null },
+        { id: "c2", invitacionId: "i1", email: "sefue@ejemplo.uy", enviadoAt: null, usadoAt: null },
+        { id: "c3", invitacionId: "i1", email: "otro@ejemplo.uy", enviadoAt: new Date(), usadoAt: null },
+    ]);
+    assert.equal(p.crear.length, 0);
+    assert.equal(p.iguales, 1);
+    assert.deepEqual(p.borrar, ["c2"], "lo que ya salió queda como historia");
+});
+test("censo a todos: de quién es la carga — correo, teléfono, el enlace, el nombre, y la principal sólo sin correo", () => {
+    const gente = [
+        { id: "ana", name: "Ana Pérez", email: "ana@ejemplo.uy", phone: null },
+        { id: "beto", name: "Beto Pérez", email: "beto@ejemplo.uy", phone: "099 123 456" },
+        { id: "caro", name: "Carolina Núñez", email: null, phone: null },
+    ];
+    const carga = (x: Partial<{ email: string; telefono: string; nombre: string; paraUserId: string | null }>) => ({ email: "", telefono: "59800000000", nombre: "", ...x });
+    assert.equal(personaDeLaCarga(gente, carga({ email: "BETO@ejemplo.uy", paraUserId: "ana" }), "ana"), "beto", "lo que escribió le gana al enlace reenviado");
+    assert.equal(personaDeLaCarga(gente, carga({ email: "nuevo@ejemplo.uy", telefono: "59899123456" }), "ana"), "beto");
+    assert.equal(personaDeLaCarga(gente, carga({ email: "nuevo@ejemplo.uy", paraUserId: "caro" }), "ana"), "caro");
+    assert.equal(personaDeLaCarga(gente, carga({ email: "nuevo@ejemplo.uy", nombre: "carolina nunez" }), "ana"), "caro");
+    assert.equal(personaDeLaCarga(gente, carga({ email: "nuevo@ejemplo.uy" }), "ana"), null, "alguien nuevo no se le suma a la principal");
+    assert.equal(personaDeLaCarga(gente, carga({}), "ana"), "ana", "sin correo, como antes: la principal");
+    assert.ok(mismoTelefono("099123456", "59899123456"));
+    assert.ok(!mismoTelefono("123", "123"));
 });
