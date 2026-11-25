@@ -1696,6 +1696,37 @@ video::-webkit-media-controls { display: none !important; }
   animation: omni-fila-nueva 2.2s cubic-bezier(.22, 1, .36, 1) 1;
 }
 
+/* Procesamiento LPR en vivo (25/11, Nico: «que se vea el procesamiento en vivo sobre la fila»).
+   La lectura que acaba de llegar se procesa A LA VISTA: una franja de luz recorre la fila mientras
+   se espera el registro de la cámara y la relectura; cuando llega apareada, la fila real entra
+   bajando un poco y con el destello de siempre. Con movimiento reducido: sin recorrido ni bajada. */
+@keyframes omni-procesando {
+  0%   { background-position: -40% 0; }
+  100% { background-position: 140% 0; }
+}
+.omni-fila-procesando > td {
+  background-image: linear-gradient(90deg, transparent 0%, color-mix(in oklab, var(--accion) 12%, transparent) 50%, transparent 100%);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: omni-procesando 1.6s linear infinite;
+}
+.omni-fila-procesando > td:first-child { box-shadow: inset 3px 0 0 var(--accion); }
+@keyframes omni-fila-entra {
+  0%   { opacity: 0; transform: translateY(-6px); background-color: color-mix(in oklab, var(--accion) 18%, transparent); }
+  35%  { opacity: 1; transform: none; }
+  100% { background-color: transparent; }
+}
+.omni-fila-entra > td { animation: omni-fila-entra 2.4s cubic-bezier(.22, 1, .36, 1) 1; }
+@keyframes omni-esperando { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+.omni-esperando { animation: omni-esperando 1.4s ease-in-out infinite; }
+@keyframes omni-latido { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.omni-latido { animation: omni-latido 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .omni-fila-procesando > td { animation: none; background-image: none; background-color: color-mix(in oklab, var(--accion) 7%, transparent); }
+  .omni-fila-entra > td { animation: omni-fila-nueva 2.2s linear 1; }
+  .omni-esperando, .omni-latido { animation: none; }
+}
+
 
 /* ══════════════════════════════════════════════════════════
    LOS TONOS  ·  qué significa cada color, una sola vez

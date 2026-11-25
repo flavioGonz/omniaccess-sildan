@@ -90,7 +90,10 @@ async function copiar(cam) {
     if ((sinRegistro.get(cam.id) || 0) > Date.now()) return;
     const r = await pedir(cam.ip, "/ISAPI/Traffic/channels/1/vehicleDetect/plates", cam.user, cam.pass, "<AfterTime><picTime>20200101T000000</picTime></AfterTime>");
     const est = (estado[cam.id] ||= { nombre: cam.name, ultimo: null, nuevas: 0, error: null });
-    if (!r) { est.error = "no contesta"; return; }
+    /* Desde cuándo no contesta (25/11, Nico: «debemos indicar si perdimos conexión con las cámaras;
+       una lectura que no llega puede ser producto de la red»). Se anota la PRIMERA vez que falla y se
+       borra cuando vuelve a contestar: así la pantalla dice «sin conexión desde las 14:32». */
+    if (!r) { est.error = "no contesta"; est.caidaDesde ||= new Date().toISOString(); return; }
     if (r.status !== 200 || !/<Plates[\s>]/.test(r.texto)) {
         // No es una cámara ANPR (o el firmware no tiene el registro): se deja de pedir un rato.
         sinRegistro.set(cam.id, Date.now() + REPROBAR_MS);
@@ -115,7 +118,7 @@ async function copiar(cam) {
         est.nuevas += res.count;
         if (res.count >= 20) log(`${cam.name}: las ${res.count} eran nuevas — puede haberse perdido alguna entre copias (la cámara guarda ~20)`);
     }
-    est.ultimo = new Date().toISOString(); est.error = null;
+    est.ultimo = new Date().toISOString(); est.error = null; est.caidaDesde = null;
 }
 
 async function escribirEstado() {

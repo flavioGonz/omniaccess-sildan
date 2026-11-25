@@ -19,7 +19,7 @@ test("un barrio completo: cuatro secciones, lo común arriba y el historial ahí
     const m = armarMenu(barrio());
     assert.deepEqual(m.map((s) => s.titulo), [null, "Módulos", "Padrón", "Sistema"]);
     assert.deepEqual(rotulos(m, "comun"), ["Gestión de alarmas", "Mapa", "Historial", "Evidencias"]);
-    assert.deepEqual(hijos(m, "historial"), ["Accesos", "Lecturas de cámara"]);
+    assert.deepEqual(hijos(m, "historial"), ["Accesos", "Procesamiento LPR"]);
     /* Con porteros está el módulo Face aunque no esté el modo face (el portero cuenta sus caras). */
     assert.deepEqual(rotulos(m, "modulos"), ["Matrículas", "Face", "Intrusión", "Video", "Rastreo GPS", "Guardia", "OmniVision"]);
     assert.deepEqual(hijos(m, "rostro"), ["Monitor Face", "Dispositivos Face"]);

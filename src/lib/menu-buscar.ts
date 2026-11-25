@@ -26,7 +26,7 @@ export const TAMBIEN_SE_DICE: Record<string, string> = {
     "mapa": "plano barrio ubicación vehículos en vivo",
     "mapas": "plano ubicación",
     "historial-accesos": "eventos entradas salidas ingresos pasadas registro",
-    "historial-lecturas": "lpr matrículas chapas patentes leídas",
+    "historial-lecturas": "lpr matrículas chapas patentes leídas lecturas de cámara procesamiento en vivo",
     "evidencias": "clips videos grabaciones exportar casos",
     "lpr-monitor": "vivo cámaras chapas patentes",
     "lpr-vehiculos": "chapas patentes autos credenciales",

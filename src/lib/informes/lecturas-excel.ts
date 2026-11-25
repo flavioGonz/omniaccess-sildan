@@ -31,7 +31,7 @@ function enZona(iso: string | Date): Date {
 
 export async function informeLecturasExcel(p: ParamsExcel): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
-    wb.creator = p.marca.empresa; wb.company = p.marca.empresa; wb.title = "Informe de lecturas LPR"; wb.created = new Date();
+    wb.creator = p.marca.empresa; wb.company = p.marca.empresa; wb.title = "Informe de procesamiento LPR"; wb.created = new Date();
     const inf = p.informe;
 
     // ── estilos ──
@@ -81,7 +81,7 @@ export async function informeLecturasExcel(p: ParamsExcel): Promise<Buffer> {
     {
         const ws = wb.addWorksheet("Resumen", { views: [{ showGridLines: false }] });
         ws.columns = [{ width: 46 }, ...Array(10).fill({ width: 15 })];
-        banda(ws, `${p.marca.empresa} · Informe de lecturas LPR`, `Cámara, OmniAccess y OmniVision · ${periodo}`, 11);
+        banda(ws, `OmniVision · Procesamiento LPR · ${p.marca.empresa}`, `Cámara, OmniAccess y OmniVision · ${periodo}`, 11);
         const ficha: [string, string][] = [["Período", periodo], ["Cámaras", p.camaras.join(", ") || "Todas"], ["Generado", new Intl.DateTimeFormat("es-UY", { timeZone: ZONA_INFORME, dateStyle: "short", timeStyle: "short" }).format(new Date())], ["Preparado por", p.marca.preparadoPor || p.generadoPor]];
         for (const [k, v] of ficha) { const r = ws.addRow([k, v]); r.getCell(1).font = { name: FUENTE, bold: true, size: 9, color: { argb: argb(COLOR.gris) } }; r.getCell(2).font = { name: FUENTE, size: 10 }; }
         ws.addRow([]);

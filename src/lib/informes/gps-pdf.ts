@@ -13,6 +13,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { COLOR, rgb, fuentesOutfit, isotipoPng, type Marca } from "@/lib/informes/marca";
 import { EN_TAPA } from "@/lib/informes/paleta";
+import { dibujarTapa } from "@/lib/informes/tapa";
 import { duracionDeReporte, esNumero, textoDeCelda, type TablaReporte } from "@/lib/gps-reportes-catalogo";
 import { periodoEnPalabras, vehiculosEnPalabras, type ReporteGps } from "@/lib/gps-reportes-servidor";
 
@@ -38,92 +39,33 @@ export async function reporteGpsPdf(r: ReporteGps, marca: Marca, generadoPor: st
         doc.text(lineas, x, y, { align: o.alinear || "left", charSpace: o.espaciado || 0, lineHeightFactor: 1.35 });
         return lineas.length;
     };
-    const rotulo = (t: string, x: number, y: number, col: string = COLOR.gris) => texto(t.toUpperCase(), x, y, { tam: 6.6, negrita: true, col, espaciado: 0.4 });
-
-    const conOpacidad = (o: number, dibujar: () => void) => {
-        /* Las dos: `opacity` vale para los rellenos y las imágenes; las líneas llevan la suya. Con una sola, las rayas de la tapa salían blancas plenas. */
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- GState no está en los tipos de jsPDF
-        const G = (doc as any).GState; doc.setGState(new G({ opacity: o, "stroke-opacity": o })); dibujar(); doc.setGState(new G({ opacity: 1, "stroke-opacity": 1 }));
-    };
-    const [isoClaro, isoTinta] = await Promise.all([isotipoPng("#ffffff", 1024), isotipoPng(COLOR.tinta, 256)]);
+    const isoTinta = await isotipoPng(COLOR.tinta, 256);
     const deQuien = r.vehiculos.length === 1 ? r.vehiculos[0].nombre : `Flota · ${r.vehiculos.length} vehículos`;
     const emitido = new Intl.DateTimeFormat("es-UY", { timeZone: r.zona, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(r.generado)).replace(",", "");
     const enPdf = r.tablas.filter((x) => x.clave !== "posiciones");
 
     /* ══ LA TAPA ══
-       Nico (23/11): «la primera página debe ser estilizada premium, con el logo de OmniAccess».
-       Antes el reporte arrancaba con una banda y, pegadas debajo, las tablas: se leía como una
-       planilla impresa. Ahora la primera hoja es una tapa —de quién es, de cuándo, las cifras del
-       período y qué trae adentro— y las tablas empiezan en la hoja siguiente.
-
-       Es oscura y a sangre porque es UNA hoja, y es la que se ve al abrir el archivo o al dejarlo
-       sobre un escritorio. Las hojas de adentro siguen blancas: ahí se lee, y un fondo gasta tinta
-       y no deja escribir encima. */
+       Nico (23/11): «la primera página debe ser estilizada premium, con el logo de OmniAccess». Desde el
+       25/11 es la tapa común de todos los informes (lib/informes/tapa), así el de rastreo y el de
+       Procesamiento LPR se ven de la misma familia. */
     {
-        const MT = 18;                                           // la tapa respira más que las hojas de datos
-        color(marca.primario, "relleno"); doc.rect(0, 0, W, H, "F");
-        /* El recuadro de detección de la marca, enorme y apenas visible, saliéndose por la derecha:
-           dice de quién es la hoja sin competir con el título. */
-        if (isoClaro) conOpacidad(0.04, () => doc.addImage(isoClaro, "PNG", W - 150, -34, 236, 236));
-        /* Un filo de luz arriba: el único azul de la hoja. */
-        color(COLOR.accion, "relleno"); doc.rect(0, 0, W, 1.6, "F");
-
-        /* ── La marca: OmniAccess a la izquierda, quien recibe el reporte a la derecha ── */
-        if (isoClaro) doc.addImage(isoClaro, "PNG", MT, 15, 13, 13);
-        const xMarca = MT + (isoClaro ? 17 : 0);
-        texto("OMNIACCESS", xMarca, 21.2, { tam: 13.5, negrita: true, col: "#ffffff", espaciado: 0.9 });
-        rotulo("Rastreo satelital", xMarca, 26.2, "#94a3b8");
-        if (marca.logo) {
-            const alto = 11, ancho = Math.min(alto * (marca.logo.w / marca.logo.h), 62);
-            doc.addImage(marca.logo.png, "PNG", W - MT - ancho, 16, ancho, alto);
-        } else if (marca.empresa && marca.empresa !== "OmniAccess") texto(marca.empresa, W - MT, 22.5, { tam: 11, negrita: true, col: "#e2e8f0", alinear: "right" });
-
-        /* ── De quién y de cuándo ── */
-        const anchoTitulo = 168;
-        rotulo("Reporte de rastreo", MT, 76, COLOR.accionClaro);
-        /* El nombre de un vehículo puede ser largo: se achica antes que partirse en tres renglones. */
-        let tam = 40; doc.setFont("Outfit", "bold");
-        for (; tam > 24; tam -= 2) { doc.setFontSize(tam); if (doc.splitTextToSize(deQuien, anchoTitulo).length <= 1) break; }
-        const renglones = Math.min(2, texto(deQuien, MT, 76 + tam * 0.44 + 3, { tam, negrita: true, col: "#ffffff", ancho: anchoTitulo }));
-        let yT = 76 + tam * 0.44 + 3 + (renglones - 1) * tam * 0.476 + 9;
-        const chapa = r.vehiculos.length === 1 ? r.vehiculos[0].matricula : null;
-        const debajo = chapa ? `Matrícula ${chapa}` : r.vehiculos.length > 1 ? vehiculosEnPalabras(r) : null;
-        if (debajo) yT += texto(debajo, MT, yT, { tam: 11, col: "#94a3b8", ancho: anchoTitulo }) * 5.2 + 2.5;
-        color(COLOR.accion, "relleno"); doc.rect(MT, yT - 1.5, 22, 1.1, "F");
-        texto(periodoEnPalabras(r), MT, yT + 8, { tam: 13, negrita: true, col: "#ffffff", ancho: anchoTitulo });
-
-        /* ── Qué trae adentro: cada reporte con su cantidad de filas ── */
-        const xC = 206, anchoC = W - MT - xC;
-        rotulo("En este reporte", xC, 76, "#94a3b8");
-        enPdf.forEach((x, k) => {
-            const y = 84.5 + k * 6.7;
-            conOpacidad(0.12, () => { color("#ffffff", "linea"); doc.setLineWidth(0.2); doc.line(xC, y - 4.3, xC + anchoC, y - 4.3); });
-            texto(x.titulo, xC, y, { tam: 9, col: x.filasTotales ? "#e2e8f0" : "#64748b" });
-            texto(x.filasTotales ? x.filasTotales.toLocaleString("es-UY") : "—", xC + anchoC, y, { tam: 9, negrita: !!x.filasTotales, col: x.filasTotales ? "#ffffff" : "#64748b", alinear: "right" });
-        });
-
-        /* ── Las cifras del período ── */
         const t = r.totales;
-        const cifras: [string, string, string?][] = [
-            [t.km.toFixed(1).replace(".", ",") + " km", "recorridos"], [String(t.viajes), t.viajes === 1 ? "viaje" : "viajes"], [duracionDeReporte(t.andandoMin), "andando"],
-            [t.ralentiMin === null ? "—" : duracionDeReporte(t.ralentiMin), "en ralentí"], [t.velMax ? `${t.velMax} km/h` : "—", "velocidad máxima"],
+        const chapa = r.vehiculos.length === 1 ? r.vehiculos[0].matricula : null;
+        await dibujarTapa(doc, {
+            producto: "OMNIACCESS", linea: "Rastreo satelital", rotulo: "Reporte de rastreo", titulo: deQuien,
+            debajo: chapa ? `Matrícula ${chapa}` : r.vehiculos.length > 1 ? vehiculosEnPalabras(r) : null,
+            periodo: periodoEnPalabras(r),
+            contenido: enPdf.map((x) => ({ titulo: x.titulo, valor: x.filasTotales ? x.filasTotales.toLocaleString("es-UY") : "—", apagado: !x.filasTotales })),
             /* Sobre el fondo oscuro los tonos de estado van en su versión clara: el rojo y el ámbar de papel se apagan. */
-            [String(t.excesos), t.excesos === 1 ? "exceso de velocidad" : "excesos de velocidad", t.excesos ? EN_TAPA.mal : undefined], [String(t.alarmas), t.alarmas === 1 ? "alarma" : "alarmas", t.alarmas ? EN_TAPA.aviso : undefined],
-        ];
-        const yK = 160, cw = (W - MT * 2) / cifras.length;
-        conOpacidad(0.16, () => { color("#ffffff", "linea"); doc.setLineWidth(0.25); doc.line(MT, yK - 13, W - MT, yK - 13); });
-        cifras.forEach(([v, que, tono], k) => {
-            const x = MT + k * cw;
-            texto(v, x, yK, { tam: 17, negrita: true, col: tono || "#ffffff" });
-            texto(que, x, yK + 5.6, { tam: 8.2, col: "#94a3b8" });
+            cifras: [
+                { v: t.km.toFixed(1).replace(".", ",") + " km", que: "recorridos" }, { v: String(t.viajes), que: t.viajes === 1 ? "viaje" : "viajes" }, { v: duracionDeReporte(t.andandoMin), que: "andando" },
+                { v: t.ralentiMin === null ? "—" : duracionDeReporte(t.ralentiMin), que: "en ralentí" }, { v: t.velMax ? `${t.velMax} km/h` : "—", que: "velocidad máxima" },
+                { v: String(t.excesos), que: t.excesos === 1 ? "exceso de velocidad" : "excesos de velocidad", tono: t.excesos ? EN_TAPA.mal : undefined },
+                { v: String(t.alarmas), que: t.alarmas === 1 ? "alarma" : "alarmas", tono: t.alarmas ? EN_TAPA.aviso : undefined },
+            ],
+            pie: [`Velocidad permitida: ${r.limite} km/h`, r.horarioRotulo ? `Horario laboral: ${r.horarioRotulo}` : null, r.recortado ? "El período pedido era más largo que un mes: se recortó desde su comienzo" : null].filter(Boolean).join("   ·   "),
+            emitido, por: generadoPor, marca,
         });
-
-        /* ── El pie de la tapa: con qué vara se midió, y quién y cuándo lo emitió ── */
-        conOpacidad(0.16, () => { color("#ffffff", "linea"); doc.setLineWidth(0.25); doc.line(MT, H - 23, W - MT, H - 23); });
-        const vara = [`Velocidad permitida: ${r.limite} km/h`, r.horarioRotulo ? `Horario laboral: ${r.horarioRotulo}` : null, r.recortado ? "El período pedido era más largo que un mes: se recortó desde su comienzo" : null].filter(Boolean).join("   ·   ");
-        texto(vara, MT, H - 15.5, { tam: 8.2, col: "#94a3b8", ancho: 170 });
-        texto(`Emitido el ${emitido}`, W - MT, H - 15.5, { tam: 8.2, col: "#e2e8f0", alinear: "right" });
-        texto(`por ${marca.preparadoPor || generadoPor}`, W - MT, H - 11.2, { tam: 8.2, col: "#94a3b8", alinear: "right" });
     }
 
     /* Las tablas empiezan en una hoja limpia. */

@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     const s: any = await getSession().catch(() => null);
     const comun = { informe, filas: r.filas, marca, desde, hasta, camaras: usadas.map((c) => c.nombre), generadoPor: String(s?.name || s?.sub || "OmniAccess") };
 
-    const nombre = `informe-lecturas-${sp.get("desde")}-al-${sp.get("hasta")}`;
+    const nombre = `procesamiento-lpr-${sp.get("desde")}-al-${sp.get("hasta")}`;
     let buf: Buffer, tipo: string;
     if (formato === "xlsx") {
         const { informeLecturasExcel } = await import("@/lib/informes/lecturas-excel");

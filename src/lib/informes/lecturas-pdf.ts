@@ -17,6 +17,8 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { FilaLectura } from "@/lib/lecturas-camara";
 import { COLOR, rgb, fotoChica, leerImagen, fuentesOutfit, type Marca } from "@/lib/informes/marca";
+import { EN_TAPA } from "@/lib/informes/paleta";
+import { dibujarTapa } from "@/lib/informes/tapa";
 import { PASO_ROTULO, VISION_ROTULO, compararVision, pct, segundos, ZONA_INFORME, type InformeLecturas, type Metricas } from "@/lib/informes/lecturas-resumen";
 
 const W = 210, H = 297, M = 16;
@@ -43,7 +45,7 @@ export async function informeLecturasPdf(p: ParamsPdf): Promise<Buffer> {
     doc.addFileToVFS("Outfit-Regular.ttf", f.regular); doc.addFont("Outfit-Regular.ttf", "Outfit", "normal");
     doc.addFileToVFS("Outfit-Bold.ttf", f.negrita); doc.addFont("Outfit-Bold.ttf", "Outfit", "bold");
     doc.setFont("Outfit", "normal");
-    doc.setProperties({ title: "Informe de lecturas LPR", subject: "Cámara · OmniAccess · OmniVision", author: p.marca.empresa, creator: "OmniAccess" });
+    doc.setProperties({ title: "Informe de procesamiento LPR", subject: "Cámara · OmniAccess · OmniVision", author: p.marca.empresa, creator: "OmniAccess" });
 
     const { informe: inf, marca } = p;
     // «22 al 28 de octubre de 2026» si es el mismo mes; si no, cada fecha entera.
@@ -74,67 +76,27 @@ export async function informeLecturasPdf(p: ParamsPdf): Promise<Buffer> {
         texto("OMNIACCESS", x + alto + 2.6, y + alto * 0.58, { tam: alto * 2.3, negrita: true, col: claro ? "#ffffff" : COLOR.tinta, espaciado: 0.5 });
         return alto + 2.6 + doc.getTextWidth("OMNIACCESS") + 5;
     };
-    const conOpacidad = (o: number, dibujar: () => void) => { const G = (doc as any).GState; doc.setGState(new G({ opacity: o })); dibujar(); doc.setGState(new G({ opacity: 1 })); };
 
-    // ══ PORTADA ══
+    // ══ TAPA ══ — la común a todos los informes (lib/informes/tapa), firmada por OmniVision (25/11).
     {
-        const ALTO = 178;
-        color(marca.primario, "relleno"); doc.rect(0, 0, W, ALTO, "F");
-        if (marca.portada) {
-            const foto = await fotoChica(marca.portada, 1600);
-            if (foto) {
-                const esc = Math.max(W / foto.w, ALTO / foto.h);
-                doc.addImage(foto.jpg, "JPEG", (W - foto.w * esc) / 2, (ALTO - foto.h * esc) / 2, foto.w * esc, foto.h * esc);
-                conOpacidad(0.72, () => { color(marca.primario, "relleno"); doc.rect(0, 0, W, ALTO, "F"); });
-                color("#ffffff", "relleno"); doc.rect(0, ALTO, W, H - ALTO, "F");
-            }
-        } else {
-            // Las líneas de lectura: arcos concéntricos desde la esquina, como el barrido de una cámara.
-            conOpacidad(0.16, () => {
-                color(COLOR.accionClaro, "linea"); doc.setLineWidth(0.35);
-                for (let r = 30; r <= 200; r += 13) doc.circle(W + 20, -30, r, "S");
-            });
-            // Los arcos siguen de largo: lo de abajo se tapa con el blanco de la ficha.
-            color("#ffffff", "relleno"); doc.rect(0, ALTO, W, H - ALTO, "F");
-            color(COLOR.accion, "relleno"); doc.rect(0, ALTO - 2.2, W * 0.42, 2.2, "F");
-        }
-        logoEn(M, 20, 9, true);
-        rotulo("Informe de lecturas LPR", M, 98, COLOR.accionClaro);
-        texto(["Cámara, OmniAccess", "y OmniVision"], M, 112, { tam: 31, negrita: true, col: "#ffffff" });
-        texto("Qué leyó cada cámara, qué le llegó a OmniAccess y qué releyó OmniVision, vehículo por vehículo.", M, 138, { tam: 11, col: "#cbd5e1", ancho: 140 });
-        texto(periodo, M, 160, { tam: 13, negrita: true, col: "#ffffff" });
-
-        // Los tres números de tapa, con su frase.
         const t = inf.total;
-        const cifras: [string, string, string][] = [
-            [n(t.pasos), "vehículos leídos", "por las cámaras en el período"],
-            [pct(t.bienPct, 1), "llegaron bien", "a OmniAccess, con la misma chapa"],
-            [pct(t.vision.aciertoPct, 1), "acierto de OmniVision", "frente a la lectura de la cámara"],
-        ];
-        const cw = (W - M * 2) / 3;
-        cifras.forEach(([v, a, b], i) => {
-            const x = M + i * cw;
-            if (i) { color(COLOR.linea, "linea"); doc.setLineWidth(0.3); doc.line(x - 4, ALTO + 14, x - 4, ALTO + 36); }
-            texto(v, x, ALTO + 25, { tam: 24, negrita: true, col: i === 1 ? COLOR.bien : i === 2 ? COLOR.accion : COLOR.tinta });
-            texto(a, x, ALTO + 31.5, { tam: 9.5, negrita: true, col: COLOR.texto });
-            texto(b, x, ALTO + 36, { tam: 8, col: COLOR.gris });
+        const emitido = `${diaCorto(new Date())} ${fmt(new Date(), { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}`;
+        await dibujarTapa(doc, {
+            producto: "OMNIVISION", linea: "Procesamiento LPR", rotulo: "Informe de procesamiento LPR",
+            titulo: "Cámara, OmniAccess y OmniVision",
+            debajo: "Qué leyó cada cámara, qué le llegó a OmniAccess y qué releyó OmniVision, vehículo por vehículo.",
+            periodo,
+            contenido: inf.camaras.slice(0, 9).map((c) => ({ titulo: c.nombre, valor: `${n(c.m.pasos)} ${c.m.pasos === 1 ? "vehículo" : "vehículos"}`, apagado: !c.m.pasos })),
+            cifras: [
+                { v: n(t.pasos), que: "vehículos leídos" },
+                { v: pct(t.bienPct, 1), que: "llegaron bien" },
+                { v: n(t.perdida), que: "no llegaron", tono: t.perdida ? EN_TAPA.mal : undefined },
+                { v: pct(t.vision.aciertoPct, 1), que: "acierto de OmniVision", tono: "#b9a8ff" },
+                { v: segundos(t.demoraMs), que: "demora típica" },
+            ],
+            pie: [`Cámaras: ${p.camaras.join(", ") || "todas"}`, marca.autorizadoPor ? `Autorizado por ${marca.autorizadoPor}` : null].filter(Boolean).join("   ·   "),
+            emitido, por: p.generadoPor, marca,
         });
-
-        // La ficha del informe.
-        let y = ALTO + 54;
-        const ficha: [string, string][] = [
-            ["Período", `${diaCorto(p.desde)} — ${diaCorto(p.hasta)}`],
-            ["Cámaras", p.camaras.join(", ") || "Todas"],
-            ["Generado", `${diaCorto(new Date())} ${fmt(new Date(), { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}`],
-            ["Preparado por", marca.preparadoPor || p.generadoPor],
-            ...(marca.autorizadoPor ? [["Autorizado por", marca.autorizadoPor] as [string, string]] : []),
-        ];
-        for (const [k, v] of ficha) {
-            rotulo(k, M, y);
-            const l = texto(v, M + 38, y, { tam: 9.5, col: COLOR.texto, ancho: W - M * 2 - 38 });
-            y += 6.5 + (l - 1) * 4.4;
-        }
-        texto(marca.empresa + (marca.contacto ? `  ·  ${marca.contacto}` : ""), M, H - 14, { tam: 8, col: COLOR.gris });
     }
 
     // ── páginas de contenido ──

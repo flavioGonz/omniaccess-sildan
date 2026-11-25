@@ -115,7 +115,7 @@ export function armarMenu(c: ContextoMenu): SeccionMenu[] {
         ...sola(m.filas, { id: "mapas", rotulo: "Mapas", icono: "mapa", href: "/admin/mapas" }),
         ...grupo("historial", "Historial", "historial", [
             ...hoja(!m.filas, { id: "historial-accesos", rotulo: "Accesos", href: "/admin/history" }),
-            ...hoja(conMatriculas, { id: "historial-lecturas", rotulo: "Lecturas de cámara", href: "/admin/lecturas-camara" }),
+            ...hoja(conMatriculas, { id: "historial-lecturas", rotulo: "Procesamiento LPR", href: "/admin/procesamiento-lpr" }),
         ]),
         ...sola(true, { id: "evidencias", rotulo: "Evidencias", icono: "evidencias", href: "/admin/evidencias" }),
     ];

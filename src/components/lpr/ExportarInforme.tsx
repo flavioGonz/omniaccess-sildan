@@ -83,8 +83,8 @@ export function ExportarInforme({ abierto, alCerrar, camaras, camaraActual }: {
 
     return (
         <Cajon open={abierto} onOpenChange={(o) => { if (!o && !bajando) alCerrar(); }}>
-            <CajonContenido ancho="intermedio" titulo="Exportar informe"
-                descripcion="Qué leyó cada cámara, qué le llegó a OmniAccess y qué releyó OmniVision, con portada, conclusiones y gráficos."
+            <CajonContenido ancho="intermedio" titulo="Informe de procesamiento LPR"
+                descripcion="Qué leyó cada cámara, qué le llegó a OmniAccess y qué releyó OmniVision, con la tapa de OmniVision, conclusiones y gráficos."
                 pie={
                     <div className="flex items-center gap-3 w-full">
                         <span className={cn("text-[12px] flex-1 min-w-0 truncate", problema ? "tono-aviso" : "text-muted-foreground")}>
