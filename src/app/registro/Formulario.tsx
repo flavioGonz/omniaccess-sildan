@@ -65,6 +65,20 @@ const RESORTE = { type: "spring" as const, bounce: 0, duration: 0.4 };
 /** Hundirse al tocar. 100 ms y se acabó: la respuesta es inmediata, el retorno no se nota. */
 const PULSABLE = "active:scale-[0.97] transition-transform duration-100 ease-out";
 
+/**
+ * Lo que ya cargó la gente del mismo lote (25/11). Nico: «cuando un inquilino del mismo lote entra
+ * con su código, debe ver los registros que otros realizaron, para no confundir». Desde ese día el
+ * código del lote le llega a todos sus residentes, y sin esto cada uno cargaba a ciegas los mismos
+ * autos. Lo arma la página con la clave del lote: el que no la tiene no ve nada.
+ */
+export type CargaDelLote = {
+    quien: string; cuando: string; estado: "pendiente" | "aprobada";
+    /** La cargó esta misma persona (entró por su enlace antes). */
+    suya: boolean;
+    vehiculos: { chapa: string; tipo: string; detalle: string }[];
+    servicios: string[];
+};
+
 type Form = {
     lote: string; apellido: string; nombre: string; tenencia: Tenencia; telefono: string; email: string;
     vehiculos: VehiculoCargado[]; servicios: ServicioCargado[]; comentario: string;
@@ -75,8 +89,10 @@ const VACIO: Form = { lote: "", apellido: "", nombre: "", tenencia: "PROPIETARIO
 /** Lo que se va escribiendo se guarda en el teléfono: en una asamblea la señal se corta. */
 const CLAVE = "oa.censo.borrador";
 
-export function Formulario({ centro, invitacion }: {
+export function Formulario({ centro, invitacion, cargas = [] }: {
     centro: [number, number];
+    /** Lo que ya cargaron en este lote (ver CargaDelLote). */
+    cargas?: CargaDelLote[];
     /** Cuando se entró por el enlace del correo: el lote y el correo los pone la invitación. */
     invitacion?: { clave: string; lote: string; email: string; nombre: string; lotes?: { nombre: string; vinculo: string }[];
         /** Dónde queda el lote según el plano del barrio (25/11): el punto ya viene puesto. */
@@ -165,8 +181,9 @@ export function Formulario({ centro, invitacion }: {
                     <motion.div key={paso} custom={sentido} className="censo-paso"
                         initial={{ opacity: 0, x: 22 * sentido }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -22 * sentido }}
                         transition={RESORTE}>
+                        {paso < 2 && cargas.length > 0 && <YaCargaron cargas={cargas} />}
                         {paso === 0 && <PasoCasa f={f} set={set} centro={centro} delPlano={ubicacionLote} loteFijo={!!invitacion} lotes={invitacion?.lotes} alElegirLote={(l) => setF((v) => ({ ...v, lote: l, tenencia: tenenciaDe(l) }))} />}
-                        {paso === 1 && <PasoVehiculos f={f} set={set} />}
+                        {paso === 1 && <PasoVehiculos f={f} set={set} cargas={cargas} />}
                         {paso === 2 && <PasoServicios f={f} set={set} />}
                     </motion.div>
                 </AnimatePresence>
@@ -352,6 +369,44 @@ function Campo({ rotulo, ayuda, children }: { rotulo: string; ayuda?: string; ch
 }
 
 const ENTRADA = "w-full h-12 rounded-[10px] border border-border bg-card px-3.5 text-[15px] outline-none focus:ring-2 focus:ring-[var(--accion)]/30 focus:border-[var(--accion)] transition-shadow";
+
+/**
+ * «Ya cargaron en este lote»: quién, cuándo, en qué está y qué autos. Va arriba de los dos primeros
+ * pasos, que es donde se decide qué cargar. Sin teléfonos ni correos: con el nombre alcanza para
+ * saber quién fue, y el resto no hace falta para no repetir.
+ */
+function YaCargaron({ cargas }: { cargas: CargaDelLote[] }) {
+    return (
+        <div className="mb-5 rounded-[10px] border border-border bg-card p-3.5">
+            <p className="text-[14px] font-bold">Ya cargaron en este lote</p>
+            <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">Cargá sólo lo que falte. Si algo cambió, cargalo igual: la administración revisa todo antes de darlo de alta.</p>
+            <ul className="mt-3 space-y-2.5">
+                {cargas.map((c, i) => (
+                    <li key={i} className="border-t border-border pt-2.5 first:border-t-0 first:pt-0">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="text-[14px] font-semibold">{c.quien}{c.suya ? " (vos)" : ""}</span>
+                            <span className="text-[12.5px] text-muted-foreground tabular-nums">{c.cuando}</span>
+                            <span className={cn("rounded-full px-2 py-0.5 text-[11.5px] font-bold", c.estado === "aprobada" ? "chip-bien" : "chip-aviso")}>
+                                {c.estado === "aprobada" ? "Aprobada" : "Esperando revisión"}
+                            </span>
+                        </div>
+                        {c.vehiculos.length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {c.vehiculos.map((v, j) => (
+                                    <span key={j} className="inline-flex items-center gap-1.5 rounded-[6px] border border-border px-2 py-1 text-[12.5px]">
+                                        <b className="tabular-nums tracking-wide">{v.chapa}</b><span className="text-muted-foreground">{v.detalle}</span>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                        {c.servicios.length > 0 && <p className="mt-1.5 text-[12.5px] leading-snug text-muted-foreground">{c.servicios.join(" · ")}</p>}
+                        {!c.vehiculos.length && !c.servicios.length && <p className="mt-1 text-[12.5px] text-muted-foreground">Sin vehículos ni servicios.</p>}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
 
 function Seccion({ icono: I, titulo, children }: { icono: typeof Car; titulo: string; children: React.ReactNode }) {
     return (
@@ -596,8 +651,12 @@ function estadoChapa(v: string): { tono: "bien" | "aviso" | null; dice: string }
     return { tono: "bien", dice: "Las cámaras la van a leer así." };
 }
 
-function PasoVehiculos({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void }) {
+function PasoVehiculos({ f, set, cargas = [] }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; cargas?: CargaDelLote[] }) {
     const cambiar = (i: number, v: Partial<VehiculoCargado>) => set("vehiculos", f.vehiculos.map((x, j) => (j === i ? { ...x, ...v } : x)));
+    /* La chapa que ya cargó otro del lote se avisa mientras se la escribe: no es un error (pudo
+       cambiar de tipo o de dueño), pero así nadie la repite sin saberlo. */
+    const llave = (t: string) => normalizarChapa(t)?.plate || t.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+    const yaEsta = (chapa: string) => { const n = llave(chapa); return n.length >= 5 ? cargas.find((c) => !c.suya && c.vehiculos.some((v) => llave(v.chapa) === n)) : undefined; };
     return (
         <Seccion icono={Car} titulo="Vehículos que entran">
             <p className="-mt-1 text-[14px] leading-relaxed text-muted-foreground">
@@ -615,6 +674,7 @@ function PasoVehiculos({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, 
                                     marcada mientras se la escribe, que es cuando sirve verla. */}
                                 <Chapa valor={v.chapa} alCambiar={(x) => cambiar(i, { chapa: x })} tono={est.tono} />
                                 {est.dice && <p className={cn("mt-1.5 text-[12.5px] leading-snug", est.tono === "bien" ? "tono-bien" : "tono-aviso")}>{est.dice}</p>}
+                                {(() => { const otra = yaEsta(v.chapa); return otra ? <p className="mt-1 text-[12.5px] leading-snug tono-info">Ya la cargó {otra.quien} el {otra.cuando}: no hace falta repetirla.</p> : null; })()}
                             </div>
                             {f.vehiculos.length > 1 && (
                                 <button type="button" onClick={() => set("vehiculos", f.vehiculos.filter((_, j) => j !== i))}

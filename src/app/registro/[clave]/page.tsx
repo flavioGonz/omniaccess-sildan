@@ -3,7 +3,10 @@ import { funcionActiva } from "@/app/actions/funciones";
 import { getBarrioMap } from "@/app/actions/barriomap";
 import { prisma } from "@/lib/prisma";
 import { normalizarClave } from "@/lib/censo-invitaciones";
-import { Formulario } from "../Formulario";
+import { Formulario, type CargaDelLote } from "../Formulario";
+import { lineaDeServicio } from "@/lib/censo-servidor";
+import { ZONA } from "@/lib/fechas";
+import { TIPOS_VEHICULO, type ServicioCargado, type VehiculoCargado } from "@/lib/registro-padron";
 import { ClaveNoSirve } from "../ClaveNoSirve";
 
 export const dynamic = "force-dynamic";
@@ -38,5 +41,24 @@ export default async function RegistroConClave({ params, searchParams }: { param
     const u = inv.unitId ? await prisma.unit.findUnique({ where: { id: inv.unitId }, select: { coordinates: true } }).catch(() => null) : null;
     const [lat, lng] = String(u?.coordinates || "").split(/[,;\s]+/).map(Number);
     const ubicacion: [number, number] | null = Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0 ? [lat, lng] : null;
-    return <Formulario centro={center} invitacion={{ clave: inv.clave, lote: lotes[0]?.nombre || inv.lote, lotes, email: copia?.email || inv.email, nombre: copia ? copia.nombre : inv.nombre, ubicacion, de: copia?.id }} />;
+    /* Lo que ya cargó la gente de este lote (25/11, el código le llega a todos): para que el que entra
+       vea qué hay y no cargue a ciegas lo mismo. Sólo de ESTE lote, sólo con su clave, y nunca las
+       rechazadas. Sin teléfonos ni correos. */
+    const filas = await prisma.solicitudPadron.findMany({
+        where: { estado: { in: ["pendiente", "aprobada"] }, OR: [...(inv.unitId ? [{ unitId: inv.unitId }] : []), { clave: inv.clave }] },
+        orderBy: { createdAt: "desc" }, take: 20,
+        select: { nombre: true, apellido: true, createdAt: true, estado: true, vehiculos: true, servicios: true, paraUserId: true, email: true },
+    }).catch(() => []);
+    const miCorreo = (copia?.email || "").trim().toLowerCase();
+    const yo = copia ? await prisma.copiaCenso.findUnique({ where: { id: copia.id }, select: { userId: true } }).catch(() => null) : null;
+    const rotulo = (t: string) => TIPOS_VEHICULO.find((x) => x.id === t)?.rotulo || t;
+    const cargas: CargaDelLote[] = filas.map((c) => ({
+        quien: [c.nombre, c.apellido].filter(Boolean).join(" ").trim() || "Alguien del lote",
+        cuando: c.createdAt.toLocaleDateString("es-UY", { day: "numeric", month: "short", timeZone: ZONA }),
+        estado: c.estado === "aprobada" ? "aprobada" : "pendiente",
+        suya: !!((yo?.userId && c.paraUserId === yo.userId) || (miCorreo && c.email.trim().toLowerCase() === miCorreo)),
+        vehiculos: ((c.vehiculos as unknown as VehiculoCargado[]) || []).filter((v) => v?.chapa).map((v) => ({ chapa: v.chapa, tipo: v.tipo, detalle: [rotulo(v.tipo), v.marca, v.color].filter(Boolean).join(" · ") })),
+        servicios: ((c.servicios as unknown as ServicioCargado[]) || []).map(lineaDeServicio),
+    }));
+    return <Formulario centro={center} cargas={cargas} invitacion={{ clave: inv.clave, lote: lotes[0]?.nombre || inv.lote, lotes, email: copia?.email || inv.email, nombre: copia ? copia.nombre : inv.nombre, ubicacion, de: copia?.id }} />;
 }
