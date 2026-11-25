@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Car, Check, ClipboardList, Clock, Download, Home, Mail, MapPin, MessageSquare, Phone, QrCode, Send, Users, Wrench, X } from "lucide-react";
+import { Car, Check, CheckCheck, ClipboardList, Clock, Download, Home, Info, ListChecks, Mail, MapPin, MessageSquare, Phone, QrCode, Send, ShieldCheck, TriangleAlert, Users, Wrench, X } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,7 @@ export default function BandejaCenso() {
     const [abierta, setAbierta] = useState<Carga | null>(null);
     const [qr, setQr] = useState(false);
     const [invitaciones, setInvitaciones] = useState(false);
+    const [todas, setTodas] = useState(false);
 
     const traer = useCallback(async () => {
         try {
@@ -103,6 +104,9 @@ export default function BandejaCenso() {
             <div className="px-8 py-4 border-b border-border flex items-center gap-3 flex-wrap shrink-0">
                 <Filtros grupos={[{ clave: "e", titulo: "Ver", valor: vista, alElegir: setVista, opciones: VISTAS }]} />
                 {pendientes > 0 && <Chip tono="aviso">{pendientes} sin revisar</Chip>}
+                {pendientes > 0 && (
+                    <Button size="sm" className="ml-auto" onClick={() => setTodas(true)}><CheckCheck size={15} /> Aprobar las {pendientes} sin revisar</Button>
+                )}
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar px-8 py-5 space-y-4">
@@ -147,6 +151,7 @@ export default function BandejaCenso() {
 
             <Ficha carga={abierta} alCerrar={() => setAbierta(null)} alResolver={resolver} centro={CENTRO_RESPALDO} />
             <CajonQr abierto={qr} alCerrar={() => setQr(false)} />
+            <CajonAprobarTodas abierto={todas} alCerrar={() => setTodas(false)} alTerminar={() => { traer(); }} />
             <CajonInvitaciones abierto={invitaciones} alCerrar={() => { setInvitaciones(false); traer(); }} />
         </div>
     );
@@ -310,5 +315,120 @@ function CajonQr({ abierto, alCerrar }: { abierto: boolean; alCerrar: () => void
                 </div>
             </CajonContenido>
         </Cajon>
+    );
+}
+
+/**
+ * Aprobar todas las cargas sin revisar de una vez (25/11, Nico: «agregar un botón para aceptar todos
+ * los sin revisar»).
+ *
+ * Es el mismo «Dar de alta en el padrón» de cada carga, una por una y de la más vieja a la más nueva,
+ * y el cajón lo dice antes de apretar: qué entra, qué NO se pisa, y al terminar, cuántas salieron y
+ * qué quedó para mirar a mano. Aprobar de a muchas sin saber qué hace es la forma de llenar el padrón
+ * de algo que después nadie sabe de dónde salió.
+ */
+function CajonAprobarTodas({ abierto, alCerrar, alTerminar }: { abierto: boolean; alCerrar: () => void; alTerminar: () => void }) {
+    return (
+        <Cajon open={abierto} onOpenChange={(o) => { if (!o) alCerrar(); }}>
+            {abierto && <AprobarTodas alCerrar={alCerrar} alTerminar={alTerminar} />}
+        </Cajon>
+    );
+}
+type ResultadoTodas = { aprobadas: number; matriculas: number; chapasDeOtro: number; fallaron: number; fallas: string[]; quedan: number };
+function AprobarTodas({ alCerrar, alTerminar }: { alCerrar: () => void; alTerminar: () => void }) {
+    const [cargas, setCargas] = useState<Carga[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [trabajando, setTrabajando] = useState(false);
+    const [hecho, setHecho] = useState<ResultadoTodas | null>(null);
+    useEffect(() => {
+        let vivo = true;
+        fetch("/api/censo?estado=pendiente", { cache: "no-store" }).then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`); return j; })
+            .then((j) => { if (vivo) setCargas(j.cargas); }).catch((e) => { if (vivo) setError(e instanceof Error ? e.message : "No se pudo traer la bandeja"); });
+        return () => { vivo = false; };
+    }, []);
+    const n = cargas?.length || 0;
+    const chapas = (cargas || []).reduce((k, c) => k + c.vehiculos.length, 0);
+    const servicios = (cargas || []).reduce((k, c) => k + c.servicios.length, 0);
+    const lotes = new Set((cargas || []).map((c) => c.lote)).size;
+    const conPunto = (cargas || []).filter((c) => c.lat != null).length;
+    const aprobar = async () => {
+        setTrabajando(true);
+        try {
+            const r = await fetch("/api/censo", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ accion: "aprobar-todas" }) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) { toast.error({ title: "No se pudo", description: j?.error }); return; }
+            setHecho(j); alTerminar();
+            toast.success({ title: `${j.aprobadas} ${j.aprobadas === 1 ? "carga aprobada" : "cargas aprobadas"}`, description: `${j.matriculas} ${j.matriculas === 1 ? "matrícula dada de alta" : "matrículas dadas de alta"}` });
+        } finally { setTrabajando(false); }
+    };
+    const Cifra = ({ v, r, I }: { v: number; r: string; I: typeof Car }) => (
+        <div className="rounded-[10px] bg-muted/60 px-3 py-2.5">
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><I size={12} />{r}</p>
+            <p className="mt-0.5 text-[20px] font-bold tabular-nums leading-tight">{v}</p>
+        </div>
+    );
+    return (
+        <CajonContenido ancho="medio" titulo={hecho ? "Listo" : "Aprobar todas las sin revisar"}
+            descripcion={hecho ? "Lo que entró al padrón, y lo que quedó para mirar a mano." : "Cada carga se da de alta igual que con su propio botón, una por una, de la más vieja a la más nueva."}
+            pie={
+                <div className="flex w-full items-center gap-2">
+                    <span className="flex-1 text-[12px] text-muted-foreground">{!hecho && n > 0 ? `${n} ${n === 1 ? "carga" : "cargas"} de ${lotes} ${lotes === 1 ? "lote" : "lotes"}` : ""}</span>
+                    <Button variant="ghost" onClick={alCerrar}>{hecho ? "Cerrar" : "Cancelar"}</Button>
+                    {!hecho && <Button onClick={aprobar} disabled={trabajando || !n}>{trabajando ? <Loader2 size={14} className="animate-spin" /> : <CheckCheck size={14} />} {trabajando ? "Aprobando…" : `Aprobar las ${n}`}</Button>}
+                </div>
+            }>
+            {error ? <div className="p-4"><ErrorEstado mensaje={error} /></div> : !cargas ? <div className="p-6"><Cargando texto="Trayendo las sin revisar…" /></div> : hecho ? (
+                <>
+                    <CajonSeccion titulo="Resultado" icono={CheckCheck}>
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            <Cifra v={hecho.aprobadas} r="cargas aprobadas" I={Check} />
+                            <Cifra v={hecho.matriculas} r="matrículas dadas de alta" I={Car} />
+                            <Cifra v={hecho.quedan} r="quedan sin revisar" I={Clock} />
+                        </div>
+                    </CajonSeccion>
+                    {(hecho.chapasDeOtro > 0 || hecho.fallaron > 0) && (
+                        <CajonSeccion titulo="Para mirar a mano" icono={TriangleAlert} ayuda="Nada de esto se resolvió solo: queda anotado en la carga y en el historial de su lote.">
+                            <ul className="space-y-1.5 text-[13px]">
+                                {hecho.chapasDeOtro > 0 && <li className="flex gap-2"><TriangleAlert size={14} className="mt-0.5 shrink-0 tono-aviso" /> En {hecho.chapasDeOtro} {hecho.chapasDeOtro === 1 ? "carga" : "cargas"} había una matrícula que ya era de otra persona: se dejó como estaba. Está en la nota de cada carga aprobada.</li>}
+                                {hecho.fallaron > 0 && <li className="flex gap-2"><X size={14} className="mt-0.5 shrink-0 tono-mal" /> {hecho.fallaron} no se pudieron aprobar{hecho.fallas.length ? `: ${hecho.fallas.join(" · ")}` : ""}. Siguen sin revisar.</li>}
+                            </ul>
+                        </CajonSeccion>
+                    )}
+                </>
+            ) : n === 0 ? <div className="p-6 text-[13px] text-muted-foreground">No queda ninguna sin revisar.</div> : (
+                <>
+                    <CajonSeccion titulo="Qué entra al padrón" icono={ListChecks}>
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            <Cifra v={n} r={n === 1 ? "carga" : "cargas"} I={ClipboardList} />
+                            <Cifra v={lotes} r={lotes === 1 ? "lote" : "lotes"} I={Home} />
+                            <Cifra v={chapas} r="matrículas" I={Car} />
+                            <Cifra v={servicios} r="servicios" I={Wrench} />
+                        </div>
+                    </CajonSeccion>
+                    <CajonSeccion titulo="Cómo se hace" icono={ShieldCheck} ayuda="Lo mismo que el botón de cada carga. Lo que pueda ser un error no se resuelve solo: se anota.">
+                        <ul className="space-y-2 text-[13px] leading-snug">
+                            <li className="flex gap-2"><Users size={14} className="mt-0.5 shrink-0 text-muted-foreground" /><span>Cada persona se reconoce entre la gente de su lote (por su correo, su teléfono o su nombre); si no es nadie del lote, se la suma.</span></li>
+                            <li className="flex gap-2"><Car size={14} className="mt-0.5 shrink-0 text-muted-foreground" /><span>Sus matrículas quedan dadas de alta. <b>Una matrícula que ya es de otra persona no se le saca a nadie</b>: se deja como estaba y se avisa.</span></li>
+                            <li className="flex gap-2"><MapPin size={14} className="mt-0.5 shrink-0 text-muted-foreground" /><span>El punto del mapa ({conPunto} {conPunto === 1 ? "carga lo trae" : "cargas lo traen"}) completa la ubicación sólo de los lotes que no tenían: la del plano no se pisa.</span></li>
+                            <li className="flex gap-2"><Wrench size={14} className="mt-0.5 shrink-0 text-muted-foreground" /><span>Los servicios (jardinero, piscinero…) quedan escritos en la ficha: no se convierten en autorizaciones de entrada.</span></li>
+                            <li className="flex gap-2"><Info size={14} className="mt-0.5 shrink-0 text-muted-foreground" /><span>Cada alta queda en el historial de su lote, firmada por vos.</span></li>
+                        </ul>
+                    </CajonSeccion>
+                    <CajonSeccion titulo="Las cargas" icono={ClipboardList} compacta>
+                        <ul className="divide-y divide-border rounded-[10px] border border-border">
+                            {cargas.slice(0, 60).map((c) => (
+                                <li key={c.id} className="flex items-center gap-3 px-3 py-2">
+                                    <span className="w-24 shrink-0 text-[12.5px] font-bold tabular-nums">Lote {c.lote}</span>
+                                    <span className="min-w-0 flex-1 truncate text-[12.5px]">{[c.nombre, c.apellido].filter(Boolean).join(" ")}</span>
+                                    <span className="inline-flex items-center gap-1 text-[11.5px] text-muted-foreground tabular-nums"><Car size={11} /> {c.vehiculos.length}</span>
+                                    <span className="w-20 text-right text-[11px] text-muted-foreground">{fechaHora(c.createdAt).split(" ")[0]}</span>
+                                </li>
+                            ))}
+                        </ul>
+                        {cargas.length > 60 && <p className="mt-1.5 text-[11.5px] text-muted-foreground">Y {cargas.length - 60} más.</p>}
+                    </CajonSeccion>
+                </>
+            )}
+        </CajonContenido>
     );
 }

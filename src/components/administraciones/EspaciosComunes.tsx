@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
     Armchair, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardList, Clock, Dumbbell, Flame, MapPin, PartyPopper, Pencil, Plus,
-    ScrollText, Trees, Trophy, User, Users, Waves, Wrench, X,
+    Home, LayoutGrid, ScrollText, Search, ShieldCheck, StickyNote, Trees, Trophy, User, Users, Waves, Wrench, X,
 } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
@@ -214,17 +214,20 @@ function CajonFichaEspacio({ e, administracionId, alCerrar, alEditar, alCambiar 
                 <CajonContenido ancho={e?.reservable ? "ancho" : "medio"} titulo={e?.nombre || "Espacio"} descripcion={e ? `${rotuloTipo(e.tipo)}${e.administracionId ? "" : " · de todo el complejo"}` : undefined}>
                     {e && (
                         <>
-                            <CajonSeccion titulo="Estado y ficha" icono={ClipboardList} compacta>
+                            <CabeceraEspacio e={e} />
+                            <CajonSeccion titulo="Estado y ficha" icono={ClipboardList} compacta
+                                ayuda="El estado de ahora lo ve cualquiera que tenga la pantalla abierta, y se actualiza solo."
+                                pista="Abierto, en mantenimiento o cerrado, con una nota para la guardia («se limpia el filtro hasta las 15»). Cada cambio queda con quién lo hizo y cuándo.">
                                 <FichaEspacio e={e} alEditar={alEditar} alCambiar={alCambiar} sinMarco />
                             </CajonSeccion>
                             {e.reservable && (
-                                <CajonSeccion titulo="Reservas" icono={CalendarDays} compacta>
+                                <CajonSeccion titulo="Reservas" icono={CalendarDays} compacta ayuda="Tocá un hueco de la agenda para reservar a esa hora, o una reserva para verla, cambiarla o cancelarla.">
                                     <div className="rounded-[10px] border border-border">
                                         <AgendaSemana key={`${e.id}-${vuelta}`} espacio={e} compacta alNueva={(inicio) => setReserva({ espacioId: e.id, inicio: inicio.toISOString(), fin: new Date(inicio.getTime() + 2 * 3600_000).toISOString() })} alAbrir={setReserva} />
                                     </div>
                                 </CajonSeccion>
                             )}
-                            <CajonSeccion titulo="Mantenimiento y tareas" icono={Wrench} compacta>
+                            <CajonSeccion titulo="Mantenimiento y tareas" icono={Wrench} compacta ayuda="Lo que hay que arreglar, limpiar o revisar, con quién y para cuándo. Las urgentes van arriba y se ven en la ficha.">
                                 <TareasDeEspacio espacioId={e.id} alCambiar={alCambiar} sinTitulo />
                             </CajonSeccion>
                         </>
@@ -233,6 +236,28 @@ function CajonFichaEspacio({ e, administracionId, alCerrar, alEditar, alCambiar 
             </Cajon>
             <CajonReserva valor={reserva} espacio={e} administracionId={administracionId} alCerrar={() => setReserva(null)} alGuardar={() => { setReserva(null); setVuelta((n) => n + 1); alCambiar(); }} />
         </>
+    );
+}
+
+/** La cabecera del cajón de un espacio: su dibujo, su estado de ahora y lo que viene. */
+function CabeceraEspacio({ e }: { e: EspacioVisto }) {
+    const Dib = DIBUJO[e.tipo] || MapPin;
+    return (
+        <div className="px-6 pt-5">
+            <div className="flex items-center gap-3.5 rounded-[14px] bg-muted/50 p-4">
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[10px] bg-background text-[var(--accion)]"><Dib size={22} /></span>
+                <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2"><p className="truncate text-[16px] font-bold">{e.nombre}</p><Chip tono={tonoDe(ESTADOS_ESPACIO, e.estado)}>{rotuloDe(ESTADOS_ESPACIO, e.estado)}</Chip></div>
+                    <p className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-muted-foreground">
+                        <span>{rotuloTipo(e.tipo)}</span>
+                        {e.capacidad != null && <span className="inline-flex items-center gap-1"><Users size={11} />{e.capacidad} personas</span>}
+                        {e.horario && <span className="inline-flex items-center gap-1"><Clock size={11} />{e.horario}</span>}
+                        {e.reservable && <span className="inline-flex items-center gap-1"><CalendarDays size={11} />{e.proxima ? `Próxima: ${new Date(e.proxima.inicio).toLocaleDateString("es-UY", { weekday: "short", day: "numeric" })} ${hhmm(e.proxima.inicio)}` : "Sin reservas por delante"}</span>}
+                        {e.tareasAbiertas > 0 && <span className={cn("inline-flex items-center gap-1", e.urgentes && "tono-mal font-semibold")}><Wrench size={11} />{e.tareasAbiertas} {e.tareasAbiertas === 1 ? "tarea abierta" : "tareas abiertas"}</span>}
+                    </p>
+                </div>
+            </div>
+        </div>
     );
 }
 
@@ -536,46 +561,88 @@ function FormEspacio({ valor, alCerrar, alGuardar }: { valor: Partial<EspacioVis
     const [f, setF] = useState<Partial<EspacioVisto>>(() => ({ reservable: TIPOS_ESPACIO.find((t) => t.id === valor.tipo)?.reservable ?? false, ...valor }));
     const [guardando, setGuardando] = useState(false);
     const set = <K extends keyof EspacioVisto>(k: K, v: EspacioVisto[K]) => setF((x) => ({ ...x, [k]: v }));
+    const Dib = DIBUJO[f.tipo || "OTRO"] || MapPin;
+    const titulo = valor.id ? `Editar ${valor.nombre}` : f.tipo === "SUM" ? "Cargar el SUM" : "Nuevo espacio común";
     return (
-            <CajonContenido ancho="medio" titulo={valor?.id ? `Editar ${valor.nombre}` : f.tipo === "SUM" ? "El SUM" : "Nuevo espacio común"}
-                descripcion="La ficha que ve cualquiera que lo tenga que usar o cuidar."
+            <CajonContenido ancho="medio" titulo={titulo}
+                descripcion="La ficha que ve quien lo tiene que usar o cuidar: qué es, cuándo se usa, qué tiene adentro y sus reglas."
                 pie={
                     <div className="flex w-full items-center gap-2">
-                        {valor?.id && <DeleteButton aria-label="Borrar el espacio" onConfirm={async () => { const r = await correr(() => borrarEspacio(valor.id!), "Espacio borrado"); if (r.ok) alGuardar(); }} />}
-                        <span className="flex-1" />
+                        {valor.id && <DeleteButton aria-label="Borrar el espacio" onConfirm={async () => { const r = await correr(() => borrarEspacio(valor.id!), "Espacio borrado"); if (r.ok) alGuardar(); }} />}
+                        <span className="flex-1 truncate text-[12px] text-muted-foreground">{valor.id ? "Las reservas y tareas que ya tiene no cambian." : ""}</span>
                         <Button variant="ghost" onClick={alCerrar}>Cancelar</Button>
                         <Button disabled={guardando || (f.nombre || "").trim().length < 2} onClick={async () => {
                             setGuardando(true);
                             const r = await correr(() => guardarEspacio({
                                 id: f.id, administracionId: f.administracionId ?? null, tipo: f.tipo || "OTRO", nombre: f.nombre || "", descripcion: f.descripcion || "", capacidad: f.capacidad ?? null,
                                 horario: f.horario || "", reglamento: f.reglamento || "", inventario: f.inventario || "", responsable: f.responsable || "", reservable: !!f.reservable,
-                            }), valor?.id ? "Ficha guardada" : "Espacio cargado");
+                            }), valor.id ? "Ficha guardada" : "Espacio cargado");
                             setGuardando(false);
-                            if (r.ok) alGuardar(valor?.id ? undefined : r.id);
+                            if (r.ok) alGuardar(valor.id ? undefined : r.id);
                         }}><Check size={14} /> Guardar</Button>
                     </div>
                 }>
-                {valor && (
-                    <div className="space-y-4 p-1">
-                        <CajonCampo etiqueta="Qué es">
-                            <Eleccion opciones={TIPOS_ESPACIO.map((t) => ({ v: t.id, r: t.rotulo }))} valor={(f.tipo || "OTRO") as (typeof TIPOS_ESPACIO)[number]["id"]}
-                                alCambiar={(v) => setF((x) => ({ ...x, tipo: v, reservable: x.id ? x.reservable : TIPOS_ESPACIO.find((t) => t.id === v)?.reservable }))} />
-                        </CajonCampo>
-                        <CajonCampo etiqueta="Nombre"><input autoFocus value={f.nombre || ""} onChange={(e) => set("nombre", e.target.value)} placeholder={f.tipo === "SUM" ? "SUM de la 7ª Etapa" : "Piscina grande, Cancha de fútbol 5…"} className={ENTRADA} /></CajonCampo>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            <CajonCampo etiqueta="Capacidad (personas)"><input inputMode="numeric" value={f.capacidad ?? ""} onChange={(e) => set("capacidad", e.target.value ? Number(e.target.value.replace(/\D/g, "")) : null)} className={cn(ENTRADA, "tabular-nums")} /></CajonCampo>
-                            <CajonCampo etiqueta="Horario"><input value={f.horario || ""} onChange={(e) => set("horario", e.target.value)} placeholder="Todos los días de 9 a 23" className={ENTRADA} /></CajonCampo>
+                {/* La ficha como va a quedar: el dibujo del tipo y el nombre, mientras se escribe. */}
+                <div className="px-6 pt-5">
+                    <div className="flex items-center gap-3 rounded-[14px] bg-muted/50 p-3.5">
+                        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-[10px] bg-background text-[var(--accion)]"><Dib size={20} /></span>
+                        <div className="min-w-0 flex-1">
+                            <p className="truncate text-[15px] font-bold">{(f.nombre || "").trim() || (f.tipo === "SUM" ? "SUM" : "Sin nombre todavía")}</p>
+                            <p className="text-[12px] text-muted-foreground">{rotuloTipo(f.tipo || "OTRO")}{f.capacidad ? ` · ${f.capacidad} personas` : ""}{f.reservable ? " · se reserva" : ""}</p>
                         </div>
-                        <CajonCampo etiqueta="Responsable"><input value={f.responsable || ""} onChange={(e) => set("responsable", e.target.value)} placeholder="Quién lo cuida o a quién llamar" className={ENTRADA} /></CajonCampo>
-                        <label className="flex items-start gap-3 rounded-[10px] border border-border p-3 cursor-pointer">
-                            <input type="checkbox" checked={!!f.reservable} onChange={(e) => set("reservable", e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--accion)]" />
-                            <span><span className="block text-[13px] font-semibold">Se reserva por turnos</span><span className="block text-[12px] text-muted-foreground">Lleva su agenda: quién lo usa, cuándo y para qué. Una piscina o un parque, normalmente no.</span></span>
-                        </label>
-                        <CajonCampo etiqueta="Qué tiene" ayuda="Lo que hay adentro, para revisar después de cada uso."><textarea value={f.inventario || ""} onChange={(e) => set("inventario", e.target.value)} rows={3} placeholder="40 sillas, 8 mesas, parrilla, heladera, equipo de audio" className={cn(ENTRADA, "h-auto py-2 leading-snug")} /></CajonCampo>
-                        <CajonCampo etiqueta="Descripción"><textarea value={f.descripcion || ""} onChange={(e) => set("descripcion", e.target.value)} rows={2} className={cn(ENTRADA, "h-auto py-2 leading-snug")} /></CajonCampo>
-                        <CajonCampo etiqueta="Reglamento"><textarea value={f.reglamento || ""} onChange={(e) => set("reglamento", e.target.value)} rows={8} placeholder="Pegá acá el reglamento tal como lo aprobó la comisión." className={cn(ENTRADA, "h-auto py-2 leading-relaxed")} /></CajonCampo>
                     </div>
-                )}
+                </div>
+                <CajonSeccion titulo="Qué es" icono={LayoutGrid} compacta ayuda="Define el dibujo de la ficha y si se reserva por turnos de entrada (se puede cambiar abajo).">
+                    <div className="flex flex-wrap gap-1.5" role="radiogroup">
+                        {TIPOS_ESPACIO.map((t) => {
+                            const I = DIBUJO[t.id] || MapPin, activo = (f.tipo || "OTRO") === t.id;
+                            return (
+                                <button key={t.id} type="button" role="radio" aria-checked={activo}
+                                    onClick={() => setF((x) => ({ ...x, tipo: t.id, reservable: x.id ? x.reservable : t.reservable }))}
+                                    className={cn("h-8 px-3 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5", activo ? "border-[var(--accion)] text-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent")}>
+                                    <I size={13} />{t.rotulo}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </CajonSeccion>
+                <CajonSeccion titulo="Datos" icono={ClipboardList} compacta>
+                    <CajonCampo etiqueta="Nombre" ayuda="Como lo nombra la gente del barrio.">
+                        <input autoFocus value={f.nombre || ""} onChange={(e) => set("nombre", e.target.value)} placeholder={f.tipo === "SUM" ? "SUM de la 7ª Etapa" : "Piscina grande, Cancha de fútbol 5…"} className={ENTRADA} />
+                    </CajonCampo>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <CajonCampo etiqueta="Capacidad" ayuda="Personas como máximo. Una reserva con más invitados no se deja guardar.">
+                            <input inputMode="numeric" value={f.capacidad ?? ""} onChange={(e) => set("capacidad", e.target.value ? Number(e.target.value.replace(/\D/g, "")) : null)} placeholder="60" className={cn(ENTRADA, "tabular-nums")} />
+                        </CajonCampo>
+                        <CajonCampo etiqueta="Horario" ayuda="Cuándo se puede usar, como se dice.">
+                            <input value={f.horario || ""} onChange={(e) => set("horario", e.target.value)} placeholder="Todos los días de 9 a 23" className={ENTRADA} />
+                        </CajonCampo>
+                    </div>
+                    <CajonCampo etiqueta="Responsable" ayuda="Quién lo cuida o a quién llamar si pasa algo.">
+                        <input value={f.responsable || ""} onChange={(e) => set("responsable", e.target.value)} placeholder="Marta, de la administración · 099 123 456" className={ENTRADA} />
+                    </CajonCampo>
+                    <CajonCampo etiqueta="Descripción" ayuda="Dónde queda, cómo se accede, lo que convenga saber.">
+                        <textarea value={f.descripcion || ""} onChange={(e) => set("descripcion", e.target.value)} rows={2} className={cn(ENTRADA, "h-auto py-2 leading-snug")} />
+                    </CajonCampo>
+                </CajonSeccion>
+                <CajonSeccion titulo="Reservas" icono={CalendarDays} compacta>
+                    <button type="button" role="switch" aria-checked={!!f.reservable} onClick={() => set("reservable", !f.reservable)}
+                        className={cn("flex w-full items-start gap-3 rounded-[10px] border p-3.5 text-left transition-colors", f.reservable ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_5%,transparent)]" : "border-border hover:bg-accent/40")}>
+                        <span className={cn("mt-0.5 relative h-5 w-9 shrink-0 rounded-full transition-colors", f.reservable ? "bg-[var(--accion)]" : "bg-muted-foreground/30")}>
+                            <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all", f.reservable ? "left-[18px]" : "left-0.5")} />
+                        </span>
+                        <span>
+                            <span className="block text-[13px] font-semibold">Se reserva por turnos</span>
+                            <span className="block text-[12px] leading-snug text-muted-foreground">Lleva su agenda de la semana: quién lo usa, cuándo y para qué, sin que dos reservas se pisen. El SUM, una cancha o un parrillero, sí; una piscina o una plaza, normalmente no.</span>
+                        </span>
+                    </button>
+                </CajonSeccion>
+                <CajonSeccion titulo="Lo que tiene" icono={Armchair} compacta ayuda="El inventario, para revisarlo después de cada uso y saber si falta algo.">
+                    <textarea value={f.inventario || ""} onChange={(e) => set("inventario", e.target.value)} rows={3} placeholder="40 sillas, 8 mesas, parrilla, heladera, equipo de audio" className={cn(ENTRADA, "h-auto py-2 leading-snug")} />
+                </CajonSeccion>
+                <CajonSeccion titulo="Reglamento" icono={ScrollText} compacta ayuda="El que aprobó la comisión, tal cual. Se ve desplegable en la ficha, para mostrárselo a quien reserva.">
+                    <textarea value={f.reglamento || ""} onChange={(e) => set("reglamento", e.target.value)} rows={8} placeholder={"1. Se reserva con 72 h de anticipación.\n2. Horario máximo hasta las 24 h.\n3. Se entrega limpio y con el inventario completo."} className={cn(ENTRADA, "h-auto py-2 leading-relaxed")} />
+                </CajonSeccion>
             </CajonContenido>
     );
 }
@@ -609,66 +676,99 @@ function FormReserva({ valor, espacio, administracionId, alCerrar, alGuardar }: 
         if (fin <= inicio) fin = new Date(fin.getTime() + 86400_000);
         return { inicio, fin };
     };
+    const t = f.dia && f.desde && f.hasta ? turno() : null;
+    const horas = t ? (t.fin.getTime() - t.inicio.getTime()) / 3600_000 : 0;
+    const invitados = Number(f.invitados) || 0;
+    const pasado = !!espacio.capacidad && invitados > espacio.capacidad;
     const editando = !!valor.id;
+    const Dib = DIBUJO[espacio.tipo] || MapPin;
+    const AYUDA_ESTADO: Record<string, string> = {
+        PEDIDA: "La pidieron pero falta confirmar (la seña, el reglamento firmado). Ocupa el turno igual, en ámbar.",
+        CONFIRMADA: "Está acordada: el turno es de este lote.",
+        CANCELADA: "Libera el turno. Queda en el registro, tachada.",
+    };
     return (
-            <CajonContenido ancho="angosto" titulo={editando ? "Reserva" : `Reservar ${espacio?.nombre || ""}`}
-                descripcion={espacio ? [espacio.capacidad ? `Capacidad ${espacio.capacidad} personas` : null, espacio.horario].filter(Boolean).join(" · ") || undefined : undefined}
+            <CajonContenido ancho="intermedio" titulo={editando ? "Reserva" : `Reservar ${espacio.nombre}`}
+                descripcion={editando ? `${espacio.nombre}${valor.creadaPor ? ` · cargada por ${valor.creadaPor}` : ""}` : "Quién lo usa, cuándo y para qué. Si se pisa con otra reserva, no se deja guardar y se dice con cuál."}
                 pie={
                     <div className="flex w-full items-center gap-2">
-                        {editando && valor?.estado !== "CANCELADA" && <Button variant="ghost" className="tono-mal" onClick={async () => { const r = await correr(() => cancelarReserva(valor!.id!), "Reserva cancelada"); if (r.ok) alGuardar(); }}><X size={14} /> Cancelar reserva</Button>}
+                        {editando && valor.estado !== "CANCELADA" && <Button variant="ghost" className="tono-mal" onClick={async () => { const r = await correr(() => cancelarReserva(valor.id!), "Reserva cancelada"); if (r.ok) alGuardar(); }}><X size={14} /> Cancelar reserva</Button>}
                         <span className="flex-1" />
                         <Button variant="ghost" onClick={alCerrar}>Cerrar</Button>
-                        <Button disabled={guardando || f.responsable.trim().length < 2 || !f.dia || !f.desde || !f.hasta} onClick={async () => {
+                        <Button disabled={guardando || f.responsable.trim().length < 2 || !t || pasado} onClick={async () => {
                             setGuardando(true);
-                            const t = turno();
-                            const r = await correr(() => guardarReserva({ id: valor?.id, espacioId: espacio!.id, unitId: f.unitId || null, lote: f.lote, responsable: f.responsable, telefono: f.telefono, motivo: f.motivo,
-                                invitados: f.invitados ? Number(f.invitados) : null, inicio: t.inicio.toISOString(), fin: t.fin.toISOString(), estado: f.estado, nota: f.nota }), editando ? "Reserva guardada" : "Reservado");
+                            const x = turno();
+                            const r = await correr(() => guardarReserva({ id: valor.id, espacioId: espacio.id, unitId: f.unitId || null, lote: f.lote, responsable: f.responsable, telefono: f.telefono, motivo: f.motivo,
+                                invitados: f.invitados ? Number(f.invitados) : null, inicio: x.inicio.toISOString(), fin: x.fin.toISOString(), estado: f.estado, nota: f.nota }), editando ? "Reserva guardada" : "Reservado");
                             setGuardando(false);
                             if (r.ok) alGuardar();
                         }}><Check size={14} /> {editando ? "Guardar" : "Reservar"}</Button>
                     </div>
                 }>
-                {valor && (
-                    <div className="space-y-4 p-1">
-                        <CajonCampo etiqueta="Lote">
-                            {f.unitId ? (
-                                <div className="flex items-center gap-2 rounded-[6px] border border-[var(--accion)] px-3 py-2">
-                                    <span className="flex-1 text-[13px] font-semibold">{f.lote}</span>
-                                    <button type="button" onClick={() => setF({ ...f, unitId: "", lote: "" })} className="text-muted-foreground hover:text-foreground" aria-label="Elegir otro lote"><X size={14} /></button>
-                                </div>
-                            ) : (
-                                <>
-                                    <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar el lote o el titular (opcional)" className={ENTRADA} />
-                                    {buscar.trim() && lotes.length > 0 && (
-                                        <ul className="mt-1.5 max-h-[180px] overflow-y-auto divide-y divide-border rounded-[6px] border border-border">
-                                            {lotes.map((l) => (
-                                                <li key={l.id}><button type="button" onClick={() => setF({ ...f, unitId: l.id, lote: l.nombre, responsable: f.responsable || (l.titular || "").split(/\s[-/]\s/)[0] })} className="w-full px-3 py-1.5 text-left hover:bg-accent">
-                                                    <span className="text-[13px] font-semibold">{l.nombre}</span>{l.titular && <span className="ml-2 text-[11.5px] text-muted-foreground">{l.titular}</span>}
-                                                </button></li>
-                                            ))}
-                                        </ul>
-                                    )}
-                                </>
-                            )}
-                        </CajonCampo>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            <CajonCampo etiqueta="Quién reserva"><input value={f.responsable} onChange={(e) => setF({ ...f, responsable: e.target.value })} className={ENTRADA} /></CajonCampo>
-                            <CajonCampo etiqueta="Teléfono"><input value={f.telefono} onChange={(e) => setF({ ...f, telefono: e.target.value })} inputMode="tel" className={cn(ENTRADA, "tabular-nums")} /></CajonCampo>
+                {/* El turno como va a quedar, en una tarjeta que se arma mientras se completa. */}
+                <div className="px-6 pt-5">
+                    <div className="flex items-center gap-3.5 rounded-[14px] bg-muted/50 p-3.5">
+                        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[10px] bg-background text-center">
+                            {t ? <span><span className="block text-[9.5px] font-bold uppercase text-muted-foreground">{t.inicio.toLocaleDateString("es-UY", { weekday: "short" }).replace(".", "")}</span><span className="block text-[18px] font-bold leading-none tabular-nums">{t.inicio.getDate()}</span></span> : <Dib size={20} />}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                            <p className="truncate text-[14.5px] font-bold">{f.lote || f.responsable.trim() || "¿Quién reserva?"}</p>
+                            <p className="text-[12px] text-muted-foreground tabular-nums">{t ? `${diaLargo(t.inicio)} · ${f.desde} a ${f.hasta} · ${horas.toLocaleString("es-UY", { maximumFractionDigits: 1 })} h` : "Elegí el día y la hora"}</p>
                         </div>
-                        <div className="grid grid-cols-[1.4fr_1fr_1fr] gap-2">
-                            <CajonCampo etiqueta="Día"><input type="date" value={f.dia} onChange={(e) => setF({ ...f, dia: e.target.value })} className={ENTRADA} /></CajonCampo>
-                            <CajonCampo etiqueta="Desde"><input type="time" step={900} value={f.desde} onChange={(e) => setF({ ...f, desde: e.target.value })} className={cn(ENTRADA, "tabular-nums")} /></CajonCampo>
-                            <CajonCampo etiqueta="Hasta"><input type="time" step={900} value={f.hasta} onChange={(e) => setF({ ...f, hasta: e.target.value })} className={cn(ENTRADA, "tabular-nums")} /></CajonCampo>
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-[1fr_120px]">
-                            <CajonCampo etiqueta="Para qué"><input value={f.motivo} onChange={(e) => setF({ ...f, motivo: e.target.value })} placeholder="Cumpleaños, reunión de la comisión…" className={ENTRADA} /></CajonCampo>
-                            <CajonCampo etiqueta="Personas"><input inputMode="numeric" value={f.invitados} onChange={(e) => setF({ ...f, invitados: e.target.value.replace(/\D/g, "") })} className={cn(ENTRADA, "tabular-nums")} /></CajonCampo>
-                        </div>
-                        <CajonCampo etiqueta="Estado"><Eleccion opciones={ESTADOS_RESERVA.filter((x) => x.id !== "CANCELADA" || editando).map((x) => ({ v: x.id, r: x.rotulo }))} valor={f.estado as (typeof ESTADOS_RESERVA)[number]["id"]} alCambiar={(v) => setF({ ...f, estado: v })} /></CajonCampo>
-                        <CajonCampo etiqueta="Nota"><textarea value={f.nota} onChange={(e) => setF({ ...f, nota: e.target.value })} rows={2} placeholder="Seña, llaves, lo que haya que acordarse" className={cn(ENTRADA, "h-auto py-2 leading-snug")} /></CajonCampo>
-                        {editando && valor.creadaPor && <p className="text-[11.5px] text-muted-foreground">Cargada por {valor.creadaPor}.</p>}
+                        <Chip tono={tonoDe(ESTADOS_RESERVA, f.estado)}>{rotuloDe(ESTADOS_RESERVA, f.estado)}</Chip>
                     </div>
-                )}
+                </div>
+                <CajonSeccion titulo="Quién reserva" icono={User} compacta ayuda="El lote queda anotado en la reserva; quién reserva es a quien se llama.">
+                    <CajonCampo etiqueta="Lote">
+                        {f.unitId ? (
+                            <div className="flex items-center gap-2 rounded-[6px] border border-[var(--accion)] px-3 py-2">
+                                <Home size={14} className="text-[var(--accion)]" />
+                                <span className="flex-1 text-[13px] font-semibold">{f.lote}</span>
+                                <button type="button" onClick={() => setF({ ...f, unitId: "", lote: "" })} className="text-muted-foreground hover:text-foreground" aria-label="Elegir otro lote"><X size={14} /></button>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="relative"><Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                                    <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar el lote o el titular (opcional)" className={cn(ENTRADA, "pl-8")} /></div>
+                                {buscar.trim() && lotes.length > 0 && (
+                                    <ul className="mt-1.5 max-h-[180px] overflow-y-auto divide-y divide-border rounded-[6px] border border-border">
+                                        {lotes.map((l) => (
+                                            <li key={l.id}><button type="button" onClick={() => setF({ ...f, unitId: l.id, lote: l.nombre, responsable: f.responsable || (l.titular || "").split(/\s[-/]\s/)[0] })} className="w-full px-3 py-1.5 text-left hover:bg-accent">
+                                                <span className="text-[13px] font-semibold">{l.nombre}</span>{l.titular && <span className="ml-2 text-[11.5px] text-muted-foreground">{l.titular}</span>}
+                                            </button></li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </>
+                        )}
+                    </CajonCampo>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <CajonCampo etiqueta="Quién reserva"><input value={f.responsable} onChange={(e) => setF({ ...f, responsable: e.target.value })} placeholder="Nombre y apellido" className={ENTRADA} /></CajonCampo>
+                        <CajonCampo etiqueta="Teléfono"><input value={f.telefono} onChange={(e) => setF({ ...f, telefono: e.target.value })} inputMode="tel" placeholder="099 123 456" className={cn(ENTRADA, "tabular-nums")} /></CajonCampo>
+                    </div>
+                </CajonSeccion>
+                <CajonSeccion titulo="Cuándo" icono={Clock} compacta ayuda={espacio.horario ? `Horario del espacio: ${espacio.horario}. Si termina a las 00:00, es la medianoche de ese día.` : "Si termina a las 00:00, es la medianoche de ese día."}>
+                    <div className="grid grid-cols-[1.4fr_1fr_1fr] gap-2">
+                        <CajonCampo etiqueta="Día"><input type="date" value={f.dia} onChange={(e) => setF({ ...f, dia: e.target.value })} className={ENTRADA} /></CajonCampo>
+                        <CajonCampo etiqueta="Desde"><input type="time" step={900} value={f.desde} onChange={(e) => setF({ ...f, desde: e.target.value })} className={cn(ENTRADA, "tabular-nums")} /></CajonCampo>
+                        <CajonCampo etiqueta="Hasta"><input type="time" step={900} value={f.hasta} onChange={(e) => setF({ ...f, hasta: e.target.value })} className={cn(ENTRADA, "tabular-nums")} /></CajonCampo>
+                    </div>
+                </CajonSeccion>
+                <CajonSeccion titulo="Para qué" icono={PartyPopper} compacta>
+                    <div className="grid gap-3 sm:grid-cols-[1fr_130px]">
+                        <CajonCampo etiqueta="Motivo"><input value={f.motivo} onChange={(e) => setF({ ...f, motivo: e.target.value })} placeholder="Cumpleaños, reunión de la comisión…" className={ENTRADA} /></CajonCampo>
+                        <CajonCampo etiqueta="Personas" ayuda={espacio.capacidad ? `Hasta ${espacio.capacidad}.` : undefined}>
+                            <input inputMode="numeric" value={f.invitados} onChange={(e) => setF({ ...f, invitados: e.target.value.replace(/\D/g, "") })} className={cn(ENTRADA, "tabular-nums", pasado && "border-[var(--mal)]")} />
+                        </CajonCampo>
+                    </div>
+                    {pasado && <p className="text-[12px] tono-mal">{espacio.nombre} tiene capacidad para {espacio.capacidad} personas.</p>}
+                </CajonSeccion>
+                <CajonSeccion titulo="Estado" icono={ShieldCheck} compacta ayuda={AYUDA_ESTADO[f.estado]}>
+                    <Eleccion opciones={ESTADOS_RESERVA.filter((x) => x.id !== "CANCELADA" || editando).map((x) => ({ v: x.id, r: x.rotulo }))} valor={f.estado as (typeof ESTADOS_RESERVA)[number]["id"]} alCambiar={(v) => setF({ ...f, estado: v })} />
+                </CajonSeccion>
+                <CajonSeccion titulo="Nota" icono={StickyNote} compacta ayuda="Lo que haya que acordarse el día: la seña, quién retira las llaves, qué se entrega.">
+                    <textarea value={f.nota} onChange={(e) => setF({ ...f, nota: e.target.value })} rows={2} placeholder="Seña pagada · retira las llaves el viernes" className={cn(ENTRADA, "h-auto py-2 leading-snug")} />
+                </CajonSeccion>
             </CajonContenido>
     );
 }
