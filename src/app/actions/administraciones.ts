@@ -5,7 +5,7 @@ import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { siglaDeEtapa } from "@/lib/padron-planilla";
-import { leerPlanoLotes } from "@/lib/plano-lotes";
+import { coordenadasDeTexto, leerPlanoLotes, planoALatLng } from "@/lib/plano-lotes";
 import { cambiarCodigoDeInvitacion, type CodigoCambiado } from "@/lib/censo-codigo";
 import { limpiarChapa } from "@/lib/lote-cambios";
 import { copiaFija, enviarCorreo, limpiarClaveDeAplicacion, probarCuenta } from "@/lib/correo";
@@ -115,10 +115,71 @@ export async function detalleAdministracion(id: string): Promise<DetalleAdminist
 }
 
 /** El croquis de los lotes, si hay uno cargado (ver lib/plano-lotes): título y tamaño, sin la calibración. */
-export async function planoDeLotes(): Promise<{ titulo: string; ancho: number; alto: number; georef: boolean } | null> {
-    await sesion("usuarios");
+export async function planoDeLotes(): Promise<{ titulo: string; ancho: number; alto: number; georef: boolean; puedeEditar: boolean } | null> {
+    const s = await sesion("usuarios");
     const p = leerPlanoLotes((await prisma.setting.findUnique({ where: { key: "PLANO_LOTES" } }).catch(() => null))?.value);
-    return p ? { titulo: p.titulo, ancho: p.ancho, alto: p.alto, georef: !!p.georef } : null;
+    return p ? { titulo: p.titulo, ancho: p.ancho, alto: p.alto, georef: !!p.georef, puedeEditar: permisosDeSesion(s).includes("usuarios.editar") } : null;
+}
+
+/**
+ * Todos los lotes del complejo para el plano (25/11): lo que mostraba el artefacto que pasó Nico
+ * (lote, titular, gente, estado) y lo que agrega OmniAccess (cómo va su censo, su administración),
+ * para buscarlos, filtrarlos y corregir dónde caen en el croquis.
+ */
+export type LoteDelPlano = {
+    id: string; nombre: string; codigo: string; administracionId: string | null; sigla: string | null;
+    titular: string | null; situacion: string | null; areaM2: number | null; edificio: string | null;
+    x: number | null; y: number | null;
+    censo: "sin" | "listo" | "enviado" | "cargo";
+    personas: { nombre: string; email: string | null; vinculo: string; principal: boolean }[];
+};
+export async function lotesDelPlano(): Promise<LoteDelPlano[]> {
+    await sesion("usuarios");
+    const [unidades, invs] = await Promise.all([
+        prisma.unit.findMany({
+            where: { administracionId: { not: null } },
+            select: { id: true, name: true, lot: true, administracionId: true, administracion: { select: { sigla: true } }, titular: true, situacion: true, areaM2: true, edificio: true, planoX: true, planoY: true,
+                vinculos: { orderBy: { createdAt: "asc" }, select: { vinculo: true, user: { select: { id: true, name: true, email: true } } } } },
+        }),
+        prisma.invitacionCenso.findMany({ where: { sitio: "", unitId: { not: null } }, select: { unitId: true, userId: true, enviadoAt: true, usadoAt: true } }),
+    ]);
+    const inv = new Map(invs.map((i) => [i.unitId!, i]));
+    const num = (t: string | null) => parseInt(String(t || "").replace(/\D+/g, "")) || 0;
+    return unidades.map((u) => {
+        const i = inv.get(u.id);
+        return {
+            id: u.id, nombre: u.name, codigo: u.lot || u.name, administracionId: u.administracionId, sigla: u.administracion?.sigla || null,
+            titular: u.titular, situacion: u.situacion, areaM2: u.areaM2, edificio: u.edificio, x: u.planoX, y: u.planoY,
+            censo: !i ? "sin" : i.usadoAt ? "cargo" : i.enviadoAt ? "enviado" : "listo",
+            personas: u.vinculos.map((v) => ({ nombre: v.user.name, email: v.user.email, vinculo: v.vinculo, principal: i?.userId === v.user.id })),
+        } as LoteDelPlano;
+    }).sort((a, b) => (a.sigla || "").localeCompare(b.sigla || "") || a.codigo.localeCompare(b.codigo, "es", { numeric: true }) || num(a.codigo) - num(b.codigo));
+}
+
+/**
+ * Corregir dónde cae un lote en el croquis, o ubicar uno que no tenía punto (25/11, Nico: «el tab
+ * de planos debe permitir editar esos lotes: moderar el artefacto que te di, editarlo y continuarlo
+ * acá»). Con la calibración del croquis se recalculan sus coordenadas: son las que usan el censo
+ * (la casa ya viene ubicada) y los pases de las visitas. Queda auditado con el antes y el después.
+ */
+export async function guardarPuntosPlano(cambios: { unitId: string; x: number; y: number }[]): Promise<{ ok: boolean; guardados: number; error?: string }> {
+    const s = await sesion("usuarios.editar");
+    const plano = leerPlanoLotes((await prisma.setting.findUnique({ where: { key: "PLANO_LOTES" } }).catch(() => null))?.value);
+    if (!plano) return { ok: false, guardados: 0, error: "No hay croquis cargado." };
+    const validos = (Array.isArray(cambios) ? cambios : []).slice(0, 500)
+        .filter((c) => typeof c?.unitId === "string" && Number.isFinite(c.x) && Number.isFinite(c.y) && c.x >= 0 && c.y >= 0 && c.x <= plano.ancho && c.y <= plano.alto);
+    if (!validos.length) return { ok: false, guardados: 0, error: "No hay cambios para guardar." };
+    const antes = new Map((await prisma.unit.findMany({ where: { id: { in: validos.map((c) => c.unitId) } }, select: { id: true, name: true, planoX: true, planoY: true } })).map((u) => [u.id, u]));
+    let guardados = 0;
+    for (const c of validos) {
+        const u = antes.get(c.unitId);
+        if (!u) continue;
+        const x = Math.round(c.x * 10) / 10, y = Math.round(c.y * 10) / 10;
+        await prisma.unit.update({ where: { id: u.id }, data: { planoX: x, planoY: y, ...(plano.georef ? { coordinates: coordenadasDeTexto(planoALatLng(x, y, plano.georef)) } : {}) } });
+        await auditar(s, "lotes.plano.mover", u.id, true, `${u.name}: ${u.planoX === null ? "sin punto" : `${Math.round(u.planoX)},${Math.round(u.planoY!)}`} → ${Math.round(x)},${Math.round(y)}`);
+        guardados++;
+    }
+    return { ok: true, guardados };
 }
 
 const corto = (v: unknown, n: number): string => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, n);

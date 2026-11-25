@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
-    AlertTriangle, ArrowDown, ArrowUp, Building2, CheckCircle2, ChevronRight, FileUp, History, Home, Mail, Map as MapIcon, MapPinned, NotebookPen, Pencil, Phone, Plus, Sparkles, Trees, Truck, Upload, UserRound, Users,
+    AlertTriangle, ArrowDown, ArrowUp, Building2, CheckCircle2, FileUp, History, Mail, Map as MapIcon, MapPinned, NotebookPen, Pencil, Phone, Plus, Sparkles, Truck, Upload, UserRound, Users,
 } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
@@ -55,7 +56,18 @@ import { cn } from "@/lib/utils";
  * haría; recién después aplica. No borra nada y no manda correos.
  */
 
-type Pest = "contactos" | "servicios" | "lotes" | "plano" | "cambios" | "correo";
+type Pest = "lotes" | "plano" | "contactos" | "servicios" | "cambios" | "correo";
+const ORDEN_PEST: Pest[] = ["lotes", "plano", "contactos", "servicios", "cambios", "correo"];
+/* La entrada y la salida del contenido de una pestaña (25/11, Nico: «estilizá mejor las transiciones
+   entre tabs, de entrada y salida»). Entra con un resorte corto desde el lado de la pestaña elegida;
+   sale rápido hacia el otro, para no hacer esperar. Sin filtro de desenfoque: un `filter` puesto
+   vuelve a este div el marco de los cajones y menús fijos de adentro (ver ui/entrada). */
+const VISTA = {
+    entra: (d: number) => ({ opacity: 0, x: 28 * d, scale: 0.992 }),
+    esta: { opacity: 1, x: 0, scale: 1, transition: { type: "spring" as const, stiffness: 420, damping: 36, mass: 0.7 } },
+    sale: (d: number) => ({ opacity: 0, x: -18 * d, scale: 0.995, transition: { duration: 0.13, ease: [0.4, 0, 1, 1] as const } }),
+};
+const VISTA_QUIETA = { entra: { opacity: 0 }, esta: { opacity: 1, transition: { duration: 0.12 } }, sale: { opacity: 0, transition: { duration: 0.08 } } };
 type FiltroLotes = "todos" | "gente" | "sin" | "terrenos";
 const SITUACION: Record<string, { rotulo: string; tono: "quieto" | "info" | "aviso" }> = {
     TERRENO: { rotulo: "Terreno", tono: "quieto" }, DESARROLLADOR: { rotulo: "Del desarrollador", tono: "info" }, SIN_TITULAR: { rotulo: "Sin titular", tono: "aviso" },
@@ -76,7 +88,11 @@ export default function Administraciones() {
     const [error, setError] = useState<string | null>(null);
     const [sel, setSel] = useState<string | null>(null);
     const [det, setDet] = useState<DetalleAdministracion | null>(null);
-    const [pest, setPest] = useState<Pest>("contactos");
+    const [pest, setPest] = useState<Pest>("lotes");
+    /** Hacia qué lado entra la pestaña nueva: la de la derecha entra desde la derecha. */
+    const [sentido, setSentido] = useState(1);
+    const quieto = useReducedMotion();
+    const cambiarPest = useCallback((p: Pest) => { setSentido(ORDEN_PEST.indexOf(p) >= ORDEN_PEST.indexOf(pest) ? 1 : -1); setPest(p); }, [pest]);
     const [filtroLotes, setFiltroLotes] = useState<FiltroLotes>("todos");
     const [editAdm, setEditAdm] = useState<Partial<ResumenAdministracion> | null>(null);
     const [editContacto, setEditContacto] = useState<Partial<ContactoAdm> | null>(null);
@@ -108,7 +124,7 @@ export default function Administraciones() {
     const cargandoDetalle = !!sel && det?.id !== sel;
 
     /** Ir a una pestaña desde un atajo de la ficha («12 lotes sin nadie con correo» → Lotes, filtrado). */
-    const irA = (p: Pest, filtro?: FiltroLotes) => { setPest(p); if (filtro) setFiltroLotes(filtro); };
+    const irA = (p: Pest, filtro?: FiltroLotes) => { cambiarPest(p); if (filtro) setFiltroLotes(filtro); };
     const elegir = (id: string) => { setSel(id); setFiltroLotes("todos"); };
     const mover = async (id: string, hacia: "arriba" | "abajo") => {
         /* Se ve el cambio enseguida y se confirma con el servidor: subir una fila no debería esperar una vuelta. */
@@ -147,13 +163,14 @@ export default function Administraciones() {
                         <div className="min-w-0 order-2 lg:order-1">
                             {elegida && (
                                 <section aria-label={elegida.nombre}>
-                                    <Ficha a={elegida} alEditar={() => setEditAdm(elegida)} alIr={irA} alAgregarContacto={() => setEditContacto({})} />
-                                    <div className="mt-5 flex flex-wrap items-center gap-3 mb-3">
-                                        <Pestanias<Pest> valor={pest} alElegir={setPest} opciones={[
+                                    <Cabecera a={elegida} alEditar={() => setEditAdm(elegida)} alIr={irA} alAgregarContacto={() => setEditContacto({})} />
+                                    {/* La tabla con sus pestañas es lo principal (25/11, Nico): arriba, pegada a la cabecera. */}
+                                    <div className="mt-3 mb-3 flex flex-wrap items-center gap-3">
+                                        <Pestanias<Pest> valor={pest} alElegir={cambiarPest} opciones={[
+                                            { valor: "lotes", rotulo: "Lotes", icono: MapPinned, cuenta: elegida.lotes },
+                                            { valor: "plano", rotulo: "Plano", icono: MapIcon, ayuda: "El croquis del complejo: buscar lotes y vecinos, ver cómo va el censo de cada uno y corregir dónde cae cada lote." },
                                             { valor: "contactos", rotulo: "Contactos", icono: Users, cuenta: elegida.contactos },
                                             { valor: "servicios", rotulo: "Servicios", icono: Truck, cuenta: elegida.servicios },
-                                            { valor: "lotes", rotulo: "Lotes", icono: MapPinned, cuenta: elegida.lotes },
-                                            { valor: "plano", rotulo: "Plano", icono: MapIcon, ayuda: "Sus lotes sobre el croquis del complejo, del color de cómo va su censo. Tocá un punto para abrir el lote." },
                                             { valor: "cambios", rotulo: "Cambios", icono: History, ayuda: "Lo último que cambió en los lotes de esta administración: matrículas que entran o salen, gente que se suma o se va, y lo que cargan en el censo." },
                                             { valor: "correo", rotulo: "Correo", icono: Mail, tono: correoListo(elegida) ? undefined : "aviso", ayuda: "La casilla de Gmail desde la que esta administración les escribe a sus lotes." },
                                         ]} />
@@ -162,12 +179,17 @@ export default function Administraciones() {
                                             {pest === "servicios" && <Button size="sm" variant="outline" onClick={() => setEditServicio({})}><Plus size={14} /> Agregar servicio</Button>}
                                         </div>
                                     </div>
-                                    {pest === "contactos" && <Contactos filas={cargandoDetalle ? null : det?.contactos || []} alEditar={setEditContacto} alBorrar={async (id) => { await borrarContactoAdm(id); refrescar(); }} />}
-                                    {pest === "servicios" && <Servicios filas={cargandoDetalle ? null : det?.servicios || []} alEditar={setEditServicio} alBorrar={async (id) => { await borrarServicioAdm(id); refrescar(); }} />}
-                                    {pest === "lotes" && <Lotes filas={cargandoDetalle ? null : det?.lotes || []} alAbrir={setLoteAbierto} filtro={filtroLotes} alFiltrar={setFiltroLotes} />}
-                                    {pest === "plano" && <PlanoLotes lotes={cargandoDetalle ? null : det?.lotes || []} alAbrir={setLoteAbierto} />}
-                                    {pest === "cambios" && <Cambios administracionId={elegida.id} vuelta={vuelta} alAbrirLote={setLoteAbierto} />}
-                                    {pest === "correo" && <CorreoAdministracion key={elegida.id} id={elegida.id} nombre={elegida.nombre} correo={elegida.correo} copia={copia} alCambiar={refrescar} />}
+                                    {/* Cambiar de pestaña desliza el contenido hacia el lado de la pestaña elegida, y el que se va sale hacia el otro. */}
+                                    <AnimatePresence mode="wait" initial={false} custom={sentido}>
+                                        <motion.div key={`${elegida.id}·${pest}`} custom={sentido} variants={quieto ? VISTA_QUIETA : VISTA} initial="entra" animate="esta" exit="sale">
+                                            {pest === "lotes" && <Lotes filas={cargandoDetalle ? null : det?.lotes || []} alAbrir={setLoteAbierto} filtro={filtroLotes} alFiltrar={setFiltroLotes} />}
+                                            {pest === "plano" && <PlanoLotes administracionId={elegida.id} alAbrir={setLoteAbierto} />}
+                                            {pest === "contactos" && <Contactos filas={cargandoDetalle ? null : det?.contactos || []} alEditar={setEditContacto} alBorrar={async (id) => { await borrarContactoAdm(id); refrescar(); }} />}
+                                            {pest === "servicios" && <Servicios filas={cargandoDetalle ? null : det?.servicios || []} alEditar={setEditServicio} alBorrar={async (id) => { await borrarServicioAdm(id); refrescar(); }} />}
+                                            {pest === "cambios" && <Cambios administracionId={elegida.id} vuelta={vuelta} alAbrirLote={setLoteAbierto} />}
+                                            {pest === "correo" && <CorreoAdministracion key={elegida.id} id={elegida.id} nombre={elegida.nombre} correo={elegida.correo} copia={copia} alCambiar={refrescar} />}
+                                        </motion.div>
+                                    </AnimatePresence>
                                 </section>
                             )}
                         </div>
@@ -279,98 +301,82 @@ function Columna({ lista, sel, alElegir, alMover, alNueva, alImportar }: {
     );
 }
 
+/** Una cifra de la cabecera: lleva a la lista ya filtrada. */
+function Dato({ n, t, tono, alTocar }: { n: number | string; t: string; tono?: "aviso"; alTocar: () => void }) {
+    return (
+        <button type="button" onClick={alTocar} className="group inline-flex items-baseline gap-1 rounded-[6px] px-1.5 py-0.5 -mx-1.5 hover:bg-accent/60">
+            <span className={cn("text-[15px] font-bold tabular-nums", tono === "aviso" && "tono-aviso")}>{n}</span>
+            <span className="text-[12px] text-muted-foreground group-hover:text-foreground">{t}</span>
+        </button>
+    );
+}
+
 /**
- * La ficha de la elegida: quién es, sus cifras, a quién se llama, desde dónde escribe, y lo que le
- * falta. Cada cifra que pide algo es un atajo: «12 sin nadie con correo» abre los lotes ya
- * filtrados; «falta un referente» abre el alta del contacto. La idea es que no haya que salir a
- * buscar qué está incompleto: se ve, y se arregla desde donde se vio.
+ * La cabecera de la elegida (25/11). Antes era una ficha grande de tres pisos —cifras en cuadros,
+ * referente, correo, lo que falta— y empujaba la tabla para abajo; Nico: «este bloque no me gusta,
+ * la tabla con los tabs debe ir como elemento principal, más arriba». Queda en una línea: quién es,
+ * las cifras (cada una lleva a la lista filtrada), y a la derecha a quién se llama, desde dónde
+ * escribe y lo que le falta, cada cosa con su atajo.
  */
-function Ficha({ a, alEditar, alIr, alAgregarContacto }: { a: ResumenAdministracion; alEditar: () => void; alIr: (p: Pest, f?: FiltroLotes) => void; alAgregarContacto: () => void }) {
-    const sinEnviar = Math.max(0, a.conCodigo - a.enviados);
+function Cabecera({ a, alEditar, alIr, alAgregarContacto }: { a: ResumenAdministracion; alEditar: () => void; alIr: (p: Pest, f?: FiltroLotes) => void; alAgregarContacto: () => void }) {
     const falta: { texto: string; accion: () => void }[] = [];
     if (!a.referente) falta.push({ texto: "Cargar a quién se llama", accion: alAgregarContacto });
     if (!correoListo(a)) falta.push({ texto: !a.correo.cuenta ? "Cargar su casilla de correo" : "Probar su casilla de correo", accion: () => alIr("correo") });
     if (a.sinGente > 0) falta.push({ texto: `${a.sinGente} ${a.sinGente === 1 ? "lote" : "lotes"} sin nadie con correo`, accion: () => alIr("lotes", "sin") });
     if (a.servicios === 0) falta.push({ texto: "Cargar los servicios que contrata", accion: () => alIr("servicios") });
+    const pct = porciento(a.cargaron, a.conCodigo);
     return (
-        <div className="rounded-[14px] border border-border bg-card">
-            <div className="flex items-start gap-4 p-5 pb-4">
-                <span className="grid h-14 w-14 shrink-0 place-items-center rounded-[12px] bg-[var(--accion)] text-white text-[17px] font-bold tracking-tight tabular-nums">{a.sigla}</span>
-                <div className="min-w-0 flex-1">
-                    <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Administración · {a.sigla}</p>
-                    <h2 className="text-[22px] font-bold tracking-tight leading-tight sm:truncate">{a.nombre}</h2>
-                    {a.notas && <p className="mt-1 text-[12.5px] text-muted-foreground line-clamp-2 whitespace-pre-line">{a.notas}</p>}
-                </div>
-                <Button size="sm" variant="outline" onClick={alEditar}><Pencil size={13} /> Editar</Button>
-            </div>
-
-            {/* Las cifras. Las que piden algo llevan a donde se arregla. */}
-            <div className="grid grid-cols-2 xl:grid-cols-4 gap-px bg-border border-t border-border">
-                <Cuadro icono={Home} n={a.lotes} rotulo="lotes" extra={a.terrenos ? `${a.terrenos} terrenos` : undefined} alTocar={() => alIr("lotes", "todos")} />
-                <Cuadro icono={Users} n={a.personas} rotulo="personas con correo" alTocar={() => alIr("lotes", "gente")} />
-                <Cuadro icono={a.sinGente ? AlertTriangle : Trees} n={a.sinGente} rotulo="lotes sin nadie con correo" tono={a.sinGente ? "aviso" : undefined} alTocar={() => alIr("lotes", "sin")} />
-                <div className="bg-card px-5 py-4">
-                    <p className="text-[11px] text-muted-foreground">Censo</p>
-                    <p className="mt-0.5 text-[22px] font-bold leading-none tabular-nums">{porciento(a.cargaron, a.conCodigo)}<span className="text-[13px] font-semibold text-muted-foreground">%</span></p>
-                    <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden flex">
-                        <span className="h-full bg-[var(--bien)]" style={{ width: `${porciento(a.cargaron, a.conCodigo)}%` }} />
-                        <span className="h-full bg-[var(--info)]/60" style={{ width: `${porciento(Math.max(0, a.enviados - a.cargaron), a.conCodigo)}%` }} />
-                    </div>
-                    <p className="mt-1.5 text-[11px] text-muted-foreground tabular-nums">{a.cargaron} cargaron · {a.enviados} enviados · {sinEnviar} sin enviar</p>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 rounded-[14px] border border-border bg-card px-4 py-3">
+            <div className="flex min-w-0 items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-[var(--accion)] text-[13px] font-bold tracking-tight tabular-nums text-white">{a.sigla}</span>
+                <div className="min-w-0 leading-tight">
+                    <h2 className="truncate text-[17px] font-bold tracking-tight">{a.nombre}</h2>
+                    {a.notas ? <p className="max-w-[340px] truncate text-[11.5px] text-muted-foreground" title={a.notas}>{a.notas}</p>
+                        : <p className="text-[11.5px] text-muted-foreground">Administración · {a.sigla}</p>}
                 </div>
             </div>
-
-            {/* A quién se llama, desde dónde escribe, y lo que le falta. */}
-            <div className="grid gap-3 border-t border-border p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                <div className="flex items-center gap-3 rounded-[10px] bg-muted/40 px-3.5 py-3 min-w-0">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-card text-muted-foreground"><UserRound size={16} /></span>
-                    {a.referente ? (
-                        <>
-                            <div className="min-w-0 flex-1 leading-tight">
-                                <p className="text-[13px] font-semibold truncate">{a.referente.nombre}</p>
-                                <p className="text-[11.5px] text-muted-foreground truncate">{a.referente.rol || "Referente"}{a.referente.telefono ? ` · ${a.referente.telefono}` : ""}</p>
-                            </div>
-                            {a.referente.telefono && <a href={`tel:${a.referente.telefono.replace(/[^\d+]/g, "")}`} aria-label={`Llamar a ${a.referente.nombre}`} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-card text-[var(--accion)] hover:bg-accent"><Phone size={14} /></a>}
-                            {a.referente.email && <a href={`mailto:${a.referente.email}`} aria-label={`Escribirle a ${a.referente.nombre}`} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-card text-[var(--accion)] hover:bg-accent"><Mail size={14} /></a>}
-                        </>
-                    ) : (
-                        <button type="button" onClick={alAgregarContacto} className="min-w-0 flex-1 text-left leading-tight">
-                            <p className="text-[13px] font-semibold">Sin referente</p>
-                            <p className="text-[11.5px] text-[var(--accion)]">Cargar a quién se llama</p>
-                        </button>
-                    )}
-                </div>
-                <button type="button" onClick={() => alIr("correo")} className={cn("flex items-center gap-3 rounded-[10px] px-3.5 py-3 min-w-0 text-left transition-colors", correoListo(a) ? "bg-muted/40 hover:bg-muted/70" : "chip-aviso border")}>
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-card text-muted-foreground"><Mail size={16} /></span>
-                    <div className="min-w-0 flex-1 leading-tight">
-                        <p className="text-[13px] font-semibold truncate">{a.correo.cuenta || "Sin casilla de correo"}</p>
-                        <p className="text-[11.5px] text-muted-foreground truncate">{correoListo(a) ? "Desde acá les escribe a sus lotes" : a.correo.error ? "Gmail no la acepta" : a.correo.cuenta ? "Falta probarla" : "Sus lotes no reciben correos"}</p>
-                    </div>
-                    {correoListo(a) ? <CheckCircle2 size={16} className="tono-bien shrink-0" /> : <ChevronRight size={16} className="shrink-0 opacity-60" />}
-                </button>
-                {falta.length > 0 ? (
-                    <div className="md:col-span-2 flex flex-wrap items-center gap-1.5">
-                        <span className="mr-1 inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-muted-foreground"><Sparkles size={12} /> Le falta</span>
-                        {falta.map((f) => (
-                            <button key={f.texto} type="button" onClick={f.accion} className="h-7 px-2.5 rounded-full border border-border bg-background text-[11.5px] font-semibold hover:border-[var(--accion)] hover:text-[var(--accion)] inline-flex items-center gap-1">
-                                {f.texto}<ChevronRight size={12} className="opacity-60" />
-                            </button>))}
-                    </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <Dato n={a.lotes} t="lotes" alTocar={() => alIr("lotes", "todos")} />
+                <Dato n={a.personas} t="personas" alTocar={() => alIr("lotes", "gente")} />
+                {a.sinGente > 0 && <Dato n={a.sinGente} t="sin nadie con correo" tono="aviso" alTocar={() => alIr("lotes", "sin")} />}
+                <Pista titulo={`Censo · ${a.sigla}`} texto={`${a.cargaron} lotes ya cargaron · ${a.enviados} con el código enviado · ${Math.max(0, a.conCodigo - a.enviados)} sin enviar (de ${a.conCodigo} con código).`} ancho={250}>
+                    <span className="inline-flex cursor-help items-center gap-2">
+                        <span className="text-[15px] font-bold tabular-nums">{pct}<span className="text-[11px] text-muted-foreground">%</span></span>
+                        <span className="text-[12px] text-muted-foreground">censo</span>
+                        <span className="flex h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+                            <span className="h-full bg-[var(--bien)]" style={{ width: `${pct}%` }} />
+                            <span className="h-full bg-[var(--info)]/60" style={{ width: `${porciento(Math.max(0, a.enviados - a.cargaron), a.conCodigo)}%` }} />
+                        </span>
+                    </span>
+                </Pista>
+            </div>
+            <div className="ml-auto flex items-center gap-1.5">
+                {a.referente ? (
+                    <Pista titulo={a.referente.nombre} texto={[a.referente.rol || "Referente", a.referente.telefono, a.referente.email].filter(Boolean).join(" · ")} ancho={240}>
+                        <a href={a.referente.telefono ? `tel:${a.referente.telefono.replace(/[^\d+]/g, "")}` : a.referente.email ? `mailto:${a.referente.email}` : undefined}
+                            className="inline-flex h-8 max-w-[180px] items-center gap-1.5 rounded-full border border-border px-2.5 text-[12px] font-semibold hover:border-[var(--accion)] hover:text-[var(--accion)]">
+                            <UserRound size={13} className="shrink-0" /><span className="truncate">{a.referente.nombre}</span>{a.referente.telefono && <Phone size={12} className="shrink-0 opacity-70" />}
+                        </a>
+                    </Pista>
                 ) : (
-                    <p className="md:col-span-2 inline-flex items-center gap-1.5 text-[11.5px] font-semibold tono-bien"><CheckCircle2 size={13} /> Completa: referente, casilla de correo, servicios y lotes con gente.</p>
+                    <button type="button" onClick={alAgregarContacto} className="inline-flex h-8 items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 text-[12px] font-semibold text-muted-foreground hover:text-[var(--accion)]"><UserRound size={13} /> Sin referente</button>
                 )}
+                <Pista titulo={correoListo(a) ? "Lista para mandar" : "La casilla de correo"} texto={a.correo.cuenta ? `${a.correo.cuenta}${correoListo(a) ? ": desde acá les escribe a sus lotes." : a.correo.error ? `: ${a.correo.error}` : ": falta probarla."}` : "Sin casilla, sus lotes no reciben correos."} ancho={260}>
+                    <button type="button" onClick={() => alIr("correo")} aria-label="La casilla de correo"
+                        className={cn("grid h-8 w-8 place-items-center rounded-full border", correoListo(a) ? "border-border text-muted-foreground hover:text-[var(--accion)]" : "chip-aviso")}>
+                        <Mail size={14} />
+                    </button>
+                </Pista>
+                {falta.length > 0 && (
+                    <Pista titulo="Le falta" texto={falta.map((f) => `· ${f.texto}`).join("\n")} ancho={250}>
+                        <button type="button" onClick={falta[0].accion} className="inline-flex h-8 items-center gap-1 rounded-full chip-aviso border px-2.5 text-[12px] font-semibold">
+                            <Sparkles size={12} /> Le falta {falta.length}
+                        </button>
+                    </Pista>
+                )}
+                <Button size="icon" variant="ghost" className="h-8 w-8" onClick={alEditar} aria-label={`Editar ${a.nombre}`} title="Editar la administración"><Pencil size={14} /></Button>
             </div>
         </div>
-    );
-}
-
-function Cuadro({ icono: Icono, n, rotulo, extra, tono, alTocar }: { icono: React.ComponentType<{ size?: number; className?: string }>; n: number; rotulo: string; extra?: string; tono?: "aviso"; alTocar: () => void }) {
-    return (
-        <button type="button" onClick={alTocar} className="group bg-card px-5 py-4 text-left hover:bg-accent/40 transition-colors">
-            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Icono size={12} className={cn(tono === "aviso" && "tono-aviso")} />{rotulo}</p>
-            <p className={cn("mt-0.5 text-[22px] font-bold leading-none tabular-nums", tono === "aviso" && "tono-aviso")}>{n}</p>
-            <p className="mt-1.5 text-[11px] text-muted-foreground">{extra || <span className="opacity-0 group-hover:opacity-100 text-[var(--accion)]">Ver en la lista →</span>}</p>
-        </button>
     );
 }
 
