@@ -89,7 +89,6 @@ import VisitasSection from "./VisitasSection";
 import PrioridadesCentralesSection from "./PrioridadesCentralesSection";
 import EmpresasSection from "./EmpresasSection";
 import { HistorialBot } from "@/components/settings/HistorialBot";
-import ProcesosSection from "./procesos/ProcesosSection";
 import ColasSection from "./procesos/ColasSection";
 import AuditoriaSection from "./procesos/AuditoriaSection";
 import { Vistas, MENU_SUAVE } from "@/components/ui/entrada";
@@ -214,7 +213,8 @@ const NAV_GROUPS = [
         { grupo: "Operación", sec: "colas", btab: "", label: "Colas y envíos", icon: Send },
         // El SMTP: nació con las invitaciones del censo (18/11) y lo va a usar todo lo que mande correo.
         { grupo: "Operación", sec: "correo", btab: "", label: "Correo (SMTP)", icon: Mail },
-        { grupo: "Operación", sec: "procesos", btab: "", label: "Procesos y tareas", icon: Server },
+        /* «Procesos y tareas» se retiró (25/11, Nico: «retiralo tal cual está, hoy no suma nada»). El
+           estado de los procesos sigue en Estado del sistema y en la vista Salud. */
         { grupo: "Operación", sec: "webhooks", btab: "", label: "Webhooks", icon: Activity },
         { grupo: "Datos", sec: "storage", btab: "", label: "Almacenamiento", icon: Cloud },
         { grupo: "Datos", sec: "database", btab: "", label: "Base de datos", icon: Database },
@@ -658,7 +658,6 @@ export default function SettingsPage() {
                     {activeSection === "visitas" && <VisitasSection />}
                     {activeSection === "empresas" && <EmpresasSection />}
                     {activeSection === "centrales_prioridades" && <PrioridadesCentralesSection />}
-                    {activeSection === "procesos" && <ProcesosSection />}
                     {activeSection === "colas" && <ColasSection />}
                     {activeSection === "auditoria" && <AuditoriaSection />}
                 </Vistas>

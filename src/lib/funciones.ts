@@ -19,7 +19,7 @@ import type { ModuleId } from "@/lib/module-definitions";
 
 export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS" | "LPR_PLAZAS" | "LPR_BUSQUEDA" | "LPR_MIN_INTERIOR"
     | "FUNC_INTRUSION" | "FUNC_ALARMAS_RECEPCION" | "FUNC_ALARMAS_GESTION" | "EQUIPOS_USUARIOS" | "PADRON_CENSO"
-    | "FACE_DOBLE_VERIFICACION" | "GPS_DIRECCIONES" | "GPS_POR_CALLE";
+    | "FUNC_FACE" | "FACE_DOBLE_VERIFICACION" | "GPS_DIRECCIONES" | "GPS_POR_CALLE";
 
 export interface Funcion {
     id: FuncionId;
@@ -153,8 +153,20 @@ export const FUNCIONES: Funcion[] = [
         porDefecto: false,
     },
     {
+        id: "FUNC_FACE",
+        alcance: "instalacion",
+        nombre: "Face",
+        que: "Todo lo de rostros: el Monitor Face, la vista en vivo de entrada y salida, los Dispositivos Face, la sección Face de OmniVision, la columna Rostro del padrón y el reconocimiento de caras en las cámaras faciales elegidas.",
+        siSeApaga: "Desaparece del menú y de las pantallas todo lo de rostros, y las cámaras dejan de buscar caras. Los porteros siguen abriendo como siempre (eso lo deciden ellos), y no se borra nada: rostros, capturas e identidades vuelven a verse al prenderla.",
+        // Prendida de fábrica: es como estaba todo antes de que fuera una característica (25/11, Nico:
+        // «Face debe ser un feature activable en Ajustes › Características; al desactivarlo, lo
+        // relacionado a Face debe desaparecer»).
+        porDefecto: true,
+    },
+    {
         id: "FACE_DOBLE_VERIFICACION",
         alcance: "instalacion",
+        requiere: "FUNC_FACE",
         nombre: "Doble verificación de rostros",
         que: "Pone una al lado de la otra las dos opiniones sobre la misma pasada por un portero o un control de acceso: a quién reconoció el EQUIPO y a quién reconocimos NOSOTROS con OmniVision, y si coinciden. Se mira en OmniVision › Rostros › Doble verificación.",
         siSeApaga: "La comparación se sigue pudiendo mirar, pero no se usa para nada más: no marca pasadas ni avisa cuando los dos no coinciden.",

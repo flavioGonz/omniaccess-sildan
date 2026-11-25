@@ -61,7 +61,9 @@ export type ContextoMenu = {
     /** Los modos que corre la instalación. */
     modos: { lpr: boolean; rostro: boolean; filas: boolean; guardia: boolean };
     /** Las funciones prendidas que cambian el menú. */
-    func: { intrusion: boolean; recepcion: boolean; amarilla: boolean; censo: boolean; plazas: boolean };
+    func: { intrusion: boolean; recepcion: boolean; amarilla: boolean; censo: boolean; plazas: boolean;
+        /** La característica Face (25/11). Sin dato, prendida: es como era antes de existir el interruptor. */
+        face?: boolean };
     /** Lo que sólo aparece si hay de eso en la instalación. */
     hay: { accesos: boolean; gps: boolean };
     /** Las cuentas de las insignias. */
@@ -136,11 +138,11 @@ export function armarMenu(c: ContextoMenu): SeccionMenu[] {
         /* El módulo Face (25/11, Nico: «un sub módulo Face que contendrá Monitor Face, Dispositivos Face
            —que va a Dispositivos filtrando por porteros faciales— y Sincronización Face»). La
            sincronización entra cuando esté su pantalla. */
-        ...grupo("rostro", "Face", "rostro", [
+        ...(f.face === false ? [] : grupo("rostro", "Face", "rostro", [
             ...hoja(!m.filas && (c.hay.accesos || m.rostro), { id: "rostro-capturas", rotulo: "Monitor Face", href: "/admin/face", unico: "Monitor Face" }),
             ...hoja(m.rostro && !m.filas, { id: "rostro-monitor", rotulo: "En vivo: entrada y salida", href: "/admin/monitor-face" }),
             ...hoja(!m.filas && c.hay.accesos, { id: "rostro-equipos", rotulo: "Dispositivos Face", href: "/admin/devices?type=DOOR_INTERCOM" }),
-        ]),
+        ])),
         ...grupo("intrusion", "Intrusión", "intrusion", hoja(f.intrusion, { id: "intrusion-monitor", rotulo: "Monitor de intrusión", href: "/admin/monitor-intrusion" })),
         ...grupo("video", "Video", "video", [
             ...hoja(!m.filas, { id: "video-cctv", rotulo: "Monitor CCTV", href: "/admin/monitor-cctv" }),
@@ -161,7 +163,7 @@ export function armarMenu(c: ContextoMenu): SeccionMenu[] {
             ...hoja(true, { id: "guardia-visitas", rotulo: "Visitas y proveedores", href: "/admin/visitas" }),
             ...hoja(true, { id: "guardia-puestos", rotulo: "Puestos y consolas", href: "/admin/consolas" }),
         ]) : []),
-        ...grupo("vision", "OmniVision", "vision", c.omnivision.flatMap((s) => hoja(true, { id: `vision-${s.href.split("/").pop()}`, rotulo: s.rotulo, href: s.href, prefijo: true }))),
+        ...grupo("vision", "OmniVision", "vision", c.omnivision.flatMap((s) => hoja(f.face !== false || s.href !== "/admin/vision/rostros", { id: `vision-${s.href.split("/").pop()}`, rotulo: s.rotulo, href: s.href, prefijo: true }))),
         ...(m.filas ? grupo("filas", "Filas", "filas", [
             ...hoja(true, { id: "filas-monitor", rotulo: "Monitor en vivo", href: "/admin/monitor-queue" }),
             ...hoja(true, { id: "filas-flujo", rotulo: "Flujo de filas", href: "/admin/flujo-filas" }),

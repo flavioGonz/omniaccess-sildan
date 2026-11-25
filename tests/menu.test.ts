@@ -140,3 +140,12 @@ test("un grupo cerrado muestra la suma de lo que tiene pendiente adentro", () =>
     assert.deepEqual(insigniaDeGrupo(personas.hijos!), { n: 7, tono: "aviso" });
     assert.equal(insigniaDeGrupo(armarMenu(barrio({ cuentas: { negra: 0, amarilla: 0, censo: 0 } })).flatMap((s) => s.entradas).find((e) => e.id === "matriculas")!.hijos!), undefined);
 });
+
+test("con la característica Face apagada no queda nada de rostros en el menú (25/11)", () => {
+    const conRostros = [...OMNIVISION, { href: "/admin/vision/rostros", rotulo: "Face" }];
+    const m = armarMenu(barrio({ func: { intrusion: true, recepcion: true, amarilla: true, censo: true, plazas: true, face: false }, omnivision: conRostros }));
+    assert.ok(!rotulos(m, "modulos").includes("Face"));
+    assert.ok(!hojasDe(m).some((h) => /face|rostro/i.test(h.href)), "ni Monitor Face, ni En vivo, ni Dispositivos Face, ni la sección Face de OmniVision");
+    const prendido = armarMenu(barrio({ omnivision: conRostros }));
+    assert.ok(hojasDe(prendido).some((h) => h.href === "/admin/vision/rostros"), "sin dato, como antes: prendida");
+});

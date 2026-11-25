@@ -2,7 +2,7 @@ import { S3Client, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/c
 import { Upload } from "@aws-sdk/lib-storage";
 import { prisma } from "./prisma";
 
-async function getS3Config() {
+export async function getS3Config() {
     try {
         // Try to get from database first
         const [endpoint, accessKey, secretKey, bucketLpr, bucketFace] = await Promise.all([

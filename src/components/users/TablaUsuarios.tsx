@@ -159,13 +159,15 @@ const ROTULO_CENSO: Record<EstadoCenso["que"], string> = { "sin-correo": "Sin co
 
 export function TablaUsuarios({
     usuarios, cargando, error, alReintentar, hayMas, traerMas, alAbrir, alBorrar, barra, enListaNegra,
-    titulo = "Residente", plural = "residentes", censo,
+    titulo = "Residente", plural = "residentes", censo, sinRostro,
 }: {
     /**
      * La invitación al censo de cada persona. Sin esto la columna no existe: sólo va en la pestaña
      * de residentes, con la función del censo prendida y para quien puede manejarlo.
      */
     censo?: { de: (u: UsuarioFila) => EstadoCenso; alEnviar: (u: UsuarioFila) => void; enviando: string | null };
+    /** Sin la columna Rostro: la característica Face está apagada (25/11). */
+    sinRostro?: boolean;
     /** El encabezado de la primera columna y cómo se cuentan, según la pestaña. */
     titulo?: string;
     plural?: string;
@@ -262,15 +264,15 @@ export function TablaUsuarios({
                   </Pista>
                 : <Pila items={credenciales(u).pines.map((p: any) => p.value)} icono={KeyRound} rotulo="Códigos PIN" mono />,
         },
-        {
-            clave: "rostro", titulo: "Rostro", alinear: "centro", ancho: 90,
+        ...(sinRostro ? [] : [{
+            clave: "rostro", titulo: "Rostro", alinear: "centro" as const, ancho: 90,
             tituloAyuda: "Biometría cargada",
             ayuda: "Si tiene el rostro enrolado en los equipos de reconocimiento facial.",
             valor: (u) => (credenciales(u).rostro ? "sí" : ""),
             celda: (u) => credenciales(u).rostro
                 ? <span className="inline-flex items-center justify-center w-6 h-6 rounded-md chip-bien border" title="Rostro enrolado"><ScanFace size={12} /></span>
                 : <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-muted border border-border text-muted-foreground/50" title="Sin rostro"><ScanFace size={12} /></span>,
-        },
+        }] as ColumnaTabla<UsuarioFila>[]),
         ...(censo ? [{
             clave: "censo", titulo: "Censo", alinear: "centro", ancho: 160,
             tituloAyuda: "La invitación al censo de vehículos",
@@ -297,7 +299,7 @@ export function TablaUsuarios({
                 </div>
             ),
         },
-    ], [alAbrir, alBorrar, enListaNegra, titulo, censo]);
+    ], [alAbrir, alBorrar, enListaNegra, titulo, censo, sinRostro]);
 
     return (
         <Tabla<UsuarioFila>

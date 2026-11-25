@@ -126,6 +126,8 @@ export default function UsersPage() {
        y un botón para mandársela a esa persona. Sólo con la función del censo prendida, y sólo si
        la sesión puede manejarlo — si el servidor dice que no, la columna no se dibuja. */
     const censoOn = useFuncion("PADRON_CENSO");
+    /* Con la característica Face apagada (25/11) no hay columna Rostro. */
+    const faceOn = useFuncion("FUNC_FACE");
     const [censo, setCenso] = useState<{ correoListo: boolean; copiaAdmin: string; aSpam: string | null; invitaciones: InvitacionResumen[] } | null>(null);
     const [enviandoCenso, setEnviandoCenso] = useState<string | null>(null);
     const { confirmar, elemento: confirmacion } = useConfirmar();
@@ -407,6 +409,7 @@ export default function UsersPage() {
                             plural={tab.plural}
                             enListaNegra={enListaNegra}
                             censo={columnaCenso}
+                            sinRostro={faceOn === false}
                             usuarios={aMostrar}
                             cargando={isLoading}
                             error={error}

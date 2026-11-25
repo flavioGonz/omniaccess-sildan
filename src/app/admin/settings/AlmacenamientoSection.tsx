@@ -239,7 +239,7 @@ export default function AlmacenamientoSection() {
                         bytes={enBucket.bytes}
                         cargando={enBucket.cargando}
                         nota={seguimientoEnDisco
-                            ? "Las capturas del seguimiento NO llegan acá: la pasarela las escribe en el disco del servidor. Esta retención gobierna sólo lo que sí se sube."
+                            ? "Las capturas del seguimiento van acá desde el 25/11 (carpeta track/) y se borran con esta retención. Las que figuran en el disco son viejas o de un momento en que el almacén no contestó."
                             : undefined}
                         retencion={
                             <div className="flex flex-wrap items-center gap-3">

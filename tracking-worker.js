@@ -48,6 +48,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { normalizarChapa } = require("./lib-chapa");
+const { uploadToS3 } = require("./lib-s3");
 const sharp = require("sharp");
 const { PrismaClient } = require("@prisma/client");
 
@@ -832,10 +833,25 @@ function votar(lecturas) {
     return { plate, confidence: confianza, reads: apoyo, maxima, cuadros: lecturas.length };
 }
 
-function guardarCuadro(jpeg, patente) {
+/**
+ * La captura de un avistamiento va al almacén (MinIO), no al disco del servidor (25/11).
+ *
+ * Nico: «las capturas del seguimiento no llegan a MinIO: la pasarela las escribe en el disco del
+ * servidor… esto debe cambiar ya, sino el server llenará su espacio». En /datos/track se juntaban sin
+ * ningún límite (3,6 GB y creciendo el 25/11). Ahora van al bucket de LPR bajo `track/`, donde las
+ * borra la regla de retención del bucket como al resto de las fotos de lecturas. Si el almacén no
+ * contesta, se guarda en el disco como antes —una foto perdida es peor que una foto en el lugar
+ * equivocado— y lo dice el log; /api/tracking/shot sirve las dos.
+ */
+async function guardarCuadro(jpeg, patente) {
+    const nombre = `${patente}-${Date.now()}.jpg`;
+    try {
+        return await uploadToS3(jpeg, `track/${nombre}`, "image/jpeg", "lpr");
+    } catch (e) {
+        console.warn(`[track] la captura no subió al almacén (${e?.message || e}): queda en el disco`);
+    }
     try {
         fs.mkdirSync(DIR_SHOTS, { recursive: true });
-        const nombre = `${patente}-${Date.now()}.jpg`;
         fs.writeFileSync(path.join(DIR_SHOTS, nombre), jpeg);
         return `/api/tracking/shot/${nombre}`;
     } catch { return null; }
@@ -1144,7 +1160,7 @@ async function resolverRafaga(est) {
             // de este vehiculo, no el cuadro entero.
             const puerta = compuerta(mejor.recuadro, cam);
 
-            const url = guardarCuadro(cuadros[mejor.cuadro] || cuadros[0], v.plate);
+            const url = await guardarCuadro(cuadros[mejor.cuadro] || cuadros[0], v.plate);
             const resp = await avisarAvistamiento(cam, {
                 ...v,
                 recuadro: mejor.recuadro || null,

@@ -46,6 +46,8 @@ export default function AdminLayout({
     const pathname = usePathname();
     // «Plazas de parking» es una función de LPR que se apaga (20/10: San Nicolás no la usa).
     const plazasOn = useFuncion("LPR_PLAZAS");
+    /* Face es una característica (25/11): apagada, su grupo del menú y su sección de OmniVision no se muestran. */
+    const faceOn = useFuncion("FUNC_FACE");
     // Intrusión y alarmas son funciones de la instalación, no del modo (openspec alarmas-como-funciones):
     // valen igual en Matrículas, Rostro y Filas. `null` (todavía no se sabe) cuenta como apagada.
     const intrusionOn = useFuncion("FUNC_INTRUSION") === true;
@@ -107,7 +109,7 @@ export default function AdminLayout({
        Se arma en cada dibujo: son cincuenta renglones, y memorizarlo pediría que `puede` no cambiara. */
     const arbol = armarMenu({
         modos: { lpr: modules.MODULE_LPR, rostro: modules.MODULE_FACE, filas: modules.MODULE_QUEUE, guardia: modules.MODULE_GUARD },
-        func: { intrusion: intrusionOn, recepcion: recepcionOn, amarilla: amarillaOn, censo: censoOn, plazas: plazasOn === true },
+        func: { intrusion: intrusionOn, recepcion: recepcionOn, amarilla: amarillaOn, censo: censoOn, plazas: plazasOn === true, face: faceOn !== false },
         hay: { accesos: hayAccesos, gps: hayGps },
         cuentas: { negra: enListaNegraN, amarilla: enListaAmarillaN, censo: censoPendienteN },
         puede, tiene,

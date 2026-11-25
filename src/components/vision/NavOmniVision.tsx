@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, DoorOpen, Flame, ListOrdered, SquareParking, FlaskConical, GraduationCap, ListVideo, ScanEye, ScanFace, ScanLine, ScanSearch, ShieldCheck, Sparkles, Spline, type LucideIcon } from "lucide-react";
+import { useFuncion } from "@/lib/funciones-cliente";
 import { cn } from "@/lib/utils";
 
 /**
@@ -63,6 +64,7 @@ export function NavOmniVision() {
         window.addEventListener("pointerdown", fuera); window.addEventListener("keydown", esc);
         return () => { window.removeEventListener("pointerdown", fuera); window.removeEventListener("keydown", esc); };
     }, [abierto]);
+    const faceOn = useFuncion("FUNC_FACE");
     const pestana = (on: boolean) => cn("inline-flex items-center gap-1.5 h-10 px-3 -mb-px border-b-2 text-[13px] font-semibold shrink-0 transition-colors",
         on ? "border-[var(--accion)] text-foreground" : "border-transparent text-muted-foreground hover:text-foreground");
     /*
@@ -75,7 +77,8 @@ export function NavOmniVision() {
             <nav className="relative flex items-center gap-1 border-b border-border" aria-label="OmniVision">
                 <span className="inline-flex items-center gap-1.5 pr-3 mr-1 text-[13px] font-bold shrink-0"><ScanEye size={16} /> OmniVision</span>
                 <div className="flex items-center gap-1 overflow-x-auto">
-                    {SECCIONES_OMNIVISION.map((s) => {
+                    {/* Con la característica Face apagada (25/11), su sección no se ofrece. */}
+                    {SECCIONES_OMNIVISION.filter((s) => faceOn !== false || s.href !== "/admin/vision/rostros").map((s) => {
                         const on = activa(ruta, s);
                         const I = s.icono;
                         if (!s.hijos) return <Link key={s.href} href={s.href} aria-current={on ? "page" : undefined} className={pestana(on)}><I size={15} /> {s.rotulo}</Link>;

@@ -258,8 +258,8 @@ async function leerAjustes() {
     await asegurarCanales(canalesNvr.map((x) => x.id)).catch(() => null);
     // Modo face (CompreFace): sólo en las cámaras faciales elegidas y con el módulo prendido.
     // Config del motor en los mismos Settings que usa la app (lib/compareface.ts).
-    const [mFace, fCams, fUmbral, fUrl, fKey, fMisma, fParecida, fPx, fAnon] = await Promise.all([
-        ajuste("MODULE_FACE"), ajuste("FACE_CAMARAS"), ajuste("FACE_UMBRAL"),
+    const [mFace, funcFace, fCams, fUmbral, fUrl, fKey, fMisma, fParecida, fPx, fAnon] = await Promise.all([
+        ajuste("MODULE_FACE"), ajuste("FUNC_FACE"), ajuste("FACE_CAMARAS"), ajuste("FACE_UMBRAL"),
         ajuste("COMPAREFACE_URL"), ajuste("COMPAREFACE_KEY"),
         // Identidad por rostro (lib-rostros.js): vacíos = los valores por defecto de ahí.
         ajuste("FACE_UMBRAL_MISMA"), ajuste("FACE_UMBRAL_PARECIDA"), ajuste("FACE_CARA_PX_MIN"), ajuste("FACE_ANONIMOS_DIAS"),
@@ -299,7 +299,8 @@ async function leerAjustes() {
         todas: !(Array.isArray(elegidas) && elegidas.length),
         permitidas: new Set((Array.isArray(elegidas) && elegidas.length ? elegidas.map(String) : equiposDb.map((d) => d.id)).filter((id) => !apagados.has(id))),
         // Reconocimiento facial: cámaras marcadas como faciales (FACE_CAMARAS) con MODULE_FACE on.
-        moduloFace: mFace === "true",
+        // La característica Face apagada (Ajustes › Características, 25/11) también apaga el reconocimiento.
+        moduloFace: mFace === "true" && funcFace !== "false",
         faceCamaras: new Set(json(fCams, []).map(String)),
         faceUmbral: Number(fUmbral) || 0.89,
         faceUrl: (fUrl || "http://127.0.0.1:8001").replace(/\/$/, ""),
