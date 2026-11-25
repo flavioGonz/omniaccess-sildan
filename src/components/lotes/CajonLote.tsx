@@ -62,7 +62,7 @@ export function CajonLote({ unitId, alCerrar }: { unitId: string | null; alCerra
                             <>
                                 {/* Dónde queda, en el plano o en el satélite, y corregirlo desde acá (25/11). */}
                                 <CajonSeccion titulo="Ubicación" icono={MapPin} compacta>
-                                    <UbicacionLote key={d.id} unitId={d.id} plano={d.plano} coordenadas={d.coordenadas} puedeEditar={d.puedeEditar} alGuardar={refrescar} />
+                                    <UbicacionLote key={d.id} unitId={d.id} plano={d.plano} coordenadas={d.coordenadas} censo={d.censoUbicacion} puedeEditar={d.puedeEditar} alGuardar={refrescar} />
                                 </CajonSeccion>
                                 <CajonSeccion titulo={`Personas · ${d.personas.length}`} icono={Users} compacta
                                     ayuda={d.principal

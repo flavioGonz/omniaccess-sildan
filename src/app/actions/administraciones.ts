@@ -291,6 +291,8 @@ export type DetalleLote = {
     coordenadas: string | null; enElPlano: boolean;
     /** Su punto en el croquis (píxeles de la imagen original). */
     plano: { x: number; y: number } | null;
+    /** Lo que marcó el vecino en el censo, si no coincide con la ubicación actual (ver ubicacionesDeLotes). */
+    censoUbicacion: UbicacionDeLote["censo"];
     /** A quién le llega el código del lote (uno por lote, 25/11), y si lo eligió alguien a mano. */
     principal: { userId: string | null; email: string; aMano: boolean } | null;
     /** Desde cuándo se lleva el historial: antes de esa fecha no hay nada que mostrar, y se dice. */
@@ -320,6 +322,12 @@ export async function detalleLote(unitId: string): Promise<DetalleLote | null> {
         id: u.id, nombre: u.name, administracion: u.administracion?.nombre || null, titular: u.titular, situacion: u.situacion, edificio: u.edificio,
         puedeEditar, auditadoDesde: desde?.value || null, coordenadas: u.coordinates?.trim() || null, enElPlano: u.planoX !== null,
         plano: u.planoX !== null && u.planoY !== null ? { x: u.planoX, y: u.planoY } : null,
+        censoUbicacion: await (async () => {
+            const c = await prisma.solicitudPadron.findFirst({ where: { unitId, lat: { not: null }, lng: { not: null }, estado: { not: "rechazada" } }, orderBy: { createdAt: "desc" }, select: { id: true, lat: true, lng: true, createdAt: true, estado: true } });
+            if (!c) return null;
+            const p = latLngDe(u.coordinates); const metros = p ? metrosEntre(p, [c.lat!, c.lng!]) : null;
+            return metros !== null && metros <= DISTINTA_M ? null : { solicitudId: c.id, lat: c.lat!, lng: c.lng!, metros: metros === null ? null : Math.round(metros), cuando: c.createdAt.toISOString(), estado: c.estado };
+        })(),
         principal: delLote ? { userId: delLote.userId, email: delLote.email, aMano: delLote.aMano } : null,
         personas: gente.map((g) => {
             const i = deQuien(g);
@@ -350,6 +358,53 @@ export async function guardarUbicacionLote(unitId: string, lat: number, lng: num
     await prisma.unit.update({ where: { id: u.id }, data: { coordinates, ...(dentro ? { planoX: Math.round(p!.x * 10) / 10, planoY: Math.round(p!.y * 10) / 10 } : {}) } });
     await auditar(s, "lotes.ubicacion", u.id, true, `${u.name}: ${u.coordinates || "sin ubicación"} → ${coordinates}`);
     return { ok: true, enElPlano: dentro };
+}
+
+/**
+ * La ubicación de cada lote en el mapa, y la que marcó el vecino en el censo cuando no coincide
+ * (25/11, Nico: «los usuarios en el censo definen la posición GPS; ese punto, que es la ubicación del
+ * lote, debe figurar con el nombre del lote en el mapa… debemos poder tomar esa posición definida en
+ * el censo como válida en el mapa»).
+ *
+ * La del censo no se toma sola: medido el 25/11, de 44 cargas con punto, la mitad cae a menos de 20 m
+ * del punto del plano y 14 a más de 50 m (alguna a 13 km: el GPS de donde estaba la persona, no de su
+ * casa). Se muestra al lado, con la distancia, y alguien decide «tomar la del censo».
+ */
+export type UbicacionDeLote = {
+    id: string; nombre: string; lat: number | null; lng: number | null;
+    censo: { solicitudId: string; lat: number; lng: number; metros: number | null; cuando: string; estado: string } | null;
+};
+const latLngDe = (c: string | null | undefined): [number, number] | null => {
+    const [a, b] = String(c || "").split(/[,;\s]+/).map(Number);
+    return Number.isFinite(a) && Number.isFinite(b) && a !== 0 && b !== 0 ? [a, b] : null;
+};
+const metrosEntre = (a: [number, number], b: [number, number]) => Math.hypot((a[0] - b[0]) * 110_574, (a[1] - b[1]) * 111_320 * Math.cos((a[0] * Math.PI) / 180));
+/** Lo que marcó el vecino se considera distinto del punto actual a partir de esta distancia (el ancho de una casa). */
+const DISTINTA_M = 8;
+export async function ubicacionesDeLotes(): Promise<UbicacionDeLote[]> {
+    await sesion("usuarios");
+    const [unidades, cargas] = await Promise.all([
+        prisma.unit.findMany({ where: { OR: [{ administracionId: { not: null } }, { coordinates: { not: null } }] }, select: { id: true, name: true, coordinates: true } }),
+        prisma.solicitudPadron.findMany({ where: { lat: { not: null }, lng: { not: null }, unitId: { not: null }, estado: { not: "rechazada" } }, orderBy: { createdAt: "desc" }, select: { id: true, unitId: true, lat: true, lng: true, createdAt: true, estado: true } }),
+    ]);
+    const ultima = new Map<string, (typeof cargas)[number]>();
+    for (const c of cargas) if (!ultima.has(c.unitId!)) ultima.set(c.unitId!, c);
+    return unidades.map((u) => {
+        const p = latLngDe(u.coordinates), c = ultima.get(u.id);
+        const metros = c && p ? metrosEntre(p, [c.lat!, c.lng!]) : null;
+        return {
+            id: u.id, nombre: u.name, lat: p?.[0] ?? null, lng: p?.[1] ?? null,
+            censo: c && (metros === null || metros > DISTINTA_M) ? { solicitudId: c.id, lat: c.lat!, lng: c.lng!, metros: metros === null ? null : Math.round(metros), cuando: c.createdAt.toISOString(), estado: c.estado } : null,
+        };
+    }).filter((u) => u.lat !== null || u.censo);
+}
+
+/** Tomar como válida la ubicación que marcó el vecino en el censo: pasa a ser la del lote (y su punto en el plano). */
+export async function tomarUbicacionDelCenso(unitId: string, solicitudId: string): Promise<{ ok: boolean; error?: string; enElPlano?: boolean }> {
+    await sesion("usuarios.editar");
+    const c = await prisma.solicitudPadron.findUnique({ where: { id: solicitudId }, select: { unitId: true, lat: true, lng: true } });
+    if (!c || c.unitId !== unitId || c.lat == null || c.lng == null) return { ok: false, error: "Esa carga del censo no trae una ubicación para este lote." };
+    return guardarUbicacionLote(unitId, c.lat, c.lng);
 }
 
 /**

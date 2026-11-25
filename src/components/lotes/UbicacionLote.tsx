@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import dynamic from "next/dynamic";
 import { Check, Crosshair, Map as MapaIcono, Minus, Move, Plus, Satellite, X } from "lucide-react";
 import { sileo as toast } from "sileo";
-import { guardarPuntosPlano, guardarUbicacionLote, planoDeLotes } from "@/app/actions/administraciones";
+import { guardarPuntosPlano, guardarUbicacionLote, planoDeLotes, tomarUbicacionDelCenso } from "@/app/actions/administraciones";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { EnElMapa } from "@/components/administraciones/PlanoLotes";
 import { Button } from "@/components/ui/button";
@@ -27,8 +27,10 @@ const MapaPunto = dynamic(() => import("@/components/mapa/MapaPunto"), { ssr: fa
 type Vista = "plano" | "satelite";
 type Punto = { x: number; y: number };
 
-export function UbicacionLote({ unitId, plano: puntoPlano, coordenadas, puedeEditar, alGuardar }: {
+export function UbicacionLote({ unitId, plano: puntoPlano, coordenadas, censo, puedeEditar, alGuardar }: {
     unitId: string; plano: Punto | null; coordenadas: string | null; puedeEditar: boolean; alGuardar: () => void;
+    /** Lo que marcó el vecino en el censo, cuando no coincide con la ubicación actual. */
+    censo?: { solicitudId: string; lat: number; lng: number; metros: number | null; cuando: string } | null;
 }) {
     const [info, setInfo] = useState<{ ancho: number; alto: number; titulo: string } | null | undefined>(undefined);
     useEffect(() => { let vivo = true; planoDeLotes().then((p) => { if (vivo) setInfo(p); }).catch(() => { if (vivo) setInfo(null); }); return () => { vivo = false; }; }, []);
@@ -41,6 +43,19 @@ export function UbicacionLote({ unitId, plano: puntoPlano, coordenadas, puedeEdi
     const hayPlano = !!info && (!!puntoPlano || editando);
     const cambio = vista === "plano" ? !!nuevoPlano : !!nuevoGeo;
 
+    const [tomando, setTomando] = useState(false);
+    const [verCenso, setVerCenso] = useState(false);
+    /** Tomar como válida la ubicación del censo (25/11): pasa a ser la del lote, y su punto en el plano. */
+    const tomarCenso = async () => {
+        if (!censo) return;
+        setTomando(true);
+        try {
+            const r = await tomarUbicacionDelCenso(unitId, censo.solicitudId);
+            if (!r.ok) { toast.error({ title: "No se tomó", description: r.error }); return; }
+            toast.success({ title: "Ubicación del censo tomada", description: r.enElPlano ? "También se movió su punto en el plano." : "Cae fuera del croquis: el punto del plano quedó como estaba." });
+            alGuardar();
+        } finally { setTomando(false); }
+    };
     const cancelar = () => { setEditando(false); setNuevoPlano(null); setNuevoGeo(null); };
     const guardar = async () => {
         setGuardando(true);
@@ -83,6 +98,18 @@ export function UbicacionLote({ unitId, plano: puntoPlano, coordenadas, puedeEdi
                 </div>
             </div>
 
+            {/* Lo que marcó el vecino en el censo, cuando no coincide: se ve en el satélite y se puede tomar. */}
+            {censo && !editando && (
+                <div className="mb-2 flex flex-wrap items-center gap-2 rounded-[10px] border border-[color-mix(in_oklab,var(--info)_35%,transparent)] bg-[color-mix(in_oklab,var(--info)_7%,transparent)] px-3 py-2 text-[12px]">
+                    <span className="min-w-0 flex-1 leading-snug">
+                        <b>En el censo marcaron otra ubicación</b>{censo.metros !== null ? `, a ${censo.metros >= 1000 ? `${(censo.metros / 1000).toFixed(1)} km` : `${censo.metros} m`} de ésta` : ""}.
+                        {censo.metros !== null && censo.metros > 300 && <span className="tono-aviso"> Está lejos: puede ser el GPS de donde estaba la persona, no de su casa.</span>}
+                    </span>
+                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setVista("satelite"); setVerCenso((v) => !v); }}>{verCenso ? "Ver la actual" : "Verla"}</Button>
+                    {puedeEditar && <Button size="sm" variant="outline" className="h-7" onClick={tomarCenso} disabled={tomando}>{tomando ? <Loader2 size={13} /> : <Check size={13} />} Tomar la del censo</Button>}
+                </div>
+            )}
+
             {vista === "plano" ? (
                 info ? (
                     hayPlano
@@ -91,7 +118,7 @@ export function UbicacionLote({ unitId, plano: puntoPlano, coordenadas, puedeEdi
                 ) : <p className="rounded-[10px] border border-dashed border-border px-3 py-6 text-center text-[12.5px] text-muted-foreground">No hay un croquis cargado: usá la vista satelital.</p>
             ) : (
                 latlng || editando
-                    ? <MapaPunto key={editando ? "editar" : "mirar"} punto={nuevoGeo || latlng} centro={latlng || [-34.856, -56.074]} soloVer={!editando} alElegir={editando ? (a, b) => setNuevoGeo([Number(a.toFixed(6)), Number(b.toFixed(6))]) : undefined} alto={260} />
+                    ? <MapaPunto key={editando ? "editar" : verCenso ? "censo" : "mirar"} punto={nuevoGeo || (verCenso && censo ? [censo.lat, censo.lng] : latlng)} centro={latlng || [-34.856, -56.074]} soloVer={!editando} alElegir={editando ? (a, b) => setNuevoGeo([Number(a.toFixed(6)), Number(b.toFixed(6))]) : undefined} alto={260} />
                     : <p className="rounded-[10px] border border-dashed border-border px-3 py-6 text-center text-[12.5px] text-muted-foreground">Este lote todavía no tiene ubicación.{puedeEditar ? " Tocá «Corregir» y mové el mapa hasta su techo." : ""}</p>
             )}
             {editando && <p className="mt-1.5 text-[11.5px] text-muted-foreground">{vista === "plano" ? "Arrastrá el punto hasta el número del solar (o tocá el plano donde va)." : "Mové el mapa hasta que el pin quede sobre el techo."}</p>}

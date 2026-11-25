@@ -33,6 +33,7 @@ import { montarVivo } from "@/lib/vivo";
 import { BotonFijar, useVivo } from "@/components/vivo/PanelVivo";
 import { useRouter } from "next/navigation";
 import { CapaGps } from "@/components/mapa/CapaGps";
+import { CapaUbicacionLotes } from "@/components/mapa/CapaUbicacionLotes";
 
 type Tool = "select" | "perimeter" | "camera" | "lote" | "division" | "street";
 type LL = [number, number];
@@ -663,7 +664,7 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
     const [base, setBase] = useState<Base>("Satélite");
     const [menuCapas, setMenuCapas] = useState(false);
     // Por rendimiento: por defecto NO se dibujan los polígonos de lotes, solo los nombres.
-    const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: false, divisions: true, perimeter: true, guards: true, names: true, intrusion: true, fov: false });
+    const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: false, ubicLotes: true, ubicCenso: true, divisions: true, perimeter: true, guards: true, names: true, intrusion: true, fov: false });
     const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
     const [openCamPopup, setOpenCamPopup] = useState<string | null>(null); // cámara con popup de video abierto (lazy)
     const [pantalla, setPantalla] = useState(false);
@@ -1105,6 +1106,9 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
         { key: "fov", label: "Campo de visiÃ³n", Icon: Eye },
         { key: "lotes", label: "Lotes (polígonos)", Icon: LoteIco },
         { key: "loteNames", label: "Nombres de lotes", Icon: TypeIco },
+        /* Los lotes del padrón en su ubicación, y lo que marcó el vecino en el censo (25/11). */
+        { key: "ubicLotes", label: "Lotes del padrón", Icon: TypeIco },
+        { key: "ubicCenso", label: "Ubicación del censo", Icon: LoteIco },
         { key: "divisions", label: "Divisiones", Icon: Fence },
         { key: "perimeter", label: "Perímetro", Icon: PerimIco },
         { key: "guards", label: "Guardias", Icon: GuardIco },
@@ -1189,6 +1193,7 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
                     {show.perimeter && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08, className: "perim-breath" }} />}
                     {draftPerimeter.length > 0 && <Polyline positions={draftPerimeter} pathOptions={{ color: "#22c55e", weight: 2, dashArray: "6 6" }} />}
 
+                    {modo === "panel" && (show.ubicLotes || show.ubicCenso) && <CapaUbicacionLotes verNombres={show.ubicLotes} verCenso={show.ubicCenso} zoom={zoom} bounds={mapBounds} />}
                     {(show.lotes || show.loteNames) && (
                         <LotesLayer lotes={lotes} selectedId={selected?.type === "lote" ? selected.id : null} showNames={show.loteNames} showPolys={show.lotes} zoom={zoom} bounds={mapBounds}
                             locatedId={locatedLoteId} onSelect={onSelectLote} onEdit={editLote} onCtx={onCtxLote} />

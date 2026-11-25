@@ -2612,3 +2612,11 @@ tr.omni-fila-p1-viva > td { animation-duration: .9s; }
 }
 @keyframes oa-punto-quieto { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @keyframes oa-asoma-quieto { from { opacity: 0; } to { opacity: 1; } }
+
+/* El nombre de un lote del padrón en el mapa, en su ubicación (components/mapa/CapaUbicacionLotes, 25/11). */
+.lote-ubic-nombre { background: transparent; border: 0; }
+.lote-ubic-nombre > span {
+  display: inline-block; transform: translate(-50%, -50%); white-space: nowrap; pointer-events: none;
+  padding: 1px 6px; border-radius: 999px; font: 700 10.5px/1.5 var(--font-outfit, system-ui), sans-serif; font-variant-numeric: tabular-nums;
+  color: #fff; background: rgb(15 23 42 / 0.72); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.25);
+}
