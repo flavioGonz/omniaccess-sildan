@@ -84,6 +84,9 @@ export type LoteAdm = {
     titular: string | null; situacion: string | null; observaciones: string | null; personas: PersonaDeLote[];
     /** Su punto en el croquis (píxeles de la imagen original) y sus coordenadas «lat, lng», si las tiene (25/11). */
     planoX: number | null; planoY: number | null; coordenadas: string | null;
+    /** En Unidades, con todas las administraciones juntas (25/11): de cuál es, y las matrículas de su gente para buscar por chapa. */
+    administracion?: { id: string; nombre: string; sigla: string } | null;
+    chapas?: string[];
 };
 export type DetalleAdministracion = { id: string; nombre: string; sigla: string; notas: string | null; contactos: ContactoAdm[]; servicios: ServicioAdm[]; lotes: LoteAdm[] };
 
@@ -525,4 +528,38 @@ export async function quitarCorreoAdm(id: string): Promise<{ ok: boolean }> {
 export async function copiaDeLosCorreos(): Promise<string> {
     await sesion("usuarios");
     return copiaFija();
+}
+
+/**
+ * Todos los lotes del complejo, de todas las administraciones (y los que no tienen), para Unidades
+ * (25/11, Nico: «/admin/units debe cambiar por completo: traer la tabla de Administraciones, sus
+ * drawers, y que sea una tabla igual para poder buscar unidades con sus datos»). Lo mismo que trae
+ * cada administración, más de cuál es y las matrículas de su gente.
+ */
+export async function lotesDeTodas(): Promise<LoteAdm[]> {
+    await sesion("usuarios");
+    const unidades = await prisma.unit.findMany({
+        include: {
+            administracion: { select: { id: true, nombre: true, sigla: true, orden: true } },
+            vinculos: { include: { user: { select: { id: true, name: true, email: true, phone: true, vehicles: { select: { plate: true } }, credentials: { where: { type: "PLATE" }, select: { value: true } } } } } },
+        },
+    });
+    const invs = new Map((await prisma.invitacionCenso.findMany({ where: { sitio: "", unitId: { not: null } }, select: { unitId: true, userId: true, enviadoAt: true, usadoAt: true } })).map((i) => [i.unitId!, i]));
+    const copias = await prisma.copiaCenso.findMany({ select: { userId: true, enviadoAt: true, usadoAt: true, invitacion: { select: { unitId: true } } } });
+    const deCopia = new Map(copias.filter((c) => c.userId && c.invitacion.unitId).map((c) => [`${c.invitacion.unitId}:${c.userId}`, c]));
+    /* El estado del censo de cada persona: su invitación si es la principal, o su copia del código del lote (25/11, a todos). */
+    const estado = (unitId: string, userId: string): PersonaDeLote["codigo"] => {
+        const i = invs.get(unitId);
+        const x = i && i.userId === userId ? i : deCopia.get(`${unitId}:${userId}`);
+        return !x ? "sin" : x.usadoAt ? "cargo" : x.enviadoAt ? "enviado" : "listo";
+    };
+    const num = (s: string | null) => parseInt(String(s || "").replace(/\D+/g, "")) || 0;
+    const orden = [...unidades].sort((x, y) => (x.administracion?.orden ?? 999) - (y.administracion?.orden ?? 999) || (x.manzana || "").localeCompare(y.manzana || "") || num(x.solar) - num(y.solar) || (x.lot || x.name).localeCompare(y.lot || y.name));
+    return orden.map((u) => ({
+        id: u.id, nombre: u.name, codigo: u.lot || u.name, manzana: u.manzana, edificio: u.edificio, areaM2: u.areaM2, titular: u.titular, situacion: u.situacion, observaciones: u.description,
+        planoX: u.planoX, planoY: u.planoY, coordenadas: u.coordinates?.trim() || null,
+        administracion: u.administracion ? { id: u.administracion.id, nombre: u.administracion.nombre, sigla: u.administracion.sigla } : null,
+        chapas: [...new Set(u.vinculos.flatMap((v) => [...v.user.vehicles.map((x) => x.plate), ...v.user.credentials.map((c) => c.value)]).map(limpiarChapa).filter(Boolean))].sort(),
+        personas: u.vinculos.map((v) => ({ id: v.user.id, nombre: v.user.name, email: v.user.email, telefono: v.user.phone, vinculo: v.vinculo, codigo: estado(u.id, v.userId), principal: invs.get(u.id)?.userId === v.userId })),
+    }));
 }

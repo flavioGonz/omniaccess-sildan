@@ -4,16 +4,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
     AlertTriangle, ArrowDown, ArrowUp, Building2, CheckCircle2, FileUp, History, Mail, Map as MapIcon, MapPinned, NotebookPen, Pencil, Phone, Plus, Sparkles, Truck, Upload, UserRound, Users,
+    PartyPopper, Trees,
 } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import {
     administraciones, borrarAdministracion, borrarContactoAdm, borrarServicioAdm, cambiosDeLotes, copiaDeLosCorreos, detalleAdministracion, guardarAdministracion, guardarContactoAdm, guardarServicioAdm, moverAdministracion,
-    type CambioVisto, type ContactoAdm, type DetalleAdministracion, type LoteAdm, type ResumenAdministracion, type ServicioAdm,
+    type CambioVisto, type ContactoAdm, type DetalleAdministracion, type ResumenAdministracion, type ServicioAdm,
 } from "@/app/actions/administraciones";
 import { CajonLote } from "@/components/lotes/CajonLote";
 import { CorreoAdministracion } from "@/components/administraciones/CorreoAdministracion";
 import { PlanoLotes } from "@/components/administraciones/PlanoLotes";
+import { TablaLotes, type FiltroLotes } from "@/components/administraciones/TablaLotes";
 import { HistorialLote } from "@/components/lotes/HistorialLote";
 import type { InformePadron } from "@/lib/padron-importar";
 import { nombreDeLote, siglaDeEtapa } from "@/lib/padron-planilla";
@@ -21,10 +23,10 @@ import { Button } from "@/components/ui/button";
 import { Cajon, CajonCampo, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Cargando, Chip, ErrorEstado, Vacio } from "@/components/ui/estados";
+import { Cargando, ErrorEstado, Vacio } from "@/components/ui/estados";
 import { Pestanias } from "@/components/ui/pestanias";
+import { PestaniaEspacios, PestaniaSum } from "@/components/administraciones/EspaciosComunes";
 import { Pista } from "@/components/ui/pista";
-import { Seek } from "@/components/ui/search";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { cn } from "@/lib/utils";
 
@@ -56,8 +58,8 @@ import { cn } from "@/lib/utils";
  * haría; recién después aplica. No borra nada y no manda correos.
  */
 
-type Pest = "lotes" | "plano" | "contactos" | "servicios" | "cambios" | "correo";
-const ORDEN_PEST: Pest[] = ["lotes", "plano", "contactos", "servicios", "cambios", "correo"];
+type Pest = "lotes" | "plano" | "sum" | "espacios" | "contactos" | "servicios" | "cambios" | "correo";
+const ORDEN_PEST: Pest[] = ["lotes", "plano", "sum", "espacios", "contactos", "servicios", "cambios", "correo"];
 /* La entrada y la salida del contenido de una pestaña (25/11, Nico: «estilizá mejor las transiciones
    entre tabs, de entrada y salida»). Entra con un resorte corto desde el lado de la pestaña elegida;
    sale rápido hacia el otro, para no hacer esperar. Sin filtro de desenfoque: un `filter` puesto
@@ -68,15 +70,6 @@ const VISTA = {
     sale: (d: number) => ({ opacity: 0, x: -18 * d, scale: 0.995, transition: { duration: 0.13, ease: [0.4, 0, 1, 1] as const } }),
 };
 const VISTA_QUIETA = { entra: { opacity: 0 }, esta: { opacity: 1, transition: { duration: 0.12 } }, sale: { opacity: 0, transition: { duration: 0.08 } } };
-type FiltroLotes = "todos" | "gente" | "sin" | "terrenos";
-const SITUACION: Record<string, { rotulo: string; tono: "quieto" | "info" | "aviso" }> = {
-    TERRENO: { rotulo: "Terreno", tono: "quieto" }, DESARROLLADOR: { rotulo: "Del desarrollador", tono: "info" }, SIN_TITULAR: { rotulo: "Sin titular", tono: "aviso" },
-};
-const VINCULO: Record<string, string> = { PROPIETARIO: "propietario", INQUILINO: "inquilino", OCUPANTE: "ocupante", FAMILIA: "familia" };
-const CODIGO: Record<string, { punto: string; dice: string }> = {
-    sin: { punto: "bg-muted-foreground/40", dice: "sin código del censo" }, listo: { punto: "bg-[var(--aviso)]", dice: "código listo, sin enviar" },
-    enviado: { punto: "bg-[var(--info)]", dice: "código enviado" }, cargo: { punto: "bg-[var(--bien)]", dice: "ya cargó su censo" },
-};
 const ENTRADA = "h-9 w-full px-3 rounded-[6px] border border-border bg-background text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]/40 focus-visible:border-[var(--accion)]";
 
 /** La cuenta de correo está lista para mandar: casilla, clave, y Gmail la aceptó. */
@@ -169,6 +162,8 @@ export default function Administraciones() {
                                         <Pestanias<Pest> valor={pest} alElegir={cambiarPest} opciones={[
                                             { valor: "lotes", rotulo: "Lotes", icono: MapPinned, cuenta: elegida.lotes },
                                             { valor: "plano", rotulo: "Plano", icono: MapIcon, ayuda: "El croquis del complejo: buscar lotes y vecinos, ver cómo va el censo de cada uno y corregir dónde cae cada lote." },
+                                            { valor: "sum", rotulo: "SUM", icono: PartyPopper, ayuda: "El salón de usos múltiples: su agenda de reservas, su ficha y reglamento, si está abierto y su mantenimiento." },
+                                            { valor: "espacios", rotulo: "Espacios comunes", icono: Trees, ayuda: "Piscina, canchas, parrilleros, plazas: la ficha de cada uno, su estado en vivo, sus reservas y su mantenimiento." },
                                             { valor: "contactos", rotulo: "Contactos", icono: Users, cuenta: elegida.contactos },
                                             { valor: "servicios", rotulo: "Servicios", icono: Truck, cuenta: elegida.servicios },
                                             { valor: "cambios", rotulo: "Cambios", icono: History, ayuda: "Lo último que cambió en los lotes de esta administración: matrículas que entran o salen, gente que se suma o se va, y lo que cargan en el censo." },
@@ -182,8 +177,10 @@ export default function Administraciones() {
                                     {/* Cambiar de pestaña desliza el contenido hacia el lado de la pestaña elegida, y el que se va sale hacia el otro. */}
                                     <AnimatePresence mode="wait" initial={false} custom={sentido}>
                                         <motion.div key={`${elegida.id}·${pest}`} custom={sentido} variants={quieto ? VISTA_QUIETA : VISTA} initial="entra" animate="esta" exit="sale">
-                                            {pest === "lotes" && <Lotes filas={cargandoDetalle ? null : det?.lotes || []} alAbrir={setLoteAbierto} filtro={filtroLotes} alFiltrar={setFiltroLotes} />}
+                                            {pest === "lotes" && <TablaLotes filas={cargandoDetalle ? null : det?.lotes || []} alAbrir={setLoteAbierto} filtro={filtroLotes} alFiltrar={setFiltroLotes} />}
                                             {pest === "plano" && <PlanoLotes administracionId={elegida.id} alAbrir={setLoteAbierto} />}
+                                            {pest === "sum" && <PestaniaSum administracionId={elegida.id} />}
+                                            {pest === "espacios" && <PestaniaEspacios administracionId={elegida.id} />}
                                             {pest === "contactos" && <Contactos filas={cargandoDetalle ? null : det?.contactos || []} alEditar={setEditContacto} alBorrar={async (id) => { await borrarContactoAdm(id); refrescar(); }} />}
                                             {pest === "servicios" && <Servicios filas={cargandoDetalle ? null : det?.servicios || []} alEditar={setEditServicio} alBorrar={async (id) => { await borrarServicioAdm(id); refrescar(); }} />}
                                             {pest === "cambios" && <Cambios administracionId={elegida.id} vuelta={vuelta} alAbrirLote={setLoteAbierto} />}
@@ -454,49 +451,6 @@ function Cambios({ administracionId, vuelta, alAbrirLote }: { administracionId: 
 }
 
 /** Los lotes. El filtro lo tiene la página: los atajos de la ficha («12 sin nadie con correo») llegan acá ya filtrados. */
-function Lotes({ filas, alAbrir, filtro, alFiltrar: setFiltro }: { filas: LoteAdm[] | null; alAbrir: (id: string) => void; filtro: FiltroLotes; alFiltrar: (f: FiltroLotes) => void }) {
-    const [q, setQ] = useState("");
-    const todos = filas || [];
-    const n = { todos: todos.length, gente: todos.filter((l) => l.personas.length).length, sin: todos.filter((l) => !l.situacion && !l.personas.length).length, terrenos: todos.filter((l) => l.situacion === "TERRENO").length };
-    const vistos = useMemo(() => {
-        const t = q.trim().toLowerCase();
-        return todos.filter((l) => (filtro === "todos" || (filtro === "gente" && l.personas.length > 0) || (filtro === "sin" && !l.situacion && !l.personas.length) || (filtro === "terrenos" && l.situacion === "TERRENO"))
-            && (!t || [l.nombre, l.titular, l.edificio, ...l.personas.flatMap((p) => [p.nombre, p.email])].some((x) => (x || "").toLowerCase().includes(t))));
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- `todos` cambia sólo con `filas`
-    }, [filas, q, filtro]);
-    const cols = useMemo<ColumnaTabla<LoteAdm>[]>(() => [
-        { clave: "lote", titulo: "Lote", ancho: 150, ordenable: true, valor: (l) => l.nombre, celda: (l) => (
-            <div className="leading-tight"><div className="text-[13px] font-bold tabular-nums">{l.codigo}</div>{l.edificio && <div className="text-[11px] text-muted-foreground">{l.edificio}</div>}</div>) },
-        { clave: "titular", titulo: "Titular según la administración", ayuda: "Como figura en la lista de gastos comunes. «X - Y» es un matrimonio; «X / Y», propietario e inquilino. Es un texto de la administración, no una persona del padrón.",
-            valor: (l) => l.titular || "", celda: (l) => (
-                <div className="leading-tight min-w-0"><div className="text-[12.5px] truncate">{l.titular || <span className="text-muted-foreground">—</span>}</div>{l.observaciones && <div className="text-[11px] text-muted-foreground line-clamp-1" title={l.observaciones}>{l.observaciones}</div>}</div>) },
-        { clave: "personas", titulo: "Personas con correo", ayuda: "La gente del lote con correo. El código del censo es uno por lote y le llega a la principal (la marcada): el punto dice cómo va: ámbar listo sin enviar, azul enviado, verde ya cargó. El resto no tiene código.",
-            valor: (l) => l.personas.map((p) => `${p.nombre} (${VINCULO[p.vinculo] || p.vinculo})`).join("; "), celda: (l) => l.personas.length === 0 ? <span className="text-[12px] text-muted-foreground">—</span> : (
-                <ul className="space-y-0.5">{l.personas.map((p) => (
-                    <li key={p.id} className="flex items-center gap-1.5 text-[12.5px] min-w-0" title={`${p.email || "sin correo"} · ${CODIGO[p.codigo].dice}`}>
-                        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", CODIGO[p.codigo].punto)} />
-                        <span className={cn("truncate", p.principal && "font-semibold")}>{p.nombre}</span><span className="shrink-0 text-[11px] text-muted-foreground">{VINCULO[p.vinculo] || p.vinculo}{p.principal ? " · principal" : ""}</span>
-                    </li>))}</ul>) },
-        { clave: "situacion", titulo: "Situación", ancho: 150, valor: (l) => (l.situacion ? SITUACION[l.situacion]?.rotulo || l.situacion : ""), celda: (l) => (l.situacion && SITUACION[l.situacion] ? <Chip tono={SITUACION[l.situacion].tono}>{SITUACION[l.situacion].rotulo}</Chip> : null) },
-        { clave: "area", titulo: "Área", ancho: 100, alinear: "der", ordenable: true, valor: (l) => l.areaM2 ?? "", celda: (l) => (l.areaM2 ? <span className="text-[12px] tabular-nums text-muted-foreground">{Math.round(l.areaM2).toLocaleString("es-UY")} m²</span> : null) },
-    ], []);
-    const OPC: { v: FiltroLotes; r: string }[] = [{ v: "todos", r: "Todos" }, { v: "gente", r: "Con gente" }, { v: "sin", r: "Sin nadie con correo" }, { v: "terrenos", r: "Terrenos" }];
-    return (
-        <Tabla filas={vistos} cargando={!filas} clave={(l) => l.id} columnas={cols} alto="calc(100vh - 260px)" nombreArchivo="lotes" alClickFila={(l) => alAbrir(l.id)}
-            barra={(
-                <div className="flex flex-wrap items-center gap-2">
-                    <Seek value={q} onChange={setQ} placeholder="Lote, titular o persona" startOpen width={240} alto={34} />
-                    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Qué lotes">
-                        {OPC.map((o) => (
-                            <button key={o.v} type="button" aria-pressed={filtro === o.v} onClick={() => setFiltro(o.v)}
-                                className={cn("h-7 px-2.5 rounded-full border text-[11.5px] font-semibold inline-flex items-center gap-1.5", filtro === o.v ? "bg-foreground text-background border-foreground" : "border-border hover:bg-accent")}>
-                                {o.r}<span className={cn("tabular-nums text-[10.5px]", filtro === o.v ? "opacity-70" : "text-muted-foreground")}>{n[o.v]}</span>
-                            </button>))}
-                    </div>
-                </div>)}
-            vacio={{ icono: MapPinned, titulo: todos.length ? "Ningún lote coincide" : "Esta administración no tiene lotes", ayuda: todos.length ? "Probá con otro filtro o con menos texto." : "Los lotes llegan con la planilla del padrón: «Importar padrón», arriba." }} />
-    );
-}
 
 
 /**

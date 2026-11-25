@@ -211,3 +211,22 @@ export async function quitarMatriculaEnLote(unitId: string, userId: string, chap
     await auditar(s, "lotes.matricula.quitar", unitId, true, `${p} · ${v.user.name}`);
     return { ok: true };
 }
+
+/* ───────── Un lote nuevo ───────── */
+
+/**
+ * Crear un lote a mano, desde Unidades (25/11). Lo normal es que lleguen con la planilla del padrón;
+ * esto es para el que falta (un desdoblamiento, una casa nueva). Queda anotado en su historial.
+ */
+export async function crearLote(d: { nombre: string; administracionId: string | null; titular?: string; situacion?: string }): Promise<Resultado & { id?: string }> {
+    const s = await sesion();
+    const nombre = corto(d.nombre, 60);
+    if (nombre.length < 1) return { ok: false, error: "Falta el nombre del lote." };
+    if (d.situacion && !(SITUACIONES as readonly string[]).includes(d.situacion)) return { ok: false, error: "Esa situación no existe." };
+    const ya = await prisma.unit.findFirst({ where: { name: { equals: nombre, mode: "insensitive" } }, select: { id: true } });
+    if (ya) return { ok: false, error: `Ya hay un lote «${nombre}».` };
+    const u = await prisma.unit.create({ data: { name: nombre, lot: nombre, type: "CASA", administracionId: d.administracionId || null, titular: corto(d.titular, 200) || null, situacion: d.situacion || null }, select: { id: true } });
+    await anotarEnLote([u.id], { que: "DATO_CAMBIADO", detalle: `Lote creado a mano${d.titular ? ` · Titular: «${corto(d.titular, 200)}»` : ""}` }, firma(s));
+    await auditar(s, "lotes.crear", nombre, true, "");
+    return { ok: true, id: u.id };
+}

@@ -142,6 +142,7 @@ model Administracion {
   contactos AdministracionContacto[]
   servicios AdministracionServicio[]
   unidades  Unit[]
+  espacios  EspacioComun[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -2419,4 +2420,86 @@ model GpsGeocerca {
   activa    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// Un espacio comun: el SUM, la piscina, una cancha, los parrilleros, un parque (25/11). Nico: «agrega
+/// una tab SUM y otra Espacios comunes, desarrollalas premium». De una administracion, o del complejo
+/// entero si administracionId es null.
+model EspacioComun {
+  id               String          @id @default(cuid())
+  administracionId String?
+  administracion   Administracion? @relation(fields: [administracionId], references: [id], onDelete: SetNull)
+  /// SUM | PISCINA | CANCHA | PARRILLERO | GIMNASIO | PARQUE | OTRO
+  tipo             String          @default("OTRO")
+  nombre           String
+  descripcion      String?
+  capacidad        Int?
+  /// Cuando se puede usar, como se dice: «Todos los dias de 9 a 23».
+  horario          String?
+  /// El reglamento entero, en texto.
+  reglamento       String?
+  /// Lo que hay adentro: «40 sillas, 8 mesas, parrilla, heladera».
+  inventario       String?
+  responsable      String?
+  /// Se reserva por turnos (el SUM, la cancha, un parrillero). La piscina o el parque, no.
+  reservable       Boolean         @default(false)
+  /// ABIERTO | CERRADO | MANTENIMIENTO, con una nota para la guardia.
+  estado           String          @default("ABIERTO")
+  estadoNota       String?
+  estadoAt         DateTime?
+  estadoPor        String?
+  orden            Int             @default(0)
+  reservas         ReservaEspacio[]
+  tareas           TareaEspacio[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([administracionId])
+}
+
+/// Un turno reservado de un espacio comun. Lo carga la administracion desde el panel (25/11).
+model ReservaEspacio {
+  id          String       @id @default(cuid())
+  espacioId   String
+  espacio     EspacioComun @relation(fields: [espacioId], references: [id], onDelete: Cascade)
+  /// El lote que reserva (si es de uno) y como se lee.
+  unitId      String?
+  lote        String       @default("")
+  responsable String
+  telefono    String?
+  motivo      String?
+  invitados   Int?
+  inicio      DateTime
+  fin         DateTime
+  /// PEDIDA | CONFIRMADA | CANCELADA
+  estado      String       @default("CONFIRMADA")
+  nota        String?
+  creadaPor   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([espacioId, inicio])
+}
+
+/// Mantenimiento, limpieza, una reparacion o un reclamo de un espacio comun (25/11).
+model TareaEspacio {
+  id          String       @id @default(cuid())
+  espacioId   String
+  espacio     EspacioComun @relation(fields: [espacioId], references: [id], onDelete: Cascade)
+  titulo      String
+  detalle     String?
+  /// MANTENIMIENTO | LIMPIEZA | REPARACION | RECLAMO
+  tipo        String       @default("MANTENIMIENTO")
+  /// NORMAL | URGENTE
+  prioridad   String       @default("NORMAL")
+  responsable String?
+  vence       DateTime?
+  /// PENDIENTE | EN_CURSO | HECHA
+  estado      String       @default("PENDIENTE")
+  hechaAt     DateTime?
+  creadaPor   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([espacioId, estado])
 }
