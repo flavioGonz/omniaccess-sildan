@@ -19,7 +19,7 @@ export default async function RegistroConClave({ params }: { params: Promise<{ c
     const { clave: cruda } = await params;
     const clave = normalizarClave(decodeURIComponent(cruda));
     const inv = clave
-        ? await prisma.invitacionCenso.findUnique({ where: { clave }, select: { lote: true, lotes: true, email: true, nombre: true, clave: true } }).catch(() => null)
+        ? await prisma.invitacionCenso.findUnique({ where: { clave }, select: { lote: true, lotes: true, email: true, nombre: true, clave: true, unitId: true } }).catch(() => null)
         : null;
 
     if (!inv) return <ClaveNoSirve />;
@@ -28,5 +28,10 @@ export default async function RegistroConClave({ params }: { params: Promise<{ c
        los nombres y qué es de cada uno, nunca los ids: la carga se hace para UNO, que elige ella. */
     const lotes = (Array.isArray(inv.lotes) ? (inv.lotes as { nombre?: unknown; vinculo?: unknown }[]) : [])
         .filter((l) => typeof l?.nombre === "string" && l.nombre).map((l) => ({ nombre: String(l.nombre), vinculo: String(l.vinculo || "PROPIETARIO") }));
-    return <Formulario centro={center} invitacion={{ clave: inv.clave, lote: lotes[0]?.nombre || inv.lote, lotes, email: inv.email, nombre: inv.nombre }} />;
+    /* Dónde queda el lote (25/11): el punto del plano del barrio, para que nadie tenga que pelearse
+       con el GPS ni arrastrar el mapa hasta su techo. */
+    const u = inv.unitId ? await prisma.unit.findUnique({ where: { id: inv.unitId }, select: { coordinates: true } }).catch(() => null) : null;
+    const [lat, lng] = String(u?.coordinates || "").split(/[,;\s]+/).map(Number);
+    const ubicacion: [number, number] | null = Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0 ? [lat, lng] : null;
+    return <Formulario centro={center} invitacion={{ clave: inv.clave, lote: lotes[0]?.nombre || inv.lote, lotes, email: inv.email, nombre: inv.nombre, ubicacion }} />;
 }

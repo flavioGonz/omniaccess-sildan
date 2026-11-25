@@ -115,6 +115,21 @@ function Pila({ items, icono: Icono, rotulo, mono }: {
  * porque reenviar es la excepción y no tiene que pesar lo mismo que el primer envío.
  */
 function CeldaCenso({ u, estado, enviando, alEnviar }: { u: UsuarioFila; estado: EstadoCenso; enviando: boolean; alEnviar: (u: UsuarioFila) => void }) {
+    /* El código de su lote le llegó a otra persona, la principal (un código por lote, 25/11): se
+       muestra cómo va el lote y a quién le llegó, sin botón de enviar —mandarle a esta persona no
+       tiene código que mandar—. La principal se cambia en el cajón del lote. */
+    if (estado.via) {
+        const rotulo = estado.que === "cargo" ? "Cargó" : estado.que === "enviada" ? `Enviada ${fechaCorta(estado.cuando)}` : estado.que === "error" ? "No salió" : "Sin enviar";
+        return (
+            <Pista titulo={`El código de ${estado.via.lote}`} ancho={260}
+                texto={`Es uno por lote y le llega a la persona principal: ${estado.via.nombre}. Ella carga el censo de todo el lote. Para que le llegue a otra persona, cambiala en el cajón del lote (Administraciones › Lotes).`}>
+                <span className="inline-flex cursor-help flex-col items-center leading-tight">
+                    <Chip tono={estado.que === "cargo" ? "bien" : estado.que === "error" ? "mal" : "quieto"} icono={estado.que === "cargo" ? Check : Users}>{rotulo}</Chip>
+                    <span className="mt-0.5 max-w-[150px] truncate text-[10.5px] text-muted-foreground">por {estado.via.nombre}</span>
+                </span>
+            </Pista>
+        );
+    }
     if (estado.que === "sin-correo") return <span className="text-[11px] italic text-muted-foreground">Sin correo</span>;
     const enviar = (e: React.MouseEvent) => { e.stopPropagation(); alEnviar(u); };
     const reenviar = (
@@ -259,8 +274,8 @@ export function TablaUsuarios({
         ...(censo ? [{
             clave: "censo", titulo: "Censo", alinear: "centro", ancho: 160,
             tituloAyuda: "La invitación al censo de vehículos",
-            ayuda: "Si ya se le mandó el correo con su clave para cargar sus vehículos, y si ya cargó. El botón se la manda —o se la vuelve a mandar— sólo a esta persona, con copia a la administración.",
-            valor: (u) => { const e = censo.de(u); return e.cuando ? `${ROTULO_CENSO[e.que]} ${fechaCorta(e.cuando)}` : ROTULO_CENSO[e.que]; },
+            ayuda: "Cómo va el censo de su lote. El código es uno por lote y le llega a la persona principal; al resto se le muestra el estado del lote y quién lo recibió. El botón le manda —o le vuelve a mandar— el código a la principal, con copia oculta a su administración.",
+            valor: (u) => { const e = censo.de(u); const t = e.cuando ? `${ROTULO_CENSO[e.que]} ${fechaCorta(e.cuando)}` : ROTULO_CENSO[e.que]; return e.via ? `${t} (por ${e.via.nombre})` : t; },
             celda: (u) => <CeldaCenso u={u} estado={censo.de(u)} enviando={censo.enviando === u.id} alEnviar={censo.alEnviar} />,
         } satisfies ColumnaTabla<UsuarioFila>] : []),
         {

@@ -48,3 +48,17 @@ test("censo por lote: un correo puesto a mano sin persona del padrón se respeta
     const p = planDeInvitaciones([{ unitId: "L1", nombre: "Casa 1", miembros: [] }], [inv("i1", { unitId: "L1", email: "x@ejemplo.uy", aMano: true })]);
     assert.equal(p.borrar.length, 0); assert.equal(p.iguales, 1);
 });
+
+import { buscadorDeCenso } from "@/lib/censo-estado";
+test("padrón: a quien no es la principal se le muestra el estado de su lote y a quién le llegó", () => {
+    const de = buscadorDeCenso([
+        { userId: "ana", email: "ana@ejemplo.uy", enviadoAt: "2026-11-24T22:00:00Z", usadoAt: null, error: null, unitId: "L1", lote: "F 2 (4-5)", nombre: "Ana", miembros: ["ana", "beto"] },
+        { userId: "caro", email: "caro@ejemplo.uy", enviadoAt: "2026-11-24T22:00:00Z", usadoAt: "2026-11-25T10:00:00Z", error: null, unitId: "L2", lote: "C 5 (4-5)", nombre: "Caro", miembros: ["caro", "dani"] },
+    ]);
+    assert.equal(de({ id: "ana", email: "ana@ejemplo.uy" }).que, "enviada");
+    assert.equal(de({ id: "ana", email: "ana@ejemplo.uy" }).via, undefined, "la principal ve el suyo");
+    assert.deepEqual(de({ id: "beto", email: "beto@ejemplo.uy" }).via, { lote: "F 2 (4-5)", nombre: "Ana" });
+    assert.equal(de({ id: "beto", email: "beto@ejemplo.uy" }).que, "enviada");
+    assert.equal(de({ id: "dani", email: null }).que, "cargo", "aunque no tenga correo, su lote ya cargó");
+    assert.equal(de({ id: "eva", email: "eva@ejemplo.uy" }).que, "sin-enviar", "sin lote con código: se le puede mandar");
+});

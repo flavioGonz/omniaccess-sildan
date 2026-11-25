@@ -144,7 +144,7 @@ export default function UsersPage() {
         const ok = await confirmar({
             titulo: `${ya ? "Volver a enviarle" : "Enviarle"} la invitación del censo a ${u.name}`,
             descripcion: [
-                `Sale ahora a ${u.email}${censo.copiaAdmin ? `, con copia a ${censo.copiaAdmin}` : ""}.`,
+                `Sale ahora a ${u.email}, desde la casilla de su administración${censo.copiaAdmin ? `, con copia oculta a esa casilla y a ${censo.copiaAdmin}` : ""}.`,
                 ya ? "Es el mismo enlace y la misma clave que ya tiene." : "",
                 censo.aSpam ? `Ojo: ${censo.aSpam} Mirá el aviso en Censo › Invitaciones antes de mandar.` : "",
             ].filter(Boolean).join(" "),

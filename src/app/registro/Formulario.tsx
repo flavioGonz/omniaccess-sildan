@@ -78,11 +78,14 @@ const CLAVE = "oa.censo.borrador";
 export function Formulario({ centro, invitacion }: {
     centro: [number, number];
     /** Cuando se entró por el enlace del correo: el lote y el correo los pone la invitación. */
-    invitacion?: { clave: string; lote: string; email: string; nombre: string; lotes?: { nombre: string; vinculo: string }[] };
+    invitacion?: { clave: string; lote: string; email: string; nombre: string; lotes?: { nombre: string; vinculo: string }[];
+        /** Dónde queda el lote según el plano del barrio (25/11): el punto ya viene puesto. */
+        ubicacion?: [number, number] | null };
 }) {
     /** Quien alquila u ocupa arranca marcado como inquilino: es lo que la administración ya sabe de él. */
     const tenenciaDe = (lote: string): Tenencia => { const v = invitacion?.lotes?.find((l) => l.nombre === lote)?.vinculo; return v === "INQUILINO" || v === "OCUPANTE" ? "INQUILINO" : "PROPIETARIO"; };
-    const delaInvitacion = invitacion ? { lote: invitacion.lote, email: invitacion.email, tenencia: tenenciaDe(invitacion.lote) } : null;
+    const ubicacionLote = invitacion?.ubicacion || null;
+    const delaInvitacion = invitacion ? { lote: invitacion.lote, email: invitacion.email, tenencia: tenenciaDe(invitacion.lote), ...(ubicacionLote ? { lat: ubicacionLote[0], lng: ubicacionLote[1] } : {}) } : null;
     const [marca, setMarca] = useState<{ name: string; barrio: string; logoUrl: string }>({ name: "OmniAccess", barrio: "", logoUrl: "" });
     const [paso, setPaso] = useState(0);
     /** Hacia dónde se va: el paso entra por donde se lo empujó y sale por el mismo lado. */
@@ -102,9 +105,14 @@ export function Formulario({ centro, invitacion }: {
             // enlace del C7 después de haber mirado el del B4 carga el padrón equivocado.
             /* Con varios lotes, el que venía eligiendo en el borrador vale si es uno de los suyos. */
             const suyo = invitacion?.lotes?.some((l) => l.nombre === guardado.lote) ? guardado.lote : invitacion?.lote;
-            setF({ ...VACIO, ...guardado, ...(invitacion ? { lote: suyo, email: invitacion.email || guardado.email || "" } : {}) });
+            /* El punto del plano le gana a un borrador sin punto o con uno lejos (más de 60 m: el GPS
+               de adentro de una casa, que es justo lo que no se podía corregir). Uno cerca, que la
+               persona ajustó a mano, se respeta. */
+            const ub = ubicacionLote && (guardado.lat == null || guardado.lng == null || metrosEntre([guardado.lat, guardado.lng], ubicacionLote) > 60)
+                ? { lat: ubicacionLote[0], lng: ubicacionLote[1] } : {};
+            setF({ ...VACIO, ...guardado, ...(invitacion ? { lote: suyo, email: invitacion.email || guardado.email || "" } : {}), ...ub });
         } catch { /* sin borrador */ }
-    }, [invitacion]);
+    }, [invitacion, ubicacionLote]);
     useEffect(() => { try { localStorage.setItem(CLAVE, JSON.stringify(f)); } catch { /* el navegador puede no dejar */ } }, [f]);
 
     const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -155,7 +163,7 @@ export function Formulario({ centro, invitacion }: {
                     <motion.div key={paso} custom={sentido} className="censo-paso"
                         initial={{ opacity: 0, x: 22 * sentido }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -22 * sentido }}
                         transition={RESORTE}>
-                        {paso === 0 && <PasoCasa f={f} set={set} centro={centro} loteFijo={!!invitacion} lotes={invitacion?.lotes} alElegirLote={(l) => setF((v) => ({ ...v, lote: l, tenencia: tenenciaDe(l) }))} />}
+                        {paso === 0 && <PasoCasa f={f} set={set} centro={centro} delPlano={ubicacionLote} loteFijo={!!invitacion} lotes={invitacion?.lotes} alElegirLote={(l) => setF((v) => ({ ...v, lote: l, tenencia: tenenciaDe(l) }))} />}
                         {paso === 1 && <PasoVehiculos f={f} set={set} />}
                         {paso === 2 && <PasoServicios f={f} set={set} />}
                     </motion.div>
@@ -352,8 +360,10 @@ function Seccion({ icono: I, titulo, children }: { icono: typeof Car; titulo: st
     );
 }
 
-function PasoCasa({ f, set, centro, loteFijo, lotes, alElegirLote }: {
+function PasoCasa({ f, set, centro, delPlano, loteFijo, lotes, alElegirLote }: {
     f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; centro: [number, number]; loteFijo?: boolean;
+    /** El punto del lote según el plano del barrio, si se sabe. */
+    delPlano?: [number, number] | null;
     /** Los lotes de la invitación, cuando son más de uno: se elige para cuál es esta carga. */
     lotes?: { nombre: string; vinculo: string }[]; alElegirLote?: (lote: string) => void;
 }) {
@@ -401,7 +411,7 @@ function PasoCasa({ f, set, centro, loteFijo, lotes, alElegirLote }: {
                     ))}
                 </div>
             </div>
-            <Ubicacion f={f} set={set} centro={centro} />
+            {delPlano ? <UbicacionDelPlano f={f} set={set} delPlano={delPlano} /> : <Ubicacion f={f} set={set} centro={centro} />}
         </Seccion>
     );
 }
@@ -515,6 +525,61 @@ function Ubicacion({ f, set, centro }: { f: Form; set: <K extends keyof Form>(k:
                     </button>
                 </div>
             )}
+        </div>
+    );
+}
+
+/** Distancia aproximada en metros entre dos puntos (alcanza para saber si un punto está en la casa o a media cuadra). */
+function metrosEntre(a: [number, number], b: [number, number]): number {
+    const k = Math.cos((a[0] * Math.PI) / 180);
+    return Math.hypot((a[0] - b[0]) * 110_574, (a[1] - b[1]) * 111_320 * k);
+}
+
+/**
+ * La ubicación cuando el lote ya está en el plano del barrio (25/11).
+ *
+ * Nico: «tienen que corregir el GPS de la ubicación de las casas: no lo toma automático, y mover el
+ * punto hasta tu casa es imposible y poco agradable». El GPS de un teléfono adentro de una casa se
+ * corre media cuadra, y arrastrar un mapa satelital con el pulgar hasta el techo propio es justo lo
+ * que nadie quiere hacer para cargar sus autos. Cada lote ya tiene su punto, sacado del croquis del
+ * barrio calibrado contra el mapa: viene puesto, se muestra para que la persona lo reconozca, y sólo
+ * si no es su casa abre el mapa para corregirlo.
+ */
+function UbicacionDelPlano({ f, set, delPlano }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; delPlano: [number, number] }) {
+    const [corrigiendo, setCorrigiendo] = useState(false);
+    const punto: [number, number] = f.lat != null && f.lng != null ? [f.lat, f.lng] : delPlano;
+    const movido = metrosEntre(punto, delPlano) > 3;
+    const marcar = (lat: number, lng: number) => { set("lat", Number(lat.toFixed(6))); set("lng", Number(lng.toFixed(6))); };
+    return (
+        <div className="rounded-[10px] border border-border bg-card p-3.5">
+            <div className="flex items-start gap-2">
+                <MapPin size={16} className="mt-0.5 shrink-0 tono-accion" />
+                <div className="min-w-0 flex-1">
+                    <p className="text-[14px] font-bold">Tu lote ya está ubicado</p>
+                    <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">
+                        Lo tomamos del plano del barrio: no tenés que hacer nada. Si el punto no cae en tu casa, corregilo.
+                    </p>
+                </div>
+            </div>
+            <div className="pt-3">
+                {/* Mirar, sin arrastrar: así nadie lo corre sin querer al bajar por la página. */}
+                {corrigiendo ? <MapaPunto punto={punto} centro={delPlano} alElegir={marcar} /> : <MapaPunto punto={punto} centro={delPlano} soloVer alto={180} />}
+            </div>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full chip-bien px-2.5 py-1 text-[12px] font-bold">
+                    <Check size={13} /> {movido ? "Ubicación corregida" : "Ubicación del plano"}
+                </span>
+                <div className="ml-auto flex gap-1.5">
+                    {movido && (
+                        <button type="button" onClick={() => { set("lat", delPlano[0]); set("lng", delPlano[1]); setCorrigiendo(false); }}
+                            className={cn("h-8 rounded-full border border-border px-3 text-[12px] font-semibold hover:bg-accent", PULSABLE)}>Volver a la del plano</button>
+                    )}
+                    <button type="button" onClick={() => setCorrigiendo((v) => !v)}
+                        className={cn("h-8 rounded-full border border-border px-3 text-[12px] font-semibold hover:bg-accent", PULSABLE)}>
+                        {corrigiendo ? "Listo" : "No es mi casa: corregir"}
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }

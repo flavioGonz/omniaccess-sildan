@@ -44,8 +44,9 @@ async function permitido(): Promise<NextResponse | { sesion: Sesion; quien: stri
 
 const conClave = async () => (await prisma.setting.findUnique({ where: { key: "CENSO_CON_CLAVE" } }))?.value === "true";
 
-const resumida = (f: { userId: string | null; email: string; enviadoAt: Date | null; usadoAt: Date | null; error: string | null }) =>
-    ({ userId: f.userId, email: f.email, enviadoAt: f.enviadoAt?.toISOString() || null, usadoAt: f.usadoAt?.toISOString() || null, error: f.error });
+const resumida = (f: { userId: string | null; email: string; enviadoAt: Date | null; usadoAt: Date | null; error: string | null; unitId?: string | null; lote?: string; nombre?: string }, miembros?: string[]) =>
+    ({ userId: f.userId, email: f.email, enviadoAt: f.enviadoAt?.toISOString() || null, usadoAt: f.usadoAt?.toISOString() || null, error: f.error,
+        unitId: f.unitId ?? null, lote: f.lote, nombre: f.nombre, ...(miembros ? { miembros } : {}) });
 
 /**
  * Si lo que falta mandar pasa por el servidor general (Ajustes › Correo). Desde el 25/11 cada
@@ -61,7 +62,7 @@ export async function GET(req: NextRequest) {
     const q = await permitido(); if (q instanceof NextResponse) return q;
     if (req.nextUrl.searchParams.get("resumen") === "1") {
         const [filas, cfg] = await Promise.all([
-            prisma.invitacionCenso.findMany({ where: { sitio: "" }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true }, take: 5000 }),
+            prisma.invitacionCenso.findMany({ where: { sitio: "" }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true, unitId: true, lote: true, nombre: true }, take: 5000 }),
             configCorreo(),
         ]);
         const dominio = cfg && usaElServidorGeneral(await estadoDeGoteo()) ? await revisarDominio({ desde: cfg.desde, host: cfg.host }).catch(() => null) : null;
@@ -69,7 +70,13 @@ export async function GET(req: NextRequest) {
             correoListo: await hayDesdeDondeMandar(), copiaAdmin: await copiaFija(),
             /* El padrón no muestra el detalle del DNS, pero quien va a mandar tiene que saberlo. */
             aSpam: dominio?.estado === "mal" ? dominio.titulo : null,
-            invitaciones: filas.map(resumida),
+            /* Un código por lote (25/11): con quiénes son de cada lote, el padrón muestra a cada persona el estado de su lote aunque el código le haya llegado a otra. */
+            invitaciones: await (async () => {
+                const vinc = await prisma.userUnidad.findMany({ where: { unitId: { in: filas.map((f) => f.unitId).filter((x): x is string => !!x) } }, select: { unitId: true, userId: true } });
+                const miembros = new Map<string, string[]>();
+                for (const v of vinc) miembros.set(v.unitId, [...(miembros.get(v.unitId) || []), v.userId]);
+                return filas.map((f) => resumida(f, f.unitId ? miembros.get(f.unitId) || [] : undefined));
+            })(),
         }, { headers: SIN_CACHE });
     }
     const [filas, cfg, goteo] = await Promise.all([
@@ -199,7 +206,7 @@ export async function PUT(req: NextRequest) {
             await auditar(q.sesion, "censo.enviar-invitacion", `${inv.nombre || "sin nombre"} · ${inv.lote}`, envio.ok, envio.ok ? "desde el padrón" : envio.error || "no se pudo");
             if (envio.ok) ok++; else fallas.push(`${inv.lote}: ${envio.error || "el servidor de correo no lo aceptó"}`);
         }
-        const como = await prisma.invitacionCenso.findFirst({ where: { id: { in: r.invs.map((i) => i.id) } }, orderBy: { enviadoAt: "desc" }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true } });
+        const como = await prisma.invitacionCenso.findFirst({ where: { id: { in: r.invs.map((i) => i.id) } }, orderBy: { enviadoAt: "desc" }, select: { userId: true, email: true, enviadoAt: true, usadoAt: true, error: true, unitId: true, lote: true, nombre: true } });
         return NextResponse.json({ ok: !fallas.length, enviadas: ok, error: fallas.length ? `No salió: ${fallas.join(" · ")}` : undefined, invitacion: como ? resumida(como) : null }, { status: fallas.length && !ok ? 502 : 200, headers: SIN_CACHE });
     }
 
