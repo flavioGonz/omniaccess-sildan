@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CarFront, History, MapPin, Users } from "lucide-react";
-import { EnElMapa } from "@/components/administraciones/PlanoLotes";
+import { UbicacionLote } from "@/components/lotes/UbicacionLote";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Cargando, Chip, ErrorEstado } from "@/components/ui/estados";
 import { Matricula } from "@/components/ui/celdas";
@@ -60,14 +60,10 @@ export function CajonLote({ unitId, alCerrar }: { unitId: string | null; alCerra
                     : !d ? <div className="p-6"><Cargando texto="Trayendo el lote…" /></div>
                         : (
                             <>
-                                {/* Dónde está (25/11): con el croquis cargado, cada lote sabe su punto en la Tierra. */}
-                                {d.coordenadas && (
-                                    <div className="flex items-center gap-2 border-b border-border px-6 py-3 text-[12.5px]">
-                                        <MapPin size={13} className="text-muted-foreground" />
-                                        <span className="tabular-nums text-muted-foreground">{d.coordenadas}</span>
-                                        <EnElMapa coordenadas={d.coordenadas} className="ml-auto text-[12.5px] font-semibold" />
-                                    </div>
-                                )}
+                                {/* Dónde queda, en el plano o en el satélite, y corregirlo desde acá (25/11). */}
+                                <CajonSeccion titulo="Ubicación" icono={MapPin} compacta>
+                                    <UbicacionLote key={d.id} unitId={d.id} plano={d.plano} coordenadas={d.coordenadas} puedeEditar={d.puedeEditar} alGuardar={refrescar} />
+                                </CajonSeccion>
                                 <CajonSeccion titulo={`Personas · ${d.personas.length}`} icono={Users} compacta
                                     ayuda={d.principal
                                         ? `El código del censo es del lote y le llega a una sola persona, la principal${d.principal.aMano ? " (elegida a mano)" : ""}: ella carga el censo de todo el lote.${d.puedeEditar ? " Se cambia con «Que le llegue a esta persona»." : ""}`

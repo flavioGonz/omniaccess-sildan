@@ -5,7 +5,7 @@ import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { auditar } from "@/lib/centrales/sesion";
 import { siglaDeEtapa } from "@/lib/padron-planilla";
-import { coordenadasDeTexto, leerPlanoLotes, planoALatLng } from "@/lib/plano-lotes";
+import { coordenadasDeTexto, latLngAPlano, leerPlanoLotes, planoALatLng } from "@/lib/plano-lotes";
 import { cambiarCodigoDeInvitacion, type CodigoCambiado } from "@/lib/censo-codigo";
 import { limpiarChapa } from "@/lib/lote-cambios";
 import { copiaFija, enviarCorreo, limpiarClaveDeAplicacion, probarCuenta } from "@/lib/correo";
@@ -289,6 +289,8 @@ export type DetalleLote = {
     puedeEditar: boolean; personas: PersonaEnLote[]; cambios: CambioVisto[];
     /** Dónde está: «lat, lng» (para abrirlo en un mapa) y si tiene su punto en el croquis. */
     coordenadas: string | null; enElPlano: boolean;
+    /** Su punto en el croquis (píxeles de la imagen original). */
+    plano: { x: number; y: number } | null;
     /** A quién le llega el código del lote (uno por lote, 25/11), y si lo eligió alguien a mano. */
     principal: { userId: string | null; email: string; aMano: boolean } | null;
     /** Desde cuándo se lleva el historial: antes de esa fecha no hay nada que mostrar, y se dice. */
@@ -301,7 +303,7 @@ const visto = (c: { id: string; unitId: string; cuando: Date; que: string; chapa
 export async function detalleLote(unitId: string): Promise<DetalleLote | null> {
     const s = await sesion("usuarios");
     const puedeEditar = permisosDeSesion(s).includes("usuarios.editar");
-    const u = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true, name: true, titular: true, situacion: true, edificio: true, coordinates: true, planoX: true, administracion: { select: { nombre: true } } } });
+    const u = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true, name: true, titular: true, situacion: true, edificio: true, coordinates: true, planoX: true, planoY: true, administracion: { select: { nombre: true } } } });
     if (!u) return null;
     const [gente, cambios, desde] = await Promise.all([
         prisma.user.findMany({
@@ -317,6 +319,7 @@ export async function detalleLote(unitId: string): Promise<DetalleLote | null> {
     return {
         id: u.id, nombre: u.name, administracion: u.administracion?.nombre || null, titular: u.titular, situacion: u.situacion, edificio: u.edificio,
         puedeEditar, auditadoDesde: desde?.value || null, coordenadas: u.coordinates?.trim() || null, enElPlano: u.planoX !== null,
+        plano: u.planoX !== null && u.planoY !== null ? { x: u.planoX, y: u.planoY } : null,
         principal: delLote ? { userId: delLote.userId, email: delLote.email, aMano: delLote.aMano } : null,
         personas: gente.map((g) => {
             const i = deQuien(g);
@@ -328,6 +331,25 @@ export async function detalleLote(unitId: string): Promise<DetalleLote | null> {
         }),
         cambios: cambios.map((c) => visto(c, u.name)),
     };
+}
+
+/**
+ * Corregir la ubicación de un lote desde el satélite (25/11): se mueve el mapa hasta su techo y se
+ * guarda ese punto. Con la calibración del croquis se calcula también su punto en el plano, así las
+ * dos vistas siguen diciendo lo mismo. Si cae fuera del croquis, sólo se guardan las coordenadas.
+ */
+export async function guardarUbicacionLote(unitId: string, lat: number, lng: number): Promise<{ ok: boolean; error?: string; enElPlano?: boolean }> {
+    const s = await sesion("usuarios.editar");
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -35.1 || lat > -30 || lng < -58.6 || lng > -53) return { ok: false, error: "Ese punto no está en Uruguay." };
+    const u = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true, name: true, coordinates: true } });
+    if (!u) return { ok: false, error: "Ese lote ya no existe." };
+    const plano = leerPlanoLotes((await prisma.setting.findUnique({ where: { key: "PLANO_LOTES" } }).catch(() => null))?.value);
+    const p = plano?.georef ? latLngAPlano(lat, lng, plano.georef) : null;
+    const dentro = !!p && !!plano && p.x >= 0 && p.y >= 0 && p.x <= plano.ancho && p.y <= plano.alto;
+    const coordinates = coordenadasDeTexto({ lat, lng });
+    await prisma.unit.update({ where: { id: u.id }, data: { coordinates, ...(dentro ? { planoX: Math.round(p!.x * 10) / 10, planoY: Math.round(p!.y * 10) / 10 } : {}) } });
+    await auditar(s, "lotes.ubicacion", u.id, true, `${u.name}: ${u.coordinates || "sin ubicación"} → ${coordinates}`);
+    return { ok: true, enElPlano: dentro };
 }
 
 /**
