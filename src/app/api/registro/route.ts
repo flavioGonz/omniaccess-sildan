@@ -92,6 +92,23 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+        /* Corregir la propia carga (25/11): quien vuelve a «agregar algo» REEMPLAZA su carga sin
+           revisar, en vez de dejar dos. Vale sólo una pendiente de ESTA clave: la ya aprobada (o la
+           de otro lote) no se toca, y entonces lo que llega es una carga nueva. */
+        const reemplaza = String((cuerpo as { reemplaza?: unknown } | null)?.reemplaza ?? "").slice(0, 40);
+        const previa = reemplaza && invitacion
+            ? await prisma.solicitudPadron.findFirst({ where: { id: reemplaza, estado: "pendiente", clave: invitacion.clave }, select: { id: true, unitId: true } })
+            : null;
+        if (previa) {
+            await prisma.solicitudPadron.update({ where: { id: previa.id }, data: { ...datos, vehiculos: datos.vehiculos, servicios: datos.servicios, unitId: unitId ?? previa.unitId, ...(copia ? { paraUserId: copia.userId } : {}) } });
+            if (copia) await prisma.copiaCenso.update({ where: { id: copia.id }, data: { usadoAt: new Date() } }).catch(() => { });
+            if (unitId) {
+                const quien = [datos.nombre, datos.apellido].filter(Boolean).join(" ").trim() || datos.apellido;
+                const d = diferenciaDeCarga(await chapasDelLote(unitId), datos.vehiculos.map((v) => v.chapa));
+                await anotarEnLote([unitId], { que: "CENSO_CARGA", persona: quien, detalle: `Corrigió su carga. ${fraseDeCarga(d)} Espera que la administración la apruebe.` }, { quien, origen: "censo" });
+            }
+            return NextResponse.json({ ok: true, id: previa.id, corregida: true });
+        }
         // El botón tocado dos veces no es una familia que cargó dos veces.
         const igual = await prisma.solicitudPadron.findFirst({
             where: { lote: datos.lote, telefono: datos.telefono, estado: "pendiente", createdAt: { gte: new Date(Date.now() - REPETIDO_MS) } },

@@ -25,7 +25,10 @@ export type EstadoLote = {
 
 export type QueCambio =
     | "MATRICULA_ALTA" | "MATRICULA_BAJA" | "PERSONA_ALTA" | "PERSONA_BAJA"
-    | "CENSO_CARGA" | "CENSO_APROBADA" | "CENSO_RECHAZADA" | "CODIGO_CAMBIADO";
+    | "CENSO_CARGA" | "CENSO_APROBADA" | "CENSO_RECHAZADA" | "CODIGO_CAMBIADO"
+    /* Lo que se corrige a mano desde el cajón del lote (25/11, Nico: «se debe poder editar a mano, y
+       quedar en el historial el cambio, para llevar un registro de cambios en cada info del lote»). */
+    | "DATO_CAMBIADO" | "PERSONA_EDITADA";
 
 export type Cambio = { que: QueCambio; chapa?: string; persona?: string; userId?: string; detalle?: string };
 
@@ -126,7 +129,8 @@ export function fraseDeCarga(d: { nuevas: string[]; siguen: string[]; faltan: st
 /* ---------- Cómo se lee en pantalla ---------- */
 
 export type TonoCambio = "bien" | "mal" | "info" | "aviso" | "quieto";
-export const CAMBIOS: Record<QueCambio, { rotulo: string; tono: TonoCambio; clase: "matriculas" | "personas" | "censo" }> = {
+export type ClaseCambio = "matriculas" | "personas" | "censo" | "datos";
+export const CAMBIOS: Record<QueCambio, { rotulo: string; tono: TonoCambio; clase: ClaseCambio }> = {
     MATRICULA_ALTA: { rotulo: "Matrícula nueva", tono: "bien", clase: "matriculas" },
     MATRICULA_BAJA: { rotulo: "Matrícula quitada", tono: "mal", clase: "matriculas" },
     PERSONA_ALTA: { rotulo: "Entró al lote", tono: "info", clase: "personas" },
@@ -135,7 +139,26 @@ export const CAMBIOS: Record<QueCambio, { rotulo: string; tono: TonoCambio; clas
     CENSO_APROBADA: { rotulo: "Carga aprobada", tono: "bien", clase: "censo" },
     CENSO_RECHAZADA: { rotulo: "Carga rechazada", tono: "aviso", clase: "censo" },
     CODIGO_CAMBIADO: { rotulo: "Código del censo cambiado", tono: "quieto", clase: "censo" },
+    DATO_CAMBIADO: { rotulo: "Datos del lote corregidos", tono: "quieto", clase: "datos" },
+    PERSONA_EDITADA: { rotulo: "Datos de una persona corregidos", tono: "quieto", clase: "personas" },
 };
+
+/**
+ * Qué cambió entre dos versiones de unos datos, en palabras: «Titular: «Ana» → «Ana y Beto»». Lo
+ * vacío se dice «vacío», no se omite: borrar un teléfono también es un cambio que alguien hizo.
+ */
+type Datos<K extends string> = Partial<Record<K, string | null | undefined>>;
+export function diferenciasDeDatos<K extends string>(antes: Datos<K>, despues: Datos<K>, rotulos: Record<K, string>): string[] {
+    const v = (x: string | null | undefined) => String(x ?? "").replace(/\s+/g, " ").trim();
+    const dice = (x: string) => (x ? `«${x}»` : "vacío");
+    const out: string[] = [];
+    for (const k of Object.keys(rotulos) as K[]) {
+        if (!(k in despues)) continue;
+        const a = v(antes[k]), b = v(despues[k]);
+        if (a !== b) out.push(`${rotulos[k]}: ${dice(a)} → ${dice(b)}`);
+    }
+    return out;
+}
 
 /** «por el censo», «desde el panel»… y quién, si se sabe. Sin firma se dice que no se sabe. */
 export function firmaDeCambio(c: { quien: string | null; origen: string }): string {
@@ -145,8 +168,8 @@ export function firmaDeCambio(c: { quien: string | null; origen: string }): stri
 }
 
 /** Las clases del filtro, con las cuentas de lo que hay cargado. */
-export function contarPorClase(cambios: { que: string }[]): Record<"todos" | "matriculas" | "personas" | "censo", number> {
-    const n = { todos: cambios.length, matriculas: 0, personas: 0, censo: 0 };
+export function contarPorClase(cambios: { que: string }[]): Record<"todos" | ClaseCambio, number> {
+    const n = { todos: cambios.length, matriculas: 0, personas: 0, censo: 0, datos: 0 };
     for (const c of cambios) { const k = CAMBIOS[c.que as QueCambio]?.clase; if (k) n[k]++; }
     return n;
 }

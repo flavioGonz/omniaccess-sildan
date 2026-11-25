@@ -79,7 +79,7 @@ export type CargaDelLote = {
     servicios: string[];
 };
 
-type Form = {
+export type Form = {
     lote: string; apellido: string; nombre: string; tenencia: Tenencia; telefono: string; email: string;
     vehiculos: VehiculoCargado[]; servicios: ServicioCargado[]; comentario: string;
     /** Dónde queda el lote. Opcional de punta a punta: nadie queda afuera por no marcarlo. */
@@ -89,8 +89,20 @@ const VACIO: Form = { lote: "", apellido: "", nombre: "", tenencia: "PROPIETARIO
 /** Lo que se va escribiendo se guarda en el teléfono: en una asamblea la señal se corta. */
 const CLAVE = "oa.censo.borrador";
 
-export function Formulario({ centro, invitacion, cargas = [] }: {
+/**
+ * La carga de esta persona que todavía espera revisión, para corregirla en vez de empezar de cero.
+ *
+ * El reclamo que lo trajo (25/11): «una vez que guardo el último paso no puedo volver atrás para
+ * agregar más servicios: todo el proceso vuelve a empezar desde cero y desaparece todo lo que había
+ * registrado; no se sabe si hay que volver a completar todos los datos o solamente agregar lo
+ * nuevo». Ahora el formulario arranca con lo que ya mandó, y al enviar REEMPLAZA esa carga.
+ */
+export type CargaPrevia = { id: string; cuando: string; datos: Partial<Form> };
+
+export function Formulario({ centro, invitacion, cargas = [], previa }: {
     centro: [number, number];
+    /** Su carga sin revisar todavía, si la hay (ver CargaPrevia). */
+    previa?: CargaPrevia | null;
     /** Lo que ya cargaron en este lote (ver CargaDelLote). */
     cargas?: CargaDelLote[];
     /** Cuando se entró por el enlace del correo: el lote y el correo los pone la invitación. */
@@ -108,13 +120,17 @@ export function Formulario({ centro, invitacion, cargas = [] }: {
     const [paso, setPaso] = useState(0);
     /** Hacia dónde se va: el paso entra por donde se lo empujó y sale por el mismo lado. */
     const [sentido, setSentido] = useState(1);
-    const [f, setF] = useState<Form>(delaInvitacion ? { ...VACIO, ...delaInvitacion } : VACIO);
+    const [f, setF] = useState<Form>(previa ? { ...VACIO, ...delaInvitacion, ...previa.datos } : delaInvitacion ? { ...VACIO, ...delaInvitacion } : VACIO);
+    /** La carga que se está corrigiendo: la previa al entrar, o la que se acaba de mandar si vuelve a «agregar algo». */
+    const [reemplaza, setReemplaza] = useState<{ id: string; cuando: string } | null>(previa ? { id: previa.id, cuando: previa.cuando } : null);
     const [enviando, setEnviando] = useState(false);
     const [errores, setErrores] = useState<string[]>([]);
     const [listo, setListo] = useState(false);
 
     useEffect(() => { getAppBranding().then((b) => setMarca({ name: b.name, barrio: b.barrio, logoUrl: b.logoUrl })).catch(() => { }); }, []);
     useEffect(() => {
+        /* Con una carga previa para corregir, manda ella: un borrador viejo del teléfono taparía lo que ya mandó. */
+        if (previa) return;
         try {
             const v = localStorage.getItem(CLAVE);
             if (!v) return;
@@ -130,7 +146,7 @@ export function Formulario({ centro, invitacion, cargas = [] }: {
                 ? { lat: ubicacionLote[0], lng: ubicacionLote[1] } : {};
             setF({ ...VACIO, ...guardado, ...(invitacion ? { lote: suyo, email: invitacion.email || guardado.email || "" } : {}), ...ub });
         } catch { /* sin borrador */ }
-    }, [invitacion, ubicacionLote]);
+    }, [invitacion, ubicacionLote, previa]);
     useEffect(() => { try { localStorage.setItem(CLAVE, JSON.stringify(f)); } catch { /* el navegador puede no dejar */ } }, [f]);
 
     const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -147,17 +163,20 @@ export function Formulario({ centro, invitacion, cargas = [] }: {
     async function enviar() {
         setEnviando(true); setErrores([]);
         try {
-            const r = await fetch("/api/registro", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...f, clave: invitacion?.clave, de: invitacion?.de }) });
+            const r = await fetch("/api/registro", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...f, clave: invitacion?.clave, de: invitacion?.de, reemplaza: reemplaza?.id }) });
             const j = await r.json().catch(() => ({}));
             if (!r.ok) { setErrores(j?.errores?.length ? j.errores : [j?.error || "No se pudo enviar. Probá de nuevo."]); return; }
             try { localStorage.removeItem(CLAVE); } catch { /* da igual */ }
+            /* Lo mandado queda en pantalla (no se borra): si vuelve a «agregar algo», corrige ESTA carga. */
+            if (j?.id) setReemplaza({ id: j.id, cuando: "recién" });
             setListo(true);
         } catch {
             setErrores(["No se pudo enviar: revisá la señal y probá de nuevo. Lo que escribiste quedó guardado."]);
         } finally { setEnviando(false); }
     }
 
-    if (listo) return <Gracias marca={marca} lote={f.lote} vehiculos={f.vehiculos.filter((v) => v.chapa.trim()).length} servicios={f.servicios.length} ubicado={f.lat != null} />;
+    if (listo) return <Gracias marca={marca} lote={f.lote} vehiculos={f.vehiculos.filter((v) => v.chapa.trim()).length} servicios={f.servicios.length} ubicado={f.lat != null}
+        alCorregir={reemplaza ? () => { setListo(false); setSentido(-1); setPaso(0); try { window.scrollTo({ top: 0 }); } catch { /* da igual */ } } : undefined} />;
 
     return (
         <div className="min-h-screen bg-background text-foreground">
@@ -181,7 +200,13 @@ export function Formulario({ centro, invitacion, cargas = [] }: {
                     <motion.div key={paso} custom={sentido} className="censo-paso"
                         initial={{ opacity: 0, x: 22 * sentido }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -22 * sentido }}
                         transition={RESORTE}>
-                        {paso < 2 && cargas.length > 0 && <YaCargaron cargas={cargas} />}
+                        {reemplaza && (
+                            <div className="mb-5 rounded-[10px] border border-[color-mix(in_oklab,var(--accion)_40%,transparent)] bg-[color-mix(in_oklab,var(--accion)_6%,transparent)] p-3.5">
+                                <p className="text-[14px] font-bold">Estás corrigiendo tu carga{reemplaza.cuando === "recién" ? "" : ` del ${reemplaza.cuando}`}</p>
+                                <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">Está todo lo que mandaste. Agregá o cambiá sólo lo que falte y volvé a enviar: reemplaza a la anterior, no hace falta cargar todo de nuevo.</p>
+                            </div>
+                        )}
+                        {paso < 2 && cargas.filter((c) => !(reemplaza && c.suya && c.estado === "pendiente")).length > 0 && <YaCargaron cargas={cargas.filter((c) => !(reemplaza && c.suya && c.estado === "pendiente"))} />}
                         {paso === 0 && <PasoCasa f={f} set={set} centro={centro} delPlano={ubicacionLote} loteFijo={!!invitacion} lotes={invitacion?.lotes} alElegirLote={(l) => setF((v) => ({ ...v, lote: l, tenencia: tenenciaDe(l) }))} />}
                         {paso === 1 && <PasoVehiculos f={f} set={set} cargas={cargas} />}
                         {paso === 2 && <PasoServicios f={f} set={set} />}
@@ -770,9 +795,11 @@ function PasoServicios({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, 
     );
 }
 
-function Gracias({ marca, lote, vehiculos, servicios, ubicado }: {
+function Gracias({ marca, lote, vehiculos, servicios, ubicado, alCorregir }: {
     marca: { name: string; barrio: string; logoUrl: string };
     lote: string; vehiculos: number; servicios: number; ubicado: boolean;
+    /** Volver al formulario con lo mandado, para agregar o corregir (reemplaza la carga). */
+    alCorregir?: () => void;
 }) {
     const quieto = useReducedMotion();
     const linea = [
@@ -808,8 +835,14 @@ function Gracias({ marca, lote, vehiculos, servicios, ubicado }: {
                 <h1 className="mt-7 text-[28px] font-bold leading-tight tracking-[-0.02em]">Listo, lote {lote}</h1>
                 <p className="mx-auto mt-3 max-w-[460px] text-[15px] leading-relaxed text-muted-foreground">
                     Cargaste {dice}. La administración lo revisa y lo da de alta en los próximos días.
-                    Si falta algo, volvé a escanear el QR y cargalo de nuevo.
+                    {alCorregir ? " Si te olvidaste de algo, agregalo acá: lo que ya cargaste queda." : " Si falta algo, volvé a escanear el QR y cargalo de nuevo."}
                 </p>
+                {alCorregir && (
+                    <button type="button" onClick={alCorregir}
+                        className={cn("mx-auto mt-6 h-12 px-5 rounded-[10px] border border-border text-[15px] font-bold inline-flex items-center justify-center gap-2 hover:bg-accent", PULSABLE)}>
+                        <Plus size={18} /> Agregar o corregir algo
+                    </button>
+                )}
 
                 <div className="mx-auto mt-8 max-w-[460px] rounded-[10px] border border-border bg-card p-4 text-left">
                     <p className="flex items-center gap-2 text-[14px] font-bold"><Sparkles size={15} className="tono-accion" /> Lo que viene</p>

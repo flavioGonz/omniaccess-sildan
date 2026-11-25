@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CarFront, ClipboardCheck, ClipboardList, ClipboardX, History, KeyRound, UserMinus, UserPlus } from "lucide-react";
+import { CarFront, ClipboardCheck, ClipboardList, ClipboardX, History, KeyRound, PencilLine, UserMinus, UserPen, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Vacio } from "@/components/ui/estados";
 import { Matricula } from "@/components/ui/celdas";
@@ -24,9 +24,10 @@ import type { CambioVisto } from "@/app/actions/administraciones";
 const DIBUJO: Record<QueCambio, React.ComponentType<{ size?: number; className?: string }>> = {
     MATRICULA_ALTA: CarFront, MATRICULA_BAJA: CarFront, PERSONA_ALTA: UserPlus, PERSONA_BAJA: UserMinus,
     CENSO_CARGA: ClipboardList, CENSO_APROBADA: ClipboardCheck, CENSO_RECHAZADA: ClipboardX, CODIGO_CAMBIADO: KeyRound,
+    DATO_CAMBIADO: PencilLine, PERSONA_EDITADA: UserPen,
 };
-type Clase = "todos" | "matriculas" | "personas" | "censo";
-const CLASES: { v: Clase; r: string }[] = [{ v: "todos", r: "Todo" }, { v: "matriculas", r: "Matrículas" }, { v: "personas", r: "Personas" }, { v: "censo", r: "Censo" }];
+type Clase = "todos" | "matriculas" | "personas" | "censo" | "datos";
+const CLASES: { v: Clase; r: string }[] = [{ v: "todos", r: "Todo" }, { v: "matriculas", r: "Matrículas" }, { v: "personas", r: "Personas" }, { v: "censo", r: "Censo" }, { v: "datos", r: "Datos" }];
 
 export function HistorialLote({ cambios, conLote, alAbrirLote, auditadoDesde, hayMas, className }: {
     cambios: CambioVisto[];
@@ -53,7 +54,7 @@ export function HistorialLote({ cambios, conLote, alAbrirLote, auditadoDesde, ha
 
     if (!cambios.length) return (
         <Vacio className={className} icono={History} titulo={conLote ? "Sin cambios en este período" : "Este lote todavía no tuvo cambios"}
-            ayuda={`Acá queda cada matrícula que entra o sale, cada persona que se suma o se va, y lo que carguen en el censo. ${desde}`} />
+            ayuda={`Acá queda cada matrícula que entra o sale, cada persona que se suma o se va, lo que carguen en el censo y cada dato que se corrija a mano. ${desde}`} />
     );
     return (
         <div className={className}>

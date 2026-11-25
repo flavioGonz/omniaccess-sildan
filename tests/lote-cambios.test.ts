@@ -1,7 +1,7 @@
 /** Qué cambió en un lote (lib/lote-cambios). Datos inventados. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compararLote, diferenciaDeCarga, estadoDeLotes, firmaDeCambio, fraseDeCarga, leerEstado, ESTADO_VACIO, type EstadoLote } from "@/lib/lote-cambios";
+import { compararLote, contarPorClase, diferenciaDeCarga, diferenciasDeDatos, estadoDeLotes, firmaDeCambio, fraseDeCarga, leerEstado, ESTADO_VACIO, type EstadoLote } from "@/lib/lote-cambios";
 
 const ana = { id: "u1", nombre: "Ana Prueba" }, beto = { id: "u2", nombre: "Beto Ejemplo" };
 const lote = (personas: typeof ana[], chapas: [string, string][]): EstadoLote => ({ personas, chapas: chapas.map(([chapa, userId]) => ({ chapa, userId })) });
@@ -66,4 +66,16 @@ test("la firma dice quién y por dónde, y cuando no se sabe lo dice", () => {
     assert.equal(firmaDeCambio({ quien: "Ana Prueba", origen: "censo" }), "Ana Prueba, por el censo");
     assert.equal(firmaDeCambio({ quien: "operador", origen: "panel" }), "operador, desde el panel");
     assert.match(firmaDeCambio({ quien: null, origen: "sistema" }), /No se sabe quién/);
+});
+
+test("lote a mano: lo que cambió se dice con lo de antes y lo de ahora; lo vacío también", () => {
+    const r = { titular: "Titular", situacion: "Situación" };
+    assert.deepEqual(diferenciasDeDatos({ titular: "Ana", situacion: "terreno" }, { titular: "Ana y Beto" }, r), ["Titular: «Ana» → «Ana y Beto»"]);
+    assert.deepEqual(diferenciasDeDatos({ titular: "Ana", situacion: null }, { titular: "", situacion: "terreno" }, r), ["Titular: «Ana» → vacío", "Situación: vacío → «terreno»"]);
+    assert.deepEqual(diferenciasDeDatos({ titular: "Ana  Pérez", situacion: null }, { titular: " Ana Pérez " }, r), [], "espacios de más no son un cambio");
+    assert.deepEqual(diferenciasDeDatos({ titular: "Ana", situacion: null }, {}, r), [], "lo que no se mandó no se compara");
+});
+test("lote a mano: las correcciones cuentan en su filtro", () => {
+    const n = contarPorClase([{ que: "DATO_CAMBIADO" }, { que: "PERSONA_EDITADA" }, { que: "MATRICULA_ALTA" }]);
+    assert.equal(n.datos, 1); assert.equal(n.personas, 1); assert.equal(n.matriculas, 1); assert.equal(n.todos, 3);
 });

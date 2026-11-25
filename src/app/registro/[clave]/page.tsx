@@ -3,7 +3,7 @@ import { funcionActiva } from "@/app/actions/funciones";
 import { getBarrioMap } from "@/app/actions/barriomap";
 import { prisma } from "@/lib/prisma";
 import { normalizarClave } from "@/lib/censo-invitaciones";
-import { Formulario, type CargaDelLote } from "../Formulario";
+import { Formulario, type CargaDelLote, type CargaPrevia } from "../Formulario";
 import { lineaDeServicio } from "@/lib/censo-servidor";
 import { ZONA } from "@/lib/fechas";
 import { TIPOS_VEHICULO, type ServicioCargado, type VehiculoCargado } from "@/lib/registro-padron";
@@ -47,18 +47,36 @@ export default async function RegistroConClave({ params, searchParams }: { param
     const filas = await prisma.solicitudPadron.findMany({
         where: { estado: { in: ["pendiente", "aprobada"] }, OR: [...(inv.unitId ? [{ unitId: inv.unitId }] : []), { clave: inv.clave }] },
         orderBy: { createdAt: "desc" }, take: 20,
-        select: { nombre: true, apellido: true, createdAt: true, estado: true, vehiculos: true, servicios: true, paraUserId: true, email: true },
+        select: { id: true, nombre: true, apellido: true, createdAt: true, estado: true, vehiculos: true, servicios: true, paraUserId: true, email: true, telefono: true, tenencia: true, comentario: true, lat: true, lng: true },
     }).catch(() => []);
     const miCorreo = (copia?.email || "").trim().toLowerCase();
     const yo = copia ? await prisma.copiaCenso.findUnique({ where: { id: copia.id }, select: { userId: true } }).catch(() => null) : null;
     const rotulo = (t: string) => TIPOS_VEHICULO.find((x) => x.id === t)?.rotulo || t;
+    /* De quién es cada carga: la de la copia por la que entró (su persona), o —entrando por el enlace
+       de la principal— la que se hizo con el correo de la invitación y sin copia. */
+    const esSuya = (c: (typeof filas)[number]) => copia
+        ? !!((yo?.userId && c.paraUserId === yo.userId) || (miCorreo && c.email.trim().toLowerCase() === miCorreo))
+        : !c.paraUserId && !!inv.email && c.email.trim().toLowerCase() === inv.email.trim().toLowerCase();
+    /* Su carga que todavía espera revisión: el formulario arranca con ella para corregirla (25/11, el
+       reclamo de que «todo vuelve a empezar desde cero»). Una ya aprobada no se reabre: se ve arriba
+       como «(vos)» y lo nuevo es una carga nueva. */
+    const mia = filas.find((c) => c.estado === "pendiente" && esSuya(c));
+    const previa: CargaPrevia | null = mia ? {
+        id: mia.id, cuando: mia.createdAt.toLocaleDateString("es-UY", { day: "numeric", month: "short", timeZone: ZONA }),
+        datos: {
+            nombre: mia.nombre, apellido: mia.apellido, telefono: mia.telefono, email: mia.email || copia?.email || inv.email,
+            tenencia: mia.tenencia === "INQUILINO" ? "INQUILINO" : "PROPIETARIO", comentario: mia.comentario,
+            vehiculos: ((mia.vehiculos as unknown as VehiculoCargado[]) || []).length ? (mia.vehiculos as unknown as VehiculoCargado[]) : [{ chapa: "", tipo: "PROPIO" }],
+            servicios: (mia.servicios as unknown as ServicioCargado[]) || [], lat: mia.lat, lng: mia.lng,
+        },
+    } : null;
     const cargas: CargaDelLote[] = filas.map((c) => ({
         quien: [c.nombre, c.apellido].filter(Boolean).join(" ").trim() || "Alguien del lote",
         cuando: c.createdAt.toLocaleDateString("es-UY", { day: "numeric", month: "short", timeZone: ZONA }),
         estado: c.estado === "aprobada" ? "aprobada" : "pendiente",
-        suya: !!((yo?.userId && c.paraUserId === yo.userId) || (miCorreo && c.email.trim().toLowerCase() === miCorreo)),
+        suya: esSuya(c),
         vehiculos: ((c.vehiculos as unknown as VehiculoCargado[]) || []).filter((v) => v?.chapa).map((v) => ({ chapa: v.chapa, tipo: v.tipo, detalle: [rotulo(v.tipo), v.marca, v.color].filter(Boolean).join(" · ") })),
         servicios: ((c.servicios as unknown as ServicioCargado[]) || []).map(lineaDeServicio),
     }));
-    return <Formulario centro={center} cargas={cargas} invitacion={{ clave: inv.clave, lote: lotes[0]?.nombre || inv.lote, lotes, email: copia?.email || inv.email, nombre: copia ? copia.nombre : inv.nombre, ubicacion, de: copia?.id }} />;
+    return <Formulario centro={center} cargas={cargas} previa={previa} invitacion={{ clave: inv.clave, lote: lotes[0]?.nombre || inv.lote, lotes, email: copia?.email || inv.email, nombre: copia ? copia.nombre : inv.nombre, ubicacion, de: copia?.id }} />;
 }

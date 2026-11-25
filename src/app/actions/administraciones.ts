@@ -8,6 +8,7 @@ import { siglaDeEtapa } from "@/lib/padron-planilla";
 import { coordenadasDeTexto, latLngAPlano, leerPlanoLotes, planoALatLng } from "@/lib/plano-lotes";
 import { cambiarCodigoDeInvitacion, type CodigoCambiado } from "@/lib/censo-codigo";
 import { limpiarChapa } from "@/lib/lote-cambios";
+import { anotarEnLote } from "@/lib/lote-auditoria";
 import { copiaFija, enviarCorreo, limpiarClaveDeAplicacion, probarCuenta } from "@/lib/correo";
 import { correoSirve, nuevaClave } from "@/lib/censo-invitaciones";
 
@@ -357,6 +358,8 @@ export async function guardarUbicacionLote(unitId: string, lat: number, lng: num
     const coordinates = coordenadasDeTexto({ lat, lng });
     await prisma.unit.update({ where: { id: u.id }, data: { coordinates, ...(dentro ? { planoX: Math.round(p!.x * 10) / 10, planoY: Math.round(p!.y * 10) / 10 } : {}) } });
     await auditar(s, "lotes.ubicacion", u.id, true, `${u.name}: ${u.coordinates || "sin ubicación"} → ${coordinates}`);
+    /* Y en el historial del lote (25/11: cada dato que se corrige a mano queda anotado). */
+    await anotarEnLote([u.id], { que: "DATO_CAMBIADO", detalle: `Ubicación: ${u.coordinates?.trim() ? `«${u.coordinates.trim()}»` : "sin ubicación"} → «${coordinates}»` }, { quien: String(s?.name || s?.sub || "") || null, origen: "panel" });
     return { ok: true, enElPlano: dentro };
 }
 
