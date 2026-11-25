@@ -525,9 +525,40 @@ export async function descartarGps(imei: string): Promise<{ ok: boolean; error?:
     const s = await sesion("equipo");
     const e = await prisma.gpsEquipo.findUnique({ where: { imei } });
     if (!e) return { ok: true };
-    if (e.deviceId && (await prisma.device.count({ where: { id: e.deviceId } }))) return { ok: false, error: "Ese rastreador está dado de alta: se quita desde Dispositivos." };
+    if (e.deviceId && (await prisma.device.count({ where: { id: e.deviceId } }))) return { ok: false, error: "Ese rastreador está dado de alta: se quita con su botón de borrar (quitarGps)." };
     await prisma.gpsEquipo.delete({ where: { imei } });
     await auditar(s, "equipos.gps.descartar", imei, true, `IMEI ${imei}`);
+    return { ok: true };
+}
+
+/**
+ * Quitar un rastreador dado de alta (25/11, Nico: «los dispositivos tipo GPS no se pueden eliminar
+ * desde Dispositivos»). La pestaña GPS de Dispositivos reemplaza a la tabla común, así que el borrar
+ * de los demás equipos no estaba, y `descartarGps` mandaba a «quitarlo desde Dispositivos»: un
+ * camino que no existía. Se borra el equipo de todos lados (lib/borrar-equipo) y el rastreador con su
+ * historial: posiciones, eventos, comandos y enlaces compartidos. Si vuelve a conectarse con la puerta
+ * abierta, aparece otra vez como uno nuevo, sin dar de alta.
+ */
+export async function quitarGps(imei: string): Promise<{ ok: boolean; error?: string }> {
+    const s = await sesion("equipo");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (!permisosDeSesion(s as any).includes("dispositivos.editar")) return { ok: false, error: "Hace falta el permiso Editar dispositivos para quitar equipos." };
+    const e = await prisma.gpsEquipo.findUnique({ where: { imei: String(imei) } });
+    if (!e) return { ok: true };
+    const quien = String(s.name || s.sub || "panel");
+    if (e.deviceId && (await prisma.device.count({ where: { id: e.deviceId } }))) {
+        const { borrarEquipoDeTodo } = await import("@/lib/borrar-equipo");
+        const r = await borrarEquipoDeTodo(e.deviceId, quien);
+        if (!r.ok) return { ok: false, error: r.error || "No se pudo quitar el equipo." };
+    }
+    const [pos, ev, com, comp] = await prisma.$transaction([
+        prisma.gpsPosicion.deleteMany({ where: { imei: e.imei } }),
+        prisma.gpsEvento.deleteMany({ where: { imei: e.imei } }),
+        prisma.gpsComando.deleteMany({ where: { imei: e.imei } }),
+        prisma.gpsCompartido.deleteMany({ where: { imei: e.imei } }),
+    ]);
+    await prisma.gpsEquipo.delete({ where: { imei: e.imei } });
+    await auditar(s, "equipos.gps.quitar", e.imei, true, `${e.nombre || "rastreador"} · IMEI ${e.imei} · ${pos.count} posiciones, ${ev.count} eventos, ${com.count} comandos, ${comp.count} enlaces`);
     return { ok: true };
 }
 

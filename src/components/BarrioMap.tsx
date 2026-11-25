@@ -33,6 +33,7 @@ import { montarVivo } from "@/lib/vivo";
 import { BotonFijar, useVivo } from "@/components/vivo/PanelVivo";
 import { useRouter } from "next/navigation";
 import { CapaGps } from "@/components/mapa/CapaGps";
+import { useFuncion } from "@/lib/funciones-cliente";
 import { CapaUbicacionLotes } from "@/components/mapa/CapaUbicacionLotes";
 
 type Tool = "select" | "perimeter" | "camera" | "lote" | "division" | "street";
@@ -664,6 +665,8 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
     const [base, setBase] = useState<Base>("Satélite");
     const [menuCapas, setMenuCapas] = useState(false);
     // Por rendimiento: por defecto NO se dibujan los polígonos de lotes, solo los nombres.
+    /* Con la característica Rastreo GPS apagada (25/11), los vehículos no se dibujan. */
+    const gpsOn = useFuncion("FUNC_GPS");
     const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: false, ubicLotes: true, ubicCenso: true, divisions: true, perimeter: true, guards: true, names: true, intrusion: true, fov: false });
     const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
     const [openCamPopup, setOpenCamPopup] = useState<string | null>(null); // cámara con popup de video abierto (lazy)
@@ -1179,7 +1182,7 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
                     <ZoomTracker onZoom={setZoom} />
                     <BoundsTracker onBounds={setMapBounds} />
                     {/* Los rastreadores GPS: se dibujan solos donde estén, aunque sea lejos del barrio. */}
-                    <CapaGps />
+                    {gpsOn !== false && <CapaGps />}
                     {(movingCam || extendDiv || intrDraw || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
                     <MapCtxMenu onCtx={(oe) => setCtx({ x: oe.clientX, y: oe.clientY, type: "map", id: "" })} />
 

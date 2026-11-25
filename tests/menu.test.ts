@@ -149,3 +149,9 @@ test("con la característica Face apagada no queda nada de rostros en el menú (
     const prendido = armarMenu(barrio({ omnivision: conRostros }));
     assert.ok(hojasDe(prendido).some((h) => h.href === "/admin/vision/rostros"), "sin dato, como antes: prendida");
 });
+
+test("con la característica Rastreo GPS apagada no hay módulo GPS aunque haya rastreadores (25/11)", () => {
+    const m = armarMenu(barrio({ func: { intrusion: true, recepcion: true, amarilla: true, censo: true, plazas: true, gps: false } }));
+    assert.ok(!rotulos(m, "modulos").includes("Rastreo GPS"));
+    assert.ok(rotulos(armarMenu(barrio()), "modulos").includes("Rastreo GPS"), "sin dato, prendida");
+});

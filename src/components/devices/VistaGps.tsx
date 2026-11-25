@@ -7,7 +7,7 @@ import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { atarVehiculoGps, cambiarPuertaGps, comandoGps, darDeAltaGps, descartarGps, diagnosticoGps, puertaGps, renombrarGps, type DiagnosticoGps, type Rastreador } from "@/app/actions/gps";
+import { atarVehiculoGps, cambiarPuertaGps, comandoGps, darDeAltaGps, descartarGps, quitarGps, diagnosticoGps, puertaGps, renombrarGps, type DiagnosticoGps, type Rastreador } from "@/app/actions/gps";
 import { limpiarMatricula } from "@/lib/gps-matricula";
 import { ReportesGps, type InicioDeReportes } from "@/components/mapa/ReportesGps";
 import { DeleteButton } from "@/components/ui/delete-button";
@@ -325,6 +325,10 @@ function Fila({ r, d, alCambiar, alReportes }: { r: Rastreador; d?: DiagnosticoG
                                 <button type="button" onClick={() => setNuevo(r.nombre || "")} title="Cambiar el nombre"
                                     className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"><Pencil size={14} /></button>
                             )}
+                            {/* Quitarlo de todos lados, con su historial (25/11): antes no había cómo. */}
+                            <div className="scale-[.72] origin-right -my-2" title="Quitar el rastreador y su historial">
+                                <DeleteButton onConfirm={async () => { const x = await quitarGps(r.imei); if (!x.ok) toast.error({ title: "No se pudo quitar", description: x.error }); else toast.success({ title: "Rastreador quitado", description: `${r.nombre || r.imei} y su historial.` }); alCambiar(); }} />
+                            </div>
                         </>
                     ) : (
                         <>

@@ -19,7 +19,7 @@ import type { ModuleId } from "@/lib/module-definitions";
 
 export type FuncionId = "LPR_ESTADIAS" | "LPR_OCUPACION" | "LPR_MARCAS" | "LPR_PLAZAS" | "LPR_BUSQUEDA" | "LPR_MIN_INTERIOR"
     | "FUNC_INTRUSION" | "FUNC_ALARMAS_RECEPCION" | "FUNC_ALARMAS_GESTION" | "EQUIPOS_USUARIOS" | "PADRON_CENSO"
-    | "FUNC_FACE" | "FACE_DOBLE_VERIFICACION" | "GPS_DIRECCIONES" | "GPS_POR_CALLE";
+    | "FUNC_FACE" | "FACE_DOBLE_VERIFICACION" | "FUNC_GPS" | "GPS_DIRECCIONES" | "GPS_POR_CALLE";
 
 export interface Funcion {
     id: FuncionId;
@@ -173,8 +173,20 @@ export const FUNCIONES: Funcion[] = [
         porDefecto: false,
     },
     {
+        id: "FUNC_GPS",
+        alcance: "instalacion",
+        nombre: "Rastreo GPS",
+        que: "Los rastreadores de vehículos: el módulo Rastreo GPS del menú (vehículos, comandos, recorridos, geocercas, reportes), los vehículos en el mapa y la pestaña GPS de Dispositivos.",
+        siSeApaga: "Desaparece del menú, del mapa y de Dispositivos todo lo de los rastreadores, y sus pantallas dicen que está apagado. El receptor sigue escuchando y guardando lo que manden los equipos: al prenderla otra vez está todo, sin huecos.",
+        // Prendida de fábrica: es como estaba antes de ser una característica (25/11, Nico: «el módulo
+        // de rastreo GPS también debe ser similar, activable, como built-in feature»). El menú igual
+        // lo muestra sólo si hay rastreadores.
+        porDefecto: true,
+    },
+    {
         id: "GPS_DIRECCIONES",
         alcance: "instalacion",
+        requiere: "FUNC_GPS",
         nombre: "Direcciones de los lugares",
         que: "Dice dónde está cada rastreador con palabras —«Cavour 3230, Parque Batlle, Montevideo»— en vez de coordenadas: en el mapa, en el recorrido y en los reportes. Lo averigua un servicio que corre en este mismo equipo (omni-geo, con el mapa de OpenStreetMap); por dónde anda cada vehículo no se le manda a nadie. Al prenderla se instala sola: la primera vez baja el mapa y tarda unos quince minutos.",
         siSeApaga: "Los lugares vuelven a verse con el nombre de la geocerca o con coordenadas, y el servicio se detiene y libera su memoria. Ni el mapa ni las direcciones ya averiguadas se borran: al prenderla otra vez anda en segundos.",
@@ -184,6 +196,7 @@ export const FUNCIONES: Funcion[] = [
     {
         id: "GPS_POR_CALLE",
         alcance: "instalacion",
+        requiere: "FUNC_GPS",
         nombre: "Recorridos por la calle",
         que: "Dibuja el trayecto de cada rastreador siguiendo la calle, en vez de unir sus posiciones con líneas rectas que cortan por las manzanas: en el mapa en vivo, en el recorrido y en el informe con mapa. Lo calcula un servicio que corre en este mismo equipo (omni-rutas, con el mapa de OpenStreetMap); por dónde anda cada vehículo no se le manda a nadie. Al prenderla se instala sola: la primera vez baja el mapa y tarda unos minutos.",
         siSeApaga: "Los trayectos vuelven a dibujarse en línea recta entre posición y posición, y el servicio se detiene y libera su memoria. No se pierde nada: las posiciones guardadas son siempre las que mandó el equipo.",

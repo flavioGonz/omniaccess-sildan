@@ -254,6 +254,7 @@ export default function DevicesPage() {
     const recepcionOn = useFuncion("FUNC_ALARMAS_RECEPCION") === true;
     /** Usuarios de los equipos (openspec usuarios-de-equipos): el panel de cuentas de todo el sitio, en «Todas». */
     const usuariosOn = useFuncion("EQUIPOS_USUARIOS") === true;
+    const gpsOn = useFuncion("FUNC_GPS");
 
     const [devices, setDevices] = useState<any[]>([]);
     /** Los rastreadores que conoce el receptor, estén o no dados de alta como equipo. Se vuelven a
@@ -378,7 +379,8 @@ export default function DevicesPage() {
     /* Los GPS se ven si hay alguno dado de alta O si alguno se presentó en el receptor: el
        rastreador se anota solo al conectarse (GpsEquipo) y, mirando sólo los Device, estaba
        reportando sin que esta pantalla supiera que existía (20/11). */
-    if (devices.some((d) => vistaDe(d) === "GPS") || cuantosGps > 0) allowedTypes.push("GPS");
+    /* Con la característica Rastreo GPS apagada (25/11), la pestaña no está. */
+    if (gpsOn !== false && (devices.some((d) => vistaDe(d) === "GPS") || cuantosGps > 0)) allowedTypes.push("GPS");
     const pedido = searchParams.get('type');
     const typeFilter = pedido && allowedTypes.includes(pedido) ? pedido : (allowedTypes[0] || "LPR_CAMERA");
     // Alta: un solo botón que pregunta qué se agrega (LPR, intrusión o NVR) e importar canales de un NVR.

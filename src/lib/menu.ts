@@ -62,8 +62,8 @@ export type ContextoMenu = {
     modos: { lpr: boolean; rostro: boolean; filas: boolean; guardia: boolean };
     /** Las funciones prendidas que cambian el menú. */
     func: { intrusion: boolean; recepcion: boolean; amarilla: boolean; censo: boolean; plazas: boolean;
-        /** La característica Face (25/11). Sin dato, prendida: es como era antes de existir el interruptor. */
-        face?: boolean };
+        /** Las características Face y Rastreo GPS (25/11). Sin dato, prendidas: es como era antes de existir el interruptor. */
+        face?: boolean; gps?: boolean };
     /** Lo que sólo aparece si hay de eso en la instalación. */
     hay: { accesos: boolean; gps: boolean };
     /** Las cuentas de las insignias. */
@@ -149,7 +149,7 @@ export function armarMenu(c: ContextoMenu): SeccionMenu[] {
             ...hoja(true, { id: "video-pared", rotulo: "Pared de monitores", href: "/admin/monitores", unico: "Pared de monitores" }),
         ]),
         /* Sus cinco pestañas, cada una con su dirección: del menú se llega derecho a Comandos. */
-        ...(c.hay.gps ? grupo("gps", "Rastreo GPS", "gps", [
+        ...(c.hay.gps && f.gps !== false ? grupo("gps", "Rastreo GPS", "gps", [
             ...hoja(true, { id: "gps-vehiculos", rotulo: "Vehículos", href: "/admin/gps" }),
             ...hoja(true, { id: "gps-zonas", rotulo: "Zonas", href: "/admin/gps?t=zonas" }),
             ...hoja(true, { id: "gps-reportes", rotulo: "Reportes", href: "/admin/gps?t=reportes" }),

@@ -29,6 +29,7 @@ const axios = require("axios");
 const https = require("https");
 const crypto = require("crypto");
 const { uploadToS3 } = require("./lib-s3");
+const { achicarEscena } = require("./lib-escena");
 const { estaEnListaNegra, detalleListaNegra } = require("./lib-lista-negra");
 const { contextoDeLectura, busquedaPrendida } = require("./lib-contexto-vigilancia");
 const { captureForDevice: captureIntrusion } = require("./lib-intrusion-capture");
@@ -1470,7 +1471,8 @@ const handleWebhook = async (req, res, logPrefix) => {
             try {
                 const filename = `hik_${finalPlate}_${eventTimestamp.getTime()}.jpg`;
                 console.log(`${logPrefix} [S3] Attempting upload of ${imageFile.size} bytes to bucket 'lpr'...`);
-                relativeImagePath = await uploadToS3(imageFile.buffer, filename, imageFile.mimeType || "image/jpeg", "lpr");
+                // Achicada antes de guardar (lib-escena, 25/11): 1,55 MB → ~0,44 MB, la chapa se sigue leyendo.
+                relativeImagePath = await uploadToS3(await achicarEscena(imageFile.buffer), filename, "image/jpeg", "lpr");
                 console.log(`${logPrefix} [S3] Upload SUCCESS: ${relativeImagePath}`);
             } catch (imgError) {
                 console.error(`${logPrefix} [S3] Upload FAILED: ${imgError.message}`);
@@ -1535,7 +1537,7 @@ const handleWebhook = async (req, res, logPrefix) => {
                 const snapBuf = await fetchCameraSnapshot(device);
                 if (snapBuf && snapBuf.length > 500) {
                     const fnSnap = `hik_${finalPlate}_${eventTimestamp.getTime()}.jpg`;
-                    relativeImagePath = await uploadToS3(snapBuf, fnSnap, "image/jpeg", "lpr");
+                    relativeImagePath = await uploadToS3(await achicarEscena(snapBuf), fnSnap, "image/jpeg", "lpr");
                     console.log(`${logPrefix} [S3] Snapshot fallback (ISAPI) SUCCESS: ${relativeImagePath}`);
                 }
             } catch (e) { console.error(`${logPrefix} [S3] Snapshot fallback FAILED: ${e.message}`); }
