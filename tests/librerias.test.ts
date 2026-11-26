@@ -49,6 +49,9 @@ test("sólo lectura: POST de búsqueda y el lente pasan; un PUT de configuració
     assert.ok(!cambiaAlgo("POST", "/ISAPI/AccessControl/UserInfo/Search?format=json"));
     assert.ok(!cambiaAlgo("POST", "/ISAPI/AccessControl/CardInfo/Search?format=json"));
     assert.ok(!cambiaAlgo("POST", "/ISAPI/Intelligent/FDLib/FDSearch?format=json"));
+    // La lista de una cámara LPR es una búsqueda (26/11): leerla no cambia nada; cargar una matrícula sí.
+    assert.ok(!cambiaAlgo("POST", "/ISAPI/Traffic/channels/1/searchLPListAudit"));
+    assert.ok(cambiaAlgo("PUT", "/ISAPI/Traffic/channels/1/licensePlateAuditData/record?format=json"));
     // Pero dar de alta o borrar una persona en el equipo sigue siendo escribir.
     assert.ok(cambiaAlgo("POST", "/ISAPI/AccessControl/UserInfo/Record?format=json"));
     assert.ok(cambiaAlgo("PUT", "/ISAPI/AccessControl/UserInfo/Modify?format=json"));

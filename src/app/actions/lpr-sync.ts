@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
 import { matriculasParaCargar, type MatriculaParaCamara } from "@/lib/lista-negra";
 import { getSession } from "@/app/actions/auth";
+import { EquipoSoloLectura, esSoloLectura } from "@/lib/solo-lectura";
 
 // Sincronización de matrículas a las cámaras LPR — versión INCREMENTAL (diff).
 // En vez de borrar toda la lista de la cámara y recargarla (disruptivo), leemos lo que
@@ -13,6 +14,15 @@ import { getSession } from "@/app/actions/auth";
 
 const LOCK_KEY = "LPR_SYNC_LOCK";
 const LOCK_TTL_MS = 20 * 60 * 1000; // el lock caduca solo a los 20 min por si un proceso muere
+
+/*
+ * Una cámara marcada de sólo lectura para ESTE servidor (OMNI_EQUIPOS_SOLO_LECTURA) no se
+ * sincroniza: cada alta se corta antes de salir. Antes se intentaban igual las 374, fallaban
+ * todas sin decir por qué y el cajón terminaba en verde con «sin cambios (374 fallidas)» (26/11).
+ * Ahora se dice en el análisis y no se intenta.
+ */
+const motivoSoloLectura = (ip: string) => new EquipoSoloLectura(ip).message;
+const BLOQUEADA = (ip: string) => ({ ok: false, error: motivoSoloLectura(ip), soloLectura: true, added: 0, addFail: 0, removed: 0, remFail: 0 });
 
 const norm = (s: string) => (s || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 
@@ -66,6 +76,7 @@ export async function getSyncPlan() {
     const driver = new HikvisionDriver();
 
     const perDevice = await Promise.all(devices.map(async (d) => {
+        const soloLectura = esSoloLectura(d.ip || "");
         try {
             const cam = await driver.getPlates(d);
             const camSet = new Set<string>();
@@ -74,9 +85,9 @@ export async function getSyncPlan() {
             for (const p of db) { if (camSet.has(p)) unchanged++; else toAdd++; }
             let toRemove = 0;
             for (const p of camSet) { if (!db.has(p)) toRemove++; }
-            return { id: d.id, name: d.name, ip: d.ip, direction: d.direction, online: true, currentCount: camSet.size, toAdd, toRemove, unchanged, error: null as string | null };
+            return { id: d.id, name: d.name, ip: d.ip, direction: d.direction, online: true, soloLectura, currentCount: camSet.size, toAdd, toRemove, unchanged, error: soloLectura ? motivoSoloLectura(d.ip) : null as string | null };
         } catch (e: any) {
-            return { id: d.id, name: d.name, ip: d.ip, direction: d.direction, online: false, currentCount: 0, toAdd: db.size, toRemove: 0, unchanged: 0, error: e?.message || "sin conexión" };
+            return { id: d.id, name: d.name, ip: d.ip, direction: d.direction, online: false, soloLectura, currentCount: 0, toAdd: db.size, toRemove: 0, unchanged: 0, error: e?.message || "sin conexión" };
         }
     }));
 
@@ -87,6 +98,7 @@ export async function getSyncPlan() {
 export async function syncDeviceIncremental(deviceId: string) {
     const device = await prisma.device.findUnique({ where: { id: deviceId } });
     if (!device || device.brand !== "HIKVISION") return { ok: false, error: "Dispositivo no compatible", added: 0, addFail: 0, removed: 0, remFail: 0 };
+    if (esSoloLectura(device.ip || "")) return BLOQUEADA(device.ip);
     const driver = new HikvisionDriver();
 
     const deseadas = await matriculasParaCargar();
@@ -107,31 +119,34 @@ export async function syncDeviceIncremental(deviceId: string) {
     const toAdd = [...db].filter((p) => !camSet.has(p) || byNorm.get(p)?.lista === "blackList");
     const toRemove = [...camSet].filter((p) => !db.has(p));
 
-    let added = 0, addFail = 0, removed = 0, remFail = 0;
+    // El primer motivo de falla viaja al cajón: «12 fallidas» sin decir por qué no deja hacer nada.
+    let added = 0, addFail = 0, removed = 0, remFail = 0, error: string | undefined;
+    const fallo = (e: unknown) => { const x = e as { response?: { status?: number }; message?: string } | null; error ??= x?.response?.status ? `la cámara respondió ${x.response.status}` : (x?.message || "sin respuesta"); };
     for (const n of toAdd) {
         const m = byNorm.get(n);
         if (!m) continue;
-        try { await driver.addPlateToCamera(device, m.plate, m.lista); added++; } catch { addFail++; }
+        try { await driver.addPlateToCamera(device, m.plate, m.lista); added++; } catch (e) { addFail++; fallo(e); }
     }
     for (const n of toRemove) {
-        try { await driver.deleteCredential(camOrig.get(n) || n, device); removed++; } catch { remFail++; }
+        try { await driver.deleteCredential(camOrig.get(n) || n, device); removed++; } catch (e) { remFail++; fallo(e); }
     }
 
-    return { ok: true, added, addFail, removed, remFail, before: camSet.size, after: camSet.size + added - removed };
+    return { ok: true, added, addFail, removed, remFail, error, before: camSet.size, after: camSet.size + added - removed };
 }
 
 /** Reemplazo TOTAL de UN dispositivo (avanzado/reparación): borra la lista y recarga todo. */
 export async function syncDeviceFull(deviceId: string) {
     const device = await prisma.device.findUnique({ where: { id: deviceId } });
     if (!device || device.brand !== "HIKVISION") return { ok: false, error: "Dispositivo no compatible", added: 0, addFail: 0, removed: 0, remFail: 0 };
+    if (esSoloLectura(device.ip || "")) return BLOQUEADA(device.ip);
     const driver = new HikvisionDriver();
     const deseadas = await matriculasParaCargar();
     let before = 0;
     try { before = (await driver.getPlates(device)).length; } catch { }
     try { await driver.clearWhiteList(device); } catch { }
-    let added = 0, addFail = 0;
-    for (const m of deseadas) { try { await driver.addPlateToCamera(device, m.plate, m.lista); added++; } catch { addFail++; } }
-    return { ok: true, added, addFail, removed: before, remFail: 0, before, after: added };
+    let added = 0, addFail = 0, error: string | undefined;
+    for (const m of deseadas) { try { await driver.addPlateToCamera(device, m.plate, m.lista); added++; } catch (e) { addFail++; error ??= e instanceof Error ? e.message : "sin respuesta"; } }
+    return { ok: true, added, addFail, removed: before, remFail: 0, error, before, after: added };
 }
 
 /**
@@ -182,6 +197,7 @@ export async function sincronizarUsuario(userId: string) {
     const resultados: { deviceId: string; agregadas: number; error?: string }[] = [];
     await Promise.all(devices.map(async (d) => {
         let agregadas = 0;
+        if (esSoloLectura(d.ip || "")) { resultados.push({ deviceId: d.id, agregadas, error: motivoSoloLectura(d.ip) }); return; }
         try {
             for (const c of u.credentials) {
                 const h = await driver.findPlateOnCamera(d, c.value);

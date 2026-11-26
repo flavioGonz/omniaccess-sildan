@@ -59,6 +59,12 @@ const POST_DE_LECTURA = [
      * que corresponde hacer decía algo que no era cierto.
      */
     /\/AccessControl\/AcsEvent/i, /\/AccessControl\/\w+\/Search/i, /\/FDLib\/FDSearch/i, /\/FaceDataRecord\/Search/i,
+    /*
+     * La lista de matrículas de una cámara LPR (26/11). Se pide por POST con un filtro y no cambia
+     * nada. Sin esta línea, en un equipo de sólo lectura la lectura fallaba callada y la cámara
+     * figuraba con 0 matrículas: la sincronización proponía «agregar 374» a cámaras que ya las tenían.
+     */
+    /\/Traffic\/channels\/\d+\/searchLPListAudit/i,
 ];
 /**
  * Lo que se deja hacer igual: el lente (ver arriba) y ABRIR UNA PUERTA.

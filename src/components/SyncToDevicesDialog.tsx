@@ -6,7 +6,7 @@ import { Tooltip } from "react-tooltip";
 import { Button } from "@/components/ui/button";
 import {
     Camera, CheckCircle2, XCircle, Database, Plus, Trash2, ShieldCheck, RefreshCw, Lock, Wifi, WifiOff,
-    ListChecks, Zap, Info, Search, UserRound, Home, Check, X, Ban, LogIn, LogOut, Upload, ScanLine,
+    ListChecks, Zap, Info, Search, AlertTriangle, UserRound, Home, Check, X, Ban, LogIn, LogOut, Upload, ScanLine,
 } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
@@ -27,6 +27,10 @@ import { cn } from "@/lib/utils";
 type Step = "analyzing" | "plan" | "running" | "done" | "blocked";
 type Mode = "incremental" | "full";
 type Prog = { status: "pending" | "running" | "done" | "error"; added?: number; removed?: number; addFail?: number; remFail?: number; error?: string };
+/* Se sincronizan las que contestan y este servidor puede escribir. Una de sólo lectura (OMNI_EQUIPOS_SOLO_LECTURA)
+   se muestra, con su lista, pero no se intenta: antes fallaban todas las altas y el cajón terminaba en verde (26/11). */
+type Camara = { online: boolean; soloLectura?: boolean };
+const sincronizable = (d: Camara) => d.online && !d.soloLectura;
 const TT = "tt-sync";
 const tip = (t: string) => ({ "data-tooltip-id": TT, "data-tooltip-content": t });
 
@@ -60,14 +64,14 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
         if (!lock.ok) { setLockBy(lock.by || "otro administrador"); setStep("blocked"); return; }
         runningRef.current = true;
         setStep("running");
-        const devices = (plan?.devices || []).filter((d: any) => d.online);
+        const devices = (plan?.devices || []).filter(sincronizable);
         setProg(Object.fromEntries(devices.map((d: any) => [d.id, { status: "pending" }])));
         try {
             for (const d of devices) {
                 setProg((p) => ({ ...p, [d.id]: { status: "running" } }));
                 await touchSyncLock().catch(() => { });
                 const r = mode === "full" ? await syncDeviceFull(d.id) : await syncDeviceIncremental(d.id);
-                setProg((p) => ({ ...p, [d.id]: r.ok ? { status: "done", added: r.added, removed: r.removed, addFail: r.addFail, remFail: r.remFail } : { status: "error", error: (r as any).error } }));
+                setProg((p) => ({ ...p, [d.id]: r.ok ? { status: "done", added: r.added, removed: r.removed, addFail: r.addFail, remFail: r.remFail, error: (r as any).error } : { status: "error", error: (r as any).error } }));
             }
         } finally {
             runningRef.current = false;
@@ -77,7 +81,9 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
         }
     };
 
-    const online = (plan?.devices || []).filter((d: any) => d.online);
+    const online = (plan?.devices || []).filter(sincronizable);
+    const soloLectura = (plan?.devices || []).filter((d: Camara) => d.online && d.soloLectura);
+    const conFallas = Object.values(prog).some((p) => p.status === "error" || !!p.addFail || !!p.remFail);
     const offline = (plan?.devices || []).filter((d: any) => !d.online);
     const totAdd = online.reduce((a: number, d: any) => a + d.toAdd, 0);
     const totRemove = online.reduce((a: number, d: any) => a + d.toRemove, 0);
@@ -143,7 +149,7 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
                                 <Button onClick={run} disabled={online.length === 0 || (mode === "incremental" && totAdd === 0 && totRemove === 0)}
                                     className={cn("text-white gap-1.5", mode === "full" ? "bg-red-600 hover:bg-red-500" : "bg-indigo-600 hover:bg-indigo-500")}>
                                     {mode === "full" ? <RefreshCw size={14} /> : <Zap size={14} />}
-                                    {mode === "incremental" && totAdd === 0 && totRemove === 0 ? "Nada que sincronizar" : `Sincronizar ${online.length} cámara${online.length !== 1 ? "s" : ""}`}
+                                    {online.length === 0 && soloLectura.length > 0 ? "Ninguna se carga desde este servidor" : mode === "incremental" && totAdd === 0 && totRemove === 0 ? "Nada que sincronizar" : `Sincronizar ${online.length} cámara${online.length !== 1 ? "s" : ""}`}
                                 </Button>
                             )}
                         </div>
@@ -189,8 +195,8 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
                                                 {plan.devices.map((d: any) => (
                                                     <div key={d.id} className="grid grid-cols-[1fr_64px_56px_56px] gap-2 px-3 py-2 items-center text-xs">
                                                         <div className="min-w-0 flex items-center gap-2">
-                                                            {d.online ? <Wifi size={13} className="text-emerald-500 shrink-0" /> : <WifiOff size={13} className="text-red-500 shrink-0" />}
-                                                            <div className="min-w-0"><p className="font-semibold truncate">{d.name}</p><p className="text-[10px] text-muted-foreground font-mono">{d.ip}{d.direction ? ` · ${d.direction === "EXIT" ? "Salida" : "Entrada"}` : ""}</p></div>
+                                                            {!d.online ? <WifiOff size={13} className="text-red-500 shrink-0" /> : d.soloLectura ? <Lock size={13} className="text-amber-500 shrink-0" /> : <Wifi size={13} className="text-emerald-500 shrink-0" />}
+                                                            <div className="min-w-0"><p className="font-semibold truncate">{d.name}</p><p className="text-[10px] text-muted-foreground font-mono">{d.ip}{d.direction ? ` · ${d.direction === "EXIT" ? "Salida" : "Entrada"}` : ""}{d.soloLectura ? <span className="font-sans font-semibold text-amber-600"> · sólo lectura aquí</span> : null}</p></div>
                                                         </div>
                                                         {d.online ? (<>
                                                             <span className="text-center font-mono tabular-nums text-muted-foreground">{d.currentCount}</span>
@@ -202,6 +208,15 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
                                             </div>
                                         </div>
                                         {offline.length > 0 && <p className="text-[11px] text-amber-500 flex items-center gap-1.5"><Info size={12} /> {offline.length} cámara{offline.length !== 1 ? "s" : ""} sin conexión: se omiten esta vez.</p>}
+                                        {soloLectura.length > 0 && (
+                                            <div className="flex items-start gap-2.5 rounded-[10px] border border-[color-mix(in_oklab,var(--aviso)_40%,transparent)] bg-[color-mix(in_oklab,var(--aviso)_7%,transparent)] p-3">
+                                                <Lock size={15} className="mt-0.5 shrink-0 tono-aviso" />
+                                                <p className="text-[12px] leading-snug">
+                                                    <b>{soloLectura.length === 1 ? "Esta cámara es" : `Estas ${soloLectura.length} cámaras son`} de sólo lectura para este servidor.</b>{" "}
+                                                    Se pueden ver, pero sus matrículas se cargan desde el servidor de ese barrio. Está fijado en la configuración del servidor (OMNI_EQUIPOS_SOLO_LECTURA), no se cambia desde acá.
+                                                </p>
+                                            </div>
+                                        )}
                                         <div className="grid grid-cols-2 gap-2">
                                             <button onClick={() => setMode("incremental")} className={cn("text-left rounded-xl border p-3 transition", mode === "incremental" ? "border-indigo-500/60 bg-indigo-500/10 ring-1 ring-indigo-500/40" : "border-border hover:bg-accent")}>
                                                 <div className="flex items-center gap-1.5 mb-1"><Zap size={14} className="text-indigo-500" /><span className="text-xs font-bold">Incremental</span><span className="text-[9px] font-bold uppercase bg-emerald-500/15 text-emerald-500 px-1.5 py-0.5 rounded">Recomendado</span></div>
@@ -218,10 +233,10 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
                                     <motion.div key="r" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
                                         <div className="space-y-1.5">
                                             <div className="flex items-center gap-2 text-sm">
-                                                {step === "running" ? <><Loader2 size={16} className="animate-spin text-indigo-500" /> <b>Sincronizando…</b></> : <><CheckCircle2 size={16} className="text-emerald-500" /> <b>Sincronización finalizada</b></>}
+                                                {step === "running" ? <><Loader2 size={16} className="animate-spin text-indigo-500" /> <b>Sincronizando…</b></> : conFallas ? <><AlertTriangle size={16} className="tono-aviso" /> <b>Terminó con fallas</b></> : <><CheckCircle2 size={16} className="text-emerald-500" /> <b>Sincronización finalizada</b></>}
                                                 <span className="ml-auto text-[11px] font-bold tabular-nums text-muted-foreground">{hechos}/{online.length} · {pct}%</span>
                                             </div>
-                                            <div className="h-2 rounded-full bg-muted overflow-hidden"><motion.div className={cn("h-full", step === "done" ? "bg-emerald-500" : "bg-indigo-500")} initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.35 }} /></div>
+                                            <div className="h-2 rounded-full bg-muted overflow-hidden"><motion.div className={cn("h-full", step !== "done" ? "bg-indigo-500" : conFallas ? "bg-amber-500" : "bg-emerald-500")} initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.35 }} /></div>
                                         </div>
                                         <div className="border border-border rounded-xl divide-y divide-border max-h-80 overflow-y-auto">
                                             {online.map((d: any) => {
@@ -231,7 +246,7 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
                                                         <span className="shrink-0">
                                                             {p.status === "pending" && <span className="block w-5 h-5 rounded-full border-2 border-dashed border-muted-foreground/30" />}
                                                             {p.status === "running" && <Loader2 size={18} className="animate-spin text-indigo-500" />}
-                                                            {p.status === "done" && <CheckCircle2 size={18} className="text-emerald-500" />}
+                                                            {p.status === "done" && (p.addFail || p.remFail ? <AlertTriangle size={18} className="tono-aviso" /> : <CheckCircle2 size={18} className="text-emerald-500" />)}
                                                             {p.status === "error" && <XCircle size={18} className="text-red-500" />}
                                                         </span>
                                                         <div className="min-w-0 flex-1">
@@ -241,10 +256,11 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
                                                                 <p className="text-[11px] text-muted-foreground flex items-center gap-2">
                                                                     {!!p.added && <span className="text-emerald-500">+{p.added} agregadas</span>}
                                                                     {!!p.removed && <span className="text-red-500">−{p.removed} quitadas</span>}
-                                                                    {!p.added && !p.removed && <span>sin cambios</span>}
+                                                                    {!p.added && !p.removed && !p.addFail && !p.remFail && <span>sin cambios</span>}
                                                                     {(!!p.addFail || !!p.remFail) && <span className="text-amber-500">({(p.addFail || 0) + (p.remFail || 0)} fallidas)</span>}
                                                                 </p>
                                                             )}
+                                                            {p.status === "done" && p.error && (!!p.addFail || !!p.remFail) && <p className="text-[11px] leading-snug tono-aviso">{p.error}</p>}
                                                             {p.status === "running" && <p className="text-[11px] text-indigo-500">aplicando cambios…</p>}
                                                             {p.status === "pending" && <p className="text-[11px] text-muted-foreground/60">en cola</p>}
                                                         </div>

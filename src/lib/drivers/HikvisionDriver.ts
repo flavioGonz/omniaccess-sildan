@@ -269,6 +269,10 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver, IUs
                 }
             } catch (error: any) {
                 console.error(`[Hikvision LPR] Error at pos ${start_position}:`, error.message);
+                /* Si falla la PRIMERA página no se leyó nada: devolver [] decía «la cámara está vacía»,
+                   que es otra cosa (26/11: tres cámaras figuraban con 0 y la sincronización quería
+                   cargarles todo). Se avisa el error; a mitad de camino se devuelve lo leído. */
+                if (start_position === 0) throw error;
                 keep_fetching = false;
             }
 
