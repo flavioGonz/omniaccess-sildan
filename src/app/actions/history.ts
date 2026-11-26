@@ -642,16 +642,19 @@ export async function getLastEventPerDevice() {
         // LPR mostraba el vivo pero nunca una lectura, como si la cámara no leyera. Se
         // devuelve con la misma forma que un evento para que el mosaico no distinga.
         const lecturas: any[] = await prisma.$queryRawUnsafe(`
-            SELECT DISTINCT ON (s."deviceId") s."deviceId", s.id, s.plate, s."snapshotUrl", s.decision, s."eventType", s.timestamp, s.confidence, s.reads
+            SELECT DISTINCT ON (s."deviceId") s."deviceId", s.id, s.plate, s."snapshotUrl", s.decision, s."eventType", s.timestamp, s.confidence, s.reads, d.direction::text AS sentido
             FROM "PlateSighting" s JOIN "Device" d ON d.id = s."deviceId"
-            WHERE d."deviceType" = 'LPR_INTERIOR' AND d."trackAcceso" = true AND s."snapshotUrl" IS NOT NULL
+            WHERE ((d."deviceType" = 'LPR_INTERIOR' AND d."trackAcceso" = true) OR d.direction = 'INTERIOR') AND s."snapshotUrl" IS NOT NULL
             ORDER BY s."deviceId", s.timestamp DESC
         `);
         for (const l of lecturas) {
-            if (map[l.deviceId]) continue;
+            // Una LPR interior (sentido INTERIOR, 26/11) no genera AccessEvent: lo suyo es la lectura de
+            // seguimiento. Si su último evento es más viejo (de cuando contaba como entrada), manda la lectura.
+            const previo = map[l.deviceId];
+            if (previo && !(l.sentido === "INTERIOR" && new Date(l.timestamp) > new Date(previo.timestamp))) continue;
             map[l.deviceId] = {
                 deviceId: l.deviceId, id: l.id, plateDetected: l.plate, snapshotPath: l.snapshotUrl, imagePath: null,
-                decision: l.decision || "UNKNOWN", direction: l.eventType === "EXIT" ? "EXIT" : "ENTRY", timestamp: l.timestamp,
+                decision: l.decision || "UNKNOWN", direction: l.sentido === "INTERIOR" ? "INTERIOR" : l.eventType === "EXIT" ? "EXIT" : "ENTRY", timestamp: l.timestamp,
                 details: `Metodo: RTSP Detect${l.confidence != null ? `, Confianza: ${Math.round(Number(l.confidence) * 100)}%` : ""}${l.reads != null ? `, Lecturas: ${l.reads}` : ""}`,
                 sinEvento: true,
             };
