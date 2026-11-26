@@ -364,6 +364,24 @@ export async function testDeviceConnection(id: string) {
     }
 }
 
+/**
+ * Lo que «Comprobar» leyó del equipo, guardado en el momento (26/11). Nico: «el botón de comprobar
+ * debe guardar los datos comprobados cuando se obtienen». Antes el modelo, la MAC y el firmware
+ * quedaban en la pantalla y se perdían si se cerraba la ficha sin «Guardar cambios». Sólo se
+ * escribe lo que vino (un campo vacío no borra el guardado) y nunca el nombre ni las credenciales:
+ * eso sigue siendo del formulario.
+ */
+export async function guardarComprobado(id: string, datos: { mac?: string | null; deviceModel?: string | null; firmware?: string | null; authType?: string | null }) {
+    const { getSession } = await import("@/app/actions/auth");
+    const { permisosDeSesion } = await import("@/lib/permisos");
+    const s: any = await getSession().catch(() => null);
+    if (!s || !permisosDeSesion(s).includes("dispositivos.editar")) return { ok: false, error: "Hace falta el permiso Editar dispositivos." };
+    const limpio = (v?: string | null) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 120) : undefined);
+    const auth = datos.authType === "DIGEST" || datos.authType === "BASIC" || datos.authType === "NONE" ? (datos.authType as AuthType) : undefined;
+    await prisma.device.update({ where: { id }, data: { mac: limpio(datos.mac), deviceModel: limpio(datos.deviceModel), firmware: limpio(datos.firmware), authType: auth, comprobadoAt: new Date() } });
+    return { ok: true };
+}
+
 export async function probeDeviceInfo(input: { ip: string; username?: string; password?: string; authType?: string; brand?: string; }) {
     const ip = (input.ip || "").trim();
     if (!ip) return { ok: false, error: "IP requerida" };

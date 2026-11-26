@@ -82,6 +82,12 @@ const PERMITIDO = [
 
 export function cambiaAlgo(metodo: string, ruta: string): boolean {
     const m = metodo.toUpperCase();
+    /*
+     * Dahua configura por GET (26/11): `configManager.cgi?action=setConfig&…`, `recordUpdater.cgi?
+     * action=insert`, `magicBox.cgi?action=reboot`. Contar todo GET como lectura dejaba pasar esas
+     * escrituras a una red de sólo lectura sin que nadie se enterara.
+     */
+    if ((m === "GET" || m === "HEAD") && /[?&]action=(setConfig|deleteConfig|setTime|reboot|shutdown|insert|update|remove|clear|reset)\b/i.test(ruta)) return !PERMITIDO.some((r) => r.test(ruta));
     if (m === "GET" || m === "HEAD" || m === "OPTIONS") return false;
     if (m === "POST" && POST_DE_LECTURA.some((r) => r.test(ruta))) return false;
     return !PERMITIDO.some((r) => r.test(ruta));

@@ -58,6 +58,10 @@ test("sólo lectura: POST de búsqueda y el lente pasan; un PUT de configuració
     assert.ok(cambiaAlgo("PUT", "/ISAPI/System/time"));
     // Abrir una puerta no es configurar: pasa aunque el equipo sea de sólo lectura (18/11).
     assert.ok(!cambiaAlgo("PUT", "/ISAPI/AccessControl/RemoteControl/door/1"));
+    // Dahua configura por GET (26/11): leer sigue siendo leer, setConfig es escribir.
+    assert.ok(!cambiaAlgo("GET", "/cgi-bin/configManager.cgi?action=getConfig&name=ChannelTitle"));
+    assert.ok(cambiaAlgo("GET", "/cgi-bin/configManager.cgi?action=setConfig&ChannelTitle[0].Name=x"));
+    assert.ok(cambiaAlgo("GET", "/cgi-bin/recordUpdater.cgi?action=insert&name=AccessControlCard"));
     assert.doesNotThrow(() => exigirEscritura("192.168.1.86", "PUT", "/ISAPI/AccessControl/RemoteControl/door/2"));
     // Pero dejarla abierta para siempre por configuración, no.
     assert.ok(cambiaAlgo("PUT", "/ISAPI/AccessControl/Door/param/1"));

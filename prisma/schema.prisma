@@ -380,6 +380,10 @@ model Device {
   brandLogo       String?
   ip              String
   mac             String?
+  /// Lo que «Comprobar» leyó del equipo (26/11): el firmware y cuándo. Antes quedaba sólo en la
+  /// pantalla y se perdía al cerrar la ficha si no se apretaba «Guardar cambios».
+  firmware        String?
+  comprobadoAt    DateTime?
   port            Int?             // NVR: puerto RTSP (554 por defecto)
   httpPort        Int?             // Puerto HTTP/ISAPI del equipo (vacío = 80). Ver lib/host-http
   location        String?

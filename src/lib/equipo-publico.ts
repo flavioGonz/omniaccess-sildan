@@ -15,7 +15,7 @@
 /** Todos los campos del equipo menos `username`, `password` y `rtspUrl`. Si se agrega un campo al modelo, va acá. */
 export const EQUIPO_PUBLICO = {
     id: true, name: true, deviceType: true, brand: true, deviceModel: true, modelPhoto: true, brandLogo: true,
-    ip: true, mac: true, port: true, location: true, direction: true, doorStatus: true, authType: true,
+    ip: true, mac: true, firmware: true, comprobadoAt: true, port: true, location: true, direction: true, doorStatus: true, authType: true,
     lastOnlinePull: true, lastOnlinePush: true, floorPlanId: true, mapX: true, mapY: true,
     trackScene: true, trackEnabled: true, trackRoi: true, trackTrigger: true, trackLine: true, trackMinConf: true, trackFps: true,
     trackAcceso: true, lprVerifica: true, lprAbre: true, intrusionModo: true, intrusionEnabled: true, intrusionGeometry: true,

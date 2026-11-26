@@ -7,7 +7,7 @@ import {
     Camera, Radar, HardDrive, Network, MapPin, Rocket, ScanSearch, Check, X, AlertTriangle, Info,
     LogIn, LogOut, KeyRound, User, Cpu, Fingerprint, Clock, BellRing, ScanLine, Film, Video, ListChecks, Server,
     ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users, Sparkles, Image as ImageIcon,
-    FolderTree, Plus,
+    FolderTree, Plus, ChevronDown,
     Siren, Trash2,
     Waypoints,
 } from "lucide-react";
@@ -23,7 +23,7 @@ import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarraDePasos, PasoAnimado } from "@/components/devices/Pasos";
-import { createDevice, updateDevice, probeDeviceInfo, getDevices, detectarCapacidades, detectarCapacidadesCanales, getCredencialesDispositivo, deleteDevice } from "@/app/actions/devices";
+import { createDevice, updateDevice, probeDeviceInfo, guardarComprobado, getDevices, detectarCapacidades, detectarCapacidadesCanales, getCredencialesDispositivo, deleteDevice } from "@/app/actions/devices";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ChipsCapacidades } from "@/components/devices/Capacidades";
 import type { Capacidades } from "@/lib/capacidades-camara";
@@ -33,6 +33,8 @@ import { getNvrList, getNvrChannels, getNvrChannelInfo, importarCanalesClasifica
 import { dondeGraba, asignarGrabacion, calcularRetencion, retencionGuardada } from "@/app/actions/grabaciones";
 import { CabeceraNvr } from "@/components/devices/CabeceraNvr";
 import { ControlesLente, LecturasEnVivo } from "@/components/devices/LenteYLecturas";
+import { EstadoIntrusion, ReglasSobreVideo, useEstadoIntrusion } from "@/components/devices/EstadoIntrusion";
+import { OsdCamara } from "@/components/devices/OsdCamara";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 import { ElegirModoIntrusion, ElegirModoLpr, ModoEnFila, OPCIONES_INTRUSION_FILA, OPCIONES_LPR_FILA } from "@/components/devices/ModoCamara";
@@ -153,16 +155,34 @@ export function Opcion({ activa, onClick, icono: I, titulo, detalle, color, ayud
     );
 }
 
-export function Bloque({ titulo, icono: I, ayuda, children, accion }: { titulo: string; icono: any; ayuda?: string; children: React.ReactNode; accion?: React.ReactNode }) {
+/**
+ * Una sección de la ficha. `plegable` + `cerrado` (26/11, Nico: «Conexión, Avisos, Usuarios y
+ * Grabación comienzan contraídas»): lo que se toca poco no empuja para abajo lo que se mira
+ * siempre. Plegada, el contenido no se dibuja; lo que la sección carga sola (la retención) sigue
+ * cargando igual, porque vive en la ficha y no adentro.
+ */
+export function Bloque({ titulo, icono: I, ayuda, children, accion, plegable, cerrado, resumen }: { titulo: string; icono: any; ayuda?: string; children: React.ReactNode; accion?: React.ReactNode; plegable?: boolean; cerrado?: boolean; /** Una línea que se ve con la sección plegada. */ resumen?: React.ReactNode }) {
+    const [abierto, setAbierto] = useState(!cerrado);
+    const ver = !plegable || abierto;
     return (
-        <section className="px-6 py-6 border-b border-border last:border-0">
-            <div className="flex items-center gap-2 mb-4">
-                <span className="grid h-7 w-7 place-items-center rounded-md bg-muted/70 text-muted-foreground"><I size={14} /></span>
-                <h3 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{titulo}</h3>
-                {ayuda && <span {...tip(ayuda)} className="text-muted-foreground/60 hover:text-[var(--accion)] cursor-help"><Info size={12.5} /></span>}
-                {accion && <div className="ml-auto">{accion}</div>}
+        <section className={cn("px-6 border-b border-border last:border-0", ver ? "py-6" : "py-3.5")}>
+            <div className={cn("flex items-center gap-2", ver && "mb-4")}>
+                {plegable ? (
+                    <button type="button" onClick={() => setAbierto((v) => !v)} aria-expanded={abierto} className="flex min-w-0 flex-1 items-center gap-2 text-left group">
+                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-muted/70 text-muted-foreground group-hover:text-foreground"><I size={14} /></span>
+                        <h3 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground group-hover:text-foreground">{titulo}</h3>
+                        {ayuda && <span {...tip(ayuda)} className="shrink-0 text-muted-foreground/60 hover:text-[var(--accion)] cursor-help"><Info size={12.5} /></span>}
+                        {!abierto && resumen && <span className="min-w-0 truncate text-[12px] text-muted-foreground normal-case">{resumen}</span>}
+                        <ChevronDown size={14} className={cn("ml-auto shrink-0 text-muted-foreground transition-transform", abierto && "rotate-180")} />
+                    </button>
+                ) : (<>
+                    <span className="grid h-7 w-7 place-items-center rounded-md bg-muted/70 text-muted-foreground"><I size={14} /></span>
+                    <h3 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{titulo}</h3>
+                </>)}
+                {ayuda && !plegable && <span {...tip(ayuda)} className="text-muted-foreground/60 hover:text-[var(--accion)] cursor-help"><Info size={12.5} /></span>}
+                {accion && ver && <div className={plegable ? "" : "ml-auto"}>{accion}</div>}
             </div>
-            <div className="space-y-4">{children}</div>
+            {ver && <div className="space-y-4">{children}</div>}
         </section>
     );
 }
@@ -461,13 +481,16 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     const [caps, setCaps] = useState<Capacidades | null>(null);
     const [leyendoCaps, setLeyendoCaps] = useState(false);
     const [capsCanal, setCapsCanal] = useState<Record<string, Capacidades>>({});
+    // La cadena de aviso de una cámara de intrusión, leída en vivo (components/devices/EstadoIntrusion).
+    const intr = useEstadoIntrusion(open && esEdicion && device?.deviceType === "CAMERA" && (device.brand === "HIKVISION" || device.brand === "DAHUA") ? device.id : null);
+    const [firmware, setFirmware] = useState<string | null>(null);
 
     useEffect(() => {
         if (!open) return;
         setF(blanco()); setPaso(0); setHacia(1); setInfo(null); setDonde(null); setManual({ nvrId: "", ch: "" });
         setSinGrabar(false); setActual(null); setRetencion(null); setCanales(null); setErrorCanales(""); setEleccion({});
         setTareas([]); setImportados([]); setFaltaDestino(false); setAreaId("none"); setCorriendo(false); setTerminado(false); setCreadoId(null); setCargarMatriculas(true); setGuardando(false); setOpcionAlta(null);
-        setCaps(null); setCapsCanal({});
+        setCaps(null); setCapsCanal({}); setFirmware(device?.firmware || null);
         // Las credenciales ya no vienen en la lista de equipos (lib/equipo-publico): se piden acá,
         // con el permiso Dispositivos. Si no llegan, guardar no borra la clave (updateDevice).
         if (device?.id) getCredencialesDispositivo(device.id).then((c) => { if (c) setF((p) => ({ ...p, username: c.username || p.username, password: c.password || "" })); }).catch(() => { });
@@ -538,6 +561,14 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
             setInfo(r);
             if (r?.ok) setF((p) => ({ ...p, mac: r.macAddress || p.mac, deviceModel: r.model || p.deviceModel, authType: r.authType || p.authType, name: p.name || r.deviceName || "",
                 ...(r.credenciales ? { username: r.credenciales.username, password: r.credenciales.password } : {}) }));
+            if (r?.ok && r.firmwareVersion) setFirmware(r.firmwareVersion);
+            // En la ficha, lo comprobado se guarda en el momento (26/11): antes se perdía al cerrar sin
+            // «Guardar cambios». Sólo lo que leyó el equipo; nombre y credenciales siguen en el formulario.
+            if (r?.ok && esEdicion && device?.id && !r.viaNvr) {
+                guardarComprobado(device.id, { mac: r.macAddress, deviceModel: r.model, firmware: r.firmwareVersion, authType: r.authType })
+                    .then((g) => { if (g?.ok) toast.success({ title: "Comprobado y guardado", description: [r.model, r.firmwareVersion].filter(Boolean).join(" · ") || "Responde" }); })
+                    .catch(() => { });
+            }
             if (r?.nota) (r.credenciales ? toast.success : toast.info)({ title: r.credenciales ? "Credenciales tomadas del NVR" : "Datos según el NVR", description: r.nota });
             // Respondió: se le pregunta qué sabe hacer, para sugerir el tipo y el modo antes de seguir.
             if (r?.ok && tipo !== "NVR") {
@@ -820,6 +851,16 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                 if (!r.ok) throw new Error(r.error || "No se pudo cambiar el modo");
                 if (r.pendientes.length) toast.info({ title: "Modo cambiado; le falta:", description: r.pendientes.join(" · ") });
             }
+            /*
+             * Un modo en el que la cámara avisa necesita que el aviso pueda llegar (26/11, Nico: «¿qué
+             * pasa si está configurada para avisar pero no tiene servidor de alarma? Nunca se entera»).
+             * Guardar ahora deja puesto lo que falte de lo que se puede poner desde acá: OmniAccess como
+             * servidor de alarmas y el aviso al centro en las reglas dibujadas. Agrega, no borra.
+             */
+            if (tipo === "CAMERA" && MODOS_INTRUSION[modoIntr].avisos && intr.estado?.ok && intr.estado.marca === "hikvision") {
+                const falta = intr.estado.pasos.filter((p) => p.estado === "falta" && (p.arreglo === "servidor" || p.arreglo === "centro")).map((p) => p.arreglo as "servidor" | "centro");
+                if (falta.length && await intr.arreglar(falta, true)) toast.info({ title: "La cámara quedó avisando a OmniAccess", description: falta.map((x) => (x === "servidor" ? "servidor de alarmas" : "aviso al centro")).join(" y ") + " configurados en la cámara." });
+            }
             if (grabacionElegida?.nvrId && (!actual || actual.ch !== grabacionElegida.ch || actual.nvr !== grabacionElegida.nvrId)) await asignarGrabacion(f.ip.trim(), grabacionElegida.nvrId, grabacionElegida.ch);
             toast.success({ title: "Cambios guardados", description: f.name });
             onSuccess(); onOpenChange(false);
@@ -1063,16 +1104,20 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                             <CabeceraNvr device={device} titulo={f.name || device?.name || "NVR"} subtitulo={`NVR / Grabador · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}`}
                                 ip={f.ip} mac={f.mac} detectando={detectando} puedeDetectar={ipValida} onComprobar={detectar} info={info} />
                         ) : (
-                            <CabeceraVideo device={device} titulo={f.name || device?.name || "Equipo"} subtitulo={`${meta?.rotulo || "Equipo"} · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}`} tipo={tipo} meta={meta} f={f} actual={actual} nvrNombre={nvrActual?.name || null}
-                                detectando={detectando} puedeDetectar={ipValida} onComprobar={detectar} info={info} />
+                            <CabeceraVideo device={device} titulo={f.name || device?.name || "Equipo"} subtitulo={`${meta?.rotulo || "Equipo"} · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}`} tipo={tipo} f={f} actual={actual} nvrNombre={nvrActual?.name || null}
+                                detectando={detectando} puedeDetectar={ipValida} onComprobar={detectar} info={info} reglas={intr.estado} />
                         )}
                         <Bloque titulo="Identidad" icono={Tag} ayuda="Cómo se llama el equipo y dónde está. Es lo que se ve en el monitor, el historial y los avisos.">
-                            <Campo etiqueta="Nombre" icono={Type} value={f.name} onChange={(v) => set("name", v)}
-                                placeholder={tipo === "NVR" ? "NVR Sildan" : tipo === "CAMERA" ? "Perímetro Norte 12" : "P1 - Entrada (207)"}
-                                ayuda={tipo === "LPR_CAMERA" ? "Conviene incluir la garita y el sentido. Ej.: «P1 - Entrada (207)». Si incluye P1, P2… el monitor agrupa el semáforo en esa garita." : "El nombre del lugar dice más que el modelo. Ej.: «Perímetro Norte 12»."} />
+                            {/* El nombre de OmniAccess y, a su derecha, el OSD de la cámara (26/11): son dos nombres y conviene verlos juntos. */}
+                            <div className={cn("grid gap-4", tipo !== "NVR" && device?.id && (f.brand === "HIKVISION" || f.brand === "DAHUA") ? "grid-cols-2" : "grid-cols-1")}>
+                                <Campo etiqueta="Nombre" icono={Type} value={f.name} onChange={(v) => set("name", v)}
+                                    placeholder={tipo === "NVR" ? "NVR Sildan" : tipo === "CAMERA" ? "Perímetro Norte 12" : "P1 - Entrada (207)"}
+                                    ayuda={tipo === "LPR_CAMERA" ? "Conviene incluir la garita y el sentido. Ej.: «P1 - Entrada (207)». Si incluye P1, P2… el monitor agrupa el semáforo en esa garita." : "El nombre del lugar dice más que el modelo. Ej.: «Perímetro Norte 12»."} />
+                                {tipo !== "NVR" && device?.id && (f.brand === "HIKVISION" || f.brand === "DAHUA") && <OsdCamara deviceId={device.id} nombre={f.name} />}
+                            </div>
                             <div className="grid grid-cols-2 gap-4">
-                                <Dato etiqueta="Modelo" icono={Cpu} valor={f.deviceModel} faltante="Sin leer: «Comprobar» lo trae del equipo"
-                                    ayuda="Lo lee el equipo mismo al comprobar (no se escribe a mano): un modelo tipeado mal hacía elegir mal el driver y la foto." />
+                                <Dato etiqueta="Modelo" icono={Cpu} valor={f.deviceModel ? `${f.deviceModel}${firmware ? ` · ${firmware}` : ""}` : null} faltante="Sin leer: «Comprobar» lo trae del equipo"
+                                    ayuda="Modelo y firmware: los lee el equipo mismo al comprobar, y se guardan en el momento (no se escriben a mano: un modelo tipeado mal hacía elegir mal el driver y la foto)." />
                                 {tipo !== "NVR" && <Campo etiqueta="Ubicación / garita" icono={MapPin} value={f.location} onChange={(v) => set("location", v)} placeholder="Garita P1"
                                     ayuda="Texto libre. Ej.: «Garita P1», «Lote 120 fondo». En LPR, «P1»/«P2» agrupan el semáforo en el monitor." />}
                             </div>
@@ -1086,21 +1131,24 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                 {tipo === "LPR_CAMERA"
                                     ? <ElegirModoLpr valor={modoLpr} abre={abre} onCambiar={(m, a) => { setModoLpr(m); setAbre(a); }} antes={modoAntes.lpr} />
                                     : <ElegirModoIntrusion valor={modoIntr} onCambiar={setModoIntr} antes={modoAntes.intr} />}
+                                {tipo === "CAMERA" && tipoOriginal === "CAMERA" && device?.id && (f.brand === "HIKVISION" || f.brand === "DAHUA") && (
+                                    <EstadoIntrusion ctl={intr} avisa={MODOS_INTRUSION[modoIntr].avisos} onCalibrar={alCalibrar ? () => { onOpenChange(false); alCalibrar(device); } : undefined} />
+                                )}
                             </Bloque>
                         )}
-                        <Bloque titulo="Conexión" icono={Network} ayuda="Cómo llega el servidor al equipo. Si cambiás IP o clave, «Comprobar» confirma que sigue respondiendo.">{bloqueConexion}</Bloque>
+                        <Bloque titulo="Conexión" icono={Network} plegable cerrado resumen={<span className="font-mono">{f.ip}{f.httpPort && f.httpPort !== "80" ? `:${f.httpPort}` : ""}</span>} ayuda="Cómo llega el servidor al equipo. Si cambiás IP o clave, «Comprobar» confirma que sigue respondiendo.">{bloqueConexion}</Bloque>
                         {device?.id && avisosDe(String(device.deviceType)).length > 0 && (
-                            <Bloque titulo="Avisos" icono={BellRing} ayuda="Qué vigila OmniAccess en este equipo y si lo manda a Telegram. Apagado, no abre alerta ni avisa. Para toda un área, desde el encabezado del área.">
+                            <Bloque titulo="Avisos" icono={BellRing} plegable cerrado ayuda="Qué vigila OmniAccess en este equipo y si lo manda a Telegram. Apagado, no abre alerta ni avisa. Para toda un área, desde el encabezado del área.">
                                 <AvisosEquipo deviceId={device.id} deviceType={String(device.deviceType)} />
                             </Bloque>
                         )}
                         {usuariosOn && device?.id && (
-                            <Bloque titulo="Usuarios del equipo" icono={Users} ayuda="Las cuentas locales del equipo y quién está conectado ahora. Avisa de cuentas que no creó OmniAccess y de accesos desde IP desconocidas. No cambia nada en el equipo.">
+                            <Bloque titulo="Usuarios del equipo" icono={Users} plegable cerrado ayuda="Las cuentas locales del equipo y quién está conectado ahora. Avisa de cuentas que no creó OmniAccess y de accesos desde IP desconocidas. No cambia nada en el equipo.">
                                 <UsuariosEquipo deviceId={device.id} />
                             </Bloque>
                         )}
                         {tipo !== "NVR" && (
-                            <Bloque titulo="Grabación" icono={HardDrive} ayuda="En qué NVR y canal se graba: de ahí salen los clips y el playback."
+                            <Bloque titulo="Grabación" icono={HardDrive} plegable cerrado resumen={actual ? `${nvrActual?.name || "NVR"} · canal ${actual.ch}${retencion && !retencion.startsWith("No se") ? ` · ${retencion.split(" (")[0]}` : ""}` : "sin grabación vinculada"} ayuda="En qué NVR y canal se graba: de ahí salen los clips y el playback."
                                 accion={<Button variant="outline" size="sm" onClick={calcRet} disabled={calculando || !actual} className="gap-1.5" {...tip("Busca en el NVR la grabación más vieja de este canal y calcula cuántos días guarda.")}>{calculando ? <Loader2 size={14} className="animate-spin" /> : <Server size={14} />} Calcular retención</Button>}>
                                 <div className={cn("rounded-xl border p-3.5 flex items-center gap-3 text-[13px]", actual ? "border-emerald-500/25 bg-emerald-500/5" : "border-amber-500/30 bg-amber-500/5")}>
                                     {actual ? <Link2 size={16} className="text-emerald-500" /> : <AlertTriangle size={16} className="text-amber-500" />}
@@ -1416,7 +1464,7 @@ function haceCorto(iso: string): string {
     return h < 48 ? `hace ${h} h` : `hace ${Math.round(h / 24)} días`;
 }
 
-function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNombre, detectando, puedeDetectar, onComprobar, info }: any) {
+function CabeceraVideo({ device, titulo, subtitulo, tipo, f, actual, nvrNombre, detectando, puedeDetectar, onComprobar, info, reglas }: any) {
     const [listo, setListo] = useState(false);
     const [falla, setFalla] = useState(false);
     /*
@@ -1441,6 +1489,12 @@ function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNo
         return () => { vivo = false; };
     }, [device?.id, tipo]);
     const esVideo = tipo !== "NVR";
+    const esLpr = tipo === "LPR_CAMERA" || device?.deviceType === "LPR_INTERIOR";
+    /** Sobre el video sólo van los problemas; lo que está bien se lee en la tira de abajo. */
+    const problemas: { texto: string; ayuda: string; icono: any }[] = [];
+    if (esVideo && ultimo === null) problemas.push({ texto: "Sin eventos en 30 días", ayuda: "En 30 días no llegó ningún evento ni lectura de esta cámara.", icono: Activity });
+    else if (esVideo && ultimo && Date.now() - +new Date(ultimo.ts) > 72 * 36e5) problemas.push({ texto: `Último evento ${haceCorto(ultimo.ts)}`, ayuda: "Hace más de 3 días que no llega nada de esta cámara.", icono: Activity });
+    if (esVideo && imagen?.problema) problemas.push({ texto: imagen.problema === "tapada" ? "Imagen tapada" : imagen.problema === "borrosa" ? "Imagen borrosa" : "Cámara movida", ayuda: "Diagnóstico de imagen: comparado con lo habitual de esta cámara (se revisa cada ~15 min).", icono: ImageIcon });
     const chip = "inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/45 backdrop-blur-md text-white text-[10.5px] font-bold ring-1 ring-white/10";
     // Queda fijo arriba al hacer scroll en la ficha (sticky dentro del área que scrollea del cajón).
     // A sangre (14/10): sin el margen, el redondeo ni la sombra, que la hacían ver como una
@@ -1456,54 +1510,51 @@ function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNo
                 {!listo && !falla && <span className="absolute inset-0 grid place-items-center"><span className="flex items-center gap-2 text-white/80 text-[12px] font-semibold"><Loader2 size={15} className="animate-spin" /> Conectando el vivo…</span></span>}
             </>)}
             {!esVideo && <span className="absolute right-6 top-1/2 -translate-y-1/2 text-sky-400/25"><HardDrive size={72} /></span>}
-            {/* Lecturas en vivo y lente motorizado (17/10): se ajusta mirando si la chapa se sigue leyendo. */}
-            {esVideo && device?.id && <LecturasEnVivo deviceId={device.id} tt={TT} />}
+            {/* Las reglas que la cámara tiene dibujadas (26/11): para mirar; se editan en el calibrador. */}
+            {esVideo && tipo === "CAMERA" && <ReglasSobreVideo estado={reglas || null} />}
+            {/* Lecturas en vivo (sólo LPR: en una de intrusión decía «esperando lecturas» para siempre) y lente motorizado. */}
+            {esVideo && device?.id && esLpr && <LecturasEnVivo deviceId={device.id} tt={TT} />}
             {esVideo && device?.id && <ControlesLente deviceId={device.id} tt={TT} />}
             {/* degradados para leer los datos */}
-            <span className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none" />
-            <span className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
-            {/* arriba: tipo, sentido, en vivo */}
-            {/* arriba: título del cajón dentro del video + cerrar */}
+            <span className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/75 via-black/30 to-transparent pointer-events-none" />
+            <span className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+            {/*
+             * Encima del video, lo mínimo (26/11, Nico: «está muy saturado de info»): el nombre, si está
+             * en vivo, el sentido de una LPR y SÓLO los problemas. Los datos técnicos (IP, MAC, NVR,
+             * firmware) bajan a la tira de abajo, fuera de la imagen.
+             */}
             <div className="absolute left-5 top-4 right-4 flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                    <h2 className="text-[19px] font-bold text-white leading-tight truncate drop-shadow">{titulo}</h2>
+                    <h2 className="text-[19px] font-bold text-white leading-tight truncate drop-shadow flex items-center gap-2">
+                        <span className="truncate">{titulo}</span>
+                        {esVideo && listo && <span title="En vivo" className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wide text-white/90"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />VIVO</span>}
+                    </h2>
                     <p className="text-[12px] text-white/75 truncate drop-shadow">{subtitulo}</p>
-                    <div className="flex items-center gap-1.5 mt-2">
-                        {meta && <span className={chip}><meta.icono size={12} /> {meta.rotulo}</span>}
-                        {tipo === "LPR_CAMERA" && <span className={cn(chip, f.direction === "EXIT" ? "!bg-orange-500/80" : f.direction === "INTERIOR" ? "!bg-violet-600/80" : "!bg-emerald-600/80")}>{f.direction === "EXIT" ? "Salida" : f.direction === "INTERIOR" ? "Interior" : "Entrada"}</span>}
-                        {esVideo && listo && <span className={cn(chip, "!bg-red-600/85")}><span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> EN VIVO</span>}
-                    </div>
+                    {tipo === "LPR_CAMERA" && <div className="mt-2"><span className={cn(chip, f.direction === "EXIT" ? "!bg-orange-500/80" : f.direction === "INTERIOR" ? "!bg-violet-600/80" : "!bg-emerald-600/80")}>{f.direction === "EXIT" ? "Salida" : f.direction === "INTERIOR" ? "Interior" : "Entrada"}</span></div>}
                 </div>
                 <CajonCerrar className="shrink-0 h-9 w-9 rounded-full bg-black/45 hover:bg-black/70 backdrop-blur-md text-white grid place-items-center ring-1 ring-white/15 transition-colors" aria-label="Cerrar"><X size={17} /></CajonCerrar>
             </div>
-            {/* abajo: IP, MAC, grabación + comprobar */}
             <div className="absolute left-4 right-4 bottom-3 flex items-end gap-3">
-                <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={cn(chip, "font-mono")}><Network size={11} /> {f.ip}</span>
-                        {f.mac && <span className={cn(chip, "font-mono font-semibold")}>{f.mac}</span>}
-                        {tipo !== "NVR" && <span className={chip}><HardDrive size={11} /> {actual ? `${nvrNombre || "NVR"} · CH ${actual.ch}` : "Sin grabación"}</span>}
-                        {tipo !== "NVR" && ultimo !== undefined && (
-                            <span title={ultimo ? `Último ${ultimo.fuente === "deteccion" ? "evento de analítica" : "lectura"}: ${new Date(ultimo.ts).toLocaleString("es-UY", { hour12: false })}` : "En 30 días no llegó ningún evento ni lectura de esta cámara."}
-                                className={cn(chip, ultimo ? (Date.now() - +new Date(ultimo.ts) > 72 * 36e5 ? "!bg-amber-500/85 !text-black" : "") : "!bg-amber-500/85 !text-black")}>
-                                <Activity size={11} /> {ultimo ? `Último evento ${haceCorto(ultimo.ts)}` : "Sin eventos en 30 días"}
-                            </span>
-                        )}
-                        {tipo !== "NVR" && imagen?.ultima && (
-                            <span title={imagen.problema ? "Diagnóstico de imagen: comparado con lo habitual de esta cámara (se revisa cada ~15 min)." : imagen.aprendido ? "La imagen se ve como siempre (nitidez y encuadre). Se revisa cada ~15 min." : "Todavía aprendiendo cómo se ve normalmente esta cámara."}
-                                className={cn(chip, imagen.problema && "!bg-amber-500/85 !text-black")}>
-                                <ImageIcon size={11} /> {imagen.problema === "tapada" ? "Imagen tapada" : imagen.problema === "borrosa" ? "Imagen borrosa" : imagen.problema === "movida" ? "Cámara movida" : imagen.aprendido ? "Imagen OK" : "Imagen: aprendiendo"}
-                            </span>
-                        )}
-                    </div>
-                    {info && <div title={info.nota || undefined} className={cn(chip, "max-w-full truncate", info.viaNvr ? "!bg-amber-500/85 !text-black" : info.ok ? "!bg-emerald-600/80" : "!bg-red-600/80")}>{info.ok ? <Check size={11} /> : <AlertTriangle size={11} />} {info.ok ? `${info.viaNvr ? "Según el NVR: " : ""}${info.model || "Responde"}${info.firmwareVersion ? ` · ${info.firmwareVersion}` : ""}` : (info.error || "No respondió")}</div>}
+                <div className="min-w-0 flex-1 flex items-center gap-1.5 flex-wrap">
+                    {problemas.map((p) => <span key={p.texto} title={p.ayuda} className={cn(chip, "!bg-amber-500/90 !text-black")}><p.icono size={11} /> {p.texto}</span>)}
                 </div>
                 <button type="button" onClick={onComprobar} disabled={detectando || !puedeDetectar}
-                    data-tooltip-id={TT} data-tooltip-content="Comprobar: consulta el equipo ahora (modelo, MAC, firmware) para confirmar que responde con estas credenciales."
+                    data-tooltip-id={TT} data-tooltip-content="Comprobar: consulta el equipo ahora (modelo, MAC, firmware) y lo guarda."
                     className="shrink-0 h-9 px-3 rounded-full bg-white/90 hover:bg-white text-black text-[12px] font-bold inline-flex items-center gap-1.5 shadow-lg disabled:opacity-60">
                     {detectando ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />} Comprobar
                 </button>
             </div>
+        </div>
+        {/* La tira de datos, fuera de la imagen: se lee sin tapar el video. */}
+        <div className="flex items-center gap-x-3 gap-y-1 flex-wrap px-5 py-2 border-b border-border bg-card text-[11.5px] text-muted-foreground tabular-nums">
+            <span className="inline-flex items-center gap-1 font-mono"><Network size={11} /> {f.ip}</span>
+            {f.mac && <span className="font-mono">{f.mac}</span>}
+            {tipo !== "NVR" && <span className="inline-flex items-center gap-1"><HardDrive size={11} /> {actual ? `${nvrNombre || "NVR"} · CH ${actual.ch}` : "Sin grabación"}</span>}
+            {tipo !== "NVR" && ultimo && <span className="inline-flex items-center gap-1" title={`Último ${ultimo.fuente === "deteccion" ? "evento de analítica" : "evento"}: ${new Date(ultimo.ts).toLocaleString("es-UY", { hour12: false })}`}><Activity size={11} /> evento {haceCorto(ultimo.ts)}</span>}
+            {tipo !== "NVR" && imagen?.ultima && !imagen.problema && <span className="inline-flex items-center gap-1"><ImageIcon size={11} /> {imagen.aprendido ? "Imagen OK" : "Imagen: aprendiendo"}</span>}
+            {info && (info.ok
+                ? <span title={info.nota || undefined} className={cn("inline-flex items-center gap-1", info.viaNvr ? "tono-aviso" : "tono-bien")}><Check size={11} /> {info.viaNvr ? "Según el NVR · " : ""}{info.firmwareVersion || info.model || "Responde"}</span>
+                : <span className="inline-flex items-center gap-1 tono-mal"><AlertTriangle size={11} /> {info.error || "No respondió"}</span>)}
         </div>
         </div>
     );
