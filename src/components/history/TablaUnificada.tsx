@@ -117,8 +117,10 @@ export const RASGOS: Record<string, { Ico: any; rotulo: string; ayuda: string; c
         ayuda: "Una cámara LPR de salida leyó la matrícula y el sistema decidió si abría la barrera.",
     },
     PASO: {
-        Ico: Camera, rotulo: "Avistamiento", chip: "bg-violet-500/15 text-violet-600 dark:text-violet-300 border-violet-500/30", punto: "bg-violet-400",
-        ayuda: "Una cámara interior vio pasar el vehículo. No abre barrera: sólo deja constancia de por dónde pasó.",
+        // «LPR OmniVision» (26/11, Nico: «las capturas de OmniVision LPR también deben figurar»): ya
+        // figuraban, como «Avistamiento», y así no se reconocían como lecturas de matrícula.
+        Ico: Camera, rotulo: "LPR OmniVision", chip: "bg-violet-500/15 text-violet-600 dark:text-violet-300 border-violet-500/30", punto: "bg-violet-400",
+        ayuda: "OmniVision leyó la matrícula en una cámara LPR interior o de seguimiento (lector de OmniAccess, no el ANPR de la cámara). No abre barrera: deja constancia de por dónde pasó el vehículo.",
     },
     ESTACIONADO: {
         Ico: ParkingCircle, rotulo: "Estacionado", chip: "bg-slate-500/20 text-slate-700 dark:text-slate-200 border-slate-400/30", punto: "bg-slate-400",

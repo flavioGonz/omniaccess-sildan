@@ -78,7 +78,7 @@ const diasAtras = (n: number) => { const d = new Date(); d.setDate(d.getDate() -
 
 const CLASES: { valor: string; rotulo: string; Ico: any; ayuda: string }[] = [
     { valor: "ACCESO", rotulo: "Accesos", Ico: LogIn, ayuda: `${RASGOS.ACCESO_ENTRY.ayuda} Entradas y salidas.` },
-    { valor: "PASO", rotulo: "Avistamientos", Ico: RASGOS.PASO.Ico, ayuda: RASGOS.PASO.ayuda },
+    { valor: "PASO", rotulo: "LPR OmniVision", Ico: RASGOS.PASO.Ico, ayuda: RASGOS.PASO.ayuda },
     { valor: "ESTACIONADO", rotulo: "Estacionados", Ico: RASGOS.ESTACIONADO.Ico, ayuda: RASGOS.ESTACIONADO.ayuda },
     { valor: "VISTO", rotulo: "Vistos", Ico: RASGOS.VISTO.Ico, ayuda: RASGOS.VISTO.ayuda },
     { valor: "OV_CHAPA", rotulo: "Chapas OmniVision", Ico: RASGOS.OV_CHAPA.Ico, ayuda: RASGOS.OV_CHAPA.ayuda },
