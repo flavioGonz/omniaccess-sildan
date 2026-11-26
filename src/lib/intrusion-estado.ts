@@ -96,6 +96,9 @@ export async function leerEstadoIntrusion(id: string): Promise<EstadoIntrusion> 
                 out.zonas.length ? leerTrigger(dev, "zona") : null,
                 readAlarmHosts(dev),
             ]);
+            // Sin analítica Y sin poder leer el servidor es casi siempre una cámara que no contesta
+            // (getSmartSupport se calla los errores): decir «no tiene analítica» sería mentir.
+            if (!out.soporta.linea && !out.soporta.zona && !hosts.ok) { out.ok = false; out.error = hosts.error || "La cámara no contestó."; }
             out.centro = { linea: tl == null ? null : tieneCentro(tl), zona: tz == null ? null : tieneCentro(tz) };
             const destino = await getEventTarget();
             out.servidor = hosts.ok
