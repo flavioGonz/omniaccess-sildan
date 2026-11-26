@@ -148,6 +148,9 @@ export async function POST(req: NextRequest) {
             const { asignarEquipos } = await import("@/app/actions/areas");
             for (const [areaId, ids] of porArea) { try { await asignarEquipos(ids, areaId); } catch (err) { fallados.push({ ip: "", motivo: `No se pudo poner en el área: ${err instanceof Error ? err.message : "error"}` }); } }
         }
+        // Las cámaras de intrusión nuevas quedan avisando a OmniAccess solas (26/11, lib/preparar-avisos).
+        const intr = hechos.filter((h) => h.tipo === "CAMERA").map((h) => h.id);
+        if (intr.length) { const { prepararAvisosEnFondo } = await import("@/lib/preparar-avisos"); prepararAvisosEnFondo(intr, String(q.sesion?.name || q.sesion?.sub || "panel") + " (descubridor)"); }
         await auditar(q.sesion, "equipos.alta-descubrimiento", `${hechos.length} equipos`, !!hechos.length,
             [hechos.map((h) => `${h.ip} ${h.nombre}`).join(", "), fallados.map((f) => `${f.ip}: ${f.motivo}`).join(", ")].filter(Boolean).join(" · ").slice(0, 400));
         return NextResponse.json({ hechos, fallados }, { headers: SIN_CACHE });

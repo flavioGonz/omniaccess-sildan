@@ -531,5 +531,13 @@ export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: 
         const { calcularRetencion } = await import("@/lib/grabaciones");
         for (const ip of paraRetencion) await calcularRetencion(ip).catch(() => null);
     })();
+    // Las de intrusión nuevas quedan avisando a OmniAccess solas (26/11, lib/preparar-avisos): sin
+    // esto se creaban y no mandaban nada. En segundo plano, sin borrar otros servidores.
+    const nuevasIntr = detalle.filter((d) => d.id && d.accion.startsWith("creada como intrusión")).map((d) => d.id as string);
+    if (nuevasIntr.length) {
+        const s: any = await getSession().catch(() => null);
+        const { prepararAvisosEnFondo } = await import("@/lib/preparar-avisos");
+        prepararAvisosEnFondo(nuevasIntr, String(s?.name || s?.sub || "panel") + " (importación del NVR)");
+    }
     return { ok: true, creadas, mapeadas, detalle };
 }

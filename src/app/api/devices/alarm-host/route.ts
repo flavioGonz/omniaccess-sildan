@@ -105,5 +105,13 @@ export async function POST(req: NextRequest) {
     }
     const r = await ensureAlarmHost(d as any);
     if (r.ok) await markAlarm(d.ip, true);
-    return NextResponse.json(r, { status: r.ok ? 200 : 502 });
+    // El servidor solo no alcanza (26/11): si la regla no tiene «avisar al centro», la cámara detecta
+    // y no manda nada. En una de intrusión se agrega también eso, en las reglas que tenga dibujadas.
+    let centro: string[] = [];
+    if (r.ok && String(d.deviceType) === "CAMERA") {
+        const { arreglarIntrusion } = await import("@/lib/intrusion-estado");
+        const c = await arreglarIntrusion(id, ["centro"]).catch(() => null);
+        centro = c ? [...c.hechos, ...c.errores] : [];
+    }
+    return NextResponse.json({ ...r, ...(centro.length ? { centro } : {}) }, { status: r.ok ? 200 : 502 });
 }
