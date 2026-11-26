@@ -56,6 +56,16 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
     }, []);
 
     const start = () => { setOpen(true); setPestana("todas"); analyze(); };
+    /* Mientras sincroniza no se puede cerrar (26/11, Nico): ni la X (no se muestra), ni Escape, ni un
+       clic afuera. Y cerrar o recargar la pestaña pide confirmación: el que manda las tandas es el
+       navegador, y si se va a mitad de una cámara, esa cámara queda a medias hasta la próxima vez. */
+    const sincronizando = step === "running";
+    useEffect(() => {
+        if (!sincronizando) return;
+        const avisar = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+        window.addEventListener("beforeunload", avisar);
+        return () => window.removeEventListener("beforeunload", avisar);
+    }, [sincronizando]);
     const close = () => {
         if (runningRef.current) return;
         setOpen(false); setStep("analyzing"); setPlan(null); setProg({}); setLockBy("");
@@ -140,7 +150,11 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
             )}
 
             <Cajon open={open} onOpenChange={(o) => { if (!o) close(); }}>
-                <CajonContenido ancho="medio" titulo="Sincronizar matrículas a las cámaras" descripcion="Compara la base con lo que cada cámara LPR ya tiene y aplica sólo las diferencias."
+                <CajonContenido ancho="medio" sinCerrar={sincronizando}
+                    onEscapeKeyDown={(e) => { if (runningRef.current) e.preventDefault(); }}
+                    onPointerDownOutside={(e) => { if (runningRef.current) e.preventDefault(); }}
+                    onInteractOutside={(e) => { if (runningRef.current) e.preventDefault(); }}
+                    titulo="Sincronizar matrículas a las cámaras" descripcion="Compara la base con lo que cada cámara LPR ya tiene y aplica sólo las diferencias."
                     encabezado={
                         <div className="px-6 py-3 space-y-3">
                             <div className="inline-flex w-full rounded-xl bg-muted/50 p-1">
