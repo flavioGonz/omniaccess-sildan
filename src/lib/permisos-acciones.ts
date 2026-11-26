@@ -44,6 +44,10 @@ export const ACCIONES: Record<string, Archivo> = {
     // Las administraciones del complejo: verlas es ver el padrón; cargar sus contactos y servicios, editarlo.
     // Corregir un lote a mano desde su cajón (25/11): todo es editar el padrón, también buscar a quién sumar.
     "lote-edicion": { defecto: P("usuarios.editar") },
+    // El portal del residente valida su propio token (lib/acciones-publicas): con sesión del panel no hace falta nada más.
+    "portal-residente": { defecto: S },
+    // Los pedidos del portal (sumar/sacar matrícula): verlos es ver el padrón; resolverlos, editarlo.
+    "pedidos-residente": { defecto: P("usuarios.editar"), por: { pedidosPendientes: P("usuarios") } },
     // Los espacios comunes (SUM, piscina, canchas): verlos es ver el padrón; cargar, reservar y anotar tareas, editarlo.
     espacios: { defecto: P("usuarios.editar"), por: { espaciosDe: P("usuarios"), reservasDe: P("usuarios"), proximasReservas: P("usuarios"), lotesParaReservar: P("usuarios"), tareasDe: P("usuarios") } },
     administraciones: { defecto: P("usuarios"), por: { guardarAdministracion: P("usuarios.editar"), borrarAdministracion: P("usuarios.editar"), guardarContactoAdm: P("usuarios.editar"), borrarContactoAdm: P("usuarios.editar"), guardarServicioAdm: P("usuarios.editar"), borrarServicioAdm: P("usuarios.editar"), cambiarCodigoCenso: P("usuarios.editar") } },

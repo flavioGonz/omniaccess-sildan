@@ -99,8 +99,10 @@ const CLAVE = "oa.censo.borrador";
  */
 export type CargaPrevia = { id: string; cuando: string; datos: Partial<Form> };
 
-export function Formulario({ centro, invitacion, cargas = [], previa }: {
+export function Formulario({ centro, invitacion, cargas = [], previa, portal }: {
     centro: [number, number];
+    /** Su portal del residente (26/11): el mismo sistema que el censo, para invitar y ver sus matrículas. */
+    portal?: string | null;
     /** Su carga sin revisar todavía, si la hay (ver CargaPrevia). */
     previa?: CargaPrevia | null;
     /** Lo que ya cargaron en este lote (ver CargaDelLote). */
@@ -175,7 +177,7 @@ export function Formulario({ centro, invitacion, cargas = [], previa }: {
         } finally { setEnviando(false); }
     }
 
-    if (listo) return <Gracias marca={marca} lote={f.lote} vehiculos={f.vehiculos.filter((v) => v.chapa.trim()).length} servicios={f.servicios.length} ubicado={f.lat != null}
+    if (listo) return <Gracias marca={marca} portal={portal} lote={f.lote} vehiculos={f.vehiculos.filter((v) => v.chapa.trim()).length} servicios={f.servicios.length} ubicado={f.lat != null}
         alCorregir={reemplaza ? () => { setListo(false); setSentido(-1); setPaso(0); try { window.scrollTo({ top: 0 }); } catch { /* da igual */ } } : undefined} />;
 
     return (
@@ -200,6 +202,13 @@ export function Formulario({ centro, invitacion, cargas = [], previa }: {
                     <motion.div key={paso} custom={sentido} className="censo-paso"
                         initial={{ opacity: 0, x: 22 * sentido }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -22 * sentido }}
                         transition={RESORTE}>
+                        {paso === 0 && portal && (
+                            <a href={portal} className="mb-4 flex items-center gap-3 rounded-[10px] border border-border bg-card px-3.5 py-3">
+                                <Home size={18} className="shrink-0 text-[var(--accion)]" />
+                                <span className="min-w-0 flex-1 text-[13px] leading-snug"><b>Tu portal del barrio</b><span className="text-muted-foreground"> · invitá visitas con QR y mirá tus matrículas.</span></span>
+                                <ArrowUpRight size={16} className="shrink-0 text-muted-foreground" />
+                            </a>
+                        )}
                         {reemplaza && (
                             <div className="mb-5 rounded-[10px] border border-[color-mix(in_oklab,var(--accion)_40%,transparent)] bg-[color-mix(in_oklab,var(--accion)_6%,transparent)] p-3.5">
                                 <p className="text-[14px] font-bold">Estás corrigiendo tu carga{reemplaza.cuando === "recién" ? "" : ` del ${reemplaza.cuando}`}</p>
@@ -795,8 +804,9 @@ function PasoServicios({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, 
     );
 }
 
-function Gracias({ marca, lote, vehiculos, servicios, ubicado, alCorregir }: {
+function Gracias({ marca, lote, vehiculos, servicios, ubicado, alCorregir, portal }: {
     marca: { name: string; barrio: string; logoUrl: string };
+    portal?: string | null;
     lote: string; vehiculos: number; servicios: number; ubicado: boolean;
     /** Volver al formulario con lo mandado, para agregar o corregir (reemplaza la carga). */
     alCorregir?: () => void;
@@ -837,6 +847,13 @@ function Gracias({ marca, lote, vehiculos, servicios, ubicado, alCorregir }: {
                     Cargaste {dice}. La administración lo revisa y lo da de alta en los próximos días.
                     {alCorregir ? " Si te olvidaste de algo, agregalo acá: lo que ya cargaste queda." : " Si falta algo, volvé a escanear el QR y cargalo de nuevo."}
                 </p>
+                {portal && (
+                    <a href={portal} className={cn("mx-auto mt-6 flex max-w-[460px] items-center gap-3 rounded-[14px] bg-[var(--accion)] p-4 text-left text-white", PULSABLE)}>
+                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-white/15"><Home size={20} /></span>
+                        <span className="min-w-0 flex-1"><span className="block text-[15px] font-bold">Entrá a tu portal</span><span className="block text-[12.5px] opacity-90">Invitá visitas con QR y mirá tus matrículas. Guardalo: es tuyo.</span></span>
+                        <ArrowUpRight size={18} />
+                    </a>
+                )}
                 {alCorregir && (
                     <button type="button" onClick={alCorregir}
                         className={cn("mx-auto mt-6 h-12 px-5 rounded-[10px] border border-border text-[15px] font-bold inline-flex items-center justify-center gap-2 hover:bg-accent", PULSABLE)}>

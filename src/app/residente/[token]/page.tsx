@@ -1,406 +1,566 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
-    Ticket, Plus, X, Car, Clock, LogIn, QrCode, Trash2, CalendarPlus, Users,
-    PartyPopper, UserPlus, Copy, Download, ShieldCheck, Home, Check,
+    ArrowUpRight, CalendarPlus, Car, Check, ChevronRight, ClipboardList, Clock, Copy, Download, Home, Info, LogIn, PartyPopper,
+    Plus, QrCode, ShieldCheck, Ticket, Trash2, UserPlus, Users, X,
 } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
+import { OmniLogo } from "@/components/brand/OmniLogo";
+import { getAppBranding } from "@/app/actions/settings";
 import {
-    listMyInvitations, createMyInvitation, addMyGuest, revokeMyInvitation, extendMyInvitation, getQrSvg, nombreDelBarrio,
-    type MyInvitation, type MyGuest, type PortalHost,
+    addMyGuest, createMyInvitation, extendMyInvitation, getQrSvg, listMyInvitations, revokeMyInvitation,
+    type MyGuest, type MyInvitation, type PortalHost,
 } from "@/app/actions/invitations";
+import { anularPedido, miPortal, pedirBajaMatricula, pedirMatricula, type MiPortal } from "@/app/actions/portal-residente";
+import { TIPOS_VEHICULO } from "@/lib/registro-padron";
+import { cn } from "@/lib/utils";
 
-/* ───────────────── helpers ───────────────── */
+/**
+ * El portal del residente: una sola app para todo lo del vecino (26/11).
+ *
+ * Nico: «mejorar el diseño de /residente, y que el registro del lote y las invitaciones QR sean bajo
+ * el mismo sistema y el mismo panel: poder invitar, gestionar tus matrículas, etc., en el mismo que
+ * ya tenemos». Antes el portal era sólo invitaciones, con un diseño propio (verde, degradés, sin la
+ * marca), y el censo vivía en otro enlace que una vez enviado no servía para nada más.
+ *
+ * Ahora es una app de celular con cuatro pestañas abajo —Inicio, Invitar, Vehículos, Mi lote—, con
+ * el sistema de OmniAccess (Outfit, un solo azul de acción, los tonos sólo para estado) y la marca
+ * del barrio al lado de la nuestra. Todo lo que se carga va en hojas que suben desde abajo, como
+ * los cajones del panel. Lo que cambia el padrón (una matrícula) es un PEDIDO: lo aprueba la
+ * administración, y mientras tanto se ve «esperando».
+ *
+ * Movimiento según la skill apple-design (como el censo): resortes sin rebote, respuesta al tocar,
+ * caminos simétricos, y movimiento reducido respetado.
+ */
+
+type Pest = "inicio" | "invitar" | "vehiculos" | "lote";
+const PESTS: { v: Pest; r: string; I: typeof Home }[] = [
+    { v: "inicio", r: "Inicio", I: Home }, { v: "invitar", r: "Invitar", I: Ticket }, { v: "vehiculos", r: "Vehículos", I: Car }, { v: "lote", r: "Mi lote", I: Users },
+];
+const RESORTE = { type: "spring" as const, bounce: 0, duration: 0.38 };
+const PULSABLE = "active:scale-[0.97] transition-transform duration-100 ease-out";
+const ENTRADA = "h-12 w-full px-3.5 rounded-[10px] border border-border bg-background text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]/40 focus-visible:border-[var(--accion)]";
+const VINCULO: Record<string, string> = { PROPIETARIO: "Propietario", INQUILINO: "Inquilino", OCUPANTE: "Ocupante", FAMILIA: "Familia" };
+
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const fmtRange = (from: string, to: string) => {
-    const f = new Date(from), t = new Date(to);
-    const day = (d: Date) => cap(d.toLocaleDateString("es-UY", { weekday: "short", day: "2-digit", month: "short" }));
-    const hm = (d: Date) => d.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" });
-    const sameDay = f.toDateString() === t.toDateString();
-    return sameDay ? `${day(f)} · ${hm(f)} – ${hm(t)}` : `${day(f)} ${hm(f)} → ${day(t)} ${hm(t)}`;
-};
-const toLocal = (d: Date) => { const p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+const hm = (d: Date) => d.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false });
+const dia = (d: Date) => cap(d.toLocaleDateString("es-UY", { weekday: "short", day: "numeric", month: "short" }).replace(".", ""));
+const rango = (a: string, b: string) => { const f = new Date(a), t = new Date(b); return f.toDateString() === t.toDateString() ? `${dia(f)} · ${hm(f)} a ${hm(t)}` : `${dia(f)} ${hm(f)} → ${dia(t)} ${hm(t)}`; };
+const aLocal = (d: Date) => { const p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+const vigente = (i: MyInvitation) => i.status === "ACTIVE";
 
-const STATUS: Record<string, { t: string; cls: string }> = {
-    ACTIVE: { t: "Vigente", cls: "ok" }, EXPIRED: { t: "Vencido", cls: "mut" }, REVOKED: { t: "Anulado", cls: "bad" },
-};
-
-export default function ResidentePortal() {
+export default function PortalResidente() {
     const params = useParams();
-    const token = String((params as any)?.token || "");
+    const token = String((params as { token?: string })?.token || "");
+    const [marca, setMarca] = useState<{ barrio: string; logoUrl: string }>({ barrio: "", logoUrl: "" });
     const [host, setHost] = useState<PortalHost | null>(null);
-    // El nombre del barrio (Ajustes → Marca); antes decía a mano el nombre de otro barrio.
-    const [barrio, setBarrio] = useState("");
-    useEffect(() => { nombreDelBarrio().then(setBarrio).catch(() => { }); }, []);
     const [items, setItems] = useState<MyInvitation[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [bad, setBad] = useState(false);
-    const [newKind, setNewKind] = useState<"SINGLE" | "EVENT" | null>(null);
-    const [qr, setQr] = useState<MyGuest | null>(null);
-    const [addTo, setAddTo] = useState<MyInvitation | null>(null);
+    const [datos, setDatos] = useState<MiPortal | null>(null);
+    const [estado, setEstado] = useState<"cargando" | "listo" | "malo">("cargando");
+    const [pest, setPest] = useState<Pest>("inicio");
+    const [sentido, setSentido] = useState(1);
+    const [hoja, setHoja] = useState<null | { que: "invitar"; kind: "SINGLE" | "EVENT" } | { que: "invitado"; inv: MyInvitation } | { que: "qr"; g: MyGuest } | { que: "matricula" }>(null);
+    const quieto = useReducedMotion();
 
-    const load = useCallback(async () => {
-        try { const r = await listMyInvitations(token); if (!r.ok) setBad(true); else { setHost(r.host!); setItems(r.items || []); } }
-        catch { setBad(true); } finally { setLoading(false); }
+    useEffect(() => { getAppBranding().then((b) => setMarca({ barrio: b.barrio || b.name || "", logoUrl: b.logoUrl || "" })).catch(() => { }); }, []);
+    const traer = useCallback(async () => {
+        try {
+            const [r, p] = await Promise.all([listMyInvitations(token), miPortal(token)]);
+            if (!r.ok || !p.ok) { setEstado("malo"); return; }
+            setHost(r.host!); setItems(r.items || []); setDatos(p.datos!); setEstado("listo");
+        } catch { setEstado("malo"); }
     }, [token]);
-    useEffect(() => { load(); }, [load]);
+    useEffect(() => { const t = setTimeout(traer, 0); return () => clearTimeout(t); }, [traer]);
+    const ir = (p: Pest) => { setSentido(PESTS.findIndex((x) => x.v === p) >= PESTS.findIndex((x) => x.v === pest) ? 1 : -1); setPest(p); try { window.scrollTo({ top: 0 }); } catch { /* da igual */ } };
 
-    const active = items.filter((i) => i.status === "ACTIVE");
-    const past = items.filter((i) => i.status !== "ACTIVE");
+    if (estado === "cargando") return <Marco marca={marca}><div className="grid min-h-[60vh] place-items-center"><Loader2 size={28} className="animate-spin text-[var(--accion)]" /></div></Marco>;
+    if (estado === "malo" || !host || !datos) return (
+        <Marco marca={marca}>
+            <div className="mx-auto max-w-[420px] px-6 pt-20 text-center">
+                <span className="mx-auto grid h-14 w-14 place-items-center rounded-[14px] bg-muted"><Ticket size={26} /></span>
+                <h1 className="mt-5 text-[24px] font-bold tracking-[-0.02em]">Este enlace ya no sirve</h1>
+                <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">Pedile a la administración del barrio que te mande tu enlace de nuevo.</p>
+            </div>
+        </Marco>
+    );
 
     return (
-        <div className="rp-root">
-            <Styles />
-            <header className="rp-topbar">
-                <div className="rp-brand">
-                    <span className="rp-logo" aria-hidden="true"><Ticket size={18} /></span>
-                    <span className="rp-brandname">{barrio || "Mis invitados"}</span>
+        <Marco marca={marca} conBarra>
+            <main className="mx-auto w-full max-w-[640px] px-4 pb-32 pt-5">
+                <AnimatePresence mode="wait" initial={false} custom={sentido}>
+                    <motion.div key={pest} custom={sentido} initial={quieto ? { opacity: 0 } : { opacity: 0, x: 22 * sentido }} animate={{ opacity: 1, x: 0 }} exit={quieto ? { opacity: 0 } : { opacity: 0, x: -22 * sentido }} transition={RESORTE}>
+                        {pest === "inicio" && <Inicio host={host} datos={datos} items={items} alIr={ir} alInvitar={(kind) => setHoja({ que: "invitar", kind })} alQr={(g) => setHoja({ que: "qr", g })} />}
+                        {pest === "invitar" && <Invitaciones token={token} items={items} alNueva={(kind) => setHoja({ que: "invitar", kind })} alQr={(g) => setHoja({ que: "qr", g })} alAgregar={(inv) => setHoja({ que: "invitado", inv })} alCambiar={traer} />}
+                        {pest === "vehiculos" && <Vehiculos token={token} datos={datos} alPedir={() => setHoja({ que: "matricula" })} alCambiar={traer} />}
+                        {pest === "lote" && <MiLote datos={datos} />}
+                    </motion.div>
+                </AnimatePresence>
+            </main>
+
+            <nav className="censo-barra fixed inset-x-0 bottom-0 z-30" aria-label="Secciones">
+                <div className="mx-auto grid w-full max-w-[640px] grid-cols-4 px-2 pt-1.5">
+                    {PESTS.map((p) => {
+                        const activa = pest === p.v;
+                        const aviso = p.v === "vehiculos" ? datos.pedidos.filter((x) => x.estado === "PENDIENTE").length : p.v === "invitar" ? items.filter(vigente).length : 0;
+                        return (
+                            <button key={p.v} type="button" onClick={() => ir(p.v)} aria-current={activa ? "page" : undefined}
+                                className={cn("relative flex flex-col items-center gap-0.5 rounded-[10px] py-1.5 text-[11px] font-semibold", PULSABLE, activa ? "text-[var(--accion)]" : "text-muted-foreground")}>
+                                <span className="relative">
+                                    <p.I size={22} strokeWidth={activa ? 2.4 : 2} />
+                                    {aviso > 0 && <span className="absolute -right-2 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--accion)] px-1 text-[9.5px] font-bold text-white tabular-nums">{aviso}</span>}
+                                </span>
+                                {p.r}
+                            </button>
+                        );
+                    })}
+                </div>
+            </nav>
+
+            <AnimatePresence>
+                {hoja?.que === "invitar" && <HojaInvitar key="i" kind={hoja.kind} token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); ir("invitar"); }} />}
+                {hoja?.que === "invitado" && <HojaInvitado key="g" inv={hoja.inv} token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
+                {hoja?.que === "qr" && <HojaQr key="q" g={hoja.g} alCerrar={() => setHoja(null)} />}
+                {hoja?.que === "matricula" && <HojaMatricula key="m" token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
+            </AnimatePresence>
+        </Marco>
+    );
+}
+
+/** La cabecera de siempre: OmniAccess a la izquierda, el barrio a la derecha (ver claude/marca-omniaccess.md). */
+function Marco({ marca, conBarra, children }: { marca: { barrio: string; logoUrl: string }; conBarra?: boolean; children: React.ReactNode }) {
+    return (
+        <div className={cn("min-h-[100dvh] bg-background text-foreground", conBarra && "pb-[env(safe-area-inset-bottom)]")}>
+            <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur-md">
+                <div className="mx-auto flex w-full max-w-[640px] items-center gap-2.5 px-4 py-3">
+                    <OmniLogo size={24} className="shrink-0" />
+                    <span className="text-[16px] font-bold leading-none tracking-[-0.02em]">Omni<span className="font-normal">Access</span></span>
+                    {marca.logoUrl
+                        // eslint-disable-next-line @next/next/no-img-element
+                        ? <img src={marca.logoUrl} alt={marca.barrio || "Barrio"} className="ml-auto h-6 max-w-[120px] object-contain" />
+                        : marca.barrio && <span className="ml-auto truncate text-[12px] font-semibold text-muted-foreground">{marca.barrio}</span>}
                 </div>
             </header>
-
-            {loading ? (
-                <main className="rp-main" aria-busy="true"><div className="rp-center"><Loader2 className="rp-spin" aria-hidden="true" /><span className="rp-sr">Cargando…</span></div></main>
-            ) : bad || !host ? (
-                <main className="rp-main">
-                    <div className="rp-empty" role="status">
-                        <Ticket size={44} aria-hidden="true" />
-                        <h1 className="rp-h1">Link inválido o vencido</h1>
-                        <p className="rp-sub">Pedile al barrio que te reenvíe tu acceso para gestionar invitaciones.</p>
-                    </div>
-                </main>
-            ) : (
-                <main className="rp-main" aria-labelledby="rp-greet">
-                    <section className="rp-hero">
-                        <p className="rp-eyebrow">Invitaciones</p>
-                        <h1 id="rp-greet" className="rp-h1">Hola, {host.name.split(" ")[0]}</h1>
-                        {host.label && <p className="rp-sub"><Home size={14} aria-hidden="true" /> {host.label}</p>}
-                    </section>
-
-                    <div className="rp-actions">
-                        <button className="rp-cta rp-cta--visit" onClick={() => setNewKind("SINGLE")}>
-                            <UserPlus size={20} aria-hidden="true" /><span>Invitar visita</span>
-                        </button>
-                        <button className="rp-cta rp-cta--event" onClick={() => setNewKind("EVENT")}>
-                            <PartyPopper size={20} aria-hidden="true" /><span>Crear fiesta</span>
-                        </button>
-                    </div>
-
-                    {active.length === 0 && past.length === 0 && (
-                        <div className="rp-empty rp-empty--soft" role="status">
-                            <Ticket size={36} aria-hidden="true" />
-                            <p className="rp-sub">Todavía no invitaste a nadie. Creá tu primer pase arriba.</p>
-                        </div>
-                    )}
-
-                    {active.length > 0 && <h2 className="rp-section">Activas</h2>}
-                    {active.map((inv) => (
-                        <InvCard key={inv.id} inv={inv} onQr={setQr}
-                            onRevoke={async () => { if (confirm("¿Anular esta invitación? Dejará de validar en las garitas.")) { await revokeMyInvitation(token, inv.id); load(); } }}
-                            onExtend={async () => { await extendMyInvitation(token, inv.id, new Date(new Date(inv.validTo).getTime() + 2 * 3600 * 1000)); load(); }}
-                            onAdd={() => setAddTo(inv)} />
-                    ))}
-
-                    {past.length > 0 && <h2 className="rp-section">Anteriores</h2>}
-                    {past.map((inv) => <InvCard key={inv.id} inv={inv} past onQr={setQr} />)}
-                    <div style={{ height: 24 }} />
-                </main>
-            )}
-
-            {newKind && <CreateSheet kind={newKind} token={token} onClose={() => setNewKind(null)} onDone={() => { setNewKind(null); load(); }} />}
-            {addTo && <AddGuestSheet inv={addTo} token={token} onClose={() => setAddTo(null)} onDone={() => { setAddTo(null); load(); }} />}
-            {qr && <QrSheet guest={qr} token={token} onClose={() => setQr(null)} />}
+            {children}
         </div>
     );
 }
 
-/* ───────────────── invitation card ───────────────── */
-function InvCard({ inv, past, onQr, onRevoke, onExtend, onAdd }: { inv: MyInvitation; past?: boolean; onQr: (g: MyGuest) => void; onRevoke?: () => void; onExtend?: () => void; onAdd?: () => void }) {
-    const st = STATUS[inv.status] || STATUS.EXPIRED;
-    const inside = inv.guests.filter((g) => g.inside).length;
-    const isEvent = inv.kind === "EVENT";
+function Titulo({ rotulo, titulo, bajada }: { rotulo: string; titulo: string; bajada?: string }) {
     return (
-        <article className={`rp-card${past ? " rp-card--past" : ""}`} aria-label={inv.title || (isEvent ? "Fiesta" : "Visita")}>
-            <div className="rp-card-head">
-                <span className={`rp-kind ${isEvent ? "ev" : "vi"}`} aria-hidden="true">{isEvent ? <PartyPopper size={18} /> : <Ticket size={18} />}</span>
-                <div className="rp-card-title">
-                    <h3 className="rp-cardh">{inv.title || (isEvent ? "Fiesta" : "Visita")}</h3>
-                    <p className="rp-when"><Clock size={13} aria-hidden="true" /> {fmtRange(inv.validFrom, inv.validTo)}</p>
-                </div>
-                <span className={`rp-pill ${st.cls}`}>{st.t}</span>
+        <div className="mb-5">
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--accion)]">{rotulo}</p>
+            <h1 className="mt-1 text-[28px] font-bold leading-tight tracking-[-0.025em]">{titulo}</h1>
+            {bajada && <p className="mt-1.5 text-[14.5px] leading-relaxed text-muted-foreground">{bajada}</p>}
+        </div>
+    );
+}
+
+/* ═══════════════════════ Inicio ═══════════════════════ */
+
+function Inicio({ host, datos, items, alIr, alInvitar, alQr }: { host: PortalHost; datos: MiPortal; items: MyInvitation[]; alIr: (p: Pest) => void; alInvitar: (k: "SINGLE" | "EVENT") => void; alQr: (g: MyGuest) => void }) {
+    const adentro = items.filter(vigente).flatMap((i) => i.guests.filter((g) => g.inside));
+    const hoy = items.filter((i) => vigente(i) && new Date(i.validFrom).toDateString() === new Date().toDateString());
+    const pendientes = datos.pedidos.filter((p) => p.estado === "PENDIENTE");
+    const [ahora] = useState(() => Date.now());
+    const recien = datos.pedidos.filter((p) => p.estado !== "PENDIENTE" && ahora - Date.parse(p.createdAt) < 7 * 86400_000).slice(0, 2);
+    const tareas: { I: typeof Home; t: string; d: string; tono: string; accion: () => void }[] = [];
+    if (datos.censo.enlace && datos.censo.estado === "sin-cargar") tareas.push({ I: ClipboardList, t: "Completá el censo de tu lote", d: "Tus vehículos y quién entra a tu casa. Son dos minutos.", tono: "chip-aviso", accion: () => window.location.assign(datos.censo.enlace!) });
+    for (const p of pendientes) tareas.push({ I: Car, t: `${p.tipo === "MATRICULA_BAJA" ? "Sacar" : "Sumar"} ${p.chapa}`, d: "Esperando que la administración lo apruebe.", tono: "chip-info", accion: () => alIr("vehiculos") });
+    for (const p of recien) tareas.push({ I: p.estado === "APROBADO" ? Check : X, t: `${p.chapa}: ${p.estado === "APROBADO" ? "aprobado" : "no se aprobó"}`, d: p.estado === "APROBADO" ? (p.tipo === "MATRICULA_BAJA" ? "Ya no abre el portón." : "La cámara ya la reconoce en la entrada.") : p.motivo || "Consultá con la administración.", tono: p.estado === "APROBADO" ? "chip-bien" : "chip-mal", accion: () => alIr("vehiculos") });
+
+    return (
+        <div>
+            <Titulo rotulo={datos.lote ? `Lote ${datos.lote.nombre}` : "Tu portal"} titulo={`Hola, ${host.name.split(" ")[0]}`} bajada={datos.lote?.administracion || undefined} />
+            <div className="grid grid-cols-2 gap-2.5">
+                <button type="button" onClick={() => alInvitar("SINGLE")} className={cn("flex flex-col items-start gap-2 rounded-[14px] bg-[var(--accion)] p-4 text-left text-white", PULSABLE)}>
+                    <UserPlus size={22} /><span className="text-[15px] font-bold leading-tight">Invitar una visita</span><span className="text-[12px] opacity-85">Su QR entra solo</span>
+                </button>
+                <button type="button" onClick={() => alInvitar("EVENT")} className={cn("flex flex-col items-start gap-2 rounded-[14px] border border-border bg-card p-4 text-left", PULSABLE)}>
+                    <PartyPopper size={22} className="text-[var(--accion)]" /><span className="text-[15px] font-bold leading-tight">Armar un evento</span><span className="text-[12px] text-muted-foreground">Lista de invitados</span>
+                </button>
             </div>
 
-            {isEvent && (
-                <p className="rp-meta">
-                    <span><Users size={13} aria-hidden="true" /> {inv.guests.length}{inv.maxGuests ? ` / ${inv.maxGuests}` : ""} invitados</span>
-                    {inside > 0 && <span className="rp-inside">● {inside} adentro</span>}
-                </p>
+            {tareas.length > 0 && (
+                <section className="mt-6">
+                    <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Para vos</h2>
+                    <ul className="space-y-2">
+                        {tareas.map((t, k) => (
+                            <li key={k}><button type="button" onClick={t.accion} className={cn("flex w-full items-center gap-3 rounded-[14px] border border-border bg-card p-3.5 text-left", PULSABLE)}>
+                                <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-[10px]", t.tono)}><t.I size={18} /></span>
+                                <span className="min-w-0 flex-1"><span className="block text-[14.5px] font-semibold">{t.t}</span><span className="block text-[12.5px] leading-snug text-muted-foreground">{t.d}</span></span>
+                                <ChevronRight size={18} className="shrink-0 text-muted-foreground" />
+                            </button></li>
+                        ))}
+                    </ul>
+                </section>
             )}
 
-            <ul className="rp-guests">
+            <section className="mt-6">
+                <div className="mb-2 flex items-baseline gap-2"><h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Hoy</h2>{adentro.length > 0 && <span className="text-[12px] font-semibold tono-bien">● {adentro.length} adentro ahora</span>}</div>
+                {hoy.length === 0 ? (
+                    <p className="rounded-[14px] border border-dashed border-border p-4 text-[13.5px] text-muted-foreground">No esperás a nadie hoy. Cuando invites a alguien, acá ves si ya entró.</p>
+                ) : (
+                    <ul className="space-y-2">
+                        {hoy.flatMap((i) => i.guests.map((g) => ({ i, g }))).slice(0, 6).map(({ i, g }) => (
+                            <li key={g.guestId} className="flex items-center gap-3 rounded-[14px] border border-border bg-card p-3.5">
+                                <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-full text-[14px] font-bold", g.inside ? "pleno-bien" : "bg-muted")}>{(g.name || "?").charAt(0).toUpperCase()}</span>
+                                <span className="min-w-0 flex-1"><span className="block truncate text-[14.5px] font-semibold">{g.name || "Invitado"}</span><span className="block text-[12.5px] text-muted-foreground">{g.inside ? "Adentro" : g.entries ? "Ya se fue" : `Hasta las ${hm(new Date(i.validTo))}`}{g.plates[0] ? ` · ${g.plates[0]}` : ""}</span></span>
+                                <button type="button" onClick={() => alQr(g)} className={cn("grid h-11 w-11 place-items-center rounded-[10px] border border-border", PULSABLE)} aria-label={`QR de ${g.name}`}><QrCode size={19} /></button>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </section>
+
+            <section className="mt-6 grid grid-cols-2 gap-2.5">
+                <button type="button" onClick={() => alIr("vehiculos")} className={cn("rounded-[14px] border border-border bg-card p-4 text-left", PULSABLE)}>
+                    <Car size={18} className="text-muted-foreground" /><p className="mt-2 text-[24px] font-bold leading-none tabular-nums">{datos.chapas.filter((c) => c.mia).length}</p><p className="mt-1 text-[12.5px] text-muted-foreground">tus matrículas</p>
+                </button>
+                <button type="button" onClick={() => alIr("lote")} className={cn("rounded-[14px] border border-border bg-card p-4 text-left", PULSABLE)}>
+                    <Users size={18} className="text-muted-foreground" /><p className="mt-2 text-[24px] font-bold leading-none tabular-nums">{datos.gente.length}</p><p className="mt-1 text-[12.5px] text-muted-foreground">en tu lote</p>
+                </button>
+            </section>
+        </div>
+    );
+}
+
+/* ═══════════════════════ Invitaciones ═══════════════════════ */
+
+function Invitaciones({ token, items, alNueva, alQr, alAgregar, alCambiar }: { token: string; items: MyInvitation[]; alNueva: (k: "SINGLE" | "EVENT") => void; alQr: (g: MyGuest) => void; alAgregar: (i: MyInvitation) => void; alCambiar: () => void }) {
+    const [verPasadas, setVerPasadas] = useState(false);
+    const activas = items.filter(vigente), pasadas = items.filter((i) => !vigente(i));
+    return (
+        <div>
+            <Titulo rotulo="Invitaciones" titulo="Tus invitados" bajada="Cada invitado tiene su QR: lo mostrás en la garita o se lo reenviás. Si viene en auto con matrícula, la cámara lo reconoce sola." />
+            <div className="grid grid-cols-2 gap-2.5">
+                <button type="button" onClick={() => alNueva("SINGLE")} className={cn("h-12 rounded-[10px] bg-[var(--accion)] text-[15px] font-bold text-white inline-flex items-center justify-center gap-2", PULSABLE)}><UserPlus size={18} /> Visita</button>
+                <button type="button" onClick={() => alNueva("EVENT")} className={cn("h-12 rounded-[10px] border border-border text-[15px] font-bold inline-flex items-center justify-center gap-2", PULSABLE)}><PartyPopper size={18} /> Evento</button>
+            </div>
+            {activas.length === 0 && <p className="mt-5 rounded-[14px] border border-dashed border-border p-5 text-center text-[14px] text-muted-foreground">No tenés invitaciones vigentes.</p>}
+            <div className="mt-5 space-y-3">{activas.map((i) => <Tarjeta key={i.id} inv={i} token={token} alQr={alQr} alAgregar={alAgregar} alCambiar={alCambiar} />)}</div>
+            {pasadas.length > 0 && (
+                <>
+                    <button type="button" onClick={() => setVerPasadas((v) => !v)} className="mt-6 text-[13px] font-semibold text-muted-foreground">{verPasadas ? "Ocultar las anteriores" : `Ver las ${pasadas.length} anteriores`}</button>
+                    {verPasadas && <div className="mt-3 space-y-3 opacity-70">{pasadas.slice(0, 20).map((i) => <Tarjeta key={i.id} inv={i} token={token} alQr={alQr} pasada />)}</div>}
+                </>
+            )}
+        </div>
+    );
+}
+
+function Tarjeta({ inv, token, pasada, alQr, alAgregar, alCambiar }: { inv: MyInvitation; token: string; pasada?: boolean; alQr: (g: MyGuest) => void; alAgregar?: (i: MyInvitation) => void; alCambiar?: () => void }) {
+    const [anulando, setAnulando] = useState(false);
+    const evento = inv.kind === "EVENT";
+    const adentro = inv.guests.filter((g) => g.inside).length;
+    const estado = inv.status === "ACTIVE" ? { r: "Vigente", c: "chip-bien" } : inv.status === "REVOKED" ? { r: "Anulada", c: "chip-mal" } : { r: "Vencida", c: "chip-quieto" };
+    return (
+        <article className="overflow-hidden rounded-[14px] border border-border bg-card">
+            <div className="flex items-start gap-3 p-4">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-muted">{evento ? <PartyPopper size={18} /> : <Ticket size={18} />}</span>
+                <div className="min-w-0 flex-1">
+                    <h3 className="truncate text-[15px] font-bold">{inv.title || (evento ? "Evento" : inv.guests[0]?.name || "Visita")}</h3>
+                    <p className="mt-0.5 flex items-center gap-1 text-[12.5px] text-muted-foreground"><Clock size={12} /> {rango(inv.validFrom, inv.validTo)}</p>
+                    {evento && <p className="mt-0.5 text-[12.5px] text-muted-foreground">{inv.guests.length}{inv.maxGuests ? ` de ${inv.maxGuests}` : ""} invitados{adentro ? <span className="font-semibold tono-bien"> · {adentro} adentro</span> : null}</p>}
+                </div>
+                <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold", estado.c)}>{estado.r}</span>
+            </div>
+            <ul className="border-t border-border">
                 {inv.guests.map((g) => (
-                    <li key={g.guestId} className="rp-guest">
-                        <div className="rp-guest-info">
-                            <span className="rp-guest-name">{g.name || "Invitado"}</span>
-                            <span className="rp-guest-sub">
-                                {g.plates.length ? g.plates.map((p) => <span key={p} className="rp-plate"><Car size={12} aria-hidden="true" /> {p}</span>) : <span className="rp-afoot">a pie</span>}
-                                {g.inside ? <span className="rp-chip ok"><LogIn size={11} aria-hidden="true" /> adentro</span> : g.entries > 0 ? <span className="rp-chip mut">ingresó {g.lastEntryAt ? new Date(g.lastEntryAt).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" }) : ""}</span> : null}
+                    <li key={g.guestId} className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-0">
+                        <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[14px] font-semibold">{g.name || "Invitado"}</span>
+                            <span className="flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
+                                {g.plates.length ? g.plates.map((p) => <span key={p} className="rounded-[5px] border border-border px-1.5 font-bold tracking-wider tabular-nums">{p}</span>) : <span>a pie</span>}
+                                {g.inside ? <span className="inline-flex items-center gap-1 font-semibold tono-bien"><LogIn size={11} /> adentro</span> : g.entries > 0 ? <span>entró {g.lastEntryAt ? hm(new Date(g.lastEntryAt)) : ""}</span> : null}
                             </span>
-                        </div>
-                        <button className="rp-iconbtn" onClick={() => onQr(g)} aria-label={`Ver código QR de ${g.name || "invitado"}`}><QrCode size={18} aria-hidden="true" /></button>
+                        </span>
+                        <button type="button" onClick={() => alQr(g)} className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-[10px] border border-border text-[var(--accion)]", PULSABLE)} aria-label={`QR de ${g.name || "invitado"}`}><QrCode size={19} /></button>
                     </li>
                 ))}
             </ul>
-
-            {!past && (onRevoke || onExtend || onAdd) && (
-                <div className="rp-card-actions">
-                    {isEvent && onAdd && <button className="rp-act ev" onClick={onAdd}><Plus size={15} aria-hidden="true" /> Invitado</button>}
-                    {onExtend && <button className="rp-act neutral" onClick={onExtend}><CalendarPlus size={15} aria-hidden="true" /> +2 h</button>}
-                    {onRevoke && <button className="rp-act bad" onClick={onRevoke}><Trash2 size={15} aria-hidden="true" /> Anular</button>}
+            {!pasada && (
+                <div className="flex gap-2 border-t border-border p-3">
+                    {evento && alAgregar && <button type="button" onClick={() => alAgregar(inv)} className={cn("h-10 flex-1 rounded-[10px] border border-border text-[13px] font-semibold inline-flex items-center justify-center gap-1.5", PULSABLE)}><Plus size={15} /> Invitado</button>}
+                    <button type="button" onClick={async () => { await extendMyInvitation(token, inv.id, new Date(new Date(inv.validTo).getTime() + 2 * 3600_000)); alCambiar?.(); }} className={cn("h-10 flex-1 rounded-[10px] border border-border text-[13px] font-semibold inline-flex items-center justify-center gap-1.5", PULSABLE)}><CalendarPlus size={15} /> 2 horas más</button>
+                    {anulando ? (
+                        <span className="flex flex-1 gap-1.5">
+                            <button type="button" onClick={async () => { await revokeMyInvitation(token, inv.id); setAnulando(false); alCambiar?.(); }} className={cn("h-10 flex-1 rounded-[10px] pleno-mal text-[13px] font-bold", PULSABLE)}>Anular</button>
+                            <button type="button" onClick={() => setAnulando(false)} className="h-10 px-3 rounded-[10px] border border-border text-[13px]">No</button>
+                        </span>
+                    ) : <button type="button" onClick={() => setAnulando(true)} className={cn("h-10 flex-1 rounded-[10px] border border-border text-[13px] font-semibold tono-mal inline-flex items-center justify-center gap-1.5", PULSABLE)}><Trash2 size={15} /> Anular</button>}
                 </div>
             )}
         </article>
     );
 }
 
-/* ───────────────── sheets ───────────────── */
-function Sheet({ title, onClose, children, accent = "brand" }: { title: string; onClose: () => void; children: React.ReactNode; accent?: "brand" | "visit" | "event" | "qr" }) {
-    const ref = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        const prev = document.activeElement as HTMLElement | null;
-        ref.current?.focus();
-        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-        window.addEventListener("keydown", onKey);
-        document.body.style.overflow = "hidden";
-        return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = ""; prev?.focus?.(); };
-    }, [onClose]);
+/* ═══════════════════════ Vehículos ═══════════════════════ */
+
+function Vehiculos({ token, datos, alPedir, alCambiar }: { token: string; datos: MiPortal; alPedir: () => void; alCambiar: () => void }) {
+    const [sacando, setSacando] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const mias = datos.chapas.filter((c) => c.mia), delLote = datos.chapas.filter((c) => !c.mia);
+    const pendientes = datos.pedidos.filter((p) => p.estado === "PENDIENTE");
+    const resueltos = datos.pedidos.filter((p) => p.estado !== "PENDIENTE").slice(0, 6);
+    const bajaPedida = (c: string) => pendientes.some((p) => p.tipo === "MATRICULA_BAJA" && p.chapa === c);
     return (
-        <div className="rp-overlay" onClick={onClose}>
-            <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} className={`rp-sheet acc-${accent}`} onClick={(e) => e.stopPropagation()}>
-                <div className="rp-grab" aria-hidden="true" />
-                <div className="rp-sheet-head">
-                    <h2 className="rp-sheeth">{title}</h2>
-                    <button className="rp-closebtn" onClick={onClose} aria-label="Cerrar"><X size={20} aria-hidden="true" /></button>
-                </div>
-                <div className="rp-sheet-body">{children}</div>
-            </div>
+        <div>
+            <Titulo rotulo="Vehículos" titulo="Tus matrículas" bajada="Con estas matrículas la cámara te reconoce en la entrada. Sumar o sacar una es un pedido: lo aprueba la administración." />
+            <button type="button" onClick={alPedir} className={cn("h-12 w-full rounded-[10px] bg-[var(--accion)] text-[15px] font-bold text-white inline-flex items-center justify-center gap-2", PULSABLE)}><Plus size={18} /> Sumar una matrícula</button>
+            {error && <p className="mt-3 text-[13px] tono-mal">{error}</p>}
+
+            {pendientes.length > 0 && (
+                <section className="mt-6">
+                    <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Esperando a la administración</h2>
+                    <ul className="space-y-2">
+                        {pendientes.map((p) => (
+                            <li key={p.id} className="flex items-center gap-3 rounded-[14px] border border-[color-mix(in_oklab,var(--info)_35%,transparent)] bg-[color-mix(in_oklab,var(--info)_5%,transparent)] p-3.5">
+                                <Chapa p={p.chapa || ""} apagada={p.tipo === "MATRICULA_BAJA"} />
+                                <span className="min-w-0 flex-1 text-[12.5px] text-muted-foreground">{p.tipo === "MATRICULA_BAJA" ? "Pediste sacarla" : "Pediste sumarla"} · {dia(new Date(p.createdAt))}</span>
+                                <button type="button" onClick={async () => { await anularPedido(token, p.id); alCambiar(); }} className="text-[12.5px] font-semibold text-muted-foreground underline-offset-2 hover:underline">Anular</button>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
+
+            <section className="mt-6">
+                <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">A tu nombre</h2>
+                {mias.length === 0 ? <p className="rounded-[14px] border border-dashed border-border p-4 text-[13.5px] text-muted-foreground">No tenés matrículas a tu nombre todavía.</p> : (
+                    <ul className="space-y-2">
+                        {mias.map((c) => (
+                            <li key={c.chapa} className="flex items-center gap-3 rounded-[14px] border border-border bg-card p-3.5">
+                                <Chapa p={c.chapa} />
+                                <span className="min-w-0 flex-1 text-[12.5px]">{bajaPedida(c.chapa) ? <span className="text-muted-foreground">Pediste sacarla</span> : <span className="inline-flex items-center gap-1 font-semibold tono-bien"><ShieldCheck size={13} /> Aprobada</span>}</span>
+                                {!bajaPedida(c.chapa) && (sacando === c.chapa ? (
+                                    <span className="flex gap-1.5">
+                                        <button type="button" onClick={async () => { setError(null); const r = await pedirBajaMatricula(token, c.chapa); setSacando(null); if (!r.ok) setError(r.error || "No se pudo."); alCambiar(); }} className="h-9 px-3 rounded-[8px] pleno-mal text-[12.5px] font-bold">Pedir sacarla</button>
+                                        <button type="button" onClick={() => setSacando(null)} className="h-9 px-2.5 rounded-[8px] border border-border text-[12.5px]">No</button>
+                                    </span>
+                                ) : <button type="button" onClick={() => setSacando(c.chapa)} className="text-[12.5px] font-semibold text-muted-foreground">Sacar</button>)}
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </section>
+
+            {delLote.length > 0 && (
+                <section className="mt-6">
+                    <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">De tu familia en el lote</h2>
+                    <ul className="space-y-2">{delLote.map((c) => <li key={c.chapa} className="flex items-center gap-3 rounded-[14px] border border-border bg-card p-3.5"><Chapa p={c.chapa} /><span className="text-[12.5px] text-muted-foreground">de {c.de}</span></li>)}</ul>
+                </section>
+            )}
+
+            {resueltos.length > 0 && (
+                <section className="mt-6">
+                    <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Pedidos anteriores</h2>
+                    <ul className="divide-y divide-border rounded-[14px] border border-border bg-card">
+                        {resueltos.map((p) => (
+                            <li key={p.id} className="flex items-center gap-3 px-4 py-3 text-[13px]">
+                                <span className="font-bold tabular-nums tracking-wider">{p.chapa}</span>
+                                <span className="min-w-0 flex-1 truncate text-muted-foreground">{p.tipo === "MATRICULA_BAJA" ? "sacar" : "sumar"}{p.motivo ? ` · ${p.motivo}` : ""}</span>
+                                <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold", p.estado === "APROBADO" ? "chip-bien" : "chip-quieto")}>{p.estado === "APROBADO" ? "Aprobado" : "No aprobado"}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
         </div>
     );
 }
 
-function CreateSheet({ kind, token, onClose, onDone }: { kind: "SINGLE" | "EVENT"; token: string; onClose: () => void; onDone: () => void }) {
-    const now = new Date();
-    const [title, setTitle] = useState("");
-    const [from, setFrom] = useState(toLocal(now));
-    const [to, setTo] = useState(toLocal(new Date(now.getTime() + (kind === "EVENT" ? 10 : 6) * 3600 * 1000)));
-    const [maxG, setMaxG] = useState(kind === "EVENT" ? "40" : "");
-    const [rows, setRows] = useState<{ name: string; plate: string }[]>([{ name: "", plate: "" }]);
-    const [saving, setSaving] = useState(false);
-    const [err, setErr] = useState("");
-    const isEvent = kind === "EVENT";
+function Chapa({ p, apagada }: { p: string; apagada?: boolean }) {
+    return (
+        <span className={cn("inline-flex flex-col overflow-hidden rounded-[7px] border-2 bg-white text-black", apagada ? "border-black/30 opacity-60" : "border-black/80")}>
+            <span className="h-1 bg-[#1d4ed8]" />
+            <span className="px-2.5 py-0.5 text-[15px] font-extrabold tabular-nums tracking-[0.14em]">{p}</span>
+        </span>
+    );
+}
 
-    const setRow = (i: number, k: "name" | "plate", v: string) => setRows((r) => r.map((x, j) => j === i ? { ...x, [k]: k === "plate" ? v.toUpperCase() : v } : x));
-    const submit = async () => {
-        setErr("");
-        const guests = rows.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), plate: r.plate.trim() || undefined }));
-        if (guests.length === 0) { setErr("Agregá al menos un invitado con nombre."); return; }
-        if (new Date(to) <= new Date(from)) { setErr("La hora de fin debe ser posterior a la de inicio."); return; }
-        setSaving(true);
-        try { const r = await createMyInvitation(token, { kind, title: title.trim() || undefined, validFrom: from, validTo: to, reentry: "MULTI", maxGuests: isEvent ? (parseInt(maxG) || null) : null, guests }); if (r.ok) onDone(); else setErr(r.error || "No se pudo crear."); }
-        catch (e: any) { setErr(e?.message || "Error"); } finally { setSaving(false); }
+/* ═══════════════════════ Mi lote ═══════════════════════ */
+
+function MiLote({ datos }: { datos: MiPortal }) {
+    if (!datos.lote) return (
+        <div><Titulo rotulo="Mi lote" titulo="Sin lote" bajada="Todavía no figurás en ningún lote. Pedile a la administración que te sume al tuyo." /></div>
+    );
+    const c = datos.censo;
+    return (
+        <div>
+            <Titulo rotulo="Mi lote" titulo={`Lote ${datos.lote.nombre}`} bajada={[datos.lote.administracion, datos.lote.titular ? `Titular: ${datos.lote.titular}` : null].filter(Boolean).join(" · ") || undefined} />
+            {c.enlace && (
+                <a href={c.enlace} className={cn("flex items-center gap-3.5 rounded-[14px] border p-4", PULSABLE, c.estado === "sin-cargar" ? "border-[color-mix(in_oklab,var(--aviso)_45%,transparent)] bg-[color-mix(in_oklab,var(--aviso)_7%,transparent)]" : "border-border bg-card")}>
+                    <span className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-[10px]", c.estado === "aprobado" ? "chip-bien" : c.estado === "esperando" ? "chip-info" : "chip-aviso")}><ClipboardList size={20} /></span>
+                    <span className="min-w-0 flex-1">
+                        <span className="block text-[15px] font-bold">Censo del lote</span>
+                        <span className="block text-[12.5px] leading-snug text-muted-foreground">
+                            {c.estado === "aprobado" ? "Aprobado. Podés entrar a agregar o corregir lo que falte." : c.estado === "esperando" ? "Cargado: espera que la administración lo apruebe. Podés corregirlo." : "Todavía no se cargó. Son dos minutos: tus vehículos y quién entra."}
+                        </span>
+                    </span>
+                    <ArrowUpRight size={18} className="shrink-0 text-muted-foreground" />
+                </a>
+            )}
+            <section className="mt-6">
+                <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Quiénes están en el lote</h2>
+                <ul className="divide-y divide-border rounded-[14px] border border-border bg-card">
+                    {datos.gente.map((g) => (
+                        <li key={g.id} className="flex items-center gap-3 px-4 py-3">
+                            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-muted text-[13px] font-bold">{g.nombre.charAt(0).toUpperCase()}</span>
+                            <span className="min-w-0 flex-1"><span className="block truncate text-[14.5px] font-semibold">{g.nombre}{g.yo ? <span className="font-normal text-muted-foreground"> (vos)</span> : null}</span><span className="block text-[12px] text-muted-foreground">{VINCULO[g.vinculo] || g.vinculo}</span></span>
+                        </li>
+                    ))}
+                </ul>
+                <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> Si falta alguien o algo está mal, corregilo en el censo del lote o avisale a la administración.</p>
+            </section>
+            {datos.otrosLotes.length > 0 && <p className="mt-4 text-[12.5px] text-muted-foreground">También figurás en: {datos.otrosLotes.join(", ")}.</p>}
+            <section className="mt-6">
+                <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Tus datos</h2>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-[14px] border border-border bg-card p-4 text-[14px]">
+                    <dt className="text-muted-foreground">Nombre</dt><dd className="font-semibold">{datos.nombre}</dd>
+                    <dt className="text-muted-foreground">Correo</dt><dd className="truncate">{datos.email || "—"}</dd>
+                    <dt className="text-muted-foreground">Teléfono</dt><dd className="tabular-nums">{datos.telefono || "—"}</dd>
+                </dl>
+            </section>
+        </div>
+    );
+}
+
+/* ═══════════════════════ Las hojas ═══════════════════════ */
+
+/** Una hoja que sube desde abajo, como los cajones del panel en el celular. Se cierra tocando afuera, con la X o con Escape. */
+function Hoja({ titulo, bajada, alCerrar, children, pie }: { titulo: string; bajada?: string; alCerrar: () => void; children: React.ReactNode; pie?: React.ReactNode }) {
+    const quieto = useReducedMotion();
+    useEffect(() => {
+        const k = (e: KeyboardEvent) => { if (e.key === "Escape") alCerrar(); };
+        window.addEventListener("keydown", k); document.body.style.overflow = "hidden";
+        return () => { window.removeEventListener("keydown", k); document.body.style.overflow = ""; };
+    }, [alCerrar]);
+    return (
+        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={titulo}>
+            <motion.div className="absolute inset-0 bg-black/40" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={alCerrar} />
+            <motion.div className="absolute inset-x-0 bottom-0 mx-auto flex max-h-[92dvh] w-full max-w-[640px] flex-col rounded-t-[22px] bg-background"
+                initial={quieto ? { opacity: 0 } : { y: "100%" }} animate={quieto ? { opacity: 1 } : { y: 0 }} exit={quieto ? { opacity: 0 } : { y: "100%" }} transition={RESORTE}>
+                <div className="mx-auto mt-2.5 h-1.5 w-10 rounded-full bg-muted-foreground/25" aria-hidden />
+                <div className="flex items-start gap-3 px-5 pb-3 pt-3">
+                    <div className="min-w-0 flex-1"><h2 className="text-[20px] font-bold tracking-[-0.02em]">{titulo}</h2>{bajada && <p className="mt-0.5 text-[13.5px] leading-snug text-muted-foreground">{bajada}</p>}</div>
+                    <button type="button" onClick={alCerrar} className="grid h-10 w-10 place-items-center rounded-full bg-muted" aria-label="Cerrar"><X size={18} /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto px-5 pb-4">{children}</div>
+                {pie && <div className="censo-barra px-5 pt-3">{pie}</div>}
+            </motion.div>
+        </div>
+    );
+}
+
+function Campo({ etiqueta, ayuda, children }: { etiqueta: string; ayuda?: string; children: React.ReactNode }) {
+    return <label className="mb-4 block"><span className="mb-1.5 block text-[13px] font-semibold">{etiqueta}</span>{children}{ayuda && <span className="mt-1 block text-[12px] text-muted-foreground">{ayuda}</span>}</label>;
+}
+function Enviar({ ocupado, children, ...p }: React.ButtonHTMLAttributes<HTMLButtonElement> & { ocupado?: boolean }) {
+    return <button type="button" {...p} disabled={ocupado || p.disabled} className={cn("h-12 w-full rounded-[10px] bg-[var(--accion)] text-[15px] font-bold text-white inline-flex items-center justify-center gap-2 disabled:opacity-50", PULSABLE)}>{ocupado ? <Loader2 size={18} className="animate-spin" /> : null}{children}</button>;
+}
+
+function HojaInvitar({ kind, token, alCerrar, alListo }: { kind: "SINGLE" | "EVENT"; token: string; alCerrar: () => void; alListo: () => void }) {
+    const evento = kind === "EVENT";
+    const [ahora] = useState(() => new Date());
+    const [titulo, setTitulo] = useState("");
+    const [desde, setDesde] = useState(() => aLocal(ahora));
+    const [hasta, setHasta] = useState(() => aLocal(new Date(ahora.getTime() + (evento ? 8 : 4) * 3600_000)));
+    const [tope, setTope] = useState(evento ? "40" : "");
+    const [filas, setFilas] = useState([{ name: "", plate: "" }]);
+    const [ocupado, setOcupado] = useState(false);
+    const [error, setError] = useState("");
+    const set = (i: number, k: "name" | "plate", v: string) => setFilas((r) => r.map((x, j) => (j === i ? { ...x, [k]: k === "plate" ? v.toUpperCase() : v } : x)));
+    const crear = async () => {
+        setError("");
+        const guests = filas.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), plate: r.plate.trim() || undefined }));
+        if (!guests.length) { setError("Poné al menos el nombre de un invitado."); return; }
+        if (new Date(hasta) <= new Date(desde)) { setError("La hora de fin tiene que ser después de la de inicio."); return; }
+        setOcupado(true);
+        try { const r = await createMyInvitation(token, { kind, title: titulo.trim() || undefined, validFrom: desde, validTo: hasta, reentry: "MULTI", maxGuests: evento ? parseInt(tope) || null : null, guests }); if (r.ok) alListo(); else setError(r.error || "No se pudo crear."); }
+        finally { setOcupado(false); }
     };
-
     return (
-        <Sheet title={isEvent ? "Crear fiesta" : "Invitar visita"} accent={isEvent ? "event" : "visit"} onClose={onClose}>
-            <Field id="f-title" label={isEvent ? "Nombre del evento" : "Nombre (opcional)"}>
-                <input id="f-title" className="rp-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isEvent ? "Cumple de Mateo" : "Plomero, delivery…"} autoFocus />
-            </Field>
-            <div className="rp-grid2">
-                <Field id="f-from" label="Desde"><input id="f-from" type="datetime-local" className="rp-input" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
-                <Field id="f-to" label="Hasta"><input id="f-to" type="datetime-local" className="rp-input" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+        <Hoja titulo={evento ? "Armar un evento" : "Invitar una visita"} bajada={evento ? "Una lista de invitados para un rato: cada uno con su QR. Podés sumar más después." : "Su QR entra solo. Si viene en auto, poné la matrícula y la cámara lo reconoce."} alCerrar={alCerrar}
+            pie={<><Enviar ocupado={ocupado} onClick={crear}><ShieldCheck size={18} /> {evento ? "Crear el evento" : "Invitar"}</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+            <Campo etiqueta={evento ? "Nombre del evento" : "Para qué (opcional)"}><input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder={evento ? "Cumple de Mateo" : "Plomero, la abuela, delivery…"} className={ENTRADA} /></Campo>
+            <div className="grid grid-cols-2 gap-2.5">
+                <Campo etiqueta="Desde"><input type="datetime-local" value={desde} onChange={(e) => setDesde(e.target.value)} className={cn(ENTRADA, "text-[14px]")} /></Campo>
+                <Campo etiqueta="Hasta"><input type="datetime-local" value={hasta} onChange={(e) => setHasta(e.target.value)} className={cn(ENTRADA, "text-[14px]")} /></Campo>
             </div>
-            {isEvent && <Field id="f-max" label="Tope de invitados"><input id="f-max" className="rp-input" inputMode="numeric" value={maxG} onChange={(e) => setMaxG(e.target.value.replace(/\D/g, ""))} placeholder="40" /></Field>}
-
-            <p className="rp-grouplabel">Invitados</p>
-            {rows.map((r, i) => (
-                <div className="rp-row" key={i}>
-                    <input className="rp-input" value={r.name} onChange={(e) => setRow(i, "name", e.target.value)} placeholder="Nombre" aria-label={`Nombre del invitado ${i + 1}`} />
-                    <input className="rp-input rp-input--plate" value={r.plate} onChange={(e) => setRow(i, "plate", e.target.value)} placeholder="Patente" aria-label={`Patente del invitado ${i + 1}`} />
-                    {rows.length > 1 && <button className="rp-rowdel" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} aria-label={`Quitar invitado ${i + 1}`}><X size={16} aria-hidden="true" /></button>}
-                </div>
-            ))}
-            <button className="rp-addrow" onClick={() => setRows((r) => [...r, { name: "", plate: "" }])}><Plus size={16} aria-hidden="true" /> Agregar invitado</button>
-
-            {err && <p className="rp-err" role="alert">{err}</p>}
-            <button className="rp-submit" disabled={saving} onClick={submit}>
-                {saving ? <Loader2 size={18} className="rp-spin" aria-hidden="true" /> : <ShieldCheck size={18} aria-hidden="true" />} Crear y avisar a garita
-            </button>
-        </Sheet>
+            {evento && <Campo etiqueta="Cuántos como mucho" ayuda="La garita ve cuántos entraron contra este número."><input inputMode="numeric" value={tope} onChange={(e) => setTope(e.target.value.replace(/\D/g, ""))} className={ENTRADA} /></Campo>}
+            <p className="mb-2 text-[13px] font-semibold">{evento ? "Invitados" : "Quién viene"}</p>
+            <div className="space-y-2">
+                {filas.map((r, i) => (
+                    <div key={i} className="flex gap-2">
+                        <input value={r.name} onChange={(e) => set(i, "name", e.target.value)} placeholder="Nombre" className={cn(ENTRADA, "flex-1")} aria-label={`Nombre del invitado ${i + 1}`} />
+                        <input value={r.plate} onChange={(e) => set(i, "plate", e.target.value)} placeholder="Matrícula" className={cn(ENTRADA, "w-[120px] font-bold uppercase tracking-wider")} aria-label={`Matrícula del invitado ${i + 1}`} />
+                        {filas.length > 1 && <button type="button" onClick={() => setFilas((x) => x.filter((_, j) => j !== i))} className="grid h-12 w-10 place-items-center text-muted-foreground" aria-label="Quitar"><X size={16} /></button>}
+                    </div>
+                ))}
+            </div>
+            <button type="button" onClick={() => setFilas((r) => [...r, { name: "", plate: "" }])} className="mt-2.5 inline-flex items-center gap-1.5 text-[14px] font-semibold text-[var(--accion)]"><Plus size={16} /> Otro invitado</button>
+        </Hoja>
     );
 }
 
-function AddGuestSheet({ inv, token, onClose, onDone }: { inv: MyInvitation; token: string; onClose: () => void; onDone: () => void }) {
-    const [name, setName] = useState(""); const [plate, setPlate] = useState(""); const [saving, setSaving] = useState(false); const [err, setErr] = useState("");
-    const submit = async () => { if (!name.trim()) { setErr("Ingresá el nombre."); return; } setSaving(true); try { const r = await addMyGuest(token, inv.id, { name: name.trim(), plate: plate.trim() || undefined }); if (r.ok) onDone(); else setErr(r.error || "No se pudo."); } finally { setSaving(false); } };
+function HojaInvitado({ inv, token, alCerrar, alListo }: { inv: MyInvitation; token: string; alCerrar: () => void; alListo: () => void }) {
+    const [nombre, setNombre] = useState(""); const [chapa, setChapa] = useState(""); const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
     return (
-        <Sheet title="Agregar invitado" accent="event" onClose={onClose}>
-            <Field id="g-name" label="Nombre"><input id="g-name" className="rp-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre" autoFocus /></Field>
-            <Field id="g-plate" label="Patente (opcional)"><input id="g-plate" className="rp-input" value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} placeholder="SAB1234" /></Field>
-            {err && <p className="rp-err" role="alert">{err}</p>}
-            <button className="rp-submit" disabled={saving} onClick={submit}>{saving ? <Loader2 size={18} className="rp-spin" aria-hidden="true" /> : <Plus size={18} aria-hidden="true" />} Agregar</button>
-        </Sheet>
+        <Hoja titulo="Sumar un invitado" bajada={inv.title || "Evento"} alCerrar={alCerrar}
+            pie={<><Enviar ocupado={ocupado} disabled={!nombre.trim()} onClick={async () => { setOcupado(true); try { const r = await addMyGuest(token, inv.id, { name: nombre.trim(), plate: chapa.trim() || undefined }); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Plus size={18} /> Sumar</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+            <Campo etiqueta="Nombre"><input autoFocus value={nombre} onChange={(e) => setNombre(e.target.value)} className={ENTRADA} /></Campo>
+            <Campo etiqueta="Matrícula (opcional)" ayuda="Si viene en auto, la cámara lo reconoce en la entrada."><input value={chapa} onChange={(e) => setChapa(e.target.value.toUpperCase())} placeholder="SBC1234" className={cn(ENTRADA, "font-bold tracking-wider")} /></Campo>
+        </Hoja>
     );
 }
 
-function QrSheet({ guest, token, onClose }: { guest: MyGuest; token: string; onClose: () => void }) {
+function HojaQr({ g, alCerrar }: { g: MyGuest; alCerrar: () => void }) {
     const [svg, setSvg] = useState("");
-    const [copied, setCopied] = useState(false);
-    const link = typeof window !== "undefined" ? `${window.location.origin}/invitado/${guest.qrToken}` : "";
-    useEffect(() => { getQrSvg(guest.qrToken).then(setSvg).catch(() => { }); }, [guest.qrToken]);
-    const dl = () => { const b = new Blob([svg], { type: "image/svg+xml" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = `pase-${(guest.name || "invitado").replace(/\s+/g, "_")}.svg`; a.click(); URL.revokeObjectURL(u); };
-    const copy = async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { } };
+    const [copiado, setCopiado] = useState(false);
+    const enlace = useMemo(() => (typeof window !== "undefined" ? `${window.location.origin}/invitado/${g.qrToken}` : ""), [g.qrToken]);
+    useEffect(() => { getQrSvg(g.qrToken).then(setSvg).catch(() => { }); }, [g.qrToken]);
+    const compartir = async () => {
+        try {
+            if (navigator.share) { await navigator.share({ title: "Tu pase", text: `Pase para entrar${g.name ? `, ${g.name}` : ""}`, url: enlace }); return; }
+            await navigator.clipboard.writeText(enlace); setCopiado(true); setTimeout(() => setCopiado(false), 1600);
+        } catch { /* canceló */ }
+    };
+    const bajar = () => { const b = new Blob([svg], { type: "image/svg+xml" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = `pase-${(g.name || "invitado").replace(/\s+/g, "_")}.svg`; a.click(); URL.revokeObjectURL(u); };
     return (
-        <Sheet title={guest.name || "Invitado"} accent="qr" onClose={onClose}>
-            <div className="rp-qrwrap">
-                <div className="rp-qr" dangerouslySetInnerHTML={{ __html: svg }} role="img" aria-label={`Código QR del pase de ${guest.name || "invitado"}`} />
-                <p className="rp-qrhint">Ya te lo enviamos a tu WhatsApp. También podés reenviárselo a tu invitado desde acá.</p>
-                <div className="rp-grid2">
-                    <button className="rp-ghost" onClick={copy}>{copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />} {copied ? "¡Copiado!" : "Copiar link"}</button>
-                    <button className="rp-ghost" onClick={dl}><Download size={16} aria-hidden="true" /> Descargar</button>
-                </div>
+        <Hoja titulo={g.name || "Invitado"} bajada="Se lo mostrás a la garita o se lo mandás a tu invitado." alCerrar={alCerrar}
+            pie={<div className="grid grid-cols-2 gap-2.5">
+                <button type="button" onClick={compartir} className={cn("h-12 rounded-[10px] bg-[var(--accion)] text-[15px] font-bold text-white inline-flex items-center justify-center gap-2", PULSABLE)}>{copiado ? <Check size={18} /> : <Copy size={18} />} {copiado ? "Copiado" : "Compartir"}</button>
+                <button type="button" onClick={bajar} className={cn("h-12 rounded-[10px] border border-border text-[15px] font-bold inline-flex items-center justify-center gap-2", PULSABLE)}><Download size={18} /> Bajar</button>
+            </div>}>
+            <div className="mx-auto my-2 w-full max-w-[300px] rounded-[18px] bg-white p-5 shadow-[0_8px_30px_rgba(0,0,0,0.08)]">
+                {svg ? <div className="[&_svg]:h-auto [&_svg]:w-full" dangerouslySetInnerHTML={{ __html: svg }} role="img" aria-label={`QR de ${g.name || "invitado"}`} /> : <div className="grid aspect-square place-items-center"><Loader2 className="animate-spin text-[var(--accion)]" /></div>}
             </div>
-        </Sheet>
+            {g.plates.length > 0 && <p className="mt-3 text-center text-[13px] text-muted-foreground">Con la matrícula {g.plates.join(", ")} la cámara lo reconoce sola.</p>}
+        </Hoja>
     );
 }
 
-function Field({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
-    return <div className="rp-field"><label htmlFor={id} className="rp-label">{label}</label>{children}</div>;
-}
-
-/* ───────────────── styles ───────────────── */
-function Styles() {
+function HojaMatricula({ token, alCerrar, alListo }: { token: string; alCerrar: () => void; alListo: () => void }) {
+    const [f, setF] = useState({ chapa: "", tipo: "PROPIO", marca: "", color: "", quien: "" });
+    const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
     return (
-        <style jsx global>{`
-        .rp-root {
-          --bg:#eef1f0; --surface:#ffffff; --surface-2:#f6f8f7; --border:#e2e7e4;
-          --text:#13201a; --muted:#59685f; --subtle:#8a978f;
-          --brand:#167a54; --brand-ink:#ffffff; --visit:#b45309; --event:#6d28d9; --qr:#0e7490;
-          --ok:#15803d; --okbg:#dcfce7; --bad:#dc2626; --badbg:#fee2e2; --mutbg:#eef1f0;
-          --radius:18px; --ring:0 0 0 3px rgba(22,122,84,.35);
-          min-height:100dvh; background:var(--bg); color:var(--text);
-          font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-          -webkit-font-smoothing:antialiased;
-        }
-        @media (prefers-color-scheme: dark) {
-          .rp-root { --bg:#0c1310; --surface:#121a16; --surface-2:#172019; --border:#273029;
-            --text:#e9f1ec; --muted:#9db0a6; --subtle:#71837a; --brand:#2ea772; --okbg:#0f2e1d; --badbg:#3a1414; --mutbg:#1a221c; }
-        }
-        .rp-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
-        .rp-root *:focus-visible { outline:none; box-shadow:var(--ring); border-radius:12px; }
-        .rp-spin { animation:rp-spin 1s linear infinite; color:var(--brand); }
-        @keyframes rp-spin { to { transform:rotate(360deg); } }
-        @media (prefers-reduced-motion: reduce) { .rp-root *, .rp-overlay, .rp-sheet { animation:none !important; transition:none !important; } }
-
-        .rp-topbar { position:sticky; top:0; z-index:5; display:flex; align-items:center; height:56px; padding:0 16px;
-          background:color-mix(in srgb, var(--surface) 86%, transparent); backdrop-filter:blur(10px); border-bottom:1px solid var(--border); }
-        .rp-brand { display:flex; align-items:center; gap:9px; }
-        .rp-logo { width:30px; height:30px; display:grid; place-items:center; border-radius:9px; background:var(--brand); color:var(--brand-ink); }
-        .rp-brandname { font-weight:800; letter-spacing:-.01em; }
-
-        .rp-main { max-width:560px; margin:0 auto; padding:16px 16px 28px; }
-        .rp-center { display:grid; place-items:center; padding:64px 0; }
-        .rp-hero { padding:10px 2px 14px; }
-        .rp-eyebrow { font-size:12px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:var(--brand); margin:0 0 2px; }
-        .rp-h1 { font-size:26px; line-height:1.15; font-weight:850; letter-spacing:-.02em; margin:0; }
-        .rp-sub { display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:14.5px; margin:6px 0 0; }
-
-        .rp-actions { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:8px 0 18px; }
-        .rp-cta { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; min-height:92px; border:none;
-          border-radius:var(--radius); color:#fff; font-weight:800; font-size:15px; cursor:pointer; padding:14px; transition:transform .12s, filter .12s; }
-        .rp-cta:active { transform:scale(.97); }
-        .rp-cta:hover { filter:brightness(1.05); }
-        .rp-cta--visit { background:linear-gradient(140deg,#d97706,#b45309); }
-        .rp-cta--event { background:linear-gradient(140deg,#7c3aed,#6d28d9); }
-
-        .rp-section { font-size:12.5px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; color:var(--subtle); margin:18px 2px 8px; }
-
-        .rp-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:12px; overflow:hidden;
-          box-shadow:0 1px 2px rgba(0,0,0,.04); }
-        .rp-card--past { opacity:.72; }
-        .rp-card-head { display:flex; align-items:flex-start; gap:11px; padding:14px 14px 10px; }
-        .rp-kind { width:38px; height:38px; border-radius:11px; display:grid; place-items:center; flex:none; }
-        .rp-kind.vi { background:#f59e0b1f; color:#b45309; } .rp-kind.ev { background:#7c3aed1f; color:#6d28d9; }
-        @media (prefers-color-scheme: dark){ .rp-kind.vi{color:#fbbf24} .rp-kind.ev{color:#a78bfa} }
-        .rp-card-title { min-width:0; flex:1; }
-        .rp-cardh { font-size:16.5px; font-weight:800; margin:0; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .rp-when { display:flex; align-items:center; gap:5px; color:var(--muted); font-size:13px; margin:3px 0 0; }
-        .rp-pill { flex:none; font-size:11.5px; font-weight:800; padding:5px 10px; border-radius:999px; }
-        .rp-pill.ok { background:var(--okbg); color:var(--ok); } .rp-pill.bad { background:var(--badbg); color:var(--bad); } .rp-pill.mut { background:var(--mutbg); color:var(--muted); }
-
-        .rp-meta { display:flex; gap:14px; padding:0 14px 8px; margin:0; font-size:12.5px; color:var(--muted); }
-        .rp-meta span { display:inline-flex; align-items:center; gap:5px; }
-        .rp-inside { color:var(--ok); font-weight:700; }
-
-        .rp-guests { list-style:none; margin:0; padding:0; border-top:1px solid var(--border); }
-        .rp-guest { display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px solid var(--border); }
-        .rp-guest:last-child { border-bottom:none; }
-        .rp-guest-info { min-width:0; flex:1; }
-        .rp-guest-name { display:block; font-weight:700; font-size:14.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .rp-guest-sub { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:3px; font-size:12.5px; color:var(--muted); }
-        .rp-plate { display:inline-flex; align-items:center; gap:4px; font-weight:700; letter-spacing:.02em; }
-        .rp-afoot { color:var(--subtle); }
-        .rp-chip { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; font-weight:700; font-size:11.5px; }
-        .rp-chip.ok { background:var(--okbg); color:var(--ok); } .rp-chip.mut { background:var(--mutbg); color:var(--muted); }
-        .rp-iconbtn { flex:none; width:42px; height:42px; border-radius:12px; border:1px solid var(--border); background:var(--surface-2); color:var(--qr); display:grid; place-items:center; cursor:pointer; transition:background .12s; }
-        .rp-iconbtn:hover { background:#0e74901a; }
-
-        .rp-card-actions { display:flex; gap:8px; padding:10px 12px 12px; }
-        .rp-act { flex:1; min-height:40px; display:inline-flex; align-items:center; justify-content:center; gap:6px; border:none; border-radius:12px; font-weight:800; font-size:13px; cursor:pointer; }
-        .rp-act.ev { background:#7c3aed14; color:#6d28d9; } .rp-act.neutral { background:var(--surface-2); color:var(--text); border:1px solid var(--border); } .rp-act.bad { background:var(--badbg); color:var(--bad); }
-        @media (prefers-color-scheme: dark){ .rp-act.ev{color:#a78bfa} }
-
-        .rp-empty { display:grid; place-items:center; text-align:center; gap:10px; padding:52px 24px; color:var(--subtle); }
-        .rp-empty .rp-h1 { color:var(--text); font-size:20px; }
-        .rp-empty--soft { background:var(--surface); border:1px dashed var(--border); border-radius:var(--radius); padding:36px 24px; margin-top:6px; }
-
-        /* sheets */
-        .rp-overlay { position:fixed; inset:0; z-index:100; background:rgba(8,14,11,.55); display:flex; align-items:flex-end; justify-content:center; animation:rp-fade .18s ease; }
-        @keyframes rp-fade { from { opacity:0 } to { opacity:1 } }
-        .rp-sheet { width:100%; max-width:560px; max-height:92dvh; background:var(--surface); border-radius:24px 24px 0 0; padding:6px 18px 22px; overflow-y:auto; animation:rp-up .24s cubic-bezier(.22,1,.36,1); box-shadow:0 -10px 40px rgba(0,0,0,.25); }
-        @keyframes rp-up { from { transform:translateY(24px) } to { transform:translateY(0) } }
-        .rp-grab { width:40px; height:4px; border-radius:999px; background:var(--border); margin:6px auto 8px; }
-        .rp-sheet-head { display:flex; align-items:center; gap:10px; padding:2px 0 12px; position:sticky; top:0; background:var(--surface); }
-        .rp-sheeth { font-size:18px; font-weight:800; margin:0; }
-        .acc-visit .rp-sheeth { color:var(--visit); } .acc-event .rp-sheeth { color:var(--event); } .acc-qr .rp-sheeth { color:var(--qr); }
-        .rp-closebtn { margin-left:auto; width:40px; height:40px; border-radius:999px; border:none; background:var(--surface-2); color:var(--muted); display:grid; place-items:center; cursor:pointer; }
-
-        .rp-field { margin-bottom:12px; }
-        .rp-label { display:block; font-size:12.5px; font-weight:700; color:var(--muted); margin-bottom:5px; }
-        .rp-input { width:100%; min-height:46px; padding:0 13px; border-radius:13px; background:var(--surface-2); border:1.5px solid var(--border); color:var(--text); font-size:16px; font-weight:600; box-sizing:border-box; }
-        .rp-input::placeholder { color:var(--subtle); font-weight:500; }
-        .rp-input:focus { border-color:var(--brand); }
-        .rp-input--plate { letter-spacing:.04em; text-transform:uppercase; }
-        .rp-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-        .rp-grouplabel { font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:var(--subtle); margin:14px 0 8px; }
-        .rp-row { display:flex; gap:8px; margin-bottom:8px; }
-        .rp-row .rp-input:first-child { flex:2; } .rp-row .rp-input--plate { flex:1; }
-        .rp-rowdel { width:46px; flex:none; border:none; border-radius:13px; background:var(--badbg); color:var(--bad); cursor:pointer; display:grid; place-items:center; }
-        .rp-addrow { width:100%; min-height:44px; border:1.5px dashed var(--border); border-radius:13px; background:transparent; color:var(--brand); font-weight:800; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:6px; margin-bottom:6px; }
-
-        .rp-err { color:var(--bad); background:var(--badbg); padding:9px 12px; border-radius:11px; font-size:13.5px; font-weight:700; margin:10px 0 0; }
-        .rp-submit { width:100%; min-height:52px; margin-top:14px; border:none; border-radius:16px; background:var(--brand); color:var(--brand-ink); font-size:15.5px; font-weight:800; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:9px; }
-        .rp-submit:disabled { opacity:.6; }
-        .rp-submit:active { transform:scale(.99); }
-
-        .rp-qrwrap { text-align:center; padding:4px 0 2px; }
-        .rp-qr { display:inline-block; padding:14px; background:#fff; border-radius:18px; border:1px solid var(--border); }
-        .rp-qr svg { display:block; width:232px; height:232px; }
-        .rp-qrhint { color:var(--muted); font-size:13px; margin:12px 0; }
-        .rp-wa-send { width:100%; min-height:48px; margin-top:4px; border:none; border-radius:14px; background:#25d366; color:#06371a; font-weight:800; font-size:14.5px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:8px; }
-        .rp-wa-send:disabled { opacity:.6; }
-        .rp-ok { color:var(--ok); background:var(--okbg); padding:9px 12px; border-radius:11px; font-size:13px; font-weight:700; margin:10px 0 0; display:flex; align-items:center; gap:6px; text-align:left; }
-        .rp-ghost { min-height:46px; border:1.5px solid var(--border); border-radius:13px; background:var(--surface-2); color:var(--text); font-weight:800; font-size:14px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:7px; }
-      `}</style>
+        <Hoja titulo="Sumar una matrícula" bajada="Queda como pedido hasta que la administración lo aprueba. Cuando esté aprobada, la cámara la reconoce en la entrada." alCerrar={alCerrar}
+            pie={<><Enviar ocupado={ocupado} disabled={f.chapa.replace(/[^A-Z0-9]/g, "").length < 5} onClick={async () => { setError(""); setOcupado(true); try { const r = await pedirMatricula(token, f); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Plus size={18} /> Pedir que la sumen</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+            <Campo etiqueta="Matrícula"><input autoFocus value={f.chapa} onChange={(e) => setF({ ...f, chapa: e.target.value.toUpperCase() })} placeholder="SBC1234" maxLength={10} className={cn(ENTRADA, "h-14 text-center text-[24px] font-extrabold tracking-[0.18em]")} /></Campo>
+            <p className="mb-2 text-[13px] font-semibold">De quién es</p>
+            <div className="mb-4 grid grid-cols-3 gap-2">
+                {TIPOS_VEHICULO.map((t) => (
+                    <button key={t.id} type="button" onClick={() => setF({ ...f, tipo: t.id })} className={cn("min-h-11 rounded-full border px-2 text-[12.5px] font-semibold", PULSABLE, f.tipo === t.id ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)] text-[var(--accion)]" : "border-border")}>{t.rotulo}</button>
+                ))}
+            </div>
+            {f.tipo !== "PROPIO" && <Campo etiqueta={f.tipo === "FAMILIAR" ? "¿De quién?" : "¿Qué empresa o servicio?"}><input value={f.quien} onChange={(e) => setF({ ...f, quien: e.target.value })} className={ENTRADA} /></Campo>}
+            <div className="grid grid-cols-2 gap-2.5">
+                <Campo etiqueta="Marca (opcional)"><input value={f.marca} onChange={(e) => setF({ ...f, marca: e.target.value })} placeholder="Toyota" className={ENTRADA} /></Campo>
+                <Campo etiqueta="Color (opcional)"><input value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} placeholder="Blanco" className={ENTRADA} /></Campo>
+            </div>
+        </Hoja>
     );
 }

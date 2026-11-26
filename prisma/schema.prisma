@@ -2503,3 +2503,28 @@ model TareaEspacio {
 
   @@index([espacioId, estado])
 }
+
+/// Lo que pide un residente desde su portal (26/11): sumar o sacar una matricula. No toca el padron
+/// hasta que la administracion lo aprueba, en la bandeja del censo (un formulario en internet no abre
+/// un porton solo).
+model PedidoResidente {
+  id          String    @id @default(cuid())
+  userId      String
+  unitId      String?
+  /// MATRICULA_ALTA | MATRICULA_BAJA
+  tipo        String
+  chapa       String?
+  /// Lo que acompana el pedido: tipo de vehiculo, marca, color, de quien es.
+  detalle     Json      @default("{}")
+  nota        String?
+  /// PENDIENTE | APROBADO | RECHAZADO
+  estado      String    @default("PENDIENTE")
+  resueltoPor String?
+  resueltoAt  DateTime?
+  motivo      String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([estado, createdAt])
+  @@index([userId])
+}

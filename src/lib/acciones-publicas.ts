@@ -39,6 +39,11 @@ const ANONIMAS = new Set([
     "src/app/actions/invitations.ts#addMyGuest",
     "src/app/actions/invitations.ts#revokeMyInvitation",
     "src/app/actions/invitations.ts#extendMyInvitation",
+    // El portal del residente todo junto (26/11): cada una valida el token de portal que recibe.
+    "src/app/actions/portal-residente.ts#miPortal",
+    "src/app/actions/portal-residente.ts#pedirMatricula",
+    "src/app/actions/portal-residente.ts#pedirBajaMatricula",
+    "src/app/actions/portal-residente.ts#anularPedido",
 ]);
 
 /**

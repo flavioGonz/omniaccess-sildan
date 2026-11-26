@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizarClave } from "@/lib/censo-invitaciones";
 import { Formulario, type CargaDelLote, type CargaPrevia } from "../Formulario";
 import { lineaDeServicio } from "@/lib/censo-servidor";
+import { getOrCreatePortalToken } from "@/app/actions/invitations";
 import { ZONA } from "@/lib/fechas";
 import { TIPOS_VEHICULO, type ServicioCargado, type VehiculoCargado } from "@/lib/registro-padron";
 import { ClaveNoSirve } from "../ClaveNoSirve";
@@ -78,5 +79,9 @@ export default async function RegistroConClave({ params, searchParams }: { param
         vehiculos: ((c.vehiculos as unknown as VehiculoCargado[]) || []).filter((v) => v?.chapa).map((v) => ({ chapa: v.chapa, tipo: v.tipo, detalle: [rotulo(v.tipo), v.marca, v.color].filter(Boolean).join(" · ") })),
         servicios: ((c.servicios as unknown as ServicioCargado[]) || []).map(lineaDeServicio),
     }));
-    return <Formulario centro={center} cargas={cargas} previa={previa} invitacion={{ clave: inv.clave, lote: lotes[0]?.nombre || inv.lote, lotes, email: copia?.email || inv.email, nombre: copia ? copia.nombre : inv.nombre, ubicacion, de: copia?.id }} />;
+    /* Su portal (26/11): el censo y las invitaciones son el mismo sistema. Quien entra con su enlace
+       del censo recibe también el de su portal, para invitar y ver sus matrículas. */
+    const deQuien = yo?.userId || (!copia ? (await prisma.invitacionCenso.findUnique({ where: { id: inv.id }, select: { userId: true } }))?.userId : null) || null;
+    const portal = deQuien ? await getOrCreatePortalToken(deQuien).then((r) => (r.ok && r.token ? `/residente/${r.token}` : null)).catch(() => null) : null;
+    return <Formulario centro={center} cargas={cargas} previa={previa} portal={portal} invitacion={{ clave: inv.clave, lote: lotes[0]?.nombre || inv.lote, lotes, email: copia?.email || inv.email, nombre: copia ? copia.nombre : inv.nombre, ubicacion, de: copia?.id }} />;
 }

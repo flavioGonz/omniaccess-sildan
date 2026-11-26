@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Pencil, Plus, Search, UserPlus, X } from "lucide-react";
+import { Check, Link2, Pencil, Plus, Search, UserPlus, X } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { Matricula } from "@/components/ui/celdas";
+import { getOrCreatePortalToken } from "@/app/actions/invitations";
 import {
     agregarMatriculaEnLote, buscarPersonasParaLote, editarDatosLote, editarPersonaDeLote, quitarMatriculaEnLote, quitarPersonaDeLote, sumarPersonaALote,
     type PersonaParaSumar, type Resultado,
@@ -101,8 +102,19 @@ export function DatosDelLote({ unitId, titular, situacion, puedeEditar, alCambia
 export function AccionesDePersona({ unitId, persona, alEditar, alCambiar }: {
     unitId: string; persona: { id: string; nombre: string }; alEditar: () => void; alCambiar: () => void;
 }) {
+    /* Su portal (26/11): el enlace personal para invitar, ver sus matrículas y pedir cambios. Se copia
+       para mandárselo por WhatsApp; es el mismo siempre (no se crea uno nuevo cada vez). */
+    const [copiado, setCopiado] = useState(false);
+    const copiarPortal = async () => {
+        const r = await getOrCreatePortalToken(persona.id).catch(() => ({ ok: false as const, token: undefined }));
+        if (!r.ok || !r.token) { toast.error({ title: "No se pudo armar su portal" }); return; }
+        const url = `${window.location.origin}/residente/${r.token}`;
+        try { await navigator.clipboard.writeText(url); setCopiado(true); setTimeout(() => setCopiado(false), 1600); toast.success({ title: `Portal de ${persona.nombre} copiado`, description: "Mandáselo por WhatsApp: con ese enlace invita visitas y ve sus matrículas." }); }
+        catch { toast.info({ title: "Su portal", description: url }); }
+    };
     return (
         <span className="inline-flex items-center gap-0.5">
+            <button type="button" className={LAPIZ} aria-label={`Copiar el portal de ${persona.nombre}`} title="Copiar el enlace de su portal" onClick={copiarPortal}>{copiado ? <Check size={13} /> : <Link2 size={13} />}</button>
             <button type="button" className={LAPIZ} aria-label={`Corregir a ${persona.nombre}`} title="Corregir" onClick={alEditar}><Pencil size={13} /></button>
             <DeleteButton className="scale-[.72] -m-1.5" aria-label={`Sacar a ${persona.nombre} del lote`}
                 onConfirm={async () => { if (await correr(() => quitarPersonaDeLote(unitId, persona.id), `${persona.nombre} salió del lote`)) alCambiar(); }} />

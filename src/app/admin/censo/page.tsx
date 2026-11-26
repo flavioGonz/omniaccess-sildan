@@ -5,12 +5,14 @@ import { Car, Check, CheckCheck, ClipboardList, Clock, Download, Home, Info, Lis
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { CajonInvitaciones } from "@/components/censo/CajonInvitaciones";
 import { Chip, Cargando, ErrorEstado } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
 import { fechaHora } from "@/lib/fechas";
+import { aprobarPedido, pedidosPendientes, rechazarPedido, type PedidoParaRevisar } from "@/app/actions/pedidos-residente";
 import { TENENCIAS, TIPOS_SERVICIO, TIPOS_VEHICULO, type ServicioCargado, type VehiculoCargado } from "@/lib/registro-padron";
 
 
@@ -110,6 +112,7 @@ export default function BandejaCenso() {
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar px-8 py-5 space-y-4">
+            <PedidosDelPortal />
 
             {error && !cargas ? <ErrorEstado mensaje={error} alReintentar={traer} />
                 : !cargas ? <Cargando texto="Trayendo la bandeja…" />
@@ -430,5 +433,60 @@ function AprobarTodas({ alCerrar, alTerminar }: { alCerrar: () => void; alTermin
                 </>
             )}
         </CajonContenido>
+    );
+}
+
+/**
+ * Lo que piden los residentes desde su portal (26/11): sumar o sacar una matrícula. Va arriba de la
+ * bandeja porque es lo que un vecino está esperando; aprobar pasa por lo mismo que el cajón del lote
+ * (la matrícula llega a las cámaras, queda en el historial). Una chapa que ya es de otra persona se
+ * avisa antes de aprobar: no se le saca a nadie.
+ */
+function PedidosDelPortal() {
+    const [filas, setFilas] = useState<PedidoParaRevisar[] | null>(null);
+    const [vuelta, setVuelta] = useState(0);
+    const [trabajando, setTrabajando] = useState<string | null>(null);
+    const [rechazando, setRechazando] = useState<{ id: string; motivo: string } | null>(null);
+    useEffect(() => { let vivo = true; pedidosPendientes().then((f) => { if (vivo) setFilas(f); }).catch(() => { if (vivo) setFilas([]); }); return () => { vivo = false; }; }, [vuelta]);
+    if (!filas || !filas.length) return null;
+    const hacer = async (id: string, f: () => Promise<{ ok: boolean; error?: string }>, listo: string) => {
+        setTrabajando(id);
+        try { const r = await f(); if (!r.ok) toast.error({ title: "No se pudo", description: r.error }); else { toast.success({ title: listo }); setRechazando(null); setVuelta((n) => n + 1); } }
+        finally { setTrabajando(null); }
+    };
+    return (
+        <section className="rounded-[14px] border border-[color-mix(in_oklab,var(--info)_35%,transparent)] bg-[color-mix(in_oklab,var(--info)_4%,transparent)] p-4">
+            <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-[10px] chip-info"><Car size={15} /></span>
+                <div className="min-w-0 flex-1">
+                    <p className="text-[14px] font-bold">Pedidos del portal <span className="ml-1 text-[12px] font-semibold text-muted-foreground tabular-nums">{filas.length}</span></p>
+                    <p className="text-[12px] text-muted-foreground">Matrículas que los vecinos pidieron sumar o sacar desde su portal. Nada cambia hasta que lo aprobás.</p>
+                </div>
+            </div>
+            <ul className="mt-3 divide-y divide-border rounded-[10px] border border-border bg-card">
+                {filas.map((p) => (
+                    <li key={p.id} className="px-3.5 py-3">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                            <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold", p.tipo === "MATRICULA_BAJA" ? "chip-aviso" : "chip-info")}>{p.tipo === "MATRICULA_BAJA" ? "Sacar" : "Sumar"}</span>
+                            <span className="inline-flex h-7 items-center rounded-md border-2 border-foreground/70 bg-background px-2 text-[13.5px] font-bold tracking-[0.1em] tabular-nums">{p.chapa}</span>
+                            <span className="min-w-0 text-[13px]"><b>{p.persona.nombre}</b><span className="text-muted-foreground"> · {p.lote ? `Lote ${p.lote.nombre}` : "sin lote"}{p.detalle.marca || p.detalle.color ? ` · ${[p.detalle.marca, p.detalle.color].filter(Boolean).join(" ")}` : ""}{p.detalle.quien ? ` · ${p.detalle.quien}` : ""} · {fechaHora(p.createdAt)}</span></span>
+                            <span className="ml-auto flex gap-1.5">
+                                <Button size="sm" disabled={!!trabajando || !p.lote} onClick={() => hacer(p.id, () => aprobarPedido(p.id), p.tipo === "MATRICULA_BAJA" ? `${p.chapa} sacada` : `${p.chapa} sumada`)}>{trabajando === p.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Aprobar</Button>
+                                <Button size="sm" variant="ghost" disabled={!!trabajando} onClick={() => setRechazando({ id: p.id, motivo: "" })}><X size={14} /> Rechazar</Button>
+                            </span>
+                        </div>
+                        {p.deOtro && <p className="mt-1.5 flex items-center gap-1.5 text-[12px] tono-aviso"><TriangleAlert size={13} /> {p.chapa} ya es de {p.deOtro}: aprobar no se la saca. Sacásela primero desde su lote si corresponde.</p>}
+                        {!p.lote && <p className="mt-1.5 text-[12px] tono-aviso">La persona no está en ningún lote: sumala a su lote antes de aprobar.</p>}
+                        {rechazando?.id === p.id && (
+                            <div className="mt-2 flex gap-2">
+                                <input autoFocus value={rechazando.motivo} onChange={(e) => setRechazando({ id: p.id, motivo: e.target.value })} placeholder="Por qué (lo ve el vecino en su portal)" className="h-9 flex-1 rounded-[6px] border border-border bg-background px-3 text-[13px] outline-none focus-visible:border-[var(--accion)]" />
+                                <Button size="sm" variant="destructive" disabled={!!trabajando} onClick={() => hacer(p.id, () => rechazarPedido(p.id, rechazando.motivo), "Pedido rechazado")}>Rechazar</Button>
+                                <Button size="sm" variant="ghost" onClick={() => setRechazando(null)}>Cancelar</Button>
+                            </div>
+                        )}
+                    </li>
+                ))}
+            </ul>
+        </section>
     );
 }
