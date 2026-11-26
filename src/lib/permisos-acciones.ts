@@ -138,6 +138,8 @@ export const ACCIONES: Record<string, Archivo> = {
     invitations: { defecto: P("invitados.gestionar", "guardia"), por: { setWaAllowlist: P("invitados.gestionar", "ajustes"), expireStaleInvitations: P("invitados.gestionar") } },
     "lpr-sync": { defecto: P("dispositivos.editar", "vehiculos.editar", "usuarios.editar") },
     "lpr-interiores": { defecto: P("lpr", "lpr.operar") },
+    // Las últimas capturas de una cámara, para la pila del calibrador: quien calibra o quien opera LPR.
+    calibrador: { defecto: P("dispositivos.editar", "lpr", "lpr.operar") },
     maps: { defecto: P("mapa.editar") },
     "modo-camara": { defecto: P("dispositivos.editar") },
     modules: { defecto: P("ajustes") },

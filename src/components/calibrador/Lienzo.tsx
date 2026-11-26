@@ -36,6 +36,8 @@ export type Forma = {
     bloqueada?: boolean;
     /** Un carril: la flecha de hacia dónde va el auto, con sus dos puntas arrastrables. */
     flecha?: { a: Pt; b: Pt } | null;
+    /** Carril de dos manos: la flecha va y viene (dos flechas paralelas, opuestas). */
+    flechaDoble?: boolean;
     /** Una línea con sentido: «ab» cruza hacia la derecha de A→B (la flecha lo muestra). */
     sentido?: "ab" | "ba" | "ambos";
     maxPuntos?: number;
@@ -203,7 +205,7 @@ export function Lienzo({ formas, seleccion, herramienta, lupa, alSeleccionar, al
                     <polygon points={ptsAttr(vs)} fill={f.color} fillOpacity={f.bloqueada ? 0.04 : sel ? 0.22 : hov ? 0.17 : 0.12} stroke={f.color} strokeWidth={trazo} strokeDasharray={guion} strokeLinejoin="round"
                         onPointerDown={elegir(f)} style={{ filter: sel ? `drop-shadow(0 0 6px ${f.color}aa)` : undefined }} />
                 )}
-                {f.flecha && <FlechaCarril a={px(f.flecha.a)} b={px(f.flecha.b)} color={f.color} />}
+                {f.flecha && <FlechaCarril a={px(f.flecha.a)} b={px(f.flecha.b)} color={f.color} doble={f.flechaDoble} />}
                 {f.etiqueta && f.tipo !== "linea" && (
                     <g style={{ pointerEvents: "none" }} transform={f.tipo === "rect" ? `translate(${px(f.puntos[0]).x + f.etiqueta.length * 3.6 + 16},${px(f.puntos[0]).y + 18})` : `translate(${c.x},${c.y})`}>
                         <rect x={-(f.etiqueta.length * 3.6 + 9)} y={-10} width={f.etiqueta.length * 7.2 + 18} height={20} rx={10} fill="rgba(0,0,0,0.62)" stroke={f.color} strokeOpacity={0.6} />
@@ -269,6 +271,10 @@ export function Lienzo({ formas, seleccion, herramienta, lupa, alSeleccionar, al
             <svg width={W} height={H} className="absolute inset-0 overflow-visible">
                 <defs>
                     <filter id="lienzo-sombra" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.2" floodOpacity="0.6" /></filter>
+                    {/* El flujo de la flecha: un guion que corre hacia la punta. Es sólo stroke-dashoffset
+                        en CSS (sin JS ni rAF): el navegador repinta ese trazo y nada más. Con «reducir
+                        movimiento» queda quieto. */}
+                    <style>{`@keyframes oa-flecha{to{stroke-dashoffset:-30}}.oa-flecha-flujo{animation:oa-flecha 1.5s linear infinite}@media (prefers-reduced-motion:reduce){.oa-flecha-flujo{animation:none}}`}</style>
                 </defs>
                 {formas.filter((f) => f.id !== seleccion).map(dibujarForma)}
                 {formas.filter((f) => f.id === seleccion).map(dibujarForma)}
@@ -311,16 +317,40 @@ export function Lienzo({ formas, seleccion, herramienta, lupa, alSeleccionar, al
     );
 }
 
-/** La flecha de un carril: hacia dónde va el auto. */
-function FlechaCarril({ a, b, color }: { a: Pt; b: Pt; color: string }) {
-    const ang = Math.atan2(b.y - a.y, b.x - a.x), L = 13;
-    const p1 = { x: b.x - L * Math.cos(ang - 0.45), y: b.y - L * Math.sin(ang - 0.45) }, p2 = { x: b.x - L * Math.cos(ang + 0.45), y: b.y - L * Math.sin(ang + 0.45) };
-    return (
-        <g style={{ pointerEvents: "none" }} filter="url(#lienzo-sombra)">
-            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={color} strokeWidth={4} strokeLinecap="round" />
-            <polygon points={`${b.x},${b.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`} fill={color} />
-        </g>
-    );
+/**
+ * La flecha de un carril: hacia dónde va el auto (26/11).
+ *
+ * Nico: «la flecha debe ser más pro, más estilizada, ligeramente animada sin consumir recursos».
+ * Un halo oscuro para leerse sobre cualquier foto, el cuerpo en el color del carril, una punta
+ * afilada con la espalda escotada y un guion claro que corre hacia la punta (CSS puro). Un
+ * carril de dos manos lleva dos flechas paralelas y opuestas, como la señal de doble mano.
+ */
+function FlechaCarril({ a, b, color, doble }: { a: Pt; b: Pt; color: string; doble?: boolean }) {
+    const largo = Math.hypot(b.x - a.x, b.y - a.y);
+    if (largo < 4) return null;
+    const ux = (b.x - a.x) / largo, uy = (b.y - a.y) / largo, nx = -uy, ny = ux;
+    const una = (p: Pt, q: Pt, k: string, ancho: number) => {
+        const H = Math.min(22, Math.max(12, largo * 0.16)), W = H * 0.62, esc = H * 0.28;
+        const base = { x: q.x - ux * H, y: q.y - uy * H };
+        const punta = `M${q.x},${q.y} L${base.x + nx * W},${base.y + ny * W} L${base.x + ux * esc},${base.y + uy * esc} L${base.x - nx * W},${base.y - ny * W} Z`;
+        const fin = { x: base.x + ux * esc, y: base.y + uy * esc };
+        return (
+            <g key={k}>
+                <line x1={p.x} y1={p.y} x2={fin.x} y2={fin.y} stroke="rgba(0,0,0,0.45)" strokeWidth={ancho + 5} strokeLinecap="round" />
+                <path d={punta} fill="rgba(0,0,0,0.45)" stroke="rgba(0,0,0,0.45)" strokeWidth={4} strokeLinejoin="round" />
+                <line x1={p.x} y1={p.y} x2={fin.x} y2={fin.y} stroke={color} strokeWidth={ancho} strokeLinecap="round" />
+                <line x1={p.x} y1={p.y} x2={fin.x} y2={fin.y} stroke="#fff" strokeOpacity={0.9} strokeWidth={Math.max(1.5, ancho * 0.36)} strokeLinecap="round" strokeDasharray="3 12" className="oa-flecha-flujo" />
+                <path d={punta} fill={color} stroke="#fff" strokeOpacity={0.85} strokeWidth={1.4} strokeLinejoin="round" />
+                <circle cx={p.x} cy={p.y} r={ancho * 0.85} fill={color} stroke="#fff" strokeWidth={1.6} />
+            </g>
+        );
+    };
+    if (doble) {
+        const d = 7;
+        const o = (p: Pt, s: number) => ({ x: p.x + nx * d * s, y: p.y + ny * d * s });
+        return <g style={{ pointerEvents: "none" }}>{una(o(a, 1), o(b, 1), "ida", 3.6)}{una(o(b, -1), o(a, -1), "vuelta", 3.6)}</g>;
+    }
+    return <g style={{ pointerEvents: "none" }}>{una(a, b, "una", 4.6)}</g>;
 }
 
 /** El sentido de una línea de cruce: una flecha perpendicular por la mitad (doble si «ambos»). */

@@ -148,9 +148,9 @@ export function useImagen(deviceId: string, activo: boolean, anpr: boolean, alRe
             {auto && (
                 <div className="space-y-1">
                     {auto.map((s) => (
-                        <div key={s.key} className="flex items-start gap-2 rounded-md bg-white/[0.04] px-2.5 py-1.5 text-[11.5px]">
-                            {s.status === "ok" ? <Check size={13} className="mt-0.5 text-emerald-400" /> : s.status === "fail" ? <AlertTriangle size={13} className="mt-0.5 text-red-400" /> : <Loader2 size={13} className="mt-0.5 animate-spin text-white/40" />}
-                            <span className="text-white/80">{s.label}{s.error && <span className="block text-red-300/80">{s.error}</span>}</span>
+                        <div key={s.key} className="flex items-start gap-2 rounded-md bg-foreground/[0.04] px-2.5 py-1.5 text-[11.5px]">
+                            {s.status === "ok" ? <Check size={13} className="mt-0.5 text-emerald-600 dark:text-emerald-400" /> : s.status === "fail" ? <AlertTriangle size={13} className="mt-0.5 text-red-600 dark:text-red-400" /> : <Loader2 size={13} className="mt-0.5 animate-spin text-foreground/40" />}
+                            <span className="text-foreground/80">{s.label}{s.error && <span className="block text-red-600 dark:text-red-300/80">{s.error}</span>}</span>
                         </div>
                     ))}
                 </div>
@@ -158,23 +158,23 @@ export function useImagen(deviceId: string, activo: boolean, anpr: boolean, alRe
         </Seccion>
 
         <Seccion titulo="Ajustes de la imagen" icono={Aperture} ayuda="Cada cambio se escribe en la cámara al confirmarlo y es reversible: el mismo botón lo vuelve atrás."
-            accion={<button type="button" onClick={leer} title="Volver a leer la cámara" className="grid h-6 w-6 place-items-center rounded-md text-white/50 hover:bg-white/10 hover:text-white">{cargando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}</button>}>
-            {!cfg ? (cargando ? <div className="space-y-1.5">{[0, 1, 2, 3].map((i) => <div key={i} className="h-11 animate-pulse rounded-[10px] bg-white/[0.05]" />)}</div> : <Vacio>La cámara no devolvió su configuración de imagen.</Vacio>) : (
+            accion={<button type="button" onClick={leer} title="Volver a leer la cámara" className="grid h-6 w-6 place-items-center rounded-md text-foreground/50 hover:bg-foreground/10 hover:text-foreground">{cargando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}</button>}>
+            {!cfg ? (cargando ? <div className="space-y-1.5">{[0, 1, 2, 3].map((i) => <div key={i} className="h-11 animate-pulse rounded-[10px] bg-foreground/[0.05]" />)}</div> : <Vacio>La cámara no devolvió su configuración de imagen.</Vacio>) : (
                 <div className="space-y-1">
                     {controles.map((c) => {
                         const on = c.activo?.(cfg);
                         const sig = c.siguiente(cfg);
                         const abierto = confirmar === c.key;
                         return (
-                            <div key={c.key} className={cn("rounded-[10px] border transition-colors", abierto ? "border-white/20 bg-white/[0.06]" : "border-transparent hover:bg-white/[0.04]")}>
+                            <div key={c.key} className={cn("rounded-[10px] border transition-colors", abierto ? "border-foreground/20 bg-foreground/[0.06]" : "border-transparent hover:bg-foreground/[0.04]")}>
                                 <button type="button" onClick={() => setConfirmar(abierto ? null : c.key)} disabled={!!ocupado} className="flex w-full items-center gap-3 px-2.5 py-2 text-left">
-                                    <span className={cn("grid h-8 w-8 place-items-center rounded-md", on ? "bg-emerald-500/15 text-emerald-300" : "bg-white/[0.06] text-white/70")}>{ocupado === c.key ? <Loader2 size={15} className="animate-spin" /> : <c.icono size={15} />}</span>
-                                    <span className="flex-1 text-[12.5px] font-semibold text-white">{c.label}</span>
-                                    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums", on ? "bg-emerald-500/15 text-emerald-300" : "bg-white/[0.06] text-white/70")}>{c.valor(cfg)}</span>
+                                    <span className={cn("grid h-8 w-8 place-items-center rounded-md", on ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300" : "bg-foreground/[0.06] text-foreground/70")}>{ocupado === c.key ? <Loader2 size={15} className="animate-spin" /> : <c.icono size={15} />}</span>
+                                    <span className="flex-1 text-[12.5px] font-semibold text-foreground">{c.label}</span>
+                                    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums", on ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300" : "bg-foreground/[0.06] text-foreground/70")}>{c.valor(cfg)}</span>
                                 </button>
                                 {abierto && (
                                     <div className="space-y-2 px-2.5 pb-2.5">
-                                        <p className="text-[11.5px] leading-snug text-white/55">{c.detalle}</p>
+                                        <p className="text-[11.5px] leading-snug text-foreground/55">{c.detalle}</p>
                                         <div className="flex gap-1.5">
                                             <BotonPanel primario className="flex-1" onClick={() => aplicar(c)}><Check size={13} /> {sig.human}</BotonPanel>
                                             <BotonPanel onClick={() => setConfirmar(null)}>Cancelar</BotonPanel>
@@ -190,12 +190,12 @@ export function useImagen(deviceId: string, activo: boolean, anpr: boolean, alRe
 
         {anpr && (
             <Seccion titulo="Región de captura ANPR" icono={SquareDashed} ayuda="Las líneas de cada carril y la de calibración de la cámara ANPR. Se ajustan arrastrando sus puntas sobre la escena.">
-                {regionError ? <Vacio>{regionError}</Vacio> : !region ? <div className="h-10 animate-pulse rounded-[10px] bg-white/[0.05]" /> : (<>
+                {regionError ? <Vacio>{regionError}</Vacio> : !region ? <div className="h-10 animate-pulse rounded-[10px] bg-foreground/[0.05]" /> : (<>
                     <div className="flex flex-wrap gap-1.5">
-                        {region.lanes.map((_, i) => <button key={i} type="button" onClick={() => setSeleccion(`carril-${i}`)} className={cn("inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11.5px] font-semibold", seleccion === `carril-${i}` ? "bg-white/15 text-white" : "bg-white/[0.05] text-white/70")}><span className="h-2 w-2 rounded-full" style={{ background: COLOR_CARRIL[i % 4] }} /> Carril {i + 1}</button>)}
-                        {region.calib?.length >= 2 && <button type="button" onClick={() => setSeleccion("calib")} className={cn("inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11.5px] font-semibold", seleccion === "calib" ? "bg-white/15 text-white" : "bg-white/[0.05] text-white/70")}><span className="h-2 w-2 rounded-full bg-emerald-400" /> Calibración</button>}
+                        {region.lanes.map((_, i) => <button key={i} type="button" onClick={() => setSeleccion(`carril-${i}`)} className={cn("inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11.5px] font-semibold", seleccion === `carril-${i}` ? "bg-foreground/15 text-foreground" : "bg-foreground/[0.05] text-foreground/70")}><span className="h-2 w-2 rounded-full" style={{ background: COLOR_CARRIL[i % 4] }} /> Carril {i + 1}</button>)}
+                        {region.calib?.length >= 2 && <button type="button" onClick={() => setSeleccion("calib")} className={cn("inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11.5px] font-semibold", seleccion === "calib" ? "bg-foreground/15 text-foreground" : "bg-foreground/[0.05] text-foreground/70")}><span className="h-2 w-2 rounded-full bg-emerald-400" /> Calibración</button>}
                     </div>
-                    <p className="text-[11px] leading-snug text-white/50">Elegí una y arrastrá sus puntas. La franja celeste entre los carriles es donde la cámara busca la chapa.</p>
+                    <p className="text-[11px] leading-snug text-foreground/50">Elegí una y arrastrá sus puntas. La franja celeste entre los carriles es donde la cámara busca la chapa.</p>
                 </>)}
             </Seccion>
         )}

@@ -158,6 +158,9 @@ export async function POST(req: NextRequest) {
         deviceId: String(body.deviceId), plate: patente, confianza, fuente: "omni-lpr",
         baja: confianza != null && confianza < minimo, ts: body.timestamp || new Date().toISOString(),
         trayectoria, veredicto: body.veredicto && typeof body.veredicto === "object" ? body.veredicto : null,
+        // La captura, para la pila de últimas capturas del calibrador. Es una ruta de la propia
+        // aplicación (o del almacén): la pide el navegador con su sesión, no viaja la imagen.
+        foto: typeof body.snapshotUrl === "string" ? body.snapshotUrl : null,
     });
     // Un rebote: sólo para verlo en vivo, no se guarda.
     if (body.soloVista) return NextResponse.json({ ok: true, ignorado: "solo vista" }, { status: 202 });

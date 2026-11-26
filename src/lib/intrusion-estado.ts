@@ -59,7 +59,9 @@ export async function leerEstadoIntrusion(id: string): Promise<EstadoIntrusion> 
     const d = await cargar(id);
     const vacio: EstadoIntrusion = { ok: false, marca: "hikvision", modo: null, avisa: false, soporta: { linea: false, zona: false }, lineas: [], zonas: [], centro: { linea: null, zona: null }, servidor: { ok: false, omni: null, otros: 0 }, ultimoEvento: null, pasos: [], roto: null };
     if (!d) return { ...vacio, error: "El equipo no existe." };
-    if (String(d.deviceType) !== "CAMERA") return { ...vacio, error: "Sólo una cámara de intrusión tiene este estado." };
+    // Un LPR interior también puede disparar la lectura con su línea o su zona: el aviso recorre la
+    // misma cadena (regla → centro → servidor de alarmas) y se rompe igual (Delta, 26/11).
+    if (String(d.deviceType) !== "CAMERA" && String(d.deviceType) !== "LPR_INTERIOR") return { ...vacio, error: "Sólo una cámara de intrusión o un LPR interior tiene este estado." };
 
     // El modo: si no lo eligió nadie, se deduce de si avisa (como la ficha).
     const avisanFila = await prisma.setting.findUnique({ where: { key: "ALARM_CONFIGURED_IPS" } });

@@ -154,25 +154,25 @@ export function useIntrusion(deviceId: string, activo: boolean, esCamara: boolea
         { key: "probar", label: ocupado === "probar" ? "Probando…" : "Probar aviso", icono: Send, color: "#c4b5fd", accion: () => servidor("probar"), deshabilitado: (ocupado ? "…" : false) as string | false, ayuda: "La cámara manda un aviso de prueba a OmniAccess: confirma que el camino entero anda." },
     ];
 
-    const panel = error ? <div className="p-5"><Vacio>{error}. <button className="underline" onClick={cargar}>Reintentar</button></Vacio></div> : !cfg ? <div className="flex items-center gap-2 p-5 text-[12.5px] text-white/60"><Loader2 size={14} className="animate-spin" /> Leyendo la analítica de la cámara…</div> : (<>
+    const panel = error ? <div className="p-5"><Vacio>{error}. <button className="underline" onClick={cargar}>Reintentar</button></Vacio></div> : !cfg ? <div className="flex items-center gap-2 p-5 text-[12.5px] text-foreground/60"><Loader2 size={14} className="animate-spin" /> Leyendo la analítica de la cámara…</div> : (<>
         <Seccion titulo="Lo dibujado en la cámara" icono={Layers} ayuda="Las líneas y zonas que la cámara tiene hoy, leídas recién. Lo que dibujes o muevas se escribe en la cámara con «Guardar en la cámara».">
             {dibujadas(cfg.lineas).length + dibujadas(cfg.zonas).length === 0
-                ? <Vacio>La cámara no tiene nada dibujado: así no avisa nunca. Elegí <b className="text-white/80">Línea</b> o <b className="text-white/80">Zona</b> abajo y dibujá sobre la imagen.</Vacio>
+                ? <Vacio>La cámara no tiene nada dibujado: así no avisa nunca. Elegí <b className="text-foreground/80">Línea</b> o <b className="text-foreground/80">Zona</b> abajo y dibujá sobre la imagen.</Vacio>
                 : (
                     <div className="space-y-0.5">
                         {dibujadas(cfg.lineas).map((l) => <TarjetaElemento key={`l${l.id}`} color={COLOR_INTR.linea} nombre={`Línea ${l.id}`} detalle={`Cruce · ${l.direction === "ab" ? "A→B" : l.direction === "ba" ? "B→A" : "ambos sentidos"}${l.enabled ? "" : " · apagada"}`} elegido={seleccion === `l${l.id}`} apagado={!l.enabled} alElegir={() => setSeleccion(`l${l.id}`)} />)}
                         {dibujadas(cfg.zonas).map((z) => <TarjetaElemento key={`z${z.id}`} color={COLOR_INTR.zona} nombre={`Zona ${z.id}`} detalle={`Intrusión · ${z.points.length} vértices${z.enabled ? "" : " · apagada"}`} elegido={seleccion === `z${z.id}`} apagado={!z.enabled} alElegir={() => setSeleccion(`z${z.id}`)} />)}
                     </div>
                 )}
-            <p className="text-[11px] text-white/40">Lugares en la cámara: {cfg.lineas.length} líneas ({cfg.lineas.filter((r) => r.vacia).length} libres) · {cfg.zonas.length} zonas ({cfg.zonas.filter((r) => r.vacia).length} libres).</p>
+            <p className="text-[11px] text-foreground/40">Lugares en la cámara: {cfg.lineas.length} líneas ({cfg.lineas.filter((r) => r.vacia).length} libres) · {cfg.zonas.length} zonas ({cfg.zonas.filter((r) => r.vacia).length} libres).</p>
             {elegida && seleccion && (
-                <div className="space-y-2.5 rounded-[10px] border border-white/10 bg-white/[0.04] p-3">
+                <div className="space-y-2.5 rounded-[10px] border border-foreground/10 bg-foreground/[0.04] p-3">
                     {seleccion.startsWith("l") && (<>
                         <Pildoras<Dir> valor={elegida.direction} color={COLOR_INTR.linea} cambiar={(d) => cambiar((n) => { const r = regla(seleccion, n); if (r) r.direction = d; })}
                             opciones={[{ v: "ab", t: "A → B" }, { v: "ba", t: "B → A" }, { v: "both", t: "Ambos" }]} />
-                        <p className="text-[11px] leading-snug text-white/50">La flecha blanca es el cruce que dispara. Con un solo sentido se descartan las salidas legítimas.</p>
+                        <p className="text-[11px] leading-snug text-foreground/50">La flecha blanca es el cruce que dispara. Con un solo sentido se descartan las salidas legítimas.</p>
                     </>)}
-                    {seleccion.startsWith("z") && <p className="text-[11px] leading-snug text-white/50">Arrastrá los vértices; el «+» de cada lado agrega uno (hasta 10) y doble clic en un vértice lo saca.</p>}
+                    {seleccion.startsWith("z") && <p className="text-[11px] leading-snug text-foreground/50">Arrastrá los vértices; el «+» de cada lado agrega uno (hasta 10) y doble clic en un vértice lo saca.</p>}
                     <BotonPanel peligro className="w-full" onClick={() => alBorrar(seleccion)}><Trash2 size={13} /> Quitar de la cámara</BotonPanel>
                 </div>
             )}
@@ -181,23 +181,23 @@ export function useIntrusion(deviceId: string, activo: boolean, esCamara: boolea
         <Seccion titulo="Qué dispara" icono={Gauge} ayuda="Se aplica a todas las líneas y zonas dibujadas, en el momento.">
             {!ajustes || !cfg.edita.ajustes ? <Vacio>{!cfg.edita.ajustes ? cfg.edita.motivo || "Este equipo no deja cambiarlo desde acá." : "Dibujá una línea o una zona para ajustar la sensibilidad y el objetivo."}</Vacio> : (<>
                 {ajustes.sensibilidad != null && (<div>
-                    <p className="mb-1.5 flex items-center text-[12px] font-semibold text-white/80">Sensibilidad <span className="ml-auto tabular-nums text-white">{ajustes.sensibilidad}</span>{ocupado === "sensibilidad" && <Loader2 size={12} className="ml-1.5 animate-spin" />}</p>
+                    <p className="mb-1.5 flex items-center text-[12px] font-semibold text-foreground/80">Sensibilidad <span className="ml-auto tabular-nums text-foreground">{ajustes.sensibilidad}</span>{ocupado === "sensibilidad" && <Loader2 size={12} className="ml-1.5 animate-spin" />}</p>
                     <Pildoras valor={String([40, 60, 80].reduce((a, b) => (Math.abs(b - ajustes.sensibilidad!) < Math.abs(a - ajustes.sensibilidad!) ? b : a)))} opciones={SENS} color="#22d3ee" deshabilitado={!!ocupado} cambiar={(v) => ajusteATodas("sensibilidad", Number(v))} />
-                    <p className="mt-1.5 text-[11px] leading-snug text-white/45">Alta detecta todo, también hojas y sombras de noche. En perímetro con vegetación, media suele ser el equilibrio.</p>
+                    <p className="mt-1.5 text-[11px] leading-snug text-foreground/45">Alta detecta todo, también hojas y sombras de noche. En perímetro con vegetación, media suele ser el equilibrio.</p>
                 </div>)}
                 {ajustes.objetivo != null && (<div>
-                    <p className="mb-1.5 flex items-center text-[12px] font-semibold text-white/80">Objetivo {ocupado === "objetivo" && <Loader2 size={12} className="ml-1.5 animate-spin" />}</p>
+                    <p className="mb-1.5 flex items-center text-[12px] font-semibold text-foreground/80">Objetivo {ocupado === "objetivo" && <Loader2 size={12} className="ml-1.5 animate-spin" />}</p>
                     <Pildoras valor={ajustes.objetivo} opciones={OBJETIVOS} color="#34d399" deshabilitado={!!ocupado} cambiar={(v) => ajusteATodas("objetivo", v)} />
-                    <p className="mt-1.5 text-[11px] leading-snug text-white/45">Filtrar a personas saca casi todas las falsas alarmas por animales, luces o lluvia.</p>
+                    <p className="mt-1.5 text-[11px] leading-snug text-foreground/45">Filtrar a personas saca casi todas las falsas alarmas por animales, luces o lluvia.</p>
                 </div>)}
             </>)}
         </Seccion>
 
         <Seccion titulo="Aviso a OmniAccess" icono={BellRing} ayuda="Para que un cruce llegue al monitor: la regla dibujada y prendida, «avisar al centro» en su enlace y OmniAccess como servidor de alarmas.">
             {esCamara ? <EstadoIntrusion ctl={cadena} avisa /> : (
-                <div className="flex items-center gap-2.5 rounded-[10px] bg-white/[0.04] px-3 py-2.5">
-                    <ShieldCheck size={15} className={alarma ? "text-emerald-400" : "text-amber-400"} />
-                    <span className="flex-1 text-[12.5px] text-white">{alarma == null ? "Sin dato del servidor de alarmas" : alarma ? "OmniAccess es servidor de alarmas" : "OmniAccess no es servidor de alarmas"}</span>
+                <div className="flex items-center gap-2.5 rounded-[10px] bg-foreground/[0.04] px-3 py-2.5">
+                    <ShieldCheck size={15} className={alarma ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"} />
+                    <span className="flex-1 text-[12.5px] text-foreground">{alarma == null ? "Sin dato del servidor de alarmas" : alarma ? "OmniAccess es servidor de alarmas" : "OmniAccess no es servidor de alarmas"}</span>
                     {!alarma && <BotonPanel primario onClick={() => servidor("poner")} deshabilitado={!!ocupado}>{ocupado === "poner" ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />} Configurar</BotonPanel>}
                 </div>
             )}

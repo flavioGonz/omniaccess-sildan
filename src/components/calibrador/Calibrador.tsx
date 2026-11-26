@@ -99,7 +99,7 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
         return () => window.removeEventListener("keydown", k);
     }, [m, cerrar, salir]);
 
-    const herramienta = m?.herramienta ? m.dock.find((d) => d.key === m.herramienta)?.herramienta || null : null;
+    const herramienta = m?.herramienta ? m.dock.find((d) => d.key === m.herramienta)?.herramienta || m.herramientasPanel?.[m.herramienta] || null : null;
     const MODULOS: { id: ModuloId; t: string; icono: typeof Aperture }[] = [
         { id: "imagen", t: "Imagen", icono: Aperture },
         { id: "lectura", t: "Lectura LPR", icono: ScanLine },
@@ -107,22 +107,22 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
     ];
 
     const ui = (
-        <div className="dark fixed inset-0 z-[3400] flex flex-col bg-[#07090d] text-white animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[3400] flex flex-col bg-background text-foreground animate-in fade-in duration-200">
             {/* ── La barra ── */}
-            <header className="flex h-14 shrink-0 items-center gap-3 border-b border-white/[0.07] px-4">
-                <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-white/[0.06] text-white/80"><Camera size={17} /></span>
+            <header className="flex h-14 shrink-0 items-center gap-3 border-b border-foreground/[0.07] px-4">
+                <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-foreground/[0.06] text-foreground/80"><Camera size={17} /></span>
                 <div className="min-w-0">
                     <p className="truncate text-[14px] font-bold leading-tight">{eq?.name || device.name || "Cámara"}</p>
-                    <p className="truncate text-[11px] text-white/45">{eq ? [ROTULO_TIPO[eq.deviceType] || eq.deviceType, eq.brand === "HIKVISION" ? "Hikvision" : eq.brand === "DAHUA" ? "Dahua" : eq.brand, eq.deviceModel].filter(Boolean).join(" · ") : "Leyendo el equipo…"}</p>
+                    <p className="truncate text-[11px] text-foreground/45">{eq ? [ROTULO_TIPO[eq.deviceType] || eq.deviceType, eq.brand === "HIKVISION" ? "Hikvision" : eq.brand === "DAHUA" ? "Dahua" : eq.brand, eq.deviceModel].filter(Boolean).join(" · ") : "Leyendo el equipo…"}</p>
                 </div>
 
-                <nav className="mx-auto flex items-center gap-1 rounded-full bg-white/[0.05] p-1">
+                <nav className="mx-auto flex items-center gap-1 rounded-full bg-foreground/[0.05] p-1">
                     {MODULOS.map((x) => {
                         const d = disp?.[x.id]; const on = activo === x.id;
                         return (
                             <button key={x.id} type="button" disabled={!d?.ok} title={d && !d.ok ? d.motivo : undefined} onClick={() => setActivo(x.id)}
-                                className={cn("relative inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-semibold transition-colors", on ? "text-black" : "text-white/70 hover:text-white", !d?.ok && "cursor-not-allowed opacity-35")}>
-                                {on && <motion.span layoutId="calib-modulo" className="absolute inset-0 rounded-full bg-white" transition={{ type: "spring", stiffness: 500, damping: 38 }} />}
+                                className={cn("relative inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-semibold transition-colors", on ? "text-background" : "text-foreground/70 hover:text-foreground", !d?.ok && "cursor-not-allowed opacity-35")}>
+                                {on && <motion.span layoutId="calib-modulo" className="absolute inset-0 rounded-full bg-foreground" transition={{ type: "spring", stiffness: 500, damping: 38 }} />}
                                 <x.icono size={14} className="relative" /><span className="relative">{x.t}</span>
                                 {mods[x.id].sucio && <span className={cn("relative h-1.5 w-1.5 rounded-full", on ? "bg-amber-600" : "bg-amber-400")} title="Cambios sin guardar" />}
                             </button>
@@ -130,35 +130,41 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
                     })}
                 </nav>
 
-                <div className="flex items-center gap-1 rounded-full bg-white/[0.05] p-1">
+                <div className="flex items-center gap-1 rounded-full bg-foreground/[0.05] p-1">
                     {([["imagen", "Foto", ImageIcon], ["vivo", "Vivo", Video]] as const).map(([k, t, I]) => (
                         <button key={k} type="button" onClick={() => setFondo(k)} title={k === "imagen" ? "Dibujar sobre una foto de la cámara (F)" : "Dibujar sobre el video en vivo (F)"}
-                            className={cn("inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold", fondo === k ? "bg-white/15 text-white" : "text-white/60 hover:text-white")}>
+                            className={cn("inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold", fondo === k ? "bg-foreground/15 text-foreground" : "text-foreground/60 hover:text-foreground")}>
                             {k === "vivo" && fondo === "vivo" ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" /> : <I size={13} />}{t}
                         </button>
                     ))}
                 </div>
-                {fondo === "imagen" && <button type="button" onClick={refrescar} title="Sacar una foto nueva" className="grid h-9 w-9 place-items-center rounded-full text-white/60 hover:bg-white/[0.08] hover:text-white"><RefreshCw size={15} /></button>}
-                <button type="button" onClick={() => setAtajos((v) => !v)} title="Atajos de teclado" className="grid h-9 w-9 place-items-center rounded-full text-white/60 hover:bg-white/[0.08] hover:text-white"><Keyboard size={15} /></button>
-                <button type="button" onClick={cerrar} title="Cerrar (Esc)" className="grid h-9 w-9 place-items-center rounded-full bg-white/[0.06] text-white/80 hover:bg-white/[0.14]"><X size={17} /></button>
+                {fondo === "imagen" && <button type="button" onClick={refrescar} title="Sacar una foto nueva" className="grid h-9 w-9 place-items-center rounded-full text-foreground/60 hover:bg-foreground/[0.08] hover:text-foreground"><RefreshCw size={15} /></button>}
+                <button type="button" onClick={() => setAtajos((v) => !v)} title="Atajos de teclado" className="grid h-9 w-9 place-items-center rounded-full text-foreground/60 hover:bg-foreground/[0.08] hover:text-foreground"><Keyboard size={15} /></button>
+                <button type="button" onClick={cerrar} title="Cerrar (Esc)" className="grid h-9 w-9 place-items-center rounded-full bg-foreground/[0.06] text-foreground/80 hover:bg-foreground/[0.14]"><X size={17} /></button>
             </header>
 
             <div className="flex min-h-0 flex-1">
                 {/* ── La escena ── */}
                 <main className={cn("relative min-w-0 flex-1 p-4", m && m.dock.length ? "pb-24" : "pb-4")}>
-                    <Escenario deviceId={device.id} fondo={fondo} nonce={nonce} alCargarFoto={setLupa}>
-                        {m?.capa}
-                        {m && <Lienzo formas={m.formas} seleccion={m.seleccion} herramienta={herramienta} lupa={lupa}
-                            alSeleccionar={m.setSeleccion} alCambiar={m.alCambiar} alCrear={m.alCrear} alCancelar={() => m.setHerramienta(null)} alBorrar={m.alBorrar} />}
-                    </Escenario>
+                    <div className="flex h-full min-h-0 gap-3">
+                        <div className="relative min-w-0 flex-1">
+                            <Escenario deviceId={device.id} fondo={fondo} nonce={nonce} alCargarFoto={setLupa}>
+                                {m?.capa}
+                                {m && <Lienzo formas={m.formas} seleccion={m.seleccion} herramienta={herramienta} lupa={lupa}
+                                    alSeleccionar={m.setSeleccion} alCambiar={m.alCambiar} alCrear={m.alCrear} alCancelar={() => m.setHerramienta(null)} alBorrar={m.alBorrar} />}
+                            </Escenario>
+                        </div>
+                        {/* Acoplado a la derecha de la escena: la pila de últimas capturas. */}
+                        {m?.lateral}
+                    </div>
                     {activo === "imagen" && <ControlesLente deviceId={device.id} className="z-20" />}
 
                     {/* Las herramientas, flotando abajo de la escena. */}
                     {m && m.dock.length > 0 && (
                         <div className="absolute bottom-5 left-1/2 z-30 -translate-x-1/2">
-                            <div className="flex items-center gap-1 rounded-[16px] border border-white/10 bg-[#0f131a]/90 p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.55)] backdrop-blur-xl">
-                                <BotonDock activo={!m.herramienta} onClick={() => m.setHerramienta(null)} icono={MousePointer2} label="Elegir" atajo="V" color="#ffffff" ayuda="Elegir y ajustar lo dibujado: arrastrá vértices o la figura entera." />
-                                <span className="mx-1 h-8 w-px bg-white/10" />
+                            <div className="flex items-center gap-1 rounded-[16px] border border-foreground/10 bg-popover/90 p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+                                <BotonDock activo={!m.herramienta} onClick={() => m.setHerramienta(null)} icono={MousePointer2} label="Elegir" atajo="V" color="var(--foreground)" ayuda="Elegir y ajustar lo dibujado: arrastrá vértices o la figura entera." />
+                                <span className="mx-1 h-8 w-px bg-foreground/10" />
                                 {m.dock.map((d, i) => (
                                     <BotonDock key={d.key} activo={m.herramienta === d.key} deshabilitado={d.deshabilitado || undefined} onClick={() => { if (d.accion) d.accion(); else { m.setSeleccion(null); m.setHerramienta(m.herramienta === d.key ? null : d.key); } }}
                                         icono={d.icono} label={d.label} atajo={String(i + 1)} color={d.color} ayuda={d.ayuda} separado={!!d.accion && !m.dock[i - 1]?.accion} />
@@ -169,10 +175,10 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
 
                     <AnimatePresence>
                         {atajos && (
-                            <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="absolute right-5 top-5 z-40 w-[290px] rounded-[14px] border border-white/10 bg-[#0f131a]/95 p-4 text-[12px] shadow-2xl backdrop-blur-xl">
-                                <p className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/50">Atajos</p>
+                            <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="absolute right-5 top-5 z-40 w-[290px] rounded-[14px] border border-foreground/10 bg-popover/95 p-4 text-[12px] shadow-2xl backdrop-blur-xl">
+                                <p className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-foreground/50">Atajos</p>
                                 {[["1 – 9", "Elegir herramienta"], ["V", "Volver a elegir"], ["Enter / doble clic", "Cerrar la figura"], ["Backspace", "Sacar el último punto"], ["Supr", "Borrar lo elegido"], ["Doble clic en un vértice", "Sacarlo"], ["«+» en un lado", "Agregar un vértice"], ["F", "Foto / vivo"], ["Esc", "Cancelar · cerrar"]].map(([a, b]) => (
-                                    <div key={a} className="flex items-center justify-between gap-3 py-1"><span className="text-white/70">{b}</span><kbd className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10.5px] font-semibold text-white/85">{a}</kbd></div>
+                                    <div key={a} className="flex items-center justify-between gap-3 py-1"><span className="text-foreground/70">{b}</span><kbd className="rounded-md bg-foreground/10 px-1.5 py-0.5 text-[10.5px] font-semibold text-foreground/85">{a}</kbd></div>
                                 ))}
                             </motion.div>
                         )}
@@ -180,17 +186,17 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
                 </main>
 
                 {/* ── El panel del módulo ── */}
-                <aside className="flex w-[380px] shrink-0 flex-col border-l border-white/[0.07] bg-[#0b0e14]">
+                <aside className="flex w-[380px] shrink-0 flex-col border-l border-foreground/[0.07] bg-card">
                     <div className="min-h-0 flex-1 overflow-y-auto">
-                        {!eq || !disp ? <div className="flex items-center gap-2 p-5 text-[12.5px] text-white/60"><Loader2 size={14} className="animate-spin" /> Leyendo el equipo…</div>
-                            : !m ? <div className="p-5 text-[12.5px] text-white/60">Esta cámara no tiene nada para calibrar desde acá.</div>
+                        {!eq || !disp ? <div className="flex items-center gap-2 p-5 text-[12.5px] text-foreground/60"><Loader2 size={14} className="animate-spin" /> Leyendo el equipo…</div>
+                            : !m ? <div className="p-5 text-[12.5px] text-foreground/60">Esta cámara no tiene nada para calibrar desde acá.</div>
                                 : <AnimatePresence mode="wait"><motion.div key={activo} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} transition={{ duration: 0.16 }}>{m.panel}</motion.div></AnimatePresence>}
                     </div>
                     {m?.guardar && (
-                        <footer className="flex shrink-0 items-center gap-2 border-t border-white/[0.07] px-4 py-3">
-                            <span className={cn("flex-1 whitespace-nowrap text-[11.5px]", m.sucio ? "text-amber-300" : "text-white/40")}>{m.guardando ? "Aplicando…" : m.sucio ? "Sin guardar" : "Guardado"}</span>
-                            <button type="button" onClick={m.revertir} disabled={!m.sucio || m.guardando} className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-3 text-[12.5px] font-semibold text-white/75 hover:bg-white/[0.07] disabled:opacity-35"><RotateCcw size={14} /> Revertir</button>
-                            <button type="button" onClick={() => m.guardar?.()} disabled={!m.sucio || m.guardando} className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-[6px] bg-[var(--accion)] px-4 text-[12.5px] font-bold text-white hover:brightness-110 disabled:opacity-35">
+                        <footer className="flex shrink-0 items-center gap-2 border-t border-foreground/[0.07] px-4 py-3">
+                            <span className={cn("flex-1 whitespace-nowrap text-[11.5px]", m.sucio ? "text-amber-600 dark:text-amber-300" : "text-foreground/40")}>{m.guardando ? "Aplicando…" : m.sucio ? "Sin guardar" : "Guardado"}</span>
+                            <button type="button" onClick={m.revertir} disabled={!m.sucio || m.guardando} className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-3 text-[12.5px] font-semibold text-foreground/75 hover:bg-foreground/[0.07] disabled:opacity-35"><RotateCcw size={14} /> Revertir</button>
+                            <button type="button" onClick={() => m.guardar?.()} disabled={!m.sucio || m.guardando} className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-[6px] bg-[var(--accion)] px-4 text-[12.5px] font-bold text-foreground hover:brightness-110 disabled:opacity-35">
                                 {m.guardando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {m.rotuloGuardar || "Guardar"}
                             </button>
                         </footer>
@@ -202,12 +208,12 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
             <AnimatePresence>
                 {salir && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
-                        <motion.div initial={{ scale: 0.95, y: 8 }} animate={{ scale: 1, y: 0 }} className="w-[380px] rounded-[14px] border border-white/10 bg-[#0f131a] p-5">
+                        <motion.div initial={{ scale: 0.95, y: 8 }} animate={{ scale: 1, y: 0 }} className="w-[380px] rounded-[14px] border border-foreground/10 bg-popover p-5">
                             <p className="text-[14px] font-bold">Hay cambios sin guardar</p>
-                            <p className="mt-1 text-[12.5px] text-white/60">En {(Object.keys(mods) as ModuloId[]).filter((k) => mods[k].sucio).map((k) => MODULOS.find((x) => x.id === k)!.t).join(" y ")}. Si salís, se pierden.</p>
+                            <p className="mt-1 text-[12.5px] text-foreground/60">En {(Object.keys(mods) as ModuloId[]).filter((k) => mods[k].sucio).map((k) => MODULOS.find((x) => x.id === k)!.t).join(" y ")}. Si salís, se pierden.</p>
                             <div className="mt-4 flex justify-end gap-2">
-                                <button type="button" onClick={() => setSalir(false)} className="h-9 rounded-[6px] px-3 text-[12.5px] font-semibold text-white/80 hover:bg-white/[0.07]">Seguir calibrando</button>
-                                <button type="button" onClick={onClose} className="h-9 rounded-[6px] bg-red-500/90 px-3 text-[12.5px] font-bold text-white hover:bg-red-500">Salir sin guardar</button>
+                                <button type="button" onClick={() => setSalir(false)} className="h-9 rounded-[6px] px-3 text-[12.5px] font-semibold text-foreground/80 hover:bg-foreground/[0.07]">Seguir calibrando</button>
+                                <button type="button" onClick={onClose} className="h-9 rounded-[6px] bg-red-500/90 px-3 text-[12.5px] font-bold text-foreground hover:bg-red-500">Salir sin guardar</button>
                             </div>
                         </motion.div>
                     </motion.div>
@@ -220,14 +226,14 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
 
 function BotonDock({ activo, onClick, icono: I, label, atajo, color, ayuda, deshabilitado, separado }: { activo: boolean; onClick: () => void; icono: React.ComponentType<{ size?: number; style?: React.CSSProperties; className?: string }>; label: string; atajo: string; color: string; ayuda: string; deshabilitado?: string; separado?: boolean }) {
     return (<>
-        {separado && <span className="mx-1 h-8 w-px bg-white/10" />}
+        {separado && <span className="mx-1 h-8 w-px bg-foreground/10" />}
         <button type="button" onClick={onClick} disabled={!!deshabilitado} title={deshabilitado ? `${label}: ${deshabilitado}` : `${label} (${atajo}) — ${ayuda}`}
             className={cn("group relative flex h-14 w-[74px] flex-col items-center justify-center gap-1 rounded-[12px] text-[11px] font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-30",
-                activo ? "bg-white/[0.12] text-white" : "text-white/65 hover:bg-white/[0.06] hover:text-white")}
-            style={activo ? { boxShadow: `inset 0 0 0 1.5px ${color}, 0 0 18px ${color}33` } : undefined}>
+                activo ? "bg-foreground/[0.12] text-foreground" : "text-foreground/65 hover:bg-foreground/[0.06] hover:text-foreground")}
+            style={activo ? { boxShadow: `inset 0 0 0 1.5px ${color}${color.startsWith("#") ? `, 0 0 18px ${color}33` : ""}` } : undefined}>
             <I size={18} style={{ color }} />
             <span>{label}</span>
-            <span className="absolute right-1.5 top-1 text-[8.5px] font-bold text-white/30">{atajo}</span>
+            <span className="absolute right-1.5 top-1 text-[8.5px] font-bold text-foreground/30">{atajo}</span>
         </button>
     </>);
 }
