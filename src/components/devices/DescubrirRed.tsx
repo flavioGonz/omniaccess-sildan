@@ -123,6 +123,8 @@ export function DescubrirRed({ abierto, alCerrar, alDarDeAlta, alAbrirEquipo, al
     const [altas, setAltas] = useState<Alta[]>([]);
     const [fallados, setFallados] = useState<{ ip: string; motivo: string }[]>([]);
     const [nvrImportar, setNvrImportar] = useState<{ id: string; name: string; ip: string } | null>(null);
+    /** Los grabadores a los que ya se les importaron los canales en esta vuelta. */
+    const [importados, setImportados] = useState<string[]>([]);
 
     useEffect(() => {
         if (!abierto) return;
@@ -225,8 +227,12 @@ export function DescubrirRed({ abierto, alCerrar, alDarDeAlta, alAbrirEquipo, al
     const iPaso = PASOS.findIndex((p) => p.k === paso);
     const pctIdent = vivas.length ? Math.round((filas.length / vivas.length) * 100) : 0;
 
+    /* Un cajón por vez (26/11, Nico: «está raro el proceso con dos cajones que se abren uno encima del
+       otro»). Al importar los canales de un grabador, el descubridor se corre (queda montado, con su
+       paso «Listo» intacto) y vuelve cuando el importador se cierra. */
     return (
-        <Cajon open={abierto} onOpenChange={(v) => !v && cerrar()}>
+        <>
+        <Cajon open={abierto && !nvrImportar} onOpenChange={(v) => !v && !nvrImportar && cerrar()}>
             <CajonContenido ancho="ancho" titulo="Descubrir equipos en la red"
                 descripcion="Encuentra lo que hay en la red, dice qué es cada cosa y da de alta lo que sirve para OmniAccess. Sólo lee: a ningún equipo se le escribe nada."
                 encabezado={
@@ -359,7 +365,7 @@ export function DescubrirRed({ abierto, alCerrar, alDarDeAlta, alAbrirEquipo, al
                     )}
 
                     {paso === "listo" && (
-                        <PasoListo altas={altas} fallados={fallados} filas={filas} alAbrirEquipo={alAbrirEquipo} alImportar={(a) => setNvrImportar({ id: a.id, name: a.nombre, ip: a.ip })} />
+                        <PasoListo altas={altas} fallados={fallados} filas={filas} importados={importados} alAbrirEquipo={alAbrirEquipo} alImportar={(a) => setNvrImportar({ id: a.id, name: a.nombre, ip: a.ip })} />
                     )}
 
                     {/* La pregunta antes de dar de alta: «debe preguntar para agregarlos». */}
@@ -387,8 +393,10 @@ export function DescubrirRed({ abierto, alCerrar, alDarDeAlta, alAbrirEquipo, al
                     </AnimatePresence>
                 </div>
             </CajonContenido>
-            <ImportarCanalesNvr nvr={nvrImportar} open={!!nvrImportar} onOpenChange={(v) => { if (!v) setNvrImportar(null); }} onListo={() => { setNvrImportar(null); alCambiarEquipos?.(); }} />
         </Cajon>
+        <ImportarCanalesNvr nvr={nvrImportar} open={abierto && !!nvrImportar} onOpenChange={(v) => { if (!v) setNvrImportar(null); }}
+            onListo={() => { if (nvrImportar) setImportados((l) => [...l, nvrImportar.id]); setNvrImportar(null); alCambiarEquipos?.(); }} />
+        </>
     );
 }
 
@@ -636,7 +644,7 @@ function FilaSimple({ f, accion, elegida, alElegir }: { f: Identificado; accion?
 
 /* ═══════════════════════ Paso 4: listo ═══════════════════════ */
 
-function PasoListo({ altas, fallados, filas, alAbrirEquipo, alImportar }: { altas: Alta[]; fallados: { ip: string; motivo: string }[]; filas: Identificado[]; alAbrirEquipo?: (id: string) => void; alImportar: (a: Alta) => void }) {
+function PasoListo({ altas, fallados, filas, importados, alAbrirEquipo, alImportar }: { altas: Alta[]; fallados: { ip: string; motivo: string }[]; filas: Identificado[]; importados: string[]; alAbrirEquipo?: (id: string) => void; alImportar: (a: Alta) => void }) {
     const nvrs = altas.filter((a) => a.tipo === "NVR");
     return (
         <div className="space-y-5">
@@ -652,7 +660,11 @@ function PasoListo({ altas, fallados, filas, alAbrirEquipo, alImportar }: { alta
                         <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">
                             {f?.canales ? `Tiene ${f.canales.total} canales, ${f.canales.conCamara} con cámara. ` : ""}¿Importamos sus canales como cámaras y vinculamos sus grabaciones? Se elige qué es cada una (LPR, intrusión) y su área, con su imagen al lado.
                         </p>
-                        <div className="mt-3 flex gap-2"><Button size="sm" onClick={() => alImportar(a)}><Monitor size={14} /> Importar sus canales</Button></div>
+                        <div className="mt-3 flex items-center gap-2">
+                            {importados.includes(a.id)
+                                ? <><span className="inline-flex items-center gap-1 rounded-full chip-bien px-2 py-0.5 text-[11.5px] font-bold"><Check size={12} /> Canales importados</span><Button size="sm" variant="outline" onClick={() => alImportar(a)}>Revisar de nuevo</Button></>
+                                : <Button size="sm" onClick={() => alImportar(a)}><Monitor size={14} /> Importar sus canales</Button>}
+                        </div>
                     </div>
                 );
             })}

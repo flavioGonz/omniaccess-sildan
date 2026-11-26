@@ -25,7 +25,9 @@ export async function GET(req: NextRequest) {
     const no = await conSesion(); if (no) return no;
     const gr = await grabadorPorId(req.nextUrl.searchParams.get("nvr") || "");
     const d = gr ? driverDe(gr.marca) : null;
-    if (!gr || !d) return NextResponse.json({ ok: false, error: "Este grabador no busca con IA." }, { status: 404, ...sinCache });
+    // Un grabador que no busca con IA no es un error: es un estado. Antes era un 404 rojo en la consola
+    // cada vez que se abría la ficha de un NVR común (26/11). Se contesta «nada que elegir».
+    if (!gr || !d) return NextResponse.json({ ok: true, motor: null, texto: null, imagen: null, noBusca: true }, sinCache);
     if (!d.canales) return NextResponse.json({ ok: true, motor: d.motor, texto: null, imagen: null }, sinCache);
     try {
         const c = await d.canales(gr.c);
