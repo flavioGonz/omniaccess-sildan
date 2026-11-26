@@ -9,6 +9,7 @@ import { Cronometro, useTranscurrido } from "@/components/tracking/Cronometro";
 import { interioresAdentro } from "@/app/actions/lpr-interiores";
 import type { ChapaAdentro } from "@/lib/lpr-interiores";
 import { rolEtiqueta } from "@/lib/roles-etiquetas";
+import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 
 /**
  * La columna del centro del monitor LPR: las interiores (26/11). Nico: «una tercera columna en el
@@ -79,10 +80,20 @@ export function ColumnaInteriores({ tiles, camaras, alOcultar, alInvestigar }: {
 
 function Tarjeta({ c, grande, alInvestigar }: { c: ChapaAdentro; grande?: boolean; alInvestigar?: (plate: string) => void }) {
     const visto = Math.max(0, Math.round((useTranscurrido(c.ultima) || 0) / 60000));
+    /**
+     * La tarjeta abre la ficha de su última lectura: la MISMA que un evento LPR (26/11, Nico: «las
+     * que procesa OmniVision, la ventana modal debe ser igual a la de eventos LPR, sólo cambia el
+     * tipo de procesamiento; ese drawer no va para eso»). Antes abría el cajón de investigar.
+     */
+    const evento = c.ultimaId ? {
+        id: c.ultimaId, sinEvento: true, plateDetected: c.plate, snapshotPath: c.foto, imagePath: null,
+        timestamp: c.ultima, deviceId: c.deviceId, deviceName: c.camara, decision: null, direction: "INTERIOR", accessType: "PLATE",
+        details: `Metodo: RTSP Detect${c.confianza != null ? `, Confianza: ${Math.round(c.confianza * 100)}%` : ""}`,
+    } : null;
     const borde = c.lista === "negra" ? "border-red-500/60 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]" : c.lista === "amarilla" ? "border-yellow-400/60" : "border-border";
-    return (
+    const tarjeta = (
         <motion.button type="button" layout initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ type: "spring", bounce: 0, duration: 0.35 }}
-            onClick={() => alInvestigar?.(c.plate)} title={`Investigar ${c.plate}`}
+            onClick={evento ? undefined : () => alInvestigar?.(c.plate)} title={evento ? `Ver la lectura de ${c.plate}` : `Investigar ${c.plate}`}
             className={cn("group relative overflow-hidden rounded-[14px] border bg-card text-left transition-colors hover:border-violet-400/60", borde, grande ? "col-span-2 p-3.5" : "p-2.5")}>
             {grande && c.foto && (
                 // La escena de la última vez que la vieron, muy atenuada: contexto, no protagonista.
@@ -106,4 +117,5 @@ function Tarjeta({ c, grande, alInvestigar }: { c: ChapaAdentro; grande?: boolea
             </div>
         </motion.button>
     );
+    return evento ? <VisorEventoAcceso event={evento} timeStatus={null}>{tarjeta}</VisorEventoAcceso> : tarjeta;
 }

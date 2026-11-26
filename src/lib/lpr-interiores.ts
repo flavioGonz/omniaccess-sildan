@@ -20,6 +20,8 @@ export type ChapaAdentro = {
     desde: string; desdeEs: "entrada" | "vista";
     ultima: string; primera: string; veces: number;
     camara: string | null; foto: string | null;
+    /** La última lectura, para abrir su ficha (la misma que un evento LPR). */
+    ultimaId: string | null; deviceId: string | null; confianza: number | null;
     quien: { nombre: string; rol: string; lote: string | null; vip: boolean } | null;
     lista: "negra" | "amarilla" | null;
 };
@@ -42,16 +44,16 @@ export async function leerInterioresAdentro(): Promise<{ ok: boolean; error?: st
     const vistas = await prisma.plateSighting.findMany({
         where: { deviceId: { in: devs.map((d) => d.id) }, timestamp: { gte: desde } },
         orderBy: { timestamp: "desc" },
-        select: { plate: true, deviceId: true, timestamp: true, snapshotUrl: true },
+        select: { id: true, plate: true, deviceId: true, timestamp: true, snapshotUrl: true, confidence: true },
         take: 4000,
     });
-    type Acum = { plate: string; ultima: Date; primera: Date; veces: number; camara: string | null; foto: string | null };
+    type Acum = { plate: string; ultima: Date; primera: Date; veces: number; camara: string | null; foto: string | null; ultimaId: string; deviceId: string | null; confianza: number | null };
     const por = new Map<string, Acum>();
     for (const v of vistas) {
         const p = String(v.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
         if (p.length < 5 || NO_ES_CHAPA.has(p)) continue;
         const a = por.get(p);
-        if (!a) por.set(p, { plate: p, ultima: v.timestamp, primera: v.timestamp, veces: 1, camara: v.deviceId ? nombre.get(v.deviceId) || null : null, foto: v.snapshotUrl || null });
+        if (!a) por.set(p, { plate: p, ultima: v.timestamp, primera: v.timestamp, veces: 1, camara: v.deviceId ? nombre.get(v.deviceId) || null : null, foto: v.snapshotUrl || null, ultimaId: v.id, deviceId: v.deviceId || null, confianza: v.confidence ?? null });
         else { a.primera = v.timestamp; a.veces++; if (!a.foto && v.snapshotUrl) a.foto = v.snapshotUrl; }
     }
     const plates = [...por.keys()];
@@ -80,6 +82,7 @@ export async function leerInterioresAdentro(): Promise<{ ok: boolean; error?: st
         out.push({
             plate: a.plate, desde: (usaEntrada ? entrada!.timestamp : a.primera).toISOString(), desdeEs: usaEntrada ? "entrada" : "vista",
             ultima: a.ultima.toISOString(), primera: a.primera.toISOString(), veces: a.veces, camara: a.camara, foto: a.foto,
+            ultimaId: a.ultimaId, deviceId: a.deviceId, confianza: a.confianza,
             quien: quien.get(a.plate) || null, lista: lista.get(a.plate) || null,
         });
     }

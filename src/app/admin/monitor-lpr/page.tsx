@@ -280,14 +280,15 @@ function CamTile({ dev, accent = "emerald", ev, onRegister, className }: { dev: 
             )}
         </div>
     );
-    // Una lectura que todavía no es evento de acceso (sinEvento: avistamiento viejo de una
-    // interior) no tiene ficha que abrir: el diálogo pediría un AccessEvent que no existe.
-    return ev && !ev.sinEvento ? (
+    // Una lectura de OmniVision (sinEvento: LPR interior) abre la MISMA ficha que un evento LPR
+    // (26/11, Nico: «la ventana modal debe ser igual a la otra de eventos LPR; sólo cambia el tipo
+    // de procesamiento»). La ficha la pide por la chapa en vez de por el id del evento.
+    return ev ? (
         <div className="relative group/cam">
             <VisorEventoAcceso event={relCam && !ev.relectura ? { ...ev, relectura: relCam } : ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
                 <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
             </VisorEventoAcceso>
-            {anomalous && ev.id && (
+            {anomalous && ev.id && !ev.sinEvento && (
                 <div className="absolute top-1.5 right-1.5 z-30">
                     <PlateManualButton eventId={ev.id} currentPlate={plate} onSaved={() => camRouter.refresh()} className="!bg-black/60 hover:!bg-black/80 !text-amber-300 rounded-md !p-1.5 shadow-lg" />
                 </div>
@@ -416,7 +417,9 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
     return (
         <div>
             {/* `@container`: lo de adentro se acomoda al ancho de ESTA tarjeta (la columna), no al de la pantalla. */}
-            <div className={cn("@container relative w-full rounded-xl overflow-hidden vid-surface border transition-all duration-300", className || "aspect-video", flash ? ring : "border-border")}>
+            {/* La captura grande abre la ficha del evento como las chicas (26/11, Nico: «todos los bloques, chicos y grandes, al clic abren el evento»). */}
+            <VisorEventoAcceso event={relHero && !ev.relectura ? { ...ev, relectura: relHero } : ev} timeStatus={null} onRegister={(p) => onRegister?.(p)} empresa={empresa}>
+            <div className={cn("@container relative w-full rounded-xl overflow-hidden vid-surface border transition-all duration-300 cursor-pointer", className || "aspect-video", flash ? ring : "border-border")}>
                 <SmartThumb src={img} w={960} className="absolute inset-0 w-full h-full" />
                 {flash && <div className="iris-shot" />}
                 <div className="absolute top-3 left-3 z-10 flex flex-col items-start gap-1.5">
@@ -515,7 +518,7 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     )}
                     {/* Las acciones a la izquierda y, a la derecha, cuán fresca es la captura. */}
                     <div className="mt-2.5 flex items-center gap-2 flex-wrap">
-                        {anomalous && ev.id && <PlateManualButton eventId={ev.id} currentPlate={plate} sugerida={relHero?.plate ? { plate: relHero.plate, confianza: relHero.confianza } : null} onSaved={() => router.refresh()} label className="!bg-white/15 hover:!bg-white/25 !text-amber-200 uppercase tracking-wide backdrop-blur" />}
+                        {anomalous && ev.id && !ev.sinEvento && <PlateManualButton eventId={ev.id} currentPlate={plate} sugerida={relHero?.plate ? { plate: relHero.plate, confianza: relHero.confianza } : null} onSaved={() => router.refresh()} label className="!bg-white/15 hover:!bg-white/25 !text-amber-200 uppercase tracking-wide backdrop-blur" />}
                         {plate && !anomalous && (
                             <>
                                 <button onClick={(e) => { e.stopPropagation(); setInvestigar(plate); }} className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur transition-colors">Investigar</button>
@@ -530,6 +533,7 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     </div>
                 </div>
             </div>
+            </VisorEventoAcceso>
             {corregirOmni && ev.id && (
                 <CorregirOmniDialog
                     abierto={!!corregirOmni}

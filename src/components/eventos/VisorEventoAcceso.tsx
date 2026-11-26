@@ -114,14 +114,17 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
      */
     const [refresco, setRefresco] = useState(0);
     useEffect(() => {
-        if (!abierto || !event?.id) { setDatosOmni(null); return; }
+        // Una lectura de OmniVision (sinEvento: LPR interior, 26/11) no es un AccessEvent: la ficha
+        // se pide por la chapa, sin id de evento (que buscaría uno que no existe).
+        if (!abierto || (!event?.id && !conChapa) || (event?.sinEvento && !conChapa)) { setDatosOmni(null); return; }
         let vivo = true;
-        const q = new URLSearchParams({ evento: event.id, momento: new Date(event.timestamp).toISOString() });
+        const q = new URLSearchParams({ momento: new Date(event.timestamp).toISOString() });
+        if (event.id && !event.sinEvento) q.set("evento", event.id);
         if (conChapa) q.set("plate", chapa);
         fetch(`/api/history/ficha?${q}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
             .then((j) => { if (vivo) setDatosOmni(j); }).catch(() => { });
         return () => { vivo = false; };
-    }, [abierto, conChapa, chapa, event?.id, event?.timestamp, refresco]);
+    }, [abierto, conChapa, chapa, event?.id, event?.sinEvento, event?.timestamp, refresco]);
 
     /** El canal del NVR, que decide si hay grabación y clip. */
     useEffect(() => {
@@ -303,7 +306,9 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
 
     return (
         <>
-            <span onClick={() => setAbierto(true)} className="contents">{children}</span>
+            {/* Sólo un clic sobre la tarjeta misma: los diálogos que la tarjeta abre en portal (cargar
+                matrícula, Min. Interior) burbujean por el árbol de React hasta acá y no tienen que abrir la ficha. */}
+            <span onClick={(e) => { if ((e.currentTarget as Node).contains(e.target as Node)) setAbierto(true); }} className="contents">{children}</span>
 
             {/* En un portal: el monitor LPR la abre desde tarjetas con transformaciones y desenfoque
                 (animate-in, backdrop-blur), que hacen de caja a un `fixed` y la encerraban adentro
@@ -316,7 +321,8 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
                         deviceId: dispositivo?.id || (datosOmni as any)?.deviceId || null,
                         timestamp: event?.timestamp,
                         snapshotUrl: foto,
-                        decision: event?.decision || null,
+                        // Una lectura de OmniVision no decide la barrera: se muestra como lectura, no como acceso.
+                        decision: event?.sinEvento ? null : event?.decision || null,
                         direccion: event?.direction || null,
                         tipoAcceso: event?.accessType || null,
                         permanenciaMs,
@@ -344,7 +350,7 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister, 
                         ? `/api/nvr/playback?ch=${canalNvr}&t=${msEvento}&download=1${nvrId ? `&nvr=${nvrId}` : ""}`
                         : null}
                     onClip={canalNvr != null && ventanaClip ? () => setDescarga(true) : undefined}
-                    onExportar={exportar}
+                    onExportar={event?.sinEvento ? undefined : exportar}
                     onListaNegra={conChapa ? pedirLista : undefined}
                     tapado={!!conflicto || !!negra || descarga}
                     enListaNegra={vigilada?.category === "BLACKLISTED"}
