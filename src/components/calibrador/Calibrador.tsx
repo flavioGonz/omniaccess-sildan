@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { X, Image as ImageIcon, Video, RefreshCw, Aperture, ScanLine, Radar, MousePointer2, Save, RotateCcw, Camera, Keyboard } from "lucide-react";
+import { X, Image as ImageIcon, Video, RefreshCw, Aperture, ScanLine, Radar, MousePointer2, Save, RotateCcw, Camera, Keyboard, PanelRight } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import { equipoParaCalibrar } from "@/app/actions/devices";
@@ -26,9 +26,10 @@ import { useIntrusion } from "@/components/calibrador/modulos/intrusion";
  * región ANPR en un editor aparte), el de lectura de las interiores, el de intrusión y el de
  * carriles. Ahora es una sola, a pantalla completa:
  *
- *   ┌ barra: la cámara · los módulos que corresponden · foto/vivo · cerrar ────────────────┐
- *   │ la escena (foto o vivo) con el lienzo encima          │ el panel del módulo           │
- *   │            [ herramientas de dibujo, flotando ]       │ … guardar / revertir          │
+ *   ┌ la escena (foto o vivo) a pantalla completa, con el lienzo encima ─────────────────────┐
+ *   │ [cámara]        [ módulos ]        [foto/vivo · panel · cerrar]      (vidrios flotantes) │
+ *   │                                               [capturas] [ panel del módulo          ] │
+ *   │                 [ herramientas de dibujo ]                [ … guardar / revertir     ] │
  *   └────────────────────────────────────────────────────────────────────────────────────────┘
  *
  * Qué módulos se ofrecen lo decide el tipo de la cámara (no lo que eligió quien la abrió):
@@ -51,6 +52,7 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
     const [activo, setActivo] = useState<ModuloId | null>(inicial || null);
     const [salir, setSalir] = useState(false);
     const [atajos, setAtajos] = useState(false);
+    const [verPanel, setVerPanel] = useState(true);
     const [montado, setMontado] = useState(false);
     useEffect(() => { const t = setTimeout(() => setMontado(true), 0); return () => clearTimeout(t); }, []);
 
@@ -92,6 +94,7 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
             if (!m) return;
             if (e.key.toLowerCase() === "v") m.setHerramienta(null);
             if (e.key.toLowerCase() === "f") setFondo((f) => (f === "imagen" ? "vivo" : "imagen"));
+            if (e.key.toLowerCase() === "p") setVerPanel((v) => !v);
             const n = Number(e.key);
             if (n >= 1 && n <= m.dock.length) { const d = m.dock[n - 1]; if (d.deshabilitado) return; if (d.accion) d.accion(); else { m.setSeleccion(null); m.setHerramienta(m.herramienta === d.key ? null : d.key); } }
         };
@@ -106,22 +109,42 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
         { id: "intrusion", t: "Intrusión", icono: Radar },
     ];
 
+    /*
+     * La escena a sangre y todo lo demás flotando encima (26/11, Nico: «el calibrador debe ser toda la
+     * foto o video de la cámara, y los datos encima, tipo flotantes premium»). La escena ocupa la
+     * pantalla entera (encajada: se dibuja sobre el cuadro completo, sin recortarlo) y la barra, la
+     * pila de capturas, el panel y las herramientas son vidrios flotantes. El panel se pliega (P)
+     * para dibujar en la parte de la imagen que tapa.
+     */
+    const vidrio = "border border-foreground/10 bg-popover/80 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur-2xl";
     const ui = (
-        <div className="fixed inset-0 z-[3400] flex flex-col bg-background text-foreground animate-in fade-in duration-200">
-            {/* ── La barra ── */}
-            <header className="flex h-14 shrink-0 items-center gap-3 border-b border-foreground/[0.07] px-4">
-                <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-foreground/[0.06] text-foreground/80"><Camera size={17} /></span>
-                <div className="min-w-0">
-                    <p className="truncate text-[14px] font-bold leading-tight">{eq?.name || device.name || "Cámara"}</p>
-                    <p className="truncate text-[11px] text-foreground/45">{eq ? [ROTULO_TIPO[eq.deviceType] || eq.deviceType, eq.brand === "HIKVISION" ? "Hikvision" : eq.brand === "DAHUA" ? "Dahua" : eq.brand, eq.deviceModel].filter(Boolean).join(" · ") : "Leyendo el equipo…"}</p>
+        <div className="fixed inset-0 z-[3400] bg-[#05070a] text-foreground animate-in fade-in duration-200">
+            {/* ── La escena, a pantalla completa ── */}
+            <div className="absolute inset-0">
+                <Escenario deviceId={device.id} fondo={fondo} nonce={nonce} alCargarFoto={setLupa} aSangre>
+                    {m?.capa}
+                    {m && <Lienzo formas={m.formas} seleccion={m.seleccion} herramienta={herramienta} lupa={lupa}
+                        alSeleccionar={m.setSeleccion} alCambiar={m.alCambiar} alCrear={m.alCrear} alCancelar={() => m.setHerramienta(null)} alBorrar={m.alBorrar} />}
+                </Escenario>
+            </div>
+            {activo === "imagen" && <ControlesLente deviceId={device.id} className="z-20" />}
+
+            {/* ── La barra, flotando ── */}
+            <header className="pointer-events-none absolute inset-x-3 top-3 z-30 flex items-start gap-2">
+                <div className={cn("pointer-events-auto flex h-12 min-w-0 items-center gap-2.5 rounded-[14px] pl-1.5 pr-3.5", vidrio)}>
+                    <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-foreground/[0.07] text-foreground/80"><Camera size={17} /></span>
+                    <div className="min-w-0">
+                        <p className="truncate text-[13.5px] font-bold leading-tight">{eq?.name || device.name || "Cámara"}</p>
+                        <p className="truncate text-[11px] text-foreground/50">{eq ? [ROTULO_TIPO[eq.deviceType] || eq.deviceType, eq.brand === "HIKVISION" ? "Hikvision" : eq.brand === "DAHUA" ? "Dahua" : eq.brand, eq.deviceModel].filter(Boolean).join(" · ") : "Leyendo el equipo…"}</p>
+                    </div>
                 </div>
 
-                <nav className="mx-auto flex items-center gap-1 rounded-full bg-foreground/[0.05] p-1">
+                <nav className={cn("pointer-events-auto mx-auto flex h-12 items-center gap-1 rounded-full p-1.5", vidrio)}>
                     {MODULOS.map((x) => {
                         const d = disp?.[x.id]; const on = activo === x.id;
                         return (
                             <button key={x.id} type="button" disabled={!d?.ok} title={d && !d.ok ? d.motivo : undefined} onClick={() => setActivo(x.id)}
-                                className={cn("relative inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-semibold transition-colors", on ? "text-background" : "text-foreground/70 hover:text-foreground", !d?.ok && "cursor-not-allowed opacity-35")}>
+                                className={cn("relative inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-semibold transition-colors", on ? "text-background" : "text-foreground/70 hover:text-foreground", !d?.ok && "cursor-not-allowed opacity-35")}>
                                 {on && <motion.span layoutId="calib-modulo" className="absolute inset-0 rounded-full bg-foreground" transition={{ type: "spring", stiffness: 500, damping: 38 }} />}
                                 <x.icono size={14} className="relative" /><span className="relative">{x.t}</span>
                                 {mods[x.id].sucio && <span className={cn("relative h-1.5 w-1.5 rounded-full", on ? "bg-amber-600" : "bg-amber-400")} title="Cambios sin guardar" />}
@@ -130,79 +153,81 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
                     })}
                 </nav>
 
-                <div className="flex items-center gap-1 rounded-full bg-foreground/[0.05] p-1">
+                <div className={cn("pointer-events-auto flex h-12 items-center gap-1 rounded-full p-1.5", vidrio)}>
                     {([["imagen", "Foto", ImageIcon], ["vivo", "Vivo", Video]] as const).map(([k, t, I]) => (
                         <button key={k} type="button" onClick={() => setFondo(k)} title={k === "imagen" ? "Dibujar sobre una foto de la cámara (F)" : "Dibujar sobre el video en vivo (F)"}
-                            className={cn("inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold", fondo === k ? "bg-foreground/15 text-foreground" : "text-foreground/60 hover:text-foreground")}>
+                            className={cn("inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[12px] font-semibold", fondo === k ? "bg-foreground/15 text-foreground" : "text-foreground/60 hover:text-foreground")}>
                             {k === "vivo" && fondo === "vivo" ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" /> : <I size={13} />}{t}
                         </button>
                     ))}
+                    <span className="mx-0.5 h-6 w-px bg-foreground/10" />
+                    {fondo === "imagen" && <button type="button" onClick={refrescar} title="Sacar una foto nueva" className="grid h-9 w-9 place-items-center rounded-full text-foreground/60 hover:bg-foreground/[0.08] hover:text-foreground"><RefreshCw size={15} /></button>}
+                    <button type="button" onClick={() => setVerPanel((v) => !v)} title={verPanel ? "Plegar el panel (P)" : "Mostrar el panel (P)"} className={cn("grid h-9 w-9 place-items-center rounded-full hover:bg-foreground/[0.08] hover:text-foreground", verPanel ? "text-foreground/60" : "bg-foreground/15 text-foreground")}><PanelRight size={15} /></button>
+                    <button type="button" onClick={() => setAtajos((v) => !v)} title="Atajos de teclado" className="grid h-9 w-9 place-items-center rounded-full text-foreground/60 hover:bg-foreground/[0.08] hover:text-foreground"><Keyboard size={15} /></button>
+                    <button type="button" onClick={cerrar} title="Cerrar (Esc)" className="grid h-9 w-9 place-items-center rounded-full bg-foreground/[0.08] text-foreground/80 hover:bg-foreground/[0.16]"><X size={17} /></button>
                 </div>
-                {fondo === "imagen" && <button type="button" onClick={refrescar} title="Sacar una foto nueva" className="grid h-9 w-9 place-items-center rounded-full text-foreground/60 hover:bg-foreground/[0.08] hover:text-foreground"><RefreshCw size={15} /></button>}
-                <button type="button" onClick={() => setAtajos((v) => !v)} title="Atajos de teclado" className="grid h-9 w-9 place-items-center rounded-full text-foreground/60 hover:bg-foreground/[0.08] hover:text-foreground"><Keyboard size={15} /></button>
-                <button type="button" onClick={cerrar} title="Cerrar (Esc)" className="grid h-9 w-9 place-items-center rounded-full bg-foreground/[0.06] text-foreground/80 hover:bg-foreground/[0.14]"><X size={17} /></button>
             </header>
 
-            <div className="flex min-h-0 flex-1">
-                {/* ── La escena ── */}
-                <main className={cn("relative min-w-0 flex-1 p-4", m && m.dock.length ? "pb-24" : "pb-4")}>
-                    <div className="flex h-full min-h-0 gap-3">
-                        <div className="relative min-w-0 flex-1">
-                            <Escenario deviceId={device.id} fondo={fondo} nonce={nonce} alCargarFoto={setLupa}>
-                                {m?.capa}
-                                {m && <Lienzo formas={m.formas} seleccion={m.seleccion} herramienta={herramienta} lupa={lupa}
-                                    alSeleccionar={m.setSeleccion} alCambiar={m.alCambiar} alCrear={m.alCrear} alCancelar={() => m.setHerramienta(null)} alBorrar={m.alBorrar} />}
-                            </Escenario>
-                        </div>
-                        {/* Acoplado a la derecha de la escena: la pila de últimas capturas. */}
-                        {m?.lateral}
-                    </div>
-                    {activo === "imagen" && <ControlesLente deviceId={device.id} className="z-20" />}
+            {/* ── La pila de últimas capturas, flotando junto al panel ── */}
+            {m?.lateral && (
+                <div className={cn("absolute bottom-24 top-[72px] z-20 rounded-[14px] p-2.5 transition-[right] duration-300", vidrio)} style={{ right: verPanel ? 396 : 12 }}>
+                    {m.lateral}
+                </div>
+            )}
 
-                    {/* Las herramientas, flotando abajo de la escena. */}
-                    {m && m.dock.length > 0 && (
-                        <div className="absolute bottom-5 left-1/2 z-30 -translate-x-1/2">
-                            <div className="flex items-center gap-1 rounded-[16px] border border-foreground/10 bg-popover/90 p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.55)] backdrop-blur-xl">
-                                <BotonDock activo={!m.herramienta} onClick={() => m.setHerramienta(null)} icono={MousePointer2} label="Elegir" atajo="V" color="var(--foreground)" ayuda="Elegir y ajustar lo dibujado: arrastrá vértices o la figura entera." />
-                                <span className="mx-1 h-8 w-px bg-foreground/10" />
-                                {m.dock.map((d, i) => (
-                                    <BotonDock key={d.key} activo={m.herramienta === d.key} deshabilitado={d.deshabilitado || undefined} onClick={() => { if (d.accion) d.accion(); else { m.setSeleccion(null); m.setHerramienta(m.herramienta === d.key ? null : d.key); } }}
-                                        icono={d.icono} label={d.label} atajo={String(i + 1)} color={d.color} ayuda={d.ayuda} separado={!!d.accion && !m.dock[i - 1]?.accion} />
-                                ))}
-                            </div>
+            {/* ── El panel del módulo, flotando ── */}
+            <AnimatePresence initial={false}>
+                {verPanel && (
+                    <motion.aside key="panel" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 24 }} transition={{ duration: 0.2 }}
+                        className={cn("absolute bottom-3 right-3 top-[72px] z-30 flex w-[372px] flex-col overflow-hidden rounded-[14px]", vidrio)}>
+                        <div className="min-h-0 flex-1 overflow-y-auto">
+                            {!eq || !disp ? <div className="flex items-center gap-2 p-5 text-[12.5px] text-foreground/60"><Loader2 size={14} className="animate-spin" /> Leyendo el equipo…</div>
+                                : !m ? <div className="p-5 text-[12.5px] text-foreground/60">Esta cámara no tiene nada para calibrar desde acá.</div>
+                                    : <AnimatePresence mode="wait"><motion.div key={activo} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} transition={{ duration: 0.16 }}>{m.panel}</motion.div></AnimatePresence>}
                         </div>
-                    )}
-
-                    <AnimatePresence>
-                        {atajos && (
-                            <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="absolute right-5 top-5 z-40 w-[290px] rounded-[14px] border border-foreground/10 bg-popover/95 p-4 text-[12px] shadow-2xl backdrop-blur-xl">
-                                <p className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-foreground/50">Atajos</p>
-                                {[["1 – 9", "Elegir herramienta"], ["V", "Volver a elegir"], ["Enter / doble clic", "Cerrar la figura"], ["Backspace", "Sacar el último punto"], ["Supr", "Borrar lo elegido"], ["Doble clic en un vértice", "Sacarlo"], ["«+» en un lado", "Agregar un vértice"], ["F", "Foto / vivo"], ["Esc", "Cancelar · cerrar"]].map(([a, b]) => (
-                                    <div key={a} className="flex items-center justify-between gap-3 py-1"><span className="text-foreground/70">{b}</span><kbd className="rounded-md bg-foreground/10 px-1.5 py-0.5 text-[10.5px] font-semibold text-foreground/85">{a}</kbd></div>
-                                ))}
-                            </motion.div>
+                        {m?.guardar && (
+                            <footer className="flex shrink-0 items-center gap-2 border-t border-foreground/[0.08] px-4 py-3">
+                                <span className={cn("flex-1 whitespace-nowrap text-[11.5px]", m.sucio ? "text-amber-600 dark:text-amber-300" : "text-foreground/45")}>{m.guardando ? "Aplicando…" : m.sucio ? "Sin guardar" : "Guardado"}</span>
+                                <button type="button" onClick={m.revertir} disabled={!m.sucio || m.guardando} className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-3 text-[12.5px] font-semibold text-foreground/75 hover:bg-foreground/[0.07] disabled:opacity-35"><RotateCcw size={14} /> Revertir</button>
+                                <button type="button" onClick={() => m.guardar?.()} disabled={!m.sucio || m.guardando} className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-[6px] bg-[var(--accion)] px-4 text-[12.5px] font-bold text-white hover:brightness-110 disabled:opacity-35">
+                                    {m.guardando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {m.rotuloGuardar || "Guardar"}
+                                </button>
+                            </footer>
                         )}
-                    </AnimatePresence>
-                </main>
+                    </motion.aside>
+                )}
+            </AnimatePresence>
+            {/* Plegado con cambios sin guardar: que no se olvide. */}
+            {!verPanel && m?.sucio && (
+                <button type="button" onClick={() => setVerPanel(true)} className={cn("absolute right-3 top-[72px] z-30 inline-flex h-10 items-center gap-2 rounded-full px-3.5 text-[12px] font-semibold text-amber-600 dark:text-amber-300", vidrio)}>
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Sin guardar · abrir el panel
+                </button>
+            )}
 
-                {/* ── El panel del módulo ── */}
-                <aside className="flex w-[380px] shrink-0 flex-col border-l border-foreground/[0.07] bg-card">
-                    <div className="min-h-0 flex-1 overflow-y-auto">
-                        {!eq || !disp ? <div className="flex items-center gap-2 p-5 text-[12.5px] text-foreground/60"><Loader2 size={14} className="animate-spin" /> Leyendo el equipo…</div>
-                            : !m ? <div className="p-5 text-[12.5px] text-foreground/60">Esta cámara no tiene nada para calibrar desde acá.</div>
-                                : <AnimatePresence mode="wait"><motion.div key={activo} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} transition={{ duration: 0.16 }}>{m.panel}</motion.div></AnimatePresence>}
+            {/* ── Las herramientas, flotando abajo ── */}
+            {m && m.dock.length > 0 && (
+                <div className="absolute bottom-4 left-1/2 z-30 -translate-x-1/2">
+                    <div className={cn("flex items-center gap-1 rounded-[16px] p-1.5", vidrio)}>
+                        <BotonDock activo={!m.herramienta} onClick={() => m.setHerramienta(null)} icono={MousePointer2} label="Elegir" atajo="V" color="var(--foreground)" ayuda="Elegir y ajustar lo dibujado: arrastrá vértices o la figura entera." />
+                        <span className="mx-1 h-8 w-px bg-foreground/10" />
+                        {m.dock.map((d, i) => (
+                            <BotonDock key={d.key} activo={m.herramienta === d.key} deshabilitado={d.deshabilitado || undefined} onClick={() => { if (d.accion) d.accion(); else { m.setSeleccion(null); m.setHerramienta(m.herramienta === d.key ? null : d.key); } }}
+                                icono={d.icono} label={d.label} atajo={String(i + 1)} color={d.color} ayuda={d.ayuda} separado={!!d.accion && !m.dock[i - 1]?.accion} />
+                        ))}
                     </div>
-                    {m?.guardar && (
-                        <footer className="flex shrink-0 items-center gap-2 border-t border-foreground/[0.07] px-4 py-3">
-                            <span className={cn("flex-1 whitespace-nowrap text-[11.5px]", m.sucio ? "text-amber-600 dark:text-amber-300" : "text-foreground/40")}>{m.guardando ? "Aplicando…" : m.sucio ? "Sin guardar" : "Guardado"}</span>
-                            <button type="button" onClick={m.revertir} disabled={!m.sucio || m.guardando} className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-3 text-[12.5px] font-semibold text-foreground/75 hover:bg-foreground/[0.07] disabled:opacity-35"><RotateCcw size={14} /> Revertir</button>
-                            <button type="button" onClick={() => m.guardar?.()} disabled={!m.sucio || m.guardando} className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-[6px] bg-[var(--accion)] px-4 text-[12.5px] font-bold text-foreground hover:brightness-110 disabled:opacity-35">
-                                {m.guardando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {m.rotuloGuardar || "Guardar"}
-                            </button>
-                        </footer>
-                    )}
-                </aside>
-            </div>
+                </div>
+            )}
+
+            <AnimatePresence>
+                {atajos && (
+                    <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className={cn("absolute top-[72px] z-40 w-[290px] rounded-[14px] p-4 text-[12px]", vidrio)} style={{ right: verPanel ? 396 : 12 }}>
+                        <p className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-foreground/50">Atajos</p>
+                        {[["1 – 9", "Elegir herramienta"], ["V", "Volver a elegir"], ["Enter / doble clic", "Cerrar la figura"], ["Backspace", "Sacar el último punto"], ["Supr", "Borrar lo elegido"], ["Doble clic en un vértice", "Sacarlo"], ["«+» en un lado", "Agregar un vértice"], ["F", "Foto / vivo"], ["P", "Plegar / mostrar el panel"], ["Esc", "Cancelar · cerrar"]].map(([a, b]) => (
+                            <div key={a} className="flex items-center justify-between gap-3 py-1"><span className="text-foreground/70">{b}</span><kbd className="rounded-md bg-foreground/10 px-1.5 py-0.5 text-[10.5px] font-semibold text-foreground/85">{a}</kbd></div>
+                        ))}
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* Salir con cambios sin guardar. */}
             <AnimatePresence>
@@ -213,7 +238,7 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
                             <p className="mt-1 text-[12.5px] text-foreground/60">En {(Object.keys(mods) as ModuloId[]).filter((k) => mods[k].sucio).map((k) => MODULOS.find((x) => x.id === k)!.t).join(" y ")}. Si salís, se pierden.</p>
                             <div className="mt-4 flex justify-end gap-2">
                                 <button type="button" onClick={() => setSalir(false)} className="h-9 rounded-[6px] px-3 text-[12.5px] font-semibold text-foreground/80 hover:bg-foreground/[0.07]">Seguir calibrando</button>
-                                <button type="button" onClick={onClose} className="h-9 rounded-[6px] bg-red-500/90 px-3 text-[12.5px] font-bold text-foreground hover:bg-red-500">Salir sin guardar</button>
+                                <button type="button" onClick={onClose} className="h-9 rounded-[6px] bg-red-500/90 px-3 text-[12.5px] font-bold text-white hover:bg-red-500">Salir sin guardar</button>
                             </div>
                         </motion.div>
                     </motion.div>

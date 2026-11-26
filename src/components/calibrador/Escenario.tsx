@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { montarVivo } from "@/lib/vivo";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
+import { cn } from "@/lib/utils";
 
 /**
  * La escena del calibrador: la foto de la cámara (por defecto) o su video en vivo, con una capa
@@ -19,11 +20,13 @@ import { Girando as Loader2 } from "@/components/brand/CargaOmni";
  */
 export type Fondo = "imagen" | "vivo";
 
-export function Escenario({ deviceId, fondo, nonce, children, alCargarFoto }: {
+export function Escenario({ deviceId, fondo, nonce, children, alCargarFoto, aSangre }: {
     deviceId: string; fondo: Fondo; nonce: number;
     children?: React.ReactNode;
     /** La URL de la foto que se está mostrando (la lupa del lienzo la usa). */
     alCargarFoto?: (url: string | null) => void;
+    /** Ocupa la pantalla entera, sin bordes redondeados (el calibrador a sangre). */
+    aSangre?: boolean;
 }) {
     const hueco = useRef<HTMLDivElement>(null);
     const video = useRef<HTMLVideoElement>(null);
@@ -67,13 +70,13 @@ export function Escenario({ deviceId, fondo, nonce, children, alCargarFoto }: {
                     <img key={foto} src={foto} alt="" draggable={false}
                         onLoad={(e) => { const i = e.currentTarget; if (i.naturalWidth && i.naturalHeight) setRelacion(i.naturalWidth / i.naturalHeight); setEstado("listo"); }}
                         onError={() => setEstado("error")}
-                        className="absolute inset-0 h-full w-full select-none rounded-[10px] bg-neutral-900 object-fill" />
+                        className={cn("absolute inset-0 h-full w-full select-none bg-neutral-900 object-fill", !aSangre && "rounded-[10px]")} />
                 ) : (
-                    <video ref={video} muted playsInline autoPlay className="absolute inset-0 h-full w-full rounded-[10px] bg-neutral-900 object-fill" />
+                    <video ref={video} muted playsInline autoPlay className={cn("absolute inset-0 h-full w-full bg-neutral-900 object-fill", !aSangre && "rounded-[10px]")} />
                 )}
                 {children}
                 {estado !== "listo" && (
-                    <div className="pointer-events-none absolute inset-0 grid place-items-center rounded-[10px] bg-black/40">
+                    <div className={cn("pointer-events-none absolute inset-0 grid place-items-center bg-black/40", !aSangre && "rounded-[10px]")}>
                         <span className="flex items-center gap-2 text-[12.5px] font-semibold text-white/80">
                             {estado === "cargando" ? <><Loader2 size={15} className="animate-spin" /> {fondo === "vivo" ? "Conectando el vivo…" : "Trayendo la foto de la cámara…"}</> : fondo === "vivo" ? "No llega video de esta cámara." : "La cámara no devolvió una foto."}
                         </span>
