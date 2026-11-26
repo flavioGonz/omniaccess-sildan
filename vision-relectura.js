@@ -26,6 +26,7 @@
 
 const sharp = require("sharp");
 const { normalizarChapa } = require("./lib-chapa");
+const { estaEnListaNegra } = require("./lib-lista-negra");
 const http = require("http");
 
 /**
@@ -180,6 +181,8 @@ async function leerRecorte(jpeg) {
 }
 
 /** La cámara leyó una chapa: esta relectura es la doble verificación, no la de una NO_LEIDA. */
+/** Desde qué confianza una lectura alternativa de OmniVision se compara con el padrón (la mejor siempre). */
+const ALTERNATIVA_MIN = 0.6;
 const esDoble = (ev) => !!ev.chapa && !NO_LEIDAS.includes(ev.chapa);
 
 function iniciar({ prisma, subir, ajuste, log, vision, activa, permitidas = () => null }) {
@@ -262,6 +265,47 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa, permitidas = () =
         } catch { return null; }
     }
 
+    /**
+     * OmniVision como apoyo del ANPR (26/11, Nico): «el ANPR de la cámara no detecta pero OmniVision
+     * sí, y encuentra al residente: con esa condición no debe dudar, debe darla como válida y
+     * computarla ok». Antes la relectura de una NO_LEIDA era sólo una sugerencia y el evento quedaba
+     * DENEGADO hasta que el guardia cargaba la matrícula a mano.
+     *
+     * Lo que saca la duda es la coincidencia EXACTA con el padrón: que un OCR que se equivocó lea
+     * justo la chapa de otro residente es casi imposible, así que vale aunque la confianza sea
+     * «dudosa». Se prueba la mejor lectura y, si no es del padrón, las alternativas con buena
+     * confianza (el OCR a veces pone primero la que confunde un 8 con una B).
+     *
+     * La regla de acceso es la de «Cargar matrícula» (setEventPlate): credencial del padrón, modo
+     * lista blanca, y la lista negra manda. Sólo se reescribe el REGISTRO: la barrera no se abre
+     * desde acá (el auto ya pasó o se fue; abrir por OmniVision es lprAbre, otra decisión).
+     */
+    async function validarPorPadron(id, mejor, otras) {
+        const candidatas = [mejor, ...(otras || []).filter((o) => (o.confianza || 0) >= ALTERNATIVA_MIN)].filter(Boolean).map((o) => String(o.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "")).filter(Boolean);
+        for (const plate of [...new Set(candidatas)]) {
+            const cred = await prisma.credential.findFirst({ where: { type: "PLATE", value: plate }, include: { user: { select: { id: true, name: true, role: true, vip: true, unit: { select: { id: true, name: true } } } } } });
+            if (!cred || !cred.user) continue;
+            const modo = (await prisma.setting.findUnique({ where: { key: "MODE_LPR" } }).catch(() => null))?.value || "WHITELIST";
+            const negra = await estaEnListaNegra(prisma, plate);
+            if (modo === "BLACKLIST" || negra.negra) {
+                log(`relectura: ${plate} es del padrón pero ${negra.negra ? "está en lista negra" : "el modo es lista negra"}: no se valida`);
+                return null;
+            }
+            const prev = await prisma.accessEvent.findUnique({ where: { id }, select: { details: true } });
+            const nota = `Leída por OmniVision (la cámara no leyó): ${plate}, matrícula de ${cred.user.name}. Computada como válida.`;
+            // Sólo si sigue sin lectura: si el guardia ya la cargó a mano, manda lo suyo.
+            const r = await prisma.accessEvent.updateMany({
+                where: { id, plateDetected: { in: NO_LEIDAS } },
+                data: { plateDetected: plate, plateNumber: plate, userId: cred.userId, credentialId: cred.id, decision: "GRANT", details: `${prev?.details ? prev.details + " | " : ""}${nota}`.slice(0, 900) },
+            });
+            if (!r.count) return null;
+            emitir("lectura_validada", { accessEventId: id, plate, decision: "GRANT", user: { id: cred.user.id, name: cred.user.name, role: cred.user.role, vip: cred.user.vip, unit: cred.user.unit }, details: nota });
+            contadores.validadas = (contadores.validadas || 0) + 1;
+            return plate;
+        }
+        return null;
+    }
+
     async function relectura(ev) {
         const t0 = Date.now();
         const f = await foto(ev.foto);
@@ -333,6 +377,9 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa, permitidas = () =
             candidatos: { otras: unicas, acuerdo: mejor?.acuerdo ?? null, fina: mejor?.fina || null, caja: mejor ? cajaChapa : null },
             vehiculo, vehiculos: vehiculos.length, recorte, recorteChapa, ms: Date.now() - t0,
         }, ev.rid, esDoble(ev));
+        if (!esDoble(ev) && mejor && (estado === "LEIDA" || estado === "DUDOSA")) {
+            try { await validarPorPadron(ev.id, mejor, unicas); } catch (e) { log("relectura: no se pudo validar por padrón:", e.message); }
+        }
         contadores.hechas++; contadores.msUltima = Date.now() - t0;
         if (estado === "LEIDA") contadores.leidas++; else if (estado === "DUDOSA") contadores.dudosas++;
         else if (estado === "SIN_CHAPA") contadores.sinChapa++; else contadores.sinVehiculo++;

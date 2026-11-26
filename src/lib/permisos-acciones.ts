@@ -190,6 +190,7 @@ export const ACCIONES: Record<string, Archivo> = {
             verifyGuardCredential: S, guardiaVigente: S,
         },
     },
+    "matriculas-parecidas": { defecto: P("lpr", "historial", "vehiculos") },
     vehicles: { defecto: P("vehiculos.editar") },
     visitas: { defecto: P("visitas", "guardia"), por: { guardarAjustesVisitas: P("ajustes") } },
     watchlist: {

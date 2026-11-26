@@ -7,6 +7,9 @@ import { useEffect, useState, useMemo, useRef, memo, useCallback, createContext,
 import { io, Socket } from "socket.io-client";
 import { useRouter } from "next/navigation";
 import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDevice, relecturasDeEventos } from "@/app/actions/history";
+import { buscarParecidas, sugerenciasParecidas, type DelPadron, type Vista } from "@/app/actions/matriculas-parecidas";
+import type { Parecida } from "@/lib/chapas-parecidas";
+import { ChapaMarcada, SugerenciaParecida } from "@/components/monitor/SugerenciaParecida";
 import { chapaDe, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
 import type { RelecturaEvento } from "@/lib/relectura";
 import { getDevices, getAvailableStreams, getEquiposApagados } from "@/app/actions/devices";
@@ -131,6 +134,11 @@ const ComportamientoCtx = createContext<Comportamiento>(normalizarComportamiento
  * deja acá, y cada tarjeta la toma con `relecturaDe`.
  */
 const RelecturasCtx = createContext<Record<string, RelecturaEvento>>({});
+/**
+ * Las chapas del padrón parecidas a las lecturas que no son de nadie (26/11): «¿Es SDH6448?». Se
+ * piden de una para toda la lista (no una acción por tarjeta) y la tarjeta toma la suya.
+ */
+const ParecidasCtx = createContext<{ mapa: Record<string, Parecida<DelPadron>>; alCorregir: (eventId: string, plate: string, decision: string, sug: Parecida<DelPadron>) => void }>({ mapa: {}, alCorregir: () => { } });
 function useRelectura(ev: any): RelecturaEvento | null {
     const m = useContext(RelecturasCtx);
     return ev?.relectura || (ev?.id ? m[ev.id] : null) || null;
@@ -280,14 +288,17 @@ function PlateCommandBar() {
     const router = useRouter();
     const [q, setQ] = useState("");
     const [results, setResults] = useState<any[]>([]);
+    const [parecidas, setParecidas] = useState<{ padron: Parecida<DelPadron>[]; vistas: Parecida<Vista>[] }>({ padron: [], vistas: [] });
     const [open, setOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const boxRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
-        if (!q.trim()) { setResults([]); return; }
+        if (!q.trim()) { setResults([]); setParecidas({ padron: [], vistas: [] }); return; }
         setLoading(true);
         const t = setTimeout(async () => {
             try { const r: any = await getAccessEvents({ search: q.trim(), take: 6, type: "PLATE" }); setResults(r?.events || []); } catch { setResults([]); }
+            // Las parecidas (26/11): un carácter mal leído no tiene que esconder al auto.
+            try { setParecidas(await buscarParecidas(q.trim())); } catch { setParecidas({ padron: [], vistas: [] }); }
             setLoading(false);
         }, 300);
         return () => clearTimeout(t);
@@ -311,7 +322,7 @@ function PlateCommandBar() {
             {open && (q.trim() || results.length > 0) && (
                 <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-popover shadow-xl overflow-hidden max-h-80 overflow-y-auto">
                     {loading && <div className="px-3 py-2 text-xs text-muted-foreground">Buscando…</div>}
-                    {!loading && results.length === 0 && q.trim() && <div className="px-3 py-2 text-xs text-muted-foreground">Sin resultados</div>}
+                    {!loading && results.length === 0 && !parecidas.padron.length && !parecidas.vistas.length && q.trim() && <div className="px-3 py-2 text-xs text-muted-foreground">Sin resultados</div>}
                     {results.map((r) => (
                         <button key={r.id} type="button" onClick={() => go(`/admin/history?search=${encodeURIComponent(r.plateDetected || q.trim())}`)} className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-accent transition-colors">
                             <span className="font-mono font-bold text-sm">{r.plateDetected || "S/L"}</span>
@@ -319,6 +330,28 @@ function PlateCommandBar() {
                             <span className={cn("ml-auto text-[10px] font-bold", r.decision === "GRANT" ? "text-emerald-400" : "text-red-400")}>{r.decision === "GRANT" ? "OK" : "DENY"}</span>
                         </button>
                     ))}
+                    {parecidas.padron.length > 0 && (
+                        <div className="border-t border-border">
+                            <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Parecidas en el padrón</p>
+                            {parecidas.padron.map((p) => (
+                                <button key={p.plate} type="button" onClick={() => go(`/admin/history?search=${encodeURIComponent(p.plate)}`)} className="w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-accent transition-colors" title={`Diferencia ${p.costo}: lo amarillo es lo que cambia`}>
+                                    <ChapaMarcada plate={p.plate} distintas={p.distintas} className="text-sm" />
+                                    <span className="text-[11px] text-blue-400 truncate">{[p.nombre, p.unidad].filter(Boolean).join(" · ")}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    {parecidas.vistas.length > 0 && (
+                        <div className="border-t border-border">
+                            <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Parecidas que se leyeron (30 días)</p>
+                            {parecidas.vistas.map((p) => (
+                                <button key={p.plate} type="button" onClick={() => go(`/admin/history?search=${encodeURIComponent(p.plate)}`)} className="w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-accent transition-colors">
+                                    <ChapaMarcada plate={p.plate} distintas={p.distintas} className="text-sm" />
+                                    <span className="text-[11px] text-muted-foreground">{p.veces} {p.veces === 1 ? "lectura" : "lecturas"}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     <button type="button" onClick={() => go(`/admin/history?search=${encodeURIComponent(q.trim())}`)} className="w-full text-left px-3 py-2 text-[11px] font-bold text-blue-400 hover:bg-accent border-t border-border">Ver todo en Historial →</button>
                 </div>
             )}
@@ -567,6 +600,8 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     const watchStyle = watchMeta ? { ring: watchMeta.ring, badge: watchMeta.badge, label: watchMeta.label.toUpperCase() } : null;
     const comp = useContext(ComportamientoCtx);
     const tipo = tipoDeteccion(event, watch, comp);
+    const parecidasCtx = useContext(ParecidasCtx);
+    const sugParecida = !isAnomalous && event.decision !== "GRANT" && !event.user?.id && !watch && _wp ? parecidasCtx.mapa[_wp.replace(/[^A-Z0-9]/g, "")] : undefined;
     const [nvrCh, setNvrCh] = useState<number | null>(null);
     const [showVid, setShowVid] = useState(false);
     const [corregirOmni, setCorregirOmni] = useState<string | null>(null);
@@ -615,6 +650,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                         {watch?.motivo && <p className={cn("text-[11px] font-semibold mt-1 truncate", watchMeta?.text)} title={watch.motivo}>{watch.motivo}</p>}
                         {watch?.contexto?.frase && <p className="text-[11px] mt-0.5 truncate text-muted-foreground" title={watch.contexto.frase}>{watch.contexto.frase}</p>}
                         {isAnomalous && relCard?.plate && <div className="mt-1"><SugerenciaRelectura r={relCard} soloContexto /></div>}
+                        {sugParecida && event.id && <SugerenciaParecida eventId={event.id} sug={sugParecida} alCorregir={(r) => parecidasCtx.alCorregir(event.id, r.plate, r.decision, sugParecida)} />}
                         <div className="flex items-center gap-2 mt-1">
                             {(marcaEv || meta.Tipo) && <span className="text-[10px] text-muted-foreground font-semibold">{[marcaEv?.marca, marcaEv ? (datoDeCamara(meta.Modelo) || meta.Tipo) : meta.Tipo].filter(Boolean).join(" · ")}</span>}
                             {event.user?.name && (<span className="text-[10px] text-blue-400 truncate">{event.user.name}</span>)}
@@ -992,6 +1028,24 @@ export default function MonitorLPR() {
             });
         });
 
+        // OmniVision leyó una NO_LEIDA y la chapa es de alguien del padrón (26/11, vision-relectura):
+        // el evento pasa a válido. Se actualiza en su lugar —la chapa, la persona y la decisión—, sin
+        // volver a contarlo: ya estaba en el total, sólo cambia de denegado a permitido.
+        newSocket.on("lectura_validada", (d: { accessEventId?: string; plate?: string; decision?: string; user?: FullAccessEvent["user"]; details?: string }) => {
+            const id = d?.accessEventId; if (!id || !d.plate) return;
+            const aplicar = (e: FullAccessEvent): FullAccessEvent => (e.id === id ? { ...e, plateDetected: d.plate!, decision: "GRANT", user: d.user ?? e.user, details: d.details ?? e.details } as FullAccessEvent : e);
+            pendingRef.current = pendingRef.current.map(aplicar);
+            setEvents((prev) => {
+                const ev = prev.find((e) => e.id === id); if (!ev) return prev;
+                if (ev.decision !== "GRANT") {
+                    setStats((s) => ({ ...s, grants: s.grants + 1, denies: Math.max(0, s.denies - (ev.decision === "DENY" ? 1 : 0)) }));
+                    if (ev.direction === "ENTRY" || ev.direction === "EXIT") setAforo((a) => ev.direction === "ENTRY" ? { ...a, entradas: a.entradas + 1, inside: a.inside + 1 } : { ...a, salidas: a.salidas + 1, inside: Math.max(0, a.inside - 1) });
+                }
+                return prev.map(aplicar);
+            });
+            setLastCapByDev((m) => { const n = { ...m }; for (const k of Object.keys(n)) if (n[k]?.id === id) n[k] = aplicar(n[k]); return n; });
+        });
+
         setSocket(newSocket);
         return () => {
             clearInterval(watchdog);
@@ -1092,7 +1146,32 @@ export default function MonitorLPR() {
     }, [events]);
     const openRegister = useCallback((plate?: string) => { if (!plate) return; setRegisterInit({ plate: String(plate).toUpperCase() }); setRegisterOpen(true); }, []);
 
+    /* Las parecidas del padrón para las lecturas que no son de nadie (26/11). Se pide sólo por las
+       chapas nuevas, todas juntas, y se recuerda lo pedido: la lista se re-renderiza cuatro veces por
+       segundo con el socket y no puede convertirse en cuatro consultas por segundo. */
+    const [parecidas, setParecidas] = useState<Record<string, Parecida<DelPadron>>>({});
+    const pedidasRef = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        const nuevas = [...new Set(events.filter((e) => e.decision !== "GRANT" && !e.user?.id && e.plateDetected && !esSinLeer(e.plateDetected))
+            .map((e) => String(e.plateDetected).toUpperCase().replace(/[^A-Z0-9]/g, "")))].filter((p) => p.length >= 5 && !pedidasRef.current.has(p));
+        if (!nuevas.length) return;
+        for (const p of nuevas) pedidasRef.current.add(p);
+        sugerenciasParecidas(nuevas).then((m) => { if (Object.keys(m).length) setParecidas((x) => ({ ...x, ...m })); }).catch(() => { });
+    }, [events]);
+    const alCorregirParecida = useCallback((eventId: string, plate: string, decision: string, sug: Parecida<DelPadron>) => {
+        const usuario = { id: sug.userId, name: sug.nombre, role: sug.rol, vip: sug.vip, unit: sug.unidad ? { name: sug.unidad } : null } as unknown as FullAccessEvent["user"];
+        const aplicar = <T extends { id?: string; user?: unknown }>(e: T): T => (e.id === eventId ? { ...e, plateDetected: plate, decision, user: decision === "GRANT" ? usuario : e.user } : e);
+        setEvents((prev) => {
+            const ev = prev.find((e) => e.id === eventId);
+            if (ev && ev.decision !== "GRANT" && decision === "GRANT") setStats((s) => ({ ...s, grants: s.grants + 1, denies: Math.max(0, s.denies - 1) }));
+            return prev.map(aplicar) as FullAccessEvent[];
+        });
+        setLastCapByDev((m) => { const n = { ...m }; for (const k of Object.keys(n)) if (n[k]?.id === eventId) n[k] = aplicar(n[k]); return n; });
+    }, []);
+    const ctxParecidas = useMemo(() => ({ mapa: parecidas, alCorregir: alCorregirParecida }), [parecidas, alCorregirParecida]);
+
     return (
+        <ParecidasCtx.Provider value={ctxParecidas}>
         <ComportamientoCtx.Provider value={comportamiento}>
         <RelecturasCtx.Provider value={relecturas}>
         <TooltipProvider>
@@ -1215,5 +1294,6 @@ export default function MonitorLPR() {
         </TooltipProvider>
         </RelecturasCtx.Provider>
         </ComportamientoCtx.Provider>
+        </ParecidasCtx.Provider>
     );
 }
