@@ -185,6 +185,9 @@ export function armarMenu(c: ContextoMenu): SeccionMenu[] {
         ...grupo("unidades", "Unidades", "unidades", [
             ...hoja(true, { id: "unidades-lotes", rotulo: "Lotes", href: "/admin/units" }),
             ...hoja(true, { id: "unidades-adm", rotulo: "Administraciones", href: "/admin/administraciones" }),
+            /* El censo también acá (26/11, Nico: «repetido no importa»): se carga por lote, y quien
+               trabaja en Unidades lo busca ahí. Es la misma pantalla que en Personas. */
+            ...hoja(f.censo, { id: "unidades-censo", rotulo: "Censo", href: "/admin/censo", insignia: insignia(c.cuentas.censo, "aviso") }),
         ]),
         ...sola(true, { id: "tags", rotulo: "Tags RFID", icono: "tags", href: "/admin/rfid" }),
         ...sola(true, { id: "grupos", rotulo: "Grupos de acceso", icono: "grupos", href: "/admin/groups" }),

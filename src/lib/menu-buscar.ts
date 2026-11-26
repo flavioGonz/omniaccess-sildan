@@ -51,6 +51,7 @@ export const TAMBIEN_SE_DICE: Record<string, string> = {
     "guardia-puestos": "garitas porterías",
     "personas-residentes": "usuarios vecinos propietarios habitantes padrón",
     "personas-censo": "relevamiento actualización de datos",
+    "unidades-censo": "relevamiento actualización de datos lotes",
     "unidades-lotes": "casas padrones viviendas terrenos",
     "unidades-adm": "administradoras administración",
     "tags": "tarjetas llaveros rfid",
