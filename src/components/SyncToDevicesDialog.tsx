@@ -12,7 +12,7 @@ import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { sileo as toast } from "sileo";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import {
-    getSyncPlan, acquireSyncLock, releaseSyncLock, touchSyncLock, syncDeviceIncremental, syncDeviceFull,
+    getSyncPlan, acquireSyncLock, releaseSyncLock, touchSyncLock, prepararCamara, aplicarTanda,
     buscarUsuarioEnCamaras, sincronizarUsuario,
 } from "@/app/actions/lpr-sync";
 import { cn } from "@/lib/utils";
@@ -26,7 +26,9 @@ import { cn } from "@/lib/utils";
  */
 type Step = "analyzing" | "plan" | "running" | "done" | "blocked";
 type Mode = "incremental" | "full";
-type Prog = { status: "pending" | "running" | "done" | "error"; added?: number; removed?: number; addFail?: number; remFail?: number; error?: string };
+type Prog = { status: "pending" | "preparing" | "running" | "done" | "error"; added?: number; removed?: number; addFail?: number; remFail?: number; error?: string; total?: number; hechas?: number };
+/* El porcentaje de una cámara: lo que la cámara ya contestó sobre lo que había que hacer. Una sin nada que hacer está al 100. */
+const pctDe = (p: Prog) => p.status === "done" || p.status === "error" ? 100 : p.total ? Math.round(((p.hechas || 0) / p.total) * 100) : 0;
 /* Se sincronizan las que contestan y este servidor puede escribir. Una de sólo lectura (OMNI_EQUIPOS_SOLO_LECTURA)
    se muestra, con su lista, pero no se intenta: antes fallaban todas las altas y el cajón terminaba en verde (26/11). */
 type Camara = { online: boolean; soloLectura?: boolean };
@@ -67,11 +69,36 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
         const devices = (plan?.devices || []).filter(sincronizable);
         setProg(Object.fromEntries(devices.map((d: any) => [d.id, { status: "pending" }])));
         try {
+            /* Por tandas (26/11): preparar la cámara y mandarle lo que falta de a poco. Una llamada larga
+               la cortaba el proxy a los 60 s y el cajón no seguía con la siguiente cámara. Si una cámara
+               falla se anota y se sigue con la otra: una cámara caída no deja a las demás sin lista. */
             for (const d of devices) {
-                setProg((p) => ({ ...p, [d.id]: { status: "running" } }));
-                await touchSyncLock().catch(() => { });
-                const r = mode === "full" ? await syncDeviceFull(d.id) : await syncDeviceIncremental(d.id);
-                setProg((p) => ({ ...p, [d.id]: r.ok ? { status: "done", added: r.added, removed: r.removed, addFail: r.addFail, remFail: r.remFail, error: (r as any).error } : { status: "error", error: (r as any).error } }));
+                setProg((p) => ({ ...p, [d.id]: { status: "preparing" } }));
+                try {
+                    await touchSyncLock().catch(() => { });
+                    const plan = await prepararCamara(d.id, mode);
+                    if (!plan.ok) { setProg((p) => ({ ...p, [d.id]: { status: "error", error: plan.error } })); continue; }
+                    let agregar = plan.agregar, quitar = plan.quitar;
+                    const total = agregar.length + quitar.length;
+                    const acc = { added: 0, removed: 0, addFail: 0, remFail: 0, error: undefined as string | undefined, hechas: 0 };
+                    setProg((p) => ({ ...p, [d.id]: { status: "running", total, hechas: 0 } }));
+                    while (agregar.length || quitar.length) {
+                        await touchSyncLock().catch(() => { });
+                        const r = await aplicarTanda(d.id, { agregar: agregar.slice(0, 60), quitar: agregar.length >= 60 ? [] : quitar.slice(0, 60) });
+                        if (!r.ok) { acc.error = r.error; break; }
+                        agregar = agregar.slice(r.hechasAgregar); quitar = quitar.slice(r.hechasQuitar);
+                        acc.added += r.added; acc.removed += r.removed; acc.addFail += r.addFail; acc.remFail += r.remFail; acc.error ??= r.error;
+                        acc.hechas += r.hechasAgregar + r.hechasQuitar;
+                        if (!r.hechasAgregar && !r.hechasQuitar) break; // no avanzó: no insistir en un bucle
+                        setProg((p) => ({ ...p, [d.id]: { status: "running", total, hechas: acc.hechas, added: acc.added, removed: acc.removed, addFail: acc.addFail, remFail: acc.remFail } }));
+                    }
+                    const quedo = agregar.length + quitar.length;
+                    setProg((p) => ({ ...p, [d.id]: quedo && !acc.hechas ? { status: "error", error: acc.error || "La cámara no aceptó cambios." }
+                        : { status: "done", total, hechas: acc.hechas, added: acc.added, removed: acc.removed, addFail: acc.addFail + (quedo ? agregar.length : 0), remFail: acc.remFail + (quedo ? quitar.length : 0), error: acc.error } }));
+                } catch (e) {
+                    // Un corte de red o un reinicio del servidor a mitad: se dice y se sigue con la próxima cámara.
+                    setProg((p) => ({ ...p, [d.id]: { ...p[d.id], status: "error", error: e instanceof Error && e.message ? `Se cortó la comunicación con el servidor (${e.message}).` : "Se cortó la comunicación con el servidor." } }));
+                }
             }
         } finally {
             runningRef.current = false;
@@ -88,7 +115,8 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
     const totAdd = online.reduce((a: number, d: any) => a + d.toAdd, 0);
     const totRemove = online.reduce((a: number, d: any) => a + d.toRemove, 0);
     const hechos = Object.values(prog).filter((p) => p.status === "done" || p.status === "error").length;
-    const pct = online.length ? Math.round((hechos / online.length) * 100) : 0;
+    // El total general promedia las cámaras por lo que cada una lleva, no por cuántas terminaron: con tres cámaras ya no salta de 0 a 33.
+    const pct = online.length ? Math.round(online.reduce((a: number, d: { id: string }) => a + pctDe(prog[d.id] || { status: "pending" }), 0) / online.length) : 0;
 
     const PASOS = [
         { k: "analizar", t: "Analizar", I: ListChecks, activo: step === "analyzing", hecho: step !== "analyzing" && step !== "blocked" },
@@ -245,7 +273,7 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
                                                     <motion.div key={d.id} layout className={cn("flex items-center gap-3 px-3 py-2.5 transition-colors", p.status === "running" && "bg-indigo-500/5")}>
                                                         <span className="shrink-0">
                                                             {p.status === "pending" && <span className="block w-5 h-5 rounded-full border-2 border-dashed border-muted-foreground/30" />}
-                                                            {p.status === "running" && <Loader2 size={18} className="animate-spin text-indigo-500" />}
+                                                            {(p.status === "running" || p.status === "preparing") && <Loader2 size={18} className="animate-spin text-indigo-500" />}
                                                             {p.status === "done" && (p.addFail || p.remFail ? <AlertTriangle size={18} className="tono-aviso" /> : <CheckCircle2 size={18} className="text-emerald-500" />)}
                                                             {p.status === "error" && <XCircle size={18} className="text-red-500" />}
                                                         </span>
@@ -261,7 +289,17 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
                                                                 </p>
                                                             )}
                                                             {p.status === "done" && p.error && (!!p.addFail || !!p.remFail) && <p className="text-[11px] leading-snug tono-aviso">{p.error}</p>}
-                                                            {p.status === "running" && <p className="text-[11px] text-indigo-500">aplicando cambios…</p>}
+                                                            {p.status === "preparing" && <p className="text-[11px] text-indigo-500">leyendo la cámara…</p>}
+                                                            {p.status === "running" && (
+                                                                <div className="mt-1">
+                                                                    <div className="flex items-center gap-2 text-[11px]">
+                                                                        <span className="text-indigo-500">{p.total ? `${(p.hechas || 0).toLocaleString("es-UY")} de ${p.total.toLocaleString("es-UY")}` : "nada que cambiar"}</span>
+                                                                        {!!p.addFail && <span className="text-amber-500">{p.addFail} fallidas</span>}
+                                                                        <span className="ml-auto font-bold tabular-nums text-indigo-500">{pctDe(p)}%</span>
+                                                                    </div>
+                                                                    <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden"><motion.div className="h-full bg-indigo-500" initial={false} animate={{ width: `${pctDe(p)}%` }} transition={{ duration: 0.35 }} /></div>
+                                                                </div>
+                                                            )}
                                                             {p.status === "pending" && <p className="text-[11px] text-muted-foreground/60">en cola</p>}
                                                         </div>
                                                     </motion.div>

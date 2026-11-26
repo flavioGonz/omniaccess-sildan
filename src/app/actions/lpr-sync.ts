@@ -149,6 +149,82 @@ export async function syncDeviceFull(deviceId: string) {
     return { ok: true, added, addFail, removed: before, remFail: 0, error, before, after: added };
 }
 
+/*
+ * La sincronización POR TANDAS (26/11). Nico: «no termina la primer cámara en la lista» y «debe ir
+ * mostrando el % de cada cámara». Era una sola llamada por cámara con las 371 altas adentro: tarda
+ * minutos, el proxy corta a los 60 s (504), el navegador da la cámara por caída y no sigue con la
+ * siguiente — mientras el servidor terminaba la primera igual, sin que nadie lo viera.
+ *
+ * Ahora: preparar (leer la cámara y calcular qué falta) y después tandas cortas, cada una con un
+ * tope de tiempo. El cajón manda tanda tras tanda y con cada respuesta sabe cuánto lleva. Ninguna
+ * llamada pasa de ~15 s, y el porcentaje es real: lo que la cámara ya aceptó.
+ */
+export type PlanCamara = { ok: boolean; error?: string; soloLectura?: boolean; agregar: string[]; quitar: string[]; antes: number };
+const TOPE_TANDA_MS = 15_000;
+const MAX_TANDA = 60;
+
+/** Lee la cámara y devuelve qué hay que agregar y qué quitar. En «reemplazo total» primero vacía su lista. */
+export async function prepararCamara(deviceId: string, modo: "incremental" | "full"): Promise<PlanCamara> {
+    const vacio = { agregar: [], quitar: [], antes: 0 };
+    const device = await prisma.device.findUnique({ where: { id: deviceId } });
+    if (!device || device.brand !== "HIKVISION") return { ok: false, error: "Dispositivo no compatible", ...vacio };
+    if (esSoloLectura(device.ip || "")) return { ok: false, soloLectura: true, error: motivoSoloLectura(device.ip), ...vacio };
+    const driver = new HikvisionDriver();
+    const deseadas = await matriculasParaCargar();
+    const byNorm = new Map<string, MatriculaParaCamara>();
+    for (const m of deseadas) if (!byNorm.has(m.plate)) byNorm.set(m.plate, m);
+    let cam: string[];
+    try { cam = await driver.getPlates(device); }
+    catch (e) { return { ok: false, error: "No se pudo leer la cámara: " + (e instanceof Error ? e.message : ""), ...vacio }; }
+    if (modo === "full") {
+        try { await driver.clearWhiteList(device); }
+        catch (e) { return { ok: false, error: "No se pudo vaciar la lista de la cámara: " + (e instanceof Error ? e.message : ""), ...vacio, antes: cam.length }; }
+        return { ok: true, agregar: [...byNorm.keys()], quitar: [], antes: cam.length };
+    }
+    const camSet = new Set<string>(), camOrig = new Map<string, string>();
+    for (const p of cam) { const n = norm(p); if (n) { camSet.add(n); if (!camOrig.has(n)) camOrig.set(n, p); } }
+    // Las negras se mandan siempre (ver syncDeviceIncremental): la lectura no dice en qué lista está cada una.
+    const agregar = [...byNorm.keys()].filter((p) => !camSet.has(p) || byNorm.get(p)?.lista === "blackList");
+    const quitar = [...camSet].filter((p) => !byNorm.has(p)).map((n) => camOrig.get(n) || n);
+    return { ok: true, agregar, quitar, antes: camSet.size };
+}
+
+export type ResultadoTanda = { ok: boolean; error?: string; hechasAgregar: number; hechasQuitar: number; added: number; addFail: number; removed: number; remFail: number };
+
+/**
+ * Aplica una tanda. Trabaja hasta TOPE_TANDA_MS y dice cuántas hizo de cada lista: el cajón manda
+ * el resto en la próxima. Lo que llega del navegador se vuelve a contrastar con la base: sólo se
+ * agrega lo que la base pide (con SU lista, blanca o negra) y sólo se quita lo que la base no tiene.
+ */
+export async function aplicarTanda(deviceId: string, t: { agregar: string[]; quitar: string[] }): Promise<ResultadoTanda> {
+    const nada = { hechasAgregar: 0, hechasQuitar: 0, added: 0, addFail: 0, removed: 0, remFail: 0 };
+    const device = await prisma.device.findUnique({ where: { id: deviceId } });
+    if (!device || device.brand !== "HIKVISION") return { ok: false, error: "Dispositivo no compatible", ...nada };
+    if (esSoloLectura(device.ip || "")) return { ok: false, error: motivoSoloLectura(device.ip), ...nada };
+    const driver = new HikvisionDriver();
+    const byNorm = new Map<string, MatriculaParaCamara>();
+    for (const m of await matriculasParaCargar()) if (!byNorm.has(m.plate)) byNorm.set(m.plate, m);
+    const agregar = (Array.isArray(t.agregar) ? t.agregar : []).slice(0, MAX_TANDA).map(String);
+    const quitar = (Array.isArray(t.quitar) ? t.quitar : []).slice(0, MAX_TANDA).map(String);
+    const r = { ok: true, ...nada } as ResultadoTanda;
+    const fallo = (e: unknown) => { const x = e as { response?: { status?: number }; message?: string } | null; r.error ??= x?.response?.status ? `la cámara respondió ${x.response.status}` : (x?.message || "sin respuesta"); };
+    const t0 = Date.now();
+    for (const p of agregar) {
+        if (Date.now() - t0 > TOPE_TANDA_MS) break;
+        r.hechasAgregar++;
+        const m = byNorm.get(norm(p));
+        if (!m) continue; // ya no está en la base: no se agrega, y no es una falla
+        try { await driver.addPlateToCamera(device, m.plate, m.lista); r.added++; } catch (e) { r.addFail++; fallo(e); }
+    }
+    for (const p of quitar) {
+        if (Date.now() - t0 > TOPE_TANDA_MS) break;
+        r.hechasQuitar++;
+        if (byNorm.has(norm(p))) continue; // volvió a la base mientras tanto: se deja
+        try { await driver.deleteCredential(p, device); r.removed++; } catch (e) { r.remFail++; fallo(e); }
+    }
+    return r;
+}
+
 /**
  * Buscar un usuario (nombre, matrícula o lote) y ver, cámara por cámara, si sus matrículas
  * están cargadas. Busca cada matrícula en la cámara (no baja la lista entera): es rápido.
