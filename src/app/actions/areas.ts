@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/app/actions/auth";
 import { APAGADO_SIN_AREA, CLAVE_APAGADOS, recalcularApagados } from "@/lib/apagado";
+import { podarEquipos } from "@/lib/areas-podar";
 
 /**
  * Áreas: un árbol para agrupar equipos (Portería › Garita P1, Perímetro › Norte, …).
@@ -31,14 +32,27 @@ const COLORES = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#0ea5e9", "#8b5cf6
 
 async function conSesion() { if (!(await getSession())) throw new Error("Hace falta una sesión del panel."); }
 
+/** Las asignaciones a equipos o áreas que ya no existen se van (lib/areas-podar). */
+async function podar(e: EstadoAreas): Promise<number> {
+    const vivos = (await prisma.device.findMany({ select: { id: true } })).map((d) => d.id);
+    const r = podarEquipos(e.equipos, vivos, e.areas.map((a) => a.id));
+    e.equipos = r.equipos;
+    return r.quitados;
+}
 async function leer(): Promise<EstadoAreas> {
+    let e: EstadoAreas;
     try {
         const v = (await prisma.setting.findUnique({ where: { key: CLAVE } }))?.value;
         const j = v ? JSON.parse(v) : {};
-        return { areas: Array.isArray(j.areas) ? j.areas : [], equipos: j.equipos && typeof j.equipos === "object" ? j.equipos : {}, apagadas: Array.isArray(j.apagadas) ? j.apagadas.map(String) : [] };
+        e = { areas: Array.isArray(j.areas) ? j.areas : [], equipos: j.equipos && typeof j.equipos === "object" ? j.equipos : {}, apagadas: Array.isArray(j.apagadas) ? j.apagadas.map(String) : [] };
     } catch { return { areas: [], equipos: {}, apagadas: [] }; }
+    await podar(e).catch(() => 0);
+    return e;
 }
 async function escribir(e: EstadoAreas) {
+    // Se poda ANTES de escribir: si otra acción borró un equipo mientras ésta trabajaba con el
+    // estado que leyó, escribirlo tal cual lo resucitaría.
+    await podar(e).catch(() => 0);
     // Un área borrada no queda apagada (su id ya no existe): limpiar para que no quede basura.
     const vivas = new Set(e.areas.map((a) => a.id));
     e.apagadas = (e.apagadas || []).filter((x) => vivas.has(x) || x === APAGADO_SIN_AREA || x.startsWith("tipo:"));
@@ -236,6 +250,8 @@ export async function asignarEquipos(deviceIds: string[], areaId: string | null)
     await conSesion();
     const e = await leer();
     if (areaId && !e.areas.some((a) => a.id === areaId)) throw new Error("El área no existe.");
-    for (const d of deviceIds || []) { if (areaId) e.equipos[String(d)] = areaId; else delete e.equipos[String(d)]; }
+    // Sólo equipos que existen: la pantalla puede tener una lista vieja (un equipo borrado en otra pestaña).
+    const existen = new Set((await prisma.device.findMany({ where: { id: { in: (deviceIds || []).map(String) } }, select: { id: true } })).map((d) => d.id));
+    for (const d of deviceIds || []) { if (!existen.has(String(d))) continue; if (areaId) e.equipos[String(d)] = areaId; else delete e.equipos[String(d)]; }
     return escribir(e);
 }

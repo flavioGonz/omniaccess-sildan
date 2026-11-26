@@ -102,7 +102,11 @@ export function MarcoMonitor({ children, puedeDecidir = false, embebido = false,
     const [ahora, setAhora] = useState(() => Date.now());
     const [lleno, setLleno] = useState(false);
     const [quieto, setQuieto] = useState(false);
-    const [silencio, setSilencio] = useState<boolean>(() => { try { return localStorage.getItem("oa.monitor.silencio") === "1"; } catch { return false; } });
+    /* El silencio se lee del navegador DESPUÉS de montar (26/11): leerlo al crear el estado hacía que
+       el servidor dibujara el parlante y el navegador el parlante tachado, y React tiraba el error
+       de hidratación #418 en toda pantalla silenciada. */
+    const [silencio, setSilencio] = useState(false);
+    useEffect(() => { try { if (localStorage.getItem("oa.monitor.silencio") === "1") setTimeout(() => setSilencio(true), 0); } catch { } }, []);
     const [bloqueado, setBloqueado] = useState(true);
     const [tactil, setTactil] = useState(false);
     /* La hora se dibuja recién en el navegador: la del servidor (al armar la página) nunca
