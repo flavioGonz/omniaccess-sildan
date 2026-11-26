@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Brush, Check, Clock, IdCard, Pencil, Phone, Plus, Shovel, Sparkles, Waves, Wrench } from "lucide-react";
+import { Brush, Check, Clock, DoorOpen, IdCard, Pencil, Phone, Plus, Shovel, Sparkles, Waves, Wrench } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Matricula } from "@/components/ui/celdas";
-import { estadoServicioLote, guardarServicioLote, serviciosDeLote, type ServicioDeLote } from "@/app/actions/lote-edicion";
+import { autorizarServicioLote, estadoServicioLote, guardarServicioLote, serviciosDeLote, type ServicioDeLote } from "@/app/actions/lote-edicion";
 import { cuandoViene, DIAS, rotuloServicio, TIPOS_SERVICIO } from "@/lib/servicios-lote";
 
 /**
@@ -14,8 +14,9 @@ import { cuandoViene, DIAS, rotuloServicio, TIPOS_SERVICIO } from "@/lib/servici
  * servicios, como jardinería, etc., asociados a su lote, para identificar a proveedores de servicio».
  *
  * Cada servicio dice quién es, qué días viene, a qué hora y en qué vehículo: es lo que la guardia
- * necesita para saber de qué lote es el que llega con una bordeadora. Identifica, no autoriza: tenerlo
- * acá no le abre el portón (se dice en la sección, para que nadie lo dé por sentado).
+ * necesita para saber de qué lote es el que llega con una bordeadora. Por sí solo identifica; con la
+ * entrada habilitada (26/11) entra por su matrícula en sus días y horario: lo decide el servidor en la
+ * barrera (lib-proveedores.js), no la lista blanca de la cámara, que no sabe de días ni horas.
  *
  * Los que se declararon en el censo llegan solos al aprobar la carga; los demás se suman acá. El que
  * dejó de venir se da de baja (queda en el registro, apagado), y todo queda en el historial del lote.
@@ -24,7 +25,7 @@ import { cuandoViene, DIAS, rotuloServicio, TIPOS_SERVICIO } from "@/lib/servici
 const DIBUJO: Record<string, React.ComponentType<{ size?: number; className?: string }>> = { JARDINERO: Shovel, PISCINERO: Waves, LIMPIEZA: Brush, OTRO: Wrench };
 const ENTRADA = "h-9 w-full px-3 rounded-[6px] border border-border bg-background text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]/40 focus-visible:border-[var(--accion)]";
 const BOTON = "h-8 px-3 rounded-[6px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-50";
-const VACIO = { tipo: "JARDINERO", nombre: "", telefono: "", documento: "", chapa: "", dias: [] as string[], desde: "", hasta: "", notas: "" };
+const VACIO = { tipo: "JARDINERO", nombre: "", telefono: "", documento: "", chapa: "", dias: [] as string[], desde: "", hasta: "", notas: "", autorizado: false };
 type Form = typeof VACIO & { id?: string };
 
 export function ServiciosLote({ unitId, puedeEditar, alCambiar }: { unitId: string; puedeEditar: boolean; alCambiar: () => void }) {
@@ -49,7 +50,8 @@ export function ServiciosLote({ unitId, puedeEditar, alCambiar }: { unitId: stri
             {activos.length > 0 && (
                 <ul className="divide-y divide-border rounded-[10px] border border-border">
                     {activos.map((f) => <Fila key={f.id} f={f} puedeEditar={puedeEditar} alEditar={() => setForm({ ...VACIO, ...f, telefono: f.telefono || "", documento: f.documento || "", chapa: f.chapa || "", desde: f.desde || "", hasta: f.hasta || "", notas: f.notas || "" })}
-                        alBaja={async () => { const r = await estadoServicioLote(unitId, f.id, false); if (!r.ok) toast.error({ title: "No se pudo", description: r.error }); else { toast.success({ title: "Servicio dado de baja", description: "Queda en el historial del lote." }); refrescar(); } }} />)}
+                        alBaja={async () => { const r = await estadoServicioLote(unitId, f.id, false); if (!r.ok) toast.error({ title: "No se pudo", description: r.error }); else { toast.success({ title: "Servicio dado de baja", description: "Queda en el historial del lote." }); refrescar(); } }}
+                        alAutorizar={async (on) => { const r = await autorizarServicioLote(unitId, f.id, on); if (!r.ok) toast.error({ title: "No se pudo", description: r.error }); else { toast.success({ title: on ? "Entrada habilitada" : "Entrada deshabilitada", description: on ? "Entra por su matrícula en sus días y horario, con media hora de margen." : "Se lo sigue identificando, pero no entra solo." }); refrescar(); } }} />)}
                 </ul>
             )}
             <AnimatePresence initial={false}>
@@ -74,7 +76,7 @@ export function ServiciosLote({ unitId, puedeEditar, alCambiar }: { unitId: stri
     );
 }
 
-function Fila({ f, puedeEditar, alEditar, alBaja, alActivar }: { f: ServicioDeLote; puedeEditar: boolean; alEditar?: () => void; alBaja?: () => void; alActivar?: () => void }) {
+function Fila({ f, puedeEditar, alEditar, alBaja, alActivar, alAutorizar }: { f: ServicioDeLote; puedeEditar: boolean; alEditar?: () => void; alBaja?: () => void; alActivar?: () => void; alAutorizar?: (on: boolean) => void }) {
     const [confirmar, setConfirmar] = useState(false);
     const Dib = DIBUJO[f.tipo] || Wrench;
     const cuando = cuandoViene(f);
@@ -95,6 +97,16 @@ function Fila({ f, puedeEditar, alEditar, alBaja, alActivar }: { f: ServicioDeLo
                     {!cuando && !f.telefono && !f.documento && <span>Sin días ni contacto cargados</span>}
                 </p>
                 {f.notas && <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">{f.notas}</p>}
+                {alAutorizar && (f.autorizado ? (
+                    <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px]">
+                        <span className="inline-flex items-center gap-1 rounded-full chip-bien px-2 py-0.5 text-[11px] font-bold" title={f.autorizadoPor ? `La habilitó ${f.autorizadoPor}` : undefined}><DoorOpen size={11} /> Entra en su horario</span>
+                        {puedeEditar && <button type="button" onClick={() => alAutorizar(false)} className="font-semibold text-muted-foreground hover:text-[var(--accion)]">Quitar entrada</button>}
+                    </p>
+                ) : f.chapa && f.dias.length ? (
+                    puedeEditar && <button type="button" onClick={() => alAutorizar(true)} className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-semibold text-[var(--accion)] hover:underline"><DoorOpen size={12} /> Habilitar su entrada por matrícula</button>
+                ) : (
+                    <p className="mt-1.5 text-[11.5px] text-muted-foreground">Sólo se lo identifica. Para que entre solo, cargale la matrícula y los días.</p>
+                ))}
             </div>
             {puedeEditar && (alActivar ? (
                 <button type="button" onClick={alActivar} className="text-[12px] font-semibold text-[var(--accion)]">Volver a activar</button>
@@ -123,7 +135,7 @@ function Formulario({ unitId, inicial, alCerrar, alGuardar }: { unitId: string; 
         <div className="mt-2 space-y-3 rounded-[10px] border border-border bg-background p-3.5">
             <div className="flex items-center gap-2.5">
                 <span className="grid h-9 w-9 place-items-center rounded-[8px] bg-muted text-[var(--accion)]"><Dib size={16} /></span>
-                <div className="min-w-0 flex-1"><p className="text-[13.5px] font-bold">{f.id ? "Corregir el servicio" : "Un servicio nuevo"}</p><p className="text-[11.5px] text-muted-foreground">Identifica a quien viene a trabajar al lote. No le abre el portón.</p></div>
+                <div className="min-w-0 flex-1"><p className="text-[13.5px] font-bold">{f.id ? "Corregir el servicio" : "Un servicio nuevo"}</p><p className="text-[11.5px] text-muted-foreground">Identifica a quien viene a trabajar al lote. Con la entrada habilitada, entra por su matrícula en su horario.</p></div>
             </div>
             <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Qué servicio">
                 {TIPOS_SERVICIO.map((t) => {
@@ -147,6 +159,13 @@ function Formulario({ unitId, inicial, alCerrar, alGuardar }: { unitId: string; 
                 <label className="block"><span className="mb-1 block text-[11.5px] font-semibold text-muted-foreground">Desde</span><input type="time" step={900} value={f.desde} onChange={(e) => set("desde", e.target.value)} className={cn(ENTRADA, "tabular-nums")} /></label>
                 <label className="block"><span className="mb-1 block text-[11.5px] font-semibold text-muted-foreground">Hasta</span><input type="time" step={900} value={f.hasta} onChange={(e) => set("hasta", e.target.value)} className={cn(ENTRADA, "tabular-nums")} /></label>
             </div>
+            <label className={cn("flex items-start gap-2.5 rounded-[10px] border p-3 cursor-pointer", f.autorizado ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_6%,transparent)]" : "border-border", (!f.chapa.trim() || !f.dias.length) && "opacity-60 cursor-not-allowed")}>
+                <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[var(--accion)]" checked={f.autorizado} disabled={!f.chapa.trim() || !f.dias.length} onChange={(e) => set("autorizado", e.target.checked)} />
+                <span className="min-w-0">
+                    <span className="flex items-center gap-1.5 text-[13px] font-semibold"><DoorOpen size={14} /> Habilitar su entrada por matrícula</span>
+                    <span className="block text-[11.5px] leading-snug text-muted-foreground">{!f.chapa.trim() || !f.dias.length ? "Hacen falta la matrícula y los días que viene." : "Entra sólo en sus días y su horario, con media hora de margen. Fuera de horario queda denegado y la guardia ve de qué lote es. La lista negra manda siempre."}</span>
+                </span>
+            </label>
             <label className="block"><span className="mb-1 block text-[11.5px] font-semibold text-muted-foreground">Notas para la guardia</span><input value={f.notas} onChange={(e) => set("notas", e.target.value)} placeholder="Viene con un ayudante · deja la camioneta afuera" className={ENTRADA} /></label>
             <div className="flex items-center justify-end gap-2">
                 <button type="button" onClick={alCerrar} className={cn(BOTON, "border border-border hover:bg-accent")}>Cancelar</button>

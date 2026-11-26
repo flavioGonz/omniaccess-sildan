@@ -238,6 +238,8 @@ export async function crearLote(d: { nombre: string; administracionId: string | 
 export type ServicioDeLote = {
     id: string; tipo: string; nombre: string; telefono: string | null; documento: string | null; chapa: string | null;
     dias: string[]; desde: string | null; hasta: string | null; notas: string | null; estado: string; origen: string; createdAt: string;
+    /** Entrada habilitada por matrícula en sus días y horario (26/11, lib-proveedores). */
+    autorizado: boolean; autorizadoPor: string | null;
 };
 
 /** Los servicios de un lote: los activos primero. */
@@ -246,12 +248,12 @@ export async function serviciosDeLote(unitId: string): Promise<ServicioDeLote[]>
     const s: any = await getSession().catch(() => null);
     if (!s || !permisosDeSesion(s).includes("usuarios")) throw new Error("Tu rol no puede ver el padrón.");
     const filas = await prisma.servicioLote.findMany({ where: { unitId }, orderBy: [{ estado: "asc" }, { createdAt: "asc" }] });
-    return filas.map((f) => ({ id: f.id, tipo: f.tipo, nombre: f.nombre, telefono: f.telefono, documento: f.documento, chapa: f.chapa, dias: ordenarDias(f.dias), desde: f.desde, hasta: f.hasta, notas: f.notas, estado: f.estado, origen: f.origen, createdAt: f.createdAt.toISOString() }));
+    return filas.map((f) => ({ id: f.id, tipo: f.tipo, nombre: f.nombre, telefono: f.telefono, documento: f.documento, chapa: f.chapa, dias: ordenarDias(f.dias), desde: f.desde, hasta: f.hasta, notas: f.notas, estado: f.estado, origen: f.origen, createdAt: f.createdAt.toISOString(), autorizado: f.autorizado, autorizadoPor: f.autorizadoPor }));
 }
 
 const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Sumar o corregir un servicio del lote. Queda en su historial con lo que decía antes y lo que dice ahora. */
-export async function guardarServicioLote(unitId: string, d: { id?: string; tipo: string; nombre: string; telefono?: string; documento?: string; chapa?: string; dias?: string[]; desde?: string; hasta?: string; notas?: string }): Promise<Resultado & { id?: string }> {
+export async function guardarServicioLote(unitId: string, d: { id?: string; tipo: string; nombre: string; telefono?: string; documento?: string; chapa?: string; dias?: string[]; desde?: string; hasta?: string; notas?: string; autorizado?: boolean }): Promise<Resultado & { id?: string }> {
     const s = await sesion();
     const u = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true, name: true } });
     if (!u) return { ok: false, error: "Ese lote ya no existe." };
@@ -264,6 +266,9 @@ export async function guardarServicioLote(unitId: string, d: { id?: string; tipo
     if ((d.desde && !HORA.test(d.desde)) || (d.hasta && !HORA.test(d.hasta))) return { ok: false, error: "La hora va como 08:00." };
     const data = { tipo: d.tipo, nombre, telefono: soloTel(d.telefono) || null, documento: corto(d.documento, 20) || null, chapa, dias: ordenarDias(d.dias), desde: d.desde || null, hasta: d.hasta || null, notas: corto(d.notas, 300) || null };
     const dice = (x: { tipo: string; nombre: string }) => `${rotuloServicio(x.tipo)}${x.nombre ? ` ${x.nombre}` : ""}`;
+    // La entrada se habilita sólo con matrícula y días: es lo que el servidor mira en la barrera.
+    const puedeEntrar = !!data.chapa && data.dias.length > 0;
+    if (d.autorizado && !puedeEntrar) return { ok: false, error: "Para habilitar su entrada hacen falta la matrícula y los días que viene." };
     if (d.id) {
         const antes = await prisma.servicioLote.findFirst({ where: { id: d.id, unitId } });
         if (!antes) return { ok: false, error: "Ese servicio ya no está." };
@@ -272,16 +277,37 @@ export async function guardarServicioLote(unitId: string, d: { id?: string; tipo
             { tipo: rotuloServicio(data.tipo), nombre: data.nombre, telefono: data.telefono, chapa: data.chapa, cuando: cuandoViene(data), notas: data.notas },
             { tipo: "Servicio", nombre: "Quién", telefono: "Teléfono", chapa: "Matrícula", cuando: "Cuándo viene", notas: "Notas" },
         );
+        // Si le sacaron la matrícula o los días, la entrada se apaga sola (no habría con qué decidirla).
+        const autorizado = d.autorizado === undefined ? antes.autorizado && puedeEntrar : !!d.autorizado;
+        if (autorizado !== antes.autorizado) dif.push(autorizado ? "Entrada habilitada en su horario" : "Entrada deshabilitada");
         if (!dif.length) return { ok: true, id: antes.id };
-        await prisma.servicioLote.update({ where: { id: antes.id }, data });
+        await prisma.servicioLote.update({ where: { id: antes.id }, data: { ...data, autorizado, ...(autorizado !== antes.autorizado ? { autorizadoPor: autorizado ? firma(s).quien : null, autorizadoAt: autorizado ? new Date() : null } : {}) } });
         await anotarEnLote([u.id], { que: "SERVICIO_EDITADO", persona: dice(data), chapa: data.chapa || undefined, detalle: dif.join(" · ") }, firma(s));
         await auditar(s, "lotes.servicio.editar", u.name, true, dif.join(" · "));
         return { ok: true, id: antes.id };
     }
-    const nuevo = await prisma.servicioLote.create({ data: { ...data, unitId: u.id, origen: "panel", creadoPor: firma(s).quien } });
-    await anotarEnLote([u.id], { que: "SERVICIO_ALTA", persona: dice(data), chapa: data.chapa || undefined, detalle: [cuandoViene(data), data.telefono].filter(Boolean).join(" · ") || undefined }, firma(s));
+    const autorizado = !!d.autorizado && puedeEntrar;
+    const nuevo = await prisma.servicioLote.create({ data: { ...data, unitId: u.id, origen: "panel", creadoPor: firma(s).quien, autorizado, autorizadoPor: autorizado ? firma(s).quien : null, autorizadoAt: autorizado ? new Date() : null } });
+    await anotarEnLote([u.id], { que: "SERVICIO_ALTA", persona: dice(data), chapa: data.chapa || undefined, detalle: [cuandoViene(data), data.telefono, autorizado ? "entrada habilitada en su horario" : null].filter(Boolean).join(" · ") || undefined }, firma(s));
     await auditar(s, "lotes.servicio.crear", u.name, true, dice(data));
     return { ok: true, id: nuevo.id };
+}
+
+/**
+ * Habilitar o quitar la entrada de un proveedor por su matrícula, en sus días y horario (26/11).
+ * La decide el servidor en la barrera (lib-proveedores.js): no se carga en la lista blanca de la
+ * cámara, que no sabe de días ni horas y lo dejaría entrar siempre.
+ */
+export async function autorizarServicioLote(unitId: string, id: string, autorizado: boolean): Promise<Resultado> {
+    const s = await sesion();
+    const f = await prisma.servicioLote.findFirst({ where: { id, unitId } });
+    if (!f) return { ok: false, error: "Ese servicio ya no está." };
+    if (autorizado && (!f.chapa || !ordenarDias(f.dias).length)) return { ok: false, error: "Para habilitar su entrada hacen falta la matrícula y los días que viene: corregilo primero." };
+    if (autorizado && f.estado !== "ACTIVO") return { ok: false, error: "Ese servicio está dado de baja." };
+    await prisma.servicioLote.update({ where: { id }, data: { autorizado, autorizadoPor: autorizado ? firma(s).quien : null, autorizadoAt: autorizado ? new Date() : null } });
+    await anotarEnLote([unitId], { que: "SERVICIO_EDITADO", persona: `${rotuloServicio(f.tipo)}${f.nombre ? ` ${f.nombre}` : ""}`, chapa: f.chapa || undefined, detalle: autorizado ? `Entrada habilitada por matrícula: ${cuandoViene(f)}.` : "Entrada deshabilitada: se lo identifica, pero no entra solo." }, firma(s));
+    await auditar(s, autorizado ? "lotes.servicio.habilitar" : "lotes.servicio.deshabilitar", f.chapa || f.nombre, true, cuandoViene(f));
+    return { ok: true };
 }
 
 /** Dejó de venir: se da de baja (queda en el registro) o se vuelve a activar. */
@@ -289,7 +315,8 @@ export async function estadoServicioLote(unitId: string, id: string, activo: boo
     const s = await sesion();
     const f = await prisma.servicioLote.findFirst({ where: { id, unitId } });
     if (!f) return { ok: false, error: "Ese servicio ya no está." };
-    await prisma.servicioLote.update({ where: { id }, data: { estado: activo ? "ACTIVO" : "INACTIVO" } });
+    // Darlo de baja también le quita la entrada: el que dejó de venir no entra más solo.
+    await prisma.servicioLote.update({ where: { id }, data: { estado: activo ? "ACTIVO" : "INACTIVO", ...(activo ? {} : { autorizado: false, autorizadoPor: null, autorizadoAt: null }) } });
     await anotarEnLote([unitId], { que: activo ? "SERVICIO_ALTA" : "SERVICIO_BAJA", persona: `${rotuloServicio(f.tipo)}${f.nombre ? ` ${f.nombre}` : ""}`, chapa: f.chapa || undefined, detalle: activo ? "Volvió a activarse." : "Dejó de venir." }, firma(s));
     await auditar(s, activo ? "lotes.servicio.activar" : "lotes.servicio.baja", f.nombre || f.tipo, true, "");
     return { ok: true };

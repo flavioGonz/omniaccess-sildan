@@ -149,6 +149,15 @@ const RELECTURA_SONDEO_MS = 3_000;
 const esSinLeer = (p?: string | null) => !p || ["NO_LEIDA", "UNKNOWN", "S/P"].includes(String(p).toUpperCase());
 function tipoDeteccion(event: any, watch?: any, comp?: Comportamiento): TipoMeta | null {
     const clase = claseDeLectura(event?.user, watch?.category);
+    /* Proveedor de un lote que entra por su matrícula (26/11, lib-proveedores): no es una persona del
+       padrón, pero tampoco un desconocido. Lo dice el detalle del evento, así se ve igual en vivo y
+       en lo que ya pasó. Fuera de su horario va en ámbar: la guardia lo consulta. */
+    if (!event?.user && watch?.category !== "BLACKLISTED") {
+        const det = String(event?.details || "");
+        const lote = /del lote (\S+)/.exec(det)?.[1]?.replace(/[():]/g, "");
+        if (det.startsWith("Proveedor habilitado")) { const e = ESTILO_MONITOR.proveedores; return { key: "proveedor", label: `Proveedor${lote ? ` · Lote ${lote}` : ""}`, badge: e.badge, ring: e.ring, dot: e.dot }; }
+        if (det.startsWith("Proveedor del lote")) return { key: "proveedor", label: `Proveedor fuera de horario${lote ? ` · Lote ${lote}` : ""}`, badge: "chip-aviso border border-[color-mix(in_oklab,var(--aviso)_40%,transparent)]", ring: "", dot: "bg-amber-500" };
+    }
     if (!clase) return event?.user
         ? { key: "otro", label: "Registrado", badge: "bg-zinc-500/15 text-zinc-300 border border-zinc-500/40", ring: "ring-1 ring-zinc-500/40", dot: "bg-zinc-400" }
         : { key: "desconocido", label: "Desconocido", badge: "bg-zinc-600/20 text-zinc-400 border border-zinc-600/40", ring: "", dot: "bg-zinc-500" };
@@ -242,7 +251,7 @@ function CamTile({ dev, accent = "emerald", ev, onRegister, className }: { dev: 
             }
         }
     }, [ev?.id]);
-    const ring = accent === "orange" ? "border-orange-400 shadow-[0_0_18px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.7)]";
+    const ring = accent === "orange" ? "border-orange-400 shadow-[0_0_18px_rgba(251,146,60,0.7)]" : accent === "violet" ? "border-violet-400 shadow-[0_0_18px_rgba(167,139,250,0.7)]" : "border-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.7)]";
     const img = ev ? (getImagePath(ev.snapshotPath || ev.imagePath) || "") : "";
     const plate = ev?.plateDetected as string | undefined;
     const ok = ev?.decision === "GRANT";
@@ -255,6 +264,7 @@ function CamTile({ dev, accent = "emerald", ev, onRegister, className }: { dev: 
             <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 pointer-events-none">
                 <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span></span>
                 <span className="text-[9px] font-bold text-white/90 truncate max-w-[130px]">{dev.name}</span>
+                {dev.direction === "INTERIOR" && <span className="rounded bg-violet-500/80 px-1 text-[8px] font-bold uppercase tracking-wide text-white" title="Interior: lee pero no cuenta entradas ni salidas">Interior</span>}
                 {ev && rotuloLectura(ev.details) && <span className="text-[9px] tabular-nums text-white/70">· {rotuloLectura(ev.details)}</span>}
             </div>
             {plate && (
@@ -744,8 +754,9 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
 }) {
     const entrada = dir === "ENTRY";
     const Icono = entrada ? LogIn : LogOut;
+    const interiores = camaras.filter((c) => c.direction === "INTERIOR").length, propias = camaras.length - interiores;
     const sinLeer = eventos.filter((e) => !e.plateDetected || ["NO_LEIDA", "unknown", "S/P"].includes(e.plateDetected)).length;
-    const ultimaDeCamaras = camaras.map((d: any) => ultimaPorCamara(d.id)).filter((e: any) => e?.timestamp)
+    const ultimaDeCamaras = camaras.filter((d) => d.direction !== "INTERIOR").map((d: any) => ultimaPorCamara(d.id)).filter((e: any) => e?.timestamp)
         .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
     return (
         <section className="flex flex-col min-h-0 overflow-hidden">
@@ -753,7 +764,7 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
             <div className="shrink-0 flex items-center gap-2.5 px-4 h-11 border-b border-border">
                 <span className={cn("w-7 h-7 rounded-md grid place-items-center border border-border bg-muted", entrada ? "text-emerald-500" : "text-orange-500")}><Icono size={15} /></span>
                 <h2 className="text-[14px] font-bold">{entrada ? "Entradas" : "Salidas"}</h2>
-                <span className="text-[11.5px] text-muted-foreground tabular-nums">{camaras.length} cámara{camaras.length === 1 ? "" : "s"}</span>
+                <span className="text-[11.5px] text-muted-foreground tabular-nums">{propias} cámara{propias === 1 ? "" : "s"}{interiores ? ` · ${interiores} interior` : ""}</span>
                 <span className="ml-auto flex items-center gap-2 text-[11.5px] text-muted-foreground tabular-nums">
                     <span><b className="text-foreground">{eventos.length}</b> en la lista</span>
                     {sinLeer > 0 && <span className="text-[var(--aviso-texto)]">· {sinLeer} sin lectura</span>}
@@ -769,7 +780,7 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
                     {/* La última de la columna; si la lista todavía no la trae, la más nueva de sus cámaras. */}
                     <CenterShot ev={eventos[0] || ultimaDeCamaras} onRegister={onRegister} dir={dir} className="aspect-video" watchMap={watchMap} logos={logos} />
                     <div className={cn("grid gap-2", camaras.length > 2 ? "grid-cols-2" : "grid-cols-1")}>
-                        {camaras.map((d: any) => <CamTile key={d.id} dev={d} accent={entrada ? "emerald" : "orange"} ev={ultimaPorCamara(d.id)} onRegister={onRegister} className="aspect-video" />)}
+                        {camaras.map((d: any) => <CamTile key={d.id} dev={d} accent={d.direction === "INTERIOR" ? "violet" : entrada ? "emerald" : "orange"} ev={ultimaPorCamara(d.id)} onRegister={onRegister} className="aspect-video" />)}
                         {/* Con una sola cámara sobra la mitad del costado: ahí va el resumen del sentido. */}
                         {camaras.length < 2 && <ResumenSentido eventos={eventos} />}
                         {camaras.length === 0 && <div className="aspect-video rounded-lg border border-dashed border-border grid place-items-center text-[11.5px] text-muted-foreground">Sin cámaras de {entrada ? "entrada" : "salida"}</div>}
@@ -1112,7 +1123,9 @@ export default function MonitorLPR() {
         idsAreaRef.current = fa.filtrando ? (claveIds ? claveIds.split(",") : []) : null;
         if (devices.length) { setEventsLoading(true); loadInitialData(); }
     }, [claveIds, fa.filtrando, devices.length]); // eslint-disable-line react-hooks/exhaustive-deps
-    const entryCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'ENTRY'), [lprDevs]);
+    // Las LPR de adentro (sentido INTERIOR, 26/11) se ven junto a las entradas, marcadas: su cuadro y su
+    // última lectura, pero sus lecturas no entran a la lista ni a la foto grande de «Entradas».
+    const entryCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'ENTRY' || x.direction === 'INTERIOR'), [lprDevs]);
     const exitCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'EXIT'), [lprDevs]);
     /*
      * La doble verificación de OmniVision llega después que la NO_LEIDA: se pregunta cada pocos

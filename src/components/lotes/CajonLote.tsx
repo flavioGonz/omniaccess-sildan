@@ -127,8 +127,8 @@ export function CajonLote({ unitId, alCerrar }: { unitId: string | null; alCerra
                                 </CajonSeccion>
 
                                 <CajonSeccion titulo="Servicios" icono={Wrench} compacta
-                                    ayuda="Quién viene a trabajar a este lote —jardinero, piscinero, limpieza—, qué días y en qué vehículo. Sirve para identificarlos: no les abre el portón."
-                                    pista="Los que se declaran en el censo llegan solos al aprobar la carga. El que deja de venir se da de baja y queda en el registro. Cada cambio queda en el historial del lote.">
+                                    ayuda="Quién viene a trabajar a este lote —jardinero, piscinero, limpieza—, qué días, a qué hora y en qué vehículo. Con la entrada habilitada, entra solo por su matrícula en sus días y horario."
+                                    pista="Los que se declaran en el censo, o que el residente pide desde su portal, llegan acá al aprobarlos. Sin la entrada habilitada sólo se lo identifica. El que deja de venir se da de baja (y pierde la entrada). Cada cambio queda en el historial del lote.">
                                     <ServiciosLote key={d.id} unitId={d.id} puedeEditar={d.puedeEditar} alCambiar={refrescar} />
                                 </CajonSeccion>
 

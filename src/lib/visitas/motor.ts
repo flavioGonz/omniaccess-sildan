@@ -36,11 +36,11 @@ let camaras: { mapa: Map<string, { tipo: Camara; nombre: string }>; hasta: numbe
 async function camaraDe(deviceId: string | null | undefined, direccion: string | null | undefined): Promise<{ tipo: Camara; nombre: string | null }> {
     if (!camaras || camaras.hasta < Date.now()) {
         const devs = await prisma.device.findMany({ where: { deviceType: { in: ["LPR_CAMERA", "LPR_INTERIOR"] as any } }, select: { id: true, name: true, deviceType: true, direction: true } });
-        camaras = { mapa: new Map(devs.map((d) => [d.id, { tipo: (d.deviceType === "LPR_INTERIOR" ? "interior" : d.direction === "EXIT" ? "salida" : "entrada") as Camara, nombre: d.name }])), hasta: Date.now() + CAMARAS_MS };
+        camaras = { mapa: new Map(devs.map((d) => [d.id, { tipo: (d.deviceType === "LPR_INTERIOR" || String(d.direction) === "INTERIOR" ? "interior" : d.direction === "EXIT" ? "salida" : "entrada") as Camara, nombre: d.name }])), hasta: Date.now() + CAMARAS_MS };
     }
     const c = deviceId ? camaras.mapa.get(deviceId) : null;
     if (c) return c;
-    return { tipo: direccion === "EXIT" ? "salida" : "entrada", nombre: null };
+    return { tipo: direccion === "EXIT" ? "salida" : direccion === "INTERIOR" ? "interior" : "entrada", nombre: null };
 }
 
 /**

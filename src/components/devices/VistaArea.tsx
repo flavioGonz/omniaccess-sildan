@@ -84,7 +84,7 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
                         <p className={cn("text-[12.5px] font-semibold truncate")} data-tooltip-id="tt-grab" data-tooltip-content={`${d.name} · ${ICONO_TIPO[d.deviceType]?.t || d.deviceType}`}>{d.name}</p>
                         <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
                             <span className="uppercase font-bold">{String(d.brand || "").slice(0, 3)}</span>
-                            {d.deviceType === "LPR_CAMERA" && d.direction && <span className={cn("px-1 rounded font-bold", d.direction === "EXIT" ? "bg-orange-500/15 text-orange-500" : "bg-emerald-500/15 text-emerald-500")}>{d.direction === "EXIT" ? "SAL" : "ENT"}</span>}
+                            {d.deviceType === "LPR_CAMERA" && d.direction && <span className={cn("px-1 rounded font-bold", d.direction === "EXIT" ? "bg-orange-500/15 text-orange-500" : d.direction === "INTERIOR" ? "bg-violet-500/15 text-violet-500" : "bg-emerald-500/15 text-emerald-500")}>{d.direction === "EXIT" ? "SAL" : d.direction === "INTERIOR" ? "INT" : "ENT"}</span>}
                         </div>
                     </div>
                 </div>

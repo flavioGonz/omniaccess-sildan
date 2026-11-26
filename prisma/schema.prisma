@@ -742,6 +742,9 @@ enum DoorStatus {
 enum DeviceDirection {
   ENTRY
   EXIT
+  /// Camara LPR de adentro (seguimiento, 26/11): sus lecturas quedan registradas pero no cuentan
+  /// como entrada ni como salida (aforo, quien esta adentro, visitas).
+  INTERIOR
 }
 
 enum AccessDecision {
@@ -2555,9 +2558,15 @@ model ServicioLote {
   /// De donde salio: panel | censo | portal
   origen    String   @default("panel")
   creadoPor String?
+  /// Entrada habilitada por matricula, solo en sus dias y horario (26/11). La decide el servidor
+  /// (lib-proveedores.js), no la lista blanca de la camara: la camara no sabe de dias ni horas.
+  autorizado    Boolean   @default(false)
+  autorizadoPor String?
+  autorizadoAt  DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([unitId])
   @@index([chapa])
+  @@index([chapa, autorizado])
 }

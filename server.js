@@ -31,6 +31,7 @@ const crypto = require("crypto");
 const { uploadToS3 } = require("./lib-s3");
 const { achicarEscena } = require("./lib-escena");
 const { estaEnListaNegra, detalleListaNegra } = require("./lib-lista-negra");
+const { proveedorPorChapa } = require("./lib-proveedores");
 const { contextoDeLectura, busquedaPrendida } = require("./lib-contexto-vigilancia");
 const { captureForDevice: captureIntrusion } = require("./lib-intrusion-capture");
 const { getVehicleColorName, getVehicleBrandName } = require("./hikvision-codes");
@@ -1609,6 +1610,25 @@ const handleWebhook = async (req, res, logPrefix) => {
         }
         const detalleNegra = listaNegra.negra ? `${detalleListaNegra(listaNegra.motivo)}, ` : "";
 
+        // ── PROVEEDORES DEL LOTE (26/11): el jardinero o el piscinero con la entrada habilitada entra
+        // por su matrícula, sólo en sus días y horario (lib-proveedores). Sólo si la chapa no es de
+        // nadie del padrón, no está en lista negra ni la cámara la rechazó, y en modo lista blanca.
+        // Fuera de horario queda DENEGADO pero el evento dice de qué lote es: la guardia lo sabe.
+        let proveedor = null;
+        let detalleProveedor = "";
+        if (!isUnknown && !credential && !listaNegra.negra && cameraDecision !== "DENY") {
+            try {
+                const modoP = (await prisma.setting.findUnique({ where: { key: 'MODE_LPR' } }))?.value || 'WHITELIST';
+                const pv = modoP === 'WHITELIST' ? await proveedorPorChapa(prisma, finalPlate, eventTimestamp) : null;
+                if (pv) {
+                    proveedor = { quien: pv.quien, lote: pv.lote, lotes: pv.lotes, cuando: pv.cuando, enHorario: pv.enHorario, unitId: pv.unitId };
+                    detalleProveedor = pv.detalle;
+                    if (pv.enHorario) accessDecision = "GRANT";
+                    console.log(`${logPrefix} 🧰 [PROVEEDOR] ${finalPlate} -> ${pv.quien} (lote ${pv.lote}) ${pv.enHorario ? 'en su horario -> GRANT' : 'FUERA de horario'}`);
+                }
+            } catch (e) { console.error(`${logPrefix} Proveedores check error:`, (e && e.message) || e); }
+        }
+
         // Persist Event
         const event = await prisma.accessEvent.create({
             data: {
@@ -1622,7 +1642,7 @@ const handleWebhook = async (req, res, logPrefix) => {
                 snapshotPath: relativeImagePath,
                 plateNumber: finalPlate,
                 plateDetected: finalPlate, // Ensure we fill both
-                details: `${detalleNegra}${isUnknown ? 'ALERTA: Matrícula No Reconocida. ' : ''}Marca: ${vehicleBrand}, Modelo: ${vehicleModel}, Color: ${vehicleColor}, Tipo: ${vehicleType}, Source: ${cameraDecision ? 'Camera' : 'Server'}${metodoStr}${rectStr}${plateCropPath ? `, PlateCrop: ${plateCropPath}` : ''}`
+                details: `${detalleNegra}${detalleProveedor}${isUnknown ? 'ALERTA: Matrícula No Reconocida. ' : ''}Marca: ${vehicleBrand}, Modelo: ${vehicleModel}, Color: ${vehicleColor}, Tipo: ${vehicleType}, Source: ${cameraDecision ? 'Camera' : 'Server'}${metodoStr}${rectStr}${plateCropPath ? `, PlateCrop: ${plateCropPath}` : ''}`
             }
         });
 
@@ -1699,7 +1719,8 @@ const handleWebhook = async (req, res, logPrefix) => {
         let guestHit = null;
         try {
             const isBlack = watchHit && (watchHit.category === 'BLACKLISTED' || watchHit.category === 'negra');
-            if (!isUnknown && !isBlack) {
+            // Una LPR de adentro (sentido INTERIOR, 26/11) no marca entradas ni salidas de invitados.
+            if (!isUnknown && !isBlack && device?.direction !== 'INTERIOR') {
                 const gm = await matchInvitedPlate(finalPlate);
                 if (gm) {
                     const direction = event.direction || 'ENTRY';
@@ -1724,7 +1745,8 @@ const handleWebhook = async (req, res, logPrefix) => {
                 user: credential ? credential.user : null,
                 direction: event.direction, // Ensure direction is explicitly sent
                 watch: watchHit,
-                guest: guestHit
+                guest: guestHit,
+                proveedor
             });
             // Emit webhook event for topology animation
             global.io.emit("webhook-event", {

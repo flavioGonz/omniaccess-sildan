@@ -14,6 +14,7 @@ import { Filtros } from "@/components/ui/filtros";
 import { fechaHora } from "@/lib/fechas";
 import { aprobarPedido, pedidosPendientes, rechazarPedido, type PedidoParaRevisar } from "@/app/actions/pedidos-residente";
 import { TENENCIAS, TIPOS_SERVICIO, TIPOS_VEHICULO, type ServicioCargado, type VehiculoCargado } from "@/lib/registro-padron";
+import { rotuloServicio } from "@/lib/servicios-lote";
 
 
 /**
@@ -460,21 +461,36 @@ function PedidosDelPortal() {
                 <span className="grid h-8 w-8 place-items-center rounded-[10px] chip-info"><Car size={15} /></span>
                 <div className="min-w-0 flex-1">
                     <p className="text-[14px] font-bold">Pedidos del portal <span className="ml-1 text-[12px] font-semibold text-muted-foreground tabular-nums">{filas.length}</span></p>
-                    <p className="text-[12px] text-muted-foreground">Matrículas que los vecinos pidieron sumar o sacar desde su portal. Nada cambia hasta que lo aprobás.</p>
+                    <p className="text-[12px] text-muted-foreground">Matrículas y proveedores (jardinero, piscinero…) que los vecinos pidieron sumar o sacar desde su portal. Nada cambia hasta que lo aprobás.</p>
                 </div>
             </div>
             <ul className="mt-3 divide-y divide-border rounded-[10px] border border-border bg-card">
-                {filas.map((p) => (
+                {filas.map((p) => {
+                    // Los de proveedor (26/11) dicen quién es, qué días viene y si pidió que entre solo.
+                    const esServicio = p.tipo === "SERVICIO_ALTA" || p.tipo === "SERVICIO_BAJA";
+                    const baja = p.tipo === "MATRICULA_BAJA" || p.tipo === "SERVICIO_BAJA";
+                    const rotuloSv = esServicio ? `${rotuloServicio(p.detalle.tipo || "OTRO")}${p.detalle.nombre ? ` ${p.detalle.nombre}` : ""}` : "";
+                    const listo = esServicio ? (baja ? `${rotuloSv} dado de baja` : `${rotuloSv} sumado al lote`) : baja ? `${p.chapa} sacada` : `${p.chapa} sumada`;
+                    return (
                     <li key={p.id} className="px-3.5 py-3">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                            <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold", p.tipo === "MATRICULA_BAJA" ? "chip-aviso" : "chip-info")}>{p.tipo === "MATRICULA_BAJA" ? "Sacar" : "Sumar"}</span>
-                            <span className="inline-flex h-7 items-center rounded-md border-2 border-foreground/70 bg-background px-2 text-[13.5px] font-bold tracking-[0.1em] tabular-nums">{p.chapa}</span>
+                            <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold", baja ? "chip-aviso" : "chip-info")}>{esServicio ? (baja ? "Baja de proveedor" : "Proveedor") : baja ? "Sacar" : "Sumar"}</span>
+                            {esServicio && <span className="text-[13px] font-bold">{rotuloSv}</span>}
+                            {p.chapa && <span className="inline-flex h-7 items-center rounded-md border-2 border-foreground/70 bg-background px-2 text-[13.5px] font-bold tracking-[0.1em] tabular-nums">{p.chapa}</span>}
                             <span className="min-w-0 text-[13px]"><b>{p.persona.nombre}</b><span className="text-muted-foreground"> · {p.lote ? `Lote ${p.lote.nombre}` : "sin lote"}{p.detalle.marca || p.detalle.color ? ` · ${[p.detalle.marca, p.detalle.color].filter(Boolean).join(" ")}` : ""}{p.detalle.quien ? ` · ${p.detalle.quien}` : ""} · {fechaHora(p.createdAt)}</span></span>
                             <span className="ml-auto flex gap-1.5">
-                                <Button size="sm" disabled={!!trabajando || !p.lote} onClick={() => hacer(p.id, () => aprobarPedido(p.id), p.tipo === "MATRICULA_BAJA" ? `${p.chapa} sacada` : `${p.chapa} sumada`)}>{trabajando === p.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Aprobar</Button>
+                                <Button size="sm" disabled={!!trabajando || !p.lote} onClick={() => hacer(p.id, () => aprobarPedido(p.id), listo)}>{trabajando === p.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Aprobar</Button>
                                 <Button size="sm" variant="ghost" disabled={!!trabajando} onClick={() => setRechazando({ id: p.id, motivo: "" })}><X size={14} /> Rechazar</Button>
                             </span>
                         </div>
+                        {p.tipo === "SERVICIO_ALTA" && (
+                            <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
+                                {(p.detalle.dias || p.detalle.desde) && <span>{[String(p.detalle.dias || "").split(",").filter(Boolean).join(", "), p.detalle.desde || p.detalle.hasta ? `${p.detalle.desde || "?"} a ${p.detalle.hasta || "?"}` : ""].filter(Boolean).join(" · ")}</span>}
+                                {p.detalle.telefono && <span className="tabular-nums">{p.detalle.telefono}</span>}
+                                {p.detalle.notas && <span>{p.detalle.notas}</span>}
+                                {p.detalle.entrada === "si" ? <span className="font-semibold tono-aviso">Pide que entre solo por su matrícula en ese horario: aprobar se lo habilita</span> : <span>Sólo para identificarlo (no entra solo)</span>}
+                            </p>
+                        )}
                         {p.deOtro && <p className="mt-1.5 flex items-center gap-1.5 text-[12px] tono-aviso"><TriangleAlert size={13} /> {p.chapa} ya es de {p.deOtro}: aprobar no se la saca. Sacásela primero desde su lote si corresponde.</p>}
                         {!p.lote && <p className="mt-1.5 text-[12px] tono-aviso">La persona no está en ningún lote: sumala a su lote antes de aprobar.</p>}
                         {rechazando?.id === p.id && (
@@ -485,7 +501,8 @@ function PedidosDelPortal() {
                             </div>
                         )}
                     </li>
-                ))}
+                    );
+                })}
             </ul>
         </section>
     );

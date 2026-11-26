@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
     ArrowUpRight, CalendarPlus, Car, Check, ChevronRight, ClipboardList, Clock, Copy, Download, Home, Info, LogIn, PartyPopper,
-    Plus, QrCode, ShieldCheck, Ticket, Trash2, UserPlus, Users, Wrench, X,
+    DoorOpen, Plus, QrCode, ShieldCheck, Ticket, Trash2, UserPlus, Users, Wrench, X,
 } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { OmniLogo } from "@/components/brand/OmniLogo";
@@ -14,8 +14,8 @@ import {
     addMyGuest, createMyInvitation, extendMyInvitation, getQrSvg, listMyInvitations, revokeMyInvitation,
     type MyGuest, type MyInvitation, type PortalHost,
 } from "@/app/actions/invitations";
-import { anularPedido, miPortal, pedirBajaMatricula, pedirMatricula, type MiPortal } from "@/app/actions/portal-residente";
-import { TIPOS_VEHICULO } from "@/lib/registro-padron";
+import { anularPedido, miPortal, pedirBajaMatricula, pedirBajaServicio, pedirMatricula, pedirServicio, type MiPortal } from "@/app/actions/portal-residente";
+import { DIAS, TIPOS_SERVICIO, TIPOS_VEHICULO } from "@/lib/registro-padron";
 import { cn } from "@/lib/utils";
 
 /**
@@ -62,7 +62,7 @@ export default function PortalResidente() {
     const [estado, setEstado] = useState<"cargando" | "listo" | "malo">("cargando");
     const [pest, setPest] = useState<Pest>("inicio");
     const [sentido, setSentido] = useState(1);
-    const [hoja, setHoja] = useState<null | { que: "invitar"; kind: "SINGLE" | "EVENT" } | { que: "invitado"; inv: MyInvitation } | { que: "qr"; g: MyGuest } | { que: "matricula" }>(null);
+    const [hoja, setHoja] = useState<null | { que: "invitar"; kind: "SINGLE" | "EVENT" } | { que: "invitado"; inv: MyInvitation } | { que: "qr"; g: MyGuest } | { que: "matricula" } | { que: "servicio" }>(null);
     const quieto = useReducedMotion();
 
     useEffect(() => { getAppBranding().then((b) => setMarca({ barrio: b.barrio || b.name || "", logoUrl: b.logoUrl || "" })).catch(() => { }); }, []);
@@ -95,7 +95,7 @@ export default function PortalResidente() {
                         {pest === "inicio" && <Inicio host={host} datos={datos} items={items} alIr={ir} alInvitar={(kind) => setHoja({ que: "invitar", kind })} alQr={(g) => setHoja({ que: "qr", g })} />}
                         {pest === "invitar" && <Invitaciones token={token} items={items} alNueva={(kind) => setHoja({ que: "invitar", kind })} alQr={(g) => setHoja({ que: "qr", g })} alAgregar={(inv) => setHoja({ que: "invitado", inv })} alCambiar={traer} />}
                         {pest === "vehiculos" && <Vehiculos token={token} datos={datos} alPedir={() => setHoja({ que: "matricula" })} alCambiar={traer} />}
-                        {pest === "lote" && <MiLote datos={datos} />}
+                        {pest === "lote" && <MiLote token={token} datos={datos} alPedir={() => setHoja({ que: "servicio" })} alCambiar={traer} />}
                     </motion.div>
                 </AnimatePresence>
             </main>
@@ -104,7 +104,7 @@ export default function PortalResidente() {
                 <div className="mx-auto grid w-full max-w-[640px] grid-cols-4 px-2 pt-1.5">
                     {PESTS.map((p) => {
                         const activa = pest === p.v;
-                        const aviso = p.v === "vehiculos" ? datos.pedidos.filter((x) => x.estado === "PENDIENTE").length : p.v === "invitar" ? items.filter(vigente).length : 0;
+                        const aviso = p.v === "vehiculos" ? datos.pedidos.filter((x) => x.estado === "PENDIENTE" && x.tipo.startsWith("MATRICULA")).length : p.v === "lote" ? datos.pedidos.filter((x) => x.estado === "PENDIENTE" && x.tipo.startsWith("SERVICIO")).length : p.v === "invitar" ? items.filter(vigente).length : 0;
                         return (
                             <button key={p.v} type="button" onClick={() => ir(p.v)} aria-current={activa ? "page" : undefined}
                                 className={cn("relative flex flex-col items-center gap-0.5 rounded-[10px] py-1.5 text-[11px] font-semibold", PULSABLE, activa ? "text-[var(--accion)]" : "text-muted-foreground")}>
@@ -124,6 +124,7 @@ export default function PortalResidente() {
                 {hoja?.que === "invitado" && <HojaInvitado key="g" inv={hoja.inv} token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
                 {hoja?.que === "qr" && <HojaQr key="q" g={hoja.g} alCerrar={() => setHoja(null)} />}
                 {hoja?.que === "matricula" && <HojaMatricula key="m" token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
+                {hoja?.que === "servicio" && <HojaServicio key="s" token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
             </AnimatePresence>
         </Marco>
     );
@@ -165,11 +166,16 @@ function Inicio({ host, datos, items, alIr, alInvitar, alQr }: { host: PortalHos
     const hoy = items.filter((i) => vigente(i) && new Date(i.validFrom).toDateString() === new Date().toDateString());
     const pendientes = datos.pedidos.filter((p) => p.estado === "PENDIENTE");
     const [ahora] = useState(() => Date.now());
+    const esSv = (p: { tipo: string }) => p.tipo.startsWith("SERVICIO");
+    const quienSv = (p: { detalle: Record<string, string> }) => `${TIPOS_SERVICIO.find((t) => t.id === p.detalle.tipo)?.rotulo || "Proveedor"}${p.detalle.nombre ? ` ${p.detalle.nombre}` : ""}`;
     const recien = datos.pedidos.filter((p) => p.estado !== "PENDIENTE" && ahora - Date.parse(p.createdAt) < 7 * 86400_000).slice(0, 2);
     const tareas: { I: typeof Home; t: string; d: string; tono: string; accion: () => void }[] = [];
     if (datos.censo.enlace && datos.censo.estado === "sin-cargar") tareas.push({ I: ClipboardList, t: "Completá el censo de tu lote", d: "Tus vehículos y quién entra a tu casa. Son dos minutos.", tono: "chip-aviso", accion: () => window.location.assign(datos.censo.enlace!) });
-    for (const p of pendientes) tareas.push({ I: Car, t: `${p.tipo === "MATRICULA_BAJA" ? "Sacar" : "Sumar"} ${p.chapa}`, d: "Esperando que la administración lo apruebe.", tono: "chip-info", accion: () => alIr("vehiculos") });
-    for (const p of recien) tareas.push({ I: p.estado === "APROBADO" ? Check : X, t: `${p.chapa}: ${p.estado === "APROBADO" ? "aprobado" : "no se aprobó"}`, d: p.estado === "APROBADO" ? (p.tipo === "MATRICULA_BAJA" ? "Ya no abre el portón." : "La cámara ya la reconoce en la entrada.") : p.motivo || "Consultá con la administración.", tono: p.estado === "APROBADO" ? "chip-bien" : "chip-mal", accion: () => alIr("vehiculos") });
+    for (const p of pendientes) tareas.push(esSv(p)
+        ? { I: Wrench, t: `${p.tipo === "SERVICIO_BAJA" ? "Dar de baja a" : "Sumar a"} ${quienSv(p)}`, d: "Esperando que la administración lo apruebe.", tono: "chip-info", accion: () => alIr("lote") }
+        : { I: Car, t: `${p.tipo === "MATRICULA_BAJA" ? "Sacar" : "Sumar"} ${p.chapa}`, d: "Esperando que la administración lo apruebe.", tono: "chip-info", accion: () => alIr("vehiculos") });
+    for (const p of recien.filter(esSv)) tareas.push({ I: p.estado === "APROBADO" ? Check : X, t: `${quienSv(p)}: ${p.estado === "APROBADO" ? "aprobado" : "no se aprobó"}`, d: p.estado === "APROBADO" ? (p.tipo === "SERVICIO_BAJA" ? "Ya no figura en tu lote." : p.detalle.entrada === "si" ? "Entra solo por su matrícula en sus días y horario." : "Ya figura en tu lote.") : p.motivo || "Consultá con la administración.", tono: p.estado === "APROBADO" ? "chip-bien" : "chip-mal", accion: () => alIr("lote") });
+    for (const p of recien.filter((x) => !esSv(x))) tareas.push({ I: p.estado === "APROBADO" ? Check : X, t: `${p.chapa}: ${p.estado === "APROBADO" ? "aprobado" : "no se aprobó"}`, d: p.estado === "APROBADO" ? (p.tipo === "MATRICULA_BAJA" ? "Ya no abre el portón." : "La cámara ya la reconoce en la entrada.") : p.motivo || "Consultá con la administración.", tono: p.estado === "APROBADO" ? "chip-bien" : "chip-mal", accion: () => alIr("vehiculos") });
 
     return (
         <div>
@@ -303,8 +309,9 @@ function Vehiculos({ token, datos, alPedir, alCambiar }: { token: string; datos:
     const [sacando, setSacando] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const mias = datos.chapas.filter((c) => c.mia), delLote = datos.chapas.filter((c) => !c.mia);
-    const pendientes = datos.pedidos.filter((p) => p.estado === "PENDIENTE");
-    const resueltos = datos.pedidos.filter((p) => p.estado !== "PENDIENTE").slice(0, 6);
+    const deChapas = datos.pedidos.filter((p) => p.tipo.startsWith("MATRICULA"));
+    const pendientes = deChapas.filter((p) => p.estado === "PENDIENTE");
+    const resueltos = deChapas.filter((p) => p.estado !== "PENDIENTE").slice(0, 6);
     const bajaPedida = (c: string) => pendientes.some((p) => p.tipo === "MATRICULA_BAJA" && p.chapa === c);
     return (
         <div>
@@ -383,7 +390,11 @@ function Chapa({ p, apagada }: { p: string; apagada?: boolean }) {
 
 /* ═══════════════════════ Mi lote ═══════════════════════ */
 
-function MiLote({ datos }: { datos: MiPortal }) {
+function MiLote({ token, datos, alPedir, alCambiar }: { token: string; datos: MiPortal; alPedir: () => void; alCambiar: () => void }) {
+    const [bajando, setBajando] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const pedidosSv = datos.pedidos.filter((p) => p.tipo.startsWith("SERVICIO") && p.estado === "PENDIENTE");
+    const bajaPedida = (id: string) => pedidosSv.some((p) => p.tipo === "SERVICIO_BAJA" && p.detalle.servicioId === id);
     if (!datos.lote) return (
         <div><Titulo rotulo="Mi lote" titulo="Sin lote" bajada="Todavía no figurás en ningún lote. Pedile a la administración que te sume al tuyo." /></div>
     );
@@ -416,9 +427,24 @@ function MiLote({ datos }: { datos: MiPortal }) {
                 <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> Si falta alguien o algo está mal, corregilo en el censo del lote o avisale a la administración.</p>
             </section>
             <section className="mt-6">
-                <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Quiénes vienen a trabajar</h2>
+                <div className="mb-2 flex items-baseline gap-2">
+                    <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Quiénes vienen a trabajar</h2>
+                    <button type="button" onClick={alPedir} className="ml-auto inline-flex items-center gap-1 text-[13px] font-semibold text-[var(--accion)]"><Plus size={15} /> Sumar</button>
+                </div>
+                {error && <p className="mb-2 text-[13px] tono-mal">{error}</p>}
+                {pedidosSv.length > 0 && (
+                    <ul className="mb-2 space-y-2">
+                        {pedidosSv.map((p) => (
+                            <li key={p.id} className="flex items-center gap-3 rounded-[14px] border border-[color-mix(in_oklab,var(--info)_35%,transparent)] bg-[color-mix(in_oklab,var(--info)_5%,transparent)] p-3.5">
+                                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] chip-info"><Wrench size={16} /></span>
+                                <span className="min-w-0 flex-1"><span className="block truncate text-[14px] font-semibold">{TIPOS_SERVICIO.find((t) => t.id === p.detalle.tipo)?.rotulo || "Proveedor"}{p.detalle.nombre ? ` ${p.detalle.nombre}` : ""}</span><span className="block text-[12px] text-muted-foreground">{p.tipo === "SERVICIO_BAJA" ? "Pediste darlo de baja" : "Pediste sumarlo"} · espera a la administración</span></span>
+                                <button type="button" onClick={async () => { await anularPedido(token, p.id); alCambiar(); }} className="text-[12.5px] font-semibold text-muted-foreground underline-offset-2 hover:underline">Anular</button>
+                            </li>
+                        ))}
+                    </ul>
+                )}
                 {datos.servicios.length === 0 ? (
-                    <p className="rounded-[14px] border border-dashed border-border p-4 text-[13.5px] leading-snug text-muted-foreground">No hay servicios cargados. Si tenés jardinero, piscinero o limpieza, sumalos en el censo del lote: así la guardia sabe de qué lote son.</p>
+                    <button type="button" onClick={alPedir} className={cn("w-full rounded-[14px] border border-dashed border-border p-4 text-left text-[13.5px] leading-snug text-muted-foreground", PULSABLE)}>No hay proveedores cargados. Si tenés jardinero, piscinero o limpieza, <b className="text-[var(--accion)]">sumalos acá</b>: la guardia sabe de qué lote son y, si lo pedís, entran solos en su horario.</button>
                 ) : (
                     <ul className="divide-y divide-border rounded-[14px] border border-border bg-card">
                         {datos.servicios.map((sv) => (
@@ -428,12 +454,21 @@ function MiLote({ datos }: { datos: MiPortal }) {
                                     <span className="block truncate text-[14.5px] font-semibold">{sv.nombre || sv.rotulo}</span>
                                     <span className="block text-[12px] text-muted-foreground">{[sv.nombre ? sv.rotulo : null, sv.cuando || null].filter(Boolean).join(" · ") || "Sin días cargados"}</span>
                                 </span>
-                                {sv.chapa && <Chapa p={sv.chapa} />}
+                                <span className="flex shrink-0 flex-col items-end gap-1">
+                                    {sv.chapa && <Chapa p={sv.chapa} />}
+                                    {sv.entra && <span className="inline-flex items-center gap-1 rounded-full chip-bien px-2 py-0.5 text-[10.5px] font-bold"><DoorOpen size={10} /> Entra en su horario</span>}
+                                    {bajaPedida(sv.id) ? <span className="text-[11.5px] text-muted-foreground">Baja pedida</span> : bajando === sv.id ? (
+                                        <span className="flex gap-1.5">
+                                            <button type="button" onClick={async () => { setError(null); const r = await pedirBajaServicio(token, sv.id); setBajando(null); if (!r.ok) setError(r.error || "No se pudo."); alCambiar(); }} className="h-8 px-2.5 rounded-[8px] pleno-mal text-[12px] font-bold">Dejó de venir</button>
+                                            <button type="button" onClick={() => setBajando(null)} className="h-8 px-2 rounded-[8px] border border-border text-[12px]">No</button>
+                                        </span>
+                                    ) : <button type="button" onClick={() => setBajando(sv.id)} className="text-[12px] font-semibold text-muted-foreground">Dar de baja</button>}
+                                </span>
                             </li>
                         ))}
                     </ul>
                 )}
-                <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> Sirve para identificarlos en la guardia; no les abre el portón. Para cambiar algo, avisale a la administración.</p>
+                <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> La guardia sabe de qué lote son. Los que tienen «Entra en su horario» pasan solos por su matrícula en sus días y horas. Sumar o dar de baja es un pedido: lo aprueba la administración.</p>
             </section>
             {datos.otrosLotes.length > 0 && <p className="mt-4 text-[12.5px] text-muted-foreground">También figurás en: {datos.otrosLotes.join(", ")}.</p>}
             <section className="mt-6">
@@ -559,6 +594,42 @@ function HojaQr({ g, alCerrar }: { g: MyGuest; alCerrar: () => void }) {
                 {svg ? <div className="[&_svg]:h-auto [&_svg]:w-full" dangerouslySetInnerHTML={{ __html: svg }} role="img" aria-label={`QR de ${g.name || "invitado"}`} /> : <div className="grid aspect-square place-items-center"><Loader2 className="animate-spin text-[var(--accion)]" /></div>}
             </div>
             {g.plates.length > 0 && <p className="mt-3 text-center text-[13px] text-muted-foreground">Con la matrícula {g.plates.join(", ")} la cámara lo reconoce sola.</p>}
+        </Hoja>
+    );
+}
+
+/** Pedir un proveedor del lote (26/11): quién es, cuándo viene, en qué vehículo y si entra solo. */
+function HojaServicio({ token, alCerrar, alListo }: { token: string; alCerrar: () => void; alListo: () => void }) {
+    const [f, setF] = useState({ tipo: "JARDINERO", nombre: "", telefono: "", chapa: "", dias: [] as string[], desde: "", hasta: "", notas: "", entrada: false });
+    const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
+    const puedeEntrar = f.chapa.replace(/[^A-Z0-9]/g, "").length >= 5 && f.dias.length > 0;
+    return (
+        <Hoja titulo="Sumar un proveedor" bajada="Jardinero, piscinero, limpieza: la guardia va a saber de qué lote es. Queda como pedido hasta que la administración lo aprueba." alCerrar={alCerrar}
+            pie={<><Enviar ocupado={ocupado} disabled={!f.nombre.trim() && !f.chapa.trim()} onClick={async () => { setError(""); setOcupado(true); try { const r = await pedirServicio(token, { ...f, entrada: f.entrada && puedeEntrar }); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Plus size={18} /> Pedir que lo sumen</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+            <p className="mb-2 text-[13px] font-semibold">Qué hace</p>
+            <div className="mb-4 grid grid-cols-2 gap-2">
+                {TIPOS_SERVICIO.map((t) => (
+                    <button key={t.id} type="button" onClick={() => setF({ ...f, tipo: t.id })} className={cn("min-h-11 rounded-full border px-2 text-[13px] font-semibold", PULSABLE, f.tipo === t.id ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)] text-[var(--accion)]" : "border-border")}>{t.rotulo}</button>
+                ))}
+            </div>
+            <Campo etiqueta="Quién es"><input autoFocus value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} placeholder="Ramón Pérez, o la empresa" className={ENTRADA} /></Campo>
+            <div className="grid grid-cols-2 gap-2.5">
+                <Campo etiqueta="Teléfono (opcional)"><input value={f.telefono} onChange={(e) => setF({ ...f, telefono: e.target.value })} inputMode="tel" placeholder="099 123 456" className={ENTRADA} /></Campo>
+                <Campo etiqueta="Matrícula" ayuda="Si viene en vehículo"><input value={f.chapa} onChange={(e) => setF({ ...f, chapa: e.target.value.toUpperCase() })} placeholder="SBC1234" maxLength={10} className={cn(ENTRADA, "font-bold tracking-[0.12em]")} /></Campo>
+            </div>
+            <p className="mb-2 text-[13px] font-semibold">Qué días viene</p>
+            <div className="mb-4 flex flex-wrap gap-1.5">
+                {DIAS.map((d) => <button key={d} type="button" aria-pressed={f.dias.includes(d)} onClick={() => setF({ ...f, dias: f.dias.includes(d) ? f.dias.filter((x) => x !== d) : [...f.dias, d] })} className={cn("h-11 w-12 rounded-full border text-[13px] font-semibold capitalize", PULSABLE, f.dias.includes(d) ? "border-[var(--accion)] bg-[var(--accion)] text-white" : "border-border")}>{d}</button>)}
+            </div>
+            <div className="grid grid-cols-2 gap-2.5">
+                <Campo etiqueta="Desde"><input type="time" step={900} value={f.desde} onChange={(e) => setF({ ...f, desde: e.target.value })} className={ENTRADA} /></Campo>
+                <Campo etiqueta="Hasta"><input type="time" step={900} value={f.hasta} onChange={(e) => setF({ ...f, hasta: e.target.value })} className={ENTRADA} /></Campo>
+            </div>
+            <label className={cn("mb-4 flex items-start gap-3 rounded-[14px] border p-3.5", f.entrada && puedeEntrar ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_6%,transparent)]" : "border-border", !puedeEntrar && "opacity-60")}>
+                <input type="checkbox" className="mt-0.5 h-5 w-5 accent-[var(--accion)]" checked={f.entrada && puedeEntrar} disabled={!puedeEntrar} onChange={(e) => setF({ ...f, entrada: e.target.checked })} />
+                <span><span className="flex items-center gap-1.5 text-[14px] font-semibold"><DoorOpen size={15} /> Que entre solo en su horario</span><span className="block text-[12.5px] leading-snug text-muted-foreground">{puedeEntrar ? "La cámara lo reconoce por la matrícula esos días y a esa hora. Fuera de horario, la guardia lo consulta." : "Hacen falta la matrícula y los días que viene."}</span></span>
+            </label>
+            <Campo etiqueta="Algo para la guardia (opcional)"><input value={f.notas} onChange={(e) => setF({ ...f, notas: e.target.value })} placeholder="Viene con un ayudante" className={ENTRADA} /></Campo>
         </Hoja>
     );
 }

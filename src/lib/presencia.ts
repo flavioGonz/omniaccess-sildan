@@ -200,7 +200,9 @@ async function calcular(): Promise<Presencia> {
         const marcaManda = !!m && (!f || m.ts > f.t);
         let adentro: boolean, entrada: Date | null, visto: Date;
         if (marcaManda) { adentro = m!.estado === "ADENTRO"; entrada = m!.ts; visto = f ? f.t : m!.ts; }
-        else { adentro = !!f && (f.dir === "ENTRY" || (!!f.entrada && f.entrada >= f.t)); entrada = f?.entrada || f?.t || null; visto = f!.t; }
+        // Una lectura de una LPR de adentro (sentido INTERIOR, 26/11) no es una entrada, pero dice que el
+        // auto está adentro: si es lo último que se vio de esa chapa, cuenta como «visto adentro».
+        else { adentro = !!f && (f.dir === "ENTRY" || f.dir === "INTERIOR" || (!!f.entrada && f.entrada >= f.t)); entrada = f?.entrada || f?.t || null; visto = f!.t; }
         if (!adentro || !entrada) continue;
 
         const uid = duenoDe.get(p) || f?.userId || null;

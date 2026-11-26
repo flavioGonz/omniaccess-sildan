@@ -44,6 +44,8 @@ const ANONIMAS = new Set([
     "src/app/actions/portal-residente.ts#pedirMatricula",
     "src/app/actions/portal-residente.ts#pedirBajaMatricula",
     "src/app/actions/portal-residente.ts#anularPedido",
+    "src/app/actions/portal-residente.ts#pedirServicio",
+    "src/app/actions/portal-residente.ts#pedirBajaServicio",
 ]);
 
 /**

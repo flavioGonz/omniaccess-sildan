@@ -9,6 +9,7 @@ import {
     ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users, Sparkles, Image as ImageIcon,
     FolderTree, Plus,
     Siren, Trash2,
+    Waypoints,
 } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { leerAreas, crearArea, type Area } from "@/app/actions/areas";
@@ -935,12 +936,17 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         </>
     );
 
+    /* Tres sentidos (26/11, Nico: «falta definir matrículas tipo interiores o seguimiento LPR, para que no
+       compute entrada y salida»). Una LPR de adentro lee igual —queda en el historial, en el seguimiento
+       y en el monitor— pero no suma a «adentro ahora», no abre ni cierra visitas y no cuenta en el aforo. */
     const bloqueSentido = (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-3">
             <Opcion activa={f.direction === "ENTRY"} onClick={() => set("direction", "ENTRY")} icono={LogIn} titulo="Entrada" detalle="Lee a los que entran al barrio" color="bg-emerald-500/15 text-emerald-500"
                 ayuda="Aparece en la columna de entradas del monitor y suma a «adentro ahora». Ej.: carril de ingreso de la garita P1." />
             <Opcion activa={f.direction === "EXIT"} onClick={() => set("direction", "EXIT")} icono={LogOut} titulo="Salida" detalle="Lee a los que salen; cierra visitas" color="bg-orange-500/15 text-orange-500"
                 ayuda="Aparece en la columna de salidas y cierra las visitas abiertas de esa matrícula. Ej.: carril de egreso de la garita P1." />
+            <Opcion activa={f.direction === "INTERIOR"} onClick={() => set("direction", "INTERIOR")} icono={Waypoints} titulo="Interior" detalle="Seguimiento: lee pero no cuenta entradas ni salidas" color="bg-violet-500/15 text-violet-500"
+                ayuda="Una calle de adentro o un cruce: sus lecturas quedan en el historial y en el seguimiento de cada matrícula, pero no suman a «adentro ahora», no abren ni cierran visitas y no cuentan en el aforo. En el monitor aparece junto a las entradas, marcada «Interior»." />
         </div>
     );
 
@@ -1345,7 +1351,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                                 <span>Tipo: <b className="text-foreground">{OPCIONES_ALTA.find((o) => o.id === opcionAlta)?.rotulo || meta?.rotulo}</b></span><span>Fabricante: <b className="text-foreground">{f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}</b></span>
                                                 {tipo !== "NVR" && <span className="col-span-2">Modo: <b className="text-foreground">{tipo === "LPR_CAMERA" ? `${MODOS_LPR[modoLpr].rotulo}${modoLpr === "omnivision" ? (abre ? " · abre la barrera" : " · sólo registra") : ""}` : MODOS_INTRUSION[modoIntr].rotulo}</b></span>}
                                                 <span>Nombre: <b className="text-foreground">{f.name}</b></span><span>IP: <b className="text-foreground font-mono">{f.ip}{f.httpPort && f.httpPort !== "80" ? `:${f.httpPort}` : ""}</b>{tipo === "NVR" && f.port ? <> · RTSP <b className="text-foreground font-mono">{f.port}</b></> : null}</span>
-                                                {tipo === "LPR_CAMERA" && <><span>Sentido: <b className="text-foreground">{f.direction === "ENTRY" ? "Entrada" : "Salida"}</b></span><span>Grupo: <b className="text-foreground">{groups.find((g: any) => g.id === f.groupId)?.name || "sin grupo"}</b></span></>}
+                                                {tipo === "LPR_CAMERA" && <><span>Sentido: <b className="text-foreground">{f.direction === "ENTRY" ? "Entrada" : f.direction === "INTERIOR" ? "Interior" : "Salida"}</b></span><span>Grupo: <b className="text-foreground">{groups.find((g: any) => g.id === f.groupId)?.name || "sin grupo"}</b></span></>}
                                                 {tipo !== "NVR" && <span className="col-span-2">Grabación: <b className={cn(grabacionElegida ? "text-foreground" : "text-amber-600")}>{grabacionElegida ? `${grabacionElegida.nvrNombre} · canal ${grabacionElegida.ch}` : "sin grabaciones"}</b></span>}
                                                 {tipo === "NVR" && <span className="col-span-2">Cámaras: <b className="text-foreground">{resumenCanales.lpr} LPR · {resumenCanales.intr} intrusión · {resumenCanales.ya} se vinculan</b></span>}
                                                 {tipo === "NVR" && <span>Área: <b className="text-foreground">{areaId !== "none" ? caminoArea(areaId) : "sin área"}</b></span>}
@@ -1464,7 +1470,7 @@ function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNo
                     <p className="text-[12px] text-white/75 truncate drop-shadow">{subtitulo}</p>
                     <div className="flex items-center gap-1.5 mt-2">
                         {meta && <span className={chip}><meta.icono size={12} /> {meta.rotulo}</span>}
-                        {tipo === "LPR_CAMERA" && <span className={cn(chip, f.direction === "EXIT" ? "!bg-orange-500/80" : "!bg-emerald-600/80")}>{f.direction === "EXIT" ? "Salida" : "Entrada"}</span>}
+                        {tipo === "LPR_CAMERA" && <span className={cn(chip, f.direction === "EXIT" ? "!bg-orange-500/80" : f.direction === "INTERIOR" ? "!bg-violet-600/80" : "!bg-emerald-600/80")}>{f.direction === "EXIT" ? "Salida" : f.direction === "INTERIOR" ? "Interior" : "Entrada"}</span>}
                         {esVideo && listo && <span className={cn(chip, "!bg-red-600/85")}><span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> EN VIVO</span>}
                     </div>
                 </div>
