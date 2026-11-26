@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { observacion, perfilDe, noSeParece, rectDeDetalles, type ObjetoVisto, type PerfilVision } from "@/lib/perfil-vision";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
 import { normalizarMatricula } from "@/lib/lista-negra";
@@ -66,6 +67,9 @@ function perfilDePasos(pasos: { timestamp: Date; direction: string | null }[], p
     };
 }
 
+/** Cuántas lecturas anteriores arman el perfil de OmniVision: las últimas, de los últimos 90 días. */
+const PERFIL_LECTURAS = 60;
+
 export async function GET(req: NextRequest) {
     const auth = await verifyApiAuth();
     if (!auth.authenticated) return unauthorizedResponse();
@@ -75,7 +79,7 @@ export async function GET(req: NextRequest) {
     let plate = normalizarMatricula(sp.get("plate"));
 
     const [evento, analisis, relecturas] = eventoId ? await Promise.all([
-        prisma.accessEvent.findUnique({ where: { id: eventoId }, select: { userId: true, deviceId: true, location: true, device: { select: { name: true } } } }).catch(() => null),
+        prisma.accessEvent.findUnique({ where: { id: eventoId }, select: { userId: true, deviceId: true, location: true, details: true, device: { select: { name: true } } } }).catch(() => null),
         prisma.analisisFoto.findUnique({ where: { accessEventId: eventoId }, select: { estado: true, analisis: true } }).catch(() => null),
         relecturasDe([eventoId], (clave) => `/api/vision/imagen/${clave}`).catch(() => new Map()),
     ]) : [null, null, new Map()];
@@ -122,6 +126,23 @@ export async function GET(req: NextRequest) {
 
     const an = analisis?.estado === "OK" ? (analisis.analisis as any) : null;
 
+    /*
+     * Cómo es el vehículo de esta chapa según OmniVision (lib/perfil-vision): la mayoría de color y
+     * carrocería de sus lecturas anteriores, y si ESTA lectura no se le parece. El padrón casi
+     * nunca tiene color ni carrocería: esto sale de las propias fotos.
+     */
+    let perfilVision: (PerfilVision & { noSeParece: { color: string; carroceria: string } | null; esta: { color: string | null; carroceria: string | null } | null }) | null = null;
+    if (conChapa) {
+        const previas = await prisma.$queryRaw<{ id: string; analisis: { objetos?: ObjetoVisto[] } | null; details: string | null }[]>`
+            SELECT e.id, a.analisis, e.details FROM "AnalisisFoto" a JOIN "AccessEvent" e ON e.id = a."accessEventId"
+             WHERE a.estado = 'OK' AND e."plateDetected" = ${plate} AND e.timestamp >= now() - interval '90 days'
+             ORDER BY e.timestamp DESC LIMIT ${PERFIL_LECTURAS}`.catch(() => []);
+        const obs = previas.filter((f) => f.id !== eventoId).map((f) => observacion(f.analisis?.objetos || [], rectDeDetalles(f.details))).filter((o): o is NonNullable<typeof o> => !!o);
+        const p = perfilDe(obs);
+        const esta = an ? observacion(an.objetos || [], rectDeDetalles(evento?.details)) : null;
+        if (p.lecturas || esta) perfilVision = { ...p, noSeParece: noSeParece(esta, p), esta: esta ? { color: esta.color, carroceria: esta.carroceria } : null };
+    }
+
     // El comportamiento: los pasos (con foto, para la tira) y la franja día × hora (para el mapa de calor).
     const desdeComp = new Date(Date.now() - COMPORTAMIENTO_DIAS * 86_400_000);
     const [pasos, franjaFilas, perfil, primerPaso] = conChapa ? await Promise.all([
@@ -165,5 +186,6 @@ export async function GET(req: NextRequest) {
         relectura,
         empresa,
         comportamiento,
+        perfilVision,
     }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -11,7 +11,7 @@ import {
     Scan, Car, Home, ParkingSquare, ShieldAlert, Star, Search as Lupa,
     UserPlus, Radio, LogIn, LogOut, Image as IconoFoto, Video, Eye, EyeOff,
     PlayCircle, Download, Archive, ShieldBan, ScanFace, Sparkles, Activity, GalleryHorizontal, Cctv, Undo2, Share2, ScanSearch,
-    Repeat, Siren,
+    Repeat, Siren, TriangleAlert,
 } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { REQUERIDA_CORTA, REQUERIDA_POLICIA, esRequerida } from "@/lib/min-interior";
@@ -154,6 +154,14 @@ export type DatosVisor = {
     empresa?: { nombre: string; logo: string; transparente: boolean } | null;
     /** Los pasos de la chapa en los últimos días y cuándo se la ve (panel «Comportamiento»). */
     comportamiento?: ComportamientoVisor | null;
+    /** Cómo se ve el vehículo de la chapa según OmniVision, y si esta lectura no se le parece (lib/perfil-vision). */
+    perfilVision?: {
+        lecturas: number; fuerte: boolean;
+        color: { valor: string; veces: number; de: number } | null;
+        carroceria: { valor: string; veces: number; de: number } | null;
+        noSeParece: { color: string; carroceria: string } | null;
+        esta: { color: string | null; carroceria: string | null } | null;
+    } | null;
 };
 
 /**
@@ -354,6 +362,7 @@ export function VisorCuadro({
      */
     const [verSiluetas, setVerSiluetas] = useSiluetas();
     const vision = datos?.vision && datos.vision.objetos?.length ? datos.vision : null;
+    const pv = datos?.perfilVision || null;
     const [copiada, setCopiada] = useState(false);
     /**
      * Sin nada encima. Mirando el vivo (o una foto) a veces lo que estorba es la ficha, la
@@ -1220,6 +1229,21 @@ export function VisorCuadro({
                                     {/* "Peugeot gris" cargado por el administrador y adivinado por una
                                         cámara no valen lo mismo: se dice de dónde salió. */}
                                     {deLaCamara && <span className="text-white/45 italic">{[modelo, color, tipoVeh].some(Boolean) ? " · " : ""}según la cámara</span>}
+                                </p>
+                            )}
+                            {/* Cómo se ve siempre este vehículo según OmniVision: lo aprende de sus propias
+                                lecturas (el padrón casi nunca tiene color ni carrocería). */}
+                            {pv && pv.lecturas >= 3 && (pv.color || pv.carroceria) && (
+                                <p className="mt-1 flex items-center gap-1 truncate text-[11.5px] text-white/55" title={`Lo más visto en ${pv.lecturas} lecturas con análisis de OmniVision`}>
+                                    <Sparkles size={11} className="shrink-0 text-[var(--accion-en-oscuro)]" />
+                                    <span className="truncate">Suele verse {[pv.color?.valor, pv.carroceria?.valor].filter(Boolean).join(" · ")}
+                                        <span className="text-white/40"> · {Math.max(pv.color?.veces || 0, pv.carroceria?.veces || 0)} de {pv.lecturas}</span></span>
+                                </p>
+                            )}
+                            {pv?.noSeParece && (
+                                <p className="mt-1.5 inline-flex max-w-full items-start gap-1.5 rounded-[6px] bg-amber-500/15 px-2 py-1 text-[11.5px] leading-snug text-amber-200">
+                                    <TriangleAlert size={12} className="mt-0.5 shrink-0" />
+                                    <span>Acá se ve {pv.noSeParece.color} · {pv.noSeParece.carroceria}. Puede ser otra chapa o una mala lectura: mirá la foto.</span>
                                 </p>
                             )}
                         </div>
