@@ -48,6 +48,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { normalizarChapa } = require("./lib-chapa");
+const geometriaLpr = require("./lib-geometria-lpr");
 const { uploadToS3 } = require("./lib-s3");
 const sharp = require("sharp");
 const { PrismaClient } = require("@prisma/client");
@@ -422,7 +423,7 @@ async function camaras() {
             select: {
                 id: true, name: true, rtspUrl: true, ip: true, username: true, password: true,
                 trackScene: true, trackRoi: true, trackMinConf: true, trackFps: true, trackTrigger: true,
-                trackLine: true, trackAcceso: true, direction: true,
+                trackLine: true, trackAcceso: true, direction: true, lprGeometria: true,
             },
         });
         // Los de un área apagada (Dispositivos, lib/apagado.ts) no se leen.
@@ -452,6 +453,9 @@ async function camaras() {
                 confianza: d.trackMinConf ?? undefined,
                 fps: d.trackFps ?? undefined,
                 disparo: d.trackTrigger || "escena",
+                // Carriles, zonas de captura y lineas de cruce (lib-geometria-lpr, 26/11). null =
+                // sin geometria o apagada: decide la compuerta de siempre.
+                geo: geometriaLpr.leerGeometria(d.lprGeometria),
                 // Una interior que mira un acceso reporta sus lecturas como ENTRY/EXIT, no
                 // como INTERNAL: es lo que las distingue de un auto pasando por una calle.
                 tipoEvento: d.trackAcceso && (d.direction === "ENTRY" || d.direction === "EXIT") ? d.direction : "INTERNAL",
@@ -579,6 +583,14 @@ function dentroDeLaZona(recuadro, roi) {
  * algo de verdad: la que esta activa es la que filtra. Sin recuadro no se filtra nada
  * -- mejor una lectura de mas que una camara que se calla sola por un cambio del lector.
  */
+/** El rebote de la geometria de lectura: chapa|elemento -> cuando se acepto, por camara. */
+const REBOTES = new Map();
+function memoriaRebote(cam) {
+    const k = cam.deviceId || cam.name;
+    if (!REBOTES.has(k)) REBOTES.set(k, new Map());
+    return REBOTES.get(k);
+}
+
 function compuerta(recuadro, cam) {
     if (!recuadro) return { pasa: true, motivo: "sin recuadro" };
     if (cam.disparo === "linea" && cam.linea) {
@@ -872,7 +884,8 @@ async function avisarAvistamiento(cam, lectura, url) {
             cameraName: cam.name,
             lat: cam.lat ?? null,
             lng: cam.lng ?? null,
-            eventType: cam.tipoEvento || "INTERNAL",
+            // Un carril «entra» o «sale» dice el sentido de ESA lectura (una camara que mira las dos manos).
+            eventType: lectura.tipoEvento || cam.tipoEvento || "INTERNAL",
             snapshotUrl: url,
             timestamp: new Date().toISOString(),
         }),
@@ -1158,14 +1171,30 @@ async function resolverRafaga(est) {
 
             // Zona o linea, la que el calibrador tenga elegida. Se mira donde cayo la chapa
             // de este vehiculo, no el cuadro entero.
-            const puerta = compuerta(mejor.recuadro, cam);
+            //
+            // Con geometria de lectura (carriles, zonas de captura, lineas de cruce; 26/11) decide
+            // esa, con el movimiento del vehiculo en la rafaga. Sin geometria, la de siempre.
+            let puerta, tipoCarril = null, recuadroEnvio = mejor.recuadro || null;
+            if (cam.geo) {
+                const enteras = candidatas.map((l) => ({ ...l, recuadro: geometriaLpr.aCuadroEntero(l.recuadro, cam.roi) }));
+                recuadroEnvio = geometriaLpr.aCuadroEntero(mejor.recuadro, cam.roi) || null;
+                puerta = geometriaLpr.evaluarGeometria(cam.geo, recuadroEnvio, geometriaLpr.movimiento(enteras));
+                if (puerta.pasa && geometriaLpr.esRebote(memoriaRebote(cam), cam.geo, v.plate, puerta.elemento)) {
+                    yaVistas.add(v.plate);
+                    log(`${cam.name}: ${v.plate} rebote en ${puerta.nombre || puerta.motivo} (ya leida hace menos de ${cam.geo.rebote} s)`);
+                    continue;
+                }
+                if (puerta.sentido && (cam.tipoEvento === "ENTRY" || cam.tipoEvento === "EXIT")) tipoCarril = geometriaLpr.tipoPorSentido(puerta.sentido);
+                if (puerta.nombre) puerta = { ...puerta, motivo: `${puerta.motivo} ${puerta.nombre}` };
+            } else puerta = compuerta(mejor.recuadro, cam);
 
             const url = await guardarCuadro(cuadros[mejor.cuadro] || cuadros[0], v.plate);
             const resp = await avisarAvistamiento(cam, {
                 ...v,
-                recuadro: mejor.recuadro || null,
+                recuadro: recuadroEnvio,
                 enPuerta: puerta.pasa,
                 puerta: puerta.motivo,
+                tipoEvento: tipoCarril,
             }, url);
 
             if (resp.ignorado === "fuera de la zona") {

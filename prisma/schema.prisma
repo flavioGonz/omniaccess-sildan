@@ -416,6 +416,10 @@ model Device {
   // del cuadro. Una linea es mejor que una zona para una calle: dispara en el instante
   // del cruce, y un auto estacionado adentro del encuadre deja de importar.
   trackLine       String?
+  /// Carriles, zonas de captura y líneas de cruce de la lectura de OmniVision (26/11,
+  /// lib-geometria-lpr.js). JSON en fracciones del cuadro entero. Null o `activa:false` = la
+  /// compuerta de siempre (trackRoi / trackLine): las dos conviven.
+  lprGeometria    String?
   trackMinConf    Float?
   trackFps        Float?
   // Una camara interior que mira un ACCESO. La camara no tiene ANPR propio (es de

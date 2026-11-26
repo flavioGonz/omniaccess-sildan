@@ -17,7 +17,7 @@ export const EQUIPO_PUBLICO = {
     id: true, name: true, deviceType: true, brand: true, deviceModel: true, modelPhoto: true, brandLogo: true,
     ip: true, mac: true, firmware: true, comprobadoAt: true, port: true, location: true, direction: true, doorStatus: true, authType: true,
     lastOnlinePull: true, lastOnlinePush: true, floorPlanId: true, mapX: true, mapY: true,
-    trackScene: true, trackEnabled: true, trackRoi: true, trackTrigger: true, trackLine: true, trackMinConf: true, trackFps: true,
+    trackScene: true, trackEnabled: true, trackRoi: true, trackTrigger: true, trackLine: true, lprGeometria: true, trackMinConf: true, trackFps: true,
     trackAcceso: true, lprVerifica: true, lprAbre: true, intrusionModo: true, intrusionEnabled: true, intrusionGeometry: true,
     createdAt: true, updatedAt: true,
 } as const;

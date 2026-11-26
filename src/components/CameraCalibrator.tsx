@@ -1,6 +1,7 @@
 "use client";
 
 import { ControlesLente } from "@/components/devices/LenteYLecturas";
+import { GeometriaLectura } from "@/components/calibrador/GeometriaLectura";
 import { modoLprDe } from "@/lib/modo-camara";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -15,7 +16,7 @@ const toast = {
 import {
     Wand2, Timer, Signal, Layers, Sun, ShieldCheck, Moon, Focus, Car,
     X, Check, RefreshCw, Maximize2, Volume2, AlertTriangle, Sparkles,
-    SquareDashed, Save, RotateCcw, Crosshair,
+    SquareDashed, Save, RotateCcw, Crosshair, Route,
 } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 
@@ -192,6 +193,8 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
     const [videoNonce, setVideoNonce] = useState(0);
     // Editor de región ANPR (línea de captura)
     const [regionMode, setRegionMode] = useState(false);
+    /** Carriles, zonas de captura y líneas de cruce de la lectura de OmniVision (26/11, components/calibrador/GeometriaLectura). */
+    const [geoMode, setGeoMode] = useState(false);
     const [region, setRegion] = useState<any>(null);
     const [regionLoading, setRegionLoading] = useState(false);
     const [regionSaving, setRegionSaving] = useState(false);
@@ -222,10 +225,10 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
 
     useEffect(() => { loadCfg(); }, [loadCfg]);
     useEffect(() => {
-        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { if (geoMode) setGeoMode(false); else onClose(); } };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [onClose]);
+    }, [onClose, geoMode]);
 
     async function applySingle(ctl: Ctl, action: any) {
         setBusy(ctl.key); setConfirm(null);
@@ -326,7 +329,8 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
                     <LiveVideo key={`${streamName}-${videoNonce}`} streamName={streamName} deviceId={device.id} />
                     {/* Zoom y foco del lente (21/10, Nico: «agregar el zoom también acá, para acercar o alejar
                         el lente»): los mismos controles que la ficha del equipo, sobre el video que se calibra. */}
-                    {!regionMode && <ControlesLente deviceId={device.id} className="z-20" />}
+                    {!regionMode && !geoMode && <ControlesLente deviceId={device.id} className="z-20" />}
+                    {geoMode && <GeometriaLectura deviceId={device.id} nombre={device.name} onCerrar={() => setGeoMode(false)} />}
 
                     {/* ── Editor de región ANPR (línea de captura) ── */}
                     {regionMode && (
@@ -429,7 +433,7 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
                         <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" /></span>
                         <span className="text-[10px] font-bold text-white uppercase tracking-wide">Calibración</span>
                         <span className="text-[10px] text-white/70">· {device.name}</span>
-                        {esOmni && <span className="text-[10px] font-semibold text-sky-300">· Lectura OmniVision (sin ANPR): se calibra la imagen</span>}
+                        {esOmni && <span className="text-[10px] font-semibold text-sky-300">· Lectura OmniVision (sin ANPR): imagen, y carriles y líneas de lectura</span>}
                     </div>
                     <button onClick={onClose} className="absolute top-3 right-3 h-9 w-9 rounded-full bg-black/50 backdrop-blur-md text-white/90 hover:bg-black/70 flex items-center justify-center transition-colors z-10"><X size={18} /></button>
 
@@ -560,6 +564,20 @@ export function CameraCalibrator({ device, onClose }: { device: any; onClose: ()
                             );
                         })}
 
+                        {/* La lectura de OmniVision lee lo que ve: con carriles, zonas y líneas se le dice qué mirar (26/11). */}
+                        {esOmni && <div className="w-px h-10 bg-white/10 mx-1 shrink-0" />}
+                        {esOmni && <button
+                            onClick={() => setGeoMode((v) => !v)}
+                            className={[
+                                "shrink-0 flex items-center gap-2 px-3 h-14 rounded-xl border transition active:scale-95",
+                                geoMode ? "bg-emerald-500/20 border-emerald-400/50 text-emerald-200" : "bg-white/[0.05] border-white/10 text-white/80 hover:bg-white/[0.1]",
+                            ].join(" ")}>
+                            <Route size={20} />
+                            <div className="text-left leading-tight">
+                                <div className="text-xs font-bold">Carriles y líneas</div>
+                                <div className="text-[9px] font-semibold opacity-70">Dónde y hacia dónde leer</div>
+                            </div>
+                        </button>}
                         {!esOmni && <div className="w-px h-10 bg-white/10 mx-1 shrink-0" />}
                         {!esOmni && <button
                             onClick={() => (regionMode ? closeRegion() : openRegion())}
