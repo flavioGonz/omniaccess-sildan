@@ -77,7 +77,7 @@ export function Calibrador({ device, modulo: inicial, onClose }: { device: { id:
 
     const refrescar = useCallback(() => setNonce(Date.now()), []);
     const mImagen = useImagen(device.id, !!disp?.imagen.ok && activo === "imagen", !!disp?.anpr, refrescar);
-    const mLectura = useLecturaOmni(device.id, !!disp?.lectura.ok && activo === "lectura");
+    const mLectura = useLecturaOmni(device.id, !!disp?.lectura.ok && activo === "lectura", eq ? { direction: eq.direction, trackAcceso: eq.trackAcceso } : null);
     const mIntr = useIntrusion(device.id, !!disp?.intrusion.ok && activo === "intrusion", eq?.deviceType === "CAMERA");
     const mods: Record<ModuloId, Modulo> = { imagen: mImagen, lectura: mLectura, intrusion: mIntr };
     const m = activo ? mods[activo] : null;

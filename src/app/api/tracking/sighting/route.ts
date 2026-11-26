@@ -150,10 +150,17 @@ export async function POST(req: NextRequest) {
     // Lo que leyó omni-lpr, al instante y aunque después se descarte (17/10): la cabecera de la
     // cámara en Dispositivos lo muestra sobre el video («ver qué lee rápidamente»). No suma
     // inferencias: es la lectura que el seguimiento ya hizo.
+    // Con el recorrido de la chapa en el cuadro y el veredicto de la geometría (26/11): el calibrador
+    // dibuja la caja siguiendo a la chapa y dice qué carril la tomó, o por qué no.
+    const enCuadro = (r: unknown) => { const q = r as { x?: unknown; y?: unknown; w?: unknown; h?: unknown } | null; return q && [q.x, q.y, q.w, q.h].every((n) => typeof n === "number" && Number.isFinite(n)) ? { x: q.x as number, y: q.y as number, w: q.w as number, h: q.h as number } : null; };
+    const trayectoria = Array.isArray(body.trayectoria) ? body.trayectoria.slice(0, 16).map(enCuadro).filter(Boolean) : [];
     if (body.deviceId) avisarPorSocket("lectura_lpr", {
         deviceId: String(body.deviceId), plate: patente, confianza, fuente: "omni-lpr",
         baja: confianza != null && confianza < minimo, ts: body.timestamp || new Date().toISOString(),
+        trayectoria, veredicto: body.veredicto && typeof body.veredicto === "object" ? body.veredicto : null,
     });
+    // Un rebote: sólo para verlo en vivo, no se guarda.
+    if (body.soloVista) return NextResponse.json({ ok: true, ignorado: "solo vista" }, { status: 202 });
     if (confianza != null && confianza < minimo) {
         return NextResponse.json({ ok: true, ignorado: "confianza baja", confianza }, { status: 202 });
     }

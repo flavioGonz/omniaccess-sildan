@@ -869,6 +869,17 @@ async function guardarCuadro(jpeg, patente) {
     } catch { return null; }
 }
 
+/** Una lectura que no se guarda (rebote) pero que el calibrador en vivo tiene que ver. */
+async function avisarSoloVista(cam, v, trayectoria, veredicto) {
+    try {
+        await fetch(`${APP_URL}/api/tracking/sighting`, {
+            method: "POST", headers: { "Content-Type": "application/json", "x-tracking-token": token },
+            body: JSON.stringify({ soloVista: true, plate: v.plate, confidence: v.confidence, deviceId: cam.deviceId || null, trayectoria, veredicto, timestamp: new Date().toISOString() }),
+            signal: AbortSignal.timeout(5000),
+        });
+    } catch { }
+}
+
 async function avisarAvistamiento(cam, lectura, url) {
     const r = await fetch(`${APP_URL}/api/tracking/sighting`, {
         method: "POST",
@@ -879,6 +890,8 @@ async function avisarAvistamiento(cam, lectura, url) {
             reads: lectura.reads,
             bbox: lectura.recuadro || null,
             enPuerta: lectura.enPuerta !== false,
+            trayectoria: lectura.trayectoria || null,
+            veredicto: lectura.veredicto || null,
             puerta: lectura.puerta || null,
             deviceId: cam.deviceId || null,
             cameraName: cam.name,
@@ -1175,6 +1188,10 @@ async function resolverRafaga(est) {
             // Con geometria de lectura (carriles, zonas de captura, lineas de cruce; 26/11) decide
             // esa, con el movimiento del vehiculo en la rafaga. Sin geometria, la de siempre.
             let puerta, tipoCarril = null, recuadroEnvio = mejor.recuadro || null;
+            // El recorrido de la chapa en la rafaga, en el cuadro entero: el calibrador lo dibuja en
+            // vivo (la caja siguiendo a la chapa) y se ve con que movimiento se decidio el sentido.
+            const trayectoria = candidatas.filter((l) => l.recuadro).sort((a, b) => a.cuadro - b.cuadro).slice(-12)
+                .map((l) => geometriaLpr.aCuadroEntero(l.recuadro, cam.roi)).filter(Boolean);
             if (cam.geo) {
                 const enteras = candidatas.map((l) => ({ ...l, recuadro: geometriaLpr.aCuadroEntero(l.recuadro, cam.roi) }));
                 recuadroEnvio = geometriaLpr.aCuadroEntero(mejor.recuadro, cam.roi) || null;
@@ -1182,6 +1199,8 @@ async function resolverRafaga(est) {
                 if (puerta.pasa && geometriaLpr.esRebote(memoriaRebote(cam), cam.geo, v.plate, puerta.elemento)) {
                     yaVistas.add(v.plate);
                     log(`${cam.name}: ${v.plate} rebote en ${puerta.nombre || puerta.motivo} (ya leida hace menos de ${cam.geo.rebote} s)`);
+                    // No se guarda, pero el calibrador en vivo lo muestra: si no, un rebote parece una chapa que no se leyo.
+                    void avisarSoloVista(cam, v, trayectoria, { pasa: false, motivo: "rebote", nombre: puerta.nombre || null, sentido: puerta.sentido || null });
                     continue;
                 }
                 if (puerta.sentido && (cam.tipoEvento === "ENTRY" || cam.tipoEvento === "EXIT")) tipoCarril = geometriaLpr.tipoPorSentido(puerta.sentido);
@@ -1195,6 +1214,8 @@ async function resolverRafaga(est) {
                 enPuerta: puerta.pasa,
                 puerta: puerta.motivo,
                 tipoEvento: tipoCarril,
+                trayectoria,
+                veredicto: { pasa: puerta.pasa, motivo: String(puerta.motivo || "").split(" ")[0], nombre: puerta.nombre || null, sentido: puerta.sentido || null, geometria: !!cam.geo },
             }, url);
 
             if (resp.ignorado === "fuera de la zona") {

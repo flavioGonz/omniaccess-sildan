@@ -7,6 +7,7 @@ import { Route, Square, Minus, Crop, Crosshair, Gauge, Sparkles, ScanLine, Arrow
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { cn } from "@/lib/utils";
 import type { Forma, Pt } from "@/components/calibrador/Lienzo";
+import { CapaEnVivo, ListaEnVivo, useLecturasVivas } from "@/components/calibrador/EnVivo";
 import { BotonPanel, Deslizador, Pildoras, Seccion, TarjetaElemento, Vacio, type HerramientaDock, type Modulo } from "@/components/calibrador/piezas";
 
 /**
@@ -49,7 +50,10 @@ const MODOS: { id: ModoDisparo; t: string; d: string; icono: typeof Minus }[] = 
     { id: "escena", t: "Por cambio de imagen", d: "Lo decide el servidor mirando si la imagen cambió. Anda con cualquier cámara, pero se despierta con sombras: pide un buen recorte.", icono: Gauge },
 ];
 
-export function useLecturaOmni(deviceId: string, activo: boolean): Modulo {
+export function useLecturaOmni(deviceId: string, activo: boolean, equipo?: { direction: string; trackAcceso: boolean } | null): Modulo {
+    // Las lecturas en vivo (components/calibrador/EnVivo): prendidas por defecto, no gastan GPU.
+    const [verVivo, setVerVivo] = useState(true);
+    const vivo = useLecturasVivas(deviceId, activo && verVivo);
     const [estado, setEstado] = useState<Estado | null>(null);
     const [original, setOriginal] = useState("");
     const [modo, setModo] = useState<ModoDisparo>("escena");
@@ -188,6 +192,10 @@ export function useLecturaOmni(deviceId: string, activo: boolean): Modulo {
     ];
 
     const panel = !estado || !g ? <div className="flex items-center gap-2 p-5 text-[12.5px] text-white/60"><Loader2 size={14} className="animate-spin" /> Leyendo la calibración…</div> : (<>
+        <Seccion titulo="En vivo" icono={Eye} ayuda="Las lecturas que hace OmniVision con esta cámara, apenas pasan: la caja sigue a la chapa y dice qué carril la tomó, o por qué no.">
+            <ListaEnVivo lecturas={vivo.lecturas} conectado={vivo.conectado} activo={verVivo} cambiar={setVerVivo} />
+        </Seccion>
+
         <Seccion titulo="Dónde leer" icono={Layers} ayuda="Lo dibujado sobre la imagen. Tocá un elemento para ajustarlo; las herramientas están abajo de la escena."
             accion={<button type="button" onClick={() => setVerPuntos((v) => !v)} title="Dónde se leyeron chapas en las últimas 48 h" className="inline-flex h-6 items-center gap-1 rounded-full bg-white/[0.06] px-2 text-[10.5px] font-semibold text-white/70 hover:bg-white/[0.12]">{verPuntos ? <EyeOff size={11} /> : <Eye size={11} />} lecturas {puntos.length}</button>}>
             <label className="flex cursor-pointer items-center gap-2.5 rounded-[10px] bg-white/[0.04] px-3 py-2.5">
@@ -197,6 +205,12 @@ export function useLecturaOmni(deviceId: string, activo: boolean): Modulo {
                     <span className="block text-[11px] text-white/50">{g.activa ? "Con algo dibujado, OmniVision lee sólo eso." : "Apagado: lee todo el recorte, como antes."}</span>
                 </span>
             </label>
+            {/* Un carril «Entra»/«Sale» marca la entrada o la salida sólo en una cámara de acceso (tracking-worker). */}
+            {g.carriles.some((c) => c.sentido !== "ambos") && equipo && !(equipo.trackAcceso && (equipo.direction === "ENTRY" || equipo.direction === "EXIT")) && (
+                <p className="rounded-[10px] border border-amber-400/25 bg-amber-400/[0.07] px-3 py-2.5 text-[11.5px] leading-snug text-amber-100/90">
+                    Esta cámara está como <b>{equipo.direction === "INTERIOR" ? "Interior" : "seguimiento"}</b>: los carriles con sentido descartan los de contramano, pero <b>no</b> marcan entradas ni salidas. Para que cuenten, en su ficha poné el sentido en Entrada o Salida (cualquiera de los dos: cada carril manda en lo suyo).
+                </p>
+            )}
             {g.carriles.length + g.zonas.length + g.lineas.length === 0 && esTodo(estado.roi) && !estado.linea
                 ? <Vacio>Todavía no hay nada dibujado: OmniVision lee todo el cuadro. Elegí <b className="text-white/80">Carril</b>, <b className="text-white/80">Zona</b> o <b className="text-white/80">Línea</b> abajo y tocá sobre la imagen. Los puntos blancos son donde se leyeron chapas: dibujá encima.</Vacio>
                 : (
@@ -284,11 +298,12 @@ export function useLecturaOmni(deviceId: string, activo: boolean): Modulo {
         )}
     </>);
 
-    const capa = verPuntos && puntos.length > 0 ? (
+    const capaPuntos = verPuntos && puntos.length > 0 ? (
         <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 1000 1000" preserveAspectRatio="none">
             {puntos.map((p, i) => <ellipse key={i} cx={p.x * 1000} cy={p.y * 1000} rx={3.2} ry={5.4} fill={p.quieto ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.75)"} stroke="rgba(0,0,0,0.5)" strokeWidth={0.8} vectorEffect="non-scaling-stroke" />)}
         </svg>
     ) : null;
+    const capa = <>{capaPuntos}{verVivo && <CapaEnVivo vivas={vivo.vivas} ahora={vivo.ahora} />}</>;
 
     return {
         disponible: true, formas, seleccion, setSeleccion, herramienta, setHerramienta, dock, alCrear, alCambiar, alBorrar, capa, panel,
