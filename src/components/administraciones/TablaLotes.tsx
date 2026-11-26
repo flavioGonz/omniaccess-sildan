@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { MapPinned } from "lucide-react";
+import { MapPinned, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Chip } from "@/components/ui/estados";
 import { Matricula } from "@/components/ui/celdas";
@@ -50,8 +50,8 @@ export function TablaLotes({ filas, alAbrir, filtro, alFiltrar: setFiltro, conAd
         const t = q.trim().toLowerCase(), chapa = soloLetras(t), digitos = t.replace(/\D/g, "");
         return todos.filter((l) => (filtro === "todos" || (filtro === "gente" && l.personas.length > 0) || (filtro === "sin" && !l.situacion && !l.personas.length) || (filtro === "terrenos" && l.situacion === "TERRENO"))
             && (!t
-                || [l.nombre, l.titular, l.edificio, l.observaciones, l.administracion?.nombre, ...l.personas.flatMap((p) => [p.nombre, p.email])].some((x) => (x || "").toLowerCase().includes(t))
-                || (chapa.length >= 3 && (l.chapas || []).some((c) => soloLetras(c).includes(chapa)))
+                || [l.nombre, l.titular, l.edificio, l.observaciones, l.administracion?.nombre, ...l.personas.flatMap((p) => [p.nombre, p.email]), ...(l.servicios || []).map((sv) => sv.rotulo)].some((x) => (x || "").toLowerCase().includes(t))
+                || (chapa.length >= 3 && [...(l.chapas || []), ...(l.servicios || []).map((sv) => sv.chapa || "")].some((c) => c && soloLetras(c).includes(chapa)))
                 || (digitos.length >= 4 && l.personas.some((p) => (p.telefono || "").replace(/\D/g, "").includes(digitos)))));
     }, [todos, q, filtro]);
     const cols = useMemo<ColumnaTabla<LoteAdm>[]>(() => [
@@ -70,7 +70,9 @@ export function TablaLotes({ filas, alAbrir, filtro, alFiltrar: setFiltro, conAd
                         <span className={cn("truncate", p.principal && "font-semibold")}>{p.nombre}</span><span className="shrink-0 text-[11px] text-muted-foreground">{VINCULO[p.vinculo] || p.vinculo}{p.principal ? " · principal" : ""}</span>
                     </li>))}</ul>) },
         ...(conAdministracion ? [{ clave: "chapas", titulo: "Matrículas", valor: (l: LoteAdm) => (l.chapas || []).join(" "),
-            celda: (l: LoteAdm) => (l.chapas || []).length ? <span className="flex flex-wrap gap-1">{(l.chapas || []).slice(0, 4).map((c) => <Matricula key={c} p={c} />)}{(l.chapas || []).length > 4 && <span className="text-[11px] text-muted-foreground">+{(l.chapas || []).length - 4}</span>}</span> : <span className="text-[12px] text-muted-foreground">—</span> } as ColumnaTabla<LoteAdm>] : []),
+            celda: (l: LoteAdm) => (l.chapas || []).length ? <span className="flex flex-wrap gap-1">{(l.chapas || []).slice(0, 4).map((c) => <Matricula key={c} p={c} />)}{(l.chapas || []).length > 4 && <span className="text-[11px] text-muted-foreground">+{(l.chapas || []).length - 4}</span>}</span> : <span className="text-[12px] text-muted-foreground">—</span> } as ColumnaTabla<LoteAdm>,
+            { clave: "servicios", titulo: "Servicios", valor: (l: LoteAdm) => (l.servicios || []).map((sv) => sv.rotulo).join(" · "),
+                celda: (l: LoteAdm) => (l.servicios || []).length ? <span className="inline-flex items-center gap-1.5 text-[12px]" title={(l.servicios || []).map((sv) => sv.rotulo).join("\n")}><Wrench size={12} className="text-muted-foreground" /><span className="truncate max-w-[180px]">{(l.servicios || [])[0].rotulo}</span>{(l.servicios || []).length > 1 && <span className="text-[11px] text-muted-foreground">+{(l.servicios || []).length - 1}</span>}</span> : <span className="text-[12px] text-muted-foreground">—</span> } as ColumnaTabla<LoteAdm>] : []),
         { clave: "situacion", titulo: "Situación", ancho: 150, valor: (l) => (l.situacion ? SITUACION[l.situacion]?.rotulo || l.situacion : ""), celda: (l) => (l.situacion && SITUACION[l.situacion] ? <Chip tono={SITUACION[l.situacion].tono}>{SITUACION[l.situacion].rotulo}</Chip> : null) },
         ...(conAdministracion ? [] : [{ clave: "area", titulo: "Área", ancho: 100, alinear: "der", ordenable: true, valor: (l: LoteAdm) => l.areaM2 ?? "", celda: (l: LoteAdm) => (l.areaM2 ? <span className="text-[12px] tabular-nums text-muted-foreground">{Math.round(l.areaM2).toLocaleString("es-UY")} m²</span> : null) } as ColumnaTabla<LoteAdm>]),
     ], [conAdministracion]);

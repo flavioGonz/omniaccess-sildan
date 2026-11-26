@@ -68,6 +68,7 @@ model Unit {
   users        User[]
   vinculos     UserUnidad[]
   cambios      CambioLote[]
+  servicios    ServicioLote[]
   estadoVisto  LoteEstado?
 
   @@index([administracionId])
@@ -2527,4 +2528,36 @@ model PedidoResidente {
 
   @@index([estado, createdAt])
   @@index([userId])
+}
+
+/// Un proveedor de servicio de un lote: su jardinero, su piscinero, la limpieza (26/11). Nico: «cada
+/// lote tiene que tener sus propios servicios, asociados a su lote, para identificar a proveedores de
+/// servicio». Identifica (quien es, que dias viene, en que vehiculo); NO es una autorizacion de entrada.
+model ServicioLote {
+  id        String   @id @default(cuid())
+  unitId    String
+  unit      Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  /// JARDINERO | PISCINERO | LIMPIEZA | OTRO (los del censo)
+  tipo      String   @default("OTRO")
+  /// Quien es: la persona o la empresa.
+  nombre    String   @default("")
+  telefono  String?
+  documento String?
+  /// La matricula con la que viene, si viene en vehiculo.
+  chapa     String?
+  /// Que dias viene: ["lun","jue"]
+  dias      Json     @default("[]")
+  desde     String?
+  hasta     String?
+  notas     String?
+  /// ACTIVO | INACTIVO (dejo de venir; queda en el registro)
+  estado    String   @default("ACTIVO")
+  /// De donde salio: panel | censo | portal
+  origen    String   @default("panel")
+  creadoPor String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([unitId])
+  @@index([chapa])
 }

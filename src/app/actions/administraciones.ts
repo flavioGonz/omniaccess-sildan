@@ -8,6 +8,7 @@ import { siglaDeEtapa } from "@/lib/padron-planilla";
 import { coordenadasDeTexto, latLngAPlano, leerPlanoLotes, planoALatLng } from "@/lib/plano-lotes";
 import { cambiarCodigoDeInvitacion, type CodigoCambiado } from "@/lib/censo-codigo";
 import { limpiarChapa } from "@/lib/lote-cambios";
+import { rotuloServicio } from "@/lib/servicios-lote";
 import { anotarEnLote } from "@/lib/lote-auditoria";
 import { copiaFija, enviarCorreo, limpiarClaveDeAplicacion, probarCuenta } from "@/lib/correo";
 import { correoSirve, nuevaClave } from "@/lib/censo-invitaciones";
@@ -87,6 +88,8 @@ export type LoteAdm = {
     /** En Unidades, con todas las administraciones juntas (25/11): de cuál es, y las matrículas de su gente para buscar por chapa. */
     administracion?: { id: string; nombre: string; sigla: string } | null;
     chapas?: string[];
+    /** Los servicios activos del lote (26/11): «Jardinería · Ramón», y sus matrículas, para encontrar el lote de un proveedor. */
+    servicios?: { rotulo: string; chapa: string | null }[];
 };
 export type DetalleAdministracion = { id: string; nombre: string; sigla: string; notas: string | null; contactos: ContactoAdm[]; servicios: ServicioAdm[]; lotes: LoteAdm[] };
 
@@ -542,6 +545,7 @@ export async function lotesDeTodas(): Promise<LoteAdm[]> {
         include: {
             administracion: { select: { id: true, nombre: true, sigla: true, orden: true } },
             vinculos: { include: { user: { select: { id: true, name: true, email: true, phone: true, vehicles: { select: { plate: true } }, credentials: { where: { type: "PLATE" }, select: { value: true } } } } } },
+            servicios: { where: { estado: "ACTIVO" }, select: { tipo: true, nombre: true, chapa: true }, orderBy: { createdAt: "asc" } },
         },
     });
     const invs = new Map((await prisma.invitacionCenso.findMany({ where: { sitio: "", unitId: { not: null } }, select: { unitId: true, userId: true, enviadoAt: true, usadoAt: true } })).map((i) => [i.unitId!, i]));
@@ -560,6 +564,7 @@ export async function lotesDeTodas(): Promise<LoteAdm[]> {
         planoX: u.planoX, planoY: u.planoY, coordenadas: u.coordinates?.trim() || null,
         administracion: u.administracion ? { id: u.administracion.id, nombre: u.administracion.nombre, sigla: u.administracion.sigla } : null,
         chapas: [...new Set(u.vinculos.flatMap((v) => [...v.user.vehicles.map((x) => x.plate), ...v.user.credentials.map((c) => c.value)]).map(limpiarChapa).filter(Boolean))].sort(),
+        servicios: u.servicios.map((sv) => ({ rotulo: [rotuloServicio(sv.tipo), sv.nombre].filter(Boolean).join(" · "), chapa: sv.chapa })),
         personas: u.vinculos.map((v) => ({ id: v.user.id, nombre: v.user.name, email: v.user.email, telefono: v.user.phone, vinculo: v.vinculo, codigo: estado(u.id, v.userId), principal: invs.get(u.id)?.userId === v.userId })),
     }));
 }

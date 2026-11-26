@@ -8,6 +8,8 @@ import { anotarEnLote, auditarLotes } from "@/lib/lote-auditoria";
 import { diferenciasDeDatos, limpiarChapa } from "@/lib/lote-cambios";
 import { correoSirve } from "@/lib/censo-invitaciones";
 import { createCredential, deleteCredential } from "@/app/actions/credentials";
+import { normalizarChapa } from "@/lib/formato-chapa";
+import { cuandoViene, ordenarDias, rotuloServicio, TIPOS_SERVICIO } from "@/lib/servicios-lote";
 
 /**
  * Corregir un lote a mano, desde su cajón en Administraciones (25/11).
@@ -229,4 +231,66 @@ export async function crearLote(d: { nombre: string; administracionId: string | 
     await anotarEnLote([u.id], { que: "DATO_CAMBIADO", detalle: `Lote creado a mano${d.titular ? ` · Titular: «${corto(d.titular, 200)}»` : ""}` }, firma(s));
     await auditar(s, "lotes.crear", nombre, true, "");
     return { ok: true, id: u.id };
+}
+
+/* ───────── Los servicios del lote (26/11) ───────── */
+
+export type ServicioDeLote = {
+    id: string; tipo: string; nombre: string; telefono: string | null; documento: string | null; chapa: string | null;
+    dias: string[]; desde: string | null; hasta: string | null; notas: string | null; estado: string; origen: string; createdAt: string;
+};
+
+/** Los servicios de un lote: los activos primero. */
+export async function serviciosDeLote(unitId: string): Promise<ServicioDeLote[]> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- la sesión es el JWT crudo
+    const s: any = await getSession().catch(() => null);
+    if (!s || !permisosDeSesion(s).includes("usuarios")) throw new Error("Tu rol no puede ver el padrón.");
+    const filas = await prisma.servicioLote.findMany({ where: { unitId }, orderBy: [{ estado: "asc" }, { createdAt: "asc" }] });
+    return filas.map((f) => ({ id: f.id, tipo: f.tipo, nombre: f.nombre, telefono: f.telefono, documento: f.documento, chapa: f.chapa, dias: ordenarDias(f.dias), desde: f.desde, hasta: f.hasta, notas: f.notas, estado: f.estado, origen: f.origen, createdAt: f.createdAt.toISOString() }));
+}
+
+const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** Sumar o corregir un servicio del lote. Queda en su historial con lo que decía antes y lo que dice ahora. */
+export async function guardarServicioLote(unitId: string, d: { id?: string; tipo: string; nombre: string; telefono?: string; documento?: string; chapa?: string; dias?: string[]; desde?: string; hasta?: string; notas?: string }): Promise<Resultado & { id?: string }> {
+    const s = await sesion();
+    const u = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true, name: true } });
+    if (!u) return { ok: false, error: "Ese lote ya no existe." };
+    if (!TIPOS_SERVICIO.some((t) => t.id === d.tipo)) return { ok: false, error: "Elegí qué servicio es." };
+    const nombre = corto(d.nombre, 80);
+    if (!nombre && !d.chapa?.trim()) return { ok: false, error: "Poné quién es (o al menos la matrícula con la que viene)." };
+    const crudo = String(d.chapa || "").trim();
+    const chapa = crudo ? (normalizarChapa(crudo)?.plate || limpiarChapa(crudo)) : null;
+    if (chapa && (chapa.length < 5 || chapa.length > 8)) return { ok: false, error: "Esa matrícula no tiene forma de matrícula." };
+    if ((d.desde && !HORA.test(d.desde)) || (d.hasta && !HORA.test(d.hasta))) return { ok: false, error: "La hora va como 08:00." };
+    const data = { tipo: d.tipo, nombre, telefono: soloTel(d.telefono) || null, documento: corto(d.documento, 20) || null, chapa, dias: ordenarDias(d.dias), desde: d.desde || null, hasta: d.hasta || null, notas: corto(d.notas, 300) || null };
+    const dice = (x: { tipo: string; nombre: string }) => `${rotuloServicio(x.tipo)}${x.nombre ? ` ${x.nombre}` : ""}`;
+    if (d.id) {
+        const antes = await prisma.servicioLote.findFirst({ where: { id: d.id, unitId } });
+        if (!antes) return { ok: false, error: "Ese servicio ya no está." };
+        const dif = diferenciasDeDatos(
+            { tipo: rotuloServicio(antes.tipo), nombre: antes.nombre, telefono: antes.telefono, chapa: antes.chapa, cuando: cuandoViene(antes), notas: antes.notas },
+            { tipo: rotuloServicio(data.tipo), nombre: data.nombre, telefono: data.telefono, chapa: data.chapa, cuando: cuandoViene(data), notas: data.notas },
+            { tipo: "Servicio", nombre: "Quién", telefono: "Teléfono", chapa: "Matrícula", cuando: "Cuándo viene", notas: "Notas" },
+        );
+        if (!dif.length) return { ok: true, id: antes.id };
+        await prisma.servicioLote.update({ where: { id: antes.id }, data });
+        await anotarEnLote([u.id], { que: "SERVICIO_EDITADO", persona: dice(data), chapa: data.chapa || undefined, detalle: dif.join(" · ") }, firma(s));
+        await auditar(s, "lotes.servicio.editar", u.name, true, dif.join(" · "));
+        return { ok: true, id: antes.id };
+    }
+    const nuevo = await prisma.servicioLote.create({ data: { ...data, unitId: u.id, origen: "panel", creadoPor: firma(s).quien } });
+    await anotarEnLote([u.id], { que: "SERVICIO_ALTA", persona: dice(data), chapa: data.chapa || undefined, detalle: [cuandoViene(data), data.telefono].filter(Boolean).join(" · ") || undefined }, firma(s));
+    await auditar(s, "lotes.servicio.crear", u.name, true, dice(data));
+    return { ok: true, id: nuevo.id };
+}
+
+/** Dejó de venir: se da de baja (queda en el registro) o se vuelve a activar. */
+export async function estadoServicioLote(unitId: string, id: string, activo: boolean): Promise<Resultado> {
+    const s = await sesion();
+    const f = await prisma.servicioLote.findFirst({ where: { id, unitId } });
+    if (!f) return { ok: false, error: "Ese servicio ya no está." };
+    await prisma.servicioLote.update({ where: { id }, data: { estado: activo ? "ACTIVO" : "INACTIVO" } });
+    await anotarEnLote([unitId], { que: activo ? "SERVICIO_ALTA" : "SERVICIO_BAJA", persona: `${rotuloServicio(f.tipo)}${f.nombre ? ` ${f.nombre}` : ""}`, chapa: f.chapa || undefined, detalle: activo ? "Volvió a activarse." : "Dejó de venir." }, firma(s));
+    await auditar(s, activo ? "lotes.servicio.activar" : "lotes.servicio.baja", f.nombre || f.tipo, true, "");
+    return { ok: true };
 }

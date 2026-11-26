@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CarFront, ClipboardList, History, MapPin, Users } from "lucide-react";
+import { CarFront, ClipboardList, History, MapPin, Users, Wrench } from "lucide-react";
 import { UbicacionLote } from "@/components/lotes/UbicacionLote";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Cargando, Chip, ErrorEstado } from "@/components/ui/estados";
@@ -10,6 +10,7 @@ import { detalleLote, elegirPrincipal, type DetalleLote } from "@/app/actions/ad
 import { sileo as toast } from "sileo";
 import { EditorCodigo } from "@/components/lotes/EditorCodigo";
 import { HistorialLote } from "@/components/lotes/HistorialLote";
+import { ServiciosLote } from "@/components/lotes/ServiciosLote";
 import { AccionesDePersona, DatosDelLote, EditarPersona, MatriculasDePersona, SumarPersona } from "@/components/lotes/EdicionLote";
 
 /**
@@ -123,6 +124,12 @@ export function CajonLote({ unitId, alCerrar }: { unitId: string | null; alCerra
                                                 ))}
                                             </ul>
                                         )}
+                                </CajonSeccion>
+
+                                <CajonSeccion titulo="Servicios" icono={Wrench} compacta
+                                    ayuda="Quién viene a trabajar a este lote —jardinero, piscinero, limpieza—, qué días y en qué vehículo. Sirve para identificarlos: no les abre el portón."
+                                    pista="Los que se declaran en el censo llegan solos al aprobar la carga. El que deja de venir se da de baja y queda en el registro. Cada cambio queda en el historial del lote.">
+                                    <ServiciosLote key={d.id} unitId={d.id} puedeEditar={d.puedeEditar} alCambiar={refrescar} />
                                 </CajonSeccion>
 
                                 <CajonSeccion titulo="Historial" icono={History} compacta>

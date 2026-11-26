@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
     ArrowUpRight, CalendarPlus, Car, Check, ChevronRight, ClipboardList, Clock, Copy, Download, Home, Info, LogIn, PartyPopper,
-    Plus, QrCode, ShieldCheck, Ticket, Trash2, UserPlus, Users, X,
+    Plus, QrCode, ShieldCheck, Ticket, Trash2, UserPlus, Users, Wrench, X,
 } from "lucide-react";
 import { Girando as Loader2 } from "@/components/brand/CargaOmni";
 import { OmniLogo } from "@/components/brand/OmniLogo";
@@ -414,6 +414,26 @@ function MiLote({ datos }: { datos: MiPortal }) {
                     ))}
                 </ul>
                 <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> Si falta alguien o algo está mal, corregilo en el censo del lote o avisale a la administración.</p>
+            </section>
+            <section className="mt-6">
+                <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Quiénes vienen a trabajar</h2>
+                {datos.servicios.length === 0 ? (
+                    <p className="rounded-[14px] border border-dashed border-border p-4 text-[13.5px] leading-snug text-muted-foreground">No hay servicios cargados. Si tenés jardinero, piscinero o limpieza, sumalos en el censo del lote: así la guardia sabe de qué lote son.</p>
+                ) : (
+                    <ul className="divide-y divide-border rounded-[14px] border border-border bg-card">
+                        {datos.servicios.map((sv) => (
+                            <li key={sv.id} className="flex items-center gap-3 px-4 py-3">
+                                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-muted"><Wrench size={16} /></span>
+                                <span className="min-w-0 flex-1">
+                                    <span className="block truncate text-[14.5px] font-semibold">{sv.nombre || sv.rotulo}</span>
+                                    <span className="block text-[12px] text-muted-foreground">{[sv.nombre ? sv.rotulo : null, sv.cuando || null].filter(Boolean).join(" · ") || "Sin días cargados"}</span>
+                                </span>
+                                {sv.chapa && <Chapa p={sv.chapa} />}
+                            </li>
+                        ))}
+                    </ul>
+                )}
+                <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> Sirve para identificarlos en la guardia; no les abre el portón. Para cambiar algo, avisale a la administración.</p>
             </section>
             {datos.otrosLotes.length > 0 && <p className="mt-4 text-[12.5px] text-muted-foreground">También figurás en: {datos.otrosLotes.join(", ")}.</p>}
             <section className="mt-6">

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { anotarEnLote, auditarLotes } from "@/lib/lote-auditoria";
 import { personaDeLaCarga } from "@/lib/censo-por-lote";
+import { cuandoViene, delCenso, mismoServicio } from "@/lib/servicios-lote";
 import { DIAS, TIPOS_SERVICIO, TIPOS_VEHICULO, type ServicioCargado, type VehiculoCargado } from "@/lib/registro-padron";
 
 /**
@@ -15,7 +16,8 @@ import { DIAS, TIPOS_SERVICIO, TIPOS_VEHICULO, type ServicioCargado, type Vehicu
  *    Una matrícula que YA es de otra persona no se le saca a nadie: se informa y se deja como
  *    estaba. Dos lotes que declaran la misma chapa es exactamente el caso que hay que mirar a
  *    mano, no resolver solo.
- *  · Los servicios (jardinero, piscinero…) quedan escritos en la ficha de la persona. **No** se
+ *  · Los servicios (jardinero, piscinero…) quedan en la lista de servicios del lote (26/11) y escritos
+ *    en la ficha de la persona. **No** se
  *    convierten todavía en autorizaciones automáticas: eso son las visitas por patrón, y
  *    convertirlas sin que alguien las mire sería abrirle el portón a un nombre escrito en un
  *    formulario público.
@@ -131,6 +133,21 @@ export async function aprobarSolicitud(id: string, quien: string): Promise<Resul
         const yaVeh = await prisma.vehicle.findUnique({ where: { plate: v.chapa }, select: { id: true, userId: true } });
         if (!yaVeh) await prisma.vehicle.create({ data: { plate: v.chapa, userId: persona.id, brand: v.marca || null, color: v.color || null, notes: nota } });
         matriculas++;
+    }
+
+    /* Los servicios pasan a ser del LOTE (26/11, Nico: «cada lote tiene que tener sus propios
+       servicios, para identificar a proveedores»): quedan en su lista, identificados, sin abrir el
+       portón. El que el lote ya tenía (mismo tipo y nombre, o misma chapa) no se repite. */
+    if (servicios.length) {
+        const ya = await prisma.servicioLote.findMany({ where: { unitId: unidad.id }, select: { tipo: true, nombre: true, chapa: true } });
+        let nuevos = 0;
+        for (const sv of servicios.map(delCenso)) {
+            if (ya.some((x) => mismoServicio(x, sv))) continue;
+            await prisma.servicioLote.create({ data: { ...sv, unitId: unidad.id, origen: "censo", creadoPor: persona.name } });
+            await anotarEnLote([unidad.id], { que: "SERVICIO_ALTA", persona: `${rotuloServicio(sv.tipo)}${sv.nombre ? ` ${sv.nombre}` : ""}`, chapa: sv.chapa || undefined, detalle: `Lo declaró ${persona.name} en el censo.${cuandoViene(sv) ? ` ${cuandoViene(sv)}.` : ""}` }, { quien: persona.name, origen: "censo" });
+            ya.push(sv); nuevos++;
+        }
+        if (nuevos) avisos.push(`${nuevos} ${nuevos === 1 ? "servicio quedó" : "servicios quedaron"} en el lote.`);
     }
 
     await prisma.solicitudPadron.update({

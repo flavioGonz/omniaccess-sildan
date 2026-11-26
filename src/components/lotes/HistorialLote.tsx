@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CarFront, ClipboardCheck, ClipboardList, ClipboardX, History, KeyRound, PencilLine, UserMinus, UserPen, UserPlus } from "lucide-react";
+import { CarFront, ClipboardCheck, ClipboardList, ClipboardX, History, KeyRound, PencilLine, UserMinus, UserPen, UserPlus, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Vacio } from "@/components/ui/estados";
 import { Matricula } from "@/components/ui/celdas";
@@ -24,10 +24,10 @@ import type { CambioVisto } from "@/app/actions/administraciones";
 const DIBUJO: Record<QueCambio, React.ComponentType<{ size?: number; className?: string }>> = {
     MATRICULA_ALTA: CarFront, MATRICULA_BAJA: CarFront, PERSONA_ALTA: UserPlus, PERSONA_BAJA: UserMinus,
     CENSO_CARGA: ClipboardList, CENSO_APROBADA: ClipboardCheck, CENSO_RECHAZADA: ClipboardX, CODIGO_CAMBIADO: KeyRound,
-    DATO_CAMBIADO: PencilLine, PERSONA_EDITADA: UserPen,
+    DATO_CAMBIADO: PencilLine, PERSONA_EDITADA: UserPen, SERVICIO_ALTA: Wrench, SERVICIO_BAJA: Wrench, SERVICIO_EDITADO: Wrench,
 };
-type Clase = "todos" | "matriculas" | "personas" | "censo" | "datos";
-const CLASES: { v: Clase; r: string }[] = [{ v: "todos", r: "Todo" }, { v: "matriculas", r: "Matrículas" }, { v: "personas", r: "Personas" }, { v: "censo", r: "Censo" }, { v: "datos", r: "Datos" }];
+type Clase = "todos" | "matriculas" | "personas" | "censo" | "datos" | "servicios";
+const CLASES: { v: Clase; r: string }[] = [{ v: "todos", r: "Todo" }, { v: "matriculas", r: "Matrículas" }, { v: "personas", r: "Personas" }, { v: "censo", r: "Censo" }, { v: "servicios", r: "Servicios" }, { v: "datos", r: "Datos" }];
 
 export function HistorialLote({ cambios, conLote, alAbrirLote, auditadoDesde, hayMas, className }: {
     cambios: CambioVisto[];
