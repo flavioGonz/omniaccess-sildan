@@ -6,7 +6,8 @@ import { EyeOff, Waypoints, Crown, ShieldAlert, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChapaMercosur } from "@/components/tracking/ChapaMercosur";
 import { Cronometro, useTranscurrido } from "@/components/tracking/Cronometro";
-import { interioresAdentro, type ChapaAdentro } from "@/app/actions/lpr-interiores";
+import { interioresAdentro } from "@/app/actions/lpr-interiores";
+import type { ChapaAdentro } from "@/lib/lpr-interiores";
 import { rolEtiqueta } from "@/lib/roles-etiquetas";
 
 /**
