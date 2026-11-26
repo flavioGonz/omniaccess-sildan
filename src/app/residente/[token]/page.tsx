@@ -124,7 +124,7 @@ export default function PortalResidente() {
                 {hoja?.que === "invitado" && <HojaInvitado key="g" inv={hoja.inv} token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
                 {hoja?.que === "qr" && <HojaQr key="q" g={hoja.g} alCerrar={() => setHoja(null)} />}
                 {hoja?.que === "matricula" && <HojaMatricula key="m" token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
-                {hoja?.que === "servicio" && <HojaServicio key="s" token={token} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
+                {hoja?.que === "servicio" && <HojaServicio key="s" token={token} directo={!!datos?.serviciosDirectos} alCerrar={() => setHoja(null)} alListo={() => { setHoja(null); traer(); }} />}
             </AnimatePresence>
         </Marco>
     );
@@ -468,7 +468,7 @@ function MiLote({ token, datos, alPedir, alCambiar }: { token: string; datos: Mi
                         ))}
                     </ul>
                 )}
-                <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> La guardia sabe de qué lote son. Los que tienen «Entra en su horario» pasan solos por su matrícula en sus días y horas. Sumar o dar de baja es un pedido: lo aprueba la administración.</p>
+                <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground"><Info size={13} className="mt-0.5 shrink-0" /> La guardia sabe de qué lote son. Los que tienen «Entra en su horario» pasan solos por su matrícula en sus días y horas. {datos.serviciosDirectos ? "Sumar o dar de baja queda al guardar." : "Sumar o dar de baja es un pedido: lo aprueba la administración."}</p>
             </section>
             {datos.otrosLotes.length > 0 && <p className="mt-4 text-[12.5px] text-muted-foreground">También figurás en: {datos.otrosLotes.join(", ")}.</p>}
             <section className="mt-6">
@@ -599,13 +599,13 @@ function HojaQr({ g, alCerrar }: { g: MyGuest; alCerrar: () => void }) {
 }
 
 /** Pedir un proveedor del lote (26/11): quién es, cuándo viene, en qué vehículo y si entra solo. */
-function HojaServicio({ token, alCerrar, alListo }: { token: string; alCerrar: () => void; alListo: () => void }) {
+function HojaServicio({ token, directo, alCerrar, alListo }: { token: string; directo: boolean; alCerrar: () => void; alListo: () => void }) {
     const [f, setF] = useState({ tipo: "JARDINERO", nombre: "", telefono: "", chapa: "", dias: [] as string[], desde: "", hasta: "", notas: "", entrada: false });
     const [ocupado, setOcupado] = useState(false); const [error, setError] = useState("");
     const puedeEntrar = f.chapa.replace(/[^A-Z0-9]/g, "").length >= 5 && f.dias.length > 0;
     return (
-        <Hoja titulo="Sumar un proveedor" bajada="Jardinero, piscinero, limpieza: la guardia va a saber de qué lote es. Queda como pedido hasta que la administración lo aprueba." alCerrar={alCerrar}
-            pie={<><Enviar ocupado={ocupado} disabled={!f.nombre.trim() && !f.chapa.trim()} onClick={async () => { setError(""); setOcupado(true); try { const r = await pedirServicio(token, { ...f, entrada: f.entrada && puedeEntrar }); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Plus size={18} /> Pedir que lo sumen</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
+        <Hoja titulo="Sumar un proveedor" bajada={`Jardinero, piscinero, limpieza: la guardia va a saber de qué lote es. ${directo ? "Queda en tu lote al guardarlo." : "Queda como pedido hasta que la administración lo aprueba."}`} alCerrar={alCerrar}
+            pie={<><Enviar ocupado={ocupado} disabled={!f.nombre.trim() && !f.chapa.trim()} onClick={async () => { setError(""); setOcupado(true); try { const r = await pedirServicio(token, { ...f, entrada: f.entrada && puedeEntrar }); if (r.ok) alListo(); else setError(r.error || "No se pudo."); } finally { setOcupado(false); } }}><Plus size={18} /> {directo ? "Sumarlo" : "Pedir que lo sumen"}</Enviar>{error && <p className="mt-2 text-center text-[13px] tono-mal">{error}</p>}</>}>
             <p className="mb-2 text-[13px] font-semibold">Qué hace</p>
             <div className="mb-4 grid grid-cols-2 gap-2">
                 {TIPOS_SERVICIO.map((t) => (
