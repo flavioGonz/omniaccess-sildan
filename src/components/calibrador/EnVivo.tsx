@@ -25,7 +25,8 @@ import { ultimasCapturas } from "@/app/actions/calibrador";
  * ver, con autos de verdad, si los carriles están bien dibujados.
  */
 type Caja = { x: number; y: number; w: number; h: number };
-export type Veredicto = { pasa: boolean; motivo: string; nombre: string | null; sentido: string | null; geometria?: boolean };
+/** `kmh`: velocidad aproximada con la chapa como regla (lib-geometria-lpr: velocidad); sin validar contra un auto a velocidad conocida. */
+export type Veredicto = { pasa: boolean; motivo: string; nombre: string | null; sentido: string | null; geometria?: boolean; kmh?: number | null };
 export type LecturaViva = {
     id: string; plate: string; confianza: number | null; baja: boolean; tray: Caja[]; veredicto: Veredicto | null; t: number;
     /** La captura guardada (ruta de la aplicación). Un rebote no guarda foto. */
@@ -44,6 +45,10 @@ export function colorVeredicto(l: LecturaViva): string {
     return "#34d399";
 }
 export function textoVeredicto(l: LecturaViva): string {
+    const t = textoSinVelocidad(l), kmh = l.veredicto?.kmh;
+    return kmh != null ? `${t} · ~${kmh} km/h` : t;
+}
+function textoSinVelocidad(l: LecturaViva): string {
     const v = l.veredicto;
     if (l.baja) return "confianza baja: no se registra";
     if (!v) return l.historica ? "guardada" : "leída";

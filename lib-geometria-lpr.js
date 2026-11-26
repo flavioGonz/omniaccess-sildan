@@ -102,6 +102,38 @@ function movimiento(lecturas) {
     return { dx, dy, ar };
 }
 
+/**
+ * La velocidad aproximada del vehículo en la ráfaga, SIN calibrar distancias (26/11).
+ *
+ * Nico: «¿con qué datos podés enriquecer nuestro LPR?». La chapa misma es la regla: una Mercosur
+ * mide 40 cm de ancho, así que su recuadro dice cuántos metros hay en un tramo de imagen justo
+ * donde está el auto. Desplazamiento del centro de la chapa entre la primera y la última lectura,
+ * en anchos de chapa, por 0,40 m, dividido por el tiempo entre esos cuadros.
+ *
+ * Es APROXIMADA y se presenta así: la perspectiva cambia la escala a lo largo del recorrido (se
+ * usa el ancho medio), una chapa de moto es más chica y el recuadro del lector no es exacto.
+ * Hace falta validarla con un auto a velocidad conocida antes de usarla para algo más que mirar.
+ * `t` es el instante de cada cuadro en ms (lo guarda el worker al recibirlo).
+ */
+const CHAPA_ANCHO_M = 0.4;
+const VEL_DT_MIN_MS = 150;
+const VEL_MAX_KMH = 160;
+function velocidad(lecturas) {
+    const l = (lecturas || []).filter((x) => x && x.recuadro && num(x.t) && x.recuadro.w > 0).sort((a, b) => a.t - b.t);
+    if (l.length < 2) return null;
+    const a = l[0], b = l[l.length - 1];
+    const dt = (b.t - a.t) / 1000;
+    if (dt * 1000 < VEL_DT_MIN_MS) return null;
+    const ar = a.recuadro.ar || 1;
+    const p = centro(a.recuadro), q = centro(b.recuadro);
+    const desplazamiento = Math.hypot((q.x - p.x) * ar, q.y - p.y);
+    const anchoMedio = ((a.recuadro.w + b.recuadro.w) / 2) * ar;
+    if (!(anchoMedio > 0)) return null;
+    const kmh = (desplazamiento / anchoMedio) * CHAPA_ANCHO_M / dt * 3.6;
+    if (!Number.isFinite(kmh) || kmh > VEL_MAX_KMH) return null;
+    return Math.round(kmh);
+}
+
 /** Distancia (en alturas) del punto al segmento, y de qué lado queda (signo del producto cruz). */
 function aLaLinea(p, l, ar) {
     const px = p.x * ar, py = p.y, x1 = l.a.x * ar, y1 = l.a.y, x2 = l.b.x * ar, y2 = l.b.y;
@@ -183,4 +215,4 @@ function aCuadroEntero(recuadro, roi) {
     return { ...recuadro, x: roi.x + recuadro.x * roi.w, y: roi.y + recuadro.y * roi.h, w: recuadro.w * roi.w, h: recuadro.h * roi.h, ar: (recuadro.ar || 1) * (roi.h / roi.w) };
 }
 
-module.exports = { leerGeometria, normalizar, dentroDePoligono, movimiento, evaluarGeometria, esRebote, tipoPorSentido, aCuadroEntero, REBOTE_DEF, REBOTE_MAX };
+module.exports = { leerGeometria, normalizar, dentroDePoligono, movimiento, velocidad, evaluarGeometria, esRebote, tipoPorSentido, aCuadroEntero, REBOTE_DEF, REBOTE_MAX };

@@ -1093,7 +1093,7 @@ async function resolverRafaga(est) {
             const res = await Promise.all(tanda.map((t) => leerMatriculas(t.jpeg).catch(() => [])));
             res.forEach((lista, k) => {
                 for (const x of lista || []) {
-                    lecturas.push({ ...x, cuadro: tanda[k].cuadro, recuadro: recuadroEnCuadro(x.caja, tanda[k]) });
+                    lecturas.push({ ...x, cuadro: tanda[k].cuadro, t: HORA_CUADRO.get(cuadros[tanda[k].cuadro]) || null, recuadro: recuadroEnCuadro(x.caja, tanda[k]) });
                 }
             });
         }
@@ -1192,6 +1192,8 @@ async function resolverRafaga(est) {
             // vivo (la caja siguiendo a la chapa) y se ve con que movimiento se decidio el sentido.
             const trayectoria = candidatas.filter((l) => l.recuadro).sort((a, b) => a.cuadro - b.cuadro).slice(-12)
                 .map((l) => geometriaLpr.aCuadroEntero(l.recuadro, cam.roi)).filter(Boolean);
+            // La velocidad aproximada, con la chapa como regla (sin calibrar): se muestra y se mide.
+            const kmh = geometriaLpr.velocidad(candidatas.map((l) => ({ t: l.t, recuadro: geometriaLpr.aCuadroEntero(l.recuadro, cam.roi) })));
             if (cam.geo) {
                 const enteras = candidatas.map((l) => ({ ...l, recuadro: geometriaLpr.aCuadroEntero(l.recuadro, cam.roi) }));
                 recuadroEnvio = geometriaLpr.aCuadroEntero(mejor.recuadro, cam.roi) || null;
@@ -1215,7 +1217,7 @@ async function resolverRafaga(est) {
                 puerta: puerta.motivo,
                 tipoEvento: tipoCarril,
                 trayectoria,
-                veredicto: { pasa: puerta.pasa, motivo: String(puerta.motivo || "").split(" ")[0], nombre: puerta.nombre || null, sentido: puerta.sentido || null, geometria: !!cam.geo },
+                veredicto: { pasa: puerta.pasa, motivo: String(puerta.motivo || "").split(" ")[0], nombre: puerta.nombre || null, sentido: puerta.sentido || null, geometria: !!cam.geo, kmh },
             }, url);
 
             if (resp.ignorado === "fuera de la zona") {
@@ -1232,7 +1234,7 @@ async function resolverRafaga(est) {
             const nota = resp.estado === "ESTACIONADO"
                 ? (resp.nuevo ? " · estaciono" : " · estacionado")
                 : (puerta.pasa ? "" : ` · fuera de ${puerta.motivo}`);
-            log(`${cam.name}: ${v.plate} (${v.confidence.toFixed(2)} · ${v.reads}/${v.cuadros} lecturas de ${cola.length} baldosas · ${r.motivo}${nota}) -> ${resp.status}`);
+            log(`${cam.name}: ${v.plate} (${v.confidence.toFixed(2)} · ${v.reads}/${v.cuadros} lecturas de ${cola.length} baldosas · ${r.motivo}${kmh != null ? ` · ~${kmh} km/h` : ""}${nota}) -> ${resp.status}`);
         }
 
         if (rozaron.length || (!yaVistas.size && ruido)) {
@@ -1332,8 +1334,12 @@ function engancharCamara(est) {
  */
 const CUADRO_PESOS_FLUJO = 120;
 
+/** El instante en que llegó cada cuadro, para la velocidad aproximada (lib-geometria-lpr: velocidad). */
+const HORA_CUADRO = new WeakMap();
+
 function recibirCuadro(est, jpeg) {
     const ahora = Date.now();
+    HORA_CUADRO.set(jpeg, ahora);
     // La referencia de "peso tipico" sale del FLUJO entero, no de los cuadros que pasaron
     // el filtro. Antes solo los aceptados la alimentaban, y eso la congelaba: al caer la
     // noche la camara pasa a infrarrojo blanco y negro, cada cuadro pesa cuatro veces menos

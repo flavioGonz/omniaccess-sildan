@@ -62,3 +62,14 @@ test("geometría: con recorte, el recuadro se lleva al cuadro entero", () => {
     assert.deepEqual([r.x, r.y, r.w, r.h], [0.45, 0.65, 0.05, 0.05]);
     assert.equal(g.aCuadroEntero({ x: 0.5, y: 0.5, w: 0.1, h: 0.1 }, null).x, 0.5);
 });
+
+test("velocidad: la chapa como regla (40 cm de ancho)", () => {
+    // Chapa de 0,04 de ancho en un cuadro 16:9 (ar 1,78): se corre 10 anchos (4 m) en 0,5 s → 28,8 km/h.
+    const r = (x: number) => ({ x, y: 0.6, w: 0.04, h: 0.015, ar: 16 / 9 });
+    assert.equal(g.velocidad([{ t: 1000, recuadro: r(0.2) }, { t: 1500, recuadro: r(0.6) }]), 29);
+    // Una sola lectura, o cuadros casi simultáneos: no se dice nada.
+    assert.equal(g.velocidad([{ t: 1000, recuadro: r(0.2) }]), null);
+    assert.equal(g.velocidad([{ t: 1000, recuadro: r(0.2) }, { t: 1100, recuadro: r(0.6) }]), null);
+    // Sin el instante del cuadro, tampoco.
+    assert.equal(g.velocidad([{ recuadro: r(0.2) }, { recuadro: r(0.6) }]), null);
+});
